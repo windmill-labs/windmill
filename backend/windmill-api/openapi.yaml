@@ -29167,6 +29167,23 @@ components:
                 type: string
               resource:
                 type: string
+        s3_read_scopes:
+          type: array
+          description: >
+            Author-declared literal globs (globset syntax, e.g. `f/sensitive/**`) of S3
+            keys a deployed app may read on-behalf of its on_behalf_of identity for files
+            it displays but does not produce in a viewer's session. Unlike the workspace
+            advanced-permission rules, template variables (`{folder_read}` etc.) are not
+            expanded, and `storage` is matched exactly (a scope with no storage covers the
+            primary storage). Reads remain bounded by the on_behalf_of identity's advanced
+            S3 permissions.
+          items:
+            type: object
+            properties:
+              path_glob:
+                type: string
+              storage:
+                type: string
         execution_mode:
           type: string
           enum: [viewer, publisher, anonymous]

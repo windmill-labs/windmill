@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { Alert } from '$lib/components/common'
+	import { Alert, Button } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { Loader2 } from 'lucide-svelte'
+	import { Loader2, Plus, X } from 'lucide-svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
@@ -98,6 +98,16 @@
 	let path: Path | undefined = $state(undefined)
 
 	let dirtyPath = $state(false)
+
+	// `s3_read_scopes` is author-declared and must survive `updatePolicy` (which
+	// recomputes `allowed_s3_keys`), so it is edited directly on `policy` and
+	// persisted on the next deploy — reassign the array so the change is reactive.
+	function addReadScope() {
+		policy.s3_read_scopes = [...(policy.s3_read_scopes ?? []), { path_glob: '' }]
+	}
+	function removeReadScope(i: number) {
+		policy.s3_read_scopes = (policy.s3_read_scopes ?? []).filter((_, idx) => idx !== i)
+	}
 
 	async function appExists(customPath: string) {
 		return await AppService.customPathExists({
@@ -286,6 +296,53 @@
 		</div>
 	{/if}
 </Alert>
+
+{#if policy.execution_mode !== 'viewer'}
+	<div class="mt-8">
+		<div class="flex items-center gap-2">
+			<h2 class="text-sm font-semibold">S3 read paths (on-behalf)</h2>
+			<Tooltip>
+				Literal globs (e.g. <code>f/sensitive/**</code> — <code>*</code> within a path segment,
+				<code>**</code> across segments) of S3 keys this deployed app may read on-behalf of its
+				on-behalf-of identity, for files it displays but does not produce during a viewer's session
+				(e.g. results a separate job persisted to S3). Applies to the primary storage. Unlike the
+				workspace advanced-permission rules, template variables such as
+				<code>{'{folder_read}'}</code>
+				are not expanded. Reads are still bounded by the on-behalf identity's S3 permissions — a path
+				here never grants more access than that identity already has. Files the app produces itself,
+				or static file components, do not need an entry.
+			</Tooltip>
+		</div>
+		<div class="text-xs text-secondary mt-1 mb-2">
+			Leave empty if the app only shows files it produces itself. Takes effect on next deploy.
+		</div>
+		<div class="flex flex-col gap-2">
+			{#each policy.s3_read_scopes ?? [] as _scope, i (i)}
+				<div class="flex items-center gap-2">
+					<div class="grow">
+						<TextInput
+							bind:value={policy.s3_read_scopes[i].path_glob}
+							placeholder="f/sensitive/**"
+						/>
+					</div>
+					<Button
+						variant="subtle"
+						unifiedSize="sm"
+						iconOnly
+						startIcon={{ icon: X }}
+						title="Remove path"
+						on:click={() => removeReadScope(i)}
+					/>
+				</div>
+			{/each}
+		</div>
+		<div class="mt-2">
+			<Button variant="default" unifiedSize="sm" startIcon={{ icon: Plus }} on:click={addReadScope}>
+				Add path
+			</Button>
+		</div>
+	</div>
+{/if}
 
 <div class="mt-10"></div>
 

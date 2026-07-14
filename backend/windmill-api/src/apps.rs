@@ -307,6 +307,23 @@ pub struct S3Key {
     storage: Option<String>,
 }
 
+/// Author-declared surface of S3 keys a deployed app may read on-behalf of its
+/// `on_behalf_of` identity, for files the app displays but does NOT produce within
+/// a viewer's session (e.g. results a separate job persisted to S3). `path_glob` is a
+/// literal glob (globset syntax: `*` within a path segment, `**` across segments — e.g.
+/// `f/sensitive/**`); unlike the workspace advanced-permission rules it does NOT expand
+/// `{folder_read}`/`{username}`/`{group}` templates. `storage` is matched exactly, so a
+/// scope with no `storage` covers the primary storage only. This only widens the
+/// confused-deputy provenance gate; the read is still executed on-behalf of
+/// `on_behalf_of` and bounded by that identity's advanced S3 permissions downstream, so
+/// a scope can never grant more than the on-behalf identity already has.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct S3ReadScope {
+    path_glob: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    storage: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Policy {
     pub on_behalf_of: Option<String>,
@@ -322,6 +339,8 @@ pub struct Policy {
     pub execution_mode: ExecutionMode,
     pub s3_inputs: Option<Vec<S3Input>>,
     pub allowed_s3_keys: Option<Vec<S3Key>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub s3_read_scopes: Option<Vec<S3ReadScope>>,
     // WIN-2006: publisher opt-in to iframe sandbox isolation (alpha). When true the
     // app is isolated from each viewer's Windmill session: low-code renders in an
     // opaque-origin iframe with a scoped embed token, raw renders its bundle in an
@@ -3398,6 +3417,7 @@ async fn upload_s3_file_from_app(
                     .unwrap_or_default(),
             }]),
             allowed_s3_keys: None,
+            s3_read_scopes: None,
             sandbox: None,
         })
     } else {
@@ -3800,6 +3820,7 @@ async fn get_on_behalf_authed_from_app(
             on_behalf_of_email: None,
             s3_inputs: None,
             allowed_s3_keys: Some(force_allowed_s3_keys),
+            s3_read_scopes: None,
             sandbox: None,
         }
     } else {
@@ -3823,6 +3844,7 @@ async fn get_on_behalf_authed_from_app(
                 on_behalf_of_email: None,
                 s3_inputs: None,
                 allowed_s3_keys: None,
+                s3_read_scopes: None,
                 sandbox: None,
             })
     };
@@ -3875,12 +3897,24 @@ async fn check_if_allowed_to_access_s3_file_from_app(
         // tokens are excluded (untrusted app JS stays confined below).
         Ok(())
     } else {
-        // Author-mode/embed: confine reads to the app's declared keys or files THIS
-        // app produced, else a viewer could launder the author's S3 perms via an
-        // arbitrary file_key (confused deputy). Provenance is the un-forgeable
-        // app-origination marker (`trigger_kind='app'` + `trigger=<this app>`);
-        // `created_by=<caller>` is ANDed only as a per-viewer isolation filter (it
-        // can narrow — one viewer can't read another's result — never forge).
+        // Author-mode/embed: confine reads to the app's declared keys/scopes or files
+        // THIS app produced, else a viewer could launder the author's S3 perms via an
+        // arbitrary file_key (confused deputy). Three ways a key clears — all still run
+        // the read on-behalf of `on_behalf_of`, bounded by that identity's advanced S3
+        // permissions downstream, so none can grant more than the on-behalf identity has:
+        //  1. `allowed_s3_keys`: exact static keys (image/pdf/download components).
+        //  2. `s3_read_scopes`: author-declared globs, for files the app displays but
+        //     does not produce in the viewer's session (e.g. results a separate job
+        //     persisted to S3).
+        //  3. Provenance: an un-forgeable app-origination marker (`trigger_kind='app'` +
+        //     `trigger=<this app>`) on a recent completed job; `created_by=<caller>` is
+        //     ANDed only as a per-viewer isolation filter (it can narrow — one viewer
+        //     can't read another's result — never forge). The s3 key is matched anywhere
+        //     in the result (a runnable may return it nested, e.g. `[{"s3":..}]`), not
+        //     only at the top level. Because the match is deep, a component that echoes
+        //     viewer-controlled input into its result can surface any key that appears
+        //     there — the on-behalf identity's advanced-permission bound above is the
+        //     backstop that keeps this within that identity's own grants.
         let creator = opt_authed
             .as_ref()
             .map(|authed| authed.username.clone())
@@ -3888,13 +3922,22 @@ async fn check_if_allowed_to_access_s3_file_from_app(
         let allowed = policy.allowed_s3_keys.as_ref().is_some_and(|keys| {
             keys.iter()
                 .any(|key| key.s3_path == file_query.s3 && key.storage == file_query.storage)
+        }) || policy.s3_read_scopes.as_ref().is_some_and(|scopes| {
+            scopes.iter().any(|scope| {
+                scope.storage == file_query.storage
+                    && globset::Glob::new(&scope.path_glob)
+                        .map_err(|e| {
+                            tracing::error!("Invalid s3_read_scope glob {}: {e}", scope.path_glob)
+                        })
+                        .is_ok_and(|g| g.compile_matcher().is_match(&file_query.s3))
+            })
         }) || {
             sqlx::query_scalar!(
                 r#"SELECT EXISTS (
                 SELECT 1 FROM v2_job_completed c JOIN v2_job j USING (id)
                 WHERE j.workspace_id = $2
                     AND c.started_at > now() - interval '3 hours'
-                    AND c.result @> ('{"s3":"' || $1 ||  '"}')::jsonb
+                    AND jsonb_path_exists(c.result, '$.** ? (@.s3 == $k)', jsonb_build_object('k', $1::text))
                     AND j.trigger_kind = 'app'
                     AND j.trigger = $3
                     AND j.created_by = $4

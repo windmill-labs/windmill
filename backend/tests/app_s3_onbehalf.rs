@@ -519,3 +519,186 @@ async fn test_preview_is_not_app_provenanced(db: Pool<Postgres>) -> anyhow::Resu
 
     Ok(())
 }
+
+/// Seed a completed app-marked job (`trigger_kind='app'` + `trigger=<app>`) by
+/// `created_by`, whose result is the caller-supplied JSON — used to seed s3 objects
+/// nested inside the result rather than at the top level.
+async fn seed_completed_job_with_result(
+    db: &Pool<Postgres>,
+    created_by: &str,
+    app_trigger: &str,
+    result_json: &str,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        r#"
+        WITH j AS (
+            INSERT INTO v2_job (id, workspace_id, kind, runnable_path, created_by,
+                                permissioned_as, trigger_kind, trigger)
+            VALUES (gen_random_uuid(), 'test-workspace', 'script', 'u/test-user/query_to_s3',
+                    $1, 'u/test-user', 'app'::job_trigger_kind, $2)
+            RETURNING id
+        )
+        INSERT INTO v2_job_completed (id, workspace_id, duration_ms, status, result, started_at)
+        SELECT id, 'test-workspace', 1, 'success', $3::jsonb, now() FROM j
+        "#,
+    )
+    .bind(created_by)
+    .bind(app_trigger)
+    .bind(result_json)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// A runnable may return its s3 object nested (e.g. `[{"s3":..}]` for a query result,
+/// or under a field) rather than as the top-level value. The provenance gate must
+/// still match the produced key wherever it sits in the result, otherwise the
+/// viewer's own app run is denied "File restricted".
+#[sqlx::test(fixtures("base"))]
+async fn test_deployed_app_s3_nested_result_provenance(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    const NESTED_APP: &str = "u/test-user/s3nested";
+    const ARRAY_KEY: &str = "results/nested_array.parquet";
+    const OBJECT_KEY: &str = "results/nested_object.parquet";
+    const UNPRODUCED_KEY: &str = "results/never_produced.parquet";
+
+    let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
+        .json(&json!({
+            "path": NESTED_APP,
+            "summary": "s3 nested-result provenance test",
+            "value": {},
+            "policy": { "execution_mode": "anonymous", "triggerables": {} }
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "app create: {}", resp.text().await?);
+
+    // The viewer's own app runs produced these keys, nested in the result.
+    seed_completed_job_with_result(
+        &db,
+        "test-user-2",
+        NESTED_APP,
+        &format!(r#"[{{"s3":"{ARRAY_KEY}"}}]"#),
+    )
+    .await?;
+    seed_completed_job_with_result(
+        &db,
+        "test-user-2",
+        NESTED_APP,
+        &format!(r#"{{"file":{{"s3":"{OBJECT_KEY}"}}}}"#),
+    )
+    .await?;
+
+    let get = |route: String, token: &'static str| {
+        let url = format!("{ws}/apps_u/{route}");
+        authed(client().get(url), token).send()
+    };
+    let denied = |body: &str| body.contains("File restricted");
+
+    let body = get(
+        format!("download_s3_file/{NESTED_APP}?s3={ARRAY_KEY}"),
+        USER_TOKEN,
+    )
+    .await?
+    .text()
+    .await?;
+    assert!(
+        !denied(&body),
+        "s3 key nested in an array result must clear the gate: {body}"
+    );
+
+    let body = get(
+        format!("download_s3_file/{NESTED_APP}?s3={OBJECT_KEY}"),
+        USER_TOKEN,
+    )
+    .await?
+    .text()
+    .await?;
+    assert!(
+        !denied(&body),
+        "s3 key nested in an object result must clear the gate: {body}"
+    );
+
+    // A key that no job produced stays denied — deep matching does not weaken the gate.
+    let body = get(
+        format!("download_s3_file/{NESTED_APP}?s3={UNPRODUCED_KEY}"),
+        USER_TOKEN,
+    )
+    .await?
+    .text()
+    .await?;
+    assert!(
+        denied(&body),
+        "a key no job produced must stay denied: {body}"
+    );
+
+    Ok(())
+}
+
+/// `s3_read_scopes` lets an app author declare globs of keys the app may read
+/// on-behalf for files it displays but does not produce in a viewer's session (e.g.
+/// results a separate job persisted to S3). In-scope keys clear the confused-deputy
+/// gate; out-of-scope keys stay denied. (The read is still bounded by the on-behalf
+/// identity's S3 permissions downstream — not exercised here, which asserts the gate.)
+#[sqlx::test(fixtures("base"))]
+async fn test_deployed_app_s3_read_scopes(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    const SCOPED_APP: &str = "u/test-user/s3scoped";
+    const IN_SCOPE_KEY: &str = "f/sensitive/results/query.csv";
+    const OUT_OF_SCOPE_KEY: &str = "f/other/secret.csv";
+
+    let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
+        .json(&json!({
+            "path": SCOPED_APP,
+            "summary": "s3 read-scopes test",
+            "value": {},
+            "policy": {
+                "execution_mode": "anonymous",
+                "triggerables": {},
+                "s3_read_scopes": [{ "path_glob": "f/sensitive/**" }]
+            }
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "app create: {}", resp.text().await?);
+
+    let get = |route: String| {
+        let url = format!("{ws}/apps_u/{route}");
+        authed(client().get(url), USER_TOKEN).send()
+    };
+    let denied = |body: &str| body.contains("File restricted");
+
+    // In-scope key clears the gate even though no job produced it.
+    let body = get(format!("download_s3_file/{SCOPED_APP}?s3={IN_SCOPE_KEY}"))
+        .await?
+        .text()
+        .await?;
+    assert!(
+        !denied(&body),
+        "a key matching a read scope must clear the gate: {body}"
+    );
+
+    // A key outside the declared scope stays denied.
+    let body = get(format!(
+        "download_s3_file/{SCOPED_APP}?s3={OUT_OF_SCOPE_KEY}"
+    ))
+    .await?
+    .text()
+    .await?;
+    assert!(
+        denied(&body),
+        "a key outside every read scope must be denied: {body}"
+    );
+
+    Ok(())
+}

@@ -13900,6 +13900,7 @@ dependencies = [
  "flate2",
  "futures",
  "git-version",
+ "globset",
  "hex",
  "hmac",
  "http 1.4.2",
