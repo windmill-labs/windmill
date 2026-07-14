@@ -3768,7 +3768,6 @@ async fn list_workspaces_as_super_admin(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Query(pagination): Query<Pagination>,
-    ApiAuthed { email, .. }: ApiAuthed,
 ) -> JsonResult<Vec<Workspace>> {
     require_devops_role(&db, &authed).await?;
     let (per_page, offset) = paginate(pagination);

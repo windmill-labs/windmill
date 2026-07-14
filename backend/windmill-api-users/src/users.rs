@@ -1426,13 +1426,11 @@ async fn convert_user_to_group(
 
 async fn update_user(
     authed: ApiAuthed,
-    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Path(email_to_update): Path<String>,
     Extension(db): Extension<DB>,
     Json(eu): Json<EditUser>,
 ) -> Result<String> {
     require_super_admin(&db, &authed).await?;
-    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
 
     let mut new_super_admin: Option<bool> = None;
@@ -1603,12 +1601,10 @@ async fn update_user(
 
 async fn delete_user(
     authed: ApiAuthed,
-    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Path(email_to_delete): Path<String>,
     Extension(db): Extension<DB>,
 ) -> Result<String> {
     require_super_admin(&db, &authed).await?;
-    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
 
     sqlx::query!("DELETE FROM token WHERE email = $1", &email_to_delete)
@@ -1901,11 +1897,9 @@ async fn set_login_type(
     Extension(db): Extension<DB>,
     Path(email): Path<String>,
     authed: ApiAuthed,
-    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(et): Json<EditLoginType>,
 ) -> Result<String> {
     require_super_admin(&db, &authed).await?;
-    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
 
     sqlx::query!(
@@ -2206,7 +2200,6 @@ async fn create_token(
 async fn impersonate(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
-    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(new_token): Json<NewToken>,
 ) -> Result<(StatusCode, String)> {
     use windmill_common::min_version::MIN_VERSION_SUPPORTS_TOKEN_HASH;
@@ -2220,7 +2213,6 @@ async fn impersonate(
         Some(&token)
     };
     require_super_admin(&db, &authed).await?;
-    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
 
     if new_token.impersonate_email.is_none() {
         return Err(Error::BadRequest(
@@ -2745,10 +2737,8 @@ struct ExportedGlobalUser {
 async fn export_global_users(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
-    OptJobAuthed { job_id, .. }: OptJobAuthed,
 ) -> JsonResult<Vec<ExportedGlobalUser>> {
     require_super_admin(&db, &authed).await?;
-    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
     let users = sqlx::query_as!(
         ExportedGlobalUser,
@@ -2784,11 +2774,9 @@ async fn export_global_users() -> JsonResult<String> {
 async fn overwrite_global_users(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
-    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(users): Json<Vec<ExportedGlobalUser>>,
 ) -> Result<String> {
     require_super_admin(&db, &authed).await?;
-    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
     sqlx::query!("DELETE FROM password")
         .execute(&mut *tx)

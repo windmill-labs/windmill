@@ -324,26 +324,15 @@ pub fn is_reserved_on_behalf_of_identity(
 }
 
 /// Guard a caller-supplied `on_behalf_of` before it is persisted on a deployable
-/// object. The stored identity is trusted verbatim at execution and decides
-/// `is_super_admin` (see [`fetch_authed_from_permissioned_as_inner`]), so a
-/// deploy must not be able to forge a superadmin run identity.
-///
-/// Enforces two invariants that no legitimate deploy can violate, so this does
-/// *not* restrict the intended `wm_deployers` capability of deploying on behalf
-/// of a real user — including a real superadmin, e.g. git-sync of
-/// superadmin-authored content where `permissioned_as`/`email` name that user
-/// consistently:
-/// 1. The identity is not a reserved internal sentinel (above).
-/// 2. If `on_behalf_of_email` resolves to a superadmin, it must genuinely belong
-///    to `permissioned_as` — a superadmin's email cannot be pinned onto an
-///    unrelated principal. Only apps store both fields; flows/scripts store just
-///    the email (deriving `permissioned_as` from the deployer at execution) and
-///    schedules/triggers store just `permissioned_as` (deriving the email from
-///    it), so for those this second check is a no-op and the sentinel guard is
-///    what applies.
-pub async fn validate_on_behalf_of(
-    db: &DB,
-    w_id: &str,
+/// object (app policy, flow/script, schedule, trigger): reject the reserved
+/// internal sentinels, which no legitimate deploy ever carries. The actual
+/// escalation is closed at execution by the job-token cap in
+/// [`require_super_admin`] — even a superadmin `on_behalf_of` yields a token
+/// capped at workspace admin — so this is a cheap, non-breaking early guard, not
+/// the primary defense. It deliberately does *not* restrict deploying on behalf
+/// of a real user (including a real superadmin, e.g. git-sync of
+/// superadmin-authored content), which is the intended `wm_deployers` capability.
+pub fn validate_on_behalf_of(
     permissioned_as: Option<&str>,
     on_behalf_of_email: Option<&str>,
 ) -> Result<()> {
@@ -352,21 +341,6 @@ pub async fn validate_on_behalf_of(
             "on_behalf_of cannot be a reserved internal identity".to_string(),
         ));
     }
-
-    if let (Some(permissioned_as), Some(email)) = (permissioned_as, on_behalf_of_email) {
-        // `email` is already non-sentinel here, so this only matches a real
-        // `password.super_admin` user.
-        if is_super_admin_email(db, email).await? {
-            let resolved =
-                crate::users::get_email_from_permissioned_as(permissioned_as, w_id, db).await?;
-            if resolved != email {
-                return Err(Error::BadRequest(format!(
-                    "on_behalf_of_email '{email}' does not belong to on_behalf_of '{permissioned_as}'"
-                )));
-            }
-        }
-    }
-
     Ok(())
 }
 

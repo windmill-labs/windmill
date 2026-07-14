@@ -156,11 +156,9 @@ async fn set_password_of_user(
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
     Path(email): Path<String>,
     authed: ApiAuthed,
-    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(ep): Json<EditPassword>,
 ) -> Result<String> {
     require_super_admin(&db, &authed).await?;
-    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     crate::users_oss::set_password(db, argon2, authed, &email, ep).await
 }
 
@@ -171,13 +169,11 @@ struct RenameUser {
 
 async fn rename_user(
     authed: ApiAuthed,
-    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Path(user_email): Path<String>,
     Extension(db): Extension<DB>,
     Json(ru): Json<RenameUser>,
 ) -> Result<String> {
     require_super_admin(&db, &authed).await?;
-    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
 
     let mut tx = db.begin().await?;
 

@@ -1938,12 +1938,9 @@ async fn create_app_internal<'a>(
     // Done on the non-RLS pool before the transaction below, like the resolution
     // above, to avoid holding a second connection while `tx` is checked out.
     windmill_common::auth::validate_on_behalf_of(
-        &db,
-        w_id,
         app.policy.on_behalf_of.as_deref(),
         app.policy.on_behalf_of_email.as_deref(),
-    )
-    .await?;
+    )?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
     let path = app.path.clone();
@@ -2466,12 +2463,9 @@ async fn update_app_internal<'a>(
             && npolicy.on_behalf_of.is_some();
         if should_preserve {
             windmill_common::auth::validate_on_behalf_of(
-                &db,
-                w_id,
                 npolicy.on_behalf_of.as_deref(),
                 npolicy.on_behalf_of_email.as_deref(),
-            )
-            .await?;
+            )?;
         }
     }
 

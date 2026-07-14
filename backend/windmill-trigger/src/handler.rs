@@ -524,12 +524,9 @@ async fn create_trigger<T: TriggerCrud>(
     // (the sentinel guard; a trigger's email is derived from it at execution).
     let resolved_permissioned_as = new_trigger.base.resolve_permissioned_as(&authed);
     windmill_common::auth::validate_on_behalf_of(
-        &db,
-        &workspace_id,
         Some(&resolved_permissioned_as),
         None,
-    )
-    .await?;
+    )?;
 
     let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
         new_trigger.base.permissioned_as.as_deref(),
@@ -770,12 +767,9 @@ async fn update_trigger<T: TriggerCrud>(
     // (the sentinel guard; a trigger's email is derived from it at execution).
     let resolved_permissioned_as = edit_trigger.base.resolve_permissioned_as(&authed);
     windmill_common::auth::validate_on_behalf_of(
-        &db,
-        &workspace_id,
         Some(&resolved_permissioned_as),
         None,
-    )
-    .await?;
+    )?;
 
     let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
         edit_trigger.base.permissioned_as.as_deref(),

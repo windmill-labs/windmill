@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
-use crate::db::{ApiAuthed, OptJobAuthed};
+use crate::db::ApiAuthed;
 use crate::secret_backend_ext::rename_vault_secrets_with_prefix;
 use axum::{
     extract::{Extension, Path},
     Json,
 };
 use serde::{Deserialize, Serialize};
-use windmill_api_auth::{forbid_superadmin_job_token, require_super_admin};
+use windmill_api_auth::require_super_admin;
 use windmill_api_users::users::delete_workspace_user_internal;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
@@ -483,13 +483,11 @@ pub(crate) async fn global_offboard_preview(
 
 pub(crate) async fn offboard_global_user(
     authed: ApiAuthed,
-    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Extension(db): Extension<DB>,
     Path(email): Path<String>,
     Json(req): Json<GlobalOffboardRequest>,
 ) -> Result<Json<OffboardResponse>> {
     require_super_admin(&db, &authed).await?;
-    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
 
     let workspaces = sqlx::query!(
         "SELECT workspace_id, username FROM usr WHERE email = $1",

@@ -985,12 +985,9 @@ async fn create_script_internal<'c>(
         && windmill_common::can_preserve_on_behalf_of(&authed)
     {
         windmill_common::auth::validate_on_behalf_of(
-            &db,
-            &w_id,
             None,
             ns.on_behalf_of_email.as_deref(),
-        )
-        .await?;
+        )?;
     }
     if sqlx::query_scalar!(
         "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",

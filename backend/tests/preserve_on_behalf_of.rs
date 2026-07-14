@@ -2856,13 +2856,16 @@ async fn test_reject_forged_superadmin_on_behalf_of(db: Pool<Postgres>) -> anyho
         resp.text().await?
     );
 
-    // App: deployer cannot pin a real superadmin's email onto an unrelated principal.
+    // App: a real superadmin on_behalf_of is *allowed* at deploy (deployers may
+    // deploy on behalf of any real user). The escalation is closed at execution
+    // by the job-token cap, not by restricting what can be stored, so even a
+    // superadmin email pinned onto an unrelated principal deploys fine here.
     let resp = authed(
         client().post(format!("{base}/apps/create")),
         "DEPLOYER_TOKEN",
     )
     .json(&new_app_with_on_behalf_of(
-        "u/deployer-user/app_mismatch_sa",
+        "u/deployer-user/app_real_sa",
         Some("u/original-user"),
         Some(REAL_SA),
         true,
@@ -2871,12 +2874,12 @@ async fn test_reject_forged_superadmin_on_behalf_of(db: Pool<Postgres>) -> anyho
     .await?;
     assert_eq!(
         resp.status(),
-        400,
-        "deployer must not pin a superadmin email onto an unrelated principal: {}",
+        201,
+        "a real superadmin on_behalf_of is allowed at deploy (capped at execution): {}",
         resp.text().await?
     );
 
-    // App: a consistently named real superadmin identity is allowed (deployer feature).
+    // App: a consistently named real superadmin identity is likewise allowed.
     let resp = authed(
         client().post(format!("{base}/apps/create")),
         "DEPLOYER_TOKEN",

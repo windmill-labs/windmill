@@ -599,12 +599,9 @@ async fn create_flow(
         && windmill_common::can_preserve_on_behalf_of(&authed)
     {
         windmill_common::auth::validate_on_behalf_of(
-            &db,
-            &w_id,
             None,
             nf.on_behalf_of_email.as_deref(),
-        )
-        .await?;
+        )?;
     }
 
     let mut tx = user_db.clone().begin(&authed).await?;
@@ -1053,12 +1050,9 @@ async fn update_flow(
         && windmill_common::can_preserve_on_behalf_of(&authed)
     {
         windmill_common::auth::validate_on_behalf_of(
-            &db,
-            &w_id,
             None,
             nf.on_behalf_of_email.as_deref(),
-        )
-        .await?;
+        )?;
     }
 
     let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;
