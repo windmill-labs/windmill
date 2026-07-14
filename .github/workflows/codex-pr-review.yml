@@ -114,6 +114,14 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # PR title/body are attacker-controlled free text. Use an unguessable
+          # per-run delimiter so a fork can't embed a fixed heredoc terminator to
+          # close the block early and inject extra outputs — e.g. is_fork=false,
+          # which (last-write-wins) would re-enable the EE checkout and the
+          # trusted-path agent settings for fork code.
+          RAND=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
+          TITLE_EOF="TITLE_EOF_${RAND}"
+          BODY_EOF="BODY_EOF_${RAND}"
           {
             echo "skip=false"
             echo "is_fork=$IS_FORK"
@@ -122,12 +130,12 @@ jobs:
             echo "base_sha=$BASE_SHA"
             echo "head_sha=$HEAD_SHA"
             echo "pr_author=$PR_AUTHOR"
-            echo 'title<<PR_TITLE_EOF'
+            echo "title<<$TITLE_EOF"
             printf '%s\n' "$PR_TITLE"
-            echo 'PR_TITLE_EOF'
-            echo 'body<<PR_BODY_EOF'
+            echo "$TITLE_EOF"
+            echo "body<<$BODY_EOF"
             printf '%s\n' "$PR_BODY"
-            echo 'PR_BODY_EOF'
+            echo "$BODY_EOF"
           } >> "$GITHUB_OUTPUT"
 
       - name: Checkout repository
