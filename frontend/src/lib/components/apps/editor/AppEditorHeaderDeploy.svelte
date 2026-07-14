@@ -3,7 +3,7 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { Loader2, Plus, X } from 'lucide-svelte'
+	import { ChevronDown, ChevronRight, Loader2, Plus, X } from 'lucide-svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
@@ -102,6 +102,10 @@
 	// `s3_read_scopes` is author-declared and must survive `updatePolicy` (which
 	// recomputes `allowed_s3_keys`), so it is edited directly on `policy` and
 	// persisted on the next deploy — reassign the array so the change is reactive.
+	// Collapsed by default (most apps never need it); auto-expanded when scopes exist.
+	// untrack: we intentionally capture only the initial value, not react to `policy`.
+	let showReadScopes = $state(untrack(() => (policy?.s3_read_scopes?.length ?? 0) > 0))
+	let readScopeCount = $derived(policy.s3_read_scopes?.length ?? 0)
 	function addReadScope() {
 		policy.s3_read_scopes = [...(policy.s3_read_scopes ?? []), { path_glob: '' }]
 	}
@@ -298,49 +302,68 @@
 </Alert>
 
 {#if policy.execution_mode !== 'viewer'}
-	<div class="mt-8">
-		<div class="flex items-center gap-2">
-			<h2 class="text-sm font-semibold">S3 read paths (on-behalf)</h2>
+	<div class="mt-6">
+		<div class="flex items-center gap-1">
+			<Button
+				variant="subtle"
+				unifiedSize="2xs"
+				btnClasses="!px-1 !py-0.5 !text-2xs !font-normal !text-tertiary hover:!text-secondary !gap-0.5"
+				startIcon={{ icon: showReadScopes ? ChevronDown : ChevronRight }}
+				on:click={() => (showReadScopes = !showReadScopes)}
+			>
+				Additional read paths{readScopeCount ? ` (${readScopeCount})` : ''}
+			</Button>
 			<Tooltip>
-				Literal globs (e.g. <code>f/sensitive/**</code> — <code>*</code> within a path segment,
-				<code>**</code> across segments) of S3 keys this deployed app may read on-behalf of its
-				on-behalf-of identity, for files it displays but does not produce during a viewer's session
-				(e.g. results a separate job persisted to S3). Applies to the primary storage. Unlike the
-				workspace advanced-permission rules, template variables such as
-				<code>{'{folder_read}'}</code>
+				Optional. Literal globs (e.g. <code>f/sensitive/**</code> — <code>*</code> within a path
+				segment, <code>**</code> across segments) of S3 keys this deployed app may read on-behalf of
+				its on-behalf-of identity. Only needed when the app displays an S3 file whose reference is
+				not returned by one of the app's own runnables — e.g. a file a separate job or schedule
+				wrote to S3. Files produced by the app's own jobs, and static file components, are already
+				authorized. Applies to the primary storage. Unlike the workspace advanced-permission rules,
+				template variables such as <code>{'{folder_read}'}</code>
 				are not expanded. Reads are still bounded by the on-behalf identity's S3 permissions — a path
-				here never grants more access than that identity already has. Files the app produces itself,
-				or static file components, do not need an entry.
+				here never grants more access than that identity already has.
 			</Tooltip>
 		</div>
-		<div class="text-xs text-secondary mt-1 mb-2">
-			Leave empty if the app only shows files it produces itself. Takes effect on next deploy.
-		</div>
-		<div class="flex flex-col gap-2">
-			{#each policy.s3_read_scopes ?? [] as _scope, i (i)}
-				<div class="flex items-center gap-2">
-					<div class="grow">
-						<TextInput
-							bind:value={policy.s3_read_scopes[i].path_glob}
-							placeholder="f/sensitive/**"
-						/>
-					</div>
-					<Button
-						variant="subtle"
-						unifiedSize="sm"
-						iconOnly
-						startIcon={{ icon: X }}
-						title="Remove path"
-						on:click={() => removeReadScope(i)}
-					/>
+		{#if showReadScopes}
+			<div class="mt-2 pl-2">
+				<div class="text-xs text-secondary mb-2">
+					Only needed if the app displays an S3 file whose reference isn't already returned by one
+					of the app's own jobs (e.g. results a separate job or schedule wrote to S3). Takes effect
+					on next deploy.
 				</div>
-			{/each}
-		</div>
-		<div class="mt-2">
-			<Button variant="default" unifiedSize="sm" startIcon={{ icon: Plus }} on:click={addReadScope}>
-				Add path
-			</Button>
-		</div>
+				<div class="flex flex-col gap-2">
+					{#each policy.s3_read_scopes ?? [] as _scope, i (i)}
+						<div class="flex items-center gap-2">
+							<div class="grow">
+								<TextInput
+									bind:value={policy.s3_read_scopes[i].path_glob}
+									inputProps={{ placeholder: 'f/sensitive/**' }}
+								/>
+							</div>
+							<Button
+								variant="subtle"
+								unifiedSize="sm"
+								iconOnly
+								startIcon={{ icon: X }}
+								title="Remove path"
+								on:click={() => removeReadScope(i)}
+							/>
+						</div>
+					{/each}
+				</div>
+				<div class="mt-2">
+					<Button
+						variant="default"
+						unifiedSize="sm"
+						startIcon={{ icon: Plus }}
+						on:click={addReadScope}
+					>
+						Add path
+					</Button>
+				</div>
+			</div>
+		{/if}
 	</div>
 {/if}
 
