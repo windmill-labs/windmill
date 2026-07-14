@@ -203,6 +203,10 @@ lazy_static::lazy_static! {
     pub static ref REQUEST_SIZE_LIMIT: Arc<RwLock<usize>> = Arc::new(RwLock::new(DEFAULT_BODY_LIMIT));
 
     pub static ref SCIM_TOKEN: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    // Raw JSON of the SCIM OAuth2 client-credentials config (client_id +
+    // hashed client_secret + optional token TTL). Parsed lazily at the token
+    // endpoint; `None` disables the OAuth grant entirely (see has_scim_token).
+    pub static ref SCIM_OAUTH_CONFIG: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref SAML_METADATA: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
 
@@ -748,6 +752,10 @@ pub async fn run_server(
                     scim_oss::global_service()
                         .route_layer(axum::middleware::from_fn(has_scim_token)),
                 )
+                // Unauthenticated: the OAuth2 client-credentials token endpoint
+                // authenticates itself via client_id/client_secret, so it must
+                // NOT sit behind has_scim_token.
+                .nest("/scim_token", scim_oss::token_service())
                 .nest("/tokens", token::global_service())
                 .nest("/concurrency_groups", concurrency_groups::global_service())
                 .nest("/scripts_u", scripts::global_unauthed_service())

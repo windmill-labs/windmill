@@ -52,6 +52,7 @@ pub const BUN_INSTALL_MIN_RELEASE_AGE_SETTING: &str = "bun_install_min_release_a
 pub const INSTANCE_PYTHON_VERSION_SETTING: &str = "instance_python_version";
 pub const RUFF_CONFIG_SETTING: &str = "ruff_config";
 pub const SCIM_TOKEN_SETTING: &str = "scim_token";
+pub const SCIM_OAUTH_SETTING: &str = "scim_oauth";
 pub const SAML_METADATA_SETTING: &str = "saml_metadata";
 pub const SMTP_SETTING: &str = "smtp_settings";
 pub const TEAMS_SETTING: &str = "teams";
@@ -142,6 +143,7 @@ pub const AGENT_WORKER_BLOCKED_SETTINGS: &[&str] = &[
     OAUTH_SETTING,
     SMTP_SETTING,
     SCIM_TOKEN_SETTING,
+    SCIM_OAUTH_SETTING,
     SAML_METADATA_SETTING,
     SECRET_BACKEND_SETTING,
     GITHUB_ENTERPRISE_APP_SETTING,
@@ -360,6 +362,7 @@ mod tests {
             OAUTH_SETTING,
             SMTP_SETTING,
             SCIM_TOKEN_SETTING,
+            SCIM_OAUTH_SETTING,
             SAML_METADATA_SETTING,
             SECRET_BACKEND_SETTING,
             GITHUB_ENTERPRISE_APP_SETTING,

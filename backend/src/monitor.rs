@@ -26,7 +26,7 @@ use uuid::Uuid;
 use windmill_api::embeddings::update_embeddings_db;
 use windmill_api::{
     jobs::TIMEOUT_WAIT_RESULT, DEFAULT_BODY_LIMIT, IS_SECURE, REQUEST_SIZE_LIMIT, SAML_METADATA,
-    SCIM_TOKEN,
+    SCIM_OAUTH_CONFIG, SCIM_TOKEN,
 };
 
 #[cfg(feature = "native_trigger")]
@@ -68,9 +68,9 @@ use windmill_common::{
         REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
         RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
         SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING, SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
-        SANDBOX_IMAGE_PULL_POLICY_SETTING, SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING,
-        STORE_AUDIT_LOGS_S3_SETTING, TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING,
-        UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
+        SANDBOX_IMAGE_PULL_POLICY_SETTING, SANDBOX_REGISTRY_AUTH_SETTING, SCIM_OAUTH_SETTING,
+        SCIM_TOKEN_SETTING, STORE_AUDIT_LOGS_S3_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
+        UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
         WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
         WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
     },
@@ -415,6 +415,7 @@ pub async fn initial_load(
         reload_request_size(&conn).await;
         reload_saml_metadata_setting(&conn).await;
         reload_scim_token_setting(&conn).await;
+        reload_scim_oauth_setting(&conn).await;
 
         // Ensure audit partitions exist before any requests arrive
         if let Some(db) = conn.as_sql() {
@@ -2079,6 +2080,16 @@ pub async fn reload_instance_events_webhook_setting(db: &DB) {
 pub async fn reload_scim_token_setting(conn: &Connection) {
     reload_option_setting_with_tracing(conn, SCIM_TOKEN_SETTING, "SCIM_TOKEN", SCIM_TOKEN.clone())
         .await;
+}
+
+pub async fn reload_scim_oauth_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        SCIM_OAUTH_SETTING,
+        "SCIM_OAUTH",
+        SCIM_OAUTH_CONFIG.clone(),
+    )
+    .await;
 }
 
 pub async fn reload_timeout_wait_result_setting(conn: &Connection) {

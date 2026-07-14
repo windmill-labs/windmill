@@ -1475,6 +1475,74 @@ paths:
               schema:
                 type: string
 
+  /scim_token/config:
+    get:
+      summary: get SCIM OAuth client-credentials config status
+      operationId: getScimOauthConfig
+      tags:
+        - setting
+      responses:
+        "200":
+          description: SCIM OAuth config status (never returns the secret)
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - enabled
+                  - token_endpoint
+                properties:
+                  enabled:
+                    type: boolean
+                  client_id:
+                    type: string
+                  token_endpoint:
+                    type: string
+    delete:
+      summary: disable SCIM OAuth client-credentials
+      operationId: disableScimOauthConfig
+      tags:
+        - setting
+      responses:
+        "204":
+          description: disabled
+
+  /scim_token/config/generate:
+    post:
+      summary: generate or rotate the SCIM OAuth client secret
+      operationId: generateScimOauthSecret
+      tags:
+        - setting
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                client_id:
+                  type: string
+                token_ttl_secs:
+                  type: integer
+      responses:
+        "200":
+          description: generated credentials, client_secret returned once
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - client_id
+                  - client_secret
+                  - token_endpoint
+                properties:
+                  client_id:
+                    type: string
+                  client_secret:
+                    type: string
+                  token_endpoint:
+                    type: string
+
   /settings_u/ruff_config:
     get:
       summary: get instance ruff config (unauthenticated)

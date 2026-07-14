@@ -19,6 +19,11 @@ pub fn global_service() -> Router {
 }
 
 #[cfg(not(feature = "private"))]
+pub fn token_service() -> Router {
+    Router::new().route("/ee", get(ee))
+}
+
+#[cfg(not(feature = "private"))]
 pub async fn ee() -> String {
     return "Enterprise Edition".to_string();
 }

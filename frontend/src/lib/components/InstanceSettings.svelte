@@ -13,6 +13,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import AuthSettings from './AuthSettings.svelte'
+	import ScimOauthSettings from './ScimOauthSettings.svelte'
 	import oauthConnectRegistry from '$oauth_connect_registry'
 	import InstanceSetting from './InstanceSetting.svelte'
 	import { writable, type Writable } from 'svelte/store'
@@ -1171,6 +1172,9 @@
 								{version}
 								{oauths}
 							/>
+							{#if setting.key === 'scim_token'}
+								<ScimOauthSettings />
+							{/if}
 						{/each}
 					</div>
 				{/snippet}
