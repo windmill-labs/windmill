@@ -12,7 +12,7 @@
     RootModule        = 'WindmillClient.psm1'
 
     # Version number of this module.
-    ModuleVersion     = '1.756.1'
+    ModuleVersion     = '1.757.0'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()

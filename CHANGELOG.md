@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.757.0](https://github.com/windmill-labs/windmill/compare/v1.756.1...v1.757.0) (2026-07-14)
+
+
+### Features
+
+* **saml:** add ALLOW_PRIVATE_SAML_METADATA_URLS SSRF bypass ([#10077](https://github.com/windmill-labs/windmill/issues/10077)) ([851e309](https://github.com/windmill-labs/windmill/commit/851e30914e3172dad2a3ccaa6951a3ffe1e67495))
+
+
+### Bug Fixes
+
+* **ai-agent:** don't mark repeated tool calls as failed in flow graph ([#10075](https://github.com/windmill-labs/windmill/issues/10075)) ([207ce86](https://github.com/windmill-labs/windmill/commit/207ce8649cf7026c62eea2b1b2f462c7df8c4e5a))
+
 ## [1.756.1](https://github.com/windmill-labs/windmill/compare/v1.756.0...v1.756.1) (2026-07-14)
 
 
