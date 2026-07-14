@@ -117,6 +117,7 @@
 							elementProps={{
 								placeholder: isAgentTool ? 'Tool name' : 'Summary'
 							}}
+							hideError={isAgentTool}
 							{siblingToolNames}
 						/>
 					{:else if flowModuleValue.type === 'script' && 'path' in flowModuleValue && flowModuleValue.path}
@@ -194,7 +195,7 @@
 								placeholder={isAgentTool ? 'Tool name' : 'Summary'}
 								class={twMerge('w-full grow', toolNameError && '!border-red-400')}
 							/>
-							{#if toolNameError}
+							{#if toolNameError && !isAgentTool}
 								<p class="text-3xs text-red-400 leading-tight mt-0.5">{toolNameError}</p>
 							{/if}
 						</div>
@@ -215,6 +216,9 @@
 		{@render action?.()}
 	</div>
 	{#if isAgentTool}
+		{#if toolNameError}
+			<p class="text-3xs text-red-400 leading-tight w-full">{toolNameError}</p>
+		{/if}
 		<textarea
 			rows="1"
 			use:autosize
