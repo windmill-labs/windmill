@@ -275,9 +275,14 @@ jobs:
           PI_SKIP_VERSION_CHECK: '1'
           PR_IS_FORK: ${{ steps.pr.outputs.is_fork }}
           PR_BASE_REF: ${{ steps.pr.outputs.base_ref }}
+          PR_BASE_SHA: ${{ steps.pr.outputs.base_sha }}
+          PR_HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
         run: |
           set -o pipefail
           PI_HARDEN_FLAGS=()
+          # Pi writes its event stream and final message here; on the fork path cwd
+          # moves to an isolated dir, so keep these on absolute workspace paths.
+          OUT_DIR="$GITHUB_WORKSPACE"
           if [ "$PR_IS_FORK" = "true" ]; then
             # Fork code is untrusted. Read the review policy/prompt from the base
             # ref (git show) rather than the attacker-controlled merge checkout,
@@ -286,19 +291,38 @@ jobs:
             git show "origin/$PR_BASE_REF:REVIEW.md" > /tmp/pi-prompt.md
             git show "origin/$PR_BASE_REF:.github/pi/pr-review.prompt.md" >> /tmp/pi-prompt.md
             PI_TOOLS=read,grep,find,ls
-            # cwd is the fork checkout, so disable every project-local discovery:
-            # --no-extensions stops fork-supplied .pi extensions (.ts/.js) from
-            # loading at startup with DEEPSEEK_API_KEY in env (before the tool
-            # allowlist even applies); the rest stop fork-controlled skills,
-            # prompt templates, themes, and AGENTS.md/CLAUDE.md from being
-            # auto-loaded into the reviewer's prompt as an injection vector.
+
+            # Root cause of the fork-review secret surface: Pi resolves ALL project
+            # config from <cwd>/.pi — settings/packages, extensions, skills, themes,
+            # prompts, SYSTEM.md, APPEND_SYSTEM.md. Running inside the fork checkout
+            # lets a fork inject any of these to execute code or rewrite the
+            # reviewer's own system prompt, with DEEPSEEK_API_KEY in the env. So run
+            # Pi from an isolated, empty, trusted directory: none of the fork's
+            # .pi/* is on the discovery path there (discovery is cwd-based, no
+            # walk-up). The agent has no shell here, so pre-compute the diff (the
+            # base...head SHAs are trusted) into the context file it reads; it may
+            # still read fork files by absolute path for extra context — reads are
+            # safe, only config discovery and code execution were the risk.
+            PI_WORKDIR=$(mktemp -d)
+            mkdir -p "$PI_WORKDIR/.github/pi"
+            cp "$GITHUB_WORKSPACE/.github/pi/pr-review-context.md" "$PI_WORKDIR/.github/pi/pr-review-context.md"
+            {
+              echo ""
+              echo "## Pre-computed review diff (base...head)"
+              echo "You have no shell. The full diff is inlined below. The repository"
+              echo "checkout is at $GITHUB_WORKSPACE — you may read files there by"
+              echo "absolute path for additional context."
+              echo '```diff'
+              git -C "$GITHUB_WORKSPACE" diff --unified=0 "$PR_BASE_SHA...$PR_HEAD_SHA"
+              echo '```'
+            } >> "$PI_WORKDIR/.github/pi/pr-review-context.md"
+            cd "$PI_WORKDIR"
+
+            # Belt-and-suspenders on top of the isolated cwd: refuse discovery of
+            # extensions/skills/templates/themes/context-files, and PI_OFFLINE=1 to
+            # block any startup network op or package install. PI_OFFLINE gates only
+            # startup network ops, not the provider inference call.
             PI_HARDEN_FLAGS=(--no-extensions --no-skills --no-prompt-templates --no-themes --no-context-files)
-            # --no-extensions only filters what is *loaded*; package resolution
-            # from a fork .pi/settings.json still runs `npm install`/npmCommand and
-            # lifecycle scripts *before* that filter. PI_OFFLINE=1 makes the
-            # resolver skip every missing-package install, closing that exec path.
-            # It gates only startup network ops (installs, tool downloads), not the
-            # provider inference call.
             export PI_OFFLINE=1
           else
             cat REVIEW.md .github/pi/pr-review.prompt.md > /tmp/pi-prompt.md
@@ -311,7 +335,7 @@ jobs:
             "${PI_HARDEN_FLAGS[@]}" \
             --mode json \
             < /tmp/pi-prompt.md \
-            | tee pi-events.jsonl \
+            | tee "$OUT_DIR/pi-events.jsonl" \
             | jq -rc --unbuffered '
                 if .type == "agent_start" then "🤖 pi agent started"
                 elif .type == "turn_start" then "── turn ──"
@@ -339,7 +363,7 @@ jobs:
             | map(select(.role == "assistant"))
             | last
             | (.content[]? | select(.type == "text") | .text)
-          ' pi-events.jsonl > pi-final-message.md
+          ' "$OUT_DIR/pi-events.jsonl" > "$OUT_DIR/pi-final-message.md"
 
       - name: Post Pi review comment
         if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
