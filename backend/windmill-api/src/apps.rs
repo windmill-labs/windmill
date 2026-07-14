@@ -62,8 +62,9 @@ use windmill_common::{
     error::{to_anyhow, Error, JsonResult, Result},
     jobs::{
         get_payload_tag_from_prefixed_path, resolve_delete_after_secs, schedule_job_deletion,
-        JobPayload, RawCode,
+        JobPayload, JobTriggerKind, RawCode,
     },
+    triggers::TriggerMetadata,
     user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
     users::username_to_permissioned_as,
     utils::{
@@ -3179,6 +3180,21 @@ async fn execute_component(
     let end_user_email =
         get_end_user_email(&db, opt_authed.as_ref(), tokened.token.as_deref()).await;
 
+    // Mark the job as app-originated (trigger = the app path) — the provenance
+    // signal the deployed-app S3 gate trusts to distinguish files an app produced
+    // from files a viewer forged by running a declared runnable directly (a direct
+    // `/jobs/run` cannot set trigger_kind = 'app').
+    //
+    // ONLY deployed, policy-checked runs are marked. A preview executes as the
+    // *caller* (Viewer mode), not as the author, so its results are read back as the
+    // caller via the viewer-scoped `job_helpers` endpoint — never author-mode — and
+    // must never be app-provenanced. Marking a preview would let any `jobs:run`
+    // caller supply arbitrary `raw_code` against a victim app path and forge the
+    // marker; and it is never needed, since the caller already reads a preview's
+    // output as themselves.
+    let app_trigger =
+        (!is_preview).then(|| TriggerMetadata::new(Some(path.to_string()), JobTriggerKind::App));
+
     let (uuid, mut tx) = push(
         &db,
         tx,
@@ -3209,7 +3225,7 @@ async fn execute_component(
         None,
         false,
         end_user_email,
-        None,
+        app_trigger,
         None,
     )
     .await?;
@@ -3870,7 +3886,21 @@ async fn check_if_allowed_to_access_s3_file_from_app(
         // Author-mode (Anonymous/Publisher) or embed token: confine to the app's
         // declared keys or files it recently produced. Without this gate a
         // logged-in viewer could launder the author's S3 perms via an arbitrary
-        // file_key (confused deputy). Producing identity = caller else `anonymous`.
+        // file_key (confused deputy).
+        //
+        // "Recently produced" is keyed on the app-origination marker
+        // (`trigger_kind = 'app'` + `trigger = <this app path>`) that
+        // `execute_component` stamps on every job it launches — NOT on
+        // `created_by`/`permissioned_as`/`runnable_path` as the security boundary:
+        // those are forgeable (a viewer running a declared runnable directly, with
+        // un-pinned inputs, and — if the runnable carries its own `on_behalf_of` —
+        // even `permissioned_as` resolving to the author). Only a genuine
+        // app-launched run carries the marker (a direct `/jobs/run` cannot set it).
+        //
+        // `created_by = <this caller>` is then an additional *isolation* filter, not
+        // the boundary: it confines a viewer to keys their OWN app runs produced, so
+        // one viewer can't pull another viewer's result. It can only narrow (it is
+        // ANDed under the un-forgeable marker), so it re-introduces no forgery.
         let creator = opt_authed
             .as_ref()
             .map(|authed| authed.username.clone())
@@ -3883,11 +3913,11 @@ async fn check_if_allowed_to_access_s3_file_from_app(
                 r#"SELECT EXISTS (
                 SELECT 1 FROM v2_job_completed c JOIN v2_job j USING (id)
                 WHERE j.workspace_id = $2
-                    AND (j.kind = 'appscript' OR j.kind = 'preview')
-                    AND j.created_by = $4
                     AND c.started_at > now() - interval '3 hours'
-                    AND j.runnable_path LIKE $3 || '/%'
                     AND c.result @> ('{"s3":"' || $1 ||  '"}')::jsonb
+                    AND j.trigger_kind = 'app'
+                    AND j.trigger = $3
+                    AND j.created_by = $4
             )"#,
                 file_query.s3,
                 w_id,
