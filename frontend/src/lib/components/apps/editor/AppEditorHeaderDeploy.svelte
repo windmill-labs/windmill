@@ -349,9 +349,14 @@
 				checked={policy.execution_mode == 'anonymous'}
 				on:change={(e) => {
 					policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
-					setPublishState()
+					// Same as sandbox: a not-yet-deployed app has no row to PATCH, so
+					// `setPublishState` would 404. The mode is carried by the first
+					// deploy's policy; persist incrementally only once the app exists.
+					if (savedApp && !newApp) {
+						setPublishState()
+					}
 				}}
-				disabled={!savedApp || newApp || (!canSetAnonymous && policy.execution_mode != 'anonymous')}
+				disabled={!savedApp || (!canSetAnonymous && policy.execution_mode != 'anonymous')}
 			/>
 		</div>
 		{#if !savedApp || newApp}
