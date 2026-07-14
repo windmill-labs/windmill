@@ -136,6 +136,11 @@ jobs:
         with:
           ref: refs/pull/${{ steps.pr.outputs.pr_number }}/merge
           fetch-depth: 1
+          # Don't persist github.token in .git/config: the review agent can read
+          # the checkout, and on the fork path that token (issue/PR write) would
+          # otherwise be exfiltratable. All later git ops target the public origin
+          # and need no auth; EE checkout and gh use their own explicit tokens.
+          persist-credentials: false
 
       # Never expose the EE private-repo token to untrusted fork code. Skipping
       # this step leaves steps.ee.outputs.available empty, so the EE checkout and
@@ -316,6 +321,7 @@ jobs:
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          GH_JOB_TOKEN: ${{ github.token }}
         with:
           github-token: ${{ github.token }}
           script: |
@@ -341,6 +347,7 @@ jobs:
             };
             addSecret(process.env.OPENAI_API_KEY, 8);
             addSecret(process.env.CODEX_AUTH_JSON, 8);
+            addSecret(process.env.GH_JOB_TOKEN, 8);
             if (process.env.CODEX_AUTH_JSON) {
               try {
                 const collect = (o) => {

@@ -129,6 +129,11 @@ jobs:
         with:
           ref: refs/pull/${{ steps.pr.outputs.pr_number }}/merge
           fetch-depth: 1
+          # Don't persist github.token in .git/config: the review agent can read
+          # the checkout, and on the fork path that token (issue/PR write) would
+          # otherwise be exfiltratable. All later git ops target the public origin
+          # and need no auth; EE checkout and gh use their own explicit tokens.
+          persist-credentials: false
 
       # Never expose the EE private-repo token to untrusted fork code. Skipping
       # this step leaves steps.ee.outputs.available empty, so the EE checkout and
@@ -318,6 +323,7 @@ jobs:
         env:
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GH_JOB_TOKEN: ${{ github.token }}
         with:
           github-token: ${{ github.token }}
           script: |
@@ -336,10 +342,12 @@ jobs:
             // credential in the environment (readable via /proc/self/environ), and
             // the posted comment is an exfiltration channel that bypasses GitHub
             // Actions log masking. Strip the credential if it leaked into the text.
-            const apiKey = process.env.DEEPSEEK_API_KEY;
-            if (typeof apiKey === 'string' && apiKey.length >= 8) {
-              body = body.split(apiKey).join('[REDACTED]').trim();
+            for (const s of [process.env.DEEPSEEK_API_KEY, process.env.GH_JOB_TOKEN]) {
+              if (typeof s === 'string' && s.length >= 8) {
+                body = body.split(s).join('[REDACTED]');
+              }
             }
+            body = body.trim();
             if (!body) {
               core.info('Pi final message was empty after redaction; skipping PR comment.');
               return;
