@@ -1650,6 +1650,7 @@ async function preview(
       path: filePath.substring(0, filePath.indexOf(".")).replaceAll(SEP, "/"),
       args: input,
       language: language,
+      tag: opts.tag,
       kind: isTar ? "tarbundle" : "bundle",
       format: codebase?.format ?? "cjs",
       temp_script_refs: tempScriptRefs,
