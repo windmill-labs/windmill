@@ -21,6 +21,10 @@
 		findWorkspaceDescendants
 	} from '$lib/utils/workspaceHierarchy'
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
+	import {
+		fetchProtectionRulesForWorkspace,
+		isRuleActiveInRulesets
+	} from '$lib/workspaceProtectionRules.svelte'
 	import { resource } from 'runed'
 	import { Badge, Button } from '$lib/components/common'
 	import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
@@ -142,6 +146,24 @@
 	let currentWorkspaceName = $derived(
 		baseWorkspaceEntry?.name ?? baseWorkspaceId ?? 'the root workspace'
 	)
+
+	// If the root already blocks direct deploy / forking through an existing protection rule, keep the
+	// matching lock toggle on but locked: this flow only manages its own reserved dev-workspace rule, so
+	// turning it "off" here couldn't lift a separately-defined block. Fail-open (empty rules) on error.
+	const rootProtectionRules = resource(
+		() => (canDesignateDevWorkspace && createAsDevWorkspace ? baseWorkspaceId : undefined),
+		async (ws) => (ws ? await fetchProtectionRulesForWorkspace(ws) : [])
+	)
+	let rootAlreadyBlocksDeploy = $derived(
+		isRuleActiveInRulesets(rootProtectionRules.current ?? [], 'DisableDirectDeployment')
+	)
+	let rootAlreadyBlocksForking = $derived(
+		isRuleActiveInRulesets(rootProtectionRules.current ?? [], 'DisableWorkspaceForking')
+	)
+	// Sent to the backend: an already-enforced restriction stays on regardless of the (locked) toggle's
+	// raw state, keeping the request consistent with what the locked toggle shows.
+	let effectiveLockProdDeploy = $derived(rootAlreadyBlocksDeploy || lockProdDeploy)
+	let effectiveLockProdForking = $derived(rootAlreadyBlocksForking || lockProdForking)
 
 	let id = $state('')
 	let name = $state('')
@@ -306,8 +328,8 @@
 					dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabel : undefined,
 					// Send the lock intent in this first phase too so the backend can reject a non-admin's
 					// locked-dev request before any branch is created (avoids dangling branches).
-					lock_prod_deploy: createAsDevWorkspace && lockProdDeploy,
-					lock_prod_forking: createAsDevWorkspace && lockProdForking,
+					lock_prod_deploy: createAsDevWorkspace && effectiveLockProdDeploy,
+					lock_prod_forking: createAsDevWorkspace && effectiveLockProdForking,
 					copy_members: copyMembers
 				}
 			})
@@ -374,8 +396,8 @@
 					shared_ducklakes: forkDucklakeSection?.getSharedDucklakes() ?? [],
 					is_dev_workspace: createAsDevWorkspace,
 					dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabel : undefined,
-					lock_prod_deploy: createAsDevWorkspace && lockProdDeploy,
-					lock_prod_forking: createAsDevWorkspace && lockProdForking,
+					lock_prod_deploy: createAsDevWorkspace && effectiveLockProdDeploy,
+					lock_prod_forking: createAsDevWorkspace && effectiveLockProdForking,
 					copy_members: copyMembers
 				}
 			})
@@ -769,11 +791,33 @@
 										dev workspace and promoted here.
 									</span>
 								</div>
-								<Toggle
-									bind:checked={lockProdDeploy}
-									options={{ right: 'Block direct edits (deploy via the dev workspace)' }}
-								/>
-								<Toggle bind:checked={lockProdForking} options={{ right: 'Prevent forking' }} />
+								{#if rootAlreadyBlocksDeploy}
+									<div class="flex flex-col gap-0.5">
+										<Toggle
+											checked
+											disabled
+											options={{ right: 'Block direct edits (deploy via the dev workspace)' }}
+										/>
+										<span class="text-2xs text-secondary ml-8"
+											>Already enforced by an existing protection rule</span
+										>
+									</div>
+								{:else}
+									<Toggle
+										bind:checked={lockProdDeploy}
+										options={{ right: 'Block direct edits (deploy via the dev workspace)' }}
+									/>
+								{/if}
+								{#if rootAlreadyBlocksForking}
+									<div class="flex flex-col gap-0.5">
+										<Toggle checked disabled options={{ right: 'Prevent forking' }} />
+										<span class="text-2xs text-secondary ml-8"
+											>Already enforced by an existing protection rule</span
+										>
+									</div>
+								{:else}
+									<Toggle bind:checked={lockProdForking} options={{ right: 'Prevent forking' }} />
+								{/if}
 							</div>
 						{/if}
 					</div>

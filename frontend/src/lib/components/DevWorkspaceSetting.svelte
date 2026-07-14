@@ -10,7 +10,11 @@
 	import { base } from '$lib/base'
 	import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
 	import { devBadgeText, devLabelKey, devLabelNoun } from '$lib/utils/devWorkspaceLabel'
-	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
+	import {
+		loadProtectionRules,
+		fetchProtectionRulesForWorkspace,
+		isRuleActiveInRulesets
+	} from '$lib/workspaceProtectionRules.svelte'
 	import { GitFork, ExternalLink } from 'lucide-svelte'
 	import { resource } from 'runed'
 
@@ -55,6 +59,25 @@
 	let busy = $state(false)
 	let labelBusy = $state(false)
 
+	// If this workspace already blocks direct deploy / forking through an existing protection rule, keep
+	// the matching lock toggle on but locked: attaching only manages its own reserved dev-workspace rule,
+	// so turning it "off" here couldn't lift a separately-defined block. Only fetched when the attach form
+	// (a root without a paired dev) is on screen. Fail-open (empty rules) on error.
+	const rootProtectionRules = resource(
+		() => (!parentId && !pairedDev ? $workspaceStore : undefined),
+		async (ws) => (ws ? await fetchProtectionRulesForWorkspace(ws) : [])
+	)
+	let alreadyBlocksDeploy = $derived(
+		isRuleActiveInRulesets(rootProtectionRules.current ?? [], 'DisableDirectDeployment')
+	)
+	let alreadyBlocksForking = $derived(
+		isRuleActiveInRulesets(rootProtectionRules.current ?? [], 'DisableWorkspaceForking')
+	)
+	// Sent to the backend: an already-enforced restriction stays on regardless of the (locked) toggle's
+	// raw state, keeping the request consistent with what the locked toggle shows.
+	let effectiveLockProdDeploy = $derived(alreadyBlocksDeploy || lockProdDeploy)
+	let effectiveLockProdForking = $derived(alreadyBlocksForking || lockProdForking)
+
 	// A standalone root workspace, or an existing fork of this prod (same family), can be attached.
 	// A fork parented to a different workspace can't (the backend rejects a parent that isn't this
 	// prod), so it's excluded here.
@@ -92,8 +115,8 @@
 				workspace: $workspaceStore,
 				requestBody: {
 					dev_workspace_id: selectedDevId,
-					lock_prod_deploy: lockProdDeploy,
-					lock_prod_forking: lockProdForking,
+					lock_prod_deploy: effectiveLockProdDeploy,
+					lock_prod_forking: effectiveLockProdForking,
 					dev_workspace_label: attachLabel
 				}
 			})
@@ -217,13 +240,40 @@
 				Change to {attachLabel === 'staging' ? 'dev' : 'staging'}
 			</button>
 		</div>
-		<Toggle
-			bind:checked={lockProdDeploy}
-			options={{
-				right: 'Block direct edits in this workspace (deploy via the dev workspace)'
-			}}
-		/>
-		<Toggle bind:checked={lockProdForking} options={{ right: 'Prevent forking this workspace' }} />
+		{#if alreadyBlocksDeploy}
+			<div class="flex flex-col gap-0.5">
+				<Toggle
+					checked
+					disabled
+					options={{
+						right: 'Block direct edits in this workspace (deploy via the dev workspace)'
+					}}
+				/>
+				<span class="text-2xs text-secondary ml-8"
+					>Already enforced by an existing protection rule</span
+				>
+			</div>
+		{:else}
+			<Toggle
+				bind:checked={lockProdDeploy}
+				options={{
+					right: 'Block direct edits in this workspace (deploy via the dev workspace)'
+				}}
+			/>
+		{/if}
+		{#if alreadyBlocksForking}
+			<div class="flex flex-col gap-0.5">
+				<Toggle checked disabled options={{ right: 'Prevent forking this workspace' }} />
+				<span class="text-2xs text-secondary ml-8"
+					>Already enforced by an existing protection rule</span
+				>
+			</div>
+		{:else}
+			<Toggle
+				bind:checked={lockProdForking}
+				options={{ right: 'Prevent forking this workspace' }}
+			/>
+		{/if}
 		<div class="flex gap-2">
 			<Button variant="accent" disabled={busy || !selectedDevId} onclick={attach}>
 				Attach dev workspace
