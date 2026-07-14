@@ -23,6 +23,7 @@
 		mounted,
 		label,
 		darkMode,
+		fullscreen = false,
 		onNavigate,
 		onLoad
 	}: {
@@ -31,6 +32,9 @@
 		runtime: SessionRuntime | undefined
 		/** Visible tab — only one is at a time; the rest stay mounted but hidden. */
 		active: boolean
+		/** Preview panel is in full screen — forwarded to editor views so a script
+		 * editor reopens its test pane when there's room. */
+		fullscreen?: boolean
 		/** Lazy-mount gate: content only renders once the tab has been activated. */
 		mounted: boolean
 		/** Short tab label, for the iframe title. */
@@ -122,7 +126,7 @@
 				{onNavigate}
 				{isActiveSession}
 				{active}
-				initialTestPanelCollapsed
+				{fullscreen}
 			/>
 		{:else if slot.editorKind === 'pipeline'}
 			<PipelineEditorView {runtime} path={slot.path} {workspaceId} {isActiveSession} {active} />
