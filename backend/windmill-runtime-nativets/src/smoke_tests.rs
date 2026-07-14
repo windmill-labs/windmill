@@ -57,6 +57,34 @@ export async function main(x: number): Promise<number> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_missing_optional_arg_uses_default() {
+    // A missing optional arg must arrive as `undefined`, not `null`, so the
+    // parameter default applies. With `null`, slice(0, null) -> [] -> length 0.
+    let ts = r#"
+export async function main(limit = 50): Promise<number> {
+    return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].slice(0, limit).length;
+}
+"#;
+    let r = run_ts(ts, &["limit"], serde_json::json!({})).await;
+    assert_eq!(unwrap_value(&r), serde_json::json!(10));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_explicit_null_arg_is_preserved() {
+    // An explicitly-provided JSON null must stay null (distinct from a missing
+    // arg), so the default does NOT apply.
+    let ts = r#"
+export async function main(x: number | null = 7): Promise<string> {
+    return x === null ? "null" : String(x);
+}
+"#;
+    let r = run_ts(ts, &["x"], serde_json::json!({ "x": null })).await;
+    assert_eq!(unwrap_value(&r), serde_json::json!("null"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
 async fn smoke_transpile_enum_and_union() {
     // Enums + discriminated union + as-cast exercise the swc_ecma_ast +
     // swc_ecma_parser TS-syntax paths the bare value tests don't.
