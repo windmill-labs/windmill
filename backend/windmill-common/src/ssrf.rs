@@ -169,6 +169,16 @@ pub fn mcp_ssrf_error_message(e: &SsrfValidationError) -> String {
     }
 }
 
+pub fn saml_ssrf_error_message(e: &SsrfValidationError) -> String {
+    match e {
+        SsrfValidationError::Private { .. } => format!(
+            "{e}. If you need to use private/internal SAML metadata URLs, \
+             set the {ALLOW_PRIVATE_SAML_METADATA_URLS_ENV}=true environment variable"
+        ),
+        _ => e.to_string(),
+    }
+}
+
 fn is_private_ip(ip: &IpAddr) -> bool {
     match ip {
         IpAddr::V4(ipv4) => is_private_ipv4(ipv4),
@@ -412,5 +422,21 @@ mod tests {
 
         let _guard = PrivateSamlMetadataUrlsEnvGuard::set(Some("false"));
         assert!(!allow_private_saml_metadata_urls());
+    }
+
+    #[tokio::test]
+    async fn saml_ssrf_error_message_includes_env_hint_only_for_private_urls() {
+        let private_error = validate_url_for_ssrf("http://127.0.0.1/metadata")
+            .await
+            .unwrap_err();
+        assert!(saml_ssrf_error_message(&private_error)
+            .contains("ALLOW_PRIVATE_SAML_METADATA_URLS=true"));
+
+        let invalid_error = validate_url_for_ssrf("ftp://example.com/metadata")
+            .await
+            .unwrap_err();
+        assert!(
+            !saml_ssrf_error_message(&invalid_error).contains(ALLOW_PRIVATE_SAML_METADATA_URLS_ENV)
+        );
     }
 }
