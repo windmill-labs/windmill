@@ -7,7 +7,7 @@ they do not grant any new access to your code beyond what the app already has.
 
 | Permission (Read and write) | What it enables |
 | --- | --- |
-| Repository webhooks | Create a webhook so pushes deploy to your Windmill workspace instantly, instead of polling on a timer. |
+| Repository webhooks | Create a webhook so pushes deploy to your Windmill workspace instantly, replacing the push-to-Windmill GitHub Action. |
 | Pull requests | Open the promotion / fork pull requests for you, replacing the `gh pr create` GitHub Action. |
 | Checks | Post a "Windmill diff" check on a pull request showing what it would change in the workspace. |
 
@@ -16,9 +16,11 @@ events (`push`, plus `pull_request` for checks) itself, so you do not need to
 change the app-level "Subscribe to events" list. The events are only available
 because the permissions above are granted.
 
-Approving is safe and reversible. Existing sync keeps working unchanged while the
-update is pending, and Windmill falls back to polling for any repository where a
-permission has not been granted yet.
+Approving is safe and reversible, and each feature is opt-in from the workspace's
+git sync settings. Existing sync and any GitHub Actions workflows keep working
+unchanged while the update is pending; if automatic pull is enabled on a
+repository before the webhook permission is granted, Windmill checks the tracked
+branch about every minute until it can register the webhook.
 
 ## Self-managed apps (GitHub Enterprise Server)
 
