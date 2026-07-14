@@ -132,6 +132,24 @@ pub fn allow_private_saml_metadata_urls() -> bool {
         .is_some_and(|v| v == "true" || v == "1")
 }
 
+pub async fn validate_saml_metadata_url(url: &str) -> Result<(), SsrfValidationError> {
+    let parsed =
+        url::Url::parse(url).map_err(|e| SsrfValidationError::InvalidUrl(e.to_string()))?;
+
+    match parsed.scheme() {
+        "http" | "https" => {}
+        scheme => return Err(SsrfValidationError::DisallowedScheme(scheme.to_string())),
+    }
+
+    parsed.host_str().ok_or(SsrfValidationError::MissingHost)?;
+
+    if allow_private_saml_metadata_urls() {
+        return Ok(());
+    }
+
+    validate_url_for_ssrf(url).await
+}
+
 pub async fn validate_mcp_server_url(url: &str) -> Result<(), SsrfValidationError> {
     let parsed =
         url::Url::parse(url).map_err(|e| SsrfValidationError::InvalidUrl(e.to_string()))?;
@@ -422,6 +440,52 @@ mod tests {
 
         let _guard = PrivateSamlMetadataUrlsEnvGuard::set(Some("false"));
         assert!(!allow_private_saml_metadata_urls());
+    }
+
+    #[tokio::test]
+    async fn validate_saml_metadata_url_blocks_private_by_default() {
+        let _lock = TEST_ENV_LOCK.lock().await;
+        let _guard = PrivateSamlMetadataUrlsEnvGuard::set(None);
+
+        assert!(matches!(
+            validate_saml_metadata_url("http://127.0.0.1/metadata").await,
+            Err(SsrfValidationError::Private { resolved: false })
+        ));
+    }
+
+    #[tokio::test]
+    async fn validate_saml_metadata_url_allows_private_when_env_is_enabled() {
+        let _lock = TEST_ENV_LOCK.lock().await;
+        let _guard = PrivateSamlMetadataUrlsEnvGuard::set(Some("true"));
+
+        assert!(validate_saml_metadata_url("http://127.0.0.1/metadata")
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn validate_saml_metadata_url_allows_private_when_env_is_one() {
+        let _lock = TEST_ENV_LOCK.lock().await;
+        let _guard = PrivateSamlMetadataUrlsEnvGuard::set(Some("1"));
+
+        assert!(validate_saml_metadata_url("http://10.0.0.1/metadata")
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn validate_saml_metadata_url_keeps_syntax_guards_when_private_urls_are_allowed() {
+        let _lock = TEST_ENV_LOCK.lock().await;
+        let _guard = PrivateSamlMetadataUrlsEnvGuard::set(Some("true"));
+
+        assert!(matches!(
+            validate_saml_metadata_url("ftp://example.com/metadata").await,
+            Err(SsrfValidationError::DisallowedScheme(_))
+        ));
+        assert!(matches!(
+            validate_saml_metadata_url("not-a-url").await,
+            Err(SsrfValidationError::InvalidUrl(_))
+        ));
     }
 
     #[tokio::test]
