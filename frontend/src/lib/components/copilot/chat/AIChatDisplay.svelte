@@ -30,6 +30,7 @@
 	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
+	import FreeTierUsageIndicator from './FreeTierUsageIndicator.svelte'
 	import AIChatModelSettings from './AIChatModelSettings.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
@@ -489,14 +490,14 @@
 
 {#snippet freeTierExhaustedBanner()}
 	<div class="my-2">
-		<Alert type="error" size="xs" title="Free Windmill AI used up">
+		<Alert type="info" size="xs" title="Free Windmill AI used up">
 			<div class="flex flex-col items-start gap-2">
 				<span>
 					You have used all of your free Windmill AI tokens. Add your own API key to keep using AI.
 				</span>
 				<Button
 					size="xs2"
-					variant="default"
+					variant="accent"
 					color="red"
 					startIcon={{ icon: KeyRound }}
 					href="{base}/workspace_settings?tab=ai"
@@ -964,6 +965,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							<DatatableCreationPolicy />
 						{/if}
 						<ContextUsageIndicator />
+						<FreeTierUsageIndicator />
 						<AIChatModelSettings />
 
 						{#if aiChatManager.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}

@@ -28,6 +28,7 @@
 	import { HOME_SHOW_HUB } from '$lib/consts'
 	import { base } from '$lib/base'
 	import AIChatModelSettings from '../copilot/chat/AIChatModelSettings.svelte'
+	import FreeTierUsageIndicator from '../copilot/chat/FreeTierUsageIndicator.svelte'
 	import HomeConnectDrawer from './HomeConnectDrawer.svelte'
 
 	let value = $state('')
@@ -140,8 +141,9 @@
 					disabled={!value.trim() || starting || disabled}
 					onclick={start}
 				></Button>
-				<div class="absolute left-3 bottom-4 flex items-center px-0.5">
+				<div class="absolute left-3 bottom-4 flex items-center gap-1.5 px-0.5">
 					<AIChatModelSettings />
+					<FreeTierUsageIndicator />
 				</div>
 			</div>
 

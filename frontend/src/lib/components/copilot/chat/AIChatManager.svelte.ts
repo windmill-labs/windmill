@@ -269,25 +269,25 @@ function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean)
 }
 
 /**
- * A free-tier user can exhaust their grant mid-session: the request that spends the last
- * of it succeeds, and the NEXT one is refused by the proxy. copilotInfo is only fetched on
- * workspace load, so without this the client would keep believing it has budget until a
- * page reload — the user would see only a toast, never the banner. Re-fetching the config
- * after a failed send lets the server tell us the grant is gone, which flips
- * `freeTier.exhausted` and reveals the banner.
+ * Re-fetch copilotInfo after a free-tier turn so its `freeTier.used_ratio` (and the usage
+ * meter that reads it) tracks spend live, and so the turn that finally exhausts the grant
+ * flips `freeTier.exhausted` — revealing the banner — instead of the user seeing only a
+ * per-request error toast until a page reload. copilotInfo is otherwise fetched only on
+ * workspace load.
  *
- * Scoped to users actually on the free tier and not already flagged, so an ordinary AI
- * error (rate limit, network) costs no extra request. Deliberately keyed on that state
- * rather than on matching the error text, which would break the moment the copy changes.
+ * Scoped to users actually on the free tier and not already exhausted, so it costs one
+ * extra request only while the free meter is live, and never for configured-key users.
+ * Keyed on that state rather than on matching an error message, which would break the
+ * moment the copy changes.
  */
-async function refreshFreeTierStateAfterError(workspace: string | undefined) {
+async function refreshFreeTierUsage(workspace: string | undefined) {
 	if (!workspace) return
 	const info = get(copilotInfo)
 	if (!info.freeTier || info.freeTier.exhausted) return
 	try {
 		await loadCopilot(workspace)
 	} catch (err) {
-		console.error('Failed to refresh copilot info after AI error', err)
+		console.error('Failed to refresh free-tier usage', err)
 	}
 }
 
@@ -2419,7 +2419,6 @@ export class AIChatManager {
 				this.flagLastMessageAsError()
 			}
 			sendUserToast(getSendRequestErrorMessage(err, webSearchUnavailable), true)
-			await refreshFreeTierStateAfterError(this.operatingWorkspace)
 		} finally {
 			this.loading = false
 			// Turn teardown: cancel any in-flight reveal frame and drop leftover
@@ -2427,6 +2426,9 @@ export class AIChatManager {
 			// releases the loop; it never discards uncommitted text.
 			this.replyReveal.reset()
 			this.reasoningReveal.reset()
+			// Refresh the free-tier usage meter after every turn (success or error), and
+			// let the turn that exhausts the grant flip to the exhausted state live.
+			void refreshFreeTierUsage(this.operatingWorkspace)
 		}
 		// Flush the queued message. Send it after a cleanly committed turn OR a
 		// deliberate user cancel (Esc / Stop) — in both cases the user is ready

@@ -391,42 +391,6 @@
 					<div class="text-2xs text-tertiary mt-0.5">Not supported by this model</div>
 				</div>
 			{/if}
-
-			{#if freeTier}
-				<div class="my-1 border-t border-border-light"></div>
-				<!-- Not a melt item: informational, so keyboard navigation skips it. -->
-				<div class="px-3 pt-1 pb-1.5">
-					<div class="flex items-center justify-between">
-						<span class="text-2xs uppercase tracking-wide text-secondary">Free Windmill AI</span>
-						<span
-							class="text-2xs tabular-nums {freeRunningLow ? 'text-yellow-600' : 'text-secondary'}"
-							>{freeUsedPct}% used</span
-						>
-					</div>
-					<div class="mt-1.5 h-1 w-full rounded-full bg-surface-secondary overflow-hidden">
-						<div
-							class="h-full rounded-full {freeRunningLow
-								? 'bg-yellow-500'
-								: 'bg-surface-accent-primary'}"
-							style="width: {freeUsedPct}%"
-						></div>
-					</div>
-					<div class="mt-1 text-2xs text-tertiary">
-						{freeTier.exhausted
-							? 'Your free tokens are used up. Add your own API key to keep using AI.'
-							: 'One-time allowance. Add your own API key for unlimited use.'}
-					</div>
-					{#if isAdmin}
-						<a
-							href={AI_SETTINGS_HREF}
-							target="_blank"
-							class="mt-1 inline-block text-2xs text-secondary hover:underline"
-						>
-							Add your own API key
-						</a>
-					{/if}
-				</div>
-			{/if}
 		</div>
 	{/snippet}
 </DropdownV2>
