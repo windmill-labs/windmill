@@ -667,8 +667,8 @@ async fn proxy(
         check_scopes(&authed, || format!("resources:read:{}", resource_path))?;
     }
 
-    // Set when serving the request through the free Claude Opus tier (Windmill's own
-    // Anthropic key). Holds the per-user concurrency lock and drives response metering.
+    // Set when serving the request through Windmill's free AI tier (the lent key). Holds
+    // the per-user concurrency lock and drives response metering.
     let mut free_lease: Option<crate::ai_free_tier_oss::FreeTierLease> = None;
     let mut credentials = 'cred: {
         match workspace_cache {
@@ -712,10 +712,11 @@ async fn proxy(
                                         Some(current_instance_ai_config_revision()),
                                     ),
                                     None => {
-                                        // Nothing configured: fall back to the free Claude Opus
-                                        // tier (EE-only) if Windmill lends its own Anthropic key
-                                        // and the user is under their lifetime/daily budget. Errors
-                                        // once exhausted or on a concurrent request; None otherwise.
+                                        // Nothing configured: fall back to Windmill's free AI tier
+                                        // (EE-only) if a lent key is set and both the user's
+                                        // one-time grant and the instance's daily cap have room.
+                                        // Errors once the grant is spent, the day is capped, or the
+                                        // user already has a request in flight; None otherwise.
                                         if let Some((free_credentials, lease)) =
                                             crate::ai_free_tier_oss::resolve_free_tier_credentials(
                                                 &provider,
@@ -973,10 +974,10 @@ async fn proxy(
     let headers = response.headers().clone();
     let is_sse = is_sse_response(&headers);
 
-    // Free tier: meter Anthropic token usage from the response and charge it to the
-    // user's budget, holding the per-user lock (via the lease) until usage is recorded.
-    // The frontend always streams Anthropic (SSE); the JSON path is handled for
-    // completeness.
+    // Free tier: reconcile the cost reserved up-front against what the response actually
+    // used, holding the per-user lock (via the lease) until it is recorded. The chat
+    // streams (SSE), where the usage report only arrives in the final chunk; the
+    // non-streaming JSON path is handled for completeness.
     if let Some(lease) = free_lease {
         let body = if is_sse {
             axum::body::Body::from_stream(inject_keepalives(

@@ -2,7 +2,7 @@
 #[allow(unused)]
 pub use crate::ai_free_tier_ee::*;
 
-// Open-source build: the free Claude Opus tier does not exist. These stubs make the
+// Open-source build: Windmill's free AI tier does not exist. These stubs make the
 // callers in `ai.rs` / `workspaces.rs` compile while disabling the feature entirely —
 // `resolve_free_tier_credentials` never opts in, so the proxy falls through to its
 // normal "AI resource not configured" path and the copilot stays hidden.
