@@ -962,7 +962,7 @@ async fn proxy(
     if let Some(lease) = free_lease {
         let body = if is_sse {
             axum::body::Body::from_stream(inject_keepalives(
-                Box::pin(crate::ai_free_tier_oss::meter_anthropic_usage(
+                Box::pin(crate::ai_free_tier_oss::meter_usage(
                     response.bytes_stream(),
                     db.clone(),
                     lease,
@@ -971,7 +971,7 @@ async fn proxy(
             ))
         } else {
             let bytes = response.bytes().await.map_err(to_anyhow)?;
-            crate::ai_free_tier_oss::record_anthropic_json_usage(db.clone(), lease, &bytes);
+            crate::ai_free_tier_oss::record_json_usage(db.clone(), lease, &bytes);
             axum::body::Body::from(bytes)
         };
         return Ok((status_code, headers, body));

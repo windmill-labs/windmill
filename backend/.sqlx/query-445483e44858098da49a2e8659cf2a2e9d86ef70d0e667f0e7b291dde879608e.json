@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT cost_nanos FROM ai_free_token_usage WHERE email = $1",
+  "query": "SELECT cost_nanos FROM ai_free_token_usage\n         WHERE email = $1 AND day = (now() at time zone 'utc')::date",
   "describe": {
     "columns": [
       {
@@ -18,5 +18,5 @@
       false
     ]
   },
-  "hash": "247486558e023ec3adf0c1e8f5664fc5e65995ce81e622c174a89befc1a527e5"
+  "hash": "445483e44858098da49a2e8659cf2a2e9d86ef70d0e667f0e7b291dde879608e"
 }

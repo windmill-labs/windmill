@@ -38,7 +38,7 @@ account: workspace_id(char), id(int), expires_at(ts), refresh_token(char), clien
 agent_token_blacklist: token(char), expires_at(ts), blacklisted_at(ts), blacklisted_by(char)
 ai_agent_memory: workspace_id(char), conversation_id(uuid), step_id(char), messages(jsonb), created_at(ts), updated_at(ts)
 ai_free_token_daily_usage: day(date), cost_nanos(bigint), updated_at(ts)
-ai_free_token_usage: email(char), cost_nanos(bigint), updated_at(ts)
+ai_free_token_usage: email(char), day(date), cost_nanos(bigint), updated_at(ts)
 alerts: id(int), alert_type(char), message(text), created_at(ts), acknowledged(bool), workspace_id(text), acknowledged_workspace(bool), resource(text)
 app: id(bigint), workspace_id(char), path(char), summary(char), policy(jsonb), versions(bigint[]), extra_perms(jsonb), draft_only(bool), custom_path(text), labels(text[])
   FK: (workspace_id) -> workspace(id)

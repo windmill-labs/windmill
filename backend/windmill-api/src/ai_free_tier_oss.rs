@@ -44,10 +44,10 @@ pub async fn free_tier_copilot_config(_db: &DB, _email: &str) -> Result<Option<A
 }
 
 #[cfg(not(feature = "private"))]
-pub fn record_anthropic_json_usage(_db: DB, _lease: FreeTierLease, _bytes: &[u8]) {}
+pub fn record_json_usage(_db: DB, _lease: FreeTierLease, _bytes: &[u8]) {}
 
 #[cfg(not(feature = "private"))]
-pub fn meter_anthropic_usage<S>(
+pub fn meter_usage<S>(
     upstream: S,
     _db: DB,
     _lease: FreeTierLease,
