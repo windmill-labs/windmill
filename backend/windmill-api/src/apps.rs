@@ -3180,6 +3180,18 @@ async fn execute_component(
     let end_user_email =
         get_end_user_email(&db, opt_authed.as_ref(), tokened.token.as_deref()).await;
 
+    // Mark the job as app-originated (trigger = the app path). This is the
+    // authoritative provenance signal the deployed-app S3 gate relies on to tell
+    // files an app produced from files a viewer forged by running a declared
+    // runnable directly; a direct `/jobs/run` cannot set trigger_kind = 'app'.
+    //
+    // ONLY for deployed, policy-checked runs. A preview (`is_preview`) lets the
+    // caller supply arbitrary `raw_code` against any app path WITHOUT that app's
+    // deployed policy (authorized only by `jobs:run`), so stamping it would let a
+    // caller forge the marker for a victim app and launder its author's S3 perms.
+    let app_trigger =
+        (!is_preview).then(|| TriggerMetadata::new(Some(path.to_string()), JobTriggerKind::App));
+
     let (uuid, mut tx) = push(
         &db,
         tx,
@@ -3210,14 +3222,7 @@ async fn execute_component(
         None,
         false,
         end_user_email,
-        // Mark the job as app-originated (trigger = the app path). This is the
-        // authoritative provenance signal the deployed-app S3 gate relies on to tell
-        // files an app produced from files a viewer forged by running a declared
-        // runnable directly; a direct `/jobs/run` cannot set trigger_kind = 'app'.
-        Some(TriggerMetadata::new(
-            Some(path.to_string()),
-            JobTriggerKind::App,
-        )),
+        app_trigger,
         None,
     )
     .await?;

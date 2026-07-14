@@ -430,3 +430,64 @@ async fn test_app_trigger_kind_rejected_for_reassignment(db: Pool<Postgres>) -> 
 
     Ok(())
 }
+
+/// A **preview** run must NOT be stamped with the app-origination marker. Preview
+/// mode lets a `jobs:run` caller supply arbitrary `raw_code` against any app path
+/// without that app's deployed policy, so stamping it would let the caller forge
+/// the marker the S3 gate trusts. Only deployed, policy-checked runs get the marker.
+#[sqlx::test(fixtures("base"))]
+async fn test_preview_component_is_not_stamped_app_trigger(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    // A real deployed victim app whose author has S3 access.
+    const VICTIM_APP: &str = "u/test-user/victim_app";
+    let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
+        .json(&json!({
+            "path": VICTIM_APP,
+            "summary": "victim",
+            "value": {},
+            "policy": { "execution_mode": "anonymous", "triggerables": {} }
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "app create: {}", resp.text().await?);
+
+    // Preview arbitrary inline code against the victim app path (force_viewer_static_fields
+    // => preview mode; raw_code with no path/id skips all app authorization).
+    let resp = authed(
+        client().post(format!("{ws}/apps_u/execute_component/{VICTIM_APP}")),
+        ADMIN_TOKEN,
+    )
+    .json(&json!({
+        "component": "comp1",
+        "raw_code": { "content": "export function main() { return 1 }", "language": "deno" },
+        "force_viewer_static_fields": {},
+        "args": {}
+    }))
+    .send()
+    .await?;
+    let status = resp.status();
+    let job_id = resp.text().await?;
+    assert_eq!(status, 200, "preview execute_component: {job_id}");
+    let job_id = job_id.trim().trim_matches('"');
+
+    let (trigger_kind, trigger): (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT trigger_kind::text, trigger FROM v2_job WHERE id = $1::uuid AND workspace_id = 'test-workspace'",
+    )
+    .bind(job_id)
+    .fetch_one(&db)
+    .await?;
+
+    assert_eq!(
+        trigger_kind, None,
+        "a preview run must NOT be stamped trigger_kind='app' (got {trigger_kind:?}/{trigger:?})"
+    );
+
+    Ok(())
+}
