@@ -306,19 +306,18 @@ export function setSessionDraftPrompt(sessionId: string, text: string): void {
 	// mount-time onDraftChange('') as a non-touch (draftPrompt is undefined),
 	// so merely opening an untouched draft never persists it.
 	if ((s.draftPrompt ?? '') === text) return
+	// Keep `transient` set until the flush persists the draft: it means "in-memory
+	// only", so hydrateSessions preserves the draft across a reconcile that lands
+	// inside this window (clearing it early would drop a not-yet-written draft).
+	// createSession stops reusing it the moment draftPrompt is non-empty instead —
+	// see isReusableBlank. Only the IndexedDB write is debounced.
 	s.draftPrompt = text
-	// Clear `transient` synchronously: createSession treats every transient session
-	// as a reusable blank, so a draft typed into but still inside the debounce window
-	// must stop counting as reusable at once — otherwise pressing `+` right after
-	// typing reopens this draft instead of spawning a second pending session. Only
-	// the IndexedDB write stays debounced.
-	if (s.transient) delete s.transient
 	clearTimeout(draftPromptFlushHandles.get(sessionId))
 	draftPromptFlushHandles.set(
 		sessionId,
 		setTimeout(() => {
 			draftPromptFlushHandles.delete(sessionId)
-			void putSession(s)
+			persistTouched(s)
 		}, 400)
 	)
 }
@@ -638,15 +637,25 @@ export function requestComposerFocus(): void {
 	composerFocusRequest.nonce++
 }
 
+// A reusable blank: an in-memory-only (transient) pending session the user has
+// never touched. Every touch but one clears `transient` synchronously (workspace
+// pick, panel, rename, preview); typing a prompt sets draftPrompt and persists on
+// a debounce, so `transient` alone can't tell a fresh blank from a just-typed
+// draft mid-flush — the draftPrompt check does. createSession reuses a blank on
+// `+` and discards a stray one, but a typed draft is a real pending session and
+// survives both.
+function isReusableBlank(s: Session): boolean {
+	return !!s.transient && !s.draftPrompt
+}
+
 export function createSession(): Session {
 	// Reuse an existing untouched draft from the active family rather than pile a
-	// blank entry on every `+`. "Untouched" is exactly `transient`: a pending
-	// session leaves the in-memory-only state the moment the user touches it
-	// (types a prompt, picks a workspace, opens the panel, renames), at which
-	// point it persists and is its own session — so several pending sessions can
-	// still be built up in parallel, one touch at a time. A cross-family leftover
-	// draft is dropped instead of reused (reusing it would act on that family).
-	const reusable = sessionState.sessions.find((s) => s.transient && sessionInCurrentFamily(s))
+	// blank entry on every `+`, so several pending sessions can still be built up
+	// in parallel, one touch at a time. A cross-family leftover blank is dropped
+	// instead of reused (reusing it would act on that family).
+	const reusable = sessionState.sessions.find(
+		(s) => isReusableBlank(s) && sessionInCurrentFamily(s)
+	)
 	if (reusable) {
 		sessionState.currentSessionId = reusable.id
 		// Reusing an already-active draft doesn't change currentSessionId, so ask
@@ -654,7 +663,7 @@ export function createSession(): Session {
 		requestComposerFocus()
 		return reusable
 	}
-	sessionState.sessions = sessionState.sessions.filter((s) => !s.transient)
+	sessionState.sessions = sessionState.sessions.filter((s) => !isReusableBlank(s))
 	const existingNumbers = sessionState.sessions
 		.map((s) => /^session-(\d+)$/.exec(s.name)?.[1])
 		.map((n) => (n ? parseInt(n, 10) : 0))
@@ -953,9 +962,9 @@ export function setSessionArchived(id: string, archived: boolean) {
 export function deleteSession(id: string) {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
-	// Cancel any pending draft-prompt flush: left running, its putSession would
-	// write the record back to IndexedDB after we delete it, resurrecting a draft
-	// deleted inside the debounce window.
+	// Cancel any pending draft-prompt flush: left running, its persistTouched
+	// would write the record back to IndexedDB after we delete it, resurrecting
+	// a draft deleted inside the debounce window.
 	clearTimeout(draftPromptFlushHandles.get(id))
 	draftPromptFlushHandles.delete(id)
 	sessionState.sessions = sessionState.sessions.filter((x) => x.id !== id)

@@ -547,6 +547,38 @@ describe('sessionState IndexedDB persistence', () => {
 		expect(rec.archivedByWorkspace).toBe(true)
 	})
 
+	it('keeps a just-typed draft in memory when reconcile hydrates before its flush fires', async () => {
+		const user = freshUser()
+		usersWorkspaceStore.set({
+			email: user.email,
+			workspaces: [{ id: 'wsRec', name: 'rec', disabled: false }] as never
+		})
+		userStore.set(user)
+		await flush()
+		// A committed session gives reconcile a workspace to query, so it proceeds to
+		// hydrateSessions (which rebuilds the list as in-memory-transients + DB rows).
+		await putSession(session({ id: 'committed', createdAt: 1, workspace_id: 'wsRec' }))
+		// A fresh draft the user just started typing into: transient (not yet written)
+		// with a debounced flush pending. hydrate must preserve it — clearing transient
+		// early would leave it in neither bucket and drop it, dangling currentSessionId.
+		sessionState.sessions.push(
+			session({ id: 'draftRec', pending_workspace_id: 'wsRec', transient: true })
+		)
+		sessionState.currentSessionId = 'draftRec'
+		setSessionDraftPrompt('draftRec', 'typing')
+
+		vi.mocked(WorkspaceService.getSessionWorkspaceStatus).mockResolvedValueOnce({
+			wsRec: 'active'
+		} as never)
+		await reconcileSessionsLifecycle()
+
+		expect(sessionState.sessions.some((s) => s.id === 'draftRec')).toBe(true)
+		expect(sessionState.currentSessionId).toBe('draftRec')
+
+		// Cancel the still-pending flush so it can't write to a torn-down DB later.
+		deleteSession('draftRec')
+	})
+
 	it('clears the in-memory list on logout', async () => {
 		const user = freshUser()
 		userStore.set(user)

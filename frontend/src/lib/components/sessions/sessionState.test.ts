@@ -416,10 +416,12 @@ describe('createSession — reuses an untouched draft, family-scoped', () => {
 		}
 	})
 
-	it('stops reusing a transient draft the instant it is typed into, before the debounce flush', () => {
+	it('stops reusing a draft the instant it is typed into, before the debounce flush', () => {
 		// Exercises the real transition (not a hand-built untouched-flag session): a
-		// keystroke must clear `transient` synchronously so pressing `+` within the
-		// 400ms write-debounce window spawns a second pending session, not a reuse.
+		// keystroke sets draftPrompt while the write is still debounced. The draft
+		// stays transient (in-memory only, so it survives hydration) but is no longer
+		// a reusable blank — pressing `+` within the window spawns a second pending
+		// session AND must not discard the typed draft.
 		vi.useFakeTimers()
 		const restore = withTwoFamilies('rootA')
 		const prevCurrent = sessionState.currentSessionId
@@ -433,13 +435,14 @@ describe('createSession — reuses an untouched draft, family-scoped', () => {
 		let createdId: string | undefined
 		try {
 			setSessionDraftPrompt('typed-within-window', 'h')
-			// Synchronously de-transiented; only the IndexedDB write is still pending.
-			expect(draft.transient).toBeUndefined()
+			// Still transient (persistence deferred), but now carries typed text.
+			expect(draft.transient).toBe(true)
+			expect(draft.draftPrompt).toBe('h')
 			const created = createSession()
 			createdId = created.id
 			expect(created.id).not.toBe('typed-within-window')
 			expect(created.transient).toBe(true)
-			// The typed draft survives as its own entry alongside the fresh blank.
+			// The typed draft survives the non-reuse drop as its own entry.
 			expect(sessionState.sessions.some((s) => s.id === 'typed-within-window')).toBe(true)
 		} finally {
 			vi.clearAllTimers()
