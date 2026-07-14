@@ -621,7 +621,7 @@
 <GenericDropdown
 	{open}
 	getInputRect={() => inputElement?.getBoundingClientRect() ?? new DOMRect()}
-	innerClass="!max-h-[30rem]"
+	innerClass="!max-h-[25rem]"
 	strictWidth
 >
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
