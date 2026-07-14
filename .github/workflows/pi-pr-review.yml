@@ -269,6 +269,7 @@ jobs:
           PR_BASE_REF: ${{ steps.pr.outputs.base_ref }}
         run: |
           set -o pipefail
+          PI_HARDEN_FLAGS=()
           if [ "$PR_IS_FORK" = "true" ]; then
             # Fork code is untrusted. Read the review policy/prompt from the base
             # ref (git show) rather than the attacker-controlled merge checkout,
@@ -277,6 +278,13 @@ jobs:
             git show "origin/$PR_BASE_REF:REVIEW.md" > /tmp/pi-prompt.md
             git show "origin/$PR_BASE_REF:.github/pi/pr-review.prompt.md" >> /tmp/pi-prompt.md
             PI_TOOLS=read,grep,find,ls
+            # cwd is the fork checkout, so disable every project-local discovery:
+            # --no-extensions stops fork-supplied .pi extensions (.ts/.js) from
+            # executing at startup with DEEPSEEK_API_KEY in env (before the tool
+            # allowlist even applies); the rest stop fork-controlled skills,
+            # prompt templates, themes, and AGENTS.md/CLAUDE.md from being
+            # auto-loaded into the reviewer's prompt as an injection vector.
+            PI_HARDEN_FLAGS=(--no-extensions --no-skills --no-prompt-templates --no-themes --no-context-files)
           else
             cat REVIEW.md .github/pi/pr-review.prompt.md > /tmp/pi-prompt.md
             PI_TOOLS=read,grep,find,ls,bash
@@ -285,6 +293,7 @@ jobs:
             --provider deepseek \
             --model deepseek-v4-pro \
             --tools "$PI_TOOLS" \
+            "${PI_HARDEN_FLAGS[@]}" \
             --mode json \
             < /tmp/pi-prompt.md \
             | tee pi-events.jsonl \
