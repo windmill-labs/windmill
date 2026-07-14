@@ -307,12 +307,18 @@ export function setSessionDraftPrompt(sessionId: string, text: string): void {
 	// so merely opening an untouched draft never persists it.
 	if ((s.draftPrompt ?? '') === text) return
 	s.draftPrompt = text
+	// Clear `transient` synchronously: createSession treats every transient session
+	// as a reusable blank, so a draft typed into but still inside the debounce window
+	// must stop counting as reusable at once — otherwise pressing `+` right after
+	// typing reopens this draft instead of spawning a second pending session. Only
+	// the IndexedDB write stays debounced.
+	if (s.transient) delete s.transient
 	clearTimeout(draftPromptFlushHandles.get(sessionId))
 	draftPromptFlushHandles.set(
 		sessionId,
 		setTimeout(() => {
 			draftPromptFlushHandles.delete(sessionId)
-			persistTouched(s)
+			void putSession(s)
 		}, 400)
 	)
 }
@@ -523,15 +529,20 @@ export async function reconcileAfterWorkspaceChange(): Promise<void> {
 	await reconcileSessionsLifecycle()
 }
 
-// Count non-transient sessions committed to a given workspace — used to warn the
-// user, before archiving/deleting a workspace, how many AI sessions go with it.
+// Count non-transient sessions bound to a given workspace — used to warn the user,
+// before archiving/deleting a workspace, how many AI sessions go with it. Matches
+// on `workspace_id ?? pending_workspace_id` so persisted unsent drafts (scoped by
+// pending_workspace_id) are included, mirroring reconcileSessionsLifecycle which
+// archives/deletes them alongside committed sessions.
 export async function countSessionsForWorkspace(workspaceId: string): Promise<number> {
 	if (!BROWSER) return 0
 	const db = await sessionsDb.whenReady()
 	if (!db) return 0
 	try {
 		const all = await db.getAll('sessions')
-		return all.filter((s) => s.workspace_id === workspaceId && !s.transient).length
+		return all.filter(
+			(s) => (s.workspace_id ?? s.pending_workspace_id) === workspaceId && !s.transient
+		).length
 	} catch {
 		return 0
 	}
@@ -942,9 +953,9 @@ export function setSessionArchived(id: string, archived: boolean) {
 export function deleteSession(id: string) {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
-	// Cancel any pending draft-prompt flush: left running, its persistTouched
-	// would write the record back to IndexedDB after we delete it, resurrecting
-	// a draft deleted inside the debounce window.
+	// Cancel any pending draft-prompt flush: left running, its putSession would
+	// write the record back to IndexedDB after we delete it, resurrecting a draft
+	// deleted inside the debounce window.
 	clearTimeout(draftPromptFlushHandles.get(id))
 	draftPromptFlushHandles.delete(id)
 	sessionState.sessions = sessionState.sessions.filter((x) => x.id !== id)

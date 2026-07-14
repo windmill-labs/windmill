@@ -8,6 +8,7 @@ import {
 	renameSession,
 	sessionInCurrentFamily,
 	setGeneratedSessionSummary,
+	setSessionDraftPrompt,
 	sessionState,
 	type Session
 } from './sessionState.svelte'
@@ -409,6 +410,42 @@ describe('createSession — reuses an untouched draft, family-scoped', () => {
 		} finally {
 			sessionState.sessions = sessionState.sessions.filter(
 				(s) => s.id !== 'touched-same-family' && s.id !== createdId
+			)
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+
+	it('stops reusing a transient draft the instant it is typed into, before the debounce flush', () => {
+		// Exercises the real transition (not a hand-built untouched-flag session): a
+		// keystroke must clear `transient` synchronously so pressing `+` within the
+		// 400ms write-debounce window spawns a second pending session, not a reuse.
+		vi.useFakeTimers()
+		const restore = withTwoFamilies('rootA')
+		const prevCurrent = sessionState.currentSessionId
+		const draft = session({
+			id: 'typed-within-window',
+			name: 'session-904',
+			pending_workspace_id: 'rootA',
+			transient: true
+		})
+		sessionState.sessions.push(draft)
+		let createdId: string | undefined
+		try {
+			setSessionDraftPrompt('typed-within-window', 'h')
+			// Synchronously de-transiented; only the IndexedDB write is still pending.
+			expect(draft.transient).toBeUndefined()
+			const created = createSession()
+			createdId = created.id
+			expect(created.id).not.toBe('typed-within-window')
+			expect(created.transient).toBe(true)
+			// The typed draft survives as its own entry alongside the fresh blank.
+			expect(sessionState.sessions.some((s) => s.id === 'typed-within-window')).toBe(true)
+		} finally {
+			vi.clearAllTimers()
+			vi.useRealTimers()
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => s.id !== 'typed-within-window' && s.id !== createdId
 			)
 			sessionState.currentSessionId = prevCurrent
 			restore()

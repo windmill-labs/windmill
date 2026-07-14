@@ -37,6 +37,7 @@ import {
 	deleteSessionRecord,
 	archiveSessionsForWorkspace,
 	deleteSessionsForWorkspace,
+	countSessionsForWorkspace,
 	materializeTransient,
 	getSessionDraftPrompt,
 	setSessionDraftPrompt,
@@ -508,6 +509,20 @@ describe('sessionState IndexedDB persistence', () => {
 		const rec = await db.get('sessions' as never, 'draft')
 		db.close()
 		expect(rec).toBeUndefined()
+	})
+
+	it('counts persisted pending drafts alongside committed sessions for a workspace', async () => {
+		const user = freshUser()
+		userStore.set(user)
+		await flush()
+		// One committed session and one still-unsent draft, both bound to wsCount —
+		// reconcile removes both on teardown, so the confirmation count must see both.
+		await putSession(session({ id: 'committed', createdAt: 1, workspace_id: 'wsCount' }))
+		await putSession(session({ id: 'pending', createdAt: 2, pending_workspace_id: 'wsCount' }))
+		// A committed session in a different workspace must not be counted.
+		await putSession(session({ id: 'other', createdAt: 3, workspace_id: 'wsOther' }))
+
+		expect(await countSessionsForWorkspace('wsCount')).toBe(2)
 	})
 
 	it('archives a persisted pending draft (tagged) when its pending workspace is archived', async () => {
