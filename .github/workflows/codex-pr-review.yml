@@ -228,9 +228,12 @@ jobs:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
         run: |
+          # Write outside the checkout: on the fork path the merge tree is
+          # attacker-controlled, and a committed symlink at this path would
+          # redirect the write.
           gh api "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" \
             --jq '[.[] | {user: .user.login, created_at: .created_at, body: (.body | .[:4000])}] | sort_by(.created_at) | .[-20:]' \
-            > prior-comments.json || echo "[]" > prior-comments.json
+            > "$RUNNER_TEMP/prior-comments.json" || echo "[]" > "$RUNNER_TEMP/prior-comments.json"
 
       - name: Write Codex review context
         if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
@@ -244,9 +247,9 @@ jobs:
           PR_AUTHOR: ${{ steps.pr.outputs.pr_author }}
           EXTRA_PROMPT: ${{ inputs.extra_prompt }}
         run: |
-          mkdir -p .github/codex
           node <<'NODE'
           const fs = require('fs');
+          const tmp = process.env.RUNNER_TEMP;
           const lines = [
             `Repository: ${process.env.PR_REPOSITORY}`,
             `PR number: ${process.env.PR_NUMBER}`,
@@ -276,9 +279,9 @@ jobs:
           if (process.env.EXTRA_PROMPT && process.env.EXTRA_PROMPT.trim()) {
             lines.push('', 'Additional reviewer instructions:', process.env.EXTRA_PROMPT.trim());
           }
-          if (fs.existsSync('prior-comments.json')) {
+          if (fs.existsSync(`${tmp}/prior-comments.json`)) {
             try {
-              const comments = JSON.parse(fs.readFileSync('prior-comments.json', 'utf8'));
+              const comments = JSON.parse(fs.readFileSync(`${tmp}/prior-comments.json`, 'utf8'));
               if (Array.isArray(comments) && comments.length > 0) {
                 lines.push(
                   '',
@@ -293,7 +296,7 @@ jobs:
               }
             } catch (_) {}
           }
-          fs.writeFileSync('.github/codex/pr-review-context.md', `${lines.join('\n')}\n`);
+          fs.writeFileSync(`${tmp}/pr-review-context.md`, `${lines.join('\n')}\n`);
           NODE
 
       - name: Run Codex review
@@ -314,12 +317,18 @@ jobs:
             cat REVIEW.md .github/codex/pr-review.prompt.md > /tmp/codex-prompt.md
             SANDBOX_MODE=danger-full-access
           fi
+          # The context file lives in RUNNER_TEMP (outside the attacker-controlled
+          # checkout); tell the agent its absolute path.
+          printf '\nReview context file (absolute path): %s\n' "$RUNNER_TEMP/pr-review-context.md" >> /tmp/codex-prompt.md
+          # Write the final message outside the checkout too: a fork could commit
+          # codex-final-message.md as a symlink and redirect this write to overwrite
+          # e.g. a GitHub Action's index.js, which then runs with our credentials.
           codex exec \
             -C "$GITHUB_WORKSPACE" \
             -m gpt-5.6-sol \
             -c 'model_reasoning_effort="xhigh"' \
             -s "$SANDBOX_MODE" \
-            -o codex-final-message.md \
+            -o "$RUNNER_TEMP/codex-final-message.md" \
             - < /tmp/codex-prompt.md
 
       - name: Post Codex review comment
@@ -334,7 +343,7 @@ jobs:
           github-token: ${{ github.token }}
           script: |
             const fs = require('fs');
-            const path = `${process.env.GITHUB_WORKSPACE}/codex-final-message.md`;
+            const path = `${process.env.RUNNER_TEMP}/codex-final-message.md`;
             if (!fs.existsSync(path)) {
               core.info('Codex did not produce a final message; skipping PR comment.');
               return;

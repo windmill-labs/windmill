@@ -200,9 +200,12 @@ jobs:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
         run: |
+          # Write outside the checkout: on the fork path the merge tree is
+          # attacker-controlled, and a committed symlink at this path would
+          # redirect the write.
           gh api "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" \
             --jq '[.[] | {user: .user.login, created_at: .created_at, body: (.body | .[:4000])}] | sort_by(.created_at) | .[-20:]' \
-            > prior-comments.json || echo "[]" > prior-comments.json
+            > "$RUNNER_TEMP/prior-comments.json" || echo "[]" > "$RUNNER_TEMP/prior-comments.json"
 
       - name: Write Pi review context
         if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
@@ -216,9 +219,9 @@ jobs:
           PR_AUTHOR: ${{ steps.pr.outputs.pr_author }}
           EXTRA_PROMPT: ${{ inputs.extra_prompt }}
         run: |
-          mkdir -p .github/pi
           node <<'NODE'
           const fs = require('fs');
+          const tmp = process.env.RUNNER_TEMP;
           const lines = [
             `Repository: ${process.env.PR_REPOSITORY}`,
             `PR number: ${process.env.PR_NUMBER}`,
@@ -248,9 +251,9 @@ jobs:
           if (process.env.EXTRA_PROMPT && process.env.EXTRA_PROMPT.trim()) {
             lines.push('', 'Additional reviewer instructions:', process.env.EXTRA_PROMPT.trim());
           }
-          if (fs.existsSync('prior-comments.json')) {
+          if (fs.existsSync(`${tmp}/prior-comments.json`)) {
             try {
-              const comments = JSON.parse(fs.readFileSync('prior-comments.json', 'utf8'));
+              const comments = JSON.parse(fs.readFileSync(`${tmp}/prior-comments.json`, 'utf8'));
               if (Array.isArray(comments) && comments.length > 0) {
                 lines.push(
                   '',
@@ -265,7 +268,7 @@ jobs:
               }
             } catch (_) {}
           }
-          fs.writeFileSync('.github/pi/pr-review-context.md', `${lines.join('\n')}\n`);
+          fs.writeFileSync(`${tmp}/pr-review-context.md`, `${lines.join('\n')}\n`);
           NODE
 
       - name: Run Pi review
@@ -280,9 +283,13 @@ jobs:
         run: |
           set -o pipefail
           PI_HARDEN_FLAGS=()
-          # Pi writes its event stream and final message here; on the fork path cwd
-          # moves to an isolated dir, so keep these on absolute workspace paths.
-          OUT_DIR="$GITHUB_WORKSPACE"
+          # Keep generated files outside the checkout: on the fork path the merge
+          # tree is attacker-controlled, so a committed symlink at any of these
+          # paths (final message, events, context) would redirect the write and, in
+          # the worst case, overwrite an action's code that then runs with our
+          # credentials. RUNNER_TEMP is runner-created and outside the checkout.
+          OUT_DIR="$RUNNER_TEMP"
+          CTX="$RUNNER_TEMP/pr-review-context.md"
           if [ "$PR_IS_FORK" = "true" ]; then
             # Fork code is untrusted. Read the review policy/prompt from the base
             # ref (git show) rather than the attacker-controlled merge checkout,
@@ -292,30 +299,28 @@ jobs:
             git show "origin/$PR_BASE_REF:.github/pi/pr-review.prompt.md" >> /tmp/pi-prompt.md
             PI_TOOLS=read,grep,find,ls
 
-            # Root cause of the fork-review secret surface: Pi resolves ALL project
-            # config from <cwd>/.pi — settings/packages, extensions, skills, themes,
-            # prompts, SYSTEM.md, APPEND_SYSTEM.md. Running inside the fork checkout
-            # lets a fork inject any of these to execute code or rewrite the
-            # reviewer's own system prompt, with DEEPSEEK_API_KEY in the env. So run
-            # Pi from an isolated, empty, trusted directory: none of the fork's
-            # .pi/* is on the discovery path there (discovery is cwd-based, no
-            # walk-up). The agent has no shell here, so pre-compute the diff (the
-            # base...head SHAs are trusted) into the context file it reads; it may
-            # still read fork files by absolute path for extra context — reads are
-            # safe, only config discovery and code execution were the risk.
-            PI_WORKDIR=$(mktemp -d)
-            mkdir -p "$PI_WORKDIR/.github/pi"
-            cp "$GITHUB_WORKSPACE/.github/pi/pr-review-context.md" "$PI_WORKDIR/.github/pi/pr-review-context.md"
+            # The agent has no shell, so pre-compute the diff (base...head SHAs are
+            # trusted) into the context file it reads. It may still read fork files
+            # by absolute path for extra context — reads are safe.
             {
               echo ""
               echo "## Pre-computed review diff (base...head)"
-              echo "You have no shell. The full diff is inlined below. The repository"
-              echo "checkout is at $GITHUB_WORKSPACE — you may read files there by"
-              echo "absolute path for additional context."
+              echo "You have no shell. The full diff is below. The repository checkout"
+              echo "is at $GITHUB_WORKSPACE — you may read files there by absolute path."
               echo '```diff'
               git -C "$GITHUB_WORKSPACE" diff --unified=0 "$PR_BASE_SHA...$PR_HEAD_SHA"
               echo '```'
-            } >> "$PI_WORKDIR/.github/pi/pr-review-context.md"
+            } >> "$CTX"
+
+            # Root cause of the recurring fork-review exposure: Pi resolves ALL
+            # project config from <cwd>/.pi — settings/packages, extensions, skills,
+            # themes, prompts, SYSTEM.md, APPEND_SYSTEM.md. Running inside the fork
+            # checkout lets a fork inject any of these to execute code or rewrite the
+            # reviewer's system prompt with DEEPSEEK_API_KEY in env. Discovery is
+            # cwd-based (single level, no walk-up; global fallback is the trusted
+            # runner home), so run Pi from a fresh empty dir where no fork .pi/* is
+            # on the path.
+            PI_WORKDIR=$(mktemp -d)
             cd "$PI_WORKDIR"
 
             # Belt-and-suspenders on top of the isolated cwd: refuse discovery of
@@ -328,6 +333,9 @@ jobs:
             cat REVIEW.md .github/pi/pr-review.prompt.md > /tmp/pi-prompt.md
             PI_TOOLS=read,grep,find,ls,bash
           fi
+          # The context file lives in RUNNER_TEMP (outside the checkout); tell the
+          # agent its absolute path.
+          printf '\nReview context file (absolute path): %s\n' "$CTX" >> /tmp/pi-prompt.md
           pi -p \
             --provider deepseek \
             --model deepseek-v4-pro \
@@ -376,7 +384,7 @@ jobs:
           github-token: ${{ github.token }}
           script: |
             const fs = require('fs');
-            const path = `${process.env.GITHUB_WORKSPACE}/pi-final-message.md`;
+            const path = `${process.env.RUNNER_TEMP}/pi-final-message.md`;
             if (!fs.existsSync(path)) {
               core.info('Pi did not produce a final message; skipping PR comment.');
               return;
