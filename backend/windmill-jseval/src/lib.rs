@@ -290,6 +290,7 @@ pub async fn eval_timeout_quickjs(
         .collect();
 
     let expr_clone = expr.clone();
+    let memory_limit = *QUICKJS_MEMORY_LIMIT_BYTES;
 
     // Run the QuickJS evaluation with a timeout.
     // Use the current runtime handle rather than creating an independent
@@ -313,6 +314,7 @@ pub async fn eval_timeout_quickjs(
                     by_id_clone,
                     ctx,
                     context_keys,
+                    memory_limit,
                 )
                 .await
             })
@@ -326,8 +328,65 @@ pub async fn eval_timeout_quickjs(
     })??
 }
 
+/// Default memory cap for a single QuickJS expression evaluation, in bytes.
+/// Bumped from the historical 32MB (too small for transforms that build large
+/// arrays) to a conservative 128MB; genuinely large payloads raise it via
+/// `QUICKJS_MEMORY_LIMIT_MB`.
+///
+/// Sizing rationale: evals are authenticated and, within a worker process, run
+/// one at a time (`transform_input` awaits each transform sequentially and each
+/// eval drops its runtime before the next), so in the default one-worker-per-
+/// process deployment the peak is a single cap. Native / multi-worker-in-process
+/// mode runs up to `NUM_WORKERS` evals concurrently in one heap, so the peak is
+/// `NUM_WORKERS × cap` — the reason to keep the default modest rather than large.
 #[cfg(feature = "quickjs")]
-const QUICKJS_MEMORY_LIMIT: usize = 32 * 1024 * 1024;
+const DEFAULT_QUICKJS_MEMORY_LIMIT_BYTES: usize = 128 * 1024 * 1024;
+
+#[cfg(feature = "quickjs")]
+lazy_static! {
+    /// QuickJS eval memory limit in bytes, resolved once at process start.
+    /// Overridable via the `QUICKJS_MEMORY_LIMIT_MB` env var (a positive integer
+    /// in MB); falls back to `DEFAULT_QUICKJS_MEMORY_LIMIT_BYTES` otherwise.
+    static ref QUICKJS_MEMORY_LIMIT_BYTES: usize = std::env::var("QUICKJS_MEMORY_LIMIT_MB")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .filter(|mb| *mb > 0)
+        .map(|mb| mb.saturating_mul(1024 * 1024))
+        .unwrap_or(DEFAULT_QUICKJS_MEMORY_LIMIT_BYTES);
+}
+
+/// Convert a caught QuickJS error into an `anyhow::Error`, turning heap
+/// exhaustion into a clear, actionable message instead of an opaque one.
+///
+/// QuickJS signals OOM two ways, neither meaningful to users: an `Error` whose
+/// message is "out of memory", or — when it cannot even allocate that `Error` —
+/// a bare `null`/`undefined` throw that rquickjs renders as "Exception generated
+/// by quickjs". Both are detected here from the caught value itself (its type),
+/// which is reliable; a post-hoc heap check is not, because QuickJS ref-count
+/// frees the offending allocations as the JS stack unwinds. A user throwing a
+/// non-null, non-Error value (e.g. `throw "boom"`) is deliberately left as a
+/// normal error so it is not misattributed to the memory limit.
+#[cfg(feature = "quickjs")]
+fn map_quickjs_error(err: rquickjs::CaughtError<'_>, memory_limit: usize) -> anyhow::Error {
+    let is_oom = match &err {
+        rquickjs::CaughtError::Exception(e) => e
+            .message()
+            .map(|m| m.contains("out of memory"))
+            .unwrap_or(false),
+        rquickjs::CaughtError::Value(v) => v.is_null() || v.is_undefined(),
+        rquickjs::CaughtError::Error(_) => false,
+    };
+    if is_oom {
+        anyhow::anyhow!(
+            "The expression evaluation exceeded the memory limit of {} MB. \
+             Reduce the amount of data handled in the transform, or raise the \
+             cap via the QUICKJS_MEMORY_LIMIT_MB environment variable.",
+            memory_limit / (1024 * 1024)
+        )
+    } else {
+        anyhow::anyhow!("QuickJS evaluation error: {}", err)
+    }
+}
 
 #[cfg(feature = "quickjs")]
 async fn eval_quickjs_inner(
@@ -339,9 +398,10 @@ async fn eval_quickjs_inner(
     by_id: Option<IdContext>,
     extra_ctx: Option<Vec<(String, String)>>,
     context_keys: Vec<String>,
+    memory_limit: usize,
 ) -> anyhow::Result<Box<RawValue>> {
     let runtime = AsyncRuntime::new()?;
-    runtime.set_memory_limit(QUICKJS_MEMORY_LIMIT).await;
+    runtime.set_memory_limit(memory_limit).await;
     let context = AsyncContext::full(&runtime).await?;
 
     // Create shared state for async ops if we have a client
@@ -467,10 +527,10 @@ async fn eval_quickjs_inner(
         };
 
         // Evaluate the expression (returns a Promise that resolves to a JSON string)
-        let promise: rquickjs::Promise = ctx.eval(code).catch(&ctx).map_err(quickjs_error_to_anyhow)?;
+        let promise: rquickjs::Promise = ctx.eval(code).catch(&ctx).map_err(|e| map_quickjs_error(e, memory_limit))?;
 
         // Await the promise
-        let result: Value = promise.into_future().await.catch(&ctx).map_err(quickjs_error_to_anyhow)?;
+        let result: Value = promise.into_future().await.catch(&ctx).map_err(|e| map_quickjs_error(e, memory_limit))?;
 
         let json_str = String::from_js(&ctx, result)
             .unwrap_or_else(|_| "null".to_string());
@@ -856,40 +916,49 @@ pub async fn eval_simple_js(
     expr: String,
     globals: HashMap<String, serde_json::Value>,
 ) -> anyhow::Result<Box<RawValue>> {
+    let memory_limit = *QUICKJS_MEMORY_LIMIT_BYTES;
     let handle = tokio::runtime::Handle::current();
     tokio::time::timeout(
         std::time::Duration::from_millis(EVAL_TIMEOUT_MS),
         tokio::task::spawn_blocking(move || {
-            handle.block_on(async move {
-                let runtime = AsyncRuntime::new()?;
-                runtime.set_memory_limit(QUICKJS_MEMORY_LIMIT).await;
-                let context = AsyncContext::full(&runtime).await?;
-
-                async_with!(context => |ctx| {
-                    let js_globals = ctx.globals();
-
-                    // Set up each named global
-                    for (name, value) in &globals {
-                        let js_val = json_to_js(&ctx, value)?;
-                        js_globals.set(name.as_str(), js_val)?;
-                    }
-
-                    // Wrap expression to return JSON string
-                    let code = format!("JSON.stringify(({}) ?? null)", expr);
-                    let result: String = ctx.eval(code)
-                        .catch(&ctx)
-                        .map_err(quickjs_error_to_anyhow)?;
-
-                    Ok(unsafe_raw(result))
-                })
-                .await
-            })
+            handle
+                .block_on(async move { eval_simple_js_inner(&expr, &globals, memory_limit).await })
         }),
     )
     .await
     .map_err(|_| {
         anyhow::anyhow!("The expression evaluation took too long to execute (>{EVAL_TIMEOUT_MS}ms)")
     })??
+}
+
+#[cfg(feature = "quickjs")]
+async fn eval_simple_js_inner(
+    expr: &str,
+    globals: &HashMap<String, serde_json::Value>,
+    memory_limit: usize,
+) -> anyhow::Result<Box<RawValue>> {
+    let runtime = AsyncRuntime::new()?;
+    runtime.set_memory_limit(memory_limit).await;
+    let context = AsyncContext::full(&runtime).await?;
+
+    async_with!(context => |ctx| {
+        let js_globals = ctx.globals();
+
+        // Set up each named global
+        for (name, value) in globals {
+            let js_val = json_to_js(&ctx, value)?;
+            js_globals.set(name.as_str(), js_val)?;
+        }
+
+        // Wrap expression to return JSON string
+        let code = format!("JSON.stringify(({}) ?? null)", expr);
+        let result: String = ctx.eval(code)
+            .catch(&ctx)
+            .map_err(|e| map_quickjs_error(e, memory_limit))?;
+
+        Ok(unsafe_raw(result))
+    })
+    .await
 }
 
 // ── Fallback stubs when quickjs is disabled ──────────────────────────
@@ -2714,5 +2783,117 @@ mod tests {
         // Invalid JS should return an error
         let result = eval_simple_js("this is not valid js @#$".to_string(), globals).await;
         assert!(result.is_err());
+    }
+
+    // =====================================================================
+    // MEMORY LIMIT
+    // =====================================================================
+
+    #[test]
+    fn test_quickjs_memory_limit_default() {
+        // Absent (or invalid) env var falls back to the compiled default.
+        if std::env::var("QUICKJS_MEMORY_LIMIT_MB").is_err() {
+            assert_eq!(
+                *QUICKJS_MEMORY_LIMIT_BYTES,
+                DEFAULT_QUICKJS_MEMORY_LIMIT_BYTES
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_eval_oom_error_reports_memory_limit() {
+        // A million-element array cannot fit in a 4MB heap. Here QuickJS has room
+        // to build a proper "out of memory" Error; it must still surface as a
+        // clear memory-limit message that points at the env override.
+        let err = eval_simple_js_inner(
+            "Array.from({ length: 1000000 }, (_, i) => i)",
+            &HashMap::new(),
+            4 * 1024 * 1024,
+        )
+        .await
+        .expect_err("expected OOM to fail")
+        .to_string();
+        assert!(err.contains("memory limit"), "unexpected error: {err}");
+        assert!(
+            err.contains("QUICKJS_MEMORY_LIMIT_MB"),
+            "no env hint: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_eval_opaque_oom_reports_memory_limit() {
+        // The exact #8073 payload under a cap too small to hold it: QuickJS runs
+        // out of memory while building the flattened array and cannot even
+        // allocate the Error object, so it throws a bare null that rquickjs
+        // renders as the opaque "Exception generated by quickjs" — the original
+        // bug symptom. It must still be recognised as a memory-limit failure.
+        let err = eval_simple_js_inner(
+            "Array.from({ length: 1000000 }, (_, i) => [i, i + 1, i + 2]).flat().length",
+            &HashMap::new(),
+            64 * 1024 * 1024,
+        )
+        .await
+        .expect_err("expected OOM to fail")
+        .to_string();
+        assert!(err.contains("memory limit"), "opaque OOM leaked: {err}");
+        assert!(
+            !err.contains("Exception generated by quickjs"),
+            "opaque OOM leaked: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_eval_user_throw_not_reported_as_oom() {
+        // A transform that throws a non-Error value must NOT be misattributed to
+        // the memory limit — only OOM's null/undefined throw is.
+        let err = eval_simple_js_inner(
+            "(() => { throw 'boom' })()",
+            &HashMap::new(),
+            64 * 1024 * 1024,
+        )
+        .await
+        .expect_err("expected user throw to fail")
+        .to_string();
+        assert!(!err.contains("memory limit"), "misreported as OOM: {err}");
+    }
+
+    #[tokio::test]
+    async fn test_eval_issue_payload_succeeds_with_raised_cap() {
+        // The exact #8073 payload exceeds the conservative default but succeeds
+        // once the cap is raised to 256MB (what the env override lets operators
+        // do), exercising the flow step-input transform path (eval_timeout_quickjs)
+        // via eval_quickjs_inner.
+        let result = eval_quickjs_inner(
+            "Array.from({ length: 1000000 }, (_, i) => [i, i + 1, i + 2]).flat().length",
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Vec::new(),
+            256 * 1024 * 1024,
+        )
+        .await
+        .expect("issue payload should evaluate once the cap is raised");
+        assert_eq!(result.get(), "3000000");
+    }
+
+    #[tokio::test]
+    async fn test_eval_moderately_large_array_under_default() {
+        // A ~48MB array that exceeded the historical 32MB cap but fits under the
+        // 128MB default, through the flow step-input transform path.
+        let result = eval_timeout_quickjs(
+            "Array.from({ length: 3000000 }, (_, i) => i).length".to_string(),
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("moderately large array should evaluate under the default limit");
+        assert_eq!(result.get(), "3000000");
     }
 }
