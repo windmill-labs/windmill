@@ -338,33 +338,34 @@ describe('sessionInCurrentFamily', () => {
 	})
 })
 
-describe('createSession — transient reuse is family-scoped', () => {
-	it('reuses a transient from the active family', () => {
+describe('createSession — reuses an untouched draft, family-scoped', () => {
+	it('reuses an untouched (transient) draft from the active family', () => {
 		const restore = withTwoFamilies('rootA')
 		const prevCurrent = sessionState.currentSessionId
-		const transient = session({
-			id: 'transient-same-family',
+		const untouched = session({
+			id: 'untouched-same-family',
 			name: 'session-901',
 			pending_workspace_id: 'forkA',
 			transient: true
 		})
-		sessionState.sessions.push(transient)
+		sessionState.sessions.push(untouched)
 		try {
 			const created = createSession()
-			expect(created.id).toBe('transient-same-family')
-			expect(sessionState.currentSessionId).toBe('transient-same-family')
+			// No new entry piled up: `+` switched back to the pristine draft.
+			expect(created.id).toBe('untouched-same-family')
+			expect(sessionState.currentSessionId).toBe('untouched-same-family')
 		} finally {
-			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'transient-same-family')
+			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'untouched-same-family')
 			sessionState.currentSessionId = prevCurrent
 			restore()
 		}
 	})
 
-	it('drops a transient left over from another family and starts in the active workspace', () => {
+	it('drops an untouched draft left over from another family and starts in the active workspace', () => {
 		const restore = withTwoFamilies('rootB')
 		const prevCurrent = sessionState.currentSessionId
 		const stale = session({
-			id: 'transient-other-family',
+			id: 'untouched-other-family',
 			name: 'session-902',
 			pending_workspace_id: 'forkA',
 			transient: true
@@ -374,12 +375,40 @@ describe('createSession — transient reuse is family-scoped', () => {
 		try {
 			const created = createSession()
 			createdId = created.id
-			expect(created.id).not.toBe('transient-other-family')
+			expect(created.id).not.toBe('untouched-other-family')
 			expect(created.pending_workspace_id).toBe('rootB')
-			expect(sessionState.sessions.some((s) => s.id === 'transient-other-family')).toBe(false)
+			expect(sessionState.sessions.some((s) => s.id === 'untouched-other-family')).toBe(false)
 		} finally {
 			sessionState.sessions = sessionState.sessions.filter(
-				(s) => s.id !== 'transient-other-family' && s.id !== createdId
+				(s) => s.id !== 'untouched-other-family' && s.id !== createdId
+			)
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+
+	it('does not reuse a touched (persisted) pending session — those spawn a fresh draft', () => {
+		const restore = withTwoFamilies('rootA')
+		const prevCurrent = sessionState.currentSessionId
+		// Touched pending session: persisted (no transient flag), same family.
+		const touched = session({
+			id: 'touched-same-family',
+			name: 'session-903',
+			pending_workspace_id: 'rootA',
+			draftPrompt: 'already typed'
+		})
+		sessionState.sessions.push(touched)
+		let createdId: string | undefined
+		try {
+			const created = createSession()
+			createdId = created.id
+			expect(created.id).not.toBe('touched-same-family')
+			expect(created.transient).toBe(true)
+			// Both coexist: a touched draft stays put, the new blank is its own entry.
+			expect(sessionState.sessions.some((s) => s.id === 'touched-same-family')).toBe(true)
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => s.id !== 'touched-same-family' && s.id !== createdId
 			)
 			sessionState.currentSessionId = prevCurrent
 			restore()
