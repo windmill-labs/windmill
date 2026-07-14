@@ -823,7 +823,7 @@
 											options={{ right: 'Block direct edits (deploy via the dev workspace)' }}
 										/>
 										{#if rootAlreadyBlocksDeploy}
-											<span class="text-2xs text-secondary ml-8"
+											<span class="text-2xs text-secondary ml-11"
 												>Already enforced by an existing protection rule</span
 											>
 										{/if}
@@ -838,7 +838,7 @@
 									<div class="flex flex-col gap-0.5">
 										<Toggle checked disabled options={{ right: 'Prevent forking' }} />
 										{#if rootAlreadyBlocksForking}
-											<span class="text-2xs text-secondary ml-8"
+											<span class="text-2xs text-secondary ml-11"
 												>Already enforced by an existing protection rule</span
 											>
 										{/if}
