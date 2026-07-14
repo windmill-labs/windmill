@@ -5,7 +5,6 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from '$lib/components/home/FlowIcon.svelte'
-	import CreateActionsMenu from '$lib/components/home/CreateActionsMenu.svelte'
 	import { getScriptByPath } from '$lib/scripts'
 	import type { HubItem } from '$lib/components/flows/pickers/model'
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
@@ -273,44 +272,39 @@
 >
 	<ForkWorkspaceBanner />
 	<WorkspaceDraftsBanner />
-	<div class="max-w-7xl px-4 sm:px-8 md:px-8 h-fit w-full">
+	<div class="max-w-7xl px-4 sm:px-8 md:px-8 h-fit w-full mb-10">
 		<div class="flex flex-row flex-wrap justify-between items-center gap-3 pb-2 my-4 mr-2 min-h-16">
-			<h1 class="text-2xl font-semibold text-emphasis whitespace-nowrap leading-6 tracking-tight">
-				Home
-			</h1>
-			<div class="ml-auto flex flex-row gap-2 items-center">
-				{#if !$userStore?.operator && HOME_SHOW_HUB}
-					<Button
-						variant="default"
-						unifiedSize="md"
-						startIcon={{ icon: Globe2 }}
-						endIcon={{ icon: ExternalLink }}
-						href={$hubBaseUrlStore}
-						target="_blank"
-						btnClasses="whitespace-nowrap"
-					>
-						Hub
-					</Button>
-				{/if}
-				<Button
-					variant="default"
-					unifiedSize="md"
-					startIcon={{ icon: PlugZap }}
-					btnClasses="whitespace-nowrap"
-					onClick={() => homeConnectDrawer?.openDrawer?.()}
-				>
-					CLI / MCP
-				</Button>
-				{#if !$userStore?.operator && showCreateButtons}
-					<div class="ml-2">
-						<CreateActionsMenu />
-					</div>
-				{/if}
-			</div>
 		</div>
 
-		<div class="w-full mb-10 mt-6">
+		<div class="w-full mb-12 mt-2">
 			<HomeAIChat />
+
+			<div class="max-w-[40rem] mx-auto flex justify-end">
+				<div class="flex flex-row items-center gap-1">
+					<Button
+						variant="subtle"
+						unifiedSize="xs"
+						btnClasses="!text-2xs !text-hint"
+						startIcon={{ icon: PlugZap }}
+						onClick={() => homeConnectDrawer?.openDrawer?.()}
+					>
+						CLI / MCP
+					</Button>
+					{#if !$userStore?.operator && HOME_SHOW_HUB}
+						<Button
+							variant="subtle"
+							unifiedSize="xs"
+							btnClasses="!text-2xs !text-hint"
+							startIcon={{ icon: Globe2 }}
+							endIcon={{ icon: ExternalLink }}
+							href={$hubBaseUrlStore}
+							target="_blank"
+						>
+							Hub
+						</Button>
+					{/if}
+				</div>
+			</div>
 		</div>
 
 		{#if $workspaceStore == 'admins'}

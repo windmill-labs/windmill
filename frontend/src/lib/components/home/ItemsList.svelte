@@ -1,7 +1,6 @@
 <script lang="ts">
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Button, Skeleton } from '$lib/components/common'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import {
 		AppService,
 		AssetService,
@@ -26,6 +25,7 @@
 		type FilterSchemaRec
 	} from '$lib/components/FilterSearchbar.svelte'
 	import NoItemFound from './NoItemFound.svelte'
+	import CreateActionsMenu from './CreateActionsMenu.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './FlowIcon.svelte'
@@ -514,7 +514,7 @@
 			</ToggleButtonGroup>
 		</div>
 
-		<div class="relative text-primary grow min-w-[200px]">
+		<div class="relative text-primary grow min-w-[200px] max-w-[30rem] ml-auto">
 			<FilterSearchbar
 				schema={searchFilterSchema}
 				bind:value={filterValues.val}
@@ -523,14 +523,17 @@
 				autofocus
 			/>
 		</div>
+
+		{#if !$userStore?.operator && showEditButtons}
+			<CreateActionsMenu />
+		{/if}
 	</div>
 	<div class="relative">
 		{#if filteredItems?.length == 0}
 			<div class="mt-10"></div>
 		{/if}
 		{#if !loading}
-			<div class="flex w-full flex-row-reverse gap-2 mt-2 mb-1 items-center h-6">
-				<Toggle size="xs" bind:checked={treeView} options={{ right: 'Tree view' }} />
+			<div class="flex w-full flex-row-reverse gap-2 mt-2 mb-1 items-center h-0">
 				{#if treeView}
 					<Button
 						unifiedSize="sm"

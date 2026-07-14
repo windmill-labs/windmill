@@ -1,6 +1,6 @@
 <script lang="ts">
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { ArrowRight, Settings } from 'lucide-svelte'
+	import { ArrowUp, Settings } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import ProviderModelSelector from '../copilot/chat/ProviderModelSelector.svelte'
 	import { startSessionWithPrompt } from '../sessions/sessionSwitch.svelte'
@@ -92,6 +92,7 @@
 
 <div class="w-full flex justify-center">
 	<div class="max-w-[40rem] grow relative group">
+		<p class="text-center font-regular text-3xl mb-4">Build with AI</p>
 		<div
 			class={disabled
 				? 'transition-[filter] group-hover:blur-sm pointer-events-none select-none'
@@ -99,14 +100,14 @@
 		>
 			<TextInput
 				bind:value
-				class="resize-none px-4 py-3 pb-9 shadow-lg"
+				class="resize-none px-4 py-3 pb-9 shadow-sm border-accent"
 				underlyingInputEl="textarea"
 				inputProps={{ rows: 4, placeholder, onkeydown: onKeydown }}
 			/>
 			<Button
-				endIcon={starting ? {} : { icon: ArrowRight }}
+				endIcon={starting ? {} : { icon: ArrowUp }}
 				wrapperClasses="absolute right-2 bottom-3.5"
-				variant={value.trim() ? 'accent' : 'default'}
+				variant={value.trim() ? 'accent' : 'subtle'}
 				iconOnly
 				loading={starting}
 				disabled={!value.trim() || starting || disabled}
