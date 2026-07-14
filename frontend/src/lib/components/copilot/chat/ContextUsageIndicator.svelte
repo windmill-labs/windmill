@@ -22,11 +22,8 @@
 	// a live chars/4 estimate of the stored context.
 	let usedTokens = $derived(Math.round(aiChatManager.contextTokens))
 	// Always surface usage once a conversation has started, at any fill level, so
-	// the user can watch context grow toward the compaction threshold. Hidden on the
-	// free tier, where the free-usage meter takes this slot instead.
-	let visible = $derived(
-		usedTokens > 0 && aiChatManager.messages.length > 0 && !$copilotInfo.freeTier
-	)
+	// the user can watch context grow toward the compaction threshold.
+	let visible = $derived(usedTokens > 0 && aiChatManager.messages.length > 0)
 
 	// Compaction triggers at 80% of the window (COMPACTION_TRIGGER_RATIO); the
 	// gauge fills toward that point and turns red once it is reached.

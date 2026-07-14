@@ -30,7 +30,6 @@
 	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
-	import FreeTierUsageIndicator from './FreeTierUsageIndicator.svelte'
 	import AIChatModelSettings from './AIChatModelSettings.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
@@ -64,6 +63,11 @@
 	// The user spent their one-time free Windmill AI grant: there is no model left to send
 	// to, so say so in the thread itself rather than only failing on send.
 	let freeTierExhausted = $derived($copilotInfo.freeTier?.exhausted === true)
+	// Still on the free grant: keep how much is left in view right above the composer, so
+	// running out isn't a surprise. Once spent, the exhausted banner replaces it.
+	let freeTier = $derived($copilotInfo.freeTier)
+	let freeTierUsedPct = $derived(Math.min(100, Math.round((freeTier?.used_ratio ?? 0) * 100)))
+	let showFreeTierUsage = $derived(!!freeTier && !freeTier.exhausted)
 	// `label` is shown in the dropdown; `shortLabel` (when set) is shown in the
 	// compact trigger pill to save horizontal space.
 	type AutonomyModeOption = { label: string; shortLabel?: string; mode: AIAutonomyMode }
@@ -514,6 +518,25 @@
 	</div>
 {/snippet}
 
+{#snippet freeTierUsageBanner()}
+	<div
+		class="mb-1 flex items-center justify-between gap-2 rounded-md border bg-surface-secondary px-2 py-1"
+	>
+		<span class="text-xs text-secondary tabular-nums">
+			{freeTierUsedPct}% of your free Windmill AI used
+		</span>
+		<Button
+			size="xs2"
+			variant="border"
+			color="light"
+			startIcon={{ icon: KeyRound }}
+			href="{base}/workspace_settings?tab=ai"
+		>
+			Configure your API key
+		</Button>
+	</div>
+{/snippet}
+
 <!-- tabindex="-1": clicks on non-focusable chat content must move focus into
 the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 <div
@@ -765,6 +788,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			{#if inputPreface}
 				{@render inputPreface()}
 			{/if}
+			{#if showFreeTierUsage}
+				{@render freeTierUsageBanner()}
+			{/if}
 			<AIChatInput
 				bind:this={aiChatInput}
 				bind:selectedContext
@@ -972,7 +998,6 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							<DatatableCreationPolicy />
 						{/if}
 						<ContextUsageIndicator />
-						<FreeTierUsageIndicator />
 						<AIChatModelSettings />
 
 						{#if aiChatManager.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}

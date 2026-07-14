@@ -270,13 +270,13 @@ function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean)
 
 /**
  * Re-fetch copilotInfo after a free-tier turn so its `freeTier.used_ratio` (and the usage
- * meter that reads it) tracks spend live, and so the turn that finally exhausts the grant
- * flips `freeTier.exhausted` — revealing the banner — instead of the user seeing only a
- * per-request error toast until a page reload. copilotInfo is otherwise fetched only on
- * workspace load.
+ * banner above the composer that reads it) tracks spend live, and so the turn that finally
+ * exhausts the grant flips `freeTier.exhausted` — revealing the banner — instead of the
+ * user seeing only a per-request error toast until a page reload. copilotInfo is otherwise
+ * fetched only on workspace load.
  *
  * Scoped to users actually on the free tier and not already exhausted, so it costs one
- * extra request only while the free meter is live, and never for configured-key users.
+ * extra request only while the grant is live, and never for configured-key users.
  * Keyed on that state rather than on matching an error message, which would break the
  * moment the copy changes.
  */
