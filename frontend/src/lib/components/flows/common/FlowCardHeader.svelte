@@ -221,7 +221,7 @@
 		{/if}
 		<textarea
 			rows="1"
-			use:autosize
+			use:autosize={{ minHeight: 0 }}
 			bind:value={description}
 			maxlength={3000}
 			placeholder="Tool description (optional): tells the AI when and how to use this tool"
