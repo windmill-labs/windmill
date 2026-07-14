@@ -106,9 +106,8 @@ jobs:
           fi
           # Fork PRs run untrusted code with secrets present, so the automatic
           # pull_request trigger never reviews them. A non-empty INPUT_PR_NUMBER
-          # means we arrived via workflow_call, which only happens after an
-          # authorized maintainer opted in (e.g. a /codex comment gated by
-          # check-write-access), so allow forks on that path.
+          # means we arrived via workflow_call (a maintainer /codex comment gated
+          # by check-write-access), so allow forks only on that path.
           if [ "$IS_FORK" = "true" ] && [ -z "$INPUT_PR_NUMBER" ]; then
             echo "Skipping Codex review for fork PR (automatic trigger)."
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -116,9 +115,8 @@ jobs:
           fi
           # PR title/body are attacker-controlled free text. Use an unguessable
           # per-run delimiter so a fork can't embed a fixed heredoc terminator to
-          # close the block early and inject extra outputs — e.g. is_fork=false,
-          # which (last-write-wins) would re-enable the EE checkout and the
-          # trusted-path agent settings for fork code.
+          # inject extra outputs — e.g. is_fork=false (last-write-wins), which
+          # would re-enable the EE checkout and trusted-path settings for forks.
           RAND=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
           TITLE_EOF="TITLE_EOF_${RAND}"
           BODY_EOF="BODY_EOF_${RAND}"
@@ -354,10 +352,9 @@ jobs:
               return;
             }
             // Defense-in-depth for fork reviews: the model call needs the provider
-            // credential in the environment, and the posted comment is an
-            // exfiltration channel that bypasses GitHub Actions log masking. Strip
-            // any credential value (the API key, the raw auth JSON, and the tokens
-            // nested inside it) that leaked into the review text before posting.
+            // credential in the env, and the posted comment bypasses Actions log
+            // masking. Strip any credential (API key, raw auth JSON, nested
+            // tokens) that leaked into the review text before posting.
             const secrets = [];
             const addSecret = (v, min) => {
               if (typeof v === 'string' && v.length >= min) secrets.push(v);

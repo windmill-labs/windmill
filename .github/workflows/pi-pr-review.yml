@@ -99,9 +99,8 @@ jobs:
           fi
           # Fork PRs run untrusted code with secrets present, so the automatic
           # pull_request trigger never reviews them. A non-empty INPUT_PR_NUMBER
-          # means we arrived via workflow_call, which only happens after an
-          # authorized maintainer opted in (e.g. a /pi comment gated by
-          # check-write-access), so allow forks on that path.
+          # means we arrived via workflow_call (a maintainer /pi comment gated by
+          # check-write-access), so allow forks only on that path.
           if [ "$IS_FORK" = "true" ] && [ -z "$INPUT_PR_NUMBER" ]; then
             echo "Skipping Pi review for fork PR (automatic trigger)."
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -109,9 +108,8 @@ jobs:
           fi
           # PR title/body are attacker-controlled free text. Use an unguessable
           # per-run delimiter so a fork can't embed a fixed heredoc terminator to
-          # close the block early and inject extra outputs — e.g. is_fork=false,
-          # which (last-write-wins) would re-enable the EE checkout and the
-          # trusted-path agent settings for fork code.
+          # inject extra outputs — e.g. is_fork=false (last-write-wins), which
+          # would re-enable the EE checkout and trusted-path settings for forks.
           RAND=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
           TITLE_EOF="TITLE_EOF_${RAND}"
           BODY_EOF="BODY_EOF_${RAND}"
@@ -283,11 +281,10 @@ jobs:
         run: |
           set -o pipefail
           PI_HARDEN_FLAGS=()
-          # Keep generated files outside the checkout: on the fork path the merge
-          # tree is attacker-controlled, so a committed symlink at any of these
-          # paths (final message, events, context) would redirect the write and, in
-          # the worst case, overwrite an action's code that then runs with our
-          # credentials. RUNNER_TEMP is runner-created and outside the checkout.
+          # Keep generated files (final message, events, context) outside the
+          # checkout: on the fork path a committed symlink at any of these paths
+          # would redirect our write and could overwrite an action's code that
+          # then runs with our credentials. RUNNER_TEMP is outside the checkout.
           OUT_DIR="$RUNNER_TEMP"
           CTX="$RUNNER_TEMP/pr-review-context.md"
           if [ "$PR_IS_FORK" = "true" ]; then
@@ -312,14 +309,10 @@ jobs:
               echo '```'
             } >> "$CTX"
 
-            # Root cause of the recurring fork-review exposure: Pi resolves ALL
-            # project config from <cwd>/.pi — settings/packages, extensions, skills,
-            # themes, prompts, SYSTEM.md, APPEND_SYSTEM.md. Running inside the fork
-            # checkout lets a fork inject any of these to execute code or rewrite the
-            # reviewer's system prompt with DEEPSEEK_API_KEY in env. Discovery is
-            # cwd-based (single level, no walk-up; global fallback is the trusted
-            # runner home), so run Pi from a fresh empty dir where no fork .pi/* is
-            # on the path.
+            # Pi resolves ALL project config from <cwd>/.pi (settings/packages,
+            # extensions, skills, themes, prompts, SYSTEM.md); inside the fork
+            # checkout a fork could inject any to run code or rewrite our system
+            # prompt. Discovery is cwd-based, so run from a fresh empty dir.
             PI_WORKDIR=$(mktemp -d)
             cd "$PI_WORKDIR"
 
