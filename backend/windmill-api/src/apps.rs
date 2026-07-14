@@ -3875,6 +3875,26 @@ async fn check_if_allowed_to_access_s3_file_from_app(
             .as_ref()
             .map(|authed| authed.username.clone())
             .unwrap_or_else(|| "anonymous".to_string());
+        // Runnable paths (script/flow) this app is wired to trigger, derived from
+        // the policy triggerables. Keys look like `flow/<path>`, `script/<path>`,
+        // `rawscript/<sha>`, optionally prefixed with `<component>:`. Only deployed
+        // script/flow keys yield a job `runnable_path`; rawscript inline jobs are
+        // already covered by the `appscript`/`preview` prefix match below.
+        let triggerable_paths: Vec<String> = policy
+            .triggerables
+            .iter()
+            .flat_map(|m| m.keys())
+            .chain(policy.triggerables_v2.iter().flat_map(|m| m.keys()))
+            .filter_map(|key| {
+                let rest = match key.split_once(':') {
+                    Some((prefix, rest)) if !prefix.contains('/') => rest,
+                    _ => key.as_str(),
+                };
+                rest.strip_prefix("flow/")
+                    .or_else(|| rest.strip_prefix("script/"))
+                    .map(|p| p.to_string())
+            })
+            .collect();
         let allowed = policy.allowed_s3_keys.as_ref().is_some_and(|keys| {
             keys.iter()
                 .any(|key| key.s3_path == file_query.s3 && key.storage == file_query.storage)
@@ -3883,16 +3903,23 @@ async fn check_if_allowed_to_access_s3_file_from_app(
                 r#"SELECT EXISTS (
                 SELECT 1 FROM v2_job_completed c JOIN v2_job j USING (id)
                 WHERE j.workspace_id = $2
-                    AND (j.kind = 'appscript' OR j.kind = 'preview')
-                    AND j.created_by = $4
                     AND c.started_at > now() - interval '3 hours'
-                    AND j.runnable_path LIKE $3 || '/%'
                     AND c.result @> ('{"s3":"' || $1 ||  '"}')::jsonb
+                    AND (j.created_by = $4 OR ($5::text IS NOT NULL AND j.permissioned_as = $5))
+                    AND (
+                        -- inline app scripts / editor previews produced directly by this app
+                        ((j.kind = 'appscript' OR j.kind = 'preview') AND j.runnable_path LIKE $3 || '/%')
+                        OR
+                        -- flow/script components (and their inline flow steps) wired into this app
+                        (j.kind IN ('script', 'flow', 'flowscript', 'flownode') AND j.runnable_path = ANY($6))
+                    )
             )"#,
                 file_query.s3,
                 w_id,
                 path,
                 creator,
+                policy.on_behalf_of.as_deref(),
+                &triggerable_paths,
             )
             .fetch_one(db)
             .await?

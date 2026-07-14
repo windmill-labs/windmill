@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (\n                SELECT 1 FROM v2_job_completed c JOIN v2_job j USING (id)\n                WHERE j.workspace_id = $2\n                    AND c.started_at > now() - interval '3 hours'\n                    AND c.result @> ('{\"s3\":\"' || $1 ||  '\"}')::jsonb\n                    AND (j.created_by = $4 OR ($5::text IS NOT NULL AND j.permissioned_as = $5))\n                    AND (\n                        -- inline app scripts / editor previews produced directly by this app\n                        ((j.kind = 'appscript' OR j.kind = 'preview') AND j.runnable_path LIKE $3 || '/%')\n                        OR\n                        -- flow/script components (and their inline flow steps) wired into this app\n                        (j.kind IN ('script', 'flow', 'flowscript', 'flownode') AND j.runnable_path = ANY($6))\n                    )\n            )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "1c79fae1cd4b016b701b637ffd13de3bc2191c63e28a4638f320c7319097d98a"
+}
