@@ -120,9 +120,8 @@ export async function main(): Promise<{ host: string; pairs: [string, string][] 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "deno_core upgrade smoke; run with --ignored"]
 async fn smoke_web_blob_btoa_atob() {
-    // deno_web surface: Blob, atob/btoa. `structuredClone` is *not* wired
-    // into the nativets global (the deno_web binding doesn't expose it
-    // here) — if that's ever changed, extend this test to cover it.
+    // deno_web surface: Blob, atob/btoa. (`structuredClone` and the rest of
+    // the wired web globals are covered by `smoke_web_globals_are_wired`.)
     let ts = r#"
 export async function main(): Promise<{ b64: string; round_trip: string; size: number }> {
     const blob = new Blob(["hello"], { type: "text/plain" });
@@ -228,6 +227,128 @@ export async function main(i: number): Promise<number> {
     got.sort();
     let expected: Vec<i64> = (0..N).map(|i| i * 10).collect();
     assert_eq!(got, expected);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_text_encoder_decoder() {
+    // TextEncoder/TextDecoder are wired from deno_web's 08_text_encoding.
+    // The "€" (U+20AC) is a 3-byte UTF-8 sequence, so this asserts the
+    // multi-byte encode → decode round-trip (not just ASCII) survives the
+    // deno_core op boundary.
+    let ts = r#"
+export async function main(): Promise<{ bytes: number[]; round_trip: string }> {
+    const enc = new TextEncoder();
+    const dec = new TextDecoder();
+    const bytes = enc.encode("a€b");
+    return { bytes: Array.from(bytes), round_trip: dec.decode(bytes) };
+}
+"#;
+    let r = run_ts(ts, &[], serde_json::json!({})).await;
+    assert_eq!(
+        unwrap_value(&r),
+        serde_json::json!({
+            // "a" = 0x61, "€" = 0xE2 0x82 0xAC, "b" = 0x62
+            "bytes": [0x61, 0xE2, 0x82, 0xAC, 0x62],
+            "round_trip": "a€b",
+        }),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_web_globals_are_wired() {
+    // Guard against a wrong export name silently leaving a global unwired:
+    // assert each web-platform global we assign in runtime.js is actually
+    // defined. If a deno_web/deno_url export is renamed on a future bump,
+    // the corresponding `globalThis.X = mod.X` becomes `undefined` and this
+    // test flips it to false.
+    let ts = r#"
+export async function main(): Promise<Record<string, boolean>> {
+    const names = [
+        "TextEncoder", "TextDecoder", "TextEncoderStream", "TextDecoderStream",
+        "File",
+        "Event", "EventTarget", "CustomEvent",
+        "ReadableStream", "WritableStream", "TransformStream",
+        "ByteLengthQueuingStrategy", "CountQueuingStrategy",
+        "URLPattern",
+        "CompressionStream", "DecompressionStream",
+        "MessageChannel", "MessagePort",
+        "structuredClone", "performance",
+    ];
+    const out: Record<string, boolean> = {};
+    for (const n of names) out[n] = typeof (globalThis as any)[n] !== "undefined";
+    return out;
+}
+"#;
+    let r = run_ts(ts, &[], serde_json::json!({})).await;
+    let v = unwrap_value(&r);
+    let obj = v.as_object().expect("expected an object result");
+    let unwired: Vec<&String> = obj
+        .iter()
+        .filter(|(_, defined)| defined.as_bool() != Some(true))
+        .map(|(name, _)| name)
+        .collect();
+    assert!(
+        unwired.is_empty(),
+        "these globals were not wired: {unwired:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_structured_clone_and_performance() {
+    // structuredClone is the spec function (from 13_message_port.js): it
+    // deep-clones and accepts an options bag. performance.now() must return
+    // a finite number. Both are exercised end-to-end here.
+    let ts = r#"
+export async function main(): Promise<{ deep_equal: boolean; detached: boolean; now_ok: boolean }> {
+    const src = { a: 1, nested: { b: [2, 3] } };
+    const copy = structuredClone(src);
+    copy.nested.b.push(4);
+    const deep_equal = JSON.stringify(copy) === JSON.stringify({ a: 1, nested: { b: [2, 3, 4] } });
+    // Mutating the clone must not touch the source (proves a real deep clone).
+    const detached = src.nested.b.length === 2;
+    const now_ok = Number.isFinite(performance.now());
+    return { deep_equal, detached, now_ok };
+}
+"#;
+    let r = run_ts(ts, &[], serde_json::json!({})).await;
+    assert_eq!(
+        unwrap_value(&r),
+        serde_json::json!({ "deep_equal": true, "detached": true, "now_ok": true }),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_readable_stream_roundtrip() {
+    // ReadableStream + TextEncoderStream/TextDecoderStream: pipe an encode
+    // stream through and read chunks back. Exercises the streams surface
+    // (06_streams.js) that `res.body instanceof ReadableStream` relies on.
+    let ts = r#"
+export async function main(): Promise<{ is_readable: boolean; text: string }> {
+    const rs = new ReadableStream<string>({
+        start(controller) {
+            controller.enqueue("hello ");
+            controller.enqueue("stream");
+            controller.close();
+        },
+    });
+    const is_readable = rs instanceof ReadableStream;
+    const decoded = rs
+        .pipeThrough(new TextEncoderStream())
+        .pipeThrough(new TextDecoderStream());
+    let text = "";
+    for await (const chunk of decoded) text += chunk;
+    return { is_readable, text };
+}
+"#;
+    let r = run_ts(ts, &[], serde_json::json!({})).await;
+    assert_eq!(
+        unwrap_value(&r),
+        serde_json::json!({ "is_readable": true, "text": "hello stream" }),
+    );
 }
 
 // -----------------------------------------------------------------------------

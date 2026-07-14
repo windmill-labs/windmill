@@ -19,9 +19,12 @@ import * as response from "ext:deno_fetch/23_response.js";
 import * as request from "ext:deno_fetch/23_request.js";
 import "ext:deno_web/02_structured_clone.js";
 import "ext:deno_web/04_global_interfaces.js";
-import "ext:deno_web/13_message_port.js";
-import "ext:deno_web/14_compression.js";
-import "ext:deno_web/15_performance.js";
+// These three modules were previously imported for their side effects only.
+// They are namespace imports so their constructors can be wired onto
+// globalThis below (the module bodies still run, so the side effects remain).
+import * as messagePort from "ext:deno_web/13_message_port.js";
+import * as compression from "ext:deno_web/14_compression.js";
+import * as performance from "ext:deno_web/15_performance.js";
 import "ext:deno_web/16_image_data.js";
 import "ext:deno_fetch/27_eventsource.js";
 
@@ -47,6 +50,45 @@ Object.assign(globalThis, {
   clearTimeout: timers.clearTimeout,
   setInterval: timers.setInterval,
   setTimeout: timers.setTimeout,
+});
+
+// Standard web-platform globals the deno_web / deno_url extensions provide but
+// that weren't wired onto globalThis. Scripts assume these exist (browsers,
+// Deno and the bun runner all expose them), so this brings the nativets runtime
+// to parity with the bun runner's global surface. Every name below is present
+// in bun; names bun lacks (EventSource, ImageData) are deliberately not wired.
+Object.assign(globalThis, {
+  // Text encoding + encoding streams.
+  TextEncoder: encoding.TextEncoder,
+  TextDecoder: encoding.TextDecoder,
+  TextEncoderStream: encoding.TextEncoderStream,
+  TextDecoderStream: encoding.TextDecoderStream,
+  // File (Blob is already wired above).
+  File: file.File,
+  // Events (AbortSignal, already wired, extends EventTarget).
+  Event: event.Event,
+  EventTarget: event.EventTarget,
+  CustomEvent: event.CustomEvent,
+  // Streams + queuing strategies.
+  ReadableStream: streams.ReadableStream,
+  WritableStream: streams.WritableStream,
+  TransformStream: streams.TransformStream,
+  ByteLengthQueuingStrategy: streams.ByteLengthQueuingStrategy,
+  CountQueuingStrategy: streams.CountQueuingStrategy,
+  // URL pattern matching.
+  URLPattern: urlPattern.URLPattern,
+  // Compression streams.
+  CompressionStream: compression.CompressionStream,
+  DecompressionStream: compression.DecompressionStream,
+  // Message channel / port.
+  MessageChannel: messagePort.MessageChannel,
+  MessagePort: messagePort.MessagePort,
+  // High-resolution timing.
+  performance: performance.performance,
+  // Spec structuredClone (validates args + honors the options bag), from the
+  // message-port module rather than the single-arg internal helper in
+  // 02_structured_clone.js.
+  structuredClone: messagePort.structuredClone,
 });
 
 // Expose bootstrapOtel globally so it can be called from Rust after runtime creation.
