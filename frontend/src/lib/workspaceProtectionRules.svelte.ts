@@ -183,6 +183,25 @@ export function isRuleActiveInRulesets(
 }
 
 /**
+ * Whether a rule kind is enforced unconditionally — active in a ruleset that has no bypass users or
+ * groups — in at least one ruleset. Only such a rule is equivalent to the empty-bypass reserved
+ * dev-workspace lock; a rule that lets some users bypass is NOT, since layering the unconditional lock
+ * on top would revoke those users' access. Used to decide when a lock toggle can be shown as already
+ * enforced (locked) rather than editable.
+ */
+export function isRuleUnconditionallyActiveInRulesets(
+	rulesets: ProtectionRuleset[],
+	ruleKind: ProtectionRuleKind
+): boolean {
+	return rulesets.some(
+		(ruleset) =>
+			ruleset.rules.includes(ruleKind) &&
+			ruleset.bypass_users.length === 0 &&
+			ruleset.bypass_groups.length === 0
+	)
+}
+
+/**
  * Checks if user can bypass a rule kind in given rulesets (workspace-agnostic version)
  * @param rulesets Array of protection rulesets to check
  * @param ruleKind The rule type to check

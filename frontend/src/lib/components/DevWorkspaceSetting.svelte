@@ -13,7 +13,7 @@
 	import {
 		loadProtectionRules,
 		fetchProtectionRulesForWorkspace,
-		isRuleActiveInRulesets
+		isRuleUnconditionallyActiveInRulesets
 	} from '$lib/workspaceProtectionRules.svelte'
 	import { GitFork, ExternalLink } from 'lucide-svelte'
 	import { resource } from 'runed'
@@ -65,22 +65,35 @@
 	// is on screen; a failed fetch falls back to the editable default-on toggle (real rules still enforce).
 	const rootProtectionRules = resource(
 		() => (!parentId && !pairedDev ? $workspaceStore : undefined),
-		async (ws) => (ws ? await fetchProtectionRulesForWorkspace(ws) : [])
+		async (ws, _prev, { signal }) => {
+			if (!ws) return undefined
+			const rules = await fetchProtectionRulesForWorkspace(ws)
+			// The generated client can't take an abort signal, so drop a superseded response here: a late
+			// result for a previously selected workspace must not overwrite the current one's rules.
+			if (signal.aborted) throw new DOMException('superseded', 'AbortError')
+			return { ws, rules }
+		}
 	)
+	// Only trust a result that belongs to the current workspace (guards the in-flight window and any
+	// out-of-order response); undefined means "not known yet" and is treated as locked below.
+	let rootRules = $derived.by(() => {
+		const current = rootProtectionRules.current
+		return current && current.ws === $workspaceStore ? current.rules : undefined
+	})
+	// Only a rule with no bypass users/groups matches the empty-bypass reserved lock we would create; a
+	// bypassable rule stays editable, otherwise forcing the lock on would revoke the bypassed users'
+	// direct-deploy / forking access.
 	let alreadyBlocksDeploy = $derived(
-		isRuleActiveInRulesets(rootProtectionRules.current ?? [], 'DisableDirectDeployment')
+		isRuleUnconditionallyActiveInRulesets(rootRules ?? [], 'DisableDirectDeployment')
 	)
 	let alreadyBlocksForking = $derived(
-		isRuleActiveInRulesets(rootProtectionRules.current ?? [], 'DisableWorkspaceForking')
+		isRuleUnconditionallyActiveInRulesets(rootRules ?? [], 'DisableWorkspaceForking')
 	)
-	// Until the fetch resolves the workspace's rules are unknown (current === undefined also covers the
-	// first frame before loading flips). Treat each lock as engaged during that window so the toggle is
-	// locked on and the effective value stays true: otherwise a user could turn a lock off and attach
-	// before an existing rule is detected, sending false and omitting the reserved rule — leaving prod
-	// unprotected if that existing rule is later removed.
-	let rulesUnknown = $derived(
-		rootProtectionRules.loading || rootProtectionRules.current === undefined
-	)
+	// Until the fetch resolves for the current workspace its rules are unknown. Treat each lock as
+	// engaged during that window so the toggle is locked on and the effective value stays true:
+	// otherwise a user could turn a lock off and attach before an existing rule is detected, sending
+	// false and omitting the reserved rule — leaving prod unprotected if that rule is later removed.
+	let rulesUnknown = $derived(rootProtectionRules.loading || rootRules === undefined)
 	let deployLocked = $derived(alreadyBlocksDeploy || rulesUnknown)
 	let forkingLocked = $derived(alreadyBlocksForking || rulesUnknown)
 	// Sent to the backend: a locked restriction (enforced or not-yet-known) stays on regardless of the
