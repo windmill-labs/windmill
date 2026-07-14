@@ -149,7 +149,8 @@
 
 	// If the root already blocks direct deploy / forking through an existing protection rule, keep the
 	// matching lock toggle on but locked: this flow only manages its own reserved dev-workspace rule, so
-	// turning it "off" here couldn't lift a separately-defined block. Fail-open (empty rules) on error.
+	// turning it "off" here couldn't lift a separately-defined block. On a failed fetch we fall back to the
+	// editable default-on toggle, which can't drop protection (any real rule still enforces server-side).
 	const rootProtectionRules = resource(
 		() => (canDesignateDevWorkspace && createAsDevWorkspace ? baseWorkspaceId : undefined),
 		async (ws) => (ws ? await fetchProtectionRulesForWorkspace(ws) : [])

@@ -61,8 +61,8 @@
 
 	// If this workspace already blocks direct deploy / forking through an existing protection rule, keep
 	// the matching lock toggle on but locked: attaching only manages its own reserved dev-workspace rule,
-	// so turning it "off" here couldn't lift a separately-defined block. Only fetched when the attach form
-	// (a root without a paired dev) is on screen. Fail-open (empty rules) on error.
+	// so turning it "off" here couldn't lift a separately-defined block. Fetched only while the attach form
+	// is on screen; a failed fetch falls back to the editable default-on toggle (real rules still enforce).
 	const rootProtectionRules = resource(
 		() => (!parentId && !pairedDev ? $workspaceStore : undefined),
 		async (ws) => (ws ? await fetchProtectionRulesForWorkspace(ws) : [])
