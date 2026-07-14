@@ -538,7 +538,9 @@
 	</div>
 	<div class="relative">
 		{#if !loading}
-			<div class="flex w-full flex-row-reverse gap-2 mt-2 mb-1 items-center h-0">
+			<div
+				class="flex w-full flex-row-reverse gap-2 mt-2 mb-1 items-center {treeView ? 'h-4' : 'h-0'}"
+			>
 				{#if treeView}
 					<Button
 						unifiedSize="sm"
