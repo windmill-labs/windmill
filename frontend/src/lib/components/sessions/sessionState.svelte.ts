@@ -942,6 +942,11 @@ export function setSessionArchived(id: string, archived: boolean) {
 export function deleteSession(id: string) {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
+	// Cancel any pending draft-prompt flush: left running, its persistTouched
+	// would write the record back to IndexedDB after we delete it, resurrecting
+	// a draft deleted inside the debounce window.
+	clearTimeout(draftPromptFlushHandles.get(id))
+	draftPromptFlushHandles.delete(id)
 	sessionState.sessions = sessionState.sessions.filter((x) => x.id !== id)
 	if (sessionState.currentSessionId === id) {
 		sessionState.currentSessionId = sessionState.sessions[0]?.id
