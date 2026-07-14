@@ -13,6 +13,7 @@ import type { ContextElement } from '../context'
 import {
 	createSearchHubScriptsTool,
 	type Tool,
+	type ToolCallbacks,
 	executeTestRun,
 	buildTestRunArgs,
 	buildContextString,
@@ -28,6 +29,7 @@ import type { ReviewChangesOpts } from '../monaco-adapter'
 import { getCurrentModel } from '$lib/aiStore'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/metadata'
 import { getScriptPrompt, getWorkflowAsCodePrompt } from '$system_prompts'
+import { isDebuggableLanguage } from '$lib/components/debug'
 
 // Score threshold for npm packages search filtering
 const SCORE_THRESHOLD = 1000
@@ -306,6 +308,14 @@ INSTRUCTIONS:
 
 `
 
+const DEBUGGER_SYSTEM_PROMPT = `INTERACTIVE DEBUGGER:
+You can drive a step-through debugger for this script to inspect runtime state, rather than reasoning about it statically or scattering print statements. The loop is: read the code → debug_set_breakpoints on the interesting lines → debug_start → at each stop, debug_evaluate targeted expressions to test a hypothesis → debug_continue/debug_step to advance → form a fix → edit_code → re-run to confirm.
+- Prefer debug_evaluate with a specific expression (e.g. \`len(rows)\`, \`obj.field\`) over dumping whole scopes — it is far cheaper on context and is rate-limited per turn.
+- debug_get_state is free (no code runs); use it to re-orient after a stop.
+- If debug_continue/debug_start reports the code is "still running", call debug_wait to keep waiting; do not busy-loop.
+- Breakpoints in a hot loop will pause you thousands of times and exhaust the per-turn budget — break before the loop and step, or remove the breakpoint.
+- If the user takes manual control, stop issuing debug commands until they ask you to resume. Call debug_stop when you are done.`
+
 export function prepareScriptSystemMessage(
 	currentModel: AIProviderModel,
 	language: ScriptLang | 'bunnative',
@@ -313,6 +323,7 @@ export function prepareScriptSystemMessage(
 		isPreprocessor?: boolean
 		allowResourcesFetch?: boolean
 		workflowAsCode?: boolean
+		debugAvailable?: boolean
 	} = {},
 	customPrompt?: string
 ): ChatCompletionSystemMessageParam {
@@ -321,6 +332,10 @@ export function prepareScriptSystemMessage(
 	// Add language context to the system prompt
 	const langContext = getLangContext(language, { allowResourcesFetch: true, ...options })
 	content += `\n\nWINDMILL LANGUAGE CONTEXT:\n${langContext}`
+
+	if (options.debugAvailable && isDebuggableLanguage(language)) {
+		content += `\n\n${DEBUGGER_SYSTEM_PROMPT}`
+	}
 
 	// If there's a custom prompt, append it to the system prompt
 	if (customPrompt?.trim()) {
@@ -336,7 +351,8 @@ export function prepareScriptSystemMessage(
 export function prepareScriptTools(
 	currentModel: AIProviderModel,
 	language: ScriptLang | 'bunnative',
-	context: ContextElement[]
+	context: ContextElement[],
+	options?: { debugAvailable?: boolean }
 ): Tool<ScriptChatHelpers>[] {
 	const tools: Tool<ScriptChatHelpers>[] = []
 	if (['python3', 'php', 'bun', 'deno', 'nativets', 'bunnative'].includes(language)) {
@@ -357,6 +373,19 @@ export function prepareScriptTools(
 	}
 	tools.push(testRunScriptTool)
 	tools.push(getLintErrorsTool)
+	// Gated on a live editor debug controller so the schemas aren't dead weight elsewhere.
+	if (options?.debugAvailable && isDebuggableLanguage(language)) {
+		tools.push(
+			debugStartTool,
+			debugGetStateTool,
+			debugSetBreakpointsTool,
+			debugContinueTool,
+			debugStepTool,
+			debugWaitTool,
+			debugEvaluateTool,
+			debugStopTool
+		)
+	}
 	tools.push(createSearchWorkspaceTool())
 	tools.push(createGetRunnableDetailsTool())
 	tools.push(...createWorkspaceMutationTools<ScriptChatHelpers>())
@@ -433,6 +462,17 @@ async function formatDBSchema(dbSchema: DBSchema) {
 	}
 }
 
+export interface ScriptDebugHelpers {
+	getState: () => string
+	start: (args: Record<string, unknown> | undefined, timeoutMs: number) => Promise<string>
+	continue: (timeoutMs: number) => Promise<string>
+	step: (kind: 'over' | 'in' | 'out', timeoutMs: number) => Promise<string>
+	wait: (timeoutMs: number) => Promise<string>
+	evaluate: (expression: string, frameId?: number) => Promise<string>
+	setBreakpoints: (lines: number[]) => Promise<string>
+	stop: () => Promise<string>
+}
+
 export interface ScriptChatHelpers {
 	getScriptOptions: () => {
 		code: string
@@ -443,6 +483,8 @@ export interface ScriptChatHelpers {
 	applyCode: (code: string, opts?: ReviewChangesOpts) => Promise<void>
 	/** Get lint errors from the Monaco editor */
 	getLintErrors?: () => ScriptLintResult
+	/** Interactive step-debugger surface; undefined when unavailable. */
+	debug?: ScriptDebugHelpers
 }
 
 export const resourceTypeTool: Tool<ScriptChatHelpers> = {
@@ -751,6 +793,162 @@ const GET_LINT_ERRORS_TOOL: ChatCompletionFunctionTool = {
 	}
 }
 
+// Wait window a control tool blocks before returning "still running" as an outcome.
+const DEBUG_CONTROL_WAIT_MS = 8000
+const DEBUG_DEFAULT_WAIT_S = 15
+const DEBUG_MAX_WAIT_MS = 60000
+
+const DEBUG_START_TOOL: ChatCompletionFunctionTool = {
+	type: 'function',
+	function: {
+		name: 'debug_start',
+		description:
+			'Start an interactive step-through debug session for the current script, then run to the first breakpoint or to completion. Set breakpoints first with debug_set_breakpoints. Returns the stop location and stack; use debug_evaluate to read runtime values, debug_continue/debug_step to advance.',
+		parameters: {
+			type: 'object',
+			properties: {
+				args: { type: 'string', description: 'JSON string containing the arguments for the tool' }
+			},
+			additionalProperties: false,
+			strict: false,
+			required: ['args']
+		}
+	}
+}
+
+const DEBUG_GET_STATE_TOOL: ChatCompletionFunctionTool = {
+	type: 'function',
+	function: {
+		name: 'debug_get_state',
+		description:
+			'Read the current debug session state (status, current line, stack, scope names, output, result) without running any code. Cheap; use it to re-orient after a stop.',
+		parameters: {
+			type: 'object',
+			properties: {},
+			additionalProperties: false,
+			strict: true,
+			required: []
+		}
+	}
+}
+
+const DEBUG_EVALUATE_TOOL: ChatCompletionFunctionTool = {
+	type: 'function',
+	function: {
+		name: 'debug_evaluate',
+		description:
+			'Evaluate an expression in the paused frame and return its value. This is the preferred way to inspect runtime state — ask a targeted question (e.g. `len(rows)`, `user.id`) instead of dumping whole scopes. Runs debuggee code, so it is rate-limited per turn.',
+		parameters: {
+			type: 'object',
+			properties: {
+				expression: {
+					type: 'string',
+					description: 'The expression to evaluate in the current frame'
+				},
+				frameId: {
+					type: 'number',
+					description: 'Optional stack frame id to evaluate in; defaults to the top frame'
+				}
+			},
+			additionalProperties: false,
+			strict: false,
+			required: ['expression']
+		}
+	}
+}
+
+const DEBUG_CONTINUE_TOOL: ChatCompletionFunctionTool = {
+	type: 'function',
+	function: {
+		name: 'debug_continue',
+		description:
+			'Resume execution until the next breakpoint, the end of the script, or an error. Returns the new stop location, or reports that the code is still running (then call debug_wait).',
+		parameters: {
+			type: 'object',
+			properties: {},
+			additionalProperties: false,
+			strict: true,
+			required: []
+		}
+	}
+}
+
+const DEBUG_STEP_TOOL: ChatCompletionFunctionTool = {
+	type: 'function',
+	function: {
+		name: 'debug_step',
+		description:
+			'Step one source line while paused. `over` runs a call without descending, `in` descends into a call, `out` runs until the current function returns.',
+		parameters: {
+			type: 'object',
+			properties: {
+				kind: { type: 'string', enum: ['over', 'in', 'out'], description: 'The kind of step' }
+			},
+			additionalProperties: false,
+			strict: false,
+			required: ['kind']
+		}
+	}
+}
+
+const DEBUG_WAIT_TOOL: ChatCompletionFunctionTool = {
+	type: 'function',
+	function: {
+		name: 'debug_wait',
+		description:
+			'Keep waiting for long-running code to stop or finish after debug_continue/debug_start reported it was still running. Each call spends budget, so prefer it over polling.',
+		parameters: {
+			type: 'object',
+			properties: {
+				timeout_seconds: {
+					type: 'number',
+					description: `How long to wait, in seconds (default ${DEBUG_DEFAULT_WAIT_S}, min 1, max ${DEBUG_MAX_WAIT_MS / 1000})`
+				}
+			},
+			additionalProperties: false,
+			strict: false,
+			required: []
+		}
+	}
+}
+
+const DEBUG_SET_BREAKPOINTS_TOOL: ChatCompletionFunctionTool = {
+	type: 'function',
+	function: {
+		name: 'debug_set_breakpoints',
+		description:
+			'Replace the set of breakpoints with the given 1-based line numbers (pass an empty array to clear all). Read the code first to pick lines. Conditions are not supported yet — for a hot loop, break before it and step in.',
+		parameters: {
+			type: 'object',
+			properties: {
+				lines: {
+					type: 'array',
+					items: { type: 'number' },
+					description: '1-based line numbers to break at; empty to clear all'
+				}
+			},
+			additionalProperties: false,
+			strict: false,
+			required: ['lines']
+		}
+	}
+}
+
+const DEBUG_STOP_TOOL: ChatCompletionFunctionTool = {
+	type: 'function',
+	function: {
+		name: 'debug_stop',
+		description: 'Terminate the debug session and release its resources.',
+		parameters: {
+			type: 'object',
+			properties: {},
+			additionalProperties: false,
+			strict: true,
+			required: []
+		}
+	}
+}
+
 export const editCodeToolWithDiff: Tool<ScriptChatHelpers> = {
 	def: EDIT_CODE_TOOL_WITH_DIFF,
 	streamArguments: true,
@@ -939,5 +1137,124 @@ export const getLintErrorsTool: Tool<ScriptChatHelpers> = {
 		toolCallbacks.setToolStatus(toolId, { content: status })
 
 		return formatScriptLintResult(lintResult)
+	}
+}
+
+const DEBUG_UNAVAILABLE_MESSAGE =
+	'The step debugger is not available here. It requires a debuggable language (Python or TypeScript/Bun) with the debug service and signing configured.'
+
+function requireDebug(
+	helpers: ScriptChatHelpers,
+	toolCallbacks: ToolCallbacks,
+	toolId: string
+): ScriptDebugHelpers | undefined {
+	if (!helpers.debug) {
+		toolCallbacks.setToolStatus(toolId, {
+			content: 'Debugger unavailable',
+			error: 'No debug controller in this context'
+		})
+		return undefined
+	}
+	return helpers.debug
+}
+
+export const debugStartTool: Tool<ScriptChatHelpers> = {
+	def: DEBUG_START_TOOL,
+	requiresConfirmation: true,
+	confirmationMessage: 'Start a debug session for the current script',
+	showDetails: true,
+	fn: async function ({ args, helpers, toolCallbacks, toolId }) {
+		const debug = requireDebug(helpers, toolCallbacks, toolId)
+		if (!debug) return DEBUG_UNAVAILABLE_MESSAGE
+		const parsedArgs = await buildTestRunArgs(args, this.def)
+		toolCallbacks.setToolStatus(toolId, { content: 'Starting debug session...' })
+		const result = await debug.start(parsedArgs, DEBUG_CONTROL_WAIT_MS)
+		toolCallbacks.setToolStatus(toolId, { content: 'Debug session started' })
+		return result
+	}
+}
+
+export const debugGetStateTool: Tool<ScriptChatHelpers> = {
+	def: DEBUG_GET_STATE_TOOL,
+	fn: async function ({ helpers, toolCallbacks, toolId }) {
+		const debug = requireDebug(helpers, toolCallbacks, toolId)
+		if (!debug) return DEBUG_UNAVAILABLE_MESSAGE
+		toolCallbacks.setToolStatus(toolId, { content: 'Reading debug state' })
+		return debug.getState()
+	}
+}
+
+export const debugEvaluateTool: Tool<ScriptChatHelpers> = {
+	def: DEBUG_EVALUATE_TOOL,
+	fn: async function ({ args, helpers, toolCallbacks, toolId }) {
+		const debug = requireDebug(helpers, toolCallbacks, toolId)
+		if (!debug) return DEBUG_UNAVAILABLE_MESSAGE
+		if (!args.expression || typeof args.expression !== 'string') {
+			return 'debug_evaluate requires a non-empty "expression" string.'
+		}
+		toolCallbacks.setToolStatus(toolId, { content: `Evaluating ${args.expression}` })
+		return debug.evaluate(
+			args.expression,
+			typeof args.frameId === 'number' ? args.frameId : undefined
+		)
+	}
+}
+
+export const debugContinueTool: Tool<ScriptChatHelpers> = {
+	def: DEBUG_CONTINUE_TOOL,
+	fn: async function ({ helpers, toolCallbacks, toolId }) {
+		const debug = requireDebug(helpers, toolCallbacks, toolId)
+		if (!debug) return DEBUG_UNAVAILABLE_MESSAGE
+		toolCallbacks.setToolStatus(toolId, { content: 'Continuing execution...' })
+		return debug.continue(DEBUG_CONTROL_WAIT_MS)
+	}
+}
+
+export const debugStepTool: Tool<ScriptChatHelpers> = {
+	def: DEBUG_STEP_TOOL,
+	fn: async function ({ args, helpers, toolCallbacks, toolId }) {
+		const debug = requireDebug(helpers, toolCallbacks, toolId)
+		if (!debug) return DEBUG_UNAVAILABLE_MESSAGE
+		const kind = args.kind === 'in' || args.kind === 'out' ? args.kind : 'over'
+		toolCallbacks.setToolStatus(toolId, { content: `Stepping ${kind}...` })
+		return debug.step(kind, DEBUG_CONTROL_WAIT_MS)
+	}
+}
+
+export const debugWaitTool: Tool<ScriptChatHelpers> = {
+	def: DEBUG_WAIT_TOOL,
+	fn: async function ({ args, helpers, toolCallbacks, toolId }) {
+		const debug = requireDebug(helpers, toolCallbacks, toolId)
+		if (!debug) return DEBUG_UNAVAILABLE_MESSAGE
+		const requested =
+			typeof args.timeout_seconds === 'number'
+				? args.timeout_seconds * 1000
+				: DEBUG_DEFAULT_WAIT_S * 1000
+		const timeoutMs = Math.min(Math.max(requested, 1000), DEBUG_MAX_WAIT_MS)
+		toolCallbacks.setToolStatus(toolId, { content: 'Waiting for execution to settle...' })
+		return debug.wait(timeoutMs)
+	}
+}
+
+export const debugSetBreakpointsTool: Tool<ScriptChatHelpers> = {
+	def: DEBUG_SET_BREAKPOINTS_TOOL,
+	fn: async function ({ args, helpers, toolCallbacks, toolId }) {
+		const debug = requireDebug(helpers, toolCallbacks, toolId)
+		if (!debug) return DEBUG_UNAVAILABLE_MESSAGE
+		const lines = Array.isArray(args.lines)
+			? args.lines.filter((l: unknown): l is number => typeof l === 'number' && l > 0)
+			: []
+		toolCallbacks.setToolStatus(toolId, { content: 'Setting breakpoints...' })
+		return debug.setBreakpoints(lines)
+	}
+}
+
+export const debugStopTool: Tool<ScriptChatHelpers> = {
+	def: DEBUG_STOP_TOOL,
+	fn: async function ({ helpers, toolCallbacks, toolId }) {
+		const debug = requireDebug(helpers, toolCallbacks, toolId)
+		if (!debug) return DEBUG_UNAVAILABLE_MESSAGE
+		toolCallbacks.setToolStatus(toolId, { content: 'Stopping debug session...' })
+		return debug.stop()
 	}
 }
