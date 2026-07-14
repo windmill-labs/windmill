@@ -596,6 +596,18 @@ fn map_http_method_to_action(method: &str, route_path: &str) -> ScopeAction {
 /// Returns `"flows"` or `"scripts"` based on the match, or `None` if no match is found.
 fn determine_kind_from_route(route_path: &str) -> Option<String> {
     if route_path.starts_with("jobs") {
+        // Preview/bundle runs execute arbitrary, request-supplied code with no
+        // deployed path, so their handlers require the broad `jobs:run` scope
+        // (not `jobs:run:scripts`/`jobs:run:flows`). They must therefore carry no
+        // kind here, otherwise the derived scope is narrower than the handler
+        // demands. This diverged for the MCP proxy, which mints exactly the
+        // derived scope and was then rejected by the handler's `jobs:run` check.
+        // Preview routes also share a `.../p...` prefix with by-path runs (e.g.
+        // `run_wait_result/preview` vs `run_wait_result/p/*`), which the
+        // SCRIPT_JOBS prefix match would otherwise classify as scripts.
+        if route_path.contains("preview") {
+            return None;
+        }
         if FLOW_JOBS.iter().any(|path| route_path.starts_with(path)) {
             return Some("flows".to_string());
         } else if SCRIPT_JOBS.iter().any(|path| route_path.starts_with(path)) {
@@ -1295,6 +1307,24 @@ mod tests {
             scope_for_route("POST", "/api/w/ws/jobs/run/f/u/x/y").as_deref(),
             Some("jobs:run:flows")
         );
+
+        // Preview/bundle runs have no deployed path and their handlers require the
+        // broad `jobs:run` scope, so the derived scope must not carry a kind
+        // (GIT-920: MCP's `runScriptPreviewAndWaitResult` proxy minted
+        // `jobs:run:scripts` and was then denied by the handler's `jobs:run` check).
+        for path in [
+            "/api/w/ws/jobs/run/preview",
+            "/api/w/ws/jobs/run/preview_bundle",
+            "/api/w/ws/jobs/run/preview_flow",
+            "/api/w/ws/jobs/run_wait_result/preview",
+            "/api/w/ws/jobs/run_wait_result/preview_flow",
+        ] {
+            assert_eq!(
+                scope_for_route("POST", path).as_deref(),
+                Some("jobs:run"),
+                "preview route {path} must derive the broad jobs:run scope"
+            );
+        }
 
         // The minted scope actually satisfies the route check it targets.
         let s = scope_for_route("POST", "/api/w/ws/variables/create").unwrap();
