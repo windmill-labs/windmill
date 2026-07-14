@@ -1,13 +1,10 @@
 <script lang="ts">
-	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import PropPickerWrapper from '$lib/components/flows/propPicker/PropPickerWrapper.svelte'
+	import FlowExpressionEditor from './FlowExpressionEditor.svelte'
 	import type { Flow, FlowModule } from '$lib/gen'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { ExtendedOpenFlow, FlowEditorContext } from '../types'
 	import { getContext } from 'svelte'
 	import { NEVER_TESTED_THIS_FAR } from '../models'
-	import Section from '$lib/components/Section.svelte'
 	import { getStepPropPicker } from '../previousResults'
 	import { dfs } from '../previousResults'
 
@@ -20,7 +17,6 @@
 
 	let { flowModule = $bindable() }: Props = $props()
 
-	let editor: SimpleEditor | undefined = $state(undefined)
 	let stepPropPicker = $derived(
 		getStepPropPicker(
 			flowStateStore.val,
@@ -66,31 +62,23 @@
 	let isStopAfterAllIterationsEnabled = $derived(Boolean(flowModule.stop_after_all_iters_if))
 	let result = $derived(flowStateStore.val[flowModule.id]?.previewResult ?? NEVER_TESTED_THIS_FAR)
 	let breakableParent = $derived(checkIfBreakableParent(flowStore.val))
+	let earlyStopResult = $derived(
+		isLoop
+			? Array.isArray(result) && result.length > 0
+				? result[result.length - 1]
+				: result === NEVER_TESTED_THIS_FAR
+					? result
+					: undefined
+			: result
+	)
 </script>
 
-<div class="flex flex-col items-start space-y-2">
+<div class="flex flex-col items-start gap-3">
 	{#if !isBranchAll && !isParallelLoop}
-		<Section
-			label={(isLoop
-				? 'Break loop'
-				: breakableParent
-					? breakableParent.isParallel
-						? breakableParent.type === 'loop'
-							? 'Skip rest of steps in iteration'
-							: 'Skip rest of steps in branch'
-						: 'Break parent loop module ' + breakableParent.stepId
-					: 'Stop flow early') + (isLoop ? ' (evaluated after each iteration)' : '')}
-			class="w-full"
-		>
-			{#snippet header()}
-				<Tooltip documentationLink="https://www.windmill.dev/docs/flows/early_stop">
-					If defined, at the end of the step, the predicate expression will be evaluated to decide
-					if the flow should stop early, skip rest of steps in iteration/branch if inside a parallel
-					for loop or branch all, or break if inside a for/while loop or branch all.
-				</Tooltip>
-			{/snippet}
-
+		<div class="w-full">
 			<Toggle
+				size="xs"
+				textClass="text-xs font-normal text-primary"
 				checked={isStopAfterIfEnabled}
 				on:change={() => {
 					if (isStopAfterIfEnabled && flowModule.stop_after_if) {
@@ -113,150 +101,96 @@
 									? 'Skip rest of steps in iteration'
 									: 'Skip rest of steps in branch'
 								: 'Break parent loop module'
-							: 'Stop flow if condition met'
+							: 'Stop flow if condition met',
+					rightTooltip:
+						'At the end of the step the predicate is evaluated to decide whether to stop the flow early, skip the rest of the steps in the iteration/branch (parallel for-loop or branch-all), or break out of a for/while loop or branch-all.',
+					rightDocumentationLink: 'https://www.windmill.dev/docs/flows/early_stop'
 				}}
 			/>
 
-			<div
-				class="w-full mt-2 border rounded-md p-2 flex flex-col gap-2 {flowModule.stop_after_if
-					? ''
-					: 'bg-surface-secondary'}"
-			>
-				{#if flowModule.stop_after_if}
-					{@const earlyStopResult = isLoop
-						? Array.isArray(result) && result.length > 0
-							? result[result.length - 1]
-							: result === NEVER_TESTED_THIS_FAR
-								? result
-								: undefined
-						: result}
-					{#if !breakableParent && !isLoop}
-						<div class="flex flex-col gap-2">
-							<Toggle
-								size="xs"
-								bind:checked={flowModule.stop_after_if.skip_if_stopped}
-								on:change={(event) => {
-									if (flowModule.stop_after_if && event.detail) {
-										flowModule.stop_after_if.error_message = undefined
-										flowModule.stop_after_if.error_include_result = false
-										raise_error_message_stop_after_if = false
-									}
-								}}
-								options={{
-									right: 'Label flow as "skipped" if stopped'
-								}}
-							/>
-							<Toggle
-								size="xs"
-								bind:checked={raise_error_message_stop_after_if}
-								on:change={(event) => {
-									if (flowModule.stop_after_if) {
-										if (event.detail) {
-											flowModule.stop_after_if.error_message = ''
-											flowModule.stop_after_if.skip_if_stopped = false
-										} else {
-											flowModule.stop_after_if.error_message = undefined
-											flowModule.stop_after_if.error_include_result = false
-										}
-									}
-								}}
-								options={{
-									right: 'Raise an error message if stopped',
-									rightTooltip:
-										'If enabled and the stop condition is met, an error message will be raised. A custom message can be provided; otherwise, a default message will be used. Mutually exclusive with "Label flow as skipped".'
-								}}
-							/>
-						</div>
-					{/if}
-					{#if raise_error_message_stop_after_if}
-						<input
-							type="text"
-							bind:value={flowModule.stop_after_if.error_message}
-							placeholder="Enter custom error message (optional)"
+			<div class="w-full mt-2 border rounded-md p-3 flex flex-col gap-3">
+				<FlowExpressionEditor
+					forceCollapsePicker
+					disabled={!isStopAfterIfEnabled}
+					bind:code={
+						() => flowModule.stop_after_if?.expr ?? '',
+						(v) => {
+							if (flowModule.stop_after_if) flowModule.stop_after_if.expr = v
+						}
+					}
+					label="Stop condition expression"
+					pickableProperties={stepPropPicker.pickableProperties}
+					result={earlyStopResult}
+					extraResults={isLoop ? { all_iters: result } : undefined}
+					extraLib={`declare const result = ${JSON.stringify(earlyStopResult)};\n` +
+						stepPropPicker.extraLib +
+						(isLoop ? `\ndeclare const all_iters = ${JSON.stringify(result)};` : '')}
+				/>
+				{#if !breakableParent && !isLoop}
+					<div class="flex flex-col gap-3">
+						<Toggle
+							size="xs"
+							disabled={!isStopAfterIfEnabled}
+							checked={flowModule.stop_after_if?.skip_if_stopped ?? false}
+							on:change={(event) => {
+								if (flowModule.stop_after_if && event.detail) {
+									flowModule.stop_after_if.error_message = undefined
+									flowModule.stop_after_if.error_include_result = false
+									raise_error_message_stop_after_if = false
+								}
+							}}
+							options={{
+								right: 'Label flow as "skipped" if stopped'
+							}}
 						/>
 						<Toggle
 							size="xs"
-							bind:checked={flowModule.stop_after_if.error_include_result}
+							disabled={!isStopAfterIfEnabled}
+							bind:checked={raise_error_message_stop_after_if}
+							on:change={(event) => {
+								if (flowModule.stop_after_if) {
+									if (event.detail) {
+										flowModule.stop_after_if.error_message = ''
+										flowModule.stop_after_if.skip_if_stopped = false
+									} else {
+										flowModule.stop_after_if.error_message = undefined
+										flowModule.stop_after_if.error_include_result = false
+									}
+								}
+							}}
 							options={{
-								right: "Include the stopping step's result in the error",
+								right: 'Raise an error message if stopped',
 								rightTooltip:
-									"When enabled, this step's output is embedded inside the raised error object (as error.result) instead of being discarded. The flow result stays { error }."
+									'If enabled and the stop condition is met, an error message will be raised. A custom message can be provided; otherwise, a default message will be used. Mutually exclusive with "Label flow as skipped".'
 							}}
 						/>
-					{/if}
-					<span class="mt-2 text-xs font-bold">Stop condition expression</span>
-					<div class="border rounded-md w-full overflow-auto">
-						<PropPickerWrapper
-							noPadding
-							notSelectable
-							pickableProperties={stepPropPicker.pickableProperties}
-							result={earlyStopResult}
-							extraResults={isLoop ? { all_iters: result } : undefined}
-							on:select={({ detail }) => {
-								editor?.insertAtCursor(detail)
-								editor?.focus()
-							}}
-						>
-							<SimpleEditor
-								bind:this={editor}
-								lang="javascript"
-								bind:code={flowModule.stop_after_if.expr}
-								class="h-full"
-								extraLib={`declare const result = ${JSON.stringify(earlyStopResult)};\n` +
-									stepPropPicker.extraLib +
-									(isLoop ? `\ndeclare const all_iters = ${JSON.stringify(result)};` : '')}
-							/>
-						</PropPickerWrapper>
 					</div>
-				{:else}
-					{#if !breakableParent && !isLoop}
-						<div class="flex flex-col gap-2">
-							<Toggle
-								disabled
-								size="xs"
-								options={{
-									right: 'Label flow as "skipped" if stopped'
-								}}
-							/>
-							<Toggle
-								disabled
-								size="xs"
-								options={{
-									right: 'Raise an error message if stopped'
-								}}
-							/>
-						</div>
-					{/if}
-					<span class="mt-2 text-xs font-bold">Stop condition expression</span>
-					<textarea disabled rows="3" class="min-h-[80px]"></textarea>
+				{/if}
+				{#if raise_error_message_stop_after_if && flowModule.stop_after_if}
+					<input
+						type="text"
+						bind:value={flowModule.stop_after_if.error_message}
+						placeholder="Enter custom error message (optional)"
+					/>
+					<Toggle
+						size="xs"
+						bind:checked={flowModule.stop_after_if.error_include_result}
+						options={{
+							right: "Include the stopping step's result in the error",
+							rightTooltip:
+								"When enabled, this step's output is embedded inside the raised error object (as error.result) instead of being discarded. The flow result stays { error }."
+						}}
+					/>
 				{/if}
 			</div>
-		</Section>
+		</div>
 	{/if}
 
 	{#if isLoop || isBranchAll}
-		<Section
-			label={(breakableParent
-				? breakableParent.isParallel
-					? breakableParent.type === 'loop'
-						? 'Skip rest of steps in iteration'
-						: 'Skip rest of steps in branch'
-					: 'Break parent loop module ' + breakableParent.stepId
-				: 'Stop flow early') +
-				(isBranchAll
-					? ' (evaluated after all branches have been run)'
-					: ' (evaluated after all iterations)')}
-			class="w-full"
-		>
-			{#snippet header()}
-				<Tooltip documentationLink="https://www.windmill.dev/docs/flows/early_stop">
-					If defined, at the end of the step, the predicate expression will be evaluated to decide
-					if the flow should stop early, skip rest of steps in iteration/branch if inside a parallel
-					for loop or branch all, or break if inside a for/while loop or branch all.
-				</Tooltip>
-			{/snippet}
-
+		<div class="w-full">
 			<Toggle
+				size="xs"
+				textClass="text-xs font-normal text-primary"
 				checked={isStopAfterAllIterationsEnabled}
 				on:change={() => {
 					if (isStopAfterAllIterationsEnabled && flowModule.stop_after_all_iters_if) {
@@ -278,115 +212,85 @@
 									? 'Skip rest of steps in iteration'
 									: 'Skip rest of steps in branch'
 								: 'Break parent loop module ' + breakableParent.stepId
-							: 'Stop flow') + ' if condition met'
+							: 'Stop flow') + ' if condition met',
+					rightTooltip:
+						'At the end of the step the predicate is evaluated to decide whether to stop the flow early, skip the rest of the steps in the iteration/branch (parallel for-loop or branch-all), or break out of a for/while loop or branch-all.',
+					rightDocumentationLink: 'https://www.windmill.dev/docs/flows/early_stop'
 				}}
 			/>
 
-			<div
-				class="w-full border rounded-md mt-2 p-2 flex flex-col gap-2 {flowModule.stop_after_all_iters_if
-					? ''
-					: 'bg-surface-secondary'}"
-			>
-				{#if flowModule.stop_after_all_iters_if}
-					{#if !breakableParent}
-						<div class="flex flex-col gap-2">
-							<Toggle
-								size="xs"
-								bind:checked={flowModule.stop_after_all_iters_if.skip_if_stopped}
-								on:change={(event) => {
-									if (flowModule.stop_after_all_iters_if && event.detail) {
-										flowModule.stop_after_all_iters_if.error_message = undefined
-										flowModule.stop_after_all_iters_if.error_include_result = false
-										raise_error_message_stop_after_all_if = false
-									}
-								}}
-								options={{
-									right: 'Label flow as "skipped" if stopped'
-								}}
-							/>
-							<Toggle
-								size="xs"
-								bind:checked={raise_error_message_stop_after_all_if}
-								on:change={(event) => {
-									if (flowModule.stop_after_all_iters_if) {
-										if (event.detail) {
-											flowModule.stop_after_all_iters_if.error_message = ''
-											flowModule.stop_after_all_iters_if.skip_if_stopped = false
-										} else {
-											flowModule.stop_after_all_iters_if.error_message = undefined
-											flowModule.stop_after_all_iters_if.error_include_result = false
-										}
-									}
-								}}
-								options={{
-									right: 'Raise an error message if stopped',
-									rightTooltip:
-										'If enabled and the stop condition is met, an error message will be raised. A custom message can be provided; otherwise, a default message will be used. Mutually exclusive with "Label flow as skipped".'
-								}}
-							/>
-						</div>
-					{/if}
-					{#if raise_error_message_stop_after_all_if}
-						<input
-							type="text"
-							bind:value={flowModule.stop_after_all_iters_if.error_message}
-							placeholder="Enter custom error message (optional)"
+			<div class="w-full border rounded-md mt-2 p-3 flex flex-col gap-3">
+				<FlowExpressionEditor
+					forceCollapsePicker
+					disabled={!isStopAfterAllIterationsEnabled}
+					bind:code={
+						() => flowModule.stop_after_all_iters_if?.expr ?? '',
+						(v) => {
+							if (flowModule.stop_after_all_iters_if) flowModule.stop_after_all_iters_if.expr = v
+						}
+					}
+					label="Stop condition expression"
+					pickableProperties={stepPropPicker.pickableProperties}
+					{result}
+					extraLib={`declare const result = ${JSON.stringify(result)};\n` + stepPropPicker.extraLib}
+				/>
+				{#if !breakableParent}
+					<div class="flex flex-col gap-3">
+						<Toggle
+							size="xs"
+							disabled={!isStopAfterAllIterationsEnabled}
+							checked={flowModule.stop_after_all_iters_if?.skip_if_stopped ?? false}
+							on:change={(event) => {
+								if (flowModule.stop_after_all_iters_if && event.detail) {
+									flowModule.stop_after_all_iters_if.error_message = undefined
+									flowModule.stop_after_all_iters_if.error_include_result = false
+									raise_error_message_stop_after_all_if = false
+								}
+							}}
+							options={{
+								right: 'Label flow as "skipped" if stopped'
+							}}
 						/>
 						<Toggle
 							size="xs"
-							bind:checked={flowModule.stop_after_all_iters_if.error_include_result}
+							disabled={!isStopAfterAllIterationsEnabled}
+							bind:checked={raise_error_message_stop_after_all_if}
+							on:change={(event) => {
+								if (flowModule.stop_after_all_iters_if) {
+									if (event.detail) {
+										flowModule.stop_after_all_iters_if.error_message = ''
+										flowModule.stop_after_all_iters_if.skip_if_stopped = false
+									} else {
+										flowModule.stop_after_all_iters_if.error_message = undefined
+										flowModule.stop_after_all_iters_if.error_include_result = false
+									}
+								}
+							}}
 							options={{
-								right: "Include the stopping step's result in the error",
+								right: 'Raise an error message if stopped',
 								rightTooltip:
-									"When enabled, this step's output is embedded inside the raised error object (as error.result) instead of being discarded. The flow result stays { error }."
+									'If enabled and the stop condition is met, an error message will be raised. A custom message can be provided; otherwise, a default message will be used. Mutually exclusive with "Label flow as skipped".'
 							}}
 						/>
-					{/if}
-					<span class="mt-2 text-xs font-bold">Stop condition expression</span>
-					<div class="border rounded-md w-full overflow-auto">
-						<PropPickerWrapper
-							notSelectable
-							noPadding
-							pickableProperties={stepPropPicker.pickableProperties}
-							{result}
-							on:select={({ detail }) => {
-								editor?.insertAtCursor(detail)
-								editor?.focus()
-							}}
-						>
-							<SimpleEditor
-								bind:this={editor}
-								lang="javascript"
-								bind:code={flowModule.stop_after_all_iters_if.expr}
-								class="h-full"
-								extraLib={`declare const result = ${JSON.stringify(result)};\n` +
-									stepPropPicker.extraLib}
-							/>
-						</PropPickerWrapper>
 					</div>
-				{:else}
-					{#if !breakableParent}
-						<div class="flex flex-col gap-2">
-							<Toggle
-								disabled
-								size="xs"
-								options={{
-									right: 'Label flow as "skipped" if stopped'
-								}}
-							/>
-							<Toggle
-								disabled
-								size="xs"
-								options={{
-									right: 'Raise an error message if stopped'
-								}}
-							/>
-						</div>
-					{/if}
-					<span class="mt-2 text-xs font-bold">Stop condition expression</span>
-					<textarea disabled rows="3" class="min-h-[80px]"></textarea>
+				{/if}
+				{#if raise_error_message_stop_after_all_if && flowModule.stop_after_all_iters_if}
+					<input
+						type="text"
+						bind:value={flowModule.stop_after_all_iters_if.error_message}
+						placeholder="Enter custom error message (optional)"
+					/>
+					<Toggle
+						size="xs"
+						bind:checked={flowModule.stop_after_all_iters_if.error_include_result}
+						options={{
+							right: "Include the stopping step's result in the error",
+							rightTooltip:
+								"When enabled, this step's output is embedded inside the raised error object (as error.result) instead of being discarded. The flow result stays { error }."
+						}}
+					/>
 				{/if}
 			</div>
-		</Section>
+		</div>
 	{/if}
 </div>

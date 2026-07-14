@@ -5,15 +5,27 @@
 	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
-		connecting: boolean;
-		id?: undefined | string;
-		wrapperClasses?: string;
+		connecting: boolean
+		id?: undefined | string
+		wrapperClasses?: string
+		/** Suppress the animated ring (e.g. the sessions modal panel). */
+		disableAnimation?: boolean
 	}
 
-	let { connecting, id = undefined, wrapperClasses = '' }: Props = $props();
+	let {
+		connecting,
+		id = undefined,
+		wrapperClasses = '',
+		disableAnimation = false
+	}: Props = $props()
 </script>
 
-<AnimatedButton animate={connecting} baseRadius="6px" animationDuration="2s" marginWidth="2px">
+<AnimatedButton
+	animate={connecting && !disableAnimation}
+	baseRadius="6px"
+	animationDuration="2s"
+	marginWidth="2px"
+>
 	<Button
 		variant="default"
 		btnClasses={twMerge(

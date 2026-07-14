@@ -849,7 +849,7 @@
 		white-space: pre-wrap;
 		word-break: break-words;
 		width: 100%;
-		min-height: 2.25rem;
+		min-height: 1.9rem;
 	}
 
 	/* Hide the textarea's own glyphs (the highlight overlay renders the text)

@@ -1,9 +1,7 @@
 <script lang="ts">
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
 	import type SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import Section from '$lib/components/Section.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import Label from '$lib/components/Label.svelte'
 
 	import type { FlowModule } from '$lib/gen'
@@ -56,15 +54,10 @@
 	let istimeoutEnabled = $derived(Boolean(flowModule.timeout))
 </script>
 
-<Section label="Timeout">
-	{#snippet header()}
-		<Tooltip>
-			If defined, the custom timeout will be used instead of the instance timeout for the step. The
-			step's timeout cannot be greater than the instance timeout.
-		</Tooltip>
-	{/snippet}
-
+<div class="flex flex-col gap-2">
 	<Toggle
+		size="xs"
+		textClass="text-xs font-normal text-primary"
 		checked={istimeoutEnabled}
 		on:change={() => {
 			if (istimeoutEnabled && flowModule.timeout != undefined) {
@@ -77,7 +70,9 @@
 			}
 		}}
 		options={{
-			right: 'Add a custom timeout for this step'
+			right: 'Add a custom timeout for this step',
+			rightTooltip:
+				"The custom timeout is used instead of the instance timeout for the step. The step's timeout cannot be greater than the instance timeout."
 		}}
 	/>
 	<Label label="Timeout duration" class="mt-2">
@@ -118,4 +113,4 @@
 			</Alert>
 		</div>
 	{/if}
-</Section>
+</div>

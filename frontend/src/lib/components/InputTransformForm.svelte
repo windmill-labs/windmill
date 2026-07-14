@@ -18,6 +18,7 @@
 	import FieldHeader from './FieldHeader.svelte'
 	import DynamicInputHelpBox from './flows/content/DynamicInputHelpBox.svelte'
 	import type { PropPickerWrapperContext } from './flows/propPicker/PropPickerWrapper.svelte'
+	import type { PropPickerContext } from './prop_picker'
 	import { codeToStaticTemplate, getDefaultExpr } from './flows/utils.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import { Button, ButtonType } from '$lib/components/common'
@@ -119,6 +120,11 @@
 
 	const propPickerWrapperContext: PropPickerWrapperContext | undefined =
 		getContext<PropPickerWrapperContext>('PropPickerWrapper')
+	// Modal panel (sessions) suppresses the blue connect-ring animations.
+	const propPickerCtx = getContext<PropPickerContext | undefined>('PropPickerContext')
+	const suppressConnectAnimation = $derived(
+		propPickerCtx?.collapsePropPickerUntilConnect?.() ?? false
+	)
 	const {
 		inputMatches,
 		connectProp: focusProp,
@@ -556,11 +562,6 @@
 							}}
 							{pickableProperties}
 							{argName}
-							btnClass={twMerge(
-								'h-7 min-w-8 px-2',
-								'group-hover:opacity-100 transition-opacity',
-								!connecting ? 'opacity-0' : ''
-							)}
 						/>
 					{/if}
 
@@ -573,6 +574,7 @@
 							)}
 							id="flow-editor-plug"
 							{connecting}
+							disableAnimation={suppressConnectAnimation}
 							on:click={() => {
 								if ($propPickerConfig?.propName == argName) {
 									clearFocus()
@@ -736,6 +738,13 @@
 						{@render innerInput()}
 					</div>
 
+					<!-- Rendered outside the `suggestion ? opacity-0` wrapper so the AI
+					     step-input autocompletion (ghost text, accepted with Tab) doesn't
+					     hide the Help dropdown — the two stay independent. -->
+					{#if !hideHelpButton && arg?.type === 'javascript' && arg.expr != undefined}
+						<DynamicInputHelpBox />
+					{/if}
+
 					{#snippet innerInput()}
 						{#if propertyType === 'ai'}
 							<div
@@ -893,10 +902,6 @@
 										>{schema.properties[argName].description}</pre
 									>
 								</div>
-							{/if}
-
-							{#if !hideHelpButton}
-								<DynamicInputHelpBox />
 							{/if}
 
 							<div class="mb-2"></div>

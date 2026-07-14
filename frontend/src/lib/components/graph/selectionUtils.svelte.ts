@@ -1,9 +1,18 @@
 import type { Node } from '@xyflow/svelte'
 
+/** Options carried alongside a `selectId` call so a consumer (e.g. FlowEditor's
+ * modal panel) can react beyond the plain id. `openPanel` requests the panel to
+ * be shown even when the id wouldn't otherwise trigger it (e.g. a freshly created
+ * agent tool, whose module-style id isn't a flow-level panel target). */
+export type SelectIntentOptions = {
+	openPanel?: boolean
+}
+
 export class SelectionManager {
 	#selectedNodes = $state<Node[] | { id: string }[]>([])
 	#selectionMode = $state<'normal' | 'rect-select'>('normal')
 	#clearGraphSelection: () => void = () => {}
+	#onSelectIntent: ((id: string, opts?: SelectIntentOptions) => void) | undefined = undefined
 
 	constructor() {}
 
@@ -11,7 +20,15 @@ export class SelectionManager {
 		this.#clearGraphSelection = clearGraphSelection
 	}
 
-	selectId(id: string) {
+	/** Fires on every `selectId` call, BEFORE the same-id dedup early-return — so a
+	 * consumer can react even when the id is re-selected (e.g. clicking the already
+	 * selected "Settings" toolbar button to re-open a modal panel). */
+	setOnSelectIntent(cb: ((id: string, opts?: SelectIntentOptions) => void) | undefined) {
+		this.#onSelectIntent = cb
+	}
+
+	selectId(id: string, opts?: SelectIntentOptions) {
+		this.#onSelectIntent?.(id, opts)
 		if (this.#selectedNodes.length === 1 && this.#selectedNodes[0].id === id) {
 			return
 		}

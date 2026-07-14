@@ -1,12 +1,9 @@
 <script lang="ts">
-	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import PropPickerWrapper from '$lib/components/flows/propPicker/PropPickerWrapper.svelte'
+	import FlowExpressionEditor from './FlowExpressionEditor.svelte'
 	import type { FlowModule } from '$lib/gen'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { FlowEditorContext } from '../types'
 	import { getContext } from 'svelte'
-	import Section from '$lib/components/Section.svelte'
 	import { getStepPropPicker } from '../previousResults'
 
 	const { flowStateStore, flowStore, previewArgs } =
@@ -20,7 +17,6 @@
 
 	let { flowModule = $bindable(), parentModule, previousModule }: Props = $props()
 
-	let editor: SimpleEditor | undefined = $state(undefined)
 	let stepPropPicker = $derived(
 		getStepPropPicker(
 			flowStateStore.val,
@@ -33,64 +29,46 @@
 		)
 	)
 
+	let result = $derived(flowStateStore.val[flowModule.id]?.previewResult)
+
 	let isSkipEnabled = $derived(Boolean(flowModule.skip_if))
 </script>
 
-<div class="flex flex-col items-start space-y-2">
-	<Section label="Skip" class="w-full">
-		{#snippet header()}
-			<Tooltip>
-				If the condition is met, the step will behave as an identity step, passing the previous
-				step's result through unchanged.
-			</Tooltip>
-		{/snippet}
-
-		<Toggle
-			checked={isSkipEnabled}
-			on:change={() => {
-				if (isSkipEnabled && flowModule.skip_if) {
-					flowModule.skip_if = undefined
-				} else {
-					flowModule.skip_if = {
-						expr: 'false'
-					}
+<div class="flex w-full flex-col items-start gap-2">
+	<Toggle
+		size="xs"
+		textClass="text-xs font-normal text-primary"
+		checked={isSkipEnabled}
+		on:change={() => {
+			if (isSkipEnabled && flowModule.skip_if) {
+				flowModule.skip_if = undefined
+			} else {
+				flowModule.skip_if = {
+					expr: 'false'
 				}
-			}}
-			options={{
-				right: 'Skip step if condition is met'
-			}}
-		/>
+			}
+		}}
+		options={{
+			right: 'Skip step if condition is met',
+			rightTooltip:
+				"If the condition is met, the step behaves as an identity step, passing the previous step's result through unchanged."
+		}}
+	/>
 
-		<div
-			class="w-full border rounded-md p-2 mt-2 flex flex-col gap-1 {flowModule.skip_if
-				? ''
-				: 'bg-surface-secondary'}"
-		>
-			{#if flowModule.skip_if}
-				<span class="mt-2 text-xs font-bold">Skip condition expression</span>
-				<div class="border rounded-md w-full overflow-auto">
-					<PropPickerWrapper
-						noPadding
-						notSelectable
-						pickableProperties={stepPropPicker.pickableProperties}
-						on:select={({ detail }) => {
-							editor?.insertAtCursor(detail)
-							editor?.focus()
-						}}
-					>
-						<SimpleEditor
-							bind:this={editor}
-							lang="javascript"
-							bind:code={flowModule.skip_if.expr}
-							class="h-full"
-							extraLib={stepPropPicker.extraLib}
-						/>
-					</PropPickerWrapper>
-				</div>
-			{:else}
-				<span class="mt-2 text-xs font-bold">Skip condition expression</span>
-				<textarea disabled rows="3" class="min-h-[80px]"></textarea>
-			{/if}
-		</div>
-	</Section>
+	<div class="w-full">
+		<FlowExpressionEditor
+			forceCollapsePicker
+			disabled={!isSkipEnabled}
+			label="Skip condition expression"
+			bind:code={
+				() => flowModule.skip_if?.expr ?? '',
+				(v) => {
+					if (flowModule.skip_if) flowModule.skip_if.expr = v
+				}
+			}
+			pickableProperties={stepPropPicker.pickableProperties}
+			{result}
+			extraLib={stepPropPicker.extraLib}
+		/>
+	</div>
 </div>

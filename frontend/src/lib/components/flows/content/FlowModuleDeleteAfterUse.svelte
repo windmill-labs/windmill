@@ -1,10 +1,7 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import { SecondsInput } from '$lib/components/common'
-
-	import Section from '$lib/components/Section.svelte'
 
 	interface Props {
 		flowModule: FlowModule
@@ -14,30 +11,18 @@
 	let { flowModule = $bindable(), disabled = false }: Props = $props()
 
 	let enabled = $derived(flowModule.delete_after_secs != null)
+
+	let tip = $derived(
+		'The logs, arguments and results of this flow step are permanently deleted after the configured delay once the flow completes (they may be briefly visible in the UI while running). This also applies to a failed step: the error will not be accessible. The deletion is irreversible. Set to 0 for immediate deletion.' +
+			(disabled ? ' This option is only available on Windmill Enterprise Edition.' : '')
+	)
 </script>
 
-<Section label="Delete after completion">
-	{#snippet header()}
-		<Tooltip>
-			The logs, arguments and results of this flow step will be completely deleted from Windmill
-			after the specified delay once the flow is complete. They might be temporarily visible in UI
-			while the flow is running.
-			<br />
-			This also applies to a flow step that has failed: the error will not be accessible.
-			<br />
-			<br />
-			The deletion is irreversible. Set to 0 for immediate deletion.
-			{#if disabled}
-				<br />
-				<br />
-				This option is only available on Windmill Enterprise Edition.
-			{/if}
-		</Tooltip>
-	{/snippet}
-
+<div class="flex flex-col gap-2">
 	<Toggle
 		{disabled}
-		size="sm"
+		size="xs"
+		textClass="text-xs font-normal text-primary"
 		checked={enabled}
 		on:change={() => {
 			if (enabled) {
@@ -47,12 +32,15 @@
 			}
 		}}
 		options={{
-			right: 'Delete logs, arguments and results after the flow is complete'
+			right: 'Delete logs, arguments and results after the flow is complete',
+			rightTooltip: tip
 		}}
 	/>
-	{#if enabled}
-		<div class="mt-2">
-			<SecondsInput bind:seconds={flowModule.delete_after_secs} {disabled} size="sm" />
-		</div>
-	{/if}
-</Section>
+	<div class="mt-2">
+		<SecondsInput
+			bind:seconds={flowModule.delete_after_secs}
+			disabled={disabled || !enabled}
+			size="sm"
+		/>
+	</div>
+</div>

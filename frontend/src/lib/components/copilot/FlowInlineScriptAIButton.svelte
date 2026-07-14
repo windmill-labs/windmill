@@ -7,7 +7,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { aiChatManager, AIMode } from './chat/AIChatManager.svelte'
 	import { copilotInfo } from '$lib/aiStore'
-	import type { ComponentProps } from 'svelte'
+	import { getContext, type ComponentProps } from 'svelte'
 
 	interface Props {
 		moduleId?: string
@@ -15,6 +15,10 @@
 	}
 
 	const { moduleId, btnProps }: Props = $props()
+
+	// Inside a session pane the step's AI chat is driven by the session itself,
+	// so the per-step opener is shown but inert.
+	const inSessionPane = !!getContext('aiChatManager')
 
 	const aiChatScriptModeClasses = $derived(
 		aiChatManager.mode === AIMode.SCRIPT && aiChatManager.isOpen
@@ -30,13 +34,16 @@
 		btnClasses={twMerge('!px-2', aiChatScriptModeClasses)}
 		{onClick}
 		iconOnly
-		title="Open AI chat"
+		disabled={inSessionPane}
+		title={inSessionPane ? 'AI chat is driven by the session' : 'Open AI chat'}
 		startIcon={{ icon: WandSparkles, classes: 'text-ai' }}
 		{...btnProps}
 	/>
 {/snippet}
 
-{#if $copilotInfo.enabled}
+{#if inSessionPane}
+	{@render button()}
+{:else if $copilotInfo.enabled}
 	{@render button(() => {
 		aiChatManager.openChat()
 		const availableContext = aiChatManager.contextManager.getAvailableContext()

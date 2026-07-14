@@ -116,6 +116,7 @@
 		customUi = {},
 		disableAi = false,
 		disabledFlowInputs = false,
+		allowModalPanel = false,
 		savedPrimarySchedule = undefined,
 		version = undefined,
 		draftBaseVersion = undefined,
@@ -1236,6 +1237,7 @@
 				<FlowEditor
 					bind:this={flowEditor}
 					graphOverlay={compactTopbar ? previewButtons : undefined}
+					{allowModalPanel}
 					{disabledFlowInputs}
 					disableAi={disableAi || customUi?.stepInputs?.ai == false}
 					disableSettings={customUi?.settingsPanel === false}

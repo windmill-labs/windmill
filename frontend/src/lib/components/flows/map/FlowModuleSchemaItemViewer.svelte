@@ -3,6 +3,12 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import type { FlowNodeColorClasses } from '$lib/components/graph'
 	import { twMerge } from 'tailwind-merge'
+	import { getContext } from 'svelte'
+
+	// Modal mode (sessions): a step's editor only opens on double-click, so add the
+	// hint to the name tooltip. Provided by FlowEditor; absent (=> false) elsewhere.
+	const stepExploreHint = getContext<(() => boolean) | undefined>('flowGraphStepExploreHint')
+	const showExploreHint = $derived(stepExploreHint?.() ?? false)
 
 	let iconWidth: number = $state(0)
 	let idBadgeWidth: number | undefined = $state(undefined)
@@ -55,6 +61,9 @@
 			<div>
 				<div>{label}</div>
 				{#if path != ''}<div>{path}</div>{/if}
+				{#if showExploreHint}
+					<div class="mt-1 text-tertiary">double click to explore</div>
+				{/if}
 			</div>
 		{/snippet}
 	</Popover>

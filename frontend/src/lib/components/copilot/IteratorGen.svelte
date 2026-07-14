@@ -1,10 +1,7 @@
 <script lang="ts">
-	import { Check, Loader2, Wand2 } from 'lucide-svelte'
-	import Button from '../common/button/Button.svelte'
 	import { getNonStreamingMetadataCompletion } from './lib'
 	import { sendUserToast } from '$lib/toast'
 	import type { Flow, InputTransform } from '$lib/gen'
-	import ManualPopover from '../ManualPopover.svelte'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import type { PickableProperties } from '../flows/previousResults'
@@ -14,7 +11,6 @@
 	import { yamlStringifyExceptKeys } from './utils'
 	import { stepInputCompletionEnabled } from '$lib/stores'
 	import { copilotInfo } from '$lib/aiStore'
-	import { twMerge } from 'tailwind-merge'
 
 	let generatedContent = $state('')
 	let loading = $state(false)
@@ -25,8 +21,6 @@
 	}
 
 	let { focused = false, arg, pickableProperties = undefined }: Props = $props()
-
-	let btnFocused = $state(false)
 
 	let empty = $derived(
 		Object.keys(arg ?? {}).length === 0 ||
@@ -111,8 +105,7 @@ Only output the expression, do not explain or discuss.`
 
 	function cancelOnOutOfFocus() {
 		setTimeout(() => {
-			if (!focused && !btnFocused) {
-				// only cancel if out of focus is not due to click on btn
+			if (!focused) {
 				cancel()
 			}
 		}, 150)
@@ -142,60 +135,8 @@ Only output the expression, do not explain or discuss.`
 	$effect(() => {
 		dispatch('showExpr', generatedContent)
 	})
-
-	let out = $state(true) // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
 </script>
 
-{#if $copilotInfo.enabled && $stepInputCompletionEnabled}
-	<ManualPopover showTooltip={!empty && generatedContent.length > 0} placement="bottom" class="p-2">
-		<Button
-			size="xs"
-			color="light"
-			btnClasses={twMerge(
-				'text-ai bg-violet-100 dark:bg-gray-700 dark:hover:bg-surface-hover',
-				!loading && generatedContent.length > 0
-					? 'bg-green-100 text-green-800 hover:bg-green-100 dark:text-green-400 dark:bg-green-700 dark:hover:bg-green-700'
-					: ''
-			)}
-			on:click={() => {
-				if (!loading && generatedContent.length > 0) {
-					dispatch('setExpr', generatedContent)
-					generatedContent = ''
-				}
-			}}
-			on:focus={() => {
-				btnFocused = true
-			}}
-			on:blur={() => {
-				btnFocused = false
-			}}
-			on:mouseenter={(ev) => {
-				if (out) {
-					out = false
-					generateIteratorExpr()
-				}
-			}}
-			on:mouseleave={() => {
-				out = true
-				cancel()
-			}}
-			endIcon={{
-				icon: loading ? Loader2 : generatedContent.length > 0 ? Check : Wand2,
-				classes: loading ? 'animate-spin' : ''
-			}}
-		>
-			{#if focused}
-				{#if loading}
-					ESC
-				{:else if generatedContent.length > 0}
-					TAB
-				{/if}
-			{/if}
-		</Button>
-		{#snippet content()}
-			<div class="text-sm text-primary">
-				{generatedContent}
-			</div>
-		{/snippet}
-	</ManualPopover>
-{/if}
+<!-- The iterator autocompletion runs headless: the focus effect generates the
+     ghost-text suggestion and `onKeyUp` accepts it with Tab. The on-screen
+     Wand/TAB button and its spinner were removed as intrusive. -->

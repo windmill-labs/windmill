@@ -108,7 +108,7 @@
 
 <div class="h-full flex flex-col">
 	<FlowCard {noEditor} title="Settings">
-		<div class="grow min-h-0 p-4 h-full flex flex-col gap-6">
+		<div class="grow min-h-0 p-4 h-full flex flex-col gap-6 overflow-y-auto">
 			<!-- Metadata Section -->
 			<div class="gap-6 flex flex-col">
 				<Label label="Summary">
