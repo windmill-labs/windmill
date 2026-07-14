@@ -454,4 +454,38 @@ describe('createSession — reuses an untouched draft, family-scoped', () => {
 			restore()
 		}
 	})
+
+	it('does not reuse a draft typed into then erased back to empty (flush still pending)', () => {
+		// draftPrompt is '' here, not undefined: the user edited it (a flush is pending),
+		// so it must stay a real session — reusing/dropping it would be inconsistent
+		// across the 400ms boundary and could resurrect it via the pending timer.
+		vi.useFakeTimers()
+		const restore = withTwoFamilies('rootA')
+		const prevCurrent = sessionState.currentSessionId
+		const draft = session({
+			id: 'typed-then-erased',
+			name: 'session-905',
+			pending_workspace_id: 'rootA',
+			transient: true
+		})
+		sessionState.sessions.push(draft)
+		let createdId: string | undefined
+		try {
+			setSessionDraftPrompt('typed-then-erased', 'h')
+			setSessionDraftPrompt('typed-then-erased', '')
+			expect(draft.draftPrompt).toBe('')
+			const created = createSession()
+			createdId = created.id
+			expect(created.id).not.toBe('typed-then-erased')
+			expect(sessionState.sessions.some((s) => s.id === 'typed-then-erased')).toBe(true)
+		} finally {
+			vi.clearAllTimers()
+			vi.useRealTimers()
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => s.id !== 'typed-then-erased' && s.id !== createdId
+			)
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
 })

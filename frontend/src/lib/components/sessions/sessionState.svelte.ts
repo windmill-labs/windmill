@@ -641,11 +641,12 @@ export function requestComposerFocus(): void {
 // never touched. Every touch but one clears `transient` synchronously (workspace
 // pick, panel, rename, preview); typing a prompt sets draftPrompt and persists on
 // a debounce, so `transient` alone can't tell a fresh blank from a just-typed
-// draft mid-flush — the draftPrompt check does. createSession reuses a blank on
-// `+` and discards a stray one, but a typed draft is a real pending session and
-// survives both.
+// draft mid-flush — the draftPrompt check does. `undefined` (never edited), not
+// falsiness: a draft typed then erased back to '' still has a pending flush and
+// is a real session, so it must not be reused or dropped. createSession reuses a
+// blank on `+` and discards a stray one; a touched draft survives both.
 function isReusableBlank(s: Session): boolean {
-	return !!s.transient && !s.draftPrompt
+	return !!s.transient && s.draftPrompt === undefined
 }
 
 export function createSession(): Session {
