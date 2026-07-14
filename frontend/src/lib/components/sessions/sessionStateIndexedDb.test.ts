@@ -219,6 +219,24 @@ describe('sessionState IndexedDB persistence', () => {
 		expect(sessionState.sessions).toEqual([])
 	})
 
+	it('deleting a draft inside the debounce window does not resurrect it', async () => {
+		const user = freshUser()
+		userStore.set(user)
+		await flush()
+
+		const s = session({ id: 't4b', transient: true, pending_workspace_id: 'wsA' })
+		sessionState.sessions = [s]
+		// Schedule a flush, then delete before the 400ms timer fires. The cancelled
+		// timer must not write the record back to IndexedDB.
+		setSessionDraftPrompt('t4b', 'typed then deleted')
+		deleteSession('t4b')
+		await new Promise((r) => setTimeout(r, 500))
+
+		await rehydrate(user)
+		await flush()
+		expect(sessionState.sessions).toEqual([])
+	})
+
 	it('removes a session record', async () => {
 		const user = freshUser()
 		userStore.set(user)
