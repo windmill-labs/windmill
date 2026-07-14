@@ -41,7 +41,7 @@
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 	import { z } from 'zod'
-	import HomeAIChat from '$lib/components/home/HomeAIChat.svelte'
+	import HomeAIChat, { homeAIExamples } from '$lib/components/home/HomeAIChat.svelte'
 
 	type Tab = 'hub' | 'workspace'
 
@@ -108,6 +108,9 @@
 	})
 
 	let showCreateButtons = $state(false)
+
+	// prompt of the home AI chat, filled in by the example tags below it
+	let aiPrompt = $state('')
 
 	onMount(() => {
 		// Check if there's a tutorial parameter in the URL
@@ -277,9 +280,22 @@
 		</div>
 
 		<div class="w-full mb-12 mt-2">
-			<HomeAIChat />
+			<HomeAIChat bind:value={aiPrompt} />
 
-			<div class="max-w-[40rem] mx-auto flex justify-end">
+			<div class="max-w-[40rem] mx-auto flex items-center justify-between gap-2">
+				<div class="flex flex-row flex-wrap items-center gap-1.5">
+					{#each homeAIExamples as example (example.label)}
+						<Button
+							variant="default"
+							unifiedSize="xs"
+							btnClasses="!rounded-full !text-2xs !text-hint"
+							onClick={() => (aiPrompt = example.prompt)}
+						>
+							{example.label}
+						</Button>
+					{/each}
+				</div>
+
 				<div class="flex flex-row items-center gap-1">
 					<Button
 						variant="subtle"

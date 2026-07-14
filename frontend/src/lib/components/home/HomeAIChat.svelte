@@ -1,14 +1,39 @@
+<script lang="ts" module>
+	/** Example prompts: the short `label` is shown as a clickable tag under the chat,
+	 * the `prompt` is what gets typed out as the placeholder / dropped into the input. */
+	export const homeAIExamples: { label: string; prompt: string }[] = [
+		{
+			label: 'Sync Salesforce',
+			prompt: 'Sync new Salesforce leads into a postgres table every hour'
+		},
+		{
+			label: 'Ban Discord users',
+			prompt:
+				'Build a workflow that triggers on a Discord message, checks for offensive language using an LLM, and possibly block them'
+		},
+		{
+			label: 'Weekly Slack report',
+			prompt: 'Generate a weekly sales report from postgres and post it to Slack every Monday'
+		}
+	]
+</script>
+
 <script lang="ts">
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { ArrowUp, Settings } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
-	import ProviderModelSelector from '../copilot/chat/ProviderModelSelector.svelte'
 	import { startSessionWithPrompt } from '../sessions/sessionSwitch.svelte'
 	import { copilotInfo, copilotWorkspace, loadCopilot } from '$lib/aiStore'
 	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
+	import AIChatModelSettings from '../copilot/chat/AIChatModelSettings.svelte'
 
-	let value = $state('')
+	interface Props {
+		/** bindable so the example tags rendered by the page can fill the prompt */
+		value?: string
+	}
+
+	let { value = $bindable('') }: Props = $props()
 	let placeholder = $state('')
 
 	// In global-AI mode the layout's chat panel is disabled and never loads the copilot
@@ -44,10 +69,7 @@
 		}
 	}
 
-	const prompts = [
-		'Sync new Salesforce leads into a postgres table every hour',
-		'Build a workflow that triggers on a Discord message, checks for offensive language using an LLM, and possibly block them'
-	]
+	const prompts = homeAIExamples.map((e) => e.prompt)
 
 	const TYPE_MS = 45
 	const DELETE_MS = 25
@@ -113,10 +135,8 @@
 				disabled={!value.trim() || starting || disabled}
 				onclick={start}
 			></Button>
-			<div
-				class="absolute left-3 bottom-4 flex items-center border rounded-md bg-surface-tertiary px-1"
-			>
-				<ProviderModelSelector />
+			<div class="absolute left-3 bottom-4 flex items-center px-0.5">
+				<AIChatModelSettings />
 			</div>
 		</div>
 		{#if disabled}
