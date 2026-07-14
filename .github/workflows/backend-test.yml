@@ -246,6 +246,18 @@ jobs:
           RUST_LOG_STYLE: never
           CARGO_NET_GIT_FETCH_WITH_CLI: true
           CARGO_BUILD_JOBS: 12
+          # backend/Cargo.toml leaves profile.dev at the default debug = 2 for
+          # the (large) windmill workspace crates; that debug info is emitted
+          # into every object file and embedded in each test binary. Across the
+          # full --all --features build it is the dominant memory/disk consumer
+          # when mold links the windmill-api-integration-tests binary, tipping
+          # the runner over (lost runner reported as a canceled step). CI needs
+          # no debug info, so drop it entirely for the dev/test profiles here.
+          # (test profile inherits dev, but the workspace crates link in as
+          # dev-profile deps, so both must be set.) CI-only; local dev builds
+          # are unaffected.
+          CARGO_PROFILE_DEV_DEBUG: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
           # Tests' poll-time stack frames (deep nested async fn chains in
           # debug builds) reach ~1.8MB, leaving very thin headroom on the
           # default 2MB thread stack. 4MB gives ~2x buffer against flaky
