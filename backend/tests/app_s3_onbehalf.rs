@@ -147,12 +147,11 @@ async fn test_deployed_app_s3_onbehalf_provenance(db: Pool<Postgres>) -> anyhow:
 /// Seed a completed job whose result carries an s3 object. `app_trigger` sets the
 /// app-origination marker exactly as `execute_component` stamps it: `Some(app_path)`
 /// => `trigger_kind = 'app'` + `trigger = <app_path>` (an app-launched run);
-/// `None` => an ordinary direct `/jobs/run` (no app marker), used to model a viewer's
-/// own execution of a declared runnable. `permissioned_as` is set independently so a
-/// direct run can be modeled even when it resolves to the author (runnable on-behalf).
+/// `None` => an ordinary direct `/jobs/run` (no app marker). `created_by` is the user
+/// the job ran as (the isolation key the gate confines downloads to).
 async fn seed_completed_job(
     db: &Pool<Postgres>,
-    permissioned_as: &str,
+    created_by: &str,
     app_trigger: Option<&str>,
     s3_key: &str,
 ) -> anyhow::Result<()> {
@@ -163,7 +162,7 @@ async fn seed_completed_job(
             INSERT INTO v2_job (id, workspace_id, kind, runnable_path, created_by,
                                 permissioned_as, trigger_kind, trigger)
             VALUES (gen_random_uuid(), 'test-workspace', 'script', 'u/test-user/query_to_s3',
-                    'test-user', $1,
+                    $1, 'u/test-user',
                     CASE WHEN $2::text IS NULL THEN NULL ELSE 'app'::job_trigger_kind END, $2)
             RETURNING id
         )
@@ -171,7 +170,7 @@ async fn seed_completed_job(
         SELECT id, 'test-workspace', 1, 'success', $3::jsonb, now() FROM j
         "#,
     )
-    .bind(permissioned_as)
+    .bind(created_by)
     .bind(app_trigger)
     .bind(&result)
     .execute(db)
@@ -180,11 +179,12 @@ async fn seed_completed_job(
 }
 
 /// A deployed app that renders S3 files it produced (e.g. a SQL query persisted to
-/// S3 by a script/flow component) must clear the provenance gate for logged-in
-/// viewers, while a viewer cannot forge provenance by running a declared runnable
-/// directly. Provenance is keyed on the app-origination marker (`trigger_kind='app'`
-/// + `trigger = <app path>`) that `execute_component` stamps — not on
-/// created_by/permissioned_as/runnable_path, which a direct run can match.
+/// S3 by a component) must clear the provenance gate for the viewer whose own app
+/// run produced them, while (a) a viewer cannot forge provenance by running a
+/// runnable directly (no app marker), (b) another app's outputs stay denied, and
+/// (c) another viewer's outputs stay denied (cross-viewer isolation). Provenance is
+/// keyed on the app-origination marker (`trigger_kind='app'` + `trigger=<app path>`)
+/// that `execute_component` stamps, plus `created_by = <this caller>` for isolation.
 #[sqlx::test(fixtures("base"))]
 async fn test_deployed_app_s3_onbehalf_flow_script_provenance(
     db: Pool<Postgres>,
@@ -197,18 +197,15 @@ async fn test_deployed_app_s3_onbehalf_flow_script_provenance(
 
     const FS_APP: &str = "u/test-user/s3flowscript";
     const OTHER_APP: &str = "u/test-user/other_app";
-    // Produced by an app-launched run of this app → provenance-covered.
-    const PRODUCED_KEY: &str = "results/query_output.parquet";
-    // Produced by an app-launched run of a DIFFERENT app → must stay denied.
+    // Produced by test-user-2's own app run of THIS app.
+    const USER_KEY: &str = "results/user2_output.parquet";
+    // Produced by test-user's own app run of THIS app.
+    const ADMIN_KEY: &str = "results/admin_output.parquet";
+    // Produced by an app run of a DIFFERENT app → must stay denied.
     const OTHER_APP_KEY: &str = "results/other_app_output.parquet";
-    // A viewer ran the declared script DIRECTLY (no app marker). Even though the
-    // runnable's on-behalf makes permissioned_as = the author, this is not an
-    // app-launched run, so it must NOT forge app provenance.
+    // Produced by a DIRECT run (no app marker) → the forgery attempt, must stay denied.
     const FORGED_KEY: &str = "results/author_only_secret.parquet";
 
-    // Anonymous app: on_behalf_of auto-sets to the creator (u/test-user). No static
-    // allowed_s3_keys, so only the app-originated recent-production path can clear
-    // the gate.
     let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
         .json(&json!({
             "path": FS_APP,
@@ -221,72 +218,75 @@ async fn test_deployed_app_s3_onbehalf_flow_script_provenance(
     assert_eq!(resp.status(), 201, "app create: {}", resp.text().await?);
 
     // Seed the produced-file jobs (all within the 3h window).
-    // App-launched by THIS app.
-    seed_completed_job(&db, "u/test-user", Some(FS_APP), PRODUCED_KEY).await?;
-    // App-launched by a DIFFERENT app (same author identity).
-    seed_completed_job(&db, "u/test-user", Some(OTHER_APP), OTHER_APP_KEY).await?;
-    // A direct run (no app marker) whose permissioned_as resolves to the author,
-    // as a runnable configured with on_behalf_of would — the forgery attempt.
-    seed_completed_job(&db, "u/test-user", None, FORGED_KEY).await?;
+    seed_completed_job(&db, "test-user-2", Some(FS_APP), USER_KEY).await?;
+    seed_completed_job(&db, "test-user", Some(FS_APP), ADMIN_KEY).await?;
+    seed_completed_job(&db, "test-user-2", Some(OTHER_APP), OTHER_APP_KEY).await?;
+    seed_completed_job(&db, "test-user-2", None, FORGED_KEY).await?;
 
     let get = |route: &str, token: &'static str| {
         let url = format!("{ws}/apps_u/{route}");
         authed(client().get(url), token).send()
     };
     let denied = |body: &str| body.contains("File restricted");
+    let body_of = |route: String, token: &'static str| async move {
+        get(&route, token).await.unwrap().text().await.unwrap()
+    };
 
-    // A key this app produced clears the gate for a logged-in non-admin viewer (the
-    // exact case that regressed to "File restricted").
-    let body = get(
-        &format!("download_s3_file/{FS_APP}?s3={PRODUCED_KEY}"),
+    // The viewer's own app run's output clears the gate (the case that regressed to
+    // "File restricted").
+    let body = body_of(
+        format!("download_s3_file/{FS_APP}?s3={USER_KEY}"),
         USER_TOKEN,
     )
-    .await?
-    .text()
-    .await?;
+    .await;
     assert!(
         !denied(&body),
-        "app-produced key must clear the gate for a non-admin viewer: {body}"
+        "viewer's own app-produced key must clear the gate: {body}"
     );
 
-    // Same for the admin viewer — the gate has no admin bypass, so this also
-    // regressed before the fix.
-    let body = get(
-        &format!("download_s3_file/{FS_APP}?s3={PRODUCED_KEY}"),
+    // The admin viewer's own app run's output clears — the gate has no admin bypass,
+    // it just matches the caller's own runs.
+    let body = body_of(
+        format!("download_s3_file/{FS_APP}?s3={ADMIN_KEY}"),
         ADMIN_TOKEN,
     )
-    .await?
-    .text()
-    .await?;
+    .await;
     assert!(
         !denied(&body),
-        "app-produced key must clear the gate for admin viewer too: {body}"
+        "admin's own app-produced key must clear the gate: {body}"
     );
 
-    // A file a viewer produced by running the declared runnable DIRECTLY (no app
-    // marker) must stay denied — even though permissioned_as resolves to the author.
-    // This is the confused-deputy the app-origination marker closes.
-    let body = get(
-        &format!("download_s3_file/{FS_APP}?s3={FORGED_KEY}"),
-        USER_TOKEN,
+    // Cross-viewer isolation: the admin cannot pull test-user-2's result even though
+    // it is a genuine app-marked job of the same app (no admin bypass either).
+    let body = body_of(
+        format!("download_s3_file/{FS_APP}?s3={USER_KEY}"),
+        ADMIN_TOKEN,
     )
-    .await?
-    .text()
-    .await?;
+    .await;
     assert!(
         denied(&body),
-        "key from a viewer's own direct run (no app marker) must stay denied: {body}"
+        "another viewer's app-produced key must stay denied (isolation): {body}"
     );
 
-    // A file another app produced must stay denied — provenance is scoped to THIS
-    // app's path, not any app-launched job by the same author.
-    let body = get(
-        &format!("download_s3_file/{FS_APP}?s3={OTHER_APP_KEY}"),
+    // A key produced by a direct run (no app marker) stays denied — the forgery the
+    // app-origination marker closes.
+    let body = body_of(
+        format!("download_s3_file/{FS_APP}?s3={FORGED_KEY}"),
         USER_TOKEN,
     )
-    .await?
-    .text()
-    .await?;
+    .await;
+    assert!(
+        denied(&body),
+        "key from a direct run (no app marker) must stay denied: {body}"
+    );
+
+    // A key produced by a DIFFERENT app stays denied — provenance is scoped to THIS
+    // app's path.
+    let body = body_of(
+        format!("download_s3_file/{FS_APP}?s3={OTHER_APP_KEY}"),
+        USER_TOKEN,
+    )
+    .await;
     assert!(
         denied(&body),
         "key produced by a different app must stay denied: {body}"
@@ -431,26 +431,26 @@ async fn test_app_trigger_kind_rejected_for_reassignment(db: Pool<Postgres>) -> 
     Ok(())
 }
 
-/// A **preview** run must NOT be stamped with the app-origination marker. Preview
-/// mode lets a `jobs:run` caller supply arbitrary `raw_code` against any app path
-/// without that app's deployed policy, so stamping it would let the caller forge
-/// the marker the S3 gate trusts. Only deployed, policy-checked runs get the marker.
+/// A preview is stamped with the app-origination marker ONLY when the caller can
+/// edit that app. Preview mode lets a `jobs:run` caller supply arbitrary `raw_code`
+/// against any app path; marking such a run for a victim app the caller cannot edit
+/// would forge the marker the S3 gate trusts. An app editor previewing their own app
+/// IS marked (they already wield the app's author identity), so their preview
+/// results stay downloadable.
 #[sqlx::test(fixtures("base"))]
-async fn test_preview_component_is_not_stamped_app_trigger(
-    db: Pool<Postgres>,
-) -> anyhow::Result<()> {
+async fn test_preview_marker_requires_app_write(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
 
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
     let ws = format!("http://localhost:{port}/api/w/test-workspace");
 
-    // A real deployed victim app whose author has S3 access.
-    const VICTIM_APP: &str = "u/test-user/victim_app";
+    // App owned by test-user (ADMIN_TOKEN). test-user-2 (USER_TOKEN) cannot edit it.
+    const APP: &str = "u/test-user/preview_app";
     let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
         .json(&json!({
-            "path": VICTIM_APP,
-            "summary": "victim",
+            "path": APP,
+            "summary": "preview marker test",
             "value": {},
             "policy": { "execution_mode": "anonymous", "triggerables": {} }
         }))
@@ -458,35 +458,59 @@ async fn test_preview_component_is_not_stamped_app_trigger(
         .await?;
     assert_eq!(resp.status(), 201, "app create: {}", resp.text().await?);
 
-    // Preview arbitrary inline code against the victim app path (force_viewer_static_fields
-    // => preview mode; raw_code with no path/id skips all app authorization).
-    let resp = authed(
-        client().post(format!("{ws}/apps_u/execute_component/{VICTIM_APP}")),
-        ADMIN_TOKEN,
-    )
-    .json(&json!({
-        "component": "comp1",
-        "raw_code": { "content": "export function main() { return 1 }", "language": "deno" },
-        "force_viewer_static_fields": {},
-        "args": {}
-    }))
-    .send()
-    .await?;
-    let status = resp.status();
-    let job_id = resp.text().await?;
-    assert_eq!(status, 200, "preview execute_component: {job_id}");
-    let job_id = job_id.trim().trim_matches('"');
+    // Preview arbitrary inline code against the app (force_viewer_static_fields =>
+    // preview mode; raw_code with no path/id skips all app authorization), as `token`.
+    let preview_trigger_kind = |token: &'static str| {
+        let ws = ws.clone();
+        let db = db.clone();
+        async move {
+            let resp = authed(
+                client().post(format!("{ws}/apps_u/execute_component/{APP}")),
+                token,
+            )
+            .json(&json!({
+                "component": "comp1",
+                "raw_code": { "content": "export function main() { return 1 }", "language": "deno" },
+                "force_viewer_static_fields": {},
+                "args": {}
+            }))
+            .send()
+            .await
+            .unwrap();
+            let status = resp.status();
+            let job_id = resp.text().await.unwrap();
+            assert_eq!(status, 200, "preview execute_component: {job_id}");
+            let job_id = job_id.trim().trim_matches('"').to_string();
+            let (trigger_kind, trigger): (Option<String>, Option<String>) = sqlx::query_as(
+                "SELECT trigger_kind::text, trigger FROM v2_job WHERE id = $1::uuid AND workspace_id = 'test-workspace'",
+            )
+            .bind(job_id)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+            (trigger_kind, trigger)
+        }
+    };
 
-    let (trigger_kind, trigger): (Option<String>, Option<String>) = sqlx::query_as(
-        "SELECT trigger_kind::text, trigger FROM v2_job WHERE id = $1::uuid AND workspace_id = 'test-workspace'",
-    )
-    .bind(job_id)
-    .fetch_one(&db)
-    .await?;
-
+    // Non-editor (test-user-2) preview against an app they cannot edit → NOT marked.
+    let (trigger_kind, trigger) = preview_trigger_kind(USER_TOKEN).await;
     assert_eq!(
         trigger_kind, None,
-        "a preview run must NOT be stamped trigger_kind='app' (got {trigger_kind:?}/{trigger:?})"
+        "a non-editor's preview must NOT be stamped trigger_kind='app' (got {trigger_kind:?}/{trigger:?})"
+    );
+
+    // The app owner (test-user) previewing their own app → marked, so their preview
+    // results remain downloadable in the editor.
+    let (trigger_kind, trigger) = preview_trigger_kind(ADMIN_TOKEN).await;
+    assert_eq!(
+        trigger_kind.as_deref(),
+        Some("app"),
+        "an app editor's own preview must be stamped trigger_kind='app' (got {trigger_kind:?})"
+    );
+    assert_eq!(
+        trigger.as_deref(),
+        Some(APP),
+        "the editor preview marker's trigger must be the app path (got {trigger:?})"
     );
 
     Ok(())

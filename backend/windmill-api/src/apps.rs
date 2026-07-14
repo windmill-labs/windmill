@@ -82,7 +82,9 @@ use windmill_common::{
 use windmill_object_store::object_store_reexports::{Attribute, Attributes};
 use windmill_store::resources::get_resource_value_interpolated_internal;
 
-use windmill_api_auth::{create_token_internal, ensure_scopes_within_caller, NewToken};
+use windmill_api_auth::{
+    create_token_internal, ensure_scopes_within_caller, require_is_writer, NewToken,
+};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel};
 
@@ -3180,17 +3182,36 @@ async fn execute_component(
     let end_user_email =
         get_end_user_email(&db, opt_authed.as_ref(), tokened.token.as_deref()).await;
 
-    // Mark the job as app-originated (trigger = the app path). This is the
-    // authoritative provenance signal the deployed-app S3 gate relies on to tell
-    // files an app produced from files a viewer forged by running a declared
-    // runnable directly; a direct `/jobs/run` cannot set trigger_kind = 'app'.
+    // Mark the job as app-originated (trigger = the app path) — the provenance
+    // signal the deployed-app S3 gate trusts to distinguish files an app produced
+    // from files a viewer forged by running a declared runnable directly (a direct
+    // `/jobs/run` cannot set trigger_kind = 'app').
     //
-    // ONLY for deployed, policy-checked runs. A preview (`is_preview`) lets the
-    // caller supply arbitrary `raw_code` against any app path WITHOUT that app's
-    // deployed policy (authorized only by `jobs:run`), so stamping it would let a
-    // caller forge the marker for a victim app and launder its author's S3 perms.
+    // Deployed runs are policy-checked, so always marked. A preview lets a
+    // `jobs:run` caller supply arbitrary `raw_code` against ANY app path in the URL
+    // without the deployed policy, so mark it only when the caller can actually EDIT
+    // this app: an app editor already wields the app's author identity (they can
+    // deploy a component that reads the same file), so this is no escalation, while
+    // a `jobs:run`-only caller who cannot edit the app cannot forge the marker for it.
+    let mark_app_origin = if is_preview {
+        match opt_authed.as_ref() {
+            Some(authed) => require_is_writer(
+                authed,
+                path,
+                &w_id,
+                db.clone(),
+                "SELECT extra_perms FROM app WHERE path = $1 AND workspace_id = $2",
+                "app",
+            )
+            .await
+            .is_ok(),
+            None => false,
+        }
+    } else {
+        true
+    };
     let app_trigger =
-        (!is_preview).then(|| TriggerMetadata::new(Some(path.to_string()), JobTriggerKind::App));
+        mark_app_origin.then(|| TriggerMetadata::new(Some(path.to_string()), JobTriggerKind::App));
 
     let (uuid, mut tx) = push(
         &db,
@@ -3888,12 +3909,20 @@ async fn check_if_allowed_to_access_s3_file_from_app(
         // "Recently produced" is keyed on the app-origination marker
         // (`trigger_kind = 'app'` + `trigger = <this app path>`) that
         // `execute_component` stamps on every job it launches — NOT on
-        // `created_by`/`permissioned_as`/`runnable_path`. Those are all forgeable: a
-        // viewer who can run a declared script/flow directly runs it with un-pinned
-        // inputs, and if the runnable carries its own `on_behalf_of` even
-        // `permissioned_as` resolves to the author. Only a genuine app-launched run
-        // carries the trigger marker (a direct `/jobs/run` cannot set it), so its
-        // outputs are the only ones this gate trusts.
+        // `created_by`/`permissioned_as`/`runnable_path` as the security boundary:
+        // those are forgeable (a viewer running a declared runnable directly, with
+        // un-pinned inputs, and — if the runnable carries its own `on_behalf_of` —
+        // even `permissioned_as` resolving to the author). Only a genuine
+        // app-launched run carries the marker (a direct `/jobs/run` cannot set it).
+        //
+        // `created_by = <this caller>` is then an additional *isolation* filter, not
+        // the boundary: it confines a viewer to keys their OWN app runs produced, so
+        // one viewer can't pull another viewer's result. It can only narrow (it is
+        // ANDed under the un-forgeable marker), so it re-introduces no forgery.
+        let creator = opt_authed
+            .as_ref()
+            .map(|authed| authed.username.clone())
+            .unwrap_or_else(|| "anonymous".to_string());
         let allowed = policy.allowed_s3_keys.as_ref().is_some_and(|keys| {
             keys.iter()
                 .any(|key| key.s3_path == file_query.s3 && key.storage == file_query.storage)
@@ -3906,10 +3935,12 @@ async fn check_if_allowed_to_access_s3_file_from_app(
                     AND c.result @> ('{"s3":"' || $1 ||  '"}')::jsonb
                     AND j.trigger_kind = 'app'
                     AND j.trigger = $3
+                    AND j.created_by = $4
             )"#,
                 file_query.s3,
                 w_id,
                 path,
+                creator,
             )
             .fetch_one(db)
             .await?
