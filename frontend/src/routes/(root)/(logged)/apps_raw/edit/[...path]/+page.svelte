@@ -423,14 +423,13 @@
 		// to another (e.g. via the workspace picker) reloads the new app.
 		const currentPath = page.params.path
 		if ($workspaceStore && currentPath !== undefined) {
+			// untrack so loadApp's reactive reads (the draft-hint SvelteMap via
+			// shouldSeedNewDraft) don't subscribe this effect — else the first
+			// autosave's optimistic hint flip re-fires loadApp mid-bootstrap and
+			// 404s on the not-yet-POSTed draft. Depend only on path/workspace above.
 			untrack(() => {
-				// Clear files so RawAppEditor unmounts; it will remount when loadApp
+				// Clear files so RawAppEditor unmounts; it remounts when loadApp
 				// completes with fresh data, re-initializing its internal stores.
-				// untrack so loadApp's own reactive reads (e.g. the draft-hint
-				// SvelteMap via shouldSeedNewDraft) don't subscribe this effect —
-				// otherwise the first autosave's optimistic hint flip re-fires
-				// loadApp mid-bootstrap, taking the backend-fetch branch before the
-				// draft POST lands → 404 "App not found". See /apps/edit.
 				files = undefined
 				path = currentPath
 				loadApp()
