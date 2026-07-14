@@ -28,6 +28,7 @@
 	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
 	import SessionChangesBar from './SessionChangesBar.svelte'
 	import {
+		composerFocusRequest,
 		createSession,
 		deleteSessionsForWorkspace,
 		getEffectiveWorkspaceId,
@@ -232,6 +233,11 @@
 	// loading.
 	let aiChat: AIChat | undefined = $state(undefined)
 	$effect(() => {
+		// Focus the composer when this session becomes active, or on an explicit
+		// focus request — the latter covers `+` reusing the untouched draft you're
+		// already viewing, where currentSessionId doesn't change so activation alone
+		// wouldn't re-run this.
+		void composerFocusRequest.nonce
 		if (sessionState.currentSessionId !== sessionId) return
 		if (!aiChat) return
 		if (!$copilotInfo.enabled) return

@@ -611,6 +611,16 @@ export function findSessionByName(name: string): Session | undefined {
 	return sessionState.sessions.find((s) => s.name === name)
 }
 
+// Bumped to ask the active session's composer to re-focus even when
+// `currentSessionId` doesn't change — the `+` reuse path lands you back on the
+// untouched draft you're already viewing, so nothing navigates, but the click
+// should still drop the cursor in the composer. SessionWrapper's focus effect
+// depends on `nonce`.
+export const composerFocusRequest = $state<{ nonce: number }>({ nonce: 0 })
+export function requestComposerFocus(): void {
+	composerFocusRequest.nonce++
+}
+
 export function createSession(): Session {
 	// Reuse an existing untouched draft from the active family rather than pile a
 	// blank entry on every `+`. "Untouched" is exactly `transient`: a pending
@@ -622,6 +632,9 @@ export function createSession(): Session {
 	const reusable = sessionState.sessions.find((s) => s.transient && sessionInCurrentFamily(s))
 	if (reusable) {
 		sessionState.currentSessionId = reusable.id
+		// Reusing an already-active draft doesn't change currentSessionId, so ask
+		// the composer to focus explicitly — the caller still navigates/redirects.
+		requestComposerFocus()
 		return reusable
 	}
 	sessionState.sessions = sessionState.sessions.filter((s) => !s.transient)
