@@ -132,7 +132,7 @@ export function buildRunsFilterSearchbarSchema({
 					label: 'Runs (default)',
 					value: 'runs' as const,
 					description:
-						'Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they start), they have been triggered through the UI, a schedule or webhook. Also includes preview/test runs started from the editor.'
+						'Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they start), they have been triggered through the UI, a schedule or webhook'
 				},
 				{
 					label: 'Dependencies',
