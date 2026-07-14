@@ -40,8 +40,6 @@
 		message_attributes = $bindable([]),
 		showTestingBadge = false
 	}: Props = $props()
-	// Scope trigger backend calls to the embedding host's workspace (an AI
-	// session's forked workspace) when set; otherwise the nav workspace.
 	const triggerWs = getTriggerWorkspace()
 	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
@@ -87,9 +85,13 @@
 						</ToggleButtonGroup>
 
 						{#if aws_auth_resource_type === 'credentials'}
-							<ResourcePicker resourceType="aws" bind:value={aws_resource_path} />
+							<ResourcePicker workspace={wsId} resourceType="aws" bind:value={aws_resource_path} />
 						{:else if aws_auth_resource_type === 'oidc'}
-							<ResourcePicker resourceType="aws_oidc" bind:value={aws_resource_path} />
+							<ResourcePicker
+								workspace={wsId}
+								resourceType="aws_oidc"
+								bind:value={aws_resource_path}
+							/>
 						{/if}
 						{#if isValid}
 							<TestTriggerConnection kind="sqs" args={{ aws_resource_path, queue_url }} />
@@ -188,4 +190,4 @@
 	{/snippet}
 </ItemPicker>
 
-<VariableEditor bind:this={variableEditor} on:create={itemPicker.openDrawer} />
+<VariableEditor bind:this={variableEditor} workspace={wsId} on:create={itemPicker.openDrawer} />

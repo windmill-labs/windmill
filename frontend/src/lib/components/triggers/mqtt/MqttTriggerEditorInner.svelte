@@ -77,8 +77,6 @@
 		onReset = undefined,
 		cloudDisabled = false
 	}: Props = $props()
-	// Scope trigger backend calls to the embedding host's workspace (an AI
-	// session's forked workspace) when set; otherwise the nav workspace.
 	const triggerWs = getTriggerWorkspace()
 	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
@@ -490,6 +488,7 @@
 			<div class="flex flex-col gap-4">
 				<Label label="Path">
 					<Path
+						workspaceOverride={wsId}
 						bind:dirty={dirtyPath}
 						bind:error={pathError}
 						bind:path

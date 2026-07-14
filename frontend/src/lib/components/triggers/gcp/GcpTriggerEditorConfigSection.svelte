@@ -25,8 +25,6 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 
-	// Scope trigger backend calls to the embedding host's workspace (an AI
-	// session's forked workspace) when set; otherwise the nav workspace.
 	// Declared before `DEFAULT_PUSH_CONFIG` / the `base_endpoint` prop default,
 	// which call `getBaseUrl()` (a `wsId` reader) during component init.
 	const triggerWs = getTriggerWorkspace()
@@ -156,6 +154,7 @@
 			<Subsection label="Connection setup">
 				<div class="flex flex-col gap-1 mt-2">
 					<ResourcePicker
+						workspace={wsId}
 						resourceType="gcloud"
 						bind:value={
 							() => gcp_resource_path,

@@ -816,6 +816,7 @@
 						<label for="path" class="text-xs font-semibold text-emphasis">Path</label>
 						{#if !edit && !trigger?.isPrimary}
 							<Path
+								workspaceOverride={wsId}
 								bind:dirty={dirtyPath}
 								bind:this={pathC}
 								checkInitialPathExistence={!edit}
