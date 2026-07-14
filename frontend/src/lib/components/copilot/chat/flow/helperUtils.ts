@@ -15,16 +15,10 @@ import type { InlineScriptSession } from './inlineScriptsUtils'
  * break the color picker UI at worst. */
 const ALLOWED_NOTE_COLORS = new Set<string>(Object.values(NoteColor))
 
-/**
- * Estimate a free note's size from its markdown text so AI-created notes (which
- * omit `size`) don't clip. Free notes render at a fixed height and never grow to
- * fit their content — the renderer's text div overflows the node box — so the
- * geometry seeded here must already be tall enough to hold the text.
- *
- * The note renders at `text-xs` (12px / line-height 1.4 ≈ 17px per line) inside
- * `p-4` (16px padding on each side). We wrap each source line to the content
- * width, sum the wrapped line count, and clamp the result to sane bounds.
- */
+// Free notes render at a fixed height and never grow to fit their content (the
+// renderer's text div overflows the node box), so an AI-created note that omits
+// `size` must be seeded tall enough for its text. Constants below mirror the
+// renderer (text-xs 12px, line-height 1.4, p-4 padding).
 function estimateFreeNoteSize(text: string): { width: number; height: number } {
 	const width = MIN_NOTE_WIDTH
 	const HORIZONTAL_PADDING = 32 // p-4 left + right
