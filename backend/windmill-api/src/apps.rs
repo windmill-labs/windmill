@@ -3195,16 +3195,25 @@ async fn execute_component(
     // a `jobs:run`-only caller who cannot edit the app cannot forge the marker for it.
     let mark_app_origin = if is_preview {
         match opt_authed.as_ref() {
-            Some(authed) => require_is_writer(
-                authed,
-                path,
-                &w_id,
-                db.clone(),
-                "SELECT extra_perms FROM app WHERE path = $1 AND workspace_id = $2",
-                "app",
-            )
-            .await
-            .is_ok(),
+            // Require BOTH: the token is permitted to edit the app (`apps:write`
+            // scope — a deliberately app-scoped `apps:run`/`apps:read` token without
+            // write must not qualify, since it cannot actually deploy equivalent
+            // code), AND the user is a writer of the app (ACL — an unscoped session
+            // of a non-editor must not qualify). Together they mean a real editor of
+            // this app, who already wields its author identity.
+            Some(authed) => {
+                check_scopes(authed, || format!("apps:write:{}", path)).is_ok()
+                    && require_is_writer(
+                        authed,
+                        path,
+                        &w_id,
+                        db.clone(),
+                        "SELECT extra_perms FROM app WHERE path = $1 AND workspace_id = $2",
+                        "app",
+                    )
+                    .await
+                    .is_ok()
+            }
             None => false,
         }
     } else {

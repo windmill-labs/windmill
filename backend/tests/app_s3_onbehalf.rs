@@ -458,6 +458,24 @@ async fn test_preview_marker_requires_app_write(db: Pool<Postgres>) -> anyhow::R
         .await?;
     assert_eq!(resp.status(), 201, "app create: {}", resp.text().await?);
 
+    // A token for the app OWNER (test-user) deliberately scoped to run/read the app
+    // and run jobs, but WITHOUT `apps:write` — it cannot deploy the app, so it must
+    // not be able to mark preview provenance either.
+    const SCOPED_NO_WRITE: &str = "SCOPED_NO_WRITE_TOKEN";
+    sqlx::query(
+        r#"INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, scopes)
+           VALUES (encode(sha256($1::bytea), 'hex'), 'SCOPED_NO_', $1, 'test@windmill.dev',
+                   'scoped no write', false, $2)"#,
+    )
+    .bind(SCOPED_NO_WRITE)
+    .bind(vec![
+        "jobs:run".to_string(),
+        format!("apps:run:{APP}"),
+        format!("apps:read:{APP}"),
+    ])
+    .execute(&db)
+    .await?;
+
     // Preview arbitrary inline code against the app (force_viewer_static_fields =>
     // preview mode; raw_code with no path/id skips all app authorization), as `token`.
     let preview_trigger_kind = |token: &'static str| {
@@ -497,6 +515,15 @@ async fn test_preview_marker_requires_app_write(db: Pool<Postgres>) -> anyhow::R
     assert_eq!(
         trigger_kind, None,
         "a non-editor's preview must NOT be stamped trigger_kind='app' (got {trigger_kind:?}/{trigger:?})"
+    );
+
+    // A writer whose TOKEN lacks `apps:write` (scope-restricted) → NOT marked, even
+    // though the underlying user is an app writer: the token cannot deploy the app,
+    // so it must not mark preview provenance either.
+    let (trigger_kind, trigger) = preview_trigger_kind(SCOPED_NO_WRITE).await;
+    assert_eq!(
+        trigger_kind, None,
+        "a writer's preview via an `apps:write`-less token must NOT be marked (got {trigger_kind:?}/{trigger:?})"
     );
 
     // The app owner (test-user) previewing their own app → marked, so their preview
