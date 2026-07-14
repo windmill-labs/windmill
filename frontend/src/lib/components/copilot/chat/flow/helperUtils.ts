@@ -159,6 +159,10 @@ export function validateFlowNotes(rawNotes: unknown, moduleIds?: Set<string>): F
 	}
 
 	const seenIds = new Set<string>()
+	// Running y-cursor for auto-placed free notes so consecutive ones stack
+	// below each other by their actual heights instead of overlapping.
+	let autoStackY = 0
+	const AUTO_STACK_GAP = 24
 	return rawNotes.map((note, index) => {
 		if (!note || typeof note !== 'object' || Array.isArray(note)) {
 			throw new Error(`Invalid note at index ${index}: must be an object`)
@@ -237,19 +241,21 @@ export function validateFlowNotes(rawNotes: unknown, moduleIds?: Set<string>): F
 			color: typeof n.color === 'string' ? n.color : DEFAULT_NOTE_COLOR
 		} as FlowNote
 
-		// Free notes need explicit geometry to be draggable/resizable. Place
-		// missing ones to the left of the flow column, staggered by index so
-		// several new notes don't land exactly on top of each other. Group notes
+		// Free notes need explicit geometry to be draggable/resizable. Size first
+		// (from text, so tall notes get a tall box), then place any note missing a
+		// position to the left of the flow column, stacking auto-placed notes by
+		// their real heights so several generated notes don't overlap. Group notes
 		// derive their layout from contained nodes, so they are left alone.
 		if (type === 'free') {
+			if (normalized.size == null) {
+				normalized.size = estimateFreeNoteSize(normalized.text)
+			}
 			if (normalized.position == null) {
 				normalized.position = {
 					x: -(MIN_NOTE_WIDTH + 100),
-					y: index * (MIN_NOTE_HEIGHT + 24)
+					y: autoStackY
 				}
-			}
-			if (normalized.size == null) {
-				normalized.size = estimateFreeNoteSize(normalized.text)
+				autoStackY += (normalized.size?.height ?? MIN_NOTE_HEIGHT) + AUTO_STACK_GAP
 			}
 		}
 

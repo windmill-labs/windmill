@@ -476,6 +476,25 @@ describe('validateFlowNotes', () => {
 		expect(notes[0].position!.y).not.toEqual(notes[1].position!.y)
 	})
 
+	it('stacks auto-placed notes by their real heights so tall notes do not overlap', () => {
+		const longText = Array.from({ length: 20 }, (_, i) => `Line ${i} of note content`).join('\n')
+		const notes = validateFlowNotes([
+			{ id: 'a', text: longText },
+			{ id: 'b', text: 'short' }
+		])!
+		// Second note must start at or below the bottom of the first (tall) note.
+		expect(notes[1].position!.y).toBeGreaterThanOrEqual(
+			notes[0].position!.y + notes[0].size!.height
+		)
+	})
+
+	it('grows a note whose single source line wraps across many display lines', () => {
+		const short = validateFlowNotes([{ id: 's', text: 'hi' }])![0]
+		const oneLongLine = 'word '.repeat(200).trim() // no newlines, wraps many times
+		const wrapped = validateFlowNotes([{ id: 'w', text: oneLongLine }])![0]
+		expect(wrapped.size!.height).toBeGreaterThan(short.size!.height)
+	})
+
 	it('does not override a free note that already has geometry', () => {
 		const [note] = validateFlowNotes([
 			{ id: 'n', text: 't', position: { x: 5, y: 6 }, size: { width: 400, height: 90 } }
