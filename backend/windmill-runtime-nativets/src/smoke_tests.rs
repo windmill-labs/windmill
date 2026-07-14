@@ -269,6 +269,7 @@ export async function main(): Promise<Record<string, boolean>> {
         "TextEncoder", "TextDecoder", "TextEncoderStream", "TextDecoderStream",
         "File",
         "Event", "EventTarget", "CustomEvent",
+        "MessageEvent", "CloseEvent", "ErrorEvent", "reportError",
         "ReadableStream", "WritableStream", "TransformStream",
         "ByteLengthQueuingStrategy", "CountQueuingStrategy",
         "URLPattern",
@@ -302,21 +303,53 @@ async fn smoke_structured_clone_and_performance() {
     // deep-clones and accepts an options bag. performance.now() must return
     // a finite number. Both are exercised end-to-end here.
     let ts = r#"
-export async function main(): Promise<{ deep_equal: boolean; detached: boolean; now_ok: boolean }> {
+export async function main(): Promise<{ deep_equal: boolean; source_unchanged: boolean; now_ok: boolean }> {
     const src = { a: 1, nested: { b: [2, 3] } };
     const copy = structuredClone(src);
     copy.nested.b.push(4);
     const deep_equal = JSON.stringify(copy) === JSON.stringify({ a: 1, nested: { b: [2, 3, 4] } });
     // Mutating the clone must not touch the source (proves a real deep clone).
-    const detached = src.nested.b.length === 2;
+    const source_unchanged = src.nested.b.length === 2;
     const now_ok = Number.isFinite(performance.now());
-    return { deep_equal, detached, now_ok };
+    return { deep_equal, source_unchanged, now_ok };
 }
 "#;
     let r = run_ts(ts, &[], serde_json::json!({})).await;
     assert_eq!(
         unwrap_value(&r),
-        serde_json::json!({ "deep_equal": true, "detached": true, "now_ok": true }),
+        serde_json::json!({ "deep_equal": true, "source_unchanged": true, "now_ok": true }),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_web_globals_construct() {
+    // `smoke_web_globals_are_wired` only checks the constructors are defined.
+    // Several are backed by deno_web ops (compression, message-port, URL
+    // pattern parsing) that a future bump could move out from under the
+    // still-defined constructor — it would pass the presence check but throw
+    // at `new`. Actually construct those here so that regression surfaces.
+    let ts = r#"
+export async function main(): Promise<{ pathname: boolean; channel: boolean; gzip_ok: boolean }> {
+    const pat = new URLPattern({ pathname: "/books/:id" });
+    const pathname = pat.test("https://example.com/books/42");
+
+    const chan = new MessageChannel();
+    const channel = chan.port1 instanceof MessagePort && chan.port2 instanceof MessagePort;
+
+    // Round-trip "hi" through gzip compression then decompression.
+    const compressed = new Blob(["hi"]).stream().pipeThrough(new CompressionStream("gzip"));
+    const restored = compressed.pipeThrough(new DecompressionStream("gzip"));
+    const bytes = new Uint8Array(await new Response(restored).arrayBuffer());
+    const gzip_ok = new TextDecoder().decode(bytes) === "hi";
+
+    return { pathname, channel, gzip_ok };
+}
+"#;
+    let r = run_ts(ts, &[], serde_json::json!({})).await;
+    assert_eq!(
+        unwrap_value(&r),
+        serde_json::json!({ "pathname": true, "channel": true, "gzip_ok": true }),
     );
 }
 

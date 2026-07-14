@@ -65,10 +65,16 @@ Object.assign(globalThis, {
   TextDecoderStream: encoding.TextDecoderStream,
   // File (Blob is already wired above).
   File: file.File,
-  // Events (AbortSignal, already wired, extends EventTarget).
+  // Events (AbortSignal, already wired, extends EventTarget). MessageEvent is
+  // the companion to MessagePort/MessageChannel below. Only the event types
+  // bun exposes are wired (ProgressEvent / PromiseRejectionEvent are not).
   Event: event.Event,
   EventTarget: event.EventTarget,
   CustomEvent: event.CustomEvent,
+  MessageEvent: event.MessageEvent,
+  CloseEvent: event.CloseEvent,
+  ErrorEvent: event.ErrorEvent,
+  reportError: event.reportError,
   // Streams + queuing strategies.
   ReadableStream: streams.ReadableStream,
   WritableStream: streams.WritableStream,
