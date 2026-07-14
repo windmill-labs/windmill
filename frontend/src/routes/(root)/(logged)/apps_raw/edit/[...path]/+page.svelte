@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import { stripNewDraftFlag, stripNewDraftFlagOnSave, shouldSeedNewDraft } from '$lib/newDraftFlag'
 
 	import { AppService } from '$lib/gen'
@@ -419,16 +418,23 @@
 		}
 	}
 
-	run(() => {
+	$effect(() => {
 		// Re-run on workspace OR path change so navigating from one raw app editor
 		// to another (e.g. via the workspace picker) reloads the new app.
 		const currentPath = page.params.path
 		if ($workspaceStore && currentPath !== undefined) {
-			// Clear files so RawAppEditor unmounts; it will remount when loadApp
-			// completes with fresh data, re-initializing its internal stores.
-			files = undefined
-			path = currentPath
-			loadApp()
+			untrack(() => {
+				// Clear files so RawAppEditor unmounts; it will remount when loadApp
+				// completes with fresh data, re-initializing its internal stores.
+				// untrack so loadApp's own reactive reads (e.g. the draft-hint
+				// SvelteMap via shouldSeedNewDraft) don't subscribe this effect —
+				// otherwise the first autosave's optimistic hint flip re-fires
+				// loadApp mid-bootstrap, taking the backend-fetch branch before the
+				// draft POST lands → 404 "App not found". See /apps/edit.
+				files = undefined
+				path = currentPath
+				loadApp()
+			})
 		}
 	})
 
