@@ -207,6 +207,9 @@ impl AuthCache {
                             username_override,
                             token_prefix: claims.audit_span,
                             read_only: false,
+                            // A `job_id` claim marks the WM_TOKEN of a running
+                            // job, whose authority is capped at workspace admin.
+                            token_is_job: claims.job_id.is_some(),
                         };
                         let job_id = claims.job_id.and_then(|j| uuid::Uuid::from_str(&j).ok());
                         AUTH_CACHE.insert(
@@ -304,6 +307,7 @@ impl AuthCache {
                                                 username_override,
                                                 token_prefix: Some(safe_token_prefix(token)),
                                                 read_only,
+                                                token_is_job: false,
                                             })
                                         } else {
                                             tracing::warn!(
@@ -354,6 +358,7 @@ impl AuthCache {
                                                 username_override,
                                                 token_prefix: Some(safe_token_prefix(token)),
                                                 read_only,
+                                                token_is_job: false,
                                             })
                                         } else {
                                             tracing::warn!(
@@ -425,6 +430,7 @@ impl AuthCache {
                                                 username_override,
                                                 token_prefix: Some(safe_token_prefix(token)),
                                                 read_only,
+                                                token_is_job: false,
                                             })
                                         }
                                         None if super_admin => {
@@ -446,6 +452,7 @@ impl AuthCache {
                                                     username_override,
                                                     token_prefix: Some(safe_token_prefix(token)),
                                                     read_only,
+                                                    token_is_job: false,
                                                 }),
                                                 Err(e) => {
                                                     tracing::error!(
@@ -469,6 +476,7 @@ impl AuthCache {
                                         username_override,
                                         token_prefix: Some(safe_token_prefix(token)),
                                         read_only,
+                                        token_is_job: false,
                                     })
                                 }
                             }
@@ -504,6 +512,7 @@ impl AuthCache {
                         username_override: None,
                         token_prefix: Some(safe_token_prefix(token)),
                         read_only: false,
+                        token_is_job: false,
                     };
                     Some(OptJobAuthed { authed, job_id: None })
                 } else {
@@ -711,6 +720,7 @@ fn no_auth_admin_authed() -> ApiAuthed {
         username_override: None,
         token_prefix: None,
         read_only: false,
+        token_is_job: false,
     }
 }
 

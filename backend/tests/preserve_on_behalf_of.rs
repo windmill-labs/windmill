@@ -2810,3 +2810,166 @@ async fn test_schedule_permissions_superadmin_not_in_workspace(
 
     Ok(())
 }
+
+// ============================================================================
+// Forged-superadmin on_behalf_of guard (GHSA-hfh4-cx4h-3fcr)
+// ============================================================================
+
+/// A `wm_deployers` member must not be able to deploy a runnable whose preserved
+/// on_behalf_of resolves to a superadmin identity it does not genuinely name:
+/// the reserved internal sentinels, or a superadmin's email pinned onto an
+/// unrelated principal. Deploying on behalf of a *consistently named* real user —
+/// even a real superadmin, e.g. a git-sync round-trip of superadmin-authored
+/// content — stays allowed; that is the intended deployer capability.
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_reject_forged_superadmin_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+
+    // Reserved internal sentinel (grants is_super_admin at execution by email).
+    const SENTINEL: &str = "superadmin_secret@windmill.dev";
+    // Reserved sentinel matched on permissioned_as.
+    const SYNC_SENTINEL: &str = "superadmin_sync@windmill.dev";
+    // Real instance superadmin, present only in `password` (not a workspace member).
+    const REAL_SA: &str = "superadmin-external@windmill.dev";
+
+    // App: deployer cannot pin the sentinel email.
+    let resp = authed(
+        client().post(format!("{base}/apps/create")),
+        "DEPLOYER_TOKEN",
+    )
+    .json(&new_app_with_on_behalf_of(
+        "u/deployer-user/app_sentinel",
+        Some("u/original-user"),
+        Some(SENTINEL),
+        true,
+    ))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "deployer must not pin the sentinel as an app on_behalf_of_email: {}",
+        resp.text().await?
+    );
+
+    // App: deployer cannot pin a real superadmin's email onto an unrelated principal.
+    let resp = authed(
+        client().post(format!("{base}/apps/create")),
+        "DEPLOYER_TOKEN",
+    )
+    .json(&new_app_with_on_behalf_of(
+        "u/deployer-user/app_mismatch_sa",
+        Some("u/original-user"),
+        Some(REAL_SA),
+        true,
+    ))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "deployer must not pin a superadmin email onto an unrelated principal: {}",
+        resp.text().await?
+    );
+
+    // App: a consistently named real superadmin identity is allowed (deployer feature).
+    let resp = authed(
+        client().post(format!("{base}/apps/create")),
+        "DEPLOYER_TOKEN",
+    )
+    .json(&new_app_with_on_behalf_of(
+        "u/deployer-user/app_consistent_sa",
+        Some("u/superadmin-external"),
+        Some(REAL_SA),
+        true,
+    ))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        201,
+        "deployer may preserve a consistently named superadmin identity: {}",
+        resp.text().await?
+    );
+
+    // Flow: deployer cannot pin the sentinel email.
+    let resp = authed(
+        client().post(format!("{base}/flows/create")),
+        "DEPLOYER_TOKEN",
+    )
+    .json(&new_flow_with_on_behalf_of(
+        "u/deployer-user/flow_sentinel",
+        Some(SENTINEL),
+        true,
+    ))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "deployer must not pin the sentinel as a flow on_behalf_of_email: {}",
+        resp.text().await?
+    );
+
+    // Script: deployer cannot pin the sentinel email.
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "DEPLOYER_TOKEN",
+    )
+    .json(&new_script_with_on_behalf_of(
+        "u/deployer-user/script_sentinel",
+        Some(SENTINEL),
+        true,
+    ))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "deployer must not pin the sentinel as a script on_behalf_of_email: {}",
+        resp.text().await?
+    );
+
+    // Schedule: deployer cannot preserve the sync sentinel as permissioned_as.
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "DEPLOYER_TOKEN",
+    )
+    .json(&new_script_with_on_behalf_of(
+        "u/deployer-user/sched_guard_script",
+        None,
+        false,
+    ))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+
+    let resp = authed(
+        client().post(format!("{base}/schedules/create")),
+        "DEPLOYER_TOKEN",
+    )
+    .json(&json!({
+        "path": "u/deployer-user/schedule_sync_sentinel",
+        "schedule": "0 0 */6 * * *",
+        "timezone": "UTC",
+        "script_path": "u/deployer-user/sched_guard_script",
+        "is_flow": false,
+        "enabled": false,
+        "permissioned_as": SYNC_SENTINEL,
+        "preserve_permissioned_as": true
+    }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "deployer must not preserve the sync sentinel as a schedule permissioned_as: {}",
+        resp.text().await?
+    );
+
+    Ok(())
+}

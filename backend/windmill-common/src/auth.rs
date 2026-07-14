@@ -301,6 +301,75 @@ pub async fn is_super_admin_email<'c>(db: impl sqlx::PgExecutor<'c>, email: &str
     Ok(is_admin)
 }
 
+/// The three reserved internal identities that grant instance-superadmin at
+/// execution: `superadmin_secret@` / `superadmin_notification@` (matched on the
+/// email) and `superadmin_sync@` (matched on `permissioned_as`). They belong to
+/// no real user, so a stored `on_behalf_of` (app policy, flow/script,
+/// schedule, trigger) must never carry one as either field — it would be a
+/// forged superadmin run identity. Mirror of the `is_super_admin` derivation in
+/// [`fetch_authed_from_permissioned_as_inner`].
+pub fn is_reserved_on_behalf_of_identity(
+    permissioned_as: Option<&str>,
+    on_behalf_of_email: Option<&str>,
+) -> bool {
+    const RESERVED: [&str; 3] = [
+        SUPERADMIN_SECRET_EMAIL,
+        SUPERADMIN_NOTIFICATION_EMAIL,
+        SUPERADMIN_SYNC_EMAIL,
+    ];
+    [permissioned_as, on_behalf_of_email]
+        .into_iter()
+        .flatten()
+        .any(|v| RESERVED.contains(&v))
+}
+
+/// Guard a caller-supplied `on_behalf_of` before it is persisted on a deployable
+/// object. The stored identity is trusted verbatim at execution and decides
+/// `is_super_admin` (see [`fetch_authed_from_permissioned_as_inner`]), so a
+/// deploy must not be able to forge a superadmin run identity.
+///
+/// Enforces two invariants that no legitimate deploy can violate, so this does
+/// *not* restrict the intended `wm_deployers` capability of deploying on behalf
+/// of a real user — including a real superadmin, e.g. git-sync of
+/// superadmin-authored content where `permissioned_as`/`email` name that user
+/// consistently:
+/// 1. The identity is not a reserved internal sentinel (above).
+/// 2. If `on_behalf_of_email` resolves to a superadmin, it must genuinely belong
+///    to `permissioned_as` — a superadmin's email cannot be pinned onto an
+///    unrelated principal. Only apps store both fields; flows/scripts store just
+///    the email (deriving `permissioned_as` from the deployer at execution) and
+///    schedules/triggers store just `permissioned_as` (deriving the email from
+///    it), so for those this second check is a no-op and the sentinel guard is
+///    what applies.
+pub async fn validate_on_behalf_of(
+    db: &DB,
+    w_id: &str,
+    permissioned_as: Option<&str>,
+    on_behalf_of_email: Option<&str>,
+) -> Result<()> {
+    if is_reserved_on_behalf_of_identity(permissioned_as, on_behalf_of_email) {
+        return Err(Error::BadRequest(
+            "on_behalf_of cannot be a reserved internal identity".to_string(),
+        ));
+    }
+
+    if let (Some(permissioned_as), Some(email)) = (permissioned_as, on_behalf_of_email) {
+        // `email` is already non-sentinel here, so this only matches a real
+        // `password.super_admin` user.
+        if is_super_admin_email(db, email).await? {
+            let resolved =
+                crate::users::get_email_from_permissioned_as(permissioned_as, w_id, db).await?;
+            if resolved != email {
+                return Err(Error::BadRequest(format!(
+                    "on_behalf_of_email '{email}' does not belong to on_behalf_of '{permissioned_as}'"
+                )));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub async fn is_devops_email(db: &DB, email: &str) -> Result<bool> {
     if is_super_admin_email(db, email).await? {
         return Ok(true);
@@ -678,7 +747,40 @@ pub mod aws {
 
 #[cfg(test)]
 mod tests {
-    use super::is_user_token;
+    use super::{is_reserved_on_behalf_of_identity, is_user_token};
+    use crate::users::{
+        SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL,
+    };
+
+    #[test]
+    fn reserved_on_behalf_of_identity_matches_every_sentinel_in_either_field() {
+        // Matched on the email (secret / notification) or on permissioned_as (sync).
+        assert!(is_reserved_on_behalf_of_identity(
+            None,
+            Some(SUPERADMIN_SECRET_EMAIL)
+        ));
+        assert!(is_reserved_on_behalf_of_identity(
+            None,
+            Some(SUPERADMIN_NOTIFICATION_EMAIL)
+        ));
+        assert!(is_reserved_on_behalf_of_identity(
+            Some(SUPERADMIN_SYNC_EMAIL),
+            None
+        ));
+        // A sentinel smuggled as a raw-email permissioned_as (schedules/triggers
+        // derive the email from it) is caught too.
+        assert!(is_reserved_on_behalf_of_identity(
+            Some(SUPERADMIN_SECRET_EMAIL),
+            None
+        ));
+        // Ordinary identities pass.
+        assert!(!is_reserved_on_behalf_of_identity(None, None));
+        assert!(!is_reserved_on_behalf_of_identity(
+            Some("u/alice"),
+            Some("alice@example.com")
+        ));
+        assert!(!is_reserved_on_behalf_of_identity(Some("g/team"), None));
+    }
 
     #[test]
     fn user_tokens_are_editable() {

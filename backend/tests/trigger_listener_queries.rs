@@ -175,6 +175,7 @@ fn make_authed() -> windmill_api_auth::ApiAuthed {
         username_override: None,
         token_prefix: None,
         read_only: false,
+        token_is_job: false,
     }
 }
 

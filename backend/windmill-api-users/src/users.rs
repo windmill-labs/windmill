@@ -460,7 +460,7 @@ async fn list_users_as_super_admin(
     Query(pagination): Query<Pagination>,
     Query(ActiveUsersOnly { active_only }): Query<ActiveUsersOnly>,
 ) -> JsonResult<Vec<GlobalUserInfo>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     let per_page = pagination.per_page.unwrap_or(10000).max(1);
     let offset = (pagination.page.unwrap_or(1).max(1) - 1) * per_page;
 
@@ -1431,7 +1431,7 @@ async fn update_user(
     Extension(db): Extension<DB>,
     Json(eu): Json<EditUser>,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
 
@@ -1607,7 +1607,7 @@ async fn delete_user(
     Path(email_to_delete): Path<String>,
     Extension(db): Extension<DB>,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
 
@@ -1904,7 +1904,7 @@ async fn set_login_type(
     OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(et): Json<EditLoginType>,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
 
@@ -2219,7 +2219,7 @@ async fn impersonate(
     } else {
         Some(&token)
     };
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
 
     if new_token.impersonate_email.is_none() {
@@ -2673,11 +2673,11 @@ struct WorkspaceUsernameInfo {
     username: String,
 }
 async fn get_instance_username_info(
-    ApiAuthed { email, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Path(user_email): Path<String>,
     Extension(db): Extension<DB>,
 ) -> JsonResult<InstanceUsernameInfo> {
-    require_super_admin(&db, &email).await?;
+    require_super_admin(&db, &authed).await?;
     let mut tx = db.begin().await?;
     let instance_username = match sqlx::query_scalar!(
         "SELECT username FROM password WHERE email = $1",
@@ -2747,7 +2747,7 @@ async fn export_global_users(
     authed: ApiAuthed,
     OptJobAuthed { job_id, .. }: OptJobAuthed,
 ) -> JsonResult<Vec<ExportedGlobalUser>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
     let users = sqlx::query_as!(
@@ -2787,7 +2787,7 @@ async fn overwrite_global_users(
     OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(users): Json<Vec<ExportedGlobalUser>>,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
     sqlx::query!("DELETE FROM password")

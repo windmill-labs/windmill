@@ -591,6 +591,22 @@ async fn create_flow(
         }
     }
 
+    // Reject a forged superadmin run identity: only a preserved value is
+    // caller-controlled (otherwise `resolve_on_behalf_of_email` stores the
+    // deployer's own email below). A flow stores no permissioned_as, so this is
+    // the sentinel guard.
+    if nf.preserve_on_behalf_of.unwrap_or(false)
+        && windmill_common::can_preserve_on_behalf_of(&authed)
+    {
+        windmill_common::auth::validate_on_behalf_of(
+            &db,
+            &w_id,
+            None,
+            nf.on_behalf_of_email.as_deref(),
+        )
+        .await?;
+    }
+
     let mut tx = user_db.clone().begin(&authed).await?;
 
     check_path_conflict(&mut tx, &w_id, &nf.path).await?;
@@ -1030,6 +1046,20 @@ async fn update_flow(
     }
 
     validate_flow(&nf).await?;
+
+    // Reject a forged superadmin run identity in a preserved value (otherwise
+    // `resolve_on_behalf_of_email` stores the deployer's own email below).
+    if nf.preserve_on_behalf_of.unwrap_or(false)
+        && windmill_common::can_preserve_on_behalf_of(&authed)
+    {
+        windmill_common::auth::validate_on_behalf_of(
+            &db,
+            &w_id,
+            None,
+            nf.on_behalf_of_email.as_deref(),
+        )
+        .await?;
+    }
 
     let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;
     let mut tx = user_db.clone().begin(&authed).await?;

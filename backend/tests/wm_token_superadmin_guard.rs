@@ -172,6 +172,67 @@ async fn test_wm_token_cannot_manage_superadmin_users(db: Pool<Postgres>) -> any
         resp.text().await?
     );
 
+    // 4f. Cannot read the full user directory. This route is only guarded by
+    //     `require_super_admin` (no per-route job-token denylist), so it proves
+    //     the cap is baked into `require_super_admin` itself — the advisory PoC.
+    let resp = authed(client().get(format!("{base}/list_as_super_admin")), &sa_wm)
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "superadmin WM_TOKEN must not list all users: {}",
+        resp.text().await?
+    );
+
+    // 4g. Cannot read instance settings (unredacted SMTP/OAuth secrets, license
+    //     key, SSO config). Also guarded only by `require_super_admin`.
+    let settings_base = format!("http://localhost:{port}/api/settings");
+    let resp = authed(
+        client().get(format!("{settings_base}/global/license_key")),
+        &sa_wm,
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "superadmin WM_TOKEN must not read instance settings: {}",
+        resp.text().await?
+    );
+
+    // 4h. No false positive: a real superadmin API token still reads the
+    //     directory (the cap keys off the job token, not the identity).
+    let resp = authed(
+        client().get(format!("{base}/list_as_super_admin")),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "a real superadmin token must still list users: {}",
+        resp.text().await?
+    );
+
+    // 4i. The instance-level `devops` role is also capped: a superadmin (hence
+    //     devops) WM_TOKEN must not reach a require_devops_role route.
+    let resp = authed(
+        client().get(format!(
+            "http://localhost:{port}/api/service_logs/list_files"
+        )),
+        &sa_wm,
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "superadmin WM_TOKEN must not reach a devops route: {}",
+        resp.text().await?
+    );
+
     // 5. Escape hatch / no false positive: a real superadmin API token
     //    (SECRET_TOKEN, no job_id) can still create tokens.
     let resp = authed(

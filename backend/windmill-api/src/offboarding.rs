@@ -459,7 +459,7 @@ pub(crate) async fn global_offboard_preview(
     Extension(db): Extension<DB>,
     Path(email): Path<String>,
 ) -> JsonResult<GlobalOffboardPreview> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
 
     let workspaces = sqlx::query!(
         "SELECT workspace_id, username FROM usr WHERE email = $1",
@@ -488,7 +488,7 @@ pub(crate) async fn offboard_global_user(
     Path(email): Path<String>,
     Json(req): Json<GlobalOffboardRequest>,
 ) -> Result<Json<OffboardResponse>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
 
     let workspaces = sqlx::query!(

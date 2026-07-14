@@ -56,6 +56,12 @@ pub struct ApiAuthed {
     pub username_override: Option<String>,
     pub token_prefix: Option<String>,
     pub read_only: bool,
+    /// True when this authed comes from a job token (`$WM_TOKEN`, a JWT carrying
+    /// a `job_id`). A job token's identity is derived from an app/flow/schedule
+    /// `on_behalf_of`, which a non-admin `wm_deployers` member can point at a
+    /// superadmin, so its authority is capped at workspace admin:
+    /// [`require_super_admin`] denies it even when the identity is a superadmin.
+    pub token_is_job: bool,
 }
 
 impl ApiAuthed {
@@ -105,6 +111,8 @@ impl From<Authed> for ApiAuthed {
             username_override: None,
             token_prefix: value.token_prefix,
             read_only: false,
+            // A plain `Authed` (on-behalf/internal) carries no token context.
+            token_is_job: false,
         }
     }
 }
@@ -193,15 +201,46 @@ impl windmill_mcp::server::McpAuth for ApiAuthed {
 
 // ------------ Utility functions ------------
 
-pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
-    let is_admin = is_super_admin_email(db, email).await?;
+/// Require the caller to be a super admin. A super admin acting through a job
+/// token (`$WM_TOKEN`) is capped at workspace admin and rejected here — see
+/// [`ApiAuthed::token_is_job`] — so no `require_super_admin` endpoint (instance
+/// settings, the user directory, ...) is reachable by a job token whose run-as
+/// identity a `wm_deployers` member pointed at a superadmin. A genuine super
+/// admin who needs such an operation from a script uses a dedicated superadmin
+/// API token (which only a real super admin can create) instead of `$WM_TOKEN`.
+pub async fn require_super_admin(db: &DB, authed: &ApiAuthed) -> error::Result<()> {
+    if authed.token_is_job && is_super_admin_email(db, &authed.email).await? {
+        return Err(Error::NotAuthorized(
+            "This endpoint cannot be called with a job token ($WM_TOKEN): a job token runs as its \
+             app/flow on_behalf_of identity and is capped at workspace admin. If a script \
+             genuinely needs a superadmin operation, create a dedicated superadmin token from the \
+             User settings drawer (the 'Tokens' section), store it as a secret, and use that \
+             token explicitly instead of $WM_TOKEN."
+                .to_owned(),
+        ));
+    }
+    require_super_admin_email(db, &authed.email).await
+}
 
-    if !is_admin {
+/// The caller's *effective* super admin status: a real super admin, but not
+/// when acting through a job token (`$WM_TOKEN`), which is capped at workspace
+/// admin (see [`ApiAuthed::token_is_job`]). Use this for inline capability gates
+/// the same way [`require_super_admin`] is used for hard gates, so a job token
+/// can never exceed workspace admin on any route.
+pub async fn is_super_admin(db: &DB, authed: &ApiAuthed) -> error::Result<bool> {
+    Ok(!authed.token_is_job && is_super_admin_email(db, &authed.email).await?)
+}
+
+/// Email-only super admin check for internal (non-request) callers that have no
+/// token context — background tasks, sync jobs, ... A request handler must use
+/// [`require_super_admin`] instead so the job-token cap is applied.
+pub async fn require_super_admin_email(db: &DB, email: &str) -> error::Result<()> {
+    if is_super_admin_email(db, email).await? {
+        Ok(())
+    } else {
         Err(Error::NotAuthorized(
             "This endpoint requires the caller to be a super admin".to_owned(),
         ))
-    } else {
-        Ok(())
     }
 }
 
@@ -502,16 +541,29 @@ pub fn build_scope_path_predicate(
     }
 }
 
-pub async fn require_devops_role(db: &DB, email: &str) -> error::Result<()> {
-    let is_devops = is_devops_email(db, email).await?;
-
-    if is_devops {
-        Ok(())
-    } else {
-        Err(Error::NotAuthorized(
+/// Require the caller to have the instance-level `devops` role. Like
+/// [`require_super_admin`], a caller acting through a job token (`$WM_TOKEN`) is
+/// capped at workspace admin and rejected — the `devops` role is instance-level,
+/// so it must not be reachable by a job token whose on_behalf_of identity a
+/// `wm_deployers` member controls (`is_devops_email` also returns true for
+/// superadmins). A genuine devops user who needs this from a script uses a
+/// dedicated token instead of `$WM_TOKEN`.
+pub async fn require_devops_role(db: &DB, authed: &ApiAuthed) -> error::Result<()> {
+    if !is_devops_email(db, &authed.email).await? {
+        return Err(Error::NotAuthorized(
             "This endpoint requires the caller to have the `devops` role".to_string(),
-        ))
+        ));
     }
+    if authed.token_is_job {
+        return Err(Error::NotAuthorized(
+            "This endpoint cannot be called with a job token ($WM_TOKEN): a job token is capped \
+             at workspace admin. If a script genuinely needs a devops operation, create a \
+             dedicated token from the User settings drawer, store it as a secret, and use that \
+             token explicitly instead of $WM_TOKEN."
+                .to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 // ------------ Folder ownership checks ------------
@@ -762,6 +814,7 @@ pub async fn fetch_api_authed_from_permissioned_as(
                 username_override: None,
                 token_prefix: authed.token_prefix,
                 read_only: false,
+                token_is_job: false,
             };
 
             API_AUTHED_CACHE.insert(
