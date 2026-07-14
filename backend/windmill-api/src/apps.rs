@@ -3870,31 +3870,42 @@ async fn check_if_allowed_to_access_s3_file_from_app(
         // Author-mode (Anonymous/Publisher) or embed token: confine to the app's
         // declared keys or files it recently produced. Without this gate a
         // logged-in viewer could launder the author's S3 perms via an arbitrary
-        // file_key (confused deputy). Producing identity = caller else `anonymous`.
-        let creator = opt_authed
-            .as_ref()
-            .map(|authed| authed.username.clone())
-            .unwrap_or_else(|| "anonymous".to_string());
-        // Runnable paths (script/flow) this app is wired to trigger, derived from
-        // the policy triggerables. Keys look like `flow/<path>`, `script/<path>`,
-        // `rawscript/<sha>`, optionally prefixed with `<component>:`. Only deployed
-        // script/flow keys yield a job `runnable_path`; rawscript inline jobs are
-        // already covered by the `appscript`/`preview` prefix match below.
-        let triggerable_paths: Vec<String> = policy
+        // file_key (confused deputy).
+        //
+        // Provenance is keyed on the *producing job's* `permissioned_as` matching the
+        // on-behalf identity THIS download reads as (the author, in author-mode). It
+        // must NOT be keyed on `created_by`: a viewer who can run a declared runnable
+        // directly runs it AS THEMSELVES (permissioned_as = viewer) with inputs the
+        // app never pinned, so they could otherwise craft a result `{"s3": <author
+        // key>}` and read it back through the app. Only an app-launched author-mode
+        // execution carries `permissioned_as = on_behalf_of`.
+        let (_, on_behalf_permissioned_as, _) =
+            get_on_behalf_details_from_policy_and_authed(policy, opt_authed).await?;
+        // Script and flow paths this app is wired to trigger, derived from the
+        // policy triggerables. Keys look like `flow/<path>`, `script/<path>`,
+        // `rawscript/<sha>`, optionally prefixed with `<component>:`. rawscript
+        // inline jobs are already covered by the `appscript`/`preview` prefix match
+        // below. Script and flow are kept separate because their job `runnable_path`
+        // shapes differ: a script/flow job carries the bare path, but a flow *step*
+        // job carries `<flow_path>/<step_id>`, so flow paths need a prefix match.
+        let mut script_paths: Vec<String> = Vec::new();
+        let mut flow_paths: Vec<String> = Vec::new();
+        for key in policy
             .triggerables
             .iter()
             .flat_map(|m| m.keys())
             .chain(policy.triggerables_v2.iter().flat_map(|m| m.keys()))
-            .filter_map(|key| {
-                let rest = match key.split_once(':') {
-                    Some((prefix, rest)) if !prefix.contains('/') => rest,
-                    _ => key.as_str(),
-                };
-                rest.strip_prefix("flow/")
-                    .or_else(|| rest.strip_prefix("script/"))
-                    .map(|p| p.to_string())
-            })
-            .collect();
+        {
+            let rest = match key.split_once(':') {
+                Some((prefix, rest)) if !prefix.contains('/') => rest,
+                _ => key.as_str(),
+            };
+            if let Some(p) = rest.strip_prefix("flow/") {
+                flow_paths.push(p.to_string());
+            } else if let Some(p) = rest.strip_prefix("script/") {
+                script_paths.push(p.to_string());
+            }
+        }
         let allowed = policy.allowed_s3_keys.as_ref().is_some_and(|keys| {
             keys.iter()
                 .any(|key| key.s3_path == file_query.s3 && key.storage == file_query.storage)
@@ -3905,21 +3916,29 @@ async fn check_if_allowed_to_access_s3_file_from_app(
                 WHERE j.workspace_id = $2
                     AND c.started_at > now() - interval '3 hours'
                     AND c.result @> ('{"s3":"' || $1 ||  '"}')::jsonb
-                    AND (j.created_by = $4 OR ($5::text IS NOT NULL AND j.permissioned_as = $5))
+                    -- produced by a job running AS the identity this download reads as
+                    AND j.permissioned_as = $4
                     AND (
                         -- inline app scripts / editor previews produced directly by this app
                         ((j.kind = 'appscript' OR j.kind = 'preview') AND j.runnable_path LIKE $3 || '/%')
                         OR
-                        -- flow/script components (and their inline flow steps) wired into this app
-                        (j.kind IN ('script', 'flow', 'flowscript', 'flownode') AND j.runnable_path = ANY($6))
+                        -- deployed script components wired into this app
+                        (j.kind = 'script' AND j.runnable_path = ANY($5))
+                        OR
+                        -- deployed flow components: the flow's own job (bare path) and
+                        -- its step jobs (`<flow_path>/<step_id>`), bounded to declared flows
+                        (j.kind IN ('flow', 'flowscript', 'flownode') AND EXISTS (
+                            SELECT 1 FROM unnest($6::text[]) fp
+                            WHERE j.runnable_path = fp OR j.runnable_path LIKE fp || '/%'
+                        ))
                     )
             )"#,
                 file_query.s3,
                 w_id,
                 path,
-                creator,
-                policy.on_behalf_of.as_deref(),
-                &triggerable_paths,
+                on_behalf_permissioned_as,
+                &script_paths,
+                &flow_paths,
             )
             .fetch_one(db)
             .await?

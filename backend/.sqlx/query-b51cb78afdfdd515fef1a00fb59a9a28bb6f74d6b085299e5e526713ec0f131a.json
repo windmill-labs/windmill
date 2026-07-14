@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (\n                SELECT 1 FROM v2_job_completed c JOIN v2_job j USING (id)\n                WHERE j.workspace_id = $2\n                    AND c.started_at > now() - interval '3 hours'\n                    AND c.result @> ('{\"s3\":\"' || $1 ||  '\"}')::jsonb\n                    -- produced by a job running AS the identity this download reads as\n                    AND j.permissioned_as = $4\n                    AND (\n                        -- inline app scripts / editor previews produced directly by this app\n                        ((j.kind = 'appscript' OR j.kind = 'preview') AND j.runnable_path LIKE $3 || '/%')\n                        OR\n                        -- deployed script components wired into this app\n                        (j.kind = 'script' AND j.runnable_path = ANY($5))\n                        OR\n                        -- deployed flow components: the flow's own job (bare path) and\n                        -- its step jobs (`<flow_path>/<step_id>`), bounded to declared flows\n                        (j.kind IN ('flow', 'flowscript', 'flownode') AND EXISTS (\n                            SELECT 1 FROM unnest($6::text[]) fp\n                            WHERE j.runnable_path = fp OR j.runnable_path LIKE fp || '/%'\n                        ))\n                    )\n            )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "b51cb78afdfdd515fef1a00fb59a9a28bb6f74d6b085299e5e526713ec0f131a"
+}
