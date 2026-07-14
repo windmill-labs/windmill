@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import { stripNewDraftFlag, stripNewDraftFlagOnSave, shouldSeedNewDraft } from '$lib/newDraftFlag'
 
 	import { AppService } from '$lib/gen'
@@ -82,6 +81,22 @@
 	/** Opens the framework picker on a brand-new draft (`new_draft=true`):
 	 * React/Svelte + data config + optional AI prompt before the editor goes live. */
 	let templatePicker = $state(false)
+	/** The new-draft bootstrap suspended autosave and nothing has re-armed it yet.
+	 * `$state` so the effect below re-runs once the bootstrap sets it. */
+	let autosaveSuspendedForPicker = $state(false)
+
+	// Re-arm autosave once the picker is resolved — started, dismissed, or never
+	// opened (the import path). Deferred to the next interaction rather than
+	// resumed outright, because the `onStart` template writes are still flushing:
+	// picking a framework is setup, not an edit, so an app left untouched after
+	// the pick must leave no draft behind. `armRestartOnFirstInteraction`'s
+	// fallback keeps the suspension from leaking if the user walks away.
+	$effect(() => {
+		if (templatePicker || !autosaveSuspendedForPicker) return
+		autosaveSuspendedForPicker = false
+		const workspace = untrack(() => $workspaceStore)
+		if (workspace) armRestartOnFirstInteraction(workspace, 'raw_app', path)
+	})
 
 	/** Deployed raw-app bundle this load, the baseline the autosave `discardIf`
 	 * compares against. `undefined` for draft-only paths so they never
@@ -193,11 +208,12 @@
 			deployedBaseline = undefined
 			// Suspend autosave across the bootstrap: the seed template and the
 			// picker's `onStart` are programmatic writes that must not POST as the
-			// first edit. Resume on first interaction (the template-card click or
-			// picker X) so the choice persists but earlier mutations don't.
+			// first edit. The suspension spans the whole picker and is re-armed when
+			// it resolves (see `autosaveSuspendedForPicker`), so the draft is born
+			// from the first real change — a keystroke, or the AI's generated files.
 			if ($workspaceStore) {
 				UserDraft.stopSync('raw_app', path, { workspace: $workspaceStore })
-				armRestartOnFirstInteraction($workspaceStore, 'raw_app', path)
+				autosaveSuspendedForPicker = true
 				// Keep `?new_draft=true` until the backend confirms the first autosave,
 				// so a refresh before any edit re-seeds here instead of 404-ing on the
 				// never-persisted `draft_{uuid}` path.
@@ -419,16 +435,25 @@
 		}
 	}
 
-	run(() => {
-		// Re-run on workspace OR path change so navigating from one raw app editor
-		// to another (e.g. via the workspace picker) reloads the new app.
+	$effect(() => {
+		// Re-run on workspace, path, or `?new_draft` change — and on NOTHING else.
+		// `loadApp` reads reactive state of its own (the local draft hint behind
+		// `shouldSeedNewDraft`, which the first autosave flips), and tracking its
+		// body reloaded the editor from the backend the moment a draft was born.
+		// See /apps/edit, /scripts/edit, /flows/edit, which all untrack the same way.
 		const currentPath = page.params.path
+		// A client-side nav can restore a stale `?new_draft` (exiting an AI session
+		// replays the route captured before the first save); re-run so the loader
+		// falls through and drops the flag instead of re-seeding over the draft.
+		void page.url.searchParams.get('new_draft')
 		if ($workspaceStore && currentPath !== undefined) {
-			// Clear files so RawAppEditor unmounts; it will remount when loadApp
-			// completes with fresh data, re-initializing its internal stores.
-			files = undefined
-			path = currentPath
-			loadApp()
+			untrack(() => {
+				// Clear files so RawAppEditor unmounts; it will remount when loadApp
+				// completes with fresh data, re-initializing its internal stores.
+				files = undefined
+				path = currentPath
+				loadApp()
+			})
 		}
 	})
 
@@ -495,6 +520,13 @@
 		}
 		if (withPrompt && result.prompt) {
 			setTimeout(() => {
+				// The template writes above have flushed under the suspension by now, so
+				// resuming here syncs the files the AI is about to generate but not the
+				// bare template. Can't wait for an interaction like the no-AI path does:
+				// a generation the user only watches would never reach the draft.
+				if ($workspaceStore) {
+					UserDraft.restartSync('raw_app', path, { workspace: $workspaceStore })
+				}
 				aiChatManager.changeMode(AIMode.APP)
 				if (!aiChatManager.open) aiChatManager.toggleOpen()
 				aiChatManager.instructions = result.prompt!
