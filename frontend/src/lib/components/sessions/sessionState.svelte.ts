@@ -296,9 +296,9 @@ export const sessionState = $state<{
 
 // Debounced write-behind of the composer text for a pending (uncommitted)
 // session, so a typed-but-unsent prompt survives a reload as part of the record.
-// Only tracked while the session is unsent (no committed workspace); the first
-// keystroke is a genuine touch, so persistTouched promotes an in-memory draft.
-let draftPromptFlushHandle: ReturnType<typeof setTimeout> | undefined
+// Keyed per session: a single shared timer would let a keystroke in one draft
+// cancel a sibling draft's pending flush, dropping that draft's first-touch write.
+const draftPromptFlushHandles = new Map<string, ReturnType<typeof setTimeout>>()
 export function setSessionDraftPrompt(sessionId: string, text: string): void {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
 	if (!s || s.workspace_id) return
@@ -307,8 +307,14 @@ export function setSessionDraftPrompt(sessionId: string, text: string): void {
 	// so merely opening an untouched draft never persists it.
 	if ((s.draftPrompt ?? '') === text) return
 	s.draftPrompt = text
-	clearTimeout(draftPromptFlushHandle)
-	draftPromptFlushHandle = setTimeout(() => persistTouched(s), 400)
+	clearTimeout(draftPromptFlushHandles.get(sessionId))
+	draftPromptFlushHandles.set(
+		sessionId,
+		setTimeout(() => {
+			draftPromptFlushHandles.delete(sessionId)
+			persistTouched(s)
+		}, 400)
+	)
 }
 
 // Read back the persisted composer text when a pending session's chat mounts.
@@ -789,8 +795,7 @@ export function getEffectiveWorkspaceId(session: Session): string | undefined {
 	return session.workspace_id ?? session.pending_workspace_id
 }
 
-// Persist the session's preview tabs. Fire-and-forget write-behind; opening/
-// moving a tab is a touch, so it persists an untouched pending session.
+// Persist the session's preview tabs (a touch — see persistTouched).
 export function setSessionTabs(id: string, tabs: SessionPreviewTab[], activeTabId: string): void {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
@@ -799,8 +804,7 @@ export function setSessionTabs(id: string, tabs: SessionPreviewTab[], activeTabI
 	persistTouched(s)
 }
 
-// Persist whether the preview panel is collapsed for this session. Fire-and-forget
-// write-behind; collapsing is a touch, so it persists an untouched pending session.
+// Persist whether the preview panel is collapsed for this session (a touch).
 export function setSessionPreviewCollapsed(id: string, collapsed: boolean): void {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s || !!s.previewCollapsed === collapsed) return
@@ -808,8 +812,7 @@ export function setSessionPreviewCollapsed(id: string, collapsed: boolean): void
 	persistTouched(s)
 }
 
-// Persist the preview split size the user dragged for this session. Fire-and-forget
-// write-behind; dragging is a touch, so it persists an untouched pending session.
+// Persist the preview split size the user dragged for this session (a touch).
 export function setSessionPreviewSize(id: string, size: number): void {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s || s.previewSize === size) return

@@ -182,6 +182,28 @@ describe('sessionState IndexedDB persistence', () => {
 		expect(getSessionDraftPrompt('t3')).toBe('draft prompt')
 	})
 
+	it('persists parallel drafts independently — a keystroke in one never cancels another', async () => {
+		const user = freshUser()
+		userStore.set(user)
+		await flush()
+
+		const a = session({ id: 'da', transient: true, pending_workspace_id: 'wsA' })
+		const b = session({ id: 'db', transient: true, pending_workspace_id: 'wsA' })
+		sessionState.sessions = [a, b]
+		// Interleave within the 400ms debounce window: b's keystroke must not clear
+		// a's pending flush (guards the per-session timer against a shared handle).
+		setSessionDraftPrompt('da', 'alpha')
+		setSessionDraftPrompt('db', 'beta')
+		await new Promise((r) => setTimeout(r, 500))
+
+		await rehydrate(user)
+		await vi.waitFor(() =>
+			expect(sessionState.sessions.map((x) => x.id).sort()).toEqual(['da', 'db'])
+		)
+		expect(getSessionDraftPrompt('da')).toBe('alpha')
+		expect(getSessionDraftPrompt('db')).toBe('beta')
+	})
+
 	it('deleteSession removes an in-memory transient draft', async () => {
 		const user = freshUser()
 		userStore.set(user)
