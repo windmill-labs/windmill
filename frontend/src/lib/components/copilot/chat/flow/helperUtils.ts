@@ -15,6 +15,39 @@ import type { InlineScriptSession } from './inlineScriptsUtils'
  * break the color picker UI at worst. */
 const ALLOWED_NOTE_COLORS = new Set<string>(Object.values(NoteColor))
 
+/**
+ * Estimate a free note's size from its markdown text so AI-created notes (which
+ * omit `size`) don't clip. Free notes render at a fixed height and never grow to
+ * fit their content — the renderer's text div overflows the node box — so the
+ * geometry seeded here must already be tall enough to hold the text.
+ *
+ * The note renders at `text-xs` (12px / line-height 1.4 ≈ 17px per line) inside
+ * `p-4` (16px padding on each side). We wrap each source line to the content
+ * width, sum the wrapped line count, and clamp the result to sane bounds.
+ */
+function estimateFreeNoteSize(text: string): { width: number; height: number } {
+	const width = MIN_NOTE_WIDTH
+	const HORIZONTAL_PADDING = 32 // p-4 left + right
+	const VERTICAL_PADDING = 32 // p-4 top + bottom
+	const LINE_HEIGHT = 17 // 12px * 1.4
+	const AVG_CHAR_WIDTH = 6.2 // approx width of a char at 12px
+	const MAX_HEIGHT = 600
+
+	const charsPerLine = Math.max(1, Math.floor((width - HORIZONTAL_PADDING) / AVG_CHAR_WIDTH))
+	const sourceLines = (text ?? '').split('\n')
+	const wrappedLineCount = sourceLines.reduce(
+		(sum, line) => sum + Math.max(1, Math.ceil(line.length / charsPerLine)),
+		0
+	)
+
+	const height = Math.min(
+		MAX_HEIGHT,
+		Math.max(MIN_NOTE_HEIGHT, Math.ceil(wrappedLineCount * LINE_HEIGHT) + VERTICAL_PADDING)
+	)
+
+	return { width, height }
+}
+
 type FlowLike = Pick<OpenFlow, 'value'> & {
 	schema?: Record<string, any>
 }
@@ -216,7 +249,7 @@ export function validateFlowNotes(rawNotes: unknown, moduleIds?: Set<string>): F
 				}
 			}
 			if (normalized.size == null) {
-				normalized.size = { width: MIN_NOTE_WIDTH, height: MIN_NOTE_HEIGHT }
+				normalized.size = estimateFreeNoteSize(normalized.text)
 			}
 		}
 

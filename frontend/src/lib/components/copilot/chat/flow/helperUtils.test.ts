@@ -453,6 +453,21 @@ describe('validateFlowNotes', () => {
 		expect(note.size!.height).toBeGreaterThan(0)
 	})
 
+	it('sizes a geometry-less free note tall enough for its text so it does not overflow', () => {
+		const [short] = validateFlowNotes([{ id: 's', text: 'hi' }])!
+		const longText = Array.from({ length: 20 }, (_, i) => `Line ${i} of note content`).join('\n')
+		const [long] = validateFlowNotes([{ id: 'l', text: longText }])!
+		expect(long.size!.height).toBeGreaterThan(short.size!.height)
+	})
+
+	it('clamps a short free note to the minimum height and a huge one to the max', () => {
+		const [short] = validateFlowNotes([{ id: 's', text: 'hi' }])!
+		expect(short.size!.height).toBe(60) // MIN_NOTE_HEIGHT
+		const hugeText = Array.from({ length: 500 }, (_, i) => `Line ${i}`).join('\n')
+		const [huge] = validateFlowNotes([{ id: 'h', text: hugeText }])!
+		expect(huge.size!.height).toBe(600) // MAX_HEIGHT
+	})
+
 	it('staggers the default y position of multiple geometry-less free notes', () => {
 		const notes = validateFlowNotes([
 			{ id: 'a', text: 't' },
