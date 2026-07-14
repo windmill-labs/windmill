@@ -32,10 +32,18 @@ export function computeJobKinds(jobKindsCat: string | null): string {
 		return kinds.join(',')
 	} else {
 		// Default mirrors the explicit 'runs' category — top-level scripts, flows,
-		// and single-step flows. flowscript/flownode/appscript are intermediate
-		// flow children with non-null parent_job, and the loader pairs this with
-		// hasNullParent: true, so they would never match here anyway.
-		let kinds: CompletedJob['job_kind'][] = ['script', 'flow', 'singlestepflow']
+		// single-step flows, and previews. Preview/flowpreview (editor "Tests") are
+		// top-level jobs with a null parent_job, so they belong in the default view;
+		// the 'previews' category still isolates them. flowscript/flownode/appscript
+		// are intermediate flow children with non-null parent_job, and the loader
+		// pairs this with hasNullParent: true, so they would never match here anyway.
+		let kinds: CompletedJob['job_kind'][] = [
+			'script',
+			'flow',
+			'singlestepflow',
+			'preview',
+			'flowpreview'
+		]
 		return kinds.join(',')
 	}
 }
