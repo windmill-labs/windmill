@@ -3113,6 +3113,11 @@ pub async fn poll_git_auto_pull(db: &Pool<Postgres>) {
         tracing::error!("git auto-pull: poll error: {e:#}");
     }
 
+    // WIN-2051: backstop for the "Windmill CI tests" checks — retry a failed GitHub
+    // create/deliver, conclude checks whose tests settled, time out stuck ones, and
+    // prune old rows. Shares this tick's advisory lock so only one replica sweeps.
+    windmill_common::git_sync_ee::sweep_ci_test_checks(db).await;
+
     if let Err(e) = sqlx::query("SELECT pg_advisory_unlock($1)")
         .bind(GIT_AUTO_PULL_LOCK_ID)
         .execute(&mut *lock_conn)

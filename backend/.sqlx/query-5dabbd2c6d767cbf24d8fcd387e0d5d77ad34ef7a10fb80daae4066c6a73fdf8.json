@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT head_sha FROM git_sync_ci_test_check WHERE workspace_id = $1 AND NOT concluded",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "head_sha",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5dabbd2c6d767cbf24d8fcd387e0d5d77ad34ef7a10fb80daae4066c6a73fdf8"
+}

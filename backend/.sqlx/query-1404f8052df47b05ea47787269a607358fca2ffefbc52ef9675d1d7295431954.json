@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE git_sync_ci_test_check SET github_posted = true\n                 WHERE workspace_id = $1 AND head_sha = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1404f8052df47b05ea47787269a607358fca2ffefbc52ef9675d1d7295431954"
+}

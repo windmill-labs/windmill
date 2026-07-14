@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE git_sync_ci_test_check SET check_run_id = $3\n                         WHERE workspace_id = $1 AND head_sha = $2 AND check_run_id IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d15152c3a0f4509ffe7a439059f4abcae4a86be358eee76b62d27f19637a4db8"
+}
