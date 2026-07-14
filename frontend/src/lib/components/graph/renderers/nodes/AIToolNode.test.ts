@@ -43,6 +43,46 @@ describe('computeAIToolNodes', () => {
 		}
 	})
 
+	it('does not flag any node in a mixed run where one tool repeats (reporter scenario)', () => {
+		// Repo-intel run: query_stored called 3x plus two single calls, all succeeded.
+		// Before the fix the three query_stored nodes rendered red (Failure) purely
+		// from the duplicate-name check, while the unique tools stayed green.
+		const node = aiAgentNode('chat', [
+			{ id: 'q', summary: 'query_stored', value: { tool_type: 'flowmodule', type: 'script' } },
+			{ id: 'h', summary: 'hybrid_search', value: { tool_type: 'flowmodule', type: 'script' } },
+			{
+				id: 't',
+				summary: 'trace_outbound_calls',
+				value: { tool_type: 'flowmodule', type: 'script' }
+			}
+		])
+		const call = (name: string, job: string) => ({
+			type: 'tool_call',
+			function_name: name,
+			module_id: name[0],
+			job_id: job
+		})
+		const flowModuleStates = {
+			chat: {
+				type: 'Success',
+				agent_actions: [
+					call('query_stored', 'j1'),
+					call('query_stored', 'j2'),
+					call('query_stored', 'j3'),
+					call('hybrid_search', 'j4'),
+					call('trace_outbound_calls', 'j5')
+				]
+			}
+		} as any
+
+		const { toolNodes } = computeAIToolNodes([node], eventHandlers, false, flowModuleStates)
+
+		expect(toolNodes.length).toBe(5)
+		for (const n of toolNodes) {
+			expect((n.data as any).nameError).toBeUndefined()
+		}
+	})
+
 	it('still flags genuinely duplicate tool names in the editor (static tool set)', () => {
 		const node = aiAgentNode('agent2', [
 			{ id: 't1', summary: 'dup', value: { tool_type: 'flowmodule', type: 'script' } },
