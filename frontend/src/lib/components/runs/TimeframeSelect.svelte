@@ -198,6 +198,7 @@
 						<InlineCalendarInput
 							class="w-full"
 							infiniteRange
+							portalSelects
 							mode="range"
 							onClickBehavior={smallBound === 'end' ? 'set-end' : 'set-start'}
 							bind:value={
