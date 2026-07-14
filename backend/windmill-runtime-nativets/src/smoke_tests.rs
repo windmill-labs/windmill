@@ -269,7 +269,7 @@ export async function main(): Promise<Record<string, boolean>> {
         "TextEncoder", "TextDecoder", "TextEncoderStream", "TextDecoderStream",
         "File",
         "Event", "EventTarget", "CustomEvent",
-        "MessageEvent", "CloseEvent", "ErrorEvent", "reportError",
+        "MessageEvent", "CloseEvent", "ErrorEvent",
         "ReadableStream", "WritableStream", "TransformStream",
         "ByteLengthQueuingStrategy", "CountQueuingStrategy",
         "URLPattern",
@@ -300,10 +300,12 @@ export async function main(): Promise<Record<string, boolean>> {
 #[ignore = "deno_core upgrade smoke; run with --ignored"]
 async fn smoke_structured_clone_and_performance() {
     // structuredClone is the spec function (from 13_message_port.js): it
-    // deep-clones and accepts an options bag. performance.now() must return
-    // a finite number. Both are exercised end-to-end here.
+    // deep-clones and accepts an options bag. performance.now() must be finite,
+    // and performance.timeOrigin must be seeded per isolate (via the Rust-side
+    // __wmInitPerIsolate call) so that `timeOrigin + now()` tracks wall-clock
+    // time rather than being NaN.
     let ts = r#"
-export async function main(): Promise<{ deep_equal: boolean; source_unchanged: boolean; now_ok: boolean }> {
+export async function main(): Promise<{ deep_equal: boolean; source_unchanged: boolean; now_ok: boolean; origin_ok: boolean }> {
     const src = { a: 1, nested: { b: [2, 3] } };
     const copy = structuredClone(src);
     copy.nested.b.push(4);
@@ -311,13 +313,17 @@ export async function main(): Promise<{ deep_equal: boolean; source_unchanged: b
     // Mutating the clone must not touch the source (proves a real deep clone).
     const source_unchanged = src.nested.b.length === 2;
     const now_ok = Number.isFinite(performance.now());
-    return { deep_equal, source_unchanged, now_ok };
+    // timeOrigin must be a finite epoch-ms value, and timeOrigin + now() must
+    // land within a few seconds of Date.now() (guards the per-isolate seeding).
+    const origin = performance.timeOrigin;
+    const origin_ok = Number.isFinite(origin) && Math.abs(origin + performance.now() - Date.now()) < 5000;
+    return { deep_equal, source_unchanged, now_ok, origin_ok };
 }
 "#;
     let r = run_ts(ts, &[], serde_json::json!({})).await;
     assert_eq!(
         unwrap_value(&r),
-        serde_json::json!({ "deep_equal": true, "source_unchanged": true, "now_ok": true }),
+        serde_json::json!({ "deep_equal": true, "source_unchanged": true, "now_ok": true, "origin_ok": true }),
     );
 }
 

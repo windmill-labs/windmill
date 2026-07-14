@@ -19,9 +19,9 @@ import * as response from "ext:deno_fetch/23_response.js";
 import * as request from "ext:deno_fetch/23_request.js";
 import "ext:deno_web/02_structured_clone.js";
 import "ext:deno_web/04_global_interfaces.js";
-// These three modules were previously imported for their side effects only.
-// They are namespace imports so their constructors can be wired onto
-// globalThis below (the module bodies still run, so the side effects remain).
+// Namespace imports (not side-effect-only) so their constructors are reachable
+// for the globalThis wiring below. The module bodies still execute on
+// evaluation, so their side effects apply.
 import * as messagePort from "ext:deno_web/13_message_port.js";
 import * as compression from "ext:deno_web/14_compression.js";
 import * as performance from "ext:deno_web/15_performance.js";
@@ -68,13 +68,15 @@ Object.assign(globalThis, {
   // Events (AbortSignal, already wired, extends EventTarget). MessageEvent is
   // the companion to MessagePort/MessageChannel below. Only the event types
   // bun exposes are wired (ProgressEvent / PromiseRejectionEvent are not).
+  // reportError is intentionally NOT wired: it dispatches through a global
+  // EventTarget that this runtime never installs (saveGlobalThisReference +
+  // globalThis.dispatchEvent), so it would throw on call.
   Event: event.Event,
   EventTarget: event.EventTarget,
   CustomEvent: event.CustomEvent,
   MessageEvent: event.MessageEvent,
   CloseEvent: event.CloseEvent,
   ErrorEvent: event.ErrorEvent,
-  reportError: event.reportError,
   // Streams + queuing strategies.
   ReadableStream: streams.ReadableStream,
   WritableStream: streams.WritableStream,
@@ -96,6 +98,14 @@ Object.assign(globalThis, {
   // 02_structured_clone.js.
   structuredClone: messagePort.structuredClone,
 });
+
+// Per-isolate init, invoked from Rust after the snapshot is restored (this
+// module body runs at snapshot-build time, not per isolate). setTimeOrigin()
+// seeds performance.timeOrigin from the isolate's wall clock; without it
+// timeOrigin is undefined and `timeOrigin + performance.now()` is NaN.
+globalThis.__wmInitPerIsolate = () => {
+  performance.setTimeOrigin();
+};
 
 // Expose bootstrapOtel globally so it can be called from Rust after runtime creation.
 // We use dynamic import so deno_telemetry isn't loaded during snapshot creation.
