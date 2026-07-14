@@ -1,16 +1,26 @@
+import { page } from '$app/state'
+import { replaceState } from '$app/navigation'
+import { rememberNavRoute } from '$lib/components/sessions/sessionSwitch.svelte'
 import { UserDraftDbSyncer, type UserDraftLastSyncQuery } from '$lib/userDraftDbSyncer.svelte'
 import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 import type { UserDraftItemKind } from '$lib/gen'
 
 /** Drop `?new_draft=true` from the current URL (preserving every other param),
  * mutating the address bar without a navigation. No-op when the flag is absent
- * or `window` is unavailable (SSR). */
+ * or `window` is unavailable (SSR).
+ *
+ * Uses SvelteKit's `replaceState` (not raw `history.replaceState`, which the
+ * router warns conflicts with it) so `page.url` stays in sync. Also refreshes
+ * the remembered nav route: `afterNavigate` never observes this in-place
+ * rewrite, so without it `exitSessionMode` would restore the pre-strip URL —
+ * still carrying `?new_draft=true` — and re-enter the seed-empty branch. */
 export function stripNewDraftFlag(): void {
 	if (typeof window === 'undefined') return
 	const url = new URL(window.location.href)
 	if (url.searchParams.get('new_draft') !== 'true') return
 	url.searchParams.delete('new_draft')
-	window.history.replaceState(window.history.state, '', url.toString())
+	replaceState(url, page.state)
+	rememberNavRoute(url.pathname + url.search)
 }
 
 /**
