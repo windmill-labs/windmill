@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.758.0](https://github.com/windmill-labs/windmill/compare/v1.757.0...v1.758.0) (2026-07-14)
+
+
+### Features
+
+* **ai-agent:** give tools a real description instead of the tool name ([#10083](https://github.com/windmill-labs/windmill/issues/10083)) ([7ebfad3](https://github.com/windmill-labs/windmill/commit/7ebfad382a2649a325444fcb745aca415871fe77))
+* **ai-chat:** port flow-group and sticky-note instructions to global chat ([#10090](https://github.com/windmill-labs/windmill/issues/10090)) ([32f32d9](https://github.com/windmill-labs/windmill/commit/32f32d9a29bb214d6aae58c501b8892ceb1c6453))
+* **cli:** add --tag override to script and flow run/preview ([#10079](https://github.com/windmill-labs/windmill/issues/10079)) ([98e6cca](https://github.com/windmill-labs/windmill/commit/98e6cca75d4dbc7417c7dd64289e0e8e56b84b0e))
+* **sessions:** support many pending sessions persisted in IndexedDB ([#10076](https://github.com/windmill-labs/windmill/issues/10076)) ([bfcec7e](https://github.com/windmill-labs/windmill/commit/bfcec7e8ac71e86ab16d7db789556b5fc7cfd3c7))
+
+
+### Bug Fixes
+
+* **ai-chat:** size AI-created flow notes to fit their text ([#10091](https://github.com/windmill-labs/windmill/issues/10091)) ([af3e3fe](https://github.com/windmill-labs/windmill/commit/af3e3fe6674de21a03b5c157a649452320c1ed0e))
+* **apps:** allow setting sandbox isolation and public access before first deploy ([#10085](https://github.com/windmill-labs/windmill/issues/10085)) ([cfc3f29](https://github.com/windmill-labs/windmill/commit/cfc3f292ad2fdc6067c558e42ef0754eca9469a9))
+* **apps:** load themes when selecting the Resources → Theme tab ([#10086](https://github.com/windmill-labs/windmill/issues/10086)) ([f2869d8](https://github.com/windmill-labs/windmill/commit/f2869d8c1a6f84837168d59724a496b39080bcce))
+* **frontend:** stop spurious raw-app reload that 404s on "Start without AI" ([#10099](https://github.com/windmill-labs/windmill/issues/10099)) ([2c702ef](https://github.com/windmill-labs/windmill/commit/2c702efec026bebdd9c1b8cdca4808e394b2fd09))
+* **mcp:** align script auto_kind filter with scripts list API ([#10098](https://github.com/windmill-labs/windmill/issues/10098)) ([4edffeb](https://github.com/windmill-labs/windmill/commit/4edffeb84b5d691884dc3c274dfd8aa4e9441295))
+* **sessions:** pending-draft debounce follow-ups (delete-cancel, keystroke de-transient, teardown count) ([#10087](https://github.com/windmill-labs/windmill/issues/10087)) ([f3cd5d9](https://github.com/windmill-labs/windmill/commit/f3cd5d9f7f370ba0aa27c452e8434454a10e07fe))
+* **sessions:** reopen script test panel when preview goes full screen ([#10082](https://github.com/windmill-labs/windmill/issues/10082)) ([eff9076](https://github.com/windmill-labs/windmill/commit/eff9076e9127eaa9b6a47897d5664932c720990b))
+
+
+### Performance Improvements
+
+* **runs:** index-bound batch re-run selection with a lossless completed_at bound (WIN-2168) ([#10074](https://github.com/windmill-labs/windmill/issues/10074)) ([15391f6](https://github.com/windmill-labs/windmill/commit/15391f6399eef5b85dac116b3ae04e71f70263a1))
+
 ## [1.757.0](https://github.com/windmill-labs/windmill/compare/v1.756.1...v1.757.0) (2026-07-14)
 
 
