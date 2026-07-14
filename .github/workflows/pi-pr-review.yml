@@ -288,11 +288,18 @@ jobs:
             PI_TOOLS=read,grep,find,ls
             # cwd is the fork checkout, so disable every project-local discovery:
             # --no-extensions stops fork-supplied .pi extensions (.ts/.js) from
-            # executing at startup with DEEPSEEK_API_KEY in env (before the tool
+            # loading at startup with DEEPSEEK_API_KEY in env (before the tool
             # allowlist even applies); the rest stop fork-controlled skills,
             # prompt templates, themes, and AGENTS.md/CLAUDE.md from being
             # auto-loaded into the reviewer's prompt as an injection vector.
             PI_HARDEN_FLAGS=(--no-extensions --no-skills --no-prompt-templates --no-themes --no-context-files)
+            # --no-extensions only filters what is *loaded*; package resolution
+            # from a fork .pi/settings.json still runs `npm install`/npmCommand and
+            # lifecycle scripts *before* that filter. PI_OFFLINE=1 makes the
+            # resolver skip every missing-package install, closing that exec path.
+            # It gates only startup network ops (installs, tool downloads), not the
+            # provider inference call.
+            export PI_OFFLINE=1
           else
             cat REVIEW.md .github/pi/pr-review.prompt.md > /tmp/pi-prompt.md
             PI_TOOLS=read,grep,find,ls,bash
