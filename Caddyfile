@@ -1,8 +1,10 @@
 {
 	layer4 {
 		:25 {
-			proxy {
-				to windmill_server:2525
+			route {
+				proxy {
+					upstream windmill_server:2525
+				}
 			}
 		}
 	}
