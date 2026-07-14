@@ -93,9 +93,12 @@
 	// fallback keeps the suspension from leaking if the user walks away.
 	$effect(() => {
 		if (templatePicker || !autosaveSuspendedForPicker) return
+		// Bail WITHOUT disarming while the workspace is still resolving: clearing the
+		// flag here would strand the bootstrap `stopSync` unpaired, silently killing
+		// autosave for the session. Tracked, so a late workspace re-runs this.
+		if (!$workspaceStore) return
 		autosaveSuspendedForPicker = false
-		const workspace = untrack(() => $workspaceStore)
-		if (workspace) armRestartOnFirstInteraction(workspace, 'raw_app', path)
+		armRestartOnFirstInteraction($workspaceStore, 'raw_app', path)
 	})
 
 	/** Deployed raw-app bundle this load, the baseline the autosave `discardIf`
@@ -171,7 +174,14 @@
 	let loadAppToken = 0
 	/** Drops the previous load's `new_draft` strip-on-save listener. */
 	let cleanupNewDraftFlag: (() => void) | undefined
-	onDestroy(() => cleanupNewDraftFlag?.())
+	onDestroy(() => {
+		cleanupNewDraftFlag?.()
+		// Leaving with the picker still open: pair the bootstrap `stopSync`, or the
+		// suspension outlives the page (it's keyed in a module-level map).
+		if (autosaveSuspendedForPicker && $workspaceStore) {
+			UserDraft.restartSync('raw_app', path, { workspace: $workspaceStore })
+		}
+	})
 	/** No deployed row at the URL path; flips RawAppEditor's deploy from
 	 * `updateApp` to `createApp`. See /apps/edit's `isNewApp`. */
 	let isNewApp = $state(false)
@@ -519,6 +529,11 @@
 			schema: result.data.schema
 		}
 		if (withPrompt && result.prompt) {
+			// This path owns the resume (below), so keep the picker-resolve effect from
+			// also arming an interaction listener: a click landing inside the timeout
+			// would resume sync while the template writes are still flushing, and POST
+			// the bare template.
+			autosaveSuspendedForPicker = false
 			setTimeout(() => {
 				// The template writes above have flushed under the suspension by now, so
 				// resuming here syncs the files the AI is about to generate but not the
