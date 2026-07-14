@@ -82,9 +82,7 @@ use windmill_common::{
 use windmill_object_store::object_store_reexports::{Attribute, Attributes};
 use windmill_store::resources::get_resource_value_interpolated_internal;
 
-use windmill_api_auth::{
-    create_token_internal, ensure_scopes_within_caller, require_is_writer, NewToken,
-};
+use windmill_api_auth::{create_token_internal, ensure_scopes_within_caller, NewToken};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel};
 
@@ -3187,40 +3185,15 @@ async fn execute_component(
     // from files a viewer forged by running a declared runnable directly (a direct
     // `/jobs/run` cannot set trigger_kind = 'app').
     //
-    // Deployed runs are policy-checked, so always marked. A preview lets a
-    // `jobs:run` caller supply arbitrary `raw_code` against ANY app path in the URL
-    // without the deployed policy, so mark it only when the caller can actually EDIT
-    // this app: an app editor already wields the app's author identity (they can
-    // deploy a component that reads the same file), so this is no escalation, while
-    // a `jobs:run`-only caller who cannot edit the app cannot forge the marker for it.
-    let mark_app_origin = if is_preview {
-        match opt_authed.as_ref() {
-            // Require BOTH: the token is permitted to edit the app (`apps:write`
-            // scope — a deliberately app-scoped `apps:run`/`apps:read` token without
-            // write must not qualify, since it cannot actually deploy equivalent
-            // code), AND the user is a writer of the app (ACL — an unscoped session
-            // of a non-editor must not qualify). Together they mean a real editor of
-            // this app, who already wields its author identity.
-            Some(authed) => {
-                check_scopes(authed, || format!("apps:write:{}", path)).is_ok()
-                    && require_is_writer(
-                        authed,
-                        path,
-                        &w_id,
-                        db.clone(),
-                        "SELECT extra_perms FROM app WHERE path = $1 AND workspace_id = $2",
-                        "app",
-                    )
-                    .await
-                    .is_ok()
-            }
-            None => false,
-        }
-    } else {
-        true
-    };
+    // ONLY deployed, policy-checked runs are marked. A preview executes as the
+    // *caller* (Viewer mode), not as the author, so its results are read back as the
+    // caller via the viewer-scoped `job_helpers` endpoint — never author-mode — and
+    // must never be app-provenanced. Marking a preview would let any `jobs:run`
+    // caller supply arbitrary `raw_code` against a victim app path and forge the
+    // marker; and it is never needed, since the caller already reads a preview's
+    // output as themselves.
     let app_trigger =
-        mark_app_origin.then(|| TriggerMetadata::new(Some(path.to_string()), JobTriggerKind::App));
+        (!is_preview).then(|| TriggerMetadata::new(Some(path.to_string()), JobTriggerKind::App));
 
     let (uuid, mut tx) = push(
         &db,
