@@ -159,10 +159,13 @@ export function validateFlowNotes(rawNotes: unknown, moduleIds?: Set<string>): F
 	}
 
 	const seenIds = new Set<string>()
-	// Running y-cursor for auto-placed free notes so consecutive ones stack
-	// below each other by their actual heights instead of overlapping.
-	let autoStackY = 0
+	// Column and running y-cursor for auto-placed free notes so consecutive ones
+	// stack below each other by their actual heights instead of overlapping. A
+	// preserved note (explicit geometry) sitting in this column also advances the
+	// cursor, so a later auto-placed note doesn't land on top of it.
+	const AUTO_STACK_X = -(MIN_NOTE_WIDTH + 100)
 	const AUTO_STACK_GAP = 24
+	let autoStackY = 0
 	return rawNotes.map((note, index) => {
 		if (!note || typeof note !== 'object' || Array.isArray(note)) {
 			throw new Error(`Invalid note at index ${index}: must be an object`)
@@ -250,12 +253,18 @@ export function validateFlowNotes(rawNotes: unknown, moduleIds?: Set<string>): F
 			if (normalized.size == null) {
 				normalized.size = estimateFreeNoteSize(normalized.text)
 			}
+			const height = normalized.size?.height ?? MIN_NOTE_HEIGHT
+			const width = normalized.size?.width ?? MIN_NOTE_WIDTH
 			if (normalized.position == null) {
-				normalized.position = {
-					x: -(MIN_NOTE_WIDTH + 100),
-					y: autoStackY
-				}
-				autoStackY += (normalized.size?.height ?? MIN_NOTE_HEIGHT) + AUTO_STACK_GAP
+				normalized.position = { x: AUTO_STACK_X, y: autoStackY }
+				autoStackY += height + AUTO_STACK_GAP
+			} else if (
+				// A preserved note overlapping the auto-stack column pushes the cursor
+				// below it so a later auto-placed note isn't dropped on top of it.
+				normalized.position.x < AUTO_STACK_X + MIN_NOTE_WIDTH &&
+				normalized.position.x + width > AUTO_STACK_X
+			) {
+				autoStackY = Math.max(autoStackY, normalized.position.y + height + AUTO_STACK_GAP)
 			}
 		}
 

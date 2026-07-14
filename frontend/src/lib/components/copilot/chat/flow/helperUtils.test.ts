@@ -488,6 +488,23 @@ describe('validateFlowNotes', () => {
 		)
 	})
 
+	it('does not drop an auto-placed note on top of a preserved note in the same column', () => {
+		// A round-tripped note keeps its existing auto-column geometry {-375, 0};
+		// a freshly added geometry-less note must stack below it, not overlap.
+		const notes = validateFlowNotes([
+			{
+				id: 'existing',
+				text: 'kept',
+				position: { x: -375, y: 0 },
+				size: { width: 275, height: 120 }
+			},
+			{ id: 'new', text: 'added' }
+		])!
+		expect(notes[1].position!.y).toBeGreaterThanOrEqual(
+			notes[0].position!.y + notes[0].size!.height
+		)
+	})
+
 	it('grows a note whose single source line wraps across many display lines', () => {
 		const short = validateFlowNotes([{ id: 's', text: 'hi' }])![0]
 		const oneLongLine = 'word '.repeat(200).trim() // no newlines, wraps many times
