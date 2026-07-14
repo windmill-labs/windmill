@@ -16,9 +16,9 @@
 {:else}
 	<div class="flex justify-center items-center h-48">
 		<div class="text-primary text-center">
-			<div class="text-lg font-semibold text-emphasis">Welcome to Windmill</div>
-			<div class="text-xs font-normal text-hint">Get started by creating your first script, flow, or app</div>
+			<div class="text-xs font-normal text-hint">
+				Get started by creating your first script, flow, or app
+			</div>
 		</div>
 	</div>
 {/if}
-

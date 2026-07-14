@@ -40,6 +40,7 @@
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import { NetworkIcon } from 'lucide-svelte'
 	import { base } from '$lib/base'
+	import Toggle from '../Toggle.svelte'
 	interface Props {
 		subtab?: 'flow' | 'script' | 'app'
 		showEditButtons?: boolean
@@ -512,6 +513,13 @@
 					/>
 				{/snippet}
 			</ToggleButtonGroup>
+			<Toggle
+				options={{ right: 'Tree view' }}
+				textClass="text-nowrap"
+				size="xs"
+				class="ml-4"
+				bind:checked={treeView}
+			/>
 		</div>
 
 		<div class="relative text-primary grow min-w-[200px] max-w-[30rem] ml-auto">
@@ -529,9 +537,6 @@
 		{/if}
 	</div>
 	<div class="relative">
-		{#if filteredItems?.length == 0}
-			<div class="mt-10"></div>
-		{/if}
 		{#if !loading}
 			<div class="flex w-full flex-row-reverse gap-2 mt-2 mb-1 items-center h-0">
 				{#if treeView}
@@ -572,16 +577,18 @@
 			<!-- Pipelines aren't part of the text filter, so only fall through to show
 			     them (list rows / injected tree folders) when not actively searching;
 			     a no-match search still reads as empty. -->
-			<NoItemFound
-				hasFilters={filter !== '' ||
-					archived ||
-					filterUserFolders ||
-					!!pathFilter ||
-					!!summaryFilter ||
-					!!filterValues.val.label ||
-					!!filterValues.val.draft_only ||
-					!!filterValues.val.draft}
-			/>
+			<div class="py-10 border rounded-md">
+				<NoItemFound
+					hasFilters={filter !== '' ||
+						archived ||
+						filterUserFolders ||
+						!!pathFilter ||
+						!!summaryFilter ||
+						!!filterValues.val.label ||
+						!!filterValues.val.draft_only ||
+						!!filterValues.val.draft}
+				/>
+			</div>
 		{:else if treeView}
 			<TreeViewRoot
 				{items}
