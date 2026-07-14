@@ -159,7 +159,7 @@
 		clickToSelect ? 'cursor-pointer select-none' : '',
 		selected ? 'bg-surface-accent-selected' : keyboardSelected ? 'bg-gray-200 dark:bg-gray-700' : ''
 	)}
-	style={depth > 0 ? `padding-left: ${depth * 32}px;` : ''}
+	style={depth > 0 ? `padding-left: ${depth * 16}px;` : ''}
 	role={clickToSelect ? 'button' : undefined}
 	tabindex={clickToSelect ? 0 : undefined}
 	onclick={handleRowClick}
