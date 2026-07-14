@@ -120,9 +120,7 @@ export async function main(): Promise<{ host: string; pairs: [string, string][] 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "deno_core upgrade smoke; run with --ignored"]
 async fn smoke_web_blob_btoa_atob() {
-    // deno_web surface: Blob, atob/btoa. `structuredClone` is *not* wired
-    // into the nativets global (the deno_web binding doesn't expose it
-    // here) — if that's ever changed, extend this test to cover it.
+    // deno_web surface: Blob, atob/btoa.
     let ts = r#"
 export async function main(): Promise<{ b64: string; round_trip: string; size: number }> {
     const blob = new Blob(["hello"], { type: "text/plain" });
@@ -191,7 +189,10 @@ export async function main(): Promise<Record<string, string>> {
         .filter(|(_, t)| t.as_str() == Some("undefined"))
         .map(|(k, _)| k.as_str())
         .collect();
-    assert!(missing.is_empty(), "globals not wired (undefined): {missing:?}");
+    assert!(
+        missing.is_empty(),
+        "globals not wired (undefined): {missing:?}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
