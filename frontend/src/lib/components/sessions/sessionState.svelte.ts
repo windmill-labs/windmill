@@ -306,11 +306,10 @@ export function setSessionDraftPrompt(sessionId: string, text: string): void {
 	// mount-time onDraftChange('') as a non-touch (draftPrompt is undefined),
 	// so merely opening an untouched draft never persists it.
 	if ((s.draftPrompt ?? '') === text) return
-	// Keep `transient` set until the flush persists the draft: it means "in-memory
-	// only", so hydrateSessions preserves the draft across a reconcile that lands
-	// inside this window (clearing it early would drop a not-yet-written draft).
-	// createSession stops reusing it the moment draftPrompt is non-empty instead —
-	// see isReusableBlank. Only the IndexedDB write is debounced.
+	// Keep `transient` (means "in-memory only") set until the flush persists the
+	// draft, so hydrateSessions preserves it across a reconcile inside this window;
+	// isReusableBlank, not `transient`, is what stops createSession reusing a typed
+	// draft. Only the IndexedDB write is debounced.
 	s.draftPrompt = text
 	clearTimeout(draftPromptFlushHandles.get(sessionId))
 	draftPromptFlushHandles.set(
@@ -528,11 +527,10 @@ export async function reconcileAfterWorkspaceChange(): Promise<void> {
 	await reconcileSessionsLifecycle()
 }
 
-// Count non-transient sessions bound to a given workspace — used to warn the user,
-// before archiving/deleting a workspace, how many AI sessions go with it. Matches
-// on `workspace_id ?? pending_workspace_id` so persisted unsent drafts (scoped by
-// pending_workspace_id) are included, mirroring reconcileSessionsLifecycle which
-// archives/deletes them alongside committed sessions.
+// Count non-transient sessions bound to a workspace — warns the user how many AI
+// sessions an archive/delete takes with it. Matches on `workspace_id ??
+// pending_workspace_id` so persisted unsent drafts count too, mirroring
+// reconcileSessionsLifecycle which tears them down alongside committed sessions.
 export async function countSessionsForWorkspace(workspaceId: string): Promise<number> {
 	if (!BROWSER) return 0
 	const db = await sessionsDb.whenReady()
@@ -637,14 +635,10 @@ export function requestComposerFocus(): void {
 	composerFocusRequest.nonce++
 }
 
-// A reusable blank: an in-memory-only (transient) pending session the user has
-// never touched. Every touch but one clears `transient` synchronously (workspace
-// pick, panel, rename, preview); typing a prompt sets draftPrompt and persists on
-// a debounce, so `transient` alone can't tell a fresh blank from a just-typed
-// draft mid-flush — the draftPrompt check does. `undefined` (never edited), not
-// falsiness: a draft typed then erased back to '' still has a pending flush and
-// is a real session, so it must not be reused or dropped. createSession reuses a
-// blank on `+` and discards a stray one; a touched draft survives both.
+// An untouched in-memory blank that `+` may reuse/discard. `draftPrompt ===
+// undefined` (never edited), not falsiness: a draft typed then erased to '' still
+// has a pending flush and is a real session, so it must survive both. Every other
+// touch clears `transient` synchronously, so only the draft prompt needs checking.
 function isReusableBlank(s: Session): boolean {
 	return !!s.transient && s.draftPrompt === undefined
 }
