@@ -18,6 +18,7 @@
 		deploymentDrawer: DeployWorkspaceDrawer
 		depth?: number
 		menuOpen?: boolean
+		keyboardSelected?: boolean
 	}
 
 	let {
@@ -26,13 +27,15 @@
 		shareModal,
 		deploymentDrawer,
 		depth = 0,
-		menuOpen = $bindable(false)
+		menuOpen = $bindable(false),
+		keyboardSelected = false
 	}: Props = $props()
 </script>
 
 <Row
 	href="{base}/apps_raw/get/{app.path}"
 	kind="raw_app"
+	{keyboardSelected}
 	{marked}
 	path={app.path}
 	summary={app.summary}

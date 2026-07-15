@@ -56,6 +56,7 @@
 		depth?: number
 		menuOpen?: boolean
 		showEditButton?: boolean
+		keyboardSelected?: boolean
 	}
 
 	let {
@@ -68,7 +69,8 @@
 		errorHandlerMuted,
 		depth = 0,
 		menuOpen = $bindable(false),
-		showEditButton = $bindable(true)
+		showEditButton = $bindable(true),
+		keyboardSelected = false
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -126,6 +128,7 @@
 		: `${base}/flows/get/${flow.path}?workspace=${$workspaceStore}`}
 	kind="flow"
 	workspaceId={flow.workspace_id ?? $workspaceStore ?? ''}
+	{keyboardSelected}
 	{marked}
 	path={flow.draft_path ?? flow.path}
 	summary={flow.is_draft ? `${flow.summary || flow.draft_path || flow.path}*` : flow.summary}

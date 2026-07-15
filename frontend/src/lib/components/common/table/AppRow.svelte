@@ -47,6 +47,7 @@
 		depth?: number
 		menuOpen?: boolean
 		showEditButton?: boolean
+		keyboardSelected?: boolean
 	}
 
 	let {
@@ -58,7 +59,8 @@
 		deleteConfirmedCallback = $bindable(),
 		depth = 0,
 		menuOpen = $bindable(false),
-		showEditButton = $bindable(true)
+		showEditButton = $bindable(true),
+		keyboardSelected = false
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -103,6 +105,7 @@
 		? `${base}/apps${app.raw_app ? '_raw' : ''}/edit/${app.path}`
 		: `${base}/apps${app.raw_app ? '_raw' : ''}/get/${app.path}`}
 	kind="app"
+	{keyboardSelected}
 	{marked}
 	path={(app as any).draft_path ?? app.path}
 	summary={app.is_draft ? `${app.summary || (app as any).draft_path || app.path}*` : app.summary}

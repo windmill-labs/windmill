@@ -35,7 +35,7 @@
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import Item from './Item.svelte'
 	import TreeViewRoot from './TreeViewRoot.svelte'
-	import { untrack } from 'svelte'
+	import { tick, untrack } from 'svelte'
 	import ContentSearchInner from '$lib/components/ContentSearchInner.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import { NetworkIcon } from 'lucide-svelte'
@@ -437,6 +437,269 @@
 		items && resetScroll()
 	})
 
+	// --- Keyboard navigation of the results list -------------------------------
+	// Arrow up/down move a highlight through the list, Enter opens it, and
+	// Right/Left step into the row's action buttons. Active only in the flat
+	// (non-tree) view, and only while the FilterSearchbar's suggestion dropdown is
+	// closed: in free-text mode the searchbar hides that dropdown and yields the
+	// arrow keys to us; when a specific filter is being edited it keeps them.
+	let selectedIndex: number = $state(-1)
+	let searchbarDropdownOpen = $state(false)
+	let searchbarWrapper: HTMLDivElement | undefined = $state()
+	let hasMore = $derived(items != undefined && items.length > nbDisplayed)
+	let loadMoreIndex = $derived(displayedItems.length)
+	let loadMoreEl: HTMLButtonElement | undefined = $state()
+	let pendingAutoSelect = $state(true)
+	let firstWorkspaceRun = true
+
+	function focusSearchbar() {
+		searchbarWrapper?.querySelector<HTMLElement>('[contenteditable]')?.focus()
+	}
+	function isInSearchbar(el: HTMLElement | null): boolean {
+		return !!el && !!searchbarWrapper?.contains(el)
+	}
+	// Whether the searchbar caret sits at the given edge — only then does Left/Right
+	// step out into the list/actions, so mid-text arrows still move the cursor.
+	function searchbarCaretAtEdge(which: 'start' | 'end'): boolean {
+		const editable = searchbarWrapper?.querySelector<HTMLElement>('[contenteditable]')
+		const sel = window.getSelection()
+		if (!editable || !sel || sel.rangeCount === 0) return true
+		const caret = sel.getRangeAt(0)
+		const probe = caret.cloneRange()
+		probe.selectNodeContents(editable)
+		if (which === 'start') {
+			probe.setEnd(caret.startContainer, caret.startOffset)
+		} else {
+			probe.setStart(caret.endContainer, caret.endOffset)
+		}
+		return probe.toString().length === 0
+	}
+
+	$effect(() => {
+		$workspaceStore
+		pendingAutoSelect = true
+		if (firstWorkspaceRun) {
+			firstWorkspaceRun = false
+			return
+		}
+		// On workspace switch melt-ui restores focus to the workspace-picker trigger
+		// after its menu closes; without overriding it, an arrow key would re-open the
+		// picker instead of moving the list selection. Re-focus the search a few times
+		// to win the async focus race.
+		focusSearchbar()
+		const raf1 = requestAnimationFrame(() => {
+			focusSearchbar()
+			requestAnimationFrame(focusSearchbar)
+		})
+		const timeoutId = setTimeout(focusSearchbar, 100)
+		return () => {
+			cancelAnimationFrame(raf1)
+			clearTimeout(timeoutId)
+		}
+	})
+	$effect(() => {
+		filter
+		itemKind
+		// Skip while pendingAutoSelect (initial load / workspace switch); the auto-select
+		// effect below sets the index once items appear.
+		if (!pendingAutoSelect) {
+			selectedIndex = -1
+		}
+	})
+	$effect(() => {
+		if (pendingAutoSelect && displayedItems.length > 0) {
+			selectedIndex = 0
+			pendingAutoSelect = false
+		}
+	})
+	$effect(() => {
+		const max = hasMore ? displayedItems.length : displayedItems.length - 1
+		if (selectedIndex > max) {
+			selectedIndex = max
+		}
+	})
+	$effect(() => {
+		if (hasMore && selectedIndex === loadMoreIndex) {
+			loadMoreEl?.scrollIntoView({ block: 'nearest' })
+		}
+	})
+	// Capture phase so we run before melt-ui's button keydown handlers (e.g. ArrowDown
+	// on a dropdown trigger would otherwise open its menu).
+	$effect(() => {
+		window.addEventListener('keydown', handleGlobalKeydown, true)
+		return () => window.removeEventListener('keydown', handleGlobalKeydown, true)
+	})
+
+	function loadMoreAndPreselectFirstNew() {
+		const previousNbDisplayed = nbDisplayed
+		nbDisplayed += 30
+		selectedIndex = previousNbDisplayed
+	}
+
+	function getSelectedRowActionButtons(): HTMLElement[] {
+		const anchor = document.querySelector<HTMLElement>('a[data-row-keyboard-selected="true"]')
+		const actions = anchor?.parentElement?.querySelector<HTMLElement>('[data-row-actions]')
+		return actions ? Array.from(actions.querySelectorAll<HTMLElement>('button, a[href]')) : []
+	}
+
+	function handleGlobalKeydown(e: KeyboardEvent) {
+		// Tree view has its own structure; the searchbar owns the arrows whenever its
+		// suggestion dropdown is open (a specific filter is being edited).
+		if (treeView || searchbarDropdownOpen) return
+		const target = e.target as HTMLElement | null
+
+		// When focus is inside a row's action buttons, handle arrows ourselves:
+		//  - Left/Right cycle between buttons (Left from the first returns to search).
+		//  - Up/Down move to the same-position button on the previous/next row.
+		// Other keys pass through so Enter/Space activate the focused button normally.
+		// Must run BEFORE the skipSelector check, since the ellipsis trigger carries
+		// [data-menu]. Up/Down also need stopImmediatePropagation so melt-ui's trigger
+		// doesn't open its menu.
+		const actionsContainer = target?.closest<HTMLElement>('[data-row-actions]')
+		if (actionsContainer) {
+			if (
+				e.key !== 'ArrowRight' &&
+				e.key !== 'ArrowLeft' &&
+				e.key !== 'ArrowUp' &&
+				e.key !== 'ArrowDown'
+			)
+				return
+			const buttons = Array.from(actionsContainer.querySelectorAll<HTMLElement>('button, a[href]'))
+			const currentIdx = buttons.indexOf(target as HTMLElement)
+			if (currentIdx < 0) return
+			if (e.key === 'ArrowRight') {
+				if (currentIdx < buttons.length - 1) {
+					e.preventDefault()
+					buttons[currentIdx + 1].focus()
+				}
+			} else if (e.key === 'ArrowLeft') {
+				e.preventDefault()
+				if (currentIdx > 0) {
+					buttons[currentIdx - 1].focus()
+				} else {
+					focusSearchbar()
+				}
+			} else {
+				// ArrowUp / ArrowDown: move to same-position button on prev/next row.
+				e.preventDefault()
+				e.stopImmediatePropagation()
+				if (selectedIndex < 0 || selectedIndex >= displayedItems.length) return
+				const newIndex =
+					e.key === 'ArrowDown'
+						? Math.min(selectedIndex + 1, displayedItems.length - 1)
+						: Math.max(selectedIndex - 1, 0)
+				if (newIndex === selectedIndex) return
+				selectedIndex = newIndex
+				tick().then(() => {
+					const newButtons = getSelectedRowActionButtons()
+					if (newButtons.length === 0) return
+					const targetIdx = Math.min(currentIdx, newButtons.length - 1)
+					newButtons[targetIdx]?.focus()
+				})
+			}
+			return
+		}
+
+		// Inside an open dropdown menu: ArrowUp on first item / ArrowDown on last item
+		// closes the menu (leave with arrows instead of Escape). Others fall through to
+		// melt-ui's default cycle.
+		const menuItem = target?.closest<HTMLElement>('[role="menuitem"]')
+		if (menuItem) {
+			if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+				const menu = menuItem.closest<HTMLElement>('[role="menu"]')
+				if (menu && !menu.hasAttribute('data-arrow-loop')) {
+					const menuButtons = Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+					const idx = menuButtons.indexOf(menuItem)
+					const isFirst = idx === 0
+					const isLast = idx === menuButtons.length - 1
+					if ((e.key === 'ArrowUp' && isFirst) || (e.key === 'ArrowDown' && isLast)) {
+						e.preventDefault()
+						e.stopImmediatePropagation()
+						menuItem.dispatchEvent(
+							new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+						)
+					}
+				}
+			}
+			return
+		}
+
+		const skipSelector =
+			'[role="menu"], [role="menuitem"], [role="dialog"], [role="listbox"], [role="combobox"], [aria-expanded="true"], [data-menu], [data-chat-keyboard-scope]'
+		if (target) {
+			const tag = target.tagName
+			const isEditable =
+				tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable
+			// The searchbar is a contenteditable, but it's our own — don't bail on it.
+			if (isEditable && !isInSearchbar(target)) return
+			if (target.closest(skipSelector)) return
+		}
+		const active = document.activeElement as HTMLElement | null
+		if (active?.closest(skipSelector)) return
+
+		// ArrowRight from the search / body → focus first action button of selected row.
+		// Guard: if the searchbar caret isn't at the end, let it move the cursor instead.
+		if (e.key === 'ArrowRight') {
+			if (isInSearchbar(target) && !searchbarCaretAtEdge('end')) return
+			if (selectedIndex < 0 || selectedIndex >= displayedItems.length) return
+			const buttons = getSelectedRowActionButtons()
+			if (buttons.length > 0) {
+				e.preventDefault()
+				buttons[0].focus()
+			}
+			return
+		}
+		// ArrowLeft in the searchbar with the caret not at the start: let it move the cursor.
+		if (e.key === 'ArrowLeft') {
+			if (isInSearchbar(target) && !searchbarCaretAtEdge('start')) return
+			return
+		}
+
+		if (e.key === 'ArrowDown') {
+			if (displayedItems.length === 0) return
+			e.preventDefault()
+			if (selectedIndex === -1) {
+				selectedIndex = 0
+			} else if (selectedIndex === loadMoreIndex && hasMore) {
+				selectedIndex = 0
+			} else if (selectedIndex === displayedItems.length - 1) {
+				selectedIndex = hasMore ? loadMoreIndex : 0
+			} else {
+				selectedIndex = selectedIndex + 1
+			}
+		} else if (e.key === 'ArrowUp') {
+			if (displayedItems.length === 0) return
+			e.preventDefault()
+			if (selectedIndex === -1) {
+				selectedIndex = displayedItems.length - 1
+			} else if (selectedIndex === loadMoreIndex && hasMore) {
+				selectedIndex = displayedItems.length - 1
+			} else if (selectedIndex === 0) {
+				selectedIndex = hasMore ? loadMoreIndex : displayedItems.length - 1
+			} else {
+				selectedIndex = selectedIndex - 1
+			}
+		} else if (e.key === 'Enter') {
+			if (selectedIndex === loadMoreIndex && hasMore) {
+				e.preventDefault()
+				loadMoreAndPreselectFirstNew()
+			} else if (selectedIndex >= 0 && selectedIndex < displayedItems.length) {
+				const anchor = document.querySelector<HTMLAnchorElement>(
+					'a[data-row-keyboard-selected="true"]'
+				)
+				if (anchor) {
+					e.preventDefault()
+					anchor.click()
+				}
+			}
+		} else if (e.key === 'Escape') {
+			if (selectedIndex !== -1) {
+				e.preventDefault()
+				selectedIndex = -1
+			}
+		}
+	}
+
 	$effect(() => {
 		storeLocalSetting(TREE_VIEW_SETTING_NAME, treeView ? 'true' : undefined)
 	})
@@ -522,13 +785,18 @@
 			/>
 		</div>
 
-		<div class="relative text-primary grow min-w-[200px] max-w-[30rem] ml-auto">
+		<div
+			bind:this={searchbarWrapper}
+			class="relative text-primary grow min-w-[200px] max-w-[30rem] ml-auto"
+		>
 			<FilterSearchbar
 				schema={searchFilterSchema}
 				bind:value={filterValues.val}
 				presets={searchPresets}
 				placeholder="Filter scripts, flows and apps..."
 				autofocus
+				hideDropdownOnFreeText
+				onDropdownVisibleChange={(v) => (searchbarDropdownOpen = v)}
 			/>
 		</div>
 
@@ -623,7 +891,7 @@
 						</a>
 					{/each}
 				{/if}
-				{#each displayedItems as item (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
+				{#each displayedItems as item, i (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
 					<Item
 						{item}
 						on:scriptChanged={() => loadScripts(includeWithoutMain)}
@@ -638,6 +906,7 @@
 						}}
 						{showCode}
 						showEditButton={showEditButtons}
+						keyboardSelected={selectedIndex === i}
 					/>
 				{/each}
 			</div>
@@ -645,7 +914,11 @@
 				<span class="text-xs font-normal text-secondary"
 					>{nbDisplayed} items out of {items.length}
 					<button
-						class="ml-4 text-xs font-normal text-primary hover:text-emphasis rounded px-1"
+						bind:this={loadMoreEl}
+						class="ml-4 text-xs font-normal text-primary hover:text-emphasis rounded px-1 {selectedIndex ===
+						loadMoreIndex
+							? 'bg-gray-200 dark:bg-gray-700 underline'
+							: ''}"
 						onclick={() => (nbDisplayed += 30)}>load 30 more</button
 					></span
 				>

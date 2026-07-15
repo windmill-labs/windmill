@@ -69,6 +69,7 @@
 		depth?: number
 		menuOpen?: boolean
 		showEditButton?: boolean
+		keyboardSelected?: boolean
 	}
 
 	let {
@@ -82,7 +83,8 @@
 		showCode,
 		depth = 0,
 		menuOpen = $bindable(false),
-		showEditButton = $bindable(true)
+		showEditButton = $bindable(true),
+		keyboardSelected = false
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -143,6 +145,7 @@
 		? `${base}/scripts/edit/${script.path}`
 		: `${base}/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
 	kind="script"
+	{keyboardSelected}
 	{marked}
 	path={script.draft_path ?? script.path}
 	summary={script.is_draft
