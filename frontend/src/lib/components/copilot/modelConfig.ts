@@ -107,6 +107,7 @@ const TEXT_ONLY_MODELS = [
 	'deepseek-chat',
 	'deepseek-reasoner',
 	'deepseek-v3',
+	'deepseek-v4',
 	'deepseek-r1',
 	'o1-mini',
 	'o3-mini',

@@ -272,7 +272,8 @@ describe('modelSupportsVision', () => {
 		['togetherai', 'meta-llama/Llama-3.3-70B-Instruct-Turbo'],
 		['mistral', 'codestral-latest'],
 		['deepseek', 'deepseek-chat'],
-		['deepseek', 'deepseek-reasoner']
+		['deepseek', 'deepseek-reasoner'],
+		['deepseek', 'deepseek-v4-pro']
 	])('refuses images on bundled text-only %s/%s', (provider, model) => {
 		expect(modelSupportsVision(provider as any, model)).toBe(false)
 	})
