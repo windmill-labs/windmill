@@ -20,7 +20,7 @@ import * as crypto from "ext:deno_crypto/00_crypto.js";
 import * as response from "ext:deno_fetch/23_response.js";
 import * as request from "ext:deno_fetch/23_request.js";
 import "ext:deno_web/02_structured_clone.js";
-import "ext:deno_web/04_global_interfaces.js";
+import * as globalInterfaces from "ext:deno_web/04_global_interfaces.js";
 // Namespace imports (not side-effect-only) so their constructors are reachable
 // for the globalThis wiring below. The module bodies still execute on
 // evaluation, so their side effects apply.
@@ -78,7 +78,7 @@ Object.assign(globalThis, {
   // Events (AbortSignal, already wired, extends EventTarget). MessageEvent is
   // the companion to MessagePort/MessageChannel below. Only the event types
   // bun exposes are wired (ProgressEvent / PromiseRejectionEvent are not).
-  // reportError works because of the saved global dispatch target set below.
+  // reportError works because __wmInitPerIsolate makes globalThis an EventTarget.
   Event: event.Event,
   EventTarget: event.EventTarget,
   CustomEvent: event.CustomEvent,
@@ -118,21 +118,28 @@ Object.assign(globalThis, {
   structuredClone: messagePort.structuredClone,
 });
 
-// deno_web's reportException dispatches uncaught EventTarget-listener errors
-// (and reportError) on a saved "global" reference. With no reference, a throwing
-// listener makes dispatchEvent throw a masking error (deref of the unset global)
-// that hides the original; reportError throws outright. Give it a dedicated
-// EventTarget so the ORIGINAL error is reported instead, as an async unhandled
-// exception, matching bun. We do NOT make globalThis itself an EventTarget: bun
-// doesn't either (`globalThis instanceof EventTarget` is false there).
-event.saveGlobalThisReference(new event.EventTarget());
-
 // Per-isolate init, invoked from Rust after the snapshot is restored (this
-// module body runs at snapshot-build time, not per isolate). setTimeOrigin()
-// seeds performance.timeOrigin from the isolate's wall clock; without it
-// timeOrigin is undefined and `timeOrigin + performance.now()` is NaN.
+// module body runs at snapshot-build time, not per isolate).
 globalThis.__wmInitPerIsolate = () => {
+  // setTimeOrigin() seeds performance.timeOrigin from the isolate's wall clock;
+  // without it timeOrigin is undefined and `timeOrigin + performance.now()` is NaN.
   performance.setTimeOrigin();
+
+  // Make globalThis a functional EventTarget, as Deno's bootstrap does. deno_web
+  // routes uncaught EventTarget-listener errors and reportError through
+  // reportException, which dispatches an error event on the saved global
+  // reference; reportError also requires its receiver to equal that reference.
+  // Both need the reference to be globalThis and globalThis to be an EventTarget,
+  // otherwise dispatch throws a masking error and globalThis.reportError() throws
+  // "Illegal invocation". Set up per isolate so the reference is the live global.
+  // The prototype + brand are what webidl.assertBranded checks in the methods.
+  Object.setPrototypeOf(
+    globalThis,
+    globalInterfaces.DedicatedWorkerGlobalScope.prototype,
+  );
+  event.setEventTargetData(globalThis);
+  globalThis[webidl.brand] = webidl.brand;
+  event.saveGlobalThisReference(globalThis);
 };
 
 // Expose bootstrapOtel globally so it can be called from Rust after runtime creation.

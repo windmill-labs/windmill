@@ -714,13 +714,11 @@ export async function main(): Promise<Record<string, string>> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "deno_core upgrade smoke; run with --ignored"]
 async fn smoke_eventtarget_throwing_listener_reports_original() {
-    // Regression guard for the EventTarget global: an uncaught listener error is
-    // routed through deno_web's reportException, which dispatches on a saved
-    // global reference. Without one (the original gap), dispatchEvent threw a
-    // masking error (deref of the unset reference) that hid the real error. With
-    // the dedicated global dispatch target wired in runtime.js, the ORIGINAL
-    // error is surfaced — as an unhandled exception (async, matching bun), so the
-    // script errors, but with the real message and no masking text.
+    // Invariant: globalThis is a functional EventTarget, so deno_web's
+    // reportException has a valid saved global dispatch target. An uncaught
+    // EventTarget-listener error is therefore surfaced with its original message
+    // as an async unhandled exception (matching bun, which exits non-zero), not
+    // replaced by a masking "Illegal invocation"/undefined-reference error.
     let ts = r#"
 export async function main(): Promise<void> {
     const et = new EventTarget();
@@ -742,6 +740,45 @@ export async function main(): Promise<void> {
         !err.contains("Illegal invocation") && !err.to_lowercase().contains("undefined"),
         "dispatchEvent surfaced a masking error instead of the original: {err}",
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_report_error_both_call_forms() {
+    // reportError must work both unqualified and as a property of globalThis.
+    // The property form goes through a receiver check (`this === globalThis_`),
+    // which only passes because globalThis is the saved EventTarget reference;
+    // otherwise it throws "Illegal invocation". Both forms report the error as an
+    // async unhandled exception (matching bun), so the script errors with the
+    // original message rather than a masking one.
+    for (label, call) in [
+        ("bare", "reportError(new Error(\"wm_report_marker\"));"),
+        (
+            "property",
+            "globalThis.reportError(new Error(\"wm_report_marker\"));",
+        ),
+    ] {
+        let ts = format!(
+            r#"
+export async function main(): Promise<void> {{
+    {call}
+    await new Promise((r) => setTimeout(r, 20));
+}}
+"#
+        );
+        let r = run_ts(&ts, &[], serde_json::json!({})).await;
+        let err = r
+            .result
+            .expect_err(&format!("{label} reportError should surface an error"));
+        assert!(
+            err.contains("wm_report_marker"),
+            "{label} reportError lost the original error: {err}",
+        );
+        assert!(
+            !err.contains("Illegal invocation"),
+            "{label} reportError threw Illegal invocation: {err}",
+        );
+    }
 }
 
 // -----------------------------------------------------------------------------
