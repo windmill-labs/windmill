@@ -129,6 +129,7 @@
 		"mdast-util-find-and-replace": "^3.0.2",
 		"mermaid": "^11.15.0",
 		"minimatch": "^10.0.1",
+		"modern-screenshot": "^4.7.0",
 		"monaco-editor": "npm:@codingame/monaco-vscode-editor-api@=25.0.0",
 		"monaco-languageclient": "10.6.0",
 		"monaco-vim": "^0.4.1",

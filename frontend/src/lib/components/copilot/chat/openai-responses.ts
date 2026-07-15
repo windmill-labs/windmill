@@ -13,7 +13,7 @@ import {
 	workspaceAIClients
 } from '../lib'
 import { applyReasoningToConfig } from '../reasoningRegistry'
-import { processToolCall, type Tool, type ToolCallbacks } from './shared'
+import { appendPendingToolImages, processToolCall, type Tool, type ToolCallbacks } from './shared'
 import type { ResponseStream } from 'openai/lib/responses/ResponseStream.mjs'
 import type { AIProviderModel } from '$lib/gen'
 import { openAIResponsesUsageToChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
@@ -48,6 +48,23 @@ function setOpenAIWebSearchStatus(
 }
 
 // Conversion utilities for Responses API
+
+/**
+ * Translate Chat-Completions message content to Responses-native content. Strings
+ * pass through; a content-part array maps text→input_text and image_url→input_image
+ * (Responses takes image_url as a plain string, not the {url} object).
+ */
+export function toResponsesContent(content: unknown): unknown {
+	if (!Array.isArray(content)) return content
+	return content.map((part) => {
+		if (part?.type === 'text') return { type: 'input_text', text: part.text }
+		if (part?.type === 'image_url' && part.image_url?.url) {
+			return { type: 'input_image', image_url: part.image_url.url }
+		}
+		return part
+	})
+}
+
 function convertMessagesToResponsesInput(messages: ChatCompletionMessageParam[]): {
 	instructions?: string
 	input: Array<any>
@@ -100,7 +117,7 @@ function convertMessagesToResponsesInput(messages: ChatCompletionMessageParam[])
 			input.push({
 				type: 'message' as const,
 				role: m.role === 'developer' ? 'developer' : m.role === 'assistant' ? 'assistant' : 'user',
-				content: m.content
+				content: toResponsesContent(m.content)
 			})
 		}
 	}
@@ -440,6 +457,7 @@ export async function parseOpenAIResponsesCompletion(
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)
 		}
+		appendPendingToolImages(messages, addedMessages, callbacks)
 		return { shouldContinue: true, tokenUsage }
 	}
 

@@ -1379,7 +1379,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 		expect(manager.displayMessages.some((m) => m.role === 'user')).toBe(false)
 		expect(manager.messages.some((m) => m.role === 'user')).toBe(false)
 		// ...and its text is handed back to the composer.
-		expect(restoreInstructions).toHaveBeenCalledWith('do a thing', [])
+		expect(restoreInstructions).toHaveBeenCalledWith('do a thing', [], [])
 		expect(manager.loading).toBe(false)
 	})
 
@@ -1408,7 +1408,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 
 		expect(manager.displayMessages).toHaveLength(0)
 		expect(manager.messages.some((m) => m.role === 'user')).toBe(false)
-		expect(restoreInstructions).toHaveBeenCalledWith('do a thing', [])
+		expect(restoreInstructions).toHaveBeenCalledWith('do a thing', [], [])
 		expect(manager.loading).toBe(false)
 	})
 
@@ -1510,7 +1510,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 		expect(manager.messages.some((m) => m.role === 'assistant')).toBe(false)
 		expect(manager.displayMessages.some((m) => m.role === 'assistant')).toBe(false)
 		expect(manager.displayMessages.some((m) => m.role === 'user')).toBe(false)
-		expect(restoreInstructions).toHaveBeenCalledWith('think hard', [])
+		expect(restoreInstructions).toHaveBeenCalledWith('think hard', [], [])
 		expect(manager.loading).toBe(false)
 	})
 

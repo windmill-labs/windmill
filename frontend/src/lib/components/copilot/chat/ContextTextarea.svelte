@@ -35,6 +35,8 @@
 		 * from the textarea. The host should drop the matching entry from
 		 * selectedContext (only items with `deletable !== false` are reported). */
 		onRemoveContext?: (contextElement: ContextElement) => void
+		/** Called with image files found in a paste, so the host can attach them. */
+		onImageFiles?: (files: File[]) => void
 		className?: string
 		onKeyDown?: (e: KeyboardEvent) => void
 	}
@@ -49,6 +51,7 @@
 		onSendRequest,
 		onAddContext,
 		onRemoveContext,
+		onImageFiles,
 		className = '',
 		onKeyDown = undefined
 	}: Props = $props()
@@ -299,6 +302,15 @@
 	// (and beforeinput keeps any overlapped chip atomic). The insertion range is
 	// widened over overlapped tokens so pasting onto a chip replaces it whole.
 	function handlePaste(e: ClipboardEvent) {
+		// Image paste (screenshots, copied images) → hand off to the host to attach.
+		const imageFiles = Array.from(e.clipboardData?.files ?? []).filter((f) =>
+			f.type.startsWith('image/')
+		)
+		if (imageFiles.length > 0 && onImageFiles) {
+			e.preventDefault()
+			onImageFiles(imageFiles)
+			return
+		}
 		const text = e.clipboardData?.getData('text/plain') ?? ''
 		if (!text || !shouldCollapsePaste(text)) return
 		e.preventDefault()

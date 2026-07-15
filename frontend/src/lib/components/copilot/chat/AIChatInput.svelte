@@ -11,11 +11,14 @@
 	import { tick, untrack, type Snippet } from 'svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
-	import { ArrowUp, Square } from 'lucide-svelte'
+	import { ArrowUp, Square, X } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import { type PasteAttachment } from './pasteTokens'
 	import { chatDraft, expanded } from './chatDraft'
+	import { fileToAttachedImage, isImageFile, type AttachedImage } from './imageUtils'
+	import { modelSupportsVision } from '../lib'
+	import { getCurrentModel } from '$lib/aiStore'
 
 	const aiChatManager = getAiChatManager()
 
@@ -27,6 +30,7 @@
 		placeholder?: string
 		initialInstructions?: string
 		initialPastes?: PasteAttachment[]
+		initialImages?: AttachedImage[]
 		editingMessageIndex?: number | null
 		onEditEnd?: () => void
 		className?: string
@@ -56,6 +60,7 @@
 		placeholder,
 		initialInstructions = '',
 		initialPastes = undefined,
+		initialImages = undefined,
 		editingMessageIndex = null,
 		onEditEnd = () => {},
 		className = '',
@@ -129,6 +134,37 @@
 	})
 	// Collapsed big-paste blobs referenced by tokens in `instructions`.
 	let pastes = $state<PasteAttachment[]>(untrack(() => initialPastes ?? []))
+	// Per-message image attachments (drag/drop/paste), GLOBAL mode only. One-shot:
+	// they attach to the next send and clear, unlike the persistent attached-files store.
+	let images = $state<AttachedImage[]>(untrack(() => initialImages ?? []))
+	const MAX_ATTACHED_IMAGES = 8
+
+	/** Attach dropped/pasted image files (downscaled + bounded). GLOBAL mode only. */
+	export async function addImages(files: (File | Blob)[]) {
+		if (aiChatManager.mode !== AIMode.GLOBAL) return
+		const imageFiles = files.filter(isImageFile)
+		if (imageFiles.length === 0) return
+		const model = getCurrentModel()
+		if (model && !modelSupportsVision(model.provider, model.model)) {
+			sendUserToast(`The selected model (${model.model}) may not support images.`, true)
+		}
+		const remaining = MAX_ATTACHED_IMAGES - images.length
+		if (remaining <= 0) {
+			sendUserToast(`You can attach up to ${MAX_ATTACHED_IMAGES} images.`, true)
+			return
+		}
+		const results = await Promise.allSettled(
+			imageFiles.slice(0, remaining).map((f) => fileToAttachedImage(f))
+		)
+		const added = results.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
+		const failed = results.length - added.length
+		if (added.length > 0) images = [...images, ...added]
+		if (failed > 0) sendUserToast(`Could not attach ${failed} image(s).`, true)
+	}
+
+	function removeImage(index: number) {
+		images = images.filter((_, i) => i !== index)
+	}
 
 	// App mode @ mention state
 	let showAppContextTooltip = $state(false)
@@ -191,10 +227,15 @@
 
 	// Restore composer contents after a rolled-back turn. No-op when the user
 	// already typed a new draft — restoring would clobber it.
-	export function restoreInstructions(value: string, restoredPastes: PasteAttachment[] = []) {
+	export function restoreInstructions(
+		value: string,
+		restoredPastes: PasteAttachment[] = [],
+		restoredImages: AttachedImage[] = []
+	) {
 		if (instructions.trim()) return
 		instructions = value
 		pastes = restoredPastes
+		images = restoredImages
 		focusInput()
 	}
 
@@ -303,18 +344,20 @@
 			// tokens are expanded into the queued text (the queue is plain
 			// strings), so the full content survives the auto-send.
 			if (editingMessageIndex === null && instructions.trim()) {
+				// The queue is plain text; images can't ride it, so they're dropped here.
 				aiChatManager.queueMessage(expanded(chatDraft(instructions, pastes)))
 				contextTextareaComponent?.clearForSend()
 				instructions = ''
 				pastes = []
+				images = []
 			}
 			return
 		}
 		if (editingMessageIndex !== null) {
-			aiChatManager.restartGeneration(editingMessageIndex, instructions, pastes)
+			aiChatManager.restartGeneration(editingMessageIndex, instructions, pastes, images)
 			onEditEnd()
 		} else {
-			aiChatManager.sendRequest({ instructions, pastes })
+			aiChatManager.sendRequest({ instructions, pastes, images })
 			// clearForSend() pre-zaps the textarea's mention-sync so the wipe
 			// doesn't drop `selectedContext` before `AIChatManager.beforeSend`
 			// snapshots it. Only mounted in SCRIPT/FLOW/GLOBAL — APP and the
@@ -323,6 +366,7 @@
 			contextTextareaComponent?.clearForSend()
 			instructions = ''
 			pastes = []
+			images = []
 		}
 	}
 
@@ -575,6 +619,30 @@
 	{/if}
 {/snippet}
 
+{#snippet imageChipsRow()}
+	{#if images.length > 0}
+		<div class="flex flex-row flex-wrap items-center gap-1.5 mb-1">
+			{#each images as image, i (i)}
+				<div class="relative group">
+					<img
+						src={image.dataUrl}
+						alt={image.name ?? 'attached image'}
+						class="h-12 w-12 object-cover rounded border border-border-light"
+					/>
+					<button
+						type="button"
+						title="Remove image"
+						class="absolute -top-1.5 -right-1.5 bg-surface-secondary border border-border-light rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+						onclick={() => removeImage(i)}
+					>
+						<X size={10} />
+					</button>
+				</div>
+			{/each}
+		</div>
+	{/if}
+{/snippet}
+
 <div
 	use:clickOutside
 	class="relative mt-1"
@@ -590,11 +658,13 @@
 		{#if showContext}
 			{@render contextPickerRow()}
 		{/if}
+		{@render imageChipsRow()}
 		<div class="relative">
 			<ContextTextarea
 				bind:this={contextTextareaComponent}
 				bind:value={instructions}
 				bind:pastes
+				onImageFiles={(files) => void addImages(files)}
 				{availableContext}
 				{selectedContext}
 				placeholder={modePlaceholder}

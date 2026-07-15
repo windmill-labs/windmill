@@ -23,7 +23,8 @@
 		type RawAppRuntimeLogEntry,
 		type RawAppRuntimeLogRequester,
 		type RawAppRunSummary,
-		type RawAppRunsProvider
+		type RawAppRunsProvider,
+		type RawAppScreenshotRequester
 	} from './utils'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import RawAppSidebar from './RawAppSidebar.svelte'
@@ -125,6 +126,7 @@
 		onOpenOthersDrafts?: () => void
 		onRuntimeLogRequester?: (requester: RawAppRuntimeLogRequester | undefined) => void
 		onRunsProvider?: (provider: RawAppRunsProvider | undefined) => void
+		onScreenshotRequester?: (requester: RawAppScreenshotRequester | undefined) => void
 		// Restoring an older deployment from the history drawer. A callback prop
 		// (not `on:restore` forwarding): forwarding a `createEventDispatcher`
 		// event up through these runes-mode components silently drops it.
@@ -166,6 +168,7 @@
 		onOpenOthersDrafts,
 		onRuntimeLogRequester = undefined,
 		onRunsProvider = undefined,
+		onScreenshotRequester = undefined,
 		onRestore,
 		onSavedNewAppPath,
 		condensedHeader = false
@@ -1316,12 +1319,83 @@
 		return out.reverse()
 	}
 
+	// Only values whose non-wrapping counterpart collapses whitespace identically.
+	// `pre-line`/`break-spaces` have no such counterpart: forcing them to nowrap
+	// would eat their preserved newlines, so they are left to re-wrap.
+	const NON_WRAPPING_EQUIVALENT: Record<string, string> = {
+		normal: 'nowrap',
+		'pre-wrap': 'pre'
+	}
+
+	// A box that shrink-wraps its text can have zero sub-pixel slack (a 208.59px box
+	// holding a 208.59px text run). The capture re-runs layout in whole pixels, so
+	// the text no longer fits, wraps, and is then clipped out of the box entirely.
+	// Pinning runs that are already single-line is a no-op on the live DOM but stops
+	// the re-layout from re-deciding where they break.
+	function pinSingleLineText(root: HTMLElement): () => void {
+		const doc = root.ownerDocument
+		const view = doc.defaultView
+		if (!view) return () => {}
+		// Measure every candidate before mutating any of them: interleaving reads and
+		// writes forces a synchronous reflow per element.
+		const pending: Array<[HTMLElement, string]> = []
+		const walker = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT)
+		let node: Node | null
+		while ((node = walker.nextNode())) {
+			const el = node as HTMLElement
+			if (!(el instanceof view.HTMLElement)) continue
+			const hasOwnText = Array.from(el.childNodes).some(
+				(c) => c.nodeType === Node.TEXT_NODE && (c.textContent ?? '').trim() !== ''
+			)
+			if (!hasOwnText) continue
+			const replacement = NON_WRAPPING_EQUIVALENT[view.getComputedStyle(el).whiteSpace]
+			if (!replacement) continue
+			const range = doc.createRange()
+			range.selectNodeContents(el)
+			// more than one line box means it already wraps — leave it alone
+			if (range.getClientRects().length !== 1) continue
+			pending.push([el, replacement])
+		}
+		const restores = pending.map(([el, replacement]) => {
+			const prev = el.style.getPropertyValue('white-space')
+			const prio = el.style.getPropertyPriority('white-space')
+			el.style.setProperty('white-space', replacement, 'important')
+			return () => {
+				if (prev) el.style.setProperty('white-space', prev, prio)
+				else el.style.removeProperty('white-space')
+			}
+		})
+		return () => restores.forEach((r) => r())
+	}
+
+	// Capture the live preview as a PNG data URL. The preview iframe
+	// (/ui_builder/app-preview.html) is same-origin with no sandbox, so its rendered
+	// document is reachable and can be serialized from here. There is no native
+	// element-screenshot API; modern-screenshot reconstructs the DOM into an SVG
+	// foreignObject, so a WebGL canvas is only captured when its context was created
+	// with preserveDrawingBuffer. Lazy-imported so the library only loads on demand.
+	const captureScreenshot: RawAppScreenshotRequester = async () => {
+		const target = previewIframe?.contentDocument?.body
+		if (!previewIframe || !previewIframeLoaded || !target) {
+			throw new Error('App preview is not ready')
+		}
+		const { domToPng } = await import('modern-screenshot')
+		const restore = pinSingleLineText(target)
+		try {
+			return await domToPng(target, { backgroundColor: '#ffffff' })
+		} finally {
+			restore()
+		}
+	}
+
 	onMount(() => {
 		onRuntimeLogRequester?.(requestRuntimeLogs)
 		onRunsProvider?.(getRuns)
+		onScreenshotRequester?.(captureScreenshot)
 		return () => {
 			onRuntimeLogRequester?.(undefined)
 			onRunsProvider?.(undefined)
+			onScreenshotRequester?.(undefined)
 			for (const requestId of Array.from(pendingRuntimeLogReqs.keys()))
 				resolvePendingRuntimeLogRequest(requestId, undefined)
 		}

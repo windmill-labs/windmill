@@ -9,7 +9,8 @@
 	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import type {
 		RawAppRuntimeLogRequester,
-		RawAppRunsProvider
+		RawAppRunsProvider,
+		RawAppScreenshotRequester
 	} from '$lib/components/raw_apps/utils'
 
 	let {
@@ -83,6 +84,10 @@
 	function registerRunsProvider(provider: RawAppRunsProvider | undefined) {
 		runtime.setAppRunsProvider(provider)
 	}
+
+	function registerScreenshotRequester(requester: RawAppScreenshotRequester | undefined) {
+		runtime.setScreenshotRequester(requester)
+	}
 </script>
 
 {#if cell.saved.val}
@@ -137,6 +142,7 @@
 				defaultSplitWithPreview={false}
 				onRuntimeLogRequester={registerRuntimeLogRequester}
 				onRunsProvider={registerRunsProvider}
+				onScreenshotRequester={registerScreenshotRequester}
 			/>
 		{/if}
 	{/snippet}

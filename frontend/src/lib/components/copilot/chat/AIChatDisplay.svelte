@@ -45,6 +45,7 @@
 	import type { SelectedContext } from './app/core'
 	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
 	import { type FileToAttach } from './files/attachedFiles.svelte'
+	import { isImageFile } from './imageUtils'
 	import {
 		hasFileSystemAccess,
 		pickDirectory,
@@ -270,9 +271,10 @@
 
 	// File attachment is GLOBAL-mode only.
 	const canAttachFiles = $derived(aiChatManager.mode === AIMode.GLOBAL && !disabled)
-	// Steers the OS file picker toward text formats (soft hint; content sniff is authoritative).
+	// Steers the OS file picker toward text + image formats (soft hint; images attach to
+	// the message, other files link as text context after a content sniff).
 	const TEXT_FILE_ACCEPT =
-		'text/*,.txt,.csv,.tsv,.json,.jsonl,.ndjson,.md,.markdown,.log,.yaml,.yml,.toml,.ini,.cfg,.conf,.env,.xml,.html,.htm,.css,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.rb,.rs,.go,.java,.kt,.c,.h,.cpp,.cc,.cs,.php,.sh,.bash,.zsh,.sql,.svelte,.vue,.dockerfile'
+		'image/*,text/*,.txt,.csv,.tsv,.json,.jsonl,.ndjson,.md,.markdown,.log,.yaml,.yml,.toml,.ini,.cfg,.conf,.env,.xml,.html,.htm,.css,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.rb,.rs,.go,.java,.kt,.c,.h,.cpp,.cc,.cs,.php,.sh,.bash,.zsh,.sql,.svelte,.vue,.dockerfile'
 	let fileInputEl = $state<HTMLInputElement | null>(null)
 	let folderInputEl = $state<HTMLInputElement | null>(null)
 	let dragDepth = $state(0)
@@ -358,6 +360,8 @@
 		e.preventDefault()
 		const dt = e.dataTransfer
 		if (!dt) return
+		// Images are attached to the message (multimodal); other files link as text context.
+		const imageFiles: File[] = []
 		if (canUseFsAccess) {
 			// getAsFileSystemHandle calls are kicked off synchronously inside this call.
 			const handles = await handlesFromDataTransfer(dt)
@@ -366,8 +370,10 @@
 					// Folders link as a live handle.
 					await addDirHandle(h as FileSystemDirectoryHandle)
 				} else {
+					const file = await (h as FileSystemFileHandle).getFile()
+					if (isImageFile(file)) imageFiles.push(file)
 					// Files are always snapshotted (handle discarded).
-					await handleAddFiles([{ file: await (h as FileSystemFileHandle).getFile() }])
+					else await handleAddFiles([{ file }])
 				}
 			}
 		} else {
@@ -376,14 +382,31 @@
 			// (they're only valid during this event) before its first await; if it yields nothing
 			// (no entry API), fall back to the flat dt.files.
 			const entries = await readDroppedEntries(Array.from(dt.items ?? []))
-			if (entries.length > 0) await handleAddFiles(entries)
-			else if (dt.files.length > 0) await handleAddFiles(dt.files)
+			const source: FileToAttach[] =
+				entries.length > 0 ? entries : dt.files.length > 0 ? Array.from(dt.files) : []
+			const textEntries = source.filter((entry) => {
+				const file = entry instanceof File ? entry : entry.file
+				if (isImageFile(file)) {
+					imageFiles.push(file)
+					return false
+				}
+				return true
+			})
+			if (textEntries.length > 0) await handleAddFiles(textEntries)
 		}
+		if (imageFiles.length > 0) await aiChatInput?.addImages(imageFiles)
 	}
 
-	function onFileInputChange(e: Event) {
+	async function onFileInputChange(e: Event) {
 		const input = e.currentTarget as HTMLInputElement
-		if (input.files && input.files.length > 0) void handleAddFiles(input.files)
+		if (input.files && input.files.length > 0) {
+			// Images attach to the message (multimodal); other files link as text context.
+			const picked = Array.from(input.files)
+			const imageFiles = picked.filter(isImageFile)
+			const textFiles = picked.filter((f) => !isImageFile(f))
+			if (textFiles.length > 0) await handleAddFiles(textFiles)
+			if (imageFiles.length > 0) await aiChatInput?.addImages(imageFiles)
+		}
 		input.value = '' // allow re-selecting the same file
 	}
 
@@ -504,7 +527,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		>
 			<div class="flex flex-col items-center gap-1 text-blue-600 dark:text-blue-300">
 				<Plus size={24} />
-				<span class="text-sm font-medium">Drop files to attach</span>
+				<span class="text-sm font-medium">Drop files or images to attach</span>
 			</div>
 		</div>
 	{/if}
@@ -797,7 +820,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{#if canAttachFiles}
 							<DropdownV2
 								items={() => [
-									{ displayName: 'Attach file', icon: FileText, action: () => linkFiles() },
+									{
+										displayName: 'Attach file or image',
+										icon: FileText,
+										action: () => linkFiles()
+									},
 									{
 										// A real (live) link needs the File System Access API; without it the
 										// folder is only snapshotted, so call it "Add folder", not "Link folder".

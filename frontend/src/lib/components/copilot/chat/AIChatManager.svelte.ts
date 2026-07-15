@@ -57,6 +57,7 @@ import type { UserDraftItemKind } from '$lib/gen'
 import { maskKey } from '$lib/components/sessions/modifiedItemsMask'
 import { getStringError } from './utils'
 import { type PasteAttachment } from './pasteTokens'
+import { type AttachedImage, stripImagePartsFromMessages } from './imageUtils'
 import { chatDraft, expanded } from './chatDraft'
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
@@ -127,6 +128,9 @@ function prefersInstantReveal(): boolean {
 // schema changes from mode switches, and the estimate's chars/4 error.
 const COMPACTION_TRIGGER_RATIO = 0.8
 const COMPACTION_TARGET_RATIO = 0.7
+// Flat per-image token estimate for a downscaled (≤1568px) vision image. Used instead
+// of chars/4 on the base64 data URL, which would overcount by ~50x.
+const IMAGE_TOKEN_ESTIMATE = 1200
 // Headroom reserved within the target budget for the summary message itself, so
 // the summary + kept tail + overhead land under the target ratio.
 const SUMMARY_OUTPUT_RESERVE_TOKENS = 8000
@@ -336,6 +340,10 @@ export class AIChatManager {
 	})
 	displayMessages = $state<DisplayMessage[]>([])
 	messages = $state<ChatCompletionMessageParam[]>([])
+	/** Images buffered by tools (e.g. take_screenshot) during the current tool batch,
+	 * keyed by toolId. Drained by appendPendingToolImages into a follow-up user message
+	 * after the batch. Cleared at each turn start so an aborted batch can't leak. */
+	private pendingToolImages = new Map<string, AttachedImage[]>()
 	/** Provider-reported context size of the last committed turn (prompt +
 	 * completion of its latest completion — exact, includes system prompt and
 	 * tools), or undefined whenever no report describes the current history
@@ -857,6 +865,15 @@ export class AIChatManager {
 			const tokenPerCharacter = 4
 			if (typeof message.content === 'string') {
 				acc += message.content.length / tokenPerCharacter
+			} else if (Array.isArray(message.content)) {
+				// Multimodal content: chars/4 for the text parts, a flat estimate per image
+				// (a base64 data URL is huge as text but only ~1.1-1.6k tokens as vision input,
+				// so JSON.stringify here would overcount by orders of magnitude).
+				for (const part of message.content as any[]) {
+					if (part?.type === 'text') acc += (part.text?.length ?? 0) / tokenPerCharacter
+					else if (part?.type === 'image_url') acc += IMAGE_TOKEN_ESTIMATE
+					else acc += JSON.stringify(part).length / tokenPerCharacter
+				}
 			} else if (message.content) {
 				acc += JSON.stringify(message.content).length / tokenPerCharacter
 			}
@@ -960,7 +977,9 @@ export class AIChatManager {
 		try {
 			const raw = await getNonStreamingCompletion(
 				[
-					...sanitizeToolCallArguments(prefix),
+					// Strip image blobs from the summarizer input — the summary text stands in
+					// for them, so re-sending base64 to the summarizer only wastes tokens.
+					...stripImagePartsFromMessages(sanitizeToolCallArguments(prefix)),
 					{ role: 'user', content: getCompactionSummaryPrompt() }
 				],
 				abortController
@@ -1695,12 +1714,13 @@ export class AIChatManager {
 		modelLenAfterUser: number,
 		instructions: string,
 		pastes: PasteAttachment[],
-		restoreToInput: boolean = true
+		restoreToInput: boolean = true,
+		images: AttachedImage[] = []
 	) => {
 		this.displayMessages = this.displayMessages.slice(0, displayLenAfterUser - 1)
 		this.messages = this.messages.slice(0, modelLenAfterUser - 1)
 		if (restoreToInput) {
-			this.aiChatInput?.restoreInstructions(instructions, pastes)
+			this.aiChatInput?.restoreInstructions(instructions, pastes, images)
 		}
 	}
 
@@ -1723,6 +1743,8 @@ export class AIChatManager {
 		systemMessage?: ChatCompletionSystemMessageParam
 		onWebSearchUnavailable?: () => void
 	}) => {
+		// Fresh batch for this turn — drop any images an aborted prior turn left buffered.
+		this.pendingToolImages.clear()
 		try {
 			// Use JS getters so runChatLoop re-reads tools/helpers/systemMessage/modelProvider
 			// on each iteration. This is critical for changeModeTool (Navigator → Script/Flow)
@@ -1915,6 +1937,7 @@ export class AIChatManager {
 			addBackCode?: boolean
 			instructions?: string
 			pastes?: PasteAttachment[]
+			images?: AttachedImage[]
 			mode?: AIMode
 			lang?: ScriptLang | 'bunnative'
 			isPreprocessor?: boolean
@@ -1979,6 +2002,9 @@ export class AIChatManager {
 		// Context elements and the snapshot are attached after beforeSend (see below).
 		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
 		const pastes = options.pastes ?? []
+		// Images ride only on GLOBAL-mode (global chat + sessions) turns; other modes
+		// don't surface the attach UI, so drop any that leaked in.
+		const images = this.mode === AIMode.GLOBAL ? (options.images ?? []) : []
 		const optimisticIndex = this.displayMessages.length
 		this.loading = true
 		// Create the abort controller before the (possibly slow) beforeSend pre-flight,
@@ -1993,6 +2019,7 @@ export class AIChatManager {
 				role: 'user',
 				content: this.instructions,
 				pastes: pastes.length > 0 ? pastes : undefined,
+				images: images.length > 0 ? images : undefined,
 				index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
 			}
 		]
@@ -2040,7 +2067,7 @@ export class AIChatManager {
 				const accepted = await this.sendRequest({ instructions: next })
 				if (accepted === false) this.queuedMessage = next
 			} else {
-				this.aiChatInput?.restoreInstructions(this.instructions, pastes)
+				this.aiChatInput?.restoreInstructions(this.instructions, pastes, images)
 			}
 			return true
 		}
@@ -2113,6 +2140,7 @@ export class AIChatManager {
 			// not the expanded LLM text, plus the rollback anchor after the user turn.
 			const sentInstructions = this.instructions
 			const sentPastes = pastes
+			const sentImages = images
 			// The LLM gets the full pasted content; the display message above keeps
 			// the compact tokens + registry so the bubble can render/expand chips.
 			const oldInstructions = expanded(chatDraft(this.instructions, pastes))
@@ -2162,7 +2190,8 @@ export class AIChatManager {
 					break
 				case AIMode.GLOBAL:
 					userMessage = prepareGlobalUserMessage(modelInstructions, oldSelectedContext, {
-						workspace: this.operatingWorkspace
+						workspace: this.operatingWorkspace,
+						images: sentImages
 					})
 					break
 				case AIMode.APP:
@@ -2311,7 +2340,16 @@ export class AIChatManager {
 					requestUserQuestion: this.requestUserQuestion,
 					onItemModified: (kind, path) => this.recordModifiedItem(kind, path),
 					onItemDeployed: (kind, from, to) => void this.renameModifiedItem(kind, from, to),
-					onItemDiscarded: (kind, path) => void this.removeModifiedItem(kind, path)
+					onItemDiscarded: (kind, path) => void this.removeModifiedItem(kind, path),
+					attachToolImage: (toolId, image) => {
+						const existing = this.pendingToolImages.get(toolId) ?? []
+						this.pendingToolImages.set(toolId, [...existing, image])
+					},
+					takePendingToolImages: () => {
+						const images = [...this.pendingToolImages.values()].flat()
+						this.pendingToolImages.clear()
+						return images
+					}
 				}
 			}
 
@@ -2374,7 +2412,8 @@ export class AIChatManager {
 					modelLenAfterUser,
 					sentInstructions,
 					sentPastes,
-					!willAutoSendQueued
+					!willAutoSendQueued,
+					sentImages
 				)
 				if (this.displayMessages.length === 0) {
 					// saveChat no-ops on an empty transcript; the chat persisted earlier
@@ -2517,7 +2556,8 @@ export class AIChatManager {
 	restartGeneration = (
 		displayMessageIndex: number,
 		newContent?: string,
-		pastes?: PasteAttachment[]
+		pastes?: PasteAttachment[],
+		images?: AttachedImage[]
 	) => {
 		const userMessage = this.displayMessages[displayMessageIndex]
 
@@ -2545,7 +2585,7 @@ export class AIChatManager {
 
 		// Resend the request with the same instructions
 		this.instructions = newContent ?? userMessage.content
-		this.sendRequest({ pastes: pastes ?? userMessage.pastes })
+		this.sendRequest({ pastes: pastes ?? userMessage.pastes, images: images ?? userMessage.images })
 	}
 
 	fix = () => {

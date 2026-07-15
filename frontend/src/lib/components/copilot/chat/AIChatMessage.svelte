@@ -81,6 +81,7 @@
 					bind:selectedContext
 					initialInstructions={message.content}
 					initialPastes={message.pastes}
+					initialImages={message.images}
 					{editingMessageIndex}
 					onClickOutside={() => (editingMessageIndex = null)}
 					onKeyDown={(e) => {
@@ -100,6 +101,17 @@
 						><ToolExecutionDisplay message={message as ToolDisplayMessage} /></div
 					>
 				{:else}
+					{#if message.role === 'user' && message.images && message.images.length > 0}
+						<div class="flex flex-row flex-wrap gap-1.5 mb-1">
+							{#each message.images as image, i (i)}
+								<img
+									src={image.dataUrl}
+									alt={image.name ?? 'attached image'}
+									class="max-h-40 max-w-[min(20rem,100%)] rounded-lg border border-border-light"
+								/>
+							{/each}
+						</div>
+					{/if}
 					<div
 						class="text-xs px-3 py-2 w-fit max-w-[min(32rem,100%)] bg-surface-accent-selected text-accent rounded-lg relative group break-words"
 					>

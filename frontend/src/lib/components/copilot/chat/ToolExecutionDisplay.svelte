@@ -78,6 +78,17 @@
 			</div>
 		</button>
 
+		<!-- Image a tool produced (e.g. take_screenshot) — shown inline, not gated on expand. -->
+		{#if message.imageUrl}
+			<div class="my-1">
+				<img
+					src={message.imageUrl}
+					alt="App preview screenshot"
+					class="max-h-48 max-w-full rounded border border-border-light"
+				/>
+			</div>
+		{/if}
+
 		<!-- Expanded Content -->
 		{#if isExpanded}
 			<div

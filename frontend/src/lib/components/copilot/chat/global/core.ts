@@ -46,6 +46,7 @@ import {
 } from '$lib/components/raw_apps/templates'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
+import { dataUrlToImagePart, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
 import {
 	applyEditableFlowJsonToFlow,
 	buildEditableFlowJson,
@@ -190,6 +191,8 @@ export type GlobalActiveEditorContext = {
 export type GlobalUserMessageOptions = {
 	workspace?: string
 	activeEditor?: GlobalActiveEditorContext
+	/** Images attached to this message; delivered as image_url content parts. */
+	images?: AttachedImage[]
 }
 
 const itemTypeSchema = z.enum(ITEM_TYPES)
@@ -795,6 +798,8 @@ const listAppRunsSchema = z.object({
 		.describe('How many of the most recent backend runs to return, newest first. Defaults to 20.')
 })
 
+const takeScreenshotSchema = z.object({})
+
 const FRAMEWORK_KEYS = [
 	'react19',
 	'react18',
@@ -920,6 +925,7 @@ Rules:
 - Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty or not-yet-created folder is fine (create_folder first if needed, then open it). Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.
 - When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
 - get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.
+- To visually verify a raw app's UI, call take_screenshot to capture the live preview as an image you can see. Use it after UI edits to check layout, styling, and content, or when the user reports something looks wrong. It needs the raw app preview open (open_preview kind="raw_app").
 - open_page opens its page as a tab in the side-panel preview next to the chat — the only way to show one of these pages there (open_preview only handles editable items). Changing filters on a page already open updates that same tab; only pass new_tab when the user explicitly asks for a separate tab.`
 			: ''
 	}
@@ -2879,6 +2885,35 @@ export const globalTools: Tool<{}>[] = [
 			return result.aiResult
 		}
 	},
+	{
+		def: createToolDef(
+			takeScreenshotSchema,
+			'take_screenshot',
+			'Capture a screenshot of the raw app preview currently open in this AI session and attach it as an image so you can visually verify the rendered UI. Use this after making UI changes to check layout, styling, and content. The image is attached in the following message. Requires the raw app preview open (open_preview kind="raw_app").\n\nThe image is rebuilt from the DOM, not captured from the screen, so a few things do not survive it: a WebGL canvas is blank unless its context was created with preserveDrawingBuffer, backdrop-filter renders wrong, an animation is caught on a different frame than the user sees, and typed input values may be missing. Treat what you see as real by default and fix it. Before dismissing something as a capture artifact, read the source for that element and name the specific cause; if you cannot, it is a real bug. If you are still unsure, say what looks wrong and ask the user to take a screenshot themselves and drag it into the chat, rather than guessing.'
+		),
+		showDetails: true,
+		fn: async (ctx) => {
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Capturing screenshot...' })
+			const result = await getSessionScreenshot(sessionIdFromCtx(ctx))
+			if (!result.dataUrl) {
+				ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+					content: result.uiMessage ?? 'Screenshot unavailable',
+					error: result.error
+				})
+				return result.error ?? 'Could not capture the app preview.'
+			}
+			// Normalize (downscale + png/jpeg) so history/context never carry a full-res blob;
+			// buffered here and flushed as a follow-up user image message once the tool batch
+			// completes (see appendPendingToolImages).
+			const image = await normalizeImageDataUrl(result.dataUrl)
+			ctx.toolCallbacks.attachToolImage?.(ctx.toolId, image)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+				content: 'Screenshot captured',
+				imageUrl: image.dataUrl
+			})
+			return 'Screenshot captured; the image is attached in the following message.'
+		}
+	},
 	// Workspace-scoped datatable tools (unrestricted: no whitelist, no creation policy)
 	...getDatatableTools(),
 	// Read-only tools over files the user attached to the conversation
@@ -2893,7 +2928,8 @@ export const SESSION_PREVIEW_TOOL_NAMES = new Set([
 	'get_preview_status',
 	'close_page',
 	'get_app_runtime_logs',
-	'list_app_runs'
+	'list_app_runs',
+	'take_screenshot'
 ])
 
 /**
@@ -3110,6 +3146,28 @@ function getSessionAppRuns(
 		})
 	}
 	return Promise.resolve(listAppRunsHandler({ sessionId, limit }))
+}
+
+export type SessionScreenshotResult = { dataUrl?: string; error?: string; uiMessage?: string }
+export type ScreenshotHandler = (req: {
+	sessionId: string | undefined
+}) => Promise<SessionScreenshotResult>
+
+let screenshotHandler: ScreenshotHandler | undefined
+
+export function setScreenshotHandler(handler: ScreenshotHandler | undefined): void {
+	screenshotHandler = handler
+}
+
+function getSessionScreenshot(sessionId: string | undefined): Promise<SessionScreenshotResult> {
+	if (!screenshotHandler) {
+		return Promise.resolve({
+			error:
+				'Error: take_screenshot is only available inside an AI session with a raw app preview open. Ask the user to open the raw app preview (open_preview kind="raw_app"), then try again.',
+			uiMessage: 'Screenshot unavailable'
+		})
+	}
+	return screenshotHandler({ sessionId })
 }
 
 // Registered by the session runtime to reload the open preview after a chat
@@ -5226,6 +5284,20 @@ export function prepareGlobalUserMessage(
 	}
 
 	content += `## INSTRUCTIONS:\n${instructions}`
+
+	const images = options.images ?? []
+	if (images.length > 0) {
+		// Multimodal message: the text block plus one image_url part per attachment.
+		// The provider converters translate image_url for Anthropic/Responses; the
+		// OpenAI-compatible path sends it as-is.
+		return {
+			role: 'user',
+			content: [
+				{ type: 'text', text: content },
+				...images.map((img) => dataUrlToImagePart(img.dataUrl))
+			]
+		}
+	}
 
 	return {
 		role: 'user',
