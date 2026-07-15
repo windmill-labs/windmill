@@ -3,6 +3,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import {
+		IS_APP_PUBLIC_CONTEXT_KEY,
 		type AppViewerContext,
 		type ComponentCustomCSS,
 		type RichConfigurations
@@ -32,6 +33,7 @@
 		render
 	}: Props = $props()
 
+	const isAppPublic = getContext<boolean | undefined>(IS_APP_PUBLIC_CONTEXT_KEY)
 	const { app, worldStore, workspace, appPath, isEditor } =
 		getContext<AppViewerContext>('AppViewerContext')
 
@@ -145,7 +147,7 @@
 			<DisplayResult
 				workspaceId={workspace}
 				{result}
-				trustedMarkup={true}
+				trustedMarkup={!isAppPublic}
 				disableExpand={resolvedConfig?.hideDetails}
 				appPath={isEditor ? undefined : $appPath}
 				forceJson={resolvedConfig?.forceJson}

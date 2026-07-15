@@ -7,8 +7,13 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { Alert, Skeleton } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
-	import { getContext, onMount } from 'svelte'
-	import { EMBED_NAV_CONTEXT_KEY, type EditorBreakpoint, type EmbedNav } from '../types'
+	import { getContext, onMount, setContext } from 'svelte'
+	import {
+		EMBED_NAV_CONTEXT_KEY,
+		IS_APP_PUBLIC_CONTEXT_KEY,
+		type EditorBreakpoint,
+		type EmbedNav
+	} from '../types'
 	import { UserService, type AppWithLastVersion, type GlobalWhoamiResponse } from '$lib/gen'
 	import { urlParamsToObject } from '$lib/utils'
 	import { goto } from '$app/navigation'
@@ -45,6 +50,10 @@
 
 	// Use workspace from props or from app.workspace_id (for custom path responses)
 	let effectiveWorkspace = $derived(workspace ?? app?.workspace_id)
+
+	// Runnable-authored html/svg results are sanitized on the public surfaces
+	// (untrusted distribution); the in-workspace viewer renders them verbatim.
+	setContext(IS_APP_PUBLIC_CONTEXT_KEY, !inWorkspace)
 
 	// WIN-2006: inside the opaque viewer iframe, navigations to other routes
 	// (navbar "app" items) must happen on the TOP page — the iframe is cookieless,

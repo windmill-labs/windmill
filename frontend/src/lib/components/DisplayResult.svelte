@@ -86,10 +86,10 @@
 
 	interface Props {
 		result: any
-		/** Render `result.html` / `result.svg` markup verbatim instead of sanitizing it
-		 * first. Set only by low-code app display components, which render their own
-		 * author's markup. Job results and previews leave this false so untrusted markup
-		 * is sanitized before it reaches the DOM (GHSA-gh2j-49rx-4464). */
+		/** Render `result.html` / `result.svg` verbatim instead of sanitizing it. Set only
+		 * by low-code app display components outside the public surfaces, where the app
+		 * author renders their own markup and dynamic svg/html must keep working. Job
+		 * results, previews and public apps leave this false. */
 		trustedMarkup?: boolean
 		filename?: string | undefined
 		disableExpand?: boolean
@@ -437,13 +437,9 @@
 		}
 	}
 
-	// An `html`/`svg` result can be attacker-authored (any workspace member can make a
-	// script/flow return one, and a higher-privileged user may view it). Outside a
-	// trusted low-code app context we sanitize it before rendering inline so it cannot
-	// run JS in the viewer's Windmill session (GHSA-gh2j-49rx-4464). DOMPurify keeps
-	// benign markup + inline styles/classes, so the surrounding theme still applies.
-	// Low-code app display components set `trustedMarkup` to render their own author's
-	// markup verbatim (deployed surfaces are isolated by the app-sandbox opt-in).
+	// An html/svg result is attacker-authored: any member can return one and a
+	// higher-privileged user may view it. Every `{@html}` of result markup must go
+	// through here, or it becomes stored XSS (GHSA-gh2j-49rx-4464).
 	function renderResultMarkup(markup: string | { filename: string; content: string } | undefined) {
 		const str = contentOrRootString(markup) || ''
 		return trustedMarkup ? str : DOMPurify.sanitize(str)
@@ -805,8 +801,6 @@
 						headerOrder={getForcedColumnOrder(data)}
 					/>
 				{:else if !forceJson && resultKind === 'html'}
-					<!-- renderResultMarkup sanitizes untrusted job/flow HTML; keep it — rendering
-					     result.html directly via @html is stored XSS (GHSA-gh2j-49rx-4464). -->
 					<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 					<div class="h-full">{@html renderResultMarkup(result.html)}</div>
 				{:else if !forceJson && resultKind === 'map'}
@@ -842,8 +836,6 @@
 							href="data:image/svg+xml;charset=utf-8,{encodeURIComponent(svgMarkup)}">Download</a
 						>
 					</div>
-					<!-- renderResultMarkup sanitizes untrusted job/flow SVG (a scripted SVG is stored
-					     XSS, GHSA-gh2j-49rx-4464); low-code apps pass trustedMarkup to keep dynamic SVGs. -->
 					<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 					<div class="h-full overflow-auto">{@html renderResultMarkup(result.svg)}</div>
 				{:else if !forceJson && resultKind === 'gif'}
