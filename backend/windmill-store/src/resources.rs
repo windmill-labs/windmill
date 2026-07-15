@@ -2431,8 +2431,13 @@ fn is_private_or_reserved_ip(ip: &IpAddr) -> bool {
                 || (v4.octets()[0] == 100 && (v4.octets()[1] & 0xC0) == 64)
         }
         IpAddr::V6(v6) => {
+            let seg = v6.segments();
             v6.is_loopback()
                 || v6.is_unspecified()
+                // fc00::/7 (unique local address) — std has no stable is_unique_local()
+                || (seg[0] & 0xfe00) == 0xfc00
+                // fe80::/10 (link-local) — std has no stable is_unicast_link_local()
+                || (seg[0] & 0xffc0) == 0xfe80
                 // IPv4-mapped IPv6 (::ffff:x.x.x.x) — check the inner v4
                 || v6.to_ipv4_mapped().map_or(false, |v4| {
                     is_private_or_reserved_ip(&IpAddr::V4(v4))
@@ -2447,10 +2452,16 @@ fn is_private_or_reserved_ip(ip: &IpAddr) -> bool {
 /// SCP-style (`user@host:path`).
 fn extract_host_from_git_url(url: &str) -> Option<String> {
     if let Some(after_scheme) = url.split("://").nth(1) {
-        // Standard URL with scheme
-        let host_part = match after_scheme.find('@') {
-            Some(pos) => &after_scheme[pos + 1..],
-            None => after_scheme,
+        // The authority ends at the first '/', '?', or '#'; the credentials '@'
+        // must be searched only within it, else a '@' in the path/query/fragment
+        // mis-scopes the host (SSRF bypass, GHSA-p5cj-8cfh-mjv6).
+        let authority_end = after_scheme
+            .find(|c| c == '/' || c == '?' || c == '#')
+            .unwrap_or(after_scheme.len());
+        let authority = &after_scheme[..authority_end];
+        let host_part = match authority.rfind('@') {
+            Some(pos) => &authority[pos + 1..],
+            None => authority,
         };
         // Handle IPv6 in brackets: [::1]
         if host_part.starts_with('[') {
@@ -2462,18 +2473,22 @@ fn extract_host_from_git_url(url: &str) -> Option<String> {
                 Some(host.to_lowercase())
             };
         }
-        let host_port = host_part.split('/').next()?;
-        let host = host_port.rsplit_once(':').map_or(host_port, |(h, _)| h);
+        let host = host_part.rsplit_once(':').map_or(host_part, |(h, _)| h);
         if host.is_empty() {
             return None;
         }
         return Some(host.to_lowercase());
     }
 
-    // SCP-style: user@host:path
-    if let Some(at_pos) = url.find('@') {
-        let after_at = &url[at_pos + 1..];
-        let host = after_at.split(':').next()?;
+    // SCP-style: user@host:path. The host is bounded by the first ':' (which
+    // begins the path); credentials are taken from the last '@' within that
+    // authority, mirroring the scheme path so a planted '@' cannot mis-scope it.
+    if url.contains('@') {
+        let authority = url.split(':').next().unwrap_or(url);
+        let host = match authority.rfind('@') {
+            Some(pos) => &authority[pos + 1..],
+            None => authority,
+        };
         if host.is_empty() {
             return None;
         }
@@ -2497,6 +2512,15 @@ async fn validate_git_url(url: &str) -> Result<()> {
     if url.contains('\0') || url.contains('\n') || url.contains('\r') {
         return Err(Error::BadRequest(
             "Git URL contains invalid characters".to_string(),
+        ));
+    }
+    // Reject query/fragment components. git remote URLs never need them, and
+    // allowing them lets the URL's true authority (what git actually dials)
+    // diverge from the host we validate, e.g.
+    // `http://127.0.0.1/repo.git#@github.com/...` (SSRF, GHSA-p5cj-8cfh-mjv6).
+    if url.contains('?') || url.contains('#') {
+        return Err(Error::BadRequest(
+            "Git URL cannot contain '?' or '#' characters".to_string(),
         ));
     }
 
@@ -3016,6 +3040,32 @@ mod tests {
             extract_host_from_git_url("http://[::1]:8080/repo.git"),
             Some("::1".to_string())
         );
+        // Fragment/query must not leak into the authority (GHSA-p5cj-8cfh-mjv6):
+        // the host is the real authority, not the '@' planted in the fragment/query.
+        assert_eq!(
+            extract_host_from_git_url(
+                "http://127.0.0.1:40173/repo.git#@github.com/windmill-labs/windmill.git"
+            ),
+            Some("127.0.0.1".to_string())
+        );
+        assert_eq!(
+            extract_host_from_git_url(
+                "http://127.0.0.1:40173/repo.git?@github.com/windmill-labs/windmill.git"
+            ),
+            Some("127.0.0.1".to_string())
+        );
+        // Path-less authority terminated by the fragment (exercises the '#' branch
+        // of the authority boundary directly).
+        assert_eq!(
+            extract_host_from_git_url("http://127.0.0.1#@github.com"),
+            Some("127.0.0.1".to_string())
+        );
+        // SCP-style with a planted extra '@' must resolve to the real host, not the
+        // credential segment.
+        assert_eq!(
+            extract_host_from_git_url("a@b@127.0.0.1:user/repo.git"),
+            Some("127.0.0.1".to_string())
+        );
         // No host extractable
         assert_eq!(extract_host_from_git_url("/local/path"), None);
         assert_eq!(
@@ -3058,6 +3108,17 @@ mod tests {
         ));
         // IPv6 loopback
         assert!(is_private_or_reserved_ip(&"::1".parse::<IpAddr>().unwrap()));
+        // IPv6 unique local address (fc00::/7)
+        assert!(is_private_or_reserved_ip(
+            &"fd00::1".parse::<IpAddr>().unwrap()
+        ));
+        assert!(is_private_or_reserved_ip(
+            &"fc00::1".parse::<IpAddr>().unwrap()
+        ));
+        // IPv6 link-local (fe80::/10)
+        assert!(is_private_or_reserved_ip(
+            &"fe80::1".parse::<IpAddr>().unwrap()
+        ));
         // IPv4-mapped IPv6
         assert!(is_private_or_reserved_ip(
             &"::ffff:127.0.0.1".parse::<IpAddr>().unwrap()
@@ -3068,6 +3129,12 @@ mod tests {
         ));
         assert!(!is_private_or_reserved_ip(
             &"140.82.121.4".parse::<IpAddr>().unwrap()
+        ));
+        // Public IPv6 should pass
+        assert!(!is_private_or_reserved_ip(
+            &"2606:2800:220:1:248:1893:25c8:1946"
+                .parse::<IpAddr>()
+                .unwrap()
         ));
     }
 
@@ -3092,6 +3159,10 @@ mod tests {
             .await
             .is_err());
         assert!(validate_git_url("git://0.0.0.0/repo.git").await.is_err());
+        // IPv6 loopback, unique-local, and link-local literals
+        assert!(validate_git_url("git://[::1]/repo.git").await.is_err());
+        assert!(validate_git_url("git://[fd00::1]/repo.git").await.is_err());
+        assert!(validate_git_url("git://[fe80::1]/repo.git").await.is_err());
     }
 
     #[tokio::test]
@@ -3127,5 +3198,31 @@ mod tests {
     async fn test_validate_git_url_blocks_option_injection() {
         assert!(validate_git_url("-evil").await.is_err());
         assert!(validate_git_url("--upload-pack=evil").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_validate_git_url_blocks_fragment_query_ssrf() {
+        // GHSA-p5cj-8cfh-mjv6: a loopback authority must stay blocked, and the
+        // fragment/query `@public-host` bypasses of #8600 must be rejected so the
+        // host git dials can never diverge from the validated host.
+        assert!(validate_git_url("http://127.0.0.1:40173/repo.git")
+            .await
+            .is_err());
+        assert!(validate_git_url(
+            "http://127.0.0.1:40173/repo.git#@github.com/windmill-labs/windmill.git"
+        )
+        .await
+        .is_err());
+        assert!(validate_git_url(
+            "http://127.0.0.1:40173/repo.git?@github.com/windmill-labs/windmill.git"
+        )
+        .await
+        .is_err());
+        // A legitimate public repo URL still validates.
+        assert!(
+            validate_git_url("https://github.com/windmill-labs/windmill.git")
+                .await
+                .is_ok()
+        );
     }
 }

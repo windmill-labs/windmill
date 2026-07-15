@@ -148,9 +148,8 @@ export async function main(): Promise<{ host: string; pairs: [string, string][] 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "deno_core upgrade smoke; run with --ignored"]
 async fn smoke_web_blob_btoa_atob() {
-    // deno_web surface: Blob, atob/btoa. `structuredClone` is *not* wired
-    // into the nativets global (the deno_web binding doesn't expose it
-    // here) — if that's ever changed, extend this test to cover it.
+    // deno_web surface: Blob, atob/btoa. (`structuredClone` and the rest of
+    // the wired web globals are covered by `smoke_web_globals_are_wired`.)
     let ts = r#"
 export async function main(): Promise<{ b64: string; round_trip: string; size: number }> {
     const blob = new Blob(["hello"], { type: "text/plain" });
@@ -260,6 +259,173 @@ export async function main(i: number): Promise<number> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_text_encoder_decoder() {
+    // TextEncoder/TextDecoder are wired from deno_web's 08_text_encoding.
+    // The "€" (U+20AC) is a 3-byte UTF-8 sequence, so this asserts the
+    // multi-byte encode → decode round-trip (not just ASCII) survives the
+    // deno_core op boundary.
+    let ts = r#"
+export async function main(): Promise<{ bytes: number[]; round_trip: string }> {
+    const enc = new TextEncoder();
+    const dec = new TextDecoder();
+    const bytes = enc.encode("a€b");
+    return { bytes: Array.from(bytes), round_trip: dec.decode(bytes) };
+}
+"#;
+    let r = run_ts(ts, &[], serde_json::json!({})).await;
+    assert_eq!(
+        unwrap_value(&r),
+        serde_json::json!({
+            // "a" = 0x61, "€" = 0xE2 0x82 0xAC, "b" = 0x62
+            "bytes": [0x61, 0xE2, 0x82, 0xAC, 0x62],
+            "round_trip": "a€b",
+        }),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_web_globals_are_wired() {
+    // Guard against a wrong export name silently leaving a global unwired:
+    // assert each web-platform global we assign in runtime.js is actually
+    // defined. If a deno_web/deno_url export is renamed on a future bump,
+    // the corresponding `globalThis.X = mod.X` becomes `undefined` and this
+    // test flips it to false.
+    let ts = r#"
+export async function main(): Promise<Record<string, boolean>> {
+    const names = [
+        "DOMException",
+        "TextEncoder", "TextDecoder", "TextEncoderStream", "TextDecoderStream",
+        "File",
+        "Event", "EventTarget", "CustomEvent",
+        "MessageEvent", "CloseEvent", "ErrorEvent", "reportError",
+        "ReadableStream", "WritableStream", "TransformStream",
+        "ReadableStreamDefaultReader", "ReadableStreamBYOBReader",
+        "ReadableStreamDefaultController", "ReadableByteStreamController",
+        "ReadableStreamBYOBRequest", "WritableStreamDefaultWriter",
+        "WritableStreamDefaultController", "TransformStreamDefaultController",
+        "ByteLengthQueuingStrategy", "CountQueuingStrategy",
+        "Performance", "PerformanceEntry", "PerformanceMark", "PerformanceMeasure",
+        "URLPattern",
+        "CompressionStream", "DecompressionStream",
+        "MessageChannel", "MessagePort",
+        "structuredClone", "performance",
+    ];
+    const out: Record<string, boolean> = {};
+    for (const n of names) out[n] = typeof (globalThis as any)[n] !== "undefined";
+    return out;
+}
+"#;
+    let r = run_ts(ts, &[], serde_json::json!({})).await;
+    let v = unwrap_value(&r);
+    let obj = v.as_object().expect("expected an object result");
+    let unwired: Vec<&String> = obj
+        .iter()
+        .filter(|(_, defined)| defined.as_bool() != Some(true))
+        .map(|(name, _)| name)
+        .collect();
+    assert!(
+        unwired.is_empty(),
+        "these globals were not wired: {unwired:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_structured_clone_and_performance() {
+    // structuredClone is the spec function (from 13_message_port.js): it
+    // deep-clones and accepts an options bag. performance.now() must be finite,
+    // and performance.timeOrigin must be seeded per isolate (via the Rust-side
+    // __wmInitPerIsolate call) so that `timeOrigin + now()` tracks wall-clock
+    // time rather than being NaN.
+    let ts = r#"
+export async function main(): Promise<{ deep_equal: boolean; source_unchanged: boolean; now_ok: boolean; origin_ok: boolean }> {
+    const src = { a: 1, nested: { b: [2, 3] } };
+    const copy = structuredClone(src);
+    copy.nested.b.push(4);
+    const deep_equal = JSON.stringify(copy) === JSON.stringify({ a: 1, nested: { b: [2, 3, 4] } });
+    // Mutating the clone must not touch the source (proves a real deep clone).
+    const source_unchanged = src.nested.b.length === 2;
+    const now_ok = Number.isFinite(performance.now());
+    // timeOrigin must be a finite epoch-ms value, and timeOrigin + now() must
+    // land within a few seconds of Date.now() (guards the per-isolate seeding).
+    const origin = performance.timeOrigin;
+    const origin_ok = Number.isFinite(origin) && Math.abs(origin + performance.now() - Date.now()) < 5000;
+    return { deep_equal, source_unchanged, now_ok, origin_ok };
+}
+"#;
+    let r = run_ts(ts, &[], serde_json::json!({})).await;
+    assert_eq!(
+        unwrap_value(&r),
+        serde_json::json!({ "deep_equal": true, "source_unchanged": true, "now_ok": true, "origin_ok": true }),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_web_globals_construct() {
+    // `smoke_web_globals_are_wired` only checks the constructors are defined.
+    // Several are backed by deno_web ops (compression, message-port, URL
+    // pattern parsing) that a future bump could move out from under the
+    // still-defined constructor — it would pass the presence check but throw
+    // at `new`. Actually construct those here so that regression surfaces.
+    let ts = r#"
+export async function main(): Promise<{ pathname: boolean; channel: boolean; gzip_ok: boolean }> {
+    const pat = new URLPattern({ pathname: "/books/:id" });
+    const pathname = pat.test("https://example.com/books/42");
+
+    const chan = new MessageChannel();
+    const channel = chan.port1 instanceof MessagePort && chan.port2 instanceof MessagePort;
+
+    // Round-trip "hi" through gzip compression then decompression.
+    const compressed = new Blob(["hi"]).stream().pipeThrough(new CompressionStream("gzip"));
+    const restored = compressed.pipeThrough(new DecompressionStream("gzip"));
+    const bytes = new Uint8Array(await new Response(restored).arrayBuffer());
+    const gzip_ok = new TextDecoder().decode(bytes) === "hi";
+
+    return { pathname, channel, gzip_ok };
+}
+"#;
+    let r = run_ts(ts, &[], serde_json::json!({})).await;
+    assert_eq!(
+        unwrap_value(&r),
+        serde_json::json!({ "pathname": true, "channel": true, "gzip_ok": true }),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_readable_stream_roundtrip() {
+    // ReadableStream + TextEncoderStream/TextDecoderStream: pipe an encode
+    // stream through and read chunks back. Exercises the streams surface
+    // (06_streams.js) that `res.body instanceof ReadableStream` relies on.
+    let ts = r#"
+export async function main(): Promise<{ is_readable: boolean; text: string }> {
+    const rs = new ReadableStream<string>({
+        start(controller) {
+            controller.enqueue("hello ");
+            controller.enqueue("stream");
+            controller.close();
+        },
+    });
+    const is_readable = rs instanceof ReadableStream;
+    const decoded = rs
+        .pipeThrough(new TextEncoderStream())
+        .pipeThrough(new TextDecoderStream());
+    let text = "";
+    for await (const chunk of decoded) text += chunk;
+    return { is_readable, text };
+}
+"#;
+    let r = run_ts(ts, &[], serde_json::json!({})).await;
+    assert_eq!(
+        unwrap_value(&r),
+        serde_json::json!({ "is_readable": true, "text": "hello stream" }),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
 async fn smoke_web_crypto() {
     // deno_crypto surface: the Web Crypto globals (`crypto`, `crypto.subtle`)
     // that bring nativets to parity with the bun runner. Covers all three
@@ -277,8 +443,8 @@ export async function main(): Promise<{ uuid: string; nonzero: boolean; sha256: 
     // a no-op/stub getRandomValues would leave the array zeroed.
     const nonzero = buf.some((b) => b !== 0);
 
-    // "abc" as raw bytes — TextEncoder isn't wired into the nativets global,
-    // and this test targets deno_crypto, not deno_web's text encoding.
+    // "abc" as raw bytes — this test targets deno_crypto, so it avoids
+    // depending on deno_web's text encoding.
     const data = new Uint8Array([0x61, 0x62, 0x63]);
     const digest = await crypto.subtle.digest("SHA-256", data);
     const sha256 = Array.from(new Uint8Array(digest))
@@ -312,6 +478,317 @@ export async function main(): Promise<{ uuid: string; nonzero: boolean; sha256: 
         v.get("sha256").and_then(|x| x.as_str()),
         Some("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"),
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_web_globals_edge_cases() {
+    // Broad functional sweep of every wired global — not just "defined" but
+    // "actually works". A constructor can be present yet throw at `new`/on call
+    // (an op moved by a deno bump, or a global dependency like DOMException not
+    // wired), which a presence check misses. Each check returns a bool; anything
+    // that isn't "ok" is reported in the failure message.
+    let ts = r#"
+export async function main(): Promise<Record<string, string>> {
+    const out: Record<string, string> = {};
+    async function check(name: string, fn: () => any) {
+        try { out[name] = (await fn()) ? "ok" : "FAIL"; }
+        catch (e: any) { out[name] = "ERR: " + (e && e.message ? e.message : String(e)); }
+    }
+
+    // --- DOMException + AbortController/AbortSignal (needs the DOMException global) ---
+    await check("DOMException.construct", () => {
+        const e = new DOMException("nope", "AbortError");
+        return e.name === "AbortError" && e.message === "nope" && e instanceof DOMException;
+    });
+    await check("AbortController.abort_default_reason", () => {
+        const ac = new AbortController();
+        let fired = false;
+        ac.signal.addEventListener("abort", () => { fired = true; });
+        ac.abort(); // constructs a default DOMException("...", "AbortError")
+        return fired && ac.signal.aborted === true && ac.signal.reason?.name === "AbortError";
+    });
+    await check("AbortSignal.timeout", async () => {
+        const sig = AbortSignal.timeout(5);
+        await new Promise((r) => setTimeout(r, 30));
+        return sig.aborted === true && sig.reason?.name === "TimeoutError";
+    });
+
+    // --- TextEncoder / TextDecoder ---
+    await check("TextEncoder.encodeInto", () => {
+        const buf = new Uint8Array(3);
+        const { read, written } = new TextEncoder().encodeInto("abc", buf);
+        return read === 3 && written === 3 && buf[0] === 0x61;
+    });
+    await check("TextDecoder.utf16le", () =>
+        new TextDecoder("utf-16le").decode(new Uint8Array([0x41, 0x00])) === "A");
+    await check("TextDecoder.fatal_throws", () => {
+        try { new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array([0xff])); return false; }
+        catch { return true; }
+    });
+
+    // --- File ---
+    await check("File.props_and_read", async () => {
+        const f = new File(["hi"], "a.txt", { type: "text/plain", lastModified: 123 });
+        return f.name === "a.txt" && f.type === "text/plain" && f.lastModified === 123
+            && f.size === 2 && (await f.text()) === "hi" && f instanceof Blob;
+    });
+
+    // --- Events ---
+    await check("EventTarget.dispatch_fires", () => {
+        const et = new EventTarget();
+        let got = "";
+        et.addEventListener("ping", (e: any) => { got = e.detail; });
+        et.dispatchEvent(new CustomEvent("ping", { detail: "pong" }));
+        return got === "pong";
+    });
+    // (A throwing EventTarget listener and reportError both surface the error
+    // asynchronously as an unhandled exception — matching bun, which exits
+    // non-zero — so they fail the script rather than a `check`; the dedicated
+    // smoke_eventtarget_throwing_listener_reports_original test covers that the
+    // ORIGINAL error is surfaced, not a masking one.)
+    await check("MessageEvent.data", () => new MessageEvent("m", { data: 42 }).data === 42);
+    await check("CloseEvent.code_reason", () => {
+        const e = new CloseEvent("close", { code: 1000, reason: "bye" });
+        return e.code === 1000 && e.reason === "bye";
+    });
+    await check("ErrorEvent.message", () => new ErrorEvent("error", { message: "boom" }).message === "boom");
+
+    // --- Streams ---
+    await check("ReadableStream.tee", async () => {
+        const rs = new ReadableStream<number>({ start(c) { c.enqueue(1); c.enqueue(2); c.close(); } });
+        const [a, b] = rs.tee();
+        const ra: number[] = []; for await (const x of a) ra.push(x);
+        const rb: number[] = []; for await (const x of b) rb.push(x);
+        return JSON.stringify(ra) === "[1,2]" && JSON.stringify(rb) === "[1,2]";
+    });
+    await check("ReadableStream.reader_cancel", async () => {
+        const rs = new ReadableStream<string>({ start(c) { c.enqueue("x"); } });
+        const rd = rs.getReader();
+        const { value } = await rd.read();
+        await rd.cancel();
+        return value === "x";
+    });
+    await check("WritableStream.write_close", async () => {
+        const chunks: string[] = [];
+        const ws = new WritableStream<string>({ write(c) { chunks.push(c); } });
+        const w = ws.getWriter();
+        await w.write("a"); await w.write("b"); await w.close();
+        return JSON.stringify(chunks) === '["a","b"]';
+    });
+    await check("TransformStream.identity", async () => {
+        const t = new TransformStream<string, string>();
+        const w = t.writable.getWriter(); w.write("hello"); w.close();
+        let o = ""; for await (const c of t.readable) o += c;
+        return o === "hello";
+    });
+    await check("Stream reader/controller instanceof globals", async () => {
+        // The reader/writer/controller constructors are exposed as globals for
+        // instanceof checks (bun parity). Obtain real instances and verify.
+        let ctrlOk = false;
+        const rs = new ReadableStream({
+            start(c: any) { ctrlOk = c instanceof ReadableStreamDefaultController; c.close(); },
+        });
+        const reader = rs.getReader();
+        const readerOk = reader instanceof ReadableStreamDefaultReader;
+        const ws = new WritableStream();
+        const writerOk = ws.getWriter() instanceof WritableStreamDefaultWriter;
+        return ctrlOk && readerOk && writerOk;
+    });
+    await check("ByteLengthQueuingStrategy", () => {
+        const s = new ByteLengthQueuingStrategy({ highWaterMark: 16 });
+        return s.highWaterMark === 16 && typeof s.size === "function";
+    });
+    await check("CountQueuingStrategy.in_stream", async () => {
+        const s = new CountQueuingStrategy({ highWaterMark: 1 });
+        const rs = new ReadableStream<number>({ start(c) { c.enqueue(7); c.close(); } }, s);
+        const rd = rs.getReader();
+        return (await rd.read()).value === 7 && s.highWaterMark === 1;
+    });
+
+    // --- URLPattern ---
+    await check("URLPattern.exec_groups", () => {
+        const p = new URLPattern({ pathname: "/users/:id" });
+        const m = p.exec("https://x.com/users/42");
+        return p.test("https://x.com/users/42") && m?.pathname.groups.id === "42";
+    });
+
+    // --- Compression (all three formats) ---
+    async function roundtrip(fmt: string): Promise<string> {
+        const comp = new Blob(["hello compression"]).stream().pipeThrough(new CompressionStream(fmt as any));
+        const decomp = comp.pipeThrough(new DecompressionStream(fmt as any));
+        return new TextDecoder().decode(new Uint8Array(await new Response(decomp).arrayBuffer()));
+    }
+    await check("Compression.gzip", async () => (await roundtrip("gzip")) === "hello compression");
+    await check("Compression.deflate", async () => (await roundtrip("deflate")) === "hello compression");
+    await check("Compression.deflate_raw", async () => (await roundtrip("deflate-raw")) === "hello compression");
+
+    // --- structuredClone edge cases ---
+    await check("structuredClone.Map", () => {
+        const c = structuredClone(new Map([["k", 1]]));
+        return c instanceof Map && c.get("k") === 1;
+    });
+    await check("structuredClone.Set", () => {
+        const c = structuredClone(new Set([1, 2]));
+        return c instanceof Set && c.has(2);
+    });
+    await check("structuredClone.Date", () => {
+        const c = structuredClone(new Date(0));
+        return c instanceof Date && c.getTime() === 0;
+    });
+    await check("structuredClone.TypedArray", () => {
+        const c = structuredClone(new Uint8Array([1, 2, 3]));
+        return c instanceof Uint8Array && c[1] === 2;
+    });
+    await check("structuredClone.circular", () => {
+        const o: any = {}; o.self = o;
+        const c = structuredClone(o);
+        return c.self === c;
+    });
+    await check("structuredClone.rejects_function", () => {
+        try { structuredClone(() => {}); return false; } catch { return true; }
+    });
+    await check("structuredClone.options_bag", () => {
+        const c = structuredClone({ a: 1 }, { transfer: [] });
+        return c.a === 1;
+    });
+
+    // --- performance ---
+    await check("performance.now_monotonic", () => {
+        const a = performance.now(); const b = performance.now();
+        return Number.isFinite(a) && b >= a;
+    });
+    await check("performance.mark_measure", () => {
+        performance.mark("m1");
+        performance.measure("meas", "m1");
+        return performance.getEntriesByType("measure").some((e: any) => e.name === "meas");
+    });
+    await check("performance.constructor_globals", () => {
+        // The Performance/PerformanceEntry/Mark/Measure constructors are exposed
+        // as globals (bun parity) for instanceof checks against real entries.
+        const mark = performance.mark("m2");
+        const meas = performance.measure("meas2", "m2");
+        return performance instanceof Performance
+            && mark instanceof PerformanceMark && mark instanceof PerformanceEntry
+            && meas instanceof PerformanceMeasure && meas instanceof PerformanceEntry;
+    });
+    await check("performance.toJSON_origin", () => {
+        const j: any = performance.toJSON();
+        return Number.isFinite(j.timeOrigin);
+    });
+
+    // --- MessageChannel / MessagePort (async delivery, guarded by timeout) ---
+    await check("MessagePort.postMessage", async () => {
+        const mc = new MessageChannel();
+        const got = await Promise.race([
+            new Promise<string>((res) => {
+                mc.port2.onmessage = (e: any) => res(JSON.stringify(e.data));
+                mc.port1.postMessage({ hello: "world" });
+            }),
+            new Promise<string>((res) => setTimeout(() => res("TIMEOUT"), 3000)),
+        ]);
+        return got === '{"hello":"world"}';
+    });
+
+    // --- Web Crypto works alongside the other wired globals ---
+    await check("crypto.getRandomValues", () => {
+        const buf = new Uint8Array(16);
+        crypto.getRandomValues(buf);
+        return buf.some((b) => b !== 0);
+    });
+    await check("crypto.subtle.digest", async () => {
+        const d = await crypto.subtle.digest("SHA-256", new Uint8Array([0x61, 0x62, 0x63]));
+        return new Uint8Array(d)[0] === 0xba; // SHA-256("abc") starts with 0xba
+    });
+
+    return out;
+}
+"#;
+    let r = run_ts(ts, &[], serde_json::json!({})).await;
+    let v = unwrap_value(&r);
+    let obj = v.as_object().expect("expected an object result");
+    let failures: Vec<String> = obj
+        .iter()
+        .filter(|(_, val)| val.as_str() != Some("ok"))
+        .map(|(name, val)| format!("{name} => {}", val.as_str().unwrap_or("?")))
+        .collect();
+    assert!(
+        failures.is_empty(),
+        "edge-case checks that did not pass ({} of {}):\n{}",
+        failures.len(),
+        obj.len(),
+        failures.join("\n"),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_eventtarget_throwing_listener_reports_original() {
+    // Invariant: globalThis is a functional EventTarget, so deno_web's
+    // reportException has a valid saved global dispatch target. An uncaught
+    // EventTarget-listener error is therefore surfaced with its original message
+    // as an async unhandled exception (matching bun, which exits non-zero), not
+    // replaced by a masking "Illegal invocation"/undefined-reference error.
+    let ts = r#"
+export async function main(): Promise<void> {
+    const et = new EventTarget();
+    et.addEventListener("boom", () => { throw new Error("wm_listener_marker"); });
+    et.dispatchEvent(new Event("boom"));
+    // Give the async unhandled-exception report a tick to fire.
+    await new Promise((r) => setTimeout(r, 20));
+}
+"#;
+    let r = run_ts(ts, &[], serde_json::json!({})).await;
+    let err = r
+        .result
+        .expect_err("a throwing listener should surface an error");
+    assert!(
+        err.contains("wm_listener_marker"),
+        "the original listener error was lost: {err}",
+    );
+    assert!(
+        !err.contains("Illegal invocation") && !err.to_lowercase().contains("undefined"),
+        "dispatchEvent surfaced a masking error instead of the original: {err}",
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_report_error_both_call_forms() {
+    // reportError must work both unqualified and as a property of globalThis.
+    // The property form goes through a receiver check (`this === globalThis_`),
+    // which only passes because globalThis is the saved EventTarget reference;
+    // otherwise it throws "Illegal invocation". Both forms report the error as an
+    // async unhandled exception (matching bun), so the script errors with the
+    // original message rather than a masking one.
+    for (label, call) in [
+        ("bare", "reportError(new Error(\"wm_report_marker\"));"),
+        (
+            "property",
+            "globalThis.reportError(new Error(\"wm_report_marker\"));",
+        ),
+    ] {
+        let ts = format!(
+            r#"
+export async function main(): Promise<void> {{
+    {call}
+    await new Promise((r) => setTimeout(r, 20));
+}}
+"#
+        );
+        let r = run_ts(&ts, &[], serde_json::json!({})).await;
+        let err = r
+            .result
+            .expect_err(&format!("{label} reportError should surface an error"));
+        assert!(
+            err.contains("wm_report_marker"),
+            "{label} reportError lost the original error: {err}",
+        );
+        assert!(
+            !err.contains("Illegal invocation"),
+            "{label} reportError threw Illegal invocation: {err}",
+        );
+    }
 }
 
 // -----------------------------------------------------------------------------
