@@ -366,6 +366,12 @@ lazy_static! {
 /// frees the offending allocations as the JS stack unwinds. A user throwing a
 /// non-null, non-Error value (e.g. `throw "boom"`) is deliberately left as a
 /// normal error so it is not misattributed to the memory limit.
+///
+/// Known ambiguity: an explicit `throw null` / `throw undefined` in a transform
+/// is indistinguishable from the OOM null-throw and is intentionally absorbed
+/// into the OOM bucket. This is accepted — bare-null throws are vanishingly rare
+/// in step-input transforms, and the alternative (leaking the opaque error for
+/// the far more common OOM case) is worse.
 #[cfg(feature = "quickjs")]
 fn map_quickjs_error(err: rquickjs::CaughtError<'_>, memory_limit: usize) -> anyhow::Error {
     let is_oom = match &err {
