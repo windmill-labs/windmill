@@ -309,6 +309,24 @@
 	let includeWithoutMain = $derived((filterValues.val.include_library ?? true) as boolean)
 	let filterUserFolders = $derived(!!filterValues.val.only_user_folders)
 
+	// Content search is a distinct mode: its results come from the indexer via
+	// ContentSearchInner (which carries only path + content), so the row-list filters can't
+	// apply to it. When it's active we restrict the searchbar to just the content filter,
+	// clear any other filters so they don't linger as ignored chips, and hide the row-list
+	// controls (kind toggle, tree view) that no longer drive anything.
+	let contentActive = $derived(!!filterValues.val.content)
+	let searchbarSchema = $derived(
+		contentActive ? { content: searchFilterSchema.content } : searchFilterSchema
+	)
+	$effect(() => {
+		if (!contentActive) return
+		untrack(() => {
+			for (const k of Object.keys(filterValues.val)) {
+				if (k !== 'content') delete (filterValues.val as Record<string, unknown>)[k]
+			}
+		})
+	})
+
 	// Pipeline entries are rendered independently of the item list, so apply the
 	// same gates the items get — otherwise a pipeline would still show under the
 	// Flows/Apps tabs, in the archived view, under a label filter, or outside a
@@ -739,60 +757,62 @@
 			description: 'Lists of scripts, flows, and apps'
 		}}
 	>
-		<div class="flex justify-start">
-			<ToggleButtonGroup
-				selected={itemKind}
-				onSelected={(v) => {
-					// Shortcut into the shared filter object; `all` clears the kind filter
-					// entirely (delete, not null — otherwise it shows as a `kind: null` tag).
-					if (v === 'all') {
-						delete filterValues.val.kind
-					} else {
-						filterValues.val.kind = v
-						subtab = v
-					}
-				}}
-			>
-				{#snippet children({ item })}
-					<ToggleButton value="all" label="All" size="md" {item} />
-					<ToggleButton value="script" icon={Code2} label="Scripts" size="md" {item} />
-					{#if HOME_SEARCH_SHOW_FLOW}
+		{#if !contentActive}
+			<div class="flex justify-start">
+				<ToggleButtonGroup
+					selected={itemKind}
+					onSelected={(v) => {
+						// Shortcut into the shared filter object; `all` clears the kind filter
+						// entirely (delete, not null — otherwise it shows as a `kind: null` tag).
+						if (v === 'all') {
+							delete filterValues.val.kind
+						} else {
+							filterValues.val.kind = v
+							subtab = v
+						}
+					}}
+				>
+					{#snippet children({ item })}
+						<ToggleButton value="all" label="All" size="md" {item} />
+						<ToggleButton value="script" icon={Code2} label="Scripts" size="md" {item} />
+						{#if HOME_SEARCH_SHOW_FLOW}
+							<ToggleButton
+								value="flow"
+								label="Flows"
+								icon={FlowIcon}
+								selectedColor="#14b8a6"
+								size="md"
+								{item}
+							/>
+						{/if}
 						<ToggleButton
-							value="flow"
-							label="Flows"
-							icon={FlowIcon}
-							selectedColor="#14b8a6"
+							value="app"
+							label="Apps"
+							icon={LayoutDashboard}
+							selectedColor="#fb923c"
 							size="md"
 							{item}
 						/>
-					{/if}
-					<ToggleButton
-						value="app"
-						label="Apps"
-						icon={LayoutDashboard}
-						selectedColor="#fb923c"
-						size="md"
-						{item}
-					/>
-				{/snippet}
-			</ToggleButtonGroup>
-			<Toggle
-				options={{ right: 'Tree view' }}
-				textClass="text-nowrap"
-				size="xs"
-				class="ml-4"
-				bind:checked={treeView}
-			/>
-		</div>
+					{/snippet}
+				</ToggleButtonGroup>
+				<Toggle
+					options={{ right: 'Tree view' }}
+					textClass="text-nowrap"
+					size="xs"
+					class="ml-4"
+					bind:checked={treeView}
+				/>
+			</div>
+		{/if}
 
 		<div
 			bind:this={searchbarWrapper}
 			class="relative text-primary grow min-w-[200px] max-w-[30rem] ml-auto"
 		>
 			<FilterSearchbar
-				schema={searchFilterSchema}
+				schema={searchbarSchema}
 				bind:value={filterValues.val}
-				presets={searchPresets}
+				presets={contentActive ? [] : searchPresets}
 				placeholder="Filter scripts, flows and apps..."
 				autofocus
 				hideDropdownOnFreeText
