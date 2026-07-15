@@ -618,6 +618,45 @@ describe('AIChatManager queued messages', () => {
 		expect(manager.queuedImages.length).toBe(8)
 	})
 
+	// A rejected image stays in history, so every later turn resends it and fails
+	// the same way — the conversation wedges with no way out but editing or /clear.
+	it('removes the image from history when the provider rejects it', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		mocks.runChatLoop.mockImplementation(async () => {
+			throw new Error('400 Invalid image content')
+		})
+
+		await manager.sendRequest({ instructions: 'look at this', images: [img('a')] })
+
+		const stillThere = manager.messages.some(
+			(m: any) => Array.isArray(m.content) && m.content.some((p: any) => p.type === 'image_url')
+		)
+		expect(stillThere).toBe(false)
+		// the prompt itself survives, so a follow-up still has the text as context
+		expect(manager.messages.length).toBeGreaterThan(0)
+		expect(mocks.sendUserToast).toHaveBeenCalledWith(
+			expect.stringContaining('could not read the attached image'),
+			true
+		)
+	})
+
+	// An unrelated failure must not strip a perfectly good image.
+	it('keeps the image when the failure is unrelated', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		mocks.runChatLoop.mockImplementation(async () => {
+			throw new Error('429 rate limit exceeded')
+		})
+
+		await manager.sendRequest({ instructions: 'look at this', images: [img('a')] })
+
+		const stillThere = manager.messages.some(
+			(m: any) => Array.isArray(m.content) && m.content.some((p: any) => p.type === 'image_url')
+		)
+		expect(stillThere).toBe(true)
+	})
+
 	it('restores queued images to the input on dequeue', () => {
 		const input = createInputMock()
 		const manager = createManager(input)

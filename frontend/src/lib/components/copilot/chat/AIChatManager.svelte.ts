@@ -269,6 +269,18 @@ function appendWebSearchErrorHint(message: string, shouldAppend: boolean): strin
 	return `${message}${separator}${WEB_SEARCH_ERROR_HINT}`
 }
 
+/**
+ * Whether a provider rejected the request over an image it could not take. The
+ * vision gate only knows the models we ship, so this is the net for the rest:
+ * every provider words it differently, hence matching on the subject rather than
+ * a code. Only consulted for turns that actually carried an image, so an
+ * unrelated error mentioning "image" cannot trigger it on its own.
+ */
+function isImageRejection(err: unknown): boolean {
+	const message = (err instanceof Error ? err.message : String(err)).toLowerCase()
+	return /image|vision|multimodal/.test(message)
+}
+
 function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean): string {
 	const errorMessage =
 		err instanceof Error ? err.message : typeof err === 'string' ? err : undefined
@@ -2530,6 +2542,18 @@ export class AIChatManager {
 			// re-committing would duplicate the turn's messages.
 			if (!turnOutcomeHandled) {
 				this.commitInterruptedTurn(collectedMessages, partialReply)
+				// The turn is kept as context, images and all — but a provider that just
+				// refused an image would refuse it again on every later turn, wedging the
+				// conversation with no way out but editing the message or starting over.
+				// Drop the parts so the text still gets an answer; the bubbles keep their
+				// thumbnails, so the user can still see what they sent.
+				if (images.length > 0 && isImageRejection(err)) {
+					this.messages = stripImagePartsFromMessages(this.messages)
+					sendUserToast(
+						`${tryGetCurrentModel()?.model ?? 'The model'} could not read the attached image, so it was removed from the conversation. Your message was kept.`,
+						true
+					)
+				}
 				// Any prior report no longer describes the history (a partial turn
 				// was just committed); clear it so readers estimate instead. When
 				// the failure WAS a context-length error, that high estimate forces
