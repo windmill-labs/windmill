@@ -57,6 +57,34 @@ export async function main(x: number): Promise<number> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_missing_optional_arg_uses_default() {
+    // A missing optional arg must arrive as `undefined`, not `null`, so the
+    // parameter default applies. With `null`, slice(0, null) -> [] -> length 0.
+    let ts = r#"
+export async function main(limit = 50): Promise<number> {
+    return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].slice(0, limit).length;
+}
+"#;
+    let r = run_ts(ts, &["limit"], serde_json::json!({})).await;
+    assert_eq!(unwrap_value(&r), serde_json::json!(10));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_explicit_null_arg_is_preserved() {
+    // An explicitly-provided JSON null must stay null (distinct from a missing
+    // arg), so the default does NOT apply.
+    let ts = r#"
+export async function main(x: number | null = 7): Promise<string> {
+    return x === null ? "null" : String(x);
+}
+"#;
+    let r = run_ts(ts, &["x"], serde_json::json!({ "x": null })).await;
+    assert_eq!(unwrap_value(&r), serde_json::json!("null"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
 async fn smoke_transpile_enum_and_union() {
     // Enums + discriminated union + as-cast exercise the swc_ecma_ast +
     // swc_ecma_parser TS-syntax paths the bare value tests don't.
@@ -451,10 +479,10 @@ export async function main(): Promise<{ uuid: string; nonzero: boolean; sha256: 
 #[ignore = "deno_core upgrade smoke; run with --ignored"]
 async fn smoke_web_globals_edge_cases() {
     // Broad functional sweep of every wired global — not just "defined" but
-    // "actually works" — to catch defined-but-throws / defined-but-inert cases
-    // (the class `reportError` and DOMException-less `AbortController.abort()`
-    // fell into). Each check returns a bool; anything that isn't "ok" is
-    // reported in the failure message.
+    // "actually works". A constructor can be present yet throw at `new`/on call
+    // (an op moved by a deno bump, or a global dependency like DOMException not
+    // wired), which a presence check misses. Each check returns a bool; anything
+    // that isn't "ok" is reported in the failure message.
     let ts = r#"
 export async function main(): Promise<Record<string, string>> {
     const out: Record<string, string> = {};
@@ -630,7 +658,7 @@ export async function main(): Promise<Record<string, string>> {
         return got === '{"hello":"world"}';
     });
 
-    // --- crypto (merged from #10109) still works alongside the new globals ---
+    // --- Web Crypto works alongside the other wired globals ---
     await check("crypto.getRandomValues", () => {
         const buf = new Uint8Array(16);
         crypto.getRandomValues(buf);
