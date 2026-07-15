@@ -1310,7 +1310,7 @@ async fn set_default_error_handler(
     Path(w_id): Path<String>,
     Json(payload): Json<ErrorOrRecoveryHandler>,
 ) -> Result<()> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     let (key, value) = match payload.handler_type {
         HandlerType::Error => {
             let key = format!("default_error_handler_{}", w_id);

@@ -52,6 +52,7 @@ fn test_authed() -> ApiAuthed {
         username_override: None,
         token_prefix: None,
         read_only: false,
+        job_id: None,
     }
 }
 

@@ -56,6 +56,11 @@ pub struct ApiAuthed {
     pub username_override: Option<String>,
     pub token_prefix: Option<String>,
     pub read_only: bool,
+    /// Set when this authed was resolved from a job's `WM_TOKEN`. Such a token's
+    /// identity is derived from an app/flow `on_behalf_of` that a `wm_deployers`
+    /// member can point at a superadmin, so it must never be trusted as a global
+    /// superadmin (`require_super_admin`), GHSA-hfh4-cx4h-3fcr.
+    pub job_id: Option<uuid::Uuid>,
 }
 
 impl ApiAuthed {
@@ -105,6 +110,7 @@ impl From<Authed> for ApiAuthed {
             username_override: None,
             token_prefix: value.token_prefix,
             read_only: false,
+            job_id: None,
         }
     }
 }
@@ -193,7 +199,10 @@ impl windmill_mcp::server::McpAuth for ApiAuthed {
 
 // ------------ Utility functions ------------
 
-pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
+/// Assert the *email* belongs to a superadmin. Prefer [`require_super_admin`],
+/// which also rejects job tokens (`WM_TOKEN`); use this only where no `ApiAuthed`
+/// is available and the caller has separately guaranteed it is not a job token.
+pub async fn require_super_admin_email(db: &DB, email: &str) -> error::Result<()> {
     let is_admin = is_super_admin_email(db, email).await?;
 
     if !is_admin {
@@ -203,6 +212,37 @@ pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
     } else {
         Ok(())
     }
+}
+
+/// Assert the caller is a superadmin acting under their own credentials.
+///
+/// A job's `WM_TOKEN` runs as the runnable's `on_behalf_of` identity, which a
+/// non-superadmin `wm_deployers` member can point at a superadmin — so a job
+/// token must never satisfy a global superadmin gate regardless of whose email
+/// it carries (GHSA-hfh4-cx4h-3fcr). A real superadmin needing this from a script
+/// uses a dedicated superadmin token instead of `$WM_TOKEN`.
+pub async fn require_super_admin(db: &DB, authed: &ApiAuthed) -> error::Result<()> {
+    if authed.job_id.is_some() {
+        return Err(Error::NotAuthorized(
+            "This endpoint cannot be called with a job token ($WM_TOKEN). If a script \
+             genuinely needs to do this, create a dedicated superadmin token from the User \
+             settings drawer (the 'Tokens' section), store it as a secret, and use that token \
+             explicitly instead of $WM_TOKEN."
+                .to_owned(),
+        ));
+    }
+    require_super_admin_email(db, &authed.email).await
+}
+
+/// Job-token-aware superadmin predicate for the many boolean `is_super_admin_email`
+/// authorization branches (workspace deletion, fork drops, SSRF exemptions, ...).
+/// A job's `WM_TOKEN` is never a superadmin regardless of whose email it carries
+/// (GHSA-hfh4-cx4h-3fcr), so callers naturally fall through to the restricted path.
+pub async fn is_super_admin_authed(db: &DB, authed: &ApiAuthed) -> error::Result<bool> {
+    if authed.job_id.is_some() {
+        return Ok(false);
+    }
+    is_super_admin_email(db, &authed.email).await
 }
 
 /// Forbid sensitive global user/token management when authenticated as a
@@ -762,6 +802,7 @@ pub async fn fetch_api_authed_from_permissioned_as(
                 username_override: None,
                 token_prefix: authed.token_prefix,
                 read_only: false,
+                job_id: None,
             };
 
             API_AUTHED_CACHE.insert(

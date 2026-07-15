@@ -4357,11 +4357,12 @@ async fn push_next_flow_job(
             .as_deref()
             .filter(|t| !t.is_empty() && *t != flow_job.tag.as_str())
         {
+            let is_super_admin =
+                windmill_common::auth::is_super_admin_email(db, email).await?;
             check_tag_available_for_workspace_internal(
-                db,
                 &flow_job.workspace_id,
                 tag_str,
-                email,
+                is_super_admin,
                 None, // no token for flow substeps so no scopes so no scope_tags
             )
             .warn_after_seconds_with_sql(

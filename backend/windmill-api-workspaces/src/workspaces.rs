@@ -2176,7 +2176,7 @@ async fn create_pg_database(
     windmill_common::validate_dbname(&req.target_dbname)?;
 
     // Non-superadmin: restrict dbname to wm_fork_ prefix
-    if !windmill_common::auth::is_super_admin_email(&db, &authed.email).await? {
+    if !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
         if !req.target_dbname.starts_with("wm_fork_") {
             return Err(Error::BadRequest(
                 "Non-superadmin users can only create databases with names starting with 'wm_fork_'"
@@ -2292,7 +2292,7 @@ async fn import_pg_database(
         resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.target).await?;
 
     if let Some(ref override_dbname) = req.target_dbname_override {
-        if !windmill_common::auth::is_super_admin_email(&db, &authed.email).await? {
+        if !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
             if !override_dbname.starts_with("wm_fork_") {
                 return Err(Error::BadRequest(
                     "Non-superadmin users can only override target dbname with names starting with 'wm_fork_'"
@@ -2369,7 +2369,7 @@ async fn edit_ducklake_config(
     Json(new_config): Json<EditDucklakeConfig>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
-    let is_superadmin = require_super_admin(&db, &email).await.is_ok();
+    let is_superadmin = require_super_admin(&db, &authed).await.is_ok();
 
     // Lake names end up interpolated in `ATTACH 'ducklake://<name>'`,
     // generated maintenance SQL and the reserved maintenance schedule path
@@ -2462,11 +2462,11 @@ async fn edit_datatable_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, email, .. }: ApiAuthed,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(mut new_config): Json<EditDataTableConfig>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
-    let is_superadmin = require_super_admin(&db, &email).await.is_ok();
+    let is_superadmin = require_super_admin(&db, &authed).await.is_ok();
 
     let mut tx = db.begin().await?;
 
@@ -3585,7 +3585,7 @@ async fn set_encryption_key(
     Path(w_id): Path<String>,
     Json(request): Json<SetEncryptionKeyRequest>,
 ) -> Result<()> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
 
     if !WORKSPACE_KEY_REGEXP.is_match(request.new_key.as_str()) {
         return Err(Error::BadRequest(
@@ -3739,7 +3739,7 @@ async fn get_workspace_as_superadmin(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Workspace> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     let workspace = sqlx::query_as!(
         Workspace,
         "SELECT
@@ -4000,7 +4000,7 @@ async fn create_workspace(
     Json(nw): Json<CreateWorkspace>,
 ) -> Result<String> {
     if *CREATE_WORKSPACE_REQUIRE_SUPERADMIN {
-        require_super_admin(&db, &authed.email).await?;
+        require_super_admin(&db, &authed).await?;
     }
 
     #[cfg(not(feature = "enterprise"))]
@@ -5328,7 +5328,7 @@ async fn create_workspace_fork_branch(
     }
 
     if *DISABLE_WORKSPACE_FORK {
-        require_super_admin(&db, &authed.email).await?;
+        require_super_admin(&db, &authed).await?;
     }
     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
         &w_id,
@@ -5723,7 +5723,7 @@ async fn create_workspace_fork(
     _check_nb_of_workspaces(&db).await?;
 
     if *DISABLE_WORKSPACE_FORK {
-        require_super_admin(&db, &authed.email).await?;
+        require_super_admin(&db, &authed).await?;
     }
     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
         &parent_workspace_id,
@@ -6040,7 +6040,7 @@ async fn attach_dev_workspace(
     .fetch_optional(&db)
     .await?
     .unwrap_or(false);
-    if !is_admin_of_dev && !windmill_common::auth::is_super_admin_email(&db, &authed.email).await? {
+    if !is_admin_of_dev && !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
         return Err(Error::PermissionDenied(format!(
             "Attaching workspace '{dev_w_id}' as a dev requires being an admin of it (or a superadmin)"
         )));
@@ -6406,7 +6406,7 @@ async fn archive_workspace(
         .await?
         .unwrap_or(false);
         if !is_prod_admin
-            && !windmill_common::auth::is_super_admin_email(&db, &authed.email).await?
+            && !windmill_api_auth::is_super_admin_authed(&db, &authed).await?
         {
             return Err(Error::PermissionDenied(format!(
                 "Archiving dev workspace '{w_id}' requires being an admin of its parent prod workspace '{prod}' (or a superadmin)"
@@ -8041,7 +8041,7 @@ async fn compare_workspaces(
     // source AND the fork (superadmin satisfies both), which guarantees full
     // visibility of every item on every side. `fork_authed.is_admin` already folds
     // in superadmin; `authed.is_admin` (source side) does not, so OR it in.
-    let is_super_admin = windmill_common::auth::is_super_admin_email(&db, &authed.email).await?;
+    let is_super_admin = windmill_api_auth::is_super_admin_authed(&db, &authed).await?;
     let sees_all_items = is_super_admin || (authed.is_admin && fork_authed.is_admin);
     let all_ahead_items_visible = all_ahead_items_visible || sees_all_items;
     let all_behind_items_visible = all_behind_items_visible || sees_all_items;
@@ -8139,6 +8139,7 @@ async fn load_workspace_authed(
             username_override: base_authed.username_override.clone(),
             token_prefix: base_authed.token_prefix.clone(),
             read_only: base_authed.read_only,
+            job_id: base_authed.job_id,
         });
     };
 
@@ -8168,6 +8169,7 @@ async fn load_workspace_authed(
         username_override: base_authed.username_override.clone(),
         token_prefix: base_authed.token_prefix.clone(),
         read_only: base_authed.read_only,
+        job_id: base_authed.job_id,
     })
 }
 

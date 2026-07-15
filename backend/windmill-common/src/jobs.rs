@@ -10,7 +10,6 @@ use tokio::io::AsyncReadExt;
 pub use windmill_types::jobs::*;
 
 use crate::{
-    auth::is_super_admin_email,
     client::AuthedClient,
     db::{AuthedRef, UserDbWithAuthed, DB},
     error::{self, to_anyhow, Error},
@@ -343,11 +342,13 @@ lazy_static::lazy_static! {
     ).unwrap_or(false);
 }
 
-pub async fn check_tag_available_for_workspace_internal<'c>(
-    db: impl sqlx::PgExecutor<'c>,
+// `is_super_admin` is passed in (not derived from an email here) so callers can
+// make it job-token-aware: a job's WM_TOKEN must never count as superadmin
+// (GHSA-hfh4-cx4h-3fcr). See `is_super_admin_authed` at the request wrapper.
+pub async fn check_tag_available_for_workspace_internal(
     w_id: &str,
     tag: &str,
-    email: &str,
+    is_super_admin: bool,
     scope_tags: Option<Vec<&str>>,
 ) -> error::Result<()> {
     let mut is_tag_in_scope_tags = None;
@@ -373,7 +374,7 @@ pub async fn check_tag_available_for_workspace_internal<'c>(
         _ => {}
     }
 
-    if !is_super_admin_email(db, email).await? {
+    if !is_super_admin {
         if scope_tags.is_some() && is_tag_in_scope_tags.is_some() {
             return Err(Error::BadRequest(format!(
                 "Tag {tag} is not available in your scope"

@@ -204,3 +204,106 @@ async fn test_wm_token_cannot_manage_superadmin_users(db: Pool<Postgres>) -> any
 
     Ok(())
 }
+
+/// A WM_TOKEN running as a superadmin must be rejected by *any* `require_super_admin`
+/// route, not just the handful that call `forbid_superadmin_job_token`. `GET
+/// /api/settings/list_global` is gated solely by `require_super_admin`, so it
+/// exercises the token-layer guard (GHSA-hfh4-cx4h-3fcr).
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_wm_token_rejected_by_require_super_admin(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    set_jwt_secret().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api");
+
+    // The exact token a deployer obtains via an app on_behalf_of pointed at a superadmin.
+    let sa_wm = wm_token("test@windmill.dev", true).await;
+    let resp = authed(client().get(format!("{base}/settings/list_global")), &sa_wm)
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "superadmin WM_TOKEN must not reach a require_super_admin route: {}",
+        resp.text().await?
+    );
+
+    // No false positive: a real superadmin API token (no job_id) still reaches it.
+    let resp = authed(
+        client().get(format!("{base}/settings/list_global")),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "a real superadmin token must still reach the route: {}",
+        resp.text().await?
+    );
+
+    Ok(())
+}
+
+/// Direct `is_super_admin_email` authorization gates (not routed through
+/// `require_super_admin`) must also reject a superadmin `WM_TOKEN`. Covers the two
+/// bypass classes the CI review flagged: destructive `delete_workspace`, and the
+/// `CUSTOM_INSTANCE_DB` credential lookup whose guard must read the *authenticated*
+/// `job_id`, not the caller-supplied `?job_id` query param (GHSA-hfh4-cx4h-3fcr).
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_wm_token_rejected_by_direct_super_admin_gates(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    set_jwt_secret().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api");
+
+    let sa_wm = wm_token("test@windmill.dev", true).await;
+
+    // 1. Global workspace deletion (destructive) — must be forbidden.
+    let resp = authed(
+        client().delete(format!("{base}/workspaces/delete/test-workspace")),
+        &sa_wm,
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "superadmin WM_TOKEN must not delete a workspace: {}",
+        resp.text().await?
+    );
+    // The workspace must still exist.
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workspace WHERE id = 'test-workspace')")
+            .fetch_one(&db)
+            .await?;
+    assert!(
+        exists,
+        "rejected delete must not have removed the workspace"
+    );
+
+    // 2. CUSTOM_INSTANCE_DB credential lookup, WITHOUT the ?job_id query param —
+    //    the guard must reject based on the authenticated token's job_id.
+    let resp = authed(
+        client().get(format!(
+            "{base}/w/test-workspace/resources/get_value_interpolated/CUSTOM_INSTANCE_DB/anydb"
+        )),
+        &sa_wm,
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "superadmin WM_TOKEN must not resolve CUSTOM_INSTANCE_DB (no creds leak): {}",
+        resp.text().await?
+    );
+
+    Ok(())
+}

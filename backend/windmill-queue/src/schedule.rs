@@ -533,11 +533,11 @@ pub async fn push_scheduled_job<'c>(
     };
 
     if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
+        let is_super_admin = windmill_common::auth::is_super_admin_email(db, &email).await?;
         check_tag_available_for_workspace_internal(
-            db,
             &schedule.workspace_id,
             &tag,
-            &email,
+            is_super_admin,
             None, // no token for schedules so no scopes so no scope_tags
         )
         .warn_after_seconds_with_sql(1, "check_tag_available_for_workspace_internal".to_string())
