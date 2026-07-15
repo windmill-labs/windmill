@@ -61,6 +61,7 @@ import { type PasteAttachment } from './pasteTokens'
 import {
 	type AttachedImage,
 	imagesFromContent,
+	MAX_ATTACHED_IMAGES,
 	stripImagePartsFromMessages,
 	transcriptImage
 } from './imageUtils'
@@ -1333,7 +1334,11 @@ export class AIChatManager {
 		}
 		this.queuedMessage = this.queuedMessage ? `${this.queuedMessage}\n${trimmed}` : trimmed
 		if (images.length > 0) {
-			this.queuedImages = [...this.queuedImages, ...images]
+			const merged = [...this.queuedImages, ...images]
+			if (merged.length > MAX_ATTACHED_IMAGES) {
+				sendUserToast(`Only the first ${MAX_ATTACHED_IMAGES} images are kept.`, true)
+			}
+			this.queuedImages = merged.slice(0, MAX_ATTACHED_IMAGES)
 		}
 	}
 
@@ -2327,7 +2332,14 @@ export class AIChatManager {
 					onMessageEnd: () => void
 				}
 			} = {
-				messages: [...this.messages],
+				// Earlier turns can carry image parts (past attachments, screenshot
+				// follow-ups). Dropping this turn's images is not enough: switching to a
+				// text-only model and sending plain text would still resubmit those and
+				// fail the request. Strip the outbound copy only — history keeps them, so
+				// switching back to a vision model restores what the model can see.
+				messages: modelIsBlind
+					? stripImagePartsFromMessages([...this.messages])
+					: [...this.messages],
 				abortController: this.abortController,
 				callbacks: {
 					onNewToken: (token) => this.replyReveal.push(token),
@@ -2602,6 +2614,24 @@ export class AIChatManager {
 		this.inlineAbortController?.abort(cancelReason)
 	}
 
+	/**
+	 * The images of a stored user turn as the model saw them. Anything resending a
+	 * turn (retry, edit) must read them from here: `displayMessages` only holds the
+	 * bounded copy, and resending that would downgrade the model's own input. The
+	 * transcript's copies ride back along as previews so the resend re-persists a
+	 * bounded copy rather than a full-resolution one.
+	 */
+	storedImages(displayMessageIndex: number): AttachedImage[] | undefined {
+		const shown = this.displayMessages[displayMessageIndex]
+		if (!shown || shown.role !== 'user') return undefined
+		const sent = imagesFromContent(this.messages[shown.index]?.content)
+		if (!sent) return shown.images
+		return sent.map((image, i) => {
+			const preview = shown.images?.[i]?.dataUrl
+			return preview && preview !== image.dataUrl ? { ...image, previewUrl: preview } : image
+		})
+	}
+
 	restartGeneration = (
 		displayMessageIndex: number,
 		newContent?: string,
@@ -2614,6 +2644,10 @@ export class AIChatManager {
 			throw new Error('No user message found at the specified index')
 		}
 
+		// Read while both arrays are intact: storedImages pairs the API message with
+		// its transcript entry, and the truncations below drop them.
+		const sentImages = this.storedImages(displayMessageIndex)
+
 		// Remove all messages including and after the specified user message
 		this.displayMessages = this.displayMessages.slice(0, displayMessageIndex)
 
@@ -2623,11 +2657,6 @@ export class AIChatManager {
 		if (actualMessageIndex === -1) {
 			throw new Error('No actual user message found to restart from')
 		}
-
-		// Read the model's own images out of the API message before the truncation
-		// below drops it: userMessage.images is the bounded transcript copy, so
-		// resending that would hand the model a thumbnail of its own input.
-		const sentImages = imagesFromContent(this.messages[actualMessageIndex]?.content)
 
 		this.messages = this.messages.slice(0, actualMessageIndex)
 

@@ -33,6 +33,12 @@ const PNG_SIZE_CAP = 700_000
 export const MAX_IMAGE_BYTES = 20_000_000
 /** Decoded-pixel ceiling, in case a small file expands to an absurd bitmap. */
 const MAX_IMAGE_PIXELS = 40_000_000
+/**
+ * Images one message may carry. Enforced wherever a message is assembled, not just
+ * at the composer: queuing clears the composer, so its own count would reset and let
+ * repeated sends stack an unbounded batch into a single message.
+ */
+export const MAX_ATTACHED_IMAGES = 8
 
 export type ImageMediaType = 'image/png' | 'image/jpeg'
 

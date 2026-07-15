@@ -19,6 +19,7 @@
 	import {
 		fileToAttachedImage,
 		isImageFile,
+		MAX_ATTACHED_IMAGES,
 		MAX_IMAGE_BYTES,
 		type AttachedImage
 	} from './imageUtils'
@@ -146,7 +147,6 @@
 	// out without an attachment the user already dropped, and reserves cap slots
 	// against a concurrent drop.
 	let pendingImages = $state(0)
-	const MAX_ATTACHED_IMAGES = 8
 
 	/** Attach dropped/pasted image files (downscaled + bounded). GLOBAL mode only. */
 	export async function addImages(files: (File | Blob)[]) {

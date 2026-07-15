@@ -578,6 +578,46 @@ describe('AIChatManager queued messages', () => {
 		expect(urls).toEqual(['data:image/png;base64,FULLRES'])
 	})
 
+	// The gate on this turn's images is not enough: history keeps image parts from
+	// earlier turns, and a text-only model rejects the whole request over them.
+	it('strips historical images from the outbound copy on a text-only model', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		manager.messages = [
+			{
+				role: 'user',
+				content: [
+					{ type: 'text', text: 'earlier turn' },
+					{ type: 'image_url', image_url: { url: 'data:image/png;base64,OLD' } }
+				] as any
+			},
+			{ role: 'assistant', content: 'ok' }
+		]
+		mocks.tryGetCurrentModel.mockReturnValue({ provider: 'groq', model: 'llama-3.3-70b-versatile' })
+
+		await manager.sendRequest({ instructions: 'plain text follow-up' })
+
+		const sent = mocks.runChatLoop.mock.calls[0][0].messages
+		const anyImage = sent.some(
+			(m: any) => Array.isArray(m.content) && m.content.some((p: any) => p.type === 'image_url')
+		)
+		expect(anyImage).toBe(false)
+		// stored history keeps them, so switching back to a vision model still works
+		expect((manager.messages[0].content as any[]).some((p) => p.type === 'image_url')).toBe(true)
+		mocks.tryGetCurrentModel.mockReturnValue(model)
+	})
+
+	// Queuing clears the composer, so its own counter resets; the cap has to hold
+	// on the queue or repeated sends stack an unbounded batch into one message.
+	it('caps images accumulated across repeated queued sends', () => {
+		const manager = createManager()
+		for (let i = 0; i < 4; i++) {
+			manager.queueMessage(`msg ${i}`, [img(`a${i}`), img(`b${i}`), img(`c${i}`)])
+		}
+		expect(manager.queuedImages.length).toBe(8)
+	})
+
 	it('restores queued images to the input on dequeue', () => {
 		const input = createInputMock()
 		const manager = createManager(input)

@@ -362,6 +362,11 @@
 		if (!dt) return
 		// Images are attached to the message (multimodal); other files link as text context.
 		const imageFiles: File[] = []
+		// addImages reserves its slots synchronously, so hand each image over the moment
+		// it is known rather than after the text work: the gap left sending enabled with
+		// an image pending (measured ~90ms for 40 files, longer for a folder), and a send
+		// in it would land the image on the next message.
+		const imageWork: Promise<unknown>[] = []
 		if (canUseFsAccess) {
 			// getAsFileSystemHandle calls are kicked off synchronously inside this call.
 			const handles = await handlesFromDataTransfer(dt)
@@ -371,7 +376,7 @@
 					await addDirHandle(h as FileSystemDirectoryHandle)
 				} else {
 					const file = await (h as FileSystemFileHandle).getFile()
-					if (isImageFile(file)) imageFiles.push(file)
+					if (isImageFile(file)) imageWork.push(aiChatInput?.addImages([file]) ?? Promise.resolve())
 					// Files are always snapshotted (handle discarded).
 					else await handleAddFiles([{ file }])
 				}
@@ -392,9 +397,12 @@
 				}
 				return true
 			})
+			if (imageFiles.length > 0) {
+				imageWork.push(aiChatInput?.addImages(imageFiles) ?? Promise.resolve())
+			}
 			if (textEntries.length > 0) await handleAddFiles(textEntries)
 		}
-		if (imageFiles.length > 0) await aiChatInput?.addImages(imageFiles)
+		await Promise.all(imageWork)
 	}
 
 	async function onFileInputChange(e: Event) {
@@ -403,8 +411,10 @@
 			const picked = Array.from(input.files)
 			const imageFiles = picked.filter(isImageFile)
 			const textFiles = picked.filter((f) => !isImageFile(f))
+			// Reserved before the text work is awaited — see onPanelDrop.
+			const imageWork = imageFiles.length > 0 ? aiChatInput?.addImages(imageFiles) : undefined
 			if (textFiles.length > 0) await handleAddFiles(textFiles)
-			if (imageFiles.length > 0) await aiChatInput?.addImages(imageFiles)
+			await imageWork
 		}
 		input.value = '' // allow re-selecting the same file
 	}

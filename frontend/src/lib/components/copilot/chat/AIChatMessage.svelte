@@ -81,7 +81,7 @@
 					bind:selectedContext
 					initialInstructions={message.content}
 					initialPastes={message.pastes}
-					initialImages={message.images}
+					initialImages={aiChatManager.storedImages(messageIndex)}
 					{editingMessageIndex}
 					onClickOutside={() => (editingMessageIndex = null)}
 					onKeyDown={(e) => {
