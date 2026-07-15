@@ -426,7 +426,14 @@ function createRuntime(session: Session): SessionRuntime {
 	}
 
 	manager.openArtifact = (id, name) => {
-		previewTabs.open({ type: 'artifact', id, name })
+		// Capture before open() un-collapses / re-activates: flash only when the tab
+		// was already the displayed one (nothing else visibly changes).
+		const wasDisplayed = !previewTabs.collapsed
+		const prevActive = previewTabs.activeId
+		const { status } = previewTabs.open({ type: 'artifact', id, name })
+		if (status === 'focused' && wasDisplayed && previewTabs.activeId === prevActive) {
+			previewTabs.pulseFocus(previewTabs.activeId)
+		}
 	}
 	manager.closeArtifact = (id) => previewTabs.closeArtifact(id)
 	// Key the store before any configureGlobalMode runs, so a new session's first create shows at once.

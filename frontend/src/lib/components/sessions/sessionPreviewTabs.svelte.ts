@@ -155,6 +155,8 @@ export class SessionPreviewTabs {
 	#activeId = $state('')
 	#collapsed = $state(false)
 	#previewSize = $state<number | undefined>(undefined)
+	// Ephemeral UI signal — not part of the persisted snapshot.
+	#focusPulse = $state({ id: '', nonce: 0 })
 	readonly #adapter: PreviewTabsAdapter
 	readonly #flushDelay: number
 	#flushHandle: ReturnType<typeof setTimeout> | undefined
@@ -186,6 +188,15 @@ export class SessionPreviewTabs {
 	}
 	get previewSize(): number | undefined {
 		return this.#previewSize
+	}
+	get focusPulse(): { id: string; nonce: number } {
+		return this.#focusPulse
+	}
+
+	// The nonce makes each call a fresh value, so re-clicking the same active tab
+	// still fires the flash.
+	pulseFocus(id: string): void {
+		this.#focusPulse = { id, nonce: this.#focusPulse.nonce + 1 }
 	}
 
 	setPreviewSize(size: number): void {

@@ -1,14 +1,8 @@
 <script lang="ts">
-	import {
-		Archive,
-		ExternalLink,
-		GitPullRequestClosed,
-		MoveRight,
-		Pencil,
-		Trash2
-	} from 'lucide-svelte'
+	import { Archive, ExternalLink, GitPullRequestClosed, MoveRight, Trash2 } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import WorkspaceFamilyPicker from './WorkspaceFamilyPicker.svelte'
 	import { isPremiumStore, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { canCreateFork } from '$lib/utils/editInFork'
@@ -16,10 +10,12 @@
 	import { sessionState, type Session } from './sessionState.svelte'
 	import { getRuntime } from './sessionRuntime.svelte'
 	import SessionDiffDrawer from './SessionDiffDrawer.svelte'
+	import SessionStatusToken, { TOKEN_TRIGGER_CLASS } from './SessionStatusToken.svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
-	import { badgeCounts, buildDeployItems } from './sessionDeployModel'
+	import { badgeCounts, badgeOf, buildDeployItems } from './sessionDeployModel'
 	import { useExistingMaskKeys } from './sessionDeployModel.svelte'
 	import JobsSegment from '$lib/components/copilot/chat/JobsSegment.svelte'
+	import ArtifactsSegment from '$lib/components/copilot/chat/artifacts/ArtifactsSegment.svelte'
 
 	// Unified session bar: surfaces what the CURRENT chat changed — pending
 	// drafts and deployed items — as one count badge per status that opens the
@@ -123,9 +119,9 @@
 	// Opening the drawer re-fetches its own data, so it can show fresher state
 	// than the badge just clicked (e.g. "1 draft" that was deployed elsewhere in
 	// the meantime). Re-sync the dock alongside so the two never disagree.
-	function openDrawer() {
+	function openDrawer(focusKey?: string) {
 		refreshDock()
-		diffDrawer?.open()
+		diffDrawer?.open(focusKey)
 	}
 
 	// The dock counts are computed from the same pure model over this chat's
@@ -175,25 +171,20 @@
 	// Background jobs the chat started (rendered as the Jobs segment). The session
 	// bar shows if there are edits OR jobs; each segment hides when its side is empty.
 	const hasJobs = $derived((runtime?.manager.backgroundJobs.length ?? 0) > 0)
-</script>
+	const hasArtifacts = $derived((runtime?.manager.artifacts.artifacts.length ?? 0) > 0)
 
-{#snippet dock()}
-	<!-- One count badge per row status, same vocabulary/colors as the drawer's
-	     badges (draft/deployed) so the bar reads at a glance. Display-only: the
-	     enclosing Edits segment button opens the drawer. -->
-	<div class="flex items-center gap-1 shrink-0">
-		{#if dockCounts.draft > 0}
-			<Badge small color="indigo">
-				{dockCounts.draft} draft{dockCounts.draft === 1 ? '' : 's'}
-			</Badge>
-		{/if}
-		{#if dockCounts.deployed > 0}
-			<Badge small color="green">
-				{dockCounts.deployed} deployed
-			</Badge>
-		{/if}
-	</div>
-{/snippet}
+	const editsCount = $derived(dockCounts.draft + dockCounts.deployed)
+	const editsLabel = $derived(`${editsCount} edit${editsCount === 1 ? '' : 's'}`)
+	let editsOpen = $state(false)
+
+	// Only draft-vs-deployed drives the color: stale/failed live in the drawer's
+	// deploy model, not here.
+	const editsColorClass = $derived(
+		dockCounts.draft > 0
+			? '!bg-indigo-100 !text-indigo-800 hover:!bg-indigo-200 dark:!bg-indigo-700/40 dark:!text-indigo-100 dark:hover:!bg-indigo-600/40'
+			: '!bg-green-100 !text-green-700 hover:!bg-green-200 dark:!bg-green-700/40 dark:!text-green-100 dark:hover:!bg-green-600/40'
+	)
+</script>
 
 {#if committedId && isUnavailable}
 	<!-- Committed workspace is no longer in the user's list (deleted, archived,
@@ -240,57 +231,72 @@
 			</Button>
 		</div>
 	</div>
-{:else if committedId && (showBar || hasJobs)}
-	<!-- Segmented session bar: an Edits segment (what the AI changed this session)
-	     and a Jobs segment (background jobs it started), sharing one border box.
-	     The Edits segment (or, in its absence, a flex-1 spacer) fills the left so the
-	     Jobs segment stays pinned to the right whether or not there are edits. Fork
-	     identity / sync status lives inside the modal. -->
-	<div
-		class="flex h-[38px] items-stretch overflow-hidden rounded-md border bg-surface-tertiary text-xs"
-	>
+{:else if committedId && (showBar || hasArtifacts || hasJobs)}
+	<div class="flex items-center gap-3 rounded-md border bg-surface-tertiary px-2 py-2 text-xs">
 		{#if showBar}
 			{#if deletionOnly && compareHref}
-				<!-- Deleted items have no drawer row; the pending fork→parent removal is
-				     reviewed on the compare page, so the segment links there instead. -->
+				<!-- Deleted items have no drawer row, so this token links to the compare
+				     page (where the fork→parent removal is reviewed) rather than opening
+				     a popover. -->
 				<a
 					href={compareHref}
 					target="_blank"
 					rel="noopener noreferrer"
 					title="This chat's edits were deletions — review and promote them on the compare page"
-					class="flex min-w-0 flex-1 items-center gap-1.5 px-3 hover:bg-surface-hover"
+					class={TOKEN_TRIGGER_CLASS}
 				>
-					<Pencil class="h-3.5 w-3.5 shrink-0 text-secondary" />
-					<span class="shrink-0 font-normal text-primary">Edits</span>
-					<span
-						class="ml-auto inline-flex items-center gap-1 truncate text-2xs font-medium text-accent"
-					>
-						Review deletions <ExternalLink class="h-3 w-3 shrink-0" />
-					</span>
+					<span class="truncate font-normal text-secondary">Edits</span>
+					<ExternalLink class="h-3 w-3 shrink-0 text-tertiary" />
 				</a>
 			{:else}
-				<!-- Raw <button> (like the other clickable session rows/segments, e.g.
-				     SessionPicker/WorkspaceFamilyPicker): a full-width bar segment, not a
-				     discrete design-system action control. aria-haspopup marks the drawer. -->
-				<button
-					type="button"
-					class="flex min-w-0 flex-1 items-center gap-1.5 px-3 hover:bg-surface-hover"
-					title="Edited by the chat during this session"
-					aria-haspopup="dialog"
-					onclick={openDrawer}
+				<Popover
+					bind:isOpen={editsOpen}
+					placement="top-start"
+					enableFlyTransition
+					closeOnOtherPopoverOpen
+					class={`${TOKEN_TRIGGER_CLASS} ${editsColorClass}`}
+					contentClasses="!bg-surface"
+					triggerAttrs={{ 'aria-label': editsLabel, 'aria-haspopup': 'dialog' }}
 				>
-					<Pencil class="h-3.5 w-3.5 shrink-0 text-secondary" />
-					<span class="shrink-0 font-normal text-primary">Edits</span>
-					<span class="ml-auto">{@render dock()}</span>
-				</button>
+					{#snippet trigger()}
+						<SessionStatusToken label={editsLabel} expanded={editsOpen} />
+					{/snippet}
+					{#snippet content({ close })}
+						<div class="flex w-96 flex-col text-xs">
+							<div class="border-b px-3 py-2 text-tertiary">Edited this session</div>
+							<div class="max-h-[min(9rem,50vh)] overflow-y-auto py-1">
+								{#each dockItems as item (item.key)}
+									<button
+										type="button"
+										class="flex w-full items-center gap-2 py-1 pl-3 pr-2 text-left hover:bg-surface-hover"
+										title={item.displayPath}
+										onclick={() => {
+											close()
+											openDrawer(item.key)
+										}}
+									>
+										<span class="min-w-0 flex-1 truncate font-mono font-normal text-secondary">
+											{item.displayPath}
+										</span>
+										{#if badgeOf(item) === 'draft'}
+											<Badge small color="indigo">
+												{item.draftOnly ? 'Draft only' : 'Draft'}
+											</Badge>
+										{:else}
+											<Badge small color="green">Deployed</Badge>
+										{/if}
+									</button>
+								{/each}
+							</div>
+						</div>
+					{/snippet}
+				</Popover>
 			{/if}
-		{:else}
-			<!-- No edits: a spacer fills the left so the Jobs segment stays right-aligned. -->
-			<div class="flex-1"></div>
+		{/if}
+		{#if hasArtifacts}
+			<ArtifactsSegment />
 		{/if}
 		{#if hasJobs}
-			<!-- standalone={false}: renders just the chip trigger as a full-height
-			     segment; the border box above provides the chrome. -->
 			<JobsSegment />
 		{/if}
 	</div>

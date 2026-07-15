@@ -113,6 +113,21 @@
 	const visibility = $derived(
 		active ? 'z-10 opacity-100 pointer-events-auto' : 'z-0 opacity-0 pointer-events-none'
 	)
+
+	let flashing = $state(false)
+	let flashTimer: ReturnType<typeof setTimeout> | undefined
+	// Guard against the effect's non-pulse reruns (tab/runtime changes) firing a flash.
+	let lastPulseNonce = -1
+	$effect(() => {
+		const pulse = runtime?.previewTabs.focusPulse
+		if (!pulse || pulse.nonce === lastPulseNonce) return
+		lastPulseNonce = pulse.nonce
+		if (pulse.id !== tab.id) return
+		flashing = true
+		clearTimeout(flashTimer)
+		flashTimer = setTimeout(() => (flashing = false), 800)
+	})
+	$effect(() => () => clearTimeout(flashTimer))
 </script>
 
 {#if slot.kind === 'editor' && mounted && runtime}
@@ -156,6 +171,13 @@
 		{:else if !runtime?.manager.artifacts.loading}
 			<div class="p-4 text-sm text-tertiary">This artifact is no longer available.</div>
 		{/if}
+		<!-- Overlay: the source editor's opaque bg would cover a ring on the container. -->
+		<div
+			class="pointer-events-none absolute inset-0 z-30 ring-2 ring-inset ring-border-accent transition-opacity duration-300 {flashing
+				? 'opacity-100'
+				: 'opacity-0'}"
+			aria-hidden="true"
+		></div>
 	</div>
 {:else if mounted}
 	<iframe

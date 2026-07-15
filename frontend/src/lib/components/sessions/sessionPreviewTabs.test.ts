@@ -615,3 +615,16 @@ describe('selectPreviewTabsToClose', () => {
 		expect(selectPreviewTabsToClose(tabs, { all: false, match: 'nonexistent' })).toEqual([])
 	})
 })
+
+describe('SessionPreviewTabs.pulseFocus', () => {
+	it('sets the id and advances the nonce, re-firing for the same id', () => {
+		const o = owner()
+		expect(o.focusPulse).toEqual({ id: '', nonce: 0 })
+		o.pulseFocus('tab-a')
+		expect(o.focusPulse).toEqual({ id: 'tab-a', nonce: 1 })
+		o.pulseFocus('tab-a')
+		expect(o.focusPulse).toEqual({ id: 'tab-a', nonce: 2 })
+		o.pulseFocus('tab-b')
+		expect(o.focusPulse).toEqual({ id: 'tab-b', nonce: 3 })
+	})
+})

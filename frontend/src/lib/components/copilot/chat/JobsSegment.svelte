@@ -7,7 +7,7 @@
 	import { zIndexes } from '$lib/zIndexes'
 	import JobStatusIcon from '$lib/components/runs/JobStatusIcon.svelte'
 	import FlowStatusWaitingForEvents from '$lib/components/FlowStatusWaitingForEvents.svelte'
-	import { ChevronUp, ExternalLink, Hourglass, ThumbsUp, TimerOff } from 'lucide-svelte'
+	import { ChevronUp, Hourglass, ThumbsUp, TimerOff } from 'lucide-svelte'
 	import { base } from '$lib/base'
 	import { slide } from 'svelte/transition'
 	import { JobService, type Job } from '$lib/gen'
@@ -15,6 +15,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { deriveChatJobStatus, type ChatJob, type ChatJobStatus } from './shared'
+	import { TOKEN_TRIGGER_CLASS } from '$lib/components/sessions/SessionStatusToken.svelte'
 
 	// The "Jobs" segment of the session bar: a compact status chip that summarizes
 	// the background jobs the chat started, opening a popover with the full list
@@ -104,12 +105,27 @@
 					danger: false
 				}
 			if (failureCount > 0)
-				return { dot: dotClass('failure'), pulse: false, text: `${jobs.length}`, danger: true }
+				return {
+					dot: dotClass('failure'),
+					pulse: false,
+					text: `${failureCount} failed`,
+					danger: true
+				}
 			// All terminal, none failed: green if anything actually succeeded, else gray
 			// (only canceled jobs left — a cancel isn't a success, so don't show green).
 			if (successCount > 0)
-				return { dot: dotClass('success'), pulse: false, text: `${jobs.length}`, danger: false }
-			return { dot: dotClass('canceled'), pulse: false, text: `${jobs.length}`, danger: false }
+				return {
+					dot: dotClass('success'),
+					pulse: false,
+					text: `${successCount} succeeded`,
+					danger: false
+				}
+			return {
+				dot: dotClass('canceled'),
+				pulse: false,
+				text: `${jobs.length} canceled`,
+				danger: false
+			}
 		}
 	)
 
@@ -188,6 +204,7 @@
 		} else {
 			window.open(runHref(job), '_blank', 'noreferrer')
 		}
+		open = false
 	}
 
 	// --- Popover open state + auto-open on approval ---
@@ -259,23 +276,26 @@
 	<Popover
 		bind:this={popover}
 		bind:isOpen={open}
-		placement="top-end"
+		placement={standalone ? 'top-end' : 'top-start'}
 		enableFlyTransition
 		usePointerDownOutside
+		closeOnOtherPopoverOpen={!standalone}
 		class={standalone
 			? 'flex h-[34px] w-full items-center rounded-md border bg-surface-tertiary px-3 hover:bg-surface-hover'
-			: 'flex h-full items-center px-3.5 hover:bg-surface-hover'}
+			: TOKEN_TRIGGER_CLASS}
 		triggerAttrs={{ 'aria-label': ariaLabel, 'aria-haspopup': 'dialog' }}
 		contentClasses="!bg-surface"
 	>
 		{#snippet trigger()}
 			<span class="flex min-w-0 items-center gap-2 text-xs">
-				<span class="shrink-0 font-normal text-primary">Jobs</span>
+				{#if standalone}
+					<span class="shrink-0 font-normal text-primary">Jobs</span>
+				{/if}
 				<span
 					class={`size-[7px] shrink-0 rounded-full ${segment.dot} ${segment.pulse ? 'motion-safe:animate-pulse' : ''}`}
 				></span>
 				<span
-					class={`min-w-0 truncate font-normal ${runningJob ? 'text-2xs' : 'text-xs'} ${segment.danger ? 'text-red-500' : 'text-primary'}`}
+					class={`min-w-0 truncate font-normal ${runningJob ? 'text-2xs' : 'text-xs'} ${segment.danger ? 'text-red-500' : standalone ? 'text-primary' : 'text-secondary'}`}
 					title={runningJob?.label ?? undefined}
 					dir={runningJob ? 'rtl' : undefined}
 				>
@@ -294,29 +314,37 @@
 				{/if}
 				<ChevronUp
 					size={14}
-					class={`shrink-0 text-secondary transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
+					class={`shrink-0 ${standalone ? 'text-secondary' : 'text-tertiary'} transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
 				/>
 			</span>
 		{/snippet}
 
 		{#snippet content()}
-			<div class="flex max-h-[50vh] w-80 flex-col text-xs">
+			<div class="flex w-80 flex-col text-xs">
 				<div class="border-b px-3 py-2 text-tertiary">Jobs this session</div>
-				<div class="min-h-0 flex-1 overflow-y-auto py-1">
+				<div
+					class={`overflow-y-auto py-1 ${standalone ? 'max-h-[50vh]' : 'max-h-[min(12rem,50vh)]'}`}
+				>
 					{#each sortedJobs as job (job.jobId)}
-						<div class="flex items-center gap-2.5 px-3 py-1.5">
-							{#if job.status === 'queued' || !job.job}
-								<!-- Queued: match the job detail page's orange badge (JobStatusIcon's
-								     default queued badge is gray). Also covers the pre-first-fetch state. -->
-								<Badge color="orange" baseClass="!px-1.5" title="Queued"
-									><Hourglass size={13} /></Badge
-								>
-							{:else}
-								<JobStatusIcon job={job.job} />
-							{/if}
-							<span class="min-w-0 grow truncate text-secondary" title={job.label}>{job.label}</span
+						<div class="flex items-center gap-2.5 px-3 py-1.5 hover:bg-surface-hover">
+							<button
+								type="button"
+								class="flex min-w-0 grow items-center gap-2.5 text-left font-normal"
+								title={job.label}
+								onclick={() => openRun(job)}
 							>
-							<span class="shrink-0 tabular-nums text-tertiary">{elapsedLabel(job)}</span>
+								{#if job.status === 'queued' || !job.job}
+									<!-- Queued: match the job detail page's orange badge (JobStatusIcon's
+									     default queued badge is gray). Also covers the pre-first-fetch state. -->
+									<Badge color="orange" baseClass="!px-1.5" title="Queued"
+										><Hourglass size={13} /></Badge
+									>
+								{:else}
+									<JobStatusIcon job={job.job} />
+								{/if}
+								<span class="min-w-0 grow truncate text-secondary">{job.label}</span>
+								<span class="shrink-0 tabular-nums text-tertiary">{elapsedLabel(job)}</span>
+							</button>
 							<div class="flex shrink-0 items-center gap-1.5">
 								{#if job.status === 'suspended'}
 									<Button
@@ -335,14 +363,6 @@
 										on:click={() => aiChatManager.cancelJob(job.jobId)}>Cancel</Button
 									>
 								{/if}
-								<Button
-									iconOnly
-									unifiedSize="xs"
-									variant="subtle"
-									startIcon={{ icon: ExternalLink }}
-									title="Open the run"
-									on:click={() => openRun(job)}
-								/>
 							</div>
 						</div>
 					{/each}
