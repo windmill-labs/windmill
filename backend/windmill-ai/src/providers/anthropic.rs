@@ -6,7 +6,10 @@ use crate::{
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
     sse::{AnthropicSSEParser, SSEParser},
     types::*,
-    utils::{extract_text_content, should_use_structured_output_tool, AI_HTTP_HEADERS},
+    utils::{
+        collect_system_prompt, extract_text_content, should_use_structured_output_tool,
+        AI_HTTP_HEADERS,
+    },
 };
 use async_trait::async_trait;
 use http::Method;
@@ -209,7 +212,7 @@ fn convert_messages_to_anthropic(messages: &[OpenAIMessage]) -> Vec<AnthropicMes
     for msg in messages {
         match msg.role.as_str() {
             "system" => {
-                // Skip - handled via args.system_prompt in build_text_request
+                // Lifted into the request's top-level `system` field by build_text_request
             }
             "user" => {
                 // Convert user messages
@@ -601,19 +604,19 @@ impl AnthropicQueryBuilder {
             }
         }
 
-        // Build system content from system_prompt, but None if system_prompt is empty string
-        let system = match args.system_prompt {
-            Some(s) if !s.is_empty() => Some(vec![AnthropicSystemContent {
+        // `system` is the single field this request sends a system prompt in;
+        // convert_messages_to_anthropic leaves system messages out of `messages`.
+        let system = collect_system_prompt(&prepared_messages, args.system_prompt).map(|text| {
+            vec![AnthropicSystemContent {
                 r#type: "text".to_string(),
-                text: s.to_string(),
+                text,
                 cache_control: if self.is_vertex() {
                     None
                 } else {
                     Some(CacheControl::ephemeral())
                 },
-            }]),
-            _ => None,
-        };
+            }]
+        });
 
         // Check if we need to force tool usage for structured output
         let has_output_properties = args
@@ -840,6 +843,88 @@ mod tests {
             platform,
             custom_headers: HashMap::new(),
         }
+    }
+
+    const SYSTEM_PROMPT: &str = "You are a helpful assistant";
+
+    fn authed_client() -> AuthedClient {
+        AuthedClient::new(
+            "http://localhost:8000".to_string(),
+            "test-workspace".to_string(),
+            "token".to_string(),
+            None,
+        )
+    }
+
+    fn message(role: &str, text: &str) -> OpenAIMessage {
+        OpenAIMessage {
+            role: role.to_string(),
+            content: Some(OpenAIContent::Text(text.to_string())),
+            ..Default::default()
+        }
+    }
+
+    async fn build_text_body(messages: &[OpenAIMessage], system_prompt: Option<&str>) -> String {
+        let args = BuildRequestArgs {
+            messages,
+            tools: None,
+            model: "claude-sonnet-4",
+            temperature: None,
+            reasoning_effort: None,
+            max_tokens: None,
+            output_schema: None,
+            output_type: &OutputType::Text,
+            system_prompt,
+            user_message: "hello",
+            attachments: None,
+            has_websearch: false,
+        };
+
+        AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::Standard)
+            .build_request(&args, &authed_client(), "test-workspace")
+            .await
+            .unwrap()
+    }
+
+    /// The worker prepends the system prompt as a system message *and* passes it as
+    /// `system_prompt`; the request must still carry it exactly once.
+    #[tokio::test]
+    async fn sends_system_prompt_only_in_system_field() {
+        let messages = vec![message("system", SYSTEM_PROMPT), message("user", "hi")];
+
+        let body = build_text_body(&messages, Some(SYSTEM_PROMPT)).await;
+        let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert_eq!(request["system"][0]["text"], SYSTEM_PROMPT);
+        assert_eq!(body.matches(SYSTEM_PROMPT).count(), 1);
+
+        let sent = request["messages"].as_array().unwrap();
+        assert!(sent.iter().all(|message| message["role"] != "system"));
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0]["role"], "user");
+    }
+
+    /// Manual-memory conversations supply their own system messages without a
+    /// `system_prompt` arg: those must still reach the model.
+    #[tokio::test]
+    async fn lifts_manual_system_messages_into_system_field() {
+        let messages = vec![message("system", "be terse"), message("user", "hi")];
+
+        let body = build_text_body(&messages, None).await;
+        let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert_eq!(request["system"][0]["text"], "be terse");
+        assert_eq!(request["messages"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn omits_system_without_a_system_prompt() {
+        let messages = vec![message("user", "hi")];
+
+        let body = build_text_body(&messages, None).await;
+        let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert!(request.get("system").is_none());
     }
 
     fn has_header(headers: &[(String, String)], name: &str, value: &str) -> bool {

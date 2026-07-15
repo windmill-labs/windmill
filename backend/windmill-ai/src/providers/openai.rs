@@ -6,7 +6,7 @@ use crate::{
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
     sse::{OpenAIResponsesSSEParser, SSEParser},
     types::*,
-    utils::extract_text_content,
+    utils::{collect_system_prompt, extract_text_content},
 };
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -206,7 +206,7 @@ pub struct ResponsesApiRequest<'a> {
     pub model: &'a str,
     pub input: Vec<ResponsesApiInputItem>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub instructions: Option<&'a str>,
+    pub instructions: Option<String>,
     pub tools: Vec<ResponsesApiTool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
@@ -296,13 +296,17 @@ fn convert_content_to_assistant_format(content: &Option<OpenAIContent>) -> Vec<A
 
 /// Convert OpenAIMessage array to Responses API input items
 /// Following the same pattern as frontend openai-responses.ts:convertMessagesToResponsesInput
+///
+/// System messages are left out: they are lifted into the request's top-level
+/// `instructions` field, so echoing them here would send the same prompt twice.
 fn convert_messages_to_responses_input(messages: &[OpenAIMessage]) -> Vec<ResponsesApiInputItem> {
     let mut input = Vec::new();
 
     for m in messages {
         match m.role.as_str() {
-            "system" | "user" => {
-                // User/system messages use input_text content type
+            "system" => {}
+            "user" => {
+                // User messages use input_text content type
                 let content = convert_content_to_responses_format(&m.content);
                 if !content.is_empty() {
                     input.push(ResponsesApiInputItem::InputMessage {
@@ -375,6 +379,10 @@ impl OpenAIQueryBuilder {
         // (following frontend pattern from openai-responses.ts)
         let input_items = convert_messages_to_responses_input(&prepared_messages);
 
+        // `instructions` is the single field this request sends a system prompt in;
+        // convert_messages_to_responses_input leaves system messages out of `input`.
+        let instructions = collect_system_prompt(&prepared_messages, args.system_prompt);
+
         // Build tools array using typed structs
         let mut tools: Vec<ResponsesApiTool> = Vec::new();
 
@@ -416,7 +424,7 @@ impl OpenAIQueryBuilder {
         let request = ResponsesApiRequest {
             model: args.model,
             input: input_items,
-            instructions: args.system_prompt, // System prompt goes to instructions field
+            instructions,
             tools,
             stream: Some(true),
             temperature: args.temperature,
@@ -474,7 +482,7 @@ impl OpenAIQueryBuilder {
         let request = ResponsesApiRequest {
             model: args.model,
             input: vec![ResponsesApiInputItem::InputMessage { role: "user".to_string(), content }],
-            instructions: args.system_prompt,
+            instructions: args.system_prompt.map(str::to_string),
             tools,
             stream: None, // Image generation doesn't use streaming
             temperature: args.temperature,
@@ -580,5 +588,93 @@ impl QueryBuilder for OpenAIQueryBuilder {
         _output_type: &OutputType,
     ) -> Vec<(&'static str, String)> {
         vec![("Authorization", format!("Bearer {}", api_key))]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::query_builder::QueryBuilder;
+
+    const SYSTEM_PROMPT: &str = "You are a helpful assistant";
+
+    fn client() -> AuthedClient {
+        AuthedClient::new(
+            "http://localhost:8000".to_string(),
+            "test-workspace".to_string(),
+            "token".to_string(),
+            None,
+        )
+    }
+
+    fn message(role: &str, text: &str) -> OpenAIMessage {
+        OpenAIMessage {
+            role: role.to_string(),
+            content: Some(OpenAIContent::Text(text.to_string())),
+            ..Default::default()
+        }
+    }
+
+    async fn build_text_body(messages: &[OpenAIMessage], system_prompt: Option<&str>) -> String {
+        let args = BuildRequestArgs {
+            messages,
+            tools: None,
+            model: "gpt-5",
+            temperature: None,
+            reasoning_effort: None,
+            max_tokens: None,
+            output_schema: None,
+            output_type: &OutputType::Text,
+            system_prompt,
+            user_message: "hello",
+            attachments: None,
+            has_websearch: false,
+        };
+
+        OpenAIQueryBuilder::new(AIProvider::OpenAI)
+            .build_request(&args, &client(), "test-workspace")
+            .await
+            .unwrap()
+    }
+
+    /// The worker prepends the system prompt as a system message *and* passes it as
+    /// `system_prompt`; the request must still carry it exactly once.
+    #[tokio::test]
+    async fn sends_system_prompt_only_in_instructions() {
+        let messages = vec![message("system", SYSTEM_PROMPT), message("user", "hi")];
+
+        let body = build_text_body(&messages, Some(SYSTEM_PROMPT)).await;
+        let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert_eq!(request["instructions"], SYSTEM_PROMPT);
+        assert_eq!(body.matches(SYSTEM_PROMPT).count(), 1);
+
+        let input = request["input"].as_array().unwrap();
+        assert!(input.iter().all(|item| item["role"] != "system"));
+        assert_eq!(input.len(), 1);
+        assert_eq!(input[0]["role"], "user");
+    }
+
+    /// Manual-memory conversations supply their own system messages without a
+    /// `system_prompt` arg: those must still reach the model.
+    #[tokio::test]
+    async fn lifts_manual_system_messages_into_instructions() {
+        let messages = vec![message("system", "be terse"), message("user", "hi")];
+
+        let body = build_text_body(&messages, None).await;
+        let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert_eq!(request["instructions"], "be terse");
+        assert_eq!(request["input"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn omits_instructions_without_a_system_prompt() {
+        let messages = vec![message("user", "hi")];
+
+        let body = build_text_body(&messages, None).await;
+        let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert!(request.get("instructions").is_none());
     }
 }

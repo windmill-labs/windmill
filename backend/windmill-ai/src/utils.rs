@@ -1,6 +1,6 @@
 use crate::{
     ai_providers::AIProvider,
-    ai_types::{ContentPart, OpenAIContent},
+    ai_types::{ContentPart, OpenAIContent, OpenAIMessage},
 };
 
 lazy_static::lazy_static! {
@@ -37,6 +37,33 @@ pub fn should_use_structured_output_tool(provider: &AIProvider, model: &str) -> 
     model.contains("claude") || provider == &AIProvider::AWSBedrock
 }
 
+/// Collect the system prompt for providers that take it in a dedicated top-level field
+/// (Anthropic's `system`, OpenAI's `instructions`) instead of inline in the message list.
+///
+/// The caller prepends `system_prompt` to `messages` as a system message, and manual-memory
+/// conversations can carry system messages of their own, so both sources are folded in here.
+/// Such providers must in turn leave system messages out of the message list they send, or the
+/// same prompt goes over the wire twice.
+pub fn collect_system_prompt(
+    messages: &[OpenAIMessage],
+    system_prompt: Option<&str>,
+) -> Option<String> {
+    let from_messages = messages
+        .iter()
+        .filter(|message| message.role == "system")
+        .filter_map(|message| message.content.as_ref().map(extract_text_content))
+        .filter(|text| !text.is_empty())
+        .collect::<Vec<_>>();
+
+    if from_messages.is_empty() {
+        system_prompt
+            .filter(|prompt| !prompt.is_empty())
+            .map(str::to_string)
+    } else {
+        Some(from_messages.join("\n\n"))
+    }
+}
+
 /// Extract text content from OpenAIContent, joining parts with space if multiple
 pub fn extract_text_content(content: &OpenAIContent) -> String {
     match content {
@@ -52,5 +79,52 @@ pub fn extract_text_content(content: &OpenAIContent) -> String {
             })
             .collect::<Vec<_>>()
             .join(""),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn message(role: &str, text: &str) -> OpenAIMessage {
+        OpenAIMessage {
+            role: role.to_string(),
+            content: Some(OpenAIContent::Text(text.to_string())),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn joins_every_system_message() {
+        let messages = vec![
+            message("system", "be helpful"),
+            message("user", "hi"),
+            message("system", "be terse"),
+        ];
+
+        assert_eq!(
+            collect_system_prompt(&messages, Some("be helpful")),
+            Some("be helpful\n\nbe terse".to_string())
+        );
+    }
+
+    #[test]
+    fn falls_back_to_the_system_prompt_argument() {
+        let messages = vec![message("user", "hi")];
+
+        assert_eq!(
+            collect_system_prompt(&messages, Some("be helpful")),
+            Some("be helpful".to_string())
+        );
+    }
+
+    #[test]
+    fn treats_empty_prompts_as_absent() {
+        assert_eq!(
+            collect_system_prompt(&[message("user", "hi")], Some("")),
+            None
+        );
+        assert_eq!(collect_system_prompt(&[message("user", "hi")], None), None);
+        assert_eq!(collect_system_prompt(&[message("system", "")], None), None);
     }
 }
