@@ -2737,7 +2737,10 @@ async fn update_app_internal<'a>(
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ExecuteApp {
-    /// The app version to execute. Fallback to `path` if not provided.
+    /// The app version the caller last loaded. Used only as a policy-cache
+    /// freshness hint: when it differs from the cached entry the policy is
+    /// refetched, so a redeploy takes effect immediately. It does not select which
+    /// version runs — the policy and runnables are always the app's current ones.
     pub version: Option<i64>,
     /// The app script id (from the `app_script` table) to execute.
     pub id: Option<i64>,
@@ -2827,6 +2830,33 @@ fn empty_triggerables(mut policy: Policy) -> Policy {
     policy
 }
 
+lazy_static! {
+    /// Deployed-app policies keyed by `(workspace_id, path)`, value
+    /// `(cached_version, policy, cached_at)`. The policy carries the
+    /// authorization-critical `execution_mode` (anonymous/public), so a stale entry
+    /// keeps a revoked app publicly executable (GHSA-r5v4-cxh9-7qhq). An entry is
+    /// reused only when all three freshness signals agree, each covering a case the
+    /// others can't:
+    /// - the caller's `version` still matches `cached_version` (a redeploy bumps the
+    ///   version -> instant refetch, for free since it's in the request);
+    /// - the `notify_app_policy_change` event has not evicted the key (policy-only
+    ///   change or deletion, which don't bump the version — see
+    ///   `invalidate_app_policy_cache` and `process_notify_event`);
+    /// - the entry is within its TTL (backstop for a missed event or a restart).
+    static ref APP_POLICY_CACHE: cache::Cache<(String, String), (Option<i64>, Arc<Policy>, std::time::Instant)> =
+        cache::Cache::new(1000);
+}
+
+/// Backstop time-to-live for an [`APP_POLICY_CACHE`] entry — the maximum a policy
+/// change can go unreflected if its invalidation event is never consumed.
+const APP_POLICY_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// Drop the cached policy for one app so the next execute re-reads it live. Invoked
+/// by the `notify_app_policy_change` poller arm on every policy change or deletion.
+pub fn invalidate_app_policy_cache(workspace_id: &str, path: &str) {
+    APP_POLICY_CACHE.remove(&(workspace_id.to_string(), path.to_string()));
+}
+
 async fn execute_component(
     OptAuthed(opt_authed): OptAuthed,
     tokened: OptTokened,
@@ -2868,7 +2898,7 @@ async fn execute_component(
         _ => {}
     };
 
-    let (arc_policy, policy): (Arc<Policy>, Policy);
+    let arc_policy: Arc<Policy>;
     let policy_triggerables_default = Default::default();
     // Preview mode means the request was issued from the editor; the editing
     // user is already trusted by the policy check, so client-supplied `tag`
@@ -2970,15 +3000,31 @@ async fn execute_component(
             .map(|policy| Result::Ok(serde_json::from_str(policy?.get())?))
             .map_ok(empty_triggerables);
 
-            // 1. The app `version` is provided: cache the fetched policy.
-            // 2. Otherwise, always fetch the policy from the database.
-            let policy = if let Some(id) = payload.version {
-                let cache = cache::anon!({ u64 => Arc<Policy> } in "policy" <= 1000);
-                arc_policy = policy_fut.map_ok(Arc::new).cached(cache, id as u64).await?;
+            // Serve the policy from the `(workspace, path)`-keyed cache, refetching
+            // unless all three freshness signals agree (GHSA-r5v4-cxh9-7qhq): the
+            // caller's `version` matches, the key wasn't evicted by
+            // `notify_app_policy_change`, and the entry is within its TTL.
+            let cache_key = (w_id.to_string(), path.to_string());
+            let fresh = APP_POLICY_CACHE
+                .get(&cache_key)
+                .filter(|(v, _, cached_at)| {
+                    *v == payload.version && cached_at.elapsed() < APP_POLICY_CACHE_TTL
+                })
+                .map(|(_, p, _)| p);
+            let policy = if let Some(p) = fresh {
+                arc_policy = p;
                 &*arc_policy
             } else {
-                policy = policy_fut.await?;
-                &policy
+                arc_policy = Arc::new(policy_fut.await?);
+                APP_POLICY_CACHE.insert(
+                    cache_key,
+                    (
+                        payload.version,
+                        arc_policy.clone(),
+                        std::time::Instant::now(),
+                    ),
+                );
+                &*arc_policy
             };
 
             // Caller-supplied inline code (`raw_code`), with or without an

@@ -1803,6 +1803,15 @@ async fn process_notify_event(
             );
             windmill_api::auth::invalidate_token_from_cache(payload);
         }
+        "notify_app_policy_change" => {
+            // payload is `<workspace_id>:<path>`; workspace ids can't contain ':'.
+            if server_mode {
+                if let Some((workspace_id, path)) = payload.split_once(':') {
+                    tracing::info!("App policy change detected, invalidating cache: {payload}");
+                    windmill_api::invalidate_app_policy_cache(workspace_id, path);
+                }
+            }
+        }
         "notify_global_setting_change" => {
             tracing::info!("Global setting change detected: {}", payload);
             match payload {
