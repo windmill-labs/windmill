@@ -259,50 +259,59 @@ describe('model context windows', () => {
 })
 
 describe('modelSupportsVision', () => {
-	// Each of these ships in a provider's `defaultModels`, so a user can select it
-	// and try to attach an image. A wrong verdict fails the whole turn.
+	// Each ships in a provider's `defaultModels`, so a user can select it and try to
+	// attach. Verdicts are from provider API docs, not model marketing: the two
+	// diverge (DeepSeek V4 and o3-mini both have vision their APIs never exposed).
 	it.each([
+		['openai', 'o3-mini'],
+		['openai', 'o1-mini'],
+		['mistral', 'codestral-latest'],
+		['deepseek', 'deepseek-v4-pro'],
+		['deepseek', 'deepseek-chat'],
+		['deepseek', 'deepseek-reasoner'],
 		['groq', 'llama-3.3-70b-versatile'],
 		['groq', 'llama-3.1-8b-instant'],
+		['azure_foundry', 'DeepSeek-R1'],
 		['azure_foundry', 'Llama-3.3-70B-Instruct'],
 		['azure_foundry', 'Phi-4'],
 		['azure_foundry', 'Mistral-Large-2411'],
-		['azure_foundry', 'DeepSeek-R1'],
 		['openrouter', 'meta-llama/llama-3.2-3b-instruct:free'],
-		['togetherai', 'meta-llama/Llama-3.3-70B-Instruct-Turbo'],
-		['mistral', 'codestral-latest'],
-		['deepseek', 'deepseek-chat'],
-		['deepseek', 'deepseek-reasoner'],
-		['deepseek', 'deepseek-v4-pro']
-	])('refuses images on bundled text-only %s/%s', (provider, model) => {
+		['togetherai', 'meta-llama/Llama-3.3-70B-Instruct-Turbo']
+	])('refuses images on text-only %s/%s', (provider, model) => {
 		expect(modelSupportsVision(provider as any, model)).toBe(false)
 	})
 
 	it.each([
 		['anthropic', 'claude-sonnet-4-6'],
 		['googleai', 'gemini-2.5-flash'],
-		['googleai', 'gemini-3.1-pro'],
-		['azure_foundry', 'gpt-4o'],
+		['googleai', 'gemini-2.5-flash-lite'],
+		['googleai', 'gemini-3.1-pro-preview'],
 		['openai', 'gpt-4o'],
+		['openai', 'gpt-5'],
+		['openai', 'o3'],
+		['openai', 'o4-mini'],
 		['aws_bedrock', 'global.anthropic.claude-haiku-4-5-20251001-v1:0']
-	])('allows images on bundled vision model %s/%s', (provider, model) => {
+	])('allows images on %s/%s', (provider, model) => {
 		expect(modelSupportsVision(provider as any, model)).toBe(true)
 	})
 
-	// The family splits by size, so it cannot be matched wholesale.
-	it('allows Llama 3.2 vision sizes while refusing its text-only ones', () => {
-		expect(modelSupportsVision('openrouter' as any, 'meta-llama/llama-3.2-90b-vision-instruct')).toBe(true)
-		expect(modelSupportsVision('openrouter' as any, 'meta-llama/llama-3.2-1b-instruct')).toBe(false)
+	// The reason this is an exact-match set. Each of these WOULD be wrongly blocked
+	// by a substring of an entry above, and each takes images via its API.
+	it.each([
+		['azure_foundry', 'Mistral-Large-3'], // substring of 'mistral-large-2411'
+		['azure_foundry', 'Phi-4-multimodal-instruct'], // substring of 'phi-4'
+		['openrouter', 'meta-llama/llama-3.2-90b-vision-instruct'], // 'llama-3.2-...'
+		['groq', 'meta-llama/llama-4-scout-17b-16e-instruct'],
+		['groq', 'qwen/qwen3.6-27b']
+	])('does not let a text-only id shadow the vision model %s/%s', (provider, model) => {
+		expect(modelSupportsVision(provider as any, model)).toBe(true)
 	})
 
-	it('allows Phi-4-multimodal while refusing plain Phi-4', () => {
-		expect(modelSupportsVision('azure_foundry' as any, 'Phi-4-multimodal-instruct')).toBe(true)
-		expect(modelSupportsVision('azure_foundry' as any, 'Phi-4')).toBe(false)
-	})
-
-	// Permissive by design: a wrong "no" blocks a model that actually works.
+	// Permissive by design: a wrong "no" blocks a working model with no override,
+	// while a wrong "yes" costs one turn and the failure path recovers it.
 	it('allows unknown and custom models', () => {
 		expect(modelSupportsVision('customai' as any, 'some-internal-vlm')).toBe(true)
+		expect(modelSupportsVision('deepseek' as any, 'deepseek-v9-sees-everything')).toBe(true)
 		expect(modelSupportsVision(undefined, undefined)).toBe(true)
 	})
 })

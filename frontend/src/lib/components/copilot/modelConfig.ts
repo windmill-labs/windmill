@@ -85,35 +85,50 @@ export function modelSupportsVision(
 	model: string | undefined
 ): boolean {
 	if (!provider) return true
-	const m = (model ?? '').toLowerCase()
-	// Phi-4 is text-only, but Phi-4-multimodal is not, so it can't be matched by
-	// name alone like the rest.
-	if (m.includes('phi-4')) return m.includes('multimodal')
-	return !TEXT_ONLY_MODELS.some((name) => m.includes(name))
+	return !TEXT_ONLY_MODELS.has((model ?? '').toLowerCase())
 }
 
 /**
- * There is no per-model capability metadata, so this names the text-only models
- * Windmill offers as defaults (`defaultModels` above) and stays permissive for
- * anything custom: a wrong "no" blocks a working model, while a wrong "yes" only
- * costs one rejected turn. Keep it in step with the bundled defaults.
+ * Models whose provider API refuses image content, matched by exact id.
  *
- * Deliberately narrow: Llama 3.2's 11b/90b are vision models while its 1b/3b are
- * not, so the family can't be matched wholesale.
+ * The question is not whether a model can see, but whether its provider's API
+ * accepts image parts — the two diverge, and the divergence is invisible from a
+ * name: DeepSeek V4 ships vision in its chat UI while its API has no image
+ * content type, and o3-mini gained vision in ChatGPT that the API never exposed.
+ * So this is a cache of one provider's API surface at one moment, and it rots.
+ * Wrong entries are asymmetric: a missing one costs a single turn and
+ * self-corrects (the request fails, the image is dropped, the user is told),
+ * while a wrong one blocks a working model with no override. Hence exact ids
+ * only, and only where a provider doc says so.
+ *
+ * Substrings are specifically avoided: `mistral-large` would also match
+ * Mistral Large 3, which does take images, and `phi-4` would match
+ * Phi-4-multimodal, which does too.
  */
-const TEXT_ONLY_MODELS = [
-	'codestral',
-	'mistral-large',
-	'deepseek-chat',
-	'deepseek-reasoner',
-	'deepseek-v3',
-	'deepseek-v4',
-	'deepseek-r1',
+const TEXT_ONLY_MODELS = new Set([
+	// openai + azure_openai
 	'o1-mini',
 	'o3-mini',
-	'embed',
-	'llama-3.1',
-	'llama-3.2-1b',
-	'llama-3.2-3b',
-	'llama-3.3'
-]
+	// mistral
+	'codestral-latest',
+	// deepseek — vision exists in their chat product, not in the API
+	'deepseek-v4-pro',
+	'deepseek-v4-flash',
+	'deepseek-chat',
+	'deepseek-reasoner',
+	// groq
+	'llama-3.3-70b-versatile',
+	'llama-3.1-8b-instant',
+	// groq — successors to the two above, which retire 2026-08-16
+	'openai/gpt-oss-120b',
+	'openai/gpt-oss-20b',
+	// azure_foundry (its DeepSeek-V4-Pro shares the id above)
+	'deepseek-r1',
+	'llama-3.3-70b-instruct',
+	'phi-4',
+	'mistral-large-2411',
+	// openrouter
+	'meta-llama/llama-3.2-3b-instruct:free',
+	// togetherai
+	'meta-llama/llama-3.3-70b-instruct-turbo'
+])
