@@ -370,25 +370,40 @@
 	// workspace-suffixed) and would be rejected by the CUSTOM_TAGS check if passed back
 	// explicitly. Only carry it into a re-run when it maps back to a custom-tag entry —
 	// the set the override dropdown offers — using the raw (possibly templated) entry.
-	// `args` must be the run's full args (job.args may be truncated for large runs), so
-	// that `$args[...]` entries resolve to the same value they had at push time.
-	let customTags: string[] | undefined = undefined
+	// Pass the run's args if already fetched; template matching needs the full args
+	// (job.args may be truncated for large runs) and fetches them itself otherwise.
+	let customTags: { workspace: string; tags: string[] } | undefined = undefined
 	async function getRerunTagOverride(
 		args: Record<string, any> | undefined
 	): Promise<string | undefined> {
 		const tag = job?.tag
+		const workspace = $workspaceStore!
 		if (!tag) {
 			return undefined
 		}
 		try {
-			customTags ??= await WorkerService.getCustomTagsForWorkspace({
-				workspace: $workspaceStore!
-			})
+			if (customTags?.workspace !== workspace) {
+				customTags = {
+					workspace,
+					tags: await WorkerService.getCustomTagsForWorkspace({ workspace })
+				}
+			}
 		} catch (e) {
 			console.error('Could not load custom tags, not carrying tag over for re-run', e)
 			return undefined
 		}
-		return findMatchingCustomTag(tag, customTags, $workspaceStore!, args)
+		if (customTags.tags.includes(tag)) {
+			return tag
+		}
+		if (isWindmillTooBigObject(args)) {
+			try {
+				args = (await JobService.getJobArgs({ workspace, id: job?.id! })) as Record<string, any>
+			} catch (e) {
+				console.error('Could not load full args, not carrying tag over for re-run', e)
+				return undefined
+			}
+		}
+		return findMatchingCustomTag(tag, customTags.tags, workspace, args)
 	}
 
 	let runImmediatelyLoading = $state(false)

@@ -538,4 +538,12 @@ describe('findMatchingCustomTag', () => {
 			findMatchingCustomTag('worker-gpu', ['worker-$args[env]'], workspace, { env: 'cpu' })
 		).toBeUndefined()
 	})
+
+	it('does not falsely match a template against the truncated-args placeholder', () => {
+		expect(
+			findMatchingCustomTag('worker-gpu', ['worker-$args[env]'], workspace, {
+				reason: 'WINDMILL_TOO_BIG'
+			})
+		).toBeUndefined()
+	})
 })
