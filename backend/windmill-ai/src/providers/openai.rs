@@ -379,8 +379,6 @@ impl OpenAIQueryBuilder {
         // (following frontend pattern from openai-responses.ts)
         let input_items = convert_messages_to_responses_input(&prepared_messages);
 
-        // `instructions` is the single field this request sends a system prompt in;
-        // convert_messages_to_responses_input leaves system messages out of `input`.
         let instructions = collect_system_prompt(&prepared_messages, args.system_prompt);
 
         // Build tools array using typed structs

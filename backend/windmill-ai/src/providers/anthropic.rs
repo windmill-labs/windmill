@@ -604,8 +604,6 @@ impl AnthropicQueryBuilder {
             }
         }
 
-        // `system` is the single field this request sends a system prompt in;
-        // convert_messages_to_anthropic leaves system messages out of `messages`.
         let system = collect_system_prompt(&prepared_messages, args.system_prompt).map(|text| {
             vec![AnthropicSystemContent {
                 r#type: "text".to_string(),
