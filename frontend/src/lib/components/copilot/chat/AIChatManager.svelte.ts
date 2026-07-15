@@ -2649,7 +2649,11 @@ export class AIChatManager {
 		const shown = this.displayMessages[displayMessageIndex]
 		if (!shown || shown.role !== 'user') return undefined
 		const sent = imagesFromContent(this.messages[shown.index]?.content)
-		if (!sent) return shown.images
+		// Never fall back to the transcript's copy. It outlives a rejection that
+		// stripped the real one from history (the bubble keeps its thumbnail so the
+		// user can still see what they sent), and resending it would re-attach the
+		// image the provider just refused, failing the retry the same way.
+		if (!sent) return undefined
 		return sent.map((image, i) => {
 			const preview = shown.images?.[i]?.dataUrl
 			return preview && preview !== image.dataUrl ? { ...image, previewUrl: preview } : image
@@ -2694,7 +2698,7 @@ export class AIChatManager {
 		this.instructions = newContent ?? userMessage.content
 		this.sendRequest({
 			pastes: pastes ?? userMessage.pastes,
-			images: images ?? sentImages ?? userMessage.images
+			images: images ?? sentImages
 		})
 	}
 

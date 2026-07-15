@@ -657,6 +657,28 @@ describe('AIChatManager queued messages', () => {
 		expect(stillThere).toBe(true)
 	})
 
+	// The rejection fallback strips the image from history but leaves the bubble's
+	// thumbnail. Retry must not resurrect it, or the retried turn fails identically
+	// and the conversation is wedged after all.
+	it('does not resend an image the fallback already stripped', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		// post-rejection shape: history stripped to text, transcript still shows it
+		manager.messages = [{ role: 'user', content: 'look at this\n[image omitted]' }]
+		manager.displayMessages = [
+			{ role: 'user', content: 'look at this', index: 0, images: [img('thumb')] }
+		]
+
+		manager.restartGeneration(0)
+		await vi.waitFor(() => expect(mocks.runChatLoop).toHaveBeenCalled())
+
+		const resent = mocks.runChatLoop.mock.calls[0][0].messages.at(-1)
+		const hasImage =
+			Array.isArray(resent.content) && resent.content.some((p: any) => p.type === 'image_url')
+		expect(hasImage).toBe(false)
+	})
+
 	it('restores queued images to the input on dequeue', () => {
 		const input = createInputMock()
 		const manager = createManager(input)
