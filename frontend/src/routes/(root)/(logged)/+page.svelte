@@ -10,14 +10,7 @@
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import PickHubFlow from '$lib/components/flows/pickers/PickHubFlow.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import {
-		ExternalLink,
-		GitFork,
-		Globe2,
-		Loader2,
-		Code,
-		LayoutDashboard
-	} from 'lucide-svelte'
+	import { ExternalLink, GitFork, Globe2, Loader2, Code, LayoutDashboard } from 'lucide-svelte'
 	import { hubBaseUrlStore } from '$lib/stores'
 	import { base } from '$lib/base'
 
@@ -39,6 +32,7 @@
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 	import { z } from 'zod'
 	import HomeAIChat from '$lib/components/home/HomeAIChat.svelte'
+	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 
 	type Tab = 'hub' | 'workspace'
 
@@ -272,9 +266,14 @@
 		<div class="flex flex-row flex-wrap justify-between items-center gap-3 pb-2 my-4 mr-2 min-h-16">
 		</div>
 
-		<div class="w-full mb-12 mt-2">
-			<HomeAIChat />
-		</div>
+		<!-- The home composer starts a session, which lives behind the same dev gate as the
+		     global AI chat; without it, /sessions renders only its gate message and the queued
+		     prompt is silently dropped. Hide the entry point until the gate opens. -->
+		{#if isGlobalAiEnabled()}
+			<div class="w-full mb-12 mt-2">
+				<HomeAIChat />
+			</div>
+		{/if}
 
 		{#if $workspaceStore == 'admins'}
 			<Alert title="Admins workspace">
