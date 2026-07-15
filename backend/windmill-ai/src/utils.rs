@@ -14,14 +14,10 @@ lazy_static::lazy_static! {
         .map(|v| v == "true" || v == "1")
         .unwrap_or(false);
 
-    /// HTTP client for requests to user-configured AI provider endpoints. Must be
-    /// used instead of the shared `HTTP_CLIENT` for anything targeting a provider
-    /// `base_url`. SSRF validation on `base_url` is single-shot (see
-    /// `AIProvider::get_base_url`), so redirects stay disabled unless the
-    /// `ALLOW_AI_BASE_URL_REDIRECTS` escape hatch is set: otherwise a validated public
-    /// host could 3xx the worker into a private/internal address. AI APIs respond
-    /// directly, so this holds even for ALLOW_PRIVATE_AI_BASE_URLS. Mirrors the API
-    /// proxy client (windmill-api/src/ai.rs, GHSA-5q4v-c4v3-v7wr).
+    /// HTTP client for anything targeting a user-configured AI provider `base_url`;
+    /// use it instead of the shared `HTTP_CLIENT`. Redirects are governed by
+    /// `ALLOW_AI_BASE_URL_REDIRECTS` (disabled by default). Mirrors the API proxy
+    /// client (windmill-api/src/ai.rs).
     pub static ref AI_HTTP_CLIENT: reqwest::Client = {
         let redirect = if *ALLOW_AI_BASE_URL_REDIRECTS {
             tracing::warn!(
