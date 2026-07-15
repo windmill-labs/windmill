@@ -40,6 +40,7 @@ vi.mock('$lib/gen', async () => {
 		getBenchmarkDraftForUser,
 		getBenchmarkFlowByPath,
 		getBenchmarkJobLogs,
+		getBenchmarkOwnDraft,
 		getBenchmarkScriptByHash,
 		getBenchmarkScriptByPath,
 		hasBenchmarkWorkspace,
@@ -86,6 +87,10 @@ vi.mock('$lib/gen', async () => {
 				hasBenchmarkWorkspace(data.workspace)
 					? getBenchmarkDraftForUser(data)
 					: actual.DraftService.getDraftForUser(data),
+			getOwnDraft: async (data: { workspace: string; kind: any; path: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkOwnDraft(data)
+					: actual.DraftService.getOwnDraft(data),
 			listDrafts: async (data: { workspace: string }) =>
 				hasBenchmarkWorkspace(data.workspace)
 					? listBenchmarkDrafts(data.workspace)

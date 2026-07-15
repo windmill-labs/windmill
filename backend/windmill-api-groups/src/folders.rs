@@ -146,12 +146,11 @@ async fn list_foldernames(
 }
 
 fn validate_owner(owner: &str) -> Result<()> {
-    if !owner
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '/' || c == '-')
-    {
+    if !owner.chars().all(|c| {
+        c.is_ascii_alphanumeric() || c == '_' || c == '/' || c == '-' || c == '.' || c == '@'
+    }) {
         return Err(error::Error::BadRequest(
-            "Invalid owner: must contain only alphanumeric characters, underscores, hyphens, or slashes".to_string(),
+            "Invalid owner: must contain only alphanumeric characters, underscores, hyphens, slashes, dots, or at-signs".to_string(),
         ));
     }
     Ok(())

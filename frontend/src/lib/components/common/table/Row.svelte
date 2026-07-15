@@ -50,6 +50,7 @@
 			| 'azure_trigger'
 			| 'email_trigger'
 			| 'data_pipeline'
+			| 'datatable_migration'
 		triggerKind?: string | undefined
 		summary?: string | undefined
 		path: string
@@ -149,6 +150,10 @@
 		}}
 	></div>
 {/if}
+<!-- Tree-view alignment: a folder header's icon sits at px-4 (16px) + its inner
+     padding-left of depth*16, i.e. (depth+1)*16. This row's inline padding-left
+     overrides px-4, so it must carry the full (depth+1)*16 for a file to line up
+     with its sibling folder at the same depth. -->
 <div
 	bind:this={rowEl}
 	class={twMerge(
@@ -158,7 +163,7 @@
 		clickToSelect ? 'cursor-pointer select-none' : '',
 		selected ? 'bg-surface-accent-selected' : keyboardSelected ? 'bg-gray-200 dark:bg-gray-700' : ''
 	)}
-	style={depth > 0 ? `padding-left: ${depth * 32}px;` : ''}
+	style={depth > 0 ? `padding-left: ${(depth + 1) * 16}px;` : ''}
 	role={clickToSelect ? 'button' : undefined}
 	tabindex={clickToSelect ? 0 : undefined}
 	onclick={handleRowClick}

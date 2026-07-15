@@ -240,6 +240,11 @@ pub struct UserInfo {
     pub folders_owners: Vec<String>,
     pub name: Option<String>,
     pub is_service_account: bool,
+    // True when this row is a superadmin viewing a workspace they are not a
+    // member of (so `is_admin`/`role` reflect the superadmin fallback, not an
+    // actual membership). Always false for real member rows.
+    #[serde(default)]
+    pub non_member: bool,
 }
 
 #[derive(FromRow, Serialize)]
@@ -699,13 +704,17 @@ async fn whoami(
 ) -> JsonResult<UserInfo> {
     let ApiAuthed { username, email, is_admin, groups, folders, .. } = authed;
     let user = get_user(&w_id, &username, &db).await?;
-    if let Some(user) = user {
+    // Only treat the row as "this user is a member" when its email matches; the
+    // derived username is instance-unique so a match on a different email should
+    // never happen, but guard against it so a non-member superadmin is never
+    // shown another member's identity/role.
+    if let Some(user) = user.filter(|u| u.email == email) {
         Ok(Json(user))
     } else {
         Ok(Json(UserInfo {
             workspace_id: w_id,
-            email: email.clone(),
-            username: email,
+            email,
+            username,
             name: None,
             is_admin,
             is_super_admin: is_admin,
@@ -725,6 +734,7 @@ async fn whoami(
                 .filter_map(|x| if x.2 { Some(x.0) } else { None })
                 .collect(),
             is_service_account: false,
+            non_member: true,
         }))
     }
 }
@@ -889,6 +899,7 @@ async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo
             .filter_map(|x| if x.2 { Some(x.0) } else { None })
             .collect(),
         is_service_account: usr.is_service_account,
+        non_member: false,
     }))
 }
 
@@ -1552,6 +1563,15 @@ async fn update_user(
     }
 
     if let Some(d) = eu.disabled {
+        #[cfg(feature = "enterprise")]
+        if !d {
+            if let Some(msg) =
+                windmill_common::ee_oss::check_seat_cap_for_reactivation(&db, &email_to_update)
+                    .await?
+            {
+                return Err(Error::BadRequest(msg));
+            }
+        }
         sqlx::query_scalar!(
             "UPDATE password SET disabled = $1 WHERE email = $2",
             d,
@@ -1922,8 +1942,10 @@ async fn login(
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
     Json(Login { email, password }): Json<Login>,
 ) -> Result<String> {
-    #[cfg(feature = "no_auth")]
-    {
+    // In `--no-auth` mode there is no real login; the frontend never needs a
+    // session cookie because every request already resolves as the admin
+    // superadmin (see resolve_opt_job_authed).
+    if windmill_api_auth::is_no_auth() {
         return Ok("no_auth".to_string());
     }
 
@@ -2686,6 +2708,12 @@ async fn username_to_email(
     Path((w_id, username)): Path<(String, String)>,
     Extension(db): Extension<DB>,
 ) -> Result<String> {
+    // Members only: this workspace-scoped endpoint has no superadmin/target gate,
+    // so it must NOT use the `password` superadmin fallback — otherwise any
+    // workspace-authenticated caller could turn a guessed derived username into a
+    // non-member superadmin's email. Internal callers that legitimately need the
+    // fallback (schedule/trigger/draft resolution) use `resolve_username_to_email`
+    // directly and never return the email to an arbitrary caller.
     let email = sqlx::query_scalar!(
         "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
         &username,

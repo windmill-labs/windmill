@@ -33,6 +33,10 @@
 		limitPayloadSize?: boolean
 		noBorder?: boolean
 		captureActiveIndicator?: boolean | undefined
+		// Workspace to scope capture list/get/delete calls to. Defaults to the nav
+		// `$workspaceStore`; an AI-session live editor passes the session's acting
+		// workspace (a fork) so captures hit the right workspace.
+		workspace?: string
 	}
 
 	let {
@@ -47,8 +51,11 @@
 		fullHeight = true,
 		limitPayloadSize = false,
 		noBorder = false,
-		captureActiveIndicator = undefined
+		captureActiveIndicator = undefined,
+		workspace = undefined
 	}: Props = $props()
+
+	let ws = $derived(workspace ?? $workspaceStore)
 
 	let selected: number | undefined = $state(undefined)
 	let testKind: 'preprocessor' | 'main' = $state('main')
@@ -94,7 +101,7 @@
 	function initLoadCaptures(kind: 'preprocessor' | 'main' = testKind) {
 		const loadInputsPageFn = async (page: number, perPage: number) => {
 			const captures = await CaptureService.listCaptures({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				runnableKind: isFlow ? 'flow' : 'script',
 				path: path ?? '',
 				triggerKind: captureType,
@@ -114,7 +121,7 @@
 						payloadData: 'Too big to display here, select to view',
 						getFullCapture: () =>
 							CaptureService.getCapture({
-								workspace: $workspaceStore!,
+								workspace: ws!,
 								id: capture.id
 							})
 					}
@@ -148,7 +155,7 @@
 
 		const deleteInputFn = async (id: any) => {
 			await CaptureService.deleteCapture({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				id
 			})
 		}

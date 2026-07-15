@@ -180,8 +180,12 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
     additionalProperties: WORKSPACE_CONFIG_SCHEMA,
     section: "Workspace bindings",
     sectionNote: "Map workspace names to Windmill instances and override settings per workspace.\nThe key is a human-friendly workspace name. gitBranch and workspaceId default to the key name.",
-    templateValue: "\n  {{BRANCH}}: {}",
+    // Empty ` {}`, not a live `<name>: {}` stub: a stub has no baseUrl yet
+    // counts as a configured workspace, breaking auto-selection and making a
+    // later `workspace bind` ambiguous. The example stays commented.
+    templateValue: " {}",
     example: [
+      "  # {{BRANCH}}:",
       "{{BASEURL_LINE}}",
       "{{WORKSPACE_ID_LINE}}",
       "    # gitBranch: main                        # git branch (defaults to workspace name)",

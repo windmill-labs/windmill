@@ -20,12 +20,17 @@ RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
 FROM ghcr.io/windmill-labs/windmill-ee:dev
 
 # Rust
-COPY --from=rust:1.93.0 /usr/local/cargo /usr/local/cargo
-COPY --from=rust:1.93.0 /usr/local/rustup /usr/local/rustup
+COPY --from=rust:1.97.0 /usr/local/cargo /usr/local/cargo
+COPY --from=rust:1.97.0 /usr/local/rustup /usr/local/rustup
 RUN RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo /usr/local/cargo/bin/cargo install cargo-sweep --version ^0.7
 
 # Ansible
-RUN uv tool install ansible && [ -d "$(uv tool dir)/ansible/bin/" ] && find "$(uv tool dir)/ansible/bin/" -mindepth 1 -maxdepth 1 -type f -executable -regextype posix-extended -regex '^((.+/)?)[^.]+' -print0 | xargs -0 ln -s -t "$UV_TOOL_BIN_DIR/" || true
+# UV_PYTHON_INSTALL_DIR defaults to /tmp/windmill/cache/py_runtime, which is an
+# ephemeral runtime cache (fresh volume/tmpfs, and pruned by the worker). Installing
+# ansible there leaves its venv interpreter as a dangling symlink at runtime, so every
+# ansible-* executable fails with ENOENT ("ansible-galaxy not found"). Pin the tool's
+# interpreter to a persistent image path so the install stays self-contained.
+RUN UV_PYTHON_INSTALL_DIR=/usr/local/uv/py uv tool install ansible && [ -d "$(uv tool dir)/ansible/bin/" ] && find "$(uv tool dir)/ansible/bin/" -mindepth 1 -maxdepth 1 -type f -executable -regextype posix-extended -regex '^((.+/)?)[^.]+' -print0 | xargs -0 ln -sf -t "$UV_TOOL_BIN_DIR/" || true
 # dotnet SDK
 RUN wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh \
     && chmod +x dotnet-install.sh \
@@ -35,7 +40,10 @@ RUN wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh \
 
 # Oracle DB Client
 COPY --from=oracledb-client /opt/oracle/23/lib /opt/oracle/23/lib
-RUN apt-get -y update && apt-get install -y libaio1
+# libaio1t64 only ships libaio.so.1t64; Oracle instantclient loads libaio.so.1, so add a compat symlink
+RUN apt-get -y update && apt-get install -y libaio1t64 \
+    && libaio="$(find /usr/lib -name 'libaio.so.1t64' -print -quit)" \
+    && ln -s "$(basename "$libaio")" "$(dirname "$libaio")/libaio.so.1"
 RUN echo /opt/oracle/23/lib > /etc/ld.so.conf.d/oracle-instantclient.conf && ldconfig
 
 # Nushell

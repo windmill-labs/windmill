@@ -80,7 +80,15 @@ export function usePipelineHistory(
 						kind: j.job_kind.startsWith('flow') ? 'flow' : 'script',
 						status: j.success ? 'success' : 'failure',
 						source: j.schedule_path ? 'schedule' : 'run',
-						at: j.started_at ?? j.created_at
+						at: j.started_at ?? j.created_at,
+						// Same completion-time derivation as the live poll —
+						// the freshness chip compares against completion, and
+						// `at` (start) would read a long run as older than its
+						// output actually is.
+						completedAt:
+							j.started_at != undefined
+								? new Date(new Date(j.started_at).getTime() + j.duration_ms).toISOString()
+								: undefined
 					})
 				}
 				sawFullPage = rows.length === PER_PAGE

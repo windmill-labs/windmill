@@ -45,8 +45,9 @@ use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
 use windmill_common::{
     assets::{
         clear_script_triggers, clear_static_asset_usage, clear_static_asset_usage_by_script_hash,
-        insert_script_trigger, parse_duration_secs, parse_pipeline_annotations,
-        replace_static_asset_usage, trigger_spec_to_row, AssetUsageKind, TriggerSpec,
+        derive_pipeline_asset_trigger_refs, insert_script_trigger, parse_duration_secs,
+        parse_pipeline_annotations, replace_static_asset_usage, trigger_spec_to_row,
+        AssetUsageKind, ScriptTriggerKind, TriggerSpec,
     },
     error::{self, to_anyhow},
     min_version::{MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2},
@@ -141,6 +142,8 @@ pub fn workspaced_service() -> Router {
         // CI test results
         .route("/ci_test_results/{kind}/{*path}", get(get_ci_test_results))
         .route("/ci_test_results_batch", post(get_ci_test_results_batch))
+        // Save-time schema-contract check (pipelines gap #2b)
+        .route("/check_schema_contracts", post(check_schema_contracts))
 }
 
 #[derive(Serialize, FromRow)]
@@ -211,12 +214,15 @@ async fn list_scripts(
             // Canonical reference for the draft-feature comments; flows/apps point here.
             // Per-path draft owners as a JSON array (`Json<Vec<DraftUserRef>>`); NULL -> None,
             // never an empty array. LEFT JOIN `usr` keeps orphaned drafts (user left workspace)
-            // visible with `username = None`. In the `admins` workspace username IS the email,
-            // so fall back to `d.email` there or the authed user's own draft resolves to a phantom
-            // "Legacy workspace draft"; the genuine NULL-email legacy row stays None.
-            "(SELECT json_agg(json_build_object('username', COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END)) ORDER BY COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END) NULLS LAST) \
+            // visible with `username = None`. A superadmin authoring in a workspace they are not
+            // a member of has no `usr` row, so fall back to their instance-derived username
+            // (`password.username`), or their email when derivation is disabled — this keeps the
+            // raw email out of the payload whenever a derived username exists. The genuine
+            // NULL-email legacy row stays None (no `usr`/`password` match, `d.email` is NULL).
+            "(SELECT json_agg(json_build_object('username', COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN d.email END)) ORDER BY COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN d.email END) NULLS LAST) \
               FROM draft d \
               LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
+              LEFT JOIN password p ON p.email = d.email AND p.super_admin = true \
               WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND d.typ = 'script') as draft_users",
             "folder_labels(o.workspace_id, o.path) as inherited_labels"
         ])
@@ -408,6 +414,14 @@ async fn list_scripts(
                 .and_then(|s| s.as_str())
                 .filter(|s| !s.is_empty() && *s != row.path.as_str())
                 .map(|s| s.to_string());
+            // A draft-only pipeline node (`// pipeline`) has no deployed row to carry
+            // auto_kind, so compute it from the draft content — mirroring the create
+            // path — so the home page folds it into its pipeline like a deployed member.
+            let auto_kind = v
+                .get("content")
+                .and_then(|s| s.as_str())
+                .filter(|c| parse_pipeline_annotations(c).in_pipeline)
+                .map(|_| "pipeline".to_string());
             rows.push(ListableScript {
                 hash: ScriptHash(0),
                 path: row.path,
@@ -429,7 +443,7 @@ async fn list_scripts(
                 draft_only: Some(true),
                 has_deploy_errors: false,
                 ws_error_handler_muted: None,
-                auto_kind: None,
+                auto_kind,
                 use_codebase: false,
                 deployment_msg: None,
                 kind,
@@ -1110,8 +1124,6 @@ async fn create_script_internal<'c>(
             .execute(&mut *tx)
             .await?;
 
-            clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
-
             r
         }
     }?;
@@ -1241,16 +1253,6 @@ async fn create_script_internal<'c>(
     // membership; parsed writes tell us what is produced (we don't record
     // them in auto_kind itself).
     let pipeline_annotations = parse_pipeline_annotations(&ns.content);
-    // `// freshness` is parsed but enforcement is a not-yet-implemented
-    // enterprise feature (skeleton in windmill_common::pipeline_advanced).
-    // Surface a clear TODO at deploy rather than silently accepting an
-    // annotation that does nothing.
-    if pipeline_annotations.freshness.is_some() {
-        tracing::warn!(
-            "{}",
-            windmill_common::pipeline_advanced::freshness_enforcement_todo()
-        );
-    }
     // `// materialize` materializes a `ducklake://<name>/<table>` target from a
     // DuckDB script. These two constraints hold for *both* modes: a non-DuckLake
     // target would otherwise deploy, register a producer in the asset graph, then
@@ -1289,16 +1291,126 @@ async fn create_script_internal<'c>(
             // but the executor parses the signature from the un-wrapped script, so
             // `$name` references in the SELECT stay bound at run time.
         }
-        // `key=` (merge) and `append` are mutually exclusive reconciliation
-        // strategies; append (INSERT-only) wins. Surface the conflict rather
-        // than silently dropping the dedup the author may have intended.
-        if m.unique_key.is_some() && m.append {
+        // Reconciliation strategies are mutually exclusive; surface a conflict
+        // rather than silently dropping behavior the author may have intended.
+        // Precedence must mirror the runtime (`duckdb_executor` strategy
+        // derivation): scd2 (`history`) > append > merge (`key=`) > replace.
+        if m.scd2 && m.append {
+            tracing::warn!(
+                "script {}: both `history`/`scd2` and `append` set on // materialize; history wins (SCD2), append ignored",
+                ns.path
+            );
+        } else if m.unique_key.is_some() && m.append {
             tracing::warn!(
                 "script {}: both `key=` and `append` set on // materialize; append wins (INSERT-only, no dedup)",
                 ns.path
             );
         }
+        // SCD2 (`key=<col> history` / `scd2`) option-combination checks the
+        // runtime cannot honor: reject at deploy with a clear message rather
+        // than letting the script deploy and fail on its first run. Mirrors the
+        // executor's safety-net `MaterializeSpec::validate` (duckdb_executor).
+        if let Err(e) = m.validate(pipeline_annotations.partition.is_some()) {
+            return Err(Error::BadRequest(e));
+        }
+        // `manual` materialize never captures a schema (no wrap codegen), so
+        // there is no contract for `on_schema_change` to mute downstream.
+        if m.manual && m.on_schema_change == windmill_parser::asset_parser::OnSchemaChange::Ignore {
+            tracing::warn!(
+                "script {}: `on_schema_change=ignore` on a `manual` materialize is inert — manual mode captures no schema, so consumers have no contract to check",
+                ns.path
+            );
+        }
     }
+    // A `// data_test` line whose right-hand side doesn't parse into a known
+    // check is dropped silently by the parser (fail-safe). For a data-quality
+    // assertion that is a footgun — a typo disables the test with no signal —
+    // so warn at deploy. Warning, not rejection: it matches the other pipeline
+    // deploy checks above and can't false-positive a deploy on an edge the
+    // coarse count and the parser disagree on.
+    let malformed_data_tests =
+        windmill_parser::asset_parser::count_malformed_data_tests(&ns.content);
+    if malformed_data_tests > 0 {
+        tracing::warn!(
+            "script {}: {} `// data_test` line(s) are malformed and were dropped — the intended \
+             check(s) will not run. Fix the syntax (e.g. `data_test accepted_values <col> = a,b,c`, \
+             `data_test relationships <col> -> <asset>.<refcol>`).",
+            ns.path,
+            malformed_data_tests
+        );
+    }
+    // `// macros` — this script is a workspace macro library: its body is
+    // CREATE [OR REPLACE] MACRO statements plus plain setup, registered into
+    // `macro_definition` and injected as TEMP macros into consumer jobs.
+    // Pure shape checks happen here; the registry writes and the cross-lib
+    // name-collision check run inside the deploy transaction below.
+    let macro_lib_defs: Option<Vec<windmill_parser::duckdb_macros::ParsedMacro>> =
+        if pipeline_annotations.macros {
+            if ns.language != ScriptLang::DuckDb {
+                return Err(Error::BadRequest(format!(
+                    "`// macros` is only supported for DuckDB scripts, not {}",
+                    ns.language.as_str()
+                )));
+            }
+            if pipeline_annotations.materialize.is_some() {
+                return Err(Error::BadRequest(
+                    "`// macros` and `// materialize` are mutually exclusive — a macro \
+                     library defines reusable macros, it does not produce an asset"
+                        .to_string(),
+                ));
+            }
+            let lib = windmill_parser::duckdb_macros::parse_macro_library(&ns.content)
+                .map_err(Error::BadRequest)?;
+            let macros: Vec<_> = lib
+                .into_iter()
+                .filter_map(|s| match s {
+                    windmill_parser::duckdb_macros::LibStatement::Macro(m) => Some(m),
+                    windmill_parser::duckdb_macros::LibStatement::Setup(_) => None,
+                })
+                .collect();
+            if macros.is_empty() {
+                return Err(Error::BadRequest(
+                    "`// macros` library defines no macros".to_string(),
+                ));
+            }
+            let all_names: std::collections::HashSet<String> =
+                macros.iter().map(|m| m.name.clone()).collect();
+            // DuckDB bind-checks a macro body at CREATE time, so a body may
+            // only call same-file macros defined *earlier* — this also makes
+            // file order a valid creation order for whole-lib (`// use`)
+            // injection and rules out within-lib cycles.
+            let mut defined: std::collections::HashSet<String> = Default::default();
+            for m in &macros {
+                if windmill_parser::duckdb_builtins::is_duckdb_builtin(&m.name) {
+                    return Err(Error::BadRequest(format!(
+                        "macro `{}` shadows a DuckDB built-in function; pick another name",
+                        m.name
+                    )));
+                }
+                if defined.contains(&m.name) {
+                    return Err(Error::BadRequest(format!(
+                        "macro `{}` is defined twice in this library",
+                        m.name
+                    )));
+                }
+                let called =
+                    windmill_parser::duckdb_macros::detect_macro_calls(&m.body, &all_names);
+                if let Some(fwd) = called
+                    .iter()
+                    .find(|c| !defined.contains(*c) && *c != &m.name)
+                {
+                    return Err(Error::BadRequest(format!(
+                        "macro `{}` calls `{}`, which is defined later in the file; define \
+                         `{}` first (DuckDB bind-checks macro bodies at creation)",
+                        m.name, fwd, fwd
+                    )));
+                }
+                defined.insert(m.name.clone());
+            }
+            Some(macros)
+        } else {
+            None
+        };
     let in_pipeline = pipeline_annotations.in_pipeline;
     // `// trigger all` → AND join barrier (else OR, the default).
     let pipeline_join_all = !pipeline_annotations.join_mode.is_any();
@@ -1333,22 +1445,45 @@ async fn create_script_internal<'c>(
     // body's `SELECT` doesn't express the write (the runtime generates it), so
     // server-side inference wouldn't otherwise link it.
     let effective_assets = if let Some(m) = pipeline_annotations.materialize.as_ref() {
-        let kind = windmill_common::assets::asset_kind_from_parser(m.target_kind);
         let mut a = effective_assets.unwrap_or_default();
-        if !a.iter().any(|x| x.kind == kind && x.path == m.target_path) {
-            a.push(windmill_common::assets::AssetWithAltAccessType {
-                path: m.target_path.clone(),
-                kind,
-                access_type: Some(windmill_common::assets::AssetUsageAccessType::W),
-                alt_access_type: None,
-                columns: None,
-            });
+        // Produced assets: the managed table, plus — for managed scd2 — the
+        // `<dim>_current` companion view the runtime (re)creates each run
+        // (`MaterializeSpec::write_targets`). Registering the view as a write
+        // asset lets `// on ducklake://…/<dim>_current` subscribers be
+        // dispatched by the cascade (which fans out from these deploy-time asset
+        // rows) and connects a consumer that reads only the view back to this
+        // producer; without it a subscriber on the view would silently never
+        // fire and the view would be an orphan node in the lineage graph.
+        for (target_kind, path) in m.write_targets() {
+            let kind = windmill_common::assets::asset_kind_from_parser(target_kind);
+            use windmill_common::assets::AssetUsageAccessType;
+            if let Some(existing) = a.iter_mut().find(|x| x.kind == kind && x.path == path) {
+                // The body reads its own managed target (an incremental/merge
+                // model `SELECT`ing from the table it materializes). The runtime
+                // still generates the write, so the effective access is RW — mark
+                // it so, otherwise it stays a plain read and (a) auto-derives a
+                // self-cascade edge back to this producer and (b) shows as a muted
+                // read on the canvas. Both are wrong: it's the script's own output.
+                if existing.access_type != Some(AssetUsageAccessType::W) {
+                    existing.access_type = Some(AssetUsageAccessType::RW);
+                }
+            } else {
+                a.push(windmill_common::assets::AssetWithAltAccessType {
+                    path,
+                    kind,
+                    access_type: Some(AssetUsageAccessType::W),
+                    alt_access_type: None,
+                    columns: None,
+                });
+            }
         }
         Some(a)
     } else {
         effective_assets
     };
-    let auto_kind = if in_pipeline {
+    let auto_kind = if in_pipeline || macro_lib_defs.is_some() {
+        // A macro library is a pipeline member (graph node) even without the
+        // bare `// pipeline` marker.
         Some("pipeline".to_string())
     } else if ci_test_refs.is_some() {
         Some("test".to_string())
@@ -1466,6 +1601,173 @@ async fn create_script_internal<'c>(
             )
             .execute(&mut *tx)
             .await?;
+        }
+    }
+
+    // DuckDB workspace macros: wipe-and-reinsert this script's registry rows
+    // (as provider) and call-site edges (as consumer), by new+old path so
+    // renames are handled — mirrors the ci_test_reference block above.
+    let macro_defs_deleted = sqlx::query!(
+        "DELETE FROM macro_definition WHERE workspace_id = $1 AND (provider_path = $2 OR provider_path = $3)",
+        &w_id,
+        &ns.path,
+        old_path.unwrap_or(&ns.path)
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    sqlx::query!(
+        "DELETE FROM macro_usage WHERE workspace_id = $1 AND (consumer_path = $2 OR consumer_path = $3)",
+        &w_id,
+        &ns.path,
+        old_path.unwrap_or(&ns.path)
+    )
+    .execute(&mut *tx)
+    .await?;
+    // Workers cache the registry per workspace; a mutation must evict it on
+    // every replica. Transactional emit — pollers see it only on commit.
+    if macro_lib_defs.is_some() || macro_defs_deleted > 0 {
+        sqlx::query!(
+            "INSERT INTO notify_event (channel, payload) VALUES ('notify_macro_registry_change', $1)",
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    if let Some(ref macros) = macro_lib_defs {
+        // Macro names are workspace-unique (they're injected unqualified into
+        // consumers). This lib's own rows — old and new path — were deleted
+        // just above, so any remaining match is a genuine cross-lib clash.
+        let names: Vec<String> = macros.iter().map(|m| m.name.clone()).collect();
+        if let Some(clash) = sqlx::query!(
+            "SELECT name, provider_path FROM macro_definition WHERE workspace_id = $1 AND name = ANY($2) LIMIT 1",
+            &w_id,
+            &names[..]
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        {
+            return Err(Error::BadRequest(format!(
+                "macro `{}` is already defined by `{}`; macro names are workspace-unique",
+                clash.name, clash.provider_path
+            )));
+        }
+        for m in macros {
+            sqlx::query!(
+                "INSERT INTO macro_definition (workspace_id, name, provider_path, params, body, is_table_macro) \
+                 VALUES ($1, $2, $3, $4, $5, $6)",
+                &w_id,
+                &m.name,
+                &ns.path,
+                &m.params,
+                &m.body,
+                m.is_table
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    if ns.language == ScriptLang::DuckDb {
+        // Record this script's macro-call edges for the asset graph (the
+        // worker re-detects calls live at job time, so these are display
+        // metadata only). A library's edges point at *other* libs' macros.
+        let registry_names: Vec<String> = sqlx::query_scalar!(
+            "SELECT name FROM macro_definition WHERE workspace_id = $1 AND provider_path != $2",
+            &w_id,
+            &ns.path
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        let names_set: std::collections::HashSet<String> = registry_names.into_iter().collect();
+        let mut called: Vec<String> =
+            windmill_parser::duckdb_macros::detect_macro_calls(&ns.content, &names_set)
+                .into_iter()
+                .collect();
+        called.sort();
+        for name in called {
+            sqlx::query!(
+                "INSERT INTO macro_usage (workspace_id, consumer_path, macro_name) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+                &w_id,
+                &ns.path,
+                &name
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+        // `// use` targets should be deployed macro libraries — warn only:
+        // git-sync deploys scripts in arbitrary order, so the consumer landing
+        // first must not hard-fail. The runtime is the enforcement point.
+        for lib in &pipeline_annotations.use_libs {
+            let exists = sqlx::query_scalar!(
+                r#"SELECT EXISTS(SELECT 1 FROM macro_definition WHERE workspace_id = $1 AND provider_path = $2) AS "e!""#,
+                &w_id,
+                lib
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+            if !exists {
+                tracing::warn!(
+                    "script {}: `// use {}` does not (yet) match a deployed macro library",
+                    ns.path,
+                    lib
+                );
+            }
+        }
+    } else if !pipeline_annotations.use_libs.is_empty() {
+        tracing::warn!(
+            "script {}: `// use` is only honored on DuckDB scripts; annotation ignored",
+            ns.path
+        );
+    }
+
+    if let Some(ref macros) = macro_lib_defs {
+        // Refresh every other DuckDB script's edges for this lib's names (a
+        // redeploy may add/remove macros; late-bound runtime picks changes up
+        // regardless — this only keeps the deployed graph current). The rescan
+        // covers ALL live DuckDB scripts, not just pipeline members: their
+        // edges were recorded at their own deploy and must survive the wipe.
+        let names: Vec<String> = macros.iter().map(|m| m.name.clone()).collect();
+        sqlx::query!(
+            "DELETE FROM macro_usage WHERE workspace_id = $1 AND macro_name = ANY($2) AND consumer_path != $3",
+            &w_id,
+            &names[..],
+            &ns.path
+        )
+        .execute(&mut *tx)
+        .await?;
+        let names_set: std::collections::HashSet<String> = names.into_iter().collect();
+        let members = sqlx::query!(
+            r#"SELECT DISTINCT ON (path) path AS "path!", content AS "content!"
+               FROM script
+               WHERE workspace_id = $1
+                 AND language = 'duckdb'::script_lang
+                 AND archived = false
+                 AND deleted = false
+                 AND path != $2
+               ORDER BY path, created_at DESC"#,
+            &w_id,
+            &ns.path
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        for member in members {
+            let mut called: Vec<String> =
+                windmill_parser::duckdb_macros::detect_macro_calls(&member.content, &names_set)
+                    .into_iter()
+                    .collect();
+            called.sort();
+            for name in called {
+                sqlx::query!(
+                    "INSERT INTO macro_usage (workspace_id, consumer_path, macro_name) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+                    &w_id,
+                    &member.path,
+                    &name
+                )
+                .execute(&mut *tx)
+                .await?;
+            }
         }
     }
 
@@ -1685,15 +1987,17 @@ async fn create_script_internal<'c>(
     // discovered by the graph endpoint directly from the per-kind trigger
     // tables, so `trigger_spec_to_row` returns None for those.
     clear_script_triggers(&mut *tx, &w_id, &ns.path, AssetUsageKind::Script).await?;
-    // On rename, also drop the OLD path's trigger rows. clear is keyed by
-    // path (no by-hash variant), and only `ns.path` is wiped above — without
-    // this, stale `// on` edges for the old path keep matching producers and
-    // would trigger a script later recreated at that path even if it has no
-    // annotation (P1). (Producer/asset rows for the old path are already
-    // cleared via clear_static_asset_usage_by_script_hash on the parent.)
+    // On rename, also drop the OLD path's trigger and producer/asset rows.
+    // Both clears are keyed by path, and only `ns.path` is (re)written above
+    // (script_triggers here, asset rows via replace_static_asset_usage) — the
+    // renamed script no longer lives at the old path, so without this its
+    // stale `// on` edges keep matching producers (and would trigger a script
+    // later recreated at that path with no annotation, P1) and its producer
+    // rows keep it lingering in the asset graph.
     if let Some(ref old) = p_path_opt {
         if old != &ns.path {
             clear_script_triggers(&mut *tx, &w_id, old, AssetUsageKind::Script).await?;
+            clear_static_asset_usage(&mut *tx, &w_id, old, AssetUsageKind::Script).await?;
         }
     }
     for spec in &pipeline_triggers {
@@ -1741,6 +2045,63 @@ async fn create_script_internal<'c>(
             retry_delay_s,
         )
         .await?;
+    }
+
+    // Auto-derived cascade edges: within a `// pipeline`, a read of a ducklake
+    // table or s3 object wires the cascade edge straight from the FROM clause,
+    // so `// on <asset>` is only needed for edges inference can't see (dynamic
+    // SQL) or to carry per-edge opts. `// mute <asset>` / `// mute all` opt out.
+    // Explicit `// on` asset edges (inserted just above) win the dedup — they
+    // carry the per-edge debounce, so a derived row must not shadow them.
+    if in_pipeline && !pipeline_annotations.mute_all {
+        let asset_ref = |spec: &TriggerSpec| {
+            trigger_spec_to_row(spec)
+                .filter(|(k, _)| *k == ScriptTriggerKind::Asset)
+                .map(|(_, r)| r)
+        };
+        let explicit_refs: std::collections::HashSet<String> =
+            pipeline_triggers.iter().filter_map(asset_ref).collect();
+        let muted_refs: std::collections::HashSet<String> = pipeline_annotations
+            .mute
+            .iter()
+            .filter_map(asset_ref)
+            .collect();
+        let derived = derive_pipeline_asset_trigger_refs(
+            effective_assets.as_deref().unwrap_or(&[]),
+            &explicit_refs,
+            &muted_refs,
+            pipeline_annotations.mute_all,
+        );
+        // Derived edges have no per-`// on` opts, so they take the script-level
+        // `// debounce` default and `// retry` policy — same as writing a bare
+        // `// on <asset>` would.
+        let derived_debounce_s = pipeline_debounce_default
+            .as_deref()
+            .and_then(parse_duration_secs);
+        let derived_retry_count = pipeline_annotations
+            .retry
+            .as_ref()
+            .map(|r| r.count.min(i16::MAX as u32) as i16);
+        let derived_retry_delay_s = pipeline_annotations
+            .retry
+            .as_ref()
+            .and_then(|r| r.delay.as_deref())
+            .and_then(parse_duration_secs);
+        for trigger_ref in derived {
+            insert_script_trigger(
+                &mut *tx,
+                &w_id,
+                AssetUsageKind::Script,
+                &ns.path,
+                ScriptTriggerKind::Asset,
+                &trigger_ref,
+                pipeline_join_all,
+                derived_debounce_s,
+                derived_retry_count,
+                derived_retry_delay_s,
+            )
+            .await?;
+        }
     }
 
     // Schedule annotations (`// on schedule`) are marker-only — the binding
@@ -2745,6 +3106,7 @@ async fn archive_script_by_path(
     // anything. Wipe declared `// on ...` edges (asset-event subscribers
     // look these up).
     clear_script_triggers(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
+    clear_macro_registry(&mut *tx, &w_id, path).await?;
 
     audit_log(
         &mut *tx,
@@ -2825,6 +3187,7 @@ async fn archive_script_by_hash(
     // Pipeline event hygiene: archived scripts must not be triggered by
     // anything. Wipe declared `// on ...` edges.
     clear_script_triggers(&mut *tx, &w_id, &script.path, AssetUsageKind::Script).await?;
+    clear_macro_registry(&mut *tx, &w_id, &script.path).await?;
 
     audit_log(
         &mut *tx,
@@ -2889,6 +3252,7 @@ async fn delete_script_by_hash(
     // anything. Wipe declared `// on ...` edges. Idempotent — safe even if
     // the script was never a pipeline member.
     clear_script_triggers(&mut *tx, &w_id, &script.path, AssetUsageKind::Script).await?;
+    clear_macro_registry(&mut *tx, &w_id, &script.path).await?;
 
     audit_log(
         &mut *tx,
@@ -3005,6 +3369,7 @@ async fn delete_script_by_path(
     // anything. Wipe declared `// on ...` edges. Idempotent — safe even if
     // the script was never a pipeline member.
     clear_script_triggers(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
+    clear_macro_registry(&mut *tx, &w_id, path).await?;
 
     if !query.keep_captures.unwrap_or(false) {
         sqlx::query!(
@@ -3167,6 +3532,10 @@ async fn delete_scripts_bulk(
     .execute(&mut *tx)
     .await?;
 
+    for path in &deleted_paths {
+        clear_macro_registry(&mut *tx, &w_id, path).await?;
+    }
+
     audit_log(
         &mut *tx,
         &authed,
@@ -3215,6 +3584,39 @@ async fn delete_scripts_bulk(
     }
 
     Ok(Json(deleted_paths))
+}
+
+/// Deployed-macro hygiene for an archived/deleted script: it must neither
+/// provide macros to the workspace registry nor keep stale call-site edges.
+/// Usage edges pointing at the script's own macros go too (names are
+/// workspace-unique, so those edges can only reference this provider).
+async fn clear_macro_registry(db: &mut sqlx::PgConnection, w_id: &str, path: &str) -> Result<()> {
+    sqlx::query!(
+        "DELETE FROM macro_usage WHERE workspace_id = $1 AND (consumer_path = $2 \
+         OR macro_name IN (SELECT name FROM macro_definition WHERE workspace_id = $1 AND provider_path = $2))",
+        w_id,
+        path
+    )
+    .execute(&mut *db)
+    .await?;
+    let deleted = sqlx::query!(
+        "DELETE FROM macro_definition WHERE workspace_id = $1 AND provider_path = $2",
+        w_id,
+        path
+    )
+    .execute(&mut *db)
+    .await?
+    .rows_affected();
+    // Evict workers' per-workspace registry cache (transactional emit).
+    if deleted > 0 {
+        sqlx::query!(
+            "INSERT INTO notify_event (channel, payload) VALUES ('notify_macro_registry_change', $1)",
+            w_id
+        )
+        .execute(&mut *db)
+        .await?;
+    }
+    Ok(())
 }
 
 /// Validates that script debouncing configuration is supported by all workers
@@ -3662,4 +4064,47 @@ async fn get_ci_test_results_batch(
     }
 
     Ok(Json(result_map))
+}
+
+#[derive(Deserialize)]
+struct CheckSchemaContractsRequest {
+    language: ScriptLang,
+    content: String,
+}
+
+#[derive(Serialize)]
+struct CheckSchemaContractsResponse {
+    warnings: Vec<windmill_common::schema_contracts::ContractWarning>,
+}
+
+// Save-time schema-contract check (pipelines gap #2b): validate the given
+// script content's asset references (body column reads, `// column` lineage,
+// `// data_test relationships`) against the latest captured producer schemas
+// and return WARNINGS — never errors, and deploy never blocks on this. The
+// frontend calls it right after a successful deploy (post-commit, so a
+// self-produced target resolves to the fresh content) and the editor mirrors
+// the same diff client-side; this endpoint is the authoritative check. Parsing
+// uses the same server path as deploy (`effective_script_assets` +
+// `parse_pipeline_annotations`) so the verdict matches what deployed.
+async fn check_schema_contracts(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<CheckSchemaContractsRequest>,
+) -> JsonResult<CheckSchemaContractsResponse> {
+    let assets = crate::asset_inference::effective_script_assets(&req.language, &req.content, None)
+        .unwrap_or_default();
+    let ann = parse_pipeline_annotations(&req.content);
+    let mut tx = user_db.begin(&authed).await?;
+    let warnings = windmill_common::schema_contracts::check_schema_contracts(
+        &mut tx,
+        &w_id,
+        &assets,
+        &ann.column_lineage,
+        &ann.data_tests,
+        ann.materialize.as_ref(),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(Json(CheckSchemaContractsResponse { warnings }))
 }

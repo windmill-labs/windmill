@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { untrack, type Snippet } from 'svelte'
+	import { setContext, untrack, type Snippet } from 'svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import type { SessionRuntime, SessionTargetKind } from './sessionRuntime.svelte'
 	import { useUserDraftSync, type DraftSyncCodec } from './useUserDraftSync.svelte'
 	import { makeFlowCodec, makeScriptCodec, makeRawAppCodec } from './sessionDraftCodecs'
+	import { draftFriendlyLeaf } from './previewRouter'
 	import SessionItemNotFound from './SessionItemNotFound.svelte'
 
 	let {
@@ -16,7 +17,8 @@
 		effectivePath,
 		editor,
 		onNavigate,
-		isActiveSession = true
+		isActiveSession = true,
+		isActiveTab = true
 	}: {
 		runtime: SessionRuntime
 		kind: SessionTargetKind
@@ -31,15 +33,33 @@
 		/** The heavy editor for this kind; remounted on a data-ready target swap. */
 		editor: Snippet
 		onNavigate?: (item: WorkspaceItem) => void
-		/**
-		 * Only the visible session claims the workspace's single live-editor slot
-		 * (one per (workspace, kind)); a warm-but-hidden session must not, else
-		 * chat actions on the visible session resolve to the hidden one's path.
-		 */
+		/** A warm-but-hidden session must not claim the live-editor slot. */
 		isActiveSession?: boolean
+		/**
+		 * Only the visible editor tab claims the workspace's single live-editor slot
+		 * (one per (workspace, kind)); with several editors open at once, a hidden
+		 * tab must not, else chat actions resolve to the wrong item's path.
+		 */
+		isActiveTab?: boolean
 	} = $props()
 
-	const slot = $derived(runtime.slot(kind))
+	// Mark this subtree as the session side panel: editors below detect the
+	// context to hide their own AI entry points (an AI button here would nest
+	// sessions), and chat-aware components resolve the session's scoped manager
+	// instead of the app singleton. The value is captured at init — a reused
+	// component instance keeps the first runtime's manager — so descendants may
+	// rely on its presence, not its identity.
+	setContext('aiChatManager', runtime.manager)
+
+	// This tab's own editor cell (per (kind, path)); several tabs can be live at once.
+	const cell = $derived(
+		kind === 'flow'
+			? runtime.flowCell(path)
+			: kind === 'script'
+				? runtime.scriptCell(path)
+				: runtime.rawAppCell(path)
+	)
+	const slot = $derived(cell.slot)
 
 	function triggerLoad(): Promise<void> {
 		if (kind === 'flow') return runtime.loadFlow(workspaceId, path)
@@ -48,10 +68,19 @@
 	}
 
 	function buildCodec(): DraftSyncCodec<any> {
-		if (kind === 'flow') return makeFlowCodec(runtime)
-		if (kind === 'script') return makeScriptCodec(runtime, () => path)
-		return makeRawAppCodec(runtime)
+		if (kind === 'flow')
+			return makeFlowCodec(
+				runtime.flowCell(path).store,
+				runtime.flowCell(path).stateStore,
+				workspaceId
+			)
+		if (kind === 'script') return makeScriptCodec(runtime.scriptCell(path).store, () => path)
+		return makeRawAppCodec(runtime.rawAppCell(path).store)
 	}
+	// Rebuilds when `path` changes so the sync always binds this tab's current
+	// cell: retargeting the tab (in-editor link / breadcrumb) swaps `path` without
+	// remounting, and each codec closes over one cell's store.
+	const codec = $derived(buildCodec())
 
 	$effect(() => {
 		if (workspaceId && path) {
@@ -59,13 +88,26 @@
 		}
 	})
 
+	// The runtime cell (store + `loadedPath`) outlives this component, so a draft
+	// changed while unmounted (workspace edit, other device) would be masked by
+	// `triggerLoad`'s early-return on the stale `loadedPath`. Invalidate it on
+	// teardown so the next mount re-fetches as a clean first load.
+	$effect(() => {
+		const c = cell
+		const p = path
+		const w = workspaceId
+		return () => {
+			if (c.slot.loadedPath === p && c.slot.loadedWorkspace === w) c.slot.loadedPath = undefined
+		}
+	})
+
 	// Mark this editor as the live editor draft for the session's workspace so
 	// the chat's `isLiveDraft` hint / `discard_local_draft` tool resolve to this
-	// path — same registration the regular edit pages do. Gated on
-	// `isActiveSession` (see prop doc).
+	// path — same registration the regular edit pages do. Only the visible tab of
+	// the active session claims the (workspace, kind) slot (see prop docs).
 	$effect(() => {
 		if (!workspaceId || !path) return
-		if (!isActiveSession) return
+		if (!isActiveSession || !isActiveTab) return
 		UserDraft.setLiveEditorDraft({
 			workspace: workspaceId,
 			itemKind: kind,
@@ -79,7 +121,19 @@
 		path: () => path,
 		workspace: () => workspaceId,
 		ready: () => slot.loadedPath === path,
-		codec: buildCodec()
+		codec: () => codec
+	})
+
+	// Stamp the tab's friendly label once this editor's cell knows the item's
+	// typed/auto name. The page can't read the runtime cell reactively (it lives
+	// outside the page's reactive root), but this editor — handed `runtime` as a
+	// prop — can, so it mirrors the name onto the tab model the page does observe.
+	// Only for a never-deployed item still parked at a `…/draft_<uuid>` storage
+	// path; a deployed/real path keeps the plain location label.
+	$effect(() => {
+		const v = cell.store.val as { path?: string; draft_path?: string } | undefined
+		const label = draftFriendlyLeaf(path, v?.draft_path ?? v?.path)
+		runtime.previewTabs.setEditorFriendlyLabel({ kind, path }, label)
 	})
 
 	// Debounced loading affordance for a breadcrumb swap: while the loaded path

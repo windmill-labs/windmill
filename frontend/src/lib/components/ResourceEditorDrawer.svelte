@@ -58,6 +58,7 @@
 <Drawer bind:this={drawer} size="50rem" {disableChatOffset}>
 	<DrawerContent
 		title={mode == 'edit' ? 'Edit ' + path : 'Add a resource'}
+		bannerReserved={mode == 'edit'}
 		on:close={drawer?.closeDrawer}
 	>
 		{#await import('./ResourceEditor.svelte')}
@@ -79,6 +80,7 @@
 		{#snippet banner()}
 			<LocalDraftBanner
 				show={hasLocalDraft}
+				reserveSpace={mode == 'edit'}
 				getDeployed={() => resourceEditor?.localDraftDeployed()}
 				getCurrent={() => resourceEditor?.localDraftCurrent()}
 				onDiscard={() => resourceEditor?.discardLocalDraft()}

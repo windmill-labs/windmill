@@ -7,6 +7,7 @@
 		let s = $state({
 			val: {
 				selectedAsset: undefined,
+				workspace: undefined,
 				s3FilePicker: undefined,
 				resourceEditorDrawer: undefined,
 				resourceMetadataCache: {},
@@ -61,7 +62,13 @@
 	} = $props()
 
 	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
-	const { selectionManager } = getContext<FlowEditorContext>('FlowEditorContext') || {}
+	const { selectionManager, opWorkspace } = getContext<FlowEditorContext>('FlowEditorContext') || {}
+	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
+	// Expose the acting workspace to the asset explore controls (ExploreAssetButton
+	// reads it from this context; the DB manager / S3 picker act on it).
+	$effect(() => {
+		if (flowGraphAssetsCtx) flowGraphAssetsCtx.val.workspace = opWs
+	})
 	let selectedId = $derived(selectionManager?.getSelectedId())
 
 	let allModules = $derived(getAllModules(modules))
@@ -79,7 +86,7 @@
 				let truncatedPath = asset.path.split('?table=')[0]
 				if (truncatedPath in resMetadataCache) continue
 				resMetadataCache[truncatedPath] = undefined // avoid fetching multiple times because of async
-				ResourceService.getResource({ path: truncatedPath, workspace: $workspaceStore! })
+				ResourceService.getResource({ path: truncatedPath, workspace: opWs! })
 					.then((r) => (resMetadataCache[truncatedPath] = { resource_type: r.resource_type }))
 					.catch((err) => console.error("Couldn't fetch resource", truncatedPath, err))
 			}
@@ -88,7 +95,7 @@
 
 	// Fetch transitive assets (path scripts and flows)
 	$effect(() => {
-		if (!$workspaceStore || !flowGraphAssetsCtx || !enablePathScriptAndFlowAssets) return
+		if (!opWs || !flowGraphAssetsCtx || !enablePathScriptAndFlowAssets) return
 		let usages: { path: string; kind: AssetUsageKind }[] = []
 		let modIds: string[] = []
 		for (const mod of allModules) {
@@ -101,7 +108,7 @@
 		}
 		if (usages.length) {
 			AssetService.listAssetsByUsage({
-				workspace: $workspaceStore,
+				workspace: opWs,
 				requestBody: { usages }
 			}).then((result) => {
 				result.forEach((assets, idx) => {
@@ -182,6 +189,6 @@
 </script>
 
 {#if flowGraphAssetsCtx}
-	<S3FilePicker bind:this={flowGraphAssetsCtx.val.s3FilePicker} readOnlyMode />
-	<ResourceEditorDrawer bind:this={flowGraphAssetsCtx.val.resourceEditorDrawer} />
+	<S3FilePicker bind:this={flowGraphAssetsCtx.val.s3FilePicker} workspace={opWs} readOnlyMode />
+	<ResourceEditorDrawer bind:this={flowGraphAssetsCtx.val.resourceEditorDrawer} workspace={opWs} />
 {/if}

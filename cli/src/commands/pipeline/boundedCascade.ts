@@ -13,7 +13,16 @@
 // pipeline.ts.
 
 export type BCGraph = {
-  runnables: { path: string; usage_kind: "script" | "flow" | "job" }[];
+  runnables: {
+    path: string;
+    usage_kind: "script" | "flow" | "job";
+    // `// partitioned <kind>` on the script (daily/hourly/weekly/monthly/dynamic).
+    // Emitted by both the deployed graph endpoint and the local builder.
+    partition_kind?: string;
+    // `// macros` library: non-empty on a workspace macro library (deployed
+    // graph only). Definition-only — never a runnable cascade step.
+    macros?: { name: string }[];
+  }[];
   assets: { kind: string; path: string }[];
   edges: {
     runnable_kind: string;
@@ -32,6 +41,18 @@ export type BCGraph = {
       }
     | { trigger_kind: string; runnable_kind: string; runnable_path: string }
   )[];
+  // `// data_test` ordering edges (HD-1): the referenced asset's producer must
+  // materialize before the tested script runs. Fed into the lineage DAG so a
+  // bounded/cold cascade orders the referenced dimension first. Optional — the
+  // deployed graph omits it when empty, and older local graphs never emit it.
+  test_edges?: {
+    producer_kind: string;
+    producer_path: string;
+    runnable_kind: string;
+    runnable_path: string;
+    asset_kind: string;
+    asset_path: string;
+  }[];
 };
 
 export const SCRIPT_PREFIX = "script:";
@@ -40,10 +61,14 @@ export const isScriptNode = (id: string): boolean => id.startsWith(SCRIPT_PREFIX
 export const scriptPathOf = (id: string): string => id.slice(SCRIPT_PREFIX.length);
 const assetNodeId = (kind: string, path: string): string => `${kind}:${path}`;
 
-// Native trigger kinds that fan out per-event — never bounded-run starts.
-// `webhook` / `data_upload` have no trigger row in the graph payload, so a root
-// whose only entry is one of those reads as a manual root.
-const EVENT_TRIGGER_KINDS = new Set([
+// Native trigger kinds whose scripts must NOT be auto-run by the CLI cascade:
+// event triggers fan out per external event, and `webhook`/`data_upload` are UI
+// entrypoints that need caller-supplied input (a request body / an uploaded
+// S3Object) — previewing any of them with empty args runs the wrong thing.
+// The deployed graph omits `webhook`/`data_upload` rows, but the local graph
+// emits them, so a `// on data_upload` script would otherwise read as a manual
+// root and get auto-run without its upload argument.
+const NON_AUTORUN_TRIGGER_KINDS = new Set([
   "kafka",
   "mqtt",
   "nats",
@@ -51,6 +76,8 @@ const EVENT_TRIGGER_KINDS = new Set([
   "sqs",
   "gcp",
   "email",
+  "webhook",
+  "data_upload",
 ]);
 
 /** Resolve an asset URI (`datatable://x`, `s3://b/k`, …) to its node id. */
@@ -59,7 +86,12 @@ export function assetUriToNodeId(uri: string): string | undefined {
   if (!m) return undefined;
   const prefix = m[1].toLowerCase();
   const kind = prefix === "s3" ? "s3object" : prefix;
-  return `${kind}:${m[2]}`;
+  // Mirror Rust `parse_asset_syntax`: strip all leading slashes from S3 keys so a
+  // `--to s3:///exports/x` token resolves to the canonical graph node
+  // `s3object:exports/x` (default storage), same as `s3://exports/x`, and a
+  // canonical key never starts with `/`.
+  const path = kind === "s3object" ? m[2].replace(/^\/+/, "") : m[2];
+  return `${kind}:${path}`;
 }
 
 export type LineageDag = {
@@ -98,6 +130,14 @@ export function buildLineageDag(g: BCGraph): LineageDag {
     const at = t as Extract<BCGraph["triggers"][number], { trigger_kind: "asset" }>;
     addEdge(dag, assetNodeId(at.asset_kind, at.asset_path), scriptNodeId(at.runnable_path));
   }
+  // Data-test ordering edges: route through the referenced asset node so the
+  // existing producer → asset write edge extends into producer → asset → testing
+  // script (mirrors frontend boundedCascade.ts) — the tested script runs after
+  // the referenced dimension materializes.
+  for (const t of g.test_edges ?? []) {
+    if (t.runnable_kind !== "script") continue;
+    addEdge(dag, assetNodeId(t.asset_kind, t.asset_path), scriptNodeId(t.runnable_path));
+  }
   return dag;
 }
 
@@ -120,6 +160,38 @@ function closure(adj: Map<string, Set<string>>, start: string): Set<string> {
 
 export const descendants = (dag: LineageDag, n: string): Set<string> => closure(dag.down, n);
 export const ancestors = (dag: LineageDag, n: string): Set<string> => closure(dag.up, n);
+
+/**
+ * Nodes reachable from `starts` over the lineage DAG, treating `barriers` as cut
+ * points: a barrier node is neither included NOR traversed through. So a node
+ * reachable ONLY via a barrier is excluded, while one also reachable via another
+ * path stays. Used for whole-pipeline runs to keep event handlers AND their
+ * event-only downstream closure out (subtracting only the handler would leave a
+ * consumer whose producer was skipped, which topoOrder would then run with
+ * missing/stale inputs).
+ */
+export function reachableCutting(
+  dag: LineageDag,
+  starts: Iterable<string>,
+  barriers: Set<string>,
+): Set<string> {
+  const seen = new Set<string>();
+  const queue: string[] = [];
+  for (const s of starts) {
+    if (barriers.has(s) || seen.has(s)) continue;
+    seen.add(s);
+    queue.push(s);
+  }
+  while (queue.length > 0) {
+    const n = queue.shift()!;
+    for (const next of dag.down.get(n) ?? []) {
+      if (barriers.has(next) || seen.has(next)) continue;
+      seen.add(next);
+      queue.push(next);
+    }
+  }
+  return seen;
+}
 
 export type BoundedResult = {
   nodes: Set<string>;
@@ -151,19 +223,61 @@ export function boundedSet(dag: LineageDag, start: string, ends: string[]): Boun
 export function validStarts(g: BCGraph): Set<string> {
   const subscribers = new Set<string>();
   const scheduleScripts = new Set<string>();
-  const eventScripts = new Set<string>();
+  const nonAutorunScripts = new Set<string>();
   for (const t of g.triggers ?? []) {
     if (t.runnable_kind !== "script") continue;
     if (t.trigger_kind === "asset") subscribers.add(t.runnable_path);
     else if (t.trigger_kind === "schedule") scheduleScripts.add(t.runnable_path);
-    else if (EVENT_TRIGGER_KINDS.has(t.trigger_kind)) eventScripts.add(t.runnable_path);
+    else if (NON_AUTORUN_TRIGGER_KINDS.has(t.trigger_kind)) nonAutorunScripts.add(t.runnable_path);
   }
   const out = new Set<string>();
   for (const r of g.runnables ?? []) {
     if (r.usage_kind !== "script") continue;
     const p = r.path;
     if (scheduleScripts.has(p)) out.add(scriptNodeId(p));
-    else if (!subscribers.has(p) && !eventScripts.has(p)) out.add(scriptNodeId(p));
+    else if (!subscribers.has(p) && !nonAutorunScripts.has(p)) out.add(scriptNodeId(p));
+  }
+  return out;
+}
+
+/**
+ * Script node ids eligible as an EXPLICIT bounded-run start from *anywhere* in
+ * the DAG (dbt's `--select model+`): every script that can run with empty args —
+ * i.e. all scripts except non-autorun-trigger ones (kafka/mqtt/…/webhook/
+ * data_upload, which fan out per event or need caller-supplied input). Unlike
+ * `validStarts` (schedule/manual roots only), this INCLUDES mid-DAG asset
+ * subscribers and pure readers, so `--from <mid-model>` runs that node plus its
+ * transitive downstream WITHOUT re-running upstream. Roots stay a subset of this
+ * set. A non-autorun handler still qualifies once it's `--upload`-bound (handled
+ * by the caller, which unions in the bound node ids).
+ */
+export function validFromStarts(g: BCGraph): Set<string> {
+  const nonAutorun = nonAutorunTriggerScripts(g);
+  // Seed with the schedule/manual roots: `validStarts` lets a schedule identity
+  // win over a secondary non-autorun trigger (a `// on schedule` + `// on
+  // data_upload` script IS a scheduled root), so a root must stay `--from`-
+  // eligible even though it's also in `nonAutorunTriggerScripts`.
+  const out = new Set<string>(validStarts(g));
+  for (const r of g.runnables ?? []) {
+    if (r.usage_kind !== "script") continue;
+    const id = scriptNodeId(r.path);
+    if (!nonAutorun.has(id)) out.add(id);
+  }
+  return out;
+}
+
+/**
+ * Script node ids that carry a trigger requiring caller-supplied input or
+ * per-event fanout (kafka/mqtt/nats/postgres/sqs/gcp/email/webhook/data_upload).
+ * These can't be run with empty args, so a whole-pipeline run must exclude them
+ * even when they're a lineage descendant of a valid start (not just a root).
+ */
+export function nonAutorunTriggerScripts(g: BCGraph): Set<string> {
+  const out = new Set<string>();
+  for (const t of g.triggers ?? []) {
+    if (t.runnable_kind === "script" && NON_AUTORUN_TRIGGER_KINDS.has(t.trigger_kind)) {
+      out.add(scriptNodeId(t.runnable_path));
+    }
   }
   return out;
 }

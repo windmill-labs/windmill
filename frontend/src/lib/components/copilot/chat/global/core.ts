@@ -56,6 +56,7 @@ import { createInlineScriptSession } from '../flow/inlineScriptsUtils'
 import {
 	getDatatableSdkReference,
 	getFlowPrompt,
+	getPipelinePrompt,
 	getRawAppPrompt,
 	getResourcePrompt,
 	getScriptPrompt
@@ -102,17 +103,42 @@ import {
 	type WorkspaceItem,
 	type WorkspaceItemType
 } from './workspaceItems'
-import { userStore } from '$lib/stores'
+import {
+	userStore,
+	superadmin,
+	enterpriseLicense,
+	userWorkspaces,
+	workspaceStore
+} from '$lib/stores'
 import { get } from 'svelte/store'
 import { deployDraft as deployDraftToWorkspace } from '$lib/utils_draft_deploy'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
+import {
+	buildRunsUrl,
+	buildSchedulesUrl,
+	buildVariablesUrl,
+	buildResourcesUrl,
+	buildAssetsUrl,
+	buildAuditLogsUrl,
+	buildWorkspaceSettingsUrl,
+	buildFoldersUrl,
+	buildGroupsUrl,
+	buildTriggersUrl,
+	WORKSPACE_SETTINGS_TABS
+} from './pageNavigation'
+import {
+	pageHref,
+	TRIGGER_PAGES,
+	type TriggerKind as PageTriggerKind
+} from '$lib/components/sessions/previewRouter'
 import {
 	clearEphemeralSecretVariableDraftValue,
 	deleteGlobalDraft,
 	getEphemeralSecretVariableDraftValue,
 	getGlobalDraft,
 	getGlobalDraftStoragePath,
+	itemKindFor,
 	listGlobalDrafts,
 	persistGlobalDraft,
 	readGlobalDraftValue,
@@ -138,7 +164,9 @@ const INSTRUCTION_SUBJECTS = [
 ] as const satisfies readonly WorkspaceItemType[]
 // `datatable` is not a workspace item type, but the model can request the
 // datatable SDK reference (the wmill.datatable() runnable API) the same way.
-const INSTRUCTION_SUBJECTS_EXTRA = ['datatable'] as const
+// `pipeline` likewise isn't an item type — a data pipeline is a set of
+// annotated scripts in a folder, so it gets authoring guidance, not a CRUD type.
+const INSTRUCTION_SUBJECTS_EXTRA = ['datatable', 'pipeline'] as const
 const ALL_INSTRUCTION_SUBJECTS = [...INSTRUCTION_SUBJECTS, ...INSTRUCTION_SUBJECTS_EXTRA] as const
 const MAX_LIST_LIMIT = 100
 type ActiveGlobalEditorType = Extract<WorkspaceItemType, 'script' | 'flow' | 'app'>
@@ -171,7 +199,7 @@ const scriptLangSchema = z.enum($ScriptLang.enum)
 
 const getInstructionsSchema = z.object({
 	subject: instructionSubjectSchema.describe(
-		'What to get authoring instructions for: a workspace item type (script, flow, resource, app) or "datatable" for the wmill.datatable() SQL SDK used inside runnables. Schedules, triggers, and variables don\'t need instructions — their tool schemas describe everything.'
+		'What to get authoring instructions for: a workspace item type (script, flow, resource, app), "pipeline" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or "datatable" for the wmill.datatable() SQL SDK used inside runnables. Schedules, triggers, and variables don\'t need instructions — their tool schemas describe everything.'
 	),
 	language: scriptLangSchema
 		.optional()
@@ -189,7 +217,13 @@ const askUserQuestionSchema = z.object({
 		.array(z.string().min(1).describe('Proposed answer text shown to the user and returned as-is.'))
 		.min(2)
 		.max(10)
-		.describe('Two to ten mutually exclusive proposed answer strings.')
+		.describe('Two to ten proposed answer strings.'),
+	multiSelect: z
+		.boolean()
+		.optional()
+		.describe(
+			'When true, the user may select several answers; use only when the choices can genuinely co-apply (not mutually exclusive). Defaults to single-select.'
+		)
 })
 
 // Matches the per-mode cap enforced by the prompt-settings UI (AIPromptsModal) and
@@ -206,7 +240,9 @@ const updateUserInstructionsSchema = z.object({
 		.string()
 		.min(1)
 		.optional()
-		.describe("Required when operation is 'append': the instruction to add. Ignored for 'replace'."),
+		.describe(
+			"Required when operation is 'append': the instruction to add. Ignored for 'replace'."
+		),
 	old_string: z
 		.string()
 		.min(1)
@@ -327,7 +363,14 @@ const writeFlowSchema = z.object({
 		.optional()
 		.nullable()
 		.describe(
-			'JSON string containing the optional array of semantic flow groups. Pass null to clear groups.'
+			'JSON string, array of semantic flow groups (call get_instructions subject:"flow" for the full field reference). color MUST be one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray — never hex codes. Pass null to clear groups.'
+		),
+	notes: z
+		.string()
+		.optional()
+		.nullable()
+		.describe(
+			'JSON string, array of free-floating sticky notes (type must be "free"; call get_instructions subject:"flow" for the full field reference). color MUST be one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray — never hex codes. Pass null to clear notes.'
 		),
 	override: draftOverrideField
 })
@@ -350,7 +393,8 @@ function editableFlowToDraftValue(editable: EditableFlowJson): FlowDraftValue {
 		modules: editable.modules,
 		preprocessor_module: editable.preprocessor_module ?? undefined,
 		failure_module: editable.failure_module ?? undefined,
-		groups: editable.groups ?? undefined
+		groups: editable.groups ?? undefined,
+		notes: editable.notes ?? undefined
 	}
 	return {
 		value,
@@ -411,6 +455,10 @@ const searchResourceTypesSchema = z.object({
 
 const getJobLogsSchema = z.object({
 	id: z.string().describe('The UUID of the job to fetch logs for.')
+})
+
+const cancelJobSchema = z.object({
+	id: z.string().describe('The UUID of the job to cancel.')
 })
 
 const listRunsSchema = z.object({
@@ -507,9 +555,32 @@ const testRunArgsSchema = z
 	.optional()
 	.describe('Arguments to pass to the runnable. Omit or pass null when no arguments are needed.')
 
+const backgroundArgSchema = z
+	.boolean()
+	.optional()
+	.describe(
+		'Run in the background without waiting. Set true for jobs you expect to be long (deploys, backfills, big queries) — you will be notified when it finishes. Leave unset for normal runs, which wait briefly and only background automatically if slow.'
+	)
+
+const waitSecondsArgSchema = z
+	.number()
+	.optional()
+	.describe(
+		'How many seconds to wait for the job in-turn before it detaches into the background jobs tray. Defaults to 15. Raise it (capped at 120) for a job you expect to finish in, say, 30–60s and want the result in this same turn. Ignored when background is true. Do not use this to poll — larger values just hold the turn longer.'
+	)
+
+/** Translate the model's `wait_seconds` into executeTestRun's `detachAfterMs`
+ * (the value is clamped to MAX_DETACH_AFTER_MS there). `undefined` keeps the
+ * default inline budget; negatives are floored to 0 (immediate detach). */
+function waitSecondsToDetachMs(waitSeconds: number | undefined): number | undefined {
+	return waitSeconds == null ? undefined : Math.max(0, waitSeconds) * 1000
+}
+
 const testRunScriptSchema = z.object({
 	path: z.string().describe('Workspace path of the script to test.'),
-	args: testRunArgsSchema
+	args: testRunArgsSchema,
+	background: backgroundArgSchema,
+	wait_seconds: waitSecondsArgSchema
 })
 
 const testRunScriptToolDef = createToolDef(
@@ -521,7 +592,9 @@ const testRunScriptToolDef = createToolDef(
 
 const testRunFlowSchema = z.object({
 	path: z.string().describe('Workspace path of the flow to test.'),
-	args: testRunArgsSchema
+	args: testRunArgsSchema,
+	background: backgroundArgSchema,
+	wait_seconds: waitSecondsArgSchema
 })
 
 const testRunFlowToolDef = createToolDef(
@@ -534,7 +607,9 @@ const testRunFlowToolDef = createToolDef(
 const testRunStepSchema = z.object({
 	path: z.string().describe('Workspace path of the flow containing the step to test.'),
 	stepId: z.string().describe('The id of the step/module to test.'),
-	args: testRunArgsSchema
+	args: testRunArgsSchema,
+	background: backgroundArgSchema,
+	wait_seconds: waitSecondsArgSchema
 })
 
 const testRunStepToolDef = createToolDef(
@@ -678,14 +753,29 @@ const deleteAppRunnableSchema = z.object({
 
 const openPreviewSchema = z.object({
 	kind: z
-		.enum(['script', 'flow', 'raw_app'])
+		.enum(['script', 'flow', 'raw_app', 'pipeline'])
 		.describe(
-			'Item kind to preview. Use "raw_app" for code-based apps (created via init_app). The legacy drag-and-drop app builder ("app") is not previewable in the session panel — don\'t pass it.'
+			'Item kind to preview. Use "raw_app" for code-based apps (created via init_app). Use "pipeline" to show the data-pipeline graph for a folder — here `path` is the folder name, not an item path. The legacy drag-and-drop app builder ("app") is not previewable in the session panel — don\'t pass it.'
 		),
-	path: z.string().describe('Workspace path of the item to preview.')
+	path: z
+		.string()
+		.describe('Workspace path of the item to preview, or the folder name when kind is "pipeline".')
 })
 
 const getPreviewStatusSchema = z.object({})
+
+const closePageSchema = z.object({
+	all: z
+		.boolean()
+		.optional()
+		.describe('Close every open preview tab, clearing the side panel. Ignores `match` when true.'),
+	match: z
+		.string()
+		.optional()
+		.describe(
+			'Close the preview tab(s) whose page name or item path contains this text (case-insensitive), e.g. "runs", "schedules", or a script path. Call get_preview_status first if unsure what is open.'
+		)
+})
 
 type SessionToolResult = {
 	aiResult: string
@@ -825,16 +915,20 @@ Rules:
 - Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
 - Use search_resource_types before write_resource.
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
+- A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
-- When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
+- Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
+- When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
 - When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
 - Keep context targeted.${
 		previewTools
 			? `
 - After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.
+- Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty or not-yet-created folder is fine (create_folder first if needed, then open it). Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.
 - When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
-- get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.`
+- get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.
+- open_page opens its page as a tab in the side-panel preview next to the chat — the only way to show one of these pages there (open_preview only handles editable items). Changing filters on a page already open updates that same tab; only pass new_tab when the user explicitly asks for a separate tab.`
 			: ''
 	}
 
@@ -1534,20 +1628,34 @@ function getFlowInstructions(): string {
 
 - Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
 - Paths follow the conventions in the system prompt: default to \`u/<current-user>/<name>\` when the user gave a bare name; only use \`f/<folder>/<name>\` when the folder is known to exist. Never invent a folder.
-- \`write_flow\` mirrors flow mode's \`set_flow_json\`: pass \`path\`, optional \`summary\`, optional \`description\`, required \`modules\`, and optional \`schema\`, \`preprocessor_module\`, \`failure_module\`, and \`groups\`. \`summary\` and \`description\` are top-level flow metadata (not part of the compact value \`patch_flow_json\` edits); the flow-structure arguments are JSON strings, matching the tool schema descriptions.
-- \`read_workspace_item\` returns a compact flow \`value\` object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, and \`groups\`.
+- \`write_flow\` mirrors flow mode's \`set_flow_json\`: pass \`path\`, optional \`summary\`, optional \`description\`, required \`modules\`, and optional \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, and \`notes\`. \`summary\` and \`description\` are top-level flow metadata (not part of the compact value \`patch_flow_json\` edits); the flow-structure arguments are JSON strings, matching the tool schema descriptions.
+- \`read_workspace_item\` returns a compact flow \`value\` object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, and \`notes\`.
 - \`modules\` contains normal sequential modules. Use top-level \`preprocessor_module\` and \`failure_module\` for special modules; do not put \`preprocessor\` or \`failure\` in \`modules\`.
 - Every module needs a stable unique \`id\` and a useful \`summary\` when the schema supports it.
 - Prefer path/script/flow modules when composing existing workspace logic. Use rawscript modules only when new inline code is needed.
 - When writing rawscript module code, call \`get_instructions\` with \`subject: "script"\` and the rawscript language first.
 
+## Organizing flows: groups and notes
+
+- \`groups\`: Array of semantic groups for organizing modules in the editor (optional, but **strongly recommended** — proactively segment any non-trivial flow into groups so it reads clearly; don't wait to be asked). Each group has \`summary\` (display name), \`note\` (markdown description shown below the group header — attached directly to the group, not a separate sticky note), \`autocollapse\`, \`start_id\`, \`end_id\`, and \`color\`. \`start_id\` and \`end_id\` must reference existing module IDs in the flow (not \`preprocessor\` or \`failure\`). \`color\` MUST be one of these exact names: \`yellow\`, \`blue\`, \`green\`, \`purple\`, \`pink\`, \`orange\`, \`red\`, \`cyan\`, \`lime\`, \`gray\` — do NOT use hex codes, CSS colors, or any other strings. Omit \`color\` entirely if no preference and the editor will assign one automatically. Groups do not affect execution — they provide naming and collapsibility in the editor. Pass \`null\` to clear existing groups.
+- \`notes\`: Array of free-floating sticky notes shown in the editor (optional). Each note has \`id\` (unique string), \`text\` (markdown content), \`color\` (same palette as groups: \`yellow\`, \`blue\`, \`green\`, \`purple\`, \`pink\`, \`orange\`, \`red\`, \`cyan\`, \`lime\`, \`gray\` — never hex codes), and optional \`position\` {x, y} / \`size\` {width, height} (omit both — the editor auto-places and sizes the note). Always set \`type\` to \`free\`. The \`group\` note type is **deprecated** — do not create group notes; use the \`groups\` field to segment a flow instead. Notes are documentation only and do not affect execution. Pass \`null\` to clear existing notes.
+
+### When to use notes vs groups
+
+**Strongly prefer \`groups\` to organize flows.** Groups are the primary way to make a flow readable: whenever a flow has more than a couple of steps, or any time consecutive steps form a logical stage (e.g. "fetch", "transform", "notify"), segment them into \`groups\`. Each group spans a range of steps (\`start_id\`..\`end_id\`), carries its own \`summary\`, \`note\` (markdown under the group header), and \`color\`, and can be collapsed. Proactively add or update groups when building or restructuring a flow — do not wait to be asked. Aim for every meaningful step to belong to a semantic group.
+
+- **\`groups\` (default, use liberally):** segment a flow into labelled semantic sections. This is the main organizational tool — reach for it on essentially any non-trivial flow, not just "complex" ones.
+- **\`notes\` (free sticky notes, use sparingly):** reserve for important flow-wide information that does not belong to a specific span of steps — overall purpose, key assumptions, warnings, or TODOs. Usually a single note is enough; do not use notes to label sequences of steps (that is what \`groups\` are for).
+- Do **not** use \`group\`-type notes (deprecated) — \`groups\` is the supported way to group steps.
+- With \`patch_flow_json\`, edit \`groups\` and \`notes\` the same way as any other field — they appear as top-level keys in the compact flow value.
+
 ## Compact view: how rawscript bodies surface in tool I/O
 
-- \`read_workspace_item\` and \`patch_flow_json\` operate on a **compact view** of the flow: every rawscript module's \`value.content\` is replaced with the placeholder \`"inline_script.<moduleId>"\` so inline script bodies don't bloat tool I/O. Schema, groups, preprocessor_module and failure_module are all shown in this view.
+- \`read_workspace_item\` and \`patch_flow_json\` operate on a **compact view** of the flow: every rawscript module's \`value.content\` is replaced with the placeholder \`"inline_script.<moduleId>"\` so inline script bodies don't bloat tool I/O. Schema, groups, notes, preprocessor_module and failure_module are all shown in this view.
 - Inline rawscript content is **not** part of the JSON \`patch_flow_json\` sees. Edits to inline bodies happen via dedicated tools:
   - \`read_flow_module_code(path, module_id)\` — returns the raw inline script content for one module.
   - \`set_flow_module_code(path, module_id, code)\` — overwrites that module's inline script content; saves to the draft.
-- Use \`patch_flow_json\` for *structural* edits: module ids, paths, input_transforms, branch arrangement, summaries, preprocessor/failure swaps, schema/groups. Use \`set_flow_module_code\` for changes inside a specific rawscript body.
+- Use \`patch_flow_json\` for *structural* edits: module ids, paths, input_transforms, branch arrangement, summaries, preprocessor/failure swaps, schema/groups/notes. Use \`set_flow_module_code\` for changes inside a specific rawscript body.
 - \`write_flow\` is for full overwrites / create-from-scratch. Its \`modules\`, \`preprocessor_module\`, and \`failure_module\` arguments use **non-compact** flow modules (rawscript content is the actual code, not a placeholder).
 
 # Windmill flow authoring reference
@@ -1608,6 +1716,10 @@ Datatables are workspace-scoped managed PostgreSQL databases. In chat, explore a
 ${getDatatableSdkReference(lang)}`
 }
 
+function getPipelineInstructions(): string {
+	return getPipelinePrompt()
+}
+
 function getInstructions(subject: InstructionSubject, language?: ScriptLang): string {
 	switch (subject) {
 		case 'script':
@@ -1620,6 +1732,8 @@ function getInstructions(subject: InstructionSubject, language?: ScriptLang): st
 			return getAppInstructions()
 		case 'datatable':
 			return getDatatableInstructions(language)
+		case 'pipeline':
+			return getPipelineInstructions()
 	}
 }
 
@@ -1666,13 +1780,336 @@ export const readSkillTool: Tool<{}> = {
 	}
 }
 
+const OPEN_PAGE_NAMES = [
+	'runs',
+	'schedules',
+	'variables',
+	'resources',
+	'assets',
+	'audit_logs',
+	'folders',
+	'groups',
+	'triggers',
+	'workspace_settings'
+] as const
+type OpenPageName = (typeof OPEN_PAGE_NAMES)[number]
+
+const OPEN_PAGE_LABELS: Record<OpenPageName, string> = {
+	runs: 'Runs',
+	schedules: 'Schedules',
+	variables: 'Variables',
+	resources: 'Resources',
+	assets: 'Assets',
+	audit_logs: 'Audit logs',
+	folders: 'Folders',
+	groups: 'Groups',
+	triggers: 'Triggers',
+	workspace_settings: 'Workspace settings'
+}
+
+// Trigger kinds available given the workspace's license — the EE-gated kinds
+// (kafka/nats/sqs/gcp/azure) are only offered with an enterprise license.
+function allowedTriggerKinds(): PageTriggerKind[] {
+	const ee = !!get(enterpriseLicense)
+	return (Object.keys(TRIGGER_PAGES) as PageTriggerKind[]).filter((k) => ee || !TRIGGER_PAGES[k].ee)
+}
+
+// Which pages the current user can actually reach — mirrors the sidebar's gating.
+// Operators see exactly the pages enabled in the operating workspace's operator_settings
+// (the same source OperatorMenu gates on); a missing/false flag means no access, and
+// operators are never admins so workspace_settings is always excluded. Non-operators
+// get every page except workspace_settings, which is admin/superadmin only. `workspaceId`
+// is the chat's operating workspace (a session targets its own, possibly forked workspace);
+// it defaults to the navigation workspace for the global side-panel chat. The tool only
+// ever advertises, and only ever acts on, pages in this set.
+function allowedOpenPages(workspaceId: string | undefined = get(workspaceStore)): OpenPageName[] {
+	const u = get(userStore)
+	const isAdmin = !!u?.is_admin || !!get(superadmin)
+	if (u?.operator) {
+		const settings = get(userWorkspaces).find((w) => w.id === workspaceId)?.operator_settings
+		return OPEN_PAGE_NAMES.filter(
+			(p) =>
+				p !== 'workspace_settings' && settings?.[p as keyof NonNullable<typeof settings>] === true
+		)
+	}
+	const allowed = new Set<OpenPageName>([
+		'runs',
+		'assets',
+		'schedules',
+		'variables',
+		'resources',
+		'audit_logs',
+		'folders',
+		'groups',
+		'triggers'
+	])
+	if (isAdmin) allowed.add('workspace_settings')
+	return OPEN_PAGE_NAMES.filter((p) => allowed.has(p))
+}
+
+// One flat object (not a discriminated union): `page` selects the target and the
+// per-page fields are optional. Top-level `type: object` is what Anthropic's
+// input_schema requires; a top-level oneOf would be rejected. Each per-page URL builder
+// drops any key that isn't one of its page's real query params, so a field that doesn't
+// apply to the chosen page is harmless. This full schema is used to PARSE tool args; the
+// advertised schema (what the model sees) is narrowed per-user in `setSchema`.
+const openPageFullSchema = z.object({
+	page: z
+		.enum([
+			'runs',
+			'schedules',
+			'variables',
+			'resources',
+			'assets',
+			'audit_logs',
+			'folders',
+			'groups',
+			'triggers',
+			'workspace_settings'
+		])
+		.describe('Which page to open'),
+	path: z
+		.string()
+		.optional()
+		.describe(
+			'Runs/Schedules/Variables/Resources/Assets: the script, flow or item path to filter by'
+		),
+	status: z
+		.enum(['running', 'success', 'failure', 'canceled', 'waiting', 'suspended'])
+		.optional()
+		.describe('Runs: filter by job execution status'),
+	schedule_path: z
+		.string()
+		.optional()
+		.describe(
+			'Runs: only runs triggered by this schedule path. Schedules: filter by this exact schedule path.'
+		),
+	job_kinds: z
+		.enum(['all', 'runs', 'dependencies', 'previews', 'deploymentcallbacks'])
+		.optional()
+		.describe('Runs: filter by job category (defaults to top-level runs)'),
+	user: z.string().optional().describe('Runs: filter by the user who created the job'),
+	open: z
+		.string()
+		.optional()
+		.describe(
+			'Schedules/Triggers: exact schedule or trigger path to open in the edit drawer, e.g. f/foo/my_schedule'
+		),
+	summary: z
+		.string()
+		.optional()
+		.describe('Schedules: search text matched against schedule summaries'),
+	trigger_kind: z
+		.enum([...(Object.keys(TRIGGER_PAGES) as [PageTriggerKind, ...PageTriggerKind[]])])
+		.optional()
+		.describe('Triggers: which trigger kind page to open (http, websocket, postgres, kafka, ...)'),
+	resource_type: z
+		.string()
+		.optional()
+		.describe('Resources: filter by resource type, e.g. postgres'),
+	owner: z
+		.string()
+		.optional()
+		.describe('Variables/Resources: filter by owner, e.g. u/alice or f/team'),
+	username: z.string().optional().describe('Audit logs: filter by the acting username'),
+	operation: z.string().optional().describe('Audit logs: filter by operation, e.g. jobs.run'),
+	resource: z.string().optional().describe('Audit logs: filter by the affected resource path'),
+	tab: z
+		.enum([...WORKSPACE_SETTINGS_TABS] as [string, ...string[]])
+		.optional()
+		.describe('Workspace settings: which settings tab to open'),
+	new_tab: z
+		.boolean()
+		.optional()
+		.describe(
+			'Open in a NEW preview tab instead of updating the tab already showing this page. Only set true when the user explicitly asks for a new or separate tab; by default changing filters reuses the existing tab.'
+		)
+})
+
+type OpenPageArgs = z.infer<typeof openPageFullSchema>
+
+// Which pages each optional field applies to — drives narrowing the advertised schema
+// so the model isn't shown fields for pages it can't open.
+const OPEN_PAGE_FIELD_PAGES: Record<string, OpenPageName[]> = {
+	path: ['runs', 'schedules', 'variables', 'resources', 'assets'],
+	status: ['runs'],
+	schedule_path: ['runs', 'schedules'],
+	job_kinds: ['runs'],
+	user: ['runs'],
+	open: ['schedules', 'triggers'],
+	summary: ['schedules'],
+	trigger_kind: ['triggers'],
+	resource_type: ['resources'],
+	owner: ['variables', 'resources'],
+	username: ['audit_logs'],
+	operation: ['audit_logs'],
+	resource: ['audit_logs'],
+	tab: ['workspace_settings']
+}
+
+// The model-facing schema for the given allowed pages: the `page` enum plus only the
+// fields relevant to those pages (reusing the full schema's field definitions). The
+// `trigger_kind` enum is narrowed to the license-available kinds.
+function buildOpenPageDefSchema(
+	pages: readonly OpenPageName[],
+	triggerKinds: readonly PageTriggerKind[]
+): z.ZodTypeAny {
+	const full = openPageFullSchema.shape as Record<string, z.ZodTypeAny>
+	// z.enum() rejects an empty list, and a user with no reachable pages (e.g. an operator
+	// with every operator_settings flag off) yields exactly that. Fall back to a plain
+	// string so schema-building can't throw; the handler still fails closed on every page.
+	const shape: Record<string, z.ZodTypeAny> = {
+		page: pages.length
+			? z.enum([...pages] as [OpenPageName, ...OpenPageName[]]).describe('Which page to open')
+			: z.string().describe('No pages are available to you in this workspace')
+	}
+	for (const [field, fieldPages] of Object.entries(OPEN_PAGE_FIELD_PAGES)) {
+		if (!fieldPages.some((p) => pages.includes(p))) continue
+		shape[field] =
+			field === 'trigger_kind'
+				? z
+						.enum([...triggerKinds] as [string, ...string[]])
+						.optional()
+						.describe('Triggers: which trigger kind page to open')
+				: full[field]
+	}
+	shape.new_tab = full.new_tab
+	return z.object(shape)
+}
+
+const OPEN_PAGE_DESCRIPTION =
+	'Open a Windmill page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, Folders, Groups, Triggers (by kind), or Workspace settings (on a specific tab). Inside an AI session it opens as a tab in the side-panel preview next to the chat; elsewhere it offers a clickable link. Use after surfacing something the user likely wants to inspect (e.g. "show me the failed runs of X", "open the schedule for Y", "open the git sync settings", "open the kafka triggers"). This is the only way to show one of these pages in the session preview — open_preview only handles editable items (scripts, flows, raw apps, pipelines). Only pages listed for this user are available; do not offer others.'
+
+function buildOpenPageUrl(page: OpenPageName, a: OpenPageArgs): string {
+	switch (page) {
+		case 'runs':
+			return buildRunsUrl({
+				status: a.status,
+				path: a.path,
+				schedule_path: a.schedule_path,
+				job_kinds: a.job_kinds,
+				user: a.user
+			})
+		case 'schedules':
+			return buildSchedulesUrl({
+				open: a.open,
+				filters: { path: a.path, schedule_path: a.schedule_path, summary: a.summary }
+			})
+		case 'variables':
+			return buildVariablesUrl({ path: a.path, owner: a.owner })
+		case 'resources':
+			return buildResourcesUrl({ path: a.path, resource_type: a.resource_type, owner: a.owner })
+		case 'assets':
+			return buildAssetsUrl({ path: a.path })
+		case 'audit_logs':
+			return buildAuditLogsUrl({
+				username: a.username,
+				operation: a.operation,
+				resource: a.resource
+			})
+		case 'folders':
+			return buildFoldersUrl()
+		case 'groups':
+			return buildGroupsUrl()
+		case 'triggers':
+			return buildTriggersUrl({
+				// Default to HTTP routes when the model names no kind.
+				trigger_kind: (a.trigger_kind as PageTriggerKind | undefined) ?? 'http',
+				open: a.open
+			})
+		case 'workspace_settings':
+			return buildWorkspaceSettingsUrl({ tab: a.tab })
+	}
+}
+
+// Human-readable one-liner for the tool status/chip: the applied query params (and any
+// hash target), or "all <page>" when unfiltered.
+function summarizeOpenPage(url: string, page: OpenPageName): string {
+	const u = new URL(url, 'http://x')
+	const parts: string[] = []
+	u.searchParams.forEach((v, k) => parts.push(`${k}=${v}`))
+	if (u.hash) parts.push(u.hash.slice(1))
+	return parts.length ? parts.join(', ') : `all ${OPEN_PAGE_LABELS[page].toLowerCase()}`
+}
+
+export const openPageTool: Tool<{}> = {
+	def: createToolDef(
+		buildOpenPageDefSchema(allowedOpenPages(), allowedTriggerKinds()),
+		'open_page',
+		OPEN_PAGE_DESCRIPTION
+	),
+	// Keep the row expanded so the link chip (attached below as an action) is visible
+	// without the user having to expand the tool call.
+	showDetails: true,
+	autoCollapseDetails: false,
+	// Re-narrow the advertised `page` enum to this user's permissions each iteration, so
+	// the model never sees (or suggests) a page the user can't reach. Gates on the chat's
+	// operating workspace (the session's, when different from the navigation workspace).
+	setSchema: async function (helpers) {
+		this.def = createToolDef(
+			buildOpenPageDefSchema(
+				allowedOpenPages(operatingWorkspaceFromHelpers(helpers)),
+				allowedTriggerKinds()
+			),
+			'open_page',
+			OPEN_PAGE_DESCRIPTION
+		)
+	},
+	fn: async (ctx) => {
+		const { args, toolId, toolCallbacks } = ctx
+		const parsed = openPageFullSchema.parse(args)
+		const page = parsed.page as OpenPageName
+		const workspaceId = operatingWorkspaceFromHelpers(ctx.helpers)
+		// Defense in depth: never act on a page the user can't reach, even if the model
+		// requests one outside the advertised enum.
+		if (!allowedOpenPages(workspaceId).includes(page)) {
+			return `You don't have access to the ${OPEN_PAGE_LABELS[page] ?? page} page in this workspace.`
+		}
+		// Same fail-closed check for trigger_kind, which is narrowed to license-available
+		// kinds in the advertised schema: a model ignoring that narrowing must not get an
+		// EE-only trigger route built on a non-EE instance.
+		const triggerKind = parsed.trigger_kind as PageTriggerKind | undefined
+		if (page === 'triggers' && triggerKind && !allowedTriggerKinds().includes(triggerKind)) {
+			return `${TRIGGER_PAGES[triggerKind].label} aren't available on this instance.`
+		}
+		const url = buildOpenPageUrl(page, parsed)
+		const pageLabel = OPEN_PAGE_LABELS[page]
+		const summary = summarizeOpenPage(url, page)
+
+		// In a session, show the page as a preview tab alongside the chat (the primary
+		// UX). By default a filter change reuses the tab already showing this page;
+		// new_tab forces a separate tab. openPagePreview returns undefined when there
+		// is no active session, in which case we offer a link chip instead.
+		const previewResult = openPagePreview({
+			sessionId: sessionIdFromCtx(ctx),
+			href: pageHref(url),
+			label: pageLabel,
+			newTab: parsed.new_tab ?? false
+		})
+		if (previewResult) {
+			toolCallbacks.setToolStatus(toolId, { content: `Opened ${pageLabel} preview: ${summary}` })
+			return previewResult
+		}
+
+		// Outside a session there is no preview panel — offer a clickable link the user
+		// controls. (We deliberately don't navigate in place: a same-route goto would
+		// not re-sync the page's URL-driven filter state, so the change wouldn't land.)
+		toolCallbacks.setToolStatus(toolId, {
+			content: `Prepared a link to ${pageLabel}: ${summary}`,
+			actions: [{ id: `open-page:${page}:${url}`, type: 'navigate', label: summary, url, page }]
+		})
+		return `Offered the user a link to the ${pageLabel} page (${summary}). They can click it to open.`
+	}
+}
+
 export const globalTools: Tool<{}>[] = [
 	readSkillTool,
+	openPageTool,
 	{
 		def: createToolDef(
 			getInstructionsSchema,
 			'get_instructions',
-			'Get authoring guidance for scripts, flows, resources, apps, or the datatable SQL SDK (wmill.datatable()) used inside runnables.'
+			'Get authoring guidance for scripts, flows, data pipelines, resources, apps, or the datatable SQL SDK (wmill.datatable()) used inside runnables.'
 		),
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			const parsed = getInstructionsSchema.parse(args)
@@ -1697,7 +2134,8 @@ export const globalTools: Tool<{}>[] = [
 			const parsed = askUserQuestionSchema.parse(args)
 			const userQuestion = {
 				question: parsed.question,
-				choices: parsed.choices
+				choices: parsed.choices,
+				multiSelect: parsed.multiSelect
 			}
 
 			toolCallbacks.setToolStatus(toolId, {
@@ -1717,8 +2155,8 @@ export const globalTools: Tool<{}>[] = [
 				return JSON.stringify({ success: false, error: message })
 			}
 
-			const selectedChoice = await toolCallbacks.requestUserQuestion(toolId, userQuestion)
-			if (!selectedChoice) {
+			const selected = await toolCallbacks.requestUserQuestion(toolId, userQuestion)
+			if (!selected?.length) {
 				const message = 'Question cancelled by user'
 				toolCallbacks.setToolStatus(toolId, {
 					content: message,
@@ -1729,16 +2167,26 @@ export const globalTools: Tool<{}>[] = [
 				return JSON.stringify({ success: false, error: message })
 			}
 
+			// Model-facing answer: bare string for one pick (preserves the single-select
+			// contract, even when multiSelect was set), newline-bulleted list for several.
+			// Comma-joining is avoided here so a choice that itself contains a comma
+			// ("Yes, immediately") stays unambiguous to the model reading it back.
+			const answerText =
+				selected.length === 1 ? selected[0] : selected.map((c) => `- ${c}`).join('\n')
+			// The collapsed tool-header is a human glance, not model input, so the picks
+			// read as a compact comma list there instead of a stacked bullet list.
+			const answerSummary = selected.join(', ')
+
 			toolCallbacks.setToolStatus(toolId, {
-				content: `User answered question: ${selectedChoice}`,
+				content: `User answered question: ${answerSummary}`,
 				userQuestion: {
 					...userQuestion,
-					selectedChoice
+					selectedChoices: selected
 				},
-				result: selectedChoice,
+				result: answerText,
 				isLoading: false
 			})
-			return selectedChoice
+			return answerText
 		}
 	},
 	{
@@ -1950,7 +2398,8 @@ export const globalTools: Tool<{}>[] = [
 					'preprocessor_module'
 				),
 				failure_module: parseOptionalJsonArg(parsed.failure_module, 'failure_module'),
-				groups: parseOptionalJsonArg(parsed.groups, 'groups')
+				groups: parseOptionalJsonArg(parsed.groups, 'groups'),
+				notes: parseOptionalJsonArg(parsed.notes, 'notes')
 			})
 			return writeFlowDraft(
 				{
@@ -2028,7 +2477,7 @@ export const globalTools: Tool<{}>[] = [
 			return testRunScriptByPath(parsed, ctx)
 		},
 		requiresConfirmation: true,
-		confirmationMessage: 'Run script test',
+		confirmationMessage: (args) => `Run a test of ${pathLeaf(args?.path, 'the script')}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -2039,7 +2488,7 @@ export const globalTools: Tool<{}>[] = [
 			return testRunFlowByPath(parsed, ctx)
 		},
 		requiresConfirmation: true,
-		confirmationMessage: 'Run flow test',
+		confirmationMessage: (args) => `Run a test of ${pathLeaf(args?.path, 'the flow')}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -2050,7 +2499,8 @@ export const globalTools: Tool<{}>[] = [
 			return testRunFlowStepByPath(parsed, ctx)
 		},
 		requiresConfirmation: true,
-		confirmationMessage: 'Run flow step test',
+		confirmationMessage: (args) =>
+			`Run a test of step "${args?.stepId ?? ''}" in ${pathLeaf(args?.path, 'the flow')}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -2111,6 +2561,33 @@ export const globalTools: Tool<{}>[] = [
 				result
 			})
 			return result
+		}
+	},
+	{
+		def: createToolDef(
+			cancelJobSchema,
+			'cancel_job',
+			'Cancel a running or queued job by its id (e.g. a background test run you started that is no longer needed).'
+		),
+		showDetails: true,
+		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+			const parsed = cancelJobSchema.parse(args)
+			toolCallbacks.setToolStatus(toolId, { content: `Canceling job ${parsed.id}...` })
+			try {
+				await JobService.cancelQueuedJob({ workspace, id: parsed.id, requestBody: {} })
+			} catch (e) {
+				const msg = e instanceof Error ? e.message : 'Unknown error'
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Could not cancel job ${parsed.id}`,
+					error: msg
+				})
+				return `Failed to cancel job ${parsed.id}: ${msg}. It may have already finished.`
+			}
+			// The tray's background poller will pick up the canceled state (updating
+			// its status + Job snapshot together); a bare status patch here would leave
+			// the badge stale and stop the poller. Just report to the model.
+			toolCallbacks.setToolStatus(toolId, { content: `Canceled job ${parsed.id}` })
+			return `Job ${parsed.id} was canceled.`
 		}
 	},
 	{
@@ -2379,6 +2856,17 @@ export const globalTools: Tool<{}>[] = [
 	},
 	{
 		def: createToolDef(
+			closePageSchema,
+			'close_page',
+			'Close one or more preview tabs in the side panel of this AI session. Pass `match` to close the tab(s) whose page name or item path contains that text, or `all: true` to clear the panel. Use this when the user asks to close/dismiss a tab they no longer need. Only works inside a session.'
+		),
+		fn: async (ctx) => {
+			const parsed = closePageSchema.parse(ctx.args)
+			return closeSessionPreviewTabs(parsed, sessionIdFromCtx(ctx))
+		}
+	},
+	{
+		def: createToolDef(
 			getRuntimeLogsSchema,
 			'get_app_runtime_logs',
 			'Fetch the most recent browser console logs (and uncaught errors) from the raw app preview currently open in this AI session.'
@@ -2426,6 +2914,7 @@ export const globalTools: Tool<{}>[] = [
 export const SESSION_PREVIEW_TOOL_NAMES = new Set([
 	'open_preview',
 	'get_preview_status',
+	'close_page',
 	'get_app_runtime_logs',
 	'list_app_runs'
 ])
@@ -2471,10 +2960,18 @@ export type GlobalToolHelpers = SessionToolHelpers & {
 	// iteration. Backed by the update_user_instructions tool.
 	getUserInstructions?: () => string
 	setUserInstructions?: (instructions: string) => void
+	// The workspace this chat actually operates on — a session chat targets its own
+	// (possibly forked) workspace while $workspaceStore stays on the navigation workspace,
+	// so permission gating (open_page) must read this, not the global store.
+	operatingWorkspace?: string
 }
 
 function sessionIdFromCtx(ctx: { helpers?: unknown }): string | undefined {
 	return (ctx.helpers as GlobalToolHelpers | undefined)?.sessionId
+}
+
+function operatingWorkspaceFromHelpers(helpers: unknown): string | undefined {
+	return (helpers as GlobalToolHelpers | undefined)?.operatingWorkspace
 }
 
 function activeFlowTestFromCtx(
@@ -2490,7 +2987,7 @@ function activeFlowTestFromCtx(
 
 export type OpenPreviewHandler = (req: {
 	sessionId: string | undefined
-	kind: 'script' | 'flow' | 'raw_app'
+	kind: 'script' | 'flow' | 'raw_app' | 'pipeline'
 	path: string
 }) => string
 
@@ -2501,13 +2998,41 @@ export function setOpenPreviewHandler(handler: OpenPreviewHandler | undefined): 
 }
 
 function openSessionPreview(
-	args: { kind: 'script' | 'flow' | 'raw_app'; path: string },
+	args: { kind: 'script' | 'flow' | 'raw_app' | 'pipeline'; path: string },
 	sessionId: string | undefined
 ) {
 	if (!openPreviewHandler) {
 		return 'Error: open_preview is only available inside an AI session. Tell the user to switch to a session to view the preview, or describe the item textually.'
 	}
 	return openPreviewHandler({ ...args, sessionId })
+}
+
+// Opens a workspace *page* (Runs, Schedules, …) as a page tab in the session's
+// side-panel preview, so open_page can show it next to the chat instead of
+// navigating the whole browser. Registered by the session runtime. Returns a
+// status string when opened in a session, or undefined when there is no active
+// session — signalling open_page to fall back to a link chip / direct navigation.
+export type OpenPagePreviewHandler = (req: {
+	sessionId: string | undefined
+	href: string
+	label: string
+	// Force a separate tab instead of reusing the tab already showing this page.
+	newTab: boolean
+}) => string | undefined
+
+let openPagePreviewHandler: OpenPagePreviewHandler | undefined
+
+export function setOpenPagePreviewHandler(handler: OpenPagePreviewHandler | undefined): void {
+	openPagePreviewHandler = handler
+}
+
+function openPagePreview(req: {
+	sessionId: string | undefined
+	href: string
+	label: string
+	newTab: boolean
+}): string | undefined {
+	return openPagePreviewHandler?.(req)
 }
 
 // Companion to `open_preview`: lets the assistant query the current preview
@@ -2527,6 +3052,35 @@ function getSessionPreviewStatus(sessionId: string | undefined): string {
 		return 'Error: get_preview_status is only available inside an AI session.'
 	}
 	return getPreviewStatusHandler(sessionId)
+}
+
+// Closes preview tabs in the calling session's side panel. Registered by the
+// session runtime, which owns the tab model. Returns a status string the model
+// relays to the user. `all` clears the panel; otherwise `match` is a
+// case-insensitive substring tested against each tab's page label / item path.
+export type ClosePreviewTabsHandler = (req: {
+	sessionId: string | undefined
+	all: boolean
+	match: string | undefined
+}) => string
+
+let closePreviewTabsHandler: ClosePreviewTabsHandler | undefined
+
+export function setClosePreviewTabsHandler(handler: ClosePreviewTabsHandler | undefined): void {
+	closePreviewTabsHandler = handler
+}
+
+function closeSessionPreviewTabs(
+	args: { all?: boolean; match?: string },
+	sessionId: string | undefined
+): string {
+	if (!closePreviewTabsHandler) {
+		return 'Error: close_page is only available inside an AI session.'
+	}
+	if (!args.all && !args.match?.trim()) {
+		return 'Nothing to close: pass `match` with the tab to close, or `all: true` to close every tab.'
+	}
+	return closePreviewTabsHandler({ sessionId, all: args.all ?? false, match: args.match })
 }
 
 export type GetRuntimeLogsHandler = (req: {
@@ -2764,6 +3318,7 @@ function finishAppDraftWrite(
 ): string {
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
+	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
 	const { content, message } = onSaved()
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, { content, result: 'Saved as draft' })
 	return JSON.stringify({ success: true, message }, null, 2)
@@ -2776,6 +3331,7 @@ function finishDraftWrite(
 ): string {
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
+	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
 	const stored = result.item
 	const verb = existed ? 'Updated' : 'Created'
 	// Don't echo the flow value back: the model just sent it in the write call,
@@ -3198,6 +3754,13 @@ async function loadDraftFlowPreviewValue(
 	return flowDraftValueForPreview(nestedFlow.flow)
 }
 
+// Leaf of a workspace path (last segment), for human-readable confirmation
+// prompts. Falls back to the full path, then a generic noun.
+function pathLeaf(path: unknown, fallback: string): string {
+	const p = typeof path === 'string' ? path : ''
+	return p.split('/').filter(Boolean).pop() || p || fallback
+}
+
 async function testRunScriptByPath(
 	args: z.infer<typeof testRunScriptSchema>,
 	ctx: WriteDraftCtx
@@ -3221,7 +3784,10 @@ async function testRunScriptByPath(
 		toolCallbacks,
 		toolId,
 		startMessage: `Running test for script "${args.path}"...`,
-		contextName: 'script'
+		contextName: 'script',
+		background: args.background,
+		detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
+		label: args.path
 	})
 }
 
@@ -3255,7 +3821,10 @@ async function testRunFlowByPath(
 			toolCallbacks,
 			toolId,
 			startMessage: `Starting flow test run for "${args.path}"...`,
-			contextName: 'flow'
+			contextName: 'flow',
+			background: args.background,
+			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
+			label: args.path
 		})
 	}
 
@@ -3275,7 +3844,10 @@ async function testRunFlowByPath(
 		toolCallbacks,
 		toolId,
 		startMessage: `Starting flow test run for "${args.path}"...`,
-		contextName: 'flow'
+		contextName: 'flow',
+		background: args.background,
+		detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
+		label: args.path
 	})
 }
 
@@ -3295,6 +3867,8 @@ async function testRunFlowStepByPath(
 		workspace,
 		toolCallbacks,
 		toolId,
+		background: args.background,
+		detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
 		loadScript: loadScriptForFlowStep,
 		loadFlowPreviewValue: loadDraftFlowPreviewValue
 	})
@@ -3883,6 +4457,16 @@ async function discardLocalDraft(
 
 	await deleteGlobalDraft(workspace, type, path, triggerKind)
 
+	// The chat's touch on the item is undone — drop it from the mask so a
+	// pre-existing deployed item doesn't keep reading as this chat's edit.
+	const discardedKind = itemKindFor(type, triggerKind)
+	if (discardedKind) {
+		toolCallbacks.onItemDiscarded?.(
+			discardedKind,
+			getGlobalDraftStoragePath(workspace, type, path, triggerKind)
+		)
+	}
+
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Discarded ${type} "${path}" draft`,
 		result: 'Draft discarded'
@@ -4222,6 +4806,9 @@ async function deployDraft(
 	})
 
 	let actions: ToolDisplayAction[] | undefined
+	// Where the deploy actually lands — the app branch can resolve a different
+	// target from the draft's own path fields; the mask rename below must track it.
+	let deployedPath = path
 
 	if (type === 'script' || type === 'flow') {
 		// Promote the full persisted draft via the shared deploy module — the same
@@ -4414,6 +5001,7 @@ async function deployDraft(
 						throw e
 					}
 				}
+				deployedPath = targetPath
 				if (await AppService.existsApp({ workspace, path: targetPath })) {
 					// Omit custom_path on update for now. The backend preserves it when absent, while
 					// sending it requires admin privileges; this chat deploy path does not yet mirror
@@ -4462,6 +5050,18 @@ async function deployDraft(
 	}
 
 	await deleteGlobalDraft(workspace, type, path, triggerKind, { preserveLiveDraft: true })
+
+	// Move the chat's mask entry to the deployed path: a draft-only item's
+	// synthetic storage key never exists deployed, so the entry would otherwise
+	// stop matching anything after the draft is gone.
+	const deployedKind = itemKindFor(type, triggerKind)
+	if (deployedKind) {
+		toolCallbacks.onItemDeployed?.(
+			deployedKind,
+			getGlobalDraftStoragePath(workspace, type, path, triggerKind),
+			deployedPath
+		)
+	}
 
 	// Reload the session preview if it's open on the deployed item. Map the
 	// deploy type to the preview kind — a raw app deploys under 'app' but the
@@ -4532,6 +5132,17 @@ async function deleteWorkspaceItem(
 	}
 
 	await deleteGlobalDraft(workspace, type, path, triggerKind)
+
+	// Record the deletion in the chat's modified-items mask. In a fork this leaves a
+	// reviewable "removed" diff vs the parent that stays scoped to this chat. Keyed
+	// by the same (itemKind, storagePath) as writes so it joins the draft/fork lists.
+	const deletedKind = itemKindFor(type, triggerKind)
+	if (deletedKind) {
+		toolCallbacks.onItemModified?.(
+			deletedKind,
+			getGlobalDraftStoragePath(workspace, type, path, triggerKind)
+		)
+	}
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deleted ${type} "${path}"`,

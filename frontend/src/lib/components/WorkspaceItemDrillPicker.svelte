@@ -44,6 +44,10 @@ would be surprising.
 		externalFilter?: string
 		autoFocus?: boolean
 		flush?: boolean
+		// Load items and drafts from this workspace instead of the navigation
+		// workspace. Set by session live editors, whose acting workspace can
+		// differ from $workspaceStore; falls back to $workspaceStore otherwise.
+		workspaceId?: string
 	}
 
 	let {
@@ -54,8 +58,11 @@ would be surprising.
 		currentItem,
 		externalFilter,
 		autoFocus = true,
-		flush = false
+		flush = false,
+		workspaceId
 	}: Props = $props()
+
+	const effectiveWorkspace = $derived(workspaceId ?? $workspaceStore)
 
 	let inner = $state<DrillPickerHandle | undefined>(undefined)
 
@@ -70,7 +77,7 @@ would be surprising.
 	}
 
 	const loader = useWorkspaceItemsLoader(
-		() => $workspaceStore,
+		() => effectiveWorkspace,
 		() => kinds
 	)
 
@@ -86,7 +93,7 @@ would be surprising.
 	// `listGlobalDrafts` is backend-backed (async); fetch once and derive the
 	// per-kind lists synchronously from the resolved snapshot.
 	const globalDraftsResource = resource(
-		() => ({ ws: $workspaceStore, enabled: isGlobalAiEnabled() }),
+		() => ({ ws: effectiveWorkspace, enabled: isGlobalAiEnabled() }),
 		async ({ ws, enabled }) => (enabled && ws ? await listGlobalDrafts(ws) : [])
 	)
 	function aiDraftsForKind(k: Kind): WorkspaceItem[] {

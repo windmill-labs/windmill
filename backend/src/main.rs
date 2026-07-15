@@ -56,11 +56,11 @@ use windmill_common::{
         PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING,
         PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RESTART_COORDINATION_SETTING,
-        RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING, SAML_METADATA_SETTING,
-        SANDBOX_IMAGE_CACHE_MAX_MB_SETTING, SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING,
-        SANDBOX_IMAGE_MAX_SIZE_MB_SETTING, SANDBOX_IMAGE_PULL_POLICY_SETTING,
-        SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING,
-        STORE_AUDIT_LOGS_S3_SETTING, TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
+        RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING,
+        SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
+        SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING, SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
+        SANDBOX_IMAGE_PULL_POLICY_SETTING, SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING,
+        SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING, TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
         UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
         WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
         WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
@@ -124,7 +124,7 @@ use windmill_worker::{
 use crate::monitor::{
     initial_load, load_disable_password_login, load_fork_workspace_tag_append_fork_suffix,
     load_keep_job_dir, load_metrics_debug_enabled, load_preview_tags_override,
-    load_require_preexisting_user, load_tag_per_workspace_enabled,
+    load_require_preexisting_user, load_retention_period_overrides, load_tag_per_workspace_enabled,
     load_tag_per_workspace_workspaces, load_workspace_fairness_duration_secs,
     load_workspace_fairness_enabled, load_workspace_fairness_max_percent,
     load_workspace_fairness_min_total, monitor_db, reload_app_workspaced_route_setting,
@@ -578,6 +578,7 @@ fn print_help() {
     println!("  JSON_FMT = false                       Output logs in JSON instead of logfmt");
     println!("  METRICS_ADDR = None                    (EE only) Prometheus metrics addr at /metrics; set \"true\" to use :8001");
     println!("  SUPERADMIN_SECRET = None               Virtual superadmin token (server)");
+    println!("  NO_AUTH = false                        Bypass all auth; every request acts as the admin@windmill.dev superadmin (only behind a trusted gateway; ignored when CLOUD_HOSTED)");
     println!("  LICENSE_KEY = None                     (EE only) Enterprise license key (workers require valid key)");
     println!("  RUN_UPDATE_CA_CERTIFICATE_AT_START = false  Run system CA update at startup");
     println!("  RUN_UPDATE_CA_CERTIFICATE_PATH = /usr/sbin/update-ca-certificates  Path to CA update tool");
@@ -639,6 +640,15 @@ async fn windmill_main() -> anyhow::Result<()> {
         println!("Running in standalone mode");
     } else if mode == Mode::MCP {
         println!("Running in MCP mode");
+    }
+
+    if *windmill_common::worker::NO_AUTH {
+        println!("############################################################");
+        println!("# NO_AUTH mode is ENABLED: authentication is fully         #");
+        println!("# bypassed and every request is treated as the             #");
+        println!("# admin@windmill.dev superadmin. Only run this behind a     #");
+        println!("# trusted authenticating gateway on a private network.      #");
+        println!("############################################################");
     }
 
     #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
@@ -1679,6 +1689,13 @@ async fn process_notify_event(
             );
             windmill_queue::asset_dispatch::ASSET_PRODUCER_WRITES_CACHE.remove(payload);
         }
+        "notify_macro_registry_change" => {
+            tracing::debug!(
+                "Macro registry change for workspace {}, invalidating macro registry cache",
+                payload
+            );
+            windmill_common::assets::MACRO_REGISTRY_CACHE.remove(payload);
+        }
         "notify_workspace_key_change" => {
             tracing::info!(
                 "Workspace key change detected, invalidating workspace key cache: {}",
@@ -1708,6 +1725,10 @@ async fn process_notify_event(
                     match *source_type {
                         "script" => {
                             windmill_common::DEPLOYED_SCRIPT_HASH_CACHE.remove(&key);
+                            // Bundle-cache key resolution for imported scripts; evicted
+                            // together with the content-side caches below so key and
+                            // inlined content flip to the new version in the same window.
+                            windmill_common::IMPORTED_SCRIPT_HASH_CACHE.remove(&key);
                             // Evict the relative-import latest-hash cache so a redeployed
                             // imported script flips the content cache to its new version
                             // across all replicas within a poll interval (see #6769). Keyed
@@ -1860,6 +1881,11 @@ async fn process_notify_event(
                 }
                 TIMEOUT_WAIT_RESULT_SETTING => reload_timeout_wait_result_setting(conn).await,
                 RETENTION_PERIOD_SECS_SETTING => reload_retention_period_setting(conn).await,
+                RETENTION_PERIOD_SECS_OVERRIDES_SETTING => {
+                    if let Err(e) = load_retention_period_overrides(db).await {
+                        tracing::error!("Error loading per-workspace retention overrides: {e:#}");
+                    }
+                }
                 AUDIT_LOG_RETENTION_DAYS_SETTING => {
                     reload_audit_log_retention_days_setting(conn).await
                 }

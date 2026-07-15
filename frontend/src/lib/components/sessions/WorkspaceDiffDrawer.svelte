@@ -1,40 +1,19 @@
-<script lang="ts" module>
-	export type DiffStatus = 'added' | 'removed' | 'modified' | 'conflict'
-	// One changed item. `status` drives the dot/badge; `ahead`/`behind` are
-	// optional (fork-only) and only render when present.
-	export type DiffRow = {
-		kind: string
-		path: string
-		status: DiffStatus
-		ahead?: number
-		behind?: number
-		/** Human-facing path; defaults to `path`. Lets a draft parked at a
-		 * synthetic storage path (`…/draft_<uuid>`) show its friendly typed path
-		 * while keys, value-loading and edit links stay keyed on `path`. */
-		displayPath?: string
-		/** Summary supplied by the data source. Preferred over the one derived
-		 * from the loaded diff value, and shown before that value loads. */
-		summary?: string
-	}
-</script>
-
 <script lang="ts">
-	import { buildDiffTree, type AppRootMeta, type TreeNode } from './diffTree'
+	import { buildDiffTree, folderKeyFor, type AppRootMeta, type TreeNode } from './diffTree'
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import {
 		AlertTriangle,
+		Check,
+		CheckCircle2,
 		ChevronDown,
 		ChevronRight,
+		ExternalLink,
 		Folder,
-		GitMerge,
 		Loader2,
-		Minus,
-		Pencil,
-		Plus,
+		Save,
 		User
 	} from 'lucide-svelte'
-	import { goto } from '$lib/navigation'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import WorkspaceItemRow from '$lib/components/WorkspaceItemRow.svelte'
 	import WorkspaceItemDiffViewer from '$lib/components/WorkspaceItemDiffViewer.svelte'
@@ -42,159 +21,189 @@
 		rawAppDiffToItems,
 		type RawAppish,
 		type RawAppFileItem,
-		type RawAppRunnableItem
+		type RawAppRunnableItem,
+		type RawAppSyntheticItem
 	} from '$lib/components/raw_apps/rawAppDiffUtils'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { DiffIcon, SquareSplitHorizontal } from 'lucide-svelte'
-	import { untrack, type Snippet } from 'svelte'
+	import { tick, untrack } from 'svelte'
+	import { fade, fly, slide } from 'svelte/transition'
+	import { cubicOut } from 'svelte/easing'
+	import type { Snippet } from 'svelte'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import { createAsyncConfirmationModal } from '$lib/components/common/confirmationModal/asyncConfirmationModal.svelte'
 	import ExternalEditLink from '../ExternalEditLink.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import { actionFor, badgeOf, type DeployItem } from './sessionDeployModel'
+	import { maskKey } from './modifiedItemsMask'
+	import type { SessionDeployModel, DiffValues } from './sessionDeployModel.svelte'
+	import { SIDE_BY_SIDE_MIN_WIDTH } from '$lib/components/diffEditorTypes'
 
-	// Read-only, multi-item before/after diff viewer with a file tree. The data
-	// source (fork comparison vs deployed-vs-draft) is supplied by the parent
-	// wrapper via `diffs` + `loadValues`; everything here is generic rendering.
+	// The session "Edits" surface. Reads a unified item model (the session's
+	// drafts, scoped to what this session edited) and renders a folder tree
+	// (left) plus a scroll-through diff column with per-block sticky headers
+	// (right). Deploy is granular per-item; batch/PR flows and fork→parent
+	// promotion are handed to the compare page via the footer link.
 	let {
-		diffs,
-		loadValues,
-		loading = false,
-		error = undefined,
-		notice = undefined,
-		emptyMessage = 'No changes.',
+		model,
 		title,
-		reviewHref,
-		reviewLabel = 'Review',
 		editUrlFor = undefined,
-		titleExtra
+		titleExtra,
+		compareSessionHref,
+		workspaceLabel,
+		successHoldMs = 1200
 	}: {
-		diffs: DiffRow[]
-		loadValues: (d: DiffRow) => Promise<{ before: unknown; after: unknown }>
-		loading?: boolean
-		error?: string | undefined
-		/** Replaces the diff list with an informational message (e.g. fork
-		 * created before change tracking). */
-		notice?: string | undefined
-		emptyMessage?: string
+		model: SessionDeployModel
 		title: string
-		reviewHref: string
-		reviewLabel?: string
-		editUrlFor?: (d: DiffRow) => string | undefined
+		/** Editor URL for a row (opens in the workspace the item lives in). */
+		editUrlFor?: (item: DeployItem) => string | undefined
 		titleExtra?: Snippet
+		/** Display name of the workspace deploys land in — the deployed tick's
+		 *  hover reads "Deployed in <label>". */
+		workspaceLabel?: string
+		/** How long the post-deploy check beat holds before the row flips. */
+		successHoldMs?: number
+		/** Compare page for this session's edits (footer) — preselected via
+		 *  `from_session`. Where "deploy all / request review" happens. */
+		compareSessionHref?: string
 	} = $props()
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let searchQuery = $state('')
+	// The user's explicit view choice. The *effective* view can still be inline
+	// when the column is too narrow — see `narrow`/`inlineDiff` below.
 	let diffStyle = $state<'sbs' | 'inline'>('sbs')
-	const inlineDiff = $derived(diffStyle === 'inline')
+
+	// Width of the diff column (the scrolling <main>). The editor sits inside it
+	// behind ~18px of chrome (main padding + card border), so subtract that to
+	// compare against the editor's own SIDE_BY_SIDE_MIN_WIDTH gate. Forcing inline
+	// here (rather than leaving it to each DiffEditor) keeps the toggle honest:
+	// the button shown always matches what renders.
+	const DIFF_COLUMN_CHROME = 18
+	let mainWidth = $state(0)
+	const narrow = $derived(mainWidth > 0 && mainWidth - DIFF_COLUMN_CHROME < SIDE_BY_SIDE_MIN_WIDTH)
+	const inlineDiff = $derived(diffStyle === 'inline' || narrow)
+	const effectiveStyle = $derived<'sbs' | 'inline'>(inlineDiff ? 'inline' : 'sbs')
+
+	// The sidebar's inner right padding must ADAPT to the reserved scrollbar
+	// gutter (platform-dependent: 0 for overlay scrollbars, ~15px classic) so
+	// gutter + padding always totals the same 6px inset the left side uses.
+	// Pure CSS can't express "6px minus the gutter", hence the measurement.
+	function padRightForGutter(node: HTMLElement) {
+		const apply = () => {
+			const gutter = node.offsetWidth - node.clientWidth
+			node.style.paddingRight = `${Math.max(0, 6 - gutter)}px`
+		}
+		apply()
+		const ro = new ResizeObserver(apply)
+		ro.observe(node)
+		return { destroy: () => ro.disconnect() }
+	}
+
+	// Discard is destructive (a draft-only item disappears entirely) — confirm.
+	const discardConfirm = createAsyncConfirmationModal()
+	async function confirmDiscard(item: DeployItem) {
+		const confirmed = await discardConfirm.ask({
+			title: 'Discard draft?',
+			confirmationText: 'Discard draft',
+			children: item.draftOnly
+				? `${item.displayPath} was never deployed — discarding its draft deletes it entirely.`
+				: `The draft changes on ${item.displayPath} will be permanently discarded; the deployed version is kept.`
+		})
+		if (confirmed) void model.discardRow(item)
+	}
+
+	// Post-deploy staging (same pattern as SaveButton): on success, the row keeps
+	// rendering its pre-deploy snapshot while a green check flies in over the
+	// Deploy button; after the hold it releases, letting the collapse + badge
+	// transitions play on the real (deployed) state.
+	let staged = $state<Record<string, DeployItem>>({})
+	let stagedTimers: ReturnType<typeof setTimeout>[] = []
+	$effect(() => {
+		return () => stagedTimers.forEach(clearTimeout)
+	})
+	async function deployStaged(item: DeployItem) {
+		if (!(await model.deployRow(item))) return
+		// The deploy can re-key the row before this renders: a draft-only (or
+		// renamed) item deploys to its displayPath and the mask entry moves with
+		// it. Stage the snapshot under both keys so the re-keyed card still
+		// renders the held check beat instead of skipping straight to done.
+		const keys = [item.key, maskKey(item.draftKind, item.displayPath)]
+		const next = { ...staged }
+		for (const k of keys) next[k] = item
+		staged = next
+		stagedTimers.push(
+			setTimeout(() => {
+				const after = { ...staged }
+				for (const k of keys) delete after[k]
+				staged = after
+			}, successHoldMs)
+		)
+	}
 
 	export function open() {
-		// Reset per-item caches so an edit-then-reopen doesn't show stale
-		// expanded content. The wrapper re-fetches `diffs`, which re-triggers
-		// the eager-load effect below.
 		loadedDiffs = {}
-		summaries = {}
 		mountedRows = {}
+		folderOpen = {}
+		staged = {}
+		model.load()
 		drawer?.openDrawer()
 		setTimeout(() => searchInputEl?.focus(), 50)
 	}
 
-	// A row in the list is either a real backend diff or a synthesized raw-app
-	// item: a file/metadata leaf (`RawAppFileItem`) or a runnable rendered as a
-	// script/flow (`RawAppRunnableItem`). All are diff-shaped, so the tree /
-	// search / count / nav operate over `DisplayDiff` uniformly.
-	type DisplayDiff = DiffRow | RawAppFileItem | RawAppRunnableItem
+	// ── Badge presentation ─────────────────────────────────────────────────────
+	// One footprint for both status pills (draft / deployed) so they line up at a
+	// compact, uniform size.
+	const STATUS_BADGE_CLASS = 'px-1.5 py-0.5 gap-0.5 text-2xs'
 
-	function itemKey(d: DisplayDiff): string {
-		// Synthetic raw-app items (files/runnables) carry their composite
-		// `<appPath>/…` path and can share kind+path with a real workspace item —
-		// e.g. a runnable rendered as `script` at `<appPath>/runnables/foo` vs a real
-		// script literally at that path. Prefix synthetic items so the {#each} key,
-		// load cache, row id and nav identity never collide with a real DiffRow.
-		return ('appPath' in d ? 'rawapp:' : '') + `${d.kind}/${d.path}`
+	// ── Rendered list: all session items, then text-searched (no filter tabs) ──
+	const segmentItems = $derived(model.items)
+
+	// A tree row is either a real deploy item or — once its raw app's values
+	// have loaded — a synthetic per-file/per-runnable item: the app's leaf row
+	// is replaced by its files, and the folder at the app's path becomes the app
+	// root (tagged via appRootMeta). Synthetics carry `appPath`.
+	type DisplayEntry = DeployItem | RawAppSyntheticItem
+	function isSynthetic(e: DisplayEntry): e is RawAppSyntheticItem {
+		return 'appPath' in e
+	}
+	// Synthetic keys are prefixed so they can't collide with a real item that
+	// happens to live at `<appPath>/runnables/foo`.
+	function displayKey(e: DisplayEntry): string {
+		return isSynthetic(e) ? `rawapp:${e.kind}/${e.path}` : e.key
+	}
+	function displayPathOf(e: DisplayEntry): string {
+		return e.displayPath ?? e.path
 	}
 
-	// Friendly path for display only; `path` stays the storage key everywhere
-	// keys/loads happen, so a never-deployed draft still loads from `…/draft_<uuid>`.
-	function displayPathOf(d: DisplayDiff): string {
-		return ('displayPath' in d ? d.displayPath : undefined) ?? d.path
-	}
+	// Raw-app storage path → its deploy item (owning-app lookup for synthetics).
+	const appByPath = $derived(
+		new Map(segmentItems.filter((d) => d.deployKind === 'raw_app').map((d) => [d.path, d]))
+	)
 
-	const KIND_LABELS: Record<string, string> = {
-		script: 'Script',
-		flow: 'Flow',
-		app: 'App',
-		raw_app: 'Raw app',
-		raw_app_file: 'File',
-		resource: 'Resource',
-		variable: 'Variable',
-		resource_type: 'Resource type',
-		folder: 'Folder',
-		schedule: 'Schedule',
-		http_trigger: 'HTTP route',
-		websocket_trigger: 'Websocket trigger',
-		kafka_trigger: 'Kafka trigger',
-		nats_trigger: 'NATS trigger',
-		postgres_trigger: 'Postgres trigger',
-		mqtt_trigger: 'MQTT trigger',
-		sqs_trigger: 'SQS trigger',
-		gcp_trigger: 'GCP trigger',
-		azure_trigger: 'Azure trigger',
-		email_trigger: 'Email trigger'
-	}
-
-	type LoadedDiff = {
-		state: 'loading' | 'ready' | 'error'
-		error?: string
-		before?: unknown
-		after?: unknown
-	}
-	let loadedDiffs: Record<string, LoadedDiff> = $state({})
-	let summaries: Record<string, string | undefined> = $state({})
-
-	// Lazy Monaco mount: exploding a raw app into N per-file rows would otherwise
-	// mount N DiffEditors at once. Each row's editor mounts only once its block
-	// scrolls within `MOUNT_MARGIN` of the viewport (rooted on the scroll
-	// container); `mountedRows` latches true so it never unmounts on scroll-away.
-	let mainScrollEl: HTMLElement | undefined = $state()
-	let mountedRows: Record<string, boolean> = $state({})
-	// Small look-ahead only: a large margin would catch the whole (collapsed-
-	// height) list at once, and each mount growing its block would cascade the
-	// rest into view. A modest margin mounts what's near the fold; as editors
-	// grow they push the pending blocks away, so the rest stay deferred.
-	const MOUNT_MARGIN = '200px 0px'
-	function lazyMount(node: HTMLElement, key: string) {
-		const io = new IntersectionObserver(
-			(entries) => {
-				if (entries.some((e) => e.isIntersecting)) {
-					mountedRows[key] = true
-					io.disconnect()
-				}
-			},
-			{ root: mainScrollEl ?? null, rootMargin: MOUNT_MARGIN }
-		)
-		io.observe(node)
-		return { destroy: () => io.disconnect() }
-	}
-
-	// The rendered list: each raw_app whose value has loaded is expanded into
-	// its per-file items (so files are independent rows that flow through the
-	// tree / search / count). An unloaded raw_app stays a single placeholder row
-	// until its value arrives, then expands in place.
-	const displayDiffs = $derived.by(() => {
-		const out: DisplayDiff[] = []
-		for (const d of diffs) {
-			if (d.kind === 'raw_app') {
-				const loaded = loadedDiffs[itemKey(d)]
+	const displayEntries = $derived.by(() => {
+		const out: DisplayEntry[] = []
+		for (const d of segmentItems) {
+			if (d.deployKind === 'raw_app') {
+				const loaded = loadedDiffs[d.key]
 				if (loaded?.state === 'ready') {
-					out.push(
-						...rawAppDiffToItems(
-							d.path,
-							loaded.before as RawAppish | undefined,
-							loaded.after as RawAppish | undefined,
-							displayPathOf(d)
-						)
-					)
-					continue
+					// A deployed (done) app has no changed files to diff — unwrap it
+					// into its full current contents instead (one-sided → every file
+					// listed; rows are plain so the 'added' status never shows).
+					const subs = d.done
+						? rawAppDiffToItems(
+								d.path,
+								undefined,
+								loaded.after as RawAppish | undefined,
+								d.displayPath
+							)
+						: rawAppItems(d, loaded)
+					if (subs.length > 0) {
+						out.push(...subs)
+						continue
+					}
 				}
 			}
 			out.push(d)
@@ -202,110 +211,174 @@
 		return out
 	})
 
-	async function loadDiffFor(d: DiffRow) {
-		const key = itemKey(d)
-		if (loadedDiffs[key]) return
-		loadedDiffs[key] = { state: 'loading' }
-		try {
-			const { before, after } = await loadValues(d)
-			loadedDiffs[key] = { state: 'ready', before, after }
-			const summary =
-				(after && typeof after === 'object' && (after as any).summary) ||
-				(before && typeof before === 'object' && (before as any).summary) ||
-				undefined
-			if (typeof summary === 'string' && summary.trim().length > 0) {
-				summaries[key] = summary
-			}
-		} catch (e) {
-			console.error('WorkspaceDiffDrawer: loadValues failed', d, e)
-			loadedDiffs[key] = { state: 'error', error: String(e) }
-		}
+	function searchableText(e: DisplayEntry): string {
+		if (isSynthetic(e)) return [displayPathOf(e), e.kind].join(' ')
+		return [e.displayPath, e.deployKind, e.summary ?? ''].join(' ')
 	}
+	let searchedEntries: (DisplayEntry & { marked?: string })[] | undefined = $state(undefined)
+	const searchActive = $derived(searchQuery.trim().length > 0)
+	const filteredEntries = $derived.by(() => {
+		if (!searchActive) return displayEntries
+		return (searchedEntries ?? []) as DisplayEntry[]
+	})
 
-	// Eagerly load each row (diffs render expanded). Tracks `diffs` only; the
-	// cache reads/writes are untracked so this doesn't loop on itself.
+	// File names inside unexpanded apps don't exist client-side until the app's
+	// values load — a live search loads every raw app so matches are complete.
 	$effect(() => {
-		const ds = diffs
+		if (!searchActive) return
+		const items = segmentItems
 		untrack(() => {
-			for (const d of ds) void loadDiffFor(d)
+			for (const d of items) if (d.deployKind === 'raw_app') void loadDiffFor(d)
 		})
 	})
 
-	function onDetailsToggle(d: DisplayDiff, e: Event) {
-		// Synthetic raw-app items (files + runnables) carry their content
-		// already — nothing to fetch.
-		if ('appPath' in d) return
-		const target = e.currentTarget as HTMLDetailsElement | null
-		if (target?.open) void loadDiffFor(d)
-	}
-
-	function statusBadgeColor(s: DiffStatus): 'green' | 'red' | 'orange' | 'blue' {
-		if (s === 'added') return 'green'
-		if (s === 'removed') return 'red'
-		if (s === 'conflict') return 'orange'
-		return 'blue'
-	}
-
-	const statusIcons = { added: Plus, removed: Minus, modified: Pencil, conflict: AlertTriangle }
-
-	// ── File tree ───────────────────────────────────────────────────────────
-	// Friendly app path → app metadata, for tagging the matching tree folder as a
-	// raw-app root. Keyed on `displayPathOf` so it lines up with the friendly
-	// virtual paths the synthetic file items carry.
+	// ── Tree ─────────────────────────────────────────────────────────────────
 	const appRootMeta = $derived.by(() => {
 		const m = new Map<string, AppRootMeta>()
-		for (const d of diffs) {
-			if (d.kind !== 'raw_app') continue
-			m.set(displayPathOf(d), {
-				summaryKey: itemKey(d),
-				summary: 'summary' in d ? d.summary : undefined
+		for (const it of model.items) {
+			if (it.deployKind !== 'raw_app') continue
+			m.set(it.displayPath, {
+				summaryKey: it.key,
+				summary: it.summary,
+				hasDraft: it.hasDraft,
+				draftOnly: it.draftOnly,
+				draftUsers: it.draftUsers,
+				draftItemKind: it.draftKind
 			})
 		}
 		return m
 	})
 
-	function searchableText(d: DisplayDiff): string {
-		const parts = [displayPathOf(d), KIND_LABELS[d.kind] ?? d.kind]
-		const s = summaries[itemKey(d)] ?? ('summary' in d ? d.summary : undefined)
-		if (s) parts.push(s)
-		return parts.join(' ')
-	}
-	let searchedDiffs: (DisplayDiff & { marked?: string })[] | undefined = $state(undefined)
-
-	const filteredDiffs = $derived.by(() => {
-		const q = searchQuery.trim()
-		if (!q) return displayDiffs
-		return (searchedDiffs ?? []) as DisplayDiff[]
-	})
-
 	const treeModel = $derived(
 		buildDiffTree(
-			filteredDiffs.map((d) => ({ key: itemKey(d), structurePath: displayPathOf(d), data: d })),
+			filteredEntries.map((e) => ({
+				key: displayKey(e),
+				structurePath: displayPathOf(e),
+				data: e
+			})),
 			appRootMeta
 		)
 	)
 
-	function rowId(d: DisplayDiff): string {
-		return `ws-diff-${itemKey(d)}`
+	// Content blocks follow the sidebar's order: walk the tree (all folders open,
+	// so collapsing the sidebar never hides a block) and emit each owning deploy
+	// item once, so the diff column top-to-bottom matches the tree.
+	const orderedItems = $derived.by(() => {
+		const seen = new Set<string>()
+		const out: DeployItem[] = []
+		for (const entry of treeModel.order(() => true)) {
+			if (entry.type !== 'file') continue
+			const item = isSynthetic(entry.data) ? appByPath.get(entry.data.appPath) : entry.data
+			if (item && !seen.has(item.key)) {
+				seen.add(item.key)
+				out.push(item)
+			}
+		}
+		return out
+	})
+
+	function rowId(d: DeployItem): string {
+		return `ws-diff-${d.key}`
 	}
 
-	function scrollToDiff(d: DisplayDiff) {
-		const el = document.getElementById(rowId(d)) as HTMLDetailsElement | null
-		if (!el) return
-		el.open = true
-		el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+	// Keep the column's pt-3 breathing room when a click scrolls a card to the top.
+	const SCROLL_TOP_INSET = 12
+
+	// Smooth-scroll the row's card near the top (leaving the column's top inset).
+	// Native scrollIntoView lands short here because lazily-mounted diffs grow the
+	// list mid-scroll; instead we ease toward the target and re-measure it every
+	// frame, so the animation stays smooth while still landing flush once the
+	// layout settles. Bails on user scroll.
+	function scrollToDiff(d: DeployItem) {
+		const el = document.getElementById(rowId(d))
+		const container = mainScrollEl
+		if (!el || !container) return
+		let frames = 0
+		let settled = 0
+		let cancelled = false
+		const cancel = () => (cancelled = true)
+		container.addEventListener('wheel', cancel, { once: true, passive: true })
+		container.addEventListener('touchstart', cancel, { once: true, passive: true })
+		const teardown = () => {
+			container.removeEventListener('wheel', cancel)
+			container.removeEventListener('touchstart', cancel)
+		}
+		const step = () => {
+			if (cancelled) return teardown()
+			const off =
+				el.getBoundingClientRect().top - container.getBoundingClientRect().top - SCROLL_TOP_INSET
+			if (Math.abs(off) < 1) {
+				if (++settled >= 2) return teardown()
+			} else {
+				settled = 0
+				// Ease-out for the long haul; snap the final approach so it settles fast.
+				container.scrollTop += Math.abs(off) < 20 ? off : Math.round(off * 0.22)
+			}
+			if (frames++ < 120) requestAnimationFrame(step)
+			else teardown()
+		}
+		step()
 	}
 
-	// ── Keyboard nav (matches WorkspaceItemDrillPicker) ─────────────────────
+	// Transient ring pulse on the card a tree click just revealed, so the eye
+	// lands on the right block after the scroll.
+	let flashKey = $state<string | undefined>(undefined)
+	let flashTimer: ReturnType<typeof setTimeout> | undefined
+	function flashRow(key: string) {
+		flashKey = key
+		clearTimeout(flashTimer)
+		flashTimer = setTimeout(() => (flashKey = undefined), 800)
+	}
+
+	function revealDiff(d: DeployItem, key?: string) {
+		if (key) highlightedKey = key
+		flashRow(d.key)
+		scrollToDiff(d)
+	}
+
+	// A file's sub-diff anchor lives inside the app's main-panel block, which
+	// mounts lazily on scroll — force-mount it before scrolling to the anchor.
+	// A deployed app's block has no per-file sections ("no pending changes"), so
+	// fall back to the app block itself.
+	async function revealSynthetic(s: RawAppSyntheticItem, key?: string) {
+		if (key) highlightedKey = key
+		const app = appByPath.get(s.appPath)
+		if (!app) return
+		flashRow(app.key)
+		if (!mountedRows[app.key]) {
+			mountedRows[app.key] = true
+			await tick()
+		}
+		const target =
+			document.getElementById(`ws-diff-${displayKey(s)}`) ?? document.getElementById(rowId(app))
+		target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+	}
+
+	// ── Keyboard nav ─────────────────────────────────────────────────────────
 	let folderOpen: Record<string, boolean> = $state({})
+	// Folders default open, raw-app roots default collapsed; a live search
+	// forces everything open so matches inside apps are visible.
+	const appFolderKeys = $derived(new Set([...appRootMeta.keys()].map((p) => folderKeyFor(p))))
 	function isFolderOpen(key: string): boolean {
-		return folderOpen[key] ?? true
+		if (searchActive) return true
+		return folderOpen[key] ?? !appFolderKeys.has(key)
 	}
 
+	// Expand a still-unloaded raw app from its leaf row: mark the future app
+	// folder open and fetch the values; once ready, the leaf is replaced by the
+	// app root + file children. Re-expanding after a failure retries the load.
+	function expandApp(d: DeployItem) {
+		const fkey = folderKeyFor(d.displayPath)
+		folderOpen[fkey] = true
+		if (loadedDiffs[d.key]?.state === 'error') delete loadedDiffs[d.key]
+		const wasHighlighted = highlightedKey === d.key
+		void loadDiffFor(d).then(() => {
+			if (wasHighlighted) highlightedKey = fkey
+		})
+	}
 	const navEntries = $derived(treeModel.order((k) => isFolderOpen(k)))
 	const navKeys = $derived(navEntries.map((e) => e.key))
 	const entryByKey = $derived(new Map(navEntries.map((e) => [e.key, e])))
-
 	let highlightedKey: string | undefined = $state(undefined)
 	let mouseActive = $state(false)
 	let searchInputEl: HTMLInputElement | undefined = $state()
@@ -313,49 +386,46 @@
 
 	$effect(() => {
 		if (navKeys.length === 0) return
-		if (!highlightedKey || !navKeys.includes(highlightedKey)) {
-			highlightedKey = navKeys[0]
-		}
+		if (!highlightedKey || !navKeys.includes(highlightedKey)) highlightedKey = navKeys[0]
 	})
-
 	function scrollHighlightIntoView() {
 		if (!sidebarRoot || !highlightedKey) return
-		const el = sidebarRoot.querySelector<HTMLElement>(
-			`[data-nav-key="${CSS.escape(highlightedKey)}"]`
-		)
-		el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+		sidebarRoot
+			.querySelector<HTMLElement>(`[data-nav-key="${CSS.escape(highlightedKey)}"]`)
+			?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
 	}
-
 	function moveHighlight(delta: 1 | -1) {
 		if (navKeys.length === 0) return
 		const cur = navKeys.indexOf(highlightedKey ?? '')
-		const next = cur < 0 ? 0 : (cur + delta + navKeys.length) % navKeys.length
-		highlightedKey = navKeys[next]
+		highlightedKey = navKeys[cur < 0 ? 0 : (cur + delta + navKeys.length) % navKeys.length]
 		mouseActive = false
 		requestAnimationFrame(scrollHighlightIntoView)
 	}
-
 	function setHoverHighlight(key: string) {
 		if (mouseActive) highlightedKey = key
 	}
-
 	function activateHighlighted() {
 		if (!highlightedKey) return
 		const entry = entryByKey.get(highlightedKey)
 		if (!entry) return
 		if (entry.type === 'file') {
-			scrollToDiff(entry.data)
-		} else {
-			folderOpen[entry.key] = !isFolderOpen(entry.key)
+			if (isSynthetic(entry.data)) void revealSynthetic(entry.data)
+			else void revealDiff(entry.data)
+			return
 		}
+		// App roots activate like rows (reveal the diff); folding stays on the
+		// chevron / ArrowRight. Plain folders keep Enter-to-toggle.
+		const appItem = entry.node.app
+			? segmentItems.find((d) => d.key === entry.node.app?.summaryKey)
+			: undefined
+		if (appItem) revealDiff(appItem)
+		else folderOpen[entry.key] = !isFolderOpen(entry.key)
 	}
-
 	function selectKey(key: string) {
 		highlightedKey = key
 		mouseActive = false
 		requestAnimationFrame(scrollHighlightIntoView)
 	}
-
 	function handleSearchKeydown(e: KeyboardEvent) {
 		if (e.key === 'ArrowDown') {
 			e.preventDefault()
@@ -368,7 +438,15 @@
 			activateHighlighted()
 		} else if (e.key === 'ArrowRight') {
 			const entry = highlightedKey ? entryByKey.get(highlightedKey) : undefined
-			if (!entry || entry.type !== 'folder') return
+			if (!entry) return
+			if (entry.type === 'file') {
+				// An unloaded raw app is still a leaf — ArrowRight expands it.
+				if (!isSynthetic(entry.data) && entry.data.deployKind === 'raw_app') {
+					e.preventDefault()
+					expandApp(entry.data)
+				}
+				return
+			}
 			if (!isFolderOpen(entry.key)) {
 				e.preventDefault()
 				folderOpen[entry.key] = true
@@ -394,16 +472,163 @@
 			}
 		}
 	}
+
+	// ── Diff values (lazy Monaco mount, one resolver via the model) ──────────
+	type LoadedDiff = {
+		state: 'loading' | 'ready' | 'error'
+		error?: string
+		before?: unknown
+		after?: unknown
+	}
+	let loadedDiffs: Record<string, LoadedDiff> = $state({})
+	let mainScrollEl: HTMLElement | undefined = $state()
+	// Visible height of the scroll area, used to size the trailing spacer so the
+	// last item can always be scrolled until its header reaches the top.
+	let mainHeight = $state(0)
+	// Height of a card's sticky header (measured — all cards share it), so the diff
+	// cap can reserve exactly that plus a small gap and the whole card (header +
+	// diff) fits the viewport instead of overflowing it.
+	let cardHeaderH = $state(0)
+	// Cap each diff block so a long one (a big script/app file) scrolls inside
+	// Monaco instead of stretching its card past a screenful: the visible height
+	// less the card header and an inter-card gap so a whole card fits the viewport.
+	// 0 (unmeasured) means "no cap" so nothing collapses before mainHeight lands.
+	const CARD_GAP = 24
+	const maxHeight = $derived(mainHeight > 0 ? mainHeight - cardHeaderH - CARD_GAP : 0)
+	// The trailing spacer only needs to cover the gap the last item can't fill on
+	// its own: viewport − lastItemHeight (0 when the item already fills the view).
+	// Reserving the full viewport would let you scroll a whole item-height into
+	// blank space past the end. A ResizeObserver keeps it right as the row grows.
+	let lastRowHeight = $state(0)
+	$effect(() => {
+		const last = orderedItems.at(-1)
+		const el = last && mainScrollEl ? document.getElementById(rowId(last)) : undefined
+		if (!el) {
+			lastRowHeight = 0
+			return
+		}
+		lastRowHeight = el.offsetHeight
+		const ro = new ResizeObserver(() => (lastRowHeight = el.offsetHeight))
+		ro.observe(el)
+		return () => ro.disconnect()
+	})
+	const trailingSpace = $derived(Math.max(0, mainHeight - lastRowHeight))
+	let mountedRows: Record<string, boolean> = $state({})
+	const MOUNT_MARGIN = '200px 0px'
+
+	async function loadDiffFor(item: DeployItem) {
+		if (loadedDiffs[item.key]) return
+		loadedDiffs[item.key] = { state: 'loading' }
+		try {
+			const { before, after }: DiffValues = await model.loadDiffValues(item)
+			loadedDiffs[item.key] = { state: 'ready', before, after }
+		} catch (e) {
+			console.error('WorkspaceDiffDrawer: loadDiffValues failed', item, e)
+			loadedDiffs[item.key] = { state: 'error', error: String(e) }
+		}
+	}
+
+	function lazyMount(node: HTMLElement, item: DeployItem) {
+		const io = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((e) => e.isIntersecting)) {
+					mountedRows[item.key] = true
+					void loadDiffFor(item)
+					io.disconnect()
+				}
+			},
+			{ root: mainScrollEl ?? null, rootMargin: MOUNT_MARGIN }
+		)
+		io.observe(node)
+		return { destroy: () => io.disconnect() }
+	}
+
+	// Raw-app blocks explode into their per-file / per-runnable sub-diffs; other
+	// kinds render one before/after viewer.
+	function rawAppItems(
+		item: DeployItem,
+		loaded: LoadedDiff
+	): (RawAppFileItem | RawAppRunnableItem)[] {
+		return rawAppDiffToItems(
+			item.path,
+			loaded.before as RawAppish | undefined,
+			loaded.after as RawAppish | undefined,
+			item.displayPath
+		)
+	}
 </script>
 
 <SearchItems
 	filter={searchQuery}
-	items={displayDiffs}
-	bind:filteredItems={searchedDiffs}
-	f={(d: DisplayDiff) => searchableText(d)}
+	items={displayEntries}
+	bind:filteredItems={searchedEntries}
+	f={(e: DisplayEntry) => searchableText(e)}
 />
 
-{#snippet renderTreeNode(node: TreeNode<DisplayDiff>, depth: number)}
+<!-- The single row badge. Everything here was edited by the AI this session,
+     so the draft badge is a plain pill — no author avatars. -->
+{#snippet rowBadge(item: DeployItem)}
+	{#if badgeOf(item) === 'draft'}
+		{#if model.staleOf(item.key)}
+			<!-- Same warning as the compare page: the deployed head moved after this
+			     draft began, so deploying it reverts the newer deploy. Warn, don't
+			     block — reviewing the diff is exactly what this surface is for. -->
+			<Popover openOnHover debounceDelay={50}>
+				{#snippet trigger()}
+					<AlertTriangle size={14} class="text-orange-500" />
+				{/snippet}
+				{#snippet content()}
+					<div class="text-xs p-3 max-w-xs text-primary">
+						Started from an older deployed version. A newer version was deployed after this draft
+						began. Review the latest deploy before deploying.
+					</div>
+				{/snippet}
+			</Popover>
+		{/if}
+		<Badge
+			color="indigo"
+			small
+			class={STATUS_BADGE_CLASS}
+			title={item.draftOnly ? 'Never deployed and is only a draft' : 'Is deployed and has a draft'}
+		>
+			{item.draftOnly ? 'Draft only' : 'Draft'}
+		</Badge>
+	{:else}
+		<!-- Deployed is the quiet terminal state — an icon-only green badge; the
+		     hover carries the words. Fades in when a row transitions on deploy. -->
+		<span in:fade={{ duration: 200 }} class="inline-flex shrink-0">
+			<Badge
+				color="green"
+				small
+				class="px-1 py-0.5"
+				title={`Deployed in ${workspaceLabel ?? 'this workspace'}`}
+			>
+				<Check class="w-3 h-3" aria-label="Deployed" />
+			</Badge>
+		</span>
+	{/if}
+{/snippet}
+
+<!-- Failure only — while deploying the button itself carries a spinner, and a
+     success flies the green check over the button (see deployStaged). -->
+{#snippet deployFailed(item: DeployItem)}
+	{@const s = model.statusOf(item.key)}
+	{#if s?.status === 'failed'}
+		<span class="inline-flex items-center gap-1" title={s.error}>
+			<Badge color="red" small>Failed</Badge>
+			<Button
+				variant="subtle"
+				unifiedSize="xs"
+				disabled={model.deploying}
+				onclick={() => deployStaged(item)}
+			>
+				Retry
+			</Button>
+		</span>
+	{/if}
+{/snippet}
+
+{#snippet renderTreeNode(node: TreeNode<DisplayEntry>, depth: number)}
 	{#if node.type === 'folder'}
 		{@const isUserScope = node.isScope && node.name.startsWith('u/')}
 		{@const fkey = node.key}
@@ -411,36 +636,62 @@
 		{@const isHl = fkey === highlightedKey}
 		<details
 			{open}
-			ontoggle={(e) => (folderOpen[fkey] = (e.currentTarget as HTMLDetailsElement).open)}
+			ontoggle={(e) => {
+				// Record real user toggles only; skip the echo fired when the `open`
+				// attribute is driven by state (search force-open, expandApp).
+				const domOpen = (e.currentTarget as HTMLDetailsElement).open
+				if (domOpen !== isFolderOpen(fkey)) folderOpen[fkey] = domOpen
+			}}
 			class="select-none"
 		>
 			{#if node.app}
-				{@const appSummary = summaries[node.app.summaryKey] ?? node.app.summary}
-				<!-- Raw-app root: expandable folder, but its header reads as a normal
-				     item row (icon + label). Single line showing the summary, falling
-				     back to the short name (the tree already places it under its scope;
-				     full path on hover). The expand chevron sits at the end of the row. -->
+				{@const appItem = segmentItems.find((it) => it.key === node.app?.summaryKey)}
+				<!-- App root: the row click reveals the app's diff like any item row;
+				     folding is chevron-only (preventDefault blocks the native toggle). -->
 				<summary
 					role="option"
 					aria-selected={isHl}
 					data-nav-key={fkey}
 					onmouseenter={() => setHoverHighlight(fkey)}
+					onclick={(e) => {
+						e.preventDefault()
+						if (appItem) revealDiff(appItem, fkey)
+					}}
 					title={node.fullPath}
-					class="flex items-center gap-1.5 px-3 py-1.5 cursor-pointer hover:bg-surface-hover list-none [&::-webkit-details-marker]:hidden tree-summary {isHl
+					class="flex items-center gap-2 pl-3 pr-1 py-2 rounded-md cursor-pointer hover:bg-surface-hover list-none [&::-webkit-details-marker]:hidden tree-summary {isHl
 						? 'bg-surface-hover'
 						: ''}"
 					style="padding-left: {depth * 12 + 8}px"
 				>
 					<RowIcon kind="raw_app" size={12} />
 					<span
-						class="flex-1 min-w-0 truncate text-xs font-normal text-primary {appSummary
+						class="flex-1 min-w-0 truncate text-xs font-normal text-primary {node.app.summary
 							? ''
 							: 'font-mono'}"
 					>
-						{appSummary ?? node.name}
+						{node.app.summary ?? node.name}
 					</span>
-					<ChevronDown class="w-3 h-3 shrink-0 text-tertiary tree-chevron-open" />
-					<ChevronRight class="w-3 h-3 shrink-0 text-tertiary tree-chevron-closed" />
+					{#if appItem}
+						{@render rowBadge(staged[appItem.key] ?? appItem)}
+					{/if}
+					<!-- Raw button (not the design-system Button) on purpose: it nests inside
+					     the <summary> whose native toggle is preventDefault'd, and needs the
+					     tree rows' compact w-5 footprint — Button's smallest size doesn't fit
+					     and its styling fights the row hover. -->
+					<button
+						type="button"
+						aria-expanded={open}
+						title={open ? 'Hide files' : 'Show files'}
+						class="w-5 h-5 flex items-center justify-center shrink-0 rounded hover:bg-surface-secondary"
+						onclick={(e) => {
+							e.preventDefault()
+							e.stopPropagation()
+							folderOpen[fkey] = !open
+						}}
+					>
+						<ChevronDown class="w-3 h-3 shrink-0 text-tertiary tree-chevron-open" />
+						<ChevronRight class="w-3 h-3 shrink-0 text-tertiary tree-chevron-closed" />
+					</button>
 				</summary>
 			{:else}
 				<summary
@@ -448,7 +699,7 @@
 					aria-selected={isHl}
 					data-nav-key={fkey}
 					onmouseenter={() => setHoverHighlight(fkey)}
-					class="flex items-center gap-1.5 px-3 py-1.5 cursor-pointer text-xs font-normal font-mono text-secondary hover:bg-surface-hover list-none [&::-webkit-details-marker]:hidden tree-summary {isHl
+					class="flex items-center gap-2 pl-3 pr-1 py-2 rounded-md cursor-pointer text-xs font-normal font-mono text-secondary hover:bg-surface-hover list-none [&::-webkit-details-marker]:hidden tree-summary {isHl
 						? 'bg-surface-hover'
 						: ''}"
 					style="padding-left: {depth * 12 + 8}px"
@@ -459,14 +710,13 @@
 						<Folder size={12} class="shrink-0 text-tertiary" />
 					{/if}
 					<span class="flex-1 min-w-0 truncate" title={node.name}>{node.name}</span>
-					<ChevronDown class="w-3 h-3 shrink-0 text-tertiary tree-chevron-open" />
-					<ChevronRight class="w-3 h-3 shrink-0 text-tertiary tree-chevron-closed" />
+					<span class="w-5 flex items-center justify-center shrink-0">
+						<ChevronDown class="w-3 h-3 shrink-0 text-tertiary tree-chevron-open" />
+						<ChevronRight class="w-3 h-3 shrink-0 text-tertiary tree-chevron-closed" />
+					</span>
 				</summary>
 			{/if}
 			<div class="relative">
-				<!-- Indent guide: a vertical rule down the left of the folder's
-				     children, at the parent chevron's midpoint (depth*12+8 + 6).
-				     Absolute so it doesn't shift the rows; clicks pass through. -->
 				<div
 					class="pointer-events-none absolute top-0 bottom-0 border-l border-light"
 					style="left: {depth * 12 + 14}px"
@@ -480,31 +730,145 @@
 	{:else}
 		{@const d = node.data}
 		{@const key = node.key}
-		<!-- Folders place their icon at the base padding (depth*12+8) — the chevron
-		     now sits at the row's end, not the front. WorkspaceItemRow adds its own
-		     12px base, so indent = depth*12-4 lines a file's icon up with sibling
-		     folder icons. Keep in sync with the folder summary. -->
-		<WorkspaceItemRow
-			kind={d.kind as any}
-			iconPath={d.path}
-			baseClass="py-1.5"
-			singleLine
-			summary={summaries[key] ?? ('summary' in d ? d.summary : undefined)}
-			secondary={node.name}
-			highlighted={key === highlightedKey}
-			navKey={key}
-			indent={depth * 12 - 4}
-			title={displayPathOf(d)}
-			onclick={() => {
-				highlightedKey = key
-				scrollToDiff(d)
-			}}
-			onmouseenter={() => setHoverHighlight(key)}
+		<!-- Indentation lives on the wrapper (outside the row's hover surface) so the
+		     highlight starts at the row content instead of bleeding across the indent.
+		     Every row ends with a w-5 slot (chevron or spacer) to keep badges aligned
+		     with the folder rows' chevrons. -->
+		<div class="flex items-stretch" style="padding-left: {depth * 12 + 4}px">
+			{#if isSynthetic(d)}
+				<WorkspaceItemRow
+					kind={d.kind as any}
+					iconPath={d.path}
+					baseClass="py-2 min-w-0 pr-1 pl-1 rounded-md"
+					singleLine
+					secondary={node.name}
+					highlighted={key === highlightedKey}
+					navKey={key}
+					indent={0}
+					title={displayPathOf(d)}
+					onclick={() => void revealSynthetic(d, key)}
+					onmouseenter={() => setHoverHighlight(key)}
+				>
+					{#snippet extras()}
+						<span class="w-5 shrink-0"></span>
+					{/snippet}
+				</WorkspaceItemRow>
+			{:else}
+				<WorkspaceItemRow
+					kind={d.deployKind as any}
+					iconPath={d.path}
+					baseClass="py-2 min-w-0 pr-1 pl-1 rounded-md"
+					singleLine
+					summary={d.summary}
+					secondary={node.name}
+					highlighted={key === highlightedKey}
+					navKey={key}
+					indent={0}
+					title={d.displayPath}
+					onclick={() => revealDiff(d, key)}
+					onmouseenter={() => setHoverHighlight(key)}
+				>
+					{#snippet extras()}
+						{@render rowBadge(staged[d.key] ?? d)}
+						{#if d.deployKind === 'raw_app'}
+							<!-- Unloaded app leaf: row click reveals the diff, the chevron
+							     loads the values and unwraps the file tree. A span (not a
+							     button/Button) because it nests inside WorkspaceItemRow's
+							     clickable row — nested interactive elements are invalid — and
+							     it stays out of the tab order: the keyboard path is ArrowRight
+							     on the highlighted row (handleSearchKeydown). -->
+							<span
+								role="button"
+								tabindex="-1"
+								title="Show files"
+								class="w-5 h-5 flex items-center justify-center shrink-0 rounded cursor-pointer hover:bg-surface-secondary"
+								onclick={(e) => {
+									e.stopPropagation()
+									expandApp(d)
+								}}
+							>
+								{#if loadedDiffs[d.key]?.state === 'loading'}
+									<Loader2 class="w-3 h-3 animate-spin text-tertiary" />
+								{:else}
+									<ChevronRight class="w-3 h-3 text-tertiary" />
+								{/if}
+							</span>
+						{:else}
+							<span class="w-5 shrink-0"></span>
+						{/if}
+					{/snippet}
+				</WorkspaceItemRow>
+			{/if}
+		</div>
+	{/if}
+{/snippet}
+
+<!-- Live (non-done) diff content only — the done state renders at the card
+     level so the two can cross-animate on deploy. -->
+{#snippet diffBlock(item: DeployItem)}
+	{@const loaded = loadedDiffs[item.key]}
+	{#if !mountedRows[item.key]}
+		<div
+			use:lazyMount={item}
+			class="flex items-center gap-2 text-2xs text-tertiary p-3 min-h-[10rem]"
+		>
+			<Loader2 class="w-3.5 h-3.5 animate-spin" />
+			Diff loads on scroll…
+		</div>
+	{:else if !loaded || loaded.state === 'loading'}
+		<div class="flex items-center gap-2 text-xs text-secondary p-3">
+			<Loader2 class="w-3.5 h-3.5 animate-spin" />
+			Loading diff…
+		</div>
+	{:else if loaded.state === 'error'}
+		<div class="text-xs text-red-600 dark:text-red-400 p-3">{loaded.error}</div>
+	{:else if item.deployKind === 'raw_app'}
+		<div class="flex flex-col">
+			{#each rawAppItems(item, loaded) as sub (displayKey(sub))}
+				<!-- Anchor target for the sidebar's per-file rows; scroll-mt clears the
+				     app block's sticky header. -->
+				<div
+					id={`ws-diff-${displayKey(sub)}`}
+					class="border-t border-light first:border-t-0 scroll-mt-10"
+				>
+					<div class="px-3 py-1.5 text-2xs text-secondary font-mono truncate" title={sub.path}>
+						{sub.path}
+					</div>
+					{#if sub.kind === 'raw_app_file'}
+						<WorkspaceItemDiffViewer
+							kind="raw_app_file"
+							rawFile={sub as RawAppFileItem}
+							{inlineDiff}
+							disableAutoInline
+							{maxHeight}
+						/>
+					{:else}
+						{@const runnable = sub as RawAppRunnableItem}
+						<WorkspaceItemDiffViewer
+							kind="script"
+							originalRaw={runnable.originalRaw}
+							currentRaw={runnable.currentRaw}
+							{inlineDiff}
+							disableAutoInline
+							{maxHeight}
+						/>
+					{/if}
+				</div>
+			{/each}
+		</div>
+	{:else}
+		<WorkspaceItemDiffViewer
+			kind={item.deployKind}
+			originalRaw={loaded.before}
+			currentRaw={loaded.after}
+			{inlineDiff}
+			disableAutoInline
+			{maxHeight}
 		/>
 	{/if}
 {/snippet}
 
-<Drawer bind:this={drawer} size="1200px">
+<Drawer bind:this={drawer} size="1500px">
 	<DrawerContent
 		{title}
 		{titleExtra}
@@ -514,13 +878,26 @@
 		overflow_y={false}
 	>
 		{#snippet actions()}
-			<ToggleButtonGroup bind:selected={diffStyle} noWFull>
+			<!-- Controlled (not bind:selected): the shown button is the *effective*
+			     view, which is forced to unified when the column is too narrow.
+			     Clicks still record the user's preference in `diffStyle`. -->
+			<ToggleButtonGroup
+				selected={effectiveStyle}
+				onSelected={(v) => {
+					// Ignore the programmatic flip to 'inline' when `narrow` forces it —
+					// only a real click (when not narrow) should change the preference,
+					// so widening again restores the user's choice.
+					if (!narrow) diffStyle = v
+				}}
+				noWFull
+			>
 				{#snippet children({ item })}
 					<ToggleButton
 						value="sbs"
 						label="Side-by-side"
 						icon={SquareSplitHorizontal}
-						tooltip="Side-by-side diff"
+						tooltip={narrow ? 'Side-by-side needs a wider view' : 'Side-by-side diff'}
+						disabled={narrow}
 						iconOnly
 						{item}
 					/>
@@ -534,178 +911,220 @@
 					/>
 				{/snippet}
 			</ToggleButtonGroup>
-			<Button
-				variant="accent"
-				unifiedSize="sm"
-				startIcon={{ icon: GitMerge }}
-				onclick={() => goto(reviewHref)}
-			>
-				{reviewLabel}
-			</Button>
 		{/snippet}
-		<div class="flex flex-row h-full min-h-0">
-			{#if diffs.length > 0}
-				<aside
-					bind:this={sidebarRoot}
-					onmousemove={() => (mouseActive = true)}
-					class="flex-none w-56 border-r border-light flex flex-col min-h-0"
-				>
-					<div class="px-3 pt-3 pb-2 shrink-0">
-						<!-- Raw input (not the design-system TextInput) on purpose: this is a
-						     bespoke filter wired to the file tree's keyboard navigation — it
-						     needs a direct element ref to focus (the `/` shortcut) and a
-						     keydown handler that hands ArrowDown/Enter off to the tree.
-						     TextInput/ClearableInput swallow/rebubble those and don't expose
-						     the element ref. -->
-						<input
-							bind:this={searchInputEl}
-							type="search"
-							bind:value={searchQuery}
-							placeholder="Filter files..."
-							onkeydown={handleSearchKeydown}
-							class="w-full text-xs px-2 py-1 rounded border border-light bg-surface focus:outline-none focus:border-accent"
-						/>
-					</div>
-					<div class="flex-1 min-h-0 overflow-y-auto pb-3 flex flex-col gap-1">
-						{#if treeModel.root.children.length > 0}
-							{#each treeModel.root.children as child}
-								{@render renderTreeNode(child, 0)}
-							{/each}
-						{:else}
-							<div class="text-2xs text-tertiary px-3 py-2">No matches</div>
-						{/if}
-					</div>
-				</aside>
-			{/if}
-			<main bind:this={mainScrollEl} class="flex-1 min-w-0 overflow-y-auto">
-				<div class="px-3 pt-3 pb-4 flex flex-col gap-3">
-					{#if loading && diffs.length === 0}
-						<div class="flex items-center gap-2 text-sm text-secondary py-8 self-center">
-							<Loader2 class="w-4 h-4 animate-spin" />
-							Loading comparison...
+		<div class="flex flex-col h-full min-h-0">
+			<div class="flex flex-row flex-1 min-h-0">
+				{#if model.items.length > 0}
+					<aside
+						bind:this={sidebarRoot}
+						onmousemove={() => (mouseActive = true)}
+						class="flex-none w-96 flex flex-col min-h-0 pt-3 px-1"
+					>
+						<!-- Both containers reserve the same stable scrollbar gutter (the input
+						     wrapper never actually scrolls), so input and tree rows share one
+						     right edge. padRightForGutter tops the gutter up to the 6px inner
+						     padding target so the visual right margin equals the left one no
+						     matter the platform's scrollbar width (0 for overlay scrollbars). -->
+						<div
+							class="pl-2 pb-1 shrink-0 overflow-y-auto"
+							style="scrollbar-gutter: stable;"
+							use:padRightForGutter
+						>
+							<!-- Raw input (not the design-system TextInput) on purpose: this is a
+							     bespoke filter wired to the file tree's keyboard navigation — it
+							     needs a direct element ref (focused on open) and a keydown handler
+							     that hands ArrowDown/Enter/ArrowLeft/Right off to the tree.
+							     TextInput/ClearableInput swallow/rebubble those and don't expose
+							     the element ref. -->
+							<input
+								bind:this={searchInputEl}
+								type="search"
+								bind:value={searchQuery}
+								placeholder="Filter files..."
+								onkeydown={handleSearchKeydown}
+								class="w-full text-xs px-2 py-1 rounded border border-light bg-surface focus:outline-none focus:border-accent"
+							/>
 						</div>
-					{:else if error}
-						<div class="text-sm text-red-600 dark:text-red-400 py-4">{error}</div>
-					{:else if notice}
-						<div class="text-sm text-secondary py-4">{notice}</div>
-					{:else if diffs.length === 0}
-						<div class="text-sm text-secondary py-4">{emptyMessage}</div>
-					{:else if filteredDiffs.length === 0}
-						<div class="text-sm text-secondary py-4">No files match "{searchQuery}".</div>
-					{:else}
-						<div class="flex flex-col gap-2">
-							{#each filteredDiffs as d (itemKey(d))}
-								{@const key = itemKey(d)}
-								{@const status = d.status}
-								{@const StatusIcon = statusIcons[status]}
-								{@const loaded = loadedDiffs[key]}
-								<!-- A synthesized raw-app item (file or runnable) links to its
-								     owning app's editor. -->
-								{@const editUrl =
-									'appPath' in d
-										? editUrlFor?.({ ...d, kind: 'raw_app', path: d.appPath })
-										: editUrlFor?.(d)}
-								{@const dpath = displayPathOf(d)}
-								<details
-									open
-									id={rowId(d)}
-									class="border border-light rounded-md bg-surface scroll-mt-2"
-									ontoggle={(e) => onDetailsToggle(d, e)}
-								>
-									<summary
-										class="sticky top-0 z-30 bg-surface flex items-center gap-2 px-3 py-2 cursor-pointer list-none [&::-webkit-details-marker]:hidden border-b border-transparent rounded-md relative before:content-[''] before:absolute before:inset-0 before:bg-surface-hover before:opacity-0 before:pointer-events-none before:transition-opacity hover:before:opacity-100"
+						<div
+							class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pl-2 pt-1.5 pb-2 flex flex-col gap-1"
+							style="scrollbar-gutter: stable;"
+							use:padRightForGutter
+						>
+							{#if treeModel.root.children.length > 0}
+								{#each treeModel.root.children as child}
+									{@render renderTreeNode(child, 0)}
+								{/each}
+							{:else}
+								<div class="text-2xs text-tertiary px-3 py-2">No matches</div>
+							{/if}
+						</div>
+					</aside>
+				{/if}
+				<main
+					bind:this={mainScrollEl}
+					bind:clientHeight={mainHeight}
+					bind:clientWidth={mainWidth}
+					class="flex-1 min-w-0 overflow-y-auto bg-surface"
+				>
+					<div class="pl-1 pr-3 pt-3 pb-4 flex flex-col gap-3">
+						{#if model.loading && model.items.length === 0}
+							<div class="flex items-center gap-2 text-sm text-secondary py-8 self-center">
+								<Loader2 class="w-4 h-4 animate-spin" />
+								Loading changes...
+							</div>
+						{:else if model.error}
+							<div class="text-sm text-red-600 dark:text-red-400 py-4">{model.error}</div>
+						{:else if model.items.length === 0}
+							<div class="text-sm text-secondary py-4">No changes.</div>
+						{:else if orderedItems.length === 0}
+							<div class="text-sm text-secondary py-4">No files match.</div>
+						{:else}
+							<div class="flex flex-col">
+								{#each orderedItems as d (d.key)}
+									<!-- While a deploy's success is being staged, the card renders its
+									     pre-deploy snapshot so the state flip waits for the check-mark
+									     beat instead of racing it. -->
+									{@const view = staged[d.key] ?? d}
+									{@const action = actionFor(view)}
+									{@const editUrl = editUrlFor?.(d)}
+									{@const status = model.statusOf(d.key)}
+									<div
+										id={rowId(d)}
+										class="mb-6 scroll-mt-3 rounded-md border border-light transition-shadow duration-500 {flashKey ===
+										d.key
+											? 'ring-1 ring-border-accent'
+											: 'ring-0 ring-transparent'}"
 									>
-										<ChevronDown
-											class="w-3.5 h-3.5 shrink-0 text-tertiary transition-transform chevron"
-										/>
-										<RowIcon kind={d.kind as any} path={d.path} size={14} />
-										<div class="min-w-0 flex-1">
-											{#if editUrl}
-												<ExternalEditLink
-													href={editUrl}
-													title={dpath}
-													class="text-xs text-primary font-mono truncate"
+										<div
+											bind:clientHeight={cardHeaderH}
+											class="sticky top-0 z-30 bg-surface-tertiary rounded-t-md flex items-center gap-2 px-3 py-2 border-b border-transparent"
+										>
+											<RowIcon kind={d.deployKind as any} path={d.path} size={14} />
+											<!-- flex+items-center so the path (a block div, or ExternalEditLink's
+											     inline-flex <a>) is centered by its box against the icon — an inline
+											     <a> would otherwise sit ~2px low on the line-box baseline. -->
+											<div class="min-w-0 flex-1 flex items-center">
+												{#if editUrl}
+													<ExternalEditLink
+														href={editUrl}
+														title={d.displayPath}
+														class="min-w-0 text-xs text-primary font-mono truncate"
+													>
+														<span class="truncate">{d.displayPath}</span>
+													</ExternalEditLink>
+												{:else}
+													<div
+														class="min-w-0 text-xs text-primary font-mono truncate"
+														title={d.displayPath}
+													>
+														{d.displayPath}
+													</div>
+												{/if}
+											</div>
+											<div class="shrink-0 flex items-center gap-2">
+												{@render rowBadge(view)}
+												{#if status?.status === 'failed'}
+													{@render deployFailed(d)}
+												{:else if action.op !== 'none'}
+													{#if action.secondary?.length}
+														<Button
+															variant="subtle"
+															unifiedSize="sm"
+															destructive
+															disabled={model.deploying || !!staged[d.key]}
+															onclick={() => confirmDiscard(d)}
+														>
+															{action.secondary[0].label}
+														</Button>
+													{/if}
+													<div class="relative overflow-hidden rounded-md">
+														<Button
+															variant="accent"
+															unifiedSize="sm"
+															disabled={model.deploying ||
+																!!staged[d.key] ||
+																!view.canWrite ||
+																!model.deployPermission.ok}
+															startIcon={status?.status === 'loading'
+																? { icon: Loader2, classes: 'animate-spin' }
+																: { icon: Save }}
+															title={!view.canWrite
+																? "You don't have write permission on this path"
+																: model.deployPermission.ok
+																	? undefined
+																	: model.deployPermission.reason}
+															onclick={() => deployStaged(d)}
+														>
+															{action.label}
+														</Button>
+														{#if staged[d.key]}
+															<!-- Success beat: green check flies in over the button
+															     (SaveButton pattern), holds, then the row flips. -->
+															<div
+																class="absolute inset-0 flex items-center justify-center bg-green-200 dark:bg-green-800 rounded-md"
+																transition:fly={{ y: -10, duration: 300 }}
+															>
+																<CheckCircle2 class="w-4 h-4 text-green-700 dark:text-green-300" />
+															</div>
+														{/if}
+													</div>
+												{/if}
+											</div>
+										</div>
+										<div class="bg-surface-tertiary rounded-b-md overflow-hidden">
+											<!-- Deploy collapses the (tall) diff into the one-line done note —
+											     slide both branches so the card height animates instead of
+											     snapping. Transitions are local: nothing plays on drawer open. -->
+											{#if view.done}
+												<div
+													transition:slide={{ duration: 300, easing: cubicOut }}
+													class="text-2xs text-tertiary p-3"
 												>
-													<span class="truncate">{dpath}</span>
-												</ExternalEditLink>
+													Deployed — no pending changes.
+												</div>
 											{:else}
-												<div class="text-xs text-primary font-mono truncate" title={dpath}>
-													{dpath}
+												<div transition:slide={{ duration: 300, easing: cubicOut }}>
+													{@render diffBlock(view)}
 												</div>
 											{/if}
 										</div>
-										<div class="shrink-0 flex items-center gap-2">
-											{#if d.ahead && d.ahead > 0}
-												<span class="text-2xs text-secondary">{d.ahead} ahead</span>
-											{/if}
-											{#if d.behind && d.behind > 0}
-												<span class="text-2xs text-secondary">{d.behind} behind</span>
-											{/if}
-											<Badge color={statusBadgeColor(status)}>
-												<StatusIcon class="w-3 h-3 inline mr-0.5" />
-												{status}
-											</Badge>
-										</div>
-									</summary>
-									<div
-										class="border-t border-light bg-surface-tertiary rounded-b-md overflow-hidden"
-									>
-										{#if !mountedRows[key]}
-											<!-- Defer the Monaco mount until this block scrolls near the
-											     viewport, so an exploded many-file app doesn't mount every
-											     editor at once. -->
-											<div
-												use:lazyMount={key}
-												class="flex items-center gap-2 text-2xs text-tertiary p-3 min-h-[10rem]"
-											>
-												<Loader2 class="w-3.5 h-3.5 animate-spin" />
-												Diff loads on scroll…
-											</div>
-										{:else if d.kind === 'raw_app_file'}
-											<!-- DiffRow.kind is a plain string, so the kind check doesn't narrow
-											     the union — assert the synthetic file item. -->
-											{@const rawFile = d as RawAppFileItem}
-											<WorkspaceItemDiffViewer kind="raw_app_file" {rawFile} {inlineDiff} />
-										{:else if 'appPath' in d}
-											<!-- Synthesized runnable: render script-style (Content + Metadata),
-											     forcing `script` so flow runnables don't hit FlowDiffViewer. -->
-											{@const runnable = d as RawAppRunnableItem}
-											<WorkspaceItemDiffViewer
-												kind="script"
-												originalRaw={runnable.originalRaw}
-												currentRaw={runnable.currentRaw}
-												{inlineDiff}
-											/>
-										{:else if !loaded || loaded.state === 'loading'}
-											<div class="flex items-center gap-2 text-xs text-secondary p-3">
-												<Loader2 class="w-3.5 h-3.5 animate-spin" />
-												Loading diff…
-											</div>
-										{:else if loaded.state === 'error'}
-											<div class="text-xs text-red-600 dark:text-red-400">{loaded.error}</div>
-										{:else if loaded.state === 'ready'}
-											<WorkspaceItemDiffViewer
-												kind={d.kind}
-												originalRaw={loaded.before}
-												currentRaw={loaded.after}
-												{inlineDiff}
-											/>
-										{/if}
 									</div>
-								</details>
-							{/each}
-						</div>
-					{/if}
-				</div></main
-			>
+								{/each}
+							</div>
+							<!-- Just enough trailing room for the last item to reach the top;
+							     without it the container bottoms out and short lists sit low. -->
+							<div aria-hidden="true" class="shrink-0" style="height: {trailingSpace}px"></div>
+						{/if}
+					</div>
+				</main>
+			</div>
+			<!-- Batch / PR (deploy all, request review, reconcile) is the compare page's
+			     job — the dock deploys per item; this footer is just the doorway there.
+			     A plain anchor (not Button href): it's a text-level navigation link, and
+			     the design-system Button renders link-hrefs with button chrome. -->
+			{#if model.items.length > 0 && compareSessionHref}
+				<div
+					class="shrink-0 border-t border-light bg-surface px-3 py-1.5 flex items-center justify-end text-xs"
+				>
+					<a
+						href={compareSessionHref}
+						target="_blank"
+						rel="noopener noreferrer"
+						class="inline-flex items-center gap-1 font-medium text-accent hover:underline shrink-0"
+					>
+						Deploy all / request review on compare page
+						<ExternalLink class="w-3 h-3" />
+					</a>
+				</div>
+			{/if}
+			<!-- Inside the drawer subtree: the drawer is portaled/elevated, so a
+			     sibling modal would stack beneath it. -->
+			<ConfirmationModal {...discardConfirm.props} />
 		</div>
 	</DrawerContent>
 </Drawer>
 
 <style>
-	details:not([open]) :global(.chevron) {
-		transform: rotate(-90deg);
-	}
 	details:not([open]) > .tree-summary :global(.tree-chevron-open) {
 		display: none;
 	}

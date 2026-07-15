@@ -454,12 +454,14 @@ export async function getNonStreamingOpenAIResponsesCompletion(
 		workspace?: string
 		resourcePath?: string
 		forceModelProvider?: AIProviderModel
+		maxTokensCap?: number
 	}
 ): Promise<string> {
 	const { provider, config } = getProviderAndCompletionConfig({
 		messages,
 		stream: false,
-		forceModelProvider: options?.forceModelProvider
+		forceModelProvider: options?.forceModelProvider,
+		maxTokensCap: options?.maxTokensCap
 	})
 
 	const { instructions, input } = convertMessagesToResponsesInput(messages)

@@ -39,11 +39,45 @@ doesn't reflow the parent.
 		currentRaw?: unknown
 		/** Force unified diff (Monaco renderSideBySide=false). Default false. */
 		inlineDiff?: boolean
+		/** Opt out of Monaco's auto-inline fallback so the parent's inlineDiff/width
+		 * decision fully controls the view (used by the drawer's toggle). Default false. */
+		disableAutoInline?: boolean
 		/** For `raw_app_file`: the synthesized per-file diff item to render. */
 		rawFile?: RawAppFileItem
+		/** Cap (px) on the rendered diff height; the drawer owns the rationale.
+		 * Ignored while ≤ 0 (unmeasured). */
+		maxHeight?: number
 	}
 
-	let { kind, originalRaw, currentRaw, inlineDiff = false, rawFile }: Props = $props()
+	let {
+		kind,
+		originalRaw,
+		currentRaw,
+		inlineDiff = false,
+		disableAutoInline = false,
+		rawFile,
+		maxHeight
+	}: Props = $props()
+
+	// Applied alongside each block's content-sized `height` so the block never
+	// exceeds the drawer's visible height — Monaco then scrolls internally.
+	function capStyle(reserved: number): string {
+		if (!maxHeight || maxHeight <= 0) return ''
+		return `max-height: ${Math.max(0, maxHeight - reserved)}px;`
+	}
+	const maxHeightStyle = $derived(capStyle(0))
+	// FlowDiffViewer enforces its own `min-h-[500px]`; capping the flow below that
+	// makes its pane spill out of the card instead of scrolling, so never cap the
+	// flow diff below that minimum (a very short drawer just scrolls to it).
+	const FLOW_MIN_HEIGHT = 500
+	const flowMaxHeightStyle = $derived(
+		maxHeight && maxHeight > 0 ? `max-height: ${Math.max(FLOW_MIN_HEIGHT, maxHeight)}px;` : ''
+	)
+	// The Content|Metadata tab bar sits above the script editor and eats into the
+	// viewer's height; measure it so the editor's cap leaves room for it and the
+	// whole viewer still fits `maxHeight`.
+	let tabsChromeH = $state(0)
+	const contentMaxHeightStyle = $derived(capStyle(tabsChromeH))
 
 	type Prepared = { lang?: string; content?: string; metadata: string }
 
@@ -101,13 +135,14 @@ doesn't reflow the parent.
 </script>
 
 {#if kind === 'flow'}
-	<div class="h-[600px]">
+	<div class="h-[600px]" style={flowMaxHeightStyle}>
 		<FlowDiffViewer
 			beforeYaml={beforeFlowYaml}
 			afterYaml={afterFlowYaml}
 			beforeMissing={originalRaw == null}
 			afterMissing={currentRaw == null}
 			{inlineDiff}
+			{disableAutoInline}
 		/>
 	</div>
 {:else if kind === 'raw_app_file' && rawFile}
@@ -119,14 +154,18 @@ doesn't reflow the parent.
 		fullYamlOriginal={rawFile.fullYamlOriginal}
 		fullYamlCurrent={rawFile.fullYamlCurrent}
 		{inlineDiff}
+		{disableAutoInline}
+		{maxHeight}
 	/>
 {:else if hasContent}
 	<div class="flex flex-col">
-		<Tabs bind:selected={contentTab}>
-			<Tab value="content" label="Content" />
-			<Tab value="metadata" label="Metadata" />
-		</Tabs>
-		<div style="height: {activeTabHeight}">
+		<div bind:clientHeight={tabsChromeH}>
+			<Tabs bind:selected={contentTab}>
+				<Tab value="content" label="Content" />
+				<Tab value="metadata" label="Metadata" />
+			</Tabs>
+		</div>
+		<div style="height: {activeTabHeight}; {contentMaxHeightStyle}">
 			{#if contentTab === 'content'}
 				{#await import('$lib/components/DiffEditor.svelte')}
 					<div class="p-3"><Loader2 class="w-3.5 h-3.5 animate-spin" /></div>
@@ -139,6 +178,7 @@ doesn't reflow the parent.
 						defaultOriginal={original.content ?? ''}
 						defaultModified={current.content ?? ''}
 						{inlineDiff}
+						{disableAutoInline}
 						readOnly
 					/>
 				{/await}
@@ -154,6 +194,7 @@ doesn't reflow the parent.
 						defaultOriginal={original.metadata}
 						defaultModified={current.metadata}
 						{inlineDiff}
+						{disableAutoInline}
 						readOnly
 					/>
 				{/await}
@@ -164,7 +205,7 @@ doesn't reflow the parent.
 	{#await import('$lib/components/DiffEditor.svelte')}
 		<div class="p-3"><Loader2 class="w-3.5 h-3.5 animate-spin" /></div>
 	{:then Module}
-		<div style="height: {metadataHeight}">
+		<div style="height: {metadataHeight}; {maxHeightStyle}">
 			<Module.default
 				open={true}
 				automaticLayout
@@ -173,6 +214,7 @@ doesn't reflow the parent.
 				defaultOriginal={original.metadata}
 				defaultModified={current.metadata}
 				{inlineDiff}
+				{disableAutoInline}
 				readOnly
 			/>
 		</div>

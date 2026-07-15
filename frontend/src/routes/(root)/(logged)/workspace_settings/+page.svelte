@@ -3,11 +3,12 @@
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Button, Section, Skeleton, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Button, CopyButton, Section, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	import DeployToSetting from '$lib/components/DeployToSetting.svelte'
+	import DevWorkspaceSetting from '$lib/components/DevWorkspaceSetting.svelte'
 	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
@@ -348,6 +349,7 @@
 			| 'general'
 			| 'webhook'
 			| 'deploy_to'
+			| 'dev_workspace'
 			| 'error_handler'
 			| 'success_handler'
 			| 'critical_alerts'
@@ -1112,6 +1114,14 @@
 		}
 	}
 
+	// The Dev workspace tab is only meaningful on a root workspace (to pair/manage a dev) or on a
+	// dev workspace itself (to see its prod / detach). Hide it for ordinary forks — pairing isn't
+	// available there and the backend would reject it.
+	const currentWsForDevTab = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
+	const showDevWorkspaceTab = $derived(
+		!currentWsForDevTab?.parent_workspace_id || (currentWsForDevTab?.is_dev_workspace ?? false)
+	)
+
 	// Navigation groups for sidebar
 	const navigationGroups = $derived([
 		{
@@ -1160,6 +1170,17 @@
 					aiDescription: 'Deployment UI workspace settings',
 					isEE: true
 				},
+				...(showDevWorkspaceTab
+					? [
+							{
+								id: 'dev_workspace',
+								label: 'Dev workspace',
+								aiId: 'workspace-settings-dev-workspace',
+								aiDescription:
+									'Pair this workspace with a dev workspace (same code, different environment)'
+							}
+						]
+					: []),
 				{
 					id: 'rulesets',
 					label: 'Rulesets',
@@ -1283,8 +1304,13 @@
 
 <CenteredPage wrapperClasses="pb-0 h-screen" handleOverflow={false} class="flex flex-col h-full">
 	{#if $userStore?.is_admin || $superadmin}
-		<PageHeader title="Workspace settings: {$workspaceStore}"
-			>{#if $superadmin}
+		<PageHeader title="Workspace settings: {$workspaceStore}">
+			{#snippet titleActions()}
+				{#if $workspaceStore}
+					<CopyButton value={$workspaceStore} title={`Copy id: ${$workspaceStore}`} />
+				{/if}
+			{/snippet}
+			{#if $superadmin}
 				<Button variant="default" size="sm" on:click={() => goto('#superadmin-settings')}>
 					Instance settings
 				</Button>
@@ -1343,6 +1369,12 @@
 									></div
 								>
 							{/if}
+						{:else if tab == 'dev_workspace'}
+							<SettingsPageHeader
+								title="Dev workspace"
+								description="Pair this workspace with a dev workspace: the same code with a different environment. Edits are made in the dev workspace and promoted to prod."
+							/>
+							<DevWorkspaceSetting />
 						{:else if tab == 'rulesets'}
 							<SettingsPageHeader
 								title="Workspace Protection Rulesets"
@@ -1350,7 +1382,16 @@
 							/>
 							<WorkspaceRulesets />
 						{:else if tab == 'premium'}
-							<PremiumInfo {customer_id} {plan} />
+							{#if currentWsForDevTab?.parent_workspace_id}
+								<Alert type="info" title="Billing is managed on the parent workspace">
+									This workspace is a fork of <b>{currentWsForDevTab.parent_workspace_id}</b>. It
+									runs on the parent's plan and its executions count toward the parent's usage and
+									bill, so there is no separate subscription here. Manage billing, seats, and quotas
+									from the parent workspace's settings.
+								</Alert>
+							{:else}
+								<PremiumInfo {customer_id} {plan} />
+							{/if}
 						{:else if tab == 'slack'}
 							<SettingsPageHeader
 								title="Workspace connections to Slack and Teams"

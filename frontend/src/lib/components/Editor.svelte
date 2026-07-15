@@ -43,6 +43,7 @@
 	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { createHash as randomHash } from '$lib/editorLangUtils'
 	import { workspaceStore } from '$lib/stores'
+	import DdlMigrationGuard from './DdlMigrationGuard.svelte'
 	import {
 		type Preview,
 		ResourceService,
@@ -87,6 +88,15 @@
 	import { parseTypescriptDeps } from '$lib/relative_imports'
 
 	import { scriptLangToEditorLang } from '$lib/scripts'
+	import {
+		listWorkspaceMacrosCached,
+		macroDefinitionSql
+	} from '$lib/components/assets/workspaceMacros'
+	import {
+		fetchLatestSchema,
+		normalizeAssetPath,
+		type ContractMarker
+	} from '$lib/components/assets/AssetGraph/schemaContracts'
 	import * as htmllang from '$lib/svelteMonarch'
 	import { conf, language } from '$lib/vueMonarch'
 
@@ -158,6 +168,11 @@
 		preparedAssetsSqlQueries?: InferAssetsSqlQueryDetails[] | undefined
 		// To execute preview scripts with the right worker group
 		customTag?: string
+		// Live schema-contract diagnostics (pipelines gap #2b): owner-scoped
+		// warning markers computed by the caller (ScriptEditor's contract
+		// mirror) from the buffer's asset refs vs captured producer schemas.
+		// Warning severity only — contracts never block; empty clears.
+		schemaContractMarkers?: ContractMarker[]
 	}
 
 	let {
@@ -190,7 +205,8 @@
 		enablePreprocessorSnippet = false,
 		rawAppRunnableKey = undefined,
 		preparedAssetsSqlQueries,
-		customTag
+		customTag,
+		schemaContractMarkers = []
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -206,6 +222,35 @@
 	})
 
 	let lang = $state(scriptLangToEditorLang(untrack(() => scriptLang)))
+
+	// On a postgres script targeting a datatable, DDL statements are intercepted
+	// on run (cmd+enter) and offered as migrations instead.
+	let datatableForMigrations = $derived(
+		scriptLang === 'postgresql' &&
+			typeof args?.database === 'string' &&
+			args.database.startsWith('datatable://')
+			? args.database.slice('datatable://'.length).split('/')[0]
+			: undefined
+	)
+	let ddlGuard = $state<DdlMigrationGuard | undefined>(undefined)
+
+	// Run the DDL migration guard against the current code. Returns false when the
+	// user cancels (the run must be aborted); may rewrite the code (migrated
+	// statements stripped). Exported so run paths that bypass the Monaco
+	// Cmd+Enter binding (e.g. the Test button) can guard too.
+	export async function guardDdlBeforeRun(): Promise<boolean> {
+		if (datatableForMigrations && ddlGuard) {
+			const res = await ddlGuard.guard(getCode())
+			if (!res.proceed) return false
+			if (res.code !== getCode()) setCode(res.code)
+		}
+		return true
+	}
+
+	async function runCmdEnterWithDdlGuard() {
+		if (!(await guardDdlBeforeRun())) return
+		cmdEnterAction?.()
+	}
 
 	let filePath = $state(computePath(untrack(() => path)))
 
@@ -620,6 +665,100 @@
 				}
 				return {
 					suggestions
+				}
+			}
+		})
+	}
+
+	let workspaceMacroCompletor: IDisposable | undefined = undefined
+
+	// Workspace DuckDB macros (deployed `// macros` libraries): suggest each
+	// macro while typing an identifier, with its signature + body as docs and
+	// a snippet insert that parks the cursor inside the call parens. Fetched
+	// via a short-TTL cache — macros are late-bound, so mild staleness is fine.
+	async function addWorkspaceMacroCompletions() {
+		workspaceMacroCompletor?.dispose()
+		const workspace = $workspaceStore
+		if (!workspace) return
+		let macros: Awaited<ReturnType<typeof listWorkspaceMacrosCached>> = []
+		try {
+			macros = await listWorkspaceMacrosCached(workspace)
+		} catch (e) {
+			console.error('error listing workspace macros', e)
+			return
+		}
+		if (macros.length === 0) return
+		workspaceMacroCompletor = languages.registerCompletionItemProvider('sql', {
+			provideCompletionItems: function (model, position) {
+				const word = model.getWordUntilPosition(position)
+				const range = {
+					startLineNumber: position.lineNumber,
+					endLineNumber: position.lineNumber,
+					startColumn: word.startColumn,
+					endColumn: word.endColumn
+				}
+				const suggestions = macros.map((m) => ({
+					label: `${m.name}(${m.params})`,
+					kind: m.is_table
+						? languages.CompletionItemKind.Interface
+						: languages.CompletionItemKind.Function,
+					detail: `${m.is_table ? 'table macro' : 'macro'} · ${m.provider_path}`,
+					documentation: {
+						value: '```sql\n' + macroDefinitionSql(m) + '\n```'
+					},
+					insertText: `${m.name}($0)`,
+					insertTextRules: languages.CompletionItemInsertTextRule.InsertAsSnippet,
+					filterText: m.name,
+					range,
+					sortText: 'b' + m.name
+				}))
+				return { suggestions }
+			}
+		})
+	}
+
+	let schemaContractCompletor: IDisposable | undefined = undefined
+
+	// Column-name completion for pipeline annotation refs (`// column out <-
+	// ducklake://lake/orders.|`, `// data_test relationships col ->
+	// ducklake://lake/customers.|`): suggests the referenced asset's *captured*
+	// columns (with types) so a broken ref never gets typed — the prevention
+	// side of the schema-contract check. Only fires on annotation comment lines
+	// with a ducklake URI right before the cursor's `.`; schemas come from the
+	// short-TTL contract cache, so per-keystroke cost is a map lookup.
+	function addSchemaContractCompletions() {
+		schemaContractCompletor?.dispose()
+		schemaContractCompletor = languages.registerCompletionItemProvider(lang, {
+			triggerCharacters: ['.'],
+			provideCompletionItems: async function (model, position) {
+				// Read the store per request, not at registration — the provider
+				// outlives a workspace switch.
+				const workspace = $workspaceStore
+				if (!workspace) return { suggestions: [] }
+				const before = model.getLineContent(position.lineNumber).slice(0, position.column - 1)
+				if (!/^\s*(\/\/|--|#)\s*(column|data_test|on|materialize)\b/.test(before)) {
+					return { suggestions: [] }
+				}
+				const uri = before.match(/ducklake:\/\/([\w/.{}-]+?)\.$/)
+				if (!uri) return { suggestions: [] }
+				const schema = await fetchLatestSchema(workspace, normalizeAssetPath(uri[1]))
+				if (!schema) return { suggestions: [] }
+				const word = model.getWordUntilPosition(position)
+				const range = {
+					startLineNumber: position.lineNumber,
+					endLineNumber: position.lineNumber,
+					startColumn: word.startColumn,
+					endColumn: word.endColumn
+				}
+				return {
+					suggestions: schema.columns.map((c) => ({
+						label: c.name,
+						kind: languages.CompletionItemKind.Field,
+						detail: `${c.type} · captured schema v${schema.version}`,
+						insertText: c.name,
+						range,
+						sortText: 'a' + c.name
+					}))
 				}
 			}
 		})
@@ -1530,7 +1669,8 @@
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, function () {
 				updateCode()
-				shouldBindKey && cmdEnterAction && cmdEnterAction()
+				if (!shouldBindKey || !cmdEnterAction) return
+				void runCmdEnterWithDdlGuard()
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {
@@ -1833,6 +1973,8 @@
 		autocompletor && autocompletor.dispose()
 		sqlTypeCompletor && sqlTypeCompletor.dispose()
 		resultCollectionCompletor && resultCollectionCompletor.dispose()
+		workspaceMacroCompletor && workspaceMacroCompletor.dispose()
+		schemaContractCompletor && schemaContractCompletor.dispose()
 		preprocessorCompletor && preprocessorCompletor.dispose()
 		timeoutModel && clearTimeout(timeoutModel)
 		changeChainStart = undefined
@@ -1906,6 +2048,44 @@
 		initialized && lang === 'sql' && scriptLang
 			? untrack(() => addSqlTypeCompletions())
 			: (sqlTypeCompletor?.dispose(), resultCollectionCompletor?.dispose())
+	})
+
+	$effect(() => {
+		initialized && lang === 'sql' && scriptLang === 'duckdb'
+			? untrack(() => {
+					addWorkspaceMacroCompletions()
+				})
+			: workspaceMacroCompletor?.dispose()
+	})
+
+	// Pipeline annotation grammar is language-agnostic (`//` / `--` / `#`
+	// comment headers), so contract-ref completions register for every script
+	// language that can be a pipeline member. The provider line-gates itself,
+	// so it is inert outside annotation lines.
+	$effect(() => {
+		initialized && ['duckdb', 'python3', 'bun', 'deno', 'nativets'].includes(scriptLang ?? '')
+			? untrack(() => addSchemaContractCompletions())
+			: schemaContractCompletor?.dispose()
+	})
+
+	// Schema-contract markers arrive as a prop because the mirror can finish
+	// computing before Monaco initializes on mount — reacting to `initialized`
+	// re-applies the pending set once the model exists. The ever-set latch
+	// keeps unrelated editors from calling setModelMarkers with [] forever.
+	let contractMarkersEverSet = false
+	$effect(() => {
+		const ms = schemaContractMarkers
+		if (!initialized || (ms.length === 0 && !contractMarkersEverSet)) return
+		contractMarkersEverSet = true
+		untrack(() => {
+			const model = editor?.getModel()
+			if (!model) return
+			meditor.setModelMarkers(
+				model,
+				'schema-contracts',
+				ms.map((m) => ({ ...m, severity: MarkerSeverity.Warning }))
+			)
+		})
 	})
 
 	$effect(() => {
@@ -2060,6 +2240,13 @@
 
 <svelte:window onkeydown={onKeyDown} />
 <EditorTheme />
+{#if datatableForMigrations && $workspaceStore}
+	<DdlMigrationGuard
+		bind:this={ddlGuard}
+		workspace={$workspaceStore}
+		datatable={datatableForMigrations}
+	/>
+{/if}
 {#if !editor}
 	<div class="inset-0 absolute overflow-clip">
 		<FakeMonacoPlaceHolder {code} lineNumbersWidth={51} />

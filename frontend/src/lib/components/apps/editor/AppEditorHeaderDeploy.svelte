@@ -41,7 +41,8 @@
 		preserveOnBehalfOf = $bindable(false),
 		labels = $bindable(),
 		rawApp = false,
-		newApp = false
+		newApp = false,
+		operatingWorkspace = undefined
 	}: {
 		policy: any
 		setPublishState: (message?: string) => void
@@ -68,7 +69,14 @@
 		 *  (`/secret_of/...` 404s with no `app` row) and renders a placeholder
 		 *  instead of the eternally-spinning link. */
 		newApp?: boolean
+		/** Workspace the app is deployed to — the session's acting workspace when
+		 *  embedded in a session preview, else the navigation `$workspaceStore`.
+		 *  The secret-URL / custom-path / folder / on-behalf-of lookups must target
+		 *  it, not `$workspaceStore` (which stays on the nav workspace in a session). */
+		operatingWorkspace?: string
 	} = $props()
+
+	const opWs = $derived(operatingWorkspace ?? $workspaceStore)
 
 	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
 	// Admins always pass the backend check. For everyone else, fail closed
@@ -93,7 +101,7 @@
 
 	async function appExists(customPath: string) {
 		return await AppService.customPathExists({
-			workspace: $workspaceStore!,
+			workspace: opWs!,
 			customPath
 		})
 	}
@@ -115,7 +123,7 @@
 	let secretUrlHref = $derived(secretUrl ? computeSecretUrl(secretUrl) : undefined)
 	let fullCustomUrl = $derived(
 		`${window.location.origin}${base}/a/${
-			isCloudHosted() || globalWorkspacedRoute ? $workspaceStore + '/' : ''
+			isCloudHosted() || globalWorkspacedRoute ? opWs + '/' : ''
 		}${customPath}`
 	)
 
@@ -131,7 +139,7 @@
 	}
 	async function getSecretUrl() {
 		secretUrl = await AppService.getPublicSecretOfApp({
-			workspace: $workspaceStore!,
+			workspace: opWs!,
 			path: appPath
 		})
 	}
@@ -229,6 +237,7 @@
 	namePlaceholder="app"
 	kind="app"
 	autofocus={false}
+	workspaceOverride={operatingWorkspace}
 />
 
 <div class="py-2"></div>
@@ -247,7 +256,7 @@
 			Because you are either an admin or part of the {WM_DEPLOYERS_GROUP} group, you can select another
 			user to run this app on behalf of. Once deployed the app will be run on behalf of
 			<OnBehalfOfSelector
-				targetWorkspace={$workspaceStore ?? ''}
+				targetWorkspace={opWs ?? ''}
 				targetValue={savedOnBehalfOfEmail}
 				selected={onBehalfOfChoice}
 				onSelect={(choice, details) => {
@@ -290,7 +299,13 @@
 		checked={policy.sandbox == true}
 		on:change={(e) => {
 			policy.sandbox = e.detail || undefined
-			setPublishState(e.detail ? 'Sandbox isolation enabled' : 'Sandbox isolation disabled')
+			// A not-yet-deployed app has no row to PATCH — `setPublishState` (POST
+			// /apps/update) would 404. The flag rides along in the `policy` the first
+			// deploy sends (createApp), so here we only mutate it locally. Persist
+			// incrementally once the app exists.
+			if (savedApp && !newApp) {
+				setPublishState(e.detail ? 'Sandbox isolation enabled' : 'Sandbox isolation disabled')
+			}
 		}}
 		disabled={!savedApp}
 	/>
@@ -301,8 +316,8 @@
 		on every surface (public URL and in-workspace). Leave it off if the app needs full browser
 		features (IndexedDB, third-party auth/SDKs, OAuth redirects).
 	</div>
-	{#if !savedApp}
-		<div class="text-xs text-tertiary mt-1">Save the app once to change this setting.</div>
+	{#if newApp}
+		<div class="text-xs text-tertiary mt-1">Takes effect when you first deploy this app.</div>
 	{/if}
 	{#if policy.sandbox == true}
 		<div class="mt-2">
@@ -334,9 +349,14 @@
 				checked={policy.execution_mode == 'anonymous'}
 				on:change={(e) => {
 					policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
-					setPublishState()
+					// Same as sandbox: a not-yet-deployed app has no row to PATCH, so
+					// `setPublishState` would 404. The mode is carried by the first
+					// deploy's policy; persist incrementally only once the app exists.
+					if (savedApp && !newApp) {
+						setPublishState()
+					}
 				}}
-				disabled={!savedApp || newApp || (!canSetAnonymous && policy.execution_mode != 'anonymous')}
+				disabled={!savedApp || (!canSetAnonymous && policy.execution_mode != 'anonymous')}
 			/>
 		</div>
 		{#if !savedApp || newApp}

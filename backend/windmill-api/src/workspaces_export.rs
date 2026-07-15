@@ -919,11 +919,16 @@ pub(crate) async fn tarball_workspace(
     }
 
     if include_schedules.unwrap_or(false) {
+        // Managed ducklake-maintenance schedules are excluded: they are
+        // derived from the workspace ducklake settings (and admins bypass the
+        // RLS that hides them), so exporting them would drag unsyncable rows
+        // into git.
         let schedules = sqlx::query_as::<_, Schedule>(
             "SELECT workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, args, extra_perms, email, permissioned_as, error, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, on_success, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, summary, description, tag, paused_until, cron_version, dynamic_skip, labels FROM schedule
-             WHERE workspace_id = $1",
+             WHERE workspace_id = $1 AND NOT starts_with(path, $2)",
         )
         .bind(&w_id)
+        .bind(windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX)
         .fetch_all(&mut *tx)
         .await?;
 
@@ -1539,6 +1544,34 @@ pub(crate) async fn tarball_workspace(
         archive
             .write_to_archive(&key_json, "encryption_key.json")
             .await?;
+    }
+
+    {
+        // Data table migrations live in the `datatable_migrations` table; surface
+        // them in the export as `migrations/datatable/<datatable>/<version>_<name>`
+        // .up.sql (and .down.sql when present) so `wmill sync` treats them like any
+        // other workspace item.
+        let migrations = sqlx::query!(
+            "SELECT datatable, timestamp, name, code_up, code_down FROM datatable_migrations \
+             WHERE workspace_id = $1 ORDER BY datatable, timestamp",
+            &w_id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        for m in migrations {
+            let base = format!(
+                "migrations/datatable/{}/{}_{}",
+                m.datatable, m.timestamp, m.name
+            );
+            archive
+                .write_to_archive(&m.code_up, &format!("{base}.up.sql"))
+                .await?;
+            if let Some(code_down) = m.code_down {
+                archive
+                    .write_to_archive(&code_down, &format!("{base}.down.sql"))
+                    .await?;
+            }
+        }
     }
 
     archive.finish().await?;

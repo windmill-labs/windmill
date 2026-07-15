@@ -135,6 +135,25 @@
 	let enableHtml = $state(false)
 	let s3FileDisplayRawMode = $state(false)
 
+	// Build the image/PDF source URL for an S3 object. When `appPath` is set
+	// (deployed app view) the read is authorized on-behalf of the app author via
+	// the provenance-gated `apps_u/download_s3_file/{appPath}` endpoint; otherwise
+	// (editor/preview) it uses the viewer-scoped `job_helpers/load_image_preview`.
+	function s3DisplayUrl(s3object: { s3: string; storage?: string; presigned?: string }): string {
+		const endpoint = appPath
+			? `apps_u/download_s3_file/${appPath}`
+			: 'job_helpers/load_image_preview'
+		const keyParam = appPath ? 's3' : 'file_key'
+		let url = `/api/w/${workspaceId}/${endpoint}?${keyParam}=${encodeURIComponent(s3object.s3)}`
+		if (s3object.storage) {
+			url += `&storage=${s3object.storage}`
+		}
+		if (appPath && s3object.presigned) {
+			url += `&${s3object.presigned}`
+		}
+		return url
+	}
+
 	function isTableRow(result: any): boolean {
 		return Array.isArray(result) && result.every((x) => Array.isArray(x))
 	}
@@ -574,24 +593,53 @@
 	// formats are produced by this repo's worker (see duckdb_executor.rs); the
 	// derivation is inert (undefined) for every other DisplayResult use.
 	let dataTests = $derived.by(() => {
+		// Both structured shapes carry `[{ test, violating, sample? }]`; the
+		// sample (bounded violating-row rows) may arrive as a JSON string (the
+		// worker keeps it string-typed through the summary row) and is optional
+		// by contract — anything malformed degrades to no sample, never to a
+		// dropped checklist.
+		const normalize = (
+			dt: any
+		): Array<{ test: string; violating: number; sample?: Record<string, any>[] }> | undefined => {
+			if (typeof dt === 'string') {
+				try {
+					dt = JSON.parse(dt)
+				} catch {
+					return undefined
+				}
+			}
+			if (
+				!Array.isArray(dt) ||
+				dt.length === 0 ||
+				!dt.every((x) => x && typeof x.test === 'string' && typeof x.violating === 'number')
+			) {
+				return undefined
+			}
+			return dt.map((x) => {
+				let sample = x.sample
+				if (typeof sample === 'string') {
+					try {
+						sample = JSON.parse(sample)
+					} catch {
+						sample = undefined
+					}
+				}
+				if (!Array.isArray(sample) || !sample.every((r) => r && typeof r === 'object')) {
+					sample = undefined
+				}
+				return { test: x.test, violating: x.violating, sample }
+			})
+		}
 		// Success: structured column on the summary row.
 		const row = Array.isArray(result) ? (result as any)?.[0] : (result as any)
-		let dt = row?.data_tests
-		if (typeof dt === 'string') {
-			try {
-				dt = JSON.parse(dt)
-			} catch {
-				dt = undefined
-			}
-		}
-		if (
-			Array.isArray(dt) &&
-			dt.length > 0 &&
-			dt.every((x) => x && typeof x.test === 'string' && typeof x.violating === 'number')
-		) {
-			return dt as Array<{ test: string; violating: number }>
-		}
-		// Failure: parse the worker's breakdown out of the error message.
+		const fromRow = normalize(row?.data_tests)
+		if (fromRow) return fromRow
+		// Failure: the worker attaches the same structured breakdown (plus
+		// per-failed-test samples) to the error payload.
+		const fromError = normalize((result as any)?.error?.data_tests)
+		if (fromError) return fromError
+		// Failure fallback for results predating the structured error payload:
+		// parse the worker's breakdown out of the error message.
 		const msg = (result as any)?.error?.message
 		if (typeof msg === 'string' && msg.includes('data tests failed on')) {
 			const out: Array<{ test: string; violating: number }> = []
@@ -648,6 +696,7 @@
 					{jobId}
 					{nodeId}
 					{workspaceId}
+					{appPath}
 					forceJson={globalForceJson}
 					hideAsJson={true}
 				/>
@@ -1003,48 +1052,26 @@
 							{/if}
 						</div>
 						{#if typeof s3object?.s3 === 'string'}
-							{#if !appPath && (s3object?.s3?.endsWith('.parquet') || s3object?.s3?.endsWith('.csv'))}
+							{#if s3object?.s3?.endsWith('.parquet') || s3object?.s3?.endsWith('.csv')}
 								{#key s3object.s3}
 									<ParqetTableRenderer
 										disable_download={s3object?.disable_download}
 										{workspaceId}
+										{appPath}
 										s3resource={s3object?.s3}
 										storage={s3object?.storage}
 									/>
 								{/key}
 							{:else if s3object?.s3?.endsWith('.png') || s3object?.s3?.endsWith('.jpeg') || s3object?.s3?.endsWith('.jpg') || s3object?.s3?.endsWith('.webp')}
 								<div class="h-full mt-2">
-									<img
-										alt="preview rendered"
-										class="w-auto h-full"
-										src="{`/api/w/${workspaceId}/${
-											appPath
-												? 'apps_u/download_s3_file/' + appPath
-												: 'job_helpers/load_image_preview'
-										}?${appPath ? 's3' : 'file_key'}=${encodeURIComponent(s3object.s3)}` +
-											(s3object.storage ? `&storage=${s3object.storage}` : '')}{appPath &&
-										s3object.presigned
-											? `&${s3object.presigned}`
-											: ''}"
-									/>
+									<img alt="preview rendered" class="w-auto h-full" src={s3DisplayUrl(s3object)} />
 								</div>
 							{:else if s3object?.s3?.endsWith('.pdf')}
 								<div class="h-96 mt-2 border">
 									{#await import('$lib/components/display/PdfViewer.svelte')}
 										<Loader2 class="animate-spin" />
 									{:then Module}
-										<Module.default
-											allowFullscreen
-											source="{`/api/w/${workspaceId}/${
-												appPath
-													? 'apps_u/download_s3_file/' + appPath
-													: 'job_helpers/load_image_preview'
-											}?${appPath ? 's3' : 'file_key'}=${encodeURIComponent(s3object.s3)}` +
-												(s3object.storage ? `&storage=${s3object.storage}` : '')}{appPath &&
-											s3object.presigned
-												? `&${s3object.presigned}`
-												: ''}"
-										/>
+										<Module.default allowFullscreen source={s3DisplayUrl(s3object)} />
 									{/await}
 								</div>
 							{/if}
@@ -1086,6 +1113,7 @@
 										<ParqetTableRenderer
 											disable_download={s3object?.disable_download}
 											{workspaceId}
+											{appPath}
 											s3resource={s3object?.s3}
 											storage={s3object?.storage}
 										/>{:else}
@@ -1103,9 +1131,7 @@
 											<img
 												alt="preview rendered"
 												class="w-auto h-full"
-												src={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
-													s3object.s3
-												)}` + (s3object.storage ? `&storage=${s3object.storage}` : '')}
+												src={s3DisplayUrl(s3object)}
 											/>
 										</div>
 									{:else}
@@ -1122,12 +1148,7 @@
 										{#await import('$lib/components/display/PdfViewer.svelte')}
 											<Loader2 class="animate-spin" />
 										{:then Module}
-											<Module.default
-												allowFullscreen
-												source={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
-													s3object.s3
-												)}` + (s3object.storage ? `&storage=${s3object.storage}` : '')}
-											/>
+											<Module.default allowFullscreen source={s3DisplayUrl(s3object)} />
 										{/await}
 									</div>
 								{/if}
@@ -1263,6 +1284,7 @@
 					{jobId}
 					{nodeId}
 					{workspaceId}
+					{appPath}
 					{hideAsJson}
 					{forceJson}
 					disableExpand={true}

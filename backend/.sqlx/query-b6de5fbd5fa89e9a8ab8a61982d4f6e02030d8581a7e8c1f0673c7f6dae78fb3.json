@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT path FROM variable\n             WHERE workspace_id = $1 AND is_secret = true AND value != ''",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b6de5fbd5fa89e9a8ab8a61982d4f6e02030d8581a7e8c1f0673c7f6dae78fb3"
+}

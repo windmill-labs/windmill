@@ -52,6 +52,7 @@
 	import Popover from './meltComponents/Popover.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { MigrationRunCancelled } from './dbOps'
 	import { getFlatTableNamesFromSchema, type DBSchema } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
 	import DarkModeObserver from './DarkModeObserver.svelte'
@@ -460,9 +461,13 @@
 							askingForConfirmation && (askingForConfirmation.loading = true)
 							await onConfirm({ values })
 						} catch (e) {
-							let msg: string | undefined = (e as Error)?.message
-							if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : 'An error occurred'
-							sendUserToast(msg, true)
+							// User declined the out-of-order run warning: silent cancel,
+							// leave the editor open so they can adjust or run earlier first.
+							if (!(e instanceof MigrationRunCancelled)) {
+								let msg: string | undefined = (e as any)?.body ?? (e as Error)?.message
+								if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : 'An error occurred'
+								sendUserToast(msg, true)
+							}
 						}
 						askingForConfirmation = undefined
 					},
@@ -472,7 +477,7 @@
 					...(preview && { codeContent: preview.sql, alert: preview.alert })
 				}
 			} catch (e) {
-				let msg: string | undefined = (e as Error)?.message
+				let msg: string | undefined = (e as any)?.body ?? (e as Error)?.message
 				if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : 'An error occurred'
 				sendUserToast(msg, true)
 			} finally {

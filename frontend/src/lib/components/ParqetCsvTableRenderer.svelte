@@ -7,7 +7,7 @@
 	import 'ag-grid-community/styles/ag-theme-alpine.css'
 	import { twMerge } from 'tailwind-merge'
 	import DarkModeObserver from './DarkModeObserver.svelte'
-	import { HelpersService } from '$lib/gen'
+	import { AppService, HelpersService } from '$lib/gen'
 	import { base } from '$lib/base'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
@@ -22,9 +22,61 @@
 		storage: string | undefined
 		workspaceId: string | undefined
 		disable_download?: boolean
+		// When set (deployed app view), read the file on-behalf of the app author
+		// through the app-scoped, provenance-gated `apps_u/*` endpoints instead of
+		// the viewer-scoped `job_helpers/*` API. Undefined in the editor/preview.
+		appPath?: string | undefined
 	}
 
-	let { s3resource, storage, workspaceId, disable_download = false }: Props = $props()
+	let {
+		s3resource,
+		storage,
+		workspaceId,
+		disable_download = false,
+		appPath = undefined
+	}: Props = $props()
+
+	// Route the parquet/csv read through the app-scoped endpoints when `appPath`
+	// is set, else the viewer-scoped helpers. Same request/response shape either
+	// way — the only difference is which identity authorizes the S3 read.
+	function loadRowCount(searchCol: string | undefined, searchTerm: string | undefined) {
+		const workspace = workspaceId ?? $workspaceStore!
+		return appPath
+			? AppService.appLoadTableCount({
+					workspace,
+					path: appPath,
+					fileKey: s3resource,
+					searchCol,
+					searchTerm,
+					storage
+				})
+			: HelpersService.loadTableRowCount({
+					workspace,
+					path: s3resource,
+					searchCol,
+					searchTerm,
+					storage
+				})
+	}
+
+	function loadChunk(args: {
+		offset?: number
+		limit?: number
+		sortCol?: string
+		sortDesc?: boolean
+		searchCol?: string
+		searchTerm?: string
+		csvSeparator?: string
+	}) {
+		const workspace = workspaceId ?? $workspaceStore!
+		const csv = s3resource.endsWith('.csv')
+		if (appPath) {
+			const data = { workspace, path: appPath, fileKey: s3resource, storage, ...args }
+			return csv ? AppService.appLoadCsvPreview(data) : AppService.appLoadParquetPreview(data)
+		}
+		const data = { workspace, path: s3resource, storage, ...args }
+		return csv ? HelpersService.loadCsvPreview(data) : HelpersService.loadParquetPreview(data)
+	}
 
 	let lastSearch: string | undefined = undefined
 
@@ -40,34 +92,20 @@
 				const newSearch = searchCol ? searchCol + searchTerm : undefined
 				if (!nbRows || lastSearch != newSearch) {
 					nbRows = undefined
-					const res = await HelpersService.loadTableRowCount({
-						workspace: workspaceId ?? $workspaceStore!,
-						path: s3resource,
-						searchCol: searchCol,
-						storage,
-						searchTerm
-					})
+					const res = await loadRowCount(searchCol, searchTerm)
 					nbRows = res.count
 					lastSearch = newSearch
 				}
 
-				const requestBody = {
-					workspace: workspaceId ?? $workspaceStore!,
-					path: s3resource,
+				const res = (await loadChunk({
 					offset: params.startRow,
 					limit: params.endRow - params.startRow,
 					sortCol: params.sortModel?.[0]?.colId,
 					sortDesc: params.sortModel?.[0]?.sort == 'desc',
 					searchCol,
 					searchTerm,
-					storage: storage,
 					csvSeparator: csv ? csvSeparatorChar : undefined
-				}
-				const res = (
-					csv
-						? await HelpersService.loadCsvPreview(requestBody)
-						: await HelpersService.loadParquetPreview(requestBody)
-				) as any
+				})) as any
 				for (let i = 0; i < res.rows.length; i++) {
 					res.rows[i]['__index'] = i + params.startRow
 					if (!$enterpriseLicense) {
@@ -110,20 +148,10 @@
 			try {
 				const csv = s3resource.endsWith('.csv')
 
-				const res = csv
-					? await HelpersService.loadCsvPreview({
-							workspace: $workspaceStore!,
-							path: s3resource,
-							limit: 0,
-							storage: storage,
-							csvSeparator: csvSeparatorChar
-						})
-					: await HelpersService.loadParquetPreview({
-							workspace: $workspaceStore!,
-							path: s3resource,
-							limit: 0,
-							storage: storage
-						})
+				const res = (await loadChunk({
+					limit: 0,
+					csvSeparator: csv ? csvSeparatorChar : undefined
+				})) as any
 
 				createGrid(
 					eGui,
@@ -201,14 +229,15 @@
 		</div>
 	{/if}
 	{#if !disable_download && !s3resource.endsWith('.csv')}
-		{@const csvApiPath = `/w/${workspaceId}/job_helpers/download_s3_parquet_file_as_csv?file_key=${encodeURIComponent(s3resource)}${storage ? `&storage=${storage}` : ''}`}
+		{@const csvApiPath = appPath
+			? `/w/${workspaceId}/apps_u/download_s3_parquet_file_as_csv/${appPath}?file_key=${encodeURIComponent(s3resource)}${storage ? `&storage=${storage}` : ''}`
+			: `/w/${workspaceId}/job_helpers/download_s3_parquet_file_as_csv?file_key=${encodeURIComponent(s3resource)}${storage ? `&storage=${storage}` : ''}`}
 		{@const csvName = (s3resource.split('/').pop() ?? 'download') + '.csv'}
 		{#if shouldDownloadViaClient()}
 			<button
 				class="text-secondary w-full text-right underline text-2xs whitespace-nowrap"
 				onclick={() => downloadViaClient(csvApiPath, csvName)}
-				><div class="flex flex-row-reverse gap-2 items-center"
-					><Download size={12} /> CSV</div
+				><div class="flex flex-row-reverse gap-2 items-center"><Download size={12} /> CSV</div
 				></button
 			>
 		{:else}
@@ -216,9 +245,7 @@
 				target="_blank"
 				href="{base}/api{csvApiPath}"
 				class="text-secondary w-full text-right underline text-2xs whitespace-nowrap"
-				><div class="flex flex-row-reverse gap-2 items-center"
-					><Download size={12} /> CSV</div
-				></a
+				><div class="flex flex-row-reverse gap-2 items-center"><Download size={12} /> CSV</div></a
 			>
 		{/if}
 	{/if}

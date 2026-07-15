@@ -191,7 +191,8 @@
                 "ci_test",
                 "github",
                 "azure",
-                "asset"
+                "asset",
+                "freshness"
               ]
             }
           }

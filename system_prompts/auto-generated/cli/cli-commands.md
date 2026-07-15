@@ -77,6 +77,13 @@ datatable related commands
 - `datatable run <sql:string>` - run a SQL query on a datatable
   - `-n --name <name:string>` - Datatable name (default: main)
   - `-s --silent` - Output only the final result as JSON. Useful for scripting.
+- `datatable migrate` - manage datatable migrations
+  - `datatable migrate new <name:string>` - scaffold a new migration (.up.sql / .down.sql files)
+    - `-d --datatable <datatable:string>` - Target datatable (default: main)
+  - `datatable migrate up` - apply all pending migrations to the main datatable (or one via --datatable)
+    - `-d --datatable <datatable:string>` - Target datatable (default: main)
+  - `datatable migrate down` - roll back the most recent migration on the main datatable (or one via --datatable)
+    - `-d --datatable <datatable:string>` - Target datatable (default: main)
 - `datatable create [name:string]` - register a datatable database in the workspace (default: instance-backed 'main') so scripts can use datatable://<name>
   - `--resource <resource:string>` - Back the datatable with an existing postgresql resource path instead of the instance database
   - `--force` - Allow adding to a workspace that already has datatables (fork metadata on existing ones is not preserved)
@@ -151,11 +158,13 @@ flow related commands
 - `flow run <path:string>` - run a flow by path.
   - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - `-s --silent` - Do not ouput anything other then the final output. Useful for scripting.
+  - `--tag <tag:string>` - Override the worker tag the run is dispatched to (e.g. to route it to dev workers instead of the flow's default tag).
 - `flow preview <flow_path:string>` - preview a local flow without deploying it. Runs the flow definition from local files and uses local PathScripts by default. Pass --step <id> to run only one module in isolation (resolves nested steps inside branchone/branchall/forloopflow/whileloopflow plus the special preprocessor/failure modules; supported step types: rawscript, script, flow).
   - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - `-s --silent` - Do not output anything other then the final output. Useful for scripting.
   - `--remote` - Use deployed workspace scripts for PathScript steps instead of local files.
   - `--step <step_id:string>` - Run only the named step instead of the whole flow. Honors --data as the step's args and --remote / local-PathScript resolution the same way the full-flow preview does.
+  - `--tag <tag:string>` - Override the worker tag the preview is dispatched to (e.g. to route it to dev workers instead of the flow's default tag).
 - `flow new <flow_path:string>` - create a new empty flow
   - `--summary <summary:string>` - flow summary
   - `--description <description:string>` - flow description
@@ -345,19 +354,18 @@ Manage jobs (list, inspect, cancel)
 
 ### jobs
 
-Pull completed and queued jobs from workspace
-
-**Arguments:** `[workspace:string]`
-
-**Options:**
-- `-c, --completed-output <file:string>` - Completed jobs output file (default: completed_jobs.json)
-- `-q, --queued-output <file:string>` - Queued jobs output file (default: queued_jobs.json)
-- `--skip-worker-check` - Skip checking for active workers before export
+Manage jobs (import/export)
 
 **Subcommands:**
 
-- `jobs pull`
-- `jobs push`
+- `jobs pull [workspace:string]` - Pull completed and queued jobs from workspace
+  - `-c, --completed-output <file:string>` - Completed jobs output file (default: completed_jobs.json)
+  - `-q, --queued-output <file:string>` - Queued jobs output file (default: queued_jobs.json)
+  - `--skip-worker-check` - Skip checking for active workers before export
+- `jobs push [workspace:string]` - Push completed and queued jobs to workspace
+  - `-c, --completed-file <file:string>` - Completed jobs input file (default: completed_jobs.json)
+  - `-q, --queued-file <file:string>` - Queued jobs input file (default: queued_jobs.json)
+  - `--skip-worker-check` - Skip checking for active workers before import
 
 ### lint
 
@@ -419,11 +427,22 @@ inspect asset-driven pipelines (scripts marked `// pipeline`, wired by `// on <s
   - `--json` - Output as JSON (for piping to jq)
 - `pipeline show <folder:string>` - render a pipeline folder's DAG (sources, lineage, subscriptions) in the terminal
   - `--json` - Output the raw asset graph as JSON
-- `pipeline run <folder:string>` - run a bounded cascade: from a schedule/manual root, fan downstream up to the --to end node(s)
-  - `--from <script:string>` - Start script (short name or path). Defaults to the folder's sole schedule/manual root.
+  - `--local` - Build the graph from local working-tree files (// pipeline scripts) instead of the deployed workspace — no deploy needed.
+- `pipeline run <folder:string>` - run a cascade: from --from (a root OR any mid-DAG model), fan downstream up to the --to end node(s)
+  - `--from <script:string>` - Start script (short name or path). May be any node, including a mid-DAG model — that node plus its transitive downstream runs, upstream is NOT re-run (dbt `--select model+`). Defaults to the folder's sole schedule/manual root.
   - `--to <node:string>` - End node(s) to stop at — script names/paths or asset URIs (e.g. datatable://main/staged). Repeatable or comma-separated. Omit to run the full downstream.
   - `--dry-run` - Print the topological run plan without executing.
   - `--json` - Output the plan as JSON (for piping to jq).
+  - `--local` - Run the local working-tree scripts via preview (no deploy) instead of the deployed versions; the graph is built from local files.
+  - `--upload <binding:string>` - Bind an object to a data_upload/webhook entry point so it runs in the cascade, as SCRIPT[:PARAM]=SOURCE (SOURCE is a local file or an s3://key). Local files are uploaded to the workspace store; the S3Object param is inferred when the script has exactly one. Repeatable.
+  - `--arg <binding:string>` - Pass a plain run arg to a script in the cascade, as SCRIPT:PARAM=VALUE (VALUE is parsed as JSON when possible, else taken as a string — e.g. daily_report:partition=2026-07-02). Repeatable.
+  - `--partition <value:string>` - Partition value for `// partitioned` scripts in the run (e.g. 2026-06-30) — use it to backfill a past slice. With --local, time kinds (daily/hourly/weekly/monthly) default to the current UTC period when omitted; `dynamic` always needs it. Deployed runs without it defer to backend run-start resolution.
+- `pipeline docs <folder:string>` - generate PIPELINE.md (+ AGENTS.md pointer) describing a folder's pipeline graph and datatable schemas, for an editor / agentic loop
+  - `--local` - Build the graph from local working-tree files instead of the deployed workspace.
+- `pipeline dev [folder:string]` - Live-preview a data pipeline from local files: watch an `f/<folder>` of `// pipeline` scripts, push the working-tree graph to the dev page, and run the cascade via preview (no deploy).
+  - `--port <port:number>` - Port for the dev WebSocket server.
+  - `--no-open` - Do not open the browser automatically.
+  - `--frontend <origin:string>` - Origin serving the /pipeline_dev page (e.g. http://localhost:3000 for a locally-run frontend). Defaults to the workspace remote; use it when the remote's deployed frontend predates the dev page.
 
 ### protection-rules
 
@@ -537,9 +556,11 @@ script related commands
 - `script run <path:file>` - run a script by path
   - `-d --data <data:file>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - `-s --silent` - Do not output anything other then the final output. Useful for scripting.
+  - `--tag <tag:string>` - Override the worker tag the run is dispatched to (e.g. to route it to dev workers instead of the script's default tag).
 - `script preview <path:file>` - preview a local script without deploying it. Supports both regular and codebase scripts.
   - `-d --data <data:file>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - `-s --silent` - Do not output anything other than the final output. Useful for scripting.
+  - `--tag <tag:string>` - Override the worker tag the preview is dispatched to (e.g. to route it to dev workers instead of the script's default tag).
 - `script new <path:file> <language:string>` - create a new script
   - `--summary <summary:string>` - script summary
   - `--description <description:string>` - script description
@@ -749,13 +770,19 @@ workspace related commands
   - `--branch <branch:string>` - Git branch to associate (default: workspace name)
 - `workspace unbind` - Remove baseUrl and workspaceId from a workspace entry
   - `--workspace <name:string>` - Workspace to unbind
-- `workspace fork [workspace_name:string] [workspace_id:string]` - Create a forked workspace
+- `workspace fork [workspace_name:string] [workspace_id:string]` - Create a forked workspace from its parent workspace.
+
+The parent is resolved from your current git branch, not from the active profile: run this from a git repo checked out on the branch mapped to the parent workspace in wmill.yaml's `workspaces:` section (a fork branch of it resolves to the same parent). `wmill workspace switch` does not change which workspace is forked.
+
+Arguments (omit both to be prompted interactively):
+  [workspace_name]  Friendly display name for the fork, shown in the UI. May contain spaces, so quote it in the shell (e.g. "My Fork"). Max 50 chars. Defaults to "<parent workspace name>'s fork".
+  [workspace_id]    Id for the fork. Must be a slug (no spaces or special characters) and is automatically prefixed with `wm-fork-`, so pass just the bare slug (e.g. `my-fork` becomes `wm-fork-my-fork`). This id also determines the fork's git branch name. Defaults to a slug derived from the name — or, when you are converting an existing branch into the fork branch, from that branch.
   - `--create-workspace-name <workspace_name:string>` - Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id.
   - `--color <color:string>` - Workspace color (hex code, e.g. #ff0000)
   - `--datatable-behavior <behavior:string>` - How to handle datatables: skip, schema_only, or schema_and_data (default: interactive prompt)
   - `--from-branch <branch:string>` - Non-interactive override for the 'turn my current working branch into the fork' workflow: base the fork on <branch> (its bound workspace is the parent) and rename the current branch onto wm-fork/<branch>/<id>. Usually unneeded — from a working branch `wmill workspace fork` offers this interactively; from a base branch it creates a fresh fork branch.
   - `-y --yes` - Skip interactive prompts (defaults datatable behavior to 'skip'). On a non-base branch, requires --from-branch since the base branch can't be prompted for.
-- `workspace delete-fork <fork_name:string>` - Delete a forked workspace and git branch
+- `workspace delete-fork <fork_name:string>` - Delete a forked workspace
   - `-y --yes` - Skip confirmation prompt
 - `workspace merge` - Compare and deploy changes between a fork and its parent workspace
   - `--direction <direction:string>` - Deploy direction: to-parent or to-fork

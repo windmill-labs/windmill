@@ -153,13 +153,18 @@ impl GoogleAIQueryBuilder {
             (None, None)
         };
 
+        // Map the effort token onto Gemini's native thinking controls; without
+        // one, leave provider defaults untouched.
+        let thinking_config = args
+            .reasoning_effort
+            .map(|effort| gemini_thinking_config(args.model, effort));
+
         build_gemini_generation_config(
             args.temperature,
             args.max_tokens,
             response_mime_type,
             response_schema,
-            // Worker AI-agent requests carry no reasoning knob; keep provider defaults.
-            None,
+            thinking_config,
         )
     }
 }

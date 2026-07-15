@@ -53,6 +53,7 @@ export interface Setting {
 		| 'secret_backend'
 		| 'github_enterprise_app'
 		| 'ws_connectivity'
+		| 'retention_overrides'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -224,6 +225,27 @@ export const settings: Record<string, Setting[]> = {
 	],
 	Jobs: [
 		{
+			label: 'Retention period in secs',
+			key: 'retention_period_secs',
+			description:
+				'How long to keep the jobs data in the database (max 30 days on CE). <a href="https://www.windmill.dev/docs/advanced/instance_settings#retention-period-in-secs">Learn more</a>',
+			fieldType: 'seconds',
+			placeholder: '30',
+			storage: 'setting',
+			ee_only: 'You can only adjust this setting to above 30 days in the EE version',
+			cloudonly: false
+		},
+		{
+			label: 'Per-workspace retention overrides',
+			key: 'retention_period_secs_overrides',
+			description:
+				'Override the job retention period for specific workspaces, independently of the instance-wide value above (longer or shorter). Jobs in a workspace without an override follow the instance-wide setting.',
+			fieldType: 'retention_overrides',
+			storage: 'setting',
+			ee_only: 'Per-workspace retention overrides are only available in the EE version',
+			cloudonly: false
+		},
+		{
 			label: 'Job isolation',
 			key: 'job_isolation',
 			fieldType: 'select',
@@ -356,17 +378,6 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'boolean',
 			description: 'Keep Job directories after execution at /tmp/windmill/WORKER/JOB_ID',
 			storage: 'setting'
-		},
-		{
-			label: 'Retention period in secs',
-			key: 'retention_period_secs',
-			description:
-				'How long to keep the jobs data in the database (max 30 days on CE). <a href="https://www.windmill.dev/docs/advanced/instance_settings#retention-period-in-secs">Learn more</a>',
-			fieldType: 'seconds',
-			placeholder: '30',
-			storage: 'setting',
-			ee_only: 'You can only adjust this setting to above 30 days in the EE version',
-			cloudonly: false
 		},
 		{
 			label: 'Workspace fairness — enabled',

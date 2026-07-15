@@ -149,7 +149,10 @@ pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Sen
         .and_where("o.archived = false");
 
     if item_type == "script" {
-        sqlb.and_where("o.auto_kind IS NULL");
+        // only exclude library scripts (no main function); pipeline, test, WAC,
+        // and any future `auto_kind` values remain callable. Mirrors the scripts
+        // list API deny-list.
+        sqlb.and_where("(o.auto_kind IS NULL OR o.auto_kind <> 'lib')");
     }
 
     if let Some(prefix) = path_prefix {
@@ -382,12 +385,18 @@ pub fn build_query_string(
                 .map(|value| {
                     // Use the original name for the query parameter key
                     let original_name = get_original_name(param_name, query_field_renames);
-                    let value_str = value.to_string();
-                    let str_val = value_str.trim_matches('"');
+                    // For string values, use the raw content: to_string() would JSON-encode
+                    // it, and stripping the outer quotes leaves inner quotes backslash-escaped
+                    // (e.g. `{\"k\":\"v\"}`), which breaks downstream JSON parsing of params
+                    // like `args`/`result`. Non-string values keep their JSON serialization.
+                    let str_val = value
+                        .as_str()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| value.to_string());
                     format!(
                         "{}={}",
                         urlencoding::encode(&original_name),
-                        urlencoding::encode(str_val)
+                        urlencoding::encode(&str_val)
                     )
                 })
         })
@@ -406,12 +415,50 @@ pub fn build_request_body(
     args_map: &serde_json::Map<String, Value>,
     body_schema: &Option<Value>,
     body_field_renames: &Option<Value>,
+    path_params_schema: &Option<Value>,
+    query_params_schema: &Option<Value>,
 ) -> Option<Value> {
     if method == "GET" {
         return None;
     }
 
     let schema = body_schema.as_ref()?;
+
+    let has_declared_props = schema
+        .get("properties")
+        .and_then(|p| p.as_object())
+        .map(|o| !o.is_empty())
+        .unwrap_or(false);
+
+    // Pass-through body: the schema declares no explicit properties (e.g.
+    // runScriptByPath / runFlowByPath, whose body is `additionalProperties: true`
+    // and carries the script/flow arguments verbatim). Forward every argument
+    // that isn't already consumed by a path or query parameter — without this the
+    // request body would be empty and parameterized runs would lose their args.
+    if !has_declared_props {
+        if schema.get("type").and_then(|t| t.as_str()) != Some("object") {
+            return None;
+        }
+        let consumed: std::collections::HashSet<&str> = [path_params_schema, query_params_schema]
+            .into_iter()
+            .filter_map(|s| s.as_ref())
+            .filter_map(|s| s.get("properties").and_then(|p| p.as_object()))
+            .flat_map(|props| props.keys().map(|k| k.as_str()))
+            .collect();
+
+        let body_map: serde_json::Map<String, Value> = args_map
+            .iter()
+            .filter(|(k, v)| !consumed.contains(k.as_str()) && !v.is_null())
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+
+        return if body_map.is_empty() {
+            None
+        } else {
+            Some(Value::Object(body_map))
+        };
+    }
+
     let props = schema.get("properties")?.as_object()?;
 
     let body_map: serde_json::Map<String, Value> = props
@@ -535,6 +582,65 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn build_request_body_passthrough_forwards_script_args_minus_path() {
+        // runScriptByPath-shaped body: additionalProperties, no declared props.
+        // `path` is a path param and must be excluded; the rest are the script's
+        // arguments and must be forwarded verbatim.
+        let body_schema = Some(json!({ "type": "object", "additionalProperties": true }));
+        let path_schema = Some(json!({
+            "type": "object",
+            "properties": { "path": { "type": "string" } },
+            "required": ["path"]
+        }));
+        let args: serde_json::Map<String, Value> = json!({
+            "path": "u/admin/my_script",
+            "name": "alice",
+            "count": 3
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+
+        let body = build_request_body("POST", &args, &body_schema, &None, &path_schema, &None)
+            .expect("passthrough body should be built");
+        let obj = body.as_object().unwrap();
+        assert_eq!(obj.get("name"), Some(&json!("alice")));
+        assert_eq!(obj.get("count"), Some(&json!(3)));
+        assert!(
+            !obj.contains_key("path"),
+            "path param must be excluded from body"
+        );
+    }
+
+    #[test]
+    fn build_request_body_declared_props_only_forwards_declared() {
+        // Endpoints with explicit properties keep the strict declared-only behavior.
+        let body_schema = Some(json!({
+            "type": "object",
+            "properties": { "value": { "type": "string" } },
+            "required": ["value"]
+        }));
+        let args: serde_json::Map<String, Value> = json!({ "value": "x", "sneaky": "y" })
+            .as_object()
+            .unwrap()
+            .clone();
+        let body = build_request_body("POST", &args, &body_schema, &None, &None, &None).unwrap();
+        let obj = body.as_object().unwrap();
+        assert_eq!(obj.get("value"), Some(&json!("x")));
+        assert!(
+            !obj.contains_key("sneaky"),
+            "undeclared args must be dropped"
+        );
+    }
+
+    #[test]
+    fn build_request_body_get_has_no_body() {
+        let body_schema = Some(json!({ "type": "object", "additionalProperties": true }));
+        let args: serde_json::Map<String, Value> = json!({ "a": 1 }).as_object().unwrap().clone();
+        assert!(build_request_body("GET", &args, &body_schema, &None, &None, &None).is_none());
+    }
+
+    #[test]
     fn validate_path_param_value_accepts_legitimate_windmill_paths() {
         for ok in [
             "u/alice/prod_db",
@@ -623,5 +729,56 @@ mod tests {
         )
         .expect("legitimate path should substitute");
         assert_eq!(result, "/w/dev/scripts/get/p/u/alice/my_script");
+    }
+
+    fn single_query_schema(param: &str) -> Option<Value> {
+        Some(json!({
+            "type": "object",
+            "properties": { param: { "type": "string" } }
+        }))
+    }
+
+    #[test]
+    fn build_query_string_preserves_json_string_content() {
+        // A string param carrying JSON (e.g. the `args` filter on listJobs) must be
+        // emitted as its raw content so the backend can `serde_json::from_str` it.
+        let mut args = serde_json::Map::new();
+        args.insert("args".to_string(), json!("{\"key\":\"val\"}"));
+
+        let qs = build_query_string(&args, &single_query_schema("args"), &None);
+
+        // No backslash escaping: %5C must not appear; the encoded braces/quotes are exact.
+        assert_eq!(qs, "?args=%7B%22key%22%3A%22val%22%7D");
+        assert!(
+            !qs.contains("%5C"),
+            "must not contain backslash escapes: {qs}"
+        );
+    }
+
+    #[test]
+    fn build_query_string_keeps_non_string_serialization() {
+        let mut args = serde_json::Map::new();
+        args.insert("per_page".to_string(), json!(42));
+        assert_eq!(
+            build_query_string(&args, &single_query_schema("per_page"), &None),
+            "?per_page=42"
+        );
+
+        let mut args = serde_json::Map::new();
+        args.insert("running".to_string(), json!(true));
+        assert_eq!(
+            build_query_string(&args, &single_query_schema("running"), &None),
+            "?running=true"
+        );
+    }
+
+    #[test]
+    fn build_query_string_encodes_plain_string() {
+        let mut args = serde_json::Map::new();
+        args.insert("path".to_string(), json!("u/alice/my script"));
+        assert_eq!(
+            build_query_string(&args, &single_query_schema("path"), &None),
+            "?path=u%2Falice%2Fmy%20script"
+        );
     }
 }

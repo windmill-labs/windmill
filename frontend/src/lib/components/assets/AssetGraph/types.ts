@@ -6,6 +6,16 @@ export type GraphUsageKind = 'script' | 'flow'
 export interface AssetGraphAssetNode {
 	kind: AssetKind
 	path: string
+	// Fork workspaces only: 'fork' when this ducklake asset was materialized in
+	// the fork itself, 'deferred' when reads fall back to the parent workspace's
+	// current table via a defer view. Absent outside forks / for other kinds /
+	// when never materialized anywhere. Lockstep with Rust `GraphAssetNode`.
+	fork_materialization?: 'fork' | 'deferred'
+	// Base dimension path this node is the SCD2 `<dim>_current` companion view of
+	// (its producer declares `// materialize … history` on `<dim>`). Set only on
+	// the `_current` node; lets the canvas mark it as a derived "current view"
+	// rather than an unrelated table. Lockstep with Rust `GraphAssetNode`.
+	derived_from?: string
 }
 
 export interface AssetGraphRunnableNode {
@@ -22,6 +32,11 @@ export interface AssetGraphRunnableNode {
 	// Raw `// freshness <duration>` value, e.g. "1h", "30m". Surfaced for
 	// the badge; the runtime parses it as needed.
 	freshness?: string
+	// Completion time (ISO) of the newest successful run of this pipeline
+	// member visible to the caller. The freshness chip compares it against
+	// the `// freshness` window to render fresh/stale. Absent = no
+	// successful run found (or none visible under job RLS).
+	last_success_at?: string
 	// `// tag <name>` worker-tag override. Surfaced for the badge so users
 	// can see which worker pool will pick this script up at a glance.
 	tag?: string
@@ -44,11 +59,24 @@ export interface AssetGraphRunnableNode {
 	// Managed `// materialize` write strategy. Absent for non-materializing or
 	// `manual` scripts. Used (with `partition_kind`) to decide whether a
 	// produced asset's schema can evolve: only whole-table `replace` can, since
-	// `append`/`merge`/partitioned writes INSERT into a fixed-schema table.
-	materialize_strategy?: 'replace' | 'append' | 'merge'
+	// `append`/`merge`/`scd2`/partitioned writes INSERT into a fixed-schema
+	// table. `scd2` also identifies the producer of a `<dim>_current` companion
+	// view for the schema-contract `_current` → base-table fallback.
+	materialize_strategy?: 'replace' | 'append' | 'merge' | 'scd2'
+	// `on_schema_change=ignore` on the managed materialize — the producer's
+	// opt-out from downstream schema-contract warnings. Only present when set
+	// to `ignore` (default `warn` is absent). Threaded into the editor's
+	// contract mirror so it suppresses the same warnings the server check does.
+	materialize_on_schema_change?: string
+	// Macros this script provides to the workspace registry (deployed
+	// `// macros` library). Non-empty marks the node as a macro library;
+	// drives the "defines N macros" badge and the details-pane signature
+	// list. `params` is the verbatim parameter list.
+	macros?: { name: string; params: string; is_table: boolean }[]
 	// Synthesized by the page from a local draft; the script doesn't exist
 	// in the DB yet. Drives a dashed/lower-opacity rendering to mirror how
 	// unsaved triggers are styled — visually distinct from persisted nodes.
+	// AI-built nodes are plain drafts too (no separate pending/approval state).
 	unsaved?: boolean
 }
 
@@ -112,11 +140,41 @@ export type AssetGraphTrigger =
 			missing?: boolean
 	  }
 
+// Macro-library → consumer edge: the consumer calls `macro_names` of
+// `lib_path`'s macros (deploy-recorded detection), or pulls in the whole
+// library via `// use` (`via_use`, macro_names then lists the full library).
+// `unsaved: true` marks a draft's `// use` overlay.
+export interface AssetGraphMacroEdge {
+	lib_path: string
+	consumer_path: string
+	macro_names: string[]
+	via_use: boolean
+	unsaved?: boolean
+}
+
+// Ordering-only "must-run-after" edge: `runnable_path`'s `// data_test`
+// (a `relationships` ref, or a custom test reading a pipeline asset) needs
+// `asset` materialized before the tested script runs — but the tested script
+// doesn't consume the asset's rows, so this is NOT a lineage edge. Resolved
+// server-side to the referenced asset's in-pipeline producer; fed into the
+// cascade topo-sort (buildLineageDag) so a cold cascade orders the referenced
+// dimension first, and rendered dashed on the canvas (like macro edges).
+export interface AssetGraphTestEdge {
+	producer_kind: GraphUsageKind
+	producer_path: string
+	runnable_kind: GraphUsageKind
+	runnable_path: string
+	asset_kind: AssetKind
+	asset_path: string
+}
+
 export interface AssetGraphResponse {
 	assets: AssetGraphAssetNode[]
 	runnables: AssetGraphRunnableNode[]
 	edges: AssetGraphEdge[]
 	triggers: AssetGraphTrigger[]
+	macro_edges?: AssetGraphMacroEdge[]
+	test_edges?: AssetGraphTestEdge[]
 }
 
 export type AssetGraphNodeData =

@@ -40,6 +40,7 @@
 	import ChatTypingIndicator from './ChatTypingIndicator.svelte'
 	import AIChatInput from './AIChatInput.svelte'
 	import QueuedMessageChip from './QueuedMessageChip.svelte'
+	import JobsSegment from './JobsSegment.svelte'
 	import { getModifierKey } from '$lib/utils'
 	import type { SelectedContext } from './app/core'
 	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
@@ -115,7 +116,9 @@
 		hideModeSelector = false,
 		wideLayout = false,
 		emptyHint,
-		inputPreface
+		inputPreface,
+		initialInstructions = undefined,
+		onDraftChange = undefined
 	}: {
 		messages: DisplayMessage[]
 		pastChats: { id: string; title: string }[]
@@ -142,6 +145,9 @@
 		wideLayout?: boolean
 		emptyHint?: Snippet
 		inputPreface?: Snippet
+		// Seed / observe the main composer's draft text (see AIChatInput).
+		initialInstructions?: string
+		onDraftChange?: (text: string) => void
 	} = $props()
 
 	let aiChatInput: AIChatInput | undefined = $state()
@@ -454,7 +460,12 @@
 			.filter((tool) => tool.requiresConfirmation === true)
 			.map((tool) => ({
 				name: tool.def.function.name,
-				label: tool.confirmationMessage ?? tool.def.function.name
+				// confirmationMessage may be a function of the call args, which we don't
+				// have here — fall back to the tool name rather than render its source.
+				label:
+					typeof tool.confirmationMessage === 'string'
+						? tool.confirmationMessage
+						: tool.def.function.name
 			}))
 	})
 	const visibleYoloBypassedTools = $derived(yoloBypassedTools.slice(0, MAX_YOLO_TOOLTIP_TOOLS))
@@ -586,7 +597,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 
 	{#if messages.length > 0}
 		<div class="flex-1 min-h-0 relative">
-			<div class="absolute inset-0 overflow-y-scroll pt-2" bind:this={scrollEl} onscroll={onScroll}>
+			<div
+				class="absolute inset-0 overflow-y-scroll pt-2 scrollbar-subtle"
+				bind:this={scrollEl}
+				onscroll={onScroll}
+			>
 				<div
 					class={wideLayout
 						? 'w-full max-w-3xl mx-auto px-7 flex flex-col pb-2'
@@ -621,13 +636,15 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							{:else}
 								<ChatTypingIndicator
 									loading={aiChatManager.loading}
-									label={aiChatManager.compacting
-										? 'Compacting conversation'
-										: aiChatManager.currentReasoningActive &&
-											  !aiChatManager.currentReply &&
-											  !aiChatManager.currentReasoning
-											? 'Thinking'
-											: undefined}
+									label={aiChatManager.loadingLabel
+										? aiChatManager.loadingLabel
+										: aiChatManager.compacting
+											? 'Compacting conversation'
+											: aiChatManager.currentReasoningActive &&
+												  !aiChatManager.currentReply &&
+												  !aiChatManager.currentReasoning
+												? 'Thinking'
+												: undefined}
 								/>
 							{/if}
 						</div>
@@ -694,6 +711,13 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		{/if}
 		<div>
 			<QueuedMessageChip />
+			{#if aiChatManager.mode === AIMode.GLOBAL && !aiChatManager.isSessionChat}
+				<!-- Standalone Jobs bar for the global side-panel chat. In /sessions the
+				     Jobs segment lives inside the session bar (SessionChangesBar). -->
+				<div class="mb-1">
+					<JobsSegment standalone />
+				</div>
+			{/if}
 			{#if aiChatManager.mode === AIMode.GLOBAL}
 				<!-- In sessions, file chips sit above the fork/draft bar (inputPreface). Selected
 				     context gets no badge row here — items already appear as highlighted @mentions
@@ -707,6 +731,8 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				bind:this={aiChatInput}
 				bind:selectedContext
 				{availableContext}
+				{initialInstructions}
+				{onDraftChange}
 				showContext={aiChatManager.mode !== AIMode.GLOBAL}
 				disabled={disabled || hasActiveUserQuestion}
 				isFirstMessage={messages.length === 0}

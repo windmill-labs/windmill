@@ -42,6 +42,9 @@
 		loadingSchema: boolean
 		resourceToEdit: Resource | undefined
 		onLoadResourceType?: () => void
+		/** Workspace the path is validated against and the connection is tested in;
+		 * defaults to the nav workspace. */
+		workspace?: string | undefined
 	}
 
 	let {
@@ -62,8 +65,11 @@
 		resourceSchema,
 		loadingSchema,
 		resourceToEdit,
-		onLoadResourceType
+		onLoadResourceType,
+		workspace = undefined
 	}: Props = $props()
+
+	let ws = $derived(workspace ?? $workspaceStore)
 
 	let editDescription = $state(false)
 	let rawCode: string | undefined = $state(undefined)
@@ -131,11 +137,12 @@
 		{/if}
 		<Label label="Path">
 			<Path
-				disabled={initialPath != '' && !isOwner(initialPath, $userStore, $workspaceStore)}
+				disabled={initialPath != '' && !isOwner(initialPath, $userStore, ws)}
 				bind:path
 				{initialPath}
 				namePlaceholder="resource"
 				kind="resource"
+				workspaceOverride={workspace}
 			/>
 		</Label>
 	</div>
@@ -218,7 +225,11 @@
 		{#if resourceToEdit?.resource_type === 'nats' || resourceToEdit?.resource_type === 'kafka'}
 			<TestTriggerConnection kind={resourceToEdit?.resource_type} args={{ connection: args }} />
 		{:else}
-			<TestConnection resourceType={resourceToEdit?.resource_type} {args} />
+			<TestConnection
+				resourceType={resourceToEdit?.resource_type}
+				{args}
+				workspaceOverride={workspace}
+			/>
 		{/if}
 		{#if resource_type === 'git_repository' && $workspaceStore && ($userStore?.is_admin || $userStore?.is_super_admin)}
 			<GitHubAppIntegration
@@ -274,6 +285,7 @@
 					schema={resourceSchema}
 					bind:args
 					bind:isValid
+					{workspace}
 				/>
 			{/if}
 		{:else if !can_write}

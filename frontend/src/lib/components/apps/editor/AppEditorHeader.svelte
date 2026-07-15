@@ -7,7 +7,13 @@
 	import { redo, undo } from '$lib/history.svelte'
 	import { discardDraftAfterDeploy } from '$lib/userDraftToast'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
-	import { enterpriseLicense, tutorialsToDo, userStore, workspaceStore } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		tutorialsToDo,
+		userStore,
+		userWorkspaces,
+		workspaceStore
+	} from '$lib/stores'
 	import { isMac, type Item, userPathPrefix } from '$lib/utils'
 	import { resetAllTodos, skipAllTodos } from '$lib/tutorialUtils'
 	import { getTutorialIndex } from '$lib/tutorials/config'
@@ -73,8 +79,7 @@
 	import AppEditorHeaderDeploy from './AppEditorHeaderDeploy.svelte'
 	import { computeSecretUrl } from './appDeploy.svelte'
 	import { updatePolicy } from './appPolicy'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
@@ -903,15 +908,22 @@
 	bind:clientWidth={topbarWidth}
 	class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto max-h-12 h-12 shrink-0"
 >
-	<div class="flex flex-row gap-2 items-center min-w-[200px]">
-		<EditorHeader
-			bind:summary={$summary}
-			bind:path={newEditedPath}
-			savedPath={$appPath || newPath || undefined}
-			kind="app"
-			onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
-		/>
-		<div class="flex gap-2 {compactTopbar ? 'hidden' : ''}">
+	<!-- Identity block shrinks/truncates first (min-w-0) so the cloud indicator
+	     and the pinned action groups (shrink-0 below) stay visible on narrow
+	     widths instead of the breadcrumb overflowing and hiding them. Kept at
+	     min-w-0 (not flex-1) so justify-between still positions the panel-hide
+	     buttons between the identity and the actions. -->
+	<div class="flex flex-row gap-2 items-center min-w-0">
+		<div class="min-w-0 overflow-hidden">
+			<EditorHeader
+				bind:summary={$summary}
+				bind:path={newEditedPath}
+				savedPath={$appPath || newPath || undefined}
+				kind="app"
+				onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
+			/>
+		</div>
+		<div class="flex gap-2 shrink-0 {compactTopbar ? 'hidden' : ''}">
 			{#if $app}
 				<ToggleButtonGroup
 					selected={$app.fullscreen ? 'true' : 'false'}
@@ -1028,7 +1040,7 @@
 	</div>
 
 	{#if $mode !== 'preview'}
-		<div class="flex gap-1">
+		<div class="flex gap-1 shrink-0">
 			<HideButton
 				direction="left"
 				hidden={leftPanelHidden}
@@ -1065,9 +1077,11 @@
 		</div>
 	{/if}
 	{#if $enterpriseLicense && $appPath != ''}
-		<Awareness />
+		<div class="shrink-0">
+			<Awareness />
+		</div>
 	{/if}
-	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
+	<div class="flex flex-row gap-2 justify-end items-center overflow-visible shrink-0">
 		<div class="relative">
 			<Dropdown items={moreItems} />
 			{#if $tutorialsToDo.includes(getTutorialIndex('backgroundrunnables')) || $tutorialsToDo.includes(getTutorialIndex('connection'))}
@@ -1132,10 +1146,10 @@
 								window.open(`/apps/add?template=${appPath}`)
 							}
 						},
-						...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
+						...(!isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces)
 							? [
 									{
-										label: 'Edit in workspace fork',
+										label: editInForkLabel($workspaceStore, $userWorkspaces),
 										onClick: () => {
 											window.open(buildForkEditUrl('app', $appPath))
 										}
