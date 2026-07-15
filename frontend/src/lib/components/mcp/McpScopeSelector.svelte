@@ -65,7 +65,7 @@
 	let loadingRunnables = $state(false)
 	let includedRunnables = $state<string[]>([])
 
-	let runnablesCache = new SvelteMap<string, string[]>()
+	let runnablesCache = new SvelteMap<string, { scripts: string[]; flows: string[] }>()
 
 	function parsePatterns(input: string): string[] {
 		return input
@@ -299,28 +299,31 @@
 		return flows.map((x) => x.path)
 	}
 
-	async function getScriptsAndFlows(
-		favoriteOnly: boolean = false,
+	// Fetch scripts+flows for a scope, cached and split by type so the same data
+	// feeds both the preview list and the truncation count (no duplicate fetch).
+	// The backend `pathStart` for a folder is an unbounded prefix (`f/team` also
+	// matches `f/team2/...`), so restrict a folder fetch to the `f/{folder}/*`
+	// subtree to mirror the MCP scope semantics.
+	async function fetchScriptsAndFlows(
 		workspace: string,
+		favoriteOnly: boolean,
 		folder: string | undefined
-	) {
+	): Promise<{ scripts: string[]; flows: string[] }> {
 		const cacheKey = `${workspace}-${favoriteOnly}${folder ? `-${folder}` : ''}`
-		if (runnablesCache.has(cacheKey)) {
-			includedRunnables = runnablesCache.get(cacheKey) || []
-			return
+		const cached = runnablesCache.get(cacheKey)
+		if (cached) return cached
+		let [scripts, flows] = await Promise.all([
+			getScripts(favoriteOnly, workspace, folder),
+			getFlows(favoriteOnly, workspace, folder)
+		])
+		if (folder) {
+			const pattern = [`f/${folder}/*`]
+			scripts = scripts.filter((p) => matchesAnyPattern(p, pattern))
+			flows = flows.filter((p) => matchesAnyPattern(p, pattern))
 		}
-		try {
-			loadingRunnables = true
-			const [scripts, flows] = await Promise.all([
-				getScripts(favoriteOnly, workspace, folder),
-				getFlows(favoriteOnly, workspace, folder)
-			])
-			const combined = [...scripts, ...flows]
-			runnablesCache.set(cacheKey, combined)
-			includedRunnables = combined
-		} finally {
-			loadingRunnables = false
-		}
+		const result = { scripts, flows }
+		runnablesCache.set(cacheKey, result)
+		return result
 	}
 
 	async function loadAllScriptsAndFlows(workspace: string) {
@@ -337,44 +340,51 @@
 		}
 	}
 
-	// Load runnables based on mode
-	$effect(() => {
-		if (workspaceId) {
-			if (selectedMode === 'folder') {
-				if (selectedFolders.length > 0) {
-					loadRunnablesForFolders(workspaceId, selectedFolders)
-				} else {
-					includedRunnables = []
-				}
-			} else {
-				getScriptsAndFlows(selectedMode === 'favorites', workspaceId, undefined)
-			}
+	// Load the preview list AND the exposed per-type counts for non-custom modes
+	// from a single (cached) fetch — no duplicate requests. A sequence guard drops
+	// stale async results when the scope changes faster than the fetches resolve.
+	let runnablesSeq = 0
+	async function loadRunnablesAndCounts() {
+		const seq = ++runnablesSeq
+		const ws = workspaceId
+		if (!ws || selectedMode === 'custom') return
+		if (selectedMode === 'folder' && selectedFolders.length === 0) {
+			includedRunnables = []
+			exposedScriptCount = 0
+			exposedFlowCount = 0
+			return
 		}
-	})
-
-	async function getCachedRunnables(workspace: string, folder: string): Promise<string[]> {
-		const cacheKey = `${workspace}-false-${folder}`
-		if (runnablesCache.has(cacheKey)) {
-			return runnablesCache.get(cacheKey) || []
-		}
-		const [scripts, flows] = await Promise.all([
-			getScripts(false, workspace, folder),
-			getFlows(false, workspace, folder)
-		])
-		const combined = [...scripts, ...flows]
-		runnablesCache.set(cacheKey, combined)
-		return combined
-	}
-
-	async function loadRunnablesForFolders(workspace: string, folders: string[]) {
+		loadingRunnables = true
 		try {
-			loadingRunnables = true
-			const results = await Promise.all(folders.map((f) => getCachedRunnables(workspace, f)))
-			includedRunnables = [...new Set(results.flat())]
+			let scripts: string[]
+			let flows: string[]
+			if (selectedMode === 'folder') {
+				const perFolder = await Promise.all(
+					selectedFolders.map((f) => fetchScriptsAndFlows(ws, false, f))
+				)
+				scripts = [...new Set(perFolder.flatMap((r) => r.scripts))]
+				flows = [...new Set(perFolder.flatMap((r) => r.flows))]
+			} else {
+				const r = await fetchScriptsAndFlows(ws, selectedMode === 'favorites', undefined)
+				scripts = r.scripts
+				flows = r.flows
+			}
+			if (seq !== runnablesSeq) return
+			includedRunnables = [...scripts, ...flows]
+			exposedScriptCount = scripts.length
+			exposedFlowCount = flows.length
 		} finally {
-			loadingRunnables = false
+			if (seq === runnablesSeq) loadingRunnables = false
 		}
 	}
+
+	$effect(() => {
+		// React to scope inputs (non-custom modes load list + counts together).
+		selectedMode
+		selectedFolders
+		workspaceId
+		loadRunnablesAndCounts()
+	})
 
 	// Load all scripts/flows for custom mode
 	$effect(() => {
@@ -441,68 +451,20 @@
 		return false
 	}
 
-	// Guards against overlapping async runs clobbering each other with stale
-	// results when the scope inputs change faster than the fetches resolve.
-	let exposedCountsSeq = 0
-	async function computeExposedCounts(): Promise<void> {
-		const seq = ++exposedCountsSeq
-		const ws = workspaceId
-		let scripts: number | undefined
-		let flows: number | undefined
-		if (!ws) {
-			// leave both undefined
-		} else if (selectedMode === 'all' || selectedMode === 'favorites') {
-			const favoritesOnly = selectedMode === 'favorites'
-			const [s, f] = await Promise.all([
-				getScripts(favoritesOnly, ws, undefined),
-				getFlows(favoritesOnly, ws, undefined)
-			])
-			scripts = s.length
-			flows = f.length
-		} else if (selectedMode === 'folder') {
-			if (selectedFolders.length === 0) {
-				scripts = 0
-				flows = 0
-			} else {
-				const perFolder = await Promise.all(
-					selectedFolders.map(async (folder) => ({
-						scripts: await getScripts(false, ws, folder),
-						flows: await getFlows(false, ws, folder)
-					}))
-				)
-				scripts = new Set(perFolder.flatMap((r) => r.scripts)).size
-				flows = new Set(perFolder.flatMap((r) => r.flows)).size
-			}
-		} else {
-			// custom: explicit selections plus anything matched by the wildcard patterns
-			const scriptPatterns = parsePatterns(customScriptPatterns)
-			const flowPatterns = parsePatterns(customFlowPatterns)
-			const scriptMatches = scriptPatterns.length
-				? allScripts.filter((p) => matchesAnyPattern(p, scriptPatterns))
-				: []
-			const flowMatches = flowPatterns.length
-				? allFlows.filter((p) => matchesAnyPattern(p, flowPatterns))
-				: []
-			scripts = new Set([...selectedScripts, ...scriptMatches]).size
-			flows = new Set([...selectedFlows, ...flowMatches]).size
-		}
-		if (seq !== exposedCountsSeq) return // superseded by a newer run
-		exposedScriptCount = scripts
-		exposedFlowCount = flows
-	}
-
+	// Custom-mode counts are computed synchronously from the already-loaded
+	// allScripts/allFlows plus the current selections/patterns — no extra fetch.
 	$effect(() => {
-		// Re-run whenever the scope inputs change.
-		selectedMode
-		selectedFolders
-		selectedScripts
-		selectedFlows
-		customScriptPatterns
-		customFlowPatterns
-		allScripts
-		allFlows
-		workspaceId
-		computeExposedCounts()
+		if (selectedMode !== 'custom') return
+		const scriptPatterns = parsePatterns(customScriptPatterns)
+		const flowPatterns = parsePatterns(customFlowPatterns)
+		const scriptMatches = scriptPatterns.length
+			? allScripts.filter((p) => matchesAnyPattern(p, scriptPatterns))
+			: []
+		const flowMatches = flowPatterns.length
+			? allFlows.filter((p) => matchesAnyPattern(p, flowPatterns))
+			: []
+		exposedScriptCount = new Set([...selectedScripts, ...scriptMatches]).size
+		exposedFlowCount = new Set([...selectedFlows, ...flowMatches]).size
 	})
 
 	const truncationWarning = $derived.by(() => {
@@ -512,7 +474,7 @@
 			parts.push(`${exposedScriptCount} scripts`)
 		if ((exposedFlowCount ?? 0) > MCP_TOOL_FETCH_LIMIT) parts.push(`${exposedFlowCount} flows`)
 		if (parts.length === 0) return undefined
-		return `This scope matches ${parts.join(' and ')}. Only the ${MCP_TOOL_FETCH_LIMIT} most recently created of each type are exposed as MCP tools; the rest are omitted. Narrow the scope to avoid overloading the assistant's context.`
+		return `This scope matches ${parts.join(' and ')}. Only the ${MCP_TOOL_FETCH_LIMIT} most recent of each type are exposed as MCP tools; the rest are omitted. Narrow the scope to avoid overloading the assistant's context.`
 	})
 
 	function selectAllScripts() {
