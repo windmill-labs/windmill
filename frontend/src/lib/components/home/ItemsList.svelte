@@ -348,6 +348,10 @@
 	let contentSearchEl: ContentSearchInner | undefined = $state()
 	$effect(() => {
 		const el = contentSearchEl
+		// Re-run on workspace switch so content results follow the active workspace; `open()`
+		// reads $workspaceStore internally but under untrack (it must not re-run per keystroke),
+		// so depend on it explicitly here.
+		$workspaceStore
 		if (el) untrack(() => el.open())
 	})
 

@@ -42,11 +42,18 @@
 		}
 	})
 
+	// Whether the copilot config has actually loaded for the current workspace.
+	let configLoaded = $derived($copilotWorkspace === $workspaceStore)
 	// No usable model (no provider configured, or AI disabled): the chat is shown but
 	// non-interactive, and hovering reveals a prompt to configure AI in the settings.
-	// Gate on the config having actually loaded for this workspace so the initial
-	// (unloaded) state doesn't flash the overlay while a provider is configured.
-	let disabled = $derived($copilotWorkspace === $workspaceStore && !$copilotInfo.enabled)
+	// Gate the overlay on `configLoaded` so the initial (unloaded) state doesn't flash it
+	// while a provider is in fact configured.
+	let disabled = $derived(configLoaded && !$copilotInfo.enabled)
+	// Submission is stricter than the overlay: block it until the config is loaded AND
+	// enabled. Submitting during the unknown-config window hands the prompt to a session
+	// that only sends once `copilotInfo.enabled` flips true — on an unconfigured/disabled
+	// workspace that never happens and the prompt is silently lost.
+	let canSend = $derived(configLoaded && $copilotInfo.enabled)
 
 	// Applied to the AI-specific parts only (title, input, example tags). The CLI/MCP and
 	// Hub buttons are unrelated to AI and must stay sharp and clickable on hover.
@@ -60,7 +67,7 @@
 
 	let starting = $state(false)
 	async function start() {
-		if (disabled || starting || !value.trim()) return
+		if (!canSend || starting || !value.trim()) return
 		starting = true
 		try {
 			await startSessionWithPrompt(value)
@@ -139,7 +146,7 @@
 					variant={value.trim() ? 'accent' : 'subtle'}
 					iconOnly
 					loading={starting}
-					disabled={!value.trim() || starting || disabled}
+					disabled={!value.trim() || starting || !canSend}
 					onclick={start}
 				></Button>
 				<div class="absolute left-3 bottom-4 flex items-center gap-1.5 px-0.5">

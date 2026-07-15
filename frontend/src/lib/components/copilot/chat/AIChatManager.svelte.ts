@@ -64,7 +64,7 @@ import { untrack } from 'svelte'
 import { get } from 'svelte/store'
 import { BROWSER } from 'esm-env'
 import { workspaceStore, type DBSchemas } from '$lib/stores'
-import { copilotInfo, loadCopilot } from '$lib/aiStore'
+import { copilotInfo, copilotWorkspace, loadCopilot } from '$lib/aiStore'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { readDocsPageTool, searchDocsTool } from './docs/core'
 import { TypewriterReveal } from './typewriterReveal'
@@ -282,6 +282,12 @@ function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean)
  */
 async function refreshFreeTierUsage(workspace: string | undefined) {
 	if (!workspace) return
+	// The global copilotInfo/client are a singleton shared by every mounted session. A warm
+	// session can finish a turn after the user has switched to another workspace; refreshing
+	// then would call loadCopilot for the completing manager's (now background) workspace and
+	// clobber the active one's models/client/copilotWorkspace. Only refresh when the global
+	// state still reflects this manager's workspace.
+	if (get(copilotWorkspace) !== workspace) return
 	const info = get(copilotInfo)
 	if (!info.freeTier || info.freeTier.exhausted) return
 	try {
