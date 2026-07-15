@@ -1,15 +1,20 @@
 {
 	layer4 {
 		:25 {
-			proxy {
-				to windmill_server:2525
+			route {
+				proxy {
+					upstream windmill_server:2525
+				}
 			}
 		}
 	}
 }
 
 {$BASE_URL} {
-        bind {$ADDRESS}
+        # Default to all interfaces (IPv4 + IPv6) when ADDRESS is unset. A bare
+        # `bind {$ADDRESS}` with an empty value makes Caddy >= 2.9 drop this whole
+        # site, silently disabling the HTTP proxy while the :25 layer4 listener stays up.
+        bind {$ADDRESS:0.0.0.0 ::}
 
         # Extra services: LSP, Multiplayer, Debugger (windmill_extra gateway)
         reverse_proxy /ws/* /ws_mp/* /ws_debug/* http://windmill_extra:3000

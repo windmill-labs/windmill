@@ -186,7 +186,10 @@ pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Sen
         .and_where("o.archived = false");
 
     if item_type == "script" {
-        sqlb.and_where("o.auto_kind IS NULL");
+        // only exclude library scripts (no main function); pipeline, test, WAC,
+        // and any future `auto_kind` values remain callable. Mirrors the scripts
+        // list API deny-list.
+        sqlb.and_where("(o.auto_kind IS NULL OR o.auto_kind <> 'lib')");
     }
 
     match path_filter {

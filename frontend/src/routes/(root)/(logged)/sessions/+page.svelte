@@ -761,6 +761,7 @@
 											mounted={mountedTabKeys.has(tabKey(s.id, tab.id))}
 											label={tabLabelFor(tab)}
 											darkMode={isDarkMode.val}
+											{fullscreen}
 											onNavigate={navigateEditorTo}
 											onLoad={(frame) => tabs && onTabLoad(tabs, tab, frame)}
 										/>

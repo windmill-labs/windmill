@@ -35,7 +35,7 @@ export function syncWorkspaceTo(workspaceId: string | undefined): void {
 import { WorkspaceService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import type HistoryManager from '$lib/components/copilot/chat/HistoryManager.svelte'
-import { onUserChange, scopedKey } from '$lib/userScopedStorage'
+import { onUserChange } from '$lib/userScopedStorage'
 
 // A destination the session preview can open as an editor: a workspace item
 // (`path`) for flow/script/raw_app, or — for 'pipeline' — a folder name (not an
@@ -99,10 +99,13 @@ export type Session = {
 	// archived (not by the user). Lets reconciliation auto-unarchive the session
 	// when the workspace is unarchived, while leaving user-archived sessions be.
 	archivedByWorkspace?: boolean
-	// In-memory-only flag: the session exists but isn't written to
-	// IndexedDB until the user sends their first message. Avoids
-	// piling abandoned drafts across `+` clicks — createSession reuses
-	// the existing transient if one is already open.
+	// In-memory-only flag: the session exists but hasn't been written to
+	// IndexedDB yet. Set at creation, cleared on the first genuine user touch
+	// (typed prompt, workspace/fork pick, preview tab, rename) which persists
+	// the record. Decoupled from "unsent" — a pending session is unsent while
+	// `workspace_id` is undefined, whether or not it has been persisted. An
+	// untouched draft never persists, so idle `+` clicks vanish on reload
+	// instead of littering the sidebar.
 	transient?: boolean
 	// Per-session unread watermark: the displayMessages count the last time
 	// the user was on this session's page. Compared against the runtime's
@@ -120,6 +123,10 @@ export type Session = {
 	// Preview split size (preview pane %, 0-100) the user dragged for this session.
 	// Per-session so each session restores its own layout.
 	previewSize?: number
+	// Unsent composer text for a pending (uncommitted) session, persisted with
+	// the record so each parallel draft restores its own typed-but-unsent prompt.
+	// Only tracked while unsent; cleared once the workspace commits at first send.
+	draftPrompt?: string
 }
 
 // One preview tab: `url` is the URL we command the iframe to load, `loc` the
@@ -136,11 +143,6 @@ export type SessionPreviewTab = { id: string; url: string; loc: string; friendly
 const SESSIONS_DB = 'windmill-sessions'
 const LEGACY_SESSIONS_KEY = 'windmill_sessions'
 const LEGACY_LAST_SEEN_KEY = 'windmill_sessions_last_seen_counts'
-// The single unsent (transient) draft, kept in localStorage (user-scoped) so a
-// reload doesn't lose what the user set up before their first message: name,
-// workspace/fork choice, editor target, preview tabs and the typed-but-unsent
-// prompt.
-const TRANSIENT_DRAFT_KEY = 'wm_session_transient_draft'
 
 interface SessionSchema extends DBSchema {
 	sessions: { key: string; value: Session }
@@ -292,79 +294,66 @@ export const sessionState = $state<{
 	hydrated: false
 })
 
-type TransientDraft = Session & {
-	prompt?: string
-}
-
-// The unsent prompt for the current transient session, held here so every
-// draft write (which snapshots only the Session record) can carry it along.
-let transientPrompt: { sessionId: string; text: string } | undefined
-
-function writeTransientDraft(s: Session): void {
-	const key = scopedKey(TRANSIENT_DRAFT_KEY)
-	if (!key) return
-	const draft: TransientDraft = {
-		...($state.snapshot(s) as Session),
-		prompt: transientPrompt?.sessionId === s.id ? transientPrompt.text : undefined
-	}
-	storeLocalSetting(key, JSON.stringify(draft))
-}
-
-function readTransientDraft(): TransientDraft | undefined {
-	const key = scopedKey(TRANSIENT_DRAFT_KEY)
-	if (!key) return undefined
-	const raw = getLocalSetting(key)
-	if (!raw) return undefined
-	try {
-		const d = JSON.parse(raw)
-		if (!d || typeof d.id !== 'string' || typeof d.name !== 'string') return undefined
-		return d as TransientDraft
-	} catch {
-		return undefined
-	}
-}
-
-function clearTransientDraft(): void {
-	const key = scopedKey(TRANSIENT_DRAFT_KEY)
-	if (key) storeLocalSetting(key, undefined)
-	transientPrompt = undefined
-}
-
-// Debounced write-behind of the chat input for a transient session, so the
-// typed-but-unsent prompt survives a reload with the rest of the draft.
-let transientPromptFlushHandle: ReturnType<typeof setTimeout> | undefined
-export function queueTransientDraftPrompt(sessionId: string, text: string): void {
+// Debounced write-behind of the composer text for a pending (uncommitted)
+// session, so a typed-but-unsent prompt survives a reload as part of the record.
+// Keyed per session: a single shared timer would let a keystroke in one draft
+// cancel a sibling draft's pending flush, dropping that draft's first-touch write.
+const draftPromptFlushHandles = new Map<string, ReturnType<typeof setTimeout>>()
+export function setSessionDraftPrompt(sessionId: string, text: string): void {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
-	if (!s?.transient) return
-	transientPrompt = { sessionId, text }
-	clearTimeout(transientPromptFlushHandle)
-	transientPromptFlushHandle = setTimeout(() => writeTransientDraft(s), 400)
+	if (!s || s.workspace_id) return
+	// No-op on an unchanged prompt. Crucially, this treats the composer's
+	// mount-time onDraftChange('') as a non-touch (draftPrompt is undefined),
+	// so merely opening an untouched draft never persists it.
+	if ((s.draftPrompt ?? '') === text) return
+	// Keep `transient` (means "in-memory only") set until the flush persists the
+	// draft, so hydrateSessions preserves it across a reconcile inside this window;
+	// isReusableBlank, not `transient`, is what stops createSession reusing a typed
+	// draft. Only the IndexedDB write is debounced.
+	s.draftPrompt = text
+	clearTimeout(draftPromptFlushHandles.get(sessionId))
+	draftPromptFlushHandles.set(
+		sessionId,
+		setTimeout(() => {
+			draftPromptFlushHandles.delete(sessionId)
+			persistTouched(s)
+		}, 400)
+	)
 }
 
-// Read back the restored draft prompt when the session's runtime (and its chat
-// manager) is created. Peek, not take: later draft writes keep carrying it.
-export function peekTransientDraftPrompt(sessionId: string): string | undefined {
-	return transientPrompt?.sessionId === sessionId ? transientPrompt.text : undefined
+// Read back the persisted composer text when a pending session's chat mounts.
+// Returns nothing once the session is committed (its draft prompt was consumed).
+export function getSessionDraftPrompt(sessionId: string): string | undefined {
+	const s = sessionState.sessions.find((x) => x.id === sessionId)
+	if (!s || s.workspace_id) return undefined
+	return s.draftPrompt
 }
 
-// Write-behind a single session record. Transient (unsent) sessions are not
-// written to IndexedDB — they live in memory plus a single localStorage draft
-// slot until materializeTransient() promotes them at first send.
-// Awaits DB-open so a write racing hydration still lands; no-ops (degrades to
-// in-memory) when the DB can't be opened. In-memory $state is the read surface,
-// so callers fire-and-forget.
+// Persist a session on a genuine user edit, promoting an in-memory-only
+// (transient) pending session to a durable IndexedDB record on first touch.
+// Non-touch writers (runtime chatId seeding, unread watermark) call putSession
+// directly, so an untouched draft stays in memory and vanishes on reload.
+function persistTouched(s: Session): void {
+	if (s.transient) delete s.transient
+	void putSession(s)
+}
+
+// Write-behind a single session record. Transient sessions are in-memory only
+// (not yet touched) and are not written to IndexedDB; materializeTransient() /
+// persistTouched() clear the flag first. Awaits DB-open so a write racing
+// hydration still lands; no-ops (degrades to in-memory) when the DB can't be
+// opened. In-memory $state is the read surface, so callers fire-and-forget.
 export async function putSession(s: Session): Promise<void> {
 	if (!BROWSER) return
-	if (s.transient) {
-		writeTransientDraft(s)
-		return
-	}
-	// Never resurrect a session whose committed workspace is gone. A live runtime
-	// can still write through here after reconciliation deletes its record (chatId
-	// seed, unread watermark), so guard once the workspace list is loaded.
-	if (s.workspace_id) {
+	if (s.transient) return
+	// Never resurrect a session whose workspace is gone — committed (workspace_id)
+	// or pre-send (pending_workspace_id). A live runtime can still write through
+	// here after reconciliation deletes its record (chatId seed, unread watermark),
+	// so guard once the workspace list is loaded.
+	const boundWs = s.workspace_id ?? s.pending_workspace_id
+	if (boundWs) {
 		const all = get(userWorkspaces)
-		if (all.length > 0 && !all.some((w) => w.id === s.workspace_id)) return
+		if (all.length > 0 && !all.some((w) => w.id === boundWs)) return
 	}
 	ensureSessionRootId(s)
 	const db = await sessionsDb.whenReady()
@@ -408,19 +397,8 @@ async function hydrateSessions({ dropTransients = false } = {}): Promise<void> {
 		const changed = all.filter((s) => ensureSessionRootId(s))
 		for (const s of changed) await db.put('sessions', s)
 		all.sort((a, b) => b.createdAt - a.createdAt)
-		// Restore the (user-scoped) unsent draft, unless it already materialised
-		// (present in the DB — e.g. sent from another browser tab) or the same
-		// draft is still live in memory.
-		const draft = readTransientDraft()
-		if (draft) {
-			if (all.some((s) => s.id === draft.id)) {
-				clearTransientDraft()
-			} else if (!transients.some((s) => s.id === draft.id)) {
-				const { prompt, ...rec } = draft
-				transients.push({ ...rec, transient: true })
-				if (prompt) transientPrompt = { sessionId: rec.id, text: prompt }
-			}
-		}
+		// In-memory (untouched) drafts are prepended, newest-first as createSession
+		// maintains; persisted sessions follow, sorted by createdAt.
 		sessionState.sessions = [...transients, ...all]
 	} catch (e) {
 		console.error('Failed to load sessions from IndexedDB', e)
@@ -480,7 +458,13 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 	if (!db) return
 	const wsIds = new Set<string>()
 	const sessions = await db.getAll('sessions')
-	for (const s of sessions) if (s.workspace_id) wsIds.add(s.workspace_id)
+	// Committed sessions reconcile on workspace_id; persisted pending drafts on
+	// their pre-send pending_workspace_id, so a workspace deleted/archived under
+	// an unsent draft applies the same never-orphaned rule to the draft.
+	for (const s of sessions) {
+		const ws = s.workspace_id ?? s.pending_workspace_id
+		if (ws) wsIds.add(ws)
+	}
 	if (wsIds.size === 0) return
 
 	let status: Record<string, 'active' | 'archived' | 'deleted'>
@@ -496,8 +480,9 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 	const deletedIds = new Set<string>()
 	try {
 		for (const s of sessions) {
-			if (!s.workspace_id) continue
-			const { action, patch } = decideSessionLifecycle(s, status[s.workspace_id])
+			const ws = s.workspace_id ?? s.pending_workspace_id
+			if (!ws) continue
+			const { action, patch } = decideSessionLifecycle(s, status[ws])
 			if (action === 'delete') {
 				await db.delete('sessions', s.id)
 				// GC linked files too, matching deleteSession — a record-only delete
@@ -542,15 +527,18 @@ export async function reconcileAfterWorkspaceChange(): Promise<void> {
 	await reconcileSessionsLifecycle()
 }
 
-// Count non-transient sessions committed to a given workspace — used to warn the
-// user, before archiving/deleting a workspace, how many AI sessions go with it.
+// Matches on `workspace_id ?? pending_workspace_id` so persisted unsent drafts
+// count too; reconcileSessionsLifecycle tears them down with committed sessions on
+// archive/delete, so this pre-teardown confirmation count must match.
 export async function countSessionsForWorkspace(workspaceId: string): Promise<number> {
 	if (!BROWSER) return 0
 	const db = await sessionsDb.whenReady()
 	if (!db) return 0
 	try {
 		const all = await db.getAll('sessions')
-		return all.filter((s) => s.workspace_id === workspaceId && !s.transient).length
+		return all.filter(
+			(s) => (s.workspace_id ?? s.pending_workspace_id) === workspaceId && !s.transient
+		).length
 	} catch {
 		return 0
 	}
@@ -636,23 +624,40 @@ export function findSessionByName(name: string): Session | undefined {
 	return sessionState.sessions.find((s) => s.name === name)
 }
 
+// Bumped to ask the active session's composer to re-focus even when
+// `currentSessionId` doesn't change — the `+` reuse path lands you back on the
+// untouched draft you're already viewing, so nothing navigates, but the click
+// should still drop the cursor in the composer. SessionWrapper's focus effect
+// depends on `nonce`.
+export const composerFocusRequest = $state<{ nonce: number }>({ nonce: 0 })
+export function requestComposerFocus(): void {
+	composerFocusRequest.nonce++
+}
+
+// An untouched in-memory blank that `+` may reuse/discard. `draftPrompt ===
+// undefined` (never edited), not falsiness: a draft typed then erased to '' still
+// has a pending flush and is a real session, so it must survive both. Every other
+// touch clears `transient` synchronously, so only the draft prompt needs checking.
+function isReusableBlank(s: Session): boolean {
+	return !!s.transient && s.draftPrompt === undefined
+}
+
 export function createSession(): Session {
-	// Reuse the existing transient session (if any) so the user can hit
-	// the "+" button repeatedly without piling drafts. The transient
-	// becomes a real session at first-message-send time. Only a transient
-	// from the active workspace family qualifies — reusing one left over
-	// from another family would hand the user a session still acting on
-	// that family. A cross-family leftover is dropped instead (it was
-	// never sent, so only the draft slot holds it).
-	const existingTransient = sessionState.sessions.find((s) => s.transient)
-	if (existingTransient) {
-		if (sessionInCurrentFamily(existingTransient)) {
-			sessionState.currentSessionId = existingTransient.id
-			return existingTransient
-		}
-		sessionState.sessions = sessionState.sessions.filter((s) => s.id !== existingTransient.id)
-		clearTransientDraft()
+	// Reuse an existing untouched draft from the active family rather than pile a
+	// blank entry on every `+`, so several pending sessions can still be built up
+	// in parallel, one touch at a time. A cross-family leftover blank is dropped
+	// instead of reused (reusing it would act on that family).
+	const reusable = sessionState.sessions.find(
+		(s) => isReusableBlank(s) && sessionInCurrentFamily(s)
+	)
+	if (reusable) {
+		sessionState.currentSessionId = reusable.id
+		// Reusing an already-active draft doesn't change currentSessionId, so ask
+		// the composer to focus explicitly — the caller still navigates/redirects.
+		requestComposerFocus()
+		return reusable
 	}
+	sessionState.sessions = sessionState.sessions.filter((s) => !isReusableBlank(s))
 	const existingNumbers = sessionState.sessions
 		.map((s) => /^session-(\d+)$/.exec(s.name)?.[1])
 		.map((n) => (n ? parseInt(n, 10) : 0))
@@ -691,23 +696,20 @@ export function createSession(): Session {
 	}
 	sessionState.sessions = [session, ...sessionState.sessions]
 	sessionState.currentSessionId = session.id
-	// Transient until first send: no DB record yet, but the draft slot keeps it
-	// (name, workspace/fork choice, prompt) across reloads.
-	writeTransientDraft(session)
+	// Transient until first touch: no DB record yet. Persisting is deferred to the
+	// first user edit (the mutation helpers below route through persistTouched).
 	return session
 }
 
-// Promote an in-memory transient session to a persisted one. No-op when
-// the session isn't transient. Called by the chat manager's beforeSend
-// hook so the session is only written to localStorage once the user
-// commits to it by sending their first message.
+// Promote an in-memory transient session to a persisted IndexedDB record.
+// No-op when the session isn't transient (already persisted by a prior touch).
+// Called on the first genuine user touch (via persistTouched) and, idempotently,
+// from the chat manager's beforeSend so a send always hits a persisted record.
 export function materializeTransient(id: string): void {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s || !s.transient) return
 	delete s.transient
 	void putSession(s)
-	// Promoted to IndexedDB — the localStorage draft slot is now stale.
-	clearTransientDraft()
 }
 
 export function setSessionPendingWorkspace(id: string, workspace_id: string) {
@@ -717,7 +719,7 @@ export function setSessionPendingWorkspace(id: string, workspace_id: string) {
 	s.pending_workspace_id = workspace_id
 	// Picking an existing workspace cancels any pending fork intent.
 	s.pending_fork = undefined
-	if (changed) void putSession(s)
+	if (changed) persistTouched(s)
 }
 
 // Records the user's intent to create a new fork without firing the API
@@ -727,7 +729,7 @@ export function setSessionPendingFork(id: string, fork: PendingFork) {
 	if (!s) return
 	s.pending_fork = { ...fork }
 	s.pending_workspace_id = fork.parent_workspace_id
-	void putSession(s)
+	persistTouched(s)
 }
 
 // One-shot commit: locks in workspace_id at first user-message send.
@@ -742,6 +744,9 @@ export async function commitSessionWorkspace(
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return undefined
 	if (s.workspace_id) return s.workspace_id
+	// A commit is a send: the record must be durable regardless of prior touches
+	// (a draft sent without ever being touched is still transient here).
+	if (s.transient) delete s.transient
 
 	if (s.pending_fork) {
 		const fork = s.pending_fork
@@ -774,6 +779,8 @@ export async function commitSessionWorkspace(
 		s.pending_fork = undefined
 		s.pending_workspace_id = undefined
 		s.workspace_root_id = workspaceRootId(newId, get(userWorkspaces)) ?? newId
+		// The draft prompt has been consumed as the first message.
+		delete s.draftPrompt
 		await putSession(s)
 		// The global workspaceStore is intentionally left untouched: the session
 		// chat targets its own workspace via AIChatManager.operatingWorkspace, so
@@ -786,6 +793,8 @@ export async function commitSessionWorkspace(
 	s.workspace_id = ws
 	s.pending_workspace_id = undefined
 	s.workspace_root_id = workspaceRootId(ws, get(userWorkspaces)) ?? ws
+	// The draft prompt has been consumed as the first message.
+	delete s.draftPrompt
 	await putSession(s)
 	// The global workspaceStore is intentionally left untouched (see the fork
 	// branch above): the session chat reads its committed workspace through the
@@ -800,32 +809,29 @@ export function getEffectiveWorkspaceId(session: Session): string | undefined {
 	return session.workspace_id ?? session.pending_workspace_id
 }
 
-// Persist the session's preview tabs. Fire-and-forget write-behind (transient
-// sessions land in the localStorage draft slot).
+// Persist the session's preview tabs (a touch — see persistTouched).
 export function setSessionTabs(id: string, tabs: SessionPreviewTab[], activeTabId: string): void {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
 	s.previewTabs = tabs.map((t) => ({ ...t }))
 	s.activePreviewTabId = activeTabId
-	void putSession(s)
+	persistTouched(s)
 }
 
-// Persist whether the preview panel is collapsed for this session. Fire-and-forget
-// write-behind (transient sessions land in the localStorage draft slot).
+// Persist whether the preview panel is collapsed for this session (a touch).
 export function setSessionPreviewCollapsed(id: string, collapsed: boolean): void {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s || !!s.previewCollapsed === collapsed) return
 	s.previewCollapsed = collapsed
-	void putSession(s)
+	persistTouched(s)
 }
 
-// Persist the preview split size the user dragged for this session. Fire-and-forget
-// write-behind (transient sessions land in the localStorage draft slot).
+// Persist the preview split size the user dragged for this session (a touch).
 export function setSessionPreviewSize(id: string, size: number): void {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s || s.previewSize === size) return
 	s.previewSize = size
-	void putSession(s)
+	persistTouched(s)
 }
 
 export function selectSession(id: string) {
@@ -838,7 +844,7 @@ export function renameSession(id: string, newSummary: string) {
 	if (!s) return
 	s.summary = trimmed.length > 0 ? trimmed : undefined
 	s.summarySource = 'manual'
-	void putSession(s)
+	persistTouched(s)
 }
 
 export function setGeneratedSessionSummary(
@@ -944,13 +950,17 @@ export function setSessionArchived(id: string, archived: boolean) {
 		delete s.archived
 		delete s.archivedByWorkspace
 	}
-	void putSession(s)
+	persistTouched(s)
 }
 
 export function deleteSession(id: string) {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
-	if (s.transient) clearTransientDraft()
+	// Cancel any pending draft-prompt flush: left running, its persistTouched
+	// would write the record back to IndexedDB after we delete it, resurrecting
+	// a draft deleted inside the debounce window.
+	clearTimeout(draftPromptFlushHandles.get(id))
+	draftPromptFlushHandles.delete(id)
 	sessionState.sessions = sessionState.sessions.filter((x) => x.id !== id)
 	if (sessionState.currentSessionId === id) {
 		sessionState.currentSessionId = sessionState.sessions[0]?.id
