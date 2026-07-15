@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Badge, Button } from '$lib/components/common'
+	import { Alert, Badge, Button } from '$lib/components/common'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Popover from '$lib/components/Popover.svelte'
@@ -19,6 +19,12 @@
 	}
 
 	let { workspaceId, scope = $bindable(), initialScope, readOnly = false }: Props = $props()
+
+	// Mirrors ITEMS_FETCH_MAX_LIMIT in backend/windmill-api/src/mcp/utils.rs: the
+	// server exposes at most this many scripts and this many flows (per type) as
+	// MCP tools, taking the most recently created. A scope matching more than this
+	// silently drops the overflow, so we warn at configuration time.
+	const MCP_TOOL_FETCH_LIMIT = 100
 
 	// Endpoints we can actually advertise to a read-only MCP token. Mirrors the
 	// runner's filter (only GET endpoints).
@@ -415,6 +421,100 @@
 				: `You do not have any scripts or flows in the selected folder(s).`
 	)
 
+	// How many scripts / flows the current scope would expose, per type, so we can
+	// warn when it exceeds MCP_TOOL_FETCH_LIMIT (the server caps each type).
+	let exposedScriptCount = $state<number | undefined>(undefined)
+	let exposedFlowCount = $state<number | undefined>(undefined)
+
+	// Mirror the backend's is_resource_allowed: `*`, an exact path, or an `x/*`
+	// subtree (matching the folder itself or anything beneath it).
+	function matchesAnyPattern(path: string, patterns: string[]): boolean {
+		for (const p of patterns) {
+			if (p === '*' || p === path) return true
+			if (p.endsWith('/*')) {
+				const prefix = p.slice(0, -2)
+				if (path === prefix || (path.startsWith(prefix) && path[prefix.length] === '/')) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	// Guards against overlapping async runs clobbering each other with stale
+	// results when the scope inputs change faster than the fetches resolve.
+	let exposedCountsSeq = 0
+	async function computeExposedCounts(): Promise<void> {
+		const seq = ++exposedCountsSeq
+		const ws = workspaceId
+		let scripts: number | undefined
+		let flows: number | undefined
+		if (!ws) {
+			// leave both undefined
+		} else if (selectedMode === 'all' || selectedMode === 'favorites') {
+			const favoritesOnly = selectedMode === 'favorites'
+			const [s, f] = await Promise.all([
+				getScripts(favoritesOnly, ws, undefined),
+				getFlows(favoritesOnly, ws, undefined)
+			])
+			scripts = s.length
+			flows = f.length
+		} else if (selectedMode === 'folder') {
+			if (selectedFolders.length === 0) {
+				scripts = 0
+				flows = 0
+			} else {
+				const perFolder = await Promise.all(
+					selectedFolders.map(async (folder) => ({
+						scripts: await getScripts(false, ws, folder),
+						flows: await getFlows(false, ws, folder)
+					}))
+				)
+				scripts = new Set(perFolder.flatMap((r) => r.scripts)).size
+				flows = new Set(perFolder.flatMap((r) => r.flows)).size
+			}
+		} else {
+			// custom: explicit selections plus anything matched by the wildcard patterns
+			const scriptPatterns = parsePatterns(customScriptPatterns)
+			const flowPatterns = parsePatterns(customFlowPatterns)
+			const scriptMatches = scriptPatterns.length
+				? allScripts.filter((p) => matchesAnyPattern(p, scriptPatterns))
+				: []
+			const flowMatches = flowPatterns.length
+				? allFlows.filter((p) => matchesAnyPattern(p, flowPatterns))
+				: []
+			scripts = new Set([...selectedScripts, ...scriptMatches]).size
+			flows = new Set([...selectedFlows, ...flowMatches]).size
+		}
+		if (seq !== exposedCountsSeq) return // superseded by a newer run
+		exposedScriptCount = scripts
+		exposedFlowCount = flows
+	}
+
+	$effect(() => {
+		// Re-run whenever the scope inputs change.
+		selectedMode
+		selectedFolders
+		selectedScripts
+		selectedFlows
+		customScriptPatterns
+		customFlowPatterns
+		allScripts
+		allFlows
+		workspaceId
+		computeExposedCounts()
+	})
+
+	const truncationWarning = $derived.by(() => {
+		if (readOnly) return undefined
+		const parts: string[] = []
+		if ((exposedScriptCount ?? 0) > MCP_TOOL_FETCH_LIMIT)
+			parts.push(`${exposedScriptCount} scripts`)
+		if ((exposedFlowCount ?? 0) > MCP_TOOL_FETCH_LIMIT) parts.push(`${exposedFlowCount} flows`)
+		if (parts.length === 0) return undefined
+		return `This scope matches ${parts.join(' and ')}. Only the ${MCP_TOOL_FETCH_LIMIT} most recently created of each type are exposed as MCP tools; the rest are omitted. Narrow the scope to avoid overloading the assistant's context.`
+	})
+
 	function selectAllScripts() {
 		selectedScripts = [...allScripts]
 	}
@@ -467,6 +567,12 @@
 			{/snippet}
 		</ToggleButtonGroup>
 	</div>
+
+	{#if truncationWarning}
+		<Alert type="warning" size="xs" title="Too many tools for this scope">
+			{truncationWarning}
+		</Alert>
+	{/if}
 
 	{#if selectedMode === 'folder'}
 		<div>
