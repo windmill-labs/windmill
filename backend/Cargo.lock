@@ -13885,6 +13885,8 @@ dependencies = [
  "futures",
  "gethostname",
  "git-version",
+ "hex",
+ "hmac",
  "lazy_static",
  "once_cell",
  "opentelemetry 0.30.0",

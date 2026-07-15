@@ -3896,6 +3896,10 @@ async fn check_if_allowed_to_access_s3_file_from_app(
         windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref())
     });
 
+    // A valid presigned bearer is a self-authorizing capability, so it short-circuits
+    // the provenance gate. OSS builds cannot validate signatures (no workspace-key
+    // HMAC), so there the bearer is ignored and the request falls through to the
+    // checks below — the same path these routes took before presigning.
     if file_query.sig.is_some() {
         #[cfg(feature = "private")]
         {
@@ -3908,13 +3912,11 @@ async fn check_if_allowed_to_access_s3_file_from_app(
                 &db,
             )
             .await?;
-            Ok(())
+            return Ok(());
         }
-        #[cfg(not(feature = "private"))]
-        return Err(Error::InternalErr(
-            "Internal error: signature validation is not supported in open source mode".to_string(),
-        ));
-    } else if matches!(policy.execution_mode, ExecutionMode::Viewer) && !is_app_embed {
+    }
+
+    if matches!(policy.execution_mode, ExecutionMode::Viewer) && !is_app_embed {
         // Viewer mode: the on-behalf identity IS the viewer, so the downstream
         // get_workspace_s3_resource_and_check_paths already bounds the read by
         // their own perms — no provenance gate (it would over-restrict). Embed
@@ -4051,14 +4053,25 @@ async fn download_s3_file_from_app(
     .await
 }
 
+// Presigned bearer params (`exp=..&sig=..`) extracted as a second `Query` so the
+// app-scoped preview/count/metadata routes honor a presigned key the same way the
+// raw `download_s3_file` route does.
 #[cfg(feature = "parquet")]
-fn app_s3_file_query(s3: String, storage: Option<String>) -> AppS3FileQuery {
+#[derive(Deserialize)]
+struct AppS3Sig {
+    sig: Option<String>,
+    #[cfg(feature = "private")]
+    exp: Option<String>,
+}
+
+#[cfg(feature = "parquet")]
+fn app_s3_file_query(s3: String, storage: Option<String>, sig: AppS3Sig) -> AppS3FileQuery {
     AppS3FileQuery {
         s3,
         storage,
-        sig: None,
+        sig: sig.sig,
         #[cfg(feature = "private")]
-        exp: None,
+        exp: sig.exp,
     }
 }
 
@@ -4154,9 +4167,10 @@ async fn app_download_s3_parquet_file_as_csv(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<DownloadFileQuery>,
+    Query(sig): Query<AppS3Sig>,
 ) -> Result<Response> {
     let path = path.to_path();
-    let file_query = app_s3_file_query(query.file_key.clone(), query.storage.clone());
+    let file_query = app_s3_file_query(query.file_key.clone(), query.storage.clone(), sig);
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
     crate::job_helpers_oss::download_s3_parquet_file_as_csv_internal(
@@ -4179,9 +4193,10 @@ async fn app_load_file_metadata(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<LoadFileMetadataQuery>,
+    Query(sig): Query<AppS3Sig>,
 ) -> Result<Response> {
     let path = path.to_path();
-    let file_query = app_s3_file_query(query.file_key.clone(), query.storage.clone());
+    let file_query = app_s3_file_query(query.file_key.clone(), query.storage.clone(), sig);
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
     let resp =
@@ -4195,9 +4210,10 @@ async fn app_load_file_preview(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<LoadFilePreviewQuery>,
+    Query(sig): Query<AppS3Sig>,
 ) -> Result<Response> {
     let path = path.to_path();
-    let file_query = app_s3_file_query(query.file_key.clone(), query.storage.clone());
+    let file_query = app_s3_file_query(query.file_key.clone(), query.storage.clone(), sig);
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
     let resp =
@@ -4211,10 +4227,11 @@ async fn app_load_table_count(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<AppLoadCountQuery>,
+    Query(sig): Query<AppS3Sig>,
 ) -> Result<Response> {
     let path = path.to_path();
     let (file_key, inner) = query.into_inner();
-    let file_query = app_s3_file_query(file_key.clone(), inner.storage.clone());
+    let file_query = app_s3_file_query(file_key.clone(), inner.storage.clone(), sig);
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
     let resp =
@@ -4229,10 +4246,11 @@ async fn app_load_parquet_preview(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<AppLoadPreviewQuery>,
+    Query(sig): Query<AppS3Sig>,
 ) -> Result<Response> {
     let path = path.to_path();
     let (file_key, inner) = query.into_inner();
-    let file_query = app_s3_file_query(file_key.clone(), inner.storage.clone());
+    let file_query = app_s3_file_query(file_key.clone(), inner.storage.clone(), sig);
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
     let resp = crate::job_helpers_oss::load_preview_internal(
@@ -4248,10 +4266,11 @@ async fn app_load_csv_preview(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<AppLoadPreviewQuery>,
+    Query(sig): Query<AppS3Sig>,
 ) -> Result<Response> {
     let path = path.to_path();
     let (file_key, inner) = query.into_inner();
-    let file_query = app_s3_file_query(file_key.clone(), inner.storage.clone());
+    let file_query = app_s3_file_query(file_key.clone(), inner.storage.clone(), sig);
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
     let resp = crate::job_helpers_oss::load_preview_internal(

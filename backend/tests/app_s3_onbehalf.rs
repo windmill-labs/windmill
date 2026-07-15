@@ -144,6 +144,131 @@ async fn test_deployed_app_s3_onbehalf_provenance(db: Pool<Postgres>) -> anyhow:
     Ok(())
 }
 
+/// Mint a presigned bearer (`exp=..&sig=..`) exactly as `sign_s3_objects` does:
+/// `HMAC-SHA256(workspace_key, "file_key={s3}&exp={exp}")` (no storage param, since
+/// these routes send none). `validate_s3_signature` is `private`-gated, so this test
+/// only runs with the `private` feature.
+#[cfg(feature = "private")]
+fn mint_presigned(workspace_key: &str, s3: &str, exp: i64) -> String {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    let mut mac = Hmac::<Sha256>::new_from_slice(workspace_key.as_bytes()).unwrap();
+    mac.update(format!("file_key={s3}&exp={exp}").as_bytes());
+    let sig = hex::encode(mac.finalize().into_bytes());
+    format!("exp={exp}&sig={sig}")
+}
+
+/// A presigned S3 object (bearer minted by `signS3Objects`) bypasses the provenance
+/// gate on EVERY app-scoped display route, not just the raw `download_s3_file`
+/// download: a valid signature clears the gate on preview/count/metadata/csv routes,
+/// while an unsigned key stays denied and a forged/expired signature is rejected.
+#[cfg(feature = "private")]
+#[sqlx::test(fixtures("base"))]
+async fn test_deployed_app_s3_presigned_bypasses_gate(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
+        .json(&json!({
+            "path": APP,
+            "summary": "s3 presigned test",
+            "value": {},
+            "policy": {
+                "execution_mode": "anonymous",
+                "triggerables": {},
+                "allowed_s3_keys": [{ "s3_path": DECLARED }]
+            }
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "app create: {}", resp.text().await?);
+
+    let workspace_key: String = sqlx::query_scalar(
+        "SELECT key FROM workspace_key WHERE workspace_id = 'test-workspace' AND kind = 'cloud'",
+    )
+    .fetch_one(&db)
+    .await?;
+    let exp = chrono::Utc::now().timestamp() + 3600;
+    let presigned = mint_presigned(&workspace_key, NON_PROVENANCE, exp);
+
+    let get = |route: String, token: &'static str| {
+        let url = format!("{ws}/apps_u/{route}");
+        authed(client().get(url), token).send()
+    };
+    let denied = |body: &str| body.contains("File restricted");
+
+    // Control: NON_PROVENANCE without a signature is denied by the gate.
+    let body = get(
+        format!("download_s3_file/{APP}?s3={NON_PROVENANCE}"),
+        USER_TOKEN,
+    )
+    .await?
+    .text()
+    .await?;
+    assert!(
+        denied(&body),
+        "unsigned non-provenance key must be denied: {body}"
+    );
+
+    // Every display route: a valid presigned key clears the gate (falls through to
+    // the storage read, which fails with a storage error, never "File restricted").
+    // `read_bytes_*` are required on load_file_preview.
+    let routes = [
+        format!("download_s3_file/{APP}?s3={NON_PROVENANCE}&{presigned}"),
+        format!("load_table_count/{APP}?file_key={NON_PROVENANCE}&{presigned}"),
+        format!("load_csv_preview/{APP}?file_key={NON_PROVENANCE}&limit=5&offset=0&{presigned}"),
+        format!("load_parquet_preview/{APP}?file_key={NON_PROVENANCE}&limit=5&offset=0&{presigned}"),
+        format!("load_file_metadata/{APP}?file_key={NON_PROVENANCE}&{presigned}"),
+        format!(
+            "load_file_preview/{APP}?file_key={NON_PROVENANCE}&read_bytes_from=0&read_bytes_length=4096&{presigned}"
+        ),
+        format!("download_s3_parquet_file_as_csv/{APP}?file_key={NON_PROVENANCE}&{presigned}"),
+    ];
+    for route in routes {
+        let body = get(route.clone(), USER_TOKEN).await?.text().await?;
+        assert!(
+            !denied(&body),
+            "presigned key must bypass the gate on {route}: {body}"
+        );
+    }
+
+    // A tampered signature must NOT bypass: presence of `sig` commits to validation,
+    // so a wrong sig is rejected outright ("Invalid signature") rather than falling
+    // back to the provenance gate.
+    let forged = format!("exp={exp}&sig={}", "00".repeat(32));
+    let body = get(
+        format!("download_s3_file/{APP}?s3={NON_PROVENANCE}&{forged}"),
+        USER_TOKEN,
+    )
+    .await?
+    .text()
+    .await?;
+    assert!(
+        body.contains("Invalid signature"),
+        "forged signature must be rejected: {body}"
+    );
+
+    // An expired-but-valid signature is rejected on expiry, not bypassed.
+    let past = chrono::Utc::now().timestamp() - 10;
+    let expired = mint_presigned(&workspace_key, NON_PROVENANCE, past);
+    let body = get(
+        format!("download_s3_file/{APP}?s3={NON_PROVENANCE}&{expired}"),
+        USER_TOKEN,
+    )
+    .await?
+    .text()
+    .await?;
+    assert!(
+        body.contains("Signature expired"),
+        "expired signature must be rejected: {body}"
+    );
+
+    Ok(())
+}
+
 /// Seed a completed job whose result carries an s3 object. `app_trigger` sets the
 /// app-origination marker exactly as `execute_component` stamps it: `Some(app_path)`
 /// => `trigger_kind = 'app'` + `trigger = <app_path>` (an app-launched run);
