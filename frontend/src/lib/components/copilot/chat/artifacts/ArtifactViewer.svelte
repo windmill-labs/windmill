@@ -1,9 +1,8 @@
 <script lang="ts">
 	import Markdown from 'svelte-exmarkdown'
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
-	import { Code, Eye, FileText, Copy, Check, ChevronDown, Download } from 'lucide-svelte'
+	import { Code, Eye, FileText, Copy, Check, Download } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
@@ -11,6 +10,7 @@
 	import CodeDisplay from '../script/CodeDisplay.svelte'
 	import LinkRenderer from '../LinkRenderer.svelte'
 	import { artifactFilename, artifactMimeType, type PersistedArtifact } from './artifactsDB'
+	import { markdownProse } from '$lib/components/markdownProse'
 
 	interface Props {
 		artifact: PersistedArtifact
@@ -36,53 +36,26 @@
 	const plugins = [gfmPlugin(), { renderer: { pre: CodeDisplay, a: LinkRenderer } }]
 </script>
 
-<div class="flex flex-col h-full">
-	<div class="flex items-center justify-between gap-2 p-2 border-b border-border-light">
+<div class="flex flex-col h-full bg-surface-tertiary">
+	<div class="flex items-center justify-between gap-2 px-8 py-2">
 		<div class="flex items-center gap-1.5 min-w-0 flex-1">
-			<FileText size={14} class="shrink-0 text-tertiary" />
-			<span class="truncate text-xs font-bold" title={artifact.name}>
+			<FileText size={14} class="shrink-0 text-secondary" />
+			<span class="truncate text-xs font-normal text-emphasis" title={artifact.name}>
 				{artifact.name}
 			</span>
 		</div>
 		<div class="flex items-center gap-2 shrink-0">
 			<!-- Copy raw markdown, with a dropdown for the download-as-file variant. -->
-			<div class="flex items-stretch h-7 rounded-md border border-border-light overflow-hidden">
-				<Button
-					size="xs"
-					variant="subtle"
-					btnClasses="rounded-none text-secondary font-medium"
-					startIcon={{ icon: copied ? Check : Copy }}
-					onClick={copyRaw}
-					title="Copy raw markdown"
-				>
-					{copied ? 'Copied' : 'Copy'}
-				</Button>
-				<Popover
-					placement="bottom-end"
-					contentClasses="p-0"
-					class="px-1 flex items-center justify-center text-secondary hover:bg-surface-hover border-l border-border-light"
-					triggerAttrs={{ 'aria-label': 'More export options' }}
-				>
-					{#snippet trigger()}
-						<ChevronDown size={14} />
-					{/snippet}
-					{#snippet content({ close })}
-						<div class="w-44 py-1 text-xs">
-							<button
-								type="button"
-								class="w-full text-left text-secondary font-medium px-3 py-2 hover:bg-surface-hover flex items-center gap-2"
-								onclick={() => {
-									close()
-									downloadFile()
-								}}
-							>
-								<Download size={14} class="shrink-0 text-tertiary" />
-								Download as .md
-							</button>
-						</div>
-					{/snippet}
-				</Popover>
-			</div>
+			<Button
+				size="xs"
+				variant="default"
+				startIcon={{ icon: copied ? Check : Copy }}
+				onClick={copyRaw}
+				title="Copy raw markdown"
+				dropdownItems={[{ label: 'Download as .md', icon: Download, onClick: downloadFile }]}
+			>
+				{copied ? 'Copied' : 'Copy'}
+			</Button>
 			{#if canPreview}
 				<ToggleButtonGroup
 					noWFull
@@ -112,12 +85,11 @@
 				<SimpleEditor lang="markdown" code={artifact.content} readOnly class="h-full" />
 			{/key}
 		{:else}
-			<div
-				class="prose dark:prose-invert max-w-none p-4
-					prose-headings:font-semibold prose-headings:text-emphasis
-					prose-pre:bg-transparent prose-pre:p-0
-					prose-a:break-words prose-code:break-words prose-table:overflow-x-auto"
-			>
+			<!-- Pinned under the header, fades scrolled-under content instead of hard-clipping it.
+			     The negative margin cancels its flow height so it overlays instead of pushing. -->
+			<div class="sticky top-0 z-10 h-4 -mb-4 bg-gradient-to-b from-surface-tertiary to-transparent"
+			></div>
+			<div class="px-8 pb-4 pt-2 {markdownProse.doc}">
 				<Markdown md={artifact.content} {plugins} />
 			</div>
 		{/if}
