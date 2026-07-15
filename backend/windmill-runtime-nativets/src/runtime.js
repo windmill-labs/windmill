@@ -110,8 +110,13 @@ Object.assign(globalThis, {
   // Message channel / port.
   MessageChannel: messagePort.MessageChannel,
   MessagePort: messagePort.MessagePort,
-  // High-resolution timing.
+  // High-resolution timing: the `performance` singleton and its constructor
+  // globals (bun exposes all of these; PerformanceObserver is not in deno_web).
   performance: performance.performance,
+  Performance: performance.Performance,
+  PerformanceEntry: performance.PerformanceEntry,
+  PerformanceMark: performance.PerformanceMark,
+  PerformanceMeasure: performance.PerformanceMeasure,
   // Spec structuredClone (validates args + honors the options bag), from the
   // message-port module rather than the single-arg internal helper in
   // 02_structured_clone.js.

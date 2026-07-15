@@ -305,6 +305,7 @@ export async function main(): Promise<Record<string, boolean>> {
         "ReadableStreamBYOBRequest", "WritableStreamDefaultWriter",
         "WritableStreamDefaultController", "TransformStreamDefaultController",
         "ByteLengthQueuingStrategy", "CountQueuingStrategy",
+        "Performance", "PerformanceEntry", "PerformanceMark", "PerformanceMeasure",
         "URLPattern",
         "CompressionStream", "DecompressionStream",
         "MessageChannel", "MessagePort",
@@ -661,6 +662,15 @@ export async function main(): Promise<Record<string, string>> {
         performance.mark("m1");
         performance.measure("meas", "m1");
         return performance.getEntriesByType("measure").some((e: any) => e.name === "meas");
+    });
+    await check("performance.constructor_globals", () => {
+        // The Performance/PerformanceEntry/Mark/Measure constructors are exposed
+        // as globals (bun parity) for instanceof checks against real entries.
+        const mark = performance.mark("m2");
+        const meas = performance.measure("meas2", "m2");
+        return performance instanceof Performance
+            && mark instanceof PerformanceMark && mark instanceof PerformanceEntry
+            && meas instanceof PerformanceMeasure && meas instanceof PerformanceEntry;
     });
     await check("performance.toJSON_origin", () => {
         const j: any = performance.toJSON();
