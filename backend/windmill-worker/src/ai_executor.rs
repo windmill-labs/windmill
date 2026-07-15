@@ -987,7 +987,8 @@ pub async fn run_agent(
             // Helper to build HTTP request with headers
             let build_http_request = |body: String| {
                 // `endpoint` is derived from the user-controlled provider base_url, so it
-                // MUST go through the redirect-disabled AI_HTTP_CLIENT, not HTTP_CLIENT.
+                // MUST go through AI_HTTP_CLIENT (redirects disabled by default), not the
+                // shared HTTP_CLIENT which always follows them. See AI_HTTP_CLIENT.
                 let mut req = AI_HTTP_CLIENT
                     .post(&endpoint)
                     .timeout(timeout)
