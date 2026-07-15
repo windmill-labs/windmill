@@ -45,6 +45,7 @@
 		forceTestTab={forceTestTab?.[tool.id]}
 		highlightArg={highlightArg?.[tool.id]}
 		isAgentTool={true}
+		bind:toolDescription={tool.description}
 		{siblingToolNames}
 	/>
 {:else if isMcpTool(tool)}

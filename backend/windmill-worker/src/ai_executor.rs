@@ -135,6 +135,43 @@ fn find_ai_agent_tool_module_in_parent_agent(
     Ok(None)
 }
 
+/// Resolve the `description` sent to the model for an AI agent tool, in priority order:
+/// an explicit per-tool description, then one auto-derived from the underlying runnable,
+/// then the tool name as the historical last-resort fallback. Blank/whitespace-only values
+/// at each level are skipped so a lower-priority source can still apply.
+fn resolve_tool_description(
+    user_description: Option<String>,
+    derived_description: Option<String>,
+    tool_name: &str,
+) -> String {
+    fn non_empty(value: Option<String>) -> Option<String> {
+        value
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+
+    non_empty(user_description)
+        .or_else(|| non_empty(derived_description))
+        .unwrap_or_else(|| tool_name.to_string())
+}
+
+/// Fetch a workspace script's stored description by hash, used to auto-derive an AI agent
+/// tool's description when the user did not provide an explicit one. Returns `None` when the
+/// script has no description or on any lookup error, so the caller falls back to the tool name.
+async fn fetch_script_description(db: &DB, w_id: &str, hash: i64) -> Option<String> {
+    sqlx::query_scalar!(
+        "SELECT description FROM script WHERE hash = $1 AND workspace_id = $2",
+        hash,
+        w_id,
+    )
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
+    .map(|d| d.trim().to_string())
+    .filter(|d| !d.is_empty())
+}
+
 pub async fn handle_ai_agent_job(
     // connection
     conn: &Connection,
@@ -259,6 +296,9 @@ pub async fn handle_ai_agent_job(
 
     // Separate Windmill tools from MCP tools, websearch, and extract MCP resource configs
     let mut windmill_modules: Vec<FlowModule> = Vec::new();
+    // Explicit per-tool descriptions keyed by tool id. When set, these override the
+    // description auto-derived from the underlying runnable when building tool definitions.
+    let mut tool_descriptions: HashMap<String, String> = HashMap::new();
     #[allow(unused_mut)]
     let mut mcp_configs: Vec<crate::ai::utils::McpResourceConfig> = Vec::new();
     let mut has_websearch = false;
@@ -291,6 +331,14 @@ pub async fn handle_ai_agent_job(
             ToolValue::FlowModule(_) => {
                 // Regular Windmill flow module (script, flow, etc.) - convert to FlowModule
                 tracing::debug!("Windmill module: {:?}", tool.id);
+                if let Some(description) = tool
+                    .description
+                    .as_ref()
+                    .map(|d| d.trim())
+                    .filter(|d| !d.is_empty())
+                {
+                    tool_descriptions.insert(tool.id.clone(), description.to_string());
+                }
                 if let Some(flow_module) = Option::<FlowModule>::from(&tool) {
                     windmill_modules.push(flow_module);
                 }
@@ -308,6 +356,7 @@ pub async fn handle_ai_agent_job(
         let conn = conn;
         let db = db;
         let job = job;
+        let user_description = tool_descriptions.get(&t.id).cloned();
         async move {
             let Some(summary) = t.summary.as_ref().filter(|s| TOOL_NAME_REGEX.is_match(s)) else {
                 return Err(Error::internal_err(format!(
@@ -316,9 +365,9 @@ pub async fn handle_ai_agent_job(
                 )));
             };
 
-            // Extract schema and input_transforms from the module value
+            // Extract schema, input_transforms, and an auto-derived description from the module value
             let module_value = t.get_value()?;
-            let (schema, input_transforms) = match &module_value {
+            let (schema, input_transforms, derived_description) = match &module_value {
                 FlowModuleValue::Script {
                     hash,
                     path,
@@ -327,9 +376,12 @@ pub async fn handle_ai_agent_job(
                     is_trigger,
                     pass_flow_input_directly,
                 } => {
+                    let derived_description: Option<String>;
                     let schema = match hash {
                         Some(hash) => {
                             let (_, metadata) = cache::script::fetch(conn, hash.clone()).await?;
+                            derived_description =
+                                fetch_script_description(db, &job.workspace_id, hash.0).await;
                             Ok::<_, Error>(
                                 metadata
                                     .schema
@@ -346,6 +398,12 @@ pub async fn handle_ai_agent_job(
                                     None,
                                 )
                                 .await?;
+                                // Hub scripts carry their free-text description in `summary`.
+                                derived_description = hub_script
+                                    .summary
+                                    .as_ref()
+                                    .map(|s| s.trim().to_string())
+                                    .filter(|s| !s.is_empty());
                                 Ok(Some(hub_script.schema))
                             } else {
                                 let hash = get_latest_hash_for_path(
@@ -365,6 +423,8 @@ pub async fn handle_ai_agent_job(
                                     is_trigger: *is_trigger,
                                     pass_flow_input_directly: *pass_flow_input_directly,
                                 });
+                                derived_description =
+                                    fetch_script_description(db, &job.workspace_id, hash.0).await;
                                 let (_, metadata) = cache::script::fetch(conn, hash).await?;
                                 Ok(metadata
                                     .schema
@@ -374,11 +434,11 @@ pub async fn handle_ai_agent_job(
                             }
                         }
                     }?;
-                    (schema, input_transforms)
+                    (schema, input_transforms, derived_description)
                 }
                 FlowModuleValue::RawScript { content, language, input_transforms, .. } => {
                     let schema = Some(parse_raw_script_schema(&content, &language)?);
-                    (schema, input_transforms)
+                    (schema, input_transforms, None)
                 }
                 FlowModuleValue::AIAgent { input_transforms, .. } => {
                     // By convention for AIAgent tools, only user_message is expected to be AI-filled.
@@ -388,6 +448,7 @@ pub async fn handle_ai_agent_job(
                                 .expect("AI_AGENT_TOOL_SCHEMA should always be valid JSON"),
                         ),
                         input_transforms,
+                        None,
                     )
                 }
                 _ => {
@@ -405,12 +466,15 @@ pub async fn handle_ai_agent_job(
                 None
             };
 
+            let description =
+                resolve_tool_description(user_description, derived_description, summary);
+
             Ok(Tool {
                 def: ToolDef {
                     r#type: "function".to_string(),
                     function: ToolDefFunction {
                         name: summary.clone(),
-                        description: Some(summary.clone()),
+                        description: Some(description),
                         parameters: schema.unwrap_or_else(|| {
                             to_raw_value(&serde_json::json!({
                                 "type": "object",
@@ -1366,6 +1430,44 @@ mod tests {
             content: Some(OpenAIContent::Text(content.to_string())),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn tool_description_prefers_explicit_over_derived_and_name() {
+        assert_eq!(
+            resolve_tool_description(
+                Some("  Use to look up a user by id  ".to_string()),
+                Some("derived from script".to_string()),
+                "get_user"
+            ),
+            "Use to look up a user by id"
+        );
+    }
+
+    #[test]
+    fn tool_description_falls_back_to_derived_when_no_explicit() {
+        assert_eq!(
+            resolve_tool_description(None, Some("Sync resources".to_string()), "sync_tool"),
+            "Sync resources"
+        );
+        // A blank explicit description must not shadow a usable derived one.
+        assert_eq!(
+            resolve_tool_description(
+                Some("   ".to_string()),
+                Some("Sync resources".to_string()),
+                "sync_tool"
+            ),
+            "Sync resources"
+        );
+    }
+
+    #[test]
+    fn tool_description_falls_back_to_name_when_nothing_usable() {
+        assert_eq!(resolve_tool_description(None, None, "my_tool"), "my_tool");
+        assert_eq!(
+            resolve_tool_description(Some("  ".to_string()), Some("".to_string()), "my_tool"),
+            "my_tool"
+        );
     }
 
     #[test]
