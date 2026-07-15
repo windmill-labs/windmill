@@ -31,7 +31,10 @@
 
 	const myPermissionedAs = $derived($userStore?.username ? `u/${$userStore.username}` : undefined)
 
-	const folderDefault = useFolderDefaultPermissionedAs(() => path)
+	const folderDefault = useFolderDefaultPermissionedAs(
+		() => path,
+		() => wsId
+	)
 
 	let onBehalfOfChoice = $state<OnBehalfOfChoice>(undefined)
 	let customPermissionedAs = $state<string | undefined>(undefined)

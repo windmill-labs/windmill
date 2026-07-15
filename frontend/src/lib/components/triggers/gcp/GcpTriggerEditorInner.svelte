@@ -588,6 +588,7 @@
 								</div>
 							{:else}
 								<TriggerRetriesAndErrorHandler
+									workspace={wsId}
 									{optionTabSelected}
 									{itemKind}
 									{can_write}

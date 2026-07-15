@@ -81,6 +81,10 @@
 		customHandlerKind?: 'flow' | 'script'
 		customTabTooltip?: import('svelte').Snippet
 		noMargin?: boolean
+		/** Workspace for handler lookup / settings / test jobs. Defaults to the
+		 * nav `$workspaceStore`; a trigger editor in a forked session passes its
+		 * acting workspace so the handler is resolved and saved there. */
+		workspace?: string
 	}
 
 	let {
@@ -94,8 +98,11 @@
 		customScriptTemplate,
 		customHandlerKind = $bindable('script'),
 		customTabTooltip,
-		noMargin = false
+		noMargin = false,
+		workspace = undefined
 	}: Props = $props()
+
+	let effectiveWorkspace = $derived(workspace ?? $workspaceStore)
 
 	let customHandlerSchema: Schema | undefined = $state()
 	let slackHandlerSchema: Schema | undefined = $state()
@@ -113,7 +120,7 @@
 	const CHANNEL_KEY = 'channel'
 
 	async function loadSlackResources() {
-		const settings = await WorkspaceService.getPublicSettings({ workspace: $workspaceStore! })
+		const settings = await WorkspaceService.getPublicSettings({ workspace: effectiveWorkspace! })
 		if (!emptyString(settings.slack_name) && !emptyString(settings.slack_team_id)) {
 			workspaceConnectedToSlack = true
 			slack_team_name = settings.slack_name
@@ -124,7 +131,7 @@
 	}
 
 	async function loadTeamsResources() {
-		const settings = await WorkspaceService.getPublicSettings({ workspace: $workspaceStore! })
+		const settings = await WorkspaceService.getPublicSettings({ workspace: effectiveWorkspace! })
 		if (!emptyString(settings.teams_team_name) && !emptyString(settings.teams_team_id)) {
 			workspaceConnectedToTeams = true
 		} else {
@@ -155,11 +162,11 @@
 				: WorkspaceService.runTeamsMessageTestJob
 
 		let submitted_job = await testJobFunction({
-			workspace: $workspaceStore!,
+			workspace: effectiveWorkspace!,
 			requestBody: {
 				hub_script_path: handlerPath,
 				channel: channel,
-				test_msg: `This is a notification to test the connection between ${platform} and Windmill workspace '${$workspaceStore!}'`
+				test_msg: `This is a notification to test the connection between ${platform} and Windmill workspace '${effectiveWorkspace!}'`
 			}
 		})
 
@@ -171,7 +178,7 @@
 		tryEvery({
 			tryCode: async () => {
 				const testResult = await JobService.getCompletedJob({
-					workspace: $workspaceStore!,
+					workspace: effectiveWorkspace!,
 					id: connectionTestJob!.uuid
 				})
 				connectionTestJob!.in_progress = false
@@ -180,7 +187,7 @@
 			timeoutCode: async () => {
 				try {
 					await JobService.cancelQueuedJob({
-						workspace: $workspaceStore!,
+						workspace: effectiveWorkspace!,
 						id: connectionTestJob!.uuid,
 						requestBody: {
 							reason: 'Slack message not sent after 10s'
@@ -219,8 +226,8 @@
 			} else {
 				let scriptOrFlow: Script | Flow =
 					customHandlerKind === 'script'
-						? await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: p })
-						: await FlowService.getFlowByPath({ workspace: $workspaceStore!, path: p })
+						? await ScriptService.getScriptByPath({ workspace: effectiveWorkspace!, path: p })
+						: await FlowService.getFlowByPath({ workspace: effectiveWorkspace!, path: p })
 				schema = scriptOrFlow.schema as Schema
 			}
 			if (schema && schema.properties) {
@@ -278,7 +285,7 @@
 	}
 
 	$effect(() => {
-		if ($workspaceStore) {
+		if (effectiveWorkspace) {
 			loadSlackResources()
 			loadTeamsResources()
 		}
@@ -493,7 +500,7 @@
 
 									<a
 										target="_blank"
-										href={`${base}/run/${connectionTestJob.uuid}?workspace=${$workspaceStore}`}
+										href={`${base}/run/${connectionTestJob.uuid}?workspace=${effectiveWorkspace}`}
 										class="inline-flex items-center gap-1"
 									>
 										{connectionTestJob.uuid}
@@ -585,7 +592,7 @@
 								Message sent via Windmill job
 								<a
 									target="_blank"
-									href={`${base}/run/${connectionTestJob.uuid}?workspace=${$workspaceStore}`}
+									href={`${base}/run/${connectionTestJob.uuid}?workspace=${effectiveWorkspace}`}
 								>
 									{connectionTestJob.uuid}
 								</a>

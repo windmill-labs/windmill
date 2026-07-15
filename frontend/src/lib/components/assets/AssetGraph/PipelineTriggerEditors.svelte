@@ -35,15 +35,11 @@
 	// (matching the previous `{#if mode === 'edit'}` wrapper). The webhook
 	// editor stays mounted in every mode — its node is clickable in view mode
 	// too (informational endpoint URLs/token).
-	// `workspace` scopes every native-trigger backend call in this subtree (the
-	// nine editors + the delete handler below) to the session/embedding
-	// workspace, which can differ from the nav `$workspaceStore` (a forked-
-	// workspace AI session never switches the global store). Provided to the
-	// editor subtree via context; unset everywhere else → each editor falls back
-	// to `$workspaceStore`.
 	type Props = { onUpdate: () => void; mountTriggerEditors: boolean; workspace?: string }
 	let { onUpdate, mountTriggerEditors, workspace: triggerWorkspace }: Props = $props()
 
+	// Register the trigger-workspace resolver for the whole editor subtree (the
+	// nine editors + the delete handler below). See triggerWorkspace.ts.
 	setTriggerWorkspace(() => triggerWorkspace ?? $workspaceStore)
 
 	let kafkaEditor: KafkaTriggerEditor | undefined = $state()

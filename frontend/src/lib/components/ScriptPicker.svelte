@@ -51,6 +51,9 @@
 	}: Props = $props()
 
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore)
+	// Only carry the workspace onto Edit/View routes when an explicit override
+	// was passed, so existing callers' links are unchanged.
+	let wsParam = $derived(workspace ? `?workspace=${encodeURIComponent(workspace)}` : '')
 
 	let items: { value: string; label: string }[] = $state([])
 	let drawerViewer: Drawer | undefined = $state()
@@ -106,7 +109,7 @@
 
 <Drawer bind:this={drawerFlowViewer} size="900px">
 	<DrawerContent title="Flow {scriptPath}" on:close={drawerFlowViewer.closeDrawer}>
-		<FlowPathViewer path={scriptPath ?? ''} />
+		<FlowPathViewer path={scriptPath ?? ''} workspace={effectiveWorkspace} />
 	</DrawerContent>
 </Drawer>
 
@@ -165,7 +168,7 @@
 						target="_blank"
 						variant="default"
 						size="xs"
-						href="{base}/flows/edit/{scriptPath}">Edit</Button
+						href="{base}/flows/edit/{scriptPath}{wsParam}">Edit</Button
 					>
 				{/if}
 				{#if allowView}
@@ -188,7 +191,7 @@
 						target="_blank"
 						variant="default"
 						size="xs"
-						href="{base}/apps/edit/{scriptPath}"
+						href="{base}/apps/edit/{scriptPath}{wsParam}"
 					>
 						Edit
 					</Button>
@@ -199,7 +202,7 @@
 						size="xs"
 						target="_blank"
 						startIcon={{ icon: Code }}
-						href="{base}/apps/get/{scriptPath}"
+						href="{base}/apps/get/{scriptPath}{wsParam}"
 					>
 						View
 					</Button>
@@ -213,7 +216,7 @@
 						target="_blank"
 						variant="default"
 						size="xs"
-						href="{base}/scripts/edit/{scriptPath}"
+						href="{base}/scripts/edit/{scriptPath}{wsParam}"
 					>
 						Edit
 					</Button>
@@ -224,7 +227,10 @@
 						size="xs"
 						startIcon={{ icon: Code }}
 						on:click={async () => {
-							const { language, content } = await getScriptByPath(scriptPath ?? '')
+							const { language, content } = await getScriptByPath(
+								scriptPath ?? '',
+								effectiveWorkspace
+							)
 							code = content
 							lang = language
 							drawerViewer?.openDrawer()
