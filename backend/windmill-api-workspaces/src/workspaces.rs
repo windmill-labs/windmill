@@ -4981,6 +4981,15 @@ async fn clone_apps(
         if let Some(&current_version) = app.versions.last() {
             latest_version_ids.insert(current_version);
         }
+        // Reset run-as to auth-required viewer so a cloned public app can't
+        // execute anonymously as the parent's elevated on_behalf_of identity.
+        let mut policy = app.policy;
+        if let Some(obj) = policy.as_object_mut() {
+            obj.insert(
+                "execution_mode".to_string(),
+                serde_json::Value::String("viewer".to_string()),
+            );
+        }
         let new_app_id = sqlx::query_scalar!(
             "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms, custom_path)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -4988,7 +4997,7 @@ async fn clone_apps(
             target_workspace_id,
             app.path,
             app.summary,
-            app.policy,
+            policy,
             &Vec::<i64>::new(), // Start with empty versions array
             app.extra_perms,
             app.custom_path,
