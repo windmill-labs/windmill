@@ -10,11 +10,11 @@ import type { UserDraftItemKind } from '$lib/gen'
  * or `window` is unavailable (SSR).
  *
  * Uses SvelteKit's `replaceState` (not raw `history.replaceState`, which the
- * router warns against) to keep the router's history bookkeeping intact.
- * `afterNavigate` never observes this in-place rewrite, so the remembered
- * nav route is refreshed explicitly: without it, `exitSessionMode` would
- * restore the pre-strip URL — still carrying `?new_draft=true` — and
- * re-enter the seed-empty branch. */
+ * router warns conflicts with it) so the history entry keeps the router's
+ * bookkeeping and `page.state`. Also refreshes the remembered nav route:
+ * `afterNavigate` never observes this in-place rewrite, so without it
+ * `exitSessionMode` would restore the pre-strip URL — still carrying
+ * `?new_draft=true` — and re-enter the seed-empty branch. */
 export function stripNewDraftFlag(): void {
 	if (typeof window === 'undefined') return
 	const url = new URL(window.location.href)
