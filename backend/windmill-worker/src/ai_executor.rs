@@ -26,7 +26,7 @@ use windmill_ai::{
     providers::create_query_builder,
     query_builder::{BuildRequestArgs, ParsedResponse},
     types::*,
-    utils::{should_use_structured_output_tool, AI_HTTP_HEADERS},
+    utils::{should_use_structured_output_tool, AI_HTTP_CLIENT, AI_HTTP_HEADERS},
 };
 use windmill_common::{
     cache,
@@ -986,7 +986,9 @@ pub async fn run_agent(
 
             // Helper to build HTTP request with headers
             let build_http_request = |body: String| {
-                let mut req = HTTP_CLIENT
+                // `endpoint` derives from the user-controlled provider base_url: use
+                // AI_HTTP_CLIENT, not the shared HTTP_CLIENT. See AI_HTTP_CLIENT.
+                let mut req = AI_HTTP_CLIENT
                     .post(&endpoint)
                     .timeout(timeout)
                     .header("Content-Type", "application/json");
