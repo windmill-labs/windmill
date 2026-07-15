@@ -71,6 +71,7 @@ mod ai_free_tier_ee;
 mod ai_free_tier_oss;
 mod ai_skills;
 mod apps;
+pub use apps::invalidate_app_policy_cache;
 pub mod args;
 mod audit;
 pub mod auth;
