@@ -292,6 +292,11 @@ export class AIChatManager {
 	// the turn finishes (clean completion or user cancel). Ephemeral — never
 	// saved to displayMessages or history.
 	queuedMessage = $state<string>('')
+	// Images attached to that message. Kept beside the text rather than inside it
+	// because the queued chip renders `queuedMessage` as a plain string. Always
+	// move the two together — #takeQueue/#clearQueue/#restoreQueue exist so no
+	// call site can drop one and auto-send a message the user never wrote.
+	queuedImages = $state<AttachedImage[]>([])
 	// Jobs the chat started that detached into the background (global/sessions
 	// chat only). Rendered in the jobs tray, persisted with the chat, and advanced
 	// by a single background poller. See registerJob / #pollBackgroundJobs.
@@ -1176,11 +1181,10 @@ export class AIChatManager {
 		// compaction or a deliberate user cancel — the user is ready to move on —
 		// while a failed/empty compaction or a programmatic cancel leaves it queued.
 		if ((result === 'ok' || this.wasCancelledByUser()) && this.queuedMessage) {
-			const next = this.queuedMessage
-			this.queuedMessage = ''
-			const accepted = await this.sendRequest({ instructions: next })
+			const next = this.#takeQueue()
+			const accepted = await this.sendRequest({ instructions: next.text, images: next.images })
 			if (accepted === false) {
-				this.queuedMessage = next
+				this.#restoreQueue(next)
 			}
 		}
 	}
@@ -1314,33 +1318,55 @@ export class AIChatManager {
 
 	/** Queue the message typed while a turn is streaming. There is only ever
 	 * one queued message; pressing Enter again appends the new text as another
-	 * line so it all goes out as a single message. */
-	queueMessage(text: string) {
+	 * line so it all goes out as a single message, and its images accumulate
+	 * alongside it. */
+	queueMessage(text: string, images: AttachedImage[] = []) {
 		const trimmed = text.trim()
 		if (!trimmed) {
 			return
 		}
 		this.queuedMessage = this.queuedMessage ? `${this.queuedMessage}\n${trimmed}` : trimmed
+		if (images.length > 0) {
+			this.queuedImages = [...this.queuedImages, ...images]
+		}
 	}
 
-	/** Remove the queued message and put its text back into the input. */
+	/** Detach the queue for sending. Text and images always leave together. */
+	#takeQueue(): { text: string; images: AttachedImage[] } {
+		const taken = { text: this.queuedMessage, images: this.queuedImages }
+		this.#clearQueue()
+		return taken
+	}
+
+	#clearQueue() {
+		this.queuedMessage = ''
+		this.queuedImages = []
+	}
+
+	/** Put a taken queue back after an auto-send bailed before becoming a turn. */
+	#restoreQueue(queued: { text: string; images: AttachedImage[] }) {
+		this.queuedMessage = queued.text
+		this.queuedImages = queued.images
+	}
+
+	/** Remove the queued message and put it back into the input, images included. */
 	dequeueMessage() {
 		if (!this.queuedMessage) {
 			return
 		}
-		const message = this.queuedMessage
-		this.queuedMessage = ''
-		this.restoreToInput(message)
+		const queued = this.#takeQueue()
+		this.restoreToInput(queued.text, queued.images)
 	}
 
-	/** Put text the user typed back where they can see it: into the input
+	/** Put what the user typed back where they can see it: into the input
 	 * when it's mounted, otherwise back into the queue so it reappears with
 	 * the chat panel instead of being silently dropped. */
-	private restoreToInput(text: string) {
+	private restoreToInput(text: string, images: AttachedImage[] = []) {
 		if (this.aiChatInput) {
-			this.aiChatInput.prependText(text)
+			this.aiChatInput.prependText(text, images)
 		} else {
 			this.queuedMessage = text
+			this.queuedImages = images
 		}
 	}
 
@@ -2068,10 +2094,9 @@ export class AIChatManager {
 		if (this.abortController.signal.aborted) {
 			rollbackOptimisticSend()
 			if (this.wasCancelledByUser() && this.queuedMessage) {
-				const next = this.queuedMessage
-				this.queuedMessage = ''
-				const accepted = await this.sendRequest({ instructions: next })
-				if (accepted === false) this.queuedMessage = next
+				const next = this.#takeQueue()
+				const accepted = await this.sendRequest({ instructions: next.text, images: next.images })
+				if (accepted === false) this.#restoreQueue(next)
 			} else {
 				this.aiChatInput?.restoreInstructions(this.instructions, pastes, images)
 			}
@@ -2507,13 +2532,12 @@ export class AIChatManager {
 		// save-and-clear) leaves it in place as a card so it isn't fired into a
 		// failed or torn-down turn.
 		if ((turnCommittedCleanly || this.wasCancelledByUser()) && this.queuedMessage) {
-			const next = this.queuedMessage
-			this.queuedMessage = ''
-			const accepted = await this.sendRequest({ instructions: next })
+			const next = this.#takeQueue()
+			const accepted = await this.sendRequest({ instructions: next.text, images: next.images })
 			if (accepted === false) {
 				// The auto-send bailed before becoming a turn (e.g. beforeSend
 				// failed); keep it as the queued message instead of losing it.
-				this.queuedMessage = next
+				this.#restoreQueue(next)
 			}
 		}
 		// A background job may have finished mid-turn: its note missed this turn's
@@ -2624,7 +2648,7 @@ export class AIChatManager {
 		this.cancel('saveAndClear')
 		// Drop any message queued in this conversation so it can't auto-send into
 		// the fresh chat or linger as a card across the switch.
-		this.queuedMessage = ''
+		this.#clearQueue()
 		// The tray + poller belong to the conversation being left; the just-saved
 		// chat keeps its persisted jobs (save() omits the arg → fallback preserves).
 		this.clearBackgroundJobs()
@@ -2654,7 +2678,7 @@ export class AIChatManager {
 		if (chat) {
 			// Drop any message queued in the current conversation so it doesn't
 			// auto-send into the loaded one or linger as a card across the switch.
-			this.queuedMessage = ''
+			this.#clearQueue()
 			// Stop the poller for the conversation being left before swapping in the
 			// loaded chat's jobs below.
 			this.clearBackgroundJobs()

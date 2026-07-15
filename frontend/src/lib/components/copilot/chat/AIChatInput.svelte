@@ -258,9 +258,14 @@
 
 	/** Put text back into the textarea (queued-message delete, or restore
 	 * after a cancelled/errored turn), prepended to any draft so nothing
-	 * the user typed is lost. */
-	export function prependText(text: string) {
+	 * the user typed is lost. Restored images join whatever is already
+	 * attached, up to the cap — dropping them would lose the attachment
+	 * silently, which is the whole reason the queue carries them. */
+	export function prependText(text: string, restoredImages: AttachedImage[] = []) {
 		instructions = instructions.trim() ? `${text}\n\n${instructions}` : text
+		if (restoredImages.length > 0) {
+			images = [...images, ...restoredImages].slice(0, MAX_ATTACHED_IMAGES)
+		}
 		focusInput()
 	}
 
@@ -361,18 +366,11 @@
 			// tokens are expanded into the queued text (the queue is plain
 			// strings), so the full content survives the auto-send.
 			if (editingMessageIndex === null && instructions.trim()) {
-				// The queue holds one plain string, restored to the composer on dequeue,
-				// so images cannot ride it. Refuse rather than queue the text alone:
-				// auto-sending without the attached images would send a message the user
-				// never wrote. Everything stays in the composer to send once the turn ends.
-				if (images.length > 0) {
-					sendUserToast('Wait for the current response before sending images.', true)
-					return
-				}
-				aiChatManager.queueMessage(expanded(chatDraft(instructions, pastes)))
+				aiChatManager.queueMessage(expanded(chatDraft(instructions, pastes)), images)
 				contextTextareaComponent?.clearForSend()
 				instructions = ''
 				pastes = []
+				images = []
 			}
 			return
 		}

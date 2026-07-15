@@ -3,6 +3,7 @@ import type { FlowAIChatHelpers } from './flow/core'
 import type { CurrentEditor } from '$lib/components/flows/types'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions.mjs'
+import type { AttachedImage } from './imageUtils'
 import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
 import { runChatLoop } from './chatLoop'
 
@@ -493,7 +494,53 @@ describe('AIChatManager queued messages', () => {
 		manager.dequeueMessage()
 
 		expect(manager.queuedMessage).toBe('')
-		expect(input.prependText).toHaveBeenCalledWith('line one\nline two')
+		expect(input.prependText).toHaveBeenCalledWith('line one\nline two', [])
+	})
+
+	const img = (n: string): AttachedImage => ({
+		dataUrl: `data:image/png;base64,${n}`,
+		mediaType: 'image/png',
+		name: n
+	})
+
+	it('carries queued images through to the auto-send', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL // sendRequest only assembles images in GLOBAL
+		manager.queueMessage('look at this', [img('a')])
+
+		await manager.sendRequest({ instructions: 'first' })
+
+		// The auto-sent turn must be the message the user actually submitted —
+		// before, the text went out alone and the images were dropped on queueing.
+		expect(mocks.runChatLoop).toHaveBeenCalledTimes(2)
+		const autoSent = manager.displayMessages.find(
+			(m) => m.role === 'user' && m.content === 'look at this'
+		)
+		expect(autoSent && 'images' in autoSent ? autoSent.images : undefined).toEqual([img('a')])
+		expect(manager.queuedImages).toEqual([])
+	})
+
+	it('restores queued images to the input on dequeue', () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		manager.queueMessage('with a picture', [img('a')])
+
+		manager.dequeueMessage()
+
+		expect(manager.queuedImages).toEqual([])
+		expect(input.prependText).toHaveBeenCalledWith('with a picture', [img('a')])
+	})
+
+	it('drops queued images when the conversation is switched away', async () => {
+		const manager = createManager(createInputMock())
+		manager.queueMessage('stale', [img('a')])
+
+		await manager.saveAndClear()
+
+		// images must not survive into the next conversation
+		expect(manager.queuedMessage).toBe('')
+		expect(manager.queuedImages).toEqual([])
 	})
 
 	it('re-queues instead of dropping when the input is unmounted', () => {
