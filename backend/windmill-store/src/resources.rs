@@ -1239,6 +1239,9 @@ async fn delete_resource(
         collect_var_refs(value, &mut linked_var_paths);
     }
 
+    // A scoped token must not delete linked variables it lacks variables:write for.
+    check_linked_var_delete_scopes(&authed, &linked_var_paths)?;
+
     // Capture linked variables for trashbin before deleting them
     let trash_linked_vars: Vec<serde_json::Value> = if linked_var_paths.is_empty() {
         Vec::new()
@@ -1412,6 +1415,23 @@ fn collect_var_refs(value: &serde_json::Value, out: &mut Vec<String>) {
     }
 }
 
+/// Deleting a resource cascades into the `$var:` variables its value references. A
+/// scoped token must not use that cascade to delete variables it could not delete
+/// directly via `delete_variable` (which gates on `variables:write:<path>`), so require
+/// `variables:write` for EVERY linked variable and fail the whole delete otherwise.
+///
+/// No co-located-path exemption: a resource and a variable may share a path, and a
+/// resource-write token can create a resource over an existing standalone variable and
+/// self-reference it, so "same path as the deleted resource" is attacker-forgeable and
+/// cannot stand in for variable scope. No-op for unscoped tokens (`check_scopes` passes),
+/// so a full token's cascade cleanup is unchanged.
+fn check_linked_var_delete_scopes(authed: &ApiAuthed, linked_var_paths: &[String]) -> Result<()> {
+    for var_path in linked_var_paths {
+        check_scopes(authed, || format!("variables:write:{}", var_path))?;
+    }
+    Ok(())
+}
+
 /// Marks every variable referenced by the resource at `resource_path` as workspace-specific.
 ///
 /// AUTH CONTRACT: this mutates `ws_specific` and does NOT check authorization itself. The caller
@@ -1565,6 +1585,9 @@ async fn delete_resources_bulk(
     }
     linked_var_paths.sort();
     linked_var_paths.dedup();
+
+    // A scoped token must not delete linked variables it lacks variables:write for.
+    check_linked_var_delete_scopes(&authed, &linked_var_paths)?;
 
     sqlx::query!(
         "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = ANY($2)",
