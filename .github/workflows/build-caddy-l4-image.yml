@@ -5,6 +5,12 @@ env:
 name: Build caddy-l4
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - docker/DockerfileCaddyL4
+      - .github/workflows/build-caddy-l4-image.yml
 
 permissions: write-all
 

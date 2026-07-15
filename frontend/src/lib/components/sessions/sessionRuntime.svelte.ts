@@ -403,8 +403,7 @@ function createRuntime(session: Session): SessionRuntime {
 	// Hydrate the preview-tab owner from the session record (the durable backing);
 	// from here on the owner is the single live copy and writes back through the
 	// adapter. setSessionTabs / setSessionPreviewCollapsed stay the low-level record
-	// writers (a transient session's writes land in the localStorage draft slot
-	// until it materialises).
+	// writers (opening/moving a tab is a touch that persists an in-memory draft).
 	const previewTabs = new SessionPreviewTabs(hydratePreviewTabs(session), {
 		persist: (snap) => {
 			setSessionTabs(session.id, snap.tabs, snap.activeId)

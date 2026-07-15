@@ -135,7 +135,7 @@
 		onNavigate,
 		onTestJob,
 		disableAi,
-		initialTestPanelCollapsed = false,
+		testPanelCollapsed = false,
 		initialPathChosen = false,
 		onResetToDeployed,
 		loadedFromDraft = false,
@@ -2152,7 +2152,7 @@
 			bind:assets={script.assets}
 			bind:modules={script.modules}
 			enablePreprocessorSnippet
-			{initialTestPanelCollapsed}
+			{testPanelCollapsed}
 		/>
 	</div>
 {:else}
