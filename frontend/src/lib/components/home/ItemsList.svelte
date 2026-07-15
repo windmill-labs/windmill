@@ -344,14 +344,13 @@
 	})
 
 	// Content-filter view: reuse the Ctrl-K "Content" search (full-text, EE-gated).
-	// It loads its own dataset via `.open()`, then filters client-side by `search`.
+	// It loads its own dataset via `.open()`, then filters client-side by `search`. The
+	// component is keyed by workspace in the markup, so a workspace switch remounts it (this
+	// `bind:this` then points at the fresh instance and re-runs `open()`); the old instance is
+	// discarded, so its late in-flight responses can't overwrite the new workspace's results.
 	let contentSearchEl: ContentSearchInner | undefined = $state()
 	$effect(() => {
 		const el = contentSearchEl
-		// Re-run on workspace switch so content results follow the active workspace; `open()`
-		// reads $workspaceStore internally but under untrack (it must not re-run per keystroke),
-		// so depend on it explicitly here.
-		$workspaceStore
 		if (el) untrack(() => el.open())
 	})
 
@@ -859,7 +858,11 @@
 			     contents via the indexer and shows the matching snippets; when the instance
 			     isn't EE it renders its own warning + a limited fallback search. -->
 			<div class="mt-2">
-				<ContentSearchInner bind:this={contentSearchEl} search={filterValues.val.content} />
+				<!-- Keyed by workspace: switching remounts a fresh ContentSearchInner so late
+				     responses from the previous workspace's in-flight loads can't land in it. -->
+				{#key $workspaceStore}
+					<ContentSearchInner bind:this={contentSearchEl} search={filterValues.val.content} />
+				{/key}
 			</div>
 		{:else if filteredItems == undefined}
 			<div class="mt-4"></div>

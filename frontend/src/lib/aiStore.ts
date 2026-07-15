@@ -97,8 +97,14 @@ let loadCopilotToken = 0
 // matching its committed workspace so getCurrentModel() can't read the previous
 // workspace's provider/model while the scoped load is still in flight.
 export const copilotWorkspace = writable<string | undefined>(undefined)
+// The workspace of the most recent loadCopilot *request*, set synchronously before the
+// await — as opposed to `copilotWorkspace`, which only updates once a load resolves. A
+// background refresh must compare against this so it can't supersede an in-flight load for
+// a newer workspace (which would otherwise win the monotonic token and restore stale state).
+export const copilotWorkspaceRequested = writable<string | undefined>(undefined)
 export async function loadCopilot(workspace: string) {
 	const token = ++loadCopilotToken
+	copilotWorkspaceRequested.set(workspace)
 	workspaceAIClients.init(workspace)
 	try {
 		const info = await WorkspaceService.getCopilotInfo({ workspace })
