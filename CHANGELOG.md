@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.760.1](https://github.com/windmill-labs/windmill/compare/v1.760.0...v1.760.1) (2026-07-15)
+
+
+### Bug Fixes
+
+* **apps:** honor presigned S3 signature on app display/preview routes ([#10141](https://github.com/windmill-labs/windmill/issues/10141)) ([8c725d9](https://github.com/windmill-labs/windmill/commit/8c725d9e44e38bf3b35f41b847cdf8745e07942e))
+
 ## [1.760.0](https://github.com/windmill-labs/windmill/compare/v1.759.0...v1.760.0) (2026-07-15)
 
 
