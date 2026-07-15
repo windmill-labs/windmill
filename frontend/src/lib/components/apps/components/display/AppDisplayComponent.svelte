@@ -5,7 +5,6 @@
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
 	import {
-		IS_APP_PUBLIC_CONTEXT_KEY,
 		type AppViewerContext,
 		type ComponentCustomCSS,
 		type RichConfigurations
@@ -35,7 +34,6 @@
 		configuration
 	}: Props = $props()
 
-	const requireHtmlApproval = getContext<boolean | undefined>(IS_APP_PUBLIC_CONTEXT_KEY)
 	const { app, worldStore, componentControl, workspace, appPath, isEditor } =
 		getContext<AppViewerContext>('AppViewerContext')
 
@@ -128,7 +126,7 @@
 				workspaceId={workspace}
 				{result}
 				{result_stream}
-				{requireHtmlApproval}
+				trustedMarkup={true}
 				disableExpand={resolvedConfig?.hideDetails}
 				appPath={isEditor ? undefined : $appPath}
 				forceJson={resolvedConfig?.forceJson}

@@ -382,8 +382,6 @@ export type FocusedGrid = { parentComponentId: string; subGridIndex: number }
 export type EditorMode = 'dnd' | 'preview'
 export type EditorBreakpoint = 'sm' | 'lg'
 
-export const IS_APP_PUBLIC_CONTEXT_KEY = 'isAppPublicContext' as const
-
 // Set by PublicAppFrame in opaque-viewer mode (WIN-2006). Lets the app relay
 // top-level navigations (e.g. navbar links to another app) to the embedder,
 // since navigating inside the opaque iframe would load the SPA cookieless.

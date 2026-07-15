@@ -46,6 +46,7 @@
 	import { userStore } from '$lib/stores'
 	import ResultStreamDisplay from './ResultStreamDisplay.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import DOMPurify from 'dompurify'
 
 	const TABLE_MAX_SIZE = 5000000
 	const DISPLAY_MAX_SIZE = 100000
@@ -85,7 +86,11 @@
 
 	interface Props {
 		result: any
-		requireHtmlApproval?: boolean
+		/** Render `result.html` / `result.svg` markup verbatim instead of sanitizing it
+		 * first. Set only by low-code app display components, which render their own
+		 * author's markup. Job results and previews leave this false so untrusted markup
+		 * is sanitized before it reaches the DOM (GHSA-gh2j-49rx-4464). */
+		trustedMarkup?: boolean
 		filename?: string | undefined
 		disableExpand?: boolean
 		jobId?: string | undefined
@@ -110,7 +115,7 @@
 
 	let {
 		result,
-		requireHtmlApproval = false,
+		trustedMarkup = false,
 		filename = undefined,
 		disableExpand = false,
 		jobId = undefined,
@@ -132,7 +137,6 @@
 		loading = false,
 		growVertical = false
 	}: Props = $props()
-	let enableHtml = $state(false)
 	let s3FileDisplayRawMode = $state(false)
 
 	// Build the image/PDF source URL for an S3 object. When `appPath` is set
@@ -433,6 +437,18 @@
 		}
 	}
 
+	// An `html`/`svg` result can be attacker-authored (any workspace member can make a
+	// script/flow return one, and a higher-privileged user may view it). Outside a
+	// trusted low-code app context we sanitize it before rendering inline so it cannot
+	// run JS in the viewer's Windmill session (GHSA-gh2j-49rx-4464). DOMPurify keeps
+	// benign markup + inline styles/classes, so the surrounding theme still applies.
+	// Low-code app display components set `trustedMarkup` to render their own author's
+	// markup verbatim (deployed surfaces are isolated by the app-sandbox opt-in).
+	function renderResultMarkup(markup: string | { filename: string; content: string } | undefined) {
+		const str = contentOrRootString(markup) || ''
+		return trustedMarkup ? str : DOMPurify.sanitize(str)
+	}
+
 	function handleArrayOfObjectsHeaders(json: any) {
 		// handle possible a first row of headers
 		if (
@@ -690,7 +706,7 @@
 				<DisplayResult
 					{noControls}
 					result={res}
-					{requireHtmlApproval}
+					{trustedMarkup}
 					{filename}
 					{disableExpand}
 					{jobId}
@@ -789,33 +805,10 @@
 						headerOrder={getForcedColumnOrder(data)}
 					/>
 				{:else if !forceJson && resultKind === 'html'}
-					<div class="h-full">
-						{#if !requireHtmlApproval || enableHtml}
-							{@html result.html}
-						{:else}
-							<div class="font-main text-sm">
-								<div class="flex flex-col">
-									<div class="bg-red-400 py-1 rounded-t text-white font-bold text-center">
-										Warning
-									</div>
-									<p
-										class="text-primary mb-2 text-left border-2 !border-t-0 rounded-b border-red-400 overflow-auto p-1"
-										>Rendering HTML can expose you to <a
-											href="https://owasp.org/www-community/attacks/xss/"
-											target="_blank"
-											rel="noreferrer"
-											class="hover:underline">XSS attacks</a
-										>. Only enable it if you trust the author of the script.
-									</p>
-								</div>
-								<div class="center-center">
-									<Button unifiedSize="md" variant="default" on:click={() => (enableHtml = true)}>
-										Enable HTML rendering
-									</Button>
-								</div>
-							</div>
-						{/if}
-					</div>
+					<!-- renderResultMarkup sanitizes untrusted job/flow HTML; keep it — rendering
+					     result.html directly via @html is stored XSS (GHSA-gh2j-49rx-4464). -->
+					<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+					<div class="h-full">{@html renderResultMarkup(result.html)}</div>
 				{:else if !forceJson && resultKind === 'map'}
 					<div class="h-full" data-interactive>
 						<MapResult
@@ -842,11 +835,17 @@
 						/>
 					</div>
 				{:else if !forceJson && resultKind === 'svg'}
-					<div
-						><a download="windmill.svg" href="data:text/plain;base64,{btoa(result.svg)}">Download</a
+					{@const svgMarkup = contentOrRootString(result.svg) || ''}
+					<div>
+						<a
+							download="windmill.svg"
+							href="data:image/svg+xml;charset=utf-8,{encodeURIComponent(svgMarkup)}">Download</a
 						>
 					</div>
-					<div class="h-full overflow-auto">{@html result.svg} </div>
+					<!-- renderResultMarkup sanitizes untrusted job/flow SVG (a scripted SVG is stored
+					     XSS, GHSA-gh2j-49rx-4464); low-code apps pass trustedMarkup to keep dynamic SVGs. -->
+					<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+					<div class="h-full overflow-auto">{@html renderResultMarkup(result.svg)}</div>
 				{:else if !forceJson && resultKind === 'gif'}
 					<div class="h-full">
 						<img
@@ -1279,7 +1278,7 @@
 				<DisplayResult
 					{noControls}
 					{result}
-					{requireHtmlApproval}
+					{trustedMarkup}
 					{filename}
 					{jobId}
 					{nodeId}

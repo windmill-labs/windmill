@@ -3,7 +3,6 @@
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import {
-		IS_APP_PUBLIC_CONTEXT_KEY,
 		type AppViewerContext,
 		type ComponentCustomCSS,
 		type RichConfigurations
@@ -35,7 +34,6 @@
 
 	const { app, worldStore, workspace, appPath, isEditor } =
 		getContext<AppViewerContext>('AppViewerContext')
-	const requireHtmlApproval = getContext<boolean | undefined>(IS_APP_PUBLIC_CONTEXT_KEY)
 
 	let resolvedConfig = $state(
 		initConfig(
@@ -147,7 +145,7 @@
 			<DisplayResult
 				workspaceId={workspace}
 				{result}
-				{requireHtmlApproval}
+				trustedMarkup={true}
 				disableExpand={resolvedConfig?.hideDetails}
 				appPath={isEditor ? undefined : $appPath}
 				forceJson={resolvedConfig?.forceJson}
