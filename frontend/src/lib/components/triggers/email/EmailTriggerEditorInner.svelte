@@ -393,6 +393,7 @@
 			{#if !hideTarget}
 				<Section label="Target">
 					<TriggerRunnablePicker
+						workspace={wsId}
 						{fixedScriptPath}
 						bind:itemKind
 						bind:scriptPath={script_path}

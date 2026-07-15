@@ -30,6 +30,10 @@
 		allowEdit?: boolean
 		allowView?: boolean
 		clearable?: boolean
+		/** Workspace to list runnables from. Defaults to the navigation
+		 * `$workspaceStore`; pass the session's acting workspace so a forked
+		 * session lists its own scripts/flows/apps rather than the parent's. */
+		workspace?: string
 	}
 
 	let {
@@ -42,8 +46,11 @@
 		allowRefresh = false,
 		allowEdit = true,
 		allowView = true,
-		clearable = false
+		clearable = false,
+		workspace = undefined
 	}: Props = $props()
+
+	let effectiveWorkspace = $derived(workspace ?? $workspaceStore)
 
 	let items: { value: string; label: string }[] = $state([])
 	let drawerViewer: Drawer | undefined = $state()
@@ -58,7 +65,7 @@
 	async function loadItems(): Promise<void> {
 		if (itemKind == 'flow') {
 			items = (
-				await FlowService.listFlows({ workspace: $workspaceStore!, withoutDescription: true })
+				await FlowService.listFlows({ workspace: effectiveWorkspace!, withoutDescription: true })
 			).map((flow) => ({
 				value: flow.path,
 				label: `${flow.path}${flow.summary ? ` | ${truncate(flow.summary, 20)}` : ''}`,
@@ -67,7 +74,7 @@
 		} else if (itemKind == 'script') {
 			items = (
 				await ScriptService.listScripts({
-					workspace: $workspaceStore!,
+					workspace: effectiveWorkspace!,
 					kinds: kinds.join(','),
 					withoutDescription: true
 				})
@@ -76,7 +83,7 @@
 				label: `${script.path}${script.summary ? ` | ${truncate(script.summary, 20)}` : ''}`
 			}))
 		} else if (itemKind == 'app') {
-			items = (await AppService.listApps({ workspace: $workspaceStore! })).map((app) => ({
+			items = (await AppService.listApps({ workspace: effectiveWorkspace! })).map((app) => ({
 				value: app.path,
 				label: `${app.path}${app.summary ? ` | ${truncate(app.summary, 20)}` : ''}`
 			}))
@@ -84,7 +91,7 @@
 	}
 
 	$effect(() => {
-		itemKind && $workspaceStore && untrack(() => loadItems())
+		itemKind && effectiveWorkspace && untrack(() => loadItems())
 	})
 	let darkMode: boolean = $state(false)
 </script>

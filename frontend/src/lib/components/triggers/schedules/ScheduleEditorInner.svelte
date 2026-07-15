@@ -934,6 +934,7 @@
 							Pick a script or flow to be triggered by the schedule<Required required={true} />
 						</p>
 						<ScriptPicker
+							workspace={wsId}
 							disabled={(initialScriptPath != '' && !initNewPath) || !can_write}
 							initialPath={initialScriptPath}
 							kinds={['script']}
@@ -953,6 +954,7 @@
 						</Alert>
 						<div class="my-2"></div>
 						<ScriptPicker
+							workspace={wsId}
 							disabled
 							initialPath={script_path}
 							scriptPath={script_path}
@@ -1341,6 +1343,7 @@
 						<Label label="Dynamic skip script">
 							<div class="flex flex-row">
 								<ScriptPicker
+									workspace={wsId}
 									disabled={!can_write}
 									bind:scriptPath={dynamicSkipPath}
 									kinds={['script']}
