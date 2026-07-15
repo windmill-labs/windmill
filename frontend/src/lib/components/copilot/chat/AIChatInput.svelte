@@ -22,7 +22,7 @@
 		MAX_IMAGE_BYTES,
 		type AttachedImage
 	} from './imageUtils'
-	import { modelSupportsVision } from '../lib'
+	import { modelSupportsVision } from '../modelConfig'
 	import { tryGetCurrentModel } from '$lib/aiStore'
 
 	const aiChatManager = getAiChatManager()
@@ -183,9 +183,19 @@
 		// this closure still appends to it, landing the picture on the next message.
 		pendingImages += batch.length
 		try {
-			const results = await Promise.allSettled(batch.map((f) => fileToAttachedImage(f)))
-			const added = results.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
-			const failed = results.length - added.length
+			// One at a time: a decoded bitmap costs ~4 bytes per pixel (a 12MP photo is
+			// ~48MB), so decoding the whole batch at once would hold every one of them
+			// live simultaneously. Concurrency bought nothing anyway — the decode is
+			// not CPU-bound, and a full batch measured no faster in parallel.
+			const added: AttachedImage[] = []
+			let failed = 0
+			for (const file of batch) {
+				try {
+					added.push(await fileToAttachedImage(file))
+				} catch {
+					failed++
+				}
+			}
 			if (added.length > 0) images = [...images, ...added]
 			if (failed > 0) sendUserToast(`Could not attach ${failed} image(s).`, true)
 		} finally {

@@ -14,9 +14,11 @@ import { parseFimCompletionChoice } from './fim'
 import {
 	getKnownModelContextWindow,
 	getModelContextWindow,
+	modelSupportsVision,
 	requiresMaxCompletionTokens
 } from './modelConfig'
 import { supportsAutocomplete } from './utils'
+
 
 type AssistantMessageWithReasoning = ChatCompletionMessageParam & {
 	role: 'assistant'
@@ -253,5 +255,53 @@ describe('model context windows', () => {
 	it('returns undefined for unrecognized models, 128K via the defaulting wrapper', () => {
 		expect(getKnownModelContextWindow('some-custom-model')).toBeUndefined()
 		expect(getModelContextWindow('some-custom-model')).toBe(128000)
+	})
+})
+
+describe('modelSupportsVision', () => {
+	// Each of these ships in a provider's `defaultModels`, so a user can select it
+	// and try to attach an image. A wrong verdict fails the whole turn.
+	it.each([
+		['groq', 'llama-3.3-70b-versatile'],
+		['groq', 'llama-3.1-8b-instant'],
+		['azure_foundry', 'Llama-3.3-70B-Instruct'],
+		['azure_foundry', 'Phi-4'],
+		['azure_foundry', 'Mistral-Large-2411'],
+		['azure_foundry', 'DeepSeek-R1'],
+		['openrouter', 'meta-llama/llama-3.2-3b-instruct:free'],
+		['togetherai', 'meta-llama/Llama-3.3-70B-Instruct-Turbo'],
+		['mistral', 'codestral-latest'],
+		['deepseek', 'deepseek-chat'],
+		['deepseek', 'deepseek-reasoner']
+	])('refuses images on bundled text-only %s/%s', (provider, model) => {
+		expect(modelSupportsVision(provider as any, model)).toBe(false)
+	})
+
+	it.each([
+		['anthropic', 'claude-sonnet-4-6'],
+		['googleai', 'gemini-2.5-flash'],
+		['googleai', 'gemini-3.1-pro'],
+		['azure_foundry', 'gpt-4o'],
+		['openai', 'gpt-4o'],
+		['aws_bedrock', 'global.anthropic.claude-haiku-4-5-20251001-v1:0']
+	])('allows images on bundled vision model %s/%s', (provider, model) => {
+		expect(modelSupportsVision(provider as any, model)).toBe(true)
+	})
+
+	// The family splits by size, so it cannot be matched wholesale.
+	it('allows Llama 3.2 vision sizes while refusing its text-only ones', () => {
+		expect(modelSupportsVision('openrouter' as any, 'meta-llama/llama-3.2-90b-vision-instruct')).toBe(true)
+		expect(modelSupportsVision('openrouter' as any, 'meta-llama/llama-3.2-1b-instruct')).toBe(false)
+	})
+
+	it('allows Phi-4-multimodal while refusing plain Phi-4', () => {
+		expect(modelSupportsVision('azure_foundry' as any, 'Phi-4-multimodal-instruct')).toBe(true)
+		expect(modelSupportsVision('azure_foundry' as any, 'Phi-4')).toBe(false)
+	})
+
+	// Permissive by design: a wrong "no" blocks a model that actually works.
+	it('allows unknown and custom models', () => {
+		expect(modelSupportsVision('customai' as any, 'some-internal-vlm')).toBe(true)
+		expect(modelSupportsVision(undefined, undefined)).toBe(true)
 	})
 })

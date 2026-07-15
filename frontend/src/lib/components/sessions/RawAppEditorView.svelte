@@ -85,9 +85,20 @@
 		runtime.setAppRunsProvider(provider)
 	}
 
+	// The preview host keeps every opened tab mounted, so registering on mount would
+	// leave a background tab owning the runtime's single screenshot slot and
+	// take_screenshot would capture an app the user isn't looking at. Ownership
+	// follows the visible tab instead, and only the owner may release it.
+	let screenshotRequester = $state<RawAppScreenshotRequester | undefined>(undefined)
 	function registerScreenshotRequester(requester: RawAppScreenshotRequester | undefined) {
-		runtime.setScreenshotRequester(requester)
+		screenshotRequester = requester
 	}
+	$effect(() => {
+		const requester = screenshotRequester
+		if (!active || !requester) return
+		runtime.setScreenshotRequester(requester)
+		return () => runtime.clearScreenshotRequester(requester)
+	})
 </script>
 
 {#if cell.saved.val}

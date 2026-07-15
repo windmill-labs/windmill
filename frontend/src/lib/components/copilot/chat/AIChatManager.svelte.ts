@@ -44,7 +44,8 @@ import { loadApiTools } from './api/apiTools'
 import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
-import { workspaceAIClients, getNonStreamingCompletion, modelSupportsVision } from '../lib'
+import { workspaceAIClients, getNonStreamingCompletion } from '../lib'
+import { modelSupportsVision } from '../modelConfig'
 import { getKnownModelContextWindow } from '../modelConfig'
 import {
 	getCompactionSummaryPrompt,
@@ -57,7 +58,12 @@ import type { UserDraftItemKind } from '$lib/gen'
 import { maskKey } from '$lib/components/sessions/modifiedItemsMask'
 import { getStringError } from './utils'
 import { type PasteAttachment } from './pasteTokens'
-import { type AttachedImage, stripImagePartsFromMessages, transcriptImage } from './imageUtils'
+import {
+	type AttachedImage,
+	imagesFromContent,
+	stripImagePartsFromMessages,
+	transcriptImage
+} from './imageUtils'
 import { chatDraft, expanded } from './chatDraft'
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
@@ -2618,6 +2624,11 @@ export class AIChatManager {
 			throw new Error('No actual user message found to restart from')
 		}
 
+		// Read the model's own images out of the API message before the truncation
+		// below drops it: userMessage.images is the bounded transcript copy, so
+		// resending that would hand the model a thumbnail of its own input.
+		const sentImages = imagesFromContent(this.messages[actualMessageIndex]?.content)
+
 		this.messages = this.messages.slice(0, actualMessageIndex)
 
 		// The last report described the pre-rewind history; clear it. Readers
@@ -2628,7 +2639,10 @@ export class AIChatManager {
 
 		// Resend the request with the same instructions
 		this.instructions = newContent ?? userMessage.content
-		this.sendRequest({ pastes: pastes ?? userMessage.pastes, images: images ?? userMessage.images })
+		this.sendRequest({
+			pastes: pastes ?? userMessage.pastes,
+			images: images ?? sentImages ?? userMessage.images
+		})
 	}
 
 	fix = () => {

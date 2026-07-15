@@ -791,30 +791,7 @@ export function providerSupportsWebSearch(provider: AIProvider | undefined): boo
 	return provider === 'openai' || provider === 'anthropic'
 }
 
-/**
- * Best-effort check that a model can accept image input. There is no per-model vision
- * metadata in the codebase, so this is deliberately permissive: it returns true unless
- * the model is a known text-only one that would 400 on an image part. Used to gate the
- * image-attach affordance and the screenshot follow-up; when unsure it allows the image
- * (the user explicitly attached it — better to try than to silently drop it).
- */
-export function modelSupportsVision(
-	provider: AIProvider | undefined,
-	model: string | undefined
-): boolean {
-	if (!provider) return true
-	const m = (model ?? '').toLowerCase()
-	const knownTextOnly =
-		m.includes('codestral') ||
-		m.includes('deepseek-chat') ||
-		m.includes('deepseek-reasoner') ||
-		m.includes('deepseek-v3') ||
-		m.includes('deepseek-r1') ||
-		m.includes('o1-mini') ||
-		m.includes('o3-mini') ||
-		m.includes('embed')
-	return !knownTextOnly
-}
+
 
 export function getProviderAndCompletionConfig<K extends boolean>({
 	messages,

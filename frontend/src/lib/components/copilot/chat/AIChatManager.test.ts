@@ -22,9 +22,6 @@ vi.mock('$app/paths', () => ({ base: '', assets: '' }))
 const mocks = vi.hoisted(() => ({
 	getCurrentModel: vi.fn(),
 	tryGetCurrentModel: vi.fn(),
-	// permissive by default, matching the real best-effort gate; the vision tests
-	// override it for known text-only models
-	modelSupportsVision: vi.fn(() => true),
 	isWebSearchEnabledForProvider: vi.fn(),
 	logAiChat: vi.fn(),
 	sendUserToast: vi.fn(),
@@ -102,8 +99,7 @@ vi.mock('../lib', () => ({
 		getOpenaiClient: mocks.getOpenaiClient,
 		getAnthropicClient: mocks.getAnthropicClient
 	},
-	getNonStreamingCompletion: mocks.getNonStreamingCompletion,
-	modelSupportsVision: mocks.modelSupportsVision
+	getNonStreamingCompletion: mocks.getNonStreamingCompletion
 }))
 
 vi.mock('./api/apiTools', () => ({
@@ -532,7 +528,8 @@ describe('AIChatManager queued messages', () => {
 		replyWith('done')
 		const manager = createManager(createInputMock())
 		manager.mode = AIMode.GLOBAL
-		mocks.modelSupportsVision.mockReturnValue(false)
+		// a real bundled default, so this exercises the actual gate rather than a mock
+		mocks.tryGetCurrentModel.mockReturnValue({ provider: 'groq', model: 'llama-3.3-70b-versatile' })
 
 		await manager.sendRequest({ instructions: 'look', images: [img('a')] })
 
@@ -542,7 +539,43 @@ describe('AIChatManager queued messages', () => {
 			expect.stringContaining("can't read images"),
 			true
 		)
-		mocks.modelSupportsVision.mockReturnValue(true)
+		mocks.tryGetCurrentModel.mockReturnValue(model)
+	})
+
+	// displayMessages hold a 384px transcript copy; retrying must resend the
+	// model's own 1568px image, not a thumbnail of its previous input.
+	it('resends the model-resolution image on retry, not the transcript thumbnail', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		manager.messages = [
+			{
+				role: 'user',
+				content: [
+					{ type: 'text', text: 'look' },
+					{ type: 'image_url', image_url: { url: 'data:image/png;base64,FULLRES' } }
+				] as any
+			},
+			{ role: 'assistant', content: 'bad answer' }
+		]
+		manager.displayMessages = [
+			{
+				role: 'user',
+				content: 'look',
+				index: 0,
+				images: [{ dataUrl: 'data:image/png;base64,THUMB', mediaType: 'image/png' }]
+			},
+			{ role: 'assistant', content: 'bad answer' }
+		]
+
+		manager.restartGeneration(0)
+		await vi.waitFor(() => expect(mocks.runChatLoop).toHaveBeenCalled())
+
+		const resent = mocks.runChatLoop.mock.calls[0][0].messages.at(-1)
+		const urls = (resent.content as any[])
+			.filter((p) => p.type === 'image_url')
+			.map((p) => p.image_url.url)
+		expect(urls).toEqual(['data:image/png;base64,FULLRES'])
 	})
 
 	it('restores queued images to the input on dequeue', () => {

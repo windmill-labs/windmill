@@ -177,6 +177,8 @@ export interface SessionRuntime {
 	setAppRunsProvider(provider: RawAppRunsProvider | undefined): void
 	getAppRuns(): RawAppRunSummary[] | undefined
 	setScreenshotRequester(requester: RawAppScreenshotRequester | undefined): void
+	/** Release the slot only if `requester` still owns it. */
+	clearScreenshotRequester(requester: RawAppScreenshotRequester): void
 	requestScreenshot(): Promise<string | undefined>
 	// Discard the local draft + force-reload the editor, so the preview matches
 	// the deployed version. Used by editor onDeploy + the chat deploy handler.
@@ -770,6 +772,13 @@ function createRuntime(session: Session): SessionRuntime {
 		},
 		setScreenshotRequester(requester) {
 			screenshotRequester = requester
+		},
+		clearScreenshotRequester(requester) {
+			// Tabs unmount in any order and several stay mounted at once, so a
+			// departing tab must not unregister whichever one now owns the slot.
+			if (screenshotRequester === requester) {
+				screenshotRequester = undefined
+			}
 		},
 		async requestScreenshot() {
 			return screenshotRequester ? screenshotRequester() : undefined

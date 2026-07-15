@@ -400,7 +400,6 @@
 	async function onFileInputChange(e: Event) {
 		const input = e.currentTarget as HTMLInputElement
 		if (input.files && input.files.length > 0) {
-			// Images attach to the message (multimodal); other files link as text context.
 			const picked = Array.from(input.files)
 			const imageFiles = picked.filter(isImageFile)
 			const textFiles = picked.filter((f) => !isImageFile(f))
@@ -852,9 +851,12 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 											<div class="max-w-64 text-xs">
 												<p class="font-semibold">Attach files or link a folder</p>
 												<p class="mt-1">
-													Nothing is uploaded. Files are kept locally in your browser; a folder is
-													linked live from disk. The assistant lists, searches, and reads them on
-													demand — their contents aren't sent unless it reads them.
+													Text files stay in your browser, and a folder is linked live from disk.
+													The assistant lists, searches, and reads them on demand, so their contents
+													are sent only when it reads one.
+												</p>
+												<p class="mt-1">
+													Images are sent with your next message, so the assistant can see them.
 												</p>
 											</div>
 										{/snippet}

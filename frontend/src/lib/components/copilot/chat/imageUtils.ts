@@ -56,6 +56,26 @@ export function transcriptImage(image: AttachedImage): AttachedImage {
 	return { dataUrl: image.previewUrl, mediaType: image.mediaType, name: image.name }
 }
 
+/**
+ * Recover the model's own images from an API message's content parts. Resending a
+ * turn must read them from here, never from the transcript: that copy is a bounded
+ * thumbnail, and re-sending it would silently downgrade the model's input.
+ */
+export function imagesFromContent(content: unknown): AttachedImage[] | undefined {
+	if (!Array.isArray(content)) return undefined
+	const images: AttachedImage[] = (content as any[])
+		.filter((part) => part?.type === 'image_url' && typeof part?.image_url?.url === 'string')
+		.map((part) => {
+			const dataUrl = part.image_url.url as string
+			return {
+				dataUrl,
+				mediaType:
+					parseImageDataUrl(dataUrl).mediaType === 'image/jpeg' ? 'image/jpeg' : 'image/png'
+			}
+		})
+	return images.length > 0 ? images : undefined
+}
+
 export function isImageFile(file: File | Blob): boolean {
 	return typeof file.type === 'string' && file.type.startsWith('image/')
 }
@@ -128,9 +148,11 @@ export async function fileToAttachedImage(file: File | Blob): Promise<AttachedIm
 	const name = file instanceof File ? file.name : undefined
 	const dataUrl = await blobToDataUrl(file)
 	const image = await normalizeImageDataUrl(dataUrl, name)
-	// Built here rather than at send time: this path already awaits behind a
+	// Derive the preview from the already-bounded copy, not the source: re-decoding
+	// the original would allocate its full bitmap (~4 bytes/pixel) a second time.
+	// Built here rather than at send time because this path already awaits behind a
 	// spinner, whereas the send path shows its bubble optimistically.
-	const preview = await normalizeImageDataUrl(dataUrl, name, THUMBNAIL_IMAGE_EDGE)
+	const preview = await normalizeImageDataUrl(image.dataUrl, name, THUMBNAIL_IMAGE_EDGE)
 	// A downscale of flat UI colours can encode larger than the original, so only
 	// keep it when it actually saves something.
 	return preview.dataUrl.length < image.dataUrl.length

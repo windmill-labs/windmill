@@ -72,3 +72,47 @@ export function getModelContextWindow(model: string) {
 	// Trim/compaction logic needs a number; assume a conservative window when unknown.
 	return getKnownModelContextWindow(model) ?? 128000
 }
+
+/**
+ * Best-effort check that a model can accept image input. There is no per-model vision
+ * metadata in the codebase, so this is deliberately permissive: it returns true unless
+ * the model is a known text-only one that would 400 on an image part. Used to gate the
+ * image-attach affordance and the screenshot follow-up; when unsure it allows the image
+ * (the user explicitly attached it — better to try than to silently drop it).
+ */
+export function modelSupportsVision(
+	provider: AIProvider | undefined,
+	model: string | undefined
+): boolean {
+	if (!provider) return true
+	const m = (model ?? '').toLowerCase()
+	// Phi-4 is text-only, but Phi-4-multimodal is not, so it can't be matched by
+	// name alone like the rest.
+	if (m.includes('phi-4')) return m.includes('multimodal')
+	return !TEXT_ONLY_MODELS.some((name) => m.includes(name))
+}
+
+/**
+ * There is no per-model capability metadata, so this names the text-only models
+ * Windmill offers as defaults (`defaultModels` above) and stays permissive for
+ * anything custom: a wrong "no" blocks a working model, while a wrong "yes" only
+ * costs one rejected turn. Keep it in step with the bundled defaults.
+ *
+ * Deliberately narrow: Llama 3.2's 11b/90b are vision models while its 1b/3b are
+ * not, so the family can't be matched wholesale.
+ */
+const TEXT_ONLY_MODELS = [
+	'codestral',
+	'mistral-large',
+	'deepseek-chat',
+	'deepseek-reasoner',
+	'deepseek-v3',
+	'deepseek-r1',
+	'o1-mini',
+	'o3-mini',
+	'embed',
+	'llama-3.1',
+	'llama-3.2-1b',
+	'llama-3.2-3b',
+	'llama-3.3'
+]

@@ -52,7 +52,7 @@ import {
 	THUMBNAIL_IMAGE_EDGE,
 	type AttachedImage
 } from '../imageUtils'
-import { modelSupportsVision } from '../../lib'
+import { modelSupportsVision } from '../../modelConfig'
 import { tryGetCurrentModel } from '$lib/aiStore'
 import {
 	applyEditableFlowJsonToFlow,
