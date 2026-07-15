@@ -178,6 +178,41 @@ describe('buildWorkspaceTree', () => {
 			expect(leaf.secondary).toBeUndefined()
 		})
 
+		it('labels and groups a draft-only item by its friendly draftPath, keyed by storage path', () => {
+			const draft = { ...item('app', 'u/admin/draft_abc123'), draftPath: 'f/marketing/dashboard' }
+			const tree = buildWorkspaceTree({
+				loaded: { app: [draft] },
+				kinds: ['app'],
+				loadingKind: {}
+			})
+			// Grouped under the friendly folder, not u/admin.
+			expect(tree.map((n) => n.key)).toEqual([dirKey('app', 'f/marketing')])
+			const marketing = findBranch(tree, dirKey('app', 'f/marketing'))
+			const leaf = marketing.children[0]
+			if (!isLeaf(leaf)) throw new Error('expected leaf')
+			// Displayed by the friendly path; keyed (and navigated) by storage path.
+			expect(leaf.label).toBe('f/marketing/dashboard')
+			expect(leaf.key).toBe(leafKeyFor('app', 'u/admin/draft_abc123'))
+			expect(leaf.data.path).toBe('u/admin/draft_abc123')
+		})
+
+		it('uses the friendly draftPath as secondary when a summary is present', () => {
+			const draft = {
+				...item('script', 'u/admin/draft_xyz', 'My Script'),
+				draftPath: 'u/admin/my_script'
+			}
+			const tree = buildWorkspaceTree({
+				loaded: { script: [draft] },
+				kinds: ['script'],
+				loadingKind: {}
+			})
+			const admin = findBranch(tree, dirKey('script', 'u/admin'))
+			const leaf = admin.children[0]
+			if (!isLeaf(leaf)) throw new Error('expected leaf')
+			expect(leaf.label).toBe('My Script')
+			expect(leaf.secondary).toBe('u/admin/my_script')
+		})
+
 		it('marks the currentItem leaf with current=true', () => {
 			const tree = buildWorkspaceTree({
 				loaded: { flow: [item('flow', 'f/demo/a'), item('flow', 'f/demo/b')] },
@@ -282,6 +317,21 @@ describe('buildWorkspaceTree', () => {
 			const keys = demo.children.map((c) => c.key)
 			expect(keys).toContain(leafKeyFor('flow', 'f/demo/draft'))
 			expect(keys).toContain(leafKeyFor('script', 'f/demo/b'))
+		})
+
+		it('drops a live-cell extra at the friendly path when a loaded row carries it as draftPath', () => {
+			// listApps returns the draft-only row at its storage path with the
+			// friendly path in draftPath; the live editor cell surfaces the same
+			// draft as an extra keyed by the friendly path. One leaf, not two.
+			const loadedDraft = { ...item('app', 'u/admin/draft_abc'), draftPath: 'u/admin/dashboard' }
+			const tree = buildWorkspaceTree({
+				loaded: { app: [loadedDraft] },
+				kinds: ['app'],
+				loadingKind: {},
+				extraItemsByKind: { app: [item('app', 'u/admin/dashboard')] }
+			})
+			const admin = findBranch(tree, dirKey('app', 'u/admin'))
+			expect(admin.children.map((c) => c.key)).toEqual([leafKeyFor('app', 'u/admin/draft_abc')])
 		})
 
 		it('is a no-op when extras are absent or empty', () => {

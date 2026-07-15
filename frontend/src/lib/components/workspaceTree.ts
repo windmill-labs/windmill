@@ -4,6 +4,7 @@ import {
 	KIND_LABEL,
 	kindKey,
 	leafKeyFor,
+	workspaceItemDisplayPath,
 	type WorkspaceItem,
 	type WorkspaceItemKind
 } from './workspacePicker'
@@ -21,11 +22,13 @@ type DirNode = {
 	leaves: WorkspaceItem[]
 }
 
-/** Build the path-hierarchy from a flat list of workspace items. */
+/** Build the path-hierarchy from a flat list of workspace items. Items are
+ * placed by their display path, so a draft-only item shows up under its
+ * friendly folder rather than the `u/<user>/draft_<uuid>` storage location. */
 function buildDirForest(items: WorkspaceItem[]): DirNode[] {
 	const scopeRoots = new Map<string, DirNode>()
 	for (const it of items) {
-		const parts = it.path.split('/')
+		const parts = workspaceItemDisplayPath(it).split('/')
 		if (parts.length < 3) continue
 		const scopeFp = parts.slice(0, 2).join('/')
 		let node = scopeRoots.get(scopeFp)
@@ -56,7 +59,7 @@ function buildDirForest(items: WorkspaceItem[]): DirNode[] {
 	})
 	const sortNode = (n: DirNode) => {
 		n.children.sort((a, b) => a.name.localeCompare(b.name))
-		n.leaves.sort((a, b) => a.path.localeCompare(b.path))
+		n.leaves.sort((a, b) => workspaceItemDisplayPath(a).localeCompare(workspaceItemDisplayPath(b)))
 		n.children.forEach(sortNode)
 	}
 	scopes.forEach(sortNode)
@@ -93,11 +96,12 @@ function itemToLeaf(
 	currentItem: (WorkspaceItem & { savedPath?: string }) | undefined
 ): DrillLeaf<WorkspaceItem> {
 	const isCurrent = !!currentItem && currentItem.kind === it.kind && currentItem.path === it.path
+	const display = workspaceItemDisplayPath(it)
 	return {
 		type: 'leaf',
 		key: leafKeyFor(it.kind, it.path),
-		label: it.summary || it.path,
-		secondary: it.summary ? it.path : undefined,
+		label: it.summary || display,
+		secondary: it.summary ? display : undefined,
 		data: it,
 		current: isCurrent
 	}
@@ -135,8 +139,11 @@ function withExtras(
 ): WorkspaceItem[] {
 	const extras = extraItemsByKind?.[k]
 	if (!extras || extras.length === 0) return items
-	const known = new Set(items.map((it) => it.path))
-	return items.concat(extras.filter((d) => !known.has(d.path)))
+	// A draft-only item is known under both its storage path and its friendly
+	// draft path (a live editor cell surfaces the latter as the extra's `path`),
+	// so match either — else one draft renders as two leaves.
+	const known = new Set(items.flatMap((it) => (it.draftPath ? [it.path, it.draftPath] : [it.path])))
+	return items.concat(extras.filter((d) => !known.has(d.path) && !known.has(d.draftPath ?? '')))
 }
 
 /** Build the workspace drill tree.

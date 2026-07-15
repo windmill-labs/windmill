@@ -67,7 +67,10 @@ function normalizeAppDraftValue(value: AppDraftValue): AppDraftValue {
 		custom_path: value.custom_path,
 		// Carry the fork-base version through the whitelist — it is dropped on every
 		// save otherwise, which would defeat the stale-draft check.
-		parent_version: value.parent_version
+		parent_version: value.parent_version,
+		// Same for the friendly path of a draft-only app: dropping it here would
+		// rename the app back to its `draft_<uuid>` storage key on every chat edit.
+		draft_path: value.draft_path
 	}
 }
 
@@ -133,6 +136,10 @@ function scriptDraftToWorkspaceItem(path: string, draft: NewScript): WorkspaceIt
 	return {
 		type: 'script',
 		path,
+		// The session editor parks a rename in the draft's `draft_path` (see
+		// sessionDraftCodecs.ts); surface it so lists/pickers show the friendly
+		// name instead of the `draft_<uuid>` storage key.
+		draftPath: (draft as NewScript & { draft_path?: string }).draft_path,
 		summary: draft.summary,
 		language: draft.language,
 		value: draft.content,
@@ -145,6 +152,7 @@ function flowDraftToWorkspaceItem(path: string, draft: Flow): WorkspaceItem {
 	return {
 		type: 'flow',
 		path,
+		draftPath: (draft as Flow & { draft_path?: string }).draft_path,
 		summary: draft.summary,
 		// The persisted flow draft carries `version_id` (the deployed head it was
 		// forked from, pinned at fork by writeDraft/the editor) — the flow analog
@@ -165,6 +173,7 @@ function appDraftToWorkspaceItem(path: string, draft: AppDraftValue): WorkspaceI
 	return {
 		type: 'app',
 		path,
+		draftPath: value.draft_path,
 		summary: value.summary,
 		parentVersionId: value.parent_version,
 		value,
@@ -266,7 +275,13 @@ function userDraftEntryToWorkspaceItem(
 				: undefined
 		}
 	}
-	return item && isLiveDraft ? { ...item, isLiveDraft: true } : item
+	if (!item) return undefined
+	// A live entry's `path` is already the editor's effective (friendly) path,
+	// and the value's persisted `draft_path` may lag the live rename — never
+	// surface it over the live path. Also drop a draftPath that just repeats
+	// `path`; it carries no extra display information.
+	if (isLiveDraft) return { ...item, isLiveDraft: true, draftPath: undefined }
+	return item.draftPath === item.path ? { ...item, draftPath: undefined } : item
 }
 
 function liveDisplayPath(
@@ -473,6 +488,7 @@ function backendDraftRowToWorkspaceItem(
 		kind: string
 		path: string
 		summary?: string
+		draft_path?: string
 	}
 ): WorkspaceItem | undefined {
 	if (!(GLOBAL_DRAFT_KINDS as readonly string[]).includes(row.kind)) return undefined
@@ -506,6 +522,10 @@ function backendDraftRowToWorkspaceItem(
 	return {
 		type,
 		path: displayPath,
+		// The row's friendly path (from the draft JSON) names the item when no
+		// live editor overrides the display; a live editor's effective path is
+		// fresher, so it wins (it already IS `path` above).
+		draftPath: isLiveDraft ? undefined : row.draft_path,
 		summary: row.summary,
 		value: undefined,
 		isDraft: true,

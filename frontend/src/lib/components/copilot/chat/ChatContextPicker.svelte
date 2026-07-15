@@ -27,7 +27,11 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 	import type { FlowModule } from '$lib/gen/types.gen'
 	import DrillPicker from '$lib/components/DrillPicker.svelte'
 	import type { DrillBranch, DrillIcon, DrillLeaf, DrillNode } from '$lib/components/drillPicker'
-	import { type WorkspaceItem, type WorkspaceItemKind } from '$lib/components/workspacePicker'
+	import {
+		workspaceItemDisplayPath,
+		type WorkspaceItem,
+		type WorkspaceItemKind
+	} from '$lib/components/workspacePicker'
 	import { useWorkspaceItemsLoader } from '$lib/components/workspaceItemsLoader.svelte'
 	import { buildWorkspaceTree, relativizeWorkspacePath } from '$lib/components/workspaceTree'
 	import { getFileIcon } from '$lib/components/icons/fileIcon'
@@ -404,7 +408,9 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 	{leafIcon}
 	{branchIcon}
 	leafSecondary={(leaf, scope) =>
-		'kind' in leaf.data ? relativizeWorkspacePath(leaf.data.path, scope) : undefined}
+		'kind' in leaf.data
+			? relativizeWorkspacePath(workspaceItemDisplayPath(leaf.data), scope)
+			: undefined}
 	onScopeChange={handleScopeChange}
 	onFilterChange={loader.onFilterChange}
 />

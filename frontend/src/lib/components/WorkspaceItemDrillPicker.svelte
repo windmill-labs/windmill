@@ -16,7 +16,11 @@ would be surprising.
 	import { workspaceStore } from '$lib/stores'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import { untrack } from 'svelte'
-	import { type WorkspaceItem, type WorkspaceItemKind } from './workspacePicker'
+	import {
+		workspaceItemDisplayPath,
+		type WorkspaceItem,
+		type WorkspaceItemKind
+	} from './workspacePicker'
 	import { useWorkspaceItemsLoader } from './workspaceItemsLoader.svelte'
 	import DrillPicker from './DrillPicker.svelte'
 	import type { DrillBranch, DrillLeaf } from './drillPicker'
@@ -102,6 +106,7 @@ would be surprising.
 			.filter((d) => d.type === targetType)
 			.map((d) => ({
 				path: d.path,
+				draftPath: d.draftPath,
 				summary: d.summary ?? '',
 				kind: k,
 				// `raw_app` lives on the draft envelope for legacy/raw-app distinction.
@@ -154,7 +159,8 @@ would be surprising.
 	{flush}
 	{leafIcon}
 	{branchIcon}
-	leafSecondary={(leaf, scope) => relativizeWorkspacePath(leaf.data.path, scope)}
+	leafSecondary={(leaf, scope) =>
+		relativizeWorkspacePath(workspaceItemDisplayPath(leaf.data), scope)}
 	onScopeChange={(scope) => {
 		if (scope.length > 0) loader.ensureForScopeSegment(scope[0])
 		// Single-kind layout has no kind branch at root — `buildWorkspaceTree`

@@ -18,7 +18,11 @@ only ever navigates between items) doesn't grow a Pages section.
 	import { resource } from 'runed'
 	import { workspaceStore } from '$lib/stores'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
-	import { type WorkspaceItem, type WorkspaceItemKind } from '$lib/components/workspacePicker'
+	import {
+		workspaceItemDisplayPath,
+		type WorkspaceItem,
+		type WorkspaceItemKind
+	} from '$lib/components/workspacePicker'
 	import { useWorkspaceItemsLoader } from '$lib/components/workspaceItemsLoader.svelte'
 	import DrillPicker from '../DrillPicker.svelte'
 	import type { DrillBranch, DrillLeaf, DrillNode } from '$lib/components/drillPicker'
@@ -97,6 +101,7 @@ only ever navigates between items) doesn't grow a Pages section.
 			.filter((d) => d.type === targetType)
 			.map((d) => ({
 				path: d.path,
+				draftPath: d.draftPath,
 				summary: d.summary ?? '',
 				kind: k,
 				raw_app: k === 'app' ? !!(d.value as { files?: unknown })?.files : undefined
@@ -184,7 +189,9 @@ only ever navigates between items) doesn't grow a Pages section.
 	{leafIcon}
 	{branchIcon}
 	leafSecondary={(leaf, scope) =>
-		leaf.data.type === 'item' ? relativizeWorkspacePath(leaf.data.item.path, scope) : undefined}
+		leaf.data.type === 'item'
+			? relativizeWorkspacePath(workspaceItemDisplayPath(leaf.data.item), scope)
+			: undefined}
 	onScopeChange={(scope) => {
 		if (scope.length > 0) loader.ensureForScopeSegment(scope[0])
 	}}
