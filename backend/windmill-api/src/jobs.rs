@@ -5126,7 +5126,8 @@ pub async fn restart_flow(
     let completed_job = sqlx::query!(
             "SELECT
                 j.runnable_path as script_path, j.args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",
-                j.tag AS \"tag!\", j.priority
+                j.tag AS \"tag!\", j.priority,
+                j.trigger, j.trigger_kind AS \"trigger_kind: windmill_common::jobs::JobTriggerKind\"
             FROM v2_job j
             WHERE j.id = $1 and j.workspace_id = $2",
             job_id,
@@ -5150,6 +5151,12 @@ pub async fn restart_flow(
         .unwrap_or_else(|| PushArgs::from(&ehm));
 
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
+
+    // Keep the original run's trigger metadata (e.g. its schedule) so the
+    // restarted run stays associated with it in the runs list.
+    let trigger = completed_job
+        .trigger_kind
+        .map(|kind| TriggerMetadata::new(completed_job.trigger.clone(), kind));
 
     let (top_branch_chosen, nested_chain) = resolve_nested_restart(
         &db,
@@ -5198,7 +5205,7 @@ pub async fn restart_flow(
         Some(&authed.clone().into()),
         false,
         None,
-        None,
+        trigger,
         run_query.suspended_mode,
     )
     .await?;
