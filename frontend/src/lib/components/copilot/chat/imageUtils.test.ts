@@ -5,7 +5,8 @@ import {
 	fileToAttachedImage,
 	MAX_IMAGE_BYTES,
 	parseImageDataUrl,
-	stripImagePartsFromMessages
+	stripImagePartsFromMessages,
+	transcriptImage
 } from './imageUtils'
 
 describe('fileToAttachedImage size bound', () => {
@@ -72,5 +73,26 @@ describe('stripImagePartsFromMessages', () => {
 		const messages: ChatCompletionMessageParam[] = [{ role: 'user', content: 'plain' }]
 		const out = stripImagePartsFromMessages(messages)
 		expect(out[0]).toBe(messages[0])
+	})
+})
+
+describe('transcriptImage', () => {
+	// displayMessages are never compacted and are re-cloned into IndexedDB on every
+	// save, so the transcript must never hold the copy sent to the model.
+	it('uses the bounded copy and drops the model-resolution one', () => {
+		const shown = transcriptImage({
+			dataUrl: 'data:image/png;base64,FULLRES',
+			mediaType: 'image/png',
+			name: 'a.png',
+			previewUrl: 'data:image/png;base64,SMALL'
+		})
+		expect(shown.dataUrl).toBe('data:image/png;base64,SMALL')
+		expect(shown.previewUrl).toBeUndefined()
+		expect(shown.name).toBe('a.png')
+	})
+
+	it('keeps the original when a downscale would not be smaller', () => {
+		const only = { dataUrl: 'data:image/png;base64,X', mediaType: 'image/png' as const }
+		expect(transcriptImage(only)).toBe(only)
 	})
 })

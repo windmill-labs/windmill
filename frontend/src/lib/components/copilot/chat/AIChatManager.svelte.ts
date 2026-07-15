@@ -57,7 +57,7 @@ import type { UserDraftItemKind } from '$lib/gen'
 import { maskKey } from '$lib/components/sessions/modifiedItemsMask'
 import { getStringError } from './utils'
 import { type PasteAttachment } from './pasteTokens'
-import { type AttachedImage, stripImagePartsFromMessages } from './imageUtils'
+import { type AttachedImage, stripImagePartsFromMessages, transcriptImage } from './imageUtils'
 import { chatDraft, expanded } from './chatDraft'
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
@@ -2062,7 +2062,9 @@ export class AIChatManager {
 				role: 'user',
 				content: this.instructions,
 				pastes: pastes.length > 0 ? pastes : undefined,
-				images: images.length > 0 ? images : undefined,
+				// The bubble keeps the bounded copy: the model's full-size one already
+				// rides in `messages`, and displayMessages are never compacted.
+				images: images.length > 0 ? images.map(transcriptImage) : undefined,
 				index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
 			}
 		]

@@ -42,6 +42,18 @@ export type AttachedImage = {
 	mediaType: ImageMediaType
 	/** Original filename when it came from a user file; absent for screenshots. */
 	name?: string
+	/**
+	 * Smaller copy for the chips and the message bubble. `displayMessages` are never
+	 * compacted and are re-cloned into IndexedDB on every save, so the transcript
+	 * must not keep the model's copy. Absent when a downscale would not be smaller.
+	 */
+	previewUrl?: string
+}
+
+/** The copy to show and persist in the transcript: bounded when that helps. */
+export function transcriptImage(image: AttachedImage): AttachedImage {
+	if (!image.previewUrl) return image
+	return { dataUrl: image.previewUrl, mediaType: image.mediaType, name: image.name }
 }
 
 export function isImageFile(file: File | Blob): boolean {
@@ -114,7 +126,16 @@ export async function normalizeImageDataUrl(
 export async function fileToAttachedImage(file: File | Blob): Promise<AttachedImage> {
 	if (file.size > MAX_IMAGE_BYTES) throw new Error('Image file is too large')
 	const name = file instanceof File ? file.name : undefined
-	return normalizeImageDataUrl(await blobToDataUrl(file), name)
+	const dataUrl = await blobToDataUrl(file)
+	const image = await normalizeImageDataUrl(dataUrl, name)
+	// Built here rather than at send time: this path already awaits behind a
+	// spinner, whereas the send path shows its bubble optimistically.
+	const preview = await normalizeImageDataUrl(dataUrl, name, THUMBNAIL_IMAGE_EDGE)
+	// A downscale of flat UI colours can encode larger than the original, so only
+	// keep it when it actually saves something.
+	return preview.dataUrl.length < image.dataUrl.length
+		? { ...image, previewUrl: preview.dataUrl }
+		: image
 }
 
 /** Split a data URL into its media type and base64 payload (for the Anthropic converter). */

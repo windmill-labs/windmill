@@ -11,7 +11,7 @@
 	import { tick, untrack, type Snippet } from 'svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
-	import { ArrowUp, Square, X } from 'lucide-svelte'
+	import { ArrowUp, Loader2, Square, X } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import { type PasteAttachment } from './pasteTokens'
@@ -142,6 +142,10 @@
 	// Per-message image attachments (drag/drop/paste), GLOBAL mode only. One-shot:
 	// they attach to the next send and clear, unlike the persistent attached-files store.
 	let images = $state<AttachedImage[]>(untrack(() => initialImages ?? []))
+	// Images being decoded right now. Holds off sending so a message can never go
+	// out without an attachment the user already dropped, and reserves cap slots
+	// against a concurrent drop.
+	let pendingImages = $state(0)
 	const MAX_ATTACHED_IMAGES = 8
 
 	/** Attach dropped/pasted image files (downscaled + bounded). GLOBAL mode only. */
@@ -158,7 +162,10 @@
 			sendUserToast(`${model.model} can't read images. Switch to a vision model first.`, true)
 			return
 		}
-		const remaining = MAX_ATTACHED_IMAGES - images.length
+		// Count decodes already in flight: two drops that both read `images.length`
+		// before either resolves would each claim the same free slots and overshoot
+		// the cap.
+		const remaining = MAX_ATTACHED_IMAGES - images.length - pendingImages
 		if (remaining <= 0) {
 			sendUserToast(`You can attach up to ${MAX_ATTACHED_IMAGES} images.`, true)
 			return
@@ -170,13 +177,20 @@
 		}
 		const usable = imageFiles.filter((f) => f.size <= MAX_IMAGE_BYTES)
 		if (usable.length === 0) return
-		const results = await Promise.allSettled(
-			usable.slice(0, remaining).map((f) => fileToAttachedImage(f))
-		)
-		const added = results.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
-		const failed = results.length - added.length
-		if (added.length > 0) images = [...images, ...added]
-		if (failed > 0) sendUserToast(`Could not attach ${failed} image(s).`, true)
+		const batch = usable.slice(0, remaining)
+		// Claim the slots before awaiting, and hold sending until they resolve:
+		// decoding takes ~50-800ms, and a send during it would clear `images` while
+		// this closure still appends to it, landing the picture on the next message.
+		pendingImages += batch.length
+		try {
+			const results = await Promise.allSettled(batch.map((f) => fileToAttachedImage(f)))
+			const added = results.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
+			const failed = results.length - added.length
+			if (added.length > 0) images = [...images, ...added]
+			if (failed > 0) sendUserToast(`Could not attach ${failed} image(s).`, true)
+		} finally {
+			pendingImages -= batch.length
+		}
 	}
 
 	function removeImage(index: number) {
@@ -359,6 +373,11 @@
 	}
 
 	function sendRequest() {
+		// The send button is disabled while decoding, but Enter reaches here directly.
+		// Sending now would drop the in-flight images onto the following message.
+		if (pendingImages > 0) {
+			return
+		}
 		if (aiChatManager.loading) {
 			// Queue the message instead of silently discarding it — it is
 			// auto-sent when the streaming turn completes successfully.
@@ -603,7 +622,7 @@
 
 {#snippet sendStopButton()}
 	{@const isLoading = loading ?? aiChatManager.loading}
-	{@const sendDisabled = disabled || instructions.trim().length === 0}
+	{@const sendDisabled = disabled || instructions.trim().length === 0 || pendingImages > 0}
 	<Button
 		variant="subtle"
 		unifiedSize="md"
@@ -641,12 +660,12 @@
 {/snippet}
 
 {#snippet imageChipsRow()}
-	{#if images.length > 0}
+	{#if images.length > 0 || pendingImages > 0}
 		<div class="flex flex-row flex-wrap items-center gap-1.5 mb-1">
 			{#each images as image, i (i)}
 				<div class="relative group">
 					<img
-						src={image.dataUrl}
+						src={image.previewUrl ?? image.dataUrl}
 						alt={image.name ?? 'attached image'}
 						class="h-12 w-12 object-cover rounded border border-border-light"
 					/>
@@ -658,6 +677,16 @@
 					>
 						<X size={10} />
 					</button>
+				</div>
+			{/each}
+			<!-- Placeholders for images still being decoded. Sending is held until they
+			     land, so the row has to show that something is on its way. -->
+			{#each { length: pendingImages } as _, i (i)}
+				<div
+					class="h-12 w-12 rounded border border-border-light bg-surface-secondary flex items-center justify-center"
+					title="Preparing image..."
+				>
+					<Loader2 size={14} class="animate-spin text-tertiary" />
 				</div>
 			{/each}
 		</div>
