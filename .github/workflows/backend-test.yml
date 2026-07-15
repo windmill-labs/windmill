@@ -239,6 +239,16 @@ jobs:
       - name: cargo test
         timeout-minutes: 30
         env:
+          # setup-rust-toolchain exports RUSTFLAGS=-D warnings, and the RUSTFLAGS env
+          # var fully REPLACES (never merges with) target.*.rustflags in
+          # backend/.cargo/config.toml. That silently drops the config's
+          # `-C link-arg=-fuse-ld=mold`, so CI links the many large integration-test
+          # binaries (v8 + duckdb + every language runtime, statically linked) with the
+          # default bfd linker. Its peak memory across ~12 parallel links OOM-kills the
+          # runner mid-link (SIGTERM => exit 143, before any test runs). Re-add the mold
+          # link arg here so CI links with mold like local dev, keeping -D warnings.
+          # (config.toml's `linker = "clang"` still applies; env only overrides rustflags.)
+          RUSTFLAGS: "-D warnings -C link-arg=-fuse-ld=mold"
           SQLX_OFFLINE: true
           DATABASE_URL: postgres://postgres:changeme@localhost:5432/windmill
           DISABLE_EMBEDDING: true
