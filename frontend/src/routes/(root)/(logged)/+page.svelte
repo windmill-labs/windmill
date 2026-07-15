@@ -263,13 +263,14 @@
 	<ForkWorkspaceBanner />
 	<WorkspaceDraftsBanner />
 	<div class="max-w-7xl px-4 sm:px-8 md:px-8 h-fit w-full mb-10">
-		<div class="flex flex-row flex-wrap justify-between items-center gap-3 pb-2 my-4 mr-2 min-h-16">
-		</div>
-
 		<!-- The home composer starts a session, which lives behind the same dev gate as the
 		     global AI chat; without it, /sessions renders only its gate message and the queued
 		     prompt is silently dropped. Hide the entry point until the gate opens. -->
 		{#if isGlobalAiEnabled()}
+			<div
+				class="flex flex-row flex-wrap justify-between items-center gap-3 pb-2 my-4 mr-2 min-h-16"
+			>
+			</div>
 			<div class="w-full mb-12 mt-2">
 				<HomeAIChat />
 			</div>
