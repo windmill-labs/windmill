@@ -154,6 +154,13 @@ async fn edit_copilot_config(
         ai_config
     } else if let Some(instance_ai_config) = instance_ai_config {
         serde_json::from_value::<AIConfig>(instance_ai_config).unwrap_or_default()
+    } else if let Some(free_config) =
+        crate::ai_free_tier_oss::free_tier_copilot_config(&db, &authed.email).await?
+    {
+        // Same fallback as get_copilot_info: with nothing configured, surface Windmill's free
+        // tier (EE-only) so clearing a workspace provider activates it immediately, instead of
+        // returning an empty config that disables AI until the next page reload re-fetches it.
+        free_config
     } else {
         AIConfig::default()
     };
