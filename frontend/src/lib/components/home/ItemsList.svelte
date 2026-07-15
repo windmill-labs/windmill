@@ -265,6 +265,11 @@
 	let searchFilterSchema = $derived({
 		_default_: { type: 'string' as const, hidden: true },
 		path: { type: 'string' as const, label: 'Path' },
+		content: {
+			type: 'string' as const,
+			label: 'Content',
+			description: 'Full-text search across item content (EE)'
+		},
 		summary: { type: 'string' as const, label: 'Summary' },
 		label: { type: 'string' as const, label: 'Label' },
 		kind: {
@@ -278,11 +283,6 @@
 		},
 		draft_only: { type: 'boolean' as const, label: 'Draft only' },
 		draft: { type: 'boolean' as const, label: 'Draft', description: 'Includes draft-only items' },
-		content: {
-			type: 'string' as const,
-			label: 'Content',
-			description: 'Full-text search across item content (EE)'
-		},
 		archived: { type: 'boolean' as const, label: 'Only archived' },
 		...($userStore && !$userStore.operator
 			? { include_library: { type: 'boolean' as const, label: 'Include library scripts' } }
