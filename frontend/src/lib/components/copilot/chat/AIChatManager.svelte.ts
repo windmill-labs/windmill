@@ -1067,9 +1067,16 @@ export class AIChatManager {
 			tailTokens += t
 			keepFrom = i
 		}
-		// The tail must start on a user message — move the boundary forward over
-		// any leading tool/assistant messages, folding them into the prefix.
-		while (keepFrom < last && this.messages[keepFrom].role !== 'user') {
+		// The tail must start on a user message the transcript also shows — move the
+		// boundary forward over leading tool/assistant messages, and over synthetic
+		// user messages that carry no display entry (the image follow-ups
+		// appendPendingToolImages injects). Landing on one would slice `messages`
+		// and `displayMessages` at different turns, silently dropping the cards in
+		// between from the visible history.
+		const shownUserIndices = new Set(
+			this.displayMessages.filter((m) => m.role === 'user').map((m) => m.index)
+		)
+		while (keepFrom < last && !shownUserIndices.has(keepFrom)) {
 			keepFrom++
 		}
 
@@ -1079,11 +1086,10 @@ export class AIChatManager {
 			return false
 		}
 
-		// The user message at the boundary has a display counterpart with the same
-		// index; resolve it before any mutation so a corrupt transcript can never
-		// result from an unexpected miss.
+		// Exact index, never >=: a miss must fail the compaction, because resolving
+		// to a later turn would slice the transcript short of the kept API tail.
 		const displayKeepFrom = this.displayMessages.findIndex(
-			(m) => m.role === 'user' && m.index >= keepFrom
+			(m) => m.role === 'user' && m.index === keepFrom
 		)
 		if (displayKeepFrom === -1) {
 			this.consecutiveCompactionFailures++

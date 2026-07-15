@@ -1031,6 +1031,59 @@ describe('AIChatManager context compaction', () => {
 		expect(manager.contextUsage).toBeUndefined()
 	})
 
+	// A take_screenshot follow-up is a `user` message with no display counterpart
+	// (appendPendingToolImages injects it). It must never become the tail
+	// boundary: `messages` and `displayMessages` would then be sliced at
+	// different turns and the cards in between would vanish from the transcript
+	// while the model still sees them.
+	it('never lands the tail boundary on a screenshot follow-up that has no display counterpart', async () => {
+		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.getNonStreamingCompletion.mockResolvedValue('<summary>SUMMARY TEXT</summary>')
+		const manager = new AIChatManager()
+		manager.messages = [
+			{ role: 'user', content: 'OLD1' + 'a'.repeat(100_000) },
+			{ role: 'assistant', content: 'OLD2' + 'b'.repeat(100_000) },
+			{ role: 'user', content: 'OLD3' + 'c'.repeat(100_000) },
+			{ role: 'assistant', content: 'toolTurn', tool_calls: [] as any },
+			{ role: 'tool', content: 'Screenshot captured', tool_call_id: 't1' } as any,
+			// the synthetic follow-up: user role, image parts, NO display entry
+			{
+				role: 'user',
+				content: [
+					{ type: 'text', text: 'Screenshot(s) of the app preview:' },
+					{ type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }
+				] as any
+			},
+			// sized so the tail budget breaks just above OLD3: the backward walk
+			// stops at index 3, and the forward snap then lands on the synthetic
+			// user message at 5 — the case this test exists for.
+			{ role: 'assistant', content: 'afterShot' + 'g'.repeat(120_000) },
+			{ role: 'user', content: 'recentQ' + 'h'.repeat(120_000) }
+		]
+		manager.displayMessages = [
+			{ role: 'user', content: 'old1', index: 0 },
+			{ role: 'assistant', content: 'old2' },
+			{ role: 'user', content: 'old3', index: 2 },
+			{ role: 'assistant', content: 'afterShot' },
+			{ role: 'user', content: 'recentQ', index: 7 }
+		]
+		manager.contextUsage = 110_000 // over the 0.8 * 128k trigger
+		manager.instructions = 'next question'
+
+		await manager.sendRequest()
+
+		// Whatever survived summarization, the two views must agree: any assistant
+		// turn the model can still see must still be visible to the user.
+		const keptAfterShot = manager.messages.some(
+			(m) => typeof m.content === 'string' && m.content.includes('afterShot')
+		)
+		const shownAfterShot = manager.displayMessages.some(
+			(m) => m.role === 'assistant' && m.content.includes('afterShot')
+		)
+		expect(shownAfterShot).toBe(keptAfterShot)
+	})
+
 	it('falls back to drop-oldest when summarization fails', async () => {
 		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
 		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
