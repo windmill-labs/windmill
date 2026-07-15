@@ -46,7 +46,12 @@ import {
 } from '$lib/components/raw_apps/templates'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
-import { dataUrlToImagePart, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
+import {
+	dataUrlToImagePart,
+	normalizeImageDataUrl,
+	THUMBNAIL_IMAGE_EDGE,
+	type AttachedImage
+} from '../imageUtils'
 import {
 	applyEditableFlowJsonToFlow,
 	buildEditableFlowJson,
@@ -2889,7 +2894,9 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			takeScreenshotSchema,
 			'take_screenshot',
-			'Capture a screenshot of the raw app preview currently open in this AI session and attach it as an image so you can visually verify the rendered UI. Use this after making UI changes to check layout, styling, and content. The image is attached in the following message. Requires the raw app preview open (open_preview kind="raw_app").\n\nThe image is rebuilt from the DOM rather than captured from the screen, so it can differ from what the user actually sees, and it differs by browser. Treat what you see as real and fix it. Before dismissing anything as a capture artifact, read the source for that element and name the specific cause; if you cannot, it is a real bug. If you are still unsure, say what looks wrong and ask the user to screenshot it themselves and drag the image into the chat rather than guessing.'
+			// Keep this short: every global session iteration re-sends it. How to read
+			// the result belongs on the result, where only a real capture pays for it.
+			'Capture a screenshot of the raw app preview currently open in this AI session and attach it as an image so you can visually verify the rendered UI. Use this after making UI changes to check layout, styling, and content. The image is attached in the following message. Requires the raw app preview open (open_preview kind="raw_app").'
 		),
 		showDetails: true,
 		fn: async (ctx) => {
@@ -2907,11 +2914,22 @@ export const globalTools: Tool<{}>[] = [
 			// completes (see appendPendingToolImages).
 			const image = await normalizeImageDataUrl(result.dataUrl)
 			ctx.toolCallbacks.attachToolImage?.(ctx.toolId, image)
+			// displayMessages are never compacted, so the card's copy sits in the
+			// transcript for the life of the chat and is re-cloned into IndexedDB on
+			// every save — shrink it when that helps. Downscaling interpolates flat UI
+			// colours into gradients, which PNG can encode *larger* than the original,
+			// so keep whichever is actually smaller rather than assuming it's the thumbnail.
+			const thumbnail = await normalizeImageDataUrl(result.dataUrl, undefined, THUMBNAIL_IMAGE_EDGE)
+			const cardImage =
+				thumbnail.dataUrl.length < image.dataUrl.length ? thumbnail.dataUrl : image.dataUrl
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
 				content: 'Screenshot captured',
-				imageUrl: image.dataUrl
+				imageUrl: cardImage
 			})
-			return 'Screenshot captured; the image is attached in the following message.'
+			return (
+				'Screenshot captured; the image is attached in the following message.\n\n' +
+				'It is rebuilt from the DOM rather than captured from the screen, so it can differ from what the user sees, and it differs by browser. Treat what you see as real and fix it. Before dismissing anything as a capture artifact, read the source for that element and name the specific cause; if you cannot, it is a real bug. If you are still unsure, say what looks wrong and ask the user to screenshot it themselves and drag the image into the chat rather than guessing.'
+			)
 		}
 	},
 	// Workspace-scoped datatable tools (unrestricted: no whitelist, no creation policy)

@@ -17,6 +17,12 @@ import type {
 
 /** Longest-edge cap. Matches the point past which vision models downscale server-side. */
 export const MAX_IMAGE_EDGE = 1568
+/**
+ * Longest edge for the copy kept in `displayMessages`. Those are never compacted and
+ * are re-cloned into IndexedDB on every saveChat, so the transcript must not hold a
+ * model-resolution blob — the tool card only ever renders it ~192px tall.
+ */
+export const THUMBNAIL_IMAGE_EDGE = 384
 /** Above this many bytes a PNG re-encodes to JPEG to keep history/storage bounded. */
 const PNG_SIZE_CAP = 700_000
 /**
@@ -84,14 +90,15 @@ function encodeCanvas(canvas: HTMLCanvasElement): { dataUrl: string; mediaType: 
  */
 export async function normalizeImageDataUrl(
 	dataUrl: string,
-	name?: string
+	name?: string,
+	maxEdge: number = MAX_IMAGE_EDGE
 ): Promise<AttachedImage> {
 	const img = await loadImage(dataUrl)
 	const srcW = img.naturalWidth || img.width
 	const srcH = img.naturalHeight || img.height
 	if (!srcW || !srcH) throw new Error('Image has no dimensions')
 	if (srcW * srcH > MAX_IMAGE_PIXELS) throw new Error('Image resolution is too large')
-	const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(srcW, srcH))
+	const scale = Math.min(1, maxEdge / Math.max(srcW, srcH))
 	const w = Math.max(1, Math.round(srcW * scale))
 	const h = Math.max(1, Math.round(srcH * scale))
 	const canvas = document.createElement('canvas')
