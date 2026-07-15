@@ -1,4 +1,5 @@
 import * as abortSignal from "ext:deno_web/03_abort_signal.js";
+import * as domException from "ext:deno_web/01_dom_exception.js";
 import * as base64 from "ext:deno_web/05_base64.js";
 import * as console from "ext:deno_console/01_console.js";
 import * as encoding from "ext:deno_web/08_text_encoding.js";
@@ -63,6 +64,10 @@ Object.assign(globalThis, {
 // to parity with the bun runner's global surface. Every name below is present
 // in bun; names bun lacks (EventSource, ImageData) are deliberately not wired.
 Object.assign(globalThis, {
+  // DOMException. Beyond bun parity, deno_web modules reference it as a global:
+  // AbortController.abort() with no reason constructs `new DOMException(...)`, so
+  // without this the already-wired AbortController/AbortSignal throw on abort.
+  DOMException: domException.DOMException,
   // Text encoding + encoding streams.
   TextEncoder: encoding.TextEncoder,
   TextDecoder: encoding.TextDecoder,
