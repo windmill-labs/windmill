@@ -342,6 +342,14 @@ lazy_static::lazy_static! {
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(false);
 
+    /// Per-language override for the nsjail `rlimit_as` (virtual address space) cap.
+    /// Value is in MiB, or `unlimited`/`none`/`inf`/`0` to uncap. Unset keeps the
+    /// historical default baked into the proto. See `render_nsjail_rlimit_as`.
+    pub static ref NSJAIL_PY_RLIMIT_AS_MB: Option<String> =
+        std::env::var("NSJAIL_PY_RLIMIT_AS_MB").ok();
+    pub static ref NSJAIL_ANSIBLE_RLIMIT_AS_MB: Option<String> =
+        std::env::var("NSJAIL_ANSIBLE_RLIMIT_AS_MB").ok();
+
     // pub static ref DISABLE_NSJAIL: bool = false;
     pub static ref DISABLE_NSJAIL: bool = std::env::var("DISABLE_NSJAIL")
         .ok()
