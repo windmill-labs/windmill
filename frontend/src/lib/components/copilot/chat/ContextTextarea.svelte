@@ -302,16 +302,23 @@
 	// (and beforeinput keeps any overlapped chip atomic). The insertion range is
 	// widened over overlapped tokens so pasting onto a chip replaces it whole.
 	function handlePaste(e: ClipboardEvent) {
-		// Image paste (screenshots, copied images) → hand off to the host to attach.
-		const imageFiles = Array.from(e.clipboardData?.files ?? []).filter((f) =>
-			f.type.startsWith('image/')
-		)
-		if (imageFiles.length > 0 && onImageFiles) {
-			e.preventDefault()
-			onImageFiles(imageFiles)
-			return
-		}
 		const text = e.clipboardData?.getData('text/plain') ?? ''
+		// Image paste (screenshots, copied images) → hand off to the host to attach.
+		// Only when the clipboard carries no text: spreadsheet and browser copies put a
+		// bitmap alongside the text, and pasting a cell range must paste the cells, not
+		// a picture of them. An OS screenshot carries the image alone, so it still lands
+		// here. `onImageFiles` is unset outside GLOBAL, where attaching is unsupported —
+		// the paste must then fall through to text rather than be swallowed.
+		if (!text.trim() && onImageFiles) {
+			const imageFiles = Array.from(e.clipboardData?.files ?? []).filter((f) =>
+				f.type.startsWith('image/')
+			)
+			if (imageFiles.length > 0) {
+				e.preventDefault()
+				onImageFiles(imageFiles)
+				return
+			}
+		}
 		if (!text || !shouldCollapsePaste(text)) return
 		e.preventDefault()
 		const ta = e.currentTarget as HTMLTextAreaElement

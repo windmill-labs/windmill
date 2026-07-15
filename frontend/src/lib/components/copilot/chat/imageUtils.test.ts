@@ -1,6 +1,31 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
-import { dataUrlToImagePart, parseImageDataUrl, stripImagePartsFromMessages } from './imageUtils'
+import {
+	dataUrlToImagePart,
+	fileToAttachedImage,
+	MAX_IMAGE_BYTES,
+	parseImageDataUrl,
+	stripImagePartsFromMessages
+} from './imageUtils'
+
+describe('fileToAttachedImage size bound', () => {
+	// Decoding allocates ~4 bytes per pixel before the downscale can run, so an
+	// oversized file has to be refused before it is read — not after.
+	it('rejects a file over the byte cap without reading it', async () => {
+		let read = false
+		const blob = {
+			size: MAX_IMAGE_BYTES + 1,
+			type: 'image/png',
+			get arrayBuffer() {
+				read = true
+				return async () => new ArrayBuffer(0)
+			}
+		} as unknown as Blob
+
+		await expect(fileToAttachedImage(blob)).rejects.toThrow(/too large/i)
+		expect(read).toBe(false)
+	})
+})
 
 describe('parseImageDataUrl', () => {
 	it('splits media type and base64 payload', () => {

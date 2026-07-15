@@ -16,9 +16,14 @@
 	import { sendUserToast } from '$lib/toast'
 	import { type PasteAttachment } from './pasteTokens'
 	import { chatDraft, expanded } from './chatDraft'
-	import { fileToAttachedImage, isImageFile, type AttachedImage } from './imageUtils'
+	import {
+		fileToAttachedImage,
+		isImageFile,
+		MAX_IMAGE_BYTES,
+		type AttachedImage
+	} from './imageUtils'
 	import { modelSupportsVision } from '../lib'
-	import { getCurrentModel } from '$lib/aiStore'
+	import { tryGetCurrentModel } from '$lib/aiStore'
 
 	const aiChatManager = getAiChatManager()
 
@@ -144,17 +149,29 @@
 		if (aiChatManager.mode !== AIMode.GLOBAL) return
 		const imageFiles = files.filter(isImageFile)
 		if (imageFiles.length === 0) return
-		const model = getCurrentModel()
+		// tryGetCurrentModel returns undefined instead of throwing: this runs from a
+		// drop/paste handler that can't surface a rejection.
+		const model = tryGetCurrentModel()
+		// Only known text-only models fail this, so attaching would certainly 400 the
+		// next turn — refuse rather than warn and send it anyway.
 		if (model && !modelSupportsVision(model.provider, model.model)) {
-			sendUserToast(`The selected model (${model.model}) may not support images.`, true)
+			sendUserToast(`${model.model} can't read images. Switch to a vision model first.`, true)
+			return
 		}
 		const remaining = MAX_ATTACHED_IMAGES - images.length
 		if (remaining <= 0) {
 			sendUserToast(`You can attach up to ${MAX_ATTACHED_IMAGES} images.`, true)
 			return
 		}
+		const oversized = imageFiles.filter((f) => f.size > MAX_IMAGE_BYTES)
+		if (oversized.length > 0) {
+			const mb = Math.round(MAX_IMAGE_BYTES / 1_000_000)
+			sendUserToast(`${oversized.length} image(s) over ${mb}MB were skipped.`, true)
+		}
+		const usable = imageFiles.filter((f) => f.size <= MAX_IMAGE_BYTES)
+		if (usable.length === 0) return
 		const results = await Promise.allSettled(
-			imageFiles.slice(0, remaining).map((f) => fileToAttachedImage(f))
+			usable.slice(0, remaining).map((f) => fileToAttachedImage(f))
 		)
 		const added = results.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
 		const failed = results.length - added.length
@@ -344,12 +361,18 @@
 			// tokens are expanded into the queued text (the queue is plain
 			// strings), so the full content survives the auto-send.
 			if (editingMessageIndex === null && instructions.trim()) {
-				// The queue is plain text; images can't ride it, so they're dropped here.
+				// The queue holds one plain string, restored to the composer on dequeue,
+				// so images cannot ride it. Refuse rather than queue the text alone:
+				// auto-sending without the attached images would send a message the user
+				// never wrote. Everything stays in the composer to send once the turn ends.
+				if (images.length > 0) {
+					sendUserToast('Wait for the current response before sending images.', true)
+					return
+				}
 				aiChatManager.queueMessage(expanded(chatDraft(instructions, pastes)))
 				contextTextareaComponent?.clearForSend()
 				instructions = ''
 				pastes = []
-				images = []
 			}
 			return
 		}
@@ -664,7 +687,9 @@
 				bind:this={contextTextareaComponent}
 				bind:value={instructions}
 				bind:pastes
-				onImageFiles={(files) => void addImages(files)}
+				onImageFiles={aiChatManager.mode === AIMode.GLOBAL
+					? (files) => void addImages(files)
+					: undefined}
 				{availableContext}
 				{selectedContext}
 				placeholder={modePlaceholder}

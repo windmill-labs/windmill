@@ -19,6 +19,14 @@ import type {
 export const MAX_IMAGE_EDGE = 1568
 /** Above this many bytes a PNG re-encodes to JPEG to keep history/storage bounded. */
 const PNG_SIZE_CAP = 700_000
+/**
+ * Refuse a file this large before reading it. Decoding allocates ~4 bytes per pixel
+ * — a 12MP photo is ~48MB of bitmap — and the downscale below can only run once that
+ * bitmap exists, so the cap has to bite before the read, not after.
+ */
+export const MAX_IMAGE_BYTES = 20_000_000
+/** Decoded-pixel ceiling, in case a small file expands to an absurd bitmap. */
+const MAX_IMAGE_PIXELS = 40_000_000
 
 export type ImageMediaType = 'image/png' | 'image/jpeg'
 
@@ -82,6 +90,7 @@ export async function normalizeImageDataUrl(
 	const srcW = img.naturalWidth || img.width
 	const srcH = img.naturalHeight || img.height
 	if (!srcW || !srcH) throw new Error('Image has no dimensions')
+	if (srcW * srcH > MAX_IMAGE_PIXELS) throw new Error('Image resolution is too large')
 	const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(srcW, srcH))
 	const w = Math.max(1, Math.round(srcW * scale))
 	const h = Math.max(1, Math.round(srcH * scale))
@@ -96,6 +105,7 @@ export async function normalizeImageDataUrl(
 
 /** Read a user-provided image file and produce a bounded, model-ready AttachedImage. */
 export async function fileToAttachedImage(file: File | Blob): Promise<AttachedImage> {
+	if (file.size > MAX_IMAGE_BYTES) throw new Error('Image file is too large')
 	const name = file instanceof File ? file.name : undefined
 	return normalizeImageDataUrl(await blobToDataUrl(file), name)
 }
