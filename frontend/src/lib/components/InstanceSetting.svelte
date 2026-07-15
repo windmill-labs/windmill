@@ -753,6 +753,51 @@
 									upstream relay (e.g. through a corporate proxy).
 								</p>
 							</div>
+							<div class="flex flex-col gap-1">
+								<label
+									for="otel_tracing_proxy_insecure_upstream_hosts"
+									class="block text-xs font-semibold text-emphasis"
+								>
+									Insecure upstream hosts (skip TLS verification)
+								</label>
+								<TextInput
+									inputProps={{
+										type: 'text',
+										placeholder: '10.0.0.5,*.internal,git.corp.example',
+										id: 'otel_tracing_proxy_insecure_upstream_hosts',
+										disabled: !$enterpriseLicense
+									}}
+									bind:value={$values[setting.key].insecure_upstream_hosts}
+								/>
+								<p class="text-xs text-tertiary">
+									Comma-separated host/IP patterns the proxy still traces but for which it skips
+									upstream TLS certificate verification. Use for internal endpoints with
+									self-signed or otherwise untrusted certificates — unlike NO_PROXY above, these
+									requests stay traced. Same matching as NO_PROXY (<code>example.com</code> matches
+									subdomains; <code>.example.com</code> matches subdomains only).
+								</p>
+							</div>
+							<div class="flex flex-col gap-1">
+								<label
+									for="otel_tracing_proxy_upstream_ca_certs"
+									class="block text-xs font-semibold text-emphasis"
+								>
+									Upstream CA certificates (PEM)
+								</label>
+								<textarea
+									id="otel_tracing_proxy_upstream_ca_certs"
+									disabled={!$enterpriseLicense}
+									rows="4"
+									placeholder={'-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----'}
+									bind:value={$values[setting.key].upstream_ca_certs}
+								></textarea>
+								<p class="text-xs text-tertiary">
+									Extra CA certificates added to the proxy's upstream trust store, on top of the
+									system roots. Use this to trace internal endpoints signed by a private CA while
+									keeping certificate verification enabled — preferred over the insecure list above
+									when you have the CA.
+								</p>
+							</div>
 						{/if}
 					</div>
 				{:else if setting.fieldType == 'object_store_config'}
