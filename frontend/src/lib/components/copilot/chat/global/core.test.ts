@@ -1606,6 +1606,30 @@ describe('global AI tools', () => {
 			expect(draft.parent_version).toBe(5)
 		})
 
+		it('keeps a draft-only app friendly draft_path through the save whitelist on chat edits', async () => {
+			// A renamed draft-only app parks its typed name in the draft's
+			// `draft_path`. A chat edit round-trips the value through
+			// normalizeAppDraftValue — dropping the field there would rename the
+			// app back to its `draft_<uuid>` storage key.
+			seedBackendDraft('raw_app', 'u/admin/draft_abc', {
+				summary: 'a',
+				files: { '/index.tsx': 'old' },
+				runnables: {},
+				data: { tables: [] },
+				draft_path: 'u/admin/my_pretty_app'
+			})
+
+			await callGlobalTool('write_app_file', {
+				path: 'u/admin/draft_abc',
+				file_path: '/index.tsx',
+				content: 'new'
+			})
+
+			const draft = getBackendDraft<any>('raw_app', 'u/admin/draft_abc', { workspace: WORKSPACE })
+			expect(draft.files['/index.tsx']).toBe('new')
+			expect(draft.draft_path).toBe('u/admin/my_pretty_app')
+		})
+
 		it('blocks deploying an app draft started from an older deployed version', async () => {
 			seedStaleAppDraft('f/apps/stale', 1)
 			mockDeployedApp('f/apps/stale', 2)

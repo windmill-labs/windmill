@@ -48,13 +48,15 @@ function targetUrl(target: PreviewTarget): string {
 	return target.type === 'page' ? target.href : `${base}${editPathFor(target.item)}`
 }
 
-// Point a tab at a new destination. Clears `friendlyLabel` (bound to the previous
-// editor's item): a new editor re-stamps it, and navigating to a plain page must
-// drop the stale name so the tab falls back to the location label.
+// Point a tab at a new destination. Clears `friendlyLabel`/`friendlyPath`
+// (bound to the previous editor's item): a new editor re-stamps them, and
+// navigating to a plain page must drop the stale name so the tab falls back
+// to the location label.
 function retargetTab(tab: SessionPreviewTab, url: string): void {
 	tab.url = url
 	tab.loc = url
 	tab.friendlyLabel = undefined
+	tab.friendlyPath = undefined
 }
 
 // Strip the query params the sessions preview injects into iframe URLs
@@ -341,15 +343,21 @@ export class SessionPreviewTabs {
 		this.#flush()
 	}
 
-	// Stamp the friendly display label for the editor tab hosting `target` (the
-	// live editor knows the item's typed/auto name once its cell loads, which the
-	// page can't read reactively from the runtime cell). Matched on the tab's
-	// commanded `url` — the stable per-(kind,path) editor identity. Transient, so
-	// no persist/flush: it's recomputed when the tab remounts.
-	setEditorFriendlyLabel(target: SessionTarget, label: string | undefined): void {
+	// Stamp the friendly display label (and full friendly path, which scopes the
+	// breadcrumb picker) for the editor tab hosting `target` (the live editor
+	// knows the item's typed/auto name once its cell loads, which the page can't
+	// read reactively from the runtime cell). Matched on the tab's commanded
+	// `url` — the stable per-(kind,path) editor identity. Transient, so no
+	// persist/flush: they're recomputed when the tab remounts.
+	setEditorFriendlyLabel(
+		target: SessionTarget,
+		label: string | undefined,
+		friendlyPath?: string
+	): void {
 		const t = this.#tabs.find((x) => isEditorTabFor(x.url, target))
-		if (!t || t.friendlyLabel === label) return
+		if (!t || (t.friendlyLabel === label && t.friendlyPath === friendlyPath)) return
 		t.friendlyLabel = label
+		t.friendlyPath = friendlyPath
 	}
 
 	// Persist a pending write immediately, cancelling the debounce. Called on

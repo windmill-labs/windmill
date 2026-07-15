@@ -66,6 +66,14 @@ function buildDirForest(items: WorkspaceItem[]): DirNode[] {
 	return scopes
 }
 
+/** True when `p` names this item — its storage path or its friendly draft
+ * path. A draft-only editor's live/saved paths are the friendly path while
+ * the loaded row sits at the storage path, so matching on `path` alone would
+ * treat them as two different items. */
+function itemMatchesPath(it: WorkspaceItem, p: string | undefined): boolean {
+	return p !== undefined && (it.path === p || it.draftPath === p)
+}
+
 /** Inject the currently-edited item at its live path, dropping the saved
  * entry when a draft rename is mid-flight. Only applies to items of the
  * same kind. */
@@ -77,9 +85,9 @@ function withCurrent(
 	if (!currentItem || currentItem.kind !== k) return items
 	const drafted =
 		currentItem.savedPath && currentItem.savedPath !== currentItem.path
-			? items.filter((it) => it.path !== currentItem.savedPath)
+			? items.filter((it) => !itemMatchesPath(it, currentItem.savedPath))
 			: items
-	if (drafted.some((it) => it.path === currentItem.path)) return drafted
+	if (drafted.some((it) => itemMatchesPath(it, currentItem.path))) return drafted
 	return [
 		...drafted,
 		{
@@ -95,7 +103,8 @@ function itemToLeaf(
 	it: WorkspaceItem,
 	currentItem: (WorkspaceItem & { savedPath?: string }) | undefined
 ): DrillLeaf<WorkspaceItem> {
-	const isCurrent = !!currentItem && currentItem.kind === it.kind && currentItem.path === it.path
+	const isCurrent =
+		!!currentItem && currentItem.kind === it.kind && itemMatchesPath(it, currentItem.path)
 	const display = workspaceItemDisplayPath(it)
 	return {
 		type: 'leaf',

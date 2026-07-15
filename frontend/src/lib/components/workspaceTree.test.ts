@@ -253,6 +253,45 @@ describe('buildWorkspaceTree', () => {
 			expect(paths).not.toContain(leafKeyFor('flow', 'f/demo/old'))
 		})
 
+		it('does not duplicate a draft-only row whose friendly draftPath is the current live path', () => {
+			// Editor open on a renamed draft-only script: currentItem.path is the
+			// friendly path while listScripts returns the storage-path row carrying
+			// the same friendly path as draftPath. One leaf, marked current.
+			const loadedDraft = {
+				...item('script', 'u/admin/draft_abc'),
+				draftPath: 'u/admin/my_script'
+			}
+			const tree = buildWorkspaceTree({
+				loaded: { script: [loadedDraft] },
+				kinds: ['script'],
+				loadingKind: {},
+				currentItem: item('script', 'u/admin/my_script')
+			})
+			const admin = findBranch(tree, dirKey('script', 'u/admin'))
+			expect(admin.children.map((c) => c.key)).toEqual([leafKeyFor('script', 'u/admin/draft_abc')])
+			const leaf = admin.children[0]
+			if (!isLeaf(leaf)) throw new Error('expected leaf')
+			expect(leaf.current).toBe(true)
+		})
+
+		it('drops the storage-path row via draftPath during a mid-rename', () => {
+			// Renaming a draft-only item: savedPath is the old friendly path, which
+			// the loaded row only knows as its draftPath. The stale row must go so
+			// only the live (typed) entry shows.
+			const loadedDraft = {
+				...item('script', 'u/admin/draft_abc'),
+				draftPath: 'u/admin/old_name'
+			}
+			const tree = buildWorkspaceTree({
+				loaded: { script: [loadedDraft] },
+				kinds: ['script'],
+				loadingKind: {},
+				currentItem: { ...item('script', 'u/admin/new_name'), savedPath: 'u/admin/old_name' }
+			})
+			const admin = findBranch(tree, dirKey('script', 'u/admin'))
+			expect(admin.children.map((c) => c.key)).toEqual([leafKeyFor('script', 'u/admin/new_name')])
+		})
+
 		it('does not re-inject when the live entry already exists in loaded', () => {
 			const tree = buildWorkspaceTree({
 				loaded: { flow: [item('flow', 'f/demo/a', 'Original')] },

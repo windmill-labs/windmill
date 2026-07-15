@@ -132,8 +132,12 @@
 	// path; a deployed/real path keeps the plain location label.
 	$effect(() => {
 		const v = cell.store.val as { path?: string; draft_path?: string } | undefined
-		const label = draftFriendlyLeaf(path, v?.draft_path ?? v?.path)
-		runtime.previewTabs.setEditorFriendlyLabel({ kind, path }, label)
+		const friendly = v?.draft_path ?? v?.path
+		const label = draftFriendlyLeaf(path, friendly)
+		// The full friendly path rides along only when it yielded a label — the
+		// picker tree groups the draft under this path, so the breadcrumb picker
+		// needs it to scope into the right folder.
+		runtime.previewTabs.setEditorFriendlyLabel({ kind, path }, label, label ? friendly : undefined)
 	})
 
 	// Debounced loading affordance for a breadcrumb swap: while the loaded path
