@@ -58,11 +58,9 @@ Object.assign(globalThis, {
   setTimeout: timers.setTimeout,
 });
 
-// Standard web-platform globals the deno_web / deno_url extensions provide but
-// that weren't wired onto globalThis. Scripts assume these exist (browsers,
-// Deno and the bun runner all expose them), so this brings the nativets runtime
-// to parity with the bun runner's global surface. Every name below is present
-// in bun; names bun lacks (EventSource, ImageData) are deliberately not wired.
+// Standard web-platform globals from the deno_web / deno_url extensions,
+// exposed to match the bun runner's global surface. Every name below is present
+// in bun; names bun lacks (EventSource, ImageData) are deliberately excluded.
 Object.assign(globalThis, {
   // DOMException. Beyond bun parity, deno_web modules reference it as a global:
   // AbortController.abort() with no reason constructs `new DOMException(...)`, so
