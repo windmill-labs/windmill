@@ -165,6 +165,10 @@ export function artifactUrl(id: string, name: string): string {
 	return `artifact:${encodeURIComponent(id)}#${encodeURIComponent(name)}`
 }
 
+/** Drill-picker leaf key for an artifact, shared by the picker tree and the
+ * active-tab highlight so a pick and a highlight agree on identity. */
+export const artifactKey = (id: string) => `artifact:${id}`
+
 // How a preview tab should render: as an in-process live editor or an iframe
 // fallback. Any editable item of a wrappable kind (script, flow, raw app) mounts
 // its per-(kind,path) cell editor; a `/pipeline/<folder>` route mounts the

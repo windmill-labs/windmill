@@ -46,6 +46,7 @@
 	import { setToolCompletionListener } from '$lib/components/copilot/chat/shared'
 	import { base } from '$lib/base'
 	import {
+		artifactKey,
 		matchPreviewPage,
 		pageKey,
 		parseArtifactRoute,
@@ -345,9 +346,11 @@
 	// location, so the breadcrumb tracks where the user browses inside the tab.
 	const displayPath = $derived(owner?.activeTab?.loc ?? owner?.activeTab?.url ?? `${base}/`)
 	// Artifacts have no workspace page, so "Open in workspace" can't resolve for them.
-	const activeTabIsArtifact = $derived(
-		!!owner?.activeTab && parseArtifactRoute(owner.activeTab.url) != null
-	)
+	const activeArtifact = $derived(owner?.activeTab ? parseArtifactRoute(owner.activeTab.url) : null)
+	const activeTabIsArtifact = $derived(activeArtifact != null)
+	// The active session's artifacts, surfaced as an "Artifacts" branch in the
+	// preview pickers.
+	const sessionArtifacts = $derived(activeRuntime?.manager.artifacts.artifacts ?? [])
 	// Writes to the tab's own session model: a hidden warm session's iframe can
 	// finish loading while another session is shown, and its location must not
 	// land on the visible session's tabs.
@@ -461,7 +464,9 @@
 			? leafKeyFor(parsedRoute.kind, parsedRoute.itemPath)
 			: currentPage
 				? pageKey(currentPage.path)
-				: undefined
+				: activeArtifact
+					? artifactKey(activeArtifact.id)
+					: undefined
 	)
 	let activeTabPickerOpen = $state(false)
 
@@ -706,6 +711,7 @@
 													initialHighlight={activePickerHighlight}
 													{currentItem}
 													workspaceId={previewWorkspace}
+													artifacts={sessionArtifacts}
 													onPick={(t) => {
 														activeTabPickerOpen = false
 														navigatePreviewTo(t)
@@ -734,6 +740,7 @@
 										{#snippet content()}
 											<PreviewRouterPicker
 												workspaceId={previewWorkspace}
+												artifacts={sessionArtifacts}
 												onPick={(t) => {
 													newTabOpen = false
 													openInNewTab(t)
@@ -808,6 +815,7 @@
 											{#snippet content()}
 												<PreviewRouterPicker
 													workspaceId={previewWorkspace}
+													artifacts={sessionArtifacts}
 													onPick={(t) => {
 														emptyStateNewTabOpen = false
 														openInNewTab(t)

@@ -301,6 +301,18 @@ export class SessionPreviewTabs {
 				return
 			}
 		}
+		// Same by-id artifact dedupe as open(): focus (and re-point, in case the
+		// name changed) the tab already viewing this artifact instead of turning
+		// the active tab into a duplicate viewer.
+		if (target.type === 'artifact') {
+			const existing = this.#tabs.find((x) => parseArtifactRoute(x.url)?.id === target.id)
+			if (existing && existing.id !== t.id) {
+				retargetTab(existing, url)
+				this.#activeId = existing.id
+				this.#flush()
+				return
+			}
+		}
 		retargetTab(t, url)
 		this.#flush()
 	}

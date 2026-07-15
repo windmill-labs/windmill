@@ -330,6 +330,32 @@ describe('SessionPreviewTabs.navigate', () => {
 		expect(o.tabs[0].url).toBe(`${base}/pipeline/sales`)
 	})
 
+	it('focuses the tab already viewing the artifact instead of duplicating the viewer', () => {
+		const o = owner()
+		o.open(artifactTarget)
+		const artifactTabId = o.activeId
+		o.open(pageTarget)
+		const pageTabId = o.activeId
+		o.navigate({ type: 'artifact', id: 'art1', name: 'Renamed plan' })
+		expect(o.tabs).toHaveLength(2)
+		expect(o.activeId).toBe(artifactTabId)
+		// Focus moved and the viewer tab picked up the rename; the page tab kept its url.
+		expect(o.tabs.find((t) => t.id === artifactTabId)?.url).toBe(
+			artifactUrl('art1', 'Renamed plan')
+		)
+		expect(o.tabs.find((t) => t.id === pageTabId)?.url).toBe('/runs')
+	})
+
+	it('retargets the active tab in place to an artifact', () => {
+		const o = owner()
+		o.open(pageTarget)
+		const tabId = o.activeId
+		o.navigate(artifactTarget)
+		expect(o.tabs).toHaveLength(1)
+		expect(o.activeId).toBe(tabId)
+		expect(o.tabs[0].url).toBe(artifactUrl('art1', 'Plan'))
+	})
+
 	it('drops a stale friendly label when the tab is retargeted', () => {
 		const o = owner()
 		o.open(flowTarget)
