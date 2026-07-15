@@ -3,11 +3,11 @@
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import {
-		IS_APP_PUBLIC_CONTEXT_KEY,
 		type AppViewerContext,
 		type ComponentCustomCSS,
 		type RichConfigurations
 	} from '../../types'
+	import { getAppMarkupTrust } from '../../markupTrust'
 	import { initCss } from '../../utils'
 	import JobLoader from '$lib/components/JobLoader.svelte'
 	import type { Job } from '$lib/gen'
@@ -33,7 +33,7 @@
 		render
 	}: Props = $props()
 
-	const isAppPublic = getContext<boolean | undefined>(IS_APP_PUBLIC_CONTEXT_KEY)
+	const markupTrust = getAppMarkupTrust()
 	const { app, worldStore, workspace, appPath, isEditor } =
 		getContext<AppViewerContext>('AppViewerContext')
 
@@ -147,7 +147,7 @@
 			<DisplayResult
 				workspaceId={workspace}
 				{result}
-				trustedMarkup={!isAppPublic}
+				{markupTrust}
 				disableExpand={resolvedConfig?.hideDetails}
 				appPath={isEditor ? undefined : $appPath}
 				forceJson={resolvedConfig?.forceJson}

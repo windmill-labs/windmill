@@ -31,7 +31,7 @@
 	import { goto } from '$app/navigation'
 	import Login from '$lib/components/Login.svelte'
 	import { WINDMILL_RESERVED_QUERY_PARAMS } from '$lib/utils'
-	import { EMBED_NAV_CONTEXT_KEY, type EmbedNav } from '../types'
+	import { EMBED_NAV_CONTEXT_KEY, IS_APP_ISOLATED_CONTEXT_KEY, type EmbedNav } from '../types'
 
 	type EmbedToken = {
 		token?: string | null
@@ -69,6 +69,12 @@
 
 	const framed = BROWSER && window.parent !== window
 	const isViewer = BROWSER && page.url.searchParams.get(EMBED_PARAM) === '1' && framed
+
+	// Components that render author-authored markup read this to know they are on an
+	// opaque origin. `unsandboxed` is NOT usable for that: it stays true in viewer mode
+	// (initEmbedder only runs on the embedder), so it reads "unsandboxed" inside the
+	// very iframe that is the sandbox.
+	setContext(IS_APP_ISOLATED_CONTEXT_KEY, isViewer)
 
 	// ----------------------------- viewer mode -----------------------------
 	let viewerToken: string | undefined = $state(undefined)

@@ -47,6 +47,8 @@
 	import ResultStreamDisplay from './ResultStreamDisplay.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import DOMPurify from 'dompurify'
+	import MarkupApprovalGate from './MarkupApprovalGate.svelte'
+	import type { MarkupTrust } from './apps/markupTrust'
 
 	const TABLE_MAX_SIZE = 5000000
 	const DISPLAY_MAX_SIZE = 100000
@@ -86,11 +88,10 @@
 
 	interface Props {
 		result: any
-		/** Render `result.html` / `result.svg` verbatim instead of sanitizing it. Set only
-		 * by low-code app display components outside the public surfaces, where the app
-		 * author renders their own markup and dynamic svg/html must keep working. Job
-		 * results, previews and public apps leave this false. */
-		trustedMarkup?: boolean
+		/** How to treat `result.html` / `result.svg`. Defaults to sanitizing, which is
+		 * what every non-app caller wants. Low-code app display components pass
+		 * `getAppMarkupTrust()`. */
+		markupTrust?: MarkupTrust
 		filename?: string | undefined
 		disableExpand?: boolean
 		jobId?: string | undefined
@@ -115,7 +116,7 @@
 
 	let {
 		result,
-		trustedMarkup = false,
+		markupTrust = 'sanitize',
 		filename = undefined,
 		disableExpand = false,
 		jobId = undefined,
@@ -439,10 +440,11 @@
 
 	// An html/svg result is attacker-authored: any member can return one and a
 	// higher-privileged user may view it. Every `{@html}` of result markup must go
-	// through here, or it becomes stored XSS (GHSA-gh2j-49rx-4464).
+	// through here, or it becomes stored XSS (GHSA-gh2j-49rx-4464). `approval` renders
+	// verbatim too, so it must stay behind MarkupApprovalGate at the call site.
 	function renderResultMarkup(markup: string | { filename: string; content: string } | undefined) {
 		const str = contentOrRootString(markup) || ''
-		return trustedMarkup ? str : DOMPurify.sanitize(str)
+		return markupTrust === 'sanitize' ? DOMPurify.sanitize(str) : str
 	}
 
 	function handleArrayOfObjectsHeaders(json: any) {
@@ -702,7 +704,7 @@
 				<DisplayResult
 					{noControls}
 					result={res}
-					{trustedMarkup}
+					{markupTrust}
 					{filename}
 					{disableExpand}
 					{jobId}
@@ -801,8 +803,19 @@
 						headerOrder={getForcedColumnOrder(data)}
 					/>
 				{:else if !forceJson && resultKind === 'html'}
-					<!-- eslint-disable-next-line svelte/no-at-html-tags -->
-					<div class="h-full">{@html renderResultMarkup(result.html)}</div>
+					<div class="h-full">
+						{#if markupTrust === 'approval'}
+							<MarkupApprovalGate>
+								{#snippet children()}
+									<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+									{@html renderResultMarkup(result.html)}
+								{/snippet}
+							</MarkupApprovalGate>
+						{:else}
+							<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+							{@html renderResultMarkup(result.html)}
+						{/if}
+					</div>
 				{:else if !forceJson && resultKind === 'map'}
 					<div class="h-full" data-interactive>
 						<MapResult
@@ -836,8 +849,19 @@
 							href="data:image/svg+xml;charset=utf-8,{encodeURIComponent(svgMarkup)}">Download</a
 						>
 					</div>
-					<!-- eslint-disable-next-line svelte/no-at-html-tags -->
-					<div class="h-full overflow-auto">{@html renderResultMarkup(result.svg)}</div>
+					<div class="h-full overflow-auto">
+						{#if markupTrust === 'approval'}
+							<MarkupApprovalGate>
+								{#snippet children()}
+									<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+									{@html renderResultMarkup(result.svg)}
+								{/snippet}
+							</MarkupApprovalGate>
+						{:else}
+							<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+							{@html renderResultMarkup(result.svg)}
+						{/if}
+					</div>
 				{:else if !forceJson && resultKind === 'gif'}
 					<div class="h-full">
 						<img
@@ -1270,7 +1294,7 @@
 				<DisplayResult
 					{noControls}
 					{result}
-					{trustedMarkup}
+					{markupTrust}
 					{filename}
 					{jobId}
 					{nodeId}
