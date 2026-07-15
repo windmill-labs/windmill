@@ -17,10 +17,10 @@ vi.mock('./localDraftHints.svelte', () => ({
 	setLocalDraftHint: vi.fn(),
 	getLocalDraftHint: () => hints.value
 }))
-// `stripNewDraftFlag` now rewrites the URL through SvelteKit's router and
-// refreshes the session-switch's remembered nav route. Mock those so the strip
-// is observable via `window.location.href` (mirroring jsdom) and we can assert
-// the remembered route is kept in sync.
+// `stripNewDraftFlag` rewrites the URL through SvelteKit's router and
+// refreshes the session-switch's remembered nav route. Mock both so the strip
+// is observable via `window.location.href` (mirroring jsdom) and the
+// remembered-route refresh can be asserted.
 const rememberNavRoute = vi.hoisted(() => vi.fn())
 vi.mock('$app/navigation', () => ({
 	replaceState: (url: URL | string, _state: unknown) => {
