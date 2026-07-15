@@ -296,17 +296,13 @@ fn convert_content_to_assistant_format(content: &Option<OpenAIContent>) -> Vec<A
 
 /// Convert OpenAIMessage array to Responses API input items
 /// Following the same pattern as frontend openai-responses.ts:convertMessagesToResponsesInput
-///
-/// System messages are left out: they are lifted into the request's top-level
-/// `instructions` field, so echoing them here would send the same prompt twice.
 fn convert_messages_to_responses_input(messages: &[OpenAIMessage]) -> Vec<ResponsesApiInputItem> {
     let mut input = Vec::new();
 
     for m in messages {
         match m.role.as_str() {
-            "system" => {}
-            "user" => {
-                // User messages use input_text content type
+            "system" | "user" => {
+                // User/system messages use input_text content type
                 let content = convert_content_to_responses_format(&m.content);
                 if !content.is_empty() {
                     input.push(ResponsesApiInputItem::InputMessage {
@@ -375,11 +371,19 @@ impl OpenAIQueryBuilder {
         let prepared_messages =
             prepare_messages_for_api(args.messages, client, workspace_id).await?;
 
+        // Only the system prompt leading the conversation moves to `instructions`; echoing it in
+        // `input` as well would send it twice. This API accepts system messages anywhere in
+        // `input`, so any later one stays where the caller put it, position and content intact.
+        let leading_system = prepared_messages
+            .iter()
+            .take_while(|message| message.role == "system")
+            .count();
+        let instructions =
+            collect_system_prompt(&prepared_messages[..leading_system], args.system_prompt);
+
         // Convert full message history to Responses API input format
         // (following frontend pattern from openai-responses.ts)
-        let input_items = convert_messages_to_responses_input(&prepared_messages);
-
-        let instructions = collect_system_prompt(&prepared_messages, args.system_prompt);
+        let input_items = convert_messages_to_responses_input(&prepared_messages[leading_system..]);
 
         // Build tools array using typed structs
         let mut tools: Vec<ResponsesApiTool> = Vec::new();
@@ -651,6 +655,29 @@ mod tests {
         assert!(input.iter().all(|item| item["role"] != "system"));
         assert_eq!(input.len(), 1);
         assert_eq!(input[0]["role"], "user");
+    }
+
+    /// This API takes system messages anywhere in `input`, so a late steering message keeps
+    /// its position instead of being hoisted into `instructions`.
+    #[tokio::test]
+    async fn keeps_a_mid_conversation_system_message_in_place() {
+        let messages = vec![
+            message("system", SYSTEM_PROMPT),
+            message("user", "hi"),
+            message("system", "answer in one word"),
+            message("user", "and now?"),
+        ];
+
+        let body = build_text_body(&messages, Some(SYSTEM_PROMPT)).await;
+        let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert_eq!(request["instructions"], SYSTEM_PROMPT);
+        assert_eq!(body.matches(SYSTEM_PROMPT).count(), 1);
+
+        let input = request["input"].as_array().unwrap();
+        assert_eq!(input.len(), 3);
+        assert_eq!(input[1]["role"], "system");
+        assert_eq!(input[1]["content"][0]["text"], "answer in one word");
     }
 
     /// Manual-memory conversations supply their own system messages without a

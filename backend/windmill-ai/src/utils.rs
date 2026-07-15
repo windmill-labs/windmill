@@ -43,10 +43,11 @@ pub fn should_use_structured_output_tool(provider: &AIProvider, model: &str) -> 
 /// Every system message in `messages` is joined, since manual-memory conversations can carry
 /// system messages of their own alongside the one the caller prepends from `system_prompt`.
 /// `system_prompt` is a fallback used only when `messages` holds no system message, for callers
-/// that pass it without prepending it. Only text content survives: a system message carrying
-/// images or files keeps its text and drops the rest, matching Bedrock (see `ai_bedrock.rs`).
-/// Such providers must in turn leave system messages out of the message list they send, or the
-/// same prompt goes over the wire twice.
+/// that pass it without prepending it. Only text content survives, so pass just the messages the
+/// provider cannot render inline: Anthropic's API takes no system role at all and hands over
+/// everything, while OpenAI's accepts system messages inside `input` and hands over only the
+/// leading ones. Whatever is passed here must be left out of the message list the provider
+/// sends, or the same prompt goes over the wire twice.
 pub fn collect_system_prompt(
     messages: &[OpenAIMessage],
     system_prompt: Option<&str>,
