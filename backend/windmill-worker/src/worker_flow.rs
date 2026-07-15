@@ -2864,11 +2864,15 @@ pub async fn handle_flow(
         .with_context(|| "Unable to parse flow status")?;
 
     let schedule_path = flow_job.schedule_path();
+    // Restarted runs keep their schedule trigger metadata but are not genuine
+    // schedule occurrences: they must not arm the next cron tick (the original
+    // occurrence already did, and a restart must not resurrect a cancelled one).
     if !flow_job.is_flow_step()
         && status.retry.fail_count == 0
         && schedule_path.is_some()
         && flow_job.runnable_path.is_some()
         && status.step == 0
+        && status.restarted_from.is_none()
     {
         let schedule_path = schedule_path.as_ref().unwrap();
 
@@ -3223,7 +3227,13 @@ async fn push_next_flow_job(
     }
 
     if matches!(step, Step::Step { idx: 0, .. }) {
-        if !flow_job.is_flow_step() && flow_job.schedule_path().is_some() {
+        // no_flow_overlap only skips genuine schedule occurrences: a restarted
+        // run carries the schedule trigger metadata but was explicitly
+        // requested by a user, so it always runs.
+        if !flow_job.is_flow_step()
+            && flow_job.schedule_path().is_some()
+            && status.restarted_from.is_none()
+        {
             let schedule_path = flow_job.schedule_path();
             let no_flow_overlap = sqlx::query_scalar!(
                 "SELECT no_flow_overlap FROM schedule WHERE path = $1 AND workspace_id = $2",

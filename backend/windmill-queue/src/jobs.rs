@@ -1301,7 +1301,9 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 // terminal attempt can drive handlers) but `parent_job` is set —
                 // they must not each push the next cron tick (the root already
                 // did), so gate next-tick on a top-level (`parent_job IS NULL`)
-                // occurrence.
+                // occurrence. Restarted runs (`restarted_from` set) also carry
+                // the trigger but are not occurrences either — they must not
+                // arm the next tick.
                 let schedule_next_tick = completed_job.parent_job.is_none()
                     && (!completed_job.is_flow()
                         || from_cache
@@ -1309,6 +1311,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                             && sqlx::query_scalar!(
                                 "SELECT
                                 flow_status->>'step' = '0'
+                                AND flow_status->'restarted_from' IS NULL
                                 AND (
                                     jsonb_array_length(flow_status->'modules') = 0
                                     OR flow_status->'modules'->0->>'type' = 'WaitingForPriorSteps'
