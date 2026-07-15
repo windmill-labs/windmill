@@ -1327,6 +1327,27 @@
 		'pre-wrap': 'pre'
 	}
 
+	// getClientRects yields a rect per contained node, not per line box, so the
+	// count alone says nothing: `a <b>b</b>` is two rects on one line. Rects
+	// sharing a line overlap vertically, and `top` alone would split a line that
+	// mixes font sizes — so count vertically disjoint runs.
+	function countLines(range: Range): number {
+		const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0 || r.height > 0)
+		if (rects.length === 0) return 0
+		rects.sort((a, b) => a.top - b.top)
+		let lines = 1
+		let lineBottom = rects[0].bottom
+		for (const r of rects) {
+			if (r.top >= lineBottom) {
+				lines++
+				lineBottom = r.bottom
+			} else {
+				lineBottom = Math.max(lineBottom, r.bottom)
+			}
+		}
+		return lines
+	}
+
 	// A box that shrink-wraps its text can have zero sub-pixel slack (a 208.59px box
 	// holding a 208.59px text run). The capture re-runs layout in whole pixels, so
 	// the text no longer fits, wraps, and is then clipped out of the box entirely.
@@ -1352,8 +1373,7 @@
 			if (!replacement) continue
 			const range = doc.createRange()
 			range.selectNodeContents(el)
-			// more than one line box means it already wraps — leave it alone
-			if (range.getClientRects().length !== 1) continue
+			if (countLines(range) !== 1) continue // already wraps — leave its breaks alone
 			pending.push([el, replacement])
 		}
 		const restores = pending.map(([el, replacement]) => {
