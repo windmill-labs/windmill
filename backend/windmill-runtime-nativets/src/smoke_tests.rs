@@ -57,6 +57,34 @@ export async function main(x: number): Promise<number> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_missing_optional_arg_uses_default() {
+    // A missing optional arg must arrive as `undefined`, not `null`, so the
+    // parameter default applies. With `null`, slice(0, null) -> [] -> length 0.
+    let ts = r#"
+export async function main(limit = 50): Promise<number> {
+    return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].slice(0, limit).length;
+}
+"#;
+    let r = run_ts(ts, &["limit"], serde_json::json!({})).await;
+    assert_eq!(unwrap_value(&r), serde_json::json!(10));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_explicit_null_arg_is_preserved() {
+    // An explicitly-provided JSON null must stay null (distinct from a missing
+    // arg), so the default does NOT apply.
+    let ts = r#"
+export async function main(x: number | null = 7): Promise<string> {
+    return x === null ? "null" : String(x);
+}
+"#;
+    let r = run_ts(ts, &["x"], serde_json::json!({ "x": null })).await;
+    assert_eq!(unwrap_value(&r), serde_json::json!("null"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
 async fn smoke_transpile_enum_and_union() {
     // Enums + discriminated union + as-cast exercise the swc_ecma_ast +
     // swc_ecma_parser TS-syntax paths the bare value tests don't.
@@ -228,6 +256,62 @@ export async function main(i: number): Promise<number> {
     got.sort();
     let expected: Vec<i64> = (0..N).map(|i| i * 10).collect();
     assert_eq!(got, expected);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_web_crypto() {
+    // deno_crypto surface: the Web Crypto globals (`crypto`, `crypto.subtle`)
+    // that bring nativets to parity with the bun runner. Covers all three
+    // op families: getRandomValues (sync fill), randomUUID (RNG + formatting),
+    // and subtle.digest (async op returning an ArrayBuffer). The SHA-256 of
+    // "abc" is a fixed NIST vector, so a broken digest op fails the assert
+    // rather than silently returning garbage.
+    let ts = r#"
+export async function main(): Promise<{ uuid: string; nonzero: boolean; sha256: string }> {
+    const uuid = crypto.randomUUID();
+
+    const buf = new Uint8Array(16);
+    crypto.getRandomValues(buf);
+    // A 16-byte CSPRNG fill returning all zeros is astronomically unlikely;
+    // a no-op/stub getRandomValues would leave the array zeroed.
+    const nonzero = buf.some((b) => b !== 0);
+
+    // "abc" as raw bytes — TextEncoder isn't wired into the nativets global,
+    // and this test targets deno_crypto, not deno_web's text encoding.
+    const data = new Uint8Array([0x61, 0x62, 0x63]);
+    const digest = await crypto.subtle.digest("SHA-256", data);
+    const sha256 = Array.from(new Uint8Array(digest))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+
+    return { uuid, nonzero, sha256 };
+}
+"#;
+    let r = run_ts(ts, &[], serde_json::json!({})).await;
+    let v = unwrap_value(&r);
+
+    // UUIDv4 shape: 8-4-4-4-12 hex, version nibble 4, variant nibble 8/9/a/b.
+    let uuid = v.get("uuid").and_then(|x| x.as_str()).unwrap_or("");
+    let re =
+        regex::Regex::new(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+            .unwrap();
+    assert!(
+        re.is_match(uuid),
+        "randomUUID did not match UUIDv4 shape: {uuid:?}"
+    );
+
+    assert_eq!(
+        v.get("nonzero"),
+        Some(&serde_json::json!(true)),
+        "getRandomValues left the buffer all zeros",
+    );
+
+    // Known SHA-256("abc") vector.
+    assert_eq!(
+        v.get("sha256").and_then(|x| x.as_str()),
+        Some("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"),
+    );
 }
 
 // -----------------------------------------------------------------------------
