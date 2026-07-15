@@ -9,6 +9,7 @@
 		type NewScript,
 		ConcurrencyGroupsService,
 		MetricsService,
+		WorkerService,
 		type ScriptArgs
 	} from '$lib/gen'
 	import {
@@ -16,6 +17,7 @@
 		computeSharableHash,
 		copyToClipboard,
 		encodeState,
+		findMatchingCustomTag,
 		getHubFlowIdFromPath,
 		isHubFlowPath,
 		isFlowPreview,
@@ -364,6 +366,31 @@
 
 	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
 
+	// A job's stored tag is usually backend-derived (language/flow default, possibly
+	// workspace-suffixed) and would be rejected by the CUSTOM_TAGS check if passed back
+	// explicitly. Only carry it into a re-run when it maps back to a custom-tag entry —
+	// the set the override dropdown offers — using the raw (possibly templated) entry.
+	// `args` must be the run's full args (job.args may be truncated for large runs), so
+	// that `$args[...]` entries resolve to the same value they had at push time.
+	let customTags: string[] | undefined = undefined
+	async function getRerunTagOverride(
+		args: Record<string, any> | undefined
+	): Promise<string | undefined> {
+		const tag = job?.tag
+		if (!tag) {
+			return undefined
+		}
+		try {
+			customTags ??= await WorkerService.getCustomTagsForWorkspace({
+				workspace: $workspaceStore!
+			})
+		} catch (e) {
+			console.error('Could not load custom tags, not carrying tag over for re-run', e)
+			return undefined
+		}
+		return findMatchingCustomTag(tag, customTags, $workspaceStore!, args)
+	}
+
 	let runImmediatelyLoading = $state(false)
 	async function runImmediately() {
 		runImmediatelyLoading = true
@@ -379,7 +406,7 @@
 			const commonArgs = {
 				workspace: $workspaceStore!,
 				requestBody: args,
-				tag: job?.tag
+				tag: await getRerunTagOverride(args)
 			}
 			if (job?.job_kind == 'script' || job?.job_kind == 'script_hub' || job?.job_kind == 'flow') {
 				let id
@@ -723,8 +750,10 @@
 			{/if}
 			{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
 				<Button
-					on:click|once={() => {
-						goto(viewHref + `#${computeSharableHash(job?.args, job?.tag)}`)
+					on:click|once={async () => {
+						goto(
+							viewHref + `#${computeSharableHash(job?.args, await getRerunTagOverride(job?.args))}`
+						)
 					}}
 					unifiedSize="md"
 					variant="default"

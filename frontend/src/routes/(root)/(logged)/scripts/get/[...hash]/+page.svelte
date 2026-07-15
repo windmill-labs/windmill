@@ -16,7 +16,8 @@
 		copyToClipboard,
 		urlParamsToObject,
 		extractTagFromSharableHash,
-		isDynamicTag
+		isDynamicTag,
+		isTagTemplate
 	} from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -263,9 +264,10 @@
 				return
 			}
 		}
-		// A carried tag is the previous run's resolved value; when the script's tag is
-		// dynamic, drop it so the backend re-resolves from the (possibly edited) args
-		if (carriedTag && isDynamicTag(script.tag)) {
+		// A carried non-template tag is a pinned value; when the script's tag is dynamic,
+		// drop it so the backend re-resolves from the (possibly edited) args. A carried
+		// template ($workspace/$args) re-resolves at push time, so it is kept as-is.
+		if (carriedTag && isDynamicTag(script.tag) && !isTagTemplate(carriedTag)) {
 			if (overrideTag === carriedTag) {
 				overrideTag = undefined
 				overrideTagNote = `tag ${script.tag} is resolved at run time, so the previous run's tag ${carriedTag} was not applied`
