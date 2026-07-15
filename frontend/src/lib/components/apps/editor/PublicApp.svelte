@@ -51,8 +51,9 @@
 	// Use workspace from props or from app.workspace_id (for custom path responses)
 	let effectiveWorkspace = $derived(workspace ?? app?.workspace_id)
 
-	// Runnable-authored html/svg results are sanitized on the public surfaces
-	// (untrusted distribution); the in-workspace viewer renders them verbatim.
+	// On the public surfaces (untrusted distribution) runnable-authored html/svg needs
+	// the viewer's approval before it renders, unless the app sandbox isolates it. The
+	// in-workspace viewer renders it verbatim. See getAppMarkupTrust.
 	setContext(IS_APP_PUBLIC_CONTEXT_KEY, !inWorkspace)
 
 	// WIN-2006: inside the opaque viewer iframe, navigations to other routes

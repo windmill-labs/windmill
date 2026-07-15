@@ -384,12 +384,6 @@ export type EditorBreakpoint = 'sm' | 'lg'
 
 export const IS_APP_PUBLIC_CONTEXT_KEY = 'isAppPublicContext' as const
 
-// Set by PublicAppFrame: true only inside the opaque viewer iframe, i.e. when the
-// app runs on an opaque origin with no access to the viewer's Windmill session.
-// A sandboxed low-code app only ever renders there (the embedder renders the iframe,
-// never the app), so this doubles as "this app is sandbox-isolated".
-export const IS_APP_ISOLATED_CONTEXT_KEY = 'isAppIsolatedContext' as const
-
 // Set by PublicAppFrame in opaque-viewer mode (WIN-2006). Lets the app relay
 // top-level navigations (e.g. navbar links to another app) to the embedder,
 // since navigating inside the opaque iframe would load the SPA cookieless.
