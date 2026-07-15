@@ -1399,6 +1399,14 @@
 		if (!previewIframe || !previewIframeLoaded || !target) {
 			throw new Error('App preview is not ready')
 		}
+		// Collapsing the preview leaves the iframe mounted and populated at zero
+		// width, which passes every check above and then fails inside the rasteriser
+		// as an opaque decode error. Name the cause so the agent can act on it.
+		if (!target.clientWidth || !target.clientHeight) {
+			throw new Error(
+				'The app preview is collapsed, so there is nothing to capture. Ask the user to expand the preview panel, then try again.'
+			)
+		}
 		const { domToPng } = await import('modern-screenshot')
 		const restore = pinSingleLineText(target)
 		try {

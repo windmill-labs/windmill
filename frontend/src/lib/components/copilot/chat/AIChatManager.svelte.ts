@@ -44,7 +44,7 @@ import { loadApiTools } from './api/apiTools'
 import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
-import { workspaceAIClients, getNonStreamingCompletion } from '../lib'
+import { workspaceAIClients, getNonStreamingCompletion, modelSupportsVision } from '../lib'
 import { getKnownModelContextWindow } from '../modelConfig'
 import {
 	getCompactionSummaryPrompt,
@@ -2035,8 +2035,19 @@ export class AIChatManager {
 		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
 		const pastes = options.pastes ?? []
 		// Images ride only on GLOBAL-mode (global chat + sessions) turns; other modes
-		// don't surface the attach UI, so drop any that leaked in.
-		const images = this.mode === AIMode.GLOBAL ? (options.images ?? []) : []
+		// don't surface the attach UI, so drop any that leaked in. The vision check is
+		// repeated here, not just at attach time: the model can be switched to a
+		// text-only one after attaching, and sending the image then fails the turn.
+		const requestedImages = this.mode === AIMode.GLOBAL ? (options.images ?? []) : []
+		const sendModel = tryGetCurrentModel()
+		const modelIsBlind = !!sendModel && !modelSupportsVision(sendModel.provider, sendModel.model)
+		if (requestedImages.length > 0 && modelIsBlind) {
+			sendUserToast(
+				`${sendModel.model} can't read images; sending without the ${requestedImages.length} attached image(s).`,
+				true
+			)
+		}
+		const images = modelIsBlind ? [] : requestedImages
 		const optimisticIndex = this.displayMessages.length
 		this.loading = true
 		// Create the abort controller before the (possibly slow) beforeSend pre-flight,

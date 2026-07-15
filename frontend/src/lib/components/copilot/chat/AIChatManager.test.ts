@@ -22,6 +22,9 @@ vi.mock('$app/paths', () => ({ base: '', assets: '' }))
 const mocks = vi.hoisted(() => ({
 	getCurrentModel: vi.fn(),
 	tryGetCurrentModel: vi.fn(),
+	// permissive by default, matching the real best-effort gate; the vision tests
+	// override it for known text-only models
+	modelSupportsVision: vi.fn(() => true),
 	isWebSearchEnabledForProvider: vi.fn(),
 	logAiChat: vi.fn(),
 	sendUserToast: vi.fn(),
@@ -99,7 +102,8 @@ vi.mock('../lib', () => ({
 		getOpenaiClient: mocks.getOpenaiClient,
 		getAnthropicClient: mocks.getAnthropicClient
 	},
-	getNonStreamingCompletion: mocks.getNonStreamingCompletion
+	getNonStreamingCompletion: mocks.getNonStreamingCompletion,
+	modelSupportsVision: mocks.modelSupportsVision
 }))
 
 vi.mock('./api/apiTools', () => ({
@@ -519,6 +523,26 @@ describe('AIChatManager queued messages', () => {
 		)
 		expect(autoSent && 'images' in autoSent ? autoSent.images : undefined).toEqual([img('a')])
 		expect(manager.queuedImages).toEqual([])
+	})
+
+	// Attaching is refused on a text-only model, but the model can be switched
+	// after attaching (or a screenshot buffered), and sending the image then fails
+	// the whole turn. The send path re-checks rather than trusting the attach gate.
+	it('drops images when the model in use cannot read them', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		mocks.modelSupportsVision.mockReturnValue(false)
+
+		await manager.sendRequest({ instructions: 'look', images: [img('a')] })
+
+		const bubble = manager.displayMessages.find((m) => m.role === 'user')
+		expect(bubble && 'images' in bubble ? bubble.images : undefined).toBeUndefined()
+		expect(mocks.sendUserToast).toHaveBeenCalledWith(
+			expect.stringContaining("can't read images"),
+			true
+		)
+		mocks.modelSupportsVision.mockReturnValue(true)
 	})
 
 	it('restores queued images to the input on dequeue', () => {

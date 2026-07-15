@@ -52,6 +52,8 @@ import {
 	THUMBNAIL_IMAGE_EDGE,
 	type AttachedImage
 } from '../imageUtils'
+import { modelSupportsVision } from '../../lib'
+import { tryGetCurrentModel } from '$lib/aiStore'
 import {
 	applyEditableFlowJsonToFlow,
 	buildEditableFlowJson,
@@ -930,7 +932,7 @@ Rules:
 - Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty or not-yet-created folder is fine (create_folder first if needed, then open it). Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.
 - When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
 - get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.
-- To visually verify a raw app's UI, call take_screenshot to capture the live preview as an image you can see. Use it after UI edits to check layout, styling, and content, or when the user reports something looks wrong. It needs the raw app preview open (open_preview kind="raw_app").
+- When the user raises how a raw app looks (something is off, or they want the design or layout improved), call take_screenshot to see what they are looking at before changing anything. Reach for it when the request is about appearance, not to review your own edits, which you can read back from the code. It needs the raw app preview open (open_preview kind="raw_app").
 - open_page opens its page as a tab in the side-panel preview next to the chat — the only way to show one of these pages there (open_preview only handles editable items). Changing filters on a page already open updates that same tab; only pass new_tab when the user explicitly asks for a separate tab.`
 			: ''
 	}
@@ -2896,10 +2898,22 @@ export const globalTools: Tool<{}>[] = [
 			'take_screenshot',
 			// Keep this short: every global session iteration re-sends it. How to read
 			// the result belongs on the result, where only a real capture pays for it.
-			'Capture a screenshot of the raw app preview currently open in this AI session and attach it as an image so you can visually verify the rendered UI. Use this after making UI changes to check layout, styling, and content. The image is attached in the following message. Requires the raw app preview open (open_preview kind="raw_app").'
+			'Capture a screenshot of the raw app preview currently open in this AI session and attach it as an image so you can see the rendered UI. Use it when the user raises how the app looks, whether reporting a problem or asking for the design improved, rather than to check your own edits. The image is attached in the following message. Requires the raw app preview open (open_preview kind="raw_app").'
 		),
 		showDetails: true,
 		fn: async (ctx) => {
+			// A known text-only model would reject the follow-up image message and fail
+			// the turn, so refuse before capturing rather than buffer an image it can
+			// never read. The model is re-read here because it can change between turns.
+			const model = tryGetCurrentModel()
+			if (model && !modelSupportsVision(model.provider, model.model)) {
+				const cannotSee = `${model.model} cannot read images, so a screenshot would be discarded. Ask the user to describe what looks wrong, or to switch to a model that supports images.`
+				ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+					content: `${model.model} cannot read images`,
+					error: cannotSee
+				})
+				return cannotSee
+			}
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Capturing screenshot...' })
 			const result = await getSessionScreenshot(sessionIdFromCtx(ctx))
 			if (!result.dataUrl) {
