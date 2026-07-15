@@ -2,8 +2,9 @@
 	import AppAvailableContextList from './AppAvailableContextList.svelte'
 	import ContextElementBadge from './ContextElementBadge.svelte'
 	import ContextTextarea from './ContextTextarea.svelte'
+	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
 	import autosize from '$lib/autosize'
-	import type { ContextElement } from './context'
+	import type { AppDomSelectorElement, ContextElement } from './context'
 	import { AIMode } from './AIChatManager.svelte'
 	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
 	import { formatMention } from './mention'
@@ -143,6 +144,10 @@
 		aiChatManager.mode === AIMode.SCRIPT ||
 			aiChatManager.mode === AIMode.FLOW ||
 			aiChatManager.mode === AIMode.GLOBAL
+	)
+
+	const domSelectorChips = $derived(
+		(selectedContext ?? []).filter((c): c is AppDomSelectorElement => c.type === 'app_dom_selector')
 	)
 
 	/** Append `@title` to the textarea so the button-picker path stays in
@@ -558,7 +563,7 @@
 
 {#snippet contextPickerRow()}
 	{#if selectedContext.length > 0}
-		<div class="flex flex-row flex-wrap items-center gap-1 mb-1">
+		<div class="flex flex-row flex-wrap items-center gap-1 px-2.5 pt-2">
 			{#each selectedContext as element (element.type + '-' + element.title)}
 				<ContextElementBadge
 					contextElement={element}
@@ -568,6 +573,26 @@
 							(c) => c.type !== element.type || c.title !== element.title
 						)
 						removeMention(element.title)
+					}}
+				/>
+			{/each}
+		</div>
+	{/if}
+{/snippet}
+
+<!-- DOM selector chips (raw-app inspector picks) always show — even in GLOBAL/
+     session mode where the general context picker row is hidden (showContext=false). -->
+{#snippet domSelectorChipRow()}
+	{#if domSelectorChips.length > 0}
+		<div class="flex flex-row flex-wrap items-center gap-1 px-2.5 pt-2">
+			{#each domSelectorChips as element (element.selector)}
+				<ContextElementBadge
+					contextElement={element}
+					deletable
+					onDelete={() => {
+						selectedContext = selectedContext?.filter(
+							(c) => !(c.type === 'app_dom_selector' && c.selector === element.selector)
+						)
 					}}
 				/>
 			{/each}
@@ -587,9 +612,6 @@
 	}}
 >
 	{#if isContextEnabledMode}
-		{#if showContext}
-			{@render contextPickerRow()}
-		{/if}
 		<div class="relative">
 			<ContextTextarea
 				bind:this={contextTextareaComponent}
@@ -612,7 +634,20 @@
 				}}
 				{disabled}
 				{onKeyDown}
-			/>
+			>
+				{#snippet leading()}
+					{#if aiChatManager.mode === AIMode.GLOBAL}
+						<div class="px-2.5 empty:hidden">
+							<AttachedFilesBar />
+						</div>
+					{/if}
+					{#if showContext}
+						{@render contextPickerRow()}
+					{:else}
+						{@render domSelectorChipRow()}
+					{/if}
+				{/snippet}
+			</ContextTextarea>
 			{#if !bottomRightSnippet}
 				<div class="absolute bottom-1 right-1">
 					{@render sendStopButton()}

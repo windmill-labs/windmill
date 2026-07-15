@@ -25,6 +25,7 @@
 		type RawAppRunSummary,
 		type RawAppRunsProvider
 	} from './utils'
+	import { runDomQueryOnHtml, type RawAppDomQuery, type RawAppDomRequester } from './rawAppDom'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import RawAppSidebar from './RawAppSidebar.svelte'
 	import type { Modules } from './RawAppModules.svelte'
@@ -125,6 +126,17 @@
 		onOpenOthersDrafts?: () => void
 		onRuntimeLogRequester?: (requester: RawAppRuntimeLogRequester | undefined) => void
 		onRunsProvider?: (provider: RawAppRunsProvider | undefined) => void
+		// Session preview only: expose a live DOM query requester (search/read the
+		// rendered preview by CSS selector) and forward inspector element picks so
+		// they can be attached to the session chat as selector context chips.
+		onDomRequester?: (requester: RawAppDomRequester | undefined) => void
+		// `additive` (Shift held) adds to the selection; otherwise it replaces it.
+		onInspectorSelect?: (info: InspectorElementInfo, additive: boolean) => void
+		// Session preview only: the chat's current DOM-selector chips (source of
+		// truth). Pushed into the preview so it renders one highlight per selector.
+		selectedDomSelectors?: string[]
+		onInspectorDeselect?: (selector: string) => void
+		onInspectorClearAll?: () => void
 		// Restoring an older deployment from the history drawer. A callback prop
 		// (not `on:restore` forwarding): forwarding a `createEventDispatcher`
 		// event up through these runes-mode components silently drops it.
@@ -166,6 +178,11 @@
 		onOpenOthersDrafts,
 		onRuntimeLogRequester = undefined,
 		onRunsProvider = undefined,
+		onDomRequester = undefined,
+		onInspectorSelect = undefined,
+		selectedDomSelectors = [],
+		onInspectorDeselect = undefined,
+		onInspectorClearAll = undefined,
 		onRestore,
 		onSavedNewAppPath,
 		condensedHeader = false
@@ -1112,11 +1129,24 @@
 		// Inspector events come exclusively from the preview iframe.
 		if (fromPreview && e.data.type === 'inspectorSelect') {
 			inspectorElement = e.data.element as InspectorElementInfo
-			inspectorEnabled = false
+			// Session preview: forward the pick so it can be attached to the chat as a
+			// selector context chip (the app-mode SelectedContext path is separate).
+			// App mode picks one element then exits; the session stays on to keep
+			// picking (the chip list, not the harness, holds the selection). Shift
+			// held → add to the selection; a plain click replaces it.
+			if (onInspectorSelect) onInspectorSelect(inspectorElement, !!e.data.additive)
+			else inspectorEnabled = false
+			return
+		}
+		if (fromPreview && e.data.type === 'inspectorDeselect') {
+			// User clicked × on a selected overlay in the preview — drop that chip.
+			if (typeof e.data.selector === 'string') onInspectorDeselect?.(e.data.selector)
 			return
 		}
 		if (fromPreview && e.data.type === 'inspectorClear') {
 			inspectorElement = undefined
+			// A rebuild invalidates the selection — clear all session chips.
+			onInspectorClearAll?.()
 			return
 		}
 
@@ -1298,6 +1328,52 @@
 		})
 	}
 
+	// Live DOM inspection for the session chat. Same-origin: the preview iframe is a
+	// same-origin document (see the load listener below that reads its contentWindow),
+	// so we read `contentDocument` directly — no postMessage, no ui_builder change. The
+	// element is re-read on every call, so the model always sees the current render.
+	const requestDomQuery: RawAppDomRequester = async (query: RawAppDomQuery) => {
+		const doc = previewIframe?.contentDocument
+		if (!doc || !previewIframeLoaded) return undefined
+		const selector = query.selector?.trim()
+		let el: Element | null
+		let matchCount: number
+		if (selector) {
+			let matches: NodeListOf<Element>
+			try {
+				matches = doc.querySelectorAll(selector)
+			} catch (e) {
+				return {
+					text: `Invalid CSS selector "${selector}": ${e instanceof Error ? e.message : String(e)}`
+				}
+			}
+			matchCount = matches.length
+			el = matches[0] ?? null
+		} else {
+			el = doc.body
+			matchCount = el ? 1 : 0
+		}
+		if (!el) {
+			return {
+				text: `No element matches selector "${selector}". It may not be rendered yet, or the selector is wrong. Try a broader selector or omit it to read the whole page.`
+			}
+		}
+		// Strip the inspector's own artifacts so the model never sees them: the
+		// label pills it injects into <body>, and the outline classes it adds to
+		// app elements (highlights are element outlines, not overlay nodes).
+		const clone = el.cloneNode(true) as Element
+		clone.querySelectorAll('.inspector-label').forEach((n) => n.remove())
+		clone
+			.querySelectorAll('.inspector-hover, .inspector-picked')
+			.forEach((n) => n.classList.remove('inspector-hover', 'inspector-picked'))
+		const text = await runDomQueryOnHtml(clone.outerHTML, query, {
+			selector: selector ?? 'body',
+			tagName: el.tagName.toLowerCase(),
+			matchCount
+		})
+		return { text }
+	}
+
 	const getRuns: RawAppRunsProvider = () => {
 		const out: RawAppRunSummary[] = []
 		for (const id of jobs) {
@@ -1319,9 +1395,11 @@
 	onMount(() => {
 		onRuntimeLogRequester?.(requestRuntimeLogs)
 		onRunsProvider?.(getRuns)
+		onDomRequester?.(requestDomQuery)
 		return () => {
 			onRuntimeLogRequester?.(undefined)
 			onRunsProvider?.(undefined)
+			onDomRequester?.(undefined)
 			for (const requestId of Array.from(pendingRuntimeLogReqs.keys()))
 				resolvePendingRuntimeLogRequest(requestId, undefined)
 		}
@@ -1385,6 +1463,18 @@
 		// Match VS Code's editor font size to Windmill's text-xs.
 		if (iframe && iframeLoaded) {
 			iframe.contentWindow?.postMessage({ type: 'setFontSize', px: editorFontSize }, '*')
+		}
+	})
+	$effect(() => {
+		// Push the chat's DOM-selector chips into the preview (source of truth):
+		// the harness renders one highlight per selector. Re-posts on every
+		// selection change and on preview (re)load.
+		const selectors = selectedDomSelectors
+		if (previewIframe && previewIframeLoaded) {
+			previewIframe.contentWindow?.postMessage(
+				{ type: 'inspectorSetSelection', selectors: [...selectors] },
+				'*'
+			)
 		}
 	})
 	$effect(() => {

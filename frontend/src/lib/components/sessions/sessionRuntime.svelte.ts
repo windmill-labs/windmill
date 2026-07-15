@@ -59,6 +59,7 @@ import {
 	setClosePreviewTabsHandler,
 	setGetPreviewStatusHandler,
 	setGetRuntimeLogsHandler,
+	setGetDomHandler,
 	setListAppRunsHandler,
 	setOpenPagePreviewHandler,
 	setOpenPreviewHandler
@@ -71,6 +72,11 @@ import {
 	type RawAppRunSummary,
 	type RawAppRunsProvider
 } from '$lib/components/raw_apps/utils'
+import type {
+	RawAppDomQuery,
+	RawAppDomRequester,
+	RawAppDomResult
+} from '$lib/components/raw_apps/rawAppDom'
 import { getNonStreamingMetadataCompletion } from '$lib/components/copilot/lib'
 import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
@@ -172,6 +178,8 @@ export interface SessionRuntime {
 	): Promise<void>
 	setRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined): void
 	requestRuntimeLogs(limit: number): Promise<RawAppRuntimeLogEntry[] | undefined>
+	setDomRequester(requester: RawAppDomRequester | undefined): void
+	requestDom(query: RawAppDomQuery): Promise<RawAppDomResult | undefined>
 	setAppRunsProvider(provider: RawAppRunsProvider | undefined): void
 	getAppRuns(): RawAppRunSummary[] | undefined
 	// Discard the local draft + force-reload the editor, so the preview matches
@@ -432,6 +440,7 @@ function createRuntime(session: Session): SessionRuntime {
 	const pipelineEditorState = new PipelineEditorState()
 
 	let runtimeLogRequester: RawAppRuntimeLogRequester | undefined = undefined
+	let domRequester: RawAppDomRequester | undefined = undefined
 	let appRunsProvider: RawAppRunsProvider | undefined = undefined
 
 	return {
@@ -757,6 +766,12 @@ function createRuntime(session: Session): SessionRuntime {
 		async requestRuntimeLogs(limit) {
 			return runtimeLogRequester ? runtimeLogRequester(limit) : undefined
 		},
+		setDomRequester(requester) {
+			domRequester = requester
+		},
+		async requestDom(query) {
+			return domRequester ? domRequester(query) : undefined
+		},
 		setAppRunsProvider(provider) {
 			appRunsProvider = provider
 		},
@@ -996,6 +1011,33 @@ setGetRuntimeLogsHandler(async ({ sessionId: callerSessionId, limit }) => {
 		aiResult: formatRuntimeLogsForChat(limited),
 		uiMessage: `Read runtime logs`,
 		toolResult: formatRuntimeLogsForChat(limited)
+	}
+})
+
+setGetDomHandler(async ({ sessionId: callerSessionId, query }) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
+	const runtime = sessionId ? runtimes.get(sessionId) : undefined
+	if (!runtime) {
+		return {
+			aiResult:
+				'Error: search_dom and read_dom are only available inside an AI session. Tell the user the rendered DOM can only be read from a session preview, or switch to a session and open the raw app preview.',
+			uiMessage: 'DOM unavailable',
+			toolResult: 'DOM unavailable'
+		}
+	}
+	const result = await runtime.requestDom(query)
+	if (result === undefined) {
+		return {
+			aiResult:
+				'No raw app preview is running for this session, so the DOM cannot be read. Next step: call open_preview with kind="raw_app" and the app path, wait for it to load, then call search_dom or read_dom again. The DOM is read live from the running preview.',
+			uiMessage: 'DOM unavailable',
+			toolResult: 'DOM unavailable'
+		}
+	}
+	return {
+		aiResult: result.text,
+		uiMessage: query.mode === 'search' ? 'Searched app DOM' : 'Read app DOM',
+		toolResult: result.text
 	}
 })
 

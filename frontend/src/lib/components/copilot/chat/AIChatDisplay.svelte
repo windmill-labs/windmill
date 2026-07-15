@@ -43,7 +43,6 @@
 	import JobsSegment from './JobsSegment.svelte'
 	import { getModifierKey } from '$lib/utils'
 	import type { SelectedContext } from './app/core'
-	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
 	import { type FileToAttach } from './files/attachedFiles.svelte'
 	import {
 		hasFileSystemAccess,
@@ -718,12 +717,10 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					<JobsSegment standalone />
 				</div>
 			{/if}
-			{#if aiChatManager.mode === AIMode.GLOBAL}
-				<!-- In sessions, file chips sit above the fork/draft bar (inputPreface). Selected
-				     context gets no badge row here — items already appear as highlighted @mentions
-				     in the input (deleting the mention deselects), so showContext={false} below. -->
-				<AttachedFilesBar />
-			{/if}
+			<!-- Attached-file chips and the selected-context / DOM-selector chips render
+			     INSIDE the input box now (AIChatInput → ContextTextarea `leading`), not as
+			     rows here. Selected context also still appears as highlighted @mentions in
+			     the input (deleting the mention deselects), so showContext={false} below. -->
 			{#if inputPreface}
 				{@render inputPreface()}
 			{/if}

@@ -2059,6 +2059,10 @@ export class AIChatManager {
 		let turnCommittedCleanly = false
 		try {
 			const oldSelectedContext = this.contextManager?.getSelectedContext() ?? []
+			// DOM selector chips are one-shot: they ride with this message (captured in
+			// oldSelectedContext) and render above it, but must not persist in the input
+			// for the next turn. Clearing here leaves oldSelectedContext untouched.
+			this.contextManager?.clearSelectedDomElements()
 			if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
 				this.contextManager?.updateContextOnRequest(options)
 			}

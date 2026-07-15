@@ -140,6 +140,11 @@
 				</div>
 				<ObjectViewer json={contextElement.columns} pureViewer collapseLevel={1} />
 			</div>
+		{:else if contextElement.type === 'app_dom_selector'}
+			<div class="p-2 max-w-96 text-xs overflow-auto">
+				<div class="text-tertiary mb-1">Selected preview element</div>
+				<div class="font-mono break-all">{contextElement.selector}</div>
+			</div>
 		{/if}
 	{/snippet}
 </Popover>

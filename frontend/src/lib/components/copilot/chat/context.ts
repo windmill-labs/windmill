@@ -7,7 +7,8 @@ import {
 	Code2,
 	TextSelect,
 	Table2,
-	LayoutDashboard
+	LayoutDashboard,
+	MousePointer2
 } from 'lucide-svelte'
 import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 import type { ScriptLang } from '$lib/gen/types.gen'
@@ -25,6 +26,7 @@ export const ContextIconMap = {
 	app_backend_runnable: Code2,
 	app_code_selection: TextSelect,
 	app_datatable: Table2,
+	app_dom_selector: MousePointer2,
 	workspace_script: Code2,
 	workspace_flow: BarsStaggered,
 	workspace_app: LayoutDashboard
@@ -142,6 +144,41 @@ export interface AppDatatableElement {
 	columns?: Record<string, string>
 }
 
+/**
+ * A DOM element the user picked in the raw-app preview inspector, attached to the
+ * chat as a lightweight selector reference. The element's HTML is NOT stored — the
+ * model reads it live via the `search_dom` / `read_dom` tools using `selector`.
+ */
+export interface AppDomSelectorElement {
+	type: 'app_dom_selector'
+	/** Full CSS selector path, passed verbatim to search_dom / read_dom. */
+	selector: string
+	/** Compact, space-free display label, e.g. "button#submit.primary". */
+	title: string
+	tagName: string
+	id?: string
+	className?: string
+}
+
+export function createAppDomSelectorElement(info: {
+	selector: string
+	tagName: string
+	id?: string
+	className?: string
+}): AppDomSelectorElement {
+	const tag = info.tagName.toLowerCase()
+	const firstClass = info.className?.trim().split(/\s+/)[0]
+	const title = `${tag}${info.id ? `#${info.id}` : ''}${firstClass ? `.${firstClass}` : ''}`
+	return {
+		type: 'app_dom_selector',
+		selector: info.selector,
+		title,
+		tagName: tag,
+		id: info.id,
+		className: info.className
+	}
+}
+
 export function createAppSelectedContext(options: SelectedContext = {}): SelectedContext {
 	return {
 		...options
@@ -252,6 +289,7 @@ export type ContextElement = (
 	| AppBackendRunnableElement
 	| AppCodeSelectionElement
 	| AppDatatableElement
+	| AppDomSelectorElement
 	| WorkspaceScriptElement
 	| WorkspaceFlowElement
 	| WorkspaceAppElement

@@ -255,6 +255,7 @@ import {
 	setDeployedInSessionHandler,
 	setGetPreviewStatusHandler,
 	setGetRuntimeLogsHandler,
+	setGetDomHandler,
 	setListAppRunsHandler,
 	setOpenPreviewHandler
 } from './core'
@@ -3568,6 +3569,62 @@ describe('prepareGlobalSystemMessage', () => {
 			expect(handler).toHaveBeenCalledWith({ sessionId: 'sess-runs', limit: 5 })
 		})
 	})
+
+	describe('search_dom / read_dom', () => {
+		afterEach(() => {
+			setGetDomHandler(undefined)
+		})
+
+		it('returns the session-only error when no handler is registered', async () => {
+			setGetDomHandler(undefined)
+			const searchResult = await callGlobalTool('search_dom', { pattern: 'foo' })
+			expect(searchResult).toContain(
+				'Error: search_dom and read_dom are only available inside an AI session.'
+			)
+			expect(searchResult).toContain('open the raw app preview')
+			const readResult = await callGlobalTool('read_dom', {})
+			expect(readResult).toContain(
+				'Error: search_dom and read_dom are only available inside an AI session.'
+			)
+		})
+
+		it('dispatches search_dom to the handler with a search query', async () => {
+			const handler = vi.fn(async () => ({
+				aiResult:
+					'Live DOM for selector "button": Found 1 matching line(s):\n3: <button>Go</button>',
+				uiMessage: 'Searched app DOM',
+				toolResult: 'match'
+			}))
+			setGetDomHandler(handler)
+			const result = await callGlobalTool(
+				'search_dom',
+				{ selector: 'button', pattern: 'Go', ignore_case: true },
+				toolCallbacks,
+				{ sessionId: 'sess-dom' }
+			)
+			expect(result).toContain('Found 1 matching line(s)')
+			expect(handler).toHaveBeenCalledWith({
+				sessionId: 'sess-dom',
+				query: { mode: 'search', selector: 'button', pattern: 'Go', ignoreCase: true }
+			})
+		})
+
+		it('dispatches read_dom to the handler with a read query (whole-page when no selector)', async () => {
+			const handler = vi.fn(async () => ({
+				aiResult: 'Live DOM for whole page (<body>): Showing lines 1-1 of 1.',
+				uiMessage: 'Read app DOM',
+				toolResult: 'dom'
+			}))
+			setGetDomHandler(handler)
+			await callGlobalTool('read_dom', { start_line: 2, end_line: 40 }, toolCallbacks, {
+				sessionId: 'sess-dom'
+			})
+			expect(handler).toHaveBeenCalledWith({
+				sessionId: 'sess-dom',
+				query: { mode: 'read', selector: undefined, startLine: 2, endLine: 40 }
+			})
+		})
+	})
 })
 
 describe('session-only preview tools gating', () => {
@@ -3580,6 +3637,8 @@ describe('session-only preview tools gating', () => {
 		expect(names).not.toContain('get_preview_status')
 		expect(names).not.toContain('get_app_runtime_logs')
 		expect(names).not.toContain('list_app_runs')
+		expect(names).not.toContain('search_dom')
+		expect(names).not.toContain('read_dom')
 		// other tools are still present
 		expect(names).toContain('write_script')
 	})
@@ -3590,6 +3649,8 @@ describe('session-only preview tools gating', () => {
 		expect(names).toContain('get_preview_status')
 		expect(names).toContain('get_app_runtime_logs')
 		expect(names).toContain('list_app_runs')
+		expect(names).toContain('search_dom')
+		expect(names).toContain('read_dom')
 		// session set is the full globalTools
 		expect(names.length).toBe(globalTools.length)
 	})
@@ -3603,6 +3664,25 @@ describe('session-only preview tools gating', () => {
 		expect(on).toContain('open_preview')
 		expect(on).toContain('get_app_runtime_logs')
 		expect(on).toContain('list_app_runs')
+		expect(off).not.toContain('search_dom')
+		expect(on).toContain('search_dom')
+		expect(on).toContain('read_dom')
+	})
+
+	it('renders a SELECTED DOM ELEMENTS block for app_dom_selector context', () => {
+		const message = prepareGlobalUserMessage('Fix the button', [
+			{
+				type: 'app_dom_selector',
+				selector: 'div.card > button.primary',
+				title: 'button.primary',
+				tagName: 'button',
+				className: 'primary'
+			}
+		])
+		const content = message.content as string
+		expect(content).toContain('## SELECTED DOM ELEMENTS')
+		expect(content).toContain('div.card > button.primary')
+		expect(content).toContain('search_dom')
 	})
 
 	// The instruction headers are matched by their distinctive parenthetical so the

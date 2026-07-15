@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { untrack } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
@@ -11,6 +11,8 @@
 		RawAppRuntimeLogRequester,
 		RawAppRunsProvider
 	} from '$lib/components/raw_apps/utils'
+	import type { RawAppDomRequester } from '$lib/components/raw_apps/rawAppDom'
+	import type { InspectorElementInfo } from '$lib/components/copilot/chat/app/core'
 
 	let {
 		runtime,
@@ -83,6 +85,58 @@
 	function registerRunsProvider(provider: RawAppRunsProvider | undefined) {
 		runtime.setAppRunsProvider(provider)
 	}
+
+	// Only the ACTIVE preview tab owns the runtime's single DOM-requester slot, so
+	// search_dom / read_dom always target the visible app. Hidden preview tabs stay
+	// mounted, so without this an inactive tab (or a closing one) could leave the
+	// slot pointing at the wrong app — unlike a plain register-on-mount.
+	let domRequester = $state<RawAppDomRequester | undefined>(undefined)
+	function registerDomRequester(requester: RawAppDomRequester | undefined) {
+		domRequester = requester
+	}
+	$effect(() => {
+		// Claim the slot when active (with our requester, or undefined until the
+		// editor registers); an inactive tab never touches it, so switching tabs
+		// can't be clobbered by a sibling's cleanup.
+		if (active) runtime.setDomRequester(domRequester)
+	})
+	onDestroy(() => {
+		// If the active tab unmounts, release the slot it owns.
+		if (active) runtime.setDomRequester(undefined)
+	})
+
+	// An element picked in the preview inspector becomes a selector chip on the
+	// session chat (the model reads it live via search_dom / read_dom). Target
+	// this session's own manager (runtime.manager) — NOT the global singleton;
+	// the session chat is driven by the per-session AIChatManager.
+	function onInspectorSelect(info: InspectorElementInfo, additive: boolean) {
+		const el = {
+			selector: info.path,
+			tagName: info.tagName,
+			id: info.id,
+			className: info.className
+		}
+		// Shift-click adds to the selection; a plain click replaces it (single-select).
+		if (additive) runtime.manager.contextManager.addSelectedDomElement(el)
+		else runtime.manager.contextManager.setSelectedDomElement(el)
+	}
+
+	// The chip list is the source of truth for the preview's highlights: push the
+	// current selectors down so the preview renders one highlight per chip.
+	const selectedDomSelectors = $derived(
+		runtime.manager.contextManager
+			.getSelectedContext()
+			.filter((c) => c.type === 'app_dom_selector')
+			.map((c) => c.selector)
+	)
+
+	// Removals originating in the preview (× on an overlay) or on rebuild.
+	function onInspectorDeselect(selector: string) {
+		runtime.manager.contextManager.removeSelectedDomElement(selector)
+	}
+	function onInspectorClearAll() {
+		runtime.manager.contextManager.clearSelectedDomElements()
+	}
 </script>
 
 {#if cell.saved.val}
@@ -137,6 +191,11 @@
 				defaultSplitWithPreview={false}
 				onRuntimeLogRequester={registerRuntimeLogRequester}
 				onRunsProvider={registerRunsProvider}
+				onDomRequester={registerDomRequester}
+				{onInspectorSelect}
+				{selectedDomSelectors}
+				{onInspectorDeselect}
+				{onInspectorClearAll}
 			/>
 		{/if}
 	{/snippet}
