@@ -136,7 +136,14 @@ pub async fn handle_bash_job(
     }
     append_logs(&job.id, &job.workspace_id, logs1, &conn).await;
 
-    write_file(job_dir, "main.sh", &format!("set -e\n{content}"))?;
+    // Strip CR so CRLF-authored scripts (Monaco defaults to CRLF on Windows)
+    // don't fail at runtime with `$'\r': command not found`. \r is never
+    // meaningful in a bash script.
+    write_file(
+        job_dir,
+        "main.sh",
+        &format!("set -e\n{}", content.replace('\r', "")),
+    )?;
     let script = format!(
         r#"
 set -o pipefail
