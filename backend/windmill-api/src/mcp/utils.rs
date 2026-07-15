@@ -15,7 +15,7 @@ use windmill_common::scripts::{get_full_hub_script_by_path, Schema};
 use windmill_common::utils::{query_elems_from_hub, StripPath};
 use windmill_common::worker::to_raw_value;
 use windmill_common::{DB, HUB_BASE_URL};
-use windmill_mcp::server::{BackendResult, ErrorData};
+use windmill_mcp::server::{BackendResult, ErrorData, PathFilter};
 use windmill_mcp::{HubResponse, HubScriptInfo, ItemSchema, ResourceInfo, ResourceType};
 
 use crate::db::ApiAuthed;
@@ -23,6 +23,43 @@ use crate::HTTP_CLIENT;
 
 // items max limit
 const ITEMS_FETCH_MAX_LIMIT: usize = 100;
+
+/// Escape LIKE wildcards so a literal path is matched as a prefix, not a pattern.
+fn escape_like(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
+/// Build the SQL condition matching any MCP scope pattern, mirroring
+/// `is_resource_allowed`. Returns `None` when no filter should be applied (a `*`
+/// pattern grants everything); `Some("false")` when the list is empty (grants
+/// nothing); otherwise an OR of per-pattern `o.path` conditions.
+fn scope_patterns_condition(patterns: &[String]) -> Option<String> {
+    if patterns.iter().any(|p| p == "*") {
+        return None;
+    }
+    if patterns.is_empty() {
+        return Some("false".to_string());
+    }
+    let conds: Vec<String> = patterns
+        .iter()
+        .map(|p| {
+            if let Some(prefix) = p.strip_suffix("/*") {
+                // A subtree pattern matches the folder itself or anything under it.
+                let subtree = format!("{}/%", escape_like(prefix));
+                format!(
+                    "({} OR {})",
+                    "o.path = ?".bind(&prefix),
+                    "o.path LIKE ? ESCAPE '\\'".bind(&subtree),
+                )
+            } else {
+                "o.path = ?".bind(p)
+            }
+        })
+        .collect();
+    Some(format!("({})", conds.join(" OR ")))
+}
 
 // ============================================================================
 // Database utilities
@@ -135,7 +172,7 @@ pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Sen
     workspace_id: &str,
     scope_type: &str,
     item_type: &str,
-    path_prefix: Option<&str>,
+    path_filter: Option<PathFilter<'_>>,
 ) -> Result<Vec<T>, ErrorData> {
     let mut sqlb = SqlBuilder::select_from(&format!("{} as o", item_type));
     let fields = vec!["o.path", "o.summary", "o.description", "o.schema"];
@@ -152,12 +189,17 @@ pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Sen
         sqlb.and_where("o.auto_kind IS NULL");
     }
 
-    if let Some(prefix) = path_prefix {
-        let escaped = prefix
-            .replace('\\', "\\\\")
-            .replace('%', "\\%")
-            .replace('_', "\\_");
-        sqlb.and_where("o.path LIKE ? ESCAPE '\\'".bind(&format!("{}%", escaped)));
+    match path_filter {
+        None => {}
+        Some(PathFilter::Prefix(prefix)) => {
+            let escaped = format!("{}%", escape_like(prefix));
+            sqlb.and_where("o.path LIKE ? ESCAPE '\\'".bind(&escaped));
+        }
+        Some(PathFilter::Patterns(patterns)) => {
+            if let Some(cond) = scope_patterns_condition(patterns) {
+                sqlb.and_where(cond);
+            }
+        }
     }
 
     sqlb.order_by(
@@ -776,6 +818,62 @@ mod tests {
         assert_eq!(
             build_query_string(&args, &single_query_schema("path"), &None),
             "?path=u%2Falice%2Fmy%20script"
+        );
+    }
+
+    fn strings(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn scope_patterns_condition_wildcard_disables_filter() {
+        // A `*` pattern grants everything, so no SQL condition should be added.
+        assert_eq!(scope_patterns_condition(&strings(&["*"])), None);
+        assert_eq!(scope_patterns_condition(&strings(&["f/team/*", "*"])), None);
+    }
+
+    #[test]
+    fn scope_patterns_condition_empty_matches_nothing() {
+        // An empty pattern list grants no items of this type.
+        assert_eq!(scope_patterns_condition(&[]), Some("false".to_string()));
+    }
+
+    #[test]
+    fn scope_patterns_condition_exact_path() {
+        assert_eq!(
+            scope_patterns_condition(&strings(&["u/admin/my_script"])),
+            Some("(o.path = 'u/admin/my_script')".to_string())
+        );
+    }
+
+    #[test]
+    fn scope_patterns_condition_subtree() {
+        // `f/team/*` matches the folder itself or anything beneath it, mirroring
+        // resource_matches_pattern. Underscores in the prefix are LIKE-escaped.
+        assert_eq!(
+            scope_patterns_condition(&strings(&["f/team/*"])),
+            Some("((o.path = 'f/team' OR o.path LIKE 'f/team/%' ESCAPE '\\'))".to_string())
+        );
+    }
+
+    #[test]
+    fn scope_patterns_condition_mixed_ored() {
+        assert_eq!(
+            scope_patterns_condition(&strings(&["u/admin/one", "f/team/*"])),
+            Some(
+                "(o.path = 'u/admin/one' OR (o.path = 'f/team' OR o.path LIKE 'f/team/%' ESCAPE '\\'))"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn scope_patterns_condition_escapes_like_wildcards() {
+        // A subtree prefix containing `%`/`_` must be escaped so it isn't treated
+        // as a LIKE pattern; the exact-match arm is quoted verbatim by bind.
+        assert_eq!(
+            scope_patterns_condition(&strings(&["f/a_b/*"])),
+            Some("((o.path = 'f/a_b' OR o.path LIKE 'f/a\\_b/%' ESCAPE '\\'))".to_string())
         );
     }
 }

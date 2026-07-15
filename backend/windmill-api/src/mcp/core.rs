@@ -12,7 +12,7 @@ use windmill_mcp::common::transform::apply_key_transformation;
 use windmill_mcp::common::types::{
     FlowInfo, HubScriptInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo, WorkspaceInfo,
 };
-use windmill_mcp::server::{BackendResult, EndpointTool, ErrorData, McpBackend};
+use windmill_mcp::server::{BackendResult, EndpointTool, ErrorData, McpBackend, PathFilter};
 
 use crate::auth::AuthCache;
 use crate::db::ApiAuthed;
@@ -78,7 +78,7 @@ impl McpBackend for WindmillBackend {
         auth: &ApiAuthed,
         workspace_id: &str,
         favorites_only: bool,
-        path_prefix: Option<&str>,
+        path_filter: Option<PathFilter<'_>>,
     ) -> BackendResult<Vec<ScriptInfo>> {
         let scope_type = if favorites_only { "favorites" } else { "all" };
         get_items::<ScriptInfo>(
@@ -87,7 +87,7 @@ impl McpBackend for WindmillBackend {
             workspace_id,
             scope_type,
             "script",
-            path_prefix,
+            path_filter,
         )
         .await
         .map_err(|e| ErrorData::internal_error(e.message, None))
@@ -98,7 +98,7 @@ impl McpBackend for WindmillBackend {
         auth: &ApiAuthed,
         workspace_id: &str,
         favorites_only: bool,
-        path_prefix: Option<&str>,
+        path_filter: Option<PathFilter<'_>>,
     ) -> BackendResult<Vec<FlowInfo>> {
         let scope_type = if favorites_only { "favorites" } else { "all" };
         get_items::<FlowInfo>(
@@ -107,7 +107,7 @@ impl McpBackend for WindmillBackend {
             workspace_id,
             scope_type,
             "flow",
-            path_prefix,
+            path_filter,
         )
         .await
         .map_err(|e| ErrorData::internal_error(e.message, None))
