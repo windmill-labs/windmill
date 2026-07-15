@@ -298,8 +298,12 @@ export async function main(): Promise<Record<string, boolean>> {
         "TextEncoder", "TextDecoder", "TextEncoderStream", "TextDecoderStream",
         "File",
         "Event", "EventTarget", "CustomEvent",
-        "MessageEvent", "CloseEvent", "ErrorEvent",
+        "MessageEvent", "CloseEvent", "ErrorEvent", "reportError",
         "ReadableStream", "WritableStream", "TransformStream",
+        "ReadableStreamDefaultReader", "ReadableStreamBYOBReader",
+        "ReadableStreamDefaultController", "ReadableByteStreamController",
+        "ReadableStreamBYOBRequest", "WritableStreamDefaultWriter",
+        "WritableStreamDefaultController", "TransformStreamDefaultController",
         "ByteLengthQueuingStrategy", "CountQueuingStrategy",
         "URLPattern",
         "CompressionStream", "DecompressionStream",
@@ -537,6 +541,11 @@ export async function main(): Promise<Record<string, string>> {
         et.dispatchEvent(new CustomEvent("ping", { detail: "pong" }));
         return got === "pong";
     });
+    // (A throwing EventTarget listener and reportError both surface the error
+    // asynchronously as an unhandled exception — matching bun, which exits
+    // non-zero — so they fail the script rather than a `check`; the dedicated
+    // smoke_eventtarget_throwing_listener_reports_original test covers that the
+    // ORIGINAL error is surfaced, not a masking one.)
     await check("MessageEvent.data", () => new MessageEvent("m", { data: 42 }).data === 42);
     await check("CloseEvent.code_reason", () => {
         const e = new CloseEvent("close", { code: 1000, reason: "bye" });
@@ -571,6 +580,19 @@ export async function main(): Promise<Record<string, string>> {
         const w = t.writable.getWriter(); w.write("hello"); w.close();
         let o = ""; for await (const c of t.readable) o += c;
         return o === "hello";
+    });
+    await check("Stream reader/controller instanceof globals", async () => {
+        // The reader/writer/controller constructors are exposed as globals for
+        // instanceof checks (bun parity). Obtain real instances and verify.
+        let ctrlOk = false;
+        const rs = new ReadableStream({
+            start(c: any) { ctrlOk = c instanceof ReadableStreamDefaultController; c.close(); },
+        });
+        const reader = rs.getReader();
+        const readerOk = reader instanceof ReadableStreamDefaultReader;
+        const ws = new WritableStream();
+        const writerOk = ws.getWriter() instanceof WritableStreamDefaultWriter;
+        return ctrlOk && readerOk && writerOk;
     });
     await check("ByteLengthQueuingStrategy", () => {
         const s = new ByteLengthQueuingStrategy({ highWaterMark: 16 });
@@ -686,6 +708,39 @@ export async function main(): Promise<Record<string, string>> {
         failures.len(),
         obj.len(),
         failures.join("\n"),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_eventtarget_throwing_listener_reports_original() {
+    // Regression guard for the EventTarget global: an uncaught listener error is
+    // routed through deno_web's reportException, which dispatches on a saved
+    // global reference. Without one (the original gap), dispatchEvent threw a
+    // masking error (deref of the unset reference) that hid the real error. With
+    // the dedicated global dispatch target wired in runtime.js, the ORIGINAL
+    // error is surfaced — as an unhandled exception (async, matching bun), so the
+    // script errors, but with the real message and no masking text.
+    let ts = r#"
+export async function main(): Promise<void> {
+    const et = new EventTarget();
+    et.addEventListener("boom", () => { throw new Error("wm_listener_marker"); });
+    et.dispatchEvent(new Event("boom"));
+    // Give the async unhandled-exception report a tick to fire.
+    await new Promise((r) => setTimeout(r, 20));
+}
+"#;
+    let r = run_ts(ts, &[], serde_json::json!({})).await;
+    let err = r
+        .result
+        .expect_err("a throwing listener should surface an error");
+    assert!(
+        err.contains("wm_listener_marker"),
+        "the original listener error was lost: {err}",
+    );
+    assert!(
+        !err.contains("Illegal invocation") && !err.to_lowercase().contains("undefined"),
+        "dispatchEvent surfaced a masking error instead of the original: {err}",
     );
 }
 

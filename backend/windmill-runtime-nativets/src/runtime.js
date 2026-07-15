@@ -78,19 +78,28 @@ Object.assign(globalThis, {
   // Events (AbortSignal, already wired, extends EventTarget). MessageEvent is
   // the companion to MessagePort/MessageChannel below. Only the event types
   // bun exposes are wired (ProgressEvent / PromiseRejectionEvent are not).
-  // reportError is intentionally NOT wired: it dispatches through a global
-  // EventTarget that this runtime never installs (saveGlobalThisReference +
-  // globalThis.dispatchEvent), so it would throw on call.
+  // reportError works because of the saved global dispatch target set below.
   Event: event.Event,
   EventTarget: event.EventTarget,
   CustomEvent: event.CustomEvent,
   MessageEvent: event.MessageEvent,
   CloseEvent: event.CloseEvent,
   ErrorEvent: event.ErrorEvent,
-  // Streams + queuing strategies.
+  reportError: event.reportError,
+  // Streams + queuing strategies + the reader/controller constructors bun also
+  // exposes as globals (used for `x instanceof ReadableStreamDefaultReader` etc.;
+  // the controllers throw on direct construction, matching the spec).
   ReadableStream: streams.ReadableStream,
+  ReadableStreamDefaultReader: streams.ReadableStreamDefaultReader,
+  ReadableStreamBYOBReader: streams.ReadableStreamBYOBReader,
+  ReadableStreamDefaultController: streams.ReadableStreamDefaultController,
+  ReadableByteStreamController: streams.ReadableByteStreamController,
+  ReadableStreamBYOBRequest: streams.ReadableStreamBYOBRequest,
   WritableStream: streams.WritableStream,
+  WritableStreamDefaultWriter: streams.WritableStreamDefaultWriter,
+  WritableStreamDefaultController: streams.WritableStreamDefaultController,
   TransformStream: streams.TransformStream,
+  TransformStreamDefaultController: streams.TransformStreamDefaultController,
   ByteLengthQueuingStrategy: streams.ByteLengthQueuingStrategy,
   CountQueuingStrategy: streams.CountQueuingStrategy,
   // URL pattern matching.
@@ -108,6 +117,15 @@ Object.assign(globalThis, {
   // 02_structured_clone.js.
   structuredClone: messagePort.structuredClone,
 });
+
+// deno_web's reportException dispatches uncaught EventTarget-listener errors
+// (and reportError) on a saved "global" reference. With no reference, a throwing
+// listener makes dispatchEvent throw a masking error (deref of the unset global)
+// that hides the original; reportError throws outright. Give it a dedicated
+// EventTarget so the ORIGINAL error is reported instead, as an async unhandled
+// exception, matching bun. We do NOT make globalThis itself an EventTarget: bun
+// doesn't either (`globalThis instanceof EventTarget` is false there).
+event.saveGlobalThisReference(new event.EventTarget());
 
 // Per-isolate init, invoked from Rust after the snapshot is restored (this
 // module body runs at snapshot-build time, not per isolate). setTimeOrigin()
