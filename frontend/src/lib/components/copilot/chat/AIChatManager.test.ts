@@ -861,6 +861,39 @@ describe('AIChatManager queued messages', () => {
 		mocks.tryGetCurrentModel.mockReturnValue(model)
 	})
 
+	// A→B→C: the loop can run an iteration on a model that is neither the
+	// send-time one (A) nor the currently-selected one (C) by the time the
+	// failure is classified. The failing iteration's id (B) must be excluded
+	// from the rejection match too.
+	it('does not strip images when the error echoes an intermediate model (A→B→C)', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		const a = { provider: 'openai', model: 'gpt-4o' }
+		const b = { provider: 'openrouter', model: 'meta-llama/llama-3.2-90b-vision-instruct' }
+		const c = { provider: 'anthropic', model: 'claude-sonnet-4-6' }
+		mocks.getCurrentModel.mockReturnValue(a)
+		mocks.tryGetCurrentModel.mockReturnValue(a)
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			// an iteration runs on B (the loop reads the model getter)...
+			mocks.getCurrentModel.mockReturnValue(b)
+			void config.modelProvider
+			// ...the user switches to C while B's request is in flight...
+			mocks.getCurrentModel.mockReturnValue(c)
+			mocks.tryGetCurrentModel.mockReturnValue(c)
+			// ...and B fails with an unrelated error echoing its id
+			throw new Error('429 Rate limit reached for meta-llama/llama-3.2-90b-vision-instruct')
+		})
+
+		await manager.sendRequest({ instructions: 'look at this', images: [img('a')] })
+
+		const stillThere = manager.messages.some(
+			(m: any) => Array.isArray(m.content) && m.content.some((p: any) => p.type === 'image_url')
+		)
+		expect(stillThere).toBe(true)
+		mocks.getCurrentModel.mockReturnValue(model)
+		mocks.tryGetCurrentModel.mockReturnValue(model)
+	})
+
 	it('queues an image-only message and restores it on dequeue', () => {
 		const input = createInputMock()
 		const manager = createManager(input)

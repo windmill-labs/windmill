@@ -423,6 +423,12 @@ export class AIChatManager {
 	 * keyed by toolId. Drained by appendPendingToolImages into a follow-up user message
 	 * after the batch. Cleared at each turn start so an aborted batch can't leak. */
 	private pendingToolImages = new Map<string, AttachedImage[]>()
+	/** Model id of the most recent loop iteration. The loop re-reads the selector
+	 * each iteration and it stays switchable mid-flight, so when a request fails
+	 * neither the send-time nor the currently-selected id necessarily names the
+	 * model whose error text is being classified (A→B→C switches). Recorded by
+	 * the chatRequest modelProvider getter, consumed by image-rejection recovery. */
+	private lastIterationModel: string | undefined = undefined
 	/** Full-resolution copies of tool-produced images, keyed by tool call id, for
 	 * the tool card's expanded view. Memory-only on purpose: the transcript persists
 	 * a bounded thumbnail (displayMessages are re-cloned into IndexedDB on every
@@ -1918,7 +1924,10 @@ export class AIChatManager {
 				abortController,
 				callbacks,
 				get modelProvider() {
-					return getCurrentModel()
+					const model = getCurrentModel()
+					// One read per loop iteration — see lastIterationModel.
+					self.lastIterationModel = model.model
+					return model
 				},
 				get webSearch() {
 					return isWebSearchEnabledForProvider(getCurrentModel().provider)
@@ -2668,7 +2677,11 @@ export class AIChatManager {
 				if (
 					!modelIsBlind &&
 					messagesHaveImageParts(this.messages) &&
-					isImageRejection(err, [sendModel?.model, tryGetCurrentModel()?.model])
+					isImageRejection(err, [
+						sendModel?.model,
+						tryGetCurrentModel()?.model,
+						this.lastIterationModel
+					])
 				) {
 					this.messages = stripImagePartsFromMessages(this.messages)
 					sendUserToast(

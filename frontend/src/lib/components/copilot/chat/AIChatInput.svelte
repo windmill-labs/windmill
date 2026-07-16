@@ -276,13 +276,14 @@
 	}
 
 	// Restore composer contents after a rolled-back turn. No-op when the user
-	// already typed a new draft — restoring would clobber it.
+	// already drafted something new — typed text or attached images (including
+	// ones still decoding) — restoring would clobber it.
 	export function restoreInstructions(
 		value: string,
 		restoredPastes: PasteAttachment[] = [],
 		restoredImages: AttachedImage[] = []
 	) {
-		if (instructions.trim()) return
+		if (instructions.trim() || images.length > 0 || pendingImages > 0) return
 		instructions = value
 		pastes = restoredPastes
 		images = restoredImages
