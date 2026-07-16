@@ -12,6 +12,8 @@
 	interface Props {
 		marked: string | undefined
 		selected?: boolean
+		/** Highlighted by the list's keyboard arrow-navigation (distinct from `selected`,
+		 * which is the checkbox multi-select state). Scrolls itself into view. */
 		keyboardSelected?: boolean
 		disabled?: boolean
 		canFavorite?: boolean

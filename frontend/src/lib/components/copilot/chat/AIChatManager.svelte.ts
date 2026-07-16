@@ -64,6 +64,7 @@ import { untrack } from 'svelte'
 import { get } from 'svelte/store'
 import { BROWSER } from 'esm-env'
 import { workspaceStore, type DBSchemas } from '$lib/stores'
+import { copilotInfo, copilotWorkspaceRequested, loadCopilot } from '$lib/aiStore'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { readDocsPageTool, searchDocsTool } from './docs/core'
 import { TypewriterReveal } from './typewriterReveal'
@@ -266,6 +267,37 @@ function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean)
 		? `Failed to send request: ${errorMessage}`
 		: 'Failed to send request'
 	return appendWebSearchErrorHint(message, webSearchUnavailable)
+}
+
+/**
+ * Re-fetch copilotInfo after a free-tier turn so its `freeTier.used_ratio` (and the usage
+ * banner above the composer that reads it) tracks spend live, and so the turn that finally
+ * exhausts the grant flips `freeTier.exhausted` — revealing the banner — instead of the
+ * user seeing only a per-request error toast until a page reload. copilotInfo is otherwise
+ * fetched only on workspace load.
+ *
+ * Scoped to users actually on the free tier and not already exhausted, so it costs one
+ * extra request only while the grant is live, and never for configured-key users.
+ * Keyed on that state rather than on matching an error message, which would break the
+ * moment the copy changes.
+ */
+async function refreshFreeTierUsage(workspace: string | undefined) {
+	if (!workspace) return
+	// The global copilotInfo/client are a singleton shared by every mounted session. A warm
+	// session can finish a turn after the user has switched to another workspace; refreshing
+	// then would call loadCopilot for the completing manager's (now background) workspace and
+	// clobber the active one's models/client. Compare against the most-recently-*requested*
+	// workspace (set synchronously), not the last-*resolved* one — otherwise a refresh could
+	// fire while a newer workspace's load is still in flight, win the monotonic token, and
+	// restore this (stale) workspace over it.
+	if (get(copilotWorkspaceRequested) !== workspace) return
+	const info = get(copilotInfo)
+	if (!info.freeTier || info.freeTier.exhausted) return
+	try {
+		await loadCopilot(workspace)
+	} catch (err) {
+		console.error('Failed to refresh free-tier usage', err)
+	}
 }
 
 export class AIChatManager {
@@ -2466,6 +2498,9 @@ export class AIChatManager {
 			// releases the loop; it never discards uncommitted text.
 			this.replyReveal.reset()
 			this.reasoningReveal.reset()
+			// Refresh the free-tier usage meter after every turn (success or error), and
+			// let the turn that exhausts the grant flip to the exhausted state live.
+			void refreshFreeTierUsage(this.operatingWorkspace)
 		}
 		// Flush the queued message. Send it after a cleanly committed turn OR a
 		// deliberate user cancel (Esc / Stop) — in both cases the user is ready

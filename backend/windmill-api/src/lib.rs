@@ -66,6 +66,9 @@ use crate::scim_oss::has_scim_token;
 use windmill_common::error::AppError;
 
 mod ai;
+#[cfg(feature = "private")]
+mod ai_free_tier_ee;
+mod ai_free_tier_oss;
 mod ai_skills;
 mod apps;
 pub use apps::invalidate_app_policy_cache;

@@ -45,6 +45,13 @@
 	)
 	let models = $derived($copilotInfo.aiModels)
 
+	// Free tier: the workspace has no key of its own and is spending Windmill's one-time
+	// grant. Label it so the user knows whose budget this is, and warn before it runs out
+	// rather than letting the grant die mid-task.
+	let freeTier = $derived($copilotInfo.freeTier)
+	let freeUsedPct = $derived(Math.min(100, Math.round((freeTier?.used_ratio ?? 0) * 100)))
+	let freeRunningLow = $derived(!!freeTier && !freeTier.exhausted && freeUsedPct >= 80)
+
 	let capability = $derived(
 		getReasoningCapability(providerModel.provider as AIProvider, providerModel.model)
 	)
@@ -310,6 +317,13 @@
 					<span class="truncate">{providerModel.model}</span>
 					{#if effortLabel}
 						<span class="shrink-0 text-tertiary">· {effortLabel}</span>
+					{/if}
+					{#if freeTier && !freeTier.exhausted}
+						<span
+							class="shrink-0 rounded-full px-1.5 text-2xs {freeRunningLow
+								? 'bg-yellow-100 text-yellow-600 dark:bg-yellow-900/40'
+								: 'bg-surface-secondary text-tertiary'}">Free</span
+						>
 					{/if}
 				</span>
 			</Button>

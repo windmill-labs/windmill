@@ -1,6 +1,12 @@
 import { writable, get } from 'svelte/store'
 import { workspaceAIClients } from './components/copilot/lib'
-import { type AIProviderModel, type AIProvider, WorkspaceService, type AIConfig } from './gen'
+import {
+	type AIProviderModel,
+	type AIProvider,
+	WorkspaceService,
+	type AIConfig,
+	type FreeTierInfo
+} from './gen'
 import {
 	aiUserDisabled,
 	COPILOT_SESSION_MODEL_SETTING_NAME,
@@ -39,6 +45,10 @@ export const copilotInfo = writable<{
 	customPrompts?: Record<string, string>
 	maxTokensPerModel?: Record<string, number>
 	webSearchEnabledProviders?: Partial<Record<AIProvider, boolean>>
+	// Set only when the workspace has no AI provider of its own and is running on
+	// Windmill's free tier. `exhausted` means the grant is spent: there is no model, but
+	// that is a different state from "never configured" and the UI must say so.
+	freeTier?: FreeTierInfo
 }>({
 	enabled: false,
 	codeCompletionModel: undefined,
@@ -87,8 +97,14 @@ let loadCopilotToken = 0
 // matching its committed workspace so getCurrentModel() can't read the previous
 // workspace's provider/model while the scoped load is still in flight.
 export const copilotWorkspace = writable<string | undefined>(undefined)
+// The workspace of the most recent loadCopilot *request*, set synchronously before the
+// await — as opposed to `copilotWorkspace`, which only updates once a load resolves. A
+// background refresh must compare against this so it can't supersede an in-flight load for
+// a newer workspace (which would otherwise win the monotonic token and restore stale state).
+export const copilotWorkspaceRequested = writable<string | undefined>(undefined)
 export async function loadCopilot(workspace: string) {
 	const token = ++loadCopilotToken
+	copilotWorkspaceRequested.set(workspace)
 	workspaceAIClients.init(workspace)
 	try {
 		const info = await WorkspaceService.getCopilotInfo({ workspace })
@@ -142,7 +158,8 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			aiModels: aiModels,
 			customPrompts: aiConfig.custom_prompts ?? {},
 			maxTokensPerModel: aiConfig.max_tokens_per_model ?? {},
-			webSearchEnabledProviders
+			webSearchEnabledProviders,
+			freeTier: aiConfig.free_tier
 		})
 	} else {
 		copilotSessionModel.set(undefined)
@@ -155,7 +172,10 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			aiModels: [],
 			customPrompts: {},
 			maxTokensPerModel: {},
-			webSearchEnabledProviders: {}
+			webSearchEnabledProviders: {},
+			// An exhausted free grant lands here — no providers, but the reason AI is off
+			// is "you used it up", not "you never set it up".
+			freeTier: aiConfig.free_tier
 		})
 	}
 }

@@ -41,7 +41,8 @@
 		selectSession,
 		sessionState,
 		setSessionArchived,
-		syncWorkspaceTo
+		syncWorkspaceTo,
+		takeAutoSendPrompt
 	} from './sessionState.svelte'
 	import { getOrCreateRuntime, removeSession } from './sessionRuntime.svelte'
 	import { goto } from '$lib/navigation'
@@ -73,6 +74,12 @@
 	// Seed the composer with the unsent prompt a reload preserved on the session
 	// record (script-init: AIChatInput reads it once at mount).
 	const restoredDraftPrompt = getSessionDraftPrompt(sessionId)
+
+	// One-shot: a prompt this session was created to auto-send (home composer).
+	// Read once at init and cleared; the effect below fires it when the chat is
+	// ready. Sent through the manager, so the composer stays empty (no prefill) —
+	// which is why initialInstructions is suppressed when this is set.
+	const autoSendPrompt = takeAutoSendPrompt(sessionId)
 
 	// The workspace the session acts on, shown in the header "Acting on" strip via the shared
 	// WorkspaceScopeTrigger chip. `targetId` is also the workspace the chip's ellipsis menu targets.
@@ -243,6 +250,21 @@
 		if (!$copilotInfo.enabled) return
 		const chat = aiChat
 		setTimeout(() => chat.focusInput(), 0)
+	})
+
+	// Auto-send the prompt this session was created with, once the chat is ready
+	// (same readiness gate as the focus effect: mounted + copilot loaded). Latched
+	// so it fires exactly once; guarded on an empty conversation so it can never
+	// interleave with a message the user already sent.
+	let autoSent = false
+	$effect(() => {
+		if (!autoSendPrompt || autoSent) return
+		if (sessionState.currentSessionId !== sessionId) return
+		if (!aiChat || !$copilotInfo.enabled) return
+		if (hasFirstUserMessage) return
+		autoSent = true
+		const chat = aiChat
+		setTimeout(() => chat.sendRequest({ instructions: autoSendPrompt }), 0)
 	})
 
 	// True when the session committed to a workspace that's no longer in
@@ -420,7 +442,7 @@
 						hideHeader
 						hideModeSelector
 						wideLayout
-						initialInstructions={restoredDraftPrompt}
+						initialInstructions={autoSendPrompt ? undefined : restoredDraftPrompt}
 						onDraftChange={(text) => setSessionDraftPrompt(sessionId, text)}
 						forceDisabled={isUnavailable || !!session.archived}
 						forceDisabledMessage={isUnavailable

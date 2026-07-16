@@ -264,6 +264,14 @@
 		class?: string
 		placeholder?: string
 		autofocus?: boolean
+		// Free-text mode: while the input holds only free text (no specific filter tag is
+		// being edited and no non-default filter is set), suppress the suggestions dropdown
+		// so it behaves like a plain search box. This frees the arrow keys for the
+		// surrounding UI (e.g. a results list). The dropdown returns the moment a specific
+		// filter is present (e.g. `path: u/me/abc`).
+		hideDropdownOnFreeText?: boolean
+		// Notified whenever the dropdown's effective visibility changes
+		onDropdownVisibleChange?: (visible: boolean) => void
 	}
 
 	type SchemaT = FilterSchemaRec // TODO: Generic
@@ -273,7 +281,9 @@
 		presets: _presets = [],
 		class: className,
 		placeholder = 'Filter...',
-		autofocus
+		autofocus,
+		hideDropdownOnFreeText = false,
+		onDropdownVisibleChange
 	}: Props<SchemaT> = $props()
 
 	let _value = new DebouncedTempValue(
@@ -287,6 +297,24 @@
 	let currentTag: keyof SchemaT | undefined = $state()
 	let currentTextSegment = $state({ text: '', start: 0, end: 0 })
 	let open = $state(false)
+
+	// A specific filter is in play when a tag is being edited or any non-free-text filter
+	// is set.
+	let hasSpecificFilter = $derived(
+		!!currentTag || Object.keys(value).some((k) => k !== '_default_')
+	)
+	// A plain search term is being typed (free text, no specific filter).
+	let hasFreeText = $derived(!!String(value['_default_'] ?? '').trim())
+	// Effective dropdown visibility. Free-text mode suppresses the dropdown ONLY while the
+	// user is typing a plain search term: it still opens when the input is empty (so the
+	// available filters stay discoverable) and whenever a specific filter is set or being
+	// edited. That leaves the arrow keys for the surrounding list only during free-text search.
+	let dropdownVisible = $derived(
+		open && (!hideDropdownOnFreeText || hasSpecificFilter || !hasFreeText)
+	)
+	$effect(() => {
+		onDropdownVisibleChange?.(dropdownVisible)
+	})
 	let inputElement: HTMLDivElement | undefined = $state()
 	let highlightedIndex = $state(0)
 	let taggedTextInput: TaggedTextInput | undefined = $state()
@@ -503,7 +531,9 @@
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
-		if (!open) return
+		// In free-text mode the dropdown is hidden; let arrow/enter keys pass through to
+		// the surrounding UI (e.g. list navigation) rather than steering a hidden menu.
+		if (!dropdownVisible) return
 		if (e.key === 'Escape') {
 			open = false
 			return
@@ -619,9 +649,10 @@
 </div>
 
 <GenericDropdown
-	{open}
+	open={dropdownVisible}
+	instantClose={hideDropdownOnFreeText}
 	getInputRect={() => inputElement?.getBoundingClientRect() ?? new DOMRect()}
-	innerClass="!max-h-[30rem]"
+	innerClass="!max-h-[25rem]"
 	strictWidth
 >
 	<!-- svelte-ignore a11y_no_static_element_interactions -->

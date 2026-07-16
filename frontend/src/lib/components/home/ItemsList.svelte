@@ -1,7 +1,6 @@
 <script lang="ts">
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Badge, Button, Skeleton } from '$lib/components/common'
-	import Toggle from '$lib/components/Toggle.svelte'
+	import { Button, Skeleton } from '$lib/components/common'
 	import {
 		AppService,
 		AssetService,
@@ -16,49 +15,38 @@
 	import { getDraftItems } from '$lib/workspaceDrafts.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type uFuzzy from '@leeoniya/ufuzzy'
-	import {
-		ChevronsDownUp,
-		ChevronsUpDown,
-		Code2,
-		LayoutDashboard,
-		ListFilterPlus,
-		SearchCode,
-		Tag
-	} from 'lucide-svelte'
+	import { ChevronsDownUp, ChevronsUpDown, Code2, LayoutDashboard } from 'lucide-svelte'
 
-	import { HOME_SEARCH_SHOW_FLOW, HOME_SEARCH_PLACEHOLDER } from '$lib/consts'
+	import { HOME_SEARCH_SHOW_FLOW } from '$lib/consts'
 
 	import SearchItems from '../SearchItems.svelte'
-	import ListFilters from './ListFilters.svelte'
+	import FilterSearchbar, {
+		useUrlSyncedFilterInstance,
+		type FilterSchemaRec
+	} from '$lib/components/FilterSearchbar.svelte'
 	import NoItemFound from './NoItemFound.svelte'
+	import CreateActionsMenu from './CreateActionsMenu.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './FlowIcon.svelte'
 	import { canWrite, getLocalSetting, storeLocalSetting } from '$lib/utils'
-	import { page } from '$app/state'
-	import { setQuery } from '$lib/navigation'
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import HighlightCode from '../HighlightCode.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import Item from './Item.svelte'
 	import TreeViewRoot from './TreeViewRoot.svelte'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import { getContext, tick, untrack } from 'svelte'
+	import { tick, untrack } from 'svelte'
+	import ContentSearchInner from '$lib/components/ContentSearchInner.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
-	import TextInput from '../text_input/TextInput.svelte'
 	import { NetworkIcon } from 'lucide-svelte'
 	import { base } from '$lib/base'
+	import Toggle from '../Toggle.svelte'
 	interface Props {
-		filter?: string
 		subtab?: 'flow' | 'script' | 'app'
 		showEditButtons?: boolean
 	}
 
-	let {
-		filter = $bindable(''),
-		subtab = $bindable('script'),
-		showEditButtons = true
-	}: Props = $props()
+	let { subtab = $bindable('script'), showEditButtons = true }: Props = $props()
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 		canWrite: boolean
@@ -119,10 +107,6 @@
 	let raw_apps: TableRawApp[] | undefined = $state()
 
 	let filteredItems: (TableScript | TableFlow | TableApp | TableRawApp)[] = $state([])
-
-	let itemKind = $state(
-		(page.url.searchParams.get('kind') as 'script' | 'flow' | 'app' | 'all') ?? 'all'
-	)
 
 	let loading = $state(true)
 
@@ -212,9 +196,6 @@
 		return true // should not happen
 	}
 
-	let ownerFilter: string | undefined = $state(undefined)
-	let labelFilter: string | undefined = $state(undefined)
-
 	const cmp = new Intl.Collator('en').compare
 
 	const opts: uFuzzy.Options = {
@@ -268,11 +249,7 @@
 		}
 	}
 
-	let archived = $state(false)
-
 	const TREE_VIEW_SETTING_NAME = 'treeView'
-	const FILTER_USER_FOLDER_SETTING_NAME = 'filterUserFolders'
-	const INCLUDE_WITHOUT_MAIN_SETTING_NAME = 'includeWithoutMain'
 	let treeView = $state(getLocalSetting(TREE_VIEW_SETTING_NAME) == 'true')
 	let filterUserFoldersType: 'only f/*' | 'u/username and f/*' | undefined = $derived(
 		$userStore?.non_member
@@ -281,7 +258,74 @@
 				? 'u/username and f/*'
 				: undefined
 	)
-	let filterUserFolders = $state(getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true')
+
+	// FilterSearchbar schema — `_default_` is the free-text search (same fuzzy match
+	// as before); the rest are the relevant list filters. The library / user-folder
+	// filters only apply to the roles that had those toggles.
+	let searchFilterSchema = $derived({
+		_default_: { type: 'string' as const, hidden: true },
+		path: { type: 'string' as const, label: 'Path' },
+		content: {
+			type: 'string' as const,
+			label: 'Content',
+			description: 'Full-text search across item content (EE)'
+		},
+		summary: { type: 'string' as const, label: 'Summary' },
+		label: { type: 'string' as const, label: 'Label' },
+		kind: {
+			type: 'oneof' as const,
+			label: 'Kind',
+			options: [
+				{ value: 'script', label: 'Script' },
+				...(HOME_SEARCH_SHOW_FLOW ? [{ value: 'flow', label: 'Flow' }] : []),
+				{ value: 'app', label: 'App' }
+			]
+		},
+		draft_only: { type: 'boolean' as const, label: 'Draft only' },
+		draft: { type: 'boolean' as const, label: 'Draft', description: 'Includes draft-only items' },
+		archived: { type: 'boolean' as const, label: 'Only archived' },
+		...($userStore && !$userStore.operator
+			? { include_library: { type: 'boolean' as const, label: 'Include library scripts' } }
+			: {}),
+		...(filterUserFoldersType
+			? {
+					only_user_folders: {
+						type: 'boolean' as const,
+						label:
+							filterUserFoldersType === 'only f/*'
+								? 'Only f/*'
+								: `Only u/${$userStore?.username} and f/*`
+					}
+				}
+			: {})
+	} satisfies FilterSchemaRec)
+
+	// Single URL-synced source of truth for these filters (loop-safe primitive).
+	let filterValues = useUrlSyncedFilterInstance(untrack(() => searchFilterSchema))
+
+	let itemKind = $derived((filterValues.val.kind ?? 'all') as 'script' | 'flow' | 'app' | 'all')
+	let filter = $derived((filterValues.val._default_ ?? '') as string)
+	let archived = $derived(!!filterValues.val.archived)
+	let includeWithoutMain = $derived((filterValues.val.include_library ?? true) as boolean)
+	let filterUserFolders = $derived(!!filterValues.val.only_user_folders)
+
+	// Content search is a distinct mode: its results come from the indexer via
+	// ContentSearchInner (which carries only path + content), so the row-list filters can't
+	// apply to it. When it's active we restrict the searchbar to just the content filter,
+	// clear any other filters so they don't linger as ignored chips, and hide the row-list
+	// controls (kind toggle, tree view) that no longer drive anything.
+	let contentActive = $derived(!!filterValues.val.content)
+	let searchbarSchema = $derived(
+		contentActive ? { content: searchFilterSchema.content } : searchFilterSchema
+	)
+	$effect(() => {
+		if (!contentActive) return
+		untrack(() => {
+			for (const k of Object.keys(filterValues.val)) {
+				if (k !== 'content') delete (filterValues.val as Record<string, unknown>)[k]
+			}
+		})
+	})
 
 	// Pipeline entries are rendered independently of the item list, so apply the
 	// same gates the items get — otherwise a pipeline would still show under the
@@ -293,23 +337,22 @@
 	let visiblePipelineFolders = $derived.by(() => {
 		if (archived) return new Set<string>()
 		if (itemKind !== 'all' && itemKind !== 'script') return new Set<string>()
-		if (labelFilter != undefined) return new Set<string>()
-		if (ownerFilter == undefined) return pipelineFolders
-		return new Set(
-			[...pipelineFolders].filter(
-				(f) => `f/${f}` === ownerFilter || `f/${f}`.startsWith(ownerFilter + '/')
-			)
-		)
+		if (filterValues.val.label) return new Set<string>()
+		const pf = (filterValues.val.path ?? '').toLowerCase()
+		if (!pf) return pipelineFolders
+		return new Set([...pipelineFolders].filter((f) => `f/${f}`.toLowerCase().includes(pf)))
 	})
-	let includeWithoutMain = $state(
-		getLocalSetting(INCLUDE_WITHOUT_MAIN_SETTING_NAME)
-			? getLocalSetting(INCLUDE_WITHOUT_MAIN_SETTING_NAME) == 'true'
-			: true
-	)
 
-	const openSearchWithPrefilledText: (t?: string) => void = getContext(
-		'openSearchWithPrefilledText'
-	)
+	// Content-filter view: reuse the Ctrl-K "Content" search (full-text, EE-gated).
+	// It loads its own dataset via `.open()`, then filters client-side by `search`. The
+	// component is keyed by workspace in the markup, so a workspace switch remounts it (this
+	// `bind:this` then points at the fresh instance and re-runs `open()`); the old instance is
+	// discarded, so its late in-flight responses can't overwrite the new workspace's results.
+	let contentSearchEl: ContentSearchInner | undefined = $state()
+	$effect(() => {
+		const el = contentSearchEl
+		if (el) untrack(() => el.open())
+	})
 
 	let viewCodeDrawer: Drawer | undefined = $state()
 	let viewCodeTitle: string | undefined = $state()
@@ -328,11 +371,6 @@
 	}
 
 	let collapseAll = $state(true)
-	let owners = $derived(
-		Array.from(
-			new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-		).sort()
-	)
 	$effect(() => {
 		if ($userStore && $workspaceStore) {
 			;[archived, includeWithoutMain]
@@ -384,33 +422,35 @@
 	let allLabels = $derived(
 		Array.from(new Set(combinedItems?.flatMap((x) => itemLabels(x)) ?? [])).sort()
 	)
-	let prevWorkspace: string | undefined = undefined
-	// Clear filters only when the workspace actually changes. The initial
-	// resolution must be left alone so URL-loaded filter values (set by
-	// ListFilters.loadFilterFromUrl on mount) survive the async store settling.
-	$effect(() => {
-		const ws = $workspaceStore
-		if (ws && prevWorkspace !== undefined && ws !== prevWorkspace) {
-			ownerFilter = undefined
-			labelFilter = undefined
-		}
-		prevWorkspace = ws
-	})
+	// Owner prefixes (`u/<user>`, `f/<folder>`) across all items, exposed as
+	// FilterSearchbar presets that set the `path` filter.
+	let owners = $derived(
+		Array.from(
+			new Set(combinedItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
+		).sort()
+	)
+	// FilterSearchbar presets: owner prefixes set the `path` filter, labels set the
+	// `label` filter. Spaces are escaped to match the searchbar's tagged syntax.
+	let searchPresets = $derived([
+		...owners.map((o) => ({ name: o, value: `path:${(o + '/').replace(/ /g, '\\ ')}` })),
+		...allLabels.map((l) => ({ name: l, value: `label:${l.replace(/ /g, '\\ ')}` }))
+	])
+	let pathFilter = $derived((filterValues.val.path ?? '').toLowerCase())
+	let summaryFilter = $derived((filterValues.val.summary ?? '').toLowerCase())
+	// `draft_only`/`is_draft` aren't on every item type in the union — read defensively.
+	const isDraftOnly = (x: any) => x?.draft_only === true
+	const hasDraft = (x: any) => x?.is_draft === true || x?.draft_only === true
 	let preFilteredItems = $derived(
-		ownerFilter != undefined
-			? combinedItems?.filter(
-					(x) =>
-						x.path.startsWith(ownerFilter + '/') &&
-						(x.type == itemKind || itemKind == 'all') &&
-						filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType) &&
-						(labelFilter == undefined || itemLabels(x).includes(labelFilter))
-				)
-			: combinedItems?.filter(
-					(x) =>
-						(x.type == itemKind || itemKind == 'all') &&
-						filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType) &&
-						(labelFilter == undefined || itemLabels(x).includes(labelFilter))
-				)
+		combinedItems?.filter(
+			(x) =>
+				(x.type == itemKind || itemKind == 'all') &&
+				filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType) &&
+				(!filterValues.val.label || itemLabels(x).includes(filterValues.val.label)) &&
+				(!pathFilter || x.path.toLowerCase().includes(pathFilter)) &&
+				(!summaryFilter || (x.summary ?? '').toLowerCase().includes(summaryFilter)) &&
+				(!filterValues.val.draft_only || isDraftOnly(x)) &&
+				(!filterValues.val.draft || hasDraft(x))
+		)
 	)
 	let items = $derived(filter !== '' ? filteredItems : preFilteredItems)
 	let displayedItems = $derived((items ?? []).slice(0, nbDisplayed))
@@ -418,12 +458,44 @@
 		items && resetScroll()
 	})
 
+	// --- Keyboard navigation of the results list -------------------------------
+	// Arrow up/down move a highlight through the list, Enter opens it, and
+	// Right/Left step into the row's action buttons. Active only in the flat
+	// (non-tree) view, and only while the FilterSearchbar's suggestion dropdown is
+	// closed: in free-text mode the searchbar hides that dropdown and yields the
+	// arrow keys to us; when a specific filter is being edited it keeps them.
 	let selectedIndex: number = $state(-1)
+	let searchbarDropdownOpen = $state(false)
+	let searchbarWrapper: HTMLDivElement | undefined = $state()
 	let hasMore = $derived(items != undefined && items.length > nbDisplayed)
 	let loadMoreIndex = $derived(displayedItems.length)
 	let loadMoreEl: HTMLButtonElement | undefined = $state()
 	let pendingAutoSelect = $state(true)
 	let firstWorkspaceRun = true
+
+	function focusSearchbar() {
+		searchbarWrapper?.querySelector<HTMLElement>('[contenteditable]')?.focus()
+	}
+	function isInSearchbar(el: HTMLElement | null): boolean {
+		return !!el && !!searchbarWrapper?.contains(el)
+	}
+	// Whether the searchbar caret sits at the given edge — only then does Left/Right
+	// step out into the list/actions, so mid-text arrows still move the cursor.
+	function searchbarCaretAtEdge(which: 'start' | 'end'): boolean {
+		const editable = searchbarWrapper?.querySelector<HTMLElement>('[contenteditable]')
+		const sel = window.getSelection()
+		if (!editable || !sel || sel.rangeCount === 0) return true
+		const caret = sel.getRangeAt(0)
+		const probe = caret.cloneRange()
+		probe.selectNodeContents(editable)
+		if (which === 'start') {
+			probe.setEnd(caret.startContainer, caret.startOffset)
+		} else {
+			probe.setStart(caret.endContainer, caret.endOffset)
+		}
+		return probe.toString().length === 0
+	}
+
 	$effect(() => {
 		$workspaceStore
 		pendingAutoSelect = true
@@ -431,20 +503,16 @@
 			firstWorkspaceRun = false
 			return
 		}
-		// On workspace switch, melt-ui restores focus to the workspace-picker trigger
-		// button asynchronously after the menu closes. Without overriding it, pressing
-		// an arrow key would re-open / re-highlight the workspace picker instead of
-		// moving the items-list selection. Run several times to win the focus race.
-		const focusSearch = () => {
-			const el = document.getElementById('home-search-input') as HTMLInputElement | null
-			el?.focus()
-		}
-		focusSearch()
+		// On workspace switch melt-ui restores focus to the workspace-picker trigger
+		// after its menu closes; without overriding it, an arrow key would re-open the
+		// picker instead of moving the list selection. Re-focus the search a few times
+		// to win the async focus race.
+		focusSearchbar()
 		const raf1 = requestAnimationFrame(() => {
-			focusSearch()
-			requestAnimationFrame(focusSearch)
+			focusSearchbar()
+			requestAnimationFrame(focusSearchbar)
 		})
-		const timeoutId = setTimeout(focusSearch, 100)
+		const timeoutId = setTimeout(focusSearchbar, 100)
 		return () => {
 			cancelAnimationFrame(raf1)
 			clearTimeout(timeoutId)
@@ -453,10 +521,8 @@
 	$effect(() => {
 		filter
 		itemKind
-		ownerFilter
-		labelFilter
-		// Skip while pendingAutoSelect is true (initial load / workspace switch);
-		// the auto-select effect below will set the index once items appear.
+		// Skip while pendingAutoSelect (initial load / workspace switch); the auto-select
+		// effect below sets the index once items appear.
 		if (!pendingAutoSelect) {
 			selectedIndex = -1
 		}
@@ -478,8 +544,8 @@
 			loadMoreEl?.scrollIntoView({ block: 'nearest' })
 		}
 	})
-	// Capture-phase listener so we run before melt-ui's button keydown handlers
-	// (e.g. ArrowDown on the dropdown trigger would otherwise open the menu).
+	// Capture phase so we run before melt-ui's button keydown handlers (e.g. ArrowDown
+	// on a dropdown trigger would otherwise open its menu).
 	$effect(() => {
 		window.addEventListener('keydown', handleGlobalKeydown, true)
 		return () => window.removeEventListener('keydown', handleGlobalKeydown, true)
@@ -498,17 +564,18 @@
 	}
 
 	function handleGlobalKeydown(e: KeyboardEvent) {
-		if (treeView) return
+		// Tree view has its own structure; the searchbar owns the arrows whenever its
+		// suggestion dropdown is open (a specific filter is being edited).
+		if (treeView || searchbarDropdownOpen) return
 		const target = e.target as HTMLElement | null
 
-		// When focus is inside a row's action buttons, handle arrow keys ourselves:
+		// When focus is inside a row's action buttons, handle arrows ourselves:
 		//  - Left/Right cycle between buttons (Left from the first returns to search).
 		//  - Up/Down move to the same-position button on the previous/next row.
-		// All other keys pass through so Enter/Space activate the focused button normally.
-		// This must run BEFORE the skipSelector check, since the dropdown ellipsis
-		// trigger carries [data-menu] (which would otherwise filter the event out).
-		// Up/Down also need stopImmediatePropagation so melt-ui's dropdown trigger
-		// doesn't open the menu (its default ArrowDown behavior).
+		// Other keys pass through so Enter/Space activate the focused button normally.
+		// Must run BEFORE the skipSelector check, since the ellipsis trigger carries
+		// [data-menu]. Up/Down also need stopImmediatePropagation so melt-ui's trigger
+		// doesn't open its menu.
 		const actionsContainer = target?.closest<HTMLElement>('[data-row-actions]')
 		if (actionsContainer) {
 			if (
@@ -531,7 +598,7 @@
 				if (currentIdx > 0) {
 					buttons[currentIdx - 1].focus()
 				} else {
-					;(document.getElementById('home-search-input') as HTMLInputElement | null)?.focus()
+					focusSearchbar()
 				}
 			} else {
 				// ArrowUp / ArrowDown: move to same-position button on prev/next row.
@@ -555,18 +622,17 @@
 		}
 
 		// Inside an open dropdown menu: ArrowUp on first item / ArrowDown on last item
-		// closes the menu (so users can leave with arrows instead of needing Escape).
-		// Other arrow keys fall through to melt-ui's default cycle.
+		// closes the menu (leave with arrows instead of Escape). Others fall through to
+		// melt-ui's default cycle.
 		const menuItem = target?.closest<HTMLElement>('[role="menuitem"]')
 		if (menuItem) {
 			if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
 				const menu = menuItem.closest<HTMLElement>('[role="menu"]')
-				// menus marked data-arrow-loop keep melt's cyclic wrap instead of exiting
 				if (menu && !menu.hasAttribute('data-arrow-loop')) {
-					const items = Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-					const idx = items.indexOf(menuItem)
+					const menuButtons = Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+					const idx = menuButtons.indexOf(menuItem)
 					const isFirst = idx === 0
-					const isLast = idx === items.length - 1
+					const isLast = idx === menuButtons.length - 1
 					if ((e.key === 'ArrowUp' && isFirst) || (e.key === 'ArrowDown' && isLast)) {
 						e.preventDefault()
 						e.stopImmediatePropagation()
@@ -585,20 +651,17 @@
 			const tag = target.tagName
 			const isEditable =
 				tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable
-			const isOurSearch = target.id === 'home-search-input'
-			if (isEditable && !isOurSearch) return
+			// The searchbar is a contenteditable, but it's our own — don't bail on it.
+			if (isEditable && !isInSearchbar(target)) return
 			if (target.closest(skipSelector)) return
 		}
 		const active = document.activeElement as HTMLElement | null
 		if (active?.closest(skipSelector)) return
 
-		// ArrowRight from search input / body → focus first action button of selected row.
-		// Guard: if cursor is in the middle of typed search text, let the cursor move.
+		// ArrowRight from the search / body → focus first action button of selected row.
+		// Guard: if the searchbar caret isn't at the end, let it move the cursor instead.
 		if (e.key === 'ArrowRight') {
-			if (target?.id === 'home-search-input') {
-				const inp = target as HTMLInputElement
-				if (inp.value.length > 0 && inp.selectionEnd !== inp.value.length) return
-			}
+			if (isInSearchbar(target) && !searchbarCaretAtEdge('end')) return
 			if (selectedIndex < 0 || selectedIndex >= displayedItems.length) return
 			const buttons = getSelectedRowActionButtons()
 			if (buttons.length > 0) {
@@ -607,12 +670,9 @@
 			}
 			return
 		}
-		// ArrowLeft from search input with cursor at start: no-op (let default handle).
+		// ArrowLeft in the searchbar with the caret not at the start: let it move the cursor.
 		if (e.key === 'ArrowLeft') {
-			if (target?.id === 'home-search-input') {
-				const inp = target as HTMLInputElement
-				if (inp.value.length > 0 && inp.selectionStart !== 0) return
-			}
+			if (isInSearchbar(target) && !searchbarCaretAtEdge('start')) return
 			return
 		}
 
@@ -660,14 +720,9 @@
 			}
 		}
 	}
+
 	$effect(() => {
 		storeLocalSetting(TREE_VIEW_SETTING_NAME, treeView ? 'true' : undefined)
-	})
-	$effect(() => {
-		storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
-	})
-	$effect(() => {
-		storeLocalSetting(INCLUDE_WITHOUT_MAIN_SETTING_NAME, includeWithoutMain ? 'true' : undefined)
 	})
 </script>
 
@@ -705,156 +760,78 @@
 			description: 'Lists of scripts, flows, and apps'
 		}}
 	>
-		<div class="flex justify-start">
-			<ToggleButtonGroup
-				bind:selected={itemKind}
-				onSelected={(v) => {
-					if (itemKind != 'all') {
-						subtab = v
-					}
-					setQuery(page.url, 'kind', v)
-				}}
-			>
-				{#snippet children({ item })}
-					<ToggleButton value="all" label="All" size="md" {item} />
-					<ToggleButton value="script" icon={Code2} label="Scripts" size="md" {item} />
-					{#if HOME_SEARCH_SHOW_FLOW}
+		{#if !contentActive}
+			<div class="flex justify-start">
+				<ToggleButtonGroup
+					selected={itemKind}
+					onSelected={(v) => {
+						// Shortcut into the shared filter object; `all` clears the kind filter
+						// entirely (delete, not null — otherwise it shows as a `kind: null` tag).
+						if (v === 'all') {
+							delete filterValues.val.kind
+						} else {
+							filterValues.val.kind = v
+							subtab = v
+						}
+					}}
+				>
+					{#snippet children({ item })}
+						<ToggleButton value="all" label="All" size="md" {item} />
+						<ToggleButton value="script" icon={Code2} label="Scripts" size="md" {item} />
+						{#if HOME_SEARCH_SHOW_FLOW}
+							<ToggleButton
+								value="flow"
+								label="Flows"
+								icon={FlowIcon}
+								selectedColor="#14b8a6"
+								size="md"
+								{item}
+							/>
+						{/if}
 						<ToggleButton
-							value="flow"
-							label="Flows"
-							icon={FlowIcon}
-							selectedColor="#14b8a6"
+							value="app"
+							label="Apps"
+							icon={LayoutDashboard}
+							selectedColor="#fb923c"
 							size="md"
 							{item}
 						/>
-					{/if}
-					<ToggleButton
-						value="app"
-						label="Apps"
-						icon={LayoutDashboard}
-						selectedColor="#fb923c"
-						size="md"
-						{item}
-					/>
-				{/snippet}
-			</ToggleButtonGroup>
-		</div>
-
-		<div class="relative text-primary grow min-w-[100px]">
-			<!-- svelte-ignore a11y_autofocus -->
-			<TextInput
-				inputProps={{
-					autofocus: true,
-					placeholder: HOME_SEARCH_PLACEHOLDER,
-					id: 'home-search-input'
-				}}
-				size="md"
-				bind:value={filter}
-				class="!pr-10"
-			/>
-			<button aria-label="Search" type="submit" class="absolute right-0 top-0 mt-2 mr-4">
-				<svg
-					class="h-4 w-4 fill-current"
-					xmlns="http://www.w3.org/2000/svg"
-					xmlns:xlink="http://www.w3.org/1999/xlink"
-					version="1.1"
-					id="Capa_1"
-					x="0px"
-					y="0px"
-					viewBox="0 0 56.966 56.966"
-					style="enable-background:new 0 0 56.966 56.966;"
-					xml:space="preserve"
-					width="512px"
-					height="512px"
-				>
-					<path
-						d="M55.146,51.887L41.588,37.786c3.486-4.144,5.396-9.358,5.396-14.786c0-12.682-10.318-23-23-23s-23,10.318-23,23  s10.318,23,23,23c4.761,0,9.298-1.436,13.177-4.162l13.661,14.208c0.571,0.593,1.339,0.92,2.162,0.92  c0.779,0,1.518-0.297,2.079-0.837C56.255,54.982,56.293,53.08,55.146,51.887z M23.984,6c9.374,0,17,7.626,17,17s-7.626,17-17,17  s-17-7.626-17-17S14.61,6,23.984,6z"
-					/>
-				</svg>
-			</button>
-		</div>
-		<Button
-			on:click={() => openSearchWithPrefilledText('#')}
-			variant="default"
-			unifiedSize="md"
-			endIcon={{
-				icon: SearchCode
-			}}
-		>
-			Content
-		</Button>
-	</div>
-	<div class="relative">
-		<ListFilters
-			syncQuery
-			bind:selectedFilter={ownerFilter}
-			filters={owners}
-			bottomMargin={false}
-		/>
-		{#if allLabels.length > 0}
-			<div class="gap-1.5 w-full flex flex-wrap mt-2">
-				{#each allLabels as label (label)}
-					<Badge
-						color="blue"
-						small
-						clickable
-						selected={label === labelFilter}
-						title="Label: {label}"
-						onclick={() => {
-							labelFilter = labelFilter === label ? undefined : label
-						}}
-					>
-						<Tag size={10} class="inline -mt-px" />{label}
-						{#if label === labelFilter}&cross;{/if}
-					</Badge>
-				{/each}
+					{/snippet}
+				</ToggleButtonGroup>
+				<Toggle
+					options={{ right: 'Tree view' }}
+					textClass="text-nowrap"
+					size="xs"
+					class="ml-4"
+					bind:checked={treeView}
+				/>
 			</div>
 		{/if}
-		{#if filteredItems?.length == 0}
-			<div class="mt-10"></div>
+
+		<div
+			bind:this={searchbarWrapper}
+			class="relative text-primary grow min-w-[200px] max-w-[30rem] ml-auto"
+		>
+			<FilterSearchbar
+				schema={searchbarSchema}
+				bind:value={filterValues.val}
+				presets={contentActive ? [] : searchPresets}
+				placeholder="Filter scripts, flows and apps..."
+				autofocus
+				hideDropdownOnFreeText
+				onDropdownVisibleChange={(v) => (searchbarDropdownOpen = v)}
+			/>
+		</div>
+
+		{#if !$userStore?.operator && showEditButtons}
+			<CreateActionsMenu />
 		{/if}
+	</div>
+	<div class="relative">
 		{#if !loading}
-			<div class="flex w-full flex-row-reverse gap-2 mt-2 mb-1 items-center h-6">
-				<Popover floatingConfig={{ placement: 'bottom-end' }}>
-					{#snippet trigger()}
-						<Button
-							startIcon={{
-								icon: ListFilterPlus
-							}}
-							nonCaptureEvent
-							iconOnly
-							size="xs"
-							color="light"
-							variant="default"
-							spacingSize="xs2"
-						/>
-					{/snippet}
-					{#snippet content()}
-						<div class="p-4">
-							<span class="text-sm font-semibold text-emphasis">Filters</span>
-							<div class="flex flex-col gap-2 mt-2">
-								<Toggle size="xs" bind:checked={archived} options={{ right: 'Only archived' }} />
-								{#if $userStore && !$userStore.operator}
-									<Toggle
-										size="xs"
-										bind:checked={includeWithoutMain}
-										options={{ right: 'Include library scripts' }}
-									/>
-								{/if}
-							</div>
-						</div>
-					{/snippet}
-				</Popover>
-				{#if filterUserFoldersType === 'only f/*'}
-					<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
-				{:else if filterUserFoldersType === 'u/username and f/*'}
-					<Toggle
-						size="xs"
-						bind:checked={filterUserFolders}
-						options={{ right: `Only u/${$userStore?.username} and f/*` }}
-					/>
-				{/if}
-				<Toggle size="xs" bind:checked={treeView} options={{ right: 'Tree view' }} />
+			<div
+				class="flex w-full flex-row-reverse gap-2 mt-2 mb-1 items-center {treeView ? 'h-4' : 'h-0'}"
+			>
 				{#if treeView}
 					<Button
 						unifiedSize="sm"
@@ -875,7 +852,19 @@
 		{/if}
 	</div>
 	<div>
-		{#if filteredItems == undefined}
+		{#if filterValues.val.content}
+			<!-- Content filter: swap the normal list/tree for the full-text content-match
+			     view (the same one used by the Ctrl-K "Content" modal). It searches item
+			     contents via the indexer and shows the matching snippets; when the instance
+			     isn't EE it renders its own warning + a limited fallback search. -->
+			<div class="mt-2">
+				<!-- Keyed by workspace: switching remounts a fresh ContentSearchInner so late
+				     responses from the previous workspace's in-flight loads can't land in it. -->
+				{#key $workspaceStore}
+					<ContentSearchInner bind:this={contentSearchEl} search={filterValues.val.content} />
+				{/key}
+			</div>
+		{:else if filteredItems == undefined}
 			<div class="mt-4"></div>
 			<Skeleton layout={[[2], 1]} />
 			{#each new Array(6) as _}
@@ -885,7 +874,18 @@
 			<!-- Pipelines aren't part of the text filter, so only fall through to show
 			     them (list rows / injected tree folders) when not actively searching;
 			     a no-match search still reads as empty. -->
-			<NoItemFound hasFilters={filter !== '' || archived || filterUserFolders} />
+			<div class="py-10 border rounded-md">
+				<NoItemFound
+					hasFilters={filter !== '' ||
+						archived ||
+						filterUserFolders ||
+						!!pathFilter ||
+						!!summaryFilter ||
+						!!filterValues.val.label ||
+						!!filterValues.val.draft_only ||
+						!!filterValues.val.draft}
+				/>
+			</div>
 		{:else if treeView}
 			<TreeViewRoot
 				{items}

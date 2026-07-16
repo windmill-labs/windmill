@@ -105,13 +105,13 @@
 		? `${base}/apps${app.raw_app ? '_raw' : ''}/edit/${app.path}`
 		: `${base}/apps${app.raw_app ? '_raw' : ''}/get/${app.path}`}
 	kind="app"
+	{keyboardSelected}
 	{marked}
 	path={(app as any).draft_path ?? app.path}
 	summary={app.is_draft ? `${app.summary || (app as any).draft_path || app.path}*` : app.summary}
 	workspaceId={app.workspace_id ?? $workspaceStore ?? ''}
 	canFavorite={!app.draft_only}
 	{depth}
-	{keyboardSelected}
 >
 	{#snippet badges()}
 		{#if app.execution_mode == 'anonymous'}

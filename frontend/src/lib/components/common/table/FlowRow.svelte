@@ -128,13 +128,13 @@
 		: `${base}/flows/get/${flow.path}?workspace=${$workspaceStore}`}
 	kind="flow"
 	workspaceId={flow.workspace_id ?? $workspaceStore ?? ''}
+	{keyboardSelected}
 	{marked}
 	path={flow.draft_path ?? flow.path}
 	summary={flow.is_draft ? `${flow.summary || flow.draft_path || flow.path}*` : flow.summary}
 	{errorHandlerMuted}
 	canFavorite={!flow.draft_only}
 	{depth}
-	{keyboardSelected}
 >
 	{#snippet badges()}
 		{#if flow.archived}

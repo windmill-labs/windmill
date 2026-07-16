@@ -18,7 +18,6 @@ use crate::teams_oss::{
     connect_teams, edit_teams_command, run_teams_message_test_job,
     workspaces_list_available_teams_channels, workspaces_list_available_teams_ids,
 };
-
 use axum::{
     extract::{Extension, Path},
     routing::{get, post},
@@ -155,6 +154,13 @@ async fn edit_copilot_config(
         ai_config
     } else if let Some(instance_ai_config) = instance_ai_config {
         serde_json::from_value::<AIConfig>(instance_ai_config).unwrap_or_default()
+    } else if let Some(free_config) =
+        crate::ai_free_tier_oss::free_tier_copilot_config(&db, &authed.email).await?
+    {
+        // Same fallback as get_copilot_info: with nothing configured, surface Windmill's free
+        // tier (EE-only) so clearing a workspace provider activates it immediately, instead of
+        // returning an empty config that disables AI until the next page reload re-fetches it.
+        free_config
     } else {
         AIConfig::default()
     };
@@ -177,6 +183,7 @@ struct EditCopilotConfigResponse {
 }
 
 async fn get_copilot_info(
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<AIConfig> {
@@ -202,6 +209,13 @@ async fn get_copilot_info(
         Ok(Json(
             serde_json::from_value::<AIConfig>(instance_config).unwrap_or_default(),
         ))
+    } else if let Some(free_config) =
+        crate::ai_free_tier_oss::free_tier_copilot_config(&db, &authed.email).await?
+    {
+        // Nothing configured: fall back to Windmill's free tier (EE-only). The config
+        // carries a `free_tier` marker even once the user's grant is spent — with no
+        // providers, but telling the client *why* AI is off.
+        Ok(Json(free_config))
     } else {
         Ok(Json(AIConfig::default()))
     }

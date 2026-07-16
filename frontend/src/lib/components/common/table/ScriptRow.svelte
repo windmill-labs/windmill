@@ -145,6 +145,7 @@
 		? `${base}/scripts/edit/${script.path}`
 		: `${base}/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
 	kind="script"
+	{keyboardSelected}
 	{marked}
 	path={script.draft_path ?? script.path}
 	summary={script.is_draft
@@ -154,7 +155,6 @@
 	workspaceId={$workspaceStore ?? ''}
 	canFavorite={!script.draft_only}
 	{depth}
-	{keyboardSelected}
 >
 	{#snippet badges()}
 		{#if script.lock_error_logs}
