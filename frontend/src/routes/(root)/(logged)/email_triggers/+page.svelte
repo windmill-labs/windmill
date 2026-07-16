@@ -81,11 +81,14 @@
 	}
 	getDeployUiSettings()
 	async function loadTriggers(): Promise<void> {
-		triggers = (await EmailTriggerService.listEmailTriggers({ workspace: $workspaceStore!, includeDraftOnly: true })).map(
-			(x) => {
-				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
-			}
-		)
+		triggers = (
+			await EmailTriggerService.listEmailTriggers({
+				workspace: $workspaceStore!,
+				includeDraftOnly: true
+			})
+		).map((x) => {
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+		})
 		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'emails', $usedTriggerKinds)
 		emailDomain = await getEmailDomain()
 		loading = false
@@ -359,7 +362,9 @@
 											</span>
 										{:else}
 											{emailAddress}
-										{/if}{(getLocalDraftHint($workspaceStore, 'trigger_email', path) ?? is_draft) ? '*' : ''}
+										{/if}{(getLocalDraftHint($workspaceStore, 'trigger_email', path) ?? is_draft)
+											? '*'
+											: ''}
 									</div>
 									<div class="text-secondary text-xs truncate text-left font-light">
 										{path}
@@ -371,8 +376,8 @@
 
 								<div class="hidden lg:flex flex-row gap-1 items-center">
 									<SharedBadge {canWrite} extraPerms={extra_perms} />
-									{#if draft_only}
-										<DraftBadge draft_only is_draft={false} />
+									{#if draft_only || is_draft}
+										<DraftBadge {draft_only} is_draft={true} />
 									{/if}
 									{#if labels?.length}
 										{#each labels as label}
@@ -382,6 +387,7 @@
 								</div>
 
 								<TriggerModeToggle
+									disabled={draft_only}
 									onToggleMode={(newMode) => onToggleMode(path, newMode)}
 									triggerMode={mode}
 									includeModalConfig={{

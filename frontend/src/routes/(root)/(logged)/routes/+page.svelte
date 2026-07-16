@@ -395,7 +395,9 @@
 											/{isCloudHosted() || workspaced_route || globalHttpWorkspacedRoute
 												? workspace_id + '/' + route_path
 												: route_path}
-										{/if}{(getLocalDraftHint($workspaceStore, 'trigger_http', path) ?? is_draft) ? '*' : ''}
+										{/if}{(getLocalDraftHint($workspaceStore, 'trigger_http', path) ?? is_draft)
+											? '*'
+											: ''}
 									</div>
 									<div class="text-secondary text-xs truncate text-left font-normal">
 										{path}
@@ -411,12 +413,13 @@
 
 								<div class="hidden lg:flex flex-row gap-1 items-center">
 									<SharedBadge {canWrite} extraPerms={extra_perms} />
-									{#if draft_only}
-										<DraftBadge draft_only is_draft={false} />
+									{#if draft_only || is_draft}
+										<DraftBadge {draft_only} is_draft={true} />
 									{/if}
 								</div>
 
 								<TriggerModeToggle
+									disabled={draft_only}
 									onToggleMode={(mode) => onToggleMode(path, mode)}
 									triggerMode={mode}
 									includeModalConfig={{

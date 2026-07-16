@@ -66,7 +66,10 @@
 	getDeployUiSettings()
 	async function loadTriggers(): Promise<void> {
 		triggers = (
-			await WebsocketTriggerService.listWebsocketTriggers({ workspace: $workspaceStore!, includeDraftOnly: true })
+			await WebsocketTriggerService.listWebsocketTriggers({
+				workspace: $workspaceStore!,
+				includeDraftOnly: true
+			})
 		).map((x) => {
 			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 		})
@@ -364,7 +367,9 @@
 											: url.startsWith('$flow:')
 												? 'URL: ' + url.replace('$flow:', 'result of flow ')
 												: url}
-									{/if}{(getLocalDraftHint($workspaceStore, 'trigger_websocket', path) ?? is_draft) ? '*' : ''}
+									{/if}{(getLocalDraftHint($workspaceStore, 'trigger_websocket', path) ?? is_draft)
+										? '*'
+										: ''}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
 									{path}
@@ -376,9 +381,9 @@
 
 							<div class="hidden lg:flex flex-row gap-1 items-center">
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
-									{#if draft_only}
-										<DraftBadge draft_only is_draft={false} />
-									{/if}
+								{#if draft_only || is_draft}
+									<DraftBadge {draft_only} is_draft={true} />
+								{/if}
 								{#if labels?.length}
 									{#each labels as label}
 										<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
@@ -425,6 +430,7 @@
 							</div>
 
 							<TriggerModeToggle
+								disabled={draft_only}
 								onToggleMode={(newMode) => onToggleMode(path, newMode)}
 								triggerMode={mode}
 								includeModalConfig={{

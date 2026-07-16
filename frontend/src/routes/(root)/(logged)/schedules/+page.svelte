@@ -387,7 +387,13 @@
 									<div
 										class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate"
 									>
-										{summary || script_path}{(getLocalDraftHint($workspaceStore, 'trigger_schedule', path) ?? is_draft) ? '*' : ''}
+										{summary || script_path}{(getLocalDraftHint(
+											$workspaceStore,
+											'trigger_schedule',
+											path
+										) ?? is_draft)
+											? '*'
+											: ''}
 									</div>
 									<div class="text-secondary text-xs truncate text-left">
 										schedule: {path}
@@ -431,8 +437,8 @@
 
 								<div class="hidden lg:flex flex-row gap-1 items-center">
 									<SharedBadge {canWrite} extraPerms={extra_perms} />
-									{#if draft_only}
-										<DraftBadge draft_only is_draft={false} />
+									{#if draft_only || is_draft}
+										<DraftBadge {draft_only} is_draft={true} />
 									{/if}
 								</div>
 
@@ -458,6 +464,7 @@
 
 								{#key toggleResetVersions[path] ?? 0}
 									<Toggle
+										disabled={draft_only}
 										checked={enabled}
 										on:change={(e) => {
 											if (canWrite) {
