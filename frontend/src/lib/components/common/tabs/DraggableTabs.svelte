@@ -34,6 +34,10 @@
 		onSelect: (id: string) => void
 		onClose?: (id: string) => void
 		onReorder?: (newOrder: TabItem[]) => void
+		/** Called instead of `onSelect` when the already-active tab is clicked or
+		 * activated via Enter/Space — lets the active tab host a secondary affordance
+		 * (e.g. toggling the breadcrumb picker rendered in `tabAccessory`). */
+		onActiveClick?: (id: string) => void
 		/** Extra classes for the outer tab strip. */
 		class?: string
 		/** Render inside the scroll row, right after the last tab (e.g. a "+" new-tab
@@ -43,7 +47,13 @@
 		 * pinned (e.g. a "Split with Preview" toggle). */
 		trailing?: import('svelte').Snippet
 		/** Render inside each tab, after the label and before the close button (e.g. a
-		 * per-tab chevron/breadcrumb picker). Receives the tab and whether it's active. */
+		 * per-tab chevron/breadcrumb picker). Receives the tab and whether it's active.
+		 * Clicks on the accessory bubble to the tab (select / `onActiveClick`) unless the
+		 * accessory stops propagation itself. The tab is position:relative, so the
+		 * accessory may render an `absolute inset-0 pointer-events-none` element as a
+		 * whole-tab popover anchor. Don't overlay an interactive (pointer-events-on)
+		 * element across the tab: dnd refuses to start a drag from nested inputs/buttons,
+		 * which would make the tab impossible to reorder. */
 		tabAccessory?: import('svelte').Snippet<[TabItem, boolean]>
 	}
 
@@ -53,6 +63,7 @@
 		onSelect,
 		onClose,
 		onReorder,
+		onActiveClick,
 		class: c = '',
 		afterTabs,
 		trailing,
@@ -89,11 +100,16 @@
 
 	function tabClasses(isActive: boolean) {
 		return twMerge(
-			'group inline-flex items-center gap-1.5 px-2.5 h-7 text-xs rounded-md select-none cursor-pointer whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-border-selected focus-visible:ring-inset',
+			'group relative inline-flex items-center gap-1.5 px-2.5 h-7 text-xs rounded-md select-none cursor-pointer whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-border-selected focus-visible:ring-inset',
 			isActive
 				? 'bg-surface-tertiary text-emphasis'
 				: 'bg-transparent text-hint hover:text-secondary'
 		)
+	}
+
+	function activate(tab: TabItem) {
+		if (tab.id === activeId && onActiveClick) onActiveClick(tab.id)
+		else onSelect(tab.id)
 	}
 
 	function handleKeydown(e: KeyboardEvent, tab: TabItem) {
@@ -111,7 +127,7 @@
 			}
 		} else if (e.key === 'Enter' || e.key === ' ') {
 			e.preventDefault()
-			onSelect(tab.id)
+			activate(tab)
 		}
 	}
 
@@ -132,7 +148,7 @@
 		aria-selected={isActive}
 		tabindex={isActive ? 0 : -1}
 		class={twMerge(tabClasses(isActive), tab.closable !== false && 'pr-1')}
-		onclick={() => onSelect(tab.id)}
+		onclick={() => activate(tab)}
 		onauxclick={(e) => handleAuxClick(e, tab)}
 		onkeydown={(e) => handleKeydown(e, tab)}
 	>
@@ -141,11 +157,7 @@
 		{/if}
 		<span class={twMerge('truncate max-w-[180px]', tab.labelClass)}>{tab.label}</span>
 		{#if tabAccessory}
-			<!-- The accessory is its own control (e.g. a picker): a click on it must not
-				 also select/re-select the tab, mirroring the close button below. -->
-			<!-- svelte-ignore a11y_click_events_have_key_events -->
-			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			<span class="inline-flex items-center" onclick={(e) => e.stopPropagation()}>
+			<span class="inline-flex items-center">
 				{@render tabAccessory(tab, isActive)}
 			</span>
 		{/if}

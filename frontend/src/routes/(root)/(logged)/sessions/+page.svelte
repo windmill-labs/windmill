@@ -241,6 +241,10 @@
 		owner?.close(id)
 		const sid = activeRuntime?.sessionId
 		if (sid) mountedTabKeys.delete(tabKey(sid, id))
+		// The active tab is excluded from the picker's pointerdown-outside (so a
+		// label click can toggle it); without this, closing the active tab would
+		// carry the open picker over to the newly active one.
+		activeTabPickerOpen = false
 	}
 	function reorderTabs(next: TabItem[]) {
 		owner?.reorder(next.map((t) => t.id))
@@ -663,36 +667,42 @@
 							</div>
 
 							<!-- Tab strip: open preview pages, shared with the raw-app editor
-								     (DraggableTabs). The active tab hosts its own breadcrumb picker via
-								     the accessory chevron; the "+" trailing opens the router picker.
+								     (DraggableTabs). Clicking the active tab (label or accessory chevron)
+								     toggles its breadcrumb picker; the "+" trailing opens the router picker.
 								     Left/right padding clears the floating collapse/fullscreen buttons. -->
 							<DraggableTabs
 								tabs={previewTabItems}
 								activeId={owner?.activeId ?? ''}
 								onSelect={selectTab}
+								onActiveClick={() => (activeTabPickerOpen = !activeTabPickerOpen)}
 								onClose={closeTab}
 								onReorder={reorderTabs}
-								class="h-8 border-b border-light bg-surface-secondary/50 {fullscreen
+								class="session-preview-tab-strip h-8 border-b border-light bg-surface-secondary/50 {fullscreen
 									? 'pl-1.5'
 									: 'pl-9'} pr-16"
 							>
 								{#snippet tabAccessory(_tab, isActive)}
 									{#if isActive}
+										<!-- The picker opens from any click on the active tab (label or
+										     chevron): `onActiveClick` toggles it, the active tab is excluded
+										     from pointerdown-outside so the toggle doesn't race the close,
+										     and the trigger is an inert whole-tab overlay used purely as the
+										     positioning anchor — a clickable overlay would break dnd reorder
+										     (drags can't start from a nested button). The chevron below is
+										     purely visual. -->
 										<Popover
 											placement="bottom-start"
 											usePointerDownOutside
-											excludeSelectors=".drawer"
+											excludeSelectors=".drawer, .session-preview-tab-strip [role='tab'][aria-selected='true']"
 											disableFocusTrap
 											closeOnOtherPopoverOpen
 											enableFlyTransition
 											bind:isOpen={activeTabPickerOpen}
 											openFocus="[data-workspace-picker-search]"
 											contentClasses="flex flex-col overflow-hidden"
-											class="flex items-center shrink-0 cursor-pointer text-tertiary hover:text-primary"
+											class="absolute inset-0 pointer-events-none"
+											triggerAttrs={{ 'aria-label': 'Change preview', tabindex: -1 }}
 										>
-											{#snippet trigger()}
-												<ChevronDown size={12} />
-											{/snippet}
 											{#snippet content()}
 												<PreviewRouterPicker
 													initialScope={activePickerScope}
@@ -706,6 +716,10 @@
 												/>
 											{/snippet}
 										</Popover>
+										<ChevronDown
+											size={12}
+											class="shrink-0 text-tertiary group-hover:text-primary"
+										/>
 									{/if}
 								{/snippet}
 								{#snippet afterTabs()}
