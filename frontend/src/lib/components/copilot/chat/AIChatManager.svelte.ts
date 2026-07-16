@@ -61,7 +61,7 @@ import { type PasteAttachment } from './pasteTokens'
 import {
 	type AttachedImage,
 	boundImagePartBytes,
-	imagesFromContent,
+	imageSlotsFromContent,
 	MAX_ATTACHED_IMAGES,
 	messagesHaveImageParts,
 	stripImagePartsFromMessages,
@@ -1847,6 +1847,9 @@ export class AIChatManager {
 				this.displayMessages = this.displayMessages.slice(0, -1)
 			}
 		}
+		// Interrupted turns can carry mid-loop screenshots too — bound before the
+		// error/abort paths persist this history.
+		this.messages = boundImagePartBytes(this.messages)
 	}
 
 	// Roll a turn that produced nothing usable back out of the transcript and
@@ -2413,6 +2416,13 @@ export class AIChatManager {
 			const projectedContextTokens = this.contextTokens + this.estimateMessagesTokens([userMessage])
 
 			this.messages.push(userMessage)
+			// The loop bounds each request's image bytes, but the evicted images
+			// would otherwise sit in stored history forever: provider-reported usage
+			// excludes them, so token-driven compaction never prunes them and every
+			// save re-clones the growing payload into IndexedDB. Bound the stored
+			// copy before EVERY save (the bubbles keep their thumbnails); the commit
+			// paths do the same for mid-loop screenshot growth.
+			this.messages = boundImagePartBytes(this.messages)
 			await this.historyManager.saveChat(
 				this.displayMessages,
 				this.messages,
@@ -2464,12 +2474,6 @@ export class AIChatManager {
 					)
 				}
 			}
-			// The loop bounds each request's image bytes, but the evicted images
-			// would otherwise sit in stored history forever: provider-reported usage
-			// excludes them, so token-driven compaction never prunes them and every
-			// save re-clones the growing payload into IndexedDB. Bound the stored
-			// copy too (the bubbles keep their thumbnails).
-			this.messages = boundImagePartBytes(this.messages)
 			// Rollback anchors for restoreUnsentTurn: captured after compaction so
 			// they index into the (possibly compacted) stored history. The summary
 			// path shrinks displayMessages too, so the display anchor must also be
@@ -2653,8 +2657,9 @@ export class AIChatManager {
 					sendUserToast('The model returned no response — your message was restored to the input.')
 				}
 			} else {
-				// Clean turn with output → commit as-is.
-				this.messages = [...this.messages, ...collectedMessages]
+				// Clean turn with output → commit as-is. Bounded again because tool
+				// screenshots grow the history mid-loop (see the send-time bound).
+				this.messages = boundImagePartBytes([...this.messages, ...collectedMessages])
 				// The provider's report describes the stored history exactly:
 				// compaction mutates it before sending, so what was sent IS what is
 				// stored — no anchoring or index bookkeeping needed. Without a
@@ -2825,16 +2830,22 @@ export class AIChatManager {
 	storedImages(displayMessageIndex: number): AttachedImage[] | undefined {
 		const shown = this.displayMessages[displayMessageIndex]
 		if (!shown || shown.role !== 'user') return undefined
-		const sent = imagesFromContent(this.messages[shown.index]?.content)
+		// Slot-indexed so byte-bound eviction of one image can't shift the
+		// remaining ones onto the wrong transcript thumbnails.
+		const slots = imageSlotsFromContent(this.messages[shown.index]?.content)
 		// Never fall back to the transcript's copy. It outlives a rejection that
 		// stripped the real one from history (the bubble keeps its thumbnail so the
 		// user can still see what they sent), and resending it would re-attach the
 		// image the provider just refused, failing the retry the same way.
-		if (!sent) return undefined
-		return sent.map((image, i) => {
-			const preview = shown.images?.[i]?.dataUrl
-			return preview && preview !== image.dataUrl ? { ...image, previewUrl: preview } : image
-		})
+		if (!slots) return undefined
+		const sent = slots
+			.map((image, i) => {
+				if (!image) return null
+				const preview = shown.images?.[i]?.dataUrl
+				return preview && preview !== image.dataUrl ? { ...image, previewUrl: preview } : image
+			})
+			.filter((image): image is AttachedImage => image !== null)
+		return sent.length > 0 ? sent : undefined
 	}
 
 	restartGeneration = (

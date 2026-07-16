@@ -62,24 +62,34 @@ export function transcriptImage(image: AttachedImage): AttachedImage {
 	return { dataUrl: image.previewUrl, mediaType: image.mediaType, name: image.name }
 }
 
+/** Stands in for a stripped/evicted image part. Slot-parsing below relies on it. */
+export const IMAGE_OMITTED_PLACEHOLDER = '[image omitted]'
+
 /**
- * Recover the model's own images from an API message's content parts. Resending a
- * turn must read them from here, never from the transcript: that copy is a bounded
- * thumbnail, and re-sending it would silently downgrade the model's input.
+ * Recover the model's own images from an API message's content parts, one entry
+ * per original attachment slot — `null` where the byte bound evicted one (its
+ * placeholder holds the position, keeping transcript thumbnails paired with the
+ * right surviving image). Resending a turn must read images from here, never
+ * from the transcript: that copy is a bounded thumbnail, and re-sending it
+ * would silently downgrade the model's input.
  */
-export function imagesFromContent(content: unknown): AttachedImage[] | undefined {
+export function imageSlotsFromContent(content: unknown): (AttachedImage | null)[] | undefined {
 	if (!Array.isArray(content)) return undefined
-	const images: AttachedImage[] = (content as any[])
-		.filter((part) => part?.type === 'image_url' && typeof part?.image_url?.url === 'string')
-		.map((part) => {
+	const slots = (content as any[]).flatMap((part): (AttachedImage | null)[] => {
+		if (part?.type === 'image_url' && typeof part?.image_url?.url === 'string') {
 			const dataUrl = part.image_url.url as string
-			return {
-				dataUrl,
-				mediaType:
-					parseImageDataUrl(dataUrl).mediaType === 'image/jpeg' ? 'image/jpeg' : 'image/png'
-			}
-		})
-	return images.length > 0 ? images : undefined
+			return [
+				{
+					dataUrl,
+					mediaType:
+						parseImageDataUrl(dataUrl).mediaType === 'image/jpeg' ? 'image/jpeg' : 'image/png'
+				}
+			]
+		}
+		if (part?.type === 'text' && part.text === IMAGE_OMITTED_PLACEHOLDER) return [null]
+		return []
+	})
+	return slots.length > 0 ? slots : undefined
 }
 
 export function isImageFile(file: File | Blob): boolean {
@@ -249,7 +259,7 @@ export function boundImagePartBytes(
 		return {
 			...message,
 			content: (message.content as any[]).map((part, j) =>
-				drop.has(j) ? { type: 'text', text: '[image omitted]' } : part
+				drop.has(j) ? { type: 'text', text: IMAGE_OMITTED_PLACEHOLDER } : part
 			)
 		} as ChatCompletionMessageParam
 	})
@@ -271,7 +281,7 @@ export function stripImagePartsFromMessages(
 				if (part?.type === 'text') return part.text ?? ''
 				if (part?.type === 'image_url') {
 					hadImage = true
-					return '[image omitted]'
+					return IMAGE_OMITTED_PLACEHOLDER
 				}
 				return ''
 			})

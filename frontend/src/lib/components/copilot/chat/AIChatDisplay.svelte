@@ -362,14 +362,10 @@
 		e.preventDefault()
 		const dt = e.dataTransfer
 		if (!dt) return
-		// Images are attached to the message (multimodal); other files link as text context.
-		// Top-level images are reserved from dt.files BEFORE any await: addImages claims
-		// its composer slots synchronously, so a send during the (possibly long) folder
-		// or text ingestion below cannot land them on the next message. dt.files only
-		// lists top-level items and stays valid past the handler's first await, but is
-		// read now, while the DataTransfer is certainly live — it is also the only place
-		// a drag with no filesystem backing exists (an image dragged straight from
-		// another browser tab resolves every getAsFileSystemHandle() to null).
+		// Images attach to the message; other files link as text context. Images are
+		// reserved from dt.files BEFORE any await (a send mid-ingestion would land
+		// them on the next message), and dt.files is the only place a disk-less drag
+		// exists — a cross-tab image resolves every getAsFileSystemHandle() to null.
 		const flatFiles = Array.from(dt.files ?? [])
 		const topLevelImages = flatFiles.filter(isImageFile)
 		const imageWork: Promise<unknown>[] = []

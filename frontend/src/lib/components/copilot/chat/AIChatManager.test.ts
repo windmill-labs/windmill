@@ -969,6 +969,82 @@ describe('AIChatManager queued messages', () => {
 		expect((manager.messages[2] as any).content.some((p: any) => p.type === 'image_url')).toBe(true)
 	})
 
+	// Screenshots taken by tools grow the history mid-loop, after the send-time
+	// bound ran — the committed history must be bounded again before it persists.
+	it('bounds committed screenshot follow-ups in stored history', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		const shot = (marker: string) => ({
+			role: 'user' as const,
+			content: [
+				{ type: 'text', text: 'Screenshot of the app preview:' },
+				{
+					type: 'image_url',
+					image_url: { url: 'data:image/png;base64,' + marker.repeat(9_400_000) }
+				}
+			]
+		})
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			const added = [shot('A'), { role: 'assistant', content: 'looks good' }, shot('B')] as any[]
+			added.forEach((m) => config.addedMessages?.push(m))
+			return {
+				addedMessages: added,
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		await manager.sendRequest({ instructions: 'build and verify' })
+
+		const withImages = manager.messages.filter(
+			(m: any) => Array.isArray(m.content) && m.content.some((p: any) => p.type === 'image_url')
+		)
+		// only the newest screenshot keeps its full-size copy
+		expect(withImages).toHaveLength(1)
+		expect(JSON.stringify(withImages[0].content)).toContain('BBBB')
+	})
+
+	// Evicting one image from a message must not shift the survivors onto the
+	// wrong transcript thumbnails (expand/edit/retry would misidentify them).
+	it('pairs surviving images with their own thumbnails after partial eviction', () => {
+		const manager = createManager(createInputMock())
+		manager.displayMessages = [
+			{
+				role: 'user',
+				content: 'three pics',
+				index: 0,
+				images: [
+					{ dataUrl: 'data:image/png;base64,THUMB_A', mediaType: 'image/png' },
+					{ dataUrl: 'data:image/png;base64,THUMB_B', mediaType: 'image/png' },
+					{ dataUrl: 'data:image/png;base64,THUMB_C', mediaType: 'image/png' }
+				]
+			} as any
+		]
+		manager.messages = [
+			{
+				role: 'user',
+				content: [
+					{ type: 'text', text: 'three pics' },
+					{ type: 'text', text: '[image omitted]' }, // A was evicted by the byte bound
+					{ type: 'image_url', image_url: { url: 'data:image/png;base64,FULL_B' } },
+					{ type: 'image_url', image_url: { url: 'data:image/png;base64,FULL_C' } }
+				]
+			} as any
+		]
+
+		const stored = manager.storedImages(0)
+
+		expect(stored).toHaveLength(2)
+		expect(stored?.[0]).toMatchObject({
+			dataUrl: 'data:image/png;base64,FULL_B',
+			previewUrl: 'data:image/png;base64,THUMB_B'
+		})
+		expect(stored?.[1]).toMatchObject({
+			dataUrl: 'data:image/png;base64,FULL_C',
+			previewUrl: 'data:image/png;base64,THUMB_C'
+		})
+	})
+
 	it('queues an image-only message and restores it on dequeue', () => {
 		const input = createInputMock()
 		const manager = createManager(input)
