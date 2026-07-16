@@ -115,6 +115,7 @@
 		forceTestTab?: boolean
 		highlightArg?: string
 		isAgentTool?: boolean
+		toolDescription?: string | undefined
 		siblingToolNames?: string[]
 	}
 
@@ -132,6 +133,7 @@
 		forceTestTab = false,
 		highlightArg = undefined,
 		isAgentTool = false,
+		toolDescription = $bindable(undefined),
 		siblingToolNames = undefined
 	}: Props = $props()
 
@@ -733,6 +735,7 @@
 				}
 			}}
 			bind:summary={flowModule.summary}
+			bind:description={toolDescription}
 			{isAgentTool}
 			{siblingToolNames}
 		>

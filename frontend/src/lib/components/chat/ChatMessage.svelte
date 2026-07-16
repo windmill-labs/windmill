@@ -6,6 +6,7 @@
 	import LinkRenderer from '$lib/components/copilot/chat/LinkRenderer.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import { markdownProse } from '$lib/components/markdownProse'
 
 	interface Props {
 		role: 'user' | 'assistant' | 'tool' | 'system'
@@ -103,7 +104,7 @@
 						<AlertTriangle class="w-3.5 h-3.5 text-red-500" />
 					{/if}
 				{/if}
-				<div class="prose prose-sm dark:prose-invert break-words prose-headings:!text-base">
+				<div class={markdownProse.sm}>
 					<Markdown
 						md={content}
 						plugins={[
