@@ -717,10 +717,10 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					<JobsSegment standalone />
 				</div>
 			{/if}
-			<!-- Attached-file chips and the selected-context / DOM-selector chips render
-			     INSIDE the input box now (AIChatInput → ContextTextarea `leading`), not as
-			     rows here. Selected context also still appears as highlighted @mentions in
-			     the input (deleting the mention deselects), so showContext={false} below. -->
+			<!-- Context chips (attached files + selected-context / DOM-selector) render
+			     inside the input box via AIChatInput → ContextTextarea's `leading` snippet;
+			     selected context also appears as @mentions in the input (deleting the
+			     mention deselects). Hence showContext={false} below. -->
 			{#if inputPreface}
 				{@render inputPreface()}
 			{/if}

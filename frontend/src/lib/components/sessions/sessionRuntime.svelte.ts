@@ -178,7 +178,8 @@ export interface SessionRuntime {
 	): Promise<void>
 	setRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined): void
 	requestRuntimeLogs(limit: number): Promise<RawAppRuntimeLogEntry[] | undefined>
-	setDomRequester(requester: RawAppDomRequester | undefined): void
+	setDomRequester(requester: RawAppDomRequester | undefined, owner: unknown): void
+	releaseDomRequester(owner: unknown): void
 	requestDom(query: RawAppDomQuery): Promise<RawAppDomResult | undefined>
 	setAppRunsProvider(provider: RawAppRunsProvider | undefined): void
 	getAppRuns(): RawAppRunSummary[] | undefined
@@ -454,6 +455,7 @@ function createRuntime(session: Session): SessionRuntime {
 
 	let runtimeLogRequester: RawAppRuntimeLogRequester | undefined = undefined
 	let domRequester: RawAppDomRequester | undefined = undefined
+	let domRequesterOwner: unknown = undefined
 	let appRunsProvider: RawAppRunsProvider | undefined = undefined
 
 	return {
@@ -779,8 +781,17 @@ function createRuntime(session: Session): SessionRuntime {
 		async requestRuntimeLogs(limit) {
 			return runtimeLogRequester ? runtimeLogRequester(limit) : undefined
 		},
-		setDomRequester(requester) {
+		setDomRequester(requester, owner) {
 			domRequester = requester
+			domRequesterOwner = owner
+		},
+		releaseDomRequester(owner) {
+			// Only the tab that claimed the slot may clear it, so a set/release race
+			// when switching between two raw-app tabs can't blank the new owner.
+			if (domRequesterOwner === owner) {
+				domRequester = undefined
+				domRequesterOwner = undefined
+			}
 		},
 		async requestDom(query) {
 			return domRequester ? domRequester(query) : undefined

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, untrack } from 'svelte'
+	import { untrack } from 'svelte'
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
@@ -88,21 +88,22 @@
 
 	// Only the ACTIVE preview tab owns the runtime's single DOM-requester slot, so
 	// search_dom / read_dom always target the visible app. Hidden preview tabs stay
-	// mounted, so without this an inactive tab (or a closing one) could leave the
-	// slot pointing at the wrong app — unlike a plain register-on-mount.
+	// mounted, so the slot must be RELEASED when this tab is hidden (switching to a
+	// flow/script/page tab, or to another raw-app tab) — otherwise it keeps
+	// targeting a now-hidden raw app.
 	let domRequester = $state<RawAppDomRequester | undefined>(undefined)
 	function registerDomRequester(requester: RawAppDomRequester | undefined) {
 		domRequester = requester
 	}
+	// Per-tab token: the runtime only lets THIS tab release the slot it claimed, so
+	// two raw-app tabs (one releasing while the other claims) can't blank the new
+	// owner regardless of effect order.
+	const domSlotOwner = {}
 	$effect(() => {
-		// Claim the slot when active (with our requester, or undefined until the
-		// editor registers); an inactive tab never touches it, so switching tabs
-		// can't be clobbered by a sibling's cleanup.
-		if (active) runtime.setDomRequester(domRequester)
-	})
-	onDestroy(() => {
-		// If the active tab unmounts, release the slot it owns.
-		if (active) runtime.setDomRequester(undefined)
+		if (!active) return
+		runtime.setDomRequester(domRequester, domSlotOwner)
+		// Cleanup runs when this tab goes inactive or unmounts → release the slot.
+		return () => runtime.releaseDomRequester(domSlotOwner)
 	})
 
 	// An element picked in the preview inspector becomes a selector chip on the

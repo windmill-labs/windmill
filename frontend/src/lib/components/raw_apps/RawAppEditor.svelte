@@ -1412,6 +1412,9 @@
 		// app elements (highlights are element outlines, not overlay nodes).
 		const clone = el.cloneNode(true) as Element
 		clone.querySelectorAll('.inspector-label').forEach((n) => n.remove())
+		// The outline classes sit on the selected element itself (the clone root),
+		// not only its descendants — querySelectorAll skips the root, so strip it too.
+		clone.classList.remove('inspector-hover', 'inspector-picked')
 		clone
 			.querySelectorAll('.inspector-hover, .inspector-picked')
 			.forEach((n) => n.classList.remove('inspector-hover', 'inspector-picked'))
