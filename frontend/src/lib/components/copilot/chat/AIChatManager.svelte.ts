@@ -423,18 +423,17 @@ export class AIChatManager {
 	 * keyed by toolId. Drained by appendPendingToolImages into a follow-up user message
 	 * after the batch. Cleared at each turn start so an aborted batch can't leak. */
 	private pendingToolImages = new Map<string, AttachedImage[]>()
-	/** Model of the most recent loop iteration. The loop re-reads the selector
-	 * each iteration and it stays switchable mid-flight, so when a request fails
-	 * neither the send-time nor the currently-selected model necessarily names
-	 * the one whose request is being classified (A→B→C switches). Recorded by
-	 * the chatRequest modelProvider getter, reset at each turn start, consumed
-	 * by image-rejection recovery. */
+	/** Model of the most recent loop iteration, recorded via onBeforeIteration.
+	 * The selector stays switchable mid-flight, so when a request fails neither
+	 * the send-time nor the currently-selected model necessarily names the one
+	 * whose request is being classified (A→B→C switches). Reset at each turn
+	 * start, consumed by image-rejection recovery. */
 	private lastIterationModel: ReturnType<typeof getCurrentModel> | undefined = undefined
 	/** Full-resolution copies of tool-produced images, keyed by tool call id, for
 	 * the tool card's expanded view. Memory-only on purpose: the transcript persists
-	 * a bounded thumbnail (displayMessages are re-cloned into IndexedDB on every
-	 * save), so after a reload expanding falls back to that thumbnail. Insertion-
-	 * ordered and capped so a long session can't pin dozens of full captures. */
+	 * only a bounded thumbnail (see THUMBNAIL_IMAGE_EDGE), so after a reload
+	 * expanding falls back to that thumbnail. Insertion-ordered and capped so a
+	 * long session can't pin dozens of full captures. */
 	private fullResToolImages = new Map<string, string>()
 	/** Provider-reported context size of the last committed turn (prompt +
 	 * completion of its latest completion — exact, includes system prompt and
@@ -1927,10 +1926,7 @@ export class AIChatManager {
 				abortController,
 				callbacks,
 				get modelProvider() {
-					const model = getCurrentModel()
-					// One read per loop iteration — see lastIterationModel.
-					self.lastIterationModel = model
-					return model
+					return getCurrentModel()
 				},
 				get webSearch() {
 					return isWebSearchEnabledForProvider(getCurrentModel().provider)
@@ -1978,7 +1974,8 @@ export class AIChatManager {
 					}
 					return undefined
 				},
-				onBeforeIteration: async (tools) => {
+				onBeforeIteration: async (tools, _helpers, modelProvider) => {
+					this.lastIterationModel = modelProvider
 					for (const tool of tools) {
 						if (tool.setSchema) {
 							await tool.setSchema(this.helpers)
@@ -2206,8 +2203,8 @@ export class AIChatManager {
 				role: 'user',
 				content: this.instructions,
 				pastes: pastes.length > 0 ? pastes : undefined,
-				// The bubble keeps the bounded copy: the model's full-size one already
-				// rides in `messages`, and displayMessages are never compacted.
+				// The bubble keeps the bounded copy; the model's full-size one already
+				// rides in `messages` (see THUMBNAIL_IMAGE_EDGE).
 				images: images.length > 0 ? images.map(transcriptImage) : undefined,
 				index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
 			}
@@ -2785,6 +2782,12 @@ export class AIChatManager {
 		this.inlineAbortController?.abort(cancelReason)
 	}
 
+	/** The full-resolution copy of a tool-produced image (this session only —
+	 * see `fullResToolImages`), for the tool card's expanded view. */
+	fullResToolImage(toolCallId: string): string | undefined {
+		return this.fullResToolImages.get(toolCallId)
+	}
+
 	/**
 	 * The images of a stored user turn as the model saw them. Anything resending a
 	 * turn (retry, edit) must read them from here: `displayMessages` only holds the
@@ -2792,12 +2795,6 @@ export class AIChatManager {
 	 * transcript's copies ride back along as previews so the resend re-persists a
 	 * bounded copy rather than a full-resolution one.
 	 */
-	/** The full-resolution copy of a tool-produced image (this session only —
-	 * see `fullResToolImages`), for the tool card's expanded view. */
-	fullResToolImage(toolCallId: string): string | undefined {
-		return this.fullResToolImages.get(toolCallId)
-	}
-
 	storedImages(displayMessageIndex: number): AttachedImage[] | undefined {
 		const shown = this.displayMessages[displayMessageIndex]
 		if (!shown || shown.role !== 'user') return undefined

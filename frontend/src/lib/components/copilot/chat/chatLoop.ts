@@ -66,8 +66,13 @@ export interface ChatLoopConfig {
 	 * lets the caller recover partial output if the loop throws or is aborted.
 	 */
 	addedMessages?: ChatCompletionMessageParam[]
-	/** Called before each iteration (e.g. to refresh tool schemas). */
-	onBeforeIteration?: (tools: Tool<any>[], helpers: any) => Promise<void>
+	/** Called before each iteration (e.g. to refresh tool schemas, or to record
+	 * which model the iteration is about to use). */
+	onBeforeIteration?: (
+		tools: Tool<any>[],
+		helpers: any,
+		modelProvider: ReasoningProviderModel
+	) => Promise<void>
 }
 
 export interface ChatLoopResult {
@@ -316,7 +321,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			!unsupportedWebSearchCache.has(webSearchCacheKey)
 
 		if (onBeforeIteration) {
-			await onBeforeIteration(tools, helpers)
+			await onBeforeIteration(tools, helpers, modelProvider)
 		}
 
 		const pendingUserMessage = getPendingUserMessage?.()

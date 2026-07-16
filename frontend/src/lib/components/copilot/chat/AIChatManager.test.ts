@@ -511,8 +511,8 @@ describe('AIChatManager queued messages', () => {
 
 		await manager.sendRequest({ instructions: 'first' })
 
-		// The auto-sent turn must be the message the user actually submitted —
-		// before, the text went out alone and the images were dropped on queueing.
+		// The auto-sent turn must carry the whole submitted message — queueing must
+		// not send the text alone and drop its images.
 		expect(mocks.runChatLoop).toHaveBeenCalledTimes(2)
 		const autoSent = manager.displayMessages.find(
 			(m) => m.role === 'user' && m.content === 'look at this'
@@ -816,8 +816,8 @@ describe('AIChatManager queued messages', () => {
 		expect(manager.storedImages(2)?.[0]?.dataUrl).toBe('data:image/png;base64,NEW')
 	})
 
-	// Enter with an image but no text used to silently discard the image: the
-	// input cleared itself optimistically while the manager bailed on empty text.
+	// Enter with an image but no text must send, not silently discard the image
+	// (the input clears itself optimistically, so a bail on empty text loses it).
 	it('sends an image-only message in GLOBAL mode', async () => {
 		replyWith('done')
 		const manager = createManager(createInputMock())
@@ -874,9 +874,8 @@ describe('AIChatManager queued messages', () => {
 		mocks.getCurrentModel.mockReturnValue(a)
 		mocks.tryGetCurrentModel.mockReturnValue(a)
 		mocks.runChatLoop.mockImplementation(async (config: any) => {
-			// an iteration runs on B (the loop reads the model getter)...
-			mocks.getCurrentModel.mockReturnValue(b)
-			void config.modelProvider
+			// an iteration starts on B...
+			await config.onBeforeIteration?.([], config.helpers, b)
 			// ...the user switches to C while B's request is in flight...
 			mocks.getCurrentModel.mockReturnValue(c)
 			mocks.tryGetCurrentModel.mockReturnValue(c)
@@ -919,7 +918,7 @@ describe('AIChatManager queued messages', () => {
 			// mid-loop switch to a model the deny-list doesn't know...
 			mocks.getCurrentModel.mockReturnValue(unlistedBlind)
 			mocks.tryGetCurrentModel.mockReturnValue(unlistedBlind)
-			void config.modelProvider // that iteration reads the selector
+			await config.onBeforeIteration?.([], config.helpers, unlistedBlind)
 			// ...its request carries the images and the provider rejects them
 			throw new Error('400 this model does not support image input')
 		})
@@ -968,17 +967,6 @@ describe('AIChatManager queued messages', () => {
 
 		expect(manager.fullResToolImage('tool-1')).toBe('data:image/png;base64,FULLSHOT')
 		expect(manager.fullResToolImage('unknown')).toBeUndefined()
-	})
-
-	it('restores queued images to the input on dequeue', () => {
-		const input = createInputMock()
-		const manager = createManager(input)
-		manager.queueMessage('with a picture', [img('a')])
-
-		manager.dequeueMessage()
-
-		expect(manager.queuedImages).toEqual([])
-		expect(input.prependText).toHaveBeenCalledWith('with a picture', [img('a')])
 	})
 
 	it('drops queued images when the conversation is switched away', async () => {

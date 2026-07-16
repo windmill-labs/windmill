@@ -194,8 +194,7 @@
 		try {
 			// One at a time: a decoded bitmap costs ~4 bytes per pixel (a 12MP photo is
 			// ~48MB), so decoding the whole batch at once would hold every one of them
-			// live simultaneously. Concurrency bought nothing anyway — the decode is
-			// not CPU-bound, and a full batch measured no faster in parallel.
+			// live simultaneously.
 			const added: AttachedImage[] = []
 			let failed = 0
 			for (const file of batch) {

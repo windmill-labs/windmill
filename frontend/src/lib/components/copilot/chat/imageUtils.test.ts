@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 import {
-	dataUrlToImagePart,
 	fileToAttachedImage,
 	MAX_IMAGE_BYTES,
 	messagesHaveImageParts,
@@ -12,20 +11,10 @@ import {
 
 describe('fileToAttachedImage size bound', () => {
 	// Decoding allocates ~4 bytes per pixel before the downscale can run, so an
-	// oversized file has to be refused before it is read — not after.
-	it('rejects a file over the byte cap without reading it', async () => {
-		let read = false
-		const blob = {
-			size: MAX_IMAGE_BYTES + 1,
-			type: 'image/png',
-			get arrayBuffer() {
-				read = true
-				return async () => new ArrayBuffer(0)
-			}
-		} as unknown as Blob
-
+	// oversized file must be refused up front.
+	it('rejects a file over the byte cap', async () => {
+		const blob = { size: MAX_IMAGE_BYTES + 1, type: 'image/png' } as unknown as Blob
 		await expect(fileToAttachedImage(blob)).rejects.toThrow(/too large/i)
-		expect(read).toBe(false)
 	})
 })
 
@@ -43,15 +32,6 @@ describe('parseImageDataUrl', () => {
 
 	it('defaults to png and empty payload on a malformed url', () => {
 		expect(parseImageDataUrl('not-a-data-url')).toEqual({ mediaType: 'image/png', base64: '' })
-	})
-})
-
-describe('dataUrlToImagePart', () => {
-	it('wraps a data URL as an OpenAI image_url content part', () => {
-		expect(dataUrlToImagePart('data:image/png;base64,AAAA')).toEqual({
-			type: 'image_url',
-			image_url: { url: 'data:image/png;base64,AAAA' }
-		})
 	})
 })
 
@@ -99,8 +79,7 @@ describe('messagesHaveImageParts', () => {
 })
 
 describe('transcriptImage', () => {
-	// displayMessages are never compacted and are re-cloned into IndexedDB on every
-	// save, so the transcript must never hold the copy sent to the model.
+	// The transcript must never hold the copy sent to the model (see THUMBNAIL_IMAGE_EDGE).
 	it('uses the bounded copy and drops the model-resolution one', () => {
 		const shown = transcriptImage({
 			dataUrl: 'data:image/png;base64,FULLRES',

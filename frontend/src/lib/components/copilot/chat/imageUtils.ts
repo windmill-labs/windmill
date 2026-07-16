@@ -49,9 +49,9 @@ export type AttachedImage = {
 	/** Original filename when it came from a user file; absent for screenshots. */
 	name?: string
 	/**
-	 * Smaller copy for the chips and the message bubble. `displayMessages` are never
-	 * compacted and are re-cloned into IndexedDB on every save, so the transcript
-	 * must not keep the model's copy. Absent when a downscale would not be smaller.
+	 * Smaller copy for the chips and the message bubble — the transcript must not
+	 * keep the model's copy (see THUMBNAIL_IMAGE_EDGE). Absent when a downscale
+	 * would not be smaller.
 	 */
 	previewUrl?: string
 }

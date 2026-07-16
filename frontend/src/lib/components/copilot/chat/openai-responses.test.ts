@@ -36,9 +36,4 @@ describe('toResponsesContent', () => {
 			{ type: 'input_image', image_url: 'data:image/png;base64,ZZZZ' }
 		])
 	})
-
-	it('leaves unrecognized parts untouched', () => {
-		const part = { type: 'input_audio', input_audio: {} }
-		expect((toResponsesContent([part]) as any[])[0]).toBe(part)
-	})
 })

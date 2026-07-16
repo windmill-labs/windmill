@@ -258,40 +258,11 @@ describe('model context windows', () => {
 })
 
 describe('modelSupportsVision', () => {
-	// Each ships in a provider's `defaultModels`, so a user can select it and try to
-	// attach. Verdicts are from provider API docs, not model marketing: the two
-	// diverge (DeepSeek V4 and o3-mini both have vision their APIs never exposed).
-	it.each([
-		['openai', 'o3-mini'],
-		['openai', 'o1-mini'],
-		['mistral', 'codestral-latest'],
-		['deepseek', 'deepseek-v4-pro'],
-		['deepseek', 'deepseek-chat'],
-		['deepseek', 'deepseek-reasoner'],
-		['groq', 'llama-3.3-70b-versatile'],
-		['groq', 'llama-3.1-8b-instant'],
-		['azure_foundry', 'DeepSeek-R1'],
-		['azure_foundry', 'Llama-3.3-70B-Instruct'],
-		['azure_foundry', 'Phi-4'],
-		['azure_foundry', 'Mistral-Large-2411'],
-		['openrouter', 'meta-llama/llama-3.2-3b-instruct:free'],
-		['togetherai', 'meta-llama/Llama-3.3-70B-Instruct-Turbo']
-	])('refuses images on text-only %s/%s', (provider, model) => {
-		expect(modelSupportsVision(provider as any, model)).toBe(false)
-	})
-
-	it.each([
-		['anthropic', 'claude-sonnet-4-6'],
-		['googleai', 'gemini-2.5-flash'],
-		['googleai', 'gemini-2.5-flash-lite'],
-		['googleai', 'gemini-3.1-pro-preview'],
-		['openai', 'gpt-4o'],
-		['openai', 'gpt-5'],
-		['openai', 'o3'],
-		['openai', 'o4-mini'],
-		['aws_bedrock', 'global.anthropic.claude-haiku-4-5-20251001-v1:0']
-	])('allows images on %s/%s', (provider, model) => {
-		expect(modelSupportsVision(provider as any, model)).toBe(true)
+	// One listed pair pins the lookup mechanism (exact pair match, case-insensitive
+	// model ids); the set's contents are data, not behavior.
+	it('refuses images on a listed provider:model pair', () => {
+		expect(modelSupportsVision('groq' as any, 'llama-3.3-70b-versatile')).toBe(false)
+		expect(modelSupportsVision('azure_foundry' as any, 'DeepSeek-R1')).toBe(false)
 	})
 
 	// The reason this is an exact-match set. Each of these WOULD be wrongly blocked

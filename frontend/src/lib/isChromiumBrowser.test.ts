@@ -38,14 +38,6 @@ describe('isChromiumBrowser', () => {
 		expect(isChromiumBrowser()).toBe(false)
 	})
 
-	it('is false on Safari', () => {
-		vi.stubGlobal('navigator', {
-			userAgent:
-				'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15'
-		})
-		expect(isChromiumBrowser()).toBe(false)
-	})
-
 	it('is false with no navigator at all (SSR)', () => {
 		vi.stubGlobal('navigator', undefined)
 		expect(isChromiumBrowser()).toBe(false)

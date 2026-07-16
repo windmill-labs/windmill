@@ -2960,12 +2960,12 @@ export const globalTools: Tool<{}>[] = [
 			// completes (see appendPendingToolImages).
 			const image = await normalizeImageDataUrl(result.dataUrl)
 			ctx.toolCallbacks.attachToolImage?.(ctx.toolId, image)
-			// displayMessages are never compacted, so the card's copy sits in the
-			// transcript for the life of the chat and is re-cloned into IndexedDB on
-			// every save — shrink it when that helps. Downscaling interpolates flat UI
-			// colours into gradients, which PNG can encode *larger* than the original,
-			// so keep whichever is actually smaller rather than assuming it's the thumbnail.
-			const thumbnail = await normalizeImageDataUrl(result.dataUrl, undefined, THUMBNAIL_IMAGE_EDGE)
+			// The card's copy lives in the transcript, so shrink it when that helps
+			// (see AttachedImage.previewUrl in imageUtils). Derive it from the already-
+			// bounded copy, not the raw capture, to avoid decoding the full bitmap twice.
+			// Downscaling interpolates flat UI colours into gradients, which PNG can
+			// encode *larger*, so keep whichever is actually smaller.
+			const thumbnail = await normalizeImageDataUrl(image.dataUrl, undefined, THUMBNAIL_IMAGE_EDGE)
 			const cardImage =
 				thumbnail.dataUrl.length < image.dataUrl.length ? thumbnail.dataUrl : image.dataUrl
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
