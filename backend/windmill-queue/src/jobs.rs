@@ -921,8 +921,8 @@ lazy_static::lazy_static! {
     pub static ref GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE: Option<String> = std::env::var("GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE").ok();
     pub static ref MAX_RESULT_SIZE_MB: usize = std::env::var("MAX_RESULT_SIZE_MB").unwrap_or("500".to_string()).parse().unwrap_or(500);
 
-    // Cache for restart_unless_cancelled flag - keyed by (hash, workspace_id)
-    static ref RESTART_UNLESS_CANCELLED_CACHE: Cache<(i64, String), bool> = Cache::new(10000);
+    // Cache for perpetual-restart settings (restart_unless_cancelled, timeout) - keyed by (hash, workspace_id)
+    static ref RESTART_UNLESS_CANCELLED_CACHE: Cache<(i64, String), (bool, Option<i32>)> = Cache::new(10000);
 
     // Cache for workspace error handler settings with 60s TTL
     // Key: workspace_id, Value: (error_handler, error_handler_extra_args, error_handler_muted_on_cancel, error_handler_muted_on_user_path, expiry_timestamp)
@@ -1538,21 +1538,27 @@ async fn restart_job_if_perpetual_inner(
 ) -> Result<(), Error> {
     let cache_key = (hash.0, queued_job.workspace_id.clone());
 
-    let restart = if let Some(cached) = RESTART_UNLESS_CANCELLED_CACHE.get(&cache_key) {
+    let (restart, script_timeout) = if let Some(cached) =
+        RESTART_UNLESS_CANCELLED_CACHE.get(&cache_key)
+    {
         cached
     } else {
-        let restart = sqlx::query_scalar!(
-            "SELECT restart_unless_cancelled FROM script WHERE hash = $1 AND workspace_id = $2",
+        let row = sqlx::query!(
+            "SELECT restart_unless_cancelled, timeout FROM script WHERE hash = $1 AND workspace_id = $2",
             hash.0,
             &queued_job.workspace_id
         )
         .fetch_optional(db)
-        .await?
-        .flatten()
-        .unwrap_or(false);
+        .await?;
 
-        RESTART_UNLESS_CANCELLED_CACHE.insert(cache_key, restart);
-        restart
+        let restart = row
+            .as_ref()
+            .and_then(|r| r.restart_unless_cancelled)
+            .unwrap_or(false);
+        let script_timeout = row.and_then(|r| r.timeout);
+
+        RESTART_UNLESS_CANCELLED_CACHE.insert(cache_key, (restart, script_timeout));
+        (restart, script_timeout)
     };
 
     if restart {
@@ -1623,7 +1629,7 @@ async fn restart_job_if_perpetual_inner(
             None,
             true,
             Some(queued_job.tag.clone()),
-            None,
+            script_timeout,
             None,
             queued_job.priority,
             None,

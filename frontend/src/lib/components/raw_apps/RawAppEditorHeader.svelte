@@ -223,6 +223,22 @@
 	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
 	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
 
+	// Materialize a brand-new app's draft before the session preview loads it by
+	// path — an untouched new app never autosaved, so forcePersist is the only
+	// thing that creates the row (`appPath === indicatorPath` in the full-page
+	// editor). Gated to never-deployed: forcePersist skips the discardIf baseline.
+	async function persistDraftForSession(): Promise<void> {
+		if (!opWorkspace || indicatorPath === undefined) return
+		await UserDraftDbSyncer.flush({
+			workspace: opWorkspace,
+			itemKind: 'raw_app',
+			path: indicatorPath
+		})
+		if (newApp) {
+			await UserDraft.forcePersist('raw_app', indicatorPath, { workspace: opWorkspace })
+		}
+	}
+
 	$effect(() => {
 		const typed = newEditedPath
 		const baseline = savedApp?.path ?? ''
@@ -898,16 +914,9 @@
 				? {
 						target: { kind: 'raw_app', path: appPath },
 						workspaceId: opWorkspace ?? undefined,
-						// Flush the autosaved draft so the session preview opens the app
-						// exactly as it is in the editor right now.
-						beforeOpen: () =>
-							opWorkspace && indicatorPath !== undefined
-								? UserDraftDbSyncer.flush({
-										workspace: opWorkspace,
-										itemKind: 'raw_app',
-										path: indicatorPath
-									})
-								: undefined
+						// Persist the draft (and materialize a brand-new one) so the session
+						// preview opens the app exactly as it is in the editor right now.
+						beforeOpen: persistDraftForSession
 					}
 				: undefined}
 		>

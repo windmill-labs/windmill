@@ -16,12 +16,19 @@ would be surprising.
 	import { workspaceStore } from '$lib/stores'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import { untrack } from 'svelte'
-	import { type WorkspaceItem, type WorkspaceItemKind } from './workspacePicker'
+	import {
+		workspaceItemDisplayPath,
+		type WorkspaceItem,
+		type WorkspaceItemKind
+	} from './workspacePicker'
 	import { useWorkspaceItemsLoader } from './workspaceItemsLoader.svelte'
 	import DrillPicker from './DrillPicker.svelte'
 	import type { DrillBranch, DrillLeaf } from './drillPicker'
 	import { buildWorkspaceTree, legacyScopeToPath, relativizeWorkspacePath } from './workspaceTree'
-	import { listGlobalDrafts } from '$lib/components/copilot/chat/global/userDraftAdapter'
+	import {
+		getGlobalDraftStoragePath,
+		listGlobalDrafts
+	} from '$lib/components/copilot/chat/global/userDraftAdapter'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { resource } from 'runed'
 
@@ -98,15 +105,24 @@ would be surprising.
 	)
 	function aiDraftsForKind(k: Kind): WorkspaceItem[] {
 		const targetType = KIND_TO_DRAFT_TYPE[k]
+		const ws = effectiveWorkspace
 		return (globalDraftsResource.current ?? [])
 			.filter((d) => d.type === targetType)
-			.map((d) => ({
-				path: d.path,
-				summary: d.summary ?? '',
-				kind: k,
-				// `raw_app` lives on the draft envelope for legacy/raw-app distinction.
-				raw_app: k === 'app' ? !!(d.value as { files?: unknown })?.files : undefined
-			}))
+			.map((d) => {
+				// A live entry's `path` is the editor's friendly effective path —
+				// display-only, so picking a leaf keyed by it would route to a 404.
+				// Re-key to the storage path (identity, dedupe against the loaded
+				// row, navigation) and demote the friendly path to `draftPath`.
+				const storagePath = ws ? getGlobalDraftStoragePath(ws, targetType, d.path) : d.path
+				return {
+					path: storagePath,
+					draftPath: storagePath !== d.path ? d.path : d.draftPath,
+					summary: d.summary ?? '',
+					kind: k,
+					// `raw_app` lives on the draft envelope for legacy/raw-app distinction.
+					raw_app: k === 'app' ? !!(d.value as { files?: unknown })?.files : undefined
+				}
+			})
 	}
 
 	const extraItemsByKind = $derived<Partial<Record<Kind, WorkspaceItem[]>>>(
@@ -154,7 +170,8 @@ would be surprising.
 	{flush}
 	{leafIcon}
 	{branchIcon}
-	leafSecondary={(leaf, scope) => relativizeWorkspacePath(leaf.data.path, scope)}
+	leafSecondary={(leaf, scope) =>
+		relativizeWorkspacePath(workspaceItemDisplayPath(leaf.data), scope)}
 	onScopeChange={(scope) => {
 		if (scope.length > 0) loader.ensureForScopeSegment(scope[0])
 		// Single-kind layout has no kind branch at root — `buildWorkspaceTree`

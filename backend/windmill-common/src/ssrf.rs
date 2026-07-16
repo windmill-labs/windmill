@@ -4,6 +4,8 @@ use crate::error::Error;
 
 pub const ALLOW_PRIVATE_MCP_SERVER_URLS_ENV: &str = "ALLOW_PRIVATE_MCP_SERVER_URLS";
 
+pub const ALLOW_PRIVATE_SAML_METADATA_URLS_ENV: &str = "ALLOW_PRIVATE_SAML_METADATA_URLS";
+
 /// Why a URL failed SSRF validation.
 ///
 /// The distinction matters for callers that gate private endpoints behind a
@@ -124,6 +126,30 @@ pub fn allow_private_mcp_server_urls() -> bool {
         .is_some_and(|v| v == "true" || v == "1")
 }
 
+pub fn allow_private_saml_metadata_urls() -> bool {
+    std::env::var(ALLOW_PRIVATE_SAML_METADATA_URLS_ENV)
+        .ok()
+        .is_some_and(|v| v == "true" || v == "1")
+}
+
+pub async fn validate_saml_metadata_url(url: &str) -> Result<(), SsrfValidationError> {
+    let parsed =
+        url::Url::parse(url).map_err(|e| SsrfValidationError::InvalidUrl(e.to_string()))?;
+
+    match parsed.scheme() {
+        "http" | "https" => {}
+        scheme => return Err(SsrfValidationError::DisallowedScheme(scheme.to_string())),
+    }
+
+    parsed.host_str().ok_or(SsrfValidationError::MissingHost)?;
+
+    if allow_private_saml_metadata_urls() {
+        return Ok(());
+    }
+
+    validate_url_for_ssrf(url).await
+}
+
 pub async fn validate_mcp_server_url(url: &str) -> Result<(), SsrfValidationError> {
     let parsed =
         url::Url::parse(url).map_err(|e| SsrfValidationError::InvalidUrl(e.to_string()))?;
@@ -156,6 +182,16 @@ pub fn mcp_ssrf_error_message(e: &SsrfValidationError) -> String {
         SsrfValidationError::Private { .. } => format!(
             "{e}. If you need to use private/internal MCP server URLs, \
              set the {ALLOW_PRIVATE_MCP_SERVER_URLS_ENV}=true environment variable"
+        ),
+        _ => e.to_string(),
+    }
+}
+
+pub fn saml_ssrf_error_message(e: &SsrfValidationError) -> String {
+    match e {
+        SsrfValidationError::Private { .. } => format!(
+            "{e}. If you need to use private/internal SAML metadata URLs, \
+             set the {ALLOW_PRIVATE_SAML_METADATA_URLS_ENV}=true environment variable"
         ),
         _ => e.to_string(),
     }
@@ -219,6 +255,30 @@ mod tests {
             match &self.previous {
                 Some(value) => std::env::set_var(ALLOW_PRIVATE_MCP_SERVER_URLS_ENV, value),
                 None => std::env::remove_var(ALLOW_PRIVATE_MCP_SERVER_URLS_ENV),
+            }
+        }
+    }
+
+    struct PrivateSamlMetadataUrlsEnvGuard {
+        previous: Option<String>,
+    }
+
+    impl PrivateSamlMetadataUrlsEnvGuard {
+        fn set(value: Option<&str>) -> Self {
+            let previous = std::env::var(ALLOW_PRIVATE_SAML_METADATA_URLS_ENV).ok();
+            match value {
+                Some(value) => std::env::set_var(ALLOW_PRIVATE_SAML_METADATA_URLS_ENV, value),
+                None => std::env::remove_var(ALLOW_PRIVATE_SAML_METADATA_URLS_ENV),
+            }
+            Self { previous }
+        }
+    }
+
+    impl Drop for PrivateSamlMetadataUrlsEnvGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => std::env::set_var(ALLOW_PRIVATE_SAML_METADATA_URLS_ENV, value),
+                None => std::env::remove_var(ALLOW_PRIVATE_SAML_METADATA_URLS_ENV),
             }
         }
     }
@@ -359,5 +419,88 @@ mod tests {
             .await
             .unwrap_err();
         assert!(!mcp_ssrf_error_message(&invalid_error).contains(ALLOW_PRIVATE_MCP_SERVER_URLS_ENV));
+    }
+
+    #[tokio::test]
+    async fn allow_private_saml_metadata_urls_defaults_to_false() {
+        let _lock = TEST_ENV_LOCK.lock().await;
+        let _guard = PrivateSamlMetadataUrlsEnvGuard::set(None);
+        assert!(!allow_private_saml_metadata_urls());
+    }
+
+    #[tokio::test]
+    async fn allow_private_saml_metadata_urls_honors_true_and_one() {
+        let _lock = TEST_ENV_LOCK.lock().await;
+
+        let _guard = PrivateSamlMetadataUrlsEnvGuard::set(Some("true"));
+        assert!(allow_private_saml_metadata_urls());
+
+        let _guard = PrivateSamlMetadataUrlsEnvGuard::set(Some("1"));
+        assert!(allow_private_saml_metadata_urls());
+
+        let _guard = PrivateSamlMetadataUrlsEnvGuard::set(Some("false"));
+        assert!(!allow_private_saml_metadata_urls());
+    }
+
+    #[tokio::test]
+    async fn validate_saml_metadata_url_blocks_private_by_default() {
+        let _lock = TEST_ENV_LOCK.lock().await;
+        let _guard = PrivateSamlMetadataUrlsEnvGuard::set(None);
+
+        assert!(matches!(
+            validate_saml_metadata_url("http://127.0.0.1/metadata").await,
+            Err(SsrfValidationError::Private { resolved: false })
+        ));
+    }
+
+    #[tokio::test]
+    async fn validate_saml_metadata_url_allows_private_when_env_is_enabled() {
+        let _lock = TEST_ENV_LOCK.lock().await;
+        let _guard = PrivateSamlMetadataUrlsEnvGuard::set(Some("true"));
+
+        assert!(validate_saml_metadata_url("http://127.0.0.1/metadata")
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn validate_saml_metadata_url_allows_private_when_env_is_one() {
+        let _lock = TEST_ENV_LOCK.lock().await;
+        let _guard = PrivateSamlMetadataUrlsEnvGuard::set(Some("1"));
+
+        assert!(validate_saml_metadata_url("http://10.0.0.1/metadata")
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn validate_saml_metadata_url_keeps_syntax_guards_when_private_urls_are_allowed() {
+        let _lock = TEST_ENV_LOCK.lock().await;
+        let _guard = PrivateSamlMetadataUrlsEnvGuard::set(Some("true"));
+
+        assert!(matches!(
+            validate_saml_metadata_url("ftp://example.com/metadata").await,
+            Err(SsrfValidationError::DisallowedScheme(_))
+        ));
+        assert!(matches!(
+            validate_saml_metadata_url("not-a-url").await,
+            Err(SsrfValidationError::InvalidUrl(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn saml_ssrf_error_message_includes_env_hint_only_for_private_urls() {
+        let private_error = validate_url_for_ssrf("http://127.0.0.1/metadata")
+            .await
+            .unwrap_err();
+        assert!(saml_ssrf_error_message(&private_error)
+            .contains("ALLOW_PRIVATE_SAML_METADATA_URLS=true"));
+
+        let invalid_error = validate_url_for_ssrf("ftp://example.com/metadata")
+            .await
+            .unwrap_err();
+        assert!(
+            !saml_ssrf_error_message(&invalid_error).contains(ALLOW_PRIVATE_SAML_METADATA_URLS_ENV)
+        );
     }
 }

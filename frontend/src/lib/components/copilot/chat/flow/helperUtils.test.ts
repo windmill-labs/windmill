@@ -453,12 +453,63 @@ describe('validateFlowNotes', () => {
 		expect(note.size!.height).toBeGreaterThan(0)
 	})
 
+	it('sizes a geometry-less free note tall enough for its text so it does not overflow', () => {
+		const [short] = validateFlowNotes([{ id: 's', text: 'hi' }])!
+		const longText = Array.from({ length: 20 }, (_, i) => `Line ${i} of note content`).join('\n')
+		const [long] = validateFlowNotes([{ id: 'l', text: longText }])!
+		expect(long.size!.height).toBeGreaterThan(short.size!.height)
+	})
+
+	it('clamps a short free note to the minimum height and a huge one to the max', () => {
+		const [short] = validateFlowNotes([{ id: 's', text: 'hi' }])!
+		expect(short.size!.height).toBe(60) // MIN_NOTE_HEIGHT
+		const hugeText = Array.from({ length: 500 }, (_, i) => `Line ${i}`).join('\n')
+		const [huge] = validateFlowNotes([{ id: 'h', text: hugeText }])!
+		expect(huge.size!.height).toBe(600) // MAX_HEIGHT
+	})
+
 	it('staggers the default y position of multiple geometry-less free notes', () => {
 		const notes = validateFlowNotes([
 			{ id: 'a', text: 't' },
 			{ id: 'b', text: 't' }
 		])!
 		expect(notes[0].position!.y).not.toEqual(notes[1].position!.y)
+	})
+
+	it('stacks auto-placed notes by their real heights so tall notes do not overlap', () => {
+		const longText = Array.from({ length: 20 }, (_, i) => `Line ${i} of note content`).join('\n')
+		const notes = validateFlowNotes([
+			{ id: 'a', text: longText },
+			{ id: 'b', text: 'short' }
+		])!
+		// Second note must start at or below the bottom of the first (tall) note.
+		expect(notes[1].position!.y).toBeGreaterThanOrEqual(
+			notes[0].position!.y + notes[0].size!.height
+		)
+	})
+
+	it('does not drop an auto-placed note on top of a preserved note in the same column', () => {
+		// A round-tripped note keeps its existing auto-column geometry {-375, 0};
+		// a freshly added geometry-less note must stack below it, not overlap.
+		const notes = validateFlowNotes([
+			{
+				id: 'existing',
+				text: 'kept',
+				position: { x: -375, y: 0 },
+				size: { width: 275, height: 120 }
+			},
+			{ id: 'new', text: 'added' }
+		])!
+		expect(notes[1].position!.y).toBeGreaterThanOrEqual(
+			notes[0].position!.y + notes[0].size!.height
+		)
+	})
+
+	it('grows a note whose single source line wraps across many display lines', () => {
+		const short = validateFlowNotes([{ id: 's', text: 'hi' }])![0]
+		const oneLongLine = 'word '.repeat(200).trim() // no newlines, wraps many times
+		const wrapped = validateFlowNotes([{ id: 'w', text: oneLongLine }])![0]
+		expect(wrapped.size!.height).toBeGreaterThan(short.size!.height)
 	})
 
 	it('does not override a free note that already has geometry', () => {

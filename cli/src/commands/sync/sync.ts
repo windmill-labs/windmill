@@ -2779,6 +2779,8 @@ export async function pull(
       gitDeployItems?: string;
       onlyCreateBranch?: boolean;
       parentWorkspaceId?: string;
+      devWorkspaceLabel?: string;
+      parentDevWorkspaceLabel?: string;
       gitCommitterEmail?: string;
       gitCommitterName?: string;
     },
@@ -2847,37 +2849,55 @@ export async function pull(
     }
     const clonedBranchName = getCurrentGitBranch() ?? "main";
 
-    // Fork workspaces force-disable use_individual_branch / group_by_folder
-    // (1:1 with the hub script's inner()).
-    const targetIsFork = isForkWorkspace(workspace.workspaceId);
+    // Fork / dev workspaces force-disable use_individual_branch / group_by_folder
+    // (1:1 with the hub script's inner()). Dev workspaces have a prefix-less id, so
+    // detect them via the parent-workspace id the backend passes.
+    const targetIsFork = isForkWorkspace(
+      workspace.workspaceId,
+      opts.parentWorkspaceId,
+    );
     const useIndividualBranch = targetIsFork
       ? false
       : !!opts.useIndividualBranch;
     const groupByFolder = targetIsFork ? false : !!opts.groupByFolder;
 
-    // Fork-of-a-fork: only when the parent workspace is itself a fork, root
-    // the new branch on the parent's fork branch (mirrors the hub script's
-    // `parent_workspace_id?.startsWith(FORKED_…)` gate).
-    if (opts.parentWorkspaceId && isForkWorkspace(opts.parentWorkspaceId)) {
-      const parentBranch = computeGitSyncDeployBranch({
-        workspaceId: opts.parentWorkspaceId,
-        items: deployItems,
-        useIndividualBranch,
-        groupByFolder,
-        clonedBranchName,
-      });
-      if (parentBranch && parentBranch !== clonedBranchName) {
-        checkoutGitSyncDeployBranch(parentBranch);
-      }
+    // Fork-of-a-fork: when the parent workspace is itself a fork, root the new
+    // branch on the parent's fork branch (the content this fork diverged from).
+    // A dev-workspace parent has a prefix-less id the prefix check can't see, so
+    // the backend passes its environment label; its branch is the label verbatim.
+    const parentBranch = opts.parentDevWorkspaceLabel
+      ? opts.parentDevWorkspaceLabel
+      : opts.parentWorkspaceId && isForkWorkspace(opts.parentWorkspaceId)
+        ? computeGitSyncDeployBranch({
+            workspaceId: opts.parentWorkspaceId,
+            items: deployItems,
+            useIndividualBranch,
+            groupByFolder,
+            clonedBranchName,
+          })
+        : null;
+    if (parentBranch && parentBranch !== clonedBranchName) {
+      checkoutGitSyncDeployBranch(parentBranch);
     }
 
     const deployBranch = computeGitSyncDeployBranch({
       workspaceId: workspace.workspaceId,
+      parentWorkspaceId: opts.parentWorkspaceId,
+      devWorkspaceLabel: opts.devWorkspaceLabel,
       items: deployItems,
       useIndividualBranch,
       groupByFolder,
       clonedBranchName,
     });
+    // A dev workspace whose environment-label branch equals the repository's
+    // tracked branch would silently commit the fork's content straight to the
+    // tracked branch. Refuse instead of deploying in place.
+    if (targetIsFork && deployBranch && deployBranch === clonedBranchName) {
+      log.error(
+        `Fork branch '${deployBranch}' equals the checked-out branch '${clonedBranchName}'; refusing to deploy a fork directly to the tracked branch. Use a different dev workspace label or tracked branch.`,
+      );
+      process.exit(1);
+    }
     if (deployBranch && deployBranch !== clonedBranchName) {
       checkoutGitSyncDeployBranch(deployBranch);
     }
@@ -3394,6 +3414,8 @@ export async function gitDeploy(
       groupByFolder?: boolean;
       onlyCreateBranch?: boolean;
       parentWorkspaceId?: string;
+      devWorkspaceLabel?: string;
+      parentDevWorkspaceLabel?: string;
       skipSecrets?: boolean;
       gitCommitterEmail?: string;
       gitCommitterName?: string;
@@ -3409,11 +3431,12 @@ export async function gitDeploy(
     }
   }
 
-  // Fork workspaces force-disable use_individual_branch / group_by_folder
-  // (1:1 with the hub script's inner()): a fork always syncs to its own
+  // Fork / dev workspaces force-disable use_individual_branch / group_by_folder
+  // (1:1 with the hub script's inner()): they always sync to their own
   // wm-fork/<branch>/<id> branch, and — critically — that disabling also
-  // flips the include/promotion derivation below.
-  const isFork = isForkWorkspace(opts.workspace ?? "");
+  // flips the include/promotion derivation below. Dev workspaces have a
+  // prefix-less id, so detect them via the parent-workspace id too.
+  const isFork = isForkWorkspace(opts.workspace ?? "", opts.parentWorkspaceId);
   const useIndividualBranch = isFork ? false : !!opts.useIndividualBranch;
 
   // Derive the include filters from the deployed items (replaces the hub
@@ -5303,6 +5326,14 @@ const command = new Command()
   .option(
     "--parent-workspace-id <id:string>",
     "Parent workspace id, used to root a fork-of-a-fork branch",
+  )
+  .option(
+    "--dev-workspace-label <label:string>",
+    "Environment label of a dev workspace (dev/staging); its deploys go to that branch",
+  )
+  .option(
+    "--parent-dev-workspace-label <label:string>",
+    "Environment label of the parent dev workspace; roots a fork-of-dev branch on it",
   )
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option(

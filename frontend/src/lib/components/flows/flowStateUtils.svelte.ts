@@ -23,9 +23,13 @@ import type { ExtendedOpenFlow } from './types'
 import { emptySchema, type StateStore } from '$lib/utils'
 import { loadStoredConfig } from '../aiProviderStorage'
 
-export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowModuleState> {
+export async function loadFlowModuleState(
+	flowModule: FlowModule,
+	// The acting workspace when the flow editor runs in an AI session; else the nav workspace.
+	workspace?: string
+): Promise<FlowModuleState> {
 	try {
-		const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
+		const { input_transforms, schema } = await loadSchemaFromModule(flowModule, workspace)
 
 		if (
 			flowModule.value.type == 'script' ||
@@ -55,7 +59,9 @@ export async function pickScript(
 	summary: string,
 	id: string,
 	hash?: string,
-	kind?: string
+	kind?: string,
+	// The acting workspace when the flow editor runs in an AI session; else the nav workspace.
+	workspace?: string
 ): Promise<[FlowModule & { value: PathScript }, FlowModuleState]> {
 	const flowModule: FlowModule & { value: PathScript } = {
 		id,
@@ -63,13 +69,15 @@ export async function pickScript(
 		summary
 	}
 
-	return [flowModule, await loadFlowModuleState(flowModule)]
+	return [flowModule, await loadFlowModuleState(flowModule, workspace)]
 }
 
 export async function pickFlow(
 	path: string,
 	summary: string,
-	id: string
+	id: string,
+	// The acting workspace when the flow editor runs in an AI session; else the nav workspace.
+	workspace?: string
 ): Promise<[FlowModule & { value: PathFlow }, FlowModuleState]> {
 	const flowModule: FlowModule & { value: PathFlow } = {
 		id,
@@ -77,7 +85,7 @@ export async function pickFlow(
 		summary
 	}
 
-	return [flowModule, await loadFlowModuleState(flowModule)]
+	return [flowModule, await loadFlowModuleState(flowModule, workspace)]
 }
 
 export async function createInlineScriptModule(
@@ -299,7 +307,14 @@ export async function createScriptFromInlineScript(
 		}
 	})
 
-	return pickScript(availablePath, flowModule.summary ?? '', flowModule.id, hash)
+	return pickScript(
+		availablePath,
+		flowModule.summary ?? '',
+		flowModule.id,
+		hash,
+		undefined,
+		workspace
+	)
 }
 
 export function deleteFlowStateById(id: string, flowStateStore: StateStore<FlowState>) {
@@ -341,7 +356,9 @@ export async function insertNewPreprocessorModule(
 	inlineScript?: {
 		language: RawScript['language']
 	},
-	wsScript?: { path: string; summary: string; hash: string | undefined }
+	wsScript?: { path: string; summary: string; hash: string | undefined },
+	// The acting workspace when the flow editor runs in an AI session; else the nav workspace.
+	workspace?: string
 ) {
 	let module: FlowModule = {
 		id: 'preprocessor',
@@ -357,7 +374,14 @@ export async function insertNewPreprocessorModule(
 			'preprocessor'
 		)
 	} else if (wsScript) {
-		;[module, state] = await pickScript(wsScript.path, wsScript.summary, module.id, wsScript.hash)
+		;[module, state] = await pickScript(
+			wsScript.path,
+			wsScript.summary,
+			module.id,
+			wsScript.hash,
+			undefined,
+			workspace
+		)
 	}
 
 	flowStore.val.value.preprocessor_module = module
@@ -373,7 +397,9 @@ export async function insertNewFailureModule(
 		subkind: 'pgsql' | 'flow'
 		instructions?: string
 	},
-	wsScript?: { path: string; summary: string; hash: string | undefined }
+	wsScript?: { path: string; summary: string; hash: string | undefined },
+	// The acting workspace when the flow editor runs in an AI session; else the nav workspace.
+	workspace?: string
 ) {
 	let module: FlowModule = {
 		id: 'failure',
@@ -392,7 +418,14 @@ export async function insertNewFailureModule(
 			'failure'
 		)
 	} else if (wsScript) {
-		;[module, state] = await pickScript(wsScript.path, wsScript.summary, module.id, wsScript.hash)
+		;[module, state] = await pickScript(
+			wsScript.path,
+			wsScript.summary,
+			module.id,
+			wsScript.hash,
+			undefined,
+			workspace
+		)
 	}
 
 	flowStore.val.value.failure_module = module

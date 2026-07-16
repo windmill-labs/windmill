@@ -125,7 +125,7 @@
 		} else if (val.type == 'flow') {
 			await jobLoader?.runFlowByPath(val.path, args, callbacks)
 		} else if (val.type == 'aiagent') {
-			const { schema } = await loadSchemaFromModule(mod)
+			const { schema } = await loadSchemaFromModule(mod, opWs)
 
 			const inputTransforms: { [key: string]: JavascriptTransform } = Object.fromEntries(
 				Object.keys(args).map((key) => [

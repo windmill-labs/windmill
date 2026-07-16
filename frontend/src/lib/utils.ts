@@ -1179,6 +1179,59 @@ export function isDynamicTag(tag: string | undefined): boolean {
 	return !!tag && tag.includes('$args[')
 }
 
+// Must mirror the backend's RE_ARG_TAG (windmill-queue/src/jobs.rs) so frontend
+// interpolation resolves exactly the same placeholders as push time.
+const RE_ARG_TAG = /\$args\[((?:\w+\.)*\w+)\]/
+
+// True when the tag contains placeholders that the backend resolves at push time.
+// A carried tag override that is itself a template re-resolves on every run, so
+// it never pins a stale resolved value.
+export function isTagTemplate(tag: string | undefined): boolean {
+	return !!tag && (tag.includes('$workspace') || RE_ARG_TAG.test(tag))
+}
+
+// Frontend mirror of the backend's `interpolate_args` (windmill-queue/src/jobs.rs):
+// `$workspace` first, then each `$args[name]` from the run's args — simple names use
+// the arg's JSON text with surrounding quotes trimmed, dotted names traverse nested
+// objects, anything missing resolves to the empty string.
+export function interpolateTag(
+	template: string,
+	workspaceId: string,
+	args: Record<string, any> | undefined
+): string {
+	const workspaced = template.replaceAll('$workspace', workspaceId)
+	return workspaced.replace(new RegExp(RE_ARG_TAG.source, 'g'), (_, name: string) => {
+		const parts = name.split('.')
+		let value: any = args?.[parts[0]]
+		for (const part of parts.slice(1)) {
+			value = value != null && typeof value === 'object' ? value[part] : undefined
+		}
+		if (value === undefined) {
+			return ''
+		}
+		return (JSON.stringify(value) ?? '').replace(/^"+|"+$/g, '')
+	})
+}
+
+// Maps a job's stored (resolved) tag back to the raw custom-tag entry it can only
+// have come from: an exact entry, or a templated entry that resolves to it with the
+// job's workspace and args. Custom tags are the only tags a user can pick as an
+// override and the only ones non-superadmins may pass explicitly, so a tag that maps
+// to no entry is backend-derived and must be re-derived on re-run, not carried.
+export function findMatchingCustomTag(
+	resolvedTag: string,
+	customTags: string[],
+	workspaceId: string,
+	args: Record<string, any> | undefined
+): string | undefined {
+	if (customTags.includes(resolvedTag)) {
+		return resolvedTag
+	}
+	return customTags.find(
+		(t) => isTagTemplate(t) && interpolateTag(t, workspaceId, args) === resolvedTag
+	)
+}
+
 // Counterpart of computeSharableHash's `tag`: extracts and removes the carried tag.
 // Only SHARABLE_HASH_TAG_PREFIX-prefixed `__tag` values are carried tags; any other
 // `__tag` value is a genuine arg with that name and is left in `params` for arg parsing.

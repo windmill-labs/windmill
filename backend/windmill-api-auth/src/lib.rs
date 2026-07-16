@@ -541,6 +541,16 @@ pub fn require_owner_of_path(authed: &ApiAuthed, path: &str) -> Result<()> {
     }
     if !path.is_empty() {
         let splitted = path.split("/").collect::<Vec<&str>>();
+        // A valid path is at least `<kind>/<name>` (e.g. `u/alice/...`,
+        // `f/folder/...`). Guard the `splitted[1]` accesses below so a
+        // malformed single-segment path returns a clear error instead of
+        // panicking with an out-of-bounds index.
+        if splitted.len() < 2 {
+            return Err(Error::BadRequest(format!(
+                "Invalid path '{}': a valid path starts with 'u/<user>/' or 'f/<folder>/'",
+                path
+            )));
+        }
         if splitted[0] == "u" {
             if splitted[1] == authed.username {
                 Ok(())
@@ -1129,6 +1139,26 @@ mod tests {
         assert!(
             require_path_read_access_for_preview(&admin, &Some("f/team/my..script".into())).is_ok()
         );
+    }
+
+    // Regression for WIN-2157: a malformed single-segment path (e.g. a draft
+    // saved at a bare `u`) must return a clear error, not panic on the
+    // `splitted[1]` index. Non-admins reach this branch (admins short-circuit).
+    #[test]
+    fn require_owner_of_path_rejects_malformed_path_without_panicking() {
+        let alice = ApiAuthed { username: "alice".into(), ..Default::default() };
+        for path in ["u", "f", "g", "nonsense"] {
+            let err =
+                require_owner_of_path(&alice, path).expect_err("malformed path must be rejected");
+            assert!(
+                matches!(err, Error::BadRequest(_)),
+                "expected BadRequest for '{path}', got {err:?}"
+            );
+        }
+        // A well-formed foreign path returns the owner error, not a malformed one.
+        assert!(require_owner_of_path(&alice, "u/bob/script").is_err());
+        // The user's own namespace resolves.
+        assert!(require_owner_of_path(&alice, "u/alice/script").is_ok());
     }
 
     #[test]

@@ -93,6 +93,7 @@
 		forceTestTab?: boolean
 		highlightArg?: string
 		isAgentTool?: boolean
+		toolDescription?: string | undefined
 		siblingToolNames?: string[]
 	}
 
@@ -110,6 +111,7 @@
 		forceTestTab = false,
 		highlightArg = undefined,
 		isAgentTool = false,
+		toolDescription = $bindable(undefined),
 		siblingToolNames = undefined
 	}: Props = $props()
 
@@ -183,7 +185,7 @@
 	async function reload(flowModule: FlowModule) {
 		reloadError = undefined
 		try {
-			const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
+			const { input_transforms, schema } = await loadSchemaFromModule(flowModule, opWs)
 			validCode = true
 
 			if (inputTransformSchemaForm) {
@@ -707,6 +709,7 @@
 				}
 			}}
 			bind:summary={flowModule.summary}
+			bind:description={toolDescription}
 			{isAgentTool}
 			{siblingToolNames}
 		>

@@ -155,16 +155,17 @@ use windmill_object_store::OBJECT_STORE_SETTINGS;
 use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables, read_file,
-        read_result, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
-        OccupancyMetrics, StreamNotifier, DEV_CONF_NSJAIL,
+        read_result, render_nsjail_rlimit_as, resolve_nsjail_timeout,
+        resolve_nsjail_tmp_mount_block, start_child_process, OccupancyMetrics, StreamNotifier,
+        DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
     is_sandboxing_enabled, read_ee_registry_with_workspace_override,
     worker_utils::ping_job_status,
-    PyV, DISABLE_NUSER, HOME_ENV, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL,
-    PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV, UV_CACHE_DIR,
-    UV_EXCLUDE_NEWER, UV_INDEX_STRATEGY, UV_PYTHON_INSTALL_MIRROR,
+    PyV, DISABLE_NUSER, HOME_ENV, NSJAIL_AVAILABLE, NSJAIL_PATH, NSJAIL_PY_RLIMIT_AS_MB, PATH_ENV,
+    PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH,
+    TZ_ENV, UV_CACHE_DIR, UV_EXCLUDE_NEWER, UV_INDEX_STRATEGY, UV_PYTHON_INSTALL_MIRROR,
 };
 use windmill_common::client::AuthedClient;
 
@@ -1077,6 +1078,10 @@ mount {{
             job_dir,
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
+                .replace(
+                    "{RLIMIT_AS}",
+                    &render_nsjail_rlimit_as(NSJAIL_PY_RLIMIT_AS_MB.as_deref(), 4096),
+                )
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{PY_INSTALL_DIR}", &*PY_INSTALL_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())

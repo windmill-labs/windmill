@@ -23,7 +23,7 @@
 		onTestFlow?: (conversationId?: string) => Promise<string | undefined>
 	} = $props()
 
-	const { flowStore, flowStateStore, selectionManager, currentEditor, previewArgs } =
+	const { flowStore, flowStateStore, selectionManager, currentEditor, previewArgs, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	const selectedId = $derived(selectionManager.getSelectedId())
 
@@ -102,7 +102,7 @@
 			}
 
 			inlineScriptSession.set(id, code)
-			const { input_transforms, schema } = await loadSchemaFromModule(module)
+			const { input_transforms, schema } = await loadSchemaFromModule(module, opWorkspace?.())
 			module.value.input_transforms = input_transforms
 			refreshStateStore(flowStore)
 

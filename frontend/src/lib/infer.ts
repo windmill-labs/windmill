@@ -579,7 +579,12 @@ export async function inferArgs(
 	}
 }
 
-export async function loadSchemaFromPath(path: string, hash?: string): Promise<Schema> {
+export async function loadSchemaFromPath(
+	path: string,
+	hash?: string,
+	// The acting workspace when the flow editor runs in an AI session; else the nav workspace.
+	workspace?: string
+): Promise<Schema> {
 	if (path.startsWith('hub/')) {
 		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
 
@@ -592,14 +597,14 @@ export async function loadSchemaFromPath(path: string, hash?: string): Promise<S
 		}
 	} else if (hash) {
 		const script = await ScriptService.getScriptByHash({
-			workspace: get(workspaceStore)!,
+			workspace: workspace ?? get(workspaceStore)!,
 			hash
 		})
 
 		return inferSchemaIfNecessary(script)
 	} else {
 		const script = await ScriptService.getScriptByPath({
-			workspace: get(workspaceStore)!,
+			workspace: workspace ?? get(workspaceStore)!,
 			path: path ?? ''
 		})
 		return inferSchemaIfNecessary(script)

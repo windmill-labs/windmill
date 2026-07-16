@@ -1,6 +1,6 @@
 {
 	"gitSyncTest": "hub/28184/git-repo-test-read-write-windmill",
-	"gitInitRepo": "hub/28229/git-sync%3A-init-repository-windmill",
+	"gitInitRepo": "hub/28787/git-sync%3A-init-repository-windmill",
 	"slackErrorHandler": "hub/28241/workspace-or-schedule-error-handler-slack",
 	"emailErrorHandler": "hub/19795/workspace-or-error-handler-email",
 	"slackRecoveryHandler": "hub/28239/slack/schedule-recovery-handler-slack",

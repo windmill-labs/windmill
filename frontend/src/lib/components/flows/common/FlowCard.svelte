@@ -5,6 +5,7 @@
 	interface Props {
 		title?: string | undefined
 		summary?: string | undefined
+		description?: string | undefined
 		noEditor: boolean
 		noHeader?: boolean
 		flowModuleValue?: FlowModuleValue | undefined
@@ -18,6 +19,7 @@
 	let {
 		title = undefined,
 		summary = $bindable(undefined),
+		description = $bindable(undefined),
 		noEditor,
 		noHeader = false,
 		flowModuleValue = undefined,
@@ -37,6 +39,7 @@
 				on:reload
 				{title}
 				bind:summary
+				bind:description
 				{flowModuleValue}
 				{action}
 				{isAgentTool}

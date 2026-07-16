@@ -143,7 +143,7 @@ export async function parseAnthropicCompletion(
 
 				callbacks.setToolStatus(toolId, {
 					isLoading: true,
-					content: `Calling ${toolName}...`,
+					content: tool?.streamingLabel ?? `Calling ${toolName}...`,
 					toolName,
 					isStreamingArguments: shouldStream,
 					showFade: tool?.showFade,

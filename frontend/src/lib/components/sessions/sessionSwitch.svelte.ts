@@ -75,10 +75,9 @@ export async function openEditorInSession(
 	target: SessionTarget,
 	workspaceId?: string
 ): Promise<void> {
-	// createSession() reuses an existing transient draft, whose preview tabs
-	// (persisted with the draft and/or held by a live runtime) may still show a
-	// different item — so seed the preview with a single tab on `target`, resetting
-	// whatever it was showing.
+	// Seed the fresh session's preview with a single tab on `target` so it opens
+	// straight onto the editor the caller wants (resetSessionPreviewTabs also
+	// writes through a live runtime if one already exists for this id).
 	const session = createSession()
 	if (workspaceId) setSessionPendingWorkspace(session.id, workspaceId)
 	const url = sessionTargetHref(target)

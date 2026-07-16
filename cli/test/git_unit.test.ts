@@ -104,6 +104,19 @@ describe("computeGitSyncDeployBranch", () => {
     expect(branch).not.toBe("main");
   });
 
+  test("dev workspace (parent + label) deploys to the label branch", () => {
+    expect(
+      computeGitSyncDeployBranch({
+        ...base,
+        workspaceId: "staging-ws",
+        parentWorkspaceId: "prod",
+        devWorkspaceLabel: "staging",
+        useIndividualBranch: false,
+        items: [{ path_type: "script", path: "f/foo/bar" }],
+      })
+    ).toBe("staging");
+  });
+
   test("use_individual_branch=false -> null (stay on base/main, workspace-wide mode)", () => {
     expect(
       computeGitSyncDeployBranch({
@@ -173,11 +186,33 @@ describe("computeGitSyncDeployBranch", () => {
       })
     ).toBe("wm-fork/main/myfork");
   });
+
+  test("prefix-less fork (parent set, no label) beats the wm_deploy derivation", () => {
+    expect(
+      computeGitSyncDeployBranch({
+        workspaceId: "mydev",
+        parentWorkspaceId: "prod",
+        clonedBranchName: "main",
+        groupByFolder: false,
+        useIndividualBranch: true,
+        items: [{ path_type: "script", path: "f/foo/bar" }],
+      })
+    ).toBe("wm-fork/main/mydev");
+  });
 });
 
 describe("forkBranchName", () => {
   test("maps wm-fork-<id> to wm-fork/<branch>/<id>", () => {
     expect(forkBranchName("wm-fork-abc", "main")).toBe("wm-fork/main/abc");
+  });
+
+  test("dev workspace label wins: the branch is the label verbatim", () => {
+    expect(forkBranchName("staging-ws", "main", "staging")).toBe("staging");
+    expect(forkBranchName("wm-fork-abc", "main", "dev")).toBe("dev");
+  });
+
+  test("prefix-less id without a label falls back to the wm-fork form", () => {
+    expect(forkBranchName("staging-ws", "main")).toBe("wm-fork/main/staging-ws");
   });
 });
 
@@ -338,6 +373,12 @@ describe("isForkWorkspace", () => {
     expect(isForkWorkspace("prod")).toBe(false);
     // "wm-fork" without the trailing dash is the BRANCH prefix, not a ws id
     expect(isForkWorkspace("wm-fork")).toBe(false);
+  });
+
+  test("a parent workspace id marks prefix-less ids (dev workspaces) as forks", () => {
+    expect(isForkWorkspace("mydev", "prod")).toBe(true);
+    expect(isForkWorkspace("mydev", undefined)).toBe(false);
+    expect(isForkWorkspace("wm-fork-abc", undefined)).toBe(true);
   });
 });
 

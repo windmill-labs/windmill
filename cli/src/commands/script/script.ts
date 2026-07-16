@@ -1045,6 +1045,7 @@ async function run(
   opts: GlobalOptions & {
     data?: string;
     silent: boolean;
+    tag?: string;
   },
   path: string
 ) {
@@ -1075,6 +1076,7 @@ async function run(
     id = await wmill.runScriptByPath({
       workspace: workspace.workspaceId,
       path,
+      tag: opts.tag,
       requestBody: input,
     });
   } catch (e: any) {
@@ -1486,6 +1488,7 @@ async function preview(
   opts: GlobalOptions & {
     data?: string;
     silent: boolean;
+    tag?: string;
   } & SyncOptions,
   filePath: string
 ) {
@@ -1647,6 +1650,7 @@ async function preview(
       path: filePath.substring(0, filePath.indexOf(".")).replaceAll(SEP, "/"),
       args: input,
       language: language,
+      tag: opts.tag,
       kind: isTar ? "tarbundle" : "bundle",
       format: codebase?.format ?? "cjs",
       temp_script_refs: tempScriptRefs,
@@ -1716,6 +1720,7 @@ async function preview(
         path: filePath.substring(0, filePath.indexOf(".")).replaceAll(SEP, "/"),
         args: input,
         language: language as any,
+        tag: opts.tag,
         modules: modules ?? undefined,
         temp_script_refs: tempScriptRefs,
       },
@@ -1842,6 +1847,10 @@ const command = new Command()
     "-s --silent",
     "Do not output anything other then the final output. Useful for scripting."
   )
+  .option(
+    "--tag <tag:string>",
+    "Override the worker tag the run is dispatched to (e.g. to route it to dev workers instead of the script's default tag)."
+  )
   .action(run as any)
   .command(
     "preview",
@@ -1855,6 +1864,10 @@ const command = new Command()
   .option(
     "-s --silent",
     "Do not output anything other than the final output. Useful for scripting."
+  )
+  .option(
+    "--tag <tag:string>",
+    "Override the worker tag the preview is dispatched to (e.g. to route it to dev workers instead of the script's default tag)."
   )
   .action(preview as any)
   .command("new", "create a new script")

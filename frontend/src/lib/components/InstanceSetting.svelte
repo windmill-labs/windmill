@@ -20,6 +20,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import CriticalAlertChannels from './instanceSettings/CriticalAlertChannels.svelte'
+	import RetentionPeriodOverrides from './instanceSettings/RetentionPeriodOverrides.svelte'
 	import SmtpSettings from './instanceSettings/SmtpSettings.svelte'
 	import SecretBackendConfig from './instanceSettings/SecretBackendConfig.svelte'
 	import GhesAppSettings from './instanceSettings/GhesAppSettings.svelte'
@@ -326,6 +327,12 @@
 				</div>
 			</SettingCard>
 		{/if}
+	{:else if setting.fieldType == 'retention_overrides'}
+		<!-- Discrete inline control (no section header) — sits right under the retention field.
+		     Disabled until `loading` finishes so the editor can't be interacted with before
+		     getInstanceConfig() has populated the persisted overrides (which would let a save drop
+		     them). -->
+		<RetentionPeriodOverrides {values} disabled={!$enterpriseLicense || loading} />
 	{:else}
 		<SettingCard
 			label={setting.key === 'disable_stats'

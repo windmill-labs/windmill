@@ -567,6 +567,8 @@ pub async fn do_snowflake(
                 })?;
             let json_text = crate::sql_s3_input::fetch_s3object_as_json_text(
                 client,
+                conn,
+                job.id,
                 &job.workspace_id,
                 &s3_obj,
             )

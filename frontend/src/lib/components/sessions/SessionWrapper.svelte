@@ -28,13 +28,14 @@
 	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
 	import SessionChangesBar from './SessionChangesBar.svelte'
 	import {
+		composerFocusRequest,
 		createSession,
 		deleteSessionsForWorkspace,
 		getEffectiveWorkspaceId,
 		moveSessionToNewFork,
 		moveSessionToWorkspace,
-		peekTransientDraftPrompt,
-		queueTransientDraftPrompt,
+		getSessionDraftPrompt,
+		setSessionDraftPrompt,
 		reconcileAfterWorkspaceChange,
 		renameSession,
 		selectSession,
@@ -69,9 +70,9 @@
 	// Reactive session reference (mutations to summary/target propagate via the $state proxy)
 	const session = $derived(sessionState.sessions.find((s) => s.id === sessionId))
 
-	// Seed the composer with the unsent prompt a reload preserved in the
-	// transient draft slot (script-init: AIChatInput reads it once at mount).
-	const restoredDraftPrompt = peekTransientDraftPrompt(sessionId)
+	// Seed the composer with the unsent prompt a reload preserved on the session
+	// record (script-init: AIChatInput reads it once at mount).
+	const restoredDraftPrompt = getSessionDraftPrompt(sessionId)
 
 	// The workspace the session acts on, shown in the header "Acting on" strip via the shared
 	// WorkspaceScopeTrigger chip. `targetId` is also the workspace the chip's ellipsis menu targets.
@@ -232,6 +233,11 @@
 	// loading.
 	let aiChat: AIChat | undefined = $state(undefined)
 	$effect(() => {
+		// Focus the composer when this session becomes active, or on an explicit
+		// focus request — the latter covers `+` reusing the untouched draft you're
+		// already viewing, where currentSessionId doesn't change so activation alone
+		// wouldn't re-run this.
+		void composerFocusRequest.nonce
 		if (sessionState.currentSessionId !== sessionId) return
 		if (!aiChat) return
 		if (!$copilotInfo.enabled) return
@@ -415,7 +421,7 @@
 						hideModeSelector
 						wideLayout
 						initialInstructions={restoredDraftPrompt}
-						onDraftChange={(text) => queueTransientDraftPrompt(sessionId, text)}
+						onDraftChange={(text) => setSessionDraftPrompt(sessionId, text)}
 						forceDisabled={isUnavailable || !!session.archived}
 						forceDisabledMessage={isUnavailable
 							? 'This session is linked to a workspace that no longer exists. Move it or discard it from the banner above to keep working.'

@@ -1,18 +1,19 @@
 ---
 name: pr
 user_invocable: true
-description: Open a draft pull request on GitHub. MUST use when you want to create/open a PR.
+description: Open a draft pull request on GitHub and drive CI review rounds until it is ready. MUST use when you want to create/open a PR.
 ---
 
 # Pull Request Skill
 
-Create a draft pull request with a clear title and explicit description of changes.
+Create a draft pull request with a clear title and explicit description of changes, then drive it through CI review rounds to ready.
 
 ## Instructions
 
 1. **Analyze branch changes**: Understand all commits since diverging from main
 2. **Push to remote**: Ensure all commits are pushed
 3. **Create draft PR**: Always open as draft for review before merging
+4. **Drive review rounds**: trigger CI reviews on the draft and only flip to ready once every verdict is a go (see "Review rounds" below)
 
 ## PR Title Format
 
@@ -96,7 +97,11 @@ and continue once they confirm it's done.
 1. Run `git status` to check for uncommitted changes
 2. Run `git log main..HEAD --oneline` to see all commits in this branch
 3. Run `git diff main...HEAD` to see the full diff against main
-4. **Invoke the `local-review` skill** before creating the PR (`/local-review` in Claude Code, `$local-review` in Codex, `pi --skill local-review` / `/skill:local-review` in Pi). If issues are found, fix them and commit before proceeding. Do not skip this step.
+4. **Review the diff before creating the PR — run both reviews, do not skip:**
+   - **`local-review`** — Claude-native branch-diff-reviewer (`/local-review` in Claude Code, `$local-review` in Codex, `pi --skill local-review` / `/skill:local-review` in Pi).
+   - **`local-review-codex`** — cold Codex pass, the same review CI runs, for an independent perspective the Claude pass misses (`/local-review-codex` in Claude Code, or `bash .agents/skills/local-review-codex/run.sh`). If the `codex` CLI is missing or older than the version pinned in that skill, note it in your summary and continue — never block the PR on codex being unavailable.
+
+   Run both — they catch different things. If either surfaces issues, fix them and commit before proceeding.
 5. **Screenshots for frontend changes**: if `git diff main...HEAD --name-only` matches `^frontend/`, capture and embed screenshots of the affected UI per "Screenshots" above before writing the PR body (skip only if there is no visible UI effect).
 6. Check if remote branch exists and is up to date:
    ```bash
@@ -120,6 +125,40 @@ and continue once they confirm it's done.
    )"
    ```
 9. Return the PR URL to the user
+10. Drive the PR through CI review rounds to ready (see "Review rounds" below)
+
+## Review rounds (draft → ready)
+
+A PR leaves draft **only after a clean CI review round**. Never run `gh pr ready` before that.
+
+1. **Trigger a round and wait for it**: launch the waiter as a background Bash task (a round takes 10–30 min; you are woken when it exits — do not stop the session or poll in the foreground while it runs):
+
+   ```bash
+   bash .agents/skills/pr/review-round.sh <PR_NUMBER>
+   ```
+
+   It comments `/review` on the PR — which runs the Codex, Claude and Pi CI reviewers even on a draft — waits for the spawned `PR Review Commands` workflow run(s) to complete, then prints one verdict line per reviewer and saves the full review comments to files.
+
+2. **Judge the round.** Codex is mandatory; Claude, Pi and cubic count whenever they posted. Every review starts with one of the three `REVIEW.md` verdicts:
+   - Codex verdict missing → the round is void: comment `/codex` on the PR, wait for it the same way, and judge again.
+   - Any **"Should address issues before merging"** → fix the P0/P1 findings (and the nits while you're there), commit, push, and start a new round (step 1).
+   - Only **"Mergeable, but should ideally address nits"** and/or **"Good to merge"** → fix the nits too; a nit that is wrong or genuinely not worth fixing may instead be dismissed by replying to the review comment with your reasoning. Push nit-only fixes without starting another full round.
+
+3. **Flip to ready with the marker comment.** The review workflows skip the redundant `ready_for_review`-triggered round when the PR author has posted a marker naming the current head SHA **and** the PR's latest Codex review *posted before the marker* has a non-blocking verdict (reviewer evidence — a bare marker with no round behind it, or one whose last pre-marker Codex verdict is "Should address issues", skips nothing). Keep the prefix exact and use the full 40-char SHA of the head you are flipping:
+   - every verdict was "Good to merge" (head unchanged since the round):
+
+     `✅ Review round clean @ <head-sha>`
+
+   - nit-only round, nits fixed or dismissed afterwards (head may have moved past the reviewed SHA — say so):
+
+     `✅ Review round clean @ <head-sha> — nit-only verdicts at <round-sha>; nits addressed in <commit sha(s)> / dismissed in review replies`
+
+   ```bash
+   gh pr comment <PR_NUMBER> --body "✅ Review round clean @ $(git rev-parse HEAD)"
+   gh pr ready <PR_NUMBER>
+   ```
+
+   If any P0/P1 finding is unaddressed or the head moved for reasons other than nit fixes, do **not** post the marker or flip — run another round instead.
 
 ## EE Companion PR (when `*_ee.rs` files were modified)
 

@@ -768,7 +768,15 @@ pub async fn do_postgresql(
     // Materialize any `(s3object)` args into JSON text and rebind them as `jsonb` so
     // `otyp_to_pg_type` picks the right binding. Must run before the param map is
     // built below.
-    materialize_s3object_args(&mut sig.args, &mut pg_args, client, &job.workspace_id).await?;
+    materialize_s3object_args(
+        &mut sig.args,
+        &mut pg_args,
+        client,
+        conn,
+        job.id,
+        &job.workspace_id,
+    )
+    .await?;
 
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
@@ -982,6 +990,8 @@ async fn materialize_s3object_args(
     sig_args: &mut [Arg],
     args_map: &mut HashMap<String, Value>,
     client: &AuthedClient,
+    conn: &Connection,
+    job_id: Uuid,
     workspace_id: &str,
 ) -> error::Result<()> {
     for arg in sig_args.iter_mut() {
@@ -998,7 +1008,7 @@ async fn materialize_s3object_args(
         let s3_obj: S3Object = serde_json::from_value(raw).map_err(|e| {
             Error::ExecutionErr(format!("Invalid S3Object for arg `{}`: {e}", arg.name))
         })?;
-        let json_text = fetch_s3object_as_json_text(client, workspace_id, &s3_obj)
+        let json_text = fetch_s3object_as_json_text(client, conn, job_id, workspace_id, &s3_obj)
             .await
             .map_err(|e| {
                 Error::ExecutionErr(format!(
