@@ -14,8 +14,11 @@
 // from this file, so every token must appear as plain text.
 // content-none strips the typography plugin's decorative backticks around
 // inline code (code::before/::after), which read as literal ` characters.
+// [&>:first-child]:mt-0 re-applies the plugin's first-block reset, which our
+// explicit prose-headings:mt-* would otherwise override (note: the composed
+// variant prose-headings:first: attaches :first-child to the wrapper — wrong).
 const base =
-	'prose dark:prose-invert max-w-full break-words prose-a:break-words prose-code:break-words prose-code:before:content-none prose-code:after:content-none prose-code:bg-surface-secondary/50 prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-code:font-normal prose-table:block prose-table:max-w-full prose-table:overflow-x-auto'
+	'prose dark:prose-invert max-w-full break-words [&>:first-child]:mt-0 prose-a:break-words prose-code:break-words prose-code:before:content-none prose-code:after:content-none prose-code:bg-surface-secondary/50 prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-code:font-normal prose-table:block prose-table:max-w-full prose-table:overflow-x-auto'
 
 // One vertical rhythm for sm/doc; heading margins stay per-preset (fixed, not
 // the plugin's em-based ones) so 'doc' can breathe more between sections.
@@ -27,7 +30,7 @@ const bodyXs =
 export const markdownProse = {
 	xs: `${base} prose-sm leading-snug prose-ul:!pl-5 prose-p:text-2xs prose-li:text-2xs prose-code:text-2xs prose-pre:text-2xs prose-headings:font-medium prose-headings:text-secondary prose-headings:mt-2 prose-headings:mb-1 prose-h1:text-2xs prose-h2:text-2xs prose-h3:text-2xs prose-h4:text-2xs prose-h5:text-2xs prose-h6:text-2xs prose-strong:text-secondary`,
 	sm: `${base} ${rhythm} ${bodyXs} prose-headings:mt-3 prose-headings:mb-1 prose-headings:font-medium prose-headings:text-emphasis prose-h1:text-sm prose-h2:text-xs prose-h3:text-xs prose-h4:text-xs prose-h5:text-xs prose-h6:text-xs`,
-	doc: `${base} ${rhythm} ${bodyXs} prose-headings:mt-8 prose-headings:mb-2 prose-headings:first:mt-0 prose-headings:font-semibold prose-headings:text-emphasis prose-h1:text-lg prose-h2:text-base prose-h3:text-sm prose-h4:text-xs prose-h5:text-xs prose-h6:text-xs prose-pre:bg-transparent prose-pre:p-0`
+	doc: `${base} ${rhythm} ${bodyXs} prose-headings:mt-8 prose-headings:mb-2 prose-headings:font-semibold prose-headings:text-emphasis prose-h1:text-lg prose-h2:text-base prose-h3:text-sm prose-h4:text-xs prose-h5:text-xs prose-h6:text-xs prose-pre:bg-transparent prose-pre:p-0`
 } as const
 
 export type MarkdownProseSize = keyof typeof markdownProse
