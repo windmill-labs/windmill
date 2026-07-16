@@ -2788,6 +2788,26 @@ async fn get_git_ssh_cmd(
     Ok((Some(git_ssh_cmd), file_paths))
 }
 
+/// Run a git remote probe with a hard per-command deadline. The auto-pull poller
+/// walks every repository sequentially in one monitor pass, so a single
+/// unresponsive remote must not stall the whole pass (or leave a hung child
+/// process behind — `kill_on_drop` reaps it when the timeout fires).
+const GIT_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+async fn run_git_probe(mut git_cmd: Command, what: &str) -> Result<std::process::Output> {
+    git_cmd.kill_on_drop(true);
+    match tokio::time::timeout(GIT_PROBE_TIMEOUT, git_cmd.output()).await {
+        Ok(output) => {
+            output.map_err(|e| Error::internal_err(format!("Failed to execute git command: {}", e)))
+        }
+        Err(_) => Err(Error::internal_err(format!(
+            "git {} timed out after {}s",
+            what,
+            GIT_PROBE_TIMEOUT.as_secs()
+        ))),
+    }
+}
+
 async fn get_repo_latest_commit_hash(
     git_resource: &GitRepositoryResource,
     git_ssh_command: Option<String>,
@@ -2813,10 +2833,7 @@ async fn get_repo_latest_commit_hash(
     }
     git_cmd.stderr(Stdio::piped());
 
-    let output = git_cmd
-        .output()
-        .await
-        .map_err(|e| Error::internal_err(format!("Failed to execute git command: {}", e)))?;
+    let output = run_git_probe(git_cmd, "ls-remote").await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8(output.stderr)
@@ -2928,10 +2945,7 @@ pub async fn get_git_repo_head_for_autopull(
     let mut git_cmd = Command::new("git");
     git_cmd.args(["ls-remote", "--symref", &git_resource.url, "HEAD"]);
     git_cmd.stderr(Stdio::piped());
-    let output = git_cmd
-        .output()
-        .await
-        .map_err(|e| Error::internal_err(format!("Failed to execute git command: {}", e)))?;
+    let output = run_git_probe(git_cmd, "ls-remote --symref HEAD").await?;
     if !output.status.success() {
         let stderr = String::from_utf8(output.stderr)
             .unwrap_or_else(|_| "Failed to decode stderr".to_string());
@@ -3043,10 +3057,7 @@ pub async fn get_git_repo_fork_heads_for_autopull(
         git_cmd.arg(format!("refs/heads/{}", r));
     }
     git_cmd.stderr(Stdio::piped());
-    let output = git_cmd
-        .output()
-        .await
-        .map_err(|e| Error::internal_err(format!("Failed to execute git command: {}", e)))?;
+    let output = run_git_probe(git_cmd, "ls-remote (fork branches)").await?;
     if !output.status.success() {
         let stderr = String::from_utf8(output.stderr)
             .unwrap_or_else(|_| "Failed to decode stderr".to_string());
