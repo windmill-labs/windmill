@@ -667,7 +667,8 @@ describe('runChatLoop per-iteration vision gating', () => {
 		const sent = mocks.getOpenAIResponsesCompletion.mock.calls[0][0] as any[]
 		const users = sent.filter((m) => m.role === 'user')
 		// the oldest message's image is stripped to a placeholder...
-		expect(users[0].content).toBe('old\n[image omitted]')
+		expect(users[0].content.some((p: any) => p.type === 'image_url')).toBe(false)
+		expect(JSON.stringify(users[0].content)).toContain('[image omitted]')
 		// ...the newest keeps its image part
 		expect(users[1].content.some((p: any) => p.type === 'image_url')).toBe(true)
 		// the stored history is untouched

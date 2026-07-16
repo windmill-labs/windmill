@@ -76,6 +76,9 @@ describe('boundImagePartBytes', () => {
 		expect(boundImagePartBytes(messages, 1000)).toBe(messages)
 	})
 
+	const imageParts = (m: ChatCompletionMessageParam) =>
+		(m.content as any[]).filter((p) => p?.type === 'image_url').length
+
 	it('strips the oldest images first once the cap is exceeded', () => {
 		// 1000 base64 chars ≈ 750 bytes each: the newest fits alone, both together don't
 		const messages = [
@@ -84,9 +87,29 @@ describe('boundImagePartBytes', () => {
 			imgMsg(1000, 'new')
 		]
 		const out = boundImagePartBytes(messages, 1000)
-		expect(out[0].content).toBe('old\n[image omitted]')
+		expect(imageParts(out[0])).toBe(0)
+		expect(JSON.stringify(out[0].content)).toContain('[image omitted]')
 		expect(out[1]).toBe(messages[1])
-		expect(Array.isArray(out[2].content)).toBe(true)
+		expect(imageParts(out[2])).toBe(1)
+	})
+
+	// An over-cap batch on the CURRENT turn must keep the subset that fits, not
+	// silently send a text-only message while the composer showed attached images.
+	it('keeps the fitting subset when the newest message alone exceeds the cap', () => {
+		const url = (chars: number) => ({
+			type: 'image_url',
+			image_url: { url: 'data:image/png;base64,' + 'A'.repeat(chars) }
+		})
+		const messages = [
+			{
+				role: 'user',
+				content: [{ type: 'text', text: 'batch' }, url(1000), url(1000), url(1000)]
+			} as any
+		]
+		const out = boundImagePartBytes(messages, 1600)
+		// 750 bytes each against a 1600-byte cap: two fit, the third is dropped
+		expect(imageParts(out[0])).toBe(2)
+		expect(JSON.stringify(out[0].content)).toContain('[image omitted]')
 	})
 })
 

@@ -214,31 +214,42 @@ export function messagesHaveImageParts(messages: ChatCompletionMessageParam[]): 
 export const MAX_TOTAL_IMAGE_BYTES = 12_000_000
 
 /**
- * Keep the request's cumulative image bytes under the cap by stripping image
- * parts from the OLDEST messages first (the newest images are the ones the
- * conversation is about). Turn-granular: a message keeps or loses all its
- * images. Returns the input array unchanged when everything fits.
+ * Keep the request's cumulative image bytes under the cap by stripping the
+ * OLDEST image parts first (the newest images are the ones the conversation
+ * is about). Part-granular so a single over-cap batch keeps the subset that
+ * fits — the newest message never silently loses all its images (one bounded
+ * image alone cannot exceed the cap). Returns the input array unchanged when
+ * everything fits.
  */
 export function boundImagePartBytes(
 	messages: ChatCompletionMessageParam[],
 	cap: number = MAX_TOTAL_IMAGE_BYTES
 ): ChatCompletionMessageParam[] {
 	let total = 0
-	const overBudget = new Set<number>()
+	const drops = new Map<number, Set<number>>()
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const content = messages[i].content
 		if (!Array.isArray(content)) continue
-		const bytes = (content as any[])
-			.filter((part) => part?.type === 'image_url' && typeof part?.image_url?.url === 'string')
-			.reduce((sum, part) => sum + base64Bytes(part.image_url.url), 0)
-		if (bytes === 0) continue
-		total += bytes
-		if (total > cap) overBudget.add(i)
+		;(content as any[]).forEach((part, j) => {
+			if (part?.type !== 'image_url' || typeof part?.image_url?.url !== 'string') return
+			total += base64Bytes(part.image_url.url)
+			if (total > cap) {
+				if (!drops.has(i)) drops.set(i, new Set())
+				drops.get(i)!.add(j)
+			}
+		})
 	}
-	if (overBudget.size === 0) return messages
-	return messages.map((message, i) =>
-		overBudget.has(i) ? stripImagePartsFromMessages([message])[0] : message
-	)
+	if (drops.size === 0) return messages
+	return messages.map((message, i) => {
+		const drop = drops.get(i)
+		if (!drop) return message
+		return {
+			...message,
+			content: (message.content as any[]).map((part, j) =>
+				drop.has(j) ? { type: 'text', text: '[image omitted]' } : part
+			)
+		} as ChatCompletionMessageParam
+	})
 }
 
 /**
