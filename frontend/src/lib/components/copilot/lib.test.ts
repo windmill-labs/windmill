@@ -19,7 +19,6 @@ import {
 } from './modelConfig'
 import { supportsAutocomplete } from './utils'
 
-
 type AssistantMessageWithReasoning = ChatCompletionMessageParam & {
 	role: 'assistant'
 	content?: string

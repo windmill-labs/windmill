@@ -657,6 +657,63 @@ describe('AIChatManager queued messages', () => {
 		expect(stillThere).toBe(true)
 	})
 
+	// Vision model ids often contain the rejection subject words themselves, and
+	// providers echo the id in unrelated errors. A rate limit must not read as an
+	// image rejection just because the model is called "...-vision-instruct" —
+	// the strip it would trigger is permanent (retry refuses the transcript copy).
+	it('keeps the image when a transient error merely echoes a vision model id', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		mocks.tryGetCurrentModel.mockReturnValue({
+			provider: 'openrouter',
+			model: 'meta-llama/llama-3.2-90b-vision-instruct'
+		})
+		mocks.runChatLoop.mockImplementation(async () => {
+			throw new Error('429 Rate limit reached for model meta-llama/llama-3.2-90b-vision-instruct')
+		})
+
+		await manager.sendRequest({ instructions: 'look at this', images: [img('a')] })
+
+		const stillThere = manager.messages.some(
+			(m: any) => Array.isArray(m.content) && m.content.some((p: any) => p.type === 'image_url')
+		)
+		expect(stillThere).toBe(true)
+	})
+
+	// The refused image is not always this turn's attachment: an unlisted
+	// text-only model receives the full history, so a screenshot follow-up or an
+	// earlier upload can be the part it chokes on. Without the strip, every later
+	// send resubmits it and fails identically — a wedge with no self-correction.
+	it('removes historical images from history when the provider rejects them on a text turn', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		// e.g. a take_screenshot follow-up from an earlier turn
+		manager.messages = [
+			{
+				role: 'user',
+				content: [
+					{ type: 'text', text: 'Screenshot of the app preview:' },
+					{ type: 'image_url', image_url: { url: 'data:image/png;base64,SHOT' } }
+				] as any
+			},
+			{ role: 'assistant', content: 'looks good' }
+		]
+		mocks.runChatLoop.mockImplementation(async () => {
+			throw new Error('400 this model does not support image input')
+		})
+
+		await manager.sendRequest({ instructions: 'plain text follow-up' })
+
+		const stillThere = manager.messages.some(
+			(m: any) => Array.isArray(m.content) && m.content.some((p: any) => p.type === 'image_url')
+		)
+		expect(stillThere).toBe(false)
+		expect(mocks.sendUserToast).toHaveBeenCalledWith(
+			expect.stringContaining('could not read the attached image'),
+			true
+		)
+	})
+
 	// The rejection fallback strips the image from history but leaves the bubble's
 	// thumbnail. Retry must not resurrect it, or the retried turn fails identically
 	// and the conversation is wedged after all.

@@ -4,6 +4,7 @@ import {
 	dataUrlToImagePart,
 	fileToAttachedImage,
 	MAX_IMAGE_BYTES,
+	messagesHaveImageParts,
 	parseImageDataUrl,
 	stripImagePartsFromMessages,
 	transcriptImage
@@ -73,6 +74,27 @@ describe('stripImagePartsFromMessages', () => {
 		const messages: ChatCompletionMessageParam[] = [{ role: 'user', content: 'plain' }]
 		const out = stripImagePartsFromMessages(messages)
 		expect(out[0]).toBe(messages[0])
+	})
+})
+
+describe('messagesHaveImageParts', () => {
+	it('detects an image part anywhere in the history', () => {
+		const messages: ChatCompletionMessageParam[] = [
+			{ role: 'user', content: 'plain' },
+			{
+				role: 'user',
+				content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,A' } }]
+			} as any
+		]
+		expect(messagesHaveImageParts(messages)).toBe(true)
+	})
+
+	it('is false for string content and image-free part arrays', () => {
+		const messages: ChatCompletionMessageParam[] = [
+			{ role: 'user', content: 'plain' },
+			{ role: 'user', content: [{ type: 'text', text: 'also plain' }] } as any
+		]
+		expect(messagesHaveImageParts(messages)).toBe(false)
 	})
 })
 

@@ -791,8 +791,6 @@ export function providerSupportsWebSearch(provider: AIProvider | undefined): boo
 	return provider === 'openai' || provider === 'anthropic'
 }
 
-
-
 export function getProviderAndCompletionConfig<K extends boolean>({
 	messages,
 	stream,

@@ -178,6 +178,12 @@
 		const usable = imageFiles.filter((f) => f.size <= MAX_IMAGE_BYTES)
 		if (usable.length === 0) return
 		const batch = usable.slice(0, remaining)
+		if (batch.length < usable.length) {
+			sendUserToast(
+				`You can attach up to ${MAX_ATTACHED_IMAGES} images; ${usable.length - batch.length} were skipped.`,
+				true
+			)
+		}
 		// Claim the slots before awaiting, and hold sending until they resolve:
 		// decoding takes ~50-800ms, and a send during it would clear `images` while
 		// this closure still appends to it, landing the picture on the next message.
@@ -288,7 +294,14 @@
 	export function prependText(text: string, restoredImages: AttachedImage[] = []) {
 		instructions = instructions.trim() ? `${text}\n\n${instructions}` : text
 		if (restoredImages.length > 0) {
-			images = [...images, ...restoredImages].slice(0, MAX_ATTACHED_IMAGES)
+			const merged = [...images, ...restoredImages]
+			if (merged.length > MAX_ATTACHED_IMAGES) {
+				sendUserToast(
+					`You can attach up to ${MAX_ATTACHED_IMAGES} images; ${merged.length - MAX_ATTACHED_IMAGES} restored image(s) were dropped.`,
+					true
+				)
+			}
+			images = merged.slice(0, MAX_ATTACHED_IMAGES)
 		}
 		focusInput()
 	}

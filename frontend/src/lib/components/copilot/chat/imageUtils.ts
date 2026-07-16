@@ -178,6 +178,15 @@ export function dataUrlToImagePart(dataUrl: string): ChatCompletionContentPartIm
 	return { type: 'image_url', image_url: { url: dataUrl } }
 }
 
+/** Whether any message still carries an image_url content part. */
+export function messagesHaveImageParts(messages: ChatCompletionMessageParam[]): boolean {
+	return messages.some(
+		(message) =>
+			Array.isArray(message.content) &&
+			(message.content as any[]).some((part) => part?.type === 'image_url')
+	)
+}
+
 /**
  * Replace image_url content parts with a short text placeholder, collapsing the
  * remaining parts back to a plain string. Used to keep base64 blobs out of the

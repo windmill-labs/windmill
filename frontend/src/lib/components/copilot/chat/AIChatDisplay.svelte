@@ -50,6 +50,8 @@
 		hasFileSystemAccess,
 		pickDirectory,
 		handlesFromDataTransfer,
+		isDirectoryHandle,
+		isFileHandle,
 		readDroppedEntries
 	} from './files/fsAccess'
 	import { sendUserToast } from '$lib/toast'
@@ -368,18 +370,29 @@
 		// in it would land the image on the next message.
 		const imageWork: Promise<unknown>[] = []
 		if (canUseFsAccess) {
+			// Read the flat list synchronously too (before any await, while the
+			// DataTransfer is live): a drag with no filesystem backing — e.g. an image
+			// dragged straight from another browser tab — resolves every
+			// getAsFileSystemHandle() to null, and dt.files is the only place it exists.
+			const flatFiles = Array.from(dt.files ?? [])
 			// getAsFileSystemHandle calls are kicked off synchronously inside this call.
 			const handles = await handlesFromDataTransfer(dt)
-			for (const h of handles) {
-				if (h.kind === 'directory') {
-					// Folders link as a live handle.
-					await addDirHandle(h as FileSystemDirectoryHandle)
-				} else {
-					const file = await (h as FileSystemFileHandle).getFile()
-					if (isImageFile(file)) imageWork.push(aiChatInput?.addImages([file]) ?? Promise.resolve())
-					// Files are always snapshotted (handle discarded).
-					else await handleAddFiles([{ file }])
-				}
+			const looseFiles =
+				handles.length === 0
+					? flatFiles
+					: await Promise.all(handles.filter(isFileHandle).map((h) => h.getFile()))
+			imageFiles.push(...looseFiles.filter(isImageFile))
+			if (imageFiles.length > 0) {
+				imageWork.push(aiChatInput?.addImages(imageFiles) ?? Promise.resolve())
+			}
+			// Files are always snapshotted (handle discarded).
+			const textFiles = looseFiles.filter((f) => !isImageFile(f))
+			if (textFiles.length > 0) await handleAddFiles(textFiles)
+			// Folders link as a live handle — walked last: the walk can take a while,
+			// and an image reaching addImages only after it would leave sending
+			// enabled with the image unclaimed.
+			for (const h of handles.filter(isDirectoryHandle)) {
+				await addDirHandle(h)
 			}
 		} else {
 			// Fallback (no File System Access API): snapshot dropped files AND folders by walking

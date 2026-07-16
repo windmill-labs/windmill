@@ -62,6 +62,7 @@ import {
 	type AttachedImage,
 	imagesFromContent,
 	MAX_ATTACHED_IMAGES,
+	messagesHaveImageParts,
 	stripImagePartsFromMessages,
 	transcriptImage
 } from './imageUtils'
@@ -273,11 +274,17 @@ function appendWebSearchErrorHint(message: string, shouldAppend: boolean): strin
  * Whether a provider rejected the request over an image it could not take. The
  * vision gate only knows the models we ship, so this is the net for the rest:
  * every provider words it differently, hence matching on the subject rather than
- * a code. Only consulted for turns that actually carried an image, so an
- * unrelated error mentioning "image" cannot trigger it on its own.
+ * a code. Only consulted when the outbound request actually carried an image, so
+ * an unrelated error mentioning "image" cannot trigger it on its own.
  */
-function isImageRejection(err: unknown): boolean {
-	const message = (err instanceof Error ? err.message : String(err)).toLowerCase()
+function isImageRejection(err: unknown, model?: string): boolean {
+	let message = (err instanceof Error ? err.message : String(err)).toLowerCase()
+	// Vision-capable model ids often contain the subject words themselves
+	// (llama-3.2-90b-vision-instruct, Phi-4-multimodal-instruct) and providers echo
+	// the id in unrelated errors (rate limits, capacity). A match inside the id
+	// would treat those as rejections and destroy good images, so drop the id
+	// before matching — only the error's own wording counts.
+	if (model) message = message.replaceAll(model.toLowerCase(), '')
 	return /image|vision|multimodal/.test(message)
 }
 
@@ -2546,11 +2553,18 @@ export class AIChatManager {
 				// refused an image would refuse it again on every later turn, wedging the
 				// conversation with no way out but editing the message or starting over.
 				// Drop the parts so the text still gets an answer; the bubbles keep their
-				// thumbnails, so the user can still see what they sent.
-				if (images.length > 0 && isImageRejection(err)) {
+				// thumbnails, so the user can still see what they sent. Gated on the
+				// history, not this turn's attachments: the refused image can also be a
+				// screenshot follow-up or an earlier turn's upload (an unlisted text-only
+				// model gets the full history — the send-time strip covers known ones only).
+				if (
+					!modelIsBlind &&
+					messagesHaveImageParts(this.messages) &&
+					isImageRejection(err, tryGetCurrentModel()?.model)
+				) {
 					this.messages = stripImagePartsFromMessages(this.messages)
 					sendUserToast(
-						`${tryGetCurrentModel()?.model ?? 'The model'} could not read the attached image, so it was removed from the conversation. Your message was kept.`,
+						`${tryGetCurrentModel()?.model ?? 'The model'} could not read the attached image(s), so they were removed from the conversation. Your message was kept.`,
 						true
 					)
 				}
