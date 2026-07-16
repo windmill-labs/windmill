@@ -14,10 +14,9 @@
 		canPublishApp,
 		sanitizeSlug,
 		isValidSlug,
-		triggerDetails,
-		TRIGGER_KINDS,
 		type DeployItem
 	} from './deployToHubSession.svelte'
+	import { TRIGGER_KINDS, triggerDetails } from '$lib/components/triggers/workspaceTriggersList'
 	import Toggle from '../Toggle.svelte'
 	import MigrationSqlEditor from './MigrationSqlEditor.svelte'
 	import {

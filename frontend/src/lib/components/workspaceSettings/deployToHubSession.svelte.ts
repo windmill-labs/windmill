@@ -8,16 +8,6 @@ import {
 	ResourceService,
 	ScriptService,
 	WorkspaceService,
-	HttpTriggerService,
-	WebsocketTriggerService,
-	KafkaTriggerService,
-	NatsTriggerService,
-	SqsTriggerService,
-	MqttTriggerService,
-	GcpTriggerService,
-	AzureTriggerService,
-	PostgresTriggerService,
-	EmailTriggerService,
 	ScheduleService
 } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
@@ -42,6 +32,14 @@ import {
 	type GeneratedMigration
 } from './projectMigrations'
 import type { Kind } from '$lib/utils_deployable'
+import {
+	TRIGGER_KINDS,
+	listAllWorkspaceTriggers,
+	triggerResourcePath,
+	stripTriggerConfig,
+	type WorkspaceTrigger,
+	type WorkspaceTriggerKind
+} from '../triggers/workspaceTriggersList'
 
 export type Phase = 'predeploy' | 'draft' | 'under_review' | 'live'
 export type RecStatus = 'none' | 'recorded'
@@ -58,145 +56,6 @@ export interface DeployItem {
 
 export const canRecord = (k: Kind) => k === 'script' || k === 'flow'
 export const canPublishApp = (k: Kind) => k === 'app' || k === 'raw_app'
-
-export type TriggerKindLabel =
-	| 'http'
-	| 'websocket'
-	| 'schedule'
-	| 'kafka'
-	| 'nats'
-	| 'sqs'
-	| 'mqtt'
-	| 'gcp'
-	| 'azure'
-	| 'postgres'
-	| 'email'
-export interface WorkspaceTrigger {
-	kind: TriggerKindLabel
-	path: string
-	script_path: string
-	is_flow: boolean
-	summary?: string
-	config: Record<string, unknown>
-}
-// One row per trigger kind: badge label, workspace list route, optional
-// post-import note, and the config field holding its resource path.
-export const TRIGGER_KINDS: Record<
-	TriggerKindLabel,
-	{ badge: string; route: string; note?: string; resourceField?: string }
-> = {
-	http: {
-		badge: 'HTTP',
-		route: 'routes',
-		note: 'Webhook URL regenerates on import — re-register with the external service.',
-		resourceField: 'authentication_resource_path'
-	},
-	websocket: {
-		badge: 'WebSocket',
-		route: 'websocket_triggers',
-		note: 'Reconnect WebSocket auth after import if external service requires it.'
-	},
-	schedule: { badge: 'Schedule', route: 'schedules' },
-	kafka: {
-		badge: 'Kafka',
-		route: 'kafka_triggers',
-		note: 'Verify Kafka broker access from the importing instance.',
-		resourceField: 'kafka_resource_path'
-	},
-	nats: {
-		badge: 'NATS',
-		route: 'nats_triggers',
-		note: 'Verify NATS connection from the importing instance.',
-		resourceField: 'nats_resource_path'
-	},
-	sqs: { badge: 'SQS', route: 'sqs_triggers', resourceField: 'aws_resource_path' },
-	mqtt: { badge: 'MQTT', route: 'mqtt_triggers', resourceField: 'mqtt_resource_path' },
-	gcp: {
-		badge: 'GCP Pub/Sub',
-		route: 'gcp_triggers',
-		note: 'Re-link GCP Pub/Sub subscription after import.',
-		resourceField: 'gcp_resource_path'
-	},
-	azure: {
-		badge: 'Azure',
-		route: 'azure_triggers',
-		note: 'Re-link Azure Event Grid subscription after import.',
-		resourceField: 'azure_resource_path'
-	},
-	postgres: {
-		badge: 'Postgres',
-		route: 'postgres_triggers',
-		resourceField: 'postgres_resource_path'
-	},
-	email: { badge: 'Email', route: 'email_triggers', note: 'Email address regenerates on import.' }
-}
-export function triggerResourcePath(t: WorkspaceTrigger): string | undefined {
-	const field = TRIGGER_KINDS[t.kind]?.resourceField
-	const v = field ? (t.config as any)?.[field] : undefined
-	return typeof v === 'string' && v !== '' ? v : undefined
-}
-
-export function triggerDetails(t: WorkspaceTrigger): Array<{ label: string; value: string }> {
-	const c = t.config as any
-	const out: Array<{ label: string; value: string }> = []
-	const push = (label: string, v: any) => {
-		if (v != null && v !== '') out.push({ label, value: String(v) })
-	}
-	switch (t.kind) {
-		case 'http':
-			push('Route', `${(c.http_method ?? '').toUpperCase()} /${c.route_path ?? ''}`)
-			push('Auth', c.authentication_method)
-			break
-		case 'schedule':
-			push('Cron', c.schedule)
-			push('Timezone', c.timezone)
-			break
-		case 'websocket':
-			push('URL', c.url)
-			break
-		case 'kafka':
-			push('Resource', c.kafka_resource_path)
-			push('Group', c.group_id)
-			push('Topics', (Array.isArray(c.topics) ? c.topics : []).join(', '))
-			break
-		case 'nats':
-			push('Resource', c.nats_resource_path)
-			push('Subjects', (Array.isArray(c.subjects) ? c.subjects : []).join(', '))
-			push('Jetstream', c.use_jetstream)
-			break
-		case 'sqs':
-			push('Queue', c.queue_url)
-			push('Resource', c.aws_resource_path)
-			break
-		case 'mqtt':
-			push('Resource', c.mqtt_resource_path)
-			push(
-				'Topics',
-				(Array.isArray(c.subscribe_topics) ? c.subscribe_topics : [])
-					.map((x: any) => x?.topic ?? x)
-					.join(', ')
-			)
-			break
-		case 'gcp':
-			push('Resource', c.gcp_resource_path)
-			push('Topic', c.topic_id)
-			push('Subscription', c.subscription_id)
-			break
-		case 'azure':
-			push('Resource', c.azure_resource_path)
-			push('Scope', c.scope_resource_id)
-			push('Subscription', c.subscription_name)
-			break
-		case 'postgres':
-			push('Resource', c.postgres_resource_path)
-			push('Publication', c.publication_name)
-			break
-		case 'email':
-			push('Email prefix', c.local_part ? `${c.local_part}@…` : undefined)
-			break
-	}
-	return out
-}
 
 export function sanitizeSlug(s: string): string {
 	return s
@@ -238,40 +97,10 @@ function typesFromSchema(schema: any): string[] {
 	return [...out]
 }
 
-// Instance-side metadata that has no meaning on the Hub stub. Anything
-// `last_*` or `captured_*` is also dropped.
-const TRIGGER_CONFIG_BLACKLIST = new Set([
-	'path',
-	'script_path',
-	'is_flow',
-	'summary',
-	'description',
-	'workspace_id',
-	'edited_by',
-	'edited_at',
-	'enabled',
-	'extra_perms',
-	'permissioned_as',
-	'permissioned_as_email',
-	'error',
-	'error_handler_path',
-	'error_handler_args',
-	'test_runnable_args'
-])
-function stripTriggerConfig(config: Record<string, unknown>): Record<string, unknown> {
-	const out: Record<string, unknown> = {}
-	for (const [k, v] of Object.entries(config)) {
-		if (TRIGGER_CONFIG_BLACKLIST.has(k)) continue
-		if (k.startsWith('last_') || k.startsWith('captured_')) continue
-		out[k] = v
-	}
-	return out
-}
-
 type DependencyUsage =
 	| { role: 'input'; label: string; kind: ItemKind; itemPath: string }
 	| { role: 'hardcoded'; label: string; kind: ItemKind; path: string; itemPath: string }
-	| { role: 'trigger'; label: string; triggerKind: TriggerKindLabel; path: string }
+	| { role: 'trigger'; label: string; triggerKind: WorkspaceTriggerKind; path: string }
 export interface DependencyType {
 	resource_type: string
 	hasHardcoded: boolean
@@ -412,7 +241,7 @@ export class DeployToHubSession {
 	})
 
 	triggersByKind = $derived.by(() => {
-		const out = new Map<TriggerKindLabel, WorkspaceTrigger[]>()
+		const out = new Map<WorkspaceTriggerKind, WorkspaceTrigger[]>()
 		for (const t of this.relevantTriggers) {
 			const arr = out.get(t.kind) ?? []
 			arr.push(t)
@@ -508,7 +337,7 @@ export class DeployToHubSession {
 		if (!path) return undefined
 		return `${base}/${ITEM_KIND_ROUTE[kind]}/${path}?workspace=${this.workspace}`
 	}
-	triggerListUrl(kind: TriggerKindLabel): string {
+	triggerListUrl(kind: WorkspaceTriggerKind): string {
 		return `${base}/${TRIGGER_KINDS[kind].route}?workspace=${this.workspace}`
 	}
 
@@ -609,62 +438,14 @@ export class DeployToHubSession {
 	}
 
 	async #loadTriggers() {
-		const workspace = this.workspace
 		const tok = ++this.#triggerLoadTok
 		this.triggersLoading = true
 		try {
-			// Kafka/NATS/SQS/GCP/Azure are EE-only (404 on CE) — skip without a license.
-			// http/websocket/schedule/postgres/mqtt/email exist on CE.
-			const safeList = async <T>(p: Promise<T[]>): Promise<T[]> => {
-				try {
-					return await p
-				} catch {
-					return []
-				}
-			}
-			const ee = this.#deps.hasEeLicense()
-			const eeList = <T>(p: () => Promise<T[]>): Promise<T[]> =>
-				ee ? safeList(p()) : Promise.resolve([])
-			const [http, websocket, schedule, kafka, nats, sqs, mqtt, gcp, azure, postgres, email] =
-				await Promise.all([
-					safeList(HttpTriggerService.listHttpTriggers({ workspace })),
-					safeList(WebsocketTriggerService.listWebsocketTriggers({ workspace })),
-					safeList(ScheduleService.listSchedules({ workspace })),
-					eeList(() => KafkaTriggerService.listKafkaTriggers({ workspace })),
-					eeList(() => NatsTriggerService.listNatsTriggers({ workspace })),
-					eeList(() => SqsTriggerService.listSqsTriggers({ workspace })),
-					safeList(MqttTriggerService.listMqttTriggers({ workspace })),
-					eeList(() => GcpTriggerService.listGcpTriggers({ workspace })),
-					eeList(() => AzureTriggerService.listAzureTriggers({ workspace })),
-					safeList(PostgresTriggerService.listPostgresTriggers({ workspace })),
-					safeList(EmailTriggerService.listEmailTriggers({ workspace }))
-				])
+			const triggers = await listAllWorkspaceTriggers(this.workspace, {
+				includeEeOnly: this.#deps.hasEeLicense()
+			})
 			if (this.#disposed || tok !== this.#triggerLoadTok) return
-			const normalize = (
-				kind: TriggerKindLabel,
-				rows: Array<Record<string, any>>
-			): WorkspaceTrigger[] =>
-				rows.map((r) => ({
-					kind,
-					path: r.path,
-					script_path: r.script_path,
-					is_flow: r.is_flow ?? false,
-					summary: r.summary,
-					config: r
-				}))
-			this.workspaceTriggers = [
-				...normalize('http', http),
-				...normalize('websocket', websocket),
-				...normalize('schedule', schedule),
-				...normalize('kafka', kafka),
-				...normalize('nats', nats),
-				...normalize('sqs', sqs),
-				...normalize('mqtt', mqtt),
-				...normalize('gcp', gcp),
-				...normalize('azure', azure),
-				...normalize('postgres', postgres),
-				...normalize('email', email)
-			]
+			this.workspaceTriggers = triggers
 		} finally {
 			if (!this.#disposed && tok === this.#triggerLoadTok) this.triggersLoading = false
 		}
