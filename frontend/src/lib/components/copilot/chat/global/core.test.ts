@@ -220,10 +220,15 @@ vi.mock('$lib/gen', async () => {
 			listDrafts: vi.fn(async () =>
 				Array.from(backendDrafts.entries()).map(([key, value]) => {
 					const idx = key.indexOf(':')
+					const path = key.slice(idx + 1)
+					// Like the real endpoint: friendly path from the draft JSON, only
+					// when set and different from the storage path.
+					const draftPath = (value as any)?.draft_path
 					return {
 						kind: key.slice(0, idx),
-						path: key.slice(idx + 1),
+						path,
 						summary: (value as any)?.summary,
+						...(draftPath && draftPath !== path ? { draft_path: draftPath } : {}),
 						draft_only: true,
 						created_at: '2026-06-15T00:00:00Z'
 					}
@@ -263,6 +268,7 @@ import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import {
 	clearGlobalDrafts,
 	deleteGlobalDraft,
+	listGlobalDrafts,
 	persistGlobalDraft,
 	readGlobalDraftValue,
 	saveGlobalAppDraft
@@ -1628,6 +1634,38 @@ describe('global AI tools', () => {
 			const draft = getBackendDraft<any>('raw_app', 'u/admin/draft_abc', { workspace: WORKSPACE })
 			expect(draft.files['/index.tsx']).toBe('new')
 			expect(draft.draft_path).toBe('u/admin/my_pretty_app')
+		})
+
+		it('lists a live raw app staged rename as draftPath even when registered at the storage key', async () => {
+			// Flow/raw-app renames live in the value's `draft_path` while `path`
+			// stays the storage key; a live registration whose effectivePath is the
+			// storage key must not hide the staged rename from listGlobalDrafts —
+			// the pickers regroup the item under it.
+			const storageKey = 'u/admin/draft_live1'
+			const staged = 'f/team/renamed_app'
+			seedBackendDraft(
+				'raw_app',
+				storageKey,
+				{
+					summary: '',
+					files: { '/App.tsx': 'export default () => null' },
+					runnables: {},
+					data: { tables: [] },
+					draft_path: staged
+				},
+				{ workspace: WORKSPACE }
+			)
+			UserDraft.setLiveEditorDraft({
+				workspace: WORKSPACE,
+				itemKind: 'raw_app',
+				storagePath: storageKey,
+				effectivePath: storageKey
+			})
+
+			const items = await listGlobalDrafts(WORKSPACE)
+			const app = items.find((i) => i.type === 'app' && i.path === storageKey)
+			expect(app?.draftPath).toBe(staged)
+			expect(app?.isLiveDraft).toBe(true)
 		})
 
 		it('blocks deploying an app draft started from an older deployed version', async () => {

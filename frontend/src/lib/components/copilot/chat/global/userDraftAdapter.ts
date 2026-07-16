@@ -276,12 +276,13 @@ function userDraftEntryToWorkspaceItem(
 		}
 	}
 	if (!item) return undefined
-	// A live entry's `path` is already the editor's effective (friendly) path,
-	// and the value's persisted `draft_path` may lag the live rename — never
-	// surface it over the live path. Also drop a draftPath that just repeats
-	// `path`; it carries no extra display information.
-	if (isLiveDraft) return { ...item, isLiveDraft: true, draftPath: undefined }
-	return item.draftPath === item.path ? { ...item, draftPath: undefined } : item
+	// Drop a draftPath that just repeats `path` (no extra display information),
+	// keep it otherwise — including on live entries: a live editor that
+	// registers its storage key as the effective path (flow/raw-app renames
+	// live in the value's `draft_path`, not `path`) must not hide the staged
+	// rename from lists and pickers.
+	const draftPath = item.draftPath === item.path ? undefined : item.draftPath
+	return isLiveDraft ? { ...item, draftPath, isLiveDraft: true } : { ...item, draftPath }
 }
 
 function liveDisplayPath(
@@ -522,10 +523,12 @@ function backendDraftRowToWorkspaceItem(
 	return {
 		type,
 		path: displayPath,
-		// The row's friendly path (from the draft JSON) names the item when no
-		// live editor overrides the display; a live editor's effective path is
-		// fresher, so it wins (it already IS `path` above).
-		draftPath: isLiveDraft ? undefined : row.draft_path,
+		// The row's friendly path (from the draft JSON) names the item; only a
+		// draft_path that repeats the display path adds nothing. Kept even for
+		// live rows — a live registration whose effective path is the storage key
+		// (flow/raw-app renames live in the value's `draft_path`, not `path`)
+		// must not hide the staged rename.
+		draftPath: row.draft_path === displayPath ? undefined : row.draft_path,
 		summary: row.summary,
 		value: undefined,
 		isDraft: true,
