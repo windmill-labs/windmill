@@ -48,12 +48,37 @@ jobs:
       pull-requests: read
       id-token: write
     steps:
+      # An agent-driven PR flips to ready only after a clean /review round on a
+      # draft, marked by an author comment naming the head SHA (pr skill, "Review
+      # rounds"). Re-reviewing that same head on ready_for_review is redundant.
+      # Comment-triggered (workflow_call) and opened runs never skip.
+      - name: Check clean-round marker
+        id: marker
+        if: github.event_name == 'pull_request' && github.event.action == 'ready_for_review'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          if gh api "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" --paginate \
+               | jq -r --arg author "$PR_AUTHOR" '.[] | select(.user.login == $author) | .body' \
+               | grep -qF "✅ Review round clean @ $HEAD_SHA"; then
+            echo "Clean review round marker found for $HEAD_SHA; skipping redundant review."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout repository
+        if: steps.marker.outputs.skip != 'true'
         uses: actions/checkout@v5
         with:
           fetch-depth: 1
 
       - name: Check EE access
+        if: steps.marker.outputs.skip != 'true'
         id: ee
         env:
           EE_TOKEN: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
@@ -80,6 +105,7 @@ jobs:
         run: ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
       - name: Resolve PR number
+        if: steps.marker.outputs.skip != 'true'
         id: resolve
         env:
           GH_TOKEN: ${{ github.token }}
@@ -99,6 +125,7 @@ jobs:
           echo "pr_author=$PR_AUTHOR" >> "$GITHUB_OUTPUT"
 
       - name: Fetch prior PR discussion
+        if: steps.marker.outputs.skip != 'true'
         id: prior
         env:
           GH_TOKEN: ${{ github.token }}
@@ -117,6 +144,7 @@ jobs:
           ' prior-comments.json > prior-comments.md
 
       - name: Read review prompt
+        if: steps.marker.outputs.skip != 'true'
         id: review-prompt
         env:
           EXTRA_PROMPT: ${{ inputs.extra_prompt }}
@@ -140,6 +168,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Automatic PR Review
+        if: steps.marker.outputs.skip != 'true'
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

@@ -82,6 +82,7 @@ jobs:
           EVENT_BODY: ${{ github.event.pull_request.body }}
           EVENT_FORK: ${{ github.event.pull_request.head.repo.fork }}
           EVENT_AUTHOR: ${{ github.event.pull_request.user.login }}
+          EVENT_ACTION: ${{ github.event.action }}
         run: |
           if [ -n "$INPUT_PR_NUMBER" ]; then
             PR_JSON=$(gh pr view "$INPUT_PR_NUMBER" --repo "${{ github.repository }}" \
@@ -112,6 +113,19 @@ jobs:
             echo "Skipping Codex review for fork PR (automatic trigger)."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
+          fi
+          # An agent-driven PR flips to ready only after a clean /review round on
+          # a draft, marked by an author comment naming the head SHA (pr skill,
+          # "Review rounds"). Re-reviewing that same head on ready_for_review is
+          # redundant. Comment-triggered and synchronize runs never skip.
+          if [ "$EVENT_ACTION" = "ready_for_review" ] && [ -z "$INPUT_PR_NUMBER" ]; then
+            if gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/comments?per_page=100" --paginate \
+                 | jq -r --arg author "$PR_AUTHOR" '.[] | select(.user.login == $author) | .body' \
+                 | grep -qF "✅ Review round clean @ $HEAD_SHA"; then
+              echo "Clean review round marker found for $HEAD_SHA; skipping redundant review."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
           # PR title/body are attacker-controlled free text. Use an unguessable
           # per-run delimiter so a fork can't embed a fixed heredoc terminator to
