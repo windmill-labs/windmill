@@ -437,7 +437,7 @@
 
 								<div class="hidden lg:flex flex-row gap-1 items-center">
 									<SharedBadge {canWrite} extraPerms={extra_perms} />
-									{#if draft_only || is_draft}
+									{#if draft_only || (getLocalDraftHint($workspaceStore, 'trigger_schedule', path) ?? is_draft)}
 										<DraftBadge {draft_only} is_draft={true} />
 									{/if}
 								</div>
