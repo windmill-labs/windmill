@@ -292,9 +292,28 @@
 	// Latest uncaught runtime error thrown by the rendered app; cleared on next build.
 	let runtimeError = $state<string | undefined>(undefined)
 	// Set when a build ran cleanly but never mounted anything into #root — the
-	// entrypoint defines a component without calling createRoot(...).render(...).
-	// Cleared on next build.
+	// entrypoint defines a component without ever mounting it. Cleared on next build.
 	let emptyRender = $state(false)
+	// The repair hint above has to match the app's framework: only React apps have
+	// an `index.tsx` and `createRoot`; Svelte and Vue mount from `index.ts`. Keyed
+	// off file extensions rather than exact template filenames, which users rename.
+	let mountHint = $derived.by(() => {
+		const paths = Object.keys(files ?? {}).map((p) => p.replace(/^\//, ''))
+		const entrypoint = paths.find((p) => /^index\.(tsx|jsx|ts|js)$/.test(p))
+		if (paths.some((p) => p.endsWith('.svelte'))) {
+			return {
+				entrypoint: entrypoint ?? 'index.ts',
+				call: "mount(App, { target: document.getElementById('root')! })"
+			}
+		}
+		if (paths.some((p) => p.endsWith('.vue'))) {
+			return { entrypoint: entrypoint ?? 'index.ts', call: "createApp(App).mount('#root')" }
+		}
+		return {
+			entrypoint: entrypoint ?? 'index.tsx',
+			call: "createRoot(document.getElementById('root')!).render(<App />)"
+		}
+	})
 	let logsCollapsed = $state(false)
 	let logsDiv: HTMLDivElement | undefined = $state(undefined)
 	$effect(() => {
@@ -1993,9 +2012,9 @@
 										>
 											<span class="text-xs">
 												The build succeeded but nothing mounted into <code>#root</code>. Add a mount
-												call to <code>index.tsx</code>:
+												call to <code>{mountHint.entrypoint}</code>:
 												<code class="block mt-1 whitespace-pre-wrap break-all"
-													>createRoot(document.getElementById('root')!).render(&lt;App /&gt;)</code
+													>{mountHint.call}</code
 												>
 											</span>
 										</Alert>

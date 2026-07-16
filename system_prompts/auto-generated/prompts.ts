@@ -611,7 +611,9 @@ A raw app has three logical parts:
 
 ### Entrypoint
 
-\`index.tsx\` is the bundling entrypoint (the bundler is esbuild) and the **mount** entrypoint. The preview executes the bundle against an empty \`<div id="root">\` and auto-renders nothing, so \`index.tsx\` must mount a top-level \`App\` itself. Keep the UI in \`App.tsx\` (or \`App.svelte\` / \`App.vue\`) and keep \`index.tsx\` as the mount shim:
+The entrypoint is \`index.tsx\` for React and \`index.ts\` for Svelte and Vue. It is both the bundling entrypoint (the bundler is esbuild) and the **mount** entrypoint: the preview executes the bundle against an empty \`<div id="root">\` and auto-renders nothing, so the entrypoint must mount a top-level \`App\` itself. Keep the UI in \`App.tsx\` / \`App.svelte\` / \`App.vue\` and keep the entrypoint as the mount shim.
+
+React (\`index.tsx\`):
 
 \`\`\`tsx
 import React from 'react'
@@ -621,9 +623,9 @@ import App from './App'
 createRoot(document.getElementById('root')!).render(<App />)
 \`\`\`
 
-Svelte: \`mount(App, { target: document.getElementById('root')! })\`. Vue: \`createApp(App).mount('#root')\`.
+Svelte (\`index.ts\`): \`mount(App, { target: document.getElementById('root')! })\`. Vue (\`index.ts\`): \`createApp(App).mount('#root')\`.
 
-**Never replace \`index.tsx\` with a bare component** (\`export default function App() { ... }\` and no mount call). A component that is defined but never mounted renders a blank screen with **no error thrown** — the JSX never executes, so nothing reaches the console or the error overlay. If an app renders blank, check that \`index.tsx\` still calls \`createRoot(document.getElementById('root')!).render(<App />)\`.
+**Never replace the entrypoint with a bare component** (\`export default function App() { ... }\` and no mount call). A component that is defined but never mounted renders a blank screen with **no error thrown** — it never executes, so nothing reaches the console or the error overlay. If an app renders blank, check that the entrypoint still mounts \`App\` into \`#root\`.
 
 **Always begin every React file (\`.tsx\`/\`.jsx\`) that uses JSX with \`import React from 'react'\`.** esbuild uses the classic JSX transform, so \`React\` must be in scope wherever JSX appears — a missing import compiles fine but throws \`React is not defined\` at runtime, leaving a blank screen.
 
