@@ -38,6 +38,7 @@
 		InspectorElementInfo
 	} from '../copilot/chat/app/core'
 	import { createAppSelectedContext, type AppCodeSelectionElement } from '../copilot/chat/context'
+	import { MAX_IMAGE_EDGE } from '../copilot/chat/imageUtils'
 	import { rawAppLintStore } from './lintStore'
 	import { dbSchemas } from '$lib/stores'
 	import {
@@ -1408,9 +1409,18 @@
 			)
 		}
 		const { domToPng } = await import('modern-screenshot')
+		// Capture above CSS resolution, up to the model's input budget: the SVG
+		// re-render is vector, so a higher scale is real detail (what a HiDPI screen
+		// shows), not interpolation. A 1× capture of a ~900px preview reads blurry
+		// next to the live render. Capped at 2× / MAX_IMAGE_EDGE — past the
+		// normalize bound the extra pixels are downscaled away again.
+		const scale = Math.max(
+			1,
+			Math.min(2, MAX_IMAGE_EDGE / Math.max(target.clientWidth, target.clientHeight))
+		)
 		const restore = pinSingleLineText(target)
 		try {
-			return await domToPng(target, { backgroundColor: '#ffffff' })
+			return await domToPng(target, { backgroundColor: '#ffffff', scale })
 		} finally {
 			restore()
 		}

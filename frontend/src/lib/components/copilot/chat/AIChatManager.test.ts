@@ -829,6 +829,28 @@ describe('AIChatManager queued messages', () => {
 		expect(input.prependText).toHaveBeenCalledWith('', [img('a')])
 	})
 
+	// The tool card persists only a bounded thumbnail; the expanded view resolves
+	// the full capture from this session-scoped map.
+	it('keeps a session-scoped full-res copy of tool images for the expanded view', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			config.callbacks.attachToolImage('tool-1', img('FULLSHOT'))
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages?.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		await manager.sendRequest({ instructions: 'screenshot it' })
+
+		expect(manager.fullResToolImage('tool-1')).toBe('data:image/png;base64,FULLSHOT')
+		expect(manager.fullResToolImage('unknown')).toBeUndefined()
+	})
+
 	it('restores queued images to the input on dequeue', () => {
 		const input = createInputMock()
 		const manager = createManager(input)

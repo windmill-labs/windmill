@@ -88,6 +88,7 @@
 			<div class="my-1">
 				<ExpandableImage
 					src={message.imageUrl}
+					fullSrc={aiChatManager.fullResToolImage(message.tool_call_id)}
 					alt="App preview screenshot"
 					class="max-h-48 max-w-full rounded border border-border-light"
 				/>

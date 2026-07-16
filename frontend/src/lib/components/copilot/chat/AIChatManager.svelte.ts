@@ -380,6 +380,12 @@ export class AIChatManager {
 	 * keyed by toolId. Drained by appendPendingToolImages into a follow-up user message
 	 * after the batch. Cleared at each turn start so an aborted batch can't leak. */
 	private pendingToolImages = new Map<string, AttachedImage[]>()
+	/** Full-resolution copies of tool-produced images, keyed by tool call id, for
+	 * the tool card's expanded view. Memory-only on purpose: the transcript persists
+	 * a bounded thumbnail (displayMessages are re-cloned into IndexedDB on every
+	 * save), so after a reload expanding falls back to that thumbnail. Insertion-
+	 * ordered and capped so a long session can't pin dozens of full captures. */
+	private fullResToolImages = new Map<string, string>()
 	/** Provider-reported context size of the last committed turn (prompt +
 	 * completion of its latest completion — exact, includes system prompt and
 	 * tools), or undefined whenever no report describes the current history
@@ -2461,6 +2467,14 @@ export class AIChatManager {
 					attachToolImage: (toolId, image) => {
 						const existing = this.pendingToolImages.get(toolId) ?? []
 						this.pendingToolImages.set(toolId, [...existing, image])
+						// Recorded before the card's setToolStatus renders the thumbnail,
+						// so the expanded view can already resolve the full copy.
+						this.fullResToolImages.set(toolId, image.dataUrl)
+						while (this.fullResToolImages.size > 20) {
+							const oldest = this.fullResToolImages.keys().next().value
+							if (oldest === undefined) break
+							this.fullResToolImages.delete(oldest)
+						}
 					},
 					takePendingToolImages: () => {
 						const images = [...this.pendingToolImages.values()].flat()
@@ -2695,6 +2709,12 @@ export class AIChatManager {
 	 * transcript's copies ride back along as previews so the resend re-persists a
 	 * bounded copy rather than a full-resolution one.
 	 */
+	/** The full-resolution copy of a tool-produced image (this session only —
+	 * see `fullResToolImages`), for the tool card's expanded view. */
+	fullResToolImage(toolCallId: string): string | undefined {
+		return this.fullResToolImages.get(toolCallId)
+	}
+
 	storedImages(displayMessageIndex: number): AttachedImage[] | undefined {
 		const shown = this.displayMessages[displayMessageIndex]
 		if (!shown || shown.role !== 'user') return undefined
