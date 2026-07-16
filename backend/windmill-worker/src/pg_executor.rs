@@ -768,7 +768,22 @@ pub async fn do_postgresql(
     // Materialize any `(s3object)` args into JSON text and rebind them as `jsonb` so
     // `otyp_to_pg_type` picks the right binding. Must run before the param map is
     // built below.
-    materialize_s3object_args(&mut sig.args, &mut pg_args, client, &job.workspace_id).await?;
+    let materialize_f =
+        materialize_s3object_args(&mut sig.args, &mut pg_args, client, &job.workspace_id);
+    if run_inline {
+        materialize_f.await?;
+    } else {
+        crate::sql_s3_input::materialize_under_job_poller(
+            job,
+            conn,
+            mem_peak,
+            canceled_by,
+            worker_name,
+            occupancy_metrics,
+            materialize_f,
+        )
+        .await?;
+    }
 
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;

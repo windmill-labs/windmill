@@ -11,8 +11,50 @@
 //! executor binds the bare `s3://...` URI instead.
 
 use anyhow::Context;
+use std::future::Future;
 use windmill_common::client::AuthedClient;
+use windmill_common::error;
+use windmill_common::worker::Connection;
+use windmill_queue::{CanceledBy, MiniPulledJob};
 use windmill_types::s3::S3Object;
+
+use crate::common::OccupancyMetrics;
+use crate::handle_child::run_future_with_polling_update_job_poller;
+
+/// Run the `(s3object)` materialisation step under the job poller.
+///
+/// Downloading and decoding the file can take minutes on large inputs. The poller
+/// is what refreshes `v2_job_runtime.ping`, so without it the zombie monitor
+/// restarts the job after `ZOMBIE_JOB_TIMEOUT`, and since the restart cannot
+/// signal this phase, each retry stacks another concurrent download+decode on the
+/// same worker until it OOMs. It also gives this phase cancellation and the job
+/// timeout, neither of which it would otherwise honour.
+pub(crate) async fn materialize_under_job_poller<T, Fut>(
+    job: &MiniPulledJob,
+    conn: &Connection,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    worker_name: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
+    fut: Fut,
+) -> error::Result<T>
+where
+    Fut: Future<Output = error::Result<T>>,
+{
+    run_future_with_polling_update_job_poller(
+        job.id,
+        job.timeout,
+        conn,
+        mem_peak,
+        canceled_by,
+        fut,
+        worker_name,
+        &job.workspace_id,
+        &mut Some(occupancy_metrics),
+        Box::pin(futures::stream::once(async { 0 })),
+    )
+    .await
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum InputFormat {

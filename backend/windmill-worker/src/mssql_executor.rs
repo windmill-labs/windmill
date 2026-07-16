@@ -223,30 +223,43 @@ pub async fn do_mssql(
 
     // Materialize any `(s3object)` args into JSON text. tiberius binds the resulting
     // String as nvarchar(max), which is exactly the input type for `OPENJSON(@P)`.
-    for arg in sig.iter() {
-        if arg.otyp.as_deref() != Some("s3object") {
-            continue;
-        }
-        let raw = mssql_args.remove(&arg.name).unwrap_or(Value::Null);
-        if matches!(raw, Value::Null) {
-            return Err(Error::BadRequest(format!(
-                "Missing S3Object value for arg `{}`",
-                arg.name
-            )));
-        }
-        let s3_obj: S3Object = serde_json::from_value(raw).map_err(|e| {
-            Error::ExecutionErr(format!("Invalid S3Object for arg `{}`: {e}", arg.name))
-        })?;
-        let json_text = fetch_s3object_as_json_text(authed_client, &job.workspace_id, &s3_obj)
-            .await
-            .map_err(|e| {
-                Error::ExecutionErr(format!(
-                    "Failed to fetch S3 object for arg `{}`: {e}",
+    let materialize_f = async {
+        for arg in sig.iter() {
+            if arg.otyp.as_deref() != Some("s3object") {
+                continue;
+            }
+            let raw = mssql_args.remove(&arg.name).unwrap_or(Value::Null);
+            if matches!(raw, Value::Null) {
+                return Err(Error::BadRequest(format!(
+                    "Missing S3Object value for arg `{}`",
                     arg.name
-                ))
+                )));
+            }
+            let s3_obj: S3Object = serde_json::from_value(raw).map_err(|e| {
+                Error::ExecutionErr(format!("Invalid S3Object for arg `{}`: {e}", arg.name))
             })?;
-        mssql_args.insert(arg.name.clone(), Value::String(json_text));
-    }
+            let json_text = fetch_s3object_as_json_text(authed_client, &job.workspace_id, &s3_obj)
+                .await
+                .map_err(|e| {
+                    Error::ExecutionErr(format!(
+                        "Failed to fetch S3 object for arg `{}`: {e}",
+                        arg.name
+                    ))
+                })?;
+            mssql_args.insert(arg.name.clone(), Value::String(json_text));
+        }
+        Ok(())
+    };
+    crate::sql_s3_input::materialize_under_job_poller(
+        job,
+        conn,
+        mem_peak,
+        canceled_by,
+        worker_name,
+        occupancy_metrics,
+        materialize_f,
+    )
+    .await?;
 
     let reserved_variables =
         get_reserved_variables(job, &authed_client.token, conn, parent_runnable_path).await?;

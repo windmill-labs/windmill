@@ -550,35 +550,48 @@ pub async fn do_snowflake(
         let sig = parse_snowflake_sig(query)
             .map_err(|x| Error::ExecutionErr(x.to_string()))?
             .args;
-        for arg in sig.iter() {
-            if arg.otyp.as_deref() != Some("s3object") {
-                continue;
-            }
-            let raw = snowflake_args.remove(&arg.name).unwrap_or(Value::Null);
-            if matches!(raw, Value::Null) {
-                return Err(Error::BadRequest(format!(
-                    "Missing S3Object value for arg `{}`",
-                    arg.name
-                )));
-            }
-            let s3_obj: windmill_types::s3::S3Object =
-                serde_json::from_value(raw).map_err(|e| {
-                    Error::ExecutionErr(format!("Invalid S3Object for arg `{}`: {e}", arg.name))
+        let materialize_f = async {
+            for arg in sig.iter() {
+                if arg.otyp.as_deref() != Some("s3object") {
+                    continue;
+                }
+                let raw = snowflake_args.remove(&arg.name).unwrap_or(Value::Null);
+                if matches!(raw, Value::Null) {
+                    return Err(Error::BadRequest(format!(
+                        "Missing S3Object value for arg `{}`",
+                        arg.name
+                    )));
+                }
+                let s3_obj: windmill_types::s3::S3Object =
+                    serde_json::from_value(raw).map_err(|e| {
+                        Error::ExecutionErr(format!("Invalid S3Object for arg `{}`: {e}", arg.name))
+                    })?;
+                let json_text = crate::sql_s3_input::fetch_s3object_as_json_text(
+                    client,
+                    &job.workspace_id,
+                    &s3_obj,
+                )
+                .await
+                .map_err(|e| {
+                    Error::ExecutionErr(format!(
+                        "Failed to fetch S3 object for arg `{}`: {e}",
+                        arg.name
+                    ))
                 })?;
-            let json_text = crate::sql_s3_input::fetch_s3object_as_json_text(
-                client,
-                &job.workspace_id,
-                &s3_obj,
-            )
-            .await
-            .map_err(|e| {
-                Error::ExecutionErr(format!(
-                    "Failed to fetch S3 object for arg `{}`: {e}",
-                    arg.name
-                ))
-            })?;
-            snowflake_args.insert(arg.name.clone(), Value::String(json_text));
-        }
+                snowflake_args.insert(arg.name.clone(), Value::String(json_text));
+            }
+            Ok(())
+        };
+        crate::sql_s3_input::materialize_under_job_poller(
+            job,
+            conn,
+            mem_peak,
+            canceled_by,
+            worker_name,
+            occupancy_metrics,
+            materialize_f,
+        )
+        .await?;
     }
 
     let inline_db_res_path = parse_db_resource(&query);
