@@ -144,7 +144,7 @@ A PR leaves draft **only after a clean CI review round**. Never run `gh pr ready
    - Any **"Should address issues before merging"** → fix the P0/P1 findings (and the nits while you're there), commit, push, and start a new round (step 1).
    - Only **"Mergeable, but should ideally address nits"** and/or **"Good to merge"** → fix the nits too; a nit that is wrong or genuinely not worth fixing may instead be dismissed by replying to the review comment with your reasoning. Push nit-only fixes without starting another full round.
 
-3. **Flip to ready with the marker comment.** The review workflows skip the redundant `ready_for_review`-triggered round when the PR author has posted a marker naming the current head SHA — keep the prefix exact and use the full 40-char SHA of the head you are flipping:
+3. **Flip to ready with the marker comment.** The review workflows skip the redundant `ready_for_review`-triggered round when the PR author has posted a marker naming the current head SHA **and** the PR's latest Codex review verdict is non-blocking (reviewer evidence — a bare marker with no round behind it, or one whose last Codex verdict is "Should address issues", skips nothing). Keep the prefix exact and use the full 40-char SHA of the head you are flipping:
    - every verdict was "Good to merge" (head unchanged since the round):
 
      `✅ Review round clean @ <head-sha>`

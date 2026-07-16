@@ -51,7 +51,10 @@ jobs:
       # An agent-driven PR flips to ready only after a clean /review round on a
       # draft, marked by an author comment naming the head SHA (pr skill, "Review
       # rounds"). Re-reviewing that same head on ready_for_review is redundant.
-      # Comment-triggered (workflow_call) and opened runs never skip.
+      # The marker alone is author attestation, so also require reviewer evidence:
+      # the PR's latest Codex review (posted by github-actions[bot], not forgeable
+      # by the author) must carry a non-blocking verdict. Comment-triggered
+      # (workflow_call) and opened runs never skip.
       - name: Check clean-round marker
         id: marker
         if: github.event_name == 'pull_request' && github.event.action == 'ready_for_review'
@@ -62,10 +65,13 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
-          if gh api "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" --paginate \
-               | jq -r --arg author "$PR_AUTHOR" '.[] | select(.user.login == $author) | .body' \
-               | grep -qF "✅ Review round clean @ $HEAD_SHA"; then
-            echo "Clean review round marker found for $HEAD_SHA; skipping redundant review."
+          COMMENTS=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" --paginate | jq -s '[.[][]]')
+          HAS_MARKER=$(jq -r --arg author "$PR_AUTHOR" --arg marker "✅ Review round clean @ $HEAD_SHA" \
+            '[.[] | select(.user.login == $author) | select(.body | contains($marker))] | length' <<<"$COMMENTS")
+          CODEX_VERDICT=$(jq -r '[.[] | select(.user.login == "github-actions[bot]") | select(.body | contains("## Codex Review"))] | last | .body // ""' <<<"$COMMENTS" \
+            | grep -m1 -oE '(Good to merge|Mergeable, but should ideally address nits|Should address issues before merging)' || true)
+          if [ "$HAS_MARKER" -gt 0 ] && [ -n "$CODEX_VERDICT" ] && [ "$CODEX_VERDICT" != "Should address issues before merging" ]; then
+            echo "Clean review round marker found for $HEAD_SHA with non-blocking Codex verdict; skipping redundant review."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
