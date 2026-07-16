@@ -243,7 +243,7 @@
 					{/if}
 				</span>
 			{:else}
-				<Badge small color="indigo" class="px-1 py-0 gap-0.5">
+				<Badge small color="indigo" class="gap-0.5">
 					{#if orderedUsers.length > 0}
 						{@render circleStack()}
 					{/if}
