@@ -220,10 +220,15 @@ vi.mock('$lib/gen', async () => {
 			listDrafts: vi.fn(async () =>
 				Array.from(backendDrafts.entries()).map(([key, value]) => {
 					const idx = key.indexOf(':')
+					const path = key.slice(idx + 1)
+					// Like the real endpoint: friendly path from the draft JSON, only
+					// when set and different from the storage path.
+					const draftPath = (value as any)?.draft_path
 					return {
 						kind: key.slice(0, idx),
-						path: key.slice(idx + 1),
+						path,
 						summary: (value as any)?.summary,
+						...(draftPath && draftPath !== path ? { draft_path: draftPath } : {}),
 						draft_only: true,
 						created_at: '2026-06-15T00:00:00Z'
 					}
@@ -263,6 +268,7 @@ import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import {
 	clearGlobalDrafts,
 	deleteGlobalDraft,
+	listGlobalDrafts,
 	persistGlobalDraft,
 	readGlobalDraftValue,
 	saveGlobalAppDraft
@@ -1606,6 +1612,62 @@ describe('global AI tools', () => {
 			expect(draft.parent_version).toBe(5)
 		})
 
+		it('keeps a draft-only app friendly draft_path through the save whitelist on chat edits', async () => {
+			// A renamed draft-only app parks its typed name in the draft's
+			// `draft_path`. A chat edit round-trips the value through
+			// normalizeAppDraftValue — dropping the field there would rename the
+			// app back to its `draft_<uuid>` storage key.
+			seedBackendDraft('raw_app', 'u/admin/draft_abc', {
+				summary: 'a',
+				files: { '/index.tsx': 'old' },
+				runnables: {},
+				data: { tables: [] },
+				draft_path: 'u/admin/my_pretty_app'
+			})
+
+			await callGlobalTool('write_app_file', {
+				path: 'u/admin/draft_abc',
+				file_path: '/index.tsx',
+				content: 'new'
+			})
+
+			const draft = getBackendDraft<any>('raw_app', 'u/admin/draft_abc', { workspace: WORKSPACE })
+			expect(draft.files['/index.tsx']).toBe('new')
+			expect(draft.draft_path).toBe('u/admin/my_pretty_app')
+		})
+
+		it('lists a live raw app staged rename as draftPath even when registered at the storage key', async () => {
+			// Flow/raw-app renames live in the value's `draft_path` while `path`
+			// stays the storage key; a live registration whose effectivePath is the
+			// storage key must not hide the staged rename from listGlobalDrafts —
+			// the pickers regroup the item under it.
+			const storageKey = 'u/admin/draft_live1'
+			const staged = 'f/team/renamed_app'
+			seedBackendDraft(
+				'raw_app',
+				storageKey,
+				{
+					summary: '',
+					files: { '/App.tsx': 'export default () => null' },
+					runnables: {},
+					data: { tables: [] },
+					draft_path: staged
+				},
+				{ workspace: WORKSPACE }
+			)
+			UserDraft.setLiveEditorDraft({
+				workspace: WORKSPACE,
+				itemKind: 'raw_app',
+				storagePath: storageKey,
+				effectivePath: storageKey
+			})
+
+			const items = await listGlobalDrafts(WORKSPACE)
+			const app = items.find((i) => i.type === 'app' && i.path === storageKey)
+			expect(app?.draftPath).toBe(staged)
+			expect(app?.isLiveDraft).toBe(true)
+		})
+
 		it('blocks deploying an app draft started from an older deployed version', async () => {
 			seedStaleAppDraft('f/apps/stale', 1)
 			mockDeployedApp('f/apps/stale', 2)
@@ -2760,6 +2822,45 @@ describe('global AI tools', () => {
 		expect(item.value.value).toBeUndefined()
 	})
 
+	it('writes and reads back free-floating flow notes', async () => {
+		const writeResult = JSON.parse(
+			await callGlobalTool('write_flow', {
+				path: 'f/flows/with-notes',
+				summary: 'Flow with notes',
+				modules: JSON.stringify([
+					{
+						id: 'start',
+						summary: 'Start',
+						value: { type: 'identity' }
+					}
+				]),
+				notes: JSON.stringify([
+					{ id: 'n1', type: 'free', text: 'What this flow does', color: 'blue' }
+				])
+			})
+		)
+
+		expect(writeResult.success).toBe(true)
+
+		const item = JSON.parse(
+			await callGlobalTool('read_workspace_item', {
+				type: 'flow',
+				path: 'f/flows/with-notes'
+			})
+		)
+
+		expect(item.value.notes).toHaveLength(1)
+		expect(item.value.notes[0]).toMatchObject({
+			id: 'n1',
+			type: 'free',
+			text: 'What this flow does',
+			color: 'blue'
+		})
+		// Free notes with no explicit geometry get auto-placed/sized by validation.
+		expect(item.value.notes[0].position).toBeDefined()
+		expect(item.value.notes[0].size).toBeDefined()
+	})
+
 	it('test_run_script previews draft script content by path', async () => {
 		const content = 'export async function main(name: string) {\n\treturn `hello ${name}`\n}'
 		await callGlobalTool('write_script', {
@@ -3149,7 +3250,7 @@ describe('global AI tools', () => {
 		expect(callbacks.setToolStatus).toHaveBeenLastCalledWith(
 			'test-askUserQuestion',
 			expect.objectContaining({
-				content: 'User answered question: python3',
+				content: 'Asked: Which script language should be used? — python3',
 				isLoading: false,
 				result: 'python3',
 				userQuestion: expect.objectContaining({ selectedChoices: ['python3'] })
@@ -3187,7 +3288,7 @@ describe('global AI tools', () => {
 		expect(callbacks.setToolStatus).toHaveBeenLastCalledWith(
 			'test-askUserQuestion',
 			expect.objectContaining({
-				content: 'User answered question: bun, go',
+				content: 'Asked: Which languages should be supported? — bun, go',
 				isLoading: false,
 				result: '- bun\n- go',
 				userQuestion: expect.objectContaining({ selectedChoices: ['bun', 'go'] })
@@ -3261,7 +3362,7 @@ describe('global AI tools', () => {
 		expect(callbacks.setToolStatus).toHaveBeenLastCalledWith(
 			'test-askUserQuestion',
 			expect.objectContaining({
-				content: 'User answered question: use deno instead',
+				content: 'Asked: Which script language should be used? — use deno instead',
 				result: 'use deno instead',
 				userQuestion: expect.objectContaining({ selectedChoices: ['use deno instead'] })
 			})

@@ -12,6 +12,7 @@
 
 use anyhow::Context;
 use windmill_common::client::AuthedClient;
+use windmill_common::worker::Connection;
 use windmill_types::s3::S3Object;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,9 +45,16 @@ fn detect_format(key: &str) -> InputFormat {
 ///   uniformly assume an array shape.
 pub async fn fetch_s3object_as_json_text(
     client: &AuthedClient,
+    conn: &Connection,
+    job_id: uuid::Uuid,
     workspace_id: &str,
     obj: &S3Object,
 ) -> anyhow::Result<String> {
+    // This runs before the executor's polling loop starts, so heartbeat the job ping
+    // to keep a slow download/decode from tripping the zombie monitor.
+    let _ping_heartbeat =
+        crate::worker_utils::JobPingHeartbeat::start(conn, job_id, "s3object materialization");
+
     let bytes = client
         .download_s3_file(workspace_id, &obj.s3, obj.storage.clone())
         .await

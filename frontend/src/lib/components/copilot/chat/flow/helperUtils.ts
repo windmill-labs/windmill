@@ -15,6 +15,33 @@ import type { InlineScriptSession } from './inlineScriptsUtils'
  * break the color picker UI at worst. */
 const ALLOWED_NOTE_COLORS = new Set<string>(Object.values(NoteColor))
 
+// Free notes render at a fixed height and never grow to fit their content (the
+// renderer's text div overflows the node box), so an AI-created note that omits
+// `size` must be seeded tall enough for its text. Constants below mirror the
+// renderer (text-xs 12px, line-height 1.4, p-4 padding).
+function estimateFreeNoteSize(text: string): { width: number; height: number } {
+	const width = MIN_NOTE_WIDTH
+	const HORIZONTAL_PADDING = 32 // p-4 left + right
+	const VERTICAL_PADDING = 32 // p-4 top + bottom
+	const LINE_HEIGHT = 17 // 12px * 1.4
+	const AVG_CHAR_WIDTH = 6.2 // approx width of a char at 12px
+	const MAX_HEIGHT = 600
+
+	const charsPerLine = Math.max(1, Math.floor((width - HORIZONTAL_PADDING) / AVG_CHAR_WIDTH))
+	const sourceLines = (text ?? '').split('\n')
+	const wrappedLineCount = sourceLines.reduce(
+		(sum, line) => sum + Math.max(1, Math.ceil(line.length / charsPerLine)),
+		0
+	)
+
+	const height = Math.min(
+		MAX_HEIGHT,
+		Math.max(MIN_NOTE_HEIGHT, Math.ceil(wrappedLineCount * LINE_HEIGHT) + VERTICAL_PADDING)
+	)
+
+	return { width, height }
+}
+
 type FlowLike = Pick<OpenFlow, 'value'> & {
 	schema?: Record<string, any>
 }
@@ -126,6 +153,13 @@ export function validateFlowNotes(rawNotes: unknown, moduleIds?: Set<string>): F
 	}
 
 	const seenIds = new Set<string>()
+	// Column and running y-cursor for auto-placed free notes so consecutive ones
+	// stack below each other by their actual heights instead of overlapping. A
+	// preserved note (explicit geometry) sitting in this column also advances the
+	// cursor, so a later auto-placed note doesn't land on top of it.
+	const AUTO_STACK_X = -(MIN_NOTE_WIDTH + 100)
+	const AUTO_STACK_GAP = 24
+	let autoStackY = 0
 	return rawNotes.map((note, index) => {
 		if (!note || typeof note !== 'object' || Array.isArray(note)) {
 			throw new Error(`Invalid note at index ${index}: must be an object`)
@@ -204,19 +238,27 @@ export function validateFlowNotes(rawNotes: unknown, moduleIds?: Set<string>): F
 			color: typeof n.color === 'string' ? n.color : DEFAULT_NOTE_COLOR
 		} as FlowNote
 
-		// Free notes need explicit geometry to be draggable/resizable. Place
-		// missing ones to the left of the flow column, staggered by index so
-		// several new notes don't land exactly on top of each other. Group notes
+		// Free notes need explicit geometry to be draggable/resizable. Size first
+		// (from text, so tall notes get a tall box), then place any note missing a
+		// position to the left of the flow column, stacking auto-placed notes by
+		// their real heights so several generated notes don't overlap. Group notes
 		// derive their layout from contained nodes, so they are left alone.
 		if (type === 'free') {
-			if (normalized.position == null) {
-				normalized.position = {
-					x: -(MIN_NOTE_WIDTH + 100),
-					y: index * (MIN_NOTE_HEIGHT + 24)
-				}
-			}
 			if (normalized.size == null) {
-				normalized.size = { width: MIN_NOTE_WIDTH, height: MIN_NOTE_HEIGHT }
+				normalized.size = estimateFreeNoteSize(normalized.text)
+			}
+			const height = normalized.size?.height ?? MIN_NOTE_HEIGHT
+			const width = normalized.size?.width ?? MIN_NOTE_WIDTH
+			if (normalized.position == null) {
+				normalized.position = { x: AUTO_STACK_X, y: autoStackY }
+				autoStackY += height + AUTO_STACK_GAP
+			} else if (
+				// A preserved note overlapping the auto-stack column pushes the cursor
+				// below it so a later auto-placed note isn't dropped on top of it.
+				normalized.position.x < AUTO_STACK_X + MIN_NOTE_WIDTH &&
+				normalized.position.x + width > AUTO_STACK_X
+			) {
+				autoStackY = Math.max(autoStackY, normalized.position.y + height + AUTO_STACK_GAP)
 			}
 		}
 

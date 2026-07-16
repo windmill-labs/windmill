@@ -1,16 +1,16 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT path, value FROM variable\n             WHERE workspace_id = $1 AND is_secret = true AND value != ''",
+  "query": "SELECT username, email FROM usr WHERE workspace_id = $1 AND is_admin = true AND operator = false AND disabled = false ORDER BY username LIMIT 1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "path",
+        "name": "username",
         "type_info": "Varchar"
       },
       {
         "ordinal": 1,
-        "name": "value",
+        "name": "email",
         "type_info": "Varchar"
       }
     ],
@@ -24,5 +24,5 @@
       false
     ]
   },
-  "hash": "e4a46d47aee96473a2bd0f1dbdc819520a2ba987fd29859845c2177563ab8cfb"
+  "hash": "3202bed875693ae923f496272cd8ad89b2f17a9d3ef4659c2d2284415177b32c"
 }
