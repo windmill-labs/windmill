@@ -520,6 +520,14 @@ async fn create_trigger<T: TriggerCrud>(
         }
     }
 
+    // Reject a forged superadmin run identity in a preserved permissioned_as
+    // (the sentinel guard; a trigger's email is derived from it at execution).
+    let resolved_permissioned_as = new_trigger.base.resolve_permissioned_as(&authed);
+    windmill_common::auth::validate_on_behalf_of(
+        Some(&resolved_permissioned_as),
+        None,
+    )?;
+
     let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
         new_trigger.base.permissioned_as.as_deref(),
         new_trigger.base.preserve_permissioned_as.unwrap_or(false),
@@ -754,6 +762,15 @@ async fn update_trigger<T: TriggerCrud>(
 
     let new_path = edit_trigger.base.path.to_string();
     let labels = edit_trigger.base.labels.clone();
+
+    // Reject a forged superadmin run identity in a preserved permissioned_as
+    // (the sentinel guard; a trigger's email is derived from it at execution).
+    let resolved_permissioned_as = edit_trigger.base.resolve_permissioned_as(&authed);
+    windmill_common::auth::validate_on_behalf_of(
+        Some(&resolved_permissioned_as),
+        None,
+    )?;
+
     let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
         edit_trigger.base.permissioned_as.as_deref(),
         edit_trigger.base.preserve_permissioned_as.unwrap_or(false),

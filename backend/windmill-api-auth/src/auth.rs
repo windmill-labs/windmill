@@ -223,7 +223,19 @@ impl AuthCache {
                             read_only: false,
                             job_id: None,
                         };
-                        let job_id = claims.job_id.and_then(|j| uuid::Uuid::from_str(&j).ok());
+                        // Fail closed: a `job_id` claim that does not parse must reject
+                        // the token rather than resolve to `None`, which would clear the
+                        // job provenance and uncap the token (GHSA-hfh4-cx4h-3fcr).
+                        let job_id = match claims.job_id {
+                            Some(j) => match uuid::Uuid::from_str(&j) {
+                                Ok(job_id) => Some(job_id),
+                                Err(_) => {
+                                    tracing::error!("JWT auth error: job_id claim is not a uuid");
+                                    return None;
+                                }
+                            },
+                            None => None,
+                        };
                         AUTH_CACHE.insert(
                             key,
                             ExpiringAuthCache {

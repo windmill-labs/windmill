@@ -307,3 +307,60 @@ async fn test_wm_token_rejected_by_direct_super_admin_gates(
 
     Ok(())
 }
+
+/// The instance-level `devops` role must be capped like superadmin.
+/// `is_devops_email` returns true for superadmin emails, so every
+/// `require_devops_role` route (worker management, instance config, service logs)
+/// is reachable by exactly the same superadmin `WM_TOKEN` unless it is capped too
+/// (GHSA-hfh4-cx4h-3fcr).
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_wm_token_rejected_by_require_devops_role(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    set_jwt_secret().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api");
+
+    let sa_wm = wm_token("test@windmill.dev", true).await;
+    let resp = authed(client().get(format!("{base}/service_logs/list_files")), &sa_wm)
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "superadmin WM_TOKEN must not reach a require_devops_role route: {}",
+        resp.text().await?
+    );
+
+    // No false positive: a real superadmin API token (no job_id) still reaches it.
+    let resp = authed(
+        client().get(format!("{base}/service_logs/list_files")),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "a real superadmin token must still reach the devops route: {}",
+        resp.text().await?
+    );
+
+    // The advisory's own PoC route: the full user directory, gated solely by
+    // `require_super_admin` with no per-route job-token denylist.
+    let resp = authed(
+        client().get(format!("{base}/users/list_as_super_admin")),
+        &sa_wm,
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "superadmin WM_TOKEN must not list all users: {}",
+        resp.text().await?
+    );
+
+    Ok(())
+}

@@ -8,12 +8,19 @@ A job's `WM_TOKEN` (whose identity is an app/flow/schedule/trigger `on_behalf_of
 that a `wm_deployers` member controls) could satisfy superadmin authorization.
 #10124 makes a `WM_TOKEN` never count as a global superadmin:
 
-- `ApiAuthed.job_id` is stamped from the resolved token; `require_super_admin(db, &ApiAuthed)`
-  and `is_super_admin_authed(db, &ApiAuthed)` reject `job_id.is_some()`.
-- All `require_super_admin` sites and the direct `is_super_admin_email(&authed.email)`
-  boolean gates on **request handlers** (workspace deletion, fork drops, dev-workspace
-  attach/archive, object-storage SSRF exemption, custom dbname, EE GHES + connected
-  repositories, CUSTOM_INSTANCE_DB) were migrated.
+- `ApiAuthed.job_id` is stamped from the resolved token; `require_super_admin(db, &ApiAuthed)`,
+  `is_super_admin_authed(db, &ApiAuthed)` and `require_devops_role(db, &ApiAuthed)` reject
+  `job_id.is_some()`.
+- All `require_super_admin` / `require_devops_role` sites and the direct
+  `is_super_admin_email(&authed.email)` boolean gates on **request handlers** (workspace
+  deletion, fork drops, dev-workspace attach/archive, object-storage SSRF exemption, custom
+  dbname, EE GHES + connected repositories, CUSTOM_INSTANCE_DB) were migrated.
+- A `job_id` claim that does not parse as a uuid now rejects the token instead of
+  resolving to `None` (which would have cleared the provenance and uncapped it).
+- Defense in depth at store time: `validate_on_behalf_of` refuses the reserved internal
+  sentinels (`superadmin_secret@`, `superadmin_notification@`, `superadmin_sync@`) as an
+  `on_behalf_of` on apps/flows/scripts/schedules/triggers, and app execution refuses a
+  policy carrying one — which also covers already-persisted and forked-app rows.
 
 ## What is deliberately left for this follow-up
 
@@ -58,20 +65,14 @@ job's *preserved on-behalf email* rather than from a request `ApiAuthed`, so the
   `is_super_admin`/`is_job_token` bool from callers. Only independently authenticated
   superadmins should get the exemption.
 
-### 3. `is_devops_email` / `require_devops_role`
-
-- `windmill-common/src/auth.rs` (~L305) `is_devops_email` returns true for superadmin
-  emails, so a superadmin-email `WM_TOKEN` passes as devops on worker-management/config/
-  service-log routes. Lower severity; make the devops check job-token-aware too.
-
 ## Guiding principle
 
 `on_behalf_of` is attacker-influenced (a `wm_deployers` member sets it). It must never
 grant *global* superadmin privileges. Where a privilege decision happens on a request,
-gate it on `ApiAuthed.job_id` (`require_super_admin` / `is_super_admin_authed`). Where it
-happens at execution on a stored/preserved identity, validate the privilege at
-**create/update time against the real actor** instead, or thread job-token provenance
-into the execution path.
+gate it on `ApiAuthed.job_id` (`require_super_admin` / `is_super_admin_authed` /
+`require_devops_role`). Where it happens at execution on a stored/preserved identity,
+validate the privilege at **create/update time against the real actor** instead, or thread
+job-token provenance into the execution path.
 
 ## Tests to add
 

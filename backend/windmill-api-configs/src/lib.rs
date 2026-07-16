@@ -117,7 +117,7 @@ async fn get_config(
     Path(name): Path<String>,
     Extension(db): Extension<DB>,
 ) -> error::JsonResult<Option<serde_json::Value>> {
-    require_devops_role(&db, &authed.email).await?;
+    require_devops_role(&db, &authed).await?;
 
     let config = sqlx::query_as!(Config, "SELECT name, config FROM config WHERE name = $1", name)
         .fetch_optional(&db)
@@ -133,7 +133,7 @@ async fn update_config(
     authed: ApiAuthed,
     Json(config): Json<serde_json::Value>,
 ) -> error::Result<String> {
-    require_devops_role(&db, &authed.email).await?;
+    require_devops_role(&db, &authed).await?;
 
     #[cfg(not(feature = "enterprise"))]
     let config = if name.starts_with("worker__") {
@@ -212,7 +212,7 @@ async fn delete_config(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
 ) -> error::Result<String> {
-    require_devops_role(&db, &authed.email).await?;
+    require_devops_role(&db, &authed).await?;
 
     let mut tx = db.begin().await?;
 
@@ -280,7 +280,7 @@ async fn native_kubernetes_autoscaling_healthcheck(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> Result<(), windmill_autoscaling::kubernetes_integration_ee::KubeError> {
-    require_devops_role(&db, &authed.email).await.map_err(|e| {
+    require_devops_role(&db, &authed).await.map_err(|e| {
         windmill_autoscaling::kubernetes_integration_ee::KubeError::Other(e.to_string())
     })?;
 
@@ -317,7 +317,7 @@ async fn list_configs(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> error::JsonResult<Vec<Config>> {
-    require_devops_role(&db, &authed.email).await?;
+    require_devops_role(&db, &authed).await?;
     let configs = sqlx::query_as!(Config, "SELECT name, config FROM config")
         .fetch_all(&db)
         .await?;
@@ -342,7 +342,7 @@ async fn list_all_workspace_dependencies(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> error::JsonResult<Vec<WorkspaceDependencySummary>> {
-    require_devops_role(&db, &authed.email).await?;
+    require_devops_role(&db, &authed).await?;
     let deps = sqlx::query!(
         r#"SELECT workspace_id, name, language AS "language: windmill_common::scripts::ScriptLang"
            FROM workspace_dependencies
@@ -374,7 +374,7 @@ async fn list_all_dedicated_with_deps(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> error::JsonResult<Vec<DedicatedScriptDepsWithWorkspace>> {
-    require_devops_role(&db, &authed.email).await?;
+    require_devops_role(&db, &authed).await?;
 
     let rows = sqlx::query!(
         r#"SELECT DISTINCT ON (workspace_id, path)

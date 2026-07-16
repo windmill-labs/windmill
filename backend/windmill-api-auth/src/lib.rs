@@ -542,10 +542,24 @@ pub fn build_scope_path_predicate(
     }
 }
 
-pub async fn require_devops_role(db: &DB, email: &str) -> error::Result<()> {
-    let is_devops = is_devops_email(db, email).await?;
-
-    if is_devops {
+/// Assert the caller holds the instance-level `devops` role under their own
+/// credentials.
+///
+/// `devops` is instance-level and [`is_devops_email`] is also true for
+/// superadmins, so this gate is reachable by the same job token that
+/// [`require_super_admin`] rejects, and is capped the same way
+/// (GHSA-hfh4-cx4h-3fcr).
+pub async fn require_devops_role(db: &DB, authed: &ApiAuthed) -> error::Result<()> {
+    if authed.job_id.is_some() {
+        return Err(Error::NotAuthorized(
+            "This endpoint cannot be called with a job token ($WM_TOKEN). If a script \
+             genuinely needs this, create a dedicated token from the User settings drawer \
+             (the 'Tokens' section), store it as a secret, and use that token explicitly \
+             instead of $WM_TOKEN."
+                .to_owned(),
+        ));
+    }
+    if is_devops_email(db, &authed.email).await? {
         Ok(())
     } else {
         Err(Error::NotAuthorized(

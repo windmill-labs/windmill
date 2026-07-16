@@ -1275,7 +1275,7 @@ async fn restart_worker_group(
     authed: ApiAuthed,
     Path(worker_group): Path<String>,
 ) -> error::Result<String> {
-    require_devops_role(&db, &authed.email).await?;
+    require_devops_role(&db, &authed).await?;
 
     sqlx::query!(
         "INSERT INTO notify_event (channel, payload) VALUES ('restart_worker_group', $1)",
@@ -1443,7 +1443,7 @@ pub async fn get_critical_alerts(
     authed: ApiAuthed,
     Query(params): Query<windmill_alerting::AlertQueryParams>,
 ) -> JsonResult<serde_json::Value> {
-    require_devops_role(&db, &authed.email).await?;
+    require_devops_role(&db, &authed).await?;
 
     windmill_alerting::get_critical_alerts(db, params, None).await
 }
@@ -1459,7 +1459,7 @@ pub async fn acknowledge_critical_alert(
     authed: ApiAuthed,
     Path(id): Path<i32>,
 ) -> error::Result<String> {
-    require_devops_role(&db, &authed.email).await?;
+    require_devops_role(&db, &authed).await?;
     windmill_alerting::acknowledge_critical_alert(db, None, id).await
 }
 

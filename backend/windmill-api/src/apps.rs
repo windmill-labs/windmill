@@ -1934,6 +1934,14 @@ async fn create_app_internal<'a>(
         }
     }
 
+    // Reject a forged superadmin run identity in the (possibly preserved) policy.
+    // Done on the non-RLS pool before the transaction below, like the resolution
+    // above, to avoid holding a second connection while `tx` is checked out.
+    windmill_common::auth::validate_on_behalf_of(
+        app.policy.on_behalf_of.as_deref(),
+        app.policy.on_behalf_of_email.as_deref(),
+    )?;
+
     let mut tx = user_db.clone().begin(&authed).await?;
     let path = app.path.clone();
     if &app.path == "" {
@@ -2443,6 +2451,22 @@ async fn update_app_internal<'a>(
     // the token's write scope, not just the source path.
     if let Some(npath) = ns.path.as_deref() {
         check_scopes(&authed, || format!("apps:write:{}", npath))?;
+    }
+
+    // Reject a forged superadmin run identity in a preserved policy. Mirror the
+    // `should_preserve` gate below (only a preserved value is caller-controlled;
+    // otherwise the policy is rewritten to the deployer's own identity) and run
+    // it on the non-RLS pool before the transaction to avoid a second connection.
+    if let Some(npolicy) = ns.policy.as_ref() {
+        let should_preserve = ns.preserve_on_behalf_of.unwrap_or(false)
+            && windmill_common::can_preserve_on_behalf_of(&authed)
+            && npolicy.on_behalf_of.is_some();
+        if should_preserve {
+            windmill_common::auth::validate_on_behalf_of(
+                npolicy.on_behalf_of.as_deref(),
+                npolicy.on_behalf_of_email.as_deref(),
+            )?;
+        }
     }
 
     let mut tx = user_db.clone().begin(&authed).await?;
@@ -4278,6 +4302,18 @@ fn get_on_behalf_of(policy: &Policy) -> Result<(String, String)> {
             )
         })?
         .to_string();
+    // Defence in depth against a policy that already carries a forged superadmin
+    // sentinel (deployed before validation existed, or copied verbatim by a
+    // workspace fork): the sentinels are internal-only and never a legitimate app
+    // run identity, so refuse to execute rather than mint a superadmin token.
+    if windmill_common::auth::is_reserved_on_behalf_of_identity(
+        Some(&permissioned_as),
+        Some(&email),
+    ) {
+        return Err(Error::BadRequest(
+            "app on_behalf_of is a reserved internal identity and cannot be executed".to_string(),
+        ));
+    }
     Ok((permissioned_as, email))
 }
 
