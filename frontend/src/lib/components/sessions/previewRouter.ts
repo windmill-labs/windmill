@@ -169,6 +169,8 @@ export function artifactUrl(id: string, name: string): string {
  * active-tab highlight so a pick and a highlight agree on identity. */
 export const artifactKey = (id: string) => `artifact:${id}`
 
+export const isArtifactKey = (key: string) => key.startsWith('artifact:')
+
 // How a preview tab should render: as an in-process live editor or an iframe
 // fallback. Any editable item of a wrappable kind (script, flow, raw app) mounts
 // its per-(kind,path) cell editor; a `/pipeline/<folder>` route mounts the

@@ -33,6 +33,7 @@ only ever navigates between items) doesn't grow a Pages section.
 	import {
 		PREVIEW_PAGES,
 		artifactKey,
+		isArtifactKey,
 		pageHref,
 		pageKey,
 		type PreviewTarget
@@ -183,7 +184,14 @@ only ever navigates between items) doesn't grow a Pages section.
 		)
 	])
 
-	const computedInitialScope = untrack(() => legacyScopeToPath(initialScope, kinds))
+	// An artifact highlight lives under the 'artifacts' branch, which the legacy
+	// {kind, dir} scope can't express — open the picker inside that branch so the
+	// active artifact is actually visible and highlighted (not the first root row).
+	const computedInitialScope = untrack(() =>
+		initialHighlight && isArtifactKey(initialHighlight) && artifactsBranch
+			? ['artifacts']
+			: legacyScopeToPath(initialScope, kinds)
+	)
 </script>
 
 {#snippet leafIcon(leaf: DrillLeaf<PreviewTarget>)}
