@@ -1352,6 +1352,21 @@ export class AIChatManager {
 		if (context && context.length > 0) this.queuedContext = context
 	}
 
+	/** A queued turn that captured DOM-selector chips describes a specific raw
+	 * app's elements, but search_dom / read_dom target whichever preview is
+	 * active. If the user switched to a different raw app before the queue
+	 * flushed, drop those chips so the turn can't ask the model to read one app's
+	 * selectors against another's live DOM. Non-DOM context is kept. */
+	dropQueuedDomContextForOtherApps(activeAppPath: string) {
+		if (!this.queuedContext) return
+		const kept = this.queuedContext.filter(
+			(c) => c.type !== 'app_dom_selector' || c.appPath === activeAppPath
+		)
+		if (kept.length !== this.queuedContext.length) {
+			this.queuedContext = kept.length > 0 ? kept : undefined
+		}
+	}
+
 	/** Remove the queued message and put its text back into the input. */
 	dequeueMessage() {
 		if (!this.queuedMessage) {

@@ -148,6 +148,10 @@
 				.getSelectedContext()
 				.some((c) => c.type === 'app_dom_selector' && c.appPath !== p)
 			if (foreign) runtime.manager.contextManager.clearSelectedDomElements()
+			// A prompt queued while another app was active would describe that app's
+			// elements, but search_dom / read_dom now target THIS preview — drop its
+			// stale DOM chips so it can't query the wrong app.
+			runtime.manager.dropQueuedDomContextForOtherApps(p)
 		})
 	})
 
