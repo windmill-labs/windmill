@@ -51,7 +51,7 @@
 		use:autosize={{ maxHeight: '120px', minHeight: 20 }}
 		rows={1}
 		placeholder={`Ask about ${label}…`}
-		class="min-w-0 flex-1 resize-none !border-0 !bg-transparent !shadow-none px-1.5 py-0.5 text-xs leading-tight !ring-0 focus:!border-0 focus:!ring-0 focus:outline-none"
+		class="min-w-0 flex-1 resize-none !border-0 !bg-transparent !shadow-none px-1.5 !pt-[5px] !pb-[3px] text-xs leading-tight !ring-0 focus:!border-0 focus:!ring-0 focus:outline-none"
 		onkeydown={(e) => {
 			if (e.key === 'Enter' && !e.shiftKey) {
 				e.preventDefault()
