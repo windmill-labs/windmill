@@ -156,8 +156,18 @@ const WEB_SEARCH_ERROR_HINT =
 // The full explanation is shown once per browser; afterwards the hidden
 // thinking is only hinted at discreetly in the typing indicator.
 const REASONING_SUMMARY_WARNED_STORAGE_KEY = 'ai-chat-reasoning-summary-unverified-warned'
-const REASONING_SUMMARY_UNAVAILABLE_MESSAGE =
-	'This model is reasoning, but your OpenAI organization is not verified to generate reasoning summaries, so its thinking stays hidden. To display it, verify your organization in the OpenAI platform settings (Settings > General), then reload this page.'
+
+function providerDisplayName(provider: string): string {
+	return provider === 'azure_openai' ? 'Azure OpenAI' : 'OpenAI'
+}
+
+function reasoningSummaryUnavailableMessage(provider: string): string {
+	const verifyHint =
+		provider === 'azure_openai'
+			? 'To display it, verify your organization with your provider, then reload this page.'
+			: 'To display it, verify your organization in the OpenAI platform settings (Settings > General), then reload this page.'
+	return `This model is reasoning, but your ${providerDisplayName(provider)} organization is not verified to generate reasoning summaries, so its thinking stays hidden. ${verifyHint}`
+}
 
 export enum AIMode {
 	SCRIPT = 'script',
@@ -329,21 +339,26 @@ export class AIChatManager {
 	// The provider reasons but refuses to stream summaries (unverified OpenAI
 	// organization) — drives the discreet "Thinking (hidden)" indicator. Keyed
 	// by workspace:provider like the chat-loop fallback cache, so the hint never
-	// carries over to a provider or workspace whose summaries work.
-	private reasoningSummaryUnavailableFor = $state<string | undefined>(undefined)
+	// carries over to a provider or workspace whose summaries work. A list, not
+	// a scalar: several workspace/provider pairs can be unavailable at once, and
+	// the chat loop only notifies on first detection per pair.
+	private reasoningSummaryUnavailableFor = $state<string[]>([])
 
 	private reasoningSummaryKey(provider: string): string {
 		return `${this.operatingWorkspace ?? ''}:${provider}`
 	}
 
-	/** Whether the live "Thinking" indicator should hint that thinking stays hidden. */
-	get reasoningHiddenForCurrentModel(): boolean {
-		if (this.reasoningSummaryUnavailableFor === undefined) {
-			return false
+	/** Label for the live "Thinking" indicator when thinking stays hidden for
+	 * the current workspace/provider, undefined otherwise. */
+	get reasoningHiddenIndicatorLabel(): string | undefined {
+		if (this.reasoningSummaryUnavailableFor.length === 0) {
+			return undefined
 		}
-		return (
-			this.reasoningSummaryUnavailableFor === this.reasoningSummaryKey(getCurrentModel().provider)
-		)
+		const provider = getCurrentModel().provider
+		if (!this.reasoningSummaryUnavailableFor.includes(this.reasoningSummaryKey(provider))) {
+			return undefined
+		}
+		return `Thinking (hidden, ${providerDisplayName(provider)} org not verified)`
 	}
 	// Smooths the provider's bursty delivery into continuous typing by revealing
 	// buffered text a slice per frame. The reply and the reasoning/thinking stream
@@ -1729,10 +1744,14 @@ export class AIChatManager {
 	}
 
 	private notifyReasoningSummaryUnavailable = () => {
-		this.reasoningSummaryUnavailableFor = this.reasoningSummaryKey(getCurrentModel().provider)
+		const provider = getCurrentModel().provider
+		const key = this.reasoningSummaryKey(provider)
+		if (!this.reasoningSummaryUnavailableFor.includes(key)) {
+			this.reasoningSummaryUnavailableFor = [...this.reasoningSummaryUnavailableFor, key]
+		}
 		if (getLocalSetting(REASONING_SUMMARY_WARNED_STORAGE_KEY) !== 'true') {
 			storeLocalSetting(REASONING_SUMMARY_WARNED_STORAGE_KEY, 'true')
-			sendUserToast(REASONING_SUMMARY_UNAVAILABLE_MESSAGE, 'warning', [], undefined, 10000)
+			sendUserToast(reasoningSummaryUnavailableMessage(provider), 'warning', [], undefined, 10000)
 		}
 	}
 

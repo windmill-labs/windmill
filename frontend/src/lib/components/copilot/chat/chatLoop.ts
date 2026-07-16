@@ -374,55 +374,47 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 
 			let useCompletionsApi = skipResponsesApi
 			if (!skipResponsesApi) {
-				try {
-					if (!(await runOpenAIResponses(webSearch))) {
-						break
-					}
-				} catch (err) {
-					let fallbackError = err
-					if (reasoningSummary && shouldRetryWithoutReasoningSummary(err)) {
-						markReasoningSummaryUnsupported(
-							reasoningSummaryCacheKey,
-							err,
-							onReasoningSummaryUnavailable
-						)
-						reasoningSummary = false
-						try {
-							if (!(await runOpenAIResponses(webSearch))) {
-								break
-							}
-							continue
-						} catch (retryErr) {
-							fallbackError = retryErr
+				// Retry the Responses call disabling whichever optional feature the
+				// provider rejected (reasoning summary, web search) in the order the
+				// errors arrive — a turn can hit both, either one first. Each retry
+				// permanently disables one feature, so this loops at most twice.
+				let useWebSearch = webSearch
+				let outcome: 'break' | 'continue' | undefined
+				let fallbackError: unknown
+				while (outcome === undefined) {
+					try {
+						outcome = (await runOpenAIResponses(useWebSearch)) ? 'continue' : 'break'
+					} catch (err) {
+						if (reasoningSummary && shouldRetryWithoutReasoningSummary(err)) {
+							markReasoningSummaryUnsupported(
+								reasoningSummaryCacheKey,
+								err,
+								onReasoningSummaryUnavailable
+							)
+							reasoningSummary = false
+						} else if (useWebSearch && shouldRetryWithoutWebSearch(err)) {
+							markWebSearchUnsupported(webSearchCacheKey, err, config.onWebSearchUnavailable)
+							useWebSearch = false
+						} else {
+							fallbackError = err
+							break
 						}
 					}
-					if (webSearch && shouldRetryWithoutWebSearch(fallbackError)) {
-						markWebSearchUnsupported(
-							webSearchCacheKey,
-							fallbackError,
-							config.onWebSearchUnavailable
-						)
-						try {
-							if (!(await runOpenAIResponses(false))) {
-								break
-							}
-							continue
-						} catch (retryErr) {
-							fallbackError = retryErr
-						}
-					}
-
-					console.warn(
-						'OpenAI Responses API failed, falling back to Completions API:',
-						fallbackError
-					)
-					const errorMessage = getErrorText(fallbackError)
-					if (errorMessage.includes('Responses API is not enabled')) {
-						skipResponsesApi = true
-						onSkipResponsesApi?.()
-					}
-					useCompletionsApi = true
 				}
+				if (outcome === 'break') {
+					break
+				}
+				if (outcome === 'continue') {
+					continue
+				}
+
+				console.warn('OpenAI Responses API failed, falling back to Completions API:', fallbackError)
+				const errorMessage = getErrorText(fallbackError)
+				if (errorMessage.includes('Responses API is not enabled')) {
+					skipResponsesApi = true
+					onSkipResponsesApi?.()
+				}
+				useCompletionsApi = true
 			}
 
 			if (useCompletionsApi) {

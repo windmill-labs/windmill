@@ -354,6 +354,57 @@ describe('runChatLoop reasoning summary fallback', () => {
 		)
 	})
 
+	it('composes with the web-search fallback when the errors arrive web-search first', async () => {
+		mocks.providerSupportsWebSearch.mockReturnValue(true)
+		const onReasoningSummaryUnavailable = vi.fn()
+		const onWebSearchUnavailable = vi.fn()
+		const workspace = `workspace-${randomUUID()}`
+		const modelProvider: ReasoningProviderModel = { provider: 'openai', model: 'gpt-5.1' }
+
+		mocks.getOpenAIResponsesCompletion
+			.mockRejectedValueOnce(
+				Object.assign(new Error("Hosted tool 'web_search' is not supported with this model"), {
+					status: 400,
+					error: { type: 'invalid_request_error' }
+				})
+			)
+			.mockRejectedValueOnce(
+				Object.assign(
+					new Error('Your organization must be verified to generate reasoning summaries.'),
+					{
+						status: 400,
+						param: 'reasoning.summary',
+						code: 'unsupported_value',
+						error: { type: 'invalid_request_error' }
+					}
+				)
+			)
+			.mockResolvedValue({})
+
+		await runChatLoop(
+			createConfig({
+				workspace,
+				modelProvider,
+				onReasoningSummaryUnavailable,
+				onWebSearchUnavailable
+			})
+		)
+
+		expect(mocks.getOpenAIResponsesCompletion).toHaveBeenCalledTimes(3)
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[0][3]).toEqual(
+			expect.objectContaining({ webSearch: true, reasoningSummary: true })
+		)
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[1][3]).toEqual(
+			expect.objectContaining({ webSearch: false, reasoningSummary: true })
+		)
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[2][3]).toEqual(
+			expect.objectContaining({ webSearch: false, reasoningSummary: false })
+		)
+		expect(onWebSearchUnavailable).toHaveBeenCalledTimes(1)
+		expect(onReasoningSummaryUnavailable).toHaveBeenCalledTimes(1)
+		expect(mocks.getCompletion).not.toHaveBeenCalled()
+	})
+
 	it('does not request a summary when reasoning is explicitly off via a disable token', async () => {
 		// gpt-5.1+ reasoning is turned off with the explicit 'none' effort on the
 		// wire, while the effective reasoning resolves to undefined.
