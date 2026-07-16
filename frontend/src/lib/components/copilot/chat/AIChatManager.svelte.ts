@@ -423,12 +423,13 @@ export class AIChatManager {
 	 * keyed by toolId. Drained by appendPendingToolImages into a follow-up user message
 	 * after the batch. Cleared at each turn start so an aborted batch can't leak. */
 	private pendingToolImages = new Map<string, AttachedImage[]>()
-	/** Model id of the most recent loop iteration. The loop re-reads the selector
+	/** Model of the most recent loop iteration. The loop re-reads the selector
 	 * each iteration and it stays switchable mid-flight, so when a request fails
-	 * neither the send-time nor the currently-selected id necessarily names the
-	 * model whose error text is being classified (A→B→C switches). Recorded by
-	 * the chatRequest modelProvider getter, consumed by image-rejection recovery. */
-	private lastIterationModel: string | undefined = undefined
+	 * neither the send-time nor the currently-selected model necessarily names
+	 * the one whose request is being classified (A→B→C switches). Recorded by
+	 * the chatRequest modelProvider getter, reset at each turn start, consumed
+	 * by image-rejection recovery. */
+	private lastIterationModel: ReturnType<typeof getCurrentModel> | undefined = undefined
 	/** Full-resolution copies of tool-produced images, keyed by tool call id, for
 	 * the tool card's expanded view. Memory-only on purpose: the transcript persists
 	 * a bounded thumbnail (displayMessages are re-cloned into IndexedDB on every
@@ -1897,6 +1898,8 @@ export class AIChatManager {
 	}) => {
 		// Fresh batch for this turn — drop any images an aborted prior turn left buffered.
 		this.pendingToolImages.clear()
+		// Stale from a prior turn it would misattribute a pre-first-iteration failure.
+		this.lastIterationModel = undefined
 		const onReasoningSummaryUnavailable = () => this.notifyReasoningSummaryUnavailable()
 		try {
 			// Use JS getters so runChatLoop re-reads tools/helpers/systemMessage/modelProvider
@@ -1926,7 +1929,7 @@ export class AIChatManager {
 				get modelProvider() {
 					const model = getCurrentModel()
 					// One read per loop iteration — see lastIterationModel.
-					self.lastIterationModel = model.model
+					self.lastIterationModel = model
 					return model
 				},
 				get webSearch() {
@@ -2673,14 +2676,23 @@ export class AIChatManager {
 				// thumbnails, so the user can still see what they sent. Gated on the
 				// history, not this turn's attachments: the refused image can also be a
 				// screenshot follow-up or an earlier turn's upload (an unlisted text-only
-				// model gets the full history — the send-time strip covers known ones only).
+				// model gets the full history).
+				// The failing request is the last iteration's — the loop strips image
+				// parts per iteration, so that request carried them only if ITS model
+				// passed the vision gate. The send-time flag is only the fallback for a
+				// failure before the first iteration read the model (a turn can start on
+				// a known text-only model and switch mid-loop to an unlisted blind one).
+				const failingModel = this.lastIterationModel
+				const requestCarriedImages = failingModel
+					? modelSupportsVision(failingModel.provider, failingModel.model)
+					: !modelIsBlind
 				if (
-					!modelIsBlind &&
+					requestCarriedImages &&
 					messagesHaveImageParts(this.messages) &&
 					isImageRejection(err, [
 						sendModel?.model,
 						tryGetCurrentModel()?.model,
-						this.lastIterationModel
+						failingModel?.model
 					])
 				) {
 					this.messages = stripImagePartsFromMessages(this.messages)

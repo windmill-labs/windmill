@@ -894,6 +894,46 @@ describe('AIChatManager queued messages', () => {
 		mocks.tryGetCurrentModel.mockReturnValue(model)
 	})
 
+	// A turn can start on a known text-only model (send-time flag says "no images
+	// go out") and switch mid-loop to an UNLISTED blind model whose iteration does
+	// carry the history's images. When that model rejects them, recovery must fire
+	// — the send-time flag alone would skip it and wedge every later send.
+	it('recovers when a turn starts text-only but an unlisted blind model rejects mid-loop', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		manager.messages = [
+			{
+				role: 'user',
+				content: [
+					{ type: 'text', text: 'earlier' },
+					{ type: 'image_url', image_url: { url: 'data:image/png;base64,OLD' } }
+				] as any
+			},
+			{ role: 'assistant', content: 'ok' }
+		]
+		const knownBlind = { provider: 'groq', model: 'llama-3.3-70b-versatile' }
+		const unlistedBlind = { provider: 'customai', model: 'my-internal-llm' }
+		mocks.getCurrentModel.mockReturnValue(knownBlind)
+		mocks.tryGetCurrentModel.mockReturnValue(knownBlind)
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			// mid-loop switch to a model the deny-list doesn't know...
+			mocks.getCurrentModel.mockReturnValue(unlistedBlind)
+			mocks.tryGetCurrentModel.mockReturnValue(unlistedBlind)
+			void config.modelProvider // that iteration reads the selector
+			// ...its request carries the images and the provider rejects them
+			throw new Error('400 this model does not support image input')
+		})
+
+		await manager.sendRequest({ instructions: 'plain follow-up' })
+
+		const stillThere = manager.messages.some(
+			(m: any) => Array.isArray(m.content) && m.content.some((p: any) => p.type === 'image_url')
+		)
+		expect(stillThere).toBe(false)
+		mocks.getCurrentModel.mockReturnValue(model)
+		mocks.tryGetCurrentModel.mockReturnValue(model)
+	})
+
 	it('queues an image-only message and restores it on dequeue', () => {
 		const input = createInputMock()
 		const manager = createManager(input)
