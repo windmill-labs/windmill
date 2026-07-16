@@ -933,6 +933,42 @@ describe('AIChatManager queued messages', () => {
 		mocks.tryGetCurrentModel.mockReturnValue(model)
 	})
 
+	// Images evicted from requests by the byte bound must not keep their full
+	// data URLs in stored history: provider-reported usage excludes them, so
+	// compaction would never prune them and every save re-clones the payload.
+	it('prunes over-cap images from stored history at send time', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		// ~7MB decoded each: the newest fits the 12MB cap alone, both together don't
+		const imageTurn = (marker: string, text: string) =>
+			({
+				role: 'user',
+				content: [
+					{ type: 'text', text },
+					{
+						type: 'image_url',
+						image_url: { url: 'data:image/png;base64,' + marker.repeat(9_400_000) }
+					}
+				]
+			}) as any
+		manager.messages = [
+			imageTurn('A', 'first'),
+			{ role: 'assistant', content: 'ok' },
+			imageTurn('B', 'second'),
+			{ role: 'assistant', content: 'ok' }
+		]
+
+		await manager.sendRequest({ instructions: 'plain follow-up' })
+
+		// the oldest image's full data URL is gone from stored history...
+		const oldest = manager.messages[0] as any
+		expect(oldest.content.some((p: any) => p.type === 'image_url')).toBe(false)
+		expect(JSON.stringify(oldest.content)).toContain('[image omitted]')
+		// ...the newest full-size copy is retained (still within budget)
+		expect((manager.messages[2] as any).content.some((p: any) => p.type === 'image_url')).toBe(true)
+	})
+
 	it('queues an image-only message and restores it on dequeue', () => {
 		const input = createInputMock()
 		const manager = createManager(input)

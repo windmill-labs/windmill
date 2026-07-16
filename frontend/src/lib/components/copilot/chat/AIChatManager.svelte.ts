@@ -60,6 +60,7 @@ import { getStringError } from './utils'
 import { type PasteAttachment } from './pasteTokens'
 import {
 	type AttachedImage,
+	boundImagePartBytes,
 	imagesFromContent,
 	MAX_ATTACHED_IMAGES,
 	messagesHaveImageParts,
@@ -2463,6 +2464,12 @@ export class AIChatManager {
 					)
 				}
 			}
+			// The loop bounds each request's image bytes, but the evicted images
+			// would otherwise sit in stored history forever: provider-reported usage
+			// excludes them, so token-driven compaction never prunes them and every
+			// save re-clones the growing payload into IndexedDB. Bound the stored
+			// copy too (the bubbles keep their thumbnails).
+			this.messages = boundImagePartBytes(this.messages)
 			// Rollback anchors for restoreUnsentTurn: captured after compaction so
 			// they index into the (possibly compacted) stored history. The summary
 			// path shrinks displayMessages too, so the display anchor must also be
