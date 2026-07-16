@@ -308,10 +308,10 @@ function isImageRejection(err: unknown, models: (string | undefined)[] = []): bo
 		if (model) message = message.replaceAll(model.toLowerCase(), '')
 	}
 	// Whole words only: "provisioning"/"provisioned" contain "vision", and a
-	// transient capacity error must not destroy good images. image_url is the
-	// content-part name providers echo in schema errors ('_' is a word char, so
-	// \bimage\b alone would miss it).
-	return /\bimages?(_url)?\b|\bvision\b|\bmultimodal\b/.test(message)
+	// transient capacity error must not destroy good images. image_url and
+	// input_image are the content-part names providers echo in schema errors
+	// ('_' is a word char, so \bimage\b alone would miss them).
+	return /\bimages?(_url)?\b|\binput_image\b|\bvision\b|\bmultimodal\b/.test(message)
 }
 
 function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean): string {
@@ -2136,6 +2136,15 @@ export class AIChatManager {
 		if (options.instructions !== undefined) {
 			this.instructions = options.instructions
 		}
+		// Images ride only on GLOBAL turns, but the composer stays mounted across
+		// a mode switch, so chips attached in GLOBAL can arrive with a send in any
+		// mode. Refuse and restore rather than silently dropping attachments the
+		// user can see (the input already cleared itself optimistically).
+		if ((options.images?.length ?? 0) > 0 && this.mode !== AIMode.GLOBAL) {
+			sendUserToast('Switch back to the chat mode to send images. Your message was kept.', true)
+			this.restoreToInput(this.instructions, options.images ?? [])
+			return false
+		}
 		// An image with no text is a valid GLOBAL-mode message (images only ride
 		// on GLOBAL turns); anything else still needs text.
 		if (
@@ -2184,11 +2193,10 @@ export class AIChatManager {
 		// Context elements and the snapshot are attached after beforeSend (see below).
 		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
 		const pastes = options.pastes ?? []
-		// Images ride only on GLOBAL-mode (global chat + sessions) turns; other modes
-		// don't surface the attach UI, so drop any that leaked in. The vision check is
+		// Non-GLOBAL sends with images were refused above. The vision check is
 		// repeated here, not just at attach time: the model can be switched to a
 		// text-only one after attaching, and sending the image then fails the turn.
-		const requestedImages = this.mode === AIMode.GLOBAL ? (options.images ?? []) : []
+		const requestedImages = options.images ?? []
 		const sendModel = tryGetCurrentModel()
 		const modelIsBlind = !!sendModel && !modelSupportsVision(sendModel.provider, sendModel.model)
 		if (requestedImages.length > 0 && modelIsBlind) {

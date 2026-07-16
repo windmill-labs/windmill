@@ -893,6 +893,37 @@ describe('AIChatManager queued messages', () => {
 		mocks.tryGetCurrentModel.mockReturnValue(model)
 	})
 
+	// The Responses converter sends images as input_image parts, and '_' is a
+	// word character — the whole-word regex must still catch that spelling.
+	it('recovers when the provider rejects the input_image content part', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		mocks.runChatLoop.mockRejectedValue(
+			new Error("400 Invalid value: content part type 'input_image' is not supported")
+		)
+
+		await manager.sendRequest({ instructions: 'look at this', images: [img('a')] })
+
+		const stillThere = manager.messages.some(
+			(m: any) => Array.isArray(m.content) && m.content.some((p: any) => p.type === 'image_url')
+		)
+		expect(stillThere).toBe(false)
+	})
+
+	// The composer stays mounted across a mode switch, so chips attached in
+	// GLOBAL can ride a send in any mode — they must be restored, not dropped.
+	it('refuses and restores an image-bearing send outside GLOBAL mode', async () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		manager.mode = AIMode.NAVIGATOR
+
+		const accepted = await manager.sendRequest({ instructions: 'find it', images: [img('a')] })
+
+		expect(accepted).toBe(false)
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(input.prependText).toHaveBeenCalledWith('find it', [img('a')])
+	})
+
 	// "provisioning"/"provisioned" contain the word "vision" — a transient
 	// capacity error must not be classified as an image rejection.
 	it('does not strip images on a provisioning error', async () => {
