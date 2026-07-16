@@ -2,7 +2,7 @@
 	import { Archive, ExternalLink, GitPullRequestClosed, MoveRight, Trash2 } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import SessionStatusPopover from './SessionStatusPopover.svelte'
 	import WorkspaceFamilyPicker from './WorkspaceFamilyPicker.svelte'
 	import { isPremiumStore, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { canCreateFork } from '$lib/utils/editInFork'
@@ -10,7 +10,7 @@
 	import { sessionState, type Session } from './sessionState.svelte'
 	import { getRuntime } from './sessionRuntime.svelte'
 	import SessionDiffDrawer from './SessionDiffDrawer.svelte'
-	import SessionStatusToken, { TOKEN_TRIGGER_CLASS } from './SessionStatusToken.svelte'
+	import { TOKEN_TRIGGER_CLASS } from './SessionStatusToken.svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import { badgeCounts, badgeOf, buildDeployItems } from './sessionDeployModel'
 	import { useExistingMaskKeys } from './sessionDeployModel.svelte'
@@ -249,48 +249,31 @@
 					<ExternalLink class="h-3 w-3 shrink-0 text-tertiary" />
 				</a>
 			{:else}
-				<Popover
-					bind:isOpen={editsOpen}
-					placement="top-start"
-					enableFlyTransition
-					closeOnOtherPopoverOpen
-					class={`${TOKEN_TRIGGER_CLASS} ${editsColorClass}`}
-					contentClasses="!bg-surface"
-					triggerAttrs={{ 'aria-label': editsLabel, 'aria-haspopup': 'dialog' }}
+				<SessionStatusPopover
+					bind:open={editsOpen}
+					label={editsLabel}
+					title="Edited this session"
+					items={dockItems}
+					itemKey={(item) => item.key}
+					rowTitle={(item) => item.displayPath}
+					onPick={(item) => openDrawer(item.key)}
+					triggerClass={`${TOKEN_TRIGGER_CLASS} ${editsColorClass}`}
+					widthClass="w-96"
+					maxHeightClass="max-h-[min(9rem,50vh)]"
 				>
-					{#snippet trigger()}
-						<SessionStatusToken label={editsLabel} expanded={editsOpen} />
+					{#snippet row(item)}
+						<span class="min-w-0 flex-1 truncate font-mono font-normal text-primary">
+							{item.displayPath}
+						</span>
+						{#if badgeOf(item) === 'draft'}
+							<Badge small color="indigo">
+								{item.draftOnly ? 'Draft only' : 'Draft'}
+							</Badge>
+						{:else}
+							<Badge small color="green">Deployed</Badge>
+						{/if}
 					{/snippet}
-					{#snippet content({ close })}
-						<div class="flex w-96 flex-col text-xs">
-							<div class="border-b px-3 py-2 text-tertiary">Edited this session</div>
-							<div class="max-h-[min(9rem,50vh)] overflow-y-auto py-1">
-								{#each dockItems as item (item.key)}
-									<button
-										type="button"
-										class="flex w-full items-center gap-2 py-1 pl-3 pr-2 text-left hover:bg-surface-hover"
-										title={item.displayPath}
-										onclick={() => {
-											close()
-											openDrawer(item.key)
-										}}
-									>
-										<span class="min-w-0 flex-1 truncate font-mono font-normal text-secondary">
-											{item.displayPath}
-										</span>
-										{#if badgeOf(item) === 'draft'}
-											<Badge small color="indigo">
-												{item.draftOnly ? 'Draft only' : 'Draft'}
-											</Badge>
-										{:else}
-											<Badge small color="green">Deployed</Badge>
-										{/if}
-									</button>
-								{/each}
-							</div>
-						</div>
-					{/snippet}
-				</Popover>
+				</SessionStatusPopover>
 			{/if}
 		{/if}
 		{#if hasArtifacts}

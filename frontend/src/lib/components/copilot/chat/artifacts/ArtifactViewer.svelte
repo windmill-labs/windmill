@@ -47,7 +47,7 @@
 		<div class="flex items-center gap-2 shrink-0">
 			<!-- Copy raw markdown, with a dropdown for the download-as-file variant. -->
 			<Button
-				size="xs"
+				unifiedSize="sm"
 				variant="default"
 				startIcon={{ icon: copied ? Check : Copy }}
 				onClick={copyRaw}
@@ -78,7 +78,7 @@
 		</div>
 	</div>
 
-	<div class="flex-1 min-h-0 overflow-auto">
+	<div class="flex-1 min-h-0 overflow-auto px-8">
 		{#if source}
 			<!-- key: SimpleEditor reads `code` only on init; remount on id or content change. -->
 			{#key `${artifact.id}:${artifact.updatedAt}`}
@@ -89,7 +89,7 @@
 			     The negative margin cancels its flow height so it overlays instead of pushing. -->
 			<div class="sticky top-0 z-10 h-4 -mb-4 bg-gradient-to-b from-surface-tertiary to-transparent"
 			></div>
-			<div class="px-8 pb-4 pt-2 {markdownProse.doc}">
+			<div class="pb-4 pt-2 {markdownProse.doc}">
 				<Markdown md={artifact.content} {plugins} />
 			</div>
 		{/if}

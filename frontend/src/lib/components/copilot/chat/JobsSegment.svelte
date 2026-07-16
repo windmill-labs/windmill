@@ -3,7 +3,7 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import SessionStatusPopover from '$lib/components/sessions/SessionStatusPopover.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 	import JobStatusIcon from '$lib/components/runs/JobStatusIcon.svelte'
 	import FlowStatusWaitingForEvents from '$lib/components/FlowStatusWaitingForEvents.svelte'
@@ -204,11 +204,9 @@
 		} else {
 			window.open(runHref(job), '_blank', 'noreferrer')
 		}
-		open = false
 	}
 
 	// --- Popover open state + auto-open on approval ---
-	let popover: Popover | undefined = $state()
 	let open = $state(false)
 
 	// A job entering the approval state needs attention, so open the popover to
@@ -217,7 +215,7 @@
 	let prevApprovalCount = 0
 	$effect(() => {
 		const count = approvalCount
-		if (count > prevApprovalCount) popover?.open()
+		if (count > prevApprovalCount) open = true
 		prevApprovalCount = count
 	})
 
@@ -273,20 +271,24 @@
 	     even when the chip's visual change alone wouldn't be. role="status" already
 	     implies aria-live="polite". -->
 	<div class="sr-only" role="status">{announcement}</div>
-	<Popover
-		bind:this={popover}
-		bind:isOpen={open}
+	<SessionStatusPopover
+		bind:open
+		label="Jobs"
+		{ariaLabel}
+		title="Jobs this session"
+		items={sortedJobs}
+		itemKey={(job) => job.jobId}
+		rowTitle={(job) => job.label}
+		onPick={openRun}
 		placement={standalone ? 'top-end' : 'top-start'}
-		enableFlyTransition
 		usePointerDownOutside
 		closeOnOtherPopoverOpen={!standalone}
-		class={standalone
+		triggerClass={standalone
 			? 'flex h-[34px] w-full items-center rounded-md border bg-surface-tertiary px-3 hover:bg-surface-hover'
 			: TOKEN_TRIGGER_CLASS}
-		triggerAttrs={{ 'aria-label': ariaLabel, 'aria-haspopup': 'dialog' }}
-		contentClasses="!bg-surface"
+		maxHeightClass={standalone ? 'max-h-[50vh]' : 'max-h-[min(12rem,50vh)]'}
 	>
-		{#snippet trigger()}
+		{#snippet customTrigger()}
 			<span class="flex min-w-0 items-center gap-2 text-xs">
 				{#if standalone}
 					<span class="shrink-0 font-normal text-primary">Jobs</span>
@@ -319,57 +321,37 @@
 			</span>
 		{/snippet}
 
-		{#snippet content()}
-			<div class="flex w-80 flex-col text-xs">
-				<div class="border-b px-3 py-2 text-tertiary">Jobs this session</div>
-				<div
-					class={`overflow-y-auto py-1 ${standalone ? 'max-h-[50vh]' : 'max-h-[min(12rem,50vh)]'}`}
-				>
-					{#each sortedJobs as job (job.jobId)}
-						<div class="flex items-center gap-2.5 px-3 py-1.5 hover:bg-surface-hover">
-							<button
-								type="button"
-								class="flex min-w-0 grow items-center gap-2.5 text-left font-normal"
-								title={job.label}
-								onclick={() => openRun(job)}
-							>
-								{#if job.status === 'queued' || !job.job}
-									<!-- Queued: match the job detail page's orange badge (JobStatusIcon's
-									     default queued badge is gray). Also covers the pre-first-fetch state. -->
-									<Badge color="orange" baseClass="!px-1.5" title="Queued"
-										><Hourglass size={13} /></Badge
-									>
-								{:else}
-									<JobStatusIcon job={job.job} />
-								{/if}
-								<span class="min-w-0 grow truncate text-secondary">{job.label}</span>
-								<span class="shrink-0 tabular-nums text-tertiary">{elapsedLabel(job)}</span>
-							</button>
-							<div class="flex shrink-0 items-center gap-1.5">
-								{#if job.status === 'suspended'}
-									<Button
-										unifiedSize="xs"
-										variant="accent"
-										startIcon={{ icon: ThumbsUp }}
-										on:click={() => openApproval(job)}>Approve</Button
-									>
-								{/if}
-								{#if !isTerminal(job.status)}
-									<Button
-										unifiedSize="xs"
-										variant="accent"
-										destructive
-										startIcon={{ icon: TimerOff }}
-										on:click={() => aiChatManager.cancelJob(job.jobId)}>Cancel</Button
-									>
-								{/if}
-							</div>
-						</div>
-					{/each}
-				</div>
-			</div>
+		{#snippet row(job)}
+			{#if job.status === 'queued' || !job.job}
+				<!-- Queued: match the job detail page's orange badge (JobStatusIcon's
+				     default queued badge is gray). Also covers the pre-first-fetch state. -->
+				<Badge color="orange" baseClass="!px-1.5" title="Queued"><Hourglass size={13} /></Badge>
+			{:else}
+				<JobStatusIcon job={job.job} />
+			{/if}
+			<span class="min-w-0 grow truncate text-primary">{job.label}</span>
+			<span class="shrink-0 tabular-nums text-tertiary">{elapsedLabel(job)}</span>
 		{/snippet}
-	</Popover>
+		{#snippet actions(job)}
+			{#if job.status === 'suspended'}
+				<Button
+					unifiedSize="xs"
+					variant="accent"
+					startIcon={{ icon: ThumbsUp }}
+					on:click={() => openApproval(job)}>Approve</Button
+				>
+			{/if}
+			{#if !isTerminal(job.status)}
+				<Button
+					unifiedSize="xs"
+					variant="accent"
+					destructive
+					startIcon={{ icon: TimerOff }}
+					on:click={() => aiChatManager.cancelJob(job.jobId)}>Cancel</Button
+				>
+			{/if}
+		{/snippet}
+	</SessionStatusPopover>
 
 	<!-- Portal to <body> + a z-index above the editor: opened from deep in the
 	     sessions chat column, the modal would otherwise be trapped below the
