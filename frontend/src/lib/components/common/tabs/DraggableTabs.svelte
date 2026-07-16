@@ -76,6 +76,7 @@
 	// Local list the dnd zone owns. `consider` updates only this (mid-drag it
 	// holds svelte-dnd-action's shadow placeholder); we commit to the parent on
 	// `finalize` so the placeholder never leaks into a sibling bar.
+	let stripEl = $state<HTMLElement | undefined>(undefined)
 	let dndMiddle = $state<TabItem[]>(untrack(() => middle))
 	let isDragging = false
 	$effect(() => {
@@ -126,6 +127,9 @@
 				e.preventDefault()
 				e.stopPropagation()
 				onSelect(tabs[next].id)
+				// Selection moved — follow with focus, else the next arrow press
+				// recomputes from this (stale) tab and Delete closes the wrong one.
+				stripEl?.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(tabs[next].id)}"]`)?.focus()
 			}
 		} else if (e.key === 'Enter' || e.key === ' ') {
 			e.preventDefault()
@@ -148,6 +152,7 @@
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div
 		role="tab"
+		data-tab-id={tab.id}
 		aria-selected={isActive}
 		tabindex={isActive ? 0 : -1}
 		class={twMerge(tabClasses(isActive), tab.closable !== false && 'pr-1')}
@@ -180,7 +185,7 @@
 	</div>
 {/snippet}
 
-<div class={twMerge('flex items-center bg-surface', c)}>
+<div bind:this={stripEl} class={twMerge('flex items-center bg-surface', c)}>
 	<!-- 4px bar to match the strip's `pb-1` reserve. -->
 	<ScrollableX class="flex-1 min-w-0 pt-1 pl-1 pb-1" style="--wm-scrollbar-size: 4px;">
 		<div class="flex items-center" role="tablist">
