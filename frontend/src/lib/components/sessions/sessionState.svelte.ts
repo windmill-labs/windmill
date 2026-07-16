@@ -22,6 +22,7 @@ import { workspaceRootId } from './sessionScope.svelte'
 import { type DBSchema, type IDBPDatabase } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
 import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
+import { deleteArtifactsForSession } from '../copilot/chat/artifacts/artifactsDB'
 
 // Switch the global workspace iff the target differs from the active one
 // and is non-empty. Centralises the "session needs its workspace in focus"
@@ -488,6 +489,7 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 				// GC linked files too, matching deleteSession — a record-only delete
 				// here would orphan the session's attached-file blobs/handles.
 				void deleteItemsForSession(s.id)
+				void deleteArtifactsForSession(s.id)
 				deletedIds.add(s.id)
 				continue
 			}
@@ -579,6 +581,7 @@ export async function deleteSessionsForWorkspace(workspaceId: string): Promise<v
 		// GC linked files too (matches deleteSession) so a workspace teardown
 		// doesn't leave the sessions' attached-file blobs/handles orphaned.
 		void deleteItemsForSession(id)
+		void deleteArtifactsForSession(id)
 	}
 	sessionState.sessions = sessionState.sessions.filter((s) => !ids.has(s.id))
 	if (sessionState.currentSessionId && ids.has(sessionState.currentSessionId)) {
@@ -966,8 +969,9 @@ export function deleteSession(id: string) {
 		sessionState.currentSessionId = sessionState.sessions[0]?.id
 	}
 	void deleteSessionRecord(id)
-	// GC any linked files persisted for this session.
+	// GC any linked files and artifacts persisted for this session.
 	void deleteItemsForSession(id)
+	void deleteArtifactsForSession(id)
 }
 
 export function setSessionChatId(sessionId: string, chatId: string) {
