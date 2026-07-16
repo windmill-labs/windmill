@@ -48,10 +48,10 @@ function buildDirForest(items: WorkspaceItem[]): DirNode[] {
 		cur.leaves.push(it)
 	}
 	const scopes = Array.from(scopeRoots.values()).sort((a, b) => {
-		// `f/` (folder) scopes before `u/` (user) scopes; alphabetical within.
-		const af = a.fullPath.startsWith('f/') ? 0 : 1
-		const bf = b.fullPath.startsWith('f/') ? 0 : 1
-		if (af !== bf) return af - bf
+		// `u/` (user) scopes before `f/` (folder) scopes; alphabetical within.
+		const au = a.fullPath.startsWith('u/') ? 0 : 1
+		const bu = b.fullPath.startsWith('u/') ? 0 : 1
+		if (au !== bu) return au - bu
 		return a.fullPath.localeCompare(b.fullPath)
 	})
 	const sortNode = (n: DirNode) => {
@@ -141,6 +141,7 @@ function withExtras(
 
 /** Build the workspace drill tree.
  *
+ *  Default `by-kind` layout:
  *  - One branch per kind in `kinds` (`Flows` / `Scripts` / `Apps`),
  *    each containing the kind's path hierarchy.
  *  - When `kinds.length > 1`, prepend an `All` branch that merges items
@@ -148,6 +149,12 @@ function withExtras(
  *    leaves don't appear twice in global-search results.
  *  - When `kinds.length === 1`, return the single kind branch's children
  *    directly so the user lands on folders without a redundant level.
+ *
+ *  `flat` layout:
+ *  - No kind grouping — the root IS the workspace home's first level: the
+ *    `f/<folder>` / `u/<user>` scope dirs of the cross-kind merge, mixing
+ *    every kind's items inside. Callers must eager-load all kinds (there is
+ *    no per-kind drill step left to lazy-load from).
  */
 export function buildWorkspaceTree(opts: {
 	loaded: Partial<Record<WorkspaceItemKind, WorkspaceItem[]>>
@@ -160,9 +167,11 @@ export function buildWorkspaceTree(opts: {
 	 * (e.g. AI-created localStorage drafts surfaced by the workspace adapter).
 	 * Extras whose path matches an already-loaded item are dropped. */
 	extraItemsByKind?: Partial<Record<WorkspaceItemKind, WorkspaceItem[]>>
+	layout?: 'by-kind' | 'flat'
 }): DrillNode<WorkspaceItem>[] {
 	const { loaded, kinds, currentItem, extraItemsByKind } = opts
 	const loadingKind = opts.loadingKind ?? {}
+	const layout = opts.layout ?? 'by-kind'
 
 	function kindBranch(k: WorkspaceItemKind): DrillBranch<WorkspaceItem> {
 		const raw = withExtras(loaded[k] ?? [], k, extraItemsByKind)
@@ -182,14 +191,23 @@ export function buildWorkspaceTree(opts: {
 
 	if (kinds.length === 0) return []
 
+	const mergedItems = () =>
+		kinds.flatMap((k) =>
+			withCurrent(withExtras(loaded[k] ?? [], k, extraItemsByKind), k, currentItem)
+		)
+
+	if (layout === 'flat') {
+		const items = mergedItems()
+		const dirs = items.length > 0 ? buildDirForest(items) : []
+		return dirs.map((d) => dirToBranch(d, 'all', currentItem))
+	}
+
 	if (kinds.length === 1) {
 		return kindBranch(kinds[0]).children
 	}
 
 	// Cross-kind 'all' branch — flagged so search doesn't double-count leaves.
-	const allItems = kinds.flatMap((k) =>
-		withCurrent(withExtras(loaded[k] ?? [], k, extraItemsByKind), k, currentItem)
-	)
+	const allItems = mergedItems()
 	const allDirs = allItems.length > 0 ? buildDirForest(allItems) : []
 	const allBranch: DrillBranch<WorkspaceItem> = {
 		type: 'branch',
@@ -208,9 +226,15 @@ export function buildWorkspaceTree(opts: {
  * (BreadcrumbSegment / EditorHeader) onto the new generic `string[]` path. */
 export function legacyScopeToPath(
 	scope: { kind: WorkspaceItemKind | 'all'; dir?: string } | undefined,
-	kinds: WorkspaceItemKind[]
+	kinds: WorkspaceItemKind[],
+	layout: 'by-kind' | 'flat' = 'by-kind'
 ): string[] {
 	if (!scope) return []
+	// Flat layout: no kind branches at all — scope dirs live at root and are
+	// always keyed under the cross-kind 'all' namespace.
+	if (layout === 'flat') {
+		return scope.dir ? [dirKey('all', scope.dir)] : []
+	}
 	// Single-kind mode: there's no kind branch at root; scope's `kind` is
 	// implicit. Only the dir (if any) makes it to the path.
 	if (kinds.length === 1) {

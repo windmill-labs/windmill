@@ -71,11 +71,11 @@ describe('buildWorkspaceTree', () => {
 				kinds: ['flow'],
 				loadingKind: {}
 			})
-			// At the top we should see the scope dirs (f/demo, u/alice) directly,
+			// At the top we should see the scope dirs (u/alice, f/demo) directly,
 			// not a single 'kind:flow' branch wrapping them.
 			expect(tree.every((n) => isBranch(n) && n.key.startsWith('dir:flow:'))).toBe(true)
-			// f-scopes come before u-scopes
-			expect(tree.map((n) => n.key)).toEqual([dirKey('flow', 'f/demo'), dirKey('flow', 'u/alice')])
+			// u-scopes come before f-scopes
+			expect(tree.map((n) => n.key)).toEqual([dirKey('flow', 'u/alice'), dirKey('flow', 'f/demo')])
 		})
 	})
 
@@ -125,8 +125,8 @@ describe('buildWorkspaceTree', () => {
 				kinds: ['flow'],
 				loadingKind: {}
 			})
-			// Top-level: f/demo (folder scope), u/alice (user scope)
-			expect(tree.map((n) => n.key)).toEqual([dirKey('flow', 'f/demo'), dirKey('flow', 'u/alice')])
+			// Top-level: u/alice (user scope), f/demo (folder scope)
+			expect(tree.map((n) => n.key)).toEqual([dirKey('flow', 'u/alice'), dirKey('flow', 'f/demo')])
 			const demo = findBranch(tree, dirKey('flow', 'f/demo'))
 			// Children: nested folder `sub` first, then leaf `a`
 			expect(childKeys(demo)).toEqual([
@@ -299,6 +299,57 @@ describe('buildWorkspaceTree', () => {
 			expect(JSON.stringify(noOpts)).toEqual(JSON.stringify(emptyExtras))
 		})
 	})
+
+	describe('flat layout', () => {
+		it('roots the cross-kind scope dirs directly (no All / kind branches)', () => {
+			const tree = buildWorkspaceTree({
+				loaded: {
+					flow: [item('flow', 'f/demo/a'), item('flow', 'u/alice/b')],
+					script: [item('script', 'f/demo/c')]
+				},
+				kinds: ['flow', 'script'],
+				loadingKind: {},
+				layout: 'flat'
+			})
+			// u-scopes before f-scopes, keyed under the 'all' namespace.
+			expect(tree.map((n) => n.key)).toEqual([dirKey('all', 'u/alice'), dirKey('all', 'f/demo')])
+		})
+
+		it('mixes every kind inside the same scope dir', () => {
+			const tree = buildWorkspaceTree({
+				loaded: {
+					flow: [item('flow', 'f/demo/a')],
+					script: [item('script', 'f/demo/b')]
+				},
+				kinds: ['flow', 'script'],
+				loadingKind: {},
+				layout: 'flat'
+			})
+			const demo = findBranch(tree, dirKey('all', 'f/demo'))
+			expect(childKeys(demo)).toEqual([
+				leafKeyFor('flow', 'f/demo/a'),
+				leafKeyFor('script', 'f/demo/b')
+			])
+		})
+
+		it('applies extras and currentItem like the by-kind layout', () => {
+			const tree = buildWorkspaceTree({
+				loaded: { flow: [item('flow', 'f/demo/a')], script: [] },
+				kinds: ['flow', 'script'],
+				loadingKind: {},
+				extraItemsByKind: { script: [item('script', 'f/demo/draft')] },
+				currentItem: item('flow', 'f/demo/a'),
+				layout: 'flat'
+			})
+			const demo = findBranch(tree, dirKey('all', 'f/demo'))
+			const leaves = demo.children.filter(isLeaf)
+			expect(leaves.map((l) => l.key)).toEqual([
+				leafKeyFor('flow', 'f/demo/a'),
+				leafKeyFor('script', 'f/demo/draft')
+			])
+			expect(leaves[0].current).toBe(true)
+		})
+	})
 })
 
 describe('legacyScopeToPath', () => {
@@ -332,6 +383,16 @@ describe('legacyScopeToPath', () => {
 		expect(legacyScopeToPath({ kind: 'flow', dir: 'f/demo' }, ['flow'])).toEqual([
 			dirKey('flow', 'f/demo')
 		])
+	})
+
+	it('flat: returns [dirKey under all] for a dir scope, ignoring the kind', () => {
+		expect(legacyScopeToPath({ kind: 'flow', dir: 'f/demo' }, ['flow', 'script'], 'flat')).toEqual([
+			dirKey('all', 'f/demo')
+		])
+	})
+
+	it('flat: returns [] without a dir', () => {
+		expect(legacyScopeToPath({ kind: 'all' }, ['flow', 'script'], 'flat')).toEqual([])
 	})
 })
 

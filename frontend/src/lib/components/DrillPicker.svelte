@@ -61,6 +61,10 @@ leaves and ignores the current scope.
 		 * — needed in internal-filter mode where the host can't observe the
 		 * picker's own search box otherwise. */
 		onFilterChange?: (filter: string) => void
+		/** Loading indicator for the ROOT level (scope `[]`), which has no
+		 * branch to carry a `loading` flag. Needed by flat workspace layouts
+		 * whose root entries only exist once items are fetched. */
+		rootLoading?: boolean
 	}
 
 	let {
@@ -75,7 +79,8 @@ leaves and ignores the current scope.
 		branchIcon,
 		leafSecondary,
 		onScopeChange,
-		onFilterChange
+		onFilterChange,
+		rootLoading = false
 	}: Props = $props()
 
 	let searchInput: TextInput | undefined = $state()
@@ -341,7 +346,7 @@ leaves and ignores the current scope.
 		})
 	})
 
-	const branchLoading = $derived(currentBranch?.loading ?? false)
+	const branchLoading = $derived(currentBranch ? (currentBranch.loading ?? false) : rootLoading)
 </script>
 
 <SearchItems
@@ -515,6 +520,14 @@ leaves and ignores the current scope.
 						</button>
 					{/if}
 				{/each}
+				{#if branchLoading}
+					<!-- More rows are still being fetched (flat-layout roots surface
+					     entries only as their kinds load — e.g. Pages present, dirs
+					     pending). The empty case is handled above. -->
+					<div role="status" class="px-3 py-1.5 text-xs text-tertiary flex items-center gap-2">
+						<Loader2 size={14} class="animate-spin" /> Loading…
+					</div>
+				{/if}
 			</div>
 		{/if}
 	</div>
