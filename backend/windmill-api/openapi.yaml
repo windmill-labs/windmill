@@ -8572,6 +8572,11 @@ paths:
           description: List every draft in the workspace (all users), not just the current user's own + legacy rows. Other users' rows come back with `mine=false` (view-only).
           schema:
             type: boolean
+        - name: compare_to_workspace
+          in: query
+          description: A fork passes its parent workspace id here to have each row flagged with `unchanged_from_parent`. Ignored unless it is exactly this workspace's parent.
+          schema:
+            type: string
       responses:
         "200":
           description: the user's drafts
@@ -8607,6 +8612,9 @@ paths:
                     mine:
                       type: boolean
                       description: The row belongs to the current user (own draft or the legacy no-owner row) and is therefore actionable. Always true in the default listing; with `all_users=true`, other users' rows are false (view-only).
+                    unchanged_from_parent:
+                      type: boolean
+                      description: Only present when `compare_to_workspace` was passed. True when this draft is identical to the parent's draft at the same path/kind/owner (cloned in on fork and never edited here).
                     draft_users:
                       description: |
                         Draft authors at this (path, kind) — the legacy NULL-email row surfaced as a null username.
