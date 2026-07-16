@@ -917,11 +917,33 @@ describe('AIChatManager queued messages', () => {
 		const manager = createManager(input)
 		manager.mode = AIMode.NAVIGATOR
 
-		const accepted = await manager.sendRequest({ instructions: 'find it', images: [img('a')] })
+		const pending = manager.sendRequest({ instructions: 'find it', images: [img('a')] })
+		// The composer clears itself synchronously right after calling sendRequest:
+		// a restore issued before that point would be wiped by the clear.
+		expect(input.restoreInstructions).not.toHaveBeenCalled()
+		const accepted = await pending
 
 		expect(accepted).toBe(false)
 		expect(mocks.runChatLoop).not.toHaveBeenCalled()
-		expect(input.prependText).toHaveBeenCalledWith('find it', [img('a')])
+		expect(input.restoreInstructions).toHaveBeenCalledWith('find it', [], [img('a')])
+	})
+
+	// A refused queued draft is the caller's to restore (it re-queues on false) —
+	// a composer restore on top would duplicate it.
+	it('does not double-restore a queued image draft refused outside GLOBAL mode', async () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		manager.mode = AIMode.NAVIGATOR
+
+		const accepted = await manager.sendRequest({
+			instructions: 'queued one',
+			images: [img('a')],
+			queued: true
+		})
+
+		expect(accepted).toBe(false)
+		expect(input.restoreInstructions).not.toHaveBeenCalled()
+		expect(input.prependText).not.toHaveBeenCalled()
 	})
 
 	// "provisioning"/"provisioned" contain the word "vision" — a transient

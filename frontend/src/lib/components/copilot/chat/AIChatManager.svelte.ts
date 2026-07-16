@@ -2136,21 +2136,11 @@ export class AIChatManager {
 		if (options.instructions !== undefined) {
 			this.instructions = options.instructions
 		}
-		// Images ride only on GLOBAL turns, but the composer stays mounted across
-		// a mode switch, so chips attached in GLOBAL can arrive with a send in any
-		// mode. Refuse and restore rather than silently dropping attachments the
-		// user can see (the input already cleared itself optimistically).
-		if ((options.images?.length ?? 0) > 0 && this.mode !== AIMode.GLOBAL) {
-			sendUserToast('Switch back to the chat mode to send images. Your message was kept.', true)
-			this.restoreToInput(this.instructions, options.images ?? [])
-			return false
-		}
-		// An image with no text is a valid GLOBAL-mode message (images only ride
-		// on GLOBAL turns); anything else still needs text.
-		if (
-			!this.instructions.trim() &&
-			!(this.mode === AIMode.GLOBAL && (options.images?.length ?? 0) > 0)
-		) {
+		// Only a truly empty draft is dropped here. An image with no text is a
+		// valid GLOBAL-mode message; outside GLOBAL an image-bearing draft must
+		// still get past this guard to reach the refusal below, which puts it
+		// back in the composer instead of silently losing it.
+		if (!this.instructions.trim() && (options.images?.length ?? 0) === 0) {
 			return false
 		}
 		// Built-in session commands run locally instead of becoming a chat turn.
@@ -2193,6 +2183,20 @@ export class AIChatManager {
 		// Context elements and the snapshot are attached after beforeSend (see below).
 		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
 		const pastes = options.pastes ?? []
+		// Images ride only on GLOBAL turns, but the composer stays mounted across
+		// a mode switch, so chips attached in GLOBAL can arrive with a send in any
+		// mode. Refuse and restore rather than silently dropping attachments the
+		// user can see. This sits past the awaits above on purpose: the composer
+		// clears itself synchronously right after calling sendRequest, so an
+		// earlier restore would be wiped. Queued drafts are the caller's to
+		// restore (it re-queues on false).
+		if ((options.images?.length ?? 0) > 0 && this.mode !== AIMode.GLOBAL) {
+			sendUserToast('Switch back to the chat mode to send images. Your message was kept.', true)
+			if (!options.queued) {
+				this.aiChatInput?.restoreInstructions(this.instructions, pastes, options.images ?? [])
+			}
+			return false
+		}
 		// Non-GLOBAL sends with images were refused above. The vision check is
 		// repeated here, not just at attach time: the model can be switched to a
 		// text-only one after attaching, and sending the image then fails the turn.
