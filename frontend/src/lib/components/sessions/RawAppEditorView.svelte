@@ -165,13 +165,15 @@
 	// sendRequest would race the shared abortController / streaming buffers) — it
 	// auto-sends when the current turn completes.
 	function onInlinePrompt(_selector: string, prompt: string) {
+		// Snapshot the selection synchronously at submit time and send it as the
+		// turn's context, so an element picked during the async send preflight
+		// (immediate path) or before the queue flushes (loading path) can't replace
+		// the element this prompt was scoped to.
+		const snapshot = [...runtime.manager.contextManager.getSelectedContext()]
 		if (runtime.manager.loading) {
-			// Snapshot the selection now so the queued turn stays scoped to THIS
-			// element even if the user picks another before the current turn ends.
-			const snapshot = [...runtime.manager.contextManager.getSelectedContext()]
 			runtime.manager.queueMessage(prompt, snapshot)
 		} else {
-			void runtime.manager.sendRequest({ instructions: prompt })
+			void runtime.manager.sendRequest({ instructions: prompt, contextOverride: snapshot })
 		}
 	}
 </script>
