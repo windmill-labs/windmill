@@ -166,7 +166,10 @@
 	// auto-sends when the current turn completes.
 	function onInlinePrompt(_selector: string, prompt: string) {
 		if (runtime.manager.loading) {
-			runtime.manager.queueMessage(prompt)
+			// Snapshot the selection now so the queued turn stays scoped to THIS
+			// element even if the user picks another before the current turn ends.
+			const snapshot = [...runtime.manager.contextManager.getSelectedContext()]
+			runtime.manager.queueMessage(prompt, snapshot)
 		} else {
 			void runtime.manager.sendRequest({ instructions: prompt })
 		}

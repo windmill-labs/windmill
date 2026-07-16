@@ -306,6 +306,10 @@ export class AIChatManager {
 	// the turn finishes (clean completion or user cancel). Ephemeral — never
 	// saved to displayMessages or history.
 	queuedMessage = $state<string>('')
+	// Context snapshot to send WITH the queued message, when it must stay scoped to
+	// what was selected at queue time (e.g. an inline element prompt submitted mid-
+	// stream) rather than the live selection, which may change before the flush.
+	queuedContext = $state<ContextElement[] | undefined>(undefined)
 	// Jobs the chat started that detached into the background (global/sessions
 	// chat only). Rendered in the jobs tray, persisted with the chat, and advanced
 	// by a single background poller. See registerJob / #pollBackgroundJobs.
@@ -1196,10 +1200,13 @@ export class AIChatManager {
 		// while a failed/empty compaction or a programmatic cancel leaves it queued.
 		if ((result === 'ok' || this.wasCancelledByUser()) && this.queuedMessage) {
 			const next = this.queuedMessage
+			const nextContext = this.queuedContext
 			this.queuedMessage = ''
-			const accepted = await this.sendRequest({ instructions: next })
+			this.queuedContext = undefined
+			const accepted = await this.sendRequest({ instructions: next, contextOverride: nextContext })
 			if (accepted === false) {
 				this.queuedMessage = next
+				this.queuedContext = nextContext
 			}
 		}
 	}
@@ -1334,12 +1341,15 @@ export class AIChatManager {
 	/** Queue the message typed while a turn is streaming. There is only ever
 	 * one queued message; pressing Enter again appends the new text as another
 	 * line so it all goes out as a single message. */
-	queueMessage(text: string) {
+	queueMessage(text: string, context?: ContextElement[]) {
 		const trimmed = text.trim()
 		if (!trimmed) {
 			return
 		}
 		this.queuedMessage = this.queuedMessage ? `${this.queuedMessage}\n${trimmed}` : trimmed
+		// Pin the context snapshot to the queued message (last writer wins if several
+		// queue while streaming — the common case is a single inline prompt).
+		if (context && context.length > 0) this.queuedContext = context
 	}
 
 	/** Remove the queued message and put its text back into the input. */
@@ -1349,6 +1359,7 @@ export class AIChatManager {
 		}
 		const message = this.queuedMessage
 		this.queuedMessage = ''
+		this.queuedContext = undefined
 		this.restoreToInput(message)
 	}
 
@@ -1983,6 +1994,10 @@ export class AIChatManager {
 			mode?: AIMode
 			lang?: ScriptLang | 'bunnative'
 			isPreprocessor?: boolean
+			// Use this selected-context snapshot for the turn instead of the live
+			// contextManager. Set when flushing a queued message that captured its
+			// context at submit time; the live selection is left untouched.
+			contextOverride?: ContextElement[]
 		} = {}
 	) => {
 		// Returns whether the input was consumed: true when it was sent as a chat
@@ -2101,9 +2116,17 @@ export class AIChatManager {
 			rollbackOptimisticSend()
 			if (this.wasCancelledByUser() && this.queuedMessage) {
 				const next = this.queuedMessage
+				const nextContext = this.queuedContext
 				this.queuedMessage = ''
-				const accepted = await this.sendRequest({ instructions: next })
-				if (accepted === false) this.queuedMessage = next
+				this.queuedContext = undefined
+				const accepted = await this.sendRequest({
+					instructions: next,
+					contextOverride: nextContext
+				})
+				if (accepted === false) {
+					this.queuedMessage = next
+					this.queuedContext = nextContext
+				}
 			} else {
 				this.aiChatInput?.restoreInstructions(this.instructions, pastes)
 			}
@@ -2123,11 +2146,26 @@ export class AIChatManager {
 		// rollbacks leave it false so queued text is restored to the input.
 		let turnCommittedCleanly = false
 		try {
-			const oldSelectedContext = this.contextManager?.getSelectedContext() ?? []
+			// A queued message carries its own context snapshot (contextOverride); use
+			// it verbatim and leave the live selection alone (it belongs to whatever the
+			// user has selected since). Otherwise read the current selection.
+			const oldSelectedContext =
+				options.contextOverride ?? this.contextManager?.getSelectedContext() ?? []
 			// DOM selector chips are one-shot: they ride with this message (captured in
 			// oldSelectedContext) and render above it, but must not persist in the input
 			// for the next turn. Clearing here leaves oldSelectedContext untouched.
-			this.contextManager?.clearSelectedDomElements()
+			if (options.contextOverride) {
+				// Queued message: only the chips it carried are consumed. Drop just
+				// those from the live selection (still there if the user didn't
+				// re-select); a newer selection made since is left intact.
+				for (const c of options.contextOverride) {
+					if (c.type === 'app_dom_selector') {
+						this.contextManager?.removeSelectedDomElement(c.selector)
+					}
+				}
+			} else {
+				this.contextManager?.clearSelectedDomElements()
+			}
 			if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
 				this.contextManager?.updateContextOnRequest(options)
 			}
@@ -2532,12 +2570,15 @@ export class AIChatManager {
 		// failed or torn-down turn.
 		if ((turnCommittedCleanly || this.wasCancelledByUser()) && this.queuedMessage) {
 			const next = this.queuedMessage
+			const nextContext = this.queuedContext
 			this.queuedMessage = ''
-			const accepted = await this.sendRequest({ instructions: next })
+			this.queuedContext = undefined
+			const accepted = await this.sendRequest({ instructions: next, contextOverride: nextContext })
 			if (accepted === false) {
 				// The auto-send bailed before becoming a turn (e.g. beforeSend
 				// failed); keep it as the queued message instead of losing it.
 				this.queuedMessage = next
+				this.queuedContext = nextContext
 			}
 		}
 		// A background job may have finished mid-turn: its note missed this turn's
@@ -2648,6 +2689,7 @@ export class AIChatManager {
 		// Drop any message queued in this conversation so it can't auto-send into
 		// the fresh chat or linger as a card across the switch.
 		this.queuedMessage = ''
+		this.queuedContext = undefined
 		// The tray + poller belong to the conversation being left; the just-saved
 		// chat keeps its persisted jobs (save() omits the arg → fallback preserves).
 		this.clearBackgroundJobs()
@@ -2679,6 +2721,7 @@ export class AIChatManager {
 			// Drop any message queued in the current conversation so it doesn't
 			// auto-send into the loaded one or linger as a card across the switch.
 			this.queuedMessage = ''
+			this.queuedContext = undefined
 			// Stop the poller for the conversation being left before swapping in the
 			// loaded chat's jobs below.
 			this.clearBackgroundJobs()
