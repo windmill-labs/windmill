@@ -141,10 +141,6 @@
 		// Session preview only: send a prompt scoped to a selected element (via the
 		// inline mini-composer anchored over it in the preview).
 		onInlinePrompt?: (selector: string, prompt: string) => void
-		// Hover-only inspector (e.g. the full-page editor): the toggle still enables
-		// hover highlighting (outline + name/size), but a click selects nothing —
-		// no persistent selection, no app-mode context pick, no inline prompt.
-		inspectorHoverOnly?: boolean
 		// Restoring an older deployment from the history drawer. A callback prop
 		// (not `on:restore` forwarding): forwarding a `createEventDispatcher`
 		// event up through these runes-mode components silently drops it.
@@ -192,7 +188,6 @@
 		onInspectorDeselect = undefined,
 		onInspectorClearAll = undefined,
 		onInlinePrompt = undefined,
-		inspectorHoverOnly = false,
 		onRestore,
 		onSavedNewAppPath,
 		condensedHeader = false
@@ -1173,9 +1168,6 @@
 
 		// Inspector events come exclusively from the preview iframe.
 		if (fromPreview && e.data.type === 'inspectorSelect') {
-			// Hover-only inspector: a click selects nothing. Ignore the pick and
-			// stay enabled so the user can keep hovering to inspect elements.
-			if (inspectorHoverOnly) return
 			inspectorElement = e.data.element as InspectorElementInfo
 			// Session preview: forward the pick so it can be attached to the chat as a
 			// selector context chip (the app-mode SelectedContext path is separate).

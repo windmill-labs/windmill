@@ -580,7 +580,6 @@
 				{loadedFromDraft}
 				othersDraftsCount={otherDraftsUsers.length}
 				onOpenOthersDrafts={() => (othersModalOpen = true)}
-				inspectorHoverOnly
 			/>
 		</div>
 	{/key}
