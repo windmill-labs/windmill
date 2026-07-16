@@ -153,6 +153,11 @@ const AI_AUTONOMY_MODE_STORAGE_KEY = 'ai-chat-autonomy-mode'
 const LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY = 'ai-chat-yolo-mode'
 const WEB_SEARCH_ERROR_HINT =
 	'Web search is unavailable for this provider/model/key. Disable web search in workspace settings and try again.'
+// The full explanation is shown once per browser; afterwards the hidden
+// thinking is only hinted at discreetly in the typing indicator.
+const REASONING_SUMMARY_WARNED_STORAGE_KEY = 'ai-chat-reasoning-summary-unverified-warned'
+const REASONING_SUMMARY_UNAVAILABLE_MESSAGE =
+	'This model is reasoning, but your OpenAI organization is not verified to generate reasoning summaries, so its thinking stays hidden. To display it, verify your organization in the OpenAI platform settings (Settings > General), then reload this page.'
 
 export enum AIMode {
 	SCRIPT = 'script',
@@ -321,6 +326,20 @@ export class AIChatManager {
 	currentReply = $state<string>('')
 	currentReasoning = $state<string>('')
 	currentReasoningActive = $state<boolean>(false)
+	// The provider reasons but refuses to stream summaries (unverified OpenAI
+	// organization) — drives the discreet "Thinking (hidden)" indicator.
+	reasoningSummaryUnavailable = $state<boolean>(false)
+
+	/** Whether the live "Thinking" indicator should hint that thinking stays
+	 * hidden. Gated on the current provider: switching to a provider that does
+	 * stream thinking must not carry the hint over. */
+	get reasoningHiddenForCurrentModel(): boolean {
+		if (!this.reasoningSummaryUnavailable) {
+			return false
+		}
+		const provider = getCurrentModel().provider
+		return provider === 'openai' || provider === 'azure_openai'
+	}
 	// Smooths the provider's bursty delivery into continuous typing by revealing
 	// buffered text a slice per frame. The reply and the reasoning/thinking stream
 	// each get their own reveal (independent buffers, both append to their own
@@ -1704,6 +1723,14 @@ export class AIChatManager {
 		}
 	}
 
+	private notifyReasoningSummaryUnavailable = () => {
+		this.reasoningSummaryUnavailable = true
+		if (getLocalSetting(REASONING_SUMMARY_WARNED_STORAGE_KEY) !== 'true') {
+			storeLocalSetting(REASONING_SUMMARY_WARNED_STORAGE_KEY, 'true')
+			sendUserToast(REASONING_SUMMARY_UNAVAILABLE_MESSAGE, 'warning', [], undefined, 10000)
+		}
+	}
+
 	private chatRequest = async ({
 		messages,
 		abortController,
@@ -1723,6 +1750,7 @@ export class AIChatManager {
 		systemMessage?: ChatCompletionSystemMessageParam
 		onWebSearchUnavailable?: () => void
 	}) => {
+		const onReasoningSummaryUnavailable = () => this.notifyReasoningSummaryUnavailable()
 		try {
 			// Use JS getters so runChatLoop re-reads tools/helpers/systemMessage/modelProvider
 			// on each iteration. This is critical for changeModeTool (Navigator → Script/Flow)
@@ -1772,6 +1800,7 @@ export class AIChatManager {
 					this.skipResponsesApi = true
 				},
 				onWebSearchUnavailable,
+				onReasoningSummaryUnavailable,
 				getPendingUserMessage: () => {
 					const pendingPrompt = this.pendingPrompt
 					if (!pendingPrompt) return undefined

@@ -50,12 +50,14 @@ function createConfig({
 	workspace,
 	modelProvider = { provider: 'openai', model: 'gpt-4.1' },
 	callbacks = createCallbacks(),
-	onWebSearchUnavailable
+	onWebSearchUnavailable,
+	onReasoningSummaryUnavailable
 }: {
 	workspace: string
 	modelProvider?: ReasoningProviderModel
 	callbacks?: ChatLoopConfig['callbacks']
 	onWebSearchUnavailable?: ChatLoopConfig['onWebSearchUnavailable']
+	onReasoningSummaryUnavailable?: ChatLoopConfig['onReasoningSummaryUnavailable']
 }): ChatLoopConfig {
 	const messages: ChatCompletionMessageParam[] = [{ role: 'user', content: 'search this' }]
 
@@ -73,7 +75,8 @@ function createConfig({
 		},
 		workspace,
 		maxIterations: 1,
-		onWebSearchUnavailable
+		onWebSearchUnavailable,
+		onReasoningSummaryUnavailable
 	}
 }
 
@@ -288,6 +291,76 @@ describe('runChatLoop web search fallback', () => {
 
 		expect(mocks.getAnthropicCompletion).toHaveBeenCalledTimes(1)
 		expect(callbacks.setToolStatus).not.toHaveBeenCalled()
+	})
+})
+
+describe('runChatLoop reasoning summary fallback', () => {
+	beforeEach(() => {
+		vi.resetAllMocks()
+		mocks.providerSupportsWebSearch.mockReturnValue(false)
+		mocks.resolveRequestReasoning.mockReturnValue('high')
+		mocks.parseOpenAIResponsesCompletion.mockResolvedValue({
+			shouldContinue: false,
+			tokenUsage
+		})
+	})
+
+	it('retries once without the summary on the unverified-org error and caches per workspace/provider', async () => {
+		const onReasoningSummaryUnavailable = vi.fn()
+		const workspace = `workspace-${randomUUID()}`
+		const modelProvider: ReasoningProviderModel = { provider: 'openai', model: 'gpt-5.1' }
+
+		mocks.getOpenAIResponsesCompletion
+			.mockRejectedValueOnce(
+				Object.assign(
+					new Error('Your organization must be verified to generate reasoning summaries.'),
+					{
+						status: 400,
+						param: 'reasoning.summary',
+						code: 'unsupported_value',
+						error: { type: 'invalid_request_error' }
+					}
+				)
+			)
+			.mockResolvedValue({})
+
+		await runChatLoop(createConfig({ workspace, modelProvider, onReasoningSummaryUnavailable }))
+
+		expect(mocks.getOpenAIResponsesCompletion).toHaveBeenCalledTimes(2)
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[0][3]).toEqual(
+			expect.objectContaining({ reasoningSummary: true })
+		)
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[1][3]).toEqual(
+			expect.objectContaining({ reasoningSummary: false })
+		)
+		expect(onReasoningSummaryUnavailable).toHaveBeenCalledTimes(1)
+		expect(mocks.getCompletion).not.toHaveBeenCalled()
+
+		// Cached: a later run in the same workspace skips the summary outright,
+		// but a different model on the same provider shares the cache entry.
+		await runChatLoop(
+			createConfig({
+				workspace,
+				modelProvider: { provider: 'openai', model: 'o3' }
+			})
+		)
+
+		expect(mocks.getOpenAIResponsesCompletion).toHaveBeenCalledTimes(3)
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[2][3]).toEqual(
+			expect.objectContaining({ reasoningSummary: false })
+		)
+	})
+
+	it('does not request a summary when reasoning is off', async () => {
+		mocks.resolveRequestReasoning.mockReturnValue(undefined)
+		mocks.getOpenAIResponsesCompletion.mockResolvedValue({})
+		const workspace = `workspace-${randomUUID()}`
+
+		await runChatLoop(createConfig({ workspace }))
+
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[0][3]).toEqual(
+			expect.objectContaining({ reasoningSummary: false })
+		)
 	})
 })
 
