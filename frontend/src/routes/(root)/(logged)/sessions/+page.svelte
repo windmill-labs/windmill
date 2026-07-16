@@ -683,13 +683,10 @@
 							>
 								{#snippet tabAccessory(_tab, isActive)}
 									{#if isActive}
-										<!-- The picker opens from any click on the active tab (label or
-										     chevron): `onActiveClick` toggles it, the active tab is excluded
-										     from pointerdown-outside so the toggle doesn't race the close,
-										     and the trigger is an inert whole-tab overlay used purely as the
-										     positioning anchor — a clickable overlay would break dnd reorder
-										     (drags can't start from a nested button). The chevron below is
-										     purely visual. -->
+										<!-- Any active-tab click toggles the picker (`onActiveClick`); the tab
+										     is excluded from pointerdown-outside so toggle doesn't race close.
+										     The trigger is an inert whole-tab overlay (anchor only — clickable
+										     would break dnd reorder); the chevron is purely visual. -->
 										<Popover
 											placement="bottom-start"
 											usePointerDownOutside

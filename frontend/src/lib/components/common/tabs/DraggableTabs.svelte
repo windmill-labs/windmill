@@ -46,14 +46,10 @@
 		/** Render after the right-pinned tabs, outside the scroll area so it stays
 		 * pinned (e.g. a "Split with Preview" toggle). */
 		trailing?: import('svelte').Snippet
-		/** Render inside each tab, after the label and before the close button (e.g. a
-		 * per-tab chevron/breadcrumb picker). Receives the tab and whether it's active.
-		 * Clicks on the accessory bubble to the tab (select / `onActiveClick`) unless the
-		 * accessory stops propagation itself. The tab is position:relative, so the
-		 * accessory may render an `absolute inset-0 pointer-events-none` element as a
-		 * whole-tab popover anchor. Don't overlay an interactive (pointer-events-on)
-		 * element across the tab: dnd refuses to start a drag from nested inputs/buttons,
-		 * which would make the tab impossible to reorder. */
+		/** Render inside each tab (after the label; receives the tab + isActive). Clicks
+		 * bubble to the tab unless the accessory stops them. The tab is position:relative
+		 * so an `absolute inset-0 pointer-events-none` child can anchor a whole-tab
+		 * popover — a *clickable* overlay would break dnd (no drags from nested buttons). */
 		tabAccessory?: import('svelte').Snippet<[TabItem, boolean]>
 	}
 
@@ -112,21 +108,28 @@
 		else onSelect(tab.id)
 	}
 
+	// Runs as a DIRECT capture listener: svelte-dnd-action's item-wrapper handler
+	// swallows Enter/Space (keyboard drag) before Svelte's root-delegated keydown
+	// would fire, so the tab must claim its keys first via stopPropagation.
 	function handleKeydown(e: KeyboardEvent, tab: TabItem) {
+		if (e.target !== e.currentTarget) return // let nested controls (close ×) act
 		if (e.key === 'Delete' || e.key === 'Backspace') {
 			if (tab.closable !== false) {
 				e.preventDefault()
+				e.stopPropagation()
 				onClose?.(tab.id)
 			}
 		} else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
 			const idx = tabs.findIndex((t) => t.id === tab.id)
 			const next = e.key === 'ArrowLeft' ? idx - 1 : idx + 1
 			if (next >= 0 && next < tabs.length) {
-				onSelect(tabs[next].id)
 				e.preventDefault()
+				e.stopPropagation()
+				onSelect(tabs[next].id)
 			}
 		} else if (e.key === 'Enter' || e.key === ' ') {
 			e.preventDefault()
+			e.stopPropagation()
 			activate(tab)
 		}
 	}
@@ -150,7 +153,7 @@
 		class={twMerge(tabClasses(isActive), tab.closable !== false && 'pr-1')}
 		onclick={() => activate(tab)}
 		onauxclick={(e) => handleAuxClick(e, tab)}
-		onkeydown={(e) => handleKeydown(e, tab)}
+		onkeydowncapture={(e) => handleKeydown(e, tab)}
 	>
 		{#if Icon}
 			<Icon size={12} class={tab.iconClass} />
