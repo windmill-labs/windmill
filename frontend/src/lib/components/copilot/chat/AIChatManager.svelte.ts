@@ -112,7 +112,7 @@ import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { AttachedFilesStore } from './files/attachedFiles.svelte'
 import { SessionArtifactsStore } from './artifacts/artifactsState.svelte'
 import { appendAttachedFilesRoster } from './files/fileTools'
-import { appendPlanModeInstructions } from './planMode'
+import { appendPlanModeInstructions, ENTER_PLAN_MODE_TOOL_DESCRIPTION } from './planMode'
 
 // SSR and users who prefer reduced motion get no typewriter pacing.
 function prefersInstantReveal(): boolean {
@@ -197,13 +197,7 @@ const AUTO_ACCEPT_TOOL_CONFIRMATION_MODES = new Set<AIMode>([
 	AIMode.APP,
 	AIMode.GLOBAL
 ])
-const PLAN_MODES = new Set<AIMode>([
-	AIMode.SCRIPT,
-	AIMode.FLOW,
-	AIMode.APP,
-	AIMode.GLOBAL,
-	AIMode.API
-])
+const PLAN_MODES = new Set<AIMode>([AIMode.GLOBAL])
 
 export function isAIMode(mode: unknown): mode is AIMode {
 	return ALL_AI_MODES.includes(mode as AIMode)
@@ -418,6 +412,7 @@ export class AIChatManager {
 	// labels while set; the hook clears it back to undefined when done.
 	loadingLabel = $state<string | undefined>(undefined)
 	autonomyMode = $state<AIAutonomyMode>(getPersistedAutonomyMode())
+	isSessionChat = $state(false)
 	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
 	autoAcceptEditsActive = $derived(
 		this.autoAcceptEditsAvailable &&
@@ -428,7 +423,7 @@ export class AIChatManager {
 	autoAcceptToolConfirmationsActive = $derived(
 		this.autonomyMode === AIAutonomyMode.YOLO && this.autoAcceptToolConfirmationsAvailable
 	)
-	planModeAvailable = $derived(supportsPlanMode(this.mode))
+	planModeAvailable = $derived(this.isSessionChat && supportsPlanMode(this.mode))
 	planModeActive = $derived(this.autonomyMode === AIAutonomyMode.PLAN && this.planModeAvailable)
 	prePlanAutonomyMode = $state<AIAutonomyMode | undefined>(undefined)
 	#automaticScroll = $state<boolean>(true)
@@ -460,15 +455,14 @@ export class AIChatManager {
 	/** Cached datatables for app context (fetched asynchronously) */
 	cachedDatatables = $state<AppDatatableElement[]>([])
 
-	private confirmationCallbacks = new Map<string, (value: boolean) => void>()
+	private confirmationCallbacks = new Map<
+		string,
+		{ resolve: (value: boolean) => void; toolName?: string }
+	>()
 	private userQuestionCallbacks = new Map<string, (choices: string[] | undefined) => void>()
 	private appDatatablesRefreshTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 
 	disabledModes: Partial<Record<AIMode, boolean>> = $state({})
-	// Set by AI sessions. Enables the session-only preview tools (open_preview /
-	// get_preview_status) and their system-prompt guidance in GLOBAL mode; the
-	// global side-panel chat leaves it false so those tools aren't offered.
-	isSessionChat = false
 	// The session this manager belongs to (session chats only). Carried into the
 	// tool `helpers` in GLOBAL mode so the preview/deploy tools dispatch to THIS
 	// session rather than the UI-active one — keeps backgrounded sessions isolated.
@@ -1239,13 +1233,13 @@ export class AIChatManager {
 	}
 
 	// Request confirmation from user for a tool call
-	requestConfirmation = (toolId: string): Promise<boolean> => {
+	requestConfirmation = (toolId: string, toolName?: string): Promise<boolean> => {
 		if (this.autoAcceptToolConfirmationsActive) {
 			return Promise.resolve(true)
 		}
 
 		return new Promise((resolve) => {
-			this.confirmationCallbacks.set(toolId, resolve)
+			this.confirmationCallbacks.set(toolId, { resolve, toolName })
 		})
 	}
 
@@ -1253,14 +1247,16 @@ export class AIChatManager {
 	handleToolConfirmation = (toolId: string, confirmed: boolean) => {
 		const confirmationCallback = this.confirmationCallbacks.get(toolId)
 		if (confirmationCallback) {
-			confirmationCallback(confirmed)
+			confirmationCallback.resolve(confirmed)
 			this.confirmationCallbacks.delete(toolId)
 		}
 	}
 
 	private acceptPendingToolConfirmations = () => {
-		for (const confirmationCallback of this.confirmationCallbacks.values()) {
-			confirmationCallback(true)
+		for (const { resolve, toolName } of this.confirmationCallbacks.values()) {
+			// Decline a pending enter_plan_mode here: opting into YOLO must not drop the
+			// user into read-only plan mode against the autonomy they just chose.
+			resolve(toolName !== 'enter_plan_mode')
 		}
 		this.confirmationCallbacks.clear()
 	}
@@ -1271,8 +1267,19 @@ export class AIChatManager {
 		}
 	}
 
+	private resolvePendingPlanCard = (toolName: string, confirmed: boolean) => {
+		for (const [toolId, cb] of this.confirmationCallbacks) {
+			if (cb.toolName === toolName) {
+				cb.resolve(confirmed)
+				this.confirmationCallbacks.delete(toolId)
+			}
+		}
+	}
+
 	setAutonomyMode = (mode: AIAutonomyMode) => {
-		if (mode === AIAutonomyMode.PLAN && this.autonomyMode !== AIAutonomyMode.PLAN) {
+		const enteringPlan = mode === AIAutonomyMode.PLAN && this.autonomyMode !== AIAutonomyMode.PLAN
+		const leavingPlan = mode !== AIAutonomyMode.PLAN && this.autonomyMode === AIAutonomyMode.PLAN
+		if (enteringPlan) {
 			this.prePlanAutonomyMode = this.autonomyMode
 		} else if (mode !== AIAutonomyMode.PLAN) {
 			this.prePlanAutonomyMode = undefined
@@ -1281,6 +1288,11 @@ export class AIChatManager {
 		this.autonomyMode = mode
 		persistAutonomyMode(mode)
 
+		if (enteringPlan) {
+			this.resolvePendingPlanCard('enter_plan_mode', true)
+		} else if (leavingPlan) {
+			this.resolvePendingPlanCard('exit_plan_mode', false)
+		}
 		if (this.autoAcceptToolConfirmationsActive) {
 			this.acceptPendingToolConfirmations()
 		}
@@ -1696,7 +1708,7 @@ export class AIChatManager {
 		requiresConfirmation: true,
 		confirmationMessage: (args) => args.summary ?? 'Ready to execute this plan?',
 		cancellationMessage:
-			'The user chose to keep planning instead of executing. Revise the plan if needed, then call exit_plan_mode again when ready.',
+			'The user chose to keep planning instead of executing. Keep refining the plan and wait for them before executing.',
 		showDetails: true,
 		fn: async () => {
 			// No-op if the user already left plan mode while the card was pending.
@@ -1705,6 +1717,47 @@ export class AIChatManager {
 			}
 			return 'Plan approved. You may now execute it.'
 		}
+	}
+
+	enterPlanModeTool: Tool<any> = {
+		def: {
+			type: 'function' as const,
+			function: {
+				name: 'enter_plan_mode',
+				description: ENTER_PLAN_MODE_TOOL_DESCRIPTION,
+				parameters: {
+					type: 'object',
+					properties: {
+						reason: {
+							type: 'string',
+							description:
+								'One concise sentence on what you want to research/plan and why, shown to the user when asking to enter plan mode.'
+						}
+					},
+					required: ['reason']
+				}
+			}
+		},
+		readonly: true,
+		requiresConfirmation: true,
+		confirmationMessage: (args) =>
+			args.reason ??
+			'Switch to plan mode? The assistant will research and draft a plan for your approval before changing anything.',
+		cancellationMessage:
+			'The user declined plan mode. Continue with the task directly, requesting confirmation on changes as usual.',
+		showDetails: true,
+		fn: async () => {
+			this.setAutonomyMode(AIAutonomyMode.PLAN)
+			return 'Plan mode active.'
+		}
+	}
+
+	get planModeTool(): Tool<any> | undefined {
+		// planModeActive implies planModeAvailable; swapping these offers enter_plan_mode while already planning.
+		if (this.planModeActive) return this.exitPlanModeTool
+		if (this.planModeAvailable && !this.autoAcceptToolConfirmationsActive)
+			return this.enterPlanModeTool
+		return undefined
 	}
 
 	openChat = () => {
@@ -1872,7 +1925,8 @@ export class AIChatManager {
 					return base
 				},
 				get tools() {
-					return self.planModeActive ? [...self.tools, self.exitPlanModeTool] : self.tools
+					const planTool = self.planModeTool
+					return planTool ? [...self.tools, planTool] : self.tools
 				},
 				get helpers() {
 					return self.helpers
@@ -2625,8 +2679,8 @@ export class AIChatManager {
 	}
 
 	cancel = (reason?: string) => {
-		for (const confirmationCallback of this.confirmationCallbacks.values()) {
-			confirmationCallback(false)
+		for (const { resolve } of this.confirmationCallbacks.values()) {
+			resolve(false)
 		}
 		this.confirmationCallbacks.clear()
 		for (const resolveQuestion of this.userQuestionCallbacks.values()) {

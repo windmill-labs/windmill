@@ -383,14 +383,16 @@ describe('AIChatManager autonomy mode', () => {
 		expect(applied).toBe(true)
 	})
 
-	it('activates plan mode only in modes with mutating tools', () => {
+	it('makes plan mode available only in session chats', () => {
 		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
 		manager.setAutonomyMode(AIAutonomyMode.PLAN)
 
-		manager.mode = AIMode.SCRIPT
-		expect(manager.planModeActive).toBe(true)
+		expect(manager.planModeAvailable).toBe(false)
+		expect(manager.planModeActive).toBe(false)
 
-		manager.mode = AIMode.API
+		manager.isSessionChat = true
+		expect(manager.planModeAvailable).toBe(true)
 		expect(manager.planModeActive).toBe(true)
 
 		manager.mode = AIMode.NAVIGATOR
@@ -411,9 +413,68 @@ describe('AIChatManager autonomy mode', () => {
 		expect(manager.prePlanAutonomyMode).toBeUndefined()
 	})
 
-	it('exit_plan_mode restores the pre-plan posture', async () => {
+	it('enter_plan_mode enters plan mode and records the prior posture', async () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		manager.setAutonomyMode(AIAutonomyMode.ACCEPT_EDIT)
+
+		await manager.enterPlanModeTool.fn({
+			args: { reason: 'research the change first' },
+			workspace: 'test-workspace',
+			helpers: {},
+			toolCallbacks: {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn()
+			},
+			toolId: 'call_enter'
+		})
+
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.PLAN)
+		expect(manager.planModeActive).toBe(true)
+		expect(manager.prePlanAutonomyMode).toBe(AIAutonomyMode.ACCEPT_EDIT)
+	})
+
+	it('offers exactly one plan-mode tool depending on session, availability, autonomy, and state', () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+
+		expect(manager.planModeTool).toBeUndefined()
+
+		manager.isSessionChat = true
+		expect(manager.planModeTool).toBe(manager.enterPlanModeTool)
+
+		manager.setAutonomyMode(AIAutonomyMode.YOLO)
+		expect(manager.planModeTool).toBeUndefined()
+
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+		expect(manager.planModeTool).toBe(manager.exitPlanModeTool)
+
+		manager.mode = AIMode.NAVIGATOR
+		expect(manager.planModeTool).toBeUndefined()
+	})
+
+	it('declines a pending enter_plan_mode when the user switches to YOLO, but accepts other tools', async () => {
 		const manager = new AIChatManager()
 		manager.mode = AIMode.SCRIPT
+		manager.setAutonomyMode(AIAutonomyMode.DEFAULT)
+
+		const enterConfirmed = manager.requestConfirmation('call_enter', 'enter_plan_mode')
+		const writeConfirmed = manager.requestConfirmation('call_write', 'write_script')
+
+		// Switching to YOLO auto-accepts pending confirmations — except the plan-entry
+		// proposal, which must not force the user into read-only plan mode.
+		manager.setAutonomyMode(AIAutonomyMode.YOLO)
+
+		expect(await enterConfirmed).toBe(false)
+		expect(await writeConfirmed).toBe(true)
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.YOLO)
+	})
+
+	it('exit_plan_mode restores the pre-plan posture', async () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
 		manager.setAutonomyMode(AIAutonomyMode.YOLO)
 		manager.setAutonomyMode(AIAutonomyMode.PLAN)
 
@@ -429,6 +490,36 @@ describe('AIChatManager autonomy mode', () => {
 		})
 
 		expect(manager.autonomyMode).toBe(AIAutonomyMode.YOLO)
+		expect(manager.planModeActive).toBe(false)
+	})
+
+	it('approves a pending enter_plan_mode card when the user enters plan mode via the picker', async () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		manager.setAutonomyMode(AIAutonomyMode.DEFAULT)
+
+		const enterConfirmed = manager.requestConfirmation('call_enter', 'enter_plan_mode')
+
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+
+		expect(await enterConfirmed).toBe(true)
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.PLAN)
+		expect(manager.planModeActive).toBe(true)
+	})
+
+	it('declines a pending exit_plan_mode card when the user leaves plan mode via the picker', async () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+
+		const exitConfirmed = manager.requestConfirmation('call_exit', 'exit_plan_mode')
+
+		manager.setAutonomyMode(AIAutonomyMode.DEFAULT)
+
+		expect(await exitConfirmed).toBe(false)
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.DEFAULT)
 		expect(manager.planModeActive).toBe(false)
 	})
 

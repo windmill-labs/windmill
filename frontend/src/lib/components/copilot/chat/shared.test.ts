@@ -282,7 +282,7 @@ describe('processToolCall', () => {
 			}
 		})
 
-		expect(requestConfirmation).toHaveBeenCalledWith('call_2')
+		expect(requestConfirmation).toHaveBeenCalledWith('call_2', 'create_schedule')
 		expect(fn).toHaveBeenCalled()
 		expect(setToolStatus).toHaveBeenCalledWith(
 			'call_2',

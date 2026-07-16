@@ -31,6 +31,18 @@
 			!message.isStreamingArguments
 	)
 
+	const isPlanEnter = $derived(message.toolName === 'enter_plan_mode')
+	const planReason = $derived(
+		typeof message.parameters?.reason === 'string' ? message.parameters.reason : ''
+	)
+	const planEnterStarted = $derived(
+		isPlanEnter &&
+			!message.needsConfirmation &&
+			!message.error &&
+			!message.isLoading &&
+			!message.isStreamingArguments
+	)
+
 	const hasParameters = $derived(
 		message.parameters !== undefined && Object.keys(message.parameters).length > 0
 	)
@@ -119,6 +131,61 @@
 					startIcon={{ icon: Play }}
 				>
 					Approve & run
+				</Button>
+			</div>
+		{/if}
+	</div>
+{:else if isPlanEnter}
+	<div class="my-1 rounded-md border border-border-light bg-surface overflow-hidden">
+		<div
+			class="flex items-center gap-2 px-3 py-2 border-b border-border-light bg-surface-secondary/30"
+		>
+			{#if message.isLoading && !message.needsConfirmation}
+				<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500" />
+			{:else if planEnterStarted}
+				<Check class="w-3.5 h-3.5 text-green-600" />
+			{:else}
+				<ClipboardList class="w-3.5 h-3.5 text-secondary" />
+			{/if}
+			<span class="text-primary font-medium text-xs">
+				{planEnterStarted
+					? 'Planning started'
+					: message.error
+						? 'Continuing without planning'
+						: 'Start planning?'}
+			</span>
+		</div>
+		{#if planReason}
+			<div class="px-3 py-2 text-xs text-secondary leading-snug">
+				{planReason}
+			</div>
+		{/if}
+		{#if message.needsConfirmation}
+			<div
+				class="flex flex-row items-center justify-end gap-2 px-3 py-2 border-t border-border-light"
+			>
+				<Button
+					variant="default"
+					size="xs"
+					on:click={() => {
+						if (message.tool_call_id) {
+							aiChatManager.handleToolConfirmation(message.tool_call_id, false)
+						}
+					}}
+				>
+					Not now
+				</Button>
+				<Button
+					variant="accent"
+					size="xs"
+					on:click={() => {
+						if (message.tool_call_id) {
+							aiChatManager.handleToolConfirmation(message.tool_call_id, true)
+						}
+					}}
+					startIcon={{ icon: ClipboardList }}
+				>
+					Start planning
 				</Button>
 			</div>
 		{/if}

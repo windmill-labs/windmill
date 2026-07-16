@@ -762,7 +762,7 @@ export async function processToolCall<T>({
 
 		// If confirmation is needed and we have the callback, wait for it
 		if (needsConfirmation && toolCallbacks.requestConfirmation) {
-			const confirmed = await toolCallbacks.requestConfirmation(toolCall.id)
+			const confirmed = await toolCallbacks.requestConfirmation(toolCall.id, toolCall.function.name)
 
 			if (!confirmed) {
 				toolCallbacks.setToolStatus(toolCall.id, {
@@ -973,7 +973,7 @@ export interface ToolCallbacks {
 	/** Fired when the model starts reasoning — drives a "Thinking" indicator even when
 	 * no summary text is returned (e.g. OpenAI reasoning models). */
 	onReasoningStart?: () => void
-	requestConfirmation?: (toolId: string) => Promise<boolean>
+	requestConfirmation?: (toolId: string, toolName?: string) => Promise<boolean>
 	shouldAutoAcceptToolConfirmations?: () => boolean
 	isPlanModeActive?: () => boolean
 	onToolBlockedByPlanMode?: () => void
