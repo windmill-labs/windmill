@@ -6,7 +6,11 @@ import type {
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import { getCompletion, parseOpenAICompletion, providerSupportsWebSearch } from '../lib'
-import { resolveRequestReasoning, type ReasoningProviderModel } from '../reasoningRegistry'
+import {
+	resolveEffectiveReasoning,
+	resolveRequestReasoning,
+	type ReasoningProviderModel
+} from '../reasoningRegistry'
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
 import { usesAnthropicMessagesApi } from '../modelConfig'
 import { getOpenAIResponsesCompletion, parseOpenAIResponsesCompletion } from './openai-responses'
@@ -335,8 +339,12 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 
 		if (isOpenAI) {
 			const reasoningSummaryCacheKey = getReasoningSummaryCacheKey(workspace, modelProvider)
+			// Gate on the effective (not request) reasoning: an explicit off resolves
+			// to a truthy disable token like 'none' on the request side, and asking
+			// for a summary on a non-reasoning request would 400 on unverified orgs.
 			let reasoningSummary =
-				!!reasoningEffort && !unsupportedReasoningSummaryCache.has(reasoningSummaryCacheKey)
+				resolveEffectiveReasoning(modelProvider) !== undefined &&
+				!unsupportedReasoningSummaryCache.has(reasoningSummaryCacheKey)
 
 			const runOpenAIResponses = async (useWebSearch: boolean): Promise<boolean> => {
 				const completion = await getOpenAIResponsesCompletion(

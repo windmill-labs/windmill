@@ -327,18 +327,23 @@ export class AIChatManager {
 	currentReasoning = $state<string>('')
 	currentReasoningActive = $state<boolean>(false)
 	// The provider reasons but refuses to stream summaries (unverified OpenAI
-	// organization) — drives the discreet "Thinking (hidden)" indicator.
-	reasoningSummaryUnavailable = $state<boolean>(false)
+	// organization) — drives the discreet "Thinking (hidden)" indicator. Keyed
+	// by workspace:provider like the chat-loop fallback cache, so the hint never
+	// carries over to a provider or workspace whose summaries work.
+	private reasoningSummaryUnavailableFor = $state<string | undefined>(undefined)
 
-	/** Whether the live "Thinking" indicator should hint that thinking stays
-	 * hidden. Gated on the current provider: switching to a provider that does
-	 * stream thinking must not carry the hint over. */
+	private reasoningSummaryKey(provider: string): string {
+		return `${this.operatingWorkspace ?? ''}:${provider}`
+	}
+
+	/** Whether the live "Thinking" indicator should hint that thinking stays hidden. */
 	get reasoningHiddenForCurrentModel(): boolean {
-		if (!this.reasoningSummaryUnavailable) {
+		if (this.reasoningSummaryUnavailableFor === undefined) {
 			return false
 		}
-		const provider = getCurrentModel().provider
-		return provider === 'openai' || provider === 'azure_openai'
+		return (
+			this.reasoningSummaryUnavailableFor === this.reasoningSummaryKey(getCurrentModel().provider)
+		)
 	}
 	// Smooths the provider's bursty delivery into continuous typing by revealing
 	// buffered text a slice per frame. The reply and the reasoning/thinking stream
@@ -1724,7 +1729,7 @@ export class AIChatManager {
 	}
 
 	private notifyReasoningSummaryUnavailable = () => {
-		this.reasoningSummaryUnavailable = true
+		this.reasoningSummaryUnavailableFor = this.reasoningSummaryKey(getCurrentModel().provider)
 		if (getLocalSetting(REASONING_SUMMARY_WARNED_STORAGE_KEY) !== 'true') {
 			storeLocalSetting(REASONING_SUMMARY_WARNED_STORAGE_KEY, 'true')
 			sendUserToast(REASONING_SUMMARY_UNAVAILABLE_MESSAGE, 'warning', [], undefined, 10000)

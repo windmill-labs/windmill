@@ -12,7 +12,8 @@ const mocks = vi.hoisted(() => ({
 	parseOpenAIResponsesCompletion: vi.fn(),
 	getAnthropicCompletion: vi.fn(),
 	parseAnthropicCompletion: vi.fn(),
-	resolveRequestReasoning: vi.fn()
+	resolveRequestReasoning: vi.fn(),
+	resolveEffectiveReasoning: vi.fn()
 }))
 
 vi.mock('../lib', () => ({
@@ -22,7 +23,8 @@ vi.mock('../lib', () => ({
 }))
 
 vi.mock('../reasoningRegistry', () => ({
-	resolveRequestReasoning: mocks.resolveRequestReasoning
+	resolveRequestReasoning: mocks.resolveRequestReasoning,
+	resolveEffectiveReasoning: mocks.resolveEffectiveReasoning
 }))
 
 vi.mock('./openai-responses', () => ({
@@ -299,6 +301,7 @@ describe('runChatLoop reasoning summary fallback', () => {
 		vi.resetAllMocks()
 		mocks.providerSupportsWebSearch.mockReturnValue(false)
 		mocks.resolveRequestReasoning.mockReturnValue('high')
+		mocks.resolveEffectiveReasoning.mockReturnValue('high')
 		mocks.parseOpenAIResponsesCompletion.mockResolvedValue({
 			shouldContinue: false,
 			tokenUsage
@@ -351,15 +354,20 @@ describe('runChatLoop reasoning summary fallback', () => {
 		)
 	})
 
-	it('does not request a summary when reasoning is off', async () => {
-		mocks.resolveRequestReasoning.mockReturnValue(undefined)
+	it('does not request a summary when reasoning is explicitly off via a disable token', async () => {
+		// gpt-5.1+ reasoning is turned off with the explicit 'none' effort on the
+		// wire, while the effective reasoning resolves to undefined.
+		mocks.resolveRequestReasoning.mockReturnValue('none')
+		mocks.resolveEffectiveReasoning.mockReturnValue(undefined)
 		mocks.getOpenAIResponsesCompletion.mockResolvedValue({})
 		const workspace = `workspace-${randomUUID()}`
 
-		await runChatLoop(createConfig({ workspace }))
+		await runChatLoop(
+			createConfig({ workspace, modelProvider: { provider: 'openai', model: 'gpt-5.1' } })
+		)
 
 		expect(mocks.getOpenAIResponsesCompletion.mock.calls[0][3]).toEqual(
-			expect.objectContaining({ reasoningSummary: false })
+			expect.objectContaining({ reasoningEffort: 'none', reasoningSummary: false })
 		)
 	})
 })
