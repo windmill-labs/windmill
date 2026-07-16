@@ -13,6 +13,7 @@
 	import { messageDraft, segments } from './chatDraft'
 	import { lineCountLabel } from './pasteTokens'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
+	import { compactImageSlots } from './imageUtils'
 
 	const aiChatManager = getAiChatManager()
 
@@ -46,8 +47,8 @@
 
 	// The bubble only keeps a bounded thumbnail (see `transcriptImage`); the copy the
 	// model got is still in the API message. Expanding shows that one, so it gains
-	// real detail instead of upscaling. Undefined — no API counterpart, e.g. a
-	// rejection stripped it — falls back to the thumbnail.
+	// real detail instead of upscaling. Slot-aligned with the thumbnails: a missing
+	// slot (rejection-stripped, byte-bound-evicted) falls back to its own thumbnail.
 	const sentImages = $derived(
 		message.role === 'user' && message.images?.length
 			? aiChatManager.storedImages(messageIndex)
@@ -92,7 +93,7 @@
 					bind:selectedContext
 					initialInstructions={message.content}
 					initialPastes={message.pastes}
-					initialImages={aiChatManager.storedImages(messageIndex)}
+					initialImages={compactImageSlots(aiChatManager.storedImages(messageIndex))}
 					{editingMessageIndex}
 					onClickOutside={() => (editingMessageIndex = null)}
 					onKeyDown={(e) => {

@@ -92,6 +92,15 @@ export function imageSlotsFromContent(content: unknown): (AttachedImage | null)[
 	return slots.length > 0 ? slots : undefined
 }
 
+/** The surviving images of a slot array, for consumers that resend rather than
+ *  display (an evicted image has no full copy left to resend). */
+export function compactImageSlots(
+	slots: (AttachedImage | null)[] | undefined
+): AttachedImage[] | undefined {
+	const images = slots?.filter((image): image is AttachedImage => image !== null)
+	return images && images.length > 0 ? images : undefined
+}
+
 export function isImageFile(file: File | Blob): boolean {
 	return typeof file.type === 'string' && file.type.startsWith('image/')
 }

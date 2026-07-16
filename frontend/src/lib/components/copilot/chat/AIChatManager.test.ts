@@ -1034,12 +1034,15 @@ describe('AIChatManager queued messages', () => {
 
 		const stored = manager.storedImages(0)
 
-		expect(stored).toHaveLength(2)
-		expect(stored?.[0]).toMatchObject({
+		// Slot-aligned with the thumbnails: the bubble indexes this array directly,
+		// so A's evicted slot must stay in place rather than shifting B onto it.
+		expect(stored).toHaveLength(3)
+		expect(stored?.[0]).toBeNull()
+		expect(stored?.[1]).toMatchObject({
 			dataUrl: 'data:image/png;base64,FULL_B',
 			previewUrl: 'data:image/png;base64,THUMB_B'
 		})
-		expect(stored?.[1]).toMatchObject({
+		expect(stored?.[2]).toMatchObject({
 			dataUrl: 'data:image/png;base64,FULL_C',
 			previewUrl: 'data:image/png;base64,THUMB_C'
 		})

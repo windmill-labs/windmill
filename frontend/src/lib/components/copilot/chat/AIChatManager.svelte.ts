@@ -61,6 +61,7 @@ import { type PasteAttachment } from './pasteTokens'
 import {
 	type AttachedImage,
 	boundImagePartBytes,
+	compactImageSlots,
 	imageSlotsFromContent,
 	MAX_ATTACHED_IMAGES,
 	messagesHaveImageParts,
@@ -2821,31 +2822,29 @@ export class AIChatManager {
 	}
 
 	/**
-	 * The images of a stored user turn as the model saw them. Anything resending a
-	 * turn (retry, edit) must read them from here: `displayMessages` only holds the
-	 * bounded copy, and resending that would downgrade the model's own input. The
-	 * transcript's copies ride back along as previews so the resend re-persists a
-	 * bounded copy rather than a full-resolution one.
+	 * The images of a stored user turn as the model saw them, aligned with the
+	 * transcript's thumbnails: entry i belongs to `shown.images[i]`, `null` where
+	 * the byte bound evicted one (so eviction can't shift the survivors onto the
+	 * wrong thumbnails). Anything resending a turn (retry, edit) must read them
+	 * from here — compacted via `compactImageSlots` — never from the transcript:
+	 * that copy is a bounded thumbnail, and resending it would silently downgrade
+	 * the model's input.
 	 */
-	storedImages(displayMessageIndex: number): AttachedImage[] | undefined {
+	storedImages(displayMessageIndex: number): (AttachedImage | null)[] | undefined {
 		const shown = this.displayMessages[displayMessageIndex]
 		if (!shown || shown.role !== 'user') return undefined
-		// Slot-indexed so byte-bound eviction of one image can't shift the
-		// remaining ones onto the wrong transcript thumbnails.
 		const slots = imageSlotsFromContent(this.messages[shown.index]?.content)
 		// Never fall back to the transcript's copy. It outlives a rejection that
 		// stripped the real one from history (the bubble keeps its thumbnail so the
 		// user can still see what they sent), and resending it would re-attach the
 		// image the provider just refused, failing the retry the same way.
 		if (!slots) return undefined
-		const sent = slots
-			.map((image, i) => {
-				if (!image) return null
-				const preview = shown.images?.[i]?.dataUrl
-				return preview && preview !== image.dataUrl ? { ...image, previewUrl: preview } : image
-			})
-			.filter((image): image is AttachedImage => image !== null)
-		return sent.length > 0 ? sent : undefined
+		const sent = slots.map((image, i) => {
+			if (!image) return null
+			const preview = shown.images?.[i]?.dataUrl
+			return preview && preview !== image.dataUrl ? { ...image, previewUrl: preview } : image
+		})
+		return sent.some((image) => image !== null) ? sent : undefined
 	}
 
 	restartGeneration = (
@@ -2862,7 +2861,7 @@ export class AIChatManager {
 
 		// Read while both arrays are intact: storedImages pairs the API message with
 		// its transcript entry, and the truncations below drop them.
-		const sentImages = this.storedImages(displayMessageIndex)
+		const sentImages = compactImageSlots(this.storedImages(displayMessageIndex))
 
 		// Remove all messages including and after the specified user message
 		this.displayMessages = this.displayMessages.slice(0, displayMessageIndex)
