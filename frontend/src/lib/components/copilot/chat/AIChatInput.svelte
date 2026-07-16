@@ -25,6 +25,9 @@
 	} from './imageUtils'
 	import { modelSupportsVision } from '../modelConfig'
 	import { tryGetCurrentModel } from '$lib/aiStore'
+	import ExpandableImage, {
+		isImageViewerOpen
+	} from '$lib/components/common/image/ExpandableImage.svelte'
 
 	const aiChatManager = getAiChatManager()
 
@@ -318,6 +321,10 @@
 
 	function clickOutside(node: HTMLElement) {
 		function handleClick(event: MouseEvent) {
+			// An expanded image chip renders in a portal, so clicks in it land outside
+			// this node without being outside the composer. Dismissing on them would
+			// discard the edit the user opened the image from.
+			if (isImageViewerOpen()) return
 			if (node && !node.contains(event.target as Node)) {
 				onClickOutside()
 			}
@@ -691,8 +698,11 @@
 		<div class="flex flex-row flex-wrap items-center gap-1.5 mb-1">
 			{#each images as image, i (i)}
 				<div class="relative group">
-					<img
+					<!-- The chip is a 48px object-cover crop, so the expanded view is the only
+					     way to check what was actually attached before sending it. -->
+					<ExpandableImage
 						src={image.previewUrl ?? image.dataUrl}
+						fullSrc={image.dataUrl}
 						alt={image.name ?? 'attached image'}
 						class="h-12 w-12 object-cover rounded border border-border-light"
 					/>

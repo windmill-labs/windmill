@@ -1,3 +1,17 @@
+<script module lang="ts">
+	let openViewers = 0
+
+	/**
+	 * Whether an expanded viewer is currently on screen. Components that treat a
+	 * click elsewhere in the document as "dismiss me" MUST consult this: the viewer
+	 * portals to `body`, so clicking it is not DOM-contained by whatever opened it
+	 * and would otherwise read as an outside-click — closing the thing underneath.
+	 */
+	export function isImageViewerOpen(): boolean {
+		return openViewers > 0
+	}
+</script>
+
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
 	import Modal2 from '../modal/Modal2.svelte'
@@ -22,6 +36,14 @@
 	let { src, fullSrc, alt = '', title, class: className = '' }: Props = $props()
 
 	let isOpen = $state(false)
+
+	$effect(() => {
+		if (!isOpen) return
+		openViewers++
+		return () => {
+			openViewers--
+		}
+	})
 
 	function expand(e: Event) {
 		// Thumbnails are commonly rendered inside a click target of their own (the
