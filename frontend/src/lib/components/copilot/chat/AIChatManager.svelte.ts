@@ -974,12 +974,15 @@ export class AIChatManager {
 		}
 		this.messages = this.messages.slice(drop)
 		// User display messages carry the index of their API message so restart
-		// can rewind to it; re-base them on the compacted history. A message
-		// whose API counterpart was dropped clamps to 0: everything before it
-		// was dropped too (compaction only removes prefixes), so restarting
-		// from it restarts from an empty history.
+		// can rewind to it; re-base them on the compacted history. A message whose
+		// API counterpart was dropped goes negative — deliberately NOT clamped to
+		// 0, which would alias it to the first surviving message and let
+		// storedImages hand a retry that message's images. Negative reads as
+		// "counterpart gone": storedImages finds nothing there, and restart maps
+		// it to an empty history (everything before it was dropped too, since
+		// compaction only removes prefixes).
 		this.displayMessages = this.displayMessages.map((m) =>
-			m.role === 'user' ? { ...m, index: Math.max(0, m.index - drop) } : m
+			m.role === 'user' ? { ...m, index: m.index - drop } : m
 		)
 		return freed
 	}
@@ -2693,8 +2696,12 @@ export class AIChatManager {
 		// Remove all messages including and after the specified user message
 		this.displayMessages = this.displayMessages.slice(0, displayMessageIndex)
 
-		// Find corresponding message in actual messages and remove it and everything after it
-		let actualMessageIndex = this.messages.findIndex((_, i) => i === userMessage.index)
+		// Find corresponding message in actual messages and remove it and everything
+		// after it. A negative index marks a message whose API counterpart was
+		// removed by drop-oldest compaction — everything before it went too, so
+		// restarting from it restarts from an empty history.
+		let actualMessageIndex =
+			userMessage.index < 0 ? 0 : this.messages.findIndex((_, i) => i === userMessage.index)
 
 		if (actualMessageIndex === -1) {
 			throw new Error('No actual user message found to restart from')

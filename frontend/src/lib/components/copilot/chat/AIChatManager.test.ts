@@ -736,6 +736,40 @@ describe('AIChatManager queued messages', () => {
 		expect(hasImage).toBe(false)
 	})
 
+	// Drop-oldest removes the API counterpart but the transcript keeps the bubble.
+	// Its restart index must not alias to a surviving message, or retrying/editing
+	// the dropped prompt would silently attach that other turn's images.
+	it("does not serve another turn's images for a message dropped by drop-oldest compaction", () => {
+		const manager = createManager()
+		manager.messages = [
+			{ role: 'user', content: 'old prompt' },
+			{ role: 'assistant', content: 'old answer' },
+			{
+				role: 'user',
+				content: [
+					{ type: 'text', text: 'new prompt' },
+					{ type: 'image_url', image_url: { url: 'data:image/png;base64,NEW' } }
+				] as any
+			},
+			{ role: 'assistant', content: 'new answer' }
+		]
+		manager.displayMessages = [
+			{ role: 'user', content: 'old prompt', index: 0 },
+			{ role: 'assistant', content: 'old answer' },
+			{ role: 'user', content: 'new prompt', index: 2, images: [img('thumb')] },
+			{ role: 'assistant', content: 'new answer' }
+		]
+
+		// frees the first turn (user + assistant), keeps the image-bearing one
+		manager.compactOldestMessages(1)
+
+		expect(manager.messages.length).toBe(2)
+		// the dropped message resolves no images...
+		expect(manager.storedImages(0)).toBeUndefined()
+		// ...while the surviving one still resolves its own
+		expect(manager.storedImages(2)?.[0]?.dataUrl).toBe('data:image/png;base64,NEW')
+	})
+
 	it('restores queued images to the input on dequeue', () => {
 		const input = createInputMock()
 		const manager = createManager(input)
@@ -1166,7 +1200,7 @@ describe('AIChatManager context compaction', () => {
 		expect(manager.messages.map((m) => m.role)).toEqual(['user', 'user'])
 	})
 
-	it('re-bases display message indices and clamps fully-compacted ones to 0', () => {
+	it('re-bases display message indices, marking fully-compacted ones negative', () => {
 		const manager = new AIChatManager()
 		manager.messages = [
 			{ role: 'user', content: 'a'.repeat(400) }, // ~100 estimated tokens
@@ -1182,8 +1216,11 @@ describe('AIChatManager context compaction', () => {
 		]
 		manager.compactOldestMessages(150)
 		expect(manager.messages.map((m) => m.content)).toEqual(['c', 'd'])
+		// A dropped message's index goes negative rather than clamping to 0:
+		// 0 would alias it to the first surviving message, and storedImages
+		// would serve that message's images to a retry of this one.
 		expect(manager.displayMessages.map((m) => ('index' in m ? m.index : undefined))).toEqual([
-			0,
+			-2,
 			undefined,
 			0,
 			1

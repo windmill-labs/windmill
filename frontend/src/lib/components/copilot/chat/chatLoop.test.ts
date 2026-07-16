@@ -438,3 +438,52 @@ describe('runChatLoop history sanitization', () => {
 		expect((poisoned as any).tool_calls[0].function.arguments).toContain('trunc')
 	})
 })
+
+describe('runChatLoop per-iteration vision gating', () => {
+	beforeEach(() => {
+		vi.resetAllMocks()
+		mocks.providerSupportsWebSearch.mockReturnValue(false)
+		mocks.resolveRequestReasoning.mockReturnValue(undefined)
+	})
+
+	// The model selector stays enabled while the loop runs, and the loop re-reads
+	// the model each iteration. The vision gate has to be re-applied at the same
+	// cadence: filtering once at send start would ship the history's image parts
+	// to a text-only model the user switched to mid-turn.
+	it('strips image parts when the model switches to a text-only one mid-loop', async () => {
+		const config = createConfig({ workspace: `workspace-${randomUUID()}` })
+		config.maxIterations = 2
+		config.messages.splice(0, config.messages.length, {
+			role: 'user',
+			content: [
+				{ type: 'text', text: 'look at this' },
+				{ type: 'image_url', image_url: { url: 'data:image/png;base64,IMG' } }
+			]
+		} as any)
+		// vision model on the first iteration, known text-only on the second
+		let iteration = 0
+		Object.defineProperty(config, 'modelProvider', {
+			get: () =>
+				iteration === 0
+					? { provider: 'openai', model: 'gpt-4.1' }
+					: { provider: 'groq', model: 'llama-3.3-70b-versatile' }
+		})
+		mocks.getOpenAIResponsesCompletion.mockResolvedValue({})
+		mocks.parseOpenAIResponsesCompletion.mockImplementation(async () => {
+			iteration++
+			return { shouldContinue: true, tokenUsage }
+		})
+		mocks.getCompletion.mockResolvedValue({})
+		mocks.parseOpenAICompletion.mockResolvedValue({ shouldContinue: false, tokenUsage })
+
+		await runChatLoop(config)
+
+		// the vision iteration carries the image...
+		const first = mocks.getOpenAIResponsesCompletion.mock.calls[0][0]
+		expect(JSON.stringify(first)).toContain('image_url')
+		// ...the text-only iteration must not
+		expect(mocks.getCompletion).toHaveBeenCalled()
+		const second = mocks.getCompletion.mock.calls[0][0]
+		expect(JSON.stringify(second)).not.toContain('image_url')
+	})
+})

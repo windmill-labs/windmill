@@ -8,7 +8,8 @@ import type {
 import { getCompletion, parseOpenAICompletion, providerSupportsWebSearch } from '../lib'
 import { resolveRequestReasoning, type ReasoningProviderModel } from '../reasoningRegistry'
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
-import { usesAnthropicMessagesApi } from '../modelConfig'
+import { modelSupportsVision, usesAnthropicMessagesApi } from '../modelConfig'
+import { stripImagePartsFromMessages } from './imageUtils'
 import { getOpenAIResponsesCompletion, parseOpenAIResponsesCompletion } from './openai-responses'
 import type { Tool, ToolCallbacks } from './shared'
 import { sanitizeToolCallArguments } from './toolCallArguments'
@@ -266,9 +267,15 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		// so background paths (metadata/autocomplete) never inherit it.
 		const reasoningEffort = resolveRequestReasoning(modelProvider)
 
+		// Checked per iteration, like the model itself: the selector stays enabled
+		// while the loop runs, and a switch to a known text-only model mid-turn
+		// would otherwise send it the history's image parts and fail the turn.
+		const visibleMessages = modelSupportsVision(modelProvider.provider, modelProvider.model)
+			? messages
+			: stripImagePartsFromMessages(messages)
 		const messageParams = [
 			systemMessage,
-			...sanitizeToolCallArguments(messages),
+			...sanitizeToolCallArguments(visibleMessages),
 			...(pendingUserMessage ? [pendingUserMessage] : [])
 		]
 		const toolDefs = tools.map((t) => t.def)

@@ -363,34 +363,33 @@
 		const dt = e.dataTransfer
 		if (!dt) return
 		// Images are attached to the message (multimodal); other files link as text context.
-		const imageFiles: File[] = []
-		// addImages reserves its slots synchronously, so hand each image over the moment
-		// it is known rather than after the text work: the gap left sending enabled with
-		// an image pending (measured ~90ms for 40 files, longer for a folder), and a send
-		// in it would land the image on the next message.
+		// Top-level images are reserved from dt.files BEFORE any await: addImages claims
+		// its composer slots synchronously, so a send during the (possibly long) folder
+		// or text ingestion below cannot land them on the next message. dt.files only
+		// lists top-level items and stays valid past the handler's first await, but is
+		// read now, while the DataTransfer is certainly live — it is also the only place
+		// a drag with no filesystem backing exists (an image dragged straight from
+		// another browser tab resolves every getAsFileSystemHandle() to null).
+		const flatFiles = Array.from(dt.files ?? [])
+		const topLevelImages = flatFiles.filter(isImageFile)
 		const imageWork: Promise<unknown>[] = []
+		if (topLevelImages.length > 0) {
+			imageWork.push(aiChatInput?.addImages(topLevelImages) ?? Promise.resolve())
+		}
 		if (canUseFsAccess) {
-			// Read the flat list synchronously too (before any await, while the
-			// DataTransfer is live): a drag with no filesystem backing — e.g. an image
-			// dragged straight from another browser tab — resolves every
-			// getAsFileSystemHandle() to null, and dt.files is the only place it exists.
-			const flatFiles = Array.from(dt.files ?? [])
 			// getAsFileSystemHandle calls are kicked off synchronously inside this call.
 			const handles = await handlesFromDataTransfer(dt)
+			// No handles → nothing beyond dt.files exists; its text files are all there is.
+			// Handle-backed files are top-level by definition, so their images are
+			// already reserved above — only text files remain to route.
 			const looseFiles =
 				handles.length === 0
 					? flatFiles
 					: await Promise.all(handles.filter(isFileHandle).map((h) => h.getFile()))
-			imageFiles.push(...looseFiles.filter(isImageFile))
-			if (imageFiles.length > 0) {
-				imageWork.push(aiChatInput?.addImages(imageFiles) ?? Promise.resolve())
-			}
 			// Files are always snapshotted (handle discarded).
 			const textFiles = looseFiles.filter((f) => !isImageFile(f))
 			if (textFiles.length > 0) await handleAddFiles(textFiles)
-			// Folders link as a live handle — walked last: the walk can take a while,
-			// and an image reaching addImages only after it would leave sending
-			// enabled with the image unclaimed.
+			// Folders link as a live handle.
 			for (const h of handles.filter(isDirectoryHandle)) {
 				await addDirHandle(h)
 			}
@@ -400,18 +399,21 @@
 			// (they're only valid during this event) before its first await; if it yields nothing
 			// (no entry API), fall back to the flat dt.files.
 			const entries = await readDroppedEntries(Array.from(dt.items ?? []))
-			const source: FileToAttach[] =
-				entries.length > 0 ? entries : dt.files.length > 0 ? Array.from(dt.files) : []
+			const source: FileToAttach[] = entries.length > 0 ? entries : flatFiles
+			// Images found by the walk split by origin: top-level ones were already
+			// reserved from dt.files (a nested path has a directory segment), folder-
+			// nested ones are only discoverable here.
+			const nestedImages: File[] = []
 			const textEntries = source.filter((entry) => {
 				const file = entry instanceof File ? entry : entry.file
-				if (isImageFile(file)) {
-					imageFiles.push(file)
-					return false
+				if (!isImageFile(file)) return true
+				if (!(entry instanceof File) && entry.path?.includes('/')) {
+					nestedImages.push(file)
 				}
-				return true
+				return false
 			})
-			if (imageFiles.length > 0) {
-				imageWork.push(aiChatInput?.addImages(imageFiles) ?? Promise.resolve())
+			if (nestedImages.length > 0) {
+				imageWork.push(aiChatInput?.addImages(nestedImages) ?? Promise.resolve())
 			}
 			if (textEntries.length > 0) await handleAddFiles(textEntries)
 		}
