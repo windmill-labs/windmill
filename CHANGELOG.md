@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.760.1](https://github.com/windmill-labs/windmill/compare/v1.760.0...v1.760.1) (2026-07-15)
+
+
+### Bug Fixes
+
+* **apps:** honor presigned S3 signature on app display/preview routes ([#10141](https://github.com/windmill-labs/windmill/issues/10141)) ([8c725d9](https://github.com/windmill-labs/windmill/commit/8c725d9e44e38bf3b35f41b847cdf8745e07942e))
+
+## [1.760.0](https://github.com/windmill-labs/windmill/compare/v1.759.0...v1.760.0) (2026-07-15)
+
+
+### Features
+
+* **nsjail:** make python/ansible rlimit_as configurable per worker (GIT-921) ([#10138](https://github.com/windmill-labs/windmill/issues/10138)) ([1787201](https://github.com/windmill-labs/windmill/commit/17872018cc037e699b1f6e1589d0ad05e0883cca))
+
+
+### Bug Fixes
+
+* **ai:** disable redirects on worker AI provider client (GHSA-5q4v) ([#10122](https://github.com/windmill-labs/windmill/issues/10122)) ([27ead8d](https://github.com/windmill-labs/windmill/commit/27ead8d0848cceacaf0c49fed0e8896472b851e3))
+* **ai:** stop sending the AI agent system prompt twice for OpenAI ([#10126](https://github.com/windmill-labs/windmill/issues/10126)) ([8bfe5c9](https://github.com/windmill-labs/windmill/commit/8bfe5c93404ba3f137394f16d0571a06d891dc3b))
+* **apps:** invalidate cached app policy on change or deletion (GHSA-r5v4-cxh9-7qhq) ([#10121](https://github.com/windmill-labs/windmill/issues/10121)) ([f7eb5c4](https://github.com/windmill-labs/windmill/commit/f7eb5c460d78792c24297e20cb062638522a4f68))
+* **bash:** normalize CRLF line endings before running scripts ([#10131](https://github.com/windmill-labs/windmill/issues/10131)) ([6407d9f](https://github.com/windmill-labs/windmill/commit/6407d9ff5ce51e71ff8b8fc503d89a2bdc2e1761))
+* **cli-image:** patch fixable CRITICAL CVEs in windmill-cli image (GIT-922) ([#10135](https://github.com/windmill-labs/windmill/issues/10135)) ([5626768](https://github.com/windmill-labs/windmill/commit/56267684718944ef4d4ecd3b610bad81132e1990))
+* **frontend:** graceful small-screen timeframe picker on the runs page ([#10073](https://github.com/windmill-labs/windmill/issues/10073)) ([af177ce](https://github.com/windmill-labs/windmill/commit/af177cefe07e6037e33cc90757088a98fb63a49f))
+* **frontend:** keep session-exit URL clean by syncing new_draft strip with the router ([#10101](https://github.com/windmill-labs/windmill/issues/10101)) ([9705d60](https://github.com/windmill-labs/windmill/commit/9705d602848966f850613233d6e23b73a753c259))
+* **frontend:** only carry custom-tag overrides on 'Run again' ([#10137](https://github.com/windmill-labs/windmill/issues/10137)) ([bd3adc9](https://github.com/windmill-labs/windmill/commit/bd3adc9781d8e77928c9feb03d0e05b63a1aaf7c))
+* **frontend:** treat a displaced draft save as superseded, not failed ([#10094](https://github.com/windmill-labs/windmill/issues/10094)) ([2fe999f](https://github.com/windmill-labs/windmill/commit/2fe999f66cd15acd81850f970ada31e9892abff2))
+* reject git URL fragment/query SSRF bypass (GHSA-p5cj-8cfh-mjv6) ([#10120](https://github.com/windmill-labs/windmill/issues/10120)) ([73c8d7f](https://github.com/windmill-labs/windmill/commit/73c8d7f08ad55cd2323d1bb9438f00a8ac30e046))
+* **security:** enforce variables:write scope on resource-delete var cascade (GHSA-xmr2-98m6-cjf7) ([#10123](https://github.com/windmill-labs/windmill/issues/10123)) ([188647a](https://github.com/windmill-labs/windmill/commit/188647a942a0cb496d63c71bf3e0f7a3136ec217))
+
 ## [1.759.0](https://github.com/windmill-labs/windmill/compare/v1.758.0...v1.759.0) (2026-07-15)
 
 

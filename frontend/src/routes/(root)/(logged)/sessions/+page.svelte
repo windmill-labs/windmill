@@ -46,8 +46,10 @@
 	import { setToolCompletionListener } from '$lib/components/copilot/chat/shared'
 	import { base } from '$lib/base'
 	import {
+		artifactKey,
 		matchPreviewPage,
 		pageKey,
+		parseArtifactRoute,
 		parsePreviewItemRoute,
 		previewLocationLabel,
 		type PreviewTarget
@@ -347,6 +349,12 @@
 	// Page path shown after the workspace breadcrumb — the active tab's observed
 	// location, so the breadcrumb tracks where the user browses inside the tab.
 	const displayPath = $derived(owner?.activeTab?.loc ?? owner?.activeTab?.url ?? `${base}/`)
+	// Artifacts have no workspace page, so "Open in workspace" can't resolve for them.
+	const activeArtifact = $derived(owner?.activeTab ? parseArtifactRoute(owner.activeTab.url) : null)
+	const activeTabIsArtifact = $derived(activeArtifact != null)
+	// The active session's artifacts, surfaced as an "Artifacts" branch in the
+	// preview pickers.
+	const sessionArtifacts = $derived(activeRuntime?.manager.artifacts.artifacts ?? [])
 	// Writes to the tab's own session model: a hidden warm session's iframe can
 	// finish loading while another session is shown, and its location must not
 	// land on the visible session's tabs.
@@ -460,7 +468,9 @@
 			? leafKeyFor(parsedRoute.kind, parsedRoute.itemPath)
 			: currentPage
 				? pageKey(currentPage.path)
-				: undefined
+				: activeArtifact
+					? artifactKey(activeArtifact.id)
+					: undefined
 	)
 	let activeTabPickerOpen = $state(false)
 
@@ -640,17 +650,19 @@
 							<!-- Open-in-full-page + full-screen toggle, floating over the top-right
 								     corner to mirror the collapse control. -->
 							<div class="absolute top-1 right-1 z-30 flex items-center gap-0.5">
-								<a
-									href={withWorkspaceParam(
-										owner?.activeTab?.loc || owner?.activeTab?.url || `${base}/`,
-										previewWorkspace
-									)}
-									title="Open in workspace"
-									aria-label="Open in workspace"
-									class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
-								>
-									<ExternalLink size={14} />
-								</a>
+								{#if !activeTabIsArtifact}
+									<a
+										href={withWorkspaceParam(
+											owner?.activeTab?.loc || owner?.activeTab?.url || `${base}/`,
+											previewWorkspace
+										)}
+										title="Open in workspace"
+										aria-label="Open in workspace"
+										class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
+									>
+										<ExternalLink size={14} />
+									</a>
+								{/if}
 								<button
 									type="button"
 									onclick={() => (fullscreen = !fullscreen)}
@@ -716,6 +728,7 @@
 													initialHighlight={activePickerHighlight}
 													{currentItem}
 													workspaceId={previewWorkspace}
+													artifacts={sessionArtifacts}
 													onPick={(t) => {
 														activeTabPickerOpen = false
 														navigatePreviewTo(t)
@@ -748,6 +761,7 @@
 										{#snippet content()}
 											<PreviewRouterPicker
 												workspaceId={previewWorkspace}
+												artifacts={sessionArtifacts}
 												onPick={(t) => {
 													newTabOpen = false
 													openInNewTab(t)
@@ -822,6 +836,7 @@
 											{#snippet content()}
 												<PreviewRouterPicker
 													workspaceId={previewWorkspace}
+													artifacts={sessionArtifacts}
 													onPick={(t) => {
 														emptyStateNewTabOpen = false
 														openInNewTab(t)

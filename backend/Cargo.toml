@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.759.0"
+version = "1.760.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -87,7 +87,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.759.0"
+version = "1.760.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -326,6 +326,8 @@ async-nats.workspace = true
 aws-sdk-sqs.workspace = true
 aws-config.workspace = true
 aws-credential-types.workspace = true
+hmac.workspace = true
+hex.workspace = true
 
 
 [workspace.dependencies]
