@@ -356,14 +356,20 @@ describe('SessionPreviewTabs.navigate', () => {
 		expect(o.tabs[0].url).toBe(artifactUrl('art1', 'Plan'))
 	})
 
-	it('drops a stale friendly label when the tab is retargeted', () => {
+	it('drops a stale friendly label and path when the tab is retargeted', () => {
 		const o = owner()
 		o.open(flowTarget)
-		o.setEditorFriendlyLabel({ kind: 'flow', path: 'u/me/bar' }, 'luminous_flow')
+		o.setEditorFriendlyLabel(
+			{ kind: 'flow', path: 'u/me/bar' },
+			'luminous_flow',
+			'u/me/luminous_flow'
+		)
 		expect(o.tabs[0].friendlyLabel).toBe('luminous_flow')
+		expect(o.tabs[0].friendlyPath).toBe('u/me/luminous_flow')
 		// Navigating the same tab to a plain page must clear the flow's name.
 		o.navigate(pageTarget)
 		expect(o.tabs[0].friendlyLabel).toBeUndefined()
+		expect(o.tabs[0].friendlyPath).toBeUndefined()
 	})
 })
 

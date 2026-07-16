@@ -318,6 +318,29 @@
 	let buildError = $state<string | undefined>(undefined)
 	// Latest uncaught runtime error thrown by the rendered app; cleared on next build.
 	let runtimeError = $state<string | undefined>(undefined)
+	// Set when a build ran cleanly but never mounted anything into #root — the
+	// entrypoint defines a component without ever mounting it. Cleared on next build.
+	let emptyRender = $state(false)
+	// The repair hint above has to match the app's framework: only React apps have
+	// an `index.tsx` and `createRoot`; Svelte and Vue mount from `index.ts`. Keyed
+	// off file extensions rather than exact template filenames, which users rename.
+	let mountHint = $derived.by(() => {
+		const paths = Object.keys(files ?? {}).map((p) => p.replace(/^\//, ''))
+		const entrypoint = paths.find((p) => /^index\.(tsx|jsx|ts|js)$/.test(p))
+		if (paths.some((p) => p.endsWith('.svelte'))) {
+			return {
+				entrypoint: entrypoint ?? 'index.ts',
+				call: "mount(App, { target: document.getElementById('root')! })"
+			}
+		}
+		if (paths.some((p) => p.endsWith('.vue'))) {
+			return { entrypoint: entrypoint ?? 'index.ts', call: "createApp(App).mount('#root')" }
+		}
+		return {
+			entrypoint: entrypoint ?? 'index.tsx',
+			call: "createRoot(document.getElementById('root')!).render(<App />)"
+		}
+	})
 	let logsCollapsed = $state(false)
 	let logsDiv: HTMLDivElement | undefined = $state(undefined)
 	$effect(() => {
@@ -1126,6 +1149,18 @@
 			return
 		}
 
+		// The build ran without mounting the app, so the preview is blank with
+		// nothing to report — surfaced as a hint naming the missing mount call.
+		// `renderAppeared` withdraws it if a mount lands after the grace window.
+		if (fromPreview && e.data.type === 'emptyRender') {
+			emptyRender = true
+			return
+		}
+		if (fromPreview && e.data.type === 'renderAppeared') {
+			emptyRender = false
+			return
+		}
+
 		// Uncaught error/rejection from the rendered app — surfaced in the preview
 		// overlay so a runtime crash isn't a silent blank error.
 		if (fromPreview && e.data.type === 'runtimeError') {
@@ -1241,11 +1276,12 @@
 		}
 	}
 
-	// Feed a build into the inline preview iframe. Clears any prior runtime-error
-	// overlay first: a fresh render supersedes the old crash, and if the new
-	// render throws again app-preview.html re-posts `runtimeError`.
+	// Feed a build into the inline preview iframe. Clears the previous run's
+	// overlays first: a fresh render supersedes the old crash or blank, and
+	// app-preview.html re-posts if the new render fails the same way.
 	function feedPreviewIframe(build: { css: string; js: string }) {
 		runtimeError = undefined
+		emptyRender = false
 		previewIframe?.contentWindow?.postMessage(
 			{ type: 'preview', css: build.css, js: build.js },
 			'*'
@@ -2183,6 +2219,22 @@
 											<pre class="overflow-auto whitespace-pre-wrap text-xs max-h-60"
 												>{runtimeError}</pre
 											>
+										</Alert>
+									</div>
+								{:else if emptyRender}
+									<div class="absolute top-12 left-2 right-2 z-20 isolate" role="alert">
+										<Alert
+											type="error"
+											title="Nothing was mounted"
+											class="relative before:absolute before:inset-0 before:-z-10 before:rounded-md before:bg-surface before:content-['']"
+										>
+											<span class="text-xs">
+												The build succeeded but nothing mounted into <code>#root</code>. Add a mount
+												call to <code>{mountHint.entrypoint}</code>:
+												<code class="block mt-1 whitespace-pre-wrap break-all"
+													>{mountHint.call}</code
+												>
+											</span>
 										</Alert>
 									</div>
 								{/if}

@@ -2162,6 +2162,7 @@ export const globalTools: Tool<{}>[] = [
 			'askUserQuestion',
 			'Ask the user a question with proposed answers and wait for their selected or custom answer before continuing.'
 		),
+		streamingLabel: 'Asking the user a question...',
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			const parsed = askUserQuestionSchema.parse(args)
 			const userQuestion = {
@@ -2171,7 +2172,7 @@ export const globalTools: Tool<{}>[] = [
 			}
 
 			toolCallbacks.setToolStatus(toolId, {
-				content: parsed.question,
+				content: `Asking user: ${parsed.question}`,
 				userQuestion,
 				isLoading: true
 			})
@@ -2191,7 +2192,7 @@ export const globalTools: Tool<{}>[] = [
 			if (!selected?.length) {
 				const message = 'Question cancelled by user'
 				toolCallbacks.setToolStatus(toolId, {
-					content: message,
+					content: `Asked: ${parsed.question} — cancelled by user`,
 					userQuestion: { ...userQuestion, canceled: true },
 					isLoading: false,
 					error: message
@@ -2205,12 +2206,13 @@ export const globalTools: Tool<{}>[] = [
 			// ("Yes, immediately") stays unambiguous to the model reading it back.
 			const answerText =
 				selected.length === 1 ? selected[0] : selected.map((c) => `- ${c}`).join('\n')
-			// The collapsed tool-header is a human glance, not model input, so the picks
-			// read as a compact comma list there instead of a stacked bullet list.
+			// The collapsed tool-header is a human glance, not model input, so it carries
+			// the question plus the picks as a compact comma list (not a bullet list) —
+			// it is the only place the exchange stays readable in the transcript.
 			const answerSummary = selected.join(', ')
 
 			toolCallbacks.setToolStatus(toolId, {
-				content: `User answered question: ${answerSummary}`,
+				content: `Asked: ${parsed.question} — ${answerSummary}`,
 				userQuestion: {
 					...userQuestion,
 					selectedChoices: selected

@@ -1,12 +1,14 @@
 <!--
 @component
-Preview "router" picker — a `WorkspaceItemDrillPicker` superset used by the
-session preview breadcrumb. Same drill model and workspace-item branches, plus
-a leading "Pages" branch (Home, Runs, Workspace settings, …) so the breadcrumb
-can route the preview iframe to non-item pages too, not just scripts/flows/apps.
+Preview "router" picker — a `WorkspaceItemDrillPicker` sibling used by the
+session preview breadcrumb. The root mirrors the workspace home's first level:
+a leading "Pages" branch (Runs, Schedules, Workspace settings, …) followed by
+the `f/<folder>` / `u/<user>` directories flattened across kinds (no
+Flows/Scripts/Apps grouping — leaves carry kind icons instead).
 
 Kept separate from `WorkspaceItemDrillPicker` so the editor breadcrumb (which
-only ever navigates between items) doesn't grow a Pages section.
+only ever navigates between items, grouped by kind) doesn't grow a Pages
+section or the flat layout.
 -->
 <script lang="ts" module>
 	export type Scope = { kind: 'flow' | 'script' | 'app' | 'all'; dir?: string } | undefined
@@ -18,7 +20,11 @@ only ever navigates between items) doesn't grow a Pages section.
 	import { resource } from 'runed'
 	import { workspaceStore } from '$lib/stores'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
-	import { type WorkspaceItem, type WorkspaceItemKind } from '$lib/components/workspacePicker'
+	import {
+		workspaceItemDisplayPath,
+		type WorkspaceItem,
+		type WorkspaceItemKind
+	} from '$lib/components/workspacePicker'
 	import { useWorkspaceItemsLoader } from '$lib/components/workspaceItemsLoader.svelte'
 	import DrillPicker from '../DrillPicker.svelte'
 	import type { DrillBranch, DrillLeaf, DrillNode } from '$lib/components/drillPicker'
@@ -27,7 +33,10 @@ only ever navigates between items) doesn't grow a Pages section.
 		legacyScopeToPath,
 		relativizeWorkspacePath
 	} from '$lib/components/workspaceTree'
-	import { listGlobalDrafts } from '$lib/components/copilot/chat/global/userDraftAdapter'
+	import {
+		getGlobalDraftStoragePath,
+		listGlobalDrafts
+	} from '$lib/components/copilot/chat/global/userDraftAdapter'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import type { PersistedArtifact } from '$lib/components/copilot/chat/artifacts/artifactsDB'
 	import {
@@ -96,6 +105,13 @@ only ever navigates between items) doesn't grow a Pages section.
 		() => kinds
 	)
 
+	// The flat root is the union of every kind's folders, so there's no
+	// per-kind drill step left to lazy-load from — fetch everything up front
+	// (module-cached; the picker only mounts when its popover opens).
+	$effect(() => {
+		if (effectiveWorkspace) untrack(() => loader.ensureAll())
+	})
+
 	// Surface AI-created drafts the same way the editor picker does so in-flight
 	// chat-scaffolded items are navigable (see WorkspaceItemDrillPicker).
 	const KIND_TO_DRAFT_TYPE = { flow: 'flow', script: 'script', app: 'app' } as const
@@ -105,14 +121,23 @@ only ever navigates between items) doesn't grow a Pages section.
 	)
 	function aiDraftsForKind(k: Kind): WorkspaceItem[] {
 		const targetType = KIND_TO_DRAFT_TYPE[k]
+		const ws = effectiveWorkspace
 		return (globalDraftsResource.current ?? [])
 			.filter((d) => d.type === targetType)
-			.map((d) => ({
-				path: d.path,
-				summary: d.summary ?? '',
-				kind: k,
-				raw_app: k === 'app' ? !!(d.value as { files?: unknown })?.files : undefined
-			}))
+			.map((d) => {
+				// A live entry's `path` is the editor's friendly effective path —
+				// display-only, so picking a leaf keyed by it would route to a 404.
+				// Re-key to the storage path (identity, dedupe against the loaded
+				// row, navigation) and demote the friendly path to `draftPath`.
+				const storagePath = ws ? getGlobalDraftStoragePath(ws, targetType, d.path) : d.path
+				return {
+					path: storagePath,
+					draftPath: storagePath !== d.path ? d.path : d.draftPath,
+					summary: d.summary ?? '',
+					kind: k,
+					raw_app: k === 'app' ? !!(d.value as { files?: unknown })?.files : undefined
+				}
+			})
 	}
 	const extraItemsByKind = $derived<Partial<Record<Kind, WorkspaceItem[]>>>(
 		Object.fromEntries(kinds.map((k) => [k, aiDraftsForKind(k)]))
@@ -179,7 +204,8 @@ only ever navigates between items) doesn't grow a Pages section.
 				kinds,
 				currentItem,
 				loadingKind: loader.loadingKind,
-				extraItemsByKind
+				extraItemsByKind,
+				layout: 'flat'
 			})
 		)
 	])
@@ -193,8 +219,12 @@ only ever navigates between items) doesn't grow a Pages section.
 	const computedInitialScope = untrack(() =>
 		initialHighlight && isArtifactKey(initialHighlight)
 			? ['artifacts']
-			: legacyScopeToPath(initialScope, kinds)
+			: legacyScopeToPath(initialScope, kinds, 'flat')
 	)
+
+	// The flat root has no branch to carry a per-kind loading flag — surface
+	// the first-fetch state at the picker level instead.
+	const rootLoading = $derived(kinds.some((k) => !loader.loaded[k] && loader.loadingKind[k]))
 </script>
 
 {#snippet leafIcon(leaf: DrillLeaf<PreviewTarget>)}
@@ -207,10 +237,7 @@ only ever navigates between items) doesn't grow a Pages section.
 {/snippet}
 
 {#snippet branchIcon(branch: DrillBranch<PreviewTarget>)}
-	{#if branch.key === 'kind:flow' || branch.key === 'kind:script' || branch.key === 'kind:app'}
-		{@const k = branch.key.slice(5) as Kind}
-		<RowIcon kind={k} size={12} />
-	{:else if branch.icon}
+	{#if branch.icon}
 		{@const Icon = branch.icon}
 		<Icon size={12} class="shrink-0 text-tertiary" />
 	{/if}
@@ -228,9 +255,12 @@ only ever navigates between items) doesn't grow a Pages section.
 	{leafIcon}
 	{branchIcon}
 	leafSecondary={(leaf, scope) =>
-		leaf.data.type === 'item' ? relativizeWorkspacePath(leaf.data.item.path, scope) : undefined}
+		leaf.data.type === 'item'
+			? relativizeWorkspacePath(workspaceItemDisplayPath(leaf.data.item), scope)
+			: undefined}
 	onScopeChange={(scope) => {
 		if (scope.length > 0) loader.ensureForScopeSegment(scope[0])
 	}}
 	onFilterChange={loader.onFilterChange}
+	{rootLoading}
 />
