@@ -54,6 +54,7 @@ import {
 } from '../imageUtils'
 import { modelSupportsVision } from '../../modelConfig'
 import { tryGetCurrentModel } from '$lib/aiStore'
+import { isChromiumBrowser } from '$lib/utils'
 import {
 	applyEditableFlowJsonToFlow,
 	buildEditableFlowJson,
@@ -942,7 +943,11 @@ Rules:
 - Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty or not-yet-created folder is fine (create_folder first if needed, then open it). Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.
 - When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
 - get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.
-- When the user raises how a raw app looks (something is off, or they want the design or layout improved), call take_screenshot to see what they are looking at before changing anything. Reach for it when the request is about appearance, not to review your own edits, which you can read back from the code. It needs the raw app preview open (open_preview kind="raw_app").
+${
+	isChromiumBrowser()
+		? `- When the user raises how a raw app looks (something is off, or they want the design or layout improved), call take_screenshot to see what they are looking at before changing anything. Reach for it when the request is about appearance, not to review your own edits, which you can read back from the code. It needs the raw app preview open (open_preview kind="raw_app").`
+		: `- When the user raises how a raw app looks (something is off, or they want the design or layout improved) and their description alone isn't specific enough to pinpoint the problem, ask them to paste or drop a screenshot of it into the chat before changing anything.`
+}
 - open_page opens its page as a tab in the side-panel preview next to the chat — the only way to show one of these pages there (open_preview only handles editable items). Changing filters on a page already open updates that same tab; only pass new_tab when the user explicitly asks for a separate tab.
 - create_artifact saves a persistent markdown document (a planning doc, design write-up, spec, or other longer structured output) shown in the session preview panel. Prefer it over a long inline reply for content the user will revisit; keep brief answers inline. To revise one, call list_artifacts then read_artifact for the current content, then update_artifact to overwrite it — never create a second artifact for the same document.`
 			: ''
@@ -3001,9 +3006,16 @@ export const SESSION_PREVIEW_TOOL_NAMES = new Set([
  * global side-panel chat.
  */
 export function globalToolsFor({ sessionPreview }: { sessionPreview: boolean }): Tool<{}>[] {
-	return sessionPreview
+	const tools = sessionPreview
 		? globalTools
 		: globalTools.filter((t) => !SESSION_PREVIEW_TOOL_NAMES.has(t.def.function.name))
+	// DOM capture re-renders the app through the engine's SVG-image path, which is
+	// only faithful on Blink — Gecko/WebKit shift text spacing and wrapping (font
+	// fallback, sub-pixel rounding). Elsewhere the tool is withheld entirely and
+	// the system prompt tells the agent to ask the user for a screenshot instead.
+	return isChromiumBrowser()
+		? tools
+		: tools.filter((t) => t.def.function.name !== 'take_screenshot')
 }
 
 type WriteDraftCtx = {
