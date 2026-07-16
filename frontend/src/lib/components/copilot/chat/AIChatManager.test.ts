@@ -578,9 +578,11 @@ describe('AIChatManager queued messages', () => {
 		expect(urls).toEqual(['data:image/png;base64,FULLRES'])
 	})
 
-	// The gate on this turn's images is not enough: history keeps image parts from
-	// earlier turns, and a text-only model rejects the whole request over them.
-	it('strips historical images from the outbound copy on a text-only model', async () => {
+	// The loop, not the send, owns the vision strip: it re-applies it per iteration
+	// for whatever model that iteration runs on, so a mid-loop switch in either
+	// direction sees the right view. A copy stripped at send time could never be
+	// un-stripped when the user switches text-only → vision during the turn.
+	it('passes the full history to the loop even on a text-only model', async () => {
 		replyWith('done')
 		const manager = createManager(createInputMock())
 		manager.mode = AIMode.GLOBAL
@@ -602,9 +604,53 @@ describe('AIChatManager queued messages', () => {
 		const anyImage = sent.some(
 			(m: any) => Array.isArray(m.content) && m.content.some((p: any) => p.type === 'image_url')
 		)
-		expect(anyImage).toBe(false)
-		// stored history keeps them, so switching back to a vision model still works
-		expect((manager.messages[0].content as any[]).some((p) => p.type === 'image_url')).toBe(true)
+		expect(anyImage).toBe(true)
+		mocks.tryGetCurrentModel.mockReturnValue(model)
+	})
+
+	// Empty instructions are a valid image-only send; they must override, not
+	// keep, text a failed or cancelled earlier turn left in this.instructions.
+	it('does not attach stale instructions to an image-only send', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		manager.instructions = 'text from a failed earlier turn'
+
+		await manager.sendRequest({ instructions: '', images: [img('a')] })
+
+		const sent = mocks.runChatLoop.mock.calls[0][0].messages.at(-1)
+		const text = Array.isArray(sent.content)
+			? sent.content
+					.filter((p: any) => p.type === 'text')
+					.map((p: any) => p.text)
+					.join('\n')
+			: sent.content
+		expect(text).not.toContain('text from a failed earlier turn')
+	})
+
+	// The failing request may have used the model selected at send time, not the
+	// currently selected one — a mid-flight switch must not stop its id being
+	// excluded from the rejection match.
+	it('does not strip images when the error echoes the send-time model after a mid-flight switch', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		mocks.tryGetCurrentModel.mockReturnValue({
+			provider: 'openrouter',
+			model: 'meta-llama/llama-3.2-90b-vision-instruct'
+		})
+		mocks.runChatLoop.mockImplementation(async () => {
+			// the user switches models while the request is in flight...
+			mocks.tryGetCurrentModel.mockReturnValue({ provider: 'openai', model: 'gpt-4o' })
+			// ...and the in-flight model fails with an unrelated error echoing its id
+			throw new Error('429 Rate limit reached for meta-llama/llama-3.2-90b-vision-instruct')
+		})
+
+		await manager.sendRequest({ instructions: 'look at this', images: [img('a')] })
+
+		const stillThere = manager.messages.some(
+			(m: any) => Array.isArray(m.content) && m.content.some((p: any) => p.type === 'image_url')
+		)
+		expect(stillThere).toBe(true)
 		mocks.tryGetCurrentModel.mockReturnValue(model)
 	})
 

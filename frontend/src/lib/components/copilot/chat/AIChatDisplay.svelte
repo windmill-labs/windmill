@@ -400,21 +400,16 @@
 			// (no entry API), fall back to the flat dt.files.
 			const entries = await readDroppedEntries(Array.from(dt.items ?? []))
 			const source: FileToAttach[] = entries.length > 0 ? entries : flatFiles
-			// Images found by the walk split by origin: top-level ones were already
-			// reserved from dt.files (a nested path has a directory segment), folder-
-			// nested ones are only discoverable here.
-			const nestedImages: File[] = []
+			// Only top-level images attach to the message, and those were already
+			// reserved from dt.files before the walk — drop them here so they aren't
+			// re-reported as skipped non-text. Folder-nested images are deliberately
+			// NOT attached (the FSA path never extracts folder contents either); they
+			// ride the text ingestion and are summarized as skipped.
 			const textEntries = source.filter((entry) => {
 				const file = entry instanceof File ? entry : entry.file
-				if (!isImageFile(file)) return true
-				if (!(entry instanceof File) && entry.path?.includes('/')) {
-					nestedImages.push(file)
-				}
-				return false
+				const nested = !(entry instanceof File) && entry.path?.includes('/')
+				return !isImageFile(file) || !!nested
 			})
-			if (nestedImages.length > 0) {
-				imageWork.push(aiChatInput?.addImages(nestedImages) ?? Promise.resolve())
-			}
 			if (textEntries.length > 0) await handleAddFiles(textEntries)
 		}
 		await Promise.all(imageWork)

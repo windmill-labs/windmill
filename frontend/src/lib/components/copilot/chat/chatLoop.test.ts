@@ -578,6 +578,29 @@ describe('runChatLoop per-iteration vision gating', () => {
 		mocks.resolveRequestReasoning.mockReturnValue(undefined)
 	})
 
+	// The loop owns the vision strip entirely — the caller passes the full
+	// history even for a known text-only model (see AIChatManager.chatRequest).
+	it('strips image parts from the first iteration on a known text-only model', async () => {
+		const config = createConfig({
+			workspace: `workspace-${randomUUID()}`,
+			modelProvider: { provider: 'groq', model: 'llama-3.3-70b-versatile' }
+		})
+		config.messages.splice(0, config.messages.length, {
+			role: 'user',
+			content: [
+				{ type: 'text', text: 'earlier turn' },
+				{ type: 'image_url', image_url: { url: 'data:image/png;base64,IMG' } }
+			]
+		} as any)
+		mocks.getCompletion.mockResolvedValue({})
+		mocks.parseOpenAICompletion.mockResolvedValue({ shouldContinue: false, tokenUsage })
+
+		await runChatLoop(config)
+
+		expect(mocks.getCompletion).toHaveBeenCalled()
+		expect(JSON.stringify(mocks.getCompletion.mock.calls[0][0])).not.toContain('image_url')
+	})
+
 	// The model selector stays enabled while the loop runs, and the loop re-reads
 	// the model each iteration. The vision gate has to be re-applied at the same
 	// cadence: filtering once at send start would ship the history's image parts

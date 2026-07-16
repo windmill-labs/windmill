@@ -293,14 +293,18 @@ function appendWebSearchErrorHint(message: string, shouldAppend: boolean): strin
  * a code. Only consulted when the outbound request actually carried an image, so
  * an unrelated error mentioning "image" cannot trigger it on its own.
  */
-function isImageRejection(err: unknown, model?: string): boolean {
+function isImageRejection(err: unknown, models: (string | undefined)[] = []): boolean {
 	let message = (err instanceof Error ? err.message : String(err)).toLowerCase()
 	// Vision-capable model ids often contain the subject words themselves
 	// (llama-3.2-90b-vision-instruct, Phi-4-multimodal-instruct) and providers echo
 	// the id in unrelated errors (rate limits, capacity). A match inside the id
-	// would treat those as rejections and destroy good images, so drop the id
-	// before matching — only the error's own wording counts.
-	if (model) message = message.replaceAll(model.toLowerCase(), '')
+	// would treat those as rejections and destroy good images, so drop the ids
+	// before matching — only the error's own wording counts. Callers pass every
+	// model the turn may have used: the error can come from the model selected at
+	// send time OR the one currently selected (switchable mid-flight).
+	for (const model of models) {
+		if (model) message = message.replaceAll(model.toLowerCase(), '')
+	}
 	return /image|vision|multimodal/.test(message)
 }
 
@@ -2100,7 +2104,10 @@ export class AIChatManager {
 			lang: options.lang,
 			isPreprocessor: options.isPreprocessor
 		})
-		if (options.instructions) {
+		// Explicitly-passed instructions win even when empty: an image-only send
+		// carries '' and must not inherit stale text a failed or cancelled earlier
+		// turn left in this.instructions.
+		if (options.instructions !== undefined) {
 			this.instructions = options.instructions
 		}
 		// An image with no text is a valid GLOBAL-mode message (images only ride
@@ -2446,14 +2453,12 @@ export class AIChatManager {
 					onMessageEnd: () => void
 				}
 			} = {
-				// Earlier turns can carry image parts (past attachments, screenshot
-				// follow-ups). Dropping this turn's images is not enough: switching to a
-				// text-only model and sending plain text would still resubmit those and
-				// fail the request. Strip the outbound copy only — history keeps them, so
-				// switching back to a vision model restores what the model can see.
-				messages: modelIsBlind
-					? stripImagePartsFromMessages([...this.messages])
-					: [...this.messages],
+				// The full history goes to the loop, image parts included, even on a
+				// known text-only model: runChatLoop strips them per iteration for
+				// whatever model that iteration runs on, so a mid-loop switch in either
+				// direction (vision→text or text→vision) sees the right view. A copy
+				// stripped here instead could never be un-stripped by a later iteration.
+				messages: [...this.messages],
 				abortController: this.abortController,
 				callbacks: {
 					onNewToken: (token) => this.replyReveal.push(token),
@@ -2590,7 +2595,7 @@ export class AIChatManager {
 				// When the user cancelled with a message queued, that message is
 				// about to auto-send (see the flush below) — drop the rolled-back
 				// prompt instead of restoring it to the input so the handoff is clean.
-				const willAutoSendQueued = this.wasCancelledByUser() && !!this.queuedMessage
+				const willAutoSendQueued = this.wasCancelledByUser() && this.#hasQueuedMessage()
 				this.restoreUnsentTurn(
 					displayLenAfterUser,
 					modelLenAfterUser,
@@ -2663,7 +2668,7 @@ export class AIChatManager {
 				if (
 					!modelIsBlind &&
 					messagesHaveImageParts(this.messages) &&
-					isImageRejection(err, tryGetCurrentModel()?.model)
+					isImageRejection(err, [sendModel?.model, tryGetCurrentModel()?.model])
 				) {
 					this.messages = stripImagePartsFromMessages(this.messages)
 					sendUserToast(
