@@ -13,7 +13,7 @@ import {
 } from '../reasoningRegistry'
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
 import { modelSupportsVision, usesAnthropicMessagesApi } from '../modelConfig'
-import { stripImagePartsFromMessages } from './imageUtils'
+import { boundImagePartBytes, stripImagePartsFromMessages } from './imageUtils'
 import { getOpenAIResponsesCompletion, parseOpenAIResponsesCompletion } from './openai-responses'
 import type { Tool, ToolCallbacks } from './shared'
 import { sanitizeToolCallArguments } from './toolCallArguments'
@@ -338,8 +338,10 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		// Checked per iteration, like the model itself: the selector stays enabled
 		// while the loop runs, and a switch to a known text-only model mid-turn
 		// would otherwise send it the history's image parts and fail the turn.
+		// The byte bound is also per iteration because screenshots taken by tools
+		// grow the history mid-loop (see MAX_TOTAL_IMAGE_BYTES).
 		const visibleMessages = modelSupportsVision(modelProvider.provider, modelProvider.model)
-			? messages
+			? boundImagePartBytes(messages)
 			: stripImagePartsFromMessages(messages)
 		const messageParams = [
 			systemMessage,

@@ -641,4 +641,36 @@ describe('runChatLoop per-iteration vision gating', () => {
 		const second = mocks.getCompletion.mock.calls[0][0]
 		expect(JSON.stringify(second)).not.toContain('image_url')
 	})
+
+	// A history whose images together exceed the provider request-size limit gets
+	// the whole request rejected with a 413 the vision-rejection fallback cannot
+	// classify — the loop must keep the outbound copy under the byte cap.
+	it('drops the oldest images when the history exceeds the total byte cap', async () => {
+		const config = createConfig({ workspace: `workspace-${randomUUID()}` })
+		const bigImage = () => ({
+			type: 'image_url',
+			// two of these exceed MAX_TOTAL_IMAGE_BYTES (12MB decoded)
+			image_url: { url: 'data:image/png;base64,' + 'A'.repeat(9_000_000) }
+		})
+		config.messages.splice(
+			0,
+			config.messages.length,
+			{ role: 'user', content: [{ type: 'text', text: 'old' }, bigImage()] } as any,
+			{ role: 'assistant', content: 'ok' },
+			{ role: 'user', content: [{ type: 'text', text: 'new' }, bigImage()] } as any
+		)
+		mocks.getOpenAIResponsesCompletion.mockResolvedValue({})
+		mocks.parseOpenAIResponsesCompletion.mockResolvedValue({ shouldContinue: false, tokenUsage })
+
+		await runChatLoop(config)
+
+		const sent = mocks.getOpenAIResponsesCompletion.mock.calls[0][0] as any[]
+		const users = sent.filter((m) => m.role === 'user')
+		// the oldest message's image is stripped to a placeholder...
+		expect(users[0].content).toBe('old\n[image omitted]')
+		// ...the newest keeps its image part
+		expect(users[1].content.some((p: any) => p.type === 'image_url')).toBe(true)
+		// the stored history is untouched
+		expect((config.messages[0] as any).content.some((p: any) => p.type === 'image_url')).toBe(true)
+	})
 })

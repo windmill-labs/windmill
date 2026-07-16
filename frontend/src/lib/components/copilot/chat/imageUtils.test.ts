@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 import {
+	boundImagePartBytes,
 	fileToAttachedImage,
 	MAX_IMAGE_BYTES,
 	messagesHaveImageParts,
@@ -54,6 +55,38 @@ describe('stripImagePartsFromMessages', () => {
 		const messages: ChatCompletionMessageParam[] = [{ role: 'user', content: 'plain' }]
 		const out = stripImagePartsFromMessages(messages)
 		expect(out[0]).toBe(messages[0])
+	})
+})
+
+describe('boundImagePartBytes', () => {
+	const imgMsg = (payloadChars: number, text: string): ChatCompletionMessageParam =>
+		({
+			role: 'user',
+			content: [
+				{ type: 'text', text },
+				{
+					type: 'image_url',
+					image_url: { url: 'data:image/png;base64,' + 'A'.repeat(payloadChars) }
+				}
+			]
+		}) as any
+
+	it('returns the same array when everything fits', () => {
+		const messages = [imgMsg(100, 'a')]
+		expect(boundImagePartBytes(messages, 1000)).toBe(messages)
+	})
+
+	it('strips the oldest images first once the cap is exceeded', () => {
+		// 1000 base64 chars ≈ 750 bytes each: the newest fits alone, both together don't
+		const messages = [
+			imgMsg(1000, 'old'),
+			{ role: 'assistant', content: 'ok' } as ChatCompletionMessageParam,
+			imgMsg(1000, 'new')
+		]
+		const out = boundImagePartBytes(messages, 1000)
+		expect(out[0].content).toBe('old\n[image omitted]')
+		expect(out[1]).toBe(messages[1])
+		expect(Array.isArray(out[2].content)).toBe(true)
 	})
 })
 

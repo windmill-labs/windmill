@@ -203,6 +203,45 @@ export function messagesHaveImageParts(messages: ChatCompletionMessageParam[]): 
 }
 
 /**
+ * Total decoded image bytes one request may carry. Providers reject the whole
+ * request body over a size limit (20MB on Bedrock, 32MB direct Anthropic), and
+ * that 413 never mentions images, so the vision-rejection fallback cannot
+ * recover it — the history must stay under the limit in the first place.
+ * Compaction cannot be relied on for this: it triggers on estimated tokens,
+ * and images are cheap in tokens relative to their bytes. 12MB decoded is
+ * ~16MB of base64 on the wire, safely under the tightest limit with text.
+ */
+export const MAX_TOTAL_IMAGE_BYTES = 12_000_000
+
+/**
+ * Keep the request's cumulative image bytes under the cap by stripping image
+ * parts from the OLDEST messages first (the newest images are the ones the
+ * conversation is about). Turn-granular: a message keeps or loses all its
+ * images. Returns the input array unchanged when everything fits.
+ */
+export function boundImagePartBytes(
+	messages: ChatCompletionMessageParam[],
+	cap: number = MAX_TOTAL_IMAGE_BYTES
+): ChatCompletionMessageParam[] {
+	let total = 0
+	const overBudget = new Set<number>()
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const content = messages[i].content
+		if (!Array.isArray(content)) continue
+		const bytes = (content as any[])
+			.filter((part) => part?.type === 'image_url' && typeof part?.image_url?.url === 'string')
+			.reduce((sum, part) => sum + base64Bytes(part.image_url.url), 0)
+		if (bytes === 0) continue
+		total += bytes
+		if (total > cap) overBudget.add(i)
+	}
+	if (overBudget.size === 0) return messages
+	return messages.map((message, i) =>
+		overBudget.has(i) ? stripImagePartsFromMessages([message])[0] : message
+	)
+}
+
+/**
  * Replace image_url content parts with a short text placeholder, collapsing the
  * remaining parts back to a plain string. Used to keep base64 blobs out of the
  * summarizer request during compaction (the summary text then stands in for them).
