@@ -119,7 +119,22 @@ function encodeCanvas(canvas: HTMLCanvasElement): { dataUrl: string; mediaType: 
 	if (base64Bytes(png) <= PNG_SIZE_CAP) {
 		return { dataUrl: png, mediaType: 'image/png' }
 	}
-	return { dataUrl: canvas.toDataURL('image/jpeg', 0.82), mediaType: 'image/jpeg' }
+	// JPEG has no alpha channel and canvas encoders composite transparent pixels
+	// onto black, which hides dark strokes in a transparent diagram. Flatten onto
+	// white before encoding.
+	const flat = document.createElement('canvas')
+	flat.width = canvas.width
+	flat.height = canvas.height
+	const ctx = flat.getContext('2d')
+	if (ctx) {
+		ctx.fillStyle = '#ffffff'
+		ctx.fillRect(0, 0, flat.width, flat.height)
+		ctx.drawImage(canvas, 0, 0)
+	}
+	return {
+		dataUrl: (ctx ? flat : canvas).toDataURL('image/jpeg', 0.82),
+		mediaType: 'image/jpeg'
+	}
 }
 
 /**

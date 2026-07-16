@@ -313,4 +313,12 @@ describe('modelSupportsVision', () => {
 		expect(modelSupportsVision('deepseek' as any, 'deepseek-v9-sees-everything')).toBe(true)
 		expect(modelSupportsVision(undefined, undefined)).toBe(true)
 	})
+
+	// The reason entries are keyed by provider, not id alone: an id proves nothing
+	// about a different endpoint. A Custom AI deployment serving a vision model
+	// under a colliding name must not inherit another provider's verdict.
+	it("does not apply one provider's text-only verdict to another provider's model", () => {
+		expect(modelSupportsVision('customai' as any, 'deepseek-chat')).toBe(true)
+		expect(modelSupportsVision('customai' as any, 'llama-3.3-70b-versatile')).toBe(true)
+	})
 })

@@ -85,11 +85,14 @@ export function modelSupportsVision(
 	model: string | undefined
 ): boolean {
 	if (!provider) return true
-	return !TEXT_ONLY_MODELS.has((model ?? '').toLowerCase())
+	return !TEXT_ONLY_MODELS.has(`${provider}:${(model ?? '').toLowerCase()}`)
 }
 
 /**
- * Models whose provider API refuses image content, matched by exact id.
+ * Models whose provider API refuses image content, matched by exact
+ * `provider:model` pair — not by id alone, because an id proves nothing about a
+ * different endpoint (a Custom AI deployment may serve a vision model under a
+ * name that collides with someone's text-only id, and there is no override).
  *
  * The question is not whether a model can see, but whether its provider's API
  * accepts image parts — the two diverge, and the divergence is invisible from a
@@ -98,7 +101,7 @@ export function modelSupportsVision(
  * So this is a cache of one provider's API surface at one moment, and it rots.
  * Wrong entries are asymmetric: a missing one costs a single turn and
  * self-corrects (the request fails, the image is dropped, the user is told),
- * while a wrong one blocks a working model with no override. Hence exact ids
+ * while a wrong one blocks a working model with no override. Hence exact pairs
  * only, and only where a provider doc says so.
  *
  * Substrings are specifically avoided: `mistral-large` would also match
@@ -106,29 +109,32 @@ export function modelSupportsVision(
  * Phi-4-multimodal, which does too.
  */
 const TEXT_ONLY_MODELS = new Set([
-	// openai + azure_openai
-	'o1-mini',
-	'o3-mini',
-	// mistral
-	'codestral-latest',
+	'openai:o1-mini',
+	'openai:o3-mini',
+	'azure_openai:o1-mini',
+	'azure_openai:o3-mini',
+	'mistral:codestral-latest',
 	// deepseek — vision exists in their chat product, not in the API
-	'deepseek-v4-pro',
-	'deepseek-v4-flash',
-	'deepseek-chat',
-	'deepseek-reasoner',
-	// groq
-	'llama-3.3-70b-versatile',
-	'llama-3.1-8b-instant',
-	// groq — successors to the two above, which retire 2026-08-16
-	'openai/gpt-oss-120b',
-	'openai/gpt-oss-20b',
-	// azure_foundry (its DeepSeek-V4-Pro shares the id above)
-	'deepseek-r1',
-	'llama-3.3-70b-instruct',
-	'phi-4',
-	'mistral-large-2411',
-	// openrouter
-	'meta-llama/llama-3.2-3b-instruct:free',
-	// togetherai
-	'meta-llama/llama-3.3-70b-instruct-turbo'
+	'deepseek:deepseek-v4-pro',
+	'deepseek:deepseek-v4-flash',
+	'deepseek:deepseek-chat',
+	'deepseek:deepseek-reasoner',
+	'groq:llama-3.3-70b-versatile',
+	'groq:llama-3.1-8b-instant',
+	// gpt-oss (text-only everywhere it is hosted) — on groq it succeeds the two
+	// llama defaults above, which retire 2026-08-16
+	'groq:openai/gpt-oss-120b',
+	'groq:openai/gpt-oss-20b',
+	'openrouter:openai/gpt-oss-120b',
+	'openrouter:openai/gpt-oss-20b',
+	'togetherai:openai/gpt-oss-120b',
+	'togetherai:openai/gpt-oss-20b',
+	// azure_foundry serves DeepSeek-V4-Pro under the same id as deepseek's API
+	'azure_foundry:deepseek-v4-pro',
+	'azure_foundry:deepseek-r1',
+	'azure_foundry:llama-3.3-70b-instruct',
+	'azure_foundry:phi-4',
+	'azure_foundry:mistral-large-2411',
+	'openrouter:meta-llama/llama-3.2-3b-instruct:free',
+	'togetherai:meta-llama/llama-3.3-70b-instruct-turbo'
 ])
