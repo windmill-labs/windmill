@@ -198,8 +198,10 @@ pub fn validate_dev_workspace_id(id: &str) -> error::Result<()> {
 /// Split a fork git branch `wm-fork/<base_branch>/<suffix>` into `(base_branch, suffix)`.
 ///
 /// Inverse of the CLI/hub-script `forkBranchName`. The suffix is a workspace id
-/// fragment and can't contain `/`, while the base branch may (`release/v2`), so the
-/// split is on the last separator. Returns `None` for anything else.
+/// fragment and can't contain `/` (enforced by [`validate_fork_workspace_id`] /
+/// [`validate_dev_workspace_id`] at every fork/dev creation and attach path), while
+/// the base branch may (`release/v2`), so the split is on the last separator.
+/// Returns `None` for anything else.
 pub fn parse_fork_branch(branch: &str) -> Option<(&str, &str)> {
     let rest = branch.strip_prefix("wm-fork/")?;
     let idx = rest.rfind('/')?;
@@ -280,12 +282,13 @@ fn validate_workspace_branch_id(id: &str, require_fork_prefix: bool) -> error::R
     if id.contains("@{") {
         return reject("cannot contain '@{'");
     }
-    if id.contains("//") {
-        return reject("cannot contain '//'");
-    }
     for ch in id.chars() {
         match ch {
-            ':' | '~' | '^' | '?' | '*' | '[' | '\\' | ' ' => {
+            // '/' is git-legal in a branch but banned here: the id becomes the last
+            // component of `wm-fork/<base_branch>/<id>` and `parse_fork_branch` splits
+            // that branch on the last '/' (the base branch itself may contain '/'),
+            // so a slash in the id would make the fork unroutable for auto-sync.
+            ':' | '~' | '^' | '?' | '*' | '[' | '\\' | ' ' | '/' => {
                 return reject(&format!("contains forbidden character '{}'", ch));
             }
             c if c.is_ascii_control() || c == '\u{7f}' => {
@@ -294,14 +297,8 @@ fn validate_workspace_branch_id(id: &str, require_fork_prefix: bool) -> error::R
             _ => {}
         }
     }
-    // Each slash-separated component cannot start with '.' or end with '.lock'.
-    for component in id.split('/') {
-        if component.starts_with('.') {
-            return reject("a path component cannot start with '.'");
-        }
-        if component.ends_with(".lock") {
-            return reject("a path component cannot end with '.lock'");
-        }
+    if id.starts_with('.') {
+        return reject("cannot start with '.'");
     }
     Ok(())
 }
@@ -2018,6 +2015,9 @@ mod tests {
             "wm-fork-test[allow",
             "wm-fork-test\\allow",
             "wm-fork-test\nallow",
+            // '/' is git-legal but banned: it would break the parse_fork_branch
+            // last-'/' split that routes auto-pull into the fork workspace.
+            "wm-fork-test/allow",
         ] {
             assert!(
                 validate_fork_workspace_id(bad).is_err(),
@@ -2194,10 +2194,12 @@ mod tests {
 
     #[test]
     fn test_fork_data_path_prefix_isolation() {
-        // Fork/dev ids are git-branch-safe and may contain `/`: `wm-fork-a/b` is a valid id.
-        // Its data prefix must NOT nest inside `wm-fork-a`'s, or deleting `wm-fork-a` would
-        // sweep the sibling's files via the object-store prefix listing.
-        assert!(validate_fork_workspace_id("wm-fork-a/b").is_ok());
+        // New fork/dev ids can't contain `/` (it would break the parse_fork_branch
+        // last-'/' split), but ids created before that ban may still exist, so the
+        // data-path mangling must keep handling them: `wm-fork-a/b`'s prefix must
+        // NOT nest inside `wm-fork-a`'s, or deleting `wm-fork-a` would sweep the
+        // sibling's files via the object-store prefix listing.
+        assert!(validate_fork_workspace_id("wm-fork-a/b").is_err());
         let a = fork_data_path("lake", "wm-fork-a");
         let ab = fork_data_path("lake", "wm-fork-a/b");
         assert!(
