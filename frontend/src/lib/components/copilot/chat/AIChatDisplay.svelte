@@ -690,7 +690,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 											: aiChatManager.currentReasoningActive &&
 												  !aiChatManager.currentReply &&
 												  !aiChatManager.currentReasoning
-												? 'Thinking'
+												? (aiChatManager.reasoningHiddenIndicatorLabel ?? 'Thinking')
 												: undefined}
 								/>
 							{/if}

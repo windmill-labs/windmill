@@ -176,6 +176,7 @@ export async function getOpenAIResponsesCompletion(
 		openaiClient?: OpenAI
 		webSearch?: boolean
 		reasoningEffort?: string
+		reasoningSummary?: boolean
 	}
 ) {
 	const { provider, config } = getProviderAndCompletionConfig({
@@ -190,6 +191,13 @@ export async function getOpenAIResponsesCompletion(
 		'responses',
 		options?.reasoningEffort
 	)
+
+	// Reasoning summaries make the model's thinking renderable in the chat, but
+	// OpenAI rejects the request (400 on reasoning.summary) for organizations
+	// that haven't completed verification — callers opt in and fall back.
+	if (options?.reasoningSummary && responsesConfig.reasoning) {
+		responsesConfig.reasoning = { ...responsesConfig.reasoning, summary: 'auto' }
+	}
 
 	// Enable OpenAI's built-in web search tool. The proxy forwards the body
 	// verbatim, so this reaches OpenAI as a native server-side tool.
@@ -306,6 +314,20 @@ export async function parseOpenAIResponsesCompletion(
 	runner.on('response.output_text.delta', (event) => {
 		callbacks.onNewToken(event.delta)
 		textContent += event.delta
+	})
+
+	// Stream the reasoning summary (present when the request asked for
+	// reasoning.summary) into the thinking display. Summaries arrive as
+	// separate parts; join them as paragraphs.
+	let reasoningSummaryParts = 0
+	runner.on('response.reasoning_summary_part.added', () => {
+		reasoningSummaryParts++
+		if (reasoningSummaryParts > 1) {
+			callbacks.onReasoningDelta?.('\n\n')
+		}
+	})
+	runner.on('response.reasoning_summary_text.delta', (event) => {
+		callbacks.onReasoningDelta?.(event.delta)
 	})
 
 	// Handle new output items (including function calls)
