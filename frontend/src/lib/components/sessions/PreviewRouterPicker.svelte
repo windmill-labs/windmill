@@ -20,7 +20,11 @@ section or the flat layout.
 	import { resource } from 'runed'
 	import { workspaceStore } from '$lib/stores'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
-	import { type WorkspaceItem, type WorkspaceItemKind } from '$lib/components/workspacePicker'
+	import {
+		workspaceItemDisplayPath,
+		type WorkspaceItem,
+		type WorkspaceItemKind
+	} from '$lib/components/workspacePicker'
 	import { useWorkspaceItemsLoader } from '$lib/components/workspaceItemsLoader.svelte'
 	import DrillPicker from '../DrillPicker.svelte'
 	import type { DrillBranch, DrillLeaf, DrillNode } from '$lib/components/drillPicker'
@@ -29,7 +33,10 @@ section or the flat layout.
 		legacyScopeToPath,
 		relativizeWorkspacePath
 	} from '$lib/components/workspaceTree'
-	import { listGlobalDrafts } from '$lib/components/copilot/chat/global/userDraftAdapter'
+	import {
+		getGlobalDraftStoragePath,
+		listGlobalDrafts
+	} from '$lib/components/copilot/chat/global/userDraftAdapter'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import type { PersistedArtifact } from '$lib/components/copilot/chat/artifacts/artifactsDB'
 	import {
@@ -114,14 +121,23 @@ section or the flat layout.
 	)
 	function aiDraftsForKind(k: Kind): WorkspaceItem[] {
 		const targetType = KIND_TO_DRAFT_TYPE[k]
+		const ws = effectiveWorkspace
 		return (globalDraftsResource.current ?? [])
 			.filter((d) => d.type === targetType)
-			.map((d) => ({
-				path: d.path,
-				summary: d.summary ?? '',
-				kind: k,
-				raw_app: k === 'app' ? !!(d.value as { files?: unknown })?.files : undefined
-			}))
+			.map((d) => {
+				// A live entry's `path` is the editor's friendly effective path —
+				// display-only, so picking a leaf keyed by it would route to a 404.
+				// Re-key to the storage path (identity, dedupe against the loaded
+				// row, navigation) and demote the friendly path to `draftPath`.
+				const storagePath = ws ? getGlobalDraftStoragePath(ws, targetType, d.path) : d.path
+				return {
+					path: storagePath,
+					draftPath: storagePath !== d.path ? d.path : d.draftPath,
+					summary: d.summary ?? '',
+					kind: k,
+					raw_app: k === 'app' ? !!(d.value as { files?: unknown })?.files : undefined
+				}
+			})
 	}
 	const extraItemsByKind = $derived<Partial<Record<Kind, WorkspaceItem[]>>>(
 		Object.fromEntries(kinds.map((k) => [k, aiDraftsForKind(k)]))
@@ -239,7 +255,9 @@ section or the flat layout.
 	{leafIcon}
 	{branchIcon}
 	leafSecondary={(leaf, scope) =>
-		leaf.data.type === 'item' ? relativizeWorkspacePath(leaf.data.item.path, scope) : undefined}
+		leaf.data.type === 'item'
+			? relativizeWorkspacePath(workspaceItemDisplayPath(leaf.data.item), scope)
+			: undefined}
 	onScopeChange={(scope) => {
 		if (scope.length > 0) loader.ensureForScopeSegment(scope[0])
 	}}

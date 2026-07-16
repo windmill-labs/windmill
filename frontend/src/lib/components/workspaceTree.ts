@@ -4,6 +4,7 @@ import {
 	KIND_LABEL,
 	kindKey,
 	leafKeyFor,
+	workspaceItemDisplayPath,
 	type WorkspaceItem,
 	type WorkspaceItemKind
 } from './workspacePicker'
@@ -21,11 +22,13 @@ type DirNode = {
 	leaves: WorkspaceItem[]
 }
 
-/** Build the path-hierarchy from a flat list of workspace items. */
+/** Build the path-hierarchy from a flat list of workspace items. Items are
+ * placed by their display path, so a draft-only item shows up under its
+ * friendly folder rather than the `u/<user>/draft_<uuid>` storage location. */
 function buildDirForest(items: WorkspaceItem[]): DirNode[] {
 	const scopeRoots = new Map<string, DirNode>()
 	for (const it of items) {
-		const parts = it.path.split('/')
+		const parts = workspaceItemDisplayPath(it).split('/')
 		if (parts.length < 3) continue
 		const scopeFp = parts.slice(0, 2).join('/')
 		let node = scopeRoots.get(scopeFp)
@@ -56,11 +59,19 @@ function buildDirForest(items: WorkspaceItem[]): DirNode[] {
 	})
 	const sortNode = (n: DirNode) => {
 		n.children.sort((a, b) => a.name.localeCompare(b.name))
-		n.leaves.sort((a, b) => a.path.localeCompare(b.path))
+		n.leaves.sort((a, b) => workspaceItemDisplayPath(a).localeCompare(workspaceItemDisplayPath(b)))
 		n.children.forEach(sortNode)
 	}
 	scopes.forEach(sortNode)
 	return scopes
+}
+
+/** True when `p` names this item — its storage path or its friendly draft
+ * path. A draft-only editor's live/saved paths are the friendly path while
+ * the loaded row sits at the storage path, so matching on `path` alone would
+ * treat them as two different items. */
+function itemMatchesPath(it: WorkspaceItem, p: string | undefined): boolean {
+	return p !== undefined && (it.path === p || it.draftPath === p)
 }
 
 /** Inject the currently-edited item at its live path, dropping the saved
@@ -74,9 +85,9 @@ function withCurrent(
 	if (!currentItem || currentItem.kind !== k) return items
 	const drafted =
 		currentItem.savedPath && currentItem.savedPath !== currentItem.path
-			? items.filter((it) => it.path !== currentItem.savedPath)
+			? items.filter((it) => !itemMatchesPath(it, currentItem.savedPath))
 			: items
-	if (drafted.some((it) => it.path === currentItem.path)) return drafted
+	if (drafted.some((it) => itemMatchesPath(it, currentItem.path))) return drafted
 	return [
 		...drafted,
 		{
@@ -92,12 +103,14 @@ function itemToLeaf(
 	it: WorkspaceItem,
 	currentItem: (WorkspaceItem & { savedPath?: string }) | undefined
 ): DrillLeaf<WorkspaceItem> {
-	const isCurrent = !!currentItem && currentItem.kind === it.kind && currentItem.path === it.path
+	const isCurrent =
+		!!currentItem && currentItem.kind === it.kind && itemMatchesPath(it, currentItem.path)
+	const display = workspaceItemDisplayPath(it)
 	return {
 		type: 'leaf',
 		key: leafKeyFor(it.kind, it.path),
-		label: it.summary || it.path,
-		secondary: it.summary ? it.path : undefined,
+		label: it.summary || display,
+		secondary: it.summary ? display : undefined,
 		data: it,
 		current: isCurrent
 	}
@@ -126,8 +139,10 @@ function dirToBranch(
 /** Merge AI-created in-memory drafts (or any caller-provided extras) into a
  * kind's loaded list. The chat tools / session previews scaffold items via
  * `UserDraft` before the user deploys; those should be navigable from the
- * picker. Existing items (same path) win so backend metadata (summary etc.)
- * isn't clobbered. */
+ * picker. An extra matching a loaded item (by storage or friendly path — else
+ * one draft renders as two leaves) is folded into it: the loaded row wins on
+ * backend metadata (summary etc.), but the extra's `draftPath` is overlaid
+ * when set — a live editor cell knows a rename before the backend list does. */
 function withExtras(
 	items: WorkspaceItem[],
 	k: WorkspaceItemKind,
@@ -135,8 +150,16 @@ function withExtras(
 ): WorkspaceItem[] {
 	const extras = extraItemsByKind?.[k]
 	if (!extras || extras.length === 0) return items
-	const known = new Set(items.map((it) => it.path))
-	return items.concat(extras.filter((d) => !known.has(d.path)))
+	const leftover = new Set(extras)
+	const merged = items.map((it) => {
+		const ex = extras.find((d) => itemMatchesPath(it, d.path) || itemMatchesPath(it, d.draftPath))
+		if (!ex) return it
+		leftover.delete(ex)
+		return ex.draftPath !== undefined && ex.draftPath !== it.draftPath
+			? { ...it, draftPath: ex.draftPath }
+			: it
+	})
+	return leftover.size > 0 ? merged.concat([...leftover]) : merged
 }
 
 /** Build the workspace drill tree.

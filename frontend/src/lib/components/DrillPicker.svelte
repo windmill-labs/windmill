@@ -178,10 +178,21 @@ leaves and ignores the current scope.
 	let highlightedKey = $state<string | undefined>(untrack(() => initialHighlight))
 	let highlightedId = $derived(highlightedKey ? idFor(highlightedKey) : undefined)
 
+	// Visible leaf flagged `current`, if any. When the highlight's key vanishes
+	// (rows replaced under it — e.g. the workspace tree swapping a synthetic
+	// current-item leaf for the loaded storage-keyed row, whose key differs),
+	// this is the right anchor to fall back to: resetting to the first row
+	// would make Enter silently target an unrelated sibling.
+	const currentLeafKey = $derived(
+		isSearching
+			? (searchedItems ?? ([] as typeof searchItems)).find((r) => r.leaf.current)?.leaf.key
+			: entryList.find((e) => e.type === 'leaf' && e.node.current)?.key
+	)
+
 	$effect(() => {
 		if (navKeys.length === 0) return
 		if (!highlightedKey || !navKeys.includes(highlightedKey)) {
-			highlightedKey = navKeys[0]
+			highlightedKey = currentLeafKey ?? navKeys[0]
 		}
 	})
 

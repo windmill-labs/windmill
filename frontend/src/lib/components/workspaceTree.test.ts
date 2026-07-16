@@ -178,6 +178,41 @@ describe('buildWorkspaceTree', () => {
 			expect(leaf.secondary).toBeUndefined()
 		})
 
+		it('labels and groups a draft-only item by its friendly draftPath, keyed by storage path', () => {
+			const draft = { ...item('app', 'u/admin/draft_abc123'), draftPath: 'f/marketing/dashboard' }
+			const tree = buildWorkspaceTree({
+				loaded: { app: [draft] },
+				kinds: ['app'],
+				loadingKind: {}
+			})
+			// Grouped under the friendly folder, not u/admin.
+			expect(tree.map((n) => n.key)).toEqual([dirKey('app', 'f/marketing')])
+			const marketing = findBranch(tree, dirKey('app', 'f/marketing'))
+			const leaf = marketing.children[0]
+			if (!isLeaf(leaf)) throw new Error('expected leaf')
+			// Displayed by the friendly path; keyed (and navigated) by storage path.
+			expect(leaf.label).toBe('f/marketing/dashboard')
+			expect(leaf.key).toBe(leafKeyFor('app', 'u/admin/draft_abc123'))
+			expect(leaf.data.path).toBe('u/admin/draft_abc123')
+		})
+
+		it('uses the friendly draftPath as secondary when a summary is present', () => {
+			const draft = {
+				...item('script', 'u/admin/draft_xyz', 'My Script'),
+				draftPath: 'u/admin/my_script'
+			}
+			const tree = buildWorkspaceTree({
+				loaded: { script: [draft] },
+				kinds: ['script'],
+				loadingKind: {}
+			})
+			const admin = findBranch(tree, dirKey('script', 'u/admin'))
+			const leaf = admin.children[0]
+			if (!isLeaf(leaf)) throw new Error('expected leaf')
+			expect(leaf.label).toBe('My Script')
+			expect(leaf.secondary).toBe('u/admin/my_script')
+		})
+
 		it('marks the currentItem leaf with current=true', () => {
 			const tree = buildWorkspaceTree({
 				loaded: { flow: [item('flow', 'f/demo/a'), item('flow', 'f/demo/b')] },
@@ -216,6 +251,45 @@ describe('buildWorkspaceTree', () => {
 			const paths = demo.children.map((c) => c.key)
 			expect(paths).toContain(leafKeyFor('flow', 'f/demo/new'))
 			expect(paths).not.toContain(leafKeyFor('flow', 'f/demo/old'))
+		})
+
+		it('does not duplicate a draft-only row whose friendly draftPath is the current live path', () => {
+			// Editor open on a renamed draft-only script: currentItem.path is the
+			// friendly path while listScripts returns the storage-path row carrying
+			// the same friendly path as draftPath. One leaf, marked current.
+			const loadedDraft = {
+				...item('script', 'u/admin/draft_abc'),
+				draftPath: 'u/admin/my_script'
+			}
+			const tree = buildWorkspaceTree({
+				loaded: { script: [loadedDraft] },
+				kinds: ['script'],
+				loadingKind: {},
+				currentItem: item('script', 'u/admin/my_script')
+			})
+			const admin = findBranch(tree, dirKey('script', 'u/admin'))
+			expect(admin.children.map((c) => c.key)).toEqual([leafKeyFor('script', 'u/admin/draft_abc')])
+			const leaf = admin.children[0]
+			if (!isLeaf(leaf)) throw new Error('expected leaf')
+			expect(leaf.current).toBe(true)
+		})
+
+		it('drops the storage-path row via draftPath during a mid-rename', () => {
+			// Renaming a draft-only item: savedPath is the old friendly path, which
+			// the loaded row only knows as its draftPath. The stale row must go so
+			// only the live (typed) entry shows.
+			const loadedDraft = {
+				...item('script', 'u/admin/draft_abc'),
+				draftPath: 'u/admin/old_name'
+			}
+			const tree = buildWorkspaceTree({
+				loaded: { script: [loadedDraft] },
+				kinds: ['script'],
+				loadingKind: {},
+				currentItem: { ...item('script', 'u/admin/new_name'), savedPath: 'u/admin/old_name' }
+			})
+			const admin = findBranch(tree, dirKey('script', 'u/admin'))
+			expect(admin.children.map((c) => c.key)).toEqual([leafKeyFor('script', 'u/admin/new_name')])
 		})
 
 		it('does not re-inject when the live entry already exists in loaded', () => {
@@ -282,6 +356,46 @@ describe('buildWorkspaceTree', () => {
 			const keys = demo.children.map((c) => c.key)
 			expect(keys).toContain(leafKeyFor('flow', 'f/demo/draft'))
 			expect(keys).toContain(leafKeyFor('script', 'f/demo/b'))
+		})
+
+		it('drops a live-cell extra at the friendly path when a loaded row carries it as draftPath', () => {
+			// listApps returns the draft-only row at its storage path with the
+			// friendly path in draftPath; the live editor cell surfaces the same
+			// draft as an extra keyed by the friendly path. One leaf, not two.
+			const loadedDraft = { ...item('app', 'u/admin/draft_abc'), draftPath: 'u/admin/dashboard' }
+			const tree = buildWorkspaceTree({
+				loaded: { app: [loadedDraft] },
+				kinds: ['app'],
+				loadingKind: {},
+				extraItemsByKind: { app: [item('app', 'u/admin/dashboard')] }
+			})
+			const admin = findBranch(tree, dirKey('app', 'u/admin'))
+			expect(admin.children.map((c) => c.key)).toEqual([leafKeyFor('app', 'u/admin/draft_abc')])
+		})
+
+		it('folds a mid-rename live extra into the stale loaded row: one storage-keyed leaf under the typed folder', () => {
+			// Session picker while a rename's autosave is pending: listApps still
+			// carries the pre-rename friendly path, the live cell extra (re-keyed to
+			// the storage path by the picker) carries the typed one, and the tab's
+			// currentItem is the storage path. The typed name must win, on a single
+			// leaf that navigates via the storage path — never the display path.
+			const staleLoaded = { ...item('app', 'u/admin/draft_abc'), draftPath: 'u/admin/old_name' }
+			const liveExtra = { ...item('app', 'u/admin/draft_abc'), draftPath: 'f/marketing/new_name' }
+			const tree = buildWorkspaceTree({
+				loaded: { app: [staleLoaded] },
+				kinds: ['app'],
+				loadingKind: {},
+				extraItemsByKind: { app: [liveExtra] },
+				currentItem: item('app', 'u/admin/draft_abc')
+			})
+			expect(tree.map((n) => n.key)).toEqual([dirKey('app', 'f/marketing')])
+			const marketing = findBranch(tree, dirKey('app', 'f/marketing'))
+			expect(marketing.children.map((c) => c.key)).toEqual([leafKeyFor('app', 'u/admin/draft_abc')])
+			const leaf = marketing.children[0]
+			if (!isLeaf(leaf)) throw new Error('expected leaf')
+			expect(leaf.current).toBe(true)
+			expect(leaf.data.path).toBe('u/admin/draft_abc')
+			expect(leaf.label).toBe('f/marketing/new_name')
 		})
 
 		it('is a no-op when extras are absent or empty', () => {
