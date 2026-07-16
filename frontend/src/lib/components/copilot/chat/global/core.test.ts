@@ -3188,7 +3188,7 @@ describe('global AI tools', () => {
 		expect(callbacks.setToolStatus).toHaveBeenLastCalledWith(
 			'test-askUserQuestion',
 			expect.objectContaining({
-				content: 'User answered question: python3',
+				content: 'Asked: Which script language should be used? — python3',
 				isLoading: false,
 				result: 'python3',
 				userQuestion: expect.objectContaining({ selectedChoices: ['python3'] })
@@ -3226,7 +3226,7 @@ describe('global AI tools', () => {
 		expect(callbacks.setToolStatus).toHaveBeenLastCalledWith(
 			'test-askUserQuestion',
 			expect.objectContaining({
-				content: 'User answered question: bun, go',
+				content: 'Asked: Which languages should be supported? — bun, go',
 				isLoading: false,
 				result: '- bun\n- go',
 				userQuestion: expect.objectContaining({ selectedChoices: ['bun', 'go'] })
@@ -3300,7 +3300,7 @@ describe('global AI tools', () => {
 		expect(callbacks.setToolStatus).toHaveBeenLastCalledWith(
 			'test-askUserQuestion',
 			expect.objectContaining({
-				content: 'User answered question: use deno instead',
+				content: 'Asked: Which script language should be used? — use deno instead',
 				result: 'use deno instead',
 				userQuestion: expect.objectContaining({ selectedChoices: ['use deno instead'] })
 			})

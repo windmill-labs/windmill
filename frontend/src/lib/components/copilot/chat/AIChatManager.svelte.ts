@@ -1268,7 +1268,7 @@ export class AIChatManager {
 			if (message.role === 'tool' && message.tool_call_id === toolId && message.userQuestion) {
 				return {
 					...message,
-					content: `User answered question: ${answerSummary}`,
+					content: `Asked: ${message.userQuestion.question} — ${answerSummary}`,
 					isLoading: false,
 					userQuestion: {
 						...message.userQuestion,
@@ -2925,7 +2925,11 @@ export class AIChatManager {
 				return {
 					...message,
 					isLoading: false,
-					content: messageText,
+					// A question's card disappears once canceled, so keep the question
+					// itself readable in the collapsed header.
+					content: message.userQuestion
+						? `Asked: ${message.userQuestion.question} — ${messageText}`
+						: messageText,
 					error: messageText,
 					userQuestion: message.userQuestion
 						? { ...message.userQuestion, canceled: true }

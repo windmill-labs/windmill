@@ -788,6 +788,9 @@ export interface Tool<T> {
 	autoCollapseDetails?: boolean
 	streamArguments?: boolean
 	showFade?: boolean
+	/** Header shown while the model is still streaming this call's arguments,
+	 * before `fn` runs and sets a real status. Defaults to "Calling <name>...". */
+	streamingLabel?: string
 }
 
 /** Status of a job the chat started and tracks in the jobs tray. Mirrors the
