@@ -307,7 +307,11 @@ function isImageRejection(err: unknown, models: (string | undefined)[] = []): bo
 	for (const model of models) {
 		if (model) message = message.replaceAll(model.toLowerCase(), '')
 	}
-	return /image|vision|multimodal/.test(message)
+	// Whole words only: "provisioning"/"provisioned" contain "vision", and a
+	// transient capacity error must not destroy good images. image_url is the
+	// content-part name providers echo in schema errors ('_' is a word char, so
+	// \bimage\b alone would miss it).
+	return /\bimages?(_url)?\b|\bvision\b|\bmultimodal\b/.test(message)
 }
 
 function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean): string {

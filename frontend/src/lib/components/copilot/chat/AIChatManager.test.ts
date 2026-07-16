@@ -893,6 +893,23 @@ describe('AIChatManager queued messages', () => {
 		mocks.tryGetCurrentModel.mockReturnValue(model)
 	})
 
+	// "provisioning"/"provisioned" contain the word "vision" — a transient
+	// capacity error must not be classified as an image rejection.
+	it('does not strip images on a provisioning error', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		mocks.runChatLoop.mockRejectedValue(
+			new Error('503 model provisioning failed, please retry later')
+		)
+
+		await manager.sendRequest({ instructions: 'look at this', images: [img('a')] })
+
+		const stillThere = manager.messages.some(
+			(m: any) => Array.isArray(m.content) && m.content.some((p: any) => p.type === 'image_url')
+		)
+		expect(stillThere).toBe(true)
+	})
+
 	// A turn can start on a known text-only model (send-time flag says "no images
 	// go out") and switch mid-loop to an UNLISTED blind model whose iteration does
 	// carry the history's images. When that model rejects them, recovery must fire
