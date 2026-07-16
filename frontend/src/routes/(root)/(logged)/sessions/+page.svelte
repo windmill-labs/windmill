@@ -698,16 +698,23 @@
 												<ChevronDown size={12} />
 											{/snippet}
 											{#snippet content()}
-												<PreviewRouterPicker
-													initialScope={activePickerScope}
-													initialHighlight={activePickerHighlight}
-													{currentItem}
-													workspaceId={previewWorkspace}
-													onPick={(t) => {
-														activeTabPickerOpen = false
-														navigatePreviewTo(t)
-													}}
-												/>
+												<!-- The picker snapshots its scope at mount, but `friendlyPath` is
+												     stamped async once the editor cell loads — a picker opened
+												     before the stamp is scoped to the `draft_<uuid>` storage
+												     folder while the tree groups the draft under its friendly
+												     folder. Remount on the scope dir so it re-lands on the item. -->
+												{#key activePickerScope?.dir ?? ''}
+													<PreviewRouterPicker
+														initialScope={activePickerScope}
+														initialHighlight={activePickerHighlight}
+														{currentItem}
+														workspaceId={previewWorkspace}
+														onPick={(t) => {
+															activeTabPickerOpen = false
+															navigatePreviewTo(t)
+														}}
+													/>
+												{/key}
 											{/snippet}
 										</Popover>
 									{/if}
