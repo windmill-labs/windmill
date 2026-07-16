@@ -128,16 +128,20 @@
 	// typed/auto name. The page can't read the runtime cell reactively (it lives
 	// outside the page's reactive root), but this editor — handed `runtime` as a
 	// prop — can, so it mirrors the name onto the tab model the page does observe.
-	// Only for a never-deployed item still parked at a `…/draft_<uuid>` storage
-	// path; a deployed/real path keeps the plain location label.
+	// The label only applies to a never-deployed item still parked at a
+	// `…/draft_<uuid>` storage path; a deployed/real path keeps the plain
+	// location label.
 	$effect(() => {
 		const v = cell.store.val as { path?: string; draft_path?: string } | undefined
 		const friendly = v?.draft_path ?? v?.path
 		const label = draftFriendlyLeaf(path, friendly)
-		// The full friendly path rides along only when it yielded a label — the
-		// picker tree groups the draft under this path, so the breadcrumb picker
-		// needs it to scope into the right folder.
-		runtime.previewTabs.setEditorFriendlyLabel({ kind, path }, label, label ? friendly : undefined)
+		// The full staged path rides along whenever it differs from the tab's
+		// route (storage) path — not just when it yielded a label: a DEPLOYED
+		// item with a staged rename is also regrouped under the typed folder by
+		// the picker tree (via the live-draft overlay's `draftPath`), so the
+		// breadcrumb picker needs it to scope where the item is displayed.
+		const staged = friendly && friendly !== path ? friendly : undefined
+		runtime.previewTabs.setEditorFriendlyLabel({ kind, path }, label, staged)
 	})
 
 	// Debounced loading affordance for a breadcrumb swap: while the loaded path
