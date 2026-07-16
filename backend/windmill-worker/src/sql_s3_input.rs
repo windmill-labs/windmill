@@ -23,12 +23,16 @@ use crate::handle_child::run_future_with_polling_update_job_poller;
 
 /// Run the `(s3object)` materialisation step under the job poller.
 ///
-/// Downloading and decoding the file can take minutes on large inputs. The poller
-/// is what refreshes `v2_job_runtime.ping`, so without it the zombie monitor
-/// restarts the job after `ZOMBIE_JOB_TIMEOUT`, and since the restart cannot
-/// signal this phase, each retry stacks another concurrent download+decode on the
-/// same worker until it OOMs. It also gives this phase cancellation and the job
-/// timeout, neither of which it would otherwise honour.
+/// The poller is what refreshes `v2_job_runtime.ping`. Downloading and decoding the
+/// file can take minutes on large inputs, so running it unpolled leaves the ping
+/// stale and the zombie monitor restarts the job after `ZOMBIE_JOB_TIMEOUT`. The
+/// restart has no way to signal this phase, so the orphaned download keeps running
+/// concurrently with the retry.
+///
+/// This gives the phase its own `job.timeout` budget, on top of the one the query
+/// phase gets: a job can therefore occupy a worker for up to twice its timeout.
+/// That is deliberate — materialisation is otherwise unbounded — so don't collapse
+/// the two without giving this phase a budget of its own.
 pub(crate) async fn materialize_under_job_poller<T, Fut>(
     job: &MiniPulledJob,
     conn: &Connection,
@@ -54,6 +58,18 @@ where
         Box::pin(futures::stream::once(async { 0 })),
     )
     .await
+    .map_err(|e| match e {
+        // The poller labels its timeout arm as a query timeout, which would point
+        // the user at their SQL rather than at the input file. Relabelling on the
+        // message is best-effort: if it stops matching, the error is merely as
+        // unhelpful as it was before.
+        error::Error::ExecutionErr(m) if m.starts_with("Query timeout") => {
+            error::Error::ExecutionErr(format!(
+                "Timed out downloading and decoding the (s3object) argument: {m}"
+            ))
+        }
+        e => e,
+    })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
