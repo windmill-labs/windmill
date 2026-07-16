@@ -4,15 +4,15 @@ AI chat `@`-mention dropdown. Mounts the generic `DrillPicker` with a
 unified tree:
 
   Diffs / Modules / Databases / Workspace
-                                     ├── All / Flows / Scripts / Apps
-                                     │       └── f/scope/sub/leaf …
+                                     ├── u/user / f/folder …
+                                     │       └── sub/leaf … (kinds mixed)
 
 The Diffs / Modules / Databases branches are synthesized from the chat's
 in-memory `availableContext`. The Workspace branch delegates to
-`buildWorkspaceTree` so the picker shares the workspace caching machinery
-with the standalone picker used by `EditorHeader`. The Apps branch only
-appears in GLOBAL chat and lists raw (code-based) apps; visual apps are
-excluded.
+`buildWorkspaceTree` (flat layout — the workspace home's first level, no
+kind grouping) so the picker shares the workspace caching machinery with
+the standalone picker used by `EditorHeader`. Apps only appear in GLOBAL
+chat and list raw (code-based) apps; visual apps are excluded.
 
 On a workspace-leaf pick, emits a reference-only `WorkspaceScriptElement` /
 `WorkspaceFlowElement` / `WorkspaceAppElement` (path + title + summary).
@@ -263,7 +263,8 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 			const wsChildren = buildWorkspaceTree({
 				loaded: loadedForTree,
 				kinds: WORKSPACE_KINDS,
-				loadingKind: loader.loadingKind
+				loadingKind: loader.loadingKind,
+				layout: 'flat'
 			}) as DrillNode<ChatLeafData>[]
 			// Workspace-only (e.g. global chat with no diffs/modules/dbs): skip
 			// the redundant 'Workspace' row and surface its children at the root.
@@ -273,7 +274,8 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 				key: 'workspace',
 				label: 'Workspace',
 				icon: Layers,
-				children: wsChildren
+				children: wsChildren,
+				loading: WORKSPACE_KINDS.some((k) => loader.loadingKind[k])
 			})
 			return branches
 		})()
@@ -326,15 +328,14 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 
 	function handleScopeChange(scope: string[]) {
 		// Two possible layouts:
-		//   (a) WRAPPED   — `['workspace', 'kind:all', ...]` — chat with Diffs /
+		//   (a) WRAPPED   — `['workspace', 'dir:all:...', ...]` — chat with Diffs /
 		//       Modules / Databases branches alongside Workspace.
-		//   (b) UNWRAPPED — `['kind:all', ...]` or `['dir:flow:...']` — chat
-		//       with only the workspace branch (global chat). The redundant
-		//       'workspace' wrapper is collapsed in the tree builder.
+		//   (b) UNWRAPPED — `['dir:all:...', ...]` — chat with only the workspace
+		//       branch (global chat). The redundant 'workspace' wrapper is
+		//       collapsed in the tree builder.
 		// Empty scope `[]` is the picker root: in (a) it's the chat root
 		// (don't preload — user hasn't entered Workspace yet), in (b) it's
-		// the workspace root itself (preload so kind branches don't render
-		// empty-without-spinner).
+		// the workspace root itself.
 		if (scope.length === 0) {
 			if (isWorkspaceOnly) loader.ensureAll()
 			return
@@ -342,15 +343,9 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 		if (scope[0] === 'files') return // synthesised from attached files — no fetch
 		const inWorkspace = scope[0] === 'workspace' || isWorkspaceOnly
 		if (!inWorkspace) return // diffs / modules / databases — synthesised, no fetch
-		const path = scope[0] === 'workspace' ? scope.slice(1) : scope
-		// Entering Workspace (wrapped: scope=['workspace']) or its 'All' sub-
-		// branch: preload every kind so the kind branches each show their
-		// spinner/items without a per-drill delay.
-		if (path.length === 0 || path[0] === 'kind:all') {
-			loader.ensureAll()
-			return
-		}
-		loader.ensureForScopeSegment(path[0])
+		// Flat workspace layout: every level is a cross-kind merge, so any
+		// workspace scope needs all kinds loaded.
+		loader.ensureAll()
 	}
 
 	// Close the picker on Escape. The badge popover's melt-ui handles Esc
