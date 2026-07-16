@@ -2601,12 +2601,19 @@ fn datatable_attach_statements(pg: &PgDatabase, name: &str, alias_name: &str) ->
         Some("require") | Some("verify-ca") | Some("verify-full") => "require",
         Some(s) => s,
     };
+    // HOST is a libpq keyword parameter, which takes bare IPv6 addresses — the
+    // URI-style brackets PgDatabase::parse_uri preserves would fail resolution.
+    let host = if pg.host.starts_with('[') && pg.host.ends_with(']') {
+        &pg.host[1..pg.host.len() - 1]
+    } else {
+        pg.host.as_str()
+    };
     vec![
         "INSTALL postgres;".to_string(),
         "LOAD postgres;".to_string(),
         format!(
             "CREATE OR REPLACE TEMPORARY SECRET {secret_name} (TYPE postgres, HOST '{}', PORT {}, DATABASE '{}', USER '{}', PASSWORD '{}');",
-            esc(&pg.host),
+            esc(host),
             pg.port.unwrap_or(5432),
             esc(&pg.dbname),
             esc(pg.user.as_deref().unwrap_or("postgres")),
@@ -3733,6 +3740,17 @@ mod tests {
             "ATTACH 'sslmode=require' AS dt (TYPE postgres, SECRET __wm_datatable_secret_"
         ));
         assert!(!stmts[3].contains("s3cr"));
+    }
+
+    #[test]
+    fn datatable_attach_unbrackets_ipv6_host() {
+        let pg: PgDatabase = serde_json::from_value(json!({
+            "host": "[::1]",
+            "dbname": "db"
+        }))
+        .unwrap();
+        let stmts = datatable_attach_statements(&pg, "main", "dt");
+        assert!(stmts[2].contains("HOST '::1'"));
     }
 
     #[test]
