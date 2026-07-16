@@ -239,13 +239,47 @@ jobs:
       - name: cargo test
         timeout-minutes: 30
         env:
+          # setup-rust-toolchain exports RUSTFLAGS=-D warnings, and the RUSTFLAGS env
+          # var fully REPLACES (never merges with) target.*.rustflags in
+          # backend/.cargo/config.toml. That silently drops the config's
+          # `-C link-arg=-fuse-ld=mold`, so CI links the many large integration-test
+          # binaries (v8 + duckdb + every language runtime, statically linked) with the
+          # default bfd linker. Its peak memory across ~12 parallel links OOM-kills the
+          # runner mid-link (SIGTERM => exit 143, before any test runs). Re-add the mold
+          # link arg here so CI links with mold like local dev, keeping -D warnings.
+          # (config.toml's `linker = "clang"` still applies; env only overrides rustflags.)
+          RUSTFLAGS: "-D warnings -C link-arg=-fuse-ld=mold"
           SQLX_OFFLINE: true
           DATABASE_URL: postgres://postgres:changeme@localhost:5432/windmill
           DISABLE_EMBEDDING: true
           RUST_LOG: "off"
           RUST_LOG_STYLE: never
           CARGO_NET_GIT_FETCH_WITH_CLI: true
-          CARGO_BUILD_JOBS: 12
+          # Cap parallel rustc/link jobs below the 16 available cores. The tail of
+          # the build links ~128 full-graph test binaries (one per tests/*.rs file
+          # across the workspace); at high parallelism enough heavy codegen+link
+          # units (rustc ~2.6GB, mold ~1GB each) overlap to exhaust the 64GB
+          # runner. Matches backend-test-windows.yml, which already uses 8.
+          CARGO_BUILD_JOBS: 8
+          # Incremental compilation is per-run dead weight in CI: rust-cache
+          # (cache-workspaces above) restores compiled dependency artifacts but
+          # never persists target/**/incremental, so there is no prior state to
+          # reuse in a one-shot `cargo test`. It only adds per-crate memory
+          # overhead and extra disk. Off here (kept on for local dev via
+          # .cargo/config.toml). Matches backend-test-windows.yml.
+          CARGO_INCREMENTAL: "0"
+          # backend/Cargo.toml leaves profile.dev at the default debug = 2 for
+          # the (large) windmill workspace crates; that debug info is emitted
+          # into every object file and embedded in each test binary. Across the
+          # full --all --features build it is the dominant memory/disk consumer
+          # when mold links the windmill-api-integration-tests binary, tipping
+          # the runner over (lost runner reported as a canceled step). CI needs
+          # no debug info, so drop it entirely for the dev/test profiles here.
+          # (test profile inherits dev, but the workspace crates link in as
+          # dev-profile deps, so both must be set.) CI-only; local dev builds
+          # are unaffected.
+          CARGO_PROFILE_DEV_DEBUG: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
           # Tests' poll-time stack frames (deep nested async fn chains in
           # debug builds) reach ~1.8MB, leaving very thin headroom on the
           # default 2MB thread stack. 4MB gives ~2x buffer against flaky

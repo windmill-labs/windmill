@@ -804,6 +804,10 @@ pub struct AgentTool {
     pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    /// Free-text description given to the AI to decide when and how to call this tool.
+    /// Overrides the description auto-derived from the underlying runnable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub value: ToolValue,
 }
 
@@ -816,6 +820,8 @@ impl From<FlowModule> for AgentTool {
         AgentTool {
             id: flow_module.id,
             summary: flow_module.summary,
+            // FlowModule has no dedicated tool description; it is carried on AgentTool only.
+            description: None,
             value: ToolValue::FlowModule(module_value),
         }
     }

@@ -14,6 +14,7 @@
 	import FlowEditorView from './FlowEditorView.svelte'
 	import RawAppEditorView from './RawAppEditorView.svelte'
 	import PipelineEditorView from './PipelineEditorView.svelte'
+	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
 
 	let {
 		tab,
@@ -23,6 +24,7 @@
 		mounted,
 		label,
 		darkMode,
+		fullscreen = false,
 		onNavigate,
 		onLoad
 	}: {
@@ -31,6 +33,9 @@
 		runtime: SessionRuntime | undefined
 		/** Visible tab — only one is at a time; the rest stay mounted but hidden. */
 		active: boolean
+		/** Preview panel is in full screen — forwarded to editor views so a script
+		 * editor reopens its test pane when there's room. */
+		fullscreen?: boolean
 		/** Lazy-mount gate: content only renders once the tab has been activated. */
 		mounted: boolean
 		/** Short tab label, for the iframe title. */
@@ -52,6 +57,13 @@
 		session ? (getEffectiveWorkspaceId(session) ?? $workspaceStore ?? '') : ''
 	)
 	const isActiveSession = $derived(!!session && sessionState.currentSessionId === session.id)
+
+	// Resolved live from the session's store so an update_artifact re-renders the panel.
+	const artifact = $derived(
+		slot.kind === 'artifact'
+			? runtime?.manager.artifacts.artifacts.find((a) => a.id === slot.id)
+			: undefined
+	)
 
 	let frame: HTMLIFrameElement | undefined = $state()
 
@@ -101,6 +113,21 @@
 	const visibility = $derived(
 		active ? 'z-10 opacity-100 pointer-events-auto' : 'z-0 opacity-0 pointer-events-none'
 	)
+
+	let flashing = $state(false)
+	let flashTimer: ReturnType<typeof setTimeout> | undefined
+	// Guard against the effect's non-pulse reruns (tab/runtime changes) firing a flash.
+	let lastPulseNonce = -1
+	$effect(() => {
+		const pulse = runtime?.previewTabs.focusPulse
+		if (!pulse || pulse.nonce === lastPulseNonce) return
+		lastPulseNonce = pulse.nonce
+		if (pulse.id !== tab.id) return
+		flashing = true
+		clearTimeout(flashTimer)
+		flashTimer = setTimeout(() => (flashing = false), 800)
+	})
+	$effect(() => () => clearTimeout(flashTimer))
 </script>
 
 {#if slot.kind === 'editor' && mounted && runtime}
@@ -122,7 +149,7 @@
 				{onNavigate}
 				{isActiveSession}
 				{active}
-				initialTestPanelCollapsed
+				{fullscreen}
 			/>
 		{:else if slot.editorKind === 'pipeline'}
 			<PipelineEditorView {runtime} path={slot.path} {workspaceId} {isActiveSession} {active} />
@@ -136,6 +163,21 @@
 				{active}
 			/>
 		{/if}
+	</div>
+{:else if slot.kind === 'artifact' && mounted}
+	<div class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}" aria-hidden={!active}>
+		{#if artifact}
+			<ArtifactViewer {artifact} />
+		{:else if !runtime?.manager.artifacts.loading}
+			<div class="p-4 text-sm text-tertiary">This artifact is no longer available.</div>
+		{/if}
+		<!-- Overlay: the source editor's opaque bg would cover a ring on the container. -->
+		<div
+			class="pointer-events-none absolute inset-0 z-30 ring-2 ring-inset ring-border-accent transition-opacity duration-300 {flashing
+				? 'opacity-100'
+				: 'opacity-0'}"
+			aria-hidden="true"
+		></div>
 	</div>
 {:else if mounted}
 	<iframe

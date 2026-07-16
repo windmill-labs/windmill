@@ -14,7 +14,7 @@ only ever navigates between items) doesn't grow a Pages section.
 
 <script lang="ts">
 	import { untrack } from 'svelte'
-	import { Compass } from 'lucide-svelte'
+	import { Compass, FileText } from 'lucide-svelte'
 	import { resource } from 'runed'
 	import { workspaceStore } from '$lib/stores'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
@@ -36,7 +36,15 @@ only ever navigates between items) doesn't grow a Pages section.
 		listGlobalDrafts
 	} from '$lib/components/copilot/chat/global/userDraftAdapter'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
-	import { PREVIEW_PAGES, pageHref, pageKey, type PreviewTarget } from './previewRouter'
+	import type { PersistedArtifact } from '$lib/components/copilot/chat/artifacts/artifactsDB'
+	import {
+		PREVIEW_PAGES,
+		artifactKey,
+		isArtifactKey,
+		pageHref,
+		pageKey,
+		type PreviewTarget
+	} from './previewRouter'
 
 	type Kind = WorkspaceItemKind
 	type DrillPickerHandle = {
@@ -59,6 +67,9 @@ only ever navigates between items) doesn't grow a Pages section.
 		// list root items and miss fork-only ones. Falls back to $workspaceStore
 		// for non-session consumers.
 		workspaceId?: string
+		// Session artifacts to surface as an "Artifacts" branch; omitted or empty
+		// hides the branch (non-session consumers, sessions without artifacts).
+		artifacts?: PersistedArtifact[]
 	}
 
 	let {
@@ -69,7 +80,8 @@ only ever navigates between items) doesn't grow a Pages section.
 		externalFilter,
 		autoFocus = true,
 		flush = false,
-		workspaceId
+		workspaceId,
+		artifacts
 	}: Props = $props()
 
 	const kinds: Kind[] = ['flow', 'script', 'app']
@@ -153,8 +165,30 @@ only ever navigates between items) doesn't grow a Pages section.
 		children: PREVIEW_PAGES.filter((p) => p.path !== '/').map(pageLeaf)
 	})
 
+	// Session artifacts, when present, get their own branch between Pages and the
+	// workspace items so they're pickable (and searchable) like any destination.
+	const artifactsBranch = $derived<DrillBranch<PreviewTarget> | undefined>(
+		artifacts && artifacts.length > 0
+			? {
+					type: 'branch',
+					key: 'artifacts',
+					label: 'Artifacts',
+					icon: FileText,
+					searchGroup: true,
+					children: artifacts.map((a) => ({
+						type: 'leaf' as const,
+						key: artifactKey(a.id),
+						label: a.name,
+						icon: FileText,
+						data: { type: 'artifact', id: a.id, name: a.name }
+					}))
+				}
+			: undefined
+	)
+
 	const tree = $derived<DrillNode<PreviewTarget>[]>([
 		pagesBranch,
+		...(artifactsBranch ? [artifactsBranch] : []),
 		...tagItems(
 			buildWorkspaceTree({
 				loaded: loader.loaded,
@@ -166,7 +200,17 @@ only ever navigates between items) doesn't grow a Pages section.
 		)
 	])
 
-	const computedInitialScope = untrack(() => legacyScopeToPath(initialScope, kinds))
+	// An artifact highlight lives under the 'artifacts' branch, which the legacy
+	// {kind, dir} scope can't express — open the picker inside that branch so the
+	// active artifact is actually visible and highlighted (not the first root row).
+	// Keyed on the highlight's shape alone: the branch itself may not have
+	// materialized yet (artifacts hydrate from IndexedDB after tabs restore), and
+	// the drill entries fill in reactively once it does.
+	const computedInitialScope = untrack(() =>
+		initialHighlight && isArtifactKey(initialHighlight)
+			? ['artifacts']
+			: legacyScopeToPath(initialScope, kinds)
+	)
 </script>
 
 {#snippet leafIcon(leaf: DrillLeaf<PreviewTarget>)}

@@ -2,7 +2,9 @@ import { base } from '$lib/base'
 import { randomUUID } from '$lib/utils/uuid'
 import { editPathFor, type WorkspaceItem } from '$lib/components/workspacePicker'
 import {
+	artifactUrl,
 	matchPreviewPage,
+	parseArtifactRoute,
 	parsePipelineRoute,
 	parsePreviewItemRoute,
 	previewLocationLabel,
@@ -43,9 +45,11 @@ function isEditorTabFor(url: string, target: SessionTarget): boolean {
 	return slot.kind === 'editor' && slot.editorKind === target.kind && slot.path === target.path
 }
 
-// URL a tab should load for a destination: a page's href, or an item's edit route.
+// URL a tab should load for a destination: a page's href, an item's edit route, or an artifact's scheme.
 function targetUrl(target: PreviewTarget): string {
-	return target.type === 'page' ? target.href : `${base}${editPathFor(target.item)}`
+	if (target.type === 'page') return target.href
+	if (target.type === 'artifact') return artifactUrl(target.id, target.name)
+	return `${base}${editPathFor(target.item)}`
 }
 
 // Point a tab at a new destination. Clears `friendlyLabel`/`friendlyPath`
@@ -153,6 +157,8 @@ export class SessionPreviewTabs {
 	#activeId = $state('')
 	#collapsed = $state(false)
 	#previewSize = $state<number | undefined>(undefined)
+	// Ephemeral UI signal — not part of the persisted snapshot.
+	#focusPulse = $state({ id: '', nonce: 0 })
 	readonly #adapter: PreviewTabsAdapter
 	readonly #flushDelay: number
 	#flushHandle: ReturnType<typeof setTimeout> | undefined
@@ -184,6 +190,15 @@ export class SessionPreviewTabs {
 	}
 	get previewSize(): number | undefined {
 		return this.#previewSize
+	}
+	get focusPulse(): { id: string; nonce: number } {
+		return this.#focusPulse
+	}
+
+	// The nonce makes each call a fresh value, so re-clicking the same active tab
+	// still fires the flash.
+	pulseFocus(id: string): void {
+		this.#focusPulse = { id, nonce: this.#focusPulse.nonce + 1 }
 	}
 
 	setPreviewSize(size: number): void {
@@ -223,6 +238,18 @@ export class SessionPreviewTabs {
 			if (existing) {
 				const same = existing.url === url
 				retargetTab(existing, url)
+				this.#activeId = existing.id
+				this.#flush()
+				return { status: same ? 'focused' : 'opened' }
+			}
+		}
+		// Dedupe artifacts by id, not full url: an update may have changed the name the url carries.
+		if (target.type === 'artifact') {
+			const existing = this.#tabs.find((t) => parseArtifactRoute(t.url)?.id === target.id)
+			if (existing) {
+				const same = existing.url === url
+				existing.url = url
+				existing.loc = url
 				this.#activeId = existing.id
 				this.#flush()
 				return { status: same ? 'focused' : 'opened' }
@@ -269,6 +296,18 @@ export class SessionPreviewTabs {
 		const pipelineFolder = parsePipelineRoute(url)
 		if (pipelineFolder) {
 			const existing = this.#tabs.find((x) => parsePipelineRoute(x.url) !== null)
+			if (existing && existing.id !== t.id) {
+				retargetTab(existing, url)
+				this.#activeId = existing.id
+				this.#flush()
+				return
+			}
+		}
+		// Same by-id artifact dedupe as open(): focus (and re-point, in case the
+		// name changed) the tab already viewing this artifact instead of turning
+		// the active tab into a duplicate viewer.
+		if (target.type === 'artifact') {
+			const existing = this.#tabs.find((x) => parseArtifactRoute(x.url)?.id === target.id)
 			if (existing && existing.id !== t.id) {
 				retargetTab(existing, url)
 				this.#activeId = existing.id
@@ -323,6 +362,11 @@ export class SessionPreviewTabs {
 			this.#activeId = (this.#tabs[idx] ?? this.#tabs[idx - 1] ?? this.#tabs[0])?.id ?? ''
 		}
 		this.#flush()
+	}
+
+	closeArtifact(artifactId: string): void {
+		const tab = this.#tabs.find((t) => parseArtifactRoute(t.url)?.id === artifactId)
+		if (tab) this.close(tab.id)
 	}
 
 	setCollapsed(collapsed: boolean): void {
@@ -422,16 +466,19 @@ export function describePreview(tabs: SessionPreviewTab[], activeId: string): st
 	if (tabs.length === 0) return 'No preview tabs are open in the side panel.'
 	const lines = tabs.map((t) => {
 		const where = t.loc || t.url
+		const artifact = parseArtifactRoute(where)
 		const page = matchPreviewPage(where)
 		const pipelineFolder = parsePipelineRoute(where)
 		const route = parsePreviewItemRoute(where)
-		const label = page
-			? `page "${page.label}"`
-			: pipelineFolder
-				? `pipeline "${pipelineFolder}"`
-				: route
-					? `${route.raw_app ? 'raw_app' : route.kind} "${route.itemPath}"`
-					: stripBase(where)
+		const label = artifact
+			? `artifact "${artifact.name || 'Artifact'}"`
+			: page
+				? `page "${page.label}"`
+				: pipelineFolder
+					? `pipeline "${pipelineFolder}"`
+					: route
+						? `${route.raw_app ? 'raw_app' : route.kind} "${route.itemPath}"`
+						: stripBase(where)
 		const live = resolvePreviewTab(t.url).kind === 'editor' ? ', live editor' : ''
 		const active = t.id === activeId ? ', active' : ''
 		return `- ${label}${live}${active}`

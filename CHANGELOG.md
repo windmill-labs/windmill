@@ -1,5 +1,102 @@
 # Changelog
 
+## [1.760.1](https://github.com/windmill-labs/windmill/compare/v1.760.0...v1.760.1) (2026-07-15)
+
+
+### Bug Fixes
+
+* **apps:** honor presigned S3 signature on app display/preview routes ([#10141](https://github.com/windmill-labs/windmill/issues/10141)) ([8c725d9](https://github.com/windmill-labs/windmill/commit/8c725d9e44e38bf3b35f41b847cdf8745e07942e))
+
+## [1.760.0](https://github.com/windmill-labs/windmill/compare/v1.759.0...v1.760.0) (2026-07-15)
+
+
+### Features
+
+* **nsjail:** make python/ansible rlimit_as configurable per worker (GIT-921) ([#10138](https://github.com/windmill-labs/windmill/issues/10138)) ([1787201](https://github.com/windmill-labs/windmill/commit/17872018cc037e699b1f6e1589d0ad05e0883cca))
+
+
+### Bug Fixes
+
+* **ai:** disable redirects on worker AI provider client (GHSA-5q4v) ([#10122](https://github.com/windmill-labs/windmill/issues/10122)) ([27ead8d](https://github.com/windmill-labs/windmill/commit/27ead8d0848cceacaf0c49fed0e8896472b851e3))
+* **ai:** stop sending the AI agent system prompt twice for OpenAI ([#10126](https://github.com/windmill-labs/windmill/issues/10126)) ([8bfe5c9](https://github.com/windmill-labs/windmill/commit/8bfe5c93404ba3f137394f16d0571a06d891dc3b))
+* **apps:** invalidate cached app policy on change or deletion (GHSA-r5v4-cxh9-7qhq) ([#10121](https://github.com/windmill-labs/windmill/issues/10121)) ([f7eb5c4](https://github.com/windmill-labs/windmill/commit/f7eb5c460d78792c24297e20cb062638522a4f68))
+* **bash:** normalize CRLF line endings before running scripts ([#10131](https://github.com/windmill-labs/windmill/issues/10131)) ([6407d9f](https://github.com/windmill-labs/windmill/commit/6407d9ff5ce51e71ff8b8fc503d89a2bdc2e1761))
+* **cli-image:** patch fixable CRITICAL CVEs in windmill-cli image (GIT-922) ([#10135](https://github.com/windmill-labs/windmill/issues/10135)) ([5626768](https://github.com/windmill-labs/windmill/commit/56267684718944ef4d4ecd3b610bad81132e1990))
+* **frontend:** graceful small-screen timeframe picker on the runs page ([#10073](https://github.com/windmill-labs/windmill/issues/10073)) ([af177ce](https://github.com/windmill-labs/windmill/commit/af177cefe07e6037e33cc90757088a98fb63a49f))
+* **frontend:** keep session-exit URL clean by syncing new_draft strip with the router ([#10101](https://github.com/windmill-labs/windmill/issues/10101)) ([9705d60](https://github.com/windmill-labs/windmill/commit/9705d602848966f850613233d6e23b73a753c259))
+* **frontend:** only carry custom-tag overrides on 'Run again' ([#10137](https://github.com/windmill-labs/windmill/issues/10137)) ([bd3adc9](https://github.com/windmill-labs/windmill/commit/bd3adc9781d8e77928c9feb03d0e05b63a1aaf7c))
+* **frontend:** treat a displaced draft save as superseded, not failed ([#10094](https://github.com/windmill-labs/windmill/issues/10094)) ([2fe999f](https://github.com/windmill-labs/windmill/commit/2fe999f66cd15acd81850f970ada31e9892abff2))
+* reject git URL fragment/query SSRF bypass (GHSA-p5cj-8cfh-mjv6) ([#10120](https://github.com/windmill-labs/windmill/issues/10120)) ([73c8d7f](https://github.com/windmill-labs/windmill/commit/73c8d7f08ad55cd2323d1bb9438f00a8ac30e046))
+* **security:** enforce variables:write scope on resource-delete var cascade (GHSA-xmr2-98m6-cjf7) ([#10123](https://github.com/windmill-labs/windmill/issues/10123)) ([188647a](https://github.com/windmill-labs/windmill/commit/188647a942a0cb496d63c71bf3e0f7a3136ec217))
+
+## [1.759.0](https://github.com/windmill-labs/windmill/compare/v1.758.0...v1.759.0) (2026-07-15)
+
+
+### Features
+
+* **nativets:** add Web Crypto support via deno_crypto ([#10109](https://github.com/windmill-labs/windmill/issues/10109)) ([ba23254](https://github.com/windmill-labs/windmill/commit/ba232544e7608731560defc0ed103c3e746e46ea))
+* **nativets:** expose the standard web-platform globals deno_web provides ([#10112](https://github.com/windmill-labs/windmill/issues/10112)) ([6d1e12d](https://github.com/windmill-labs/windmill/commit/6d1e12d5e95a6e3fb74c142e33a141b5ce0856a9))
+
+
+### Bug Fixes
+
+* **jseval:** raise QuickJS eval memory cap to 128MB with clear OOM error ([#10116](https://github.com/windmill-labs/windmill/issues/10116)) ([95d9ff0](https://github.com/windmill-labs/windmill/commit/95d9ff02ee8a92162c06857bac7102c92c708c51))
+* **mcp:** advertise flow input variables in MCP tools ([#10117](https://github.com/windmill-labs/windmill/issues/10117)) ([a6191e2](https://github.com/windmill-labs/windmill/commit/a6191e2a855e03d0b03847067787a9de26e9d54a))
+* **mcp:** let MCP tokens call preview run tools (jobs:run scope) — Fixes GIT-920 ([#10107](https://github.com/windmill-labs/windmill/issues/10107)) ([4917f79](https://github.com/windmill-labs/windmill/commit/4917f79935acd4ecf9fb5a21d3131dec9ae9da44))
+* **nativets:** apply parameter defaults for missing args instead of null ([#10111](https://github.com/windmill-labs/windmill/issues/10111)) ([ba7f9c0](https://github.com/windmill-labs/windmill/commit/ba7f9c065f78641487c2765370be98227dcf1c6a))
+* **self-host:** resolve caddy-l4 "unrecognized global option: layer4" error ([#10106](https://github.com/windmill-labs/windmill/issues/10106)) ([770ac2b](https://github.com/windmill-labs/windmill/commit/770ac2be9ed3ff8f647aa3948e1f42d62c97865b))
+* **tree-view:** align file indentation with sibling folders ([#10115](https://github.com/windmill-labs/windmill/issues/10115)) ([88030d0](https://github.com/windmill-labs/windmill/commit/88030d0f557a834f2dae80e2a31033261d8b1d1d))
+
+
+### Performance Improvements
+
+* **rls:** wrap session GUC reads in RLS policies for per-statement InitPlan (GIT-919) ([#10110](https://github.com/windmill-labs/windmill/issues/10110)) ([e9fd4e7](https://github.com/windmill-labs/windmill/commit/e9fd4e7554f624a7e6c3923b9c6b604bee9ebd1f))
+
+## [1.758.0](https://github.com/windmill-labs/windmill/compare/v1.757.0...v1.758.0) (2026-07-14)
+
+
+### Features
+
+* **ai-agent:** give tools a real description instead of the tool name ([#10083](https://github.com/windmill-labs/windmill/issues/10083)) ([7ebfad3](https://github.com/windmill-labs/windmill/commit/7ebfad382a2649a325444fcb745aca415871fe77))
+* **ai-chat:** port flow-group and sticky-note instructions to global chat ([#10090](https://github.com/windmill-labs/windmill/issues/10090)) ([32f32d9](https://github.com/windmill-labs/windmill/commit/32f32d9a29bb214d6aae58c501b8892ceb1c6453))
+* **cli:** add --tag override to script and flow run/preview ([#10079](https://github.com/windmill-labs/windmill/issues/10079)) ([98e6cca](https://github.com/windmill-labs/windmill/commit/98e6cca75d4dbc7417c7dd64289e0e8e56b84b0e))
+* **sessions:** support many pending sessions persisted in IndexedDB ([#10076](https://github.com/windmill-labs/windmill/issues/10076)) ([bfcec7e](https://github.com/windmill-labs/windmill/commit/bfcec7e8ac71e86ab16d7db789556b5fc7cfd3c7))
+
+
+### Bug Fixes
+
+* **ai-chat:** size AI-created flow notes to fit their text ([#10091](https://github.com/windmill-labs/windmill/issues/10091)) ([af3e3fe](https://github.com/windmill-labs/windmill/commit/af3e3fe6674de21a03b5c157a649452320c1ed0e))
+* **apps:** allow setting sandbox isolation and public access before first deploy ([#10085](https://github.com/windmill-labs/windmill/issues/10085)) ([cfc3f29](https://github.com/windmill-labs/windmill/commit/cfc3f292ad2fdc6067c558e42ef0754eca9469a9))
+* **apps:** load themes when selecting the Resources → Theme tab ([#10086](https://github.com/windmill-labs/windmill/issues/10086)) ([f2869d8](https://github.com/windmill-labs/windmill/commit/f2869d8c1a6f84837168d59724a496b39080bcce))
+* **frontend:** stop spurious raw-app reload that 404s on "Start without AI" ([#10099](https://github.com/windmill-labs/windmill/issues/10099)) ([2c702ef](https://github.com/windmill-labs/windmill/commit/2c702efec026bebdd9c1b8cdca4808e394b2fd09))
+* **mcp:** align script auto_kind filter with scripts list API ([#10098](https://github.com/windmill-labs/windmill/issues/10098)) ([4edffeb](https://github.com/windmill-labs/windmill/commit/4edffeb84b5d691884dc3c274dfd8aa4e9441295))
+* **sessions:** pending-draft debounce follow-ups (delete-cancel, keystroke de-transient, teardown count) ([#10087](https://github.com/windmill-labs/windmill/issues/10087)) ([f3cd5d9](https://github.com/windmill-labs/windmill/commit/f3cd5d9f7f370ba0aa27c452e8434454a10e07fe))
+* **sessions:** reopen script test panel when preview goes full screen ([#10082](https://github.com/windmill-labs/windmill/issues/10082)) ([eff9076](https://github.com/windmill-labs/windmill/commit/eff9076e9127eaa9b6a47897d5664932c720990b))
+
+
+### Performance Improvements
+
+* **runs:** index-bound batch re-run selection with a lossless completed_at bound (WIN-2168) ([#10074](https://github.com/windmill-labs/windmill/issues/10074)) ([15391f6](https://github.com/windmill-labs/windmill/commit/15391f6399eef5b85dac116b3ae04e71f70263a1))
+
+## [1.757.0](https://github.com/windmill-labs/windmill/compare/v1.756.1...v1.757.0) (2026-07-14)
+
+
+### Features
+
+* **saml:** add ALLOW_PRIVATE_SAML_METADATA_URLS SSRF bypass ([#10077](https://github.com/windmill-labs/windmill/issues/10077)) ([851e309](https://github.com/windmill-labs/windmill/commit/851e30914e3172dad2a3ccaa6951a3ffe1e67495))
+
+
+### Bug Fixes
+
+* **ai-agent:** don't mark repeated tool calls as failed in flow graph ([#10075](https://github.com/windmill-labs/windmill/issues/10075)) ([207ce86](https://github.com/windmill-labs/windmill/commit/207ce8649cf7026c62eea2b1b2f462c7df8c4e5a))
+
+## [1.756.1](https://github.com/windmill-labs/windmill/compare/v1.756.0...v1.756.1) (2026-07-14)
+
+
+### Bug Fixes
+
+* **apps:** cover script/flow component outputs in deployed-app S3 provenance gate ([#10070](https://github.com/windmill-labs/windmill/issues/10070)) ([710a13a](https://github.com/windmill-labs/windmill/commit/710a13a59d511614839f70e445db736e436550d7))
+
 ## [1.756.0](https://github.com/windmill-labs/windmill/compare/v1.755.0...v1.756.0) (2026-07-12)
 
 
