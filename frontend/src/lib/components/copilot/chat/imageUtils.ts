@@ -230,14 +230,17 @@ export function boundImagePartBytes(
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const content = messages[i].content
 		if (!Array.isArray(content)) continue
-		;(content as any[]).forEach((part, j) => {
-			if (part?.type !== 'image_url' || typeof part?.image_url?.url !== 'string') return
+		// Parts walk in reverse too: within a message they are in attachment order,
+		// and for screenshot follow-ups the last one is the app's current state.
+		for (let j = (content as any[]).length - 1; j >= 0; j--) {
+			const part = (content as any[])[j]
+			if (part?.type !== 'image_url' || typeof part?.image_url?.url !== 'string') continue
 			total += base64Bytes(part.image_url.url)
 			if (total > cap) {
 				if (!drops.has(i)) drops.set(i, new Set())
 				drops.get(i)!.add(j)
 			}
-		})
+		}
 	}
 	if (drops.size === 0) return messages
 	return messages.map((message, i) => {

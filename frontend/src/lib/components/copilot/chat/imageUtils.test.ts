@@ -95,21 +95,25 @@ describe('boundImagePartBytes', () => {
 
 	// An over-cap batch on the CURRENT turn must keep the subset that fits, not
 	// silently send a text-only message while the composer showed attached images.
-	it('keeps the fitting subset when the newest message alone exceeds the cap', () => {
-		const url = (chars: number) => ({
+	// The newest parts win: for screenshot follow-ups the last image is the app's
+	// current state.
+	it('keeps the newest fitting subset when the newest message alone exceeds the cap', () => {
+		const url = (marker: string) => ({
 			type: 'image_url',
-			image_url: { url: 'data:image/png;base64,' + 'A'.repeat(chars) }
+			image_url: { url: 'data:image/png;base64,' + marker.repeat(1000) }
 		})
 		const messages = [
 			{
 				role: 'user',
-				content: [{ type: 'text', text: 'batch' }, url(1000), url(1000), url(1000)]
+				content: [{ type: 'text', text: 'batch' }, url('A'), url('B'), url('C')]
 			} as any
 		]
 		const out = boundImagePartBytes(messages, 1600)
-		// 750 bytes each against a 1600-byte cap: two fit, the third is dropped
-		expect(imageParts(out[0])).toBe(2)
-		expect(JSON.stringify(out[0].content)).toContain('[image omitted]')
+		// 750 bytes each against a 1600-byte cap: the two NEWEST fit, the oldest drops
+		const content = out[0].content as any[]
+		expect(content[1]).toEqual({ type: 'text', text: '[image omitted]' })
+		expect(content[2].image_url.url).toContain('B')
+		expect(content[3].image_url.url).toContain('C')
 	})
 })
 
