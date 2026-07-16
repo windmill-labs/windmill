@@ -135,6 +135,25 @@
 	let enableHtml = $state(false)
 	let s3FileDisplayRawMode = $state(false)
 
+	// Build the image/PDF source URL for an S3 object. When `appPath` is set
+	// (deployed app view) the read is authorized on-behalf of the app author via
+	// the provenance-gated `apps_u/download_s3_file/{appPath}` endpoint; otherwise
+	// (editor/preview) it uses the viewer-scoped `job_helpers/load_image_preview`.
+	function s3DisplayUrl(s3object: { s3: string; storage?: string; presigned?: string }): string {
+		const endpoint = appPath
+			? `apps_u/download_s3_file/${appPath}`
+			: 'job_helpers/load_image_preview'
+		const keyParam = appPath ? 's3' : 'file_key'
+		let url = `/api/w/${workspaceId}/${endpoint}?${keyParam}=${encodeURIComponent(s3object.s3)}`
+		if (s3object.storage) {
+			url += `&storage=${s3object.storage}`
+		}
+		if (appPath && s3object.presigned) {
+			url += `&${s3object.presigned}`
+		}
+		return url
+	}
+
 	function isTableRow(result: any): boolean {
 		return Array.isArray(result) && result.every((x) => Array.isArray(x))
 	}
@@ -677,6 +696,7 @@
 					{jobId}
 					{nodeId}
 					{workspaceId}
+					{appPath}
 					forceJson={globalForceJson}
 					hideAsJson={true}
 				/>
@@ -1032,48 +1052,27 @@
 							{/if}
 						</div>
 						{#if typeof s3object?.s3 === 'string'}
-							{#if !appPath && (s3object?.s3?.endsWith('.parquet') || s3object?.s3?.endsWith('.csv'))}
+							{#if s3object?.s3?.endsWith('.parquet') || s3object?.s3?.endsWith('.csv')}
 								{#key s3object.s3}
 									<ParqetTableRenderer
 										disable_download={s3object?.disable_download}
 										{workspaceId}
+										{appPath}
 										s3resource={s3object?.s3}
 										storage={s3object?.storage}
+										presigned={s3object?.presigned}
 									/>
 								{/key}
 							{:else if s3object?.s3?.endsWith('.png') || s3object?.s3?.endsWith('.jpeg') || s3object?.s3?.endsWith('.jpg') || s3object?.s3?.endsWith('.webp')}
 								<div class="h-full mt-2">
-									<img
-										alt="preview rendered"
-										class="w-auto h-full"
-										src="{`/api/w/${workspaceId}/${
-											appPath
-												? 'apps_u/download_s3_file/' + appPath
-												: 'job_helpers/load_image_preview'
-										}?${appPath ? 's3' : 'file_key'}=${encodeURIComponent(s3object.s3)}` +
-											(s3object.storage ? `&storage=${s3object.storage}` : '')}{appPath &&
-										s3object.presigned
-											? `&${s3object.presigned}`
-											: ''}"
-									/>
+									<img alt="preview rendered" class="w-auto h-full" src={s3DisplayUrl(s3object)} />
 								</div>
 							{:else if s3object?.s3?.endsWith('.pdf')}
 								<div class="h-96 mt-2 border">
 									{#await import('$lib/components/display/PdfViewer.svelte')}
 										<Loader2 class="animate-spin" />
 									{:then Module}
-										<Module.default
-											allowFullscreen
-											source="{`/api/w/${workspaceId}/${
-												appPath
-													? 'apps_u/download_s3_file/' + appPath
-													: 'job_helpers/load_image_preview'
-											}?${appPath ? 's3' : 'file_key'}=${encodeURIComponent(s3object.s3)}` +
-												(s3object.storage ? `&storage=${s3object.storage}` : '')}{appPath &&
-											s3object.presigned
-												? `&${s3object.presigned}`
-												: ''}"
-										/>
+										<Module.default allowFullscreen source={s3DisplayUrl(s3object)} />
 									{/await}
 								</div>
 							{/if}
@@ -1115,8 +1114,10 @@
 										<ParqetTableRenderer
 											disable_download={s3object?.disable_download}
 											{workspaceId}
+											{appPath}
 											s3resource={s3object?.s3}
 											storage={s3object?.storage}
+											presigned={s3object?.presigned}
 										/>{:else}
 										<button
 											class="text-primary whitespace-nowrap flex gap-2 items-center"
@@ -1132,9 +1133,7 @@
 											<img
 												alt="preview rendered"
 												class="w-auto h-full"
-												src={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
-													s3object.s3
-												)}` + (s3object.storage ? `&storage=${s3object.storage}` : '')}
+												src={s3DisplayUrl(s3object)}
 											/>
 										</div>
 									{:else}
@@ -1151,12 +1150,7 @@
 										{#await import('$lib/components/display/PdfViewer.svelte')}
 											<Loader2 class="animate-spin" />
 										{:then Module}
-											<Module.default
-												allowFullscreen
-												source={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
-													s3object.s3
-												)}` + (s3object.storage ? `&storage=${s3object.storage}` : '')}
-											/>
+											<Module.default allowFullscreen source={s3DisplayUrl(s3object)} />
 										{/await}
 									</div>
 								{/if}
@@ -1292,6 +1286,7 @@
 					{jobId}
 					{nodeId}
 					{workspaceId}
+					{appPath}
 					{hideAsJson}
 					{forceJson}
 					disableExpand={true}

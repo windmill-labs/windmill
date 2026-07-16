@@ -392,11 +392,12 @@
 
 <!-- Native trigger editor drawers (schedule/kafka/webhook/…), shared with the
      route page; opened imperatively from the canvas via the handlers above.
-     NOTE: these operate on the global `$workspaceStore`, not the `workspaceId`
-     prop. That's correct only because activating a session syncs the store to
-     the session's workspace (SessionPicker), and triggers are only opened from
-     the visible/active session — so for a forked-workspace session the store is
-     already pointed at the right workspace by the time a drawer opens. -->
+     KNOWN LIMITATION: the whole native-trigger editor subsystem reads the global
+     `$workspaceStore` and exposes no workspace override, so trigger create/edit/
+     delete here targets the nav workspace — NOT this view's `workspaceId`.
+     SessionPicker intentionally does not switch `$workspaceStore` on activation,
+     so for a forked-workspace session these writes go to the wrong workspace.
+     Fixing it means threading a workspace override through the trigger editors. -->
 <PipelineTriggerEditors
 	bind:this={triggerEditors}
 	mountTriggerEditors

@@ -82,6 +82,8 @@ import type { ContextElement } from '../context'
 import { getDatatableTools } from '../datatableTools'
 import { fileTools } from '../files/fileTools'
 import type { AttachedFilesStore } from '../files/attachedFiles.svelte'
+import { artifactTools } from '../artifacts/artifactTools'
+import type { SessionArtifactsStore } from '../artifacts/artifactsState.svelte'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
 import { inferArgs } from '$lib/infer'
@@ -217,7 +219,13 @@ const askUserQuestionSchema = z.object({
 		.array(z.string().min(1).describe('Proposed answer text shown to the user and returned as-is.'))
 		.min(2)
 		.max(10)
-		.describe('Two to ten mutually exclusive proposed answer strings.')
+		.describe('Two to ten proposed answer strings.'),
+	multiSelect: z
+		.boolean()
+		.optional()
+		.describe(
+			'When true, the user may select several answers; use only when the choices can genuinely co-apply (not mutually exclusive). Defaults to single-select.'
+		)
 })
 
 // Matches the per-mode cap enforced by the prompt-settings UI (AIPromptsModal) and
@@ -357,7 +365,14 @@ const writeFlowSchema = z.object({
 		.optional()
 		.nullable()
 		.describe(
-			'JSON string containing the optional array of semantic flow groups. Pass null to clear groups.'
+			'JSON string, array of semantic flow groups (call get_instructions subject:"flow" for the full field reference). color MUST be one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray — never hex codes. Pass null to clear groups.'
+		),
+	notes: z
+		.string()
+		.optional()
+		.nullable()
+		.describe(
+			'JSON string, array of free-floating sticky notes (type must be "free"; call get_instructions subject:"flow" for the full field reference). color MUST be one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray — never hex codes. Pass null to clear notes.'
 		),
 	override: draftOverrideField
 })
@@ -380,7 +395,8 @@ function editableFlowToDraftValue(editable: EditableFlowJson): FlowDraftValue {
 		modules: editable.modules,
 		preprocessor_module: editable.preprocessor_module ?? undefined,
 		failure_module: editable.failure_module ?? undefined,
-		groups: editable.groups ?? undefined
+		groups: editable.groups ?? undefined,
+		notes: editable.notes ?? undefined
 	}
 	return {
 		value,
@@ -905,7 +921,7 @@ Rules:
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
-- When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
+- When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
 - When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
 - Keep context targeted.${
 		previewTools
@@ -914,7 +930,8 @@ Rules:
 - Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty or not-yet-created folder is fine (create_folder first if needed, then open it). Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.
 - When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
 - get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.
-- open_page opens its page as a tab in the side-panel preview next to the chat — the only way to show one of these pages there (open_preview only handles editable items). Changing filters on a page already open updates that same tab; only pass new_tab when the user explicitly asks for a separate tab.`
+- open_page opens its page as a tab in the side-panel preview next to the chat — the only way to show one of these pages there (open_preview only handles editable items). Changing filters on a page already open updates that same tab; only pass new_tab when the user explicitly asks for a separate tab.
+- create_artifact saves a persistent markdown document (a planning doc, design write-up, spec, or other longer structured output) shown in the session preview panel. Prefer it over a long inline reply for content the user will revisit; keep brief answers inline. To revise one, call list_artifacts then read_artifact for the current content, then update_artifact to overwrite it — never create a second artifact for the same document.`
 			: ''
 	}
 
@@ -1614,20 +1631,34 @@ function getFlowInstructions(): string {
 
 - Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
 - Paths follow the conventions in the system prompt: default to \`u/<current-user>/<name>\` when the user gave a bare name; only use \`f/<folder>/<name>\` when the folder is known to exist. Never invent a folder.
-- \`write_flow\` mirrors flow mode's \`set_flow_json\`: pass \`path\`, optional \`summary\`, optional \`description\`, required \`modules\`, and optional \`schema\`, \`preprocessor_module\`, \`failure_module\`, and \`groups\`. \`summary\` and \`description\` are top-level flow metadata (not part of the compact value \`patch_flow_json\` edits); the flow-structure arguments are JSON strings, matching the tool schema descriptions.
-- \`read_workspace_item\` returns a compact flow \`value\` object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, and \`groups\`.
+- \`write_flow\` mirrors flow mode's \`set_flow_json\`: pass \`path\`, optional \`summary\`, optional \`description\`, required \`modules\`, and optional \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, and \`notes\`. \`summary\` and \`description\` are top-level flow metadata (not part of the compact value \`patch_flow_json\` edits); the flow-structure arguments are JSON strings, matching the tool schema descriptions.
+- \`read_workspace_item\` returns a compact flow \`value\` object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, and \`notes\`.
 - \`modules\` contains normal sequential modules. Use top-level \`preprocessor_module\` and \`failure_module\` for special modules; do not put \`preprocessor\` or \`failure\` in \`modules\`.
 - Every module needs a stable unique \`id\` and a useful \`summary\` when the schema supports it.
 - Prefer path/script/flow modules when composing existing workspace logic. Use rawscript modules only when new inline code is needed.
 - When writing rawscript module code, call \`get_instructions\` with \`subject: "script"\` and the rawscript language first.
 
+## Organizing flows: groups and notes
+
+- \`groups\`: Array of semantic groups for organizing modules in the editor (optional, but **strongly recommended** — proactively segment any non-trivial flow into groups so it reads clearly; don't wait to be asked). Each group has \`summary\` (display name), \`note\` (markdown description shown below the group header — attached directly to the group, not a separate sticky note), \`autocollapse\`, \`start_id\`, \`end_id\`, and \`color\`. \`start_id\` and \`end_id\` must reference existing module IDs in the flow (not \`preprocessor\` or \`failure\`). \`color\` MUST be one of these exact names: \`yellow\`, \`blue\`, \`green\`, \`purple\`, \`pink\`, \`orange\`, \`red\`, \`cyan\`, \`lime\`, \`gray\` — do NOT use hex codes, CSS colors, or any other strings. Omit \`color\` entirely if no preference and the editor will assign one automatically. Groups do not affect execution — they provide naming and collapsibility in the editor. Pass \`null\` to clear existing groups.
+- \`notes\`: Array of free-floating sticky notes shown in the editor (optional). Each note has \`id\` (unique string), \`text\` (markdown content), \`color\` (same palette as groups: \`yellow\`, \`blue\`, \`green\`, \`purple\`, \`pink\`, \`orange\`, \`red\`, \`cyan\`, \`lime\`, \`gray\` — never hex codes), and optional \`position\` {x, y} / \`size\` {width, height} (omit both — the editor auto-places and sizes the note). Always set \`type\` to \`free\`. The \`group\` note type is **deprecated** — do not create group notes; use the \`groups\` field to segment a flow instead. Notes are documentation only and do not affect execution. Pass \`null\` to clear existing notes.
+
+### When to use notes vs groups
+
+**Strongly prefer \`groups\` to organize flows.** Groups are the primary way to make a flow readable: whenever a flow has more than a couple of steps, or any time consecutive steps form a logical stage (e.g. "fetch", "transform", "notify"), segment them into \`groups\`. Each group spans a range of steps (\`start_id\`..\`end_id\`), carries its own \`summary\`, \`note\` (markdown under the group header), and \`color\`, and can be collapsed. Proactively add or update groups when building or restructuring a flow — do not wait to be asked. Aim for every meaningful step to belong to a semantic group.
+
+- **\`groups\` (default, use liberally):** segment a flow into labelled semantic sections. This is the main organizational tool — reach for it on essentially any non-trivial flow, not just "complex" ones.
+- **\`notes\` (free sticky notes, use sparingly):** reserve for important flow-wide information that does not belong to a specific span of steps — overall purpose, key assumptions, warnings, or TODOs. Usually a single note is enough; do not use notes to label sequences of steps (that is what \`groups\` are for).
+- Do **not** use \`group\`-type notes (deprecated) — \`groups\` is the supported way to group steps.
+- With \`patch_flow_json\`, edit \`groups\` and \`notes\` the same way as any other field — they appear as top-level keys in the compact flow value.
+
 ## Compact view: how rawscript bodies surface in tool I/O
 
-- \`read_workspace_item\` and \`patch_flow_json\` operate on a **compact view** of the flow: every rawscript module's \`value.content\` is replaced with the placeholder \`"inline_script.<moduleId>"\` so inline script bodies don't bloat tool I/O. Schema, groups, preprocessor_module and failure_module are all shown in this view.
+- \`read_workspace_item\` and \`patch_flow_json\` operate on a **compact view** of the flow: every rawscript module's \`value.content\` is replaced with the placeholder \`"inline_script.<moduleId>"\` so inline script bodies don't bloat tool I/O. Schema, groups, notes, preprocessor_module and failure_module are all shown in this view.
 - Inline rawscript content is **not** part of the JSON \`patch_flow_json\` sees. Edits to inline bodies happen via dedicated tools:
   - \`read_flow_module_code(path, module_id)\` — returns the raw inline script content for one module.
   - \`set_flow_module_code(path, module_id, code)\` — overwrites that module's inline script content; saves to the draft.
-- Use \`patch_flow_json\` for *structural* edits: module ids, paths, input_transforms, branch arrangement, summaries, preprocessor/failure swaps, schema/groups. Use \`set_flow_module_code\` for changes inside a specific rawscript body.
+- Use \`patch_flow_json\` for *structural* edits: module ids, paths, input_transforms, branch arrangement, summaries, preprocessor/failure swaps, schema/groups/notes. Use \`set_flow_module_code\` for changes inside a specific rawscript body.
 - \`write_flow\` is for full overwrites / create-from-scratch. Its \`modules\`, \`preprocessor_module\`, and \`failure_module\` arguments use **non-compact** flow modules (rawscript content is the actual code, not a placeholder).
 
 # Windmill flow authoring reference
@@ -2106,7 +2137,8 @@ export const globalTools: Tool<{}>[] = [
 			const parsed = askUserQuestionSchema.parse(args)
 			const userQuestion = {
 				question: parsed.question,
-				choices: parsed.choices
+				choices: parsed.choices,
+				multiSelect: parsed.multiSelect
 			}
 
 			toolCallbacks.setToolStatus(toolId, {
@@ -2126,8 +2158,8 @@ export const globalTools: Tool<{}>[] = [
 				return JSON.stringify({ success: false, error: message })
 			}
 
-			const selectedChoice = await toolCallbacks.requestUserQuestion(toolId, userQuestion)
-			if (!selectedChoice) {
+			const selected = await toolCallbacks.requestUserQuestion(toolId, userQuestion)
+			if (!selected?.length) {
 				const message = 'Question cancelled by user'
 				toolCallbacks.setToolStatus(toolId, {
 					content: message,
@@ -2138,16 +2170,26 @@ export const globalTools: Tool<{}>[] = [
 				return JSON.stringify({ success: false, error: message })
 			}
 
+			// Model-facing answer: bare string for one pick (preserves the single-select
+			// contract, even when multiSelect was set), newline-bulleted list for several.
+			// Comma-joining is avoided here so a choice that itself contains a comma
+			// ("Yes, immediately") stays unambiguous to the model reading it back.
+			const answerText =
+				selected.length === 1 ? selected[0] : selected.map((c) => `- ${c}`).join('\n')
+			// The collapsed tool-header is a human glance, not model input, so the picks
+			// read as a compact comma list there instead of a stacked bullet list.
+			const answerSummary = selected.join(', ')
+
 			toolCallbacks.setToolStatus(toolId, {
-				content: `User answered question: ${selectedChoice}`,
+				content: `User answered question: ${answerSummary}`,
 				userQuestion: {
 					...userQuestion,
-					selectedChoice
+					selectedChoices: selected
 				},
-				result: selectedChoice,
+				result: answerText,
 				isLoading: false
 			})
-			return selectedChoice
+			return answerText
 		}
 	},
 	{
@@ -2359,7 +2401,8 @@ export const globalTools: Tool<{}>[] = [
 					'preprocessor_module'
 				),
 				failure_module: parseOptionalJsonArg(parsed.failure_module, 'failure_module'),
-				groups: parseOptionalJsonArg(parsed.groups, 'groups')
+				groups: parseOptionalJsonArg(parsed.groups, 'groups'),
+				notes: parseOptionalJsonArg(parsed.notes, 'notes')
 			})
 			return writeFlowDraft(
 				{
@@ -2437,7 +2480,7 @@ export const globalTools: Tool<{}>[] = [
 			return testRunScriptByPath(parsed, ctx)
 		},
 		requiresConfirmation: true,
-		confirmationMessage: 'Run script test',
+		confirmationMessage: (args) => `Run a test of ${pathLeaf(args?.path, 'the script')}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -2448,7 +2491,7 @@ export const globalTools: Tool<{}>[] = [
 			return testRunFlowByPath(parsed, ctx)
 		},
 		requiresConfirmation: true,
-		confirmationMessage: 'Run flow test',
+		confirmationMessage: (args) => `Run a test of ${pathLeaf(args?.path, 'the flow')}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -2459,7 +2502,8 @@ export const globalTools: Tool<{}>[] = [
 			return testRunFlowStepByPath(parsed, ctx)
 		},
 		requiresConfirmation: true,
-		confirmationMessage: 'Run flow step test',
+		confirmationMessage: (args) =>
+			`Run a test of step "${args?.stepId ?? ''}" in ${pathLeaf(args?.path, 'the flow')}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -2794,6 +2838,7 @@ export const globalTools: Tool<{}>[] = [
 			return deleteAppRunnable(parsed, ctx)
 		}
 	},
+	...artifactTools,
 	{
 		def: createToolDef(
 			openPreviewSchema,
@@ -2875,7 +2920,11 @@ export const SESSION_PREVIEW_TOOL_NAMES = new Set([
 	'get_preview_status',
 	'close_page',
 	'get_app_runtime_logs',
-	'list_app_runs'
+	'list_app_runs',
+	'create_artifact',
+	'update_artifact',
+	'list_artifacts',
+	'read_artifact'
 ])
 
 /**
@@ -2923,6 +2972,10 @@ export type GlobalToolHelpers = SessionToolHelpers & {
 	// (possibly forked) workspace while $workspaceStore stays on the navigation workspace,
 	// so permission gating (open_page) must read this, not the global store.
 	operatingWorkspace?: string
+	// Wired only for session chats (see AIChatManager): the artifact tools are session-gated.
+	artifacts?: SessionArtifactsStore
+	getChatId?: () => string | undefined
+	openArtifact?: (artifactId: string, name: string) => void
 }
 
 function sessionIdFromCtx(ctx: { helpers?: unknown }): string | undefined {
@@ -3711,6 +3764,13 @@ async function loadDraftFlowPreviewValue(
 	}
 	const nestedFlow = await loadFlowDraftValue(path, workspace)
 	return flowDraftValueForPreview(nestedFlow.flow)
+}
+
+// Leaf of a workspace path (last segment), for human-readable confirmation
+// prompts. Falls back to the full path, then a generic noun.
+function pathLeaf(path: unknown, fallback: string): string {
+	const p = typeof path === 'string' ? path : ''
+	return p.split('/').filter(Boolean).pop() || p || fallback
 }
 
 async function testRunScriptByPath(

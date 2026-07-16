@@ -94,7 +94,8 @@ use windmill_common::{
     },
     KillpillSender, AUDIT_LOG_RETENTION_DAYS, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE,
     CRITICAL_ALERTS_ON_TOKEN_EXPIRY, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB,
-    DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
+    DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS, JOB_RETENTION_SECS_OVERRIDES,
+    JOB_RETENTION_SECS_OVERRIDES_LOADED, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
     MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED,
     SERVICE_LOG_RETENTION_SECS, STORE_AUDIT_LOGS_S3,
 };
@@ -263,6 +264,12 @@ pub async fn initial_load(
 
         if let Err(e) = load_preview_tags_override(db).await {
             tracing::error!("Error loading preview tags override: {e:#}");
+        }
+
+        // Load per-workspace retention overrides before the first cleanup tick so a fresh server
+        // never sweeps globally without honoring configured longer-retention workspaces.
+        if let Err(e) = load_retention_period_overrides(db).await {
+            tracing::error!("Error loading per-workspace retention overrides: {e:#}");
         }
 
         // Workspace fairness (cloud-only). Load the percentage/duration/min knobs
@@ -1339,67 +1346,72 @@ pub async fn delete_expired_items(db: &DB) -> () {
         ),
     }
 
-    let job_retention_secs = JOB_RETENTION_SECS.load(std::sync::atomic::Ordering::Relaxed);
-    if job_retention_secs > 0 {
-        let batch_size = *JOB_CLEANUP_BATCH_SIZE;
-        let max_batches = *JOB_CLEANUP_MAX_BATCHES;
-        let cleanup_start = Instant::now();
-        let mut total_deleted = 0u64;
-        let mut batch_num = 0i32;
-        // Watermark carried across batches so each one resumes after the rows the previous batch
-        // already processed instead of re-scanning the (potentially undeletable) oldest prefix.
-        let mut completed_at_floor: Option<DateTime<Utc>> = None;
+    // Per-workspace retention overrides (EE-only; the cache is always empty on CE). A workspace may
+    // keep jobs LONGER or SHORTER than the instance-wide window. Phase 1 sweeps globally on the
+    // instance window but excludes override workspaces; Phase 2 sweeps each override workspace on its
+    // own window (a sargable `workspace_id = $w` scan). The override count is capped small
+    // (`MAX_RETENTION_OVERRIDE_WORKSPACES`), so Phase 2's per-workspace fan-out stays bounded.
+    //
+    // Deliberate simplicity/scale trade-off: a LONGER or keep-forever override lets that workspace's
+    // old rows accumulate at the front of the completed_at index, and Phase 1's first batch each tick
+    // scans past that retained prefix (an index scan, thanks to the sargable floor — not a Seq Scan)
+    // before reaching a deletable row. This is only material at extreme scale (millions of retained
+    // rows on one busy keep-forever workspace); we accept it rather than carrying a cross-tick
+    // watermark, given overrides are a capped, targeted escape hatch.
+    //
+    // Gate the whole sweep on a confirmed-known override set: if the load never succeeded (e.g. a
+    // startup DB hiccup, or malformed data), the empty cache is "unknown", not "no overrides", and
+    // sweeping globally would delete jobs a longer-retention workspace configured. Retry the load
+    // once here (on CE the flag is already set at startup, so this is a no-op), and skip the whole
+    // job-cleanup phase this tick if still unknown — it runs again shortly.
+    if !JOB_RETENTION_SECS_OVERRIDES_LOADED.load(std::sync::atomic::Ordering::Relaxed) {
+        if let Err(e) = load_retention_period_overrides(db).await {
+            tracing::error!("Error (re)loading per-workspace retention overrides: {e:#}");
+        }
+    }
+    if !JOB_RETENTION_SECS_OVERRIDES_LOADED.load(std::sync::atomic::Ordering::Relaxed) {
+        tracing::error!(
+            "Skipping job retention cleanup this cycle: per-workspace overrides not yet loaded"
+        );
+    } else {
+        let job_retention_secs = JOB_RETENTION_SECS.load(std::sync::atomic::Ordering::Relaxed);
+        // `load_full` (owned Arc) rather than `load` (Guard): the sweep below holds this across many
+        // `.await`s, and an arc_swap Guard is not meant to be held for long.
+        let retention_overrides = JOB_RETENTION_SECS_OVERRIDES.load_full();
+        let override_workspace_ids: Vec<String> = retention_overrides.keys().cloned().collect();
 
-        // Process batches until no more expired jobs or max batches reached
-        loop {
-            if max_batches > 0 && batch_num >= max_batches {
-                tracing::debug!(
-                    "Job cleanup: reached max batches limit ({}), will continue next iteration",
-                    max_batches
-                );
-                break;
+        // Phase 1: global sweep with the instance window, skipping override workspaces.
+        if job_retention_secs > 0 {
+            run_retention_cleanup(
+                db,
+                job_retention_secs,
+                RetentionScope::GlobalExcluding(&override_workspace_ids),
+            )
+            .await;
+
+            // Clean up concurrency keys separately (not tied to specific job IDs). Kept global on
+            // the instance window — concurrency keys are short-lived and not worth per-workspace
+            // scoping.
+            if let Err(e) = sqlx::query!(
+                "DELETE FROM concurrency_key WHERE ended_at <= now() - ($1::bigint::text || ' s')::interval",
+                job_retention_secs
+            )
+            .execute(db)
+            .await
+            {
+                tracing::error!("Error deleting custom concurrency key: {:?}", e);
             }
+        }
 
-            // Each batch runs in its own transaction to avoid long-running locks
-            let batch_result =
-                delete_expired_jobs_batch(db, job_retention_secs, batch_size, completed_at_floor)
+        // Phase 2: each override workspace swept on its own window. A window of 0 means "keep
+        // forever" for that workspace, so it is excluded from Phase 1 above and skipped here. The
+        // override count is capped at MAX_RETENTION_OVERRIDE_WORKSPACES (enforced at write time), so
+        // this loop runs a bounded number of scoped sweeps per pass.
+        for (w_id, retention_secs) in retention_overrides.iter() {
+            if *retention_secs > 0 {
+                run_retention_cleanup(db, *retention_secs, RetentionScope::OnlyWorkspace(w_id))
                     .await;
-
-            match batch_result {
-                Ok((deleted_count, max_completed_at)) => {
-                    if deleted_count == 0 {
-                        // No more expired jobs to delete
-                        break;
-                    }
-                    completed_at_floor = max_completed_at.or(completed_at_floor);
-                    total_deleted += deleted_count as u64;
-                    batch_num += 1;
-                }
-                Err(e) => {
-                    tracing::error!("Error in job cleanup batch {}: {:?}", batch_num, e);
-                    break;
-                }
             }
-        }
-
-        if total_deleted > 0 {
-            tracing::info!(
-                "Job cleanup completed: deleted {} jobs in {} batches, took {:?}",
-                total_deleted,
-                batch_num,
-                cleanup_start.elapsed()
-            );
-        }
-
-        // Clean up concurrency keys separately (not tied to specific job IDs)
-        if let Err(e) = sqlx::query!(
-            "DELETE FROM concurrency_key WHERE ended_at <= now() - ($1::bigint::text || ' s')::interval",
-            job_retention_secs
-        )
-        .execute(db)
-        .await
-        {
-            tracing::error!("Error deleting custom concurrency key: {:?}", e);
         }
     }
 
@@ -1546,11 +1558,18 @@ pub async fn check_expiring_tokens(db: &DB) {
 ///
 /// Returns `(jobs deleted in this batch, max completed_at deleted)`. The caller feeds the
 /// returned watermark back in as `completed_at_floor` for the next batch.
+///
+/// `only_workspace` and `exclude_workspaces` implement the per-workspace retention override and are
+/// mutually exclusive: Phase 1 passes `exclude_workspaces` (skip override workspaces, sweep the
+/// rest), Phase 2 passes `only_workspace` (sweep just that workspace on its own window). Both `None`
+/// reproduces the plain global sweep exactly. See `run_retention_cleanup` / `delete_expired_items`.
 async fn delete_expired_jobs_batch(
     db: &DB,
     job_retention_secs: i64,
     batch_size: i64,
     completed_at_floor: Option<DateTime<Utc>>,
+    only_workspace: Option<&str>,
+    exclude_workspaces: Option<&[String]>,
 ) -> error::Result<(usize, Option<DateTime<Utc>>)> {
     let mut tx = db.begin().await?;
 
@@ -1571,65 +1590,142 @@ async fn delete_expired_jobs_batch(
     // max(completed_at) deleted by the previous batch. Re-applying it as `completed_at >= floor`
     // lets each batch resume after the rows the previous batch already processed instead of
     // re-scanning them. This matters when the oldest rows are undeletable (children of a
-    // still-active root flow): without the floor the `ORDER BY completed_at ASC` scan walks that
-    // same protected prefix on every batch, turning a cleanup run quadratic in prefix size.
+    // still-active root flow, or override workspaces excluded from the global sweep): without the
+    // floor the `ORDER BY completed_at ASC` scan walks that same protected/retained prefix on every
+    // batch, turning a cleanup run quadratic in prefix size.
     // Floor only ever skips rows the current run already deleted, was protecting, or skip-locked —
     // all correctly deferred to the next run, identical to the unbounded scan's semantics.
     //
+    // It is applied as `completed_at >= COALESCE($floor, '-infinity')`, NOT `$floor IS NULL OR
+    // completed_at >= $floor`: the `OR ... IS NULL` disjunction is non-sargable, so the planner
+    // cannot use the floor as an index lower bound and falls back to a Seq Scan of the whole table —
+    // walking the entire prefix regardless of the floor. The COALESCE sentinel keeps a single cached
+    // query while making the bound a plain range predicate the completed_at / composite index drives.
+    //
     // Use FOR UPDATE SKIP LOCKED to avoid contention between replicas; ORDER BY completed_at
     // deletes oldest jobs first.
-    let (deleted_jobs, max_completed_at) = if active_root_job_ids.is_empty() {
-        // Common case: no old root flow is still running, so nothing is protected and the
-        // v2_job join (a PK lookup per candidate) is pure overhead — skip it entirely.
-        let rows = sqlx::query!(
-            "DELETE FROM v2_job_completed
-             WHERE id IN (
-                 SELECT id FROM v2_job_completed
-                 WHERE completed_at <= now() - ($1::bigint::text || ' s')::interval
-                   AND ($3::timestamptz IS NULL OR completed_at >= $3)
-                 ORDER BY completed_at ASC
-                 LIMIT $2
-                 FOR UPDATE SKIP LOCKED
-             )
-             RETURNING id, completed_at",
-            job_retention_secs,
-            batch_size,
-            completed_at_floor,
-        )
-        .fetch_all(&mut *tx)
-        .await?;
-        let max = rows.iter().map(|r| r.completed_at).max();
-        (rows.into_iter().map(|r| r.id).collect::<Vec<Uuid>>(), max)
-    } else {
-        // Active-root exclusion uses `NOT IN (SELECT ... unnest($3))` rather than `!= ALL($3)`:
-        // the subquery form lets the planner build a one-time hashed SubPlan and apply it as a
-        // filter on the ordered index scan, giving O(1) membership per candidate instead of a
-        // per-row linear array scan (which degrades sharply when many root jobs are active). The
-        // `u IS NOT NULL` guard sidesteps NOT IN's null-trap semantics ($3 holds non-null PK ids).
-        let rows = sqlx::query!(
-            "DELETE FROM v2_job_completed
-             WHERE id IN (
-                 SELECT jc.id FROM v2_job_completed jc
-                 LEFT JOIN v2_job j ON j.id = jc.id
-                 WHERE jc.completed_at <= now() - ($1::bigint::text || ' s')::interval
-                   AND ($4::timestamptz IS NULL OR jc.completed_at >= $4)
-                   AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) NOT IN (
-                       SELECT u FROM unnest($3::uuid[]) AS u WHERE u IS NOT NULL
-                   )
-                 ORDER BY jc.completed_at ASC
-                 LIMIT $2
-                 FOR UPDATE OF jc SKIP LOCKED
-             )
-             RETURNING id, completed_at",
-            job_retention_secs,
-            batch_size,
-            &active_root_job_ids,
-            completed_at_floor,
-        )
-        .fetch_all(&mut *tx)
-        .await?;
-        let max = rows.iter().map(|r| r.completed_at).max();
-        (rows.into_iter().map(|r| r.id).collect::<Vec<Uuid>>(), max)
+    // Two orthogonal choices drive which DELETE we run:
+    //  - `only_workspace`: Some => a single-workspace (Phase 2) sweep. We bind `workspace_id = $n`
+    //    directly (no `OR $n IS NULL` guard) so the composite `(workspace_id, completed_at)` index
+    //    can drive the ordered scan — a sargable equality the OR-form would defeat. `None` => a
+    //    global (Phase 1) sweep that instead excludes override workspaces via a hashed `NOT IN
+    //    (SELECT ... unnest($exclude))` SubPlan (same one-time-hash trick as the active-root
+    //    exclusion below): O(1) membership per candidate, vs `<> ALL($exclude)`'s per-row linear
+    //    array scan which degrades sharply once many workspaces have overrides.
+    //  - `active_root_job_ids.is_empty()`: skip the `v2_job` join entirely when nothing is
+    //    protected (a PK lookup per candidate is pure overhead in the common case).
+    let (deleted_jobs, max_completed_at) = match only_workspace {
+        Some(w_id) if active_root_job_ids.is_empty() => {
+            let rows = sqlx::query!(
+                "DELETE FROM v2_job_completed
+                 WHERE id IN (
+                     SELECT id FROM v2_job_completed
+                     WHERE workspace_id = $4
+                       AND completed_at <= now() - ($1::bigint::text || ' s')::interval
+                       AND completed_at >= COALESCE($3::timestamptz, '-infinity'::timestamptz)
+                     ORDER BY completed_at ASC
+                     LIMIT $2
+                     FOR UPDATE SKIP LOCKED
+                 )
+                 RETURNING id, completed_at",
+                job_retention_secs,
+                batch_size,
+                completed_at_floor,
+                w_id,
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+            let max = rows.iter().map(|r| r.completed_at).max();
+            (rows.into_iter().map(|r| r.id).collect::<Vec<Uuid>>(), max)
+        }
+        Some(w_id) => {
+            let rows = sqlx::query!(
+                "DELETE FROM v2_job_completed
+                 WHERE id IN (
+                     SELECT jc.id FROM v2_job_completed jc
+                     LEFT JOIN v2_job j ON j.id = jc.id
+                     WHERE jc.workspace_id = $5
+                       AND jc.completed_at <= now() - ($1::bigint::text || ' s')::interval
+                       AND jc.completed_at >= COALESCE($4::timestamptz, '-infinity'::timestamptz)
+                       AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) NOT IN (
+                           SELECT u FROM unnest($3::uuid[]) AS u WHERE u IS NOT NULL
+                       )
+                     ORDER BY jc.completed_at ASC
+                     LIMIT $2
+                     FOR UPDATE OF jc SKIP LOCKED
+                 )
+                 RETURNING id, completed_at",
+                job_retention_secs,
+                batch_size,
+                &active_root_job_ids,
+                completed_at_floor,
+                w_id,
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+            let max = rows.iter().map(|r| r.completed_at).max();
+            (rows.into_iter().map(|r| r.id).collect::<Vec<Uuid>>(), max)
+        }
+        None if active_root_job_ids.is_empty() => {
+            let rows = sqlx::query!(
+                "DELETE FROM v2_job_completed
+                 WHERE id IN (
+                     SELECT id FROM v2_job_completed
+                     WHERE completed_at <= now() - ($1::bigint::text || ' s')::interval
+                       AND completed_at >= COALESCE($3::timestamptz, '-infinity'::timestamptz)
+                       AND ($4::text[] IS NULL OR workspace_id NOT IN (
+                           SELECT u FROM unnest($4::text[]) AS u WHERE u IS NOT NULL
+                       ))
+                     ORDER BY completed_at ASC
+                     LIMIT $2
+                     FOR UPDATE SKIP LOCKED
+                 )
+                 RETURNING id, completed_at",
+                job_retention_secs,
+                batch_size,
+                completed_at_floor,
+                exclude_workspaces,
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+            let max = rows.iter().map(|r| r.completed_at).max();
+            (rows.into_iter().map(|r| r.id).collect::<Vec<Uuid>>(), max)
+        }
+        None => {
+            // Active-root exclusion uses `NOT IN (SELECT ... unnest($3))` rather than `!= ALL($3)`:
+            // the subquery form lets the planner build a one-time hashed SubPlan and apply it as a
+            // filter on the ordered index scan, giving O(1) membership per candidate instead of a
+            // per-row linear array scan (which degrades sharply when many root jobs are active). The
+            // `u IS NOT NULL` guard sidesteps NOT IN's null-trap semantics ($3 holds non-null PK ids).
+            let rows = sqlx::query!(
+                "DELETE FROM v2_job_completed
+                 WHERE id IN (
+                     SELECT jc.id FROM v2_job_completed jc
+                     LEFT JOIN v2_job j ON j.id = jc.id
+                     WHERE jc.completed_at <= now() - ($1::bigint::text || ' s')::interval
+                       AND jc.completed_at >= COALESCE($4::timestamptz, '-infinity'::timestamptz)
+                       AND ($5::text[] IS NULL OR jc.workspace_id NOT IN (
+                           SELECT u FROM unnest($5::text[]) AS u WHERE u IS NOT NULL
+                       ))
+                       AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) NOT IN (
+                           SELECT u FROM unnest($3::uuid[]) AS u WHERE u IS NOT NULL
+                       )
+                     ORDER BY jc.completed_at ASC
+                     LIMIT $2
+                     FOR UPDATE OF jc SKIP LOCKED
+                 )
+                 RETURNING id, completed_at",
+                job_retention_secs,
+                batch_size,
+                &active_root_job_ids,
+                completed_at_floor,
+                exclude_workspaces,
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+            let max = rows.iter().map(|r| r.completed_at).max();
+            (rows.into_iter().map(|r| r.id).collect::<Vec<Uuid>>(), max)
+        }
     };
 
     let deleted_count = deleted_jobs.len();
@@ -1702,6 +1798,189 @@ async fn delete_expired_jobs_batch(
     tx.commit().await?;
 
     Ok((deleted_count, max_completed_at))
+}
+
+/// Which workspaces a retention cleanup run targets.
+#[derive(Debug)]
+enum RetentionScope<'a> {
+    /// Sweep every workspace except the listed ones (they run in their own Phase-2 pass).
+    GlobalExcluding(&'a [String]),
+    /// Sweep only this single workspace, on its own retention window.
+    OnlyWorkspace(&'a str),
+}
+
+/// Drives the batched job-retention delete for a given `retention_secs` window and `scope`.
+/// Preserves the per-run `completed_at_floor` watermark across batches (see
+/// `delete_expired_jobs_batch`). Returns the number of jobs deleted.
+///
+/// `JOB_CLEANUP_MAX_BATCHES` bounds the batches per call, i.e. per scope. A full cleanup cycle can
+/// therefore run up to `(1 + n_override_workspaces) * max_batches` batches; the override count is
+/// capped at `MAX_RETENTION_OVERRIDE_WORKSPACES`, and any residue is picked up on the next tick.
+async fn run_retention_cleanup(db: &DB, retention_secs: i64, scope: RetentionScope<'_>) -> u64 {
+    let (only_workspace, exclude_workspaces): (Option<&str>, Option<&[String]>) = match &scope {
+        // An empty exclusion list binds as NULL so the guard short-circuits to the plain sweep.
+        RetentionScope::GlobalExcluding(ids) => {
+            (None, if ids.is_empty() { None } else { Some(*ids) })
+        }
+        RetentionScope::OnlyWorkspace(w_id) => (Some(*w_id), None),
+    };
+
+    let batch_size = *JOB_CLEANUP_BATCH_SIZE;
+    let max_batches = *JOB_CLEANUP_MAX_BATCHES;
+    let cleanup_start = Instant::now();
+    let mut total_deleted = 0u64;
+    let mut batch_num = 0i32;
+    // Watermark carried across batches so each one resumes after the rows the previous batch
+    // already processed instead of re-scanning the (potentially undeletable) oldest prefix.
+    let mut completed_at_floor: Option<DateTime<Utc>> = None;
+
+    // Process batches until no more expired jobs or max batches reached
+    loop {
+        if max_batches > 0 && batch_num >= max_batches {
+            tracing::debug!(
+                "Job cleanup ({scope:?}): reached max batches limit ({max_batches}), will continue next iteration"
+            );
+            break;
+        }
+
+        // Each batch runs in its own transaction to avoid long-running locks
+        let batch_result = delete_expired_jobs_batch(
+            db,
+            retention_secs,
+            batch_size,
+            completed_at_floor,
+            only_workspace,
+            exclude_workspaces,
+        )
+        .await;
+
+        match batch_result {
+            Ok((deleted_count, max_completed_at)) => {
+                if deleted_count == 0 {
+                    // No more expired jobs to delete
+                    break;
+                }
+                completed_at_floor = max_completed_at.or(completed_at_floor);
+                total_deleted += deleted_count as u64;
+                batch_num += 1;
+            }
+            Err(e) => {
+                tracing::error!("Error in job cleanup batch {batch_num} ({scope:?}): {e:?}");
+                break;
+            }
+        }
+    }
+
+    if total_deleted > 0 {
+        tracing::info!(
+            "Job cleanup completed ({scope:?}): deleted {total_deleted} jobs in {batch_num} batches, took {:?}",
+            cleanup_start.elapsed()
+        );
+    }
+
+    total_deleted
+}
+
+/// Parses the raw `{workspace_id: seconds}` global-setting object into an override map. Returns
+/// `Err` (with the offending workspace) if ANY value is not a non-negative integer, so the caller
+/// can keep the last-good map instead of dropping just that entry — dropping a longer-retention
+/// entry would let the Phase-1 global window delete its jobs, and a negative value would silently
+/// become keep-forever (Phase 2 only sweeps `> 0`).
+#[cfg(feature = "enterprise")]
+fn parse_retention_overrides(
+    map: serde_json::Map<String, serde_json::Value>,
+) -> std::result::Result<std::collections::HashMap<String, i64>, String> {
+    use windmill_common::global_settings::MAX_RETENTION_OVERRIDE_WORKSPACES;
+    if map.len() > MAX_RETENTION_OVERRIDE_WORKSPACES {
+        return Err(format!(
+            "at most {MAX_RETENTION_OVERRIDE_WORKSPACES} per-workspace retention overrides are allowed, got {}",
+            map.len()
+        ));
+    }
+    let mut overrides = std::collections::HashMap::with_capacity(map.len());
+    for (w_id, v) in map {
+        match v.as_i64() {
+            Some(secs) if secs >= 0 => {
+                overrides.insert(w_id, secs);
+            }
+            _ => {
+                return Err(format!(
+                    "override for '{w_id}' must be a non-negative integer number of seconds, got {v}"
+                ));
+            }
+        }
+    }
+    Ok(overrides)
+}
+
+/// Loads the per-workspace retention overrides from the `retention_period_secs_overrides` global
+/// setting (a JSON `{workspace_id: secs}` object) into the in-memory `JOB_RETENTION_SECS_OVERRIDES`
+/// cache, so the cleanup sweep reads them without a per-tick DB query. Enterprise-only — CE leaves
+/// the cache empty so the sweep behaves exactly as before.
+///
+/// On a load error, unexpected value shape, or malformed data the previous map is kept but
+/// `JOB_RETENTION_SECS_OVERRIDES_LOADED` is set to FALSE, marking the cache unknown. Clobbering the
+/// map to empty would let the global sweep delete jobs a workspace asked to keep longer; leaving the
+/// flag TRUE would keep the stale (possibly shorter) policy in force after a lengthened/added
+/// override fails to refresh, deleting those jobs prematurely. Marking it unknown makes the sweep
+/// fail closed — it skips and the monitor retries the load next tick until a confirmed-current state
+/// loads. `LOADED` is set true only on a valid map, explicit unset (`Ok(None)`), or CE's no-op.
+pub async fn load_retention_period_overrides(db: &DB) -> error::Result<()> {
+    #[cfg(not(feature = "enterprise"))]
+    {
+        let _ = db;
+        // Overrides are EE-only; empty is the correct, fully-known state on CE.
+        JOB_RETENTION_SECS_OVERRIDES_LOADED.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    #[cfg(feature = "enterprise")]
+    {
+        use windmill_common::global_settings::RETENTION_PERIOD_SECS_OVERRIDES_SETTING;
+        let value =
+            load_value_from_global_settings(db, RETENTION_PERIOD_SECS_OVERRIDES_SETTING).await;
+        match value {
+            Ok(Some(serde_json::Value::Object(map))) => match parse_retention_overrides(map) {
+                Ok(overrides) => {
+                    JOB_RETENTION_SECS_OVERRIDES.store(std::sync::Arc::new(overrides));
+                    JOB_RETENTION_SECS_OVERRIDES_LOADED
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+                // Malformed persisted value: we can't confirm the current override set. Keep the
+                // last-good map but mark the cache unknown so the sweep fails closed (skips) and
+                // retries, rather than deleting with a stale — possibly shorter — policy.
+                Err(reason) => {
+                    JOB_RETENTION_SECS_OVERRIDES_LOADED
+                        .store(false, std::sync::atomic::Ordering::Relaxed);
+                    tracing::error!(
+                        "Malformed per-workspace retention overrides, gating cleanup until it loads: {reason}"
+                    );
+                }
+            },
+            Ok(None) => {
+                // Explicit unset is a known state: no overrides.
+                JOB_RETENTION_SECS_OVERRIDES
+                    .store(std::sync::Arc::new(std::collections::HashMap::new()));
+                JOB_RETENTION_SECS_OVERRIDES_LOADED
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            // Unexpected shape / read failure: mark unknown so a lengthened or added override that
+            // failed to refresh can't be missed by a sweep still running the previous policy.
+            Ok(Some(other)) => {
+                JOB_RETENTION_SECS_OVERRIDES_LOADED
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
+                tracing::error!(
+                    "Per-workspace retention overrides setting is not a JSON object (got {other}); gating cleanup until it loads"
+                );
+            }
+            Err(e) => {
+                JOB_RETENTION_SECS_OVERRIDES_LOADED
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
+                tracing::error!(
+                    "Error loading per-workspace retention overrides, gating cleanup until it loads: {e:#}"
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 async fn delete_log_files_from_disk_and_store(
@@ -5052,5 +5331,56 @@ async fn manage_audit_partitions(db: &DB, retention_days: i64) {
                 }
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "enterprise"))]
+mod retention_overrides_tests {
+    use super::parse_retention_overrides;
+    use serde_json::json;
+
+    fn obj(v: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
+        v.as_object().unwrap().clone()
+    }
+
+    #[test]
+    fn parses_valid_map() {
+        let m = parse_retention_overrides(obj(json!({"a": 3600, "b": 0}))).unwrap();
+        assert_eq!(m.get("a"), Some(&3600));
+        assert_eq!(m.get("b"), Some(&0)); // 0 = keep forever, allowed
+        assert_eq!(m.len(), 2);
+    }
+
+    #[test]
+    fn empty_map_is_ok() {
+        assert!(parse_retention_overrides(obj(json!({})))
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn rejects_negative() {
+        // A negative value must not silently become keep-forever; the whole map is rejected.
+        assert!(parse_retention_overrides(obj(json!({"a": 3600, "b": -1}))).is_err());
+    }
+
+    #[test]
+    fn rejects_non_integer() {
+        assert!(parse_retention_overrides(obj(json!({"a": "3600"}))).is_err());
+        assert!(parse_retention_overrides(obj(json!({"a": 3600.5}))).is_err());
+        assert!(parse_retention_overrides(obj(json!({"a": null}))).is_err());
+    }
+
+    #[test]
+    fn rejects_too_many_overrides() {
+        use windmill_common::global_settings::MAX_RETENTION_OVERRIDE_WORKSPACES;
+        let at_cap: serde_json::Map<_, _> = (0..MAX_RETENTION_OVERRIDE_WORKSPACES)
+            .map(|i| (format!("ws_{i}"), json!(3600)))
+            .collect();
+        assert!(parse_retention_overrides(at_cap.clone()).is_ok());
+        let over_cap: serde_json::Map<_, _> = (0..MAX_RETENTION_OVERRIDE_WORKSPACES + 1)
+            .map(|i| (format!("ws_{i}"), json!(3600)))
+            .collect();
+        assert!(parse_retention_overrides(over_cap).is_err());
     }
 }

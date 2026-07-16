@@ -509,8 +509,17 @@ export type ToolDisplayAction = CreatedResourceAction | NavigateAction
 export type UserQuestionDisplay = {
 	question: string
 	choices: string[]
-	selectedChoice?: string
+	multiSelect?: boolean
+	selectedChoices?: string[] // canonical answer (new code writes only this)
+	selectedChoice?: string // legacy/read-only: pre-multiselect persisted history
 	canceled?: boolean
+}
+
+// The single place that understands the legacy answer shape: new code writes
+// selectedChoices, but history persisted before multi-select only has the
+// scalar selectedChoice. Read answers through this so both shapes resolve.
+export function answeredChoices(q: UserQuestionDisplay): string[] | undefined {
+	return q.selectedChoices ?? (q.selectedChoice ? [q.selectedChoice] : undefined)
 }
 
 export type ToolDisplayMessage = {
@@ -573,7 +582,7 @@ export function isActiveUserQuestion(message: DisplayMessage | undefined): boole
 			message.userQuestion &&
 			message.isLoading &&
 			!message.error &&
-			!message.userQuestion.selectedChoice &&
+			!answeredChoices(message.userQuestion)?.length &&
 			!message.userQuestion.canceled
 	)
 }
@@ -619,6 +628,37 @@ async function callTool<T>({
 }
 
 type MaybePromise<T> = T | Promise<T>
+
+const MAX_TOOL_ERROR_LENGTH = 2000
+
+/** ApiError from the generated client carries the server's message in `body`,
+ * not `message` — dig it out so tool failures show the real cause. Capped so a
+ * verbose error body (e.g. an HTML error page) can't flood the chat context. */
+export function formatToolError(error: any): string {
+	const bodyMessage =
+		error?.body?.error?.message ??
+		error?.body?.message ??
+		(typeof error?.body?.error === 'string' ? error.body.error : undefined)
+	const body =
+		bodyMessage ??
+		(typeof error?.body === 'string'
+			? error.body
+			: error?.body !== undefined
+				? stringifyErrorBody(error.body)
+				: undefined)
+	const message = String(body || error?.message || error)
+	return message.length > MAX_TOOL_ERROR_LENGTH
+		? message.slice(0, MAX_TOOL_ERROR_LENGTH) + '... (truncated)'
+		: message
+}
+
+function stringifyErrorBody(body: unknown): string {
+	try {
+		return JSON.stringify(body)
+	} catch {
+		return String(body)
+	}
+}
 
 export async function processToolCall<T>({
 	tools,
@@ -667,9 +707,14 @@ export async function processToolCall<T>({
 			requiresConfirmation && toolCallbacks.shouldAutoAcceptToolConfirmations?.() === true
 		const needsConfirmation = requiresConfirmation && !autoAcceptConfirmation
 
+		const confirmationContent =
+			typeof tool?.confirmationMessage === 'function'
+				? tool.confirmationMessage(args)
+				: tool?.confirmationMessage
+
 		toolCallbacks.setToolStatus(toolCall.id, {
 			...(requiresConfirmation
-				? { content: tool.confirmationMessage ?? 'Waiting for confirmation...' }
+				? { content: confirmationContent ?? 'Waiting for confirmation...' }
 				: {}),
 			parameters: args,
 			isLoading: true,
@@ -721,17 +766,12 @@ export async function processToolCall<T>({
 			})
 		} catch (err) {
 			console.error(err)
+			const errorMessage = formatToolError(err)
 			toolCallbacks.setToolStatus(toolCall.id, {
 				isLoading: false,
 				isStreamingArguments: false,
-				error: 'An error occurred while calling the tool'
+				error: errorMessage
 			})
-			const errorMessage =
-				typeof err === 'object' && 'message' in err
-					? err.message
-					: typeof err === 'string'
-						? err
-						: 'An error occurred while calling the tool'
 			result = `Error while calling tool: ${errorMessage}`
 		}
 		const toAdd = {
@@ -742,10 +782,16 @@ export async function processToolCall<T>({
 		return toAdd
 	} catch (err) {
 		console.error(err)
+		const errorMessage = formatToolError(err)
+		toolCallbacks.setToolStatus(toolCall.id, {
+			isLoading: false,
+			isStreamingArguments: false,
+			error: errorMessage
+		})
 		return {
 			role: 'tool' as const,
 			tool_call_id: toolCall.id,
-			content: 'Error while calling tool'
+			content: `Error while calling tool: ${errorMessage}`
 		}
 	}
 }
@@ -767,7 +813,9 @@ export interface Tool<T> {
 	}) => MaybePromise<string | undefined>
 	setSchema?: (helpers: any) => Promise<void>
 	requiresConfirmation?: boolean
-	confirmationMessage?: string
+	/** Header shown on the confirmation card before the tool runs. Pass a function
+	 * to derive it from the parsed arguments (e.g. name the script being tested). */
+	confirmationMessage?: string | ((args: any) => string)
 	showDetails?: boolean
 	autoCollapseDetails?: boolean
 	streamArguments?: boolean
@@ -878,7 +926,7 @@ export interface ToolCallbacks {
 	requestUserQuestion?: (
 		toolId: string,
 		question: UserQuestionDisplay
-	) => Promise<string | undefined>
+	) => Promise<string[] | undefined>
 	/** Records a workspace item the tool call created/edited/deleted, by its
 	 * canonical (itemKind, storagePath). Session chats wire this to accumulate the
 	 * chat's modified-items mask; the global side-panel chat omits it (no-op). */

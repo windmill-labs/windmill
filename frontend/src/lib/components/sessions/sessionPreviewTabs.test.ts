@@ -8,7 +8,7 @@ import {
 	type PreviewTabsAdapter,
 	type PreviewTabsSnapshot
 } from './sessionPreviewTabs.svelte'
-import type { PreviewTarget } from './previewRouter'
+import { artifactUrl, type PreviewTarget } from './previewRouter'
 import type { SessionPreviewTab } from './sessionState.svelte'
 import { base } from '$lib/base'
 
@@ -53,6 +53,7 @@ const pipelineTarget2: PreviewTarget = {
 	href: `${base}/pipeline/sales`,
 	label: 'sales'
 }
+const artifactTarget: PreviewTarget = { type: 'artifact', id: 'art1', name: 'Plan' }
 
 beforeEach(() => {
 	vi.useFakeTimers()
@@ -91,6 +92,16 @@ describe('hydratePreviewTabs', () => {
 	it('honours an explicit previewCollapsed override', () => {
 		expect(hydratePreviewTabs({ previewCollapsed: true }).collapsed).toBe(true)
 		expect(hydratePreviewTabs({ previewCollapsed: false }).collapsed).toBe(false)
+	})
+
+	it('restores the saved previewSize (with tabs and empty)', () => {
+		const withTabs = hydratePreviewTabs({
+			previewTabs: [{ id: 'a', url: '/x', loc: '/x' }],
+			previewSize: 70
+		})
+		expect(withTabs.previewSize).toBe(70)
+		expect(hydratePreviewTabs({ previewSize: 40 }).previewSize).toBe(40)
+		expect(hydratePreviewTabs({}).previewSize).toBeUndefined()
 	})
 
 	it('drops malformed saved tabs, duplicate ids and stray fields, defaulting loc to url', () => {
@@ -215,6 +226,44 @@ describe('SessionPreviewTabs.open', () => {
 		o.open(dndAppTarget)
 		expect(o.tabs[0].url).toBe('/apps/edit/u/me/legacy')
 	})
+
+	it('opens an artifact tab keyed by its synthetic url and reveals the panel', () => {
+		const o = owner({ collapsed: true })
+		const res = o.open(artifactTarget)
+		expect(res.status).toBe('opened')
+		expect(o.tabs).toHaveLength(1)
+		expect(o.tabs[0].url).toBe(artifactUrl('art1', 'Plan'))
+		expect(o.collapsed).toBe(false)
+	})
+
+	it('dedupes an artifact by id: re-opening focuses the same tab', () => {
+		const o = owner()
+		o.open(artifactTarget)
+		const id = o.tabs[0].id
+		const res = o.open(artifactTarget)
+		expect(res.status).toBe('focused')
+		expect(o.tabs).toHaveLength(1)
+		expect(o.activeId).toBe(id)
+	})
+
+	it('re-points the same tab (no duplicate) when the artifact was renamed', () => {
+		const o = owner()
+		o.open(artifactTarget)
+		const id = o.tabs[0].id
+		const res = o.open({ type: 'artifact', id: 'art1', name: 'Renamed plan' })
+		expect(o.tabs).toHaveLength(1)
+		expect(o.tabs[0].id).toBe(id)
+		expect(o.tabs[0].url).toBe(artifactUrl('art1', 'Renamed plan'))
+		// URL changed (name), so the tab content differs → 'opened', not 'focused'.
+		expect(res.status).toBe('opened')
+	})
+
+	it('opens separate tabs for different artifact ids', () => {
+		const o = owner()
+		o.open(artifactTarget)
+		o.open({ type: 'artifact', id: 'art2', name: 'Other' })
+		expect(o.tabs).toHaveLength(2)
+	})
 })
 
 describe('SessionPreviewTabs.navigate', () => {
@@ -280,6 +329,48 @@ describe('SessionPreviewTabs.navigate', () => {
 		expect(o.activeId).toBe(tabId)
 		expect(o.tabs[0].url).toBe(`${base}/pipeline/sales`)
 	})
+
+	it('focuses the tab already viewing the artifact instead of duplicating the viewer', () => {
+		const o = owner()
+		o.open(artifactTarget)
+		const artifactTabId = o.activeId
+		o.open(pageTarget)
+		const pageTabId = o.activeId
+		o.navigate({ type: 'artifact', id: 'art1', name: 'Renamed plan' })
+		expect(o.tabs).toHaveLength(2)
+		expect(o.activeId).toBe(artifactTabId)
+		// Focus moved and the viewer tab picked up the rename; the page tab kept its url.
+		expect(o.tabs.find((t) => t.id === artifactTabId)?.url).toBe(
+			artifactUrl('art1', 'Renamed plan')
+		)
+		expect(o.tabs.find((t) => t.id === pageTabId)?.url).toBe('/runs')
+	})
+
+	it('retargets the active tab in place to an artifact', () => {
+		const o = owner()
+		o.open(pageTarget)
+		const tabId = o.activeId
+		o.navigate(artifactTarget)
+		expect(o.tabs).toHaveLength(1)
+		expect(o.activeId).toBe(tabId)
+		expect(o.tabs[0].url).toBe(artifactUrl('art1', 'Plan'))
+	})
+
+	it('drops a stale friendly label and path when the tab is retargeted', () => {
+		const o = owner()
+		o.open(flowTarget)
+		o.setEditorFriendlyLabel(
+			{ kind: 'flow', path: 'u/me/bar' },
+			'luminous_flow',
+			'u/me/luminous_flow'
+		)
+		expect(o.tabs[0].friendlyLabel).toBe('luminous_flow')
+		expect(o.tabs[0].friendlyPath).toBe('u/me/luminous_flow')
+		// Navigating the same tab to a plain page must clear the flow's name.
+		o.navigate(pageTarget)
+		expect(o.tabs[0].friendlyLabel).toBeUndefined()
+		expect(o.tabs[0].friendlyPath).toBeUndefined()
+	})
 })
 
 describe('SessionPreviewTabs.select / close / setCollapsed', () => {
@@ -320,10 +411,59 @@ describe('SessionPreviewTabs.select / close / setCollapsed', () => {
 		expect(o.activeId).toBe('')
 	})
 
+	it('closeArtifact closes the tab showing that artifact, leaving others', () => {
+		const o = owner()
+		o.open(artifactTarget) // id 'art1'
+		o.open(scriptTarget)
+		expect(o.tabs).toHaveLength(2)
+		o.closeArtifact('art1')
+		expect(o.tabs.map((t) => t.url)).toEqual(['/scripts/edit/u/me/foo'])
+	})
+
+	it('closeArtifact is a no-op for an unknown artifact id', () => {
+		const o = owner()
+		o.open(artifactTarget)
+		o.closeArtifact('nope')
+		expect(o.tabs).toHaveLength(1)
+	})
+
 	it('toggles collapsed', () => {
 		const o = owner({ collapsed: false })
 		o.setCollapsed(true)
 		expect(o.collapsed).toBe(true)
+	})
+
+	it('sets previewSize and flushes it into the snapshot', () => {
+		const { adapter, persisted } = makeAdapter()
+		const o = owner({ previewSize: 50 }, adapter)
+		o.setPreviewSize(70)
+		expect(o.previewSize).toBe(70)
+		vi.runAllTimers()
+		expect(persisted.at(-1)?.previewSize).toBe(70)
+	})
+
+	it('setPreviewSize dedupes an unchanged value (no persist)', () => {
+		const { adapter, persisted } = makeAdapter()
+		const o = owner({ previewSize: 70 }, adapter)
+		o.setPreviewSize(70)
+		vi.runAllTimers()
+		expect(persisted).toHaveLength(0)
+	})
+
+	it('a never-resized owner persists previewSize as undefined, never a default', () => {
+		const { adapter, persisted } = makeAdapter()
+		const o = owner({}, adapter) // no previewSize
+		o.open(scriptTarget) // any tab mutation triggers a flush
+		vi.runAllTimers()
+		expect(persisted.at(-1)?.previewSize).toBeUndefined()
+	})
+
+	it('setPreviewSize skips the tab-cell prune (onTabsChanged)', () => {
+		const onTabsChanged = vi.fn()
+		const o = owner({ previewSize: 50 }, { persist: () => {}, onTabsChanged })
+		o.setPreviewSize(70)
+		vi.runAllTimers()
+		expect(onTabsChanged).not.toHaveBeenCalled()
 	})
 
 	it('reset replaces the whole model and reveals the panel', () => {
@@ -467,6 +607,14 @@ describe('describePreview', () => {
 		expect(out).toContain('page "Runs"')
 		expect(out).not.toContain('live editor')
 	})
+
+	it('labels an artifact tab by name, not the raw artifact url', () => {
+		const url = artifactUrl('uuid-1', 'My Plan')
+		const out = describePreview([{ id: 'a', url, loc: url }], 'a')
+		expect(out).toContain('artifact "My Plan"')
+		expect(out).not.toContain('artifact:uuid-1')
+		expect(out).not.toContain('live editor')
+	})
 })
 
 describe('selectPreviewTabsToClose', () => {
@@ -497,5 +645,18 @@ describe('selectPreviewTabsToClose', () => {
 	it('closes nothing for an empty/whitespace match or no match', () => {
 		expect(selectPreviewTabsToClose(tabs, { all: false, match: '   ' })).toEqual([])
 		expect(selectPreviewTabsToClose(tabs, { all: false, match: 'nonexistent' })).toEqual([])
+	})
+})
+
+describe('SessionPreviewTabs.pulseFocus', () => {
+	it('sets the id and advances the nonce, re-firing for the same id', () => {
+		const o = owner()
+		expect(o.focusPulse).toEqual({ id: '', nonce: 0 })
+		o.pulseFocus('tab-a')
+		expect(o.focusPulse).toEqual({ id: 'tab-a', nonce: 1 })
+		o.pulseFocus('tab-a')
+		expect(o.focusPulse).toEqual({ id: 'tab-a', nonce: 2 })
+		o.pulseFocus('tab-b')
+		expect(o.focusPulse).toEqual({ id: 'tab-b', nonce: 3 })
 	})
 })

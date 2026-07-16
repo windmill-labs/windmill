@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { parsePreviewItemRoute, resolvePreviewTab } from './previewRouter'
+import {
+	artifactUrl,
+	draftFriendlyLeaf,
+	parseArtifactRoute,
+	parsePreviewItemRoute,
+	previewLocationLabel,
+	resolvePreviewTab
+} from './previewRouter'
 
 describe('parsePreviewItemRoute', () => {
 	it('maps edit/get routes to item kinds', () => {
@@ -29,6 +36,27 @@ describe('parsePreviewItemRoute', () => {
 		expect(parsePreviewItemRoute('/')).toBeNull()
 		expect(parsePreviewItemRoute('/runs')).toBeNull()
 		expect(parsePreviewItemRoute('/workspace_settings')).toBeNull()
+	})
+})
+
+describe('draftFriendlyLeaf', () => {
+	it('returns the friendly leaf for a new item parked at a draft uuid', () => {
+		expect(draftFriendlyLeaf('u/admin/draft_abc123', 'u/admin/valuable_script')).toBe(
+			'valuable_script'
+		)
+		expect(draftFriendlyLeaf('u/admin/draft_abc123', 'u/admin/my_flow')).toBe('my_flow')
+	})
+
+	it('returns undefined when no friendly path is available', () => {
+		expect(draftFriendlyLeaf('u/admin/draft_abc123', undefined)).toBeUndefined()
+	})
+
+	it('returns undefined when the friendly path is itself a draft placeholder', () => {
+		expect(draftFriendlyLeaf('u/admin/draft_abc123', 'u/admin/draft_xyz')).toBeUndefined()
+	})
+
+	it('returns undefined for an item already at a named (non-draft) storage path', () => {
+		expect(draftFriendlyLeaf('u/admin/my_app', 'u/admin/renamed')).toBeUndefined()
 	})
 })
 
@@ -75,5 +103,40 @@ describe('resolvePreviewTab', () => {
 
 	it('routes the bare pipeline list page to the iframe fallback', () => {
 		expect(resolvePreviewTab('/pipeline')).toEqual({ kind: 'iframe' })
+	})
+
+	it('routes an artifact url to the artifact slot by id (ignoring the name hash)', () => {
+		expect(resolvePreviewTab('artifact:abc%20123#My%20Doc')).toEqual({
+			kind: 'artifact',
+			id: 'abc 123'
+		})
+	})
+})
+
+describe('artifact route', () => {
+	it('round-trips id and name through artifactUrl → parseArtifactRoute, including special chars', () => {
+		for (const [id, name] of [
+			['abc', 'Onboarding plan'],
+			['id-with-dash', 'weird # % / name'],
+			['x', 'artifact:not-an-id#nope'],
+			['y', '']
+		] as const) {
+			expect(parseArtifactRoute(artifactUrl(id, name))).toEqual({ id, name })
+		}
+	})
+
+	it('parses a hash-less artifact url to an empty name', () => {
+		expect(parseArtifactRoute('artifact:abc')).toEqual({ id: 'abc', name: '' })
+	})
+
+	it('returns null for non-artifact urls', () => {
+		expect(parseArtifactRoute('/scripts/edit/f/foo/bar')).toBeNull()
+		expect(parseArtifactRoute('/runs')).toBeNull()
+		expect(parseArtifactRoute('artifactx:abc')).toBeNull()
+	})
+
+	it('labels an artifact tab by its name, falling back to "Artifact" when unnamed', () => {
+		expect(previewLocationLabel(artifactUrl('abc', 'My Doc'))).toBe('My Doc')
+		expect(previewLocationLabel('artifact:abc')).toBe('Artifact')
 	})
 })

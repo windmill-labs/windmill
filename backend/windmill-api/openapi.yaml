@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.753.0
+  version: 1.760.1
   title: Windmill API
 
   contact:
@@ -11898,7 +11898,7 @@ paths:
 
   /w/{workspace}/apps/sign_s3_objects:
     post:
-      summary: sign s3 objects, to be used by anonymous users in public apps
+      summary: sign s3 objects (caller must have S3 read permission on each key); the signed URLs can then be used by anonymous users in public apps
       operationId: signS3Objects
       tags:
         - app
@@ -12092,6 +12092,259 @@ paths:
           description: file deleted
           content:
             text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/apps_u/load_file_metadata/{path}:
+    get:
+      summary: Load metadata of an s3 file on-behalf of the app author (deployed app)
+      operationId: appLoadFileMetadata
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: storage
+          in: query
+          schema:
+            type: string
+        - $ref: "#/components/parameters/S3Sig"
+        - $ref: "#/components/parameters/S3Exp"
+      responses:
+        "200":
+          description: FileMetadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WindmillFileMetadata"
+
+  /w/{workspace}/apps_u/load_file_preview/{path}:
+    get:
+      summary: Load a preview of an s3 file on-behalf of the app author (deployed app)
+      operationId: appLoadFilePreview
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: file_size_in_bytes
+          in: query
+          schema:
+            type: integer
+        - name: file_mime_type
+          in: query
+          schema:
+            type: string
+        - name: csv_separator
+          in: query
+          schema:
+            type: string
+        - name: csv_has_header
+          in: query
+          schema:
+            type: boolean
+        - name: read_bytes_from
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: read_bytes_length
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: storage
+          in: query
+          schema:
+            type: string
+        - $ref: "#/components/parameters/S3Sig"
+        - $ref: "#/components/parameters/S3Exp"
+      responses:
+        "200":
+          description: FilePreview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WindmillFilePreview"
+
+  /w/{workspace}/apps_u/load_parquet_preview/{path}:
+    get:
+      summary: Load a preview of a parquet file on-behalf of the app author (deployed app)
+      operationId: appLoadParquetPreview
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: offset
+          in: query
+          schema:
+            type: number
+        - name: limit
+          in: query
+          schema:
+            type: number
+        - name: sort_col
+          in: query
+          schema:
+            type: string
+        - name: sort_desc
+          in: query
+          schema:
+            type: boolean
+        - name: search_col
+          in: query
+          schema:
+            type: string
+        - name: search_term
+          in: query
+          schema:
+            type: string
+        - name: storage
+          in: query
+          schema:
+            type: string
+        - $ref: "#/components/parameters/S3Sig"
+        - $ref: "#/components/parameters/S3Exp"
+      responses:
+        "200":
+          description: Parquet Preview
+          content:
+            application/json: {}
+
+  /w/{workspace}/apps_u/load_csv_preview/{path}:
+    get:
+      summary: Load a preview of a csv file on-behalf of the app author (deployed app)
+      operationId: appLoadCsvPreview
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: offset
+          in: query
+          schema:
+            type: number
+        - name: limit
+          in: query
+          schema:
+            type: number
+        - name: sort_col
+          in: query
+          schema:
+            type: string
+        - name: sort_desc
+          in: query
+          schema:
+            type: boolean
+        - name: search_col
+          in: query
+          schema:
+            type: string
+        - name: search_term
+          in: query
+          schema:
+            type: string
+        - name: storage
+          in: query
+          schema:
+            type: string
+        - name: csv_separator
+          in: query
+          schema:
+            type: string
+        - $ref: "#/components/parameters/S3Sig"
+        - $ref: "#/components/parameters/S3Exp"
+      responses:
+        "200":
+          description: Csv Preview
+          content:
+            application/json: {}
+
+  /w/{workspace}/apps_u/load_table_count/{path}:
+    get:
+      summary: Load the table row count on-behalf of the app author (deployed app)
+      operationId: appLoadTableCount
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: search_col
+          in: query
+          schema:
+            type: string
+        - name: search_term
+          in: query
+          schema:
+            type: string
+        - name: storage
+          in: query
+          schema:
+            type: string
+        - $ref: "#/components/parameters/S3Sig"
+        - $ref: "#/components/parameters/S3Exp"
+      responses:
+        "200":
+          description: Table count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: number
+
+  /w/{workspace}/apps_u/download_s3_parquet_file_as_csv/{path}:
+    get:
+      summary: Download a parquet s3 file as csv on-behalf of the app author (deployed app)
+      operationId: appDownloadS3ParquetFileAsCsv
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: storage
+          in: query
+          schema:
+            type: string
+        - $ref: "#/components/parameters/S3Sig"
+        - $ref: "#/components/parameters/S3Exp"
+      responses:
+        "200":
+          description: The downloaded file
+          content:
+            text/csv:
               schema:
                 type: string
 
@@ -22393,6 +22646,18 @@ components:
       required: true
       schema:
         type: string
+    S3Sig:
+      name: sig
+      in: query
+      description: HMAC signature of a presigned S3 object (bypasses the app provenance gate)
+      schema:
+        type: string
+    S3Exp:
+      name: exp
+      in: query
+      description: Expiry timestamp of a presigned S3 object signature
+      schema:
+        type: string
     CustomPath:
       name: custom_path
       in: path
@@ -26015,6 +26280,7 @@ components:
         - github
         - asset
         - freshness
+        - app
 
     TriggerMode:
       description: job trigger mode

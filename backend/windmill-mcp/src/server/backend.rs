@@ -9,7 +9,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use crate::common::types::{
-    FlowInfo, HubScriptInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo,
+    FlowInfo, HubScriptInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo, WorkspaceInfo,
 };
 use crate::server::endpoints::EndpointTool;
 
@@ -158,6 +158,27 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
         endpoint_tool: &EndpointTool,
         args: Value,
     ) -> BackendResult<Value>;
+
+    // ─────────────────────────────────────────────────────────────────
+    // Multi-workspace support
+    // ─────────────────────────────────────────────────────────────────
+
+    /// List the workspaces the caller (identified by `auth`) can access. Used by
+    /// the `list_workspaces` tool exposed in multi-workspace mode.
+    async fn list_accessible_workspaces(
+        &self,
+        auth: &Self::Auth,
+    ) -> BackendResult<Vec<WorkspaceInfo>>;
+
+    /// Resolve a workspace-specific auth for `workspace_id` from the raw bearer
+    /// `token`. Returns an error if the token's owner is not a member of the
+    /// workspace. Used in multi-workspace mode to authorize per-workspace tool
+    /// calls (the base auth carries no workspace-specific permissions).
+    async fn resolve_workspace_auth(
+        &self,
+        token: &str,
+        workspace_id: &str,
+    ) -> BackendResult<Self::Auth>;
 
     // ─────────────────────────────────────────────────────────────────
     // Endpoint Tools

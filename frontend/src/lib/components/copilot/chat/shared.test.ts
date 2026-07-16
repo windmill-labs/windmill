@@ -211,6 +211,45 @@ describe('processToolCall', () => {
 		expect(result.content).toBe(error)
 	})
 
+	it('surfaces the real error in the tool status when the tool throws', async () => {
+		const { createToolDef, processToolCall } = await import('./shared')
+		const apiError = Object.assign(new Error('Bad Request'), {
+			status: 400,
+			body: { error: { message: 'script not found at path f/scripts/missing' } }
+		})
+		const setToolStatus = vi.fn()
+
+		const result = await processToolCall({
+			tools: [
+				{
+					def: createToolDef(z.object({}), 'run_script', 'Run script'),
+					fn: vi.fn().mockRejectedValue(apiError)
+				}
+			],
+			toolCall: {
+				id: 'call_err',
+				type: 'function',
+				function: { name: 'run_script', arguments: '{}' }
+			},
+			helpers: {},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus,
+				removeToolStatus: vi.fn()
+			}
+		})
+
+		const expectedError = 'script not found at path f/scripts/missing'
+		expect(setToolStatus).toHaveBeenLastCalledWith(
+			'call_err',
+			expect.objectContaining({
+				isLoading: false,
+				error: expectedError
+			})
+		)
+		expect(result.content).toBe(`Error while calling tool: ${expectedError}`)
+	})
+
 	it('continues to confirmation when pre-confirmation validation passes', async () => {
 		const { createToolDef, processToolCall } = await import('./shared')
 		const fn = vi.fn().mockResolvedValue('ok')
@@ -651,7 +690,18 @@ describe('isActiveUserQuestion', () => {
 		expect(isActiveUserQuestion(toolMessage())).toBe(true)
 	})
 
-	it('is false once a choice has been selected', async () => {
+	it('is false once choices have been selected', async () => {
+		const { isActiveUserQuestion } = await import('./shared')
+		expect(
+			isActiveUserQuestion(
+				toolMessage({
+					userQuestion: { question: 'Pick one', choices: ['a', 'b'], selectedChoices: ['a'] }
+				})
+			)
+		).toBe(false)
+	})
+
+	it('is false once a legacy scalar selectedChoice is present', async () => {
 		const { isActiveUserQuestion } = await import('./shared')
 		expect(
 			isActiveUserQuestion(
@@ -660,6 +710,17 @@ describe('isActiveUserQuestion', () => {
 				})
 			)
 		).toBe(false)
+	})
+
+	it('stays active when selectedChoices is present but empty', async () => {
+		const { isActiveUserQuestion } = await import('./shared')
+		expect(
+			isActiveUserQuestion(
+				toolMessage({
+					userQuestion: { question: 'Pick one', choices: ['a', 'b'], selectedChoices: [] }
+				})
+			)
+		).toBe(true)
 	})
 
 	it('is false when the question was canceled', async () => {

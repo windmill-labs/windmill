@@ -135,7 +135,7 @@
 		onNavigate,
 		onTestJob,
 		disableAi,
-		initialTestPanelCollapsed = false,
+		testPanelCollapsed = false,
 		initialPathChosen = false,
 		onResetToDeployed,
 		loadedFromDraft = false,
@@ -397,6 +397,43 @@
 	let pathError = $state('')
 	let loadingSave = $state(false)
 
+	// Lifts the route's `?new_draft=true` `stopSync` suspension, but only after the
+	// stores-gated bind:path cascade (and, for an empty seed, `initContent` via
+	// `markContentReady`) settles — resuming earlier posts the seed/auto-generated
+	// path as the user's first "edit". `restarted` keeps re-entry idempotent.
+	function scheduleRestartSync(
+		path: string,
+		opts?: { waitForContent?: boolean }
+	): { markContentReady: () => void } {
+		let contentReady = !opts?.waitForContent
+		let storesReady = !!($userStore && $workspaceStore)
+		let restarted = false
+		async function tryRestart() {
+			if (restarted || !contentReady || !storesReady) return
+			// 500ms covers the bind:path cascade even on cold reload; two ticks
+			// weren't enough (bind:path fired ~100ms after restart, posting an edit).
+			await new Promise((r) => setTimeout(r, 500))
+			if (restarted) return
+			restarted = true
+			UserDraft.restartSync('script', path)
+		}
+		if (!storesReady) {
+			$effect(() => {
+				if ($userStore && $workspaceStore) {
+					storesReady = true
+					untrack(() => void tryRestart())
+				}
+			})
+		}
+		void tryRestart()
+		return {
+			markContentReady() {
+				contentReady = true
+				void tryRestart()
+			}
+		}
+	}
+
 	if (script.content == '') {
 		// Suspend autosave around the bootstrap mutations: seeding the template
 		// content is a programmatic write, not the user's first edit. The handle
@@ -417,36 +454,13 @@
 				}
 			}
 		}
-		// Sync resumes only after two cascades settle: the async `initContent`,
-		// and the stores-gated `initPath → reset → onMetaChange → bind:path`
-		// auto-naming chain. Whichever lands last calls `tryRestart`; otherwise
-		// the auto-generated path posts as the first "user edit".
-		let initContentDone = false
-		let storesReady = !!($userStore && $workspaceStore)
-		let restarted = false
-		async function tryRestart() {
-			if (restarted || !initContentDone || !storesReady) return
-			// 500ms covers the bind:path cascade even on cold reload; two ticks
-			// weren't enough (bind:path fired ~100ms after restart, posting an edit).
-			await new Promise((r) => setTimeout(r, 500))
-			if (restarted) return
-			restarted = true
-			UserDraft.restartSync('script', userDraftPath)
-		}
-		initContent(script.language, script.kind, template).finally(() => {
-			initContentDone = true
-			void tryRestart()
-		})
-		// Cold reload: auth stores may load after mount; the `restarted` guard
-		// makes the effect self-cleaning.
-		if (!storesReady) {
-			$effect(() => {
-				if ($userStore && $workspaceStore) {
-					storesReady = true
-					untrack(() => void tryRestart())
-				}
-			})
-		}
+		const restarter = scheduleRestartSync(userDraftPath, { waitForContent: true })
+		initContent(script.language, script.kind, template).finally(() => restarter.markContentReady())
+	} else if (userDraftPath && untrack(() => searchParams).get('new_draft') == 'true') {
+		// Pre-filled new-draft seed (fork "Copy of X", hub fork, URL/YAML import): no
+		// template to seed, but the route still suspended autosave — lift it or the
+		// draft never persists (autosave stays dead for the session).
+		scheduleRestartSync(userDraftPath)
 	}
 
 	async function isTemplateScript() {
@@ -740,6 +754,17 @@
 			itemKind: 'script',
 			path: userDraftPath
 		})
+	}
+
+	// Materialize a brand-new script's draft before the session preview loads it by
+	// path — an untouched new script never autosaved, so forcePersist is the only
+	// thing that creates the row. Gated to never-deployed: forcePersist skips the
+	// discardIf baseline, safe only when there is none.
+	async function persistDraftForSession(): Promise<void> {
+		await saveDraft()
+		if (opWorkspace && userDraftPath && savedScript?.no_deployed === true) {
+			await UserDraft.forcePersist('script', userDraftPath, { workspace: opWorkspace })
+		}
 	}
 
 	// Inside an AI session pane (which injects an aiChatManager via context) the
@@ -1151,6 +1176,7 @@
 													autofocus={false}
 													namePlaceholder="script"
 													kind="script"
+													workspaceOverride={opWorkspace}
 												/>
 												{#if initialPath && script.path && script.path !== initialPath}
 													<Alert
@@ -2082,13 +2108,14 @@
 
 		<ScriptEditor
 			{disableAi}
-			sessionOpen={script.path
+			workspaceOverride={opWorkspace}
+			sessionOpen={userDraftPath
 				? {
-						target: { kind: 'script', path: script.path },
+						// URL draft path the editor loads/saves by, not the friendly
+						// `script.path` (a new script's has no row → "not found").
+						target: { kind: 'script', path: userDraftPath },
 						workspaceId: opWorkspace ?? undefined,
-						// Flush the per-user draft so the session preview opens the script
-						// exactly as it is in the editor right now.
-						beforeOpen: saveDraft
+						beforeOpen: persistDraftForSession
 					}
 				: undefined}
 			bind:selectedTab={selectedInputTab}
@@ -2125,7 +2152,7 @@
 			bind:assets={script.assets}
 			bind:modules={script.modules}
 			enablePreprocessorSnippet
-			{initialTestPanelCollapsed}
+			{testPanelCollapsed}
 		/>
 	</div>
 {:else}

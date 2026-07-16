@@ -133,8 +133,11 @@
 		fakeInitialPath,
 		customUi,
 		executionCount,
-		devTempScriptRefs
+		devTempScriptRefs,
+		opWorkspace
 	} = $state(getContext<FlowEditorContext>('FlowEditorContext'))
+	// Acting workspace when previewing inside an AI session; else the nav workspace.
+	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
 	const dispatch = createEventDispatcher()
 
 	let renderCount: number = $state(0)
@@ -193,14 +196,15 @@
 			lastPreviewFlow = JSON.stringify(flowStore.val)
 			flowProgressBar?.reset()
 			const newFlow = extractFlow(previewMode)
-			args = await processSecretArgs(args, flowStore.val.schema as any)
+			args = await processSecretArgs(args, flowStore.val.schema as any, opWs)
 			newJobId = await runFlowPreview(
 				args,
 				newFlow,
 				$pathStore,
 				restartedFrom,
 				conversationId,
-				devTempScriptRefs?.()
+				devTempScriptRefs?.(),
+				opWorkspace?.()
 			)
 			jobId = newJobId
 			isRunning = true
@@ -286,7 +290,7 @@
 			subJobIds.map(async (subId) => {
 				try {
 					const subJob = await JobService.getJob({
-						workspace: $workspaceStore!,
+						workspace: opWs!,
 						id: subId
 					})
 					flowRecording.addCompletedJob(subId, subJob)
@@ -332,11 +336,11 @@
 			untrack(() => {
 				for (const mod of modules) {
 					if (mod.job) {
-						flowRecording.watchSubJob(mod.job, $workspaceStore!)
+						flowRecording.watchSubJob(mod.job, opWs!)
 					}
 				}
 				if (job?.flow_status?.failure_module?.job) {
-					flowRecording.watchSubJob(job.flow_status.failure_module.job, $workspaceStore!)
+					flowRecording.watchSubJob(job.flow_status.failure_module.job, opWs!)
 				}
 			})
 		}
@@ -347,7 +351,7 @@
 		try {
 			jobId &&
 				(await JobService.cancelQueuedJob({
-					workspace: $workspaceStore ?? '',
+					workspace: opWs ?? '',
 					id: jobId,
 					requestBody: {}
 				}))
@@ -514,6 +518,7 @@
 						runnableId={$initialPathStore}
 						stablePathForCaptures={$initialPathStore || fakeInitialPath}
 						runnableType={'FlowPath'}
+						workspace={opWs}
 						previewArgs={previewArgs.val}
 						on:openTriggers
 						on:select={(e) => {
@@ -562,6 +567,7 @@
 									<SchemaForm
 										noVariablePicker
 										compact
+										workspace={opWs}
 										schema={flowStore.val.schema}
 										bind:args={previewArgs.val}
 										on:change={() => {
@@ -632,7 +638,7 @@
 				<div class="w-full my-6">
 					<FlowExecutionStatus
 						{job}
-						workspaceId={$workspaceStore}
+						workspaceId={opWs}
 						{isOwner}
 						innerModules={job?.flow_status?.modules}
 						{suspendStatus}
@@ -665,6 +671,7 @@
 					hideDownloadInGraph={customUi?.downloadLogs === false}
 					wideResults
 					bind:flowState={flowStateStore.val}
+					workspaceId={opWs}
 					{jobId}
 					onDone={async ({ job: completedJob }) => {
 						isRunning = false

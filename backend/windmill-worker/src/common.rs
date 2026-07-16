@@ -1124,6 +1124,45 @@ pub async fn resolve_nsjail_timeout(
     (duration.as_secs() + 15).to_string()
 }
 
+/// Render the `rlimit_as` line for an nsjail run config, honoring a per-language
+/// env-var override.
+///
+/// nsjail caps a jailed job's virtual address space at `rlimit_as` MiB. JIT
+/// runtimes (Bun/JavaScriptCore, the JVM) reserve large virtual ranges up front,
+/// so a subprocess spawned from a jailed Python/Ansible job can crash against this
+/// cap even when its physical memory use is modest. Lifting it lets operators run
+/// such workloads on a dedicated worker pool (set the env var only there) without
+/// giving up the mount/PID/user-namespace isolation that provides the real
+/// security boundary. Only the address-space limit is affected; the other rlimits
+/// (cpu/fsize/nofile) in the proto are untouched.
+///
+/// `env_override` is the raw value of the language's `NSJAIL_*_RLIMIT_AS_MB` env var:
+/// - unset/empty -> historical default (`rlimit_as: {default_mb}`)
+/// - `unlimited`/`none`/`inf`/`0` -> `rlimit_as_type: INF` (address space uncapped)
+/// - a positive integer (MiB) -> `rlimit_as: {n}`
+pub fn render_nsjail_rlimit_as(env_override: Option<&str>, default_mb: u32) -> String {
+    match env_override.map(str::trim) {
+        None | Some("") => format!("rlimit_as: {default_mb}"),
+        Some(v)
+            if v.eq_ignore_ascii_case("unlimited")
+                || v.eq_ignore_ascii_case("none")
+                || v.eq_ignore_ascii_case("inf")
+                || v == "0" =>
+        {
+            "rlimit_as_type: INF".to_string()
+        }
+        Some(v) => match v.parse::<u32>() {
+            Ok(mb) => format!("rlimit_as: {mb}"),
+            Err(_) => {
+                tracing::warn!(
+                    "Invalid nsjail rlimit_as override {v:?}, using default {default_mb}MiB"
+                );
+                format!("rlimit_as: {default_mb}")
+            }
+        },
+    }
+}
+
 /// Default size (in bytes) of the `/tmp` tmpfs mount inside nsjail sandboxes,
 /// used when the `nsjail_tmpfs_size_mb` instance setting is unset.
 pub const DEFAULT_NSJAIL_TMPFS_SIZE_BYTES: u64 = 800_000_000;
@@ -1231,6 +1270,49 @@ pub(crate) async fn resolve_nsjail_tmp_mount_block(job_dir: &str) -> String {
         }
     }
     bind_mount_block(&jail_tmp)
+}
+
+#[cfg(test)]
+mod nsjail_rlimit_as_tests {
+    use super::render_nsjail_rlimit_as;
+
+    #[test]
+    fn unset_uses_default() {
+        assert_eq!(render_nsjail_rlimit_as(None, 4096), "rlimit_as: 4096");
+        assert_eq!(render_nsjail_rlimit_as(Some("  "), 4096), "rlimit_as: 4096");
+    }
+
+    #[test]
+    fn numeric_override_is_used() {
+        assert_eq!(
+            render_nsjail_rlimit_as(Some("16384"), 4096),
+            "rlimit_as: 16384"
+        );
+        assert_eq!(
+            render_nsjail_rlimit_as(Some("  8192 "), 4096),
+            "rlimit_as: 8192"
+        );
+    }
+
+    #[test]
+    fn unlimited_keywords_emit_inf() {
+        for v in ["unlimited", "UNLIMITED", "none", "inf", "0"] {
+            assert_eq!(
+                render_nsjail_rlimit_as(Some(v), 4096),
+                "rlimit_as_type: INF",
+                "value {v:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_falls_back_to_default() {
+        assert_eq!(
+            render_nsjail_rlimit_as(Some("abc"), 4096),
+            "rlimit_as: 4096"
+        );
+        assert_eq!(render_nsjail_rlimit_as(Some("-1"), 4096), "rlimit_as: 4096");
+    }
 }
 
 #[cfg(test)]

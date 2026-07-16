@@ -60,10 +60,7 @@
 		GroupedModulesProxy,
 		type ExtendedOpenFlow
 	} from '$lib/components/graph/groupedModulesProxy.svelte'
-	import {
-		GroupDisplayState,
-		type FlowGroup
-	} from '$lib/components/graph/groupEditor.svelte'
+	import { GroupDisplayState, type FlowGroup } from '$lib/components/graph/groupEditor.svelte'
 	import {
 		type FlowStructureNode,
 		matchStructureNode,
@@ -135,8 +132,10 @@
 		flowHasChanged
 	}: Props = $props()
 
-	const { customUi, selectionManager, history, flowStateStore, flowStore, pathStore } =
+	const { customUi, selectionManager, history, flowStateStore, flowStore, pathStore, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
+
+	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
 
 	const moveManager = new MoveManager()
 	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
@@ -172,14 +171,15 @@
 		let state = emptyFlowModuleState()
 		flowStateStore.val[module.id] = state
 		if (wsFlow) {
-			;[module, state] = await pickFlow(wsFlow.path, wsFlow.summary, module.id)
+			;[module, state] = await pickFlow(wsFlow.path, wsFlow.summary, module.id, opWs)
 		} else if (wsScript) {
 			;[module, state] = await pickScript(
 				wsScript.path,
 				wsScript.summary,
 				module.id,
 				wsScript.hash,
-				kind
+				kind,
+				opWs
 			)
 		} else if (kind == 'forloop') {
 			;[module, state] = await createLoop(module.id, !disableAi && $copilotInfo.enabled)
@@ -245,7 +245,10 @@
 		} else if (toolKind === 'aiAgentTool') {
 			// Create AI Agent tool (nested agent)
 			const aiAgentTool = createAiAgentTool(module.id)
-			flowStateStore.val[module.id] = await loadFlowModuleState(agentToolToFlowModule(aiAgentTool))
+			flowStateStore.val[module.id] = await loadFlowModuleState(
+				agentToolToFlowModule(aiAgentTool),
+				opWs
+			)
 			;(modules as AgentTool[]).splice(index, 0, aiAgentTool)
 			return modules as AgentTool[]
 		} else if (toolKind === 'flowmoduleTool') {
@@ -460,7 +463,7 @@
 			}
 		}
 		const previousJobId = await JobService.listCompletedJobs({
-			workspace: $workspaceStore!,
+			workspace: opWs!,
 			scriptPathExact: path,
 			jobKinds: ['preview', 'script', 'flowpreview', 'flow'].join(','),
 			page: 1,
@@ -468,7 +471,7 @@
 		})
 		if (previousJobId.length > 0) {
 			const getJobResult = await JobService.getCompletedJobResultMaybe({
-				workspace: $workspaceStore!,
+				workspace: opWs!,
 				id: previousJobId[0].id
 			})
 			if ('result' in getJobResult) {
@@ -706,7 +709,8 @@
 						flowStore,
 						flowStateStore,
 						detail.inlineScript,
-						detail.script
+						detail.script,
+						opWs
 					)
 					selectionManager.selectId('preprocessor')
 					if (detail.inlineScript?.instructions) {

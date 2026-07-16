@@ -376,6 +376,36 @@ mod tests {
     use serde_json::json;
     use std::collections::HashMap;
 
+    fn raw_schema(raw: &str) -> Option<Schema> {
+        Some(serde_json::from_str::<Schema>(raw).unwrap())
+    }
+
+    #[test]
+    fn flow_schema_without_required_keeps_properties() {
+        // Real flow input schema shape (see backend/tests/worker.rs): it omits
+        // `required` and carries an `order` key instead. This shape must keep its
+        // properties, not fall back to an empty schema, so MCP flow tools still
+        // advertise their inputs.
+        let flow = raw_schema(
+            r#"{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"world":{"type":"string"}},"type":"object","order":["world"]}"#,
+        );
+        let schema_type = convert_schema_to_schema_type(flow);
+        assert_eq!(schema_type.r#type, "object");
+        assert!(schema_type.properties.contains_key("world"));
+        assert!(schema_type.required.is_empty());
+    }
+
+    #[test]
+    fn script_schema_with_required_keeps_properties() {
+        // Script schemas always include `required`; this must remain unaffected.
+        let script = raw_schema(
+            r#"{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"world":{"type":"string"}},"required":["world"],"type":"object"}"#,
+        );
+        let schema_type = convert_schema_to_schema_type(script);
+        assert!(schema_type.properties.contains_key("world"));
+        assert_eq!(schema_type.required, vec!["world".to_string()]);
+    }
+
     fn aws_resources() -> (HashMap<String, Vec<ResourceInfo>>, Vec<ResourceType>) {
         let mut cache = HashMap::new();
         cache.insert(
@@ -965,9 +995,11 @@ mod tests {
         make_schema_compatible(&mut schema);
 
         assert_eq!(schema["properties"]["services"]["type"], json!("array"));
-        assert!(schema["properties"]["services"]["items"]["properties"]["value"]
-            .get("type")
-            .is_none());
+        assert!(
+            schema["properties"]["services"]["items"]["properties"]["value"]
+                .get("type")
+                .is_none()
+        );
         assert_all_types_valid(&schema);
     }
 }

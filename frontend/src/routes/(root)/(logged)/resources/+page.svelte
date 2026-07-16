@@ -449,6 +449,8 @@
 			await loadCache()
 		} else if (tab == 'states') {
 			await loadState()
+		} else if (tab == 'theme') {
+			await loadTheme()
 		} else {
 			await loadResources()
 		}
@@ -902,6 +904,9 @@
 					} else if (e.detail == 'states') {
 						loading.resources = true
 						loadState()
+					} else if (e.detail == 'theme') {
+						loading.resources = true
+						loadTheme()
 					}
 				}}
 			>

@@ -7,6 +7,7 @@
 	import JsonInputs from '$lib/components/JsonInputs.svelte'
 	import { convert } from '@redocly/json-to-json-schema'
 	import { sendUserToast } from '$lib/toast'
+	import { workspaceStore } from '$lib/stores'
 	import EditableSchemaForm from '$lib/components/EditableSchemaForm.svelte'
 	import AddPropertyV2 from '$lib/components/schema/AddPropertyV2.svelte'
 	import FlowInputViewer from '$lib/components/FlowInputViewer.svelte'
@@ -74,8 +75,11 @@
 		pathStore,
 		initialPathStore,
 		fakeInitialPath,
-		flowInputEditorState
+		flowInputEditorState,
+		opWorkspace
 	} = getContext<FlowEditorContext>('FlowEditorContext')
+	// Acting workspace when the flow editor runs in an AI session; else the nav workspace.
+	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
 
 	// Get diffManager from the graph
 	const diffManager = $derived(flowModuleSchemaMap?.getDiffManager())
@@ -887,6 +891,7 @@
 								>
 									<HistoricInputs
 										bind:this={historicInputs}
+										workspace={opWs}
 										runnableId={$initialPathStore ?? undefined}
 										runnableType={$pathStore ? 'FlowPath' : undefined}
 										on:select={(e) => {
@@ -910,6 +915,7 @@
 									<div class="h-full">
 										<CaptureTable
 											path={$initialPathStore || fakeInitialPath}
+											workspace={opWs}
 											on:select={(e) => {
 												updatePreviewSchemaAndArgs(e.detail ?? undefined)
 											}}
@@ -929,6 +935,7 @@
 									title="Saved inputs"
 								>
 									<SavedInputsPicker
+										workspace={opWs}
 										runnableId={$initialPathStore ?? undefined}
 										runnableType={$pathStore ? 'FlowPath' : undefined}
 										on:select={(e) => {
