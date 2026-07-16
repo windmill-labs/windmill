@@ -337,7 +337,7 @@ export async function parseOpenAIResponsesCompletion(
 			callbacks.onMessageEnd()
 			callbacks.setToolStatus(`${item.id}`, {
 				isLoading: true,
-				content: `Calling ${item.name}...`,
+				content: tool?.streamingLabel ?? `Calling ${item.name}...`,
 				toolName: item.name,
 				isStreamingArguments: shouldStream,
 				showFade: tool?.showFade,
