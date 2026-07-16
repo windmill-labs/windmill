@@ -1,12 +1,14 @@
 <!--
 @component
-Preview "router" picker — a `WorkspaceItemDrillPicker` superset used by the
-session preview breadcrumb. Same drill model and workspace-item branches, plus
-a leading "Pages" branch (Home, Runs, Workspace settings, …) so the breadcrumb
-can route the preview iframe to non-item pages too, not just scripts/flows/apps.
+Preview "router" picker — a `WorkspaceItemDrillPicker` sibling used by the
+session preview breadcrumb. The root mirrors the workspace home's first level:
+a leading "Pages" branch (Runs, Schedules, Workspace settings, …) followed by
+the `f/<folder>` / `u/<user>` directories flattened across kinds (no
+Flows/Scripts/Apps grouping — leaves carry kind icons instead).
 
 Kept separate from `WorkspaceItemDrillPicker` so the editor breadcrumb (which
-only ever navigates between items) doesn't grow a Pages section.
+only ever navigates between items, grouped by kind) doesn't grow a Pages
+section or the flat layout.
 -->
 <script lang="ts" module>
 	export type Scope = { kind: 'flow' | 'script' | 'app' | 'all'; dir?: string } | undefined
@@ -84,6 +86,13 @@ only ever navigates between items) doesn't grow a Pages section.
 		() => kinds
 	)
 
+	// The flat root is the union of every kind's folders, so there's no
+	// per-kind drill step left to lazy-load from — fetch everything up front
+	// (module-cached; the picker only mounts when its popover opens).
+	$effect(() => {
+		if (effectiveWorkspace) untrack(() => loader.ensureAll())
+	})
+
 	// Surface AI-created drafts the same way the editor picker does so in-flight
 	// chat-scaffolded items are navigable (see WorkspaceItemDrillPicker).
 	const KIND_TO_DRAFT_TYPE = { flow: 'flow', script: 'script', app: 'app' } as const
@@ -145,12 +154,13 @@ only ever navigates between items) doesn't grow a Pages section.
 				kinds,
 				currentItem,
 				loadingKind: loader.loadingKind,
-				extraItemsByKind
+				extraItemsByKind,
+				layout: 'flat'
 			})
 		)
 	])
 
-	const computedInitialScope = untrack(() => legacyScopeToPath(initialScope, kinds))
+	const computedInitialScope = untrack(() => legacyScopeToPath(initialScope, kinds, 'flat'))
 </script>
 
 {#snippet leafIcon(leaf: DrillLeaf<PreviewTarget>)}
@@ -163,10 +173,7 @@ only ever navigates between items) doesn't grow a Pages section.
 {/snippet}
 
 {#snippet branchIcon(branch: DrillBranch<PreviewTarget>)}
-	{#if branch.key === 'kind:flow' || branch.key === 'kind:script' || branch.key === 'kind:app'}
-		{@const k = branch.key.slice(5) as Kind}
-		<RowIcon kind={k} size={12} />
-	{:else if branch.icon}
+	{#if branch.icon}
 		{@const Icon = branch.icon}
 		<Icon size={12} class="shrink-0 text-tertiary" />
 	{/if}
