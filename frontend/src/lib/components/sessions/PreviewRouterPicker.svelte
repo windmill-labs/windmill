@@ -161,6 +161,10 @@ section or the flat layout.
 	])
 
 	const computedInitialScope = untrack(() => legacyScopeToPath(initialScope, kinds, 'flat'))
+
+	// The flat root has no branch to carry a per-kind loading flag — surface
+	// the first-fetch state at the picker level instead.
+	const rootLoading = $derived(kinds.some((k) => !loader.loaded[k] && loader.loadingKind[k]))
 </script>
 
 {#snippet leafIcon(leaf: DrillLeaf<PreviewTarget>)}
@@ -196,4 +200,5 @@ section or the flat layout.
 		if (scope.length > 0) loader.ensureForScopeSegment(scope[0])
 	}}
 	onFilterChange={loader.onFilterChange}
+	{rootLoading}
 />

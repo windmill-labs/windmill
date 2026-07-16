@@ -381,10 +381,7 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 {/snippet}
 
 {#snippet branchIcon(branch: DrillBranch<ChatLeafData>)}
-	{#if branch.key === 'kind:flow' || branch.key === 'kind:script' || branch.key === 'kind:app'}
-		{@const k = branch.key.slice(5) as WorkspaceItemKind}
-		<RowIcon kind={k} size={12} />
-	{:else if branch.icon}
+	{#if branch.icon}
 		{@const Icon = branch.icon}
 		<Icon size={12} class="shrink-0 text-tertiary" />
 	{/if}
@@ -402,4 +399,6 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 		'kind' in leaf.data ? relativizeWorkspacePath(leaf.data.path, scope) : undefined}
 	onScopeChange={handleScopeChange}
 	onFilterChange={loader.onFilterChange}
+	rootLoading={isWorkspaceOnly &&
+		WORKSPACE_KINDS.some((k) => !loader.loaded[k] && loader.loadingKind[k])}
 />
