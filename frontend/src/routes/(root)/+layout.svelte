@@ -5,6 +5,7 @@
 	import { logoutWithRedirect } from '$lib/logoutKit'
 	import {
 		clearWorkspaceFromStorage,
+		superadmin,
 		userStore,
 		usersWorkspaceStore,
 		workspaceStore
@@ -70,6 +71,20 @@
 
 		// Fork still reachable → nothing to recover from.
 		if (workspaces.some((w) => w.id === workspaceId)) return false
+
+		// The membership-gated list omits any workspace the user isn't a member of,
+		// so a superadmin's absence from it doesn't mean the fork is gone. Confirm
+		// genuine deletion against the DB before recovering — otherwise a live fork
+		// the superadmin merely isn't a member of would be treated as deleted.
+		if ($superadmin) {
+			try {
+				await WorkspaceService.getWorkspaceAsSuperAdmin({ workspace: workspaceId })
+				// Fork still exists → not deleted, let normal loading proceed.
+				return false
+			} catch {
+				// 404 (fork truly gone) → continue with the recovery below.
+			}
+		}
 
 		// The fork is gone, but only redirect if the session itself is still valid;
 		// otherwise let the normal flow handle the (genuine) auth failure.
