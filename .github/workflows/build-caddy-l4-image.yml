@@ -39,11 +39,22 @@ jobs:
           set -euo pipefail
           version="$(tr -d '[:space:]' < docker/caddy-l4.version)"
           pinned="$(grep -oE 'caddy-l4:[^[:space:]"]+' docker-compose.yml | head -1 | cut -d: -f2-)"
+          caddy="$(grep -m1 -oE '^FROM caddy:[0-9]+\.[0-9]+\.[0-9]+' docker/DockerfileCaddyL4 | cut -d: -f2)"
           if [ "$version" != "$pinned" ]; then
             echo "docker/caddy-l4.version is '$version' but docker-compose.yml pins '$pinned'" >&2
             echo "Bump both together." >&2
             exit 1
           fi
+          # Otherwise a caddy bump that forgets the version file publishes a tag
+          # that names the wrong caddy.
+          case "$version" in
+            "$caddy"-*) ;;
+            *)
+              echo "docker/caddy-l4.version is '$version' but the Dockerfile pins caddy '$caddy'" >&2
+              echo "The version must be <caddy-version>-<revision>." >&2
+              exit 1
+              ;;
+          esac
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Docker meta
@@ -55,7 +66,13 @@ jobs:
           tags: |
             type=sha
             type=ref,event=branch
-            type=raw,value=${{ steps.version.outputs.version }},enable={{is_default_branch}}
+            # Not gated on the default branch: docker-compose.yml pins this tag,
+            # so it has to be publishable from a branch (workflow_dispatch)
+            # before the pin merges, or main would reference a tag that does not
+            # exist yet. The version is immutable, so republishing from main is
+            # a no-op. Only branch pushes to main and manual dispatch run this
+            # workflow, so a branch cannot claim the tag by accident.
+            type=raw,value=${{ steps.version.outputs.version }}
             type=raw,value=latest,enable={{is_default_branch}}
 
       # The shim rewrites config a self-hoster never sees, so a silent
