@@ -187,8 +187,11 @@ only ever navigates between items) doesn't grow a Pages section.
 	// An artifact highlight lives under the 'artifacts' branch, which the legacy
 	// {kind, dir} scope can't express — open the picker inside that branch so the
 	// active artifact is actually visible and highlighted (not the first root row).
+	// Keyed on the highlight's shape alone: the branch itself may not have
+	// materialized yet (artifacts hydrate from IndexedDB after tabs restore), and
+	// the drill entries fill in reactively once it does.
 	const computedInitialScope = untrack(() =>
-		initialHighlight && isArtifactKey(initialHighlight) && artifactsBranch
+		initialHighlight && isArtifactKey(initialHighlight)
 			? ['artifacts']
 			: legacyScopeToPath(initialScope, kinds)
 	)
