@@ -861,54 +861,60 @@ async fn reject_parent_only_git_sync_settings_on_fork<'a>(
     Ok(())
 }
 
-/// Persist only the reconciled webhook fields (id/secret/error) for `changed` repos.
-/// The webhook reconcile runs after the main save has committed, so writing the whole
-/// pre-reconcile snapshot back would clobber a git-sync edit or poller status write
-/// that landed in the gap. Re-read the current row and merge just the fields the
-/// reconcile owns.
+/// Persist only the reconciled webhook fields (id/secret/error/mode) for `changed`
+/// repos, one targeted JSONB update per repo (same pattern as the EE auto-pull
+/// status writer). The webhook reconcile runs after the main save has committed,
+/// so a read-modify-write of the whole blob would clobber a poller status write
+/// or another settings save landing in the gap. `mode` is carried too: the
+/// reconcile normalizes webhook -> polling for repos that can't register hooks,
+/// and losing that would leave the poller skipping a webhook-mode repo that has
+/// no webhook. A repo whose `auto_pull` was concurrently removed is left alone.
 #[cfg(all(feature = "enterprise", feature = "private"))]
 async fn persist_reconciled_webhook_fields(
     db: &DB,
     w_id: &str,
     changed: &[(String, windmill_common::workspaces::AutoPullSettings)],
 ) -> Result<()> {
-    if changed.is_empty() {
-        return Ok(());
-    }
-    let Some(mut current) = sqlx::query_scalar!(
-        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
-        w_id
-    )
-    .fetch_optional(db)
-    .await?
-    .flatten()
-    .and_then(|v| serde_json::from_value::<WorkspaceGitSyncSettings>(v).ok()) else {
-        return Ok(());
-    };
     for (path, new_ap) in changed {
-        if let Some(cur_ap) = current
-            .repositories
-            .iter_mut()
-            .find(|c| &c.git_repo_resource_path == path)
-            .and_then(|c| c.auto_pull.as_mut())
-        {
-            cur_ap.webhook_id = new_ap.webhook_id;
-            cur_ap.webhook_secret = new_ap.webhook_secret.clone();
-            cur_ap.webhook_error = new_ap.webhook_error.clone();
-            // The reconcile also normalizes the delivery mode (webhook -> polling
-            // for repos that can't register hooks); losing it would leave the
-            // poller skipping a webhook-mode repo that has no webhook.
-            cur_ap.mode = new_ap.mode;
+        let mut patch = serde_json::Map::new();
+        patch.insert(
+            "mode".to_string(),
+            serde_json::to_value(&new_ap.mode).map_err(|e| Error::internal_err(e.to_string()))?,
+        );
+        if let Some(id) = new_ap.webhook_id {
+            patch.insert("webhook_id".to_string(), serde_json::json!(id));
         }
+        if let Some(secret) = &new_ap.webhook_secret {
+            patch.insert("webhook_secret".to_string(), serde_json::json!(secret));
+        }
+        if let Some(err) = &new_ap.webhook_error {
+            patch.insert("webhook_error".to_string(), serde_json::json!(err));
+        }
+        let patch = serde_json::Value::Object(patch);
+        sqlx::query!(
+            r#"
+            UPDATE workspace_settings
+            SET git_sync = jsonb_set(
+                git_sync,
+                '{repositories}',
+                (SELECT jsonb_agg(
+                    CASE WHEN elem->>'git_repo_resource_path' = $2
+                          AND jsonb_typeof(elem->'auto_pull') = 'object'
+                        THEN jsonb_set(elem, '{auto_pull}',
+                             ((elem->'auto_pull') - 'webhook_id' - 'webhook_secret' - 'webhook_error') || $3)
+                        ELSE elem END)
+                 FROM jsonb_array_elements(git_sync->'repositories') AS elem)
+            )
+            WHERE workspace_id = $1
+              AND jsonb_typeof(git_sync->'repositories') = 'array'
+            "#,
+            w_id,
+            path,
+            patch,
+        )
+        .execute(db)
+        .await?;
     }
-    let updated = serde_json::to_value(&current).map_err(|e| Error::internal_err(e.to_string()))?;
-    sqlx::query!(
-        "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
-        updated,
-        w_id
-    )
-    .execute(db)
-    .await?;
     Ok(())
 }
 
