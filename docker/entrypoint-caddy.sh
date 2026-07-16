@@ -147,11 +147,16 @@ if ! normalized_err=$(validate_config "$normalized"); then
 	exec caddy "$@"
 fi
 
+# Report a count and a path, never the config itself: a Caddyfile can hold
+# basic_auth hashes, proxy Authorization headers or TLS provider tokens, and
+# container logs are routinely shipped off the host.
+# busybox diff defaults to unified output while GNU diff defaults to normal, so
+# match changed lines in either format without matching a +++/--- header.
+changed="$(diff "$config" "$normalized" 2>/dev/null | grep -cE '^([<>]|[+-][^+-])' || true)"
 log "'$config' uses a deprecated Windmill Caddyfile syntax and was adapted at"
-log "startup. Copy the current Caddyfile from $DOCS_HINT"
+log "startup: $changed line(s) rewritten. Diff it against '$normalized' to see"
+log "exactly what changed. Copy the current Caddyfile from $DOCS_HINT"
 log "to silence this; the shim will be removed in a later release."
-log "Rewrites applied:"
-diff -u "$config" "$normalized" 2>/dev/null | sed 's/^/caddy-compat:   /' >&2 || true
 
 # caddy now reads the rewritten file, so `--watch` follows it rather than the
 # bind-mounted original, and `caddy reload --config /etc/caddy/Caddyfile` would
