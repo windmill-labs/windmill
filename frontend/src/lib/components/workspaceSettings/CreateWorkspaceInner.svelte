@@ -738,8 +738,7 @@
 						<Toggle bind:checked={createAsDevWorkspace} options={{ right: 'Dev workspace' }} />
 						{#if createAsDevWorkspace}
 							<div class="text-2xs text-secondary">
-								Cosmetic label: <Badge color="indigo" small>{devBadgeText(devWorkspaceLabel)}</Badge
-								>
+								Label: <Badge color="indigo" small>{devBadgeText(devWorkspaceLabel)}</Badge>
 								<button
 									type="button"
 									class="text-secondary hover:text-primary hover:underline"
