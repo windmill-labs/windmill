@@ -70,7 +70,7 @@
 		{#if message.role === 'user' && message.contextElements && editingMessageIndex !== messageIndex}
 			<div class="flex flex-row gap-1 mb-1 overflow-scroll no-scrollbar px-2">
 				{#each message.contextElements as element}
-					<ContextElementBadge contextElement={element} />
+					<ContextElementBadge contextElement={element} compact />
 				{/each}
 			</div>
 		{/if}

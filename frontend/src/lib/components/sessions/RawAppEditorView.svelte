@@ -137,6 +137,12 @@
 	function onInspectorClearAll() {
 		runtime.manager.contextManager.clearSelectedDomElements()
 	}
+
+	// The inline mini-composer over a selected element sends a chat turn; the
+	// element is already an app_dom_selector chip, so it rides along as context.
+	function onInlinePrompt(_selector: string, prompt: string) {
+		void runtime.manager.sendRequest({ instructions: prompt })
+	}
 </script>
 
 {#if cell.saved.val}
@@ -196,6 +202,7 @@
 				{selectedDomSelectors}
 				{onInspectorDeselect}
 				{onInspectorClearAll}
+				{onInlinePrompt}
 			/>
 		{/if}
 	{/snippet}
