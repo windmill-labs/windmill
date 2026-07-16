@@ -90,6 +90,45 @@ describe('HistoryManager legacy chat-history migration', () => {
 		expect(hm.getAllSavedChats()).toEqual([])
 	})
 
+	it('serves a persisted tool image to a fresh instance (reload survival)', async () => {
+		const hm = new HistoryManager()
+		await hm.init()
+		await hm.saveToolImage('tool-1', 'data:image/png;base64,FULL')
+
+		const reloaded = new HistoryManager()
+		await reloaded.init()
+		await expect(reloaded.loadToolImage('tool-1')).resolves.toBe('data:image/png;base64,FULL')
+		await expect(reloaded.loadToolImage('unknown')).resolves.toBeUndefined()
+	})
+
+	it('caps stored tool images per chat, evicting the oldest', async () => {
+		const hm = new HistoryManager()
+		await hm.init()
+		for (let i = 0; i <= 30; i++) {
+			await hm.saveToolImage(`tool-${String(i).padStart(2, '0')}`, `data:${i}`)
+		}
+		await expect(hm.loadToolImage('tool-00')).resolves.toBeUndefined()
+		await expect(hm.loadToolImage('tool-01')).resolves.toBe('data:1')
+		await expect(hm.loadToolImage('tool-30')).resolves.toBe('data:30')
+	})
+
+	it("deletes a chat's tool images along with the chat", async () => {
+		const hm = new HistoryManager()
+		await hm.init()
+		const chatId = hm.getCurrentChatId()
+		await hm.saveToolImage('tool-1', 'data:full')
+		await hm.saveChat(
+			[{ role: 'user', content: 'x' }] as DisplayMessage[],
+			[] as ChatCompletionMessageParam[]
+		)
+
+		hm.deletePastChat(chatId)
+
+		await vi.waitFor(async () => {
+			expect(await hm.loadToolImage('tool-1')).toBeUndefined()
+		})
+	})
+
 	it('writes land in the current user DB after an in-place user switch', async () => {
 		const hm = new HistoryManager()
 		await hm.init()

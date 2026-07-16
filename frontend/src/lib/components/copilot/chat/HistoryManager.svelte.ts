@@ -11,6 +11,10 @@ import type { PersistedContextUsage } from './tokenUsage'
 // shared browser. The bare name is also the legacy (pre-namespacing) DB, claimed
 // once on first login.
 const DB_NAME = 'copilot-chat-history'
+// v2 adds the toolImages store.
+const DB_VERSION = 2
+/** Newest tool images kept per chat; each is a bounded (≤1568px) data URL. */
+const MAX_TOOL_IMAGES_PER_CHAT = 30
 
 interface ChatSchema extends IDBSchema {
 	chats: {
@@ -37,12 +41,39 @@ interface ChatSchema extends IDBSchema {
 			backgroundJobs?: ChatJob[]
 		}
 	}
+	// Full-resolution copies of tool-produced images (screenshots), keyed by tool
+	// call id. Out-of-band from the chat record on purpose: the record is
+	// re-cloned on every saveChat, while these blobs are written once at capture
+	// and read only when the tool card's thumbnail is expanded.
+	toolImages: {
+		key: string
+		value: {
+			id: string
+			chatId: string
+			dataUrl: string
+			savedAt: number
+		}
+		indexes: { 'by-chat': [string, number] }
+	}
 }
 
 function createChatStore(db: IDBPDatabase<ChatSchema>): void {
 	if (!db.objectStoreNames.contains('chats')) {
 		db.createObjectStore('chats', { keyPath: 'id' })
 	}
+	if (!db.objectStoreNames.contains('toolImages')) {
+		const store = db.createObjectStore('toolImages', { keyPath: 'id' })
+		store.createIndex('by-chat', ['chatId', 'savedAt'])
+	}
+}
+
+/** All toolImages primary keys for a chat, oldest first (index is [chatId, savedAt]). */
+function toolImageKeysForChat(db: IDBPDatabase<ChatSchema>, chatId: string) {
+	return db.getAllKeysFromIndex(
+		'toolImages',
+		'by-chat',
+		IDBKeyRange.bound([chatId, -Infinity], [chatId, Infinity])
+	)
 }
 
 // Shared across all HistoryManager instances. Each instance owns its own
@@ -97,7 +128,7 @@ export function __resetLegacyChatClaimForTesting(): void {
 // the `get` is O(1) on the `id` keyPath.
 export async function readChatModifiedItems(chatId: string): Promise<string[] | undefined> {
 	const dbh = userScopedDb<ChatSchema>(DB_NAME, {
-		version: 1,
+		version: DB_VERSION,
 		upgrade: createChatStore,
 		migrate: migrateLegacyChatDb
 	})
@@ -118,7 +149,7 @@ export default class HistoryManager {
 	// HistoryManager per AIChatManager (the singleton + one per session runtime),
 	// so the handle must be per-instance — not a module singleton.
 	private dbh = userScopedDb<ChatSchema>(DB_NAME, {
-		version: 1,
+		version: DB_VERSION,
 		upgrade: createChatStore,
 		migrate: migrateLegacyChatDb
 	})
@@ -294,11 +325,38 @@ export default class HistoryManager {
 		this.currentChatId = createLongHash()
 	}
 
+	/** Persist a tool image once, capped to the newest per chat so a
+	 *  screenshot-heavy session can't grow the store unbounded. */
+	async saveToolImage(toolCallId: string, dataUrl: string) {
+		const db = await this.dbh.whenReady()
+		if (!db) return
+		await db.put('toolImages', {
+			id: toolCallId,
+			chatId: this.currentChatId,
+			dataUrl,
+			savedAt: Date.now()
+		})
+		const keys = await toolImageKeysForChat(db, this.currentChatId)
+		for (const key of keys.slice(0, Math.max(0, keys.length - MAX_TOOL_IMAGES_PER_CHAT))) {
+			await db.delete('toolImages', key)
+		}
+	}
+
+	async loadToolImage(toolCallId: string): Promise<string | undefined> {
+		const db = await this.dbh.whenReady()
+		return (await db?.get('toolImages', toolCallId))?.dataUrl
+	}
+
 	deletePastChat(id: string) {
 		this.savedChats = Object.fromEntries(
 			Object.entries(this.savedChats).filter(([key]) => key !== id)
 		)
-		void this.dbh.whenReady().then((db) => db?.delete('chats', id))
+		void this.dbh.whenReady().then(async (db) => {
+			if (!db) return
+			await db.delete('chats', id)
+			const keys = await toolImageKeysForChat(db, id)
+			await Promise.all(keys.map((key) => db.delete('toolImages', key)))
+		})
 	}
 
 	loadPastChat(id: string) {

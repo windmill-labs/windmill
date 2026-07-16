@@ -435,12 +435,6 @@ export class AIChatManager {
 	 * whose request is being classified (A→B→C switches). Reset at each turn
 	 * start, consumed by image-rejection recovery. */
 	private lastIterationModel: ReturnType<typeof getCurrentModel> | undefined = undefined
-	/** Full-resolution copies of tool-produced images, keyed by tool call id, for
-	 * the tool card's expanded view. Memory-only on purpose: the transcript persists
-	 * only a bounded thumbnail (see THUMBNAIL_IMAGE_EDGE), so after a reload
-	 * expanding falls back to that thumbnail. Insertion-ordered and capped so a
-	 * long session can't pin dozens of full captures. */
-	private fullResToolImages = new Map<string, string>()
 	/** Provider-reported context size of the last committed turn (prompt +
 	 * completion of its latest completion — exact, includes system prompt and
 	 * tools), or undefined whenever no report describes the current history
@@ -2578,14 +2572,12 @@ export class AIChatManager {
 					attachToolImage: (toolId, image) => {
 						const existing = this.pendingToolImages.get(toolId) ?? []
 						this.pendingToolImages.set(toolId, [...existing, image])
-						// Recorded before the card's setToolStatus renders the thumbnail,
-						// so the expanded view can already resolve the full copy.
-						this.fullResToolImages.set(toolId, image.dataUrl)
-						while (this.fullResToolImages.size > 20) {
-							const oldest = this.fullResToolImages.keys().next().value
-							if (oldest === undefined) break
-							this.fullResToolImages.delete(oldest)
-						}
+						// The full copy is persisted out-of-band (written once, not
+						// re-cloned per save) so the expanded view keeps its quality
+						// across reloads; the transcript card only stores a thumbnail.
+						void this.historyManager.saveToolImage(toolId, image.dataUrl).catch((e) => {
+							console.error('Could not persist tool image', e)
+						})
 					},
 					takePendingToolImages: () => {
 						const images = [...this.pendingToolImages.values()].flat()
@@ -2831,10 +2823,11 @@ export class AIChatManager {
 		this.inlineAbortController?.abort(cancelReason)
 	}
 
-	/** The full-resolution copy of a tool-produced image (this session only —
-	 * see `fullResToolImages`), for the tool card's expanded view. */
-	fullResToolImage(toolCallId: string): string | undefined {
-		return this.fullResToolImages.get(toolCallId)
+	/** The full-resolution copy of a tool-produced image, for the tool card's
+	 * expanded view. Undefined when it was never persisted or was evicted by
+	 * the per-chat cap — the card then falls back to its thumbnail. */
+	fullResToolImage(toolCallId: string): Promise<string | undefined> {
+		return this.historyManager.loadToolImage(toolCallId)
 	}
 
 	/**

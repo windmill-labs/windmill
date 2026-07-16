@@ -1134,9 +1134,15 @@ describe('AIChatManager queued messages', () => {
 
 	// The tool card persists only a bounded thumbnail; the expanded view resolves
 	// the full capture from this session-scoped map.
-	it('keeps a session-scoped full-res copy of tool images for the expanded view', async () => {
+	// The full copy is persisted out-of-band (not in the per-save chat record) so
+	// the tool card's expanded view keeps its quality across reloads.
+	it('persists tool images for the expanded view and resolves them from storage', async () => {
 		const manager = createManager(createInputMock())
 		manager.mode = AIMode.GLOBAL
+		const save = vi.spyOn(manager.historyManager, 'saveToolImage').mockResolvedValue(undefined)
+		const load = vi
+			.spyOn(manager.historyManager, 'loadToolImage')
+			.mockResolvedValue('data:image/png;base64,FULLSHOT')
 		mocks.runChatLoop.mockImplementation(async (config: any) => {
 			config.callbacks.attachToolImage('tool-1', img('FULLSHOT'))
 			const message = { role: 'assistant' as const, content: 'done' }
@@ -1150,8 +1156,9 @@ describe('AIChatManager queued messages', () => {
 
 		await manager.sendRequest({ instructions: 'screenshot it' })
 
-		expect(manager.fullResToolImage('tool-1')).toBe('data:image/png;base64,FULLSHOT')
-		expect(manager.fullResToolImage('unknown')).toBeUndefined()
+		expect(save).toHaveBeenCalledWith('tool-1', 'data:image/png;base64,FULLSHOT')
+		await expect(manager.fullResToolImage('tool-1')).resolves.toBe('data:image/png;base64,FULLSHOT')
+		expect(load).toHaveBeenCalledWith('tool-1')
 	})
 
 	it('drops queued images when the conversation is switched away', async () => {

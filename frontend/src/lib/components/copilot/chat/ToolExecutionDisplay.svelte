@@ -46,6 +46,18 @@
 			: []
 	)
 
+	// Resolved from persistent storage so the expanded view keeps its quality
+	// across reloads; undefined (never persisted / evicted) falls back to the
+	// thumbnail inside ExpandableImage.
+	let fullResSrc = $state<string | undefined>(undefined)
+	$effect(() => {
+		if (!message.imageUrl) return
+		const id = message.tool_call_id
+		void aiChatManager.fullResToolImage(id).then((src) => {
+			if (id === message.tool_call_id) fullResSrc = src
+		})
+	})
+
 	const activeUserQuestion = $derived(
 		isActiveUserQuestion(message) ? message.userQuestion : undefined
 	)
@@ -88,7 +100,7 @@
 			<div class="my-1">
 				<ExpandableImage
 					src={message.imageUrl}
-					fullSrc={aiChatManager.fullResToolImage(message.tool_call_id)}
+					fullSrc={fullResSrc}
 					alt="App preview screenshot"
 					class="max-h-48 max-w-full rounded border border-border-light"
 				/>
