@@ -1094,6 +1094,23 @@ describe('AIChatManager queued messages', () => {
 		expect(input.prependText).not.toHaveBeenCalled()
 	})
 
+	// The composer clears itself optimistically on send, so a preflight failure
+	// must put the whole draft back — images can't just be re-dropped from memory.
+	it('restores text and images to the composer when beforeSend rejects a direct send', async () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		manager.mode = AIMode.GLOBAL
+		manager.beforeSend = vi.fn().mockRejectedValue(new Error('workspace fork failed'))
+
+		const accepted = await manager.sendRequest({ instructions: 'look', images: [img('a')] })
+
+		expect(accepted).toBe(false)
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(input.restoreInstructions).toHaveBeenCalledWith('look', [], [img('a')])
+		// the optimistic bubble is rolled back
+		expect(manager.displayMessages).toHaveLength(0)
+	})
+
 	it('drops the queued message when switching conversations (no cross-chat leak)', async () => {
 		const manager = createManager(createInputMock())
 

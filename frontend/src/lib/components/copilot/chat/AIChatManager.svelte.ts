@@ -1271,7 +1271,11 @@ export class AIChatManager {
 		// while a failed/empty compaction or a programmatic cancel leaves it queued.
 		if ((result === 'ok' || this.wasCancelledByUser()) && this.#hasQueuedMessage()) {
 			const next = this.#takeQueue()
-			const accepted = await this.sendRequest({ instructions: next.text, images: next.images })
+			const accepted = await this.sendRequest({
+				instructions: next.text,
+				images: next.images,
+				queued: true
+			})
 			if (accepted === false) {
 				this.#restoreQueue(next)
 			}
@@ -2098,6 +2102,10 @@ export class AIChatManager {
 			mode?: AIMode
 			lang?: ScriptLang | 'bunnative'
 			isPreprocessor?: boolean
+			/** Auto-send of a queued draft: on preflight failure the caller re-queues
+			 * it, so the composer restore must not also fire (the draft would exist
+			 * twice — queue chip and composer). */
+			queued?: boolean
 		} = {}
 	) => {
 		// Returns whether the input was consumed: true when it was sent as a chat
@@ -2210,7 +2218,7 @@ export class AIChatManager {
 			}
 		]
 		// Undo the optimistic bubble + loading/label. Shared by the beforeSend-failure and
-		// pre-flight-cancel paths below; the input keeps the message text either way.
+		// pre-flight-cancel paths below; callers put the message back in the composer.
 		const rollbackOptimisticSend = () => {
 			this.displayMessages = this.displayMessages.filter((_, i) => i !== optimisticIndex)
 			this.loading = false
@@ -2223,9 +2231,13 @@ export class AIChatManager {
 				// beforeSend commits the session's workspace before the first
 				// message hits the backend. If it throws, sending anyway would
 				// silently target the wrong workspace (typically the parent), so
-				// abort and tell the user — their message text stays in the input.
+				// abort and put the message back in the composer (which cleared
+				// itself optimistically on send).
 				console.error('AIChatManager beforeSend hook failed', e)
 				rollbackOptimisticSend()
+				if (!options.queued) {
+					this.aiChatInput?.restoreInstructions(this.instructions, pastes, images)
+				}
 				sendUserToast(
 					`Could not prepare the session before sending: ${
 						e instanceof Error ? e.message : String(e)
@@ -2249,7 +2261,11 @@ export class AIChatManager {
 			rollbackOptimisticSend()
 			if (this.wasCancelledByUser() && this.#hasQueuedMessage()) {
 				const next = this.#takeQueue()
-				const accepted = await this.sendRequest({ instructions: next.text, images: next.images })
+				const accepted = await this.sendRequest({
+					instructions: next.text,
+					images: next.images,
+					queued: true
+				})
 				if (accepted === false) this.#restoreQueue(next)
 			} else {
 				this.aiChatInput?.restoreInstructions(this.instructions, pastes, images)
@@ -2732,7 +2748,11 @@ export class AIChatManager {
 		// failed or torn-down turn.
 		if ((turnCommittedCleanly || this.wasCancelledByUser()) && this.#hasQueuedMessage()) {
 			const next = this.#takeQueue()
-			const accepted = await this.sendRequest({ instructions: next.text, images: next.images })
+			const accepted = await this.sendRequest({
+				instructions: next.text,
+				images: next.images,
+				queued: true
+			})
 			if (accepted === false) {
 				// The auto-send bailed before becoming a turn (e.g. beforeSend
 				// failed); keep it as the queued message instead of losing it.
