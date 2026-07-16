@@ -698,7 +698,17 @@
 											openFocus="[data-workspace-picker-search]"
 											contentClasses="flex flex-col overflow-hidden"
 											class="absolute inset-0 pointer-events-none"
-											triggerAttrs={{ 'aria-label': 'Change preview', tabindex: -1 }}
+											triggerAttrs={{
+												'aria-label': 'Change preview',
+												tabindex: -1,
+												// The inert trigger only ever receives focus from melt's
+												// close-time restore; hand it straight to the tab so
+												// arrow/Delete tab shortcuts keep working.
+												onfocus: (e: FocusEvent) =>
+													(e.currentTarget as HTMLElement)
+														.closest<HTMLElement>('[role="tab"]')
+														?.focus()
+											}}
 										>
 											{#snippet content()}
 												<PreviewRouterPicker
