@@ -10,6 +10,14 @@ on:
       - main
     paths:
       - docker/DockerfileCaddyL4
+      - docker/entrypoint-caddy.sh
+      - docker/caddy-compat-normalize.awk
+      - docker/caddy-l4.version
+      - docker/test-caddy-compat.sh
+      - Caddyfile
+      # The version check below reads the pin out of docker-compose.yml, so a
+      # compose-only bump has to trigger this workflow or the check never runs.
+      - docker-compose.yml
       - .github/workflows/build-caddy-l4-image.yml
 
 permissions: write-all
@@ -20,6 +28,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: depot/setup-action@v1
+
+      # docker-compose.yml pins an exact tag, and the Caddyfile it must agree
+      # with lives in the same checkout. Fail the build rather than publish a
+      # version nothing references, which is how :latest drifted from the
+      # Caddyfile in the first place.
+      - name: Resolve and check image version
+        id: version
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < docker/caddy-l4.version)"
+          pinned="$(grep -oE 'caddy-l4:[^[:space:]"]+' docker-compose.yml | head -1 | cut -d: -f2-)"
+          if [ "$version" != "$pinned" ]; then
+            echo "docker/caddy-l4.version is '$version' but docker-compose.yml pins '$pinned'" >&2
+            echo "Bump both together." >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Docker meta
         id: meta-ee-public
         uses: docker/metadata-action@v5
@@ -29,7 +55,15 @@ jobs:
           tags: |
             type=sha
             type=ref,event=branch
+            type=raw,value=${{ steps.version.outputs.version }},enable={{is_default_branch}}
             type=raw,value=latest,enable={{is_default_branch}}
+
+      # The shim rewrites config a self-hoster never sees, so a silent
+      # regression here strands them on a restart loop or a dead :80.
+      - name: Test the legacy-Caddyfile compatibility shim
+        run: |
+          docker build -f docker/DockerfileCaddyL4 -t caddy-l4:ci ./docker
+          docker/test-caddy-compat.sh caddy-l4:ci
 
       - name: Login to registry
         uses: docker/login-action@v3
