@@ -81,8 +81,13 @@
 				await WorkspaceService.getWorkspaceAsSuperAdmin({ workspace: workspaceId })
 				// Fork still exists → not deleted, let normal loading proceed.
 				return false
-			} catch {
-				// 404 (fork truly gone) → continue with the recovery below.
+			} catch (e) {
+				// Only a 404 confirms the fork is truly gone. Any other failure
+				// (transient network error, 500, …) is inconclusive, so abort the
+				// deletion path rather than redirect away from a live workspace.
+				if ((e as { status?: number } | null | undefined)?.status !== 404) {
+					return false
+				}
 			}
 		}
 
