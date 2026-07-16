@@ -103,6 +103,14 @@
 	}: Props = $props()
 
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore)
+	// Carry the acting workspace onto the "create from template" route when an
+	// explicit override is set, so a forked session creates the handler script
+	// there. `customScriptTemplate` already has a query string (`?hub=…`).
+	let templateHref = $derived(
+		workspace
+			? `${customScriptTemplate}&workspace=${encodeURIComponent(workspace)}`
+			: customScriptTemplate
+	)
 
 	let customHandlerSchema: Schema | undefined = $state()
 	let slackHandlerSchema: Schema | undefined = $state()
@@ -384,6 +392,7 @@
 						bind:scriptPath={handlerPath}
 						bind:itemKind={customHandlerKind}
 						allowRefresh={isEditable}
+						workspace={effectiveWorkspace}
 						clearable
 					/>
 
@@ -392,7 +401,7 @@
 							btnClasses="ml-4 whitespace-nowrap"
 							variant="default"
 							size="xs"
-							href={customScriptTemplate}
+							href={templateHref}
 							disabled={!isEditable}
 							target="_blank"
 						>
@@ -557,6 +566,7 @@
 								containerClass="flex-grow"
 								minWidth="200px"
 								placeholder="Search Teams channels"
+								workspace={effectiveWorkspace}
 								teamId={teams_team_guid}
 								selectedChannel={handlerExtraArgs['channel']
 									? {

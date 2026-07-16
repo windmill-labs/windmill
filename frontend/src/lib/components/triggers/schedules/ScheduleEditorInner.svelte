@@ -138,6 +138,9 @@
 	)
 	const triggerWs = getTriggerWorkspace()
 	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	// Carry the acting workspace onto "create from template" routes when a
+	// session override is set, so the script is created in the session workspace.
+	const wsParam = $derived(triggerWs?.() ? `&workspace=${encodeURIComponent(wsId!)}` : '')
 	const scheduleCfg = $derived.by(getScheduleCfg)
 
 	const draftSync = useTriggerDraftSync({
@@ -1091,6 +1094,7 @@
 					</div>
 
 					<ErrorOrRecoveryHandler
+						workspace={wsId}
 						isEditable={can_write}
 						errorOrRecovery="error"
 						showScriptHelpText={true}
@@ -1185,6 +1189,7 @@
 						</div>
 					{/snippet}
 					<ErrorOrRecoveryHandler
+						workspace={wsId}
 						isEditable={!disabled}
 						errorOrRecovery="recovery"
 						bind:handlerSelected={recoveryHandlerSelected}
@@ -1274,6 +1279,7 @@
 						</div>
 					{/snippet}
 					<ErrorOrRecoveryHandler
+						workspace={wsId}
 						isEditable={!disabled}
 						errorOrRecovery="success"
 						bind:handlerSelected={successHandlerSelected}
@@ -1355,7 +1361,7 @@
 										btnClasses="ml-4 whitespace-nowrap"
 										variant="default"
 										size="xs"
-										href="/scripts/add?hub=hub%2F19822%2Fwindmill%2Fdynamic_skip_template"
+										href="/scripts/add?hub=hub%2F19822%2Fwindmill%2Fdynamic_skip_template{wsParam}"
 										disabled={!can_write}
 										target="_blank"
 									>
@@ -1375,7 +1381,12 @@
 					label="Custom script tag"
 					tooltip="When set, the script tag will be overridden by this tag"
 				>
-					<WorkerTagPicker bind:tag popupPlacement="top-end" disabled={!can_write} />
+					<WorkerTagPicker
+						bind:tag
+						workspaceId={wsId}
+						popupPlacement="top-end"
+						disabled={!can_write}
+					/>
 				</Section>
 			{/if}
 		{:else}
