@@ -21,6 +21,9 @@
 		/** Force-disable all controls regardless of write permission
 		 * (e.g. draft-only triggers: nothing deployed to enable). */
 		disabled?: boolean
+		/** Hover text on the enable toggle (e.g. why it is disabled, or
+		 * that it targets the deployed version when a draft also exists). */
+		title?: string
 		hideToggleLabels?: boolean
 		hideDropdown?: boolean
 		suspendedJobsModal?: TriggerSuspendedJobsModal | null
@@ -36,6 +39,7 @@
 		onToggleMode,
 		canWrite,
 		disabled = false,
+		title = undefined,
 		hideToggleLabels = false,
 		hideDropdown = false,
 		suspendedJobsModal: passedSuspendedJobsModal,
@@ -94,7 +98,7 @@
 	{:else}
 		<Toggle
 			disabled={!canWrite || disabled}
-			options={hideToggleLabels ? undefined : { right: 'enable', left: 'disable' }}
+			options={{ ...(hideToggleLabels ? {} : { right: 'enable', left: 'disable' }), title }}
 			bind:checked={
 				() => innerTriggerMode === 'enabled', (v) => (innerTriggerMode = v ? 'enabled' : 'disabled')
 			}

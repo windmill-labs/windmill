@@ -367,6 +367,7 @@
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
 					{#each items.slice(0, nbDisplayed) as { summary, workspace_id, workspaced_route, mode, path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method, static_asset_config, retry, error_handler_path, error_handler_args, draft_only, is_draft } (path)}
+						{@const hasDraft = getLocalDraftHint($workspaceStore, 'trigger_http', path) ?? is_draft}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 
 						<div
@@ -376,52 +377,57 @@
 							<div class="w-full flex gap-4 items-center">
 								<RowIcon kind={is_flow ? 'flow' : 'script'} />
 
-								<a
-									href="#{path}"
-									onclick={() => routeEditor?.openEdit(path, is_flow)}
-									class="min-w-0 grow hover:underline decoration-gray-400"
-								>
-									<div
-										class="text-emphasis font-semibold flex-wrap text-left text-xs mb-1 truncate"
+								<div class="min-w-0 grow flex items-center gap-2">
+									<a
+										href="#{path}"
+										onclick={() => routeEditor?.openEdit(path, is_flow)}
+										class="min-w-0 hover:underline decoration-gray-400"
 									>
-										{#if marked}
-											<span class="text-xs">
-												{@html marked}
-											</span>
-										{:else if summary}
-											{summary}
-										{:else}
-											{http_method.toUpperCase()}
-											/{isCloudHosted() || workspaced_route || globalHttpWorkspacedRoute
-												? workspace_id + '/' + route_path
-												: route_path}
-										{/if}{(getLocalDraftHint($workspaceStore, 'trigger_http', path) ?? is_draft)
-											? '*'
-											: ''}
-									</div>
-									<div class="text-secondary text-xs truncate text-left font-normal">
-										{path}
-									</div>
-									<div class="text-secondary text-xs truncate text-left font-normal">
-										{#if static_asset_config}
-											file: {static_asset_config.s3}
-										{:else}
-											runnable: {script_path}
-										{/if}
-									</div>
-								</a>
-
-								<div class="hidden lg:flex flex-row gap-1 items-center">
-									<SharedBadge {canWrite} extraPerms={extra_perms} />
-									{#if draft_only || (getLocalDraftHint($workspaceStore, 'trigger_http', path) ?? is_draft)}
+										<div
+											class="text-emphasis font-semibold flex-wrap text-left text-xs mb-1 truncate"
+										>
+											{#if marked}
+												<span class="text-xs">
+													{@html marked}
+												</span>
+											{:else if summary}
+												{summary}
+											{:else}
+												{http_method.toUpperCase()}
+												/{isCloudHosted() || workspaced_route || globalHttpWorkspacedRoute
+													? workspace_id + '/' + route_path
+													: route_path}
+											{/if}{hasDraft ? '*' : ''}
+										</div>
+										<div class="text-secondary text-xs truncate text-left font-normal">
+											{path}
+										</div>
+										<div class="text-secondary text-xs truncate text-left font-normal">
+											{#if static_asset_config}
+												file: {static_asset_config.s3}
+											{:else}
+												runnable: {script_path}
+											{/if}
+										</div>
+									</a>
+									{#if draft_only || hasDraft}
 										<DraftBadge {draft_only} is_draft={true} />
 									{/if}
 								</div>
 
+								<div class="hidden lg:flex flex-row gap-1 items-center">
+									<SharedBadge {canWrite} extraPerms={extra_perms} />
+								</div>
+
 								<TriggerModeToggle
 									disabled={draft_only}
+									title={draft_only
+										? 'Draft only: deploy the trigger to enable it'
+										: hasDraft
+											? 'Enables/disables the deployed trigger; the draft is not affected'
+											: undefined}
 									onToggleMode={(mode) => onToggleMode(path, mode)}
-									triggerMode={mode}
+									triggerMode={draft_only ? 'disabled' : mode}
 									includeModalConfig={{
 										triggerPath: path,
 										triggerKind: 'http',
