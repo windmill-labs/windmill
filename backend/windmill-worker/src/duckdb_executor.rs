@@ -2571,15 +2571,49 @@ async fn transform_attach_datatable(
         }
         Connection::Sql(db) => get_datatable_resource_from_db_unchecked(db, w_id, name).await?,
     };
-    let db_type = "postgres";
 
-    if let Some(pwd) = db_resource.get("password").and_then(|p| p.as_str()) {
+    let pg: PgDatabase = serde_json::from_value(db_resource)?;
+    if let Some(pwd) = pg.password.as_deref() {
         hidden_passwords.lock().unwrap().push(pwd.to_string());
     }
 
-    Ok(Some(
-        db_resource_to_attach_statements(db_resource, alias_name, db_type, None).await?,
-    ))
+    Ok(Some(datatable_attach_statements(&pg, name, alias_name)))
+}
+
+// Datatable credentials go through a TEMPORARY SECRET rather than the ATTACH path
+// string: the path is visible to the script via duckdb_databases(), while secret
+// fields are redacted in duckdb_secrets(). Only the (non-sensitive) sslmode stays
+// in the path — it is not a valid postgres secret parameter.
+fn datatable_attach_statements(pg: &PgDatabase, name: &str, alias_name: &str) -> Vec<String> {
+    // Escape single quotes: every resource field is embedded in a single-quoted
+    // DuckDB literal, so an unescaped quote would break out of the statement.
+    let esc = |s: &str| s.replace('\'', "''");
+    // Deterministic and unique per (datatable, alias): a script attaching several
+    // datatables must not have their secrets overwrite each other.
+    let secret_name = format!(
+        "__wm_datatable_secret_{}",
+        &windmill_common::utils::calculate_hash(&format!("{name}/{alias_name}"))[..12]
+    );
+    // Same sslmode collapse as PgDatabase::to_uri (the verify-* modes would need a
+    // root certificate file, which is not provided here).
+    let sslmode = match pg.sslmode.as_deref() {
+        Some("allow") | None => "prefer",
+        Some("require") | Some("verify-ca") | Some("verify-full") => "require",
+        Some(s) => s,
+    };
+    vec![
+        "INSTALL postgres;".to_string(),
+        "LOAD postgres;".to_string(),
+        format!(
+            "CREATE OR REPLACE TEMPORARY SECRET {secret_name} (TYPE postgres, HOST '{}', PORT {}, DATABASE '{}', USER '{}', PASSWORD '{}');",
+            esc(&pg.host),
+            pg.port.unwrap_or(5432),
+            esc(&pg.dbname),
+            esc(pg.user.as_deref().unwrap_or("postgres")),
+            esc(pg.password.as_deref().unwrap_or("")),
+        ),
+        format!("ATTACH 'sslmode={}' AS {alias_name} (TYPE postgres, SECRET {secret_name});", esc(sslmode)),
+    ]
 }
 
 async fn transform_s3_uris(query: &str) -> Result<String> {
@@ -3670,6 +3704,54 @@ mod tests {
         let query = "ATTACH 'mydb.duckdb' AS mydb (TYPE duckdb)";
         let result = parse_attach_db_resource(query);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn datatable_attach_keeps_password_out_of_attach_path() {
+        let pg: PgDatabase = serde_json::from_value(json!({
+            "host": "localhost",
+            "port": 5433,
+            "user": "custom_instance_user",
+            "password": "s3cr'et",
+            "dbname": "my_datatable_db",
+            "sslmode": "require"
+        }))
+        .unwrap();
+        let stmts = datatable_attach_statements(&pg, "main", "dt");
+        assert_eq!(stmts[0], "INSTALL postgres;");
+        assert_eq!(stmts[1], "LOAD postgres;");
+        // Password lives only in the secret (redacted by duckdb_secrets()), with
+        // its single quote escaped.
+        assert!(stmts[2].starts_with("CREATE OR REPLACE TEMPORARY SECRET __wm_datatable_secret_"));
+        assert!(stmts[2].contains("HOST 'localhost'"));
+        assert!(stmts[2].contains("PORT 5433"));
+        assert!(stmts[2].contains("DATABASE 'my_datatable_db'"));
+        assert!(stmts[2].contains("USER 'custom_instance_user'"));
+        assert!(stmts[2].contains("PASSWORD 's3cr''et'"));
+        // The ATTACH path (visible via duckdb_databases()) carries only sslmode.
+        assert!(stmts[3].contains(
+            "ATTACH 'sslmode=require' AS dt (TYPE postgres, SECRET __wm_datatable_secret_"
+        ));
+        assert!(!stmts[3].contains("s3cr"));
+    }
+
+    #[test]
+    fn datatable_attach_secret_names_are_unique_per_alias() {
+        let pg: PgDatabase = serde_json::from_value(json!({
+            "host": "localhost",
+            "dbname": "db"
+        }))
+        .unwrap();
+        // Defaults: user postgres, empty password, port 5432, sslmode prefer.
+        let a = datatable_attach_statements(&pg, "main", "a");
+        assert!(a[2].contains("USER 'postgres'"));
+        assert!(a[2].contains("PASSWORD ''"));
+        assert!(a[2].contains("PORT 5432"));
+        assert!(a[3].contains("'sslmode=prefer'"));
+        // Two datatables attached in one script must not share a secret.
+        let b = datatable_attach_statements(&pg, "other", "b");
+        let secret = |s: &str| s.split_whitespace().nth(5).unwrap().to_string();
+        assert_ne!(secret(&a[2]), secret(&b[2]));
     }
 
     // Tests for format_attach_db_conn_str function

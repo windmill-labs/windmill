@@ -146,9 +146,24 @@ fn is_setup_statement(query: &str) -> bool {
         || upper.starts_with("LOAD")
         || upper.starts_with("SET")
         || upper.starts_with("RESET")
-        || upper.starts_with("CREATE OR REPLACE SECRET")
-        || upper.starts_with("CREATE SECRET")
+        || is_create_secret(&upper)
         || is_create_temp_macro(&upper)
+}
+
+/// `CREATE [OR REPLACE] [TEMP|TEMPORARY] SECRET` — connection setup injected by
+/// the ATTACH transforms (datatable credentials, S3 auth), never a user query.
+fn is_create_secret(upper: &str) -> bool {
+    let norm = upper.split_whitespace().collect::<Vec<_>>().join(" ");
+    [
+        "CREATE SECRET",
+        "CREATE TEMP SECRET",
+        "CREATE TEMPORARY SECRET",
+        "CREATE OR REPLACE SECRET",
+        "CREATE OR REPLACE TEMP SECRET",
+        "CREATE OR REPLACE TEMPORARY SECRET",
+    ]
+    .iter()
+    .any(|p| norm.starts_with(p))
 }
 
 /// `CREATE [OR REPLACE] TEMP|TEMPORARY MACRO` — a connection-scoped definition
@@ -1055,6 +1070,22 @@ mod wm_partition_parity_tests {
             "CREATE OR REPLACE MACRO safe_div(a, b) AS a / b"
         ));
         assert!(!is_setup_statement("CREATE MACRO foo(x) AS x"));
+    }
+
+    #[test]
+    fn create_secret_is_classified_as_setup() {
+        // The secret the datatable ATTACH transform injects, plus keyword and
+        // whitespace variants.
+        assert!(is_setup_statement(
+            "CREATE OR REPLACE TEMPORARY SECRET s (TYPE postgres, PASSWORD 'x')"
+        ));
+        assert!(is_setup_statement("CREATE TEMPORARY SECRET s (TYPE s3)"));
+        assert!(is_setup_statement("  create temp secret s (TYPE s3)"));
+        assert!(is_setup_statement("CREATE SECRET s (TYPE s3)"));
+        assert!(is_setup_statement(
+            "CREATE OR REPLACE\n  SECRET s (TYPE s3)"
+        ));
+        assert!(!is_setup_statement("CREATE TABLE secrets (x INT)"));
     }
 
     #[test]
