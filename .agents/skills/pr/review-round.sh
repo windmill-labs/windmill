@@ -115,10 +115,10 @@ CODEX_BODY=$(body_by_header '## Codex Review')
 report codex "$CODEX_BODY"
 report claude "$(body_by_login 'claude[bot]')"
 report pi "$(body_by_header '## Pi Review')"
-CUBIC_BODY=$(jq -r '[.[] | select(.user.login | test("cubic"; "i"))] | last | .body // empty' \
+CUBIC_BODY=$(jq -r '[.[] | select(.user.login | test("^cubic(-dev-ai)?(\\[bot\\])?$"; "i"))] | last | .body // empty' \
   "$OUT_DIR/pr-reviews.json")
 if [ -z "$CUBIC_BODY" ]; then
-  CUBIC_BODY=$(jq -r '[.[] | select(.user.login | test("cubic"; "i"))] | last | .body // empty' \
+  CUBIC_BODY=$(jq -r '[.[] | select(.user.login | test("^cubic(-dev-ai)?(\\[bot\\])?$"; "i"))] | last | .body // empty' \
     "$OUT_DIR/comments.json")
 fi
 report cubic "$CUBIC_BODY"
