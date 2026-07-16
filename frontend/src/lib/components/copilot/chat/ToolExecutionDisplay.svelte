@@ -10,6 +10,7 @@
 	import ToolContentDisplay from './ToolContentDisplay.svelte'
 	import ToolMessageActions from './ToolMessageActions.svelte'
 	import AskUserQuestionDisplay from './AskUserQuestionDisplay.svelte'
+	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 
 	interface Props {
 		message: ToolDisplayMessage
@@ -85,7 +86,7 @@
 		<!-- Image a tool produced (e.g. take_screenshot) — shown inline, not gated on expand. -->
 		{#if message.imageUrl}
 			<div class="my-1">
-				<img
+				<ExpandableImage
 					src={message.imageUrl}
 					alt="App preview screenshot"
 					class="max-h-48 max-w-full rounded border border-border-light"

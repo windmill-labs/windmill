@@ -12,6 +12,7 @@
 	import CompactionBoundary from './CompactionBoundary.svelte'
 	import { messageDraft, segments } from './chatDraft'
 	import { lineCountLabel } from './pasteTokens'
+	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 
 	const aiChatManager = getAiChatManager()
 
@@ -42,6 +43,16 @@
 		editingMessageIndex = $bindable(null),
 		isLast = false
 	}: Props = $props()
+
+	// The bubble only keeps a bounded thumbnail (see `transcriptImage`); the copy the
+	// model got is still in the API message. Expanding shows that one, so it gains
+	// real detail instead of upscaling. Undefined — no API counterpart, e.g. a
+	// rejection stripped it — falls back to the thumbnail.
+	const sentImages = $derived(
+		message.role === 'user' && message.images?.length
+			? aiChatManager.storedImages(messageIndex)
+			: undefined
+	)
 
 	function editMessage() {
 		if (message.role !== 'user' || editingMessageIndex !== null || aiChatManager.loading) {
@@ -104,31 +115,35 @@
 					{#if message.role === 'user' && message.images && message.images.length > 0}
 						<div class="flex flex-row flex-wrap gap-1.5 mb-1">
 							{#each message.images as image, i (i)}
-								<img
+								<ExpandableImage
 									src={image.dataUrl}
+									fullSrc={sentImages?.[i]?.dataUrl}
 									alt={image.name ?? 'attached image'}
 									class="max-h-40 max-w-[min(20rem,100%)] rounded-lg border border-border-light"
 								/>
 							{/each}
 						</div>
 					{/if}
-					<div
-						class="text-xs px-3 py-2 w-fit max-w-[min(32rem,100%)] bg-surface-accent-selected text-accent rounded-lg relative group break-words"
-					>
-						{#each segments(messageDraft(message)) as seg}{#if seg.type === 'text'}<span
-									class="whitespace-pre-wrap">{seg.value}</span
-								>{:else if expandedPastes.has(seg.att.id)}<button
-									type="button"
-									class="my-0.5 px-1.5 py-0.5 rounded bg-surface-secondary text-secondary text-2xs"
-									onclick={(e) => togglePaste(e, seg.att.id)}
-									>{lineCountLabel(seg.att.lines)} · click to collapse</button
-								><span class="block whitespace-pre-wrap mt-1">{seg.att.content}</span>{:else}<button
-									type="button"
-									class="px-1.5 py-0.5 rounded bg-surface-secondary text-secondary text-2xs"
-									onclick={(e) => togglePaste(e, seg.att.id)}
-									>Pasted {lineCountLabel(seg.att.lines)} · click to expand</button
-								>{/if}{/each}
-					</div>
+					{#if message.content.trim() !== '' || !(message.images && message.images.length > 0)}
+						<div
+							class="text-xs px-3 py-2 w-fit max-w-[min(32rem,100%)] bg-surface-accent-selected text-accent rounded-lg relative group break-words"
+						>
+							{#each segments(messageDraft(message)) as seg}{#if seg.type === 'text'}<span
+										class="whitespace-pre-wrap">{seg.value}</span
+									>{:else if expandedPastes.has(seg.att.id)}<button
+										type="button"
+										class="my-0.5 px-1.5 py-0.5 rounded bg-surface-secondary text-secondary text-2xs"
+										onclick={(e) => togglePaste(e, seg.att.id)}
+										>{lineCountLabel(seg.att.lines)} · click to collapse</button
+									><span class="block whitespace-pre-wrap mt-1">{seg.att.content}</span
+									>{:else}<button
+										type="button"
+										class="px-1.5 py-0.5 rounded bg-surface-secondary text-secondary text-2xs"
+										onclick={(e) => togglePaste(e, seg.att.id)}
+										>Pasted {lineCountLabel(seg.att.lines)} · click to expand</button
+									>{/if}{/each}
+						</div>
+					{/if}
 				{/if}
 			</div>
 		{/if}

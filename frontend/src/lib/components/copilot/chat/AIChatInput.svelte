@@ -292,7 +292,10 @@
 	 * attached, up to the cap — dropping them would lose the attachment
 	 * silently, which is the whole reason the queue carries them. */
 	export function prependText(text: string, restoredImages: AttachedImage[] = []) {
-		instructions = instructions.trim() ? `${text}\n\n${instructions}` : text
+		// An image-only restore has empty text; prepending it would only add blank lines.
+		if (text) {
+			instructions = instructions.trim() ? `${text}\n\n${instructions}` : text
+		}
 		if (restoredImages.length > 0) {
 			const merged = [...images, ...restoredImages]
 			if (merged.length > MAX_ATTACHED_IMAGES) {
@@ -407,7 +410,7 @@
 			// Editing-while-loading keeps the old discard behavior. Paste
 			// tokens are expanded into the queued text (the queue is plain
 			// strings), so the full content survives the auto-send.
-			if (editingMessageIndex === null && instructions.trim()) {
+			if (editingMessageIndex === null && (instructions.trim() || images.length > 0)) {
 				aiChatManager.queueMessage(expanded(chatDraft(instructions, pastes)), images)
 				contextTextareaComponent?.clearForSend()
 				instructions = ''
@@ -645,7 +648,8 @@
 
 {#snippet sendStopButton()}
 	{@const isLoading = loading ?? aiChatManager.loading}
-	{@const sendDisabled = disabled || instructions.trim().length === 0 || pendingImages > 0}
+	{@const sendDisabled =
+		disabled || (instructions.trim().length === 0 && images.length === 0) || pendingImages > 0}
 	<Button
 		variant="subtle"
 		unifiedSize="md"

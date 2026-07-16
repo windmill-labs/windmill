@@ -770,6 +770,65 @@ describe('AIChatManager queued messages', () => {
 		expect(manager.storedImages(2)?.[0]?.dataUrl).toBe('data:image/png;base64,NEW')
 	})
 
+	// Enter with an image but no text used to silently discard the image: the
+	// input cleared itself optimistically while the manager bailed on empty text.
+	it('sends an image-only message in GLOBAL mode', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+
+		await manager.sendRequest({ instructions: '', images: [img('a')] })
+
+		expect(mocks.runChatLoop).toHaveBeenCalled()
+		const sent = mocks.runChatLoop.mock.calls[0][0].messages.at(-1)
+		const hasImage =
+			Array.isArray(sent.content) && sent.content.some((p: any) => p.type === 'image_url')
+		expect(hasImage).toBe(true)
+	})
+
+	it('still ignores a send with no text and no images', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+
+		await manager.sendRequest({ instructions: '' })
+
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+	})
+
+	// With no text, dropping the images leaves nothing to send — they must go back
+	// to the composer (which already cleared itself optimistically), not vanish.
+	it('restores the images when an image-only send meets a text-only model', async () => {
+		replyWith('done')
+		const input = createInputMock()
+		const manager = createManager(input)
+		manager.mode = AIMode.GLOBAL
+		mocks.tryGetCurrentModel.mockReturnValue({
+			provider: 'groq',
+			model: 'llama-3.3-70b-versatile'
+		})
+
+		await manager.sendRequest({ instructions: '', images: [img('a')] })
+
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(input.prependText).toHaveBeenCalledWith('', [img('a')])
+		mocks.tryGetCurrentModel.mockReturnValue(model)
+	})
+
+	it('queues an image-only message and restores it on dequeue', () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		manager.queueMessage('', [img('a')])
+
+		expect(manager.queuedMessage).toBe('')
+		expect(manager.queuedImages).toEqual([img('a')])
+
+		manager.dequeueMessage()
+
+		expect(manager.queuedImages).toEqual([])
+		expect(input.prependText).toHaveBeenCalledWith('', [img('a')])
+	})
+
 	it('restores queued images to the input on dequeue', () => {
 		const input = createInputMock()
 		const manager = createManager(input)

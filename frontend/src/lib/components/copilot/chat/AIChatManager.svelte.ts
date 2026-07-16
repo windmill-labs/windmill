@@ -1214,7 +1214,7 @@ export class AIChatManager {
 		// epilogue (loading gated its capture): auto-send after a successful
 		// compaction or a deliberate user cancel — the user is ready to move on —
 		// while a failed/empty compaction or a programmatic cancel leaves it queued.
-		if ((result === 'ok' || this.wasCancelledByUser()) && this.queuedMessage) {
+		if ((result === 'ok' || this.wasCancelledByUser()) && this.#hasQueuedMessage()) {
 			const next = this.#takeQueue()
 			const accepted = await this.sendRequest({ instructions: next.text, images: next.images })
 			if (accepted === false) {
@@ -1356,10 +1356,13 @@ export class AIChatManager {
 	 * alongside it. */
 	queueMessage(text: string, images: AttachedImage[] = []) {
 		const trimmed = text.trim()
-		if (!trimmed) {
+		// An image with no text is still a message; only a fully empty send is ignored.
+		if (!trimmed && images.length === 0) {
 			return
 		}
-		this.queuedMessage = this.queuedMessage ? `${this.queuedMessage}\n${trimmed}` : trimmed
+		if (trimmed) {
+			this.queuedMessage = this.queuedMessage ? `${this.queuedMessage}\n${trimmed}` : trimmed
+		}
 		if (images.length > 0) {
 			const merged = [...this.queuedImages, ...images]
 			if (merged.length > MAX_ATTACHED_IMAGES) {
@@ -1367,6 +1370,11 @@ export class AIChatManager {
 			}
 			this.queuedImages = merged.slice(0, MAX_ATTACHED_IMAGES)
 		}
+	}
+
+	/** Whether anything is waiting in the queue — an image-only message has empty text. */
+	#hasQueuedMessage(): boolean {
+		return this.queuedMessage !== '' || this.queuedImages.length > 0
 	}
 
 	/** Detach the queue for sending. Text and images always leave together. */
@@ -1389,7 +1397,7 @@ export class AIChatManager {
 
 	/** Remove the queued message and put it back into the input, images included. */
 	dequeueMessage() {
-		if (!this.queuedMessage) {
+		if (!this.#hasQueuedMessage()) {
 			return
 		}
 		const queued = this.#takeQueue()
@@ -2036,7 +2044,12 @@ export class AIChatManager {
 		if (options.instructions) {
 			this.instructions = options.instructions
 		}
-		if (!this.instructions.trim()) {
+		// An image with no text is a valid GLOBAL-mode message (images only ride
+		// on GLOBAL turns); anything else still needs text.
+		if (
+			!this.instructions.trim() &&
+			!(this.mode === AIMode.GLOBAL && (options.images?.length ?? 0) > 0)
+		) {
 			return false
 		}
 		// Built-in session commands run locally instead of becoming a chat turn.
@@ -2087,6 +2100,14 @@ export class AIChatManager {
 		const sendModel = tryGetCurrentModel()
 		const modelIsBlind = !!sendModel && !modelSupportsVision(sendModel.provider, sendModel.model)
 		if (requestedImages.length > 0 && modelIsBlind) {
+			// An image-only message has nothing left once the images are dropped —
+			// put them back in the composer instead of silently discarding them
+			// (the input already cleared itself optimistically on send).
+			if (!this.instructions.trim()) {
+				sendUserToast(`${sendModel.model} can't read images. Switch to a vision model first.`, true)
+				this.restoreToInput('', requestedImages)
+				return false
+			}
 			sendUserToast(
 				`${sendModel.model} can't read images; sending without the ${requestedImages.length} attached image(s).`,
 				true
@@ -2151,7 +2172,7 @@ export class AIChatManager {
 		// message auto-sends it) or restore this prompt to the composer so it isn't lost.
 		if (this.abortController.signal.aborted) {
 			rollbackOptimisticSend()
-			if (this.wasCancelledByUser() && this.queuedMessage) {
+			if (this.wasCancelledByUser() && this.#hasQueuedMessage()) {
 				const next = this.#takeQueue()
 				const accepted = await this.sendRequest({ instructions: next.text, images: next.images })
 				if (accepted === false) this.#restoreQueue(next)
@@ -2615,7 +2636,7 @@ export class AIChatManager {
 		// empty-response rollback, or a programmatic cancel (panel teardown,
 		// save-and-clear) leaves it in place as a card so it isn't fired into a
 		// failed or torn-down turn.
-		if ((turnCommittedCleanly || this.wasCancelledByUser()) && this.queuedMessage) {
+		if ((turnCommittedCleanly || this.wasCancelledByUser()) && this.#hasQueuedMessage()) {
 			const next = this.#takeQueue()
 			const accepted = await this.sendRequest({ instructions: next.text, images: next.images })
 			if (accepted === false) {
