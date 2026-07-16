@@ -136,8 +136,32 @@
 
 	// Account / instance actions gathered under one "Settings" dropdown, shared by
 	// the session rail and the global sidebar so both expose the same entry point.
-	// User sits just above Logout so the account-scoped entries read as one block.
-	const items = $derived<Item[]>([
+	// Logout lives inside the user submenu with the other account-scoped entries.
+	// Workspace- and instance-scoped entries anchor the bottom of the menu,
+	// instance settings last.
+	const workspaceInstanceItems = $derived<Item[]>([
+		...(!canManageWorkspace && !workspaceSettingsTarget
+			? [
+					{
+						displayName: 'Leave workspace',
+						icon: LogOut,
+						type: 'delete' as const,
+						action: () => (leaveWorkspaceModal = true)
+					}
+				]
+			: []),
+		// Fork deletion is a global-sidebar action on the active workspace, so keep it
+		// out of the session rail's per-target settings entry (`workspaceSettingsTarget`).
+		...(currentWsIsFork && !workspaceSettingsTarget
+			? [
+					{
+						displayName: 'Delete forked workspace',
+						icon: Trash2,
+						type: 'delete' as const,
+						action: () => deleteForkModal?.openModal()
+					}
+				]
+			: []),
 		...(canManageWorkspace
 			? [
 					workspaceSettingsTarget
@@ -163,35 +187,15 @@
 						action: () => goto(SUPERADMIN_SETTINGS_HASH)
 					}
 				]
-			: []),
-		...(!canManageWorkspace && !workspaceSettingsTarget
-			? [
-					{
-						displayName: 'Leave workspace',
-						icon: LogOut,
-						type: 'delete' as const,
-						action: () => (leaveWorkspaceModal = true)
-					}
-				]
-			: []),
-		// Fork deletion is a global-sidebar action on the active workspace, so keep it
-		// out of the session rail's per-target settings entry (`workspaceSettingsTarget`).
-		...(currentWsIsFork && !workspaceSettingsTarget
-			? [
-					{
-						displayName: 'Delete forked workspace',
-						icon: Trash2,
-						type: 'delete' as const,
-						action: () => deleteForkModal?.openModal()
-					}
-				]
-			: []),
+			: [])
+	])
+
+	const items = $derived<Item[]>([
 		{
 			displayName: 'Help',
 			icon: HelpCircle,
 			submenuItems: helpItems,
-			extra: helpPing,
-			separatorTop: true
+			extra: helpPing
 		},
 		{
 			displayName: 'Switch theme',
@@ -218,10 +222,11 @@
 								disabled: true
 							}
 						]
-					: [])
+					: []),
+				{ displayName: 'Logout', icon: LogOut, action: () => logout() }
 			]
 		},
-		{ displayName: 'Logout', icon: LogOut, action: () => logout() }
+		...workspaceInstanceItems.map((item, i) => (i === 0 ? { ...item, separatorTop: true } : item))
 	])
 
 	const logsItems = $derived<Item[]>([
