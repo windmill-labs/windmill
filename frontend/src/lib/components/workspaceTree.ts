@@ -139,8 +139,10 @@ function dirToBranch(
 /** Merge AI-created in-memory drafts (or any caller-provided extras) into a
  * kind's loaded list. The chat tools / session previews scaffold items via
  * `UserDraft` before the user deploys; those should be navigable from the
- * picker. Existing items (same path) win so backend metadata (summary etc.)
- * isn't clobbered. */
+ * picker. An extra matching a loaded item (by storage or friendly path — else
+ * one draft renders as two leaves) is folded into it: the loaded row wins on
+ * backend metadata (summary etc.), but the extra's `draftPath` is overlaid
+ * when set — a live editor cell knows a rename before the backend list does. */
 function withExtras(
 	items: WorkspaceItem[],
 	k: WorkspaceItemKind,
@@ -148,11 +150,16 @@ function withExtras(
 ): WorkspaceItem[] {
 	const extras = extraItemsByKind?.[k]
 	if (!extras || extras.length === 0) return items
-	// A draft-only item is known under both its storage path and its friendly
-	// draft path (a live editor cell surfaces the latter as the extra's `path`),
-	// so match either — else one draft renders as two leaves.
-	const known = new Set(items.flatMap((it) => (it.draftPath ? [it.path, it.draftPath] : [it.path])))
-	return items.concat(extras.filter((d) => !known.has(d.path) && !known.has(d.draftPath ?? '')))
+	const leftover = new Set(extras)
+	const merged = items.map((it) => {
+		const ex = extras.find((d) => itemMatchesPath(it, d.path) || itemMatchesPath(it, d.draftPath))
+		if (!ex) return it
+		leftover.delete(ex)
+		return ex.draftPath !== undefined && ex.draftPath !== it.draftPath
+			? { ...it, draftPath: ex.draftPath }
+			: it
+	})
+	return leftover.size > 0 ? merged.concat([...leftover]) : merged
 }
 
 /** Build the workspace drill tree.

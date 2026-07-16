@@ -373,6 +373,31 @@ describe('buildWorkspaceTree', () => {
 			expect(admin.children.map((c) => c.key)).toEqual([leafKeyFor('app', 'u/admin/draft_abc')])
 		})
 
+		it('folds a mid-rename live extra into the stale loaded row: one storage-keyed leaf under the typed folder', () => {
+			// Session picker while a rename's autosave is pending: listApps still
+			// carries the pre-rename friendly path, the live cell extra (re-keyed to
+			// the storage path by the picker) carries the typed one, and the tab's
+			// currentItem is the storage path. The typed name must win, on a single
+			// leaf that navigates via the storage path — never the display path.
+			const staleLoaded = { ...item('app', 'u/admin/draft_abc'), draftPath: 'u/admin/old_name' }
+			const liveExtra = { ...item('app', 'u/admin/draft_abc'), draftPath: 'f/marketing/new_name' }
+			const tree = buildWorkspaceTree({
+				loaded: { app: [staleLoaded] },
+				kinds: ['app'],
+				loadingKind: {},
+				extraItemsByKind: { app: [liveExtra] },
+				currentItem: item('app', 'u/admin/draft_abc')
+			})
+			expect(tree.map((n) => n.key)).toEqual([dirKey('app', 'f/marketing')])
+			const marketing = findBranch(tree, dirKey('app', 'f/marketing'))
+			expect(marketing.children.map((c) => c.key)).toEqual([leafKeyFor('app', 'u/admin/draft_abc')])
+			const leaf = marketing.children[0]
+			if (!isLeaf(leaf)) throw new Error('expected leaf')
+			expect(leaf.current).toBe(true)
+			expect(leaf.data.path).toBe('u/admin/draft_abc')
+			expect(leaf.label).toBe('f/marketing/new_name')
+		})
+
 		it('is a no-op when extras are absent or empty', () => {
 			const noOpts = buildWorkspaceTree({
 				loaded: { flow: [item('flow', 'f/demo/a')] },
