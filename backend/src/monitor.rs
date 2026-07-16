@@ -3255,9 +3255,10 @@ pub async fn monitor_db(
         }
     };
 
-    // run every ~60s (2 iterations * 30s). Enterprise feature: core logic is
-    // in `crate::ee` (OSS gets a no-op stub); gated on a valid Enterprise
-    // license, mirroring how `audit_log()` itself is license-aware.
+    // run every 2 iterations (~20s at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
+    // Enterprise feature: core logic is in `crate::ee` (OSS gets a no-op stub);
+    // gated on a valid Enterprise license, mirroring how `audit_log()` itself
+    // is license-aware.
     let export_audit_logs_to_object_store_f = async {
         #[cfg(feature = "parquet")]
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(2) {
@@ -3282,7 +3283,7 @@ pub async fn monitor_db(
     };
 
     // Poll git-sync repositories for new commits and pull them into the
-    // workspace (repo → Windmill auto-pull). Runs every 2 iterations (~60s).
+    // workspace (repo → Windmill auto-pull). Runs every 2 iterations.
     let git_auto_pull_f = async {
         #[cfg(feature = "private")]
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(2) {
@@ -3292,11 +3293,12 @@ pub async fn monitor_db(
         }
     };
 
-    // run every ~60s (2 iterations * 30s). Enterprise feature: the active
-    // `// freshness` backstop lives in windmill-queue's `freshness_watchdog`
-    // (`private`); OSS gets a no-op stub. Runtime-gated on an Enterprise
-    // license like the audit export above. Safe on concurrent servers — the
-    // watchdog claims per-script state rows atomically before pushing.
+    // run every 2 iterations (~20s at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
+    // Enterprise feature: the active `// freshness` backstop lives in
+    // windmill-queue's `freshness_watchdog` (`private`); OSS gets a no-op stub.
+    // Runtime-gated on an Enterprise license like the audit export above. Safe
+    // on concurrent servers — the watchdog claims per-script state rows
+    // atomically before pushing.
     let pipeline_freshness_watchdog_f = async {
         if server_mode
             && !*DISABLE_FRESHNESS_WATCHDOG

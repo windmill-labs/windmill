@@ -1176,7 +1176,7 @@ export async function parseOpenAICompletion(
 					// Display tool call with streaming parameters if enabled
 					callbacks.setToolStatus(toolCallId, {
 						isLoading: true,
-						content: `Calling ${funcName}...`,
+						content: tool?.streamingLabel ?? `Calling ${funcName}...`,
 						toolName: funcName,
 						isStreamingArguments: shouldStream,
 						showFade: tool?.showFade,
