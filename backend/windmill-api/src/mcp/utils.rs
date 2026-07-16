@@ -477,6 +477,42 @@ pub fn build_request_body(
 }
 
 /// Create HTTP request with authentication
+/// Scopes to embed in the JWT minted for a proxied MCP endpoint request. The MCP
+/// runner already authorized *which* endpoint may be called; this bounds *what
+/// the resulting internal request can do*.
+///
+/// - Unscoped caller (cookie / full-privilege token): unscoped JWT (unchanged).
+/// - Scope-restricted caller whose own scopes already authorize the route: keep
+///   those scopes verbatim, so the target handler's per-path `check_scopes` still
+///   enforces the caller's path caps (e.g. a `variables:read:u/admin/safe/*`
+///   token can't read `u/admin/secret` via the getVariable proxy).
+/// - Otherwise the caller has no route scope for this domain (the common
+///   `mcp:`-only token): mint a least-privilege scope for exactly this route,
+///   failing closed if the route can't be resolved.
+fn jwt_scopes_for_proxied_route(
+    caller_scopes: Option<&[String]>,
+    method: &str,
+    route_path: &str,
+) -> BackendResult<Option<Vec<String>>> {
+    let caller_restricted =
+        caller_scopes.is_some_and(|s| s.iter().any(|x| !x.starts_with("if_jobs:filter_tags:")));
+    if !caller_restricted {
+        return Ok(None);
+    }
+    if windmill_api_auth::scopes::check_scopes_for_route(caller_scopes, route_path, method).is_ok()
+    {
+        return Ok(caller_scopes.map(|s| s.to_vec()));
+    }
+    let scope =
+        windmill_api_auth::scopes::scope_for_route(method, route_path).ok_or_else(|| {
+            ErrorData::internal_error(
+                "Could not derive route scope for proxied MCP endpoint".to_string(),
+                None,
+            )
+        })?;
+    Ok(Some(vec![scope]))
+}
+
 pub async fn create_http_request(
     method: &str,
     url: &str,
@@ -499,31 +535,12 @@ pub async fn create_http_request(
         }
     };
 
-    // Bound the minted JWT to exactly this proxied route so a scope-restricted
-    // MCP token can't be widened into a full-privilege blank check. The
-    // endpoint-name gate (in the MCP runner) already authorized *which* endpoint
-    // may be called; this constrains what the resulting request can do. Unscoped
-    // callers (cookie / full-privilege tokens) keep an unscoped JWT to preserve
-    // existing behavior. A scope-restricted caller whose route can't be resolved
-    // fails closed.
-    let caller_restricted = api_authed
-        .scopes
-        .as_deref()
-        .is_some_and(|s| s.iter().any(|x| !x.starts_with("if_jobs:filter_tags:")));
-    let scopes = if caller_restricted {
-        let parsed = reqwest::Url::parse(url)
-            .map_err(|e| ErrorData::internal_error(format!("Invalid proxied URL: {}", e), None))?;
-        let scope =
-            windmill_api_auth::scopes::scope_for_route(method, parsed.path()).ok_or_else(|| {
-                ErrorData::internal_error(
-                    "Could not derive route scope for proxied MCP endpoint".to_string(),
-                    None,
-                )
-            })?;
-        Some(vec![scope])
-    } else {
-        None
-    };
+    // Scope the minted JWT to the proxied route so a scope-restricted MCP token
+    // can't be widened into a full-privilege blank check. See
+    // `jwt_scopes_for_proxied_route`.
+    let parsed = reqwest::Url::parse(url)
+        .map_err(|e| ErrorData::internal_error(format!("Invalid proxied URL: {}", e), None))?;
+    let scopes = jwt_scopes_for_proxied_route(api_authed.scopes.as_deref(), method, parsed.path())?;
 
     // Add authorization header
     let authed = Authed::from(api_authed.clone());
@@ -577,6 +594,59 @@ pub async fn parse_response_body(response: Response<Body>) -> BackendResult<Valu
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn scopes(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn proxy_jwt_unscoped_caller_keeps_none() {
+        // No scopes, or filter-tags-only, is treated as unscoped -> unscoped JWT.
+        assert_eq!(
+            jwt_scopes_for_proxied_route(None, "GET", "/api/w/ws/variables/get/u/a/b").unwrap(),
+            None
+        );
+        let ft = scopes(&["if_jobs:filter_tags:foo"]);
+        assert_eq!(
+            jwt_scopes_for_proxied_route(Some(&ft), "GET", "/api/w/ws/variables/get/u/a/b")
+                .unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn proxy_jwt_bare_mcp_token_falls_back_to_route_scope() {
+        // A token whose only authority is its mcp: scope has no variables route
+        // scope, so the JWT gets a least-privilege route scope for this request.
+        let s = scopes(&["mcp:endpoints:getVariable"]);
+        assert_eq!(
+            jwt_scopes_for_proxied_route(Some(&s), "GET", "/api/w/ws/variables/get/u/admin/secret")
+                .unwrap(),
+            Some(scopes(&["variables:read"]))
+        );
+    }
+
+    #[test]
+    fn proxy_jwt_mixed_token_passes_through_caller_route_scope() {
+        // The caller's route scope is preserved so the target handler's per-path
+        // check_scopes enforces the cap; the coarse route match here is path-blind.
+        let s = scopes(&["mcp:endpoints:getVariable", "variables:read:u/admin/safe/*"]);
+        assert_eq!(
+            jwt_scopes_for_proxied_route(Some(&s), "GET", "/api/w/ws/variables/get/u/admin/secret")
+                .unwrap(),
+            Some(s.clone())
+        );
+    }
+
+    #[test]
+    fn proxy_jwt_run_script_bare_mcp_falls_back_to_jobs_run_scripts() {
+        let s = scopes(&["mcp:scripts:f/team/*", "mcp:endpoints:*"]);
+        assert_eq!(
+            jwt_scopes_for_proxied_route(Some(&s), "POST", "/api/w/ws/jobs/run/p/f/team/deploy")
+                .unwrap(),
+            Some(scopes(&["jobs:run:scripts"]))
+        );
+    }
 
     #[test]
     fn build_request_body_passthrough_forwards_script_args_minus_path() {
