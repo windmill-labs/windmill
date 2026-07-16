@@ -110,6 +110,7 @@ import {
 import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userScopedStorage'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { AttachedFilesStore } from './files/attachedFiles.svelte'
+import { SessionArtifactsStore } from './artifacts/artifactsState.svelte'
 import { appendAttachedFilesRoster } from './files/fileTools'
 
 // SSR and users who prefer reduced motion get no typewriter pacing.
@@ -153,6 +154,21 @@ const AI_AUTONOMY_MODE_STORAGE_KEY = 'ai-chat-autonomy-mode'
 const LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY = 'ai-chat-yolo-mode'
 const WEB_SEARCH_ERROR_HINT =
 	'Web search is unavailable for this provider/model/key. Disable web search in workspace settings and try again.'
+// The full explanation is shown once per browser; afterwards the hidden
+// thinking is only hinted at discreetly in the typing indicator.
+const REASONING_SUMMARY_WARNED_STORAGE_KEY = 'ai-chat-reasoning-summary-unverified-warned'
+
+function providerDisplayName(provider: string): string {
+	return provider === 'azure_openai' ? 'Azure OpenAI' : 'OpenAI'
+}
+
+function reasoningSummaryUnavailableMessage(provider: string): string {
+	const verifyHint =
+		provider === 'azure_openai'
+			? 'To display it, verify your organization with your provider, then reload this page.'
+			: 'To display it, verify your organization in the OpenAI platform settings (Settings > General), then reload this page.'
+	return `This model is reasoning, but your ${providerDisplayName(provider)} organization is not verified to generate reasoning summaries, so its thinking stays hidden. ${verifyHint}`
+}
 
 export enum AIMode {
 	SCRIPT = 'script',
@@ -272,6 +288,8 @@ export class AIChatManager {
 	historyManager = new HistoryManager()
 	/** Files the user attached to the current GLOBAL-mode conversation. */
 	attachedFiles = new AttachedFilesStore()
+	/** Markdown artifacts the copilot created for the current session. */
+	artifacts = new SessionArtifactsStore()
 	abortController: AbortController | undefined = undefined
 	inlineAbortController: AbortController | undefined = undefined
 	// Flag to skip Responses API if it's not available (e.g., Azure region doesn't support it)
@@ -317,10 +335,36 @@ export class AIChatManager {
 	 * undefined in the global side-panel chat, where the tray falls back to opening
 	 * the run in a new browser tab. */
 	openRunInPreview?: (a: { jobId: string; workspace: string; label: string }) => void
+	openArtifact?: (artifactId: string, name: string) => void
+	closeArtifact?: (artifactId: string) => void
 	loading = $state<boolean>(false)
 	currentReply = $state<string>('')
 	currentReasoning = $state<string>('')
 	currentReasoningActive = $state<boolean>(false)
+	// The provider reasons but refuses to stream summaries (unverified OpenAI
+	// organization) — drives the discreet "Thinking (hidden)" indicator. Keyed
+	// by workspace:provider like the chat-loop fallback cache, so the hint never
+	// carries over to a provider or workspace whose summaries work. A list, not
+	// a scalar: several workspace/provider pairs can be unavailable at once, and
+	// the chat loop only notifies on first detection per pair.
+	private reasoningSummaryUnavailableFor = $state<string[]>([])
+
+	private reasoningSummaryKey(provider: string): string {
+		return `${this.operatingWorkspace ?? ''}:${provider}`
+	}
+
+	/** Label for the live "Thinking" indicator when thinking stays hidden for
+	 * the current workspace/provider, undefined otherwise. */
+	get reasoningHiddenIndicatorLabel(): string | undefined {
+		if (this.reasoningSummaryUnavailableFor.length === 0) {
+			return undefined
+		}
+		const provider = getCurrentModel().provider
+		if (!this.reasoningSummaryUnavailableFor.includes(this.reasoningSummaryKey(provider))) {
+			return undefined
+		}
+		return `Thinking (hidden, ${providerDisplayName(provider)} org not verified)`
+	}
 	// Smooths the provider's bursty delivery into continuous typing by revealing
 	// buffered text a slice per frame. The reply and the reasoning/thinking stream
 	// each get their own reveal (independent buffers, both append to their own
@@ -1465,7 +1509,13 @@ export class AIChatManager {
 			// permission gating. The global side-panel chat follows the live navigation
 			// workspace instead, so leave it unset there — allowedOpenPages reads the store.
 			...(this.isSessionChat
-				? { sessionId: this.sessionId, operatingWorkspace: this.operatingWorkspace }
+				? {
+						sessionId: this.sessionId,
+						operatingWorkspace: this.operatingWorkspace,
+						artifacts: this.artifacts,
+						getChatId: () => this.historyManager.getCurrentChatId(),
+						openArtifact: this.openArtifact
+					}
 				: {}),
 			testActiveFlow: async (args?: Record<string, any>) => this.flowAiChatHelpers?.testFlow(args),
 			attachedFiles: this.attachedFiles,
@@ -1491,6 +1541,7 @@ export class AIChatManager {
 			this.helpers = baseHelpers
 		}
 		this.systemMessage = systemMessage
+		this.syncArtifactsSession()
 	}
 
 	refreshGlobalSkills = async (workspace = this.operatingWorkspace ?? '') => {
@@ -1704,6 +1755,18 @@ export class AIChatManager {
 		}
 	}
 
+	private notifyReasoningSummaryUnavailable = () => {
+		const provider = getCurrentModel().provider
+		const key = this.reasoningSummaryKey(provider)
+		if (!this.reasoningSummaryUnavailableFor.includes(key)) {
+			this.reasoningSummaryUnavailableFor = [...this.reasoningSummaryUnavailableFor, key]
+		}
+		if (getLocalSetting(REASONING_SUMMARY_WARNED_STORAGE_KEY) !== 'true') {
+			storeLocalSetting(REASONING_SUMMARY_WARNED_STORAGE_KEY, 'true')
+			sendUserToast(reasoningSummaryUnavailableMessage(provider), 'warning', [], undefined, 10000)
+		}
+	}
+
 	private chatRequest = async ({
 		messages,
 		abortController,
@@ -1723,6 +1786,7 @@ export class AIChatManager {
 		systemMessage?: ChatCompletionSystemMessageParam
 		onWebSearchUnavailable?: () => void
 	}) => {
+		const onReasoningSummaryUnavailable = () => this.notifyReasoningSummaryUnavailable()
 		try {
 			// Use JS getters so runChatLoop re-reads tools/helpers/systemMessage/modelProvider
 			// on each iteration. This is critical for changeModeTool (Navigator → Script/Flow)
@@ -1772,6 +1836,7 @@ export class AIChatManager {
 					this.skipResponsesApi = true
 				},
 				onWebSearchUnavailable,
+				onReasoningSummaryUnavailable,
 				getPendingUserMessage: () => {
 					const pendingPrompt = this.pendingPrompt
 					if (!pendingPrompt) return undefined
@@ -2600,6 +2665,7 @@ export class AIChatManager {
 		// session, so "New chat" must clear them — otherwise the next, unrelated conversation
 		// would still get the previous file roster and could read/search it.
 		if (!this.isSessionChat) this.attachedFiles.clear()
+		this.syncArtifactsSession()
 		this.onChatRotated?.(this.historyManager.getCurrentChatId())
 	}
 
@@ -2637,8 +2703,13 @@ export class AIChatManager {
 			if (this.backgroundJobs.length > 0) this.backgroundJobs = [...this.backgroundJobs]
 			this.#ensureJobPoller()
 			this.#automaticScroll = true
+			this.syncArtifactsSession()
 			this.onChatRotated?.(id)
 		}
+	}
+
+	private syncArtifactsSession = () => {
+		void this.artifacts.setSession(this.isSessionChat ? this.sessionId : undefined)
 	}
 
 	get automaticScroll() {

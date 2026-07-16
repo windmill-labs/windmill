@@ -22,6 +22,7 @@ import { workspaceRootId } from './sessionScope.svelte'
 import { type DBSchema, type IDBPDatabase } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
 import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
+import { deleteArtifactsForSession } from '../copilot/chat/artifacts/artifactsDB'
 
 // Switch the global workspace iff the target differs from the active one
 // and is non-empty. Centralises the "session needs its workspace in focus"
@@ -131,10 +132,20 @@ export type Session = {
 
 // One preview tab: `url` is the URL we command the iframe to load, `loc` the
 // last observed location (see the sessions page for the url/loc split).
-// `friendlyLabel` is a transient display override the live editor stamps for a
-// never-deployed item parked at `…/draft_<uuid>` (its typed/auto name); not
-// persisted (hydrate rebuilds tabs field-by-field), recomputed on next mount.
-export type SessionPreviewTab = { id: string; url: string; loc: string; friendlyLabel?: string }
+// `friendlyLabel` / `friendlyPath` are transient overrides the live editor
+// stamps; not persisted (hydrate rebuilds tabs field-by-field), recomputed on
+// next mount. `friendlyLabel` names a never-deployed item parked at
+// `…/draft_<uuid>` (its typed/auto name). `friendlyPath` is the item's full
+// staged path whenever it differs from the tab's route path — draft-parked OR
+// a deployed item with an undeployed rename — and scopes the breadcrumb
+// picker into the folder the picker tree displays the item under.
+export type SessionPreviewTab = {
+	id: string
+	url: string
+	loc: string
+	friendlyLabel?: string
+	friendlyPath?: string
+}
 
 // Sessions live in one per-user IndexedDB, one record per session in the
 // `sessions` store keyed by `id`. IndexedDB is the sole store — no localStorage
@@ -488,6 +499,7 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 				// GC linked files too, matching deleteSession — a record-only delete
 				// here would orphan the session's attached-file blobs/handles.
 				void deleteItemsForSession(s.id)
+				void deleteArtifactsForSession(s.id)
 				deletedIds.add(s.id)
 				continue
 			}
@@ -579,6 +591,7 @@ export async function deleteSessionsForWorkspace(workspaceId: string): Promise<v
 		// GC linked files too (matches deleteSession) so a workspace teardown
 		// doesn't leave the sessions' attached-file blobs/handles orphaned.
 		void deleteItemsForSession(id)
+		void deleteArtifactsForSession(id)
 	}
 	sessionState.sessions = sessionState.sessions.filter((s) => !ids.has(s.id))
 	if (sessionState.currentSessionId && ids.has(sessionState.currentSessionId)) {
@@ -966,8 +979,9 @@ export function deleteSession(id: string) {
 		sessionState.currentSessionId = sessionState.sessions[0]?.id
 	}
 	void deleteSessionRecord(id)
-	// GC any linked files persisted for this session.
+	// GC any linked files and artifacts persisted for this session.
 	void deleteItemsForSession(id)
+	void deleteArtifactsForSession(id)
 }
 
 export function setSessionChatId(sessionId: string, chatId: string) {
