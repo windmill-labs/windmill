@@ -2761,6 +2761,45 @@ describe('global AI tools', () => {
 		expect(item.value.value).toBeUndefined()
 	})
 
+	it('writes and reads back free-floating flow notes', async () => {
+		const writeResult = JSON.parse(
+			await callGlobalTool('write_flow', {
+				path: 'f/flows/with-notes',
+				summary: 'Flow with notes',
+				modules: JSON.stringify([
+					{
+						id: 'start',
+						summary: 'Start',
+						value: { type: 'identity' }
+					}
+				]),
+				notes: JSON.stringify([
+					{ id: 'n1', type: 'free', text: 'What this flow does', color: 'blue' }
+				])
+			})
+		)
+
+		expect(writeResult.success).toBe(true)
+
+		const item = JSON.parse(
+			await callGlobalTool('read_workspace_item', {
+				type: 'flow',
+				path: 'f/flows/with-notes'
+			})
+		)
+
+		expect(item.value.notes).toHaveLength(1)
+		expect(item.value.notes[0]).toMatchObject({
+			id: 'n1',
+			type: 'free',
+			text: 'What this flow does',
+			color: 'blue'
+		})
+		// Free notes with no explicit geometry get auto-placed/sized by validation.
+		expect(item.value.notes[0].position).toBeDefined()
+		expect(item.value.notes[0].size).toBeDefined()
+	})
+
 	it('test_run_script previews draft script content by path', async () => {
 		const content = 'export async function main(name: string) {\n\treturn `hello ${name}`\n}'
 		await callGlobalTool('write_script', {

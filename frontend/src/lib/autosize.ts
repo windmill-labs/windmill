@@ -10,9 +10,9 @@ type TextArea = HTMLTextAreaElement
  * Accepts a number (px) or a CSS-ish string ending in `vh`/`px` (e.g. `'40vh'`).
  * When omitted the textarea grows without bound (the historical behaviour).
  *
- * `minHeight` overrides the floor the textarea shrinks to (default 30px). A
- * compact single-line input wants a smaller floor so the line isn't padded with
- * dead space below it.
+ * `minHeight` (px) sets the shortest the textarea may collapse to. Defaults to 30px;
+ * pass a smaller value (e.g. `0`) for a compact field that hugs a single line of
+ * content instead of reserving the default floor.
  */
 export type AutosizeParams = { maxHeight?: number | string; minHeight?: number } | undefined
 

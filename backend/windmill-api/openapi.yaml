@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.756.0
+  version: 1.760.1
   title: Windmill API
 
   contact:
@@ -12139,6 +12139,8 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/S3Sig"
+        - $ref: "#/components/parameters/S3Exp"
       responses:
         "200":
           description: FileMetadata
@@ -12191,6 +12193,8 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/S3Sig"
+        - $ref: "#/components/parameters/S3Exp"
       responses:
         "200":
           description: FilePreview
@@ -12241,6 +12245,8 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/S3Sig"
+        - $ref: "#/components/parameters/S3Exp"
       responses:
         "200":
           description: Parquet Preview
@@ -12293,6 +12299,8 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/S3Sig"
+        - $ref: "#/components/parameters/S3Exp"
       responses:
         "200":
           description: Csv Preview
@@ -12325,6 +12333,8 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/S3Sig"
+        - $ref: "#/components/parameters/S3Exp"
       responses:
         "200":
           description: Table count
@@ -12354,6 +12364,8 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/S3Sig"
+        - $ref: "#/components/parameters/S3Exp"
       responses:
         "200":
           description: The downloaded file
@@ -22660,6 +22672,18 @@ components:
       required: true
       schema:
         type: string
+    S3Sig:
+      name: sig
+      in: query
+      description: HMAC signature of a presigned S3 object (bypasses the app provenance gate)
+      schema:
+        type: string
+    S3Exp:
+      name: exp
+      in: query
+      description: Expiry timestamp of a presigned S3 object signature
+      schema:
+        type: string
     CustomPath:
       name: custom_path
       in: path
@@ -26282,6 +26306,7 @@ components:
         - github
         - asset
         - freshness
+        - app
 
     TriggerMode:
       description: job trigger mode

@@ -299,7 +299,13 @@
 		checked={policy.sandbox == true}
 		on:change={(e) => {
 			policy.sandbox = e.detail || undefined
-			setPublishState(e.detail ? 'Sandbox isolation enabled' : 'Sandbox isolation disabled')
+			// A not-yet-deployed app has no row to PATCH — `setPublishState` (POST
+			// /apps/update) would 404. The flag rides along in the `policy` the first
+			// deploy sends (createApp), so here we only mutate it locally. Persist
+			// incrementally once the app exists.
+			if (savedApp && !newApp) {
+				setPublishState(e.detail ? 'Sandbox isolation enabled' : 'Sandbox isolation disabled')
+			}
 		}}
 		disabled={!savedApp}
 	/>
@@ -310,8 +316,8 @@
 		on every surface (public URL and in-workspace). Leave it off if the app needs full browser
 		features (IndexedDB, third-party auth/SDKs, OAuth redirects).
 	</div>
-	{#if !savedApp}
-		<div class="text-xs text-tertiary mt-1">Save the app once to change this setting.</div>
+	{#if newApp}
+		<div class="text-xs text-tertiary mt-1">Takes effect when you first deploy this app.</div>
 	{/if}
 	{#if policy.sandbox == true}
 		<div class="mt-2">
@@ -343,9 +349,14 @@
 				checked={policy.execution_mode == 'anonymous'}
 				on:change={(e) => {
 					policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
-					setPublishState()
+					// Same as sandbox: a not-yet-deployed app has no row to PATCH, so
+					// `setPublishState` would 404. The mode is carried by the first
+					// deploy's policy; persist incrementally only once the app exists.
+					if (savedApp && !newApp) {
+						setPublishState()
+					}
 				}}
-				disabled={!savedApp || newApp || (!canSetAnonymous && policy.execution_mode != 'anonymous')}
+				disabled={!savedApp || (!canSetAnonymous && policy.execution_mode != 'anonymous')}
 			/>
 		</div>
 		{#if !savedApp || newApp}

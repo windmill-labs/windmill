@@ -1060,6 +1060,7 @@
 										{appPath}
 										s3resource={s3object?.s3}
 										storage={s3object?.storage}
+										presigned={s3object?.presigned}
 									/>
 								{/key}
 							{:else if s3object?.s3?.endsWith('.png') || s3object?.s3?.endsWith('.jpeg') || s3object?.s3?.endsWith('.jpg') || s3object?.s3?.endsWith('.webp')}
@@ -1116,6 +1117,7 @@
 											{appPath}
 											s3resource={s3object?.s3}
 											storage={s3object?.storage}
+											presigned={s3object?.presigned}
 										/>{:else}
 										<button
 											class="text-primary whitespace-nowrap flex gap-2 items-center"

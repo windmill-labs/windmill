@@ -411,8 +411,7 @@ function createRuntime(session: Session): SessionRuntime {
 	// Hydrate the preview-tab owner from the session record (the durable backing);
 	// from here on the owner is the single live copy and writes back through the
 	// adapter. setSessionTabs / setSessionPreviewCollapsed stay the low-level record
-	// writers (a transient session's writes land in the localStorage draft slot
-	// until it materialises).
+	// writers (opening/moving a tab is a touch that persists an in-memory draft).
 	const previewTabs = new SessionPreviewTabs(hydratePreviewTabs(session), {
 		persist: (snap) => {
 			setSessionTabs(session.id, snap.tabs, snap.activeId)
@@ -433,6 +432,20 @@ function createRuntime(session: Session): SessionRuntime {
 			label
 		})
 	}
+
+	manager.openArtifact = (id, name) => {
+		// Capture before open() un-collapses / re-activates: flash only when the tab
+		// was already the displayed one (nothing else visibly changes).
+		const wasDisplayed = !previewTabs.collapsed
+		const prevActive = previewTabs.activeId
+		const { status } = previewTabs.open({ type: 'artifact', id, name })
+		if (status === 'focused' && wasDisplayed && previewTabs.activeId === prevActive) {
+			previewTabs.pulseFocus(previewTabs.activeId)
+		}
+	}
+	manager.closeArtifact = (id) => previewTabs.closeArtifact(id)
+	// Key the store before any configureGlobalMode runs, so a new session's first create shows at once.
+	void manager.artifacts.setSession(session.id)
 
 	// Pipeline target state lives on the runtime (not the PipelineEditorView
 	// component) so the in-session drafts survive hide/show of the editor pane —
