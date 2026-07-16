@@ -1274,32 +1274,6 @@ paths:
                   - id
                   - name
 
-  /w/{workspace}/workspaces/set_dev_workspace_label:
-    post:
-      summary: set the cosmetic display label (dev/staging) of this dev workspace
-      operationId: setDevWorkspaceLabel
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                dev_workspace_label:
-                  type: string
-                  enum: [dev, staging]
-      responses:
-        "200":
-          description: dev workspace label updated
-          content:
-            text/plain:
-              schema:
-                type: string
-
   /workspaces/exists:
     post:
       summary: exists workspace
@@ -29933,8 +29907,70 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/GitSyncObjectType"
+        auto_pull:
+          $ref: "#/components/schemas/AutoPullSettings"
+        promotion_open_prs:
+          type: boolean
+        fork_open_prs:
+          type: boolean
+        open_pr_error:
+          type: string
+          description: server-owned, last failure opening a PR for a deploy branch of this repo
       required:
         - git_repo_resource_path
+
+    AutoPullMode:
+      type: string
+      enum:
+        - auto
+        - webhook
+        - polling
+
+    AutoPullStatus:
+      type: object
+      properties:
+        synced_sha:
+          type: string
+        at:
+          type: integer
+          format: int64
+        job_id:
+          type: string
+          format: uuid
+        success:
+          type: boolean
+        error:
+          type: string
+      required:
+        - at
+        - success
+
+    AutoPullSettings:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        mode:
+          $ref: "#/components/schemas/AutoPullMode"
+        poll_interval_s:
+          type: integer
+        sync_forks:
+          type: boolean
+        webhook_id:
+          type: integer
+          format: int64
+        webhook_secret:
+          type: string
+        webhook_error:
+          type: string
+        last_synced_sha:
+          type: object
+          additionalProperties:
+            type: string
+        last_pull_status:
+          $ref: "#/components/schemas/AutoPullStatus"
+      required:
+        - enabled
 
     MetricMetadata:
       type: object
