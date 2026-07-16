@@ -273,7 +273,11 @@
 		folder: string | undefined
 	) {
 		if (!workspace) return []
-		const pathStart = folder ? `f/${folder}` : undefined
+		// Trailing slash so the backend prefix (`o.path LIKE 'f/{folder}/%'`) is
+		// anchored at the folder boundary — otherwise a sibling like `f/team2`
+		// shares the `f/team` prefix and its newer rows can fill the page ahead
+		// of the target folder's rows.
+		const pathStart = folder ? `f/${folder}/` : undefined
 		const scripts = await ScriptService.listScripts({
 			starredOnly: favoriteOnly,
 			workspace,
@@ -289,7 +293,11 @@
 		folder: string | undefined
 	) {
 		if (!workspace) return []
-		const pathStart = folder ? `f/${folder}` : undefined
+		// Trailing slash so the backend prefix (`o.path LIKE 'f/{folder}/%'`) is
+		// anchored at the folder boundary — otherwise a sibling like `f/team2`
+		// shares the `f/team` prefix and its newer rows can fill the page ahead
+		// of the target folder's rows.
+		const pathStart = folder ? `f/${folder}/` : undefined
 		const flows = await FlowService.listFlows({
 			starredOnly: favoriteOnly,
 			workspace,
@@ -301,9 +309,9 @@
 
 	// Fetch scripts+flows for a scope, cached and split by type so the same data
 	// feeds both the preview list and the truncation count (no duplicate fetch).
-	// The backend `pathStart` for a folder is an unbounded prefix (`f/team` also
-	// matches `f/team2/...`), so restrict a folder fetch to the `f/{folder}/*`
-	// subtree to mirror the MCP scope semantics.
+	// The `f/{folder}/` fetch prefix already anchors at the folder boundary; the
+	// extra filter only guards a folder name whose LIKE wildcards (`_`, `%`) let
+	// the backend prefix over-match (e.g. `a_b` also matching `axb`).
 	async function fetchScriptsAndFlows(
 		workspace: string,
 		favoriteOnly: boolean,
