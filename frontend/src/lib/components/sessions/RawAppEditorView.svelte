@@ -112,6 +112,9 @@
 	function onInspectorSelect(info: InspectorElementInfo, additive: boolean) {
 		const el = {
 			selector: info.path,
+			// Scope the chip to THIS app: a selector only resolves against the app it
+			// was picked from, and a session can have several raw-app preview tabs.
+			appPath: path,
 			tagName: info.tagName,
 			id: info.id,
 			className: info.className
@@ -122,13 +125,30 @@
 	}
 
 	// The chip list is the source of truth for the preview's highlights: push the
-	// current selectors down so the preview renders one highlight per chip.
+	// current selectors down so the preview renders one highlight per chip. Only
+	// this app's chips (a foreign chip would resolve against the wrong preview).
 	const selectedDomSelectors = $derived(
 		runtime.manager.contextManager
 			.getSelectedContext()
 			.filter((c) => c.type === 'app_dom_selector')
+			.filter((c) => c.appPath === path)
 			.map((c) => c.selector)
 	)
+
+	// The DOM requester (search_dom / read_dom) is scoped to the ACTIVE preview
+	// tab, so a chip picked in another tab would silently resolve against this
+	// app. When this tab becomes active, drop any chips from a different app so
+	// the chip context and the live DOM target can never diverge.
+	$effect(() => {
+		if (!active) return
+		const p = path
+		untrack(() => {
+			const foreign = runtime.manager.contextManager
+				.getSelectedContext()
+				.some((c) => c.type === 'app_dom_selector' && c.appPath !== p)
+			if (foreign) runtime.manager.contextManager.clearSelectedDomElements()
+		})
+	})
 
 	// Removals originating in the preview (× on an overlay) or on rebuild.
 	function onInspectorDeselect(selector: string) {
@@ -140,8 +160,15 @@
 
 	// The inline mini-composer over a selected element sends a chat turn; the
 	// element is already an app_dom_selector chip, so it rides along as context.
+	// Mirror the composer: while a turn is streaming, queue it (a second concurrent
+	// sendRequest would race the shared abortController / streaming buffers) — it
+	// auto-sends when the current turn completes.
 	function onInlinePrompt(_selector: string, prompt: string) {
-		void runtime.manager.sendRequest({ instructions: prompt })
+		if (runtime.manager.loading) {
+			runtime.manager.queueMessage(prompt)
+		} else {
+			void runtime.manager.sendRequest({ instructions: prompt })
+		}
 	}
 </script>
 

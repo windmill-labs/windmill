@@ -392,6 +392,7 @@ export default class ContextManager {
 	 */
 	addSelectedDomElement(info: {
 		selector: string
+		appPath: string
 		tagName: string
 		id?: string
 		className?: string
@@ -409,6 +410,7 @@ export default class ContextManager {
 	/** Replace all DOM selector chips with this single element (plain inspector pick). */
 	setSelectedDomElement(info: {
 		selector: string
+		appPath: string
 		tagName: string
 		id?: string
 		className?: string

@@ -3674,6 +3674,7 @@ describe('session-only preview tools gating', () => {
 			{
 				type: 'app_dom_selector',
 				selector: 'div.card > button.primary',
+				appPath: 'u/admin/my_app',
 				title: 'button.primary',
 				tagName: 'button',
 				className: 'primary'

@@ -153,6 +153,10 @@ export interface AppDomSelectorElement {
 	type: 'app_dom_selector'
 	/** Full CSS selector path, passed verbatim to search_dom / read_dom. */
 	selector: string
+	/** Raw-app path the element was picked from. The selector only makes sense
+	 * against this app's preview, so chips are scoped to it (a session can have
+	 * several raw-app preview tabs, only one active at a time). */
+	appPath: string
 	/** Compact, space-free display label, e.g. "button#submit.primary". */
 	title: string
 	tagName: string
@@ -162,6 +166,7 @@ export interface AppDomSelectorElement {
 
 export function createAppDomSelectorElement(info: {
 	selector: string
+	appPath: string
 	tagName: string
 	id?: string
 	className?: string
@@ -172,6 +177,7 @@ export function createAppDomSelectorElement(info: {
 	return {
 		type: 'app_dom_selector',
 		selector: info.selector,
+		appPath: info.appPath,
 		title,
 		tagName: tag,
 		id: info.id,
