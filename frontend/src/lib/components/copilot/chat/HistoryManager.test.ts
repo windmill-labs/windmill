@@ -490,6 +490,52 @@ describe('HistoryManager legacy chat-history migration', () => {
 	})
 })
 
+describe('HistoryManager image-only chats', () => {
+	it('titles an image-only chat from its attachment instead of leaving it blank', async () => {
+		const hm = new HistoryManager()
+		await hm.init()
+		const id = hm.getCurrentChatId()
+		await hm.saveChat(
+			[
+				{
+					role: 'user',
+					content: '',
+					images: [
+						{ dataUrl: 'data:image/png;base64,A', mediaType: 'image/png', name: 'mockup.png' }
+					]
+				}
+			] as DisplayMessage[],
+			[] as ChatCompletionMessageParam[]
+		)
+		expect(hm.getAllSavedChats().find((c) => c.id === id)?.title).toBe('mockup.png')
+	})
+
+	it('shows an omission marker when an evicted image-only bubble reloads', async () => {
+		const hm = new HistoryManager()
+		await hm.init()
+		const chatId = hm.getCurrentChatId()
+		const urlFor = (i: number) => `data:image/png;base64,IMG${String(i).padStart(2, '0')}`
+		// 31 image-only turns: the oldest exceeds the blob cap, so its bubble
+		// reloads with no image AND no text — it must say what happened instead
+		// of rendering empty.
+		const display = Array.from({ length: 31 }, (_, i) => ({
+			role: 'user',
+			content: '',
+			index: i,
+			images: [{ dataUrl: urlFor(i), mediaType: 'image/png' }]
+		})) as DisplayMessage[]
+		await hm.saveChat(display, [] as ChatCompletionMessageParam[])
+
+		const reloaded = new HistoryManager()
+		await reloaded.init()
+		const chat = await reloaded.loadPastChat(chatId)
+		expect((chat?.displayMessages[0] as any).images).toBeUndefined()
+		expect((chat?.displayMessages[0] as any).content).toBe('[image omitted]')
+		expect((chat?.displayMessages[1] as any).images[0].dataUrl).toBe(urlFor(1))
+		expect((chat?.displayMessages[1] as any).content).toBe('')
+	})
+})
+
 describe('HistoryManager title across compaction', () => {
 	it('keeps the original title once a summary boundary leads the transcript', async () => {
 		const hm = new HistoryManager()

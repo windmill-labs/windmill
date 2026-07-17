@@ -438,6 +438,11 @@ export default class HistoryManager {
 					if (dataUrl) images.push({ ...image, dataUrl })
 				}
 				message.images = images.length > 0 ? images : undefined
+				// An image-only bubble that lost every image would render empty —
+				// say what happened instead.
+				if (!message.images && !message.content.trim()) {
+					message.content = IMAGE_OMITTED_PLACEHOLDER
+				}
 			} else if (message.role === 'tool' && message.imageUrl?.startsWith(IMAGE_REF_PREFIX)) {
 				message.imageUrl = await load(message.imageUrl)
 			}
@@ -459,12 +464,20 @@ export default class HistoryManager {
 			// expanding collapsed-paste tokens so it reads as text rather than the
 			// chip label + its zero-width id chars.
 			const existingTitle = this.savedChats[this.currentChatId]?.title
+			const titleSource = displayMessages.find((m) => m.role !== 'summary') ?? displayMessages[0]
+			const derivedTitle = expanded(messageDraft(titleSource)).slice(0, 50)
+			// An image-only first turn has no text to derive from — fall back to the
+			// attachment's filename so the History menu entry isn't blank.
+			const imageFallback =
+				titleSource.role === 'user' && titleSource.images?.length
+					? (titleSource.images[0].name ?? 'Image attachment')
+					: ''
 			const title =
 				displayMessages[0].role === 'summary' && existingTitle !== undefined
 					? existingTitle
-					: expanded(
-							messageDraft(displayMessages.find((m) => m.role !== 'summary') ?? displayMessages[0])
-						).slice(0, 50)
+					: derivedTitle.trim()
+						? derivedTitle
+						: imageFallback
 			// we don't want to save the snapshot in the history
 			const updatedChat = {
 				actualMessages: $state.snapshot(messages),
