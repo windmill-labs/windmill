@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE schedule SET enabled = false, error = $1\n                 WHERE workspace_id = $2 AND path = $3 AND script_path = $4 AND enabled IS TRUE\n                 RETURNING 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a13f9604abecaf68ab8e151916602c50b62b30cce4dc531e8d651eb191bc6586"
+}

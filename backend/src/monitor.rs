@@ -110,7 +110,7 @@ use windmill_common::{
 use windmill_object_store::reload_object_store_setting;
 use windmill_queue::{
     cancel_job, get_queued_job_v2,
-    schedule::{find_unarmed_schedules, rearm_schedule},
+    schedule::{find_unarmed_schedules, rearm_schedule, RearmOutcome},
     SameWorkerPayload,
 };
 use windmill_worker::{
@@ -3389,6 +3389,12 @@ lazy_static::lazy_static! {
 /// whose status update fails and is later force-completed by zombie detection,
 /// say) can skip that push and leave the schedule enabled yet dead forever. This
 /// is the backstop: without it the only recovery is a manual disable/enable.
+///
+/// Replicas each run their own passes (staggered by `rd_shift`) and each keep
+/// their own strike tally, so the scan cost is per-replica. That is deliberate:
+/// scanning inside the advisory lock is what makes a double-push impossible —
+/// whoever holds it re-reads the unarmed set, so a schedule another replica just
+/// re-armed is seen armed and its tally dropped, rather than pushed twice.
 pub async fn reconcile_unarmed_schedules(db: &Pool<Postgres>) {
     let mut lock_conn = match db.acquire().await {
         Ok(c) => c,
@@ -3426,28 +3432,38 @@ pub async fn reconcile_unarmed_schedules(db: &Pool<Postgres>) {
     }
 }
 
+/// Record this pass's unarmed schedules against `seen` and return those that have
+/// now struck out. An armed observation drops the schedule's tally entirely, so
+/// the strikes a re-arm rests on are always consecutive.
+fn strike_unarmed(
+    seen: &mut std::collections::HashMap<(String, String), u8>,
+    current: std::collections::HashSet<(String, String)>,
+) -> Vec<(String, String)> {
+    seen.retain(|k, _| current.contains(k));
+    current
+        .into_iter()
+        .filter(|k| {
+            let strikes = seen.entry(k.clone()).or_insert(0);
+            *strikes = strikes.saturating_add(1);
+            *strikes >= SCHEDULE_RECONCILE_STRIKES
+        })
+        .collect()
+}
+
 async fn reconcile_unarmed_schedules_inner(db: &Pool<Postgres>) -> error::Result<()> {
-    let to_rearm = {
-        let current: std::collections::HashSet<(String, String)> =
-            find_unarmed_schedules(db).await?.into_iter().collect();
-        let mut seen = UNARMED_SCHEDULES.lock().unwrap();
-        seen.retain(|k, _| current.contains(k));
-        current
-            .into_iter()
-            .filter(|k| {
-                let strikes = seen.entry(k.clone()).or_insert(0);
-                *strikes = strikes.saturating_add(1);
-                *strikes >= SCHEDULE_RECONCILE_STRIKES
-            })
-            .collect::<Vec<_>>()
-    };
+    let current = find_unarmed_schedules(db).await?.into_iter().collect();
+    let to_rearm = strike_unarmed(&mut UNARMED_SCHEDULES.lock().unwrap(), current);
 
     for (w_id, path) in to_rearm {
         match rearm_schedule(db, &w_id, &path).await {
-            Ok(()) => {
-                tracing::warn!(
-                    "schedule reconcile: re-armed enabled schedule {path} in {w_id}, which had no queued occurrence"
-                );
+            Ok(outcome) => {
+                if outcome == RearmOutcome::Rearmed {
+                    tracing::warn!(
+                        "schedule reconcile: re-armed enabled schedule {path} in {w_id}, which had no queued occurrence"
+                    );
+                }
+                // Disabled/NoOp schedules stop matching the scan, so their tally
+                // is dropped on the next pass either way.
                 UNARMED_SCHEDULES.lock().unwrap().remove(&(w_id, path));
             }
             Err(e) => tracing::error!(
@@ -5494,5 +5510,48 @@ mod retention_overrides_tests {
             .map(|i| (format!("ws_{i}"), json!(3600)))
             .collect();
         assert!(parse_retention_overrides(over_cap).is_err());
+    }
+}
+
+#[cfg(test)]
+mod strike_unarmed_tests {
+    use super::strike_unarmed;
+    use std::collections::{HashMap, HashSet};
+
+    fn key(path: &str) -> (String, String) {
+        ("ws".to_string(), path.to_string())
+    }
+
+    fn set(paths: &[&str]) -> HashSet<(String, String)> {
+        paths.iter().map(|p| key(p)).collect()
+    }
+
+    /// The strike threshold is the only thing keeping the reconciler from racing
+    /// an in-flight push: `push_scheduled_job`'s own `already_exists` guard keys
+    /// on the same columns as the scan, so it is false by construction whenever a
+    /// schedule is found unarmed.
+    #[test]
+    fn rearms_only_after_consecutive_unarmed_passes() {
+        let mut seen = HashMap::new();
+        assert!(strike_unarmed(&mut seen, set(&["a"])).is_empty());
+        assert_eq!(strike_unarmed(&mut seen, set(&["a"])), vec![key("a")]);
+    }
+
+    #[test]
+    fn armed_observation_resets_the_tally() {
+        let mut seen = HashMap::new();
+        assert!(strike_unarmed(&mut seen, set(&["a"])).is_empty());
+        // `a` is armed again on this pass, so its strike must not carry over.
+        assert!(strike_unarmed(&mut seen, set(&[])).is_empty());
+        assert!(strike_unarmed(&mut seen, set(&["a"])).is_empty());
+        assert_eq!(strike_unarmed(&mut seen, set(&["a"])), vec![key("a")]);
+    }
+
+    #[test]
+    fn tallies_are_per_schedule() {
+        let mut seen = HashMap::new();
+        assert!(strike_unarmed(&mut seen, set(&["a"])).is_empty());
+        assert_eq!(strike_unarmed(&mut seen, set(&["a", "b"])), vec![key("a")]);
+        assert_eq!(strike_unarmed(&mut seen, set(&["b"])), vec![key("b")]);
     }
 }

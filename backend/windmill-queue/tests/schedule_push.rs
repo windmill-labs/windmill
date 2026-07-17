@@ -10,7 +10,9 @@ mod schedule_push {
     use windmill_common::scripts::ScriptHash;
     use windmill_common::users::username_to_permissioned_as;
     use windmill_queue::jobs::{try_schedule_next_job, MiniCompletedJob};
-    use windmill_queue::schedule::{find_unarmed_schedules, push_scheduled_job, rearm_schedule};
+    use windmill_queue::schedule::{
+        find_unarmed_schedules, push_scheduled_job, rearm_schedule, RearmOutcome,
+    };
 
     fn make_schedule(overrides: impl FnOnce(&mut Schedule)) -> Schedule {
         let mut s = Schedule {
@@ -1811,10 +1813,28 @@ mod schedule_push {
     async fn test_rearm_schedule_pushes_next_occurrence(db: Pool<Postgres>) -> anyhow::Result<()> {
         insert_schedule(&db, "f/system/test_schedule", "f/system/test_script", true).await;
 
-        rearm_schedule(&db, "test-workspace", "f/system/test_schedule").await?;
+        assert_eq!(
+            rearm_schedule(&db, "test-workspace", "f/system/test_schedule").await?,
+            RearmOutcome::Rearmed
+        );
 
         assert_eq!(count_queued_jobs(&db).await, 1);
         assert!(find_unarmed_schedules(&db).await?.is_empty());
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_rearm_schedule_skips_disabled(db: Pool<Postgres>) -> anyhow::Result<()> {
+        // A disable that lands between the scan and the re-arm must win: pushing an
+        // occurrence for a disabled schedule would resurrect a schedule the user
+        // just turned off.
+        insert_schedule(&db, "f/system/test_schedule", "f/system/test_script", false).await;
+
+        assert_eq!(
+            rearm_schedule(&db, "test-workspace", "f/system/test_schedule").await?,
+            RearmOutcome::NoOp
+        );
+        assert_eq!(count_queued_jobs(&db).await, 0);
         Ok(())
     }
 
@@ -1824,7 +1844,10 @@ mod schedule_push {
 
         // An occurrence that can never be pushed must not be retried forever: the
         // schedule is disabled with the reason surfaced on it.
-        rearm_schedule(&db, "test-workspace", "f/system/bad_schedule").await?;
+        assert_eq!(
+            rearm_schedule(&db, "test-workspace", "f/system/bad_schedule").await?,
+            RearmOutcome::Disabled
+        );
 
         assert_eq!(count_queued_jobs(&db).await, 0);
         let (enabled, error): (bool, Option<String>) = sqlx::query_as(

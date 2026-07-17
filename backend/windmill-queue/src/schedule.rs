@@ -605,6 +605,10 @@ pub async fn push_scheduled_job<'c>(
 /// dies through an abnormal path can skip that push though, leaving the schedule
 /// enabled yet dead until it is manually disabled and re-enabled. This is how the
 /// monitor spots that state; see `rearm_schedule` for the recovery.
+///
+/// Not an authorization boundary: it reports schedules across every workspace, so
+/// this is for system callers (the monitor's reconciliation pass) only and its
+/// result must never be returned to a user unfiltered.
 pub async fn find_unarmed_schedules(db: &DB) -> Result<Vec<(String, String)>> {
     let rows = sqlx::query!(
         // Query plan: the anti-join builds from `v2_job_queue` (only pending and
@@ -626,21 +630,45 @@ pub async fn find_unarmed_schedules(db: &DB) -> Result<Vec<(String, String)>> {
     Ok(rows.into_iter().map(|r| (r.workspace_id, r.path)).collect())
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum RearmOutcome {
+    /// The next occurrence was pushed.
+    Rearmed,
+    /// The occurrence could not be pushed and never will be, so the schedule was
+    /// disabled with the reason recorded on it.
+    Disabled,
+    /// Nothing to do: the schedule was deleted or disabled since it was found.
+    NoOp,
+}
+
 /// Push the next occurrence of a schedule that has none queued.
-pub async fn rearm_schedule(db: &DB, w_id: &str, path: &str) -> Result<()> {
+///
+/// Not an authorization boundary: it pushes under the schedule's own
+/// `permissioned_as` identity and can disable any `(w_id, path)`, so this is for
+/// system callers (the monitor's reconciliation pass) only. A caller acting for a
+/// user MUST already have enforced their permissions on `w_id` and `path`.
+pub async fn rearm_schedule(db: &DB, w_id: &str, path: &str) -> Result<RearmOutcome> {
     let mut tx = db.begin().await?;
-    let Some(schedule) = get_schedule_opt(&mut *tx, w_id, path).await? else {
-        return Ok(());
+    // Lock the row for the whole push: an edit or a disable committing between the
+    // read and the push would otherwise leave a queued occurrence for a schedule
+    // that is disabled, or one built from superseded settings.
+    let schedule = sqlx::query_as::<_, Schedule>(
+        "SELECT workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, args, extra_perms, email, permissioned_as, error, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, on_success, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, summary, description, tag, paused_until, cron_version, dynamic_skip, labels FROM schedule WHERE path = $1 AND workspace_id = $2 FOR UPDATE",
+    )
+    .bind(path)
+    .bind(w_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(schedule) = schedule else {
+        return Ok(RearmOutcome::NoOp);
     };
-    // Re-read inside the transaction: the schedule may have been disabled since
-    // it was found unarmed.
     if !schedule.enabled {
-        return Ok(());
+        return Ok(RearmOutcome::NoOp);
     }
     match push_scheduled_job(db, tx, &schedule, None, None).await {
         Ok(tx) => {
             tx.commit().await?;
-            Ok(())
+            Ok(RearmOutcome::Rearmed)
         }
         // Mirrors try_schedule_next_job: an occurrence that can never be pushed
         // (runnable gone, quota blown) disables the schedule with the reason
@@ -649,15 +677,26 @@ pub async fn rearm_schedule(db: &DB, w_id: &str, path: &str) -> Result<()> {
             tracing::error!(
                 "Could not re-arm schedule {path} in {w_id}: {err}. Disabling schedule."
             );
-            sqlx::query!(
-                "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
+            // The failed push consumed (and rolled back) the tx along with the row
+            // lock, so re-check what the error was about: a schedule since edited
+            // onto a runnable that does exist must not be disabled by a stale
+            // NotFound.
+            let disabled = sqlx::query_scalar!(
+                "UPDATE schedule SET enabled = false, error = $1
+                 WHERE workspace_id = $2 AND path = $3 AND script_path = $4 AND enabled IS TRUE
+                 RETURNING 1",
                 err.to_string(),
                 w_id,
-                path
+                path,
+                &schedule.script_path
             )
-            .execute(db)
+            .fetch_optional(db)
             .await?;
-            Ok(())
+            Ok(if disabled.is_some() {
+                RearmOutcome::Disabled
+            } else {
+                RearmOutcome::NoOp
+            })
         }
         Err(err) => Err(err),
     }
