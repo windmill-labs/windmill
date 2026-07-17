@@ -168,12 +168,17 @@
 	// Mirror the composer: while a turn is streaming, queue it (a second concurrent
 	// sendRequest would race the shared abortController / streaming buffers) — it
 	// auto-sends when the current turn completes.
-	function onInlinePrompt(_selector: string, prompt: string) {
-		// Snapshot the selection synchronously at submit time and send it as the
-		// turn's context, so an element picked during the async send preflight
-		// (immediate path) or before the queue flushes (loading path) can't replace
-		// the element this prompt was scoped to.
-		const snapshot = [...runtime.manager.contextManager.getSelectedContext()]
+	function onInlinePrompt(selector: string, prompt: string) {
+		// Snapshot the selection synchronously at submit time so a re-selection
+		// during the async send preflight (immediate path) or before the queue
+		// flushes (loading path) can't swap the context. Scope the DOM chips to the
+		// anchored element: the inline prompt sits over ONE element, so with several
+		// selected, drop the others (a multi-select would otherwise send every
+		// selector and the model couldn't tell which one the prompt is about).
+		// Non-DOM context is kept.
+		const snapshot = runtime.manager.contextManager
+			.getSelectedContext()
+			.filter((c) => c.type !== 'app_dom_selector' || c.selector === selector)
 		if (runtime.manager.loading) {
 			runtime.manager.queueMessage(prompt, snapshot)
 		} else {
