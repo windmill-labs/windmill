@@ -78,7 +78,7 @@ function createChatStore(db: IDBPDatabase<ChatSchema>): void {
 	}
 }
 
-/** All image-blob primary keys for a chat, oldest first (index is [chatId, savedAt]). */
+/** All image-blob primary keys owned by a chat (via the [chatId, savedAt] index). */
 function imageKeysForChat(db: IDBPDatabase<ChatSchema>, chatId: string) {
 	return db.getAllKeysFromIndex(
 		'images',
@@ -209,10 +209,6 @@ export default class HistoryManager {
 			if (!key.startsWith(prefix)) this.imageIdByUrl.delete(key)
 		}
 	}
-	// Blobs written in one burst share a Date.now() millisecond; savedAt is the
-	// cap's eviction order, so force it strictly monotonic (ties would break by
-	// random uuid, evicting an arbitrary blob instead of the oldest).
-	private lastImageSavedAt = 0
 
 	private pastChats = $derived(
 		Object.values(this.savedChats)
@@ -289,15 +285,19 @@ export default class HistoryManager {
 	 * Swap every inline image (data URL) in the given message arrays for a
 	 * `wm-image:<id>` ref, mutating them in place — callers pass the snapshot
 	 * that goes to IndexedDB, never live chat state. Returns the id → dataUrl
-	 * map of every image the arrays reference (persistImageBlobs skips the ones
-	 * already stored).
+	 * map of every image the arrays reference, plus every reference in walk
+	 * order — persistImageBlobs ranks ids by their newest reference, so the
+	 * transcript walks FIRST: it is always whole and chronological, while
+	 * drop-oldest compaction removes old API messages, which would misorder a
+	 * dropped message's still-displayed image.
 	 */
 	private dehydrateImages(
 		chatId: string,
 		actualMessages: ChatCompletionMessageParam[],
 		displayMessages: DisplayMessage[]
-	): Map<string, string> {
+	): { blobs: Map<string, string>; refs: string[] } {
 		const blobs = new Map<string, string>()
+		const refs: string[] = []
 		const refFor = (dataUrl: string): string => {
 			const key = this.imageIdKey(chatId, dataUrl)
 			let id = this.imageIdByUrl.get(key)
@@ -306,15 +306,9 @@ export default class HistoryManager {
 				this.imageIdByUrl.set(key, id)
 			}
 			blobs.set(id, dataUrl)
+			refs.push(id)
 			return IMAGE_REF_PREFIX + id
 		}
-		// The map's insertion order is the cap's notion of image age (see
-		// persistImageBlobs), so the transcript walks FIRST: it is always whole
-		// and chronological, while drop-oldest compaction removes old API
-		// messages — walking those first would slot a dropped message's
-		// still-displayed image after the API tail, aging newer images past it.
-		// Shared data URLs (bubble/tool card ↔ API part) keep the transcript's
-		// position on the later walk (Map.set on an existing key doesn't move it).
 		for (const message of displayMessages) {
 			if (message.role === 'user' && message.images) {
 				for (const image of message.images) {
@@ -332,33 +326,37 @@ export default class HistoryManager {
 				}
 			}
 		}
-		return blobs
+		return { blobs, refs }
 	}
 
-	/** Write-once blob persistence, capped to the newest per chat so an
-	 *  image-heavy conversation can't grow the store unbounded (an evicted
-	 *  blob's refs hydrate to the omitted-image placeholder). */
+	/**
+	 * Make the chat's stored blobs exactly the record's newest
+	 * MAX_IMAGES_PER_CHAT distinct images: rank ids by their LAST reference in
+	 * the record, write the kept ones that are missing, delete everything else
+	 * the chat owns. The saved record is the single source of truth — deriving
+	 * the whole set from it (rather than from persisted write times) keeps
+	 * eviction deterministic and idempotent when turns are truncated, identical
+	 * bytes are re-attached, or compaction rewrites the arrays. A ref outside
+	 * the kept set hydrates to the omitted-image placeholder.
+	 */
 	private async persistImageBlobs(
 		db: IDBPDatabase<ChatSchema>,
 		chatId: string,
-		blobs: Map<string, string>
+		blobs: Map<string, string>,
+		refs: string[]
 	) {
-		if (blobs.size === 0) return
-		// Only the newest MAX_IMAGES_PER_CHAT referenced blobs are eligible for
-		// writing (dehydrateImages orders the map chronologically). Older refs
-		// are left dangling deliberately: re-putting
-		// a blob the cap already evicted would stamp it newest and push the next
-		// eviction onto a NEWER image — repeated saves of an over-cap chat would
-		// rotate the hole toward the latest attachment.
-		for (const [id, dataUrl] of [...blobs].slice(-MAX_IMAGES_PER_CHAT)) {
-			if ((await db.getKey('images', id)) === undefined) {
-				this.lastImageSavedAt = Math.max(Date.now(), this.lastImageSavedAt + 1)
-				await db.put('images', { id, chatId, dataUrl, savedAt: this.lastImageSavedAt })
+		const keep = new Set<string>()
+		for (let i = refs.length - 1; i >= 0 && keep.size < MAX_IMAGES_PER_CHAT; i--) {
+			keep.add(refs[i])
+		}
+		for (const id of keep) {
+			const dataUrl = blobs.get(id)
+			if (dataUrl !== undefined && (await db.getKey('images', id)) === undefined) {
+				await db.put('images', { id, chatId, dataUrl, savedAt: Date.now() })
 			}
 		}
-		const keys = await imageKeysForChat(db, chatId)
-		for (const key of keys.slice(0, Math.max(0, keys.length - MAX_IMAGES_PER_CHAT))) {
-			await db.delete('images', key)
+		for (const key of await imageKeysForChat(db, chatId)) {
+			if (!keep.has(key)) await db.delete('images', key)
 		}
 	}
 
@@ -471,7 +469,7 @@ export default class HistoryManager {
 			}
 			// The snapshot (and the savedChats copy below, which mirrors what the DB
 			// holds) keeps refs; the caller's live arrays keep their data URLs.
-			const blobs = this.dehydrateImages(
+			const { blobs, refs } = this.dehydrateImages(
 				updatedChat.id,
 				updatedChat.actualMessages,
 				updatedChat.displayMessages
@@ -485,7 +483,7 @@ export default class HistoryManager {
 			if (db) {
 				// Blobs land before the record that references them, so a failed write
 				// cannot leave a saved chat pointing at bytes that never made it.
-				await this.persistImageBlobs(db, updatedChat.id, blobs)
+				await this.persistImageBlobs(db, updatedChat.id, blobs, refs)
 				await db.put('chats', updatedChat)
 			}
 		}

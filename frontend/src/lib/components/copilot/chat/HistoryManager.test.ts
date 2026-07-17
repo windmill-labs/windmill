@@ -205,6 +205,74 @@ describe('HistoryManager legacy chat-history migration', () => {
 		expect((chat?.displayMessages[30] as any).images[0].dataUrl).toBe(urlFor(30))
 	})
 
+	it('truncated turns release their blobs from the cap', async () => {
+		const hm = new HistoryManager()
+		await hm.init()
+		const chatId = hm.getCurrentChatId()
+		const urlFor = (i: number) => `data:image/png;base64,IMG${String(i).padStart(2, '0')}`
+		const imageMsg = (i: number) =>
+			({
+				role: 'user',
+				content: [{ type: 'image_url', image_url: { url: urlFor(i) } }]
+			}) as ChatCompletionMessageParam
+		const display = [{ role: 'user', content: 'x' }] as DisplayMessage[]
+		// Fill the cap exactly, then retry/edit truncates the tail to 5 messages
+		// and adds one replacement image. The truncated turns' blobs must stop
+		// counting against the cap — image 0 is among the newest 6 *referenced*
+		// images and must survive.
+		await hm.saveChat(
+			display,
+			Array.from({ length: 30 }, (_, i) => imageMsg(i))
+		)
+		await hm.saveChat(display, [...Array.from({ length: 5 }, (_, i) => imageMsg(i)), imageMsg(99)])
+
+		const db = await openDB('copilot-chat-history::admin@test')
+		expect(await db.count('images' as never)).toBe(6)
+		db.close()
+
+		const reloaded = new HistoryManager()
+		await reloaded.init()
+		const chat = await reloaded.loadPastChat(chatId)
+		expect((chat?.actualMessages[0].content as any[])[0].image_url.url).toBe(urlFor(0))
+		expect((chat?.actualMessages[5].content as any[])[0].image_url.url).toBe(urlFor(99))
+	})
+
+	it('re-attaching identical bytes ranks the image by its newest reference', async () => {
+		const hm = new HistoryManager()
+		await hm.init()
+		const chatId = hm.getCurrentChatId()
+		const urlFor = (i: number) => `data:image/png;base64,IMG${String(i).padStart(2, '0')}`
+		const imageMsg = (url: string) =>
+			({
+				role: 'user',
+				content: [{ type: 'image_url', image_url: { url } }]
+			}) as ChatCompletionMessageParam
+		const display = [{ role: 'user', content: 'x' }] as DisplayMessage[]
+		const reused = 'data:image/png;base64,REUSED'
+		// The reused image appears first, 30 distinct images follow, then it is
+		// attached again. Its newest reference makes it one of the newest 30
+		// distinct images, so the eviction must land on the oldest of the middle
+		// ones — not on the image the user just re-attached.
+		const messages = [
+			imageMsg(reused),
+			...Array.from({ length: 30 }, (_, i) => imageMsg(urlFor(i))),
+			imageMsg(reused)
+		]
+		await hm.saveChat(display, [messages[0]])
+		await hm.saveChat(display, messages)
+
+		const reloaded = new HistoryManager()
+		await reloaded.init()
+		const chat = await reloaded.loadPastChat(chatId)
+		expect((chat?.actualMessages[0].content as any[])[0].image_url.url).toBe(reused)
+		expect((chat?.actualMessages[31].content as any[])[0].image_url.url).toBe(reused)
+		expect((chat?.actualMessages[1].content as any[])[0]).toEqual({
+			type: 'text',
+			text: '[image omitted]'
+		})
+		expect((chat?.actualMessages[2].content as any[])[0].image_url.url).toBe(urlFor(1))
+	})
+
 	it('the same image in two chats gets two owned blobs; deleting one chat spares the other', async () => {
 		const png = 'data:image/png;base64,SHAREDBYTES'
 		const display = [
