@@ -70,6 +70,41 @@
 	// iframe context and refuse to mount when embedded.
 	const embedded = typeof window !== 'undefined' && window.self !== window.top
 
+	// Warm the lazily-loaded editor views (see PreviewTabHost) once the page is
+	// idle: entering session mode stays instant, and by the time the user opens
+	// an editor tab its chunk is usually already cached. Sequential so the
+	// prefetch trickles instead of fanning out four heavy graphs at once.
+	$effect(() => {
+		if (embedded || !globalEnabled) return
+		// Once the chain has started, cancelling the idle handle no longer helps —
+		// the disposed check between imports is what stops a user who left session
+		// mode from pulling the remaining graphs on whatever page they went to.
+		// (An import already in flight can't be aborted; only the tail is skipped.)
+		let disposed = false
+		const prefetch = async () => {
+			const loaders = [
+				() => import('$lib/components/sessions/ScriptEditorView.svelte'),
+				() => import('$lib/components/sessions/FlowEditorView.svelte'),
+				() => import('$lib/components/sessions/RawAppEditorView.svelte'),
+				() => import('$lib/components/sessions/PipelineEditorView.svelte')
+			]
+			for (const load of loaders) {
+				if (disposed) return
+				await load()
+			}
+		}
+		// Best-effort warming: swallow chunk-load failures — the {#await} on the
+		// actual open path surfaces (and retries) them.
+		const run = () => void prefetch().catch(() => {})
+		const hasIdle = 'requestIdleCallback' in window
+		const handle = hasIdle ? window.requestIdleCallback(run) : window.setTimeout(run, 2000)
+		return () => {
+			disposed = true
+			if (hasIdle) window.cancelIdleCallback(handle)
+			else window.clearTimeout(handle)
+		}
+	})
+
 	const sessionName = $derived(page.url.searchParams.get('session_name') ?? '')
 
 	// Unfiltered resolution by name — drives the "session not found" fallback and
