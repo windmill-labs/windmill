@@ -3,6 +3,7 @@ import type { ChatJob, DisplayMessage } from './shared'
 import { expanded, messageDraft } from './chatDraft'
 import { createLongHash } from '$lib/editorLangUtils'
 import { userScopedDb, type UserScopedDbMigrateDeps } from '$lib/userScopedDb'
+import { scopedKey } from '$lib/userScopedStorage'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 import type { PersistedContextUsage } from './tokenUsage'
 import { IMAGE_OMITTED_PLACEHOLDER, type AttachedImage } from './imageUtils'
@@ -209,8 +210,19 @@ export default class HistoryManager {
 	// wedging the queue.
 	private dbWriteQueue: Promise<unknown> = Promise.resolve()
 
-	private enqueueDbWrite<T>(op: () => Promise<T>): Promise<T> {
-		const run = this.dbWriteQueue.then(op, op)
+	private enqueueDbWrite<T>(op: (db: IDBPDatabase<ChatSchema>) => Promise<T>): Promise<T | void> {
+		// A write belongs to the user who initiated it: capture the scoped DB name
+		// now and skip execution if the logged-in user changed while queued —
+		// resolving the handle only at execution time would write this user's chat
+		// into the NEXT user's database on an in-place account switch.
+		const name = scopedKey(DB_NAME)
+		const exec = async () => {
+			if (!name || scopedKey(DB_NAME) !== name) return
+			const db = await this.dbh.whenReady()
+			if (!db || db.name !== name) return
+			return op(db)
+		}
+		const run = this.dbWriteQueue.then(exec, exec)
 		this.dbWriteQueue = run.catch(() => {})
 		return run
 	}
@@ -274,12 +286,7 @@ export default class HistoryManager {
 		const snapshot = $state.snapshot(existing)
 		const updated = { ...snapshot, sessionId }
 		this.savedChats = { ...this.savedChats, [chatId]: updated }
-		await this.enqueueDbWrite(async () => {
-			// Resolve the DB via the handle (not a cached ref) so a write always
-			// lands in the current user's DB, even after an in-place user switch.
-			const db = await this.dbh.whenReady()
-			if (db) await db.put('chats', updated)
-		})
+		await this.enqueueDbWrite((db) => db.put('chats', updated))
 	}
 
 	getPastChats() {
@@ -496,9 +503,7 @@ export default class HistoryManager {
 				[updatedChat.id]: updatedChat
 			}
 
-			await this.enqueueDbWrite(async () => {
-				const db = await this.dbh.whenReady()
-				if (!db) return
+			await this.enqueueDbWrite(async (db) => {
 				// Blobs land before the record that references them, so a failed write
 				// cannot leave a saved chat pointing at bytes that never made it.
 				await this.persistImageBlobs(db, updatedChat.id, blobs, refs)
@@ -523,9 +528,7 @@ export default class HistoryManager {
 		this.savedChats = Object.fromEntries(
 			Object.entries(this.savedChats).filter(([key]) => key !== id)
 		)
-		void this.enqueueDbWrite(async () => {
-			const db = await this.dbh.whenReady()
-			if (!db) return
+		void this.enqueueDbWrite(async (db) => {
 			await db.delete('chats', id)
 			const keys = await imageKeysForChat(db, id)
 			await Promise.all(keys.map((key) => db.delete('images', key)))

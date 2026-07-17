@@ -389,6 +389,32 @@ describe('HistoryManager legacy chat-history migration', () => {
 		expect((chat?.displayMessages[0] as any).images[0].dataUrl).toBe(png)
 	})
 
+	it('drops queued writes when the user switches before they execute (no cross-user leak)', async () => {
+		const hm = new HistoryManager()
+		await hm.init()
+		const display = [
+			{
+				role: 'user',
+				content: 'private to A',
+				images: [{ dataUrl: 'data:image/png;base64,LEAKBYTES', mediaType: 'image/png' }]
+			}
+		] as DisplayMessage[]
+		// Enqueue two writes under user A, then switch identity before either
+		// executes. Resolving the DB handle at execution time would write A's
+		// chat and image blob into B's database.
+		const first = hm.saveChat(display, [] as ChatCompletionMessageParam[])
+		const second = hm.saveChat(display, [] as ChatCompletionMessageParam[])
+		userStore.set(asUser('other@test'))
+		await Promise.all([first, second])
+
+		const db = await openDB('copilot-chat-history::other@test')
+		const chats = db.objectStoreNames.contains('chats') ? await db.count('chats' as never) : 0
+		const images = db.objectStoreNames.contains('images') ? await db.count('images' as never) : 0
+		db.close()
+		expect(chats).toBe(0)
+		expect(images).toBe(0)
+	})
+
 	it('writes land in the current user DB after an in-place user switch', async () => {
 		const hm = new HistoryManager()
 		await hm.init()
