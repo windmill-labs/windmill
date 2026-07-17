@@ -604,6 +604,21 @@ describe('AIChatManager autonomy mode', () => {
 		expect(setToolStatus).toHaveBeenCalledWith('call_exit', { planArtifactId: 'artifact-1' })
 	})
 
+	it('switching to YOLO approves the plan, keeps its document, and holds full autonomy', async () => {
+		const manager = planningManager()
+		await proposePlan(manager, '# Add retries\n\nStep one.')
+		const exitConfirmed = manager.requestConfirmation('call_exit', 'exit_plan_mode')
+
+		manager.setAutonomyMode(AIAutonomyMode.YOLO)
+
+		expect(await exitConfirmed).toBe(true)
+		await callExitPlanMode(manager, '# Add retries\n\nStep one.')
+		// fn must not restore a pre-plan posture over the autonomy the user just chose.
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.YOLO)
+		expect(manager.artifacts.remove).not.toHaveBeenCalled()
+		expect(manager.closeArtifact).not.toHaveBeenCalled()
+	})
+
 	it('restores the posture and claims no document when saving the plan fails', async () => {
 		const manager = planningManager()
 		manager.artifacts.create = vi.fn(async () => {

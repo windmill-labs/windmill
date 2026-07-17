@@ -1297,7 +1297,8 @@ export class AIChatManager {
 		if (enteringPlan) {
 			this.resolvePendingPlanCard('enter_plan_mode', true)
 		} else if (leavingPlan) {
-			this.resolvePendingPlanCard('exit_plan_mode', false)
+			// Opting into YOLO means "run it"; leaving plan mode any other way is not a sign-off.
+			this.resolvePendingPlanCard('exit_plan_mode', mode === AIAutonomyMode.YOLO)
 		}
 		if (this.autoAcceptToolConfirmationsActive) {
 			this.acceptPendingToolConfirmations()
