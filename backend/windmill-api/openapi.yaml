@@ -847,7 +847,7 @@ paths:
 
   /w/{workspace}/users/delete/{username}:
     delete:
-      summary: delete user (require admin privilege)
+      summary: delete user (require admin privilege, except for the creator of a fork removing a non-admin member of the fork)
       operationId: deleteUser
       tags:
         - user
@@ -3026,7 +3026,7 @@ paths:
 
   /w/{workspace}/workspaces/add_user:
     post:
-      summary: add user to workspace
+      summary: add user to workspace (require admin privilege, except for the creator of a fork adding a developer/admin of its parent workspace as a developer of the fork)
       operationId: addUser
       tags:
         - workspace

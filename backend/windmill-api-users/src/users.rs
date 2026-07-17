@@ -1850,14 +1850,52 @@ pub async fn delete_workspace_user_internal(
     Ok(())
 }
 
+/// Non-admin path for `delete_workspace_user`: the creator of a fork may remove non-admin members
+/// from the fork they created, so that adding the wrong collaborator is theirs to undo rather than
+/// an admin's. Never on a root workspace, and never against an admin of the fork — the counterpart
+/// of the add grant, whose bounds are spelled out on `add_user` in `windmill-api-workspaces`.
+async fn authorize_fork_owner_delete_user(
+    db: &DB,
+    w_id: &str,
+    authed: &ApiAuthed,
+    username_to_delete: &str,
+) -> Result<()> {
+    if windmill_common::workspaces::fork_owned_by(db, w_id, &authed.email)
+        .await?
+        .is_none()
+    {
+        return Err(Error::RequireAdmin(authed.username.clone()));
+    }
+
+    let target_is_admin = sqlx::query_scalar!(
+        "SELECT is_admin FROM usr WHERE workspace_id = $1 AND username = $2",
+        w_id,
+        username_to_delete,
+    )
+    .fetch_optional(db)
+    .await?
+    .unwrap_or(false);
+
+    if target_is_admin {
+        return Err(Error::PermissionDenied(format!(
+            "as the creator of fork {w_id} you cannot remove {username_to_delete}, who is an admin \
+             of it"
+        )));
+    }
+
+    Ok(())
+}
+
 async fn delete_workspace_user(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, username_to_delete)): Path<(String, String)>,
 ) -> Result<String> {
-    let mut tx = db.begin().await?;
+    if !authed.is_admin {
+        authorize_fork_owner_delete_user(&db, &w_id, &authed, &username_to_delete).await?;
+    }
 
-    require_admin(authed.is_admin, &authed.username)?;
+    let mut tx = db.begin().await?;
 
     let email_to_delete_o = sqlx::query_scalar!(
         "SELECT email FROM usr where username = $1 AND workspace_id = $2",

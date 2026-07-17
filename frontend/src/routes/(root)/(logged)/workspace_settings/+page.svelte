@@ -15,6 +15,7 @@
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceUserSettings from '$lib/components/settings/WorkspaceUserSettings.svelte'
+	import ForkMemberSettings from '$lib/components/settings/ForkMemberSettings.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
 	import { WORKSPACE_SHOW_SLACK_CMD, WORKSPACE_SHOW_WEBHOOK_CLI_SYNC } from '$lib/consts'
 	import {
@@ -339,8 +340,22 @@
 			encryptionKeyValidationError = validation.error
 		}
 	})
+	const currentWorkspace = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
+	const canAdmin = $derived(($userStore?.is_admin ?? false) || Boolean($superadmin))
+	// The creator of a fork gets the fork members screen even when they are not an admin of it:
+	// their `usr` row is copied from the parent, so forking as an ordinary developer leaves them
+	// unable to bring anyone in to collaborate. Nothing else on this page opens up — the backend
+	// only grants them developer memberships on the fork they created.
+	const isForkOwner = $derived(
+		Boolean(currentWorkspace?.parent_workspace_id) &&
+			currentWorkspace?.created_by === $userStore?.email
+	)
+
 	// All state derived from URL - no local state needed
 	let tab = $derived.by(() => {
+		if (!canAdmin) {
+			return 'users' as const
+		}
 		const selectedTab = $page.url.searchParams.get('tab') as
 			| 'users'
 			| 'slack'
@@ -764,6 +779,12 @@
 	$effect(() => {
 		if ($workspaceStore) {
 			untrack(() => {
+				// `getSettings` and the OAuth config are admin-only and carry integration secrets. A fork
+				// creator reaches this page for the members screen alone, which needs none of them.
+				if (!canAdmin) {
+					loadedSettings = true
+					return
+				}
 				loadSettings()
 				loadSlackOAuthConfig()
 				loadGlobalOAuthSettings()
@@ -1117,13 +1138,12 @@
 	// The Dev workspace tab is only meaningful on a root workspace (to pair/manage a dev) or on a
 	// dev workspace itself (to see its prod / detach). Hide it for ordinary forks — pairing isn't
 	// available there and the backend would reject it.
-	const currentWsForDevTab = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
 	const showDevWorkspaceTab = $derived(
-		!currentWsForDevTab?.parent_workspace_id || (currentWsForDevTab?.is_dev_workspace ?? false)
+		!currentWorkspace?.parent_workspace_id || (currentWorkspace?.is_dev_workspace ?? false)
 	)
 
 	// Navigation groups for sidebar
-	const navigationGroups = $derived([
+	const adminNavigationGroups = $derived([
 		{
 			items: [
 				{
@@ -1300,10 +1320,29 @@
 			]
 		}
 	])
+
+	// A fork's creator manages its members through the same screen, but nothing else about the
+	// workspace is theirs to change, so they get the Members entry alone.
+	const navigationGroups = $derived(
+		canAdmin
+			? adminNavigationGroups
+			: [
+					{
+						items: [
+							{
+								id: 'users',
+								label: 'Members',
+								aiId: 'workspace-settings-users',
+								aiDescription: 'Members of the fork you created'
+							}
+						]
+					}
+				]
+	)
 </script>
 
 <CenteredPage wrapperClasses="pb-0 h-screen" handleOverflow={false} class="flex flex-col h-full">
-	{#if $userStore?.is_admin || $superadmin}
+	{#if canAdmin || isForkOwner}
 		<PageHeader title="Workspace settings: {$workspaceStore}">
 			{#snippet titleActions()}
 				{#if $workspaceStore}
@@ -1338,7 +1377,11 @@
 						{#if !loadedSettings}
 							<Skeleton layout={[1, [40]]} />
 						{:else if tab == 'users'}
-							<WorkspaceUserSettings />
+							{#if canAdmin}
+								<WorkspaceUserSettings />
+							{:else}
+								<ForkMemberSettings />
+							{/if}
 						{:else if tab == 'deploy_to'}
 							<SettingsPageHeader
 								title="Link this workspace to another staging / prod workspace"
@@ -1382,9 +1425,9 @@
 							/>
 							<WorkspaceRulesets />
 						{:else if tab == 'premium'}
-							{#if currentWsForDevTab?.parent_workspace_id}
+							{#if currentWorkspace?.parent_workspace_id}
 								<Alert type="info" title="Billing is managed on the parent workspace">
-									This workspace is a fork of <b>{currentWsForDevTab.parent_workspace_id}</b>. It
+									This workspace is a fork of <b>{currentWorkspace.parent_workspace_id}</b>. It
 									runs on the parent's plan and its executions count toward the parent's usage and
 									bill, so there is no separate subscription here. Manage billing, seats, and quotas
 									from the parent workspace's settings.

@@ -652,6 +652,30 @@ pub async fn fork_subtree_height(db: &crate::DB, w_id: &str) -> Result<i64> {
     Ok(height)
 }
 
+/// Parent id of `w_id` when `email` is the creator of that fork, `None` otherwise (including for a
+/// root workspace, which has no creator in this sense).
+///
+/// The creator is recorded as `workspace.owner`, but the `usr` row they get in the fork is copied
+/// from the parent — so a forker who is not an admin of the parent is not an admin of the fork they
+/// just created either, and cannot bring anyone in to work on it. Being the creator therefore grants
+/// a narrow membership right over the fork; the callers own the exact bounds of that grant (see
+/// `add_user` in `windmill-api-workspaces`).
+///
+/// Unauthenticated helper: reads workspace hierarchy for any `w_id`, so callers must already be
+/// authorized for that workspace (or run in trusted server-side code).
+pub async fn fork_owned_by(db: &crate::DB, w_id: &str, email: &str) -> Result<Option<String>> {
+    let parent = sqlx::query_scalar!(
+        "SELECT parent_workspace_id FROM workspace
+         WHERE id = $1 AND owner = $2 AND parent_workspace_id IS NOT NULL AND NOT deleted",
+        w_id,
+        email
+    )
+    .fetch_optional(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("checking fork ownership of {w_id}: {e:#}")))?;
+    Ok(parent.flatten())
+}
+
 /// Ids of every fork/dev workspace anywhere under `w_id` (excludes `w_id` itself), including live
 /// descendants beneath a soft-deleted intermediate. Used to invalidate per-workspace caches for a
 /// whole subtree after its ancestor is reparented.
