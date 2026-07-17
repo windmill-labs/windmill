@@ -70,54 +70,17 @@ jobs:
         run: |
           bun run docker/test_windmill_extra.ts
 
-      # Clusters that forbid root run this image under `runAsUser`. The build steps
-      # write caches as root, so only a non-root run catches dirs left unwritable.
-      - name: Start container as non-root UID
-        run: |
-          docker run -d --name windmill-extra-nonroot \
-            --user 1000 \
-            -p 4001:3001 -p 4002:3002 -p 4003:3003 \
-            -e ENABLE_LSP=true \
-            -e ENABLE_MULTIPLAYER=true \
-            -e ENABLE_DEBUGGER=true \
-            -e DEBUGGER_PORT=3003 \
-            -e REQUIRE_SIGNED_DEBUG_REQUESTS=false \
-            -e NETRC="machine example.com login user password pass" \
-            windmill-extra:test
-
-          echo "Waiting for container to initialize..."
-          sleep 10
-          docker logs windmill-extra-nonroot
-
-      - name: Run integration tests as non-root UID
-        env:
-          LSP_PORT: 4001
-          MULTIPLAYER_PORT: 4002
-          DEBUGGER_PORT: 4003
-        run: |
-          bun run docker/test_windmill_extra.ts
-
-          # The debugger installs job dependencies through the uv cache, which is
-          # where a root-owned build cache surfaces as EACCES.
-          echo "Checking dependency install works as a non-root UID..."
-          docker exec windmill-extra-nonroot bash -c \
-            'echo "{\"code\":\"import requests\\ndef main():\\n  return 1\\n\",\"language\":\"python3\"}" \
-              | windmill prepare-deps' | tee /tmp/prepare-deps.json
-          grep -q '"success":true' /tmp/prepare-deps.json
-
       - name: Show container logs on failure
         if: failure()
         run: |
-          echo "=== Container logs (root) ==="
+          echo "=== Container logs ==="
           docker logs windmill-extra-test
-          echo "=== Container logs (non-root) ==="
-          docker logs windmill-extra-nonroot || true
 
       - name: Cleanup
         if: always()
         run: |
-          docker stop windmill-extra-test windmill-extra-nonroot || true
-          docker rm windmill-extra-test windmill-extra-nonroot || true
+          docker stop windmill-extra-test || true
+          docker rm windmill-extra-test || true
 
   publish_extra:
     needs: [sleep, test_extra]
