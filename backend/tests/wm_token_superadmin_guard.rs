@@ -364,3 +364,51 @@ async fn test_wm_token_rejected_by_require_devops_role(db: Pool<Postgres>) -> an
 
     Ok(())
 }
+
+/// A job token must not clear an *admin-or-devops* gate via the devops branch.
+/// `require_admin_or_devops` (the EE critical-alerts endpoints) grants when the
+/// caller is a workspace admin OR an instance `devops`; since `is_devops_email`
+/// is true for superadmins, a WM_TOKEN running on-behalf of a superadmin who is
+/// NOT a member of the target workspace would otherwise gain workspace-scoped
+/// devops access to a workspace it has no admin rights in (GHSA-hfh4-cx4h-3fcr).
+/// The workspace-admin branch stays allowed — that is the cap ceiling.
+#[cfg(feature = "enterprise")]
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_wm_token_rejected_by_admin_or_devops_gate(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    set_jwt_secret().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/workspaces");
+
+    // superadmin-external is a superadmin but not a member of test-workspace, so
+    // its workspace-level is_admin is false — the exact exploit precondition.
+    let sa_wm = wm_token("superadmin-external@windmill.dev", false).await;
+    let resp = authed(client().get(format!("{base}/critical_alerts")), &sa_wm)
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "superadmin WM_TOKEN must not clear the admin-or-devops gate on a workspace it isn't admin of: {}",
+        resp.text().await?
+    );
+
+    // No false positive: the same superadmin's real API token (not a job token)
+    // still clears the gate via the devops branch.
+    let resp = authed(
+        client().get(format!("{base}/critical_alerts")),
+        "EXTERNAL_SUPERADMIN_TOKEN",
+    )
+    .send()
+    .await?;
+    assert_ne!(
+        resp.status(),
+        403,
+        "a real superadmin token must still clear the admin-or-devops gate: {}",
+        resp.text().await?
+    );
+
+    Ok(())
+}
