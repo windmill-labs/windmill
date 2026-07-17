@@ -76,6 +76,9 @@ const AF_UNIX_PATH_LIMIT: usize = 107;
 /// in.
 const PERSISTENT_CONTROL_PATH_ROOT: &str = "/tmp/wm-pc";
 
+/// Ansible's env var for `[persistent_connection] control_path_dir`.
+const ANSIBLE_CONTROL_PATH_DIR_ENV: &str = "ANSIBLE_PERSISTENT_CONTROL_PATH_DIR";
+
 /// The budget this whole change exists to protect: root + `/` + a 32-char job uuid + `/` +
 /// a socket name, allowing a full 40-char sha1 (ansible truncates it far shorter today, but
 /// a custom control path may not).
@@ -1226,6 +1229,7 @@ async fn build_ansible_cfg_override_envs(
     vault_password_file_exists: bool,
     reqs: Option<&AnsibleRequirements>,
     job_id: &Uuid,
+    job_envs: &HashMap<String, String>,
 ) -> error::Result<Vec<(String, String)>> {
     let mut envs = vec![
         ("ANSIBLE_CONFIG".to_string(), cfg_path.to_string()),
@@ -1274,10 +1278,14 @@ async fn build_ansible_cfg_override_envs(
     })?;
 
     // Persistent-connection socket dir: only a default. Unlike ANSIBLE_HOME this value is
-    // not runtime-bound, so a repo that picks its own dir keeps it.
-    if !ansible_cfg_declares(&cfg_content, "persistent_connection", "control_path_dir") {
+    // not runtime-bound, so a repo that picks its own dir keeps it — and so does a job that
+    // sets the env var itself, which these overrides are applied after and would otherwise
+    // silently outrank.
+    if !ansible_cfg_declares(&cfg_content, "persistent_connection", "control_path_dir")
+        && !job_envs.contains_key(ANSIBLE_CONTROL_PATH_DIR_ENV)
+    {
         if let Some(dir) = persistent_control_path_dir(job_id) {
-            envs.push(("ANSIBLE_PERSISTENT_CONTROL_PATH_DIR".to_string(), dir));
+            envs.push((ANSIBLE_CONTROL_PATH_DIR_ENV.to_string(), dir));
         }
     }
 
@@ -1858,6 +1866,7 @@ pub async fn handle_ansible_job(
                 vault_password_file_exists,
                 reqs.as_ref(),
                 &job.id,
+                &envs,
             )
             .await?
         }
@@ -2171,6 +2180,10 @@ async fn get_resource_or_variable_content(
 mod tests {
     use super::*;
 
+    fn no_job_envs() -> HashMap<String, String> {
+        HashMap::new()
+    }
+
     fn args_from_json(v: serde_json::Value) -> HashMap<String, Box<RawValue>> {
         let serde_json::Value::Object(map) = v else {
             panic!("expected object");
@@ -2449,6 +2462,7 @@ collections_path : a/col:b/col
             false,
             None,
             &Uuid::new_v4(),
+            &no_job_envs(),
         )
         .await
         .unwrap();
@@ -2479,9 +2493,16 @@ collections_path : a/col:b/col
         let job_id = Uuid::new_v4();
         let flag = TrustFlag::lock();
         flag.set(true);
-        let envs = build_ansible_cfg_override_envs(cfg_path, job_dir, true, Some(&reqs), &job_id)
-            .await
-            .unwrap();
+        let envs = build_ansible_cfg_override_envs(
+            cfg_path,
+            job_dir,
+            true,
+            Some(&reqs),
+            &job_id,
+            &no_job_envs(),
+        )
+        .await
+        .unwrap();
         let map: std::collections::HashMap<_, _> = envs.into_iter().collect();
 
         assert_eq!(
@@ -2538,6 +2559,7 @@ collections_path : a/col:b/col
             false,
             None,
             &Uuid::new_v4(),
+            &no_job_envs(),
         )
         .await
         .unwrap();
@@ -2545,6 +2567,42 @@ collections_path : a/col:b/col
         assert_eq!(
             map.get("ANSIBLE_COLLECTIONS_PATH"),
             Some(&format!("{job_dir}:{}/my_cols", repo_dir.to_str().unwrap()))
+        );
+    }
+
+    /// These overrides are applied after the job's own env, so a default that ignores what
+    /// the job set would silently outrank it. Not runtime-bound, so the job wins.
+    #[tokio::test]
+    async fn test_build_ansible_cfg_override_envs_keeps_job_env_control_path_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let job_dir = dir.path().to_str().unwrap();
+        let repo_dir = dir.path().join(DELEGATE_GIT_REPO_TARGET);
+        std::fs::create_dir_all(&repo_dir).unwrap();
+        let cfg_path = repo_dir.join("ansible.cfg");
+        // Cfg is silent on control_path_dir; the job env is not.
+        std::fs::write(&cfg_path, "[defaults]\nroles_path = my_roles\n").unwrap();
+
+        let job_envs = HashMap::from([(
+            ANSIBLE_CONTROL_PATH_DIR_ENV.to_string(),
+            "/tmp/job-picked".to_string(),
+        )]);
+
+        let flag = TrustFlag::lock();
+        flag.set(true);
+        let envs = build_ansible_cfg_override_envs(
+            cfg_path.to_str().unwrap(),
+            job_dir,
+            false,
+            None,
+            &Uuid::new_v4(),
+            &job_envs,
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            !envs.iter().any(|(k, _)| k == ANSIBLE_CONTROL_PATH_DIR_ENV),
+            "must not override a control_path_dir the job set itself"
         );
     }
 
@@ -2567,6 +2625,7 @@ collections_path : a/col:b/col
             false,
             None,
             &Uuid::new_v4(),
+            &no_job_envs(),
         )
         .await
         .unwrap();
