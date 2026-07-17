@@ -2194,10 +2194,11 @@ export class AIChatManager {
 		if (requestedImages.length > 0 && modelIsBlind) {
 			// An image-only message has nothing left once the images are dropped —
 			// put them back in the composer instead of silently discarding them
-			// (the input already cleared itself optimistically on send).
+			// (the input already cleared itself optimistically on send). Queued
+			// drafts are the caller's to restore (it re-queues on false).
 			if (!this.instructions.trim()) {
 				sendUserToast(`${sendModel.model} can't read images. Switch to a vision model first.`, true)
-				this.restoreToInput('', requestedImages)
+				if (!options.queued) this.restoreToInput('', requestedImages)
 				return false
 			}
 			sendUserToast(

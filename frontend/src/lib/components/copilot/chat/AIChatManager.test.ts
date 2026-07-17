@@ -861,6 +861,30 @@ describe('AIChatManager queued messages', () => {
 		mocks.tryGetCurrentModel.mockReturnValue(model)
 	})
 
+	// A refused queued draft is the caller's to restore (it re-queues on false) —
+	// a composer restore on top would leave the same attachment in both places.
+	it('does not double-restore a queued image-only draft refused by a text-only model', async () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		manager.mode = AIMode.GLOBAL
+		mocks.tryGetCurrentModel.mockReturnValue({
+			provider: 'groq',
+			model: 'llama-3.3-70b-versatile'
+		})
+
+		const accepted = await manager.sendRequest({
+			instructions: '',
+			images: [img('a')],
+			queued: true
+		})
+
+		expect(accepted).toBe(false)
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(input.prependText).not.toHaveBeenCalled()
+		expect(input.restoreInstructions).not.toHaveBeenCalled()
+		mocks.tryGetCurrentModel.mockReturnValue(model)
+	})
+
 	// A→B→C: the loop can run an iteration on a model that is neither the
 	// send-time one (A) nor the currently-selected one (C) by the time the
 	// failure is classified. The failing iteration's id (B) must be excluded
