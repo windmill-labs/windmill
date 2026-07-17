@@ -451,6 +451,28 @@ pub fn build_query_string(
     }
 }
 
+/// Look up the argument supplied for the path parameter whose original (un-mangled)
+/// name is `original_name`.
+///
+/// A body field and a path parameter sharing an original name are exposed to the client
+/// under distinct mangled names (`path__body` / `path__path`), and the body field is
+/// optional. Callers routinely send only `path__path`, which must still produce a body
+/// carrying `path` — the API requires it and rejects the request otherwise.
+fn same_named_path_param_value<'a>(
+    original_name: &str,
+    args_map: &'a serde_json::Map<String, Value>,
+    path_params_schema: &Option<Value>,
+    path_field_renames: &Option<Value>,
+) -> Option<&'a Value> {
+    path_params_schema
+        .as_ref()?
+        .get("properties")?
+        .as_object()?
+        .keys()
+        .find(|param_name| get_original_name(param_name, path_field_renames) == original_name)
+        .and_then(|param_name| args_map.get(param_name))
+}
+
 /// Build request body from arguments
 pub fn build_request_body(
     method: &str,
@@ -458,6 +480,7 @@ pub fn build_request_body(
     body_schema: &Option<Value>,
     body_field_renames: &Option<Value>,
     path_params_schema: &Option<Value>,
+    path_field_renames: &Option<Value>,
     query_params_schema: &Option<Value>,
 ) -> Option<Value> {
     if method == "GET" {
@@ -506,11 +529,23 @@ pub fn build_request_body(
     let body_map: serde_json::Map<String, Value> = props
         .keys()
         .filter_map(|param_name| {
-            args_map.get(param_name).map(|value| {
-                // Use the original name as the key in the request body
-                let original_name = get_original_name(param_name, body_field_renames);
-                (original_name, value.clone())
-            })
+            // Use the original name as the key in the request body
+            let original_name = get_original_name(param_name, body_field_renames);
+            let arg = args_map.get(param_name);
+            // An explicit null is treated as "not supplied" for the fallback only:
+            // clients commonly null out optional fields. Fields without a path
+            // counterpart keep their null, which the API reads as absent anyway.
+            let value = match arg {
+                Some(value) if !value.is_null() => Some(value),
+                _ => same_named_path_param_value(
+                    &original_name,
+                    args_map,
+                    path_params_schema,
+                    path_field_renames,
+                )
+                .or(arg),
+            }?;
+            Some((original_name, value.clone()))
         })
         .collect();
 
@@ -643,8 +678,16 @@ mod tests {
         .unwrap()
         .clone();
 
-        let body = build_request_body("POST", &args, &body_schema, &None, &path_schema, &None)
-            .expect("passthrough body should be built");
+        let body = build_request_body(
+            "POST",
+            &args,
+            &body_schema,
+            &None,
+            &path_schema,
+            &None,
+            &None,
+        )
+        .expect("passthrough body should be built");
         let obj = body.as_object().unwrap();
         assert_eq!(obj.get("name"), Some(&json!("alice")));
         assert_eq!(obj.get("count"), Some(&json!(3)));
@@ -666,7 +709,8 @@ mod tests {
             .as_object()
             .unwrap()
             .clone();
-        let body = build_request_body("POST", &args, &body_schema, &None, &None, &None).unwrap();
+        let body =
+            build_request_body("POST", &args, &body_schema, &None, &None, &None, &None).unwrap();
         let obj = body.as_object().unwrap();
         assert_eq!(obj.get("value"), Some(&json!("x")));
         assert!(
@@ -675,11 +719,93 @@ mod tests {
         );
     }
 
+    // updateFlow-shaped: `path` exists both as a path parameter and as a required
+    // body field, so both are exposed under mangled names.
+    fn update_flow_schemas() -> (Option<Value>, Option<Value>, Option<Value>, Option<Value>) {
+        (
+            Some(json!({
+                "type": "object",
+                "properties": { "path__path": { "type": "string" } },
+                "required": ["path__path"]
+            })),
+            Some(json!({ "path__path": "path" })),
+            Some(json!({
+                "type": "object",
+                "properties": {
+                    "summary": { "type": "string" },
+                    "value": { "type": "object" },
+                    "path__body": { "type": "string" }
+                },
+                "required": ["summary", "value"]
+            })),
+            Some(json!({ "path__body": "path" })),
+        )
+    }
+
+    #[test]
+    fn build_request_body_defaults_body_path_to_path_param() {
+        let (path_schema, path_renames, body_schema, body_renames) = update_flow_schemas();
+        // Omitted entirely, and explicitly nulled: clients do both.
+        for args in [
+            json!({ "path__path": "f/team/my_flow", "summary": "s", "value": {} }),
+            json!({ "path__path": "f/team/my_flow", "path__body": null, "summary": "s", "value": {} }),
+        ] {
+            let args = args.as_object().unwrap().clone();
+            let body = build_request_body(
+                "POST",
+                &args,
+                &body_schema,
+                &body_renames,
+                &path_schema,
+                &path_renames,
+                &None,
+            )
+            .expect("body should be built");
+            assert_eq!(
+                body.as_object().unwrap().get("path"),
+                Some(&json!("f/team/my_flow")),
+                "an absent path__body must default to the path parameter"
+            );
+        }
+    }
+
+    #[test]
+    fn build_request_body_keeps_explicit_body_path() {
+        let (path_schema, path_renames, body_schema, body_renames) = update_flow_schemas();
+        let args: serde_json::Map<String, Value> = json!({
+            "path__path": "f/team/my_flow",
+            "path__body": "f/team/renamed_flow",
+            "summary": "s",
+            "value": {}
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+
+        let body = build_request_body(
+            "POST",
+            &args,
+            &body_schema,
+            &body_renames,
+            &path_schema,
+            &path_renames,
+            &None,
+        )
+        .expect("body should be built");
+        assert_eq!(
+            body.as_object().unwrap().get("path"),
+            Some(&json!("f/team/renamed_flow")),
+            "an explicit path__body renames the item and must win"
+        );
+    }
+
     #[test]
     fn build_request_body_get_has_no_body() {
         let body_schema = Some(json!({ "type": "object", "additionalProperties": true }));
         let args: serde_json::Map<String, Value> = json!({ "a": 1 }).as_object().unwrap().clone();
-        assert!(build_request_body("GET", &args, &body_schema, &None, &None, &None).is_none());
+        assert!(
+            build_request_body("GET", &args, &body_schema, &None, &None, &None, &None).is_none()
+        );
     }
 
     #[test]

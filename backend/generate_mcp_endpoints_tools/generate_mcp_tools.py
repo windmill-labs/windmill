@@ -197,6 +197,22 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
                 # Store the reverse mapping: renamed -> original
                 renames_map[new_name] = field
 
+        # A body field colliding with a same-named path parameter (`path` on the update
+        # endpoints) holds the new value and differs only when moving the item, so it must
+        # stay optional: `same_named_path_param_value` (windmill-api/src/mcp/utils.rs)
+        # fills it from the path parameter when the caller omits it.
+        if field in path_keys and field in body_keys and body_schema:
+            body_name = field + '__body'
+            if 'required' in body_schema:
+                body_schema['required'] = [r for r in body_schema['required'] if r != body_name]
+            prop = body_schema['properties'].get(body_name)
+            if isinstance(prop, dict):
+                existing_desc = prop.get('description', '').rstrip('. ')
+                prop['description'] = (
+                    f"{existing_desc}. Defaults to `{field}__path` when omitted; "
+                    f"set it only to change the {field}."
+                ).lstrip('. ')
+
     # Return None for empty schemas
     path_params_schema = path_params_schema if path_params_schema and path_params_schema.get('properties') else None
     query_params_schema = query_params_schema if query_params_schema and query_params_schema.get('properties') else None

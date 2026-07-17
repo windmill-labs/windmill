@@ -215,7 +215,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "path__body": {
                         "type": "string",
-                        "description": "The path to the variable (body parameter)"
+                        "description": "The path to the variable (body parameter). Defaults to `path__path` when omitted; set it only to change the path."
                 }
         }
 },
@@ -443,7 +443,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "path__body": {
                         "type": "string",
-                        "description": "The path to the resource (body parameter)"
+                        "description": "The path to the resource (body parameter). Defaults to `path__path` when omitted; set it only to change the path."
                 }
         }
 },
@@ -1024,13 +1024,12 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "path__body": {
                         "type": "string",
-                        "description": "(body parameter)"
+                        "description": "(body parameter). Defaults to `path__path` when omitted; set it only to change the path."
                 }
         },
         "required": [
                 "summary",
-                "value",
-                "path__body"
+                "value"
         ],
         "description": "Top-level flow definition containing metadata, configuration, and the flow structure"
 },
@@ -1148,7 +1147,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "path__body": {
                         "type": "string",
-                        "description": "(body parameter)"
+                        "description": "(body parameter). Defaults to `path__path` when omitted; set it only to change the path."
                 }
         }
 },
