@@ -2668,9 +2668,17 @@ export class AIChatManager {
 		// error, which rewinds through here.
 		this.contextUsage = undefined
 
-		// Resend the request with the same instructions
+		// Resend the request with the same instructions AND the context the message
+		// was originally sent with. DOM selector chips (and other context) are
+		// one-shot — cleared from the live selection after the first send — so
+		// without this an edit/retry would read the current selection and lose (or
+		// swap) the element the message was about. `undefined` for modes that don't
+		// attach contextElements falls back to the live selection as before.
 		this.instructions = newContent ?? userMessage.content
-		this.sendRequest({ pastes: pastes ?? userMessage.pastes })
+		this.sendRequest({
+			pastes: pastes ?? userMessage.pastes,
+			contextOverride: userMessage.contextElements
+		})
 	}
 
 	fix = () => {
