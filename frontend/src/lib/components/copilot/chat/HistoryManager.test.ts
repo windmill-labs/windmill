@@ -273,6 +273,38 @@ describe('HistoryManager legacy chat-history migration', () => {
 		expect((chat?.actualMessages[2].content as any[])[0].image_url.url).toBe(urlFor(1))
 	})
 
+	it('a save overlapping an older save keeps every blob its record references', async () => {
+		const hm = new HistoryManager()
+		await hm.init()
+		const chatId = hm.getCurrentChatId()
+		const X = 'data:image/png;base64,XBYTES'
+		const Y = 'data:image/png;base64,YBYTES'
+		const display = [{ role: 'user', content: 'x' }] as DisplayMessage[]
+		const msg = (url: string) =>
+			({
+				role: 'user',
+				content: [{ type: 'image_url', image_url: { url } }]
+			}) as ChatCompletionMessageParam
+		await hm.saveChat(display, [msg(X)])
+
+		// An overlapping pair: the older snapshot no longer references X (retry
+		// truncation), the newer one re-references it (as its newest image) and
+		// adds Y. Un-serialized, the older save's delete pass removes X's blob
+		// after the newer save verified its existence and moved on, landing the
+		// winning record with a dangling ref.
+		const older = hm.saveChat(display, [
+			{ role: 'user', content: 'no images' } as ChatCompletionMessageParam
+		])
+		const newer = hm.saveChat(display, [msg(Y), msg(X)])
+		await Promise.all([older, newer])
+
+		const reloaded = new HistoryManager()
+		await reloaded.init()
+		const chat = await reloaded.loadPastChat(chatId)
+		expect((chat?.actualMessages[0].content as any[])[0].image_url.url).toBe(Y)
+		expect((chat?.actualMessages[1].content as any[])[0].image_url.url).toBe(X)
+	})
+
 	it('the same image in two chats gets two owned blobs; deleting one chat spares the other', async () => {
 		const png = 'data:image/png;base64,SHAREDBYTES'
 		const display = [

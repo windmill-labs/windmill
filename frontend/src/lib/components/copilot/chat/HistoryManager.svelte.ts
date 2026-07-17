@@ -200,6 +200,21 @@ export default class HistoryManager {
 		return chatId + '\n' + dataUrl
 	}
 
+	// Blob writes, stale-blob deletes, and the record put span several IndexedDB
+	// transactions, and saveChat has concurrent callers (turn saves, the
+	// modified-items and background-jobs writers). Interleaved, an older save's
+	// delete pass can remove a blob a newer save just verified, landing the
+	// newer record with a dangling ref — so every DB write runs through this
+	// per-manager queue. A failed write is rethrown to its caller without
+	// wedging the queue.
+	private dbWriteQueue: Promise<unknown> = Promise.resolve()
+
+	private enqueueDbWrite<T>(op: () => Promise<T>): Promise<T> {
+		const run = this.dbWriteQueue.then(op, op)
+		this.dbWriteQueue = run.catch(() => {})
+		return run
+	}
+
 	/** Drop cached blob ids of every chat but the given one, so the map doesn't
 	 *  pin past chats' data URL strings in memory for the whole session (a
 	 *  reopened chat re-seeds its ids through hydration). */
@@ -259,10 +274,12 @@ export default class HistoryManager {
 		const snapshot = $state.snapshot(existing)
 		const updated = { ...snapshot, sessionId }
 		this.savedChats = { ...this.savedChats, [chatId]: updated }
-		// Resolve the DB via the handle (not a cached ref) so a write always lands
-		// in the current user's DB, even after an in-place user switch.
-		const db = await this.dbh.whenReady()
-		if (db) await db.put('chats', updated)
+		await this.enqueueDbWrite(async () => {
+			// Resolve the DB via the handle (not a cached ref) so a write always
+			// lands in the current user's DB, even after an in-place user switch.
+			const db = await this.dbh.whenReady()
+			if (db) await db.put('chats', updated)
+		})
 	}
 
 	getPastChats() {
@@ -479,13 +496,14 @@ export default class HistoryManager {
 				[updatedChat.id]: updatedChat
 			}
 
-			const db = await this.dbh.whenReady()
-			if (db) {
+			await this.enqueueDbWrite(async () => {
+				const db = await this.dbh.whenReady()
+				if (!db) return
 				// Blobs land before the record that references them, so a failed write
 				// cannot leave a saved chat pointing at bytes that never made it.
 				await this.persistImageBlobs(db, updatedChat.id, blobs, refs)
 				await db.put('chats', updatedChat)
-			}
+			})
 		}
 	}
 
@@ -505,12 +523,13 @@ export default class HistoryManager {
 		this.savedChats = Object.fromEntries(
 			Object.entries(this.savedChats).filter(([key]) => key !== id)
 		)
-		void this.dbh.whenReady().then(async (db) => {
+		void this.enqueueDbWrite(async () => {
+			const db = await this.dbh.whenReady()
 			if (!db) return
 			await db.delete('chats', id)
 			const keys = await imageKeysForChat(db, id)
 			await Promise.all(keys.map((key) => db.delete('images', key)))
-		})
+		}).catch((err) => console.error('Could not delete chat', err))
 	}
 
 	async loadPastChat(id: string) {
