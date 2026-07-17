@@ -158,10 +158,6 @@ async fn prepare_socket_root(root: &str, stale_after: std::time::Duration) {
     };
 
     if let Some(parent) = std::path::Path::new(root).parent() {
-        // The worker's own dir, but a fresh install may not have created it yet.
-        if let Err(e) = tokio::fs::create_dir_all(parent).await {
-            return untrusted(format!("its parent {} is unusable: {e}", parent.display()));
-        }
         // Resolved, not `symlink_metadata`: what matters is the mode of the directory the
         // entries actually live in, and a symlinked parent is normal (macOS `/tmp`).
         match tokio::fs::metadata(parent).await {
