@@ -148,6 +148,7 @@ import {
 	setEphemeralSecretVariableDraftValue,
 	type DraftPersistResult
 } from './userDraftAdapter'
+import { isSessionPipelinesEnabled, SESSION_PIPELINES_GATED_MESSAGE } from './pipelineGate'
 
 const ITEM_TYPES = [
 	'script',
@@ -895,6 +896,12 @@ const buildGlobalSystemPrompt = (
 ) => {
 	const folderGuidance = buildFolderGuidance(username, folderCtx)
 	const folderGuidanceBlock = folderGuidance ? `\n${folderGuidance}` : ''
+	// `previewTools` doubles as "this is a session chat" — sessions are the only
+	// chats that get the preview tool set, and the only surface the gate covers.
+	const pipelinesGated = previewTools && !isSessionPipelinesEnabled()
+	const pipelineBullet = pipelinesGated
+		? `- Data pipelines are in alpha and NOT yet available in this chat. A "data pipeline" is a DAG of independent annotated scripts wired by storage assets — it is not a flow. If the user asks for a data pipeline (or to ingest/transform/materialize data across steps in one), tell them that data pipelines are in alpha and will be handled by the chat soon — do not build one (no annotated pipeline scripts, no get_instructions with subject "pipeline"), and do not build a flow as a substitute.`
+		: `- A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.`
 	return `You are Windmill's global workspace assistant.
 
 The current user's workspace username is "${username}".
@@ -917,7 +924,7 @@ Rules:
 - Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
 - Use search_resource_types before write_resource.
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
-- A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.
+${pipelineBullet}
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
@@ -926,8 +933,12 @@ Rules:
 - Keep context targeted.${
 		previewTools
 			? `
-- After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.
-- Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty or not-yet-created folder is fine (create_folder first if needed, then open it). Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.
+- After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.${
+					pipelinesGated
+						? ''
+						: `
+- Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty or not-yet-created folder is fine (create_folder first if needed, then open it). Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.`
+				}
 - When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
 - get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.
 - open_page opens its page as a tab in the side-panel preview next to the chat — the only way to show one of these pages there (open_preview only handles editable items). Changing filters on a page already open updates that same tab; only pass new_tab when the user explicitly asks for a separate tab.
@@ -2114,8 +2125,19 @@ export const globalTools: Tool<{}>[] = [
 			'get_instructions',
 			'Get authoring guidance for scripts, flows, data pipelines, resources, apps, or the datatable SQL SDK (wmill.datatable()) used inside runnables.'
 		),
-		fn: async ({ args, toolId, toolCallbacks }) => {
+		fn: async (ctx) => {
+			const { args, toolId, toolCallbacks } = ctx
 			const parsed = getInstructionsSchema.parse(args)
+			// Session chats (explicit isSessionChat helper) don't get pipeline
+			// authoring while pipelines are gated; the standalone global chat keeps it.
+			if (
+				parsed.subject === 'pipeline' &&
+				isSessionChatFromCtx(ctx) &&
+				!isSessionPipelinesEnabled()
+			) {
+				toolCallbacks.setToolStatus(toolId, { content: 'Data pipelines are in alpha' })
+				return SESSION_PIPELINES_GATED_MESSAGE
+			}
 			const label =
 				parsed.subject === 'script' && parsed.language
 					? `${parsed.subject} (${parsed.language})`
@@ -2978,10 +3000,18 @@ export type GlobalToolHelpers = SessionToolHelpers & {
 	artifacts?: SessionArtifactsStore
 	getChatId?: () => string | undefined
 	openArtifact?: (artifactId: string, name: string) => void
+	// Explicit "this chat is an AI session" marker for session-scoped gating
+	// (the pipeline gate). Do NOT infer it from `sessionId`: the eval harness
+	// passes a sessionId to its standalone (non-session) chats too.
+	isSessionChat?: boolean
 }
 
 function sessionIdFromCtx(ctx: { helpers?: unknown }): string | undefined {
 	return (ctx.helpers as GlobalToolHelpers | undefined)?.sessionId
+}
+
+function isSessionChatFromCtx(ctx: { helpers?: unknown }): boolean {
+	return (ctx.helpers as GlobalToolHelpers | undefined)?.isSessionChat === true
 }
 
 function operatingWorkspaceFromHelpers(helpers: unknown): string | undefined {
@@ -3017,6 +3047,10 @@ function openSessionPreview(
 ) {
 	if (!openPreviewHandler) {
 		return 'Error: open_preview is only available inside an AI session. Tell the user to switch to a session to view the preview, or describe the item textually.'
+	}
+	// open_preview only exists in sessions, so no sessionId check is needed here.
+	if (args.kind === 'pipeline' && !isSessionPipelinesEnabled()) {
+		return SESSION_PIPELINES_GATED_MESSAGE
 	}
 	return openPreviewHandler({ ...args, sessionId })
 }
