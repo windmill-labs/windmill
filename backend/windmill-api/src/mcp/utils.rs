@@ -451,13 +451,10 @@ pub fn build_query_string(
     }
 }
 
-/// Look up the argument supplied for the path parameter whose original (un-mangled)
-/// name is `original_name`.
+/// Value of the path parameter whose original (un-mangled) name is `original_name`.
 ///
-/// A body field and a path parameter sharing an original name are exposed to the client
-/// under distinct mangled names (`path__body` / `path__path`), and the body field is
-/// optional. Callers routinely send only `path__path`, which must still produce a body
-/// carrying `path` — the API requires it and rejects the request otherwise.
+/// A same-named body field is optional and clients routinely omit it, but the API still
+/// requires the key in the body and rejects the request without it.
 fn same_named_path_param_value<'a>(
     original_name: &str,
     args_map: &'a serde_json::Map<String, Value>,
