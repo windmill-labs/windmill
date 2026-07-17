@@ -2006,6 +2006,9 @@ pub async fn run_worker(
 
     create_directory_async(&worker_dir).await;
 
+    #[cfg(all(feature = "python", unix))]
+    crate::ansible_executor::prepare_persistent_control_path_root().await;
+
     if is_sandboxing_enabled() {
         let _ = write_file(
             &worker_dir,
