@@ -487,7 +487,9 @@ export async function testKey({
 	// getNonStreamingCompletion routes Anthropic-Messages-API models (native
 	// Anthropic and Claude on Azure Foundry) through the Anthropic SDK and
 	// everything else through OpenAI chat completions, so the test exercises the
-	// same request shape the feature actually sends.
+	// same request shape the feature actually sends. The cap keeps max_tokens
+	// under the Anthropic SDK's non-streaming pre-flight limit (~21k tokens),
+	// which would otherwise reject the request before it is sent.
 	await getNonStreamingCompletion(messages, abortController, {
 		apiKey,
 		workspace,
@@ -495,7 +497,8 @@ export async function testKey({
 		forceModelProvider: {
 			model: modelToTest,
 			provider: aiProvider
-		}
+		},
+		maxTokensCap: METADATA_MAX_TOKENS
 	})
 }
 
