@@ -58,7 +58,13 @@
 		workspaceId: string,
 		workspacesPromise: Promise<{ workspaces: { id: string }[] }>
 	): Promise<boolean> {
-		if (!workspaceId.startsWith('wm-fork-')) return false
+		// Managed dev workspaces are forks with bare IDs (no `wm-fork-` prefix), so
+		// the prefix alone can't identify every fork. A remembered parent — recorded
+		// while the workspace was still reachable and its parent_workspace_id visible
+		// — flags those prefixless forks once their server row is gone.
+		const looksLikeFork =
+			workspaceId.startsWith('wm-fork-') || getRememberedForkParent(workspaceId) != undefined
+		if (!looksLikeFork) return false
 
 		// Reuse the list already being fetched in onMount rather than issuing a
 		// second identical request.
