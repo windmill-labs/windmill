@@ -549,9 +549,19 @@ export default class HistoryManager {
 		}
 	}
 
+	// Bumped for every mirror write (see persistDehydratedChat). Convergence
+	// runs later, from the write queue, and must not REWIND the mirror to an
+	// older snapshot while newer writes wait: the mirror is also the fallback
+	// source for omitted modifiedItems/backgroundJobs, and a save reading a
+	// rewound mirror would permanently erase the newer fields.
+	private mirrorRev = new Map<string, number>()
+	private revCounter = 0
+
 	/** Dehydrate a clone of the record and write it (and its blobs) to the DB;
 	 *  the caller's copy keeps its inline data URLs. */
 	private persistDehydratedChat(record: HistoryManager['savedChats'][string]) {
+		const rev = ++this.revCounter
+		this.mirrorRev.set(record.id, rev)
 		// structuredClone shares string values, so this copies structure, not bytes.
 		const persisted = structuredClone(record)
 		const { blobs, refs } = this.dehydrateImages(
@@ -574,9 +584,9 @@ export default class HistoryManager {
 			// save and bulk-rewrite every blob) and rotated chats stop pinning
 			// this session's image bytes in memory. When the DB is unavailable
 			// this line is never reached, so the mirror keeps the inline copy.
-			// Existence check: a concurrent deletePastChat must not be resurrected
-			// (queue order otherwise makes last-writer-wins correct).
-			if (this.savedChats[persisted.id]) {
+			// Guarded by revision so it never rewinds the mirror past a newer
+			// write (or resurrects a concurrent deletePastChat).
+			if (this.mirrorRev.get(persisted.id) === rev) {
 				this.savedChats = { ...this.savedChats, [persisted.id]: persisted }
 			}
 			await this.deleteStaleImageBlobs(db, persisted.id, keep)
@@ -599,6 +609,8 @@ export default class HistoryManager {
 		this.savedChats = Object.fromEntries(
 			Object.entries(this.savedChats).filter(([key]) => key !== id)
 		)
+		// A pending save's convergence must not resurrect the deleted mirror.
+		this.mirrorRev.delete(id)
 		void this.enqueueDbWrite(async (db) => {
 			await db.delete('chats', id)
 			const keys = await imageKeysForChat(db, id)

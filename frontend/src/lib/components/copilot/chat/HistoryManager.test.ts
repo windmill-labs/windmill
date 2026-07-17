@@ -652,6 +652,39 @@ describe('HistoryManager title across compaction', () => {
 	})
 })
 
+describe('HistoryManager mirror convergence under concurrent metadata saves', () => {
+	it('an older save completing mid-stream cannot erase newer metadata', async () => {
+		const hm = new HistoryManager()
+		await hm.init()
+		const id = hm.getCurrentChatId()
+		const display = [{ role: 'user', content: 'x', index: 0 }] as DisplayMessage[]
+		const job = { id: 'job1', status: 'running' } as unknown as ChatJob
+
+		// s1 carries modifiedItems; s2 (overlapping) carries backgroundJobs and
+		// inherits s1's modifiedItems from the mirror. Awaiting s1 lets its
+		// convergence run while s2 is still queued — it must not rewind the
+		// mirror, or s3's backgroundJobs fallback below reads the stale record
+		// and permanently erases the job.
+		const p1 = hm.saveChat(display, [] as ChatCompletionMessageParam[], undefined, ['script:a'])
+		const p2 = hm.saveChat(display, [] as ChatCompletionMessageParam[], undefined, undefined, [job])
+		await p1
+		const p3 = hm.saveChat(display, [] as ChatCompletionMessageParam[], undefined, [
+			'script:a',
+			'script:b'
+		])
+		await Promise.all([p2, p3])
+
+		expect(hm.getModifiedItems(id)).toEqual(['script:a', 'script:b'])
+		expect(hm.getBackgroundJobs(id)).toEqual([job])
+
+		const db = await openDB('copilot-chat-history::admin@test')
+		const record = (await db.get('chats' as never, id)) as any
+		db.close()
+		expect(record.modifiedItems).toEqual(['script:a', 'script:b'])
+		expect(record.backgroundJobs).toEqual([job])
+	})
+})
+
 describe('HistoryManager modified-items mask persistence', () => {
 	const msgs = [{ role: 'user', content: 'hello', index: 0 }] as DisplayMessage[]
 
