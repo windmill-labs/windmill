@@ -2814,7 +2814,12 @@ export class AIChatManager {
 	storedImages(displayMessageIndex: number): AttachedImage[] | undefined {
 		const shown = this.displayMessages[displayMessageIndex]
 		if (!shown || shown.role !== 'user') return undefined
-		return imagesFromContent(this.messages[shown.index]?.content)
+		// The wire format has no filename; recover it from the bubble's entry
+		// (same attachment order) so a retried/edited image keeps its name — the
+		// history title of an image-only chat derives from it.
+		return imagesFromContent(this.messages[shown.index]?.content)?.map((image, i) =>
+			shown.images?.[i]?.name ? { ...image, name: shown.images[i].name } : image
+		)
 	}
 
 	restartGeneration = (

@@ -245,6 +245,12 @@ export default class HistoryManager {
 	)
 
 	async init() {
+		// (Re)initializing adopts a new identity's history: invalidate every
+		// pending convergence and cached blob id from the previous one — a prior
+		// user's write that already passed enqueueDbWrite's identity checks must
+		// not merge its record into this mirror when its transaction finishes.
+		this.mirrorRev.clear()
+		this.imageIdByUrl.clear()
 		// whenReady() is email-gated (returns undefined before the user is known —
 		// all callers run post-login, and the singleton re-inits via onUserChange),
 		// runs the legacy migration once, and reopens automatically on user change.
@@ -589,7 +595,13 @@ export default class HistoryManager {
 			if (this.mirrorRev.get(persisted.id) === rev) {
 				this.savedChats = { ...this.savedChats, [persisted.id]: persisted }
 			}
-			await this.deleteStaleImageBlobs(db, persisted.id, keep)
+			// Best-effort: the record is already committed, so a failed cleanup
+			// (e.g. a user switch closed this handle mid-op) must not turn a
+			// successful save into a rejection — the orphans are reclaimed by the
+			// next successful save's pass.
+			await this.deleteStaleImageBlobs(db, persisted.id, keep).catch((err) =>
+				console.error('Could not prune stale image blobs', err)
+			)
 		})
 	}
 

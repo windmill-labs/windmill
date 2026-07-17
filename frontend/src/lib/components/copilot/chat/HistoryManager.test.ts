@@ -492,6 +492,47 @@ describe('HistoryManager legacy chat-history migration', () => {
 		expect(images).toBe(0)
 	})
 
+	it("a save finishing after another user's init cannot leak into their mirror", async () => {
+		const hm = new HistoryManager()
+		await hm.init()
+
+		// The save passes enqueueDbWrite's identity checks under user A; the
+		// account switches (and re-inits, as the platform does on user change)
+		// while its transaction is still running. The committed save must still
+		// resolve (the switch closes A's handle, failing only the best-effort
+		// cleanup tail) and its convergence must not merge A's record into B's
+		// freshly adopted mirror.
+		const probe = await openDB('probe-proto2', 1, {
+			upgrade: (d) => {
+				d.createObjectStore('s')
+			}
+		})
+		const proto = Object.getPrototypeOf(
+			probe.transaction('s' as never, 'readwrite').objectStore('s' as never)
+		)
+		probe.close()
+		const origPut = proto.put
+		let initDone: Promise<void> | undefined
+		proto.put = function (this: { name: string }, ...args: unknown[]) {
+			if (this.name === 'chats' && !initDone) {
+				userStore.set(asUser('other@test'))
+				initDone = hm.init()
+			}
+			return origPut.apply(this, args)
+		}
+		try {
+			await hm.saveChat(
+				[{ role: 'user', content: 'private to A' }] as DisplayMessage[],
+				[] as ChatCompletionMessageParam[]
+			)
+		} finally {
+			proto.put = origPut
+		}
+		await initDone
+
+		expect(hm.getAllSavedChats()).toEqual([])
+	})
+
 	it('writes land in the current user DB after an in-place user switch', async () => {
 		const hm = new HistoryManager()
 		await hm.init()

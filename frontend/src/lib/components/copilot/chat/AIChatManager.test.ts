@@ -782,6 +782,36 @@ describe('AIChatManager queued messages', () => {
 		expect(hasImage).toBe(false)
 	})
 
+	// The wire format has no filename; a retried/edited image must recover it
+	// from the bubble's entry — an unnamed resend would downgrade an image-only
+	// chat's filename-derived history title to the generic fallback.
+	it('storedImages recovers attachment names from the transcript bubble', () => {
+		const manager = createManager()
+		manager.messages = [
+			{
+				role: 'user',
+				content: [
+					{ type: 'text', text: 'look' },
+					{ type: 'image_url', image_url: { url: 'data:image/png;base64,FULL' } }
+				] as any
+			}
+		]
+		manager.displayMessages = [
+			{
+				role: 'user',
+				content: 'look',
+				index: 0,
+				images: [
+					{ dataUrl: 'data:image/png;base64,FULL', mediaType: 'image/png', name: 'mockup.png' }
+				]
+			} as any
+		]
+
+		expect(manager.storedImages(0)).toEqual([
+			{ dataUrl: 'data:image/png;base64,FULL', mediaType: 'image/png', name: 'mockup.png' }
+		])
+	})
+
 	// Drop-oldest removes the API counterpart but the transcript keeps the bubble.
 	// Its restart index must not alias to a surviving message, or retrying/editing
 	// the dropped prompt would silently attach that other turn's images.
