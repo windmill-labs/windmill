@@ -190,10 +190,16 @@ async fn prepare_socket_root(root: &str, stale_after: std::time::Duration) {
     match tokio::fs::symlink_metadata(root).await {
         Ok(meta) if meta.is_dir() => {
             let mode = meta.permissions().mode();
-            if meta.uid() != nix::unistd::Uid::effective().as_raw() || mode & 0o022 != 0 {
+            // Trusted means usable as well as safe: without owner rwx ansible cannot create
+            // its per-job dir, and a trusted-but-unusable root would hand every network
+            // playbook a permission error instead of the working fallback.
+            if meta.uid() != nix::unistd::Uid::effective().as_raw()
+                || mode & 0o022 != 0
+                || mode & 0o700 != 0o700
+            {
                 return untrusted(format!(
-                    "it is not owned by this worker or is writable by others (uid={}, \
-                     mode={:o})",
+                    "it is not owned by this worker, is writable by others, or is not \
+                     writable by us (uid={}, mode={:o})",
                     meta.uid(),
                     mode & 0o7777
                 ));
@@ -2692,6 +2698,28 @@ collections_path : a/col:b/col
         );
     }
 
+    /// Safe but unusable is still not trusted: ansible cannot create its per-job dir under
+    /// a root we cannot write, and naming it anyway would swap the working fallback for a
+    /// permission error on every network playbook.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_prepare_socket_root_refuses_unwritable_root() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("wm-pc");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o500)).unwrap();
+
+        let flag = TrustFlag::lock();
+        flag.set(true);
+        prepare_socket_root(root.to_str().unwrap(), std::time::Duration::from_secs(1)).await;
+
+        assert!(!flag.get(), "a root we cannot write must not be trusted");
+        // Let the tempdir clean itself up.
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+
     /// A root we do not exclusively own may have been pre-planted by another local user,
     /// who then controls the parent of every job's socket dir — and could swap a symlink
     /// in after this check, redirecting the sweep's path-based `remove_dir_all`.
@@ -2724,17 +2752,16 @@ collections_path : a/col:b/col
         );
     }
 
-    /// The root must hang off a parent whose sticky bit protects it. Notably not
-    /// `WINDMILL_DIR`: the shipped image chmods that whole tree to a non-sticky 0777 so any
-    /// UID can write it, which would make the root untrusted and silently disable this fix
-    /// in the standard image while every local test still passed.
+    /// The root must hang off `/tmp`, whose sticky bit is what protects it. The trap this
+    /// guards: the shipped image chmods the whole `WINDMILL_DIR` tree to a non-sticky 0777
+    /// so any UID can write it, so parenting the root there would make it untrusted and
+    /// silently disable this fix in the standard image while every local test still passed.
     #[test]
-    fn test_control_path_root_hangs_off_tmp_not_windmill_dir() {
+    fn test_control_path_root_hangs_off_tmp() {
         assert_eq!(
             std::path::Path::new(PERSISTENT_CONTROL_PATH_ROOT).parent(),
             Some(std::path::Path::new("/tmp"))
         );
-        assert!(!PERSISTENT_CONTROL_PATH_ROOT.starts_with(&*windmill_common::worker::WINDMILL_DIR));
     }
 
     /// A parent that others can write (and that is not sticky) lets them rename the root
