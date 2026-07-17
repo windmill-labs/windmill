@@ -115,8 +115,9 @@ hmac.workspace = true
 pem = { workspace = true, optional = true }
 rsa = { workspace = true, optional = true }
 urlencoding.workspace = true
-# `fs` adds flock(2) for the cross-process Python install lock (shared cache mounts)
-nix = { workspace = true, features = ["fs"] }
+# `fs` adds flock(2) for the cross-process Python install lock (shared cache mounts);
+# `user` adds geteuid(2) to verify ownership of the ansible socket-dir root
+nix = { workspace = true, features = ["fs", "user"] }
 bytes.workspace = true
 reqwest.workspace = true
 reqwest-middleware.workspace = true

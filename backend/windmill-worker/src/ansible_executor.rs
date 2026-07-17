@@ -16,7 +16,7 @@ use windmill_common::{
     git_sync_oss::{prepend_token_to_github_url, sanitize_git_url},
     worker::{
         is_allowed_file_location, split_python_requirements, to_raw_value, write_file,
-        write_file_at_user_defined_location, Connection, PyVAlias, WORKER_CONFIG,
+        write_file_at_user_defined_location, Connection, PyVAlias, WINDMILL_DIR, WORKER_CONFIG,
     },
 };
 use windmill_queue::MiniPulledJob;
@@ -55,17 +55,24 @@ const WINDMILL_ANSIBLE_PASSWORD_FILENAME: &str = ".windmill.ansible_vault_passwo
 
 const DELEGATE_GIT_REPO_TARGET: &str = "delegate_git_repository";
 
-/// Root for the per-job dir in which ansible's persistent-connection plugins
-/// (`network_cli`, `httpapi`, `netconf`) bind their unix socket, named after a digest of
-/// the connection. `sockaddr_un.sun_path` caps the whole socket path at 107 bytes, which
-/// the job dir alone already exhausts, so this root must stay short and cannot live under
-/// `ANSIBLE_HOME` (which Windmill pins into the job dir).
-const PERSISTENT_CONTROL_PATH_ROOT: &str = "/tmp/wm-pc";
+lazy_static::lazy_static! {
+    /// Root for the per-job dir in which ansible's persistent-connection plugins
+    /// (`network_cli`, `httpapi`, `netconf`) bind their unix socket, named after a digest
+    /// of the connection. `sockaddr_un.sun_path` caps the whole socket path at 107 bytes,
+    /// which the job dir alone already exhausts, so the socket dir must stay short and
+    /// cannot live under `ANSIBLE_HOME` (which Windmill pins into the job dir).
+    ///
+    /// Rooted at `WINDMILL_DIR` rather than a fresh `/tmp` name: the worker already
+    /// creates and owns it (job dirs live there), so this adds no new squattable path,
+    /// and an operator whose `/tmp` is unsuitable can move it with the same env var.
+    /// Default `/tmp/windmill/pc` leaves 90 of the 107 bytes at full socket length.
+    static ref PERSISTENT_CONTROL_PATH_ROOT: String = format!("{}/pc", &*WINDMILL_DIR);
+}
 
 /// Socket dir for `job_id`. Per-job on purpose: socket names hash host+credentials, so
 /// concurrent jobs sharing a dir would reuse each other's connection daemon.
 fn persistent_control_path_dir(job_id: &Uuid) -> String {
-    format!("{PERSISTENT_CONTROL_PATH_ROOT}/{}", job_id.simple())
+    format!("{}/{}", &*PERSISTENT_CONTROL_PATH_ROOT, job_id.simple())
 }
 
 /// Removes the job's socket dir on the way out. It lives outside `job_dir`, so the
@@ -82,23 +89,37 @@ impl Drop for PersistentControlPathGuard {
 /// died before their guard could run.
 #[cfg(unix)]
 pub async fn prepare_persistent_control_path_root() {
+    let root = &*PERSISTENT_CONTROL_PATH_ROOT;
+    // A custom WINDMILL_DIR can be long enough to put the budget back out of reach; the
+    // playbook error is opaque, so say so once at startup instead.
+    let longest_socket_path = root.len() + 1 + 32 + 1 + 40;
+    if longest_socket_path > 107 {
+        tracing::warn!(
+            "WINDMILL_DIR is long enough that ansible persistent-connection sockets under \
+             {root} may exceed the {longest_socket_path}-byte AF_UNIX limit of 107; \
+             network playbooks may fail with `AF_UNIX path too long`."
+        );
+    }
+
     // A play holds its socket dir for as long as it runs, touching the mtime only when
     // connections open, so anything younger than the longest permitted job may still be
     // live — including on another worker sharing this host.
     let stale_after = std::time::Duration::from_secs(
         windmill_common::worker::MAX_TIMEOUT.saturating_add(24 * 60 * 60),
     );
-    prepare_socket_root(PERSISTENT_CONTROL_PATH_ROOT, stale_after).await
+    prepare_socket_root(root, stale_after).await
 }
 
-/// SECURITY: the root sits in a world-writable `/tmp`, so a local user could pre-plant it
-/// as a symlink and turn the sweep's `remove_dir_all` into arbitrary directory deletion as
-/// the worker's uid. `symlink_metadata` reports the link's own type without following it,
-/// so `is_dir()` holds only for a real directory. Creating the root 0700 up front is what
-/// keeps it ours: in a sticky `/tmp` only the owner may replace an entry.
+/// SECURITY: the root's parent is typically under a world-writable `/tmp`, so a local user
+/// could pre-plant the root and thereby own the parent of every job's socket dir — enough
+/// to swap dirs under a live job, or to redirect the sweep's path-based `remove_dir_all`
+/// through a symlink planted after the check. Only a real directory that we own and that
+/// nobody else can write is trusted; anything else is left strictly alone.
+/// `symlink_metadata` reports the link's own type without following it, so `is_dir()`
+/// holds only for a real directory.
 #[cfg(unix)]
 async fn prepare_socket_root(root: &str, stale_after: std::time::Duration) {
-    use std::os::unix::fs::DirBuilderExt;
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
     match tokio::fs::symlink_metadata(root).await {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -114,12 +135,25 @@ async fn prepare_socket_root(root: &str, stale_after: std::time::Duration) {
             }
             return;
         }
-        Ok(meta) if meta.is_dir() => {}
+        Ok(meta) if meta.is_dir() => {
+            let mode = meta.permissions().mode();
+            if meta.uid() != nix::unistd::Uid::effective().as_raw() || mode & 0o022 != 0 {
+                tracing::error!(
+                    "Refusing to use the ansible persistent-connection socket root at {root}: \
+                     it already exists but is not owned by this worker or is writable by \
+                     others (uid={}, mode={:o}). Remove it to restore ansible network \
+                     playbooks on this host.",
+                    meta.uid(),
+                    mode & 0o7777,
+                );
+                return;
+            }
+        }
         Ok(_) => {
             tracing::error!(
-                "Refusing to sweep ansible persistent-connection socket root: {root} exists \
-                 but is not a directory (possibly a symlink planted by another local user). \
-                 Ansible network playbooks on this host will fail until it is removed."
+                "Refusing to use the ansible persistent-connection socket root at {root}: it \
+                 exists but is not a directory (possibly a symlink planted by another local \
+                 user). Remove it to restore ansible network playbooks on this host."
             );
             return;
         }
@@ -2178,6 +2212,8 @@ mod tests {
         let control_path_dir = persistent_control_path_dir(&job_id);
         assert!(cfg.contains("[persistent_connection]"));
         assert!(cfg.contains(&format!("control_path_dir = {control_path_dir}")));
+        // The whole point: the socket dir must escape the job dir, whose length is what
+        // blows the budget.
         assert!(!control_path_dir.starts_with(job_dir));
 
         // dir + `/` + socket name, budgeted at a full 40-char sha1 (ansible truncates
@@ -2514,6 +2550,35 @@ collections_path : a/col:b/col
         assert!(meta.is_dir());
         // Owning the root 0700 is what stops another local user replacing it later.
         assert_eq!(meta.permissions().mode() & 0o777, 0o700);
+    }
+
+    /// A root we do not exclusively own may have been pre-planted by another local user,
+    /// who then controls the parent of every job's socket dir — and could swap a symlink
+    /// in after this check, redirecting the sweep's path-based `remove_dir_all`.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_prepare_socket_root_refuses_world_writable_root() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("wm-pc");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o777)).unwrap();
+
+        let stale = root.join("stale-job");
+        std::fs::create_dir(&stale).unwrap();
+        backdate(&stale, std::time::Duration::from_secs(48 * 60 * 60));
+
+        prepare_socket_root(
+            root.to_str().unwrap(),
+            std::time::Duration::from_secs(24 * 60 * 60),
+        )
+        .await;
+
+        assert!(
+            stale.exists(),
+            "must not sweep a root that others can write to"
+        );
     }
 
     /// A symlinked root must never be swept: `remove_dir_all` through it would delete
