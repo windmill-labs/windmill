@@ -200,8 +200,7 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
 
         # A body field colliding with a same-named path parameter (`path` on the update
         # endpoints) holds the new value and differs only when moving the item, so it must
-        # stay optional: `same_named_path_param_value` (windmill-api/src/mcp/utils.rs)
-        # fills it from the path parameter when the caller omits it.
+        # stay optional; the server defaults it from the URL path when the caller omits it.
         if field in path_keys and field in body_keys and body_schema:
             body_name = field + '__body'
             if 'required' in body_schema:
