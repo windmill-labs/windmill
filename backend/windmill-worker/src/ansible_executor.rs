@@ -127,13 +127,14 @@ pub async fn prepare_persistent_control_path_root() {
 /// SECURITY: the root sits under `WINDMILL_DIR`, typically in a world-writable `/tmp`, so a
 /// local user who wins the race to create it owns the parent of every job's socket dir —
 /// enough to hand ansible a socket of their choosing (a device session, credentials and
-/// all, runs over it), or to swap in a symlink after the check below and redirect the
-/// sweep's path-based `remove_dir_all` onto a target of their choosing, as the worker's
-/// uid. Three things must hold: the root is a real directory (`symlink_metadata` reports
-/// the link's own type without following it, so `is_dir()` cannot be satisfied by a
-/// symlink), we own it and nobody else can write it, and its parent cannot be used to
-/// replace it — which needs the parent either not writable by others, or sticky, since the
-/// sticky bit is exactly what stops a non-owner renaming an entry out of a shared dir.
+/// all, runs over it), or to swap in a symlink and redirect the sweep's path-based
+/// `remove_dir_all` onto a target of their choosing, as the worker's uid. Three things must
+/// hold: the root is a real directory (`symlink_metadata` reports the link's own type
+/// without following it, so `is_dir()` cannot be satisfied by a symlink), we own it and
+/// nobody else can write it, and its parent cannot be used to replace it — which needs the
+/// parent either not writable by others, or sticky, since the sticky bit is exactly what
+/// stops a non-owner renaming an entry out of a shared dir. The root is validated after the
+/// create attempt, never before: anything else races whoever creates it first.
 #[cfg(unix)]
 async fn prepare_socket_root(root: &str, stale_after: std::time::Duration) {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
@@ -148,7 +149,13 @@ async fn prepare_socket_root(root: &str, stale_after: std::time::Duration) {
     };
 
     if let Some(parent) = std::path::Path::new(root).parent() {
-        match tokio::fs::symlink_metadata(parent).await {
+        // The worker's own dir, but a fresh install may not have created it yet.
+        if let Err(e) = tokio::fs::create_dir_all(parent).await {
+            return untrusted(format!("its parent {} is unusable: {e}", parent.display()));
+        }
+        // Resolved, not `symlink_metadata`: what matters is the mode of the directory the
+        // entries actually live in, and a symlinked parent is normal (macOS `/tmp`).
+        match tokio::fs::metadata(parent).await {
             Ok(meta) => {
                 let mode = meta.permissions().mode();
                 if mode & 0o022 != 0 && mode & 0o1000 == 0 {
@@ -164,24 +171,23 @@ async fn prepare_socket_root(root: &str, stale_after: std::time::Duration) {
         }
     }
 
+    // Non-recursive on purpose: `recursive` reports success for a path that already
+    // exists, which under a sticky parent (where others may still *create* the
+    // not-yet-existing `pc`, only not rename ours away) would hand us whatever another uid
+    // raced into place. Create-or-EEXIST, then validate whatever is actually there.
+    match tokio::fs::DirBuilder::new().mode(0o700).create(root).await {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(e) => return untrusted(format!("it could not be created: {e}")),
+    }
+
     match tokio::fs::symlink_metadata(root).await {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            if let Err(e) = tokio::fs::DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(root)
-                .await
-            {
-                untrusted(format!("it could not be created: {e}"));
-            }
-            return;
-        }
         Ok(meta) if meta.is_dir() => {
             let mode = meta.permissions().mode();
             if meta.uid() != nix::unistd::Uid::effective().as_raw() || mode & 0o022 != 0 {
                 return untrusted(format!(
-                    "it already exists but is not owned by this worker or is writable by \
-                     others (uid={}, mode={:o})",
+                    "it is not owned by this worker or is writable by others (uid={}, \
+                     mode={:o})",
                     meta.uid(),
                     mode & 0o7777
                 ));
@@ -189,8 +195,7 @@ async fn prepare_socket_root(root: &str, stale_after: std::time::Duration) {
         }
         Ok(_) => {
             return untrusted(
-                "it exists but is not a directory (possibly a symlink planted by another \
-                 local user)"
+                "it is not a directory (possibly a symlink planted by another local user)"
                     .to_string(),
             )
         }
@@ -2610,13 +2615,44 @@ collections_path : a/col:b/col
 
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("wm-pc");
-        let _flag = TrustFlag::lock();
+        let flag = TrustFlag::lock();
+        flag.set(true);
         prepare_socket_root(root.to_str().unwrap(), std::time::Duration::from_secs(1)).await;
 
         let meta = std::fs::metadata(&root).unwrap();
         assert!(meta.is_dir());
         // Owning the root 0700 is what stops another local user replacing it later.
         assert_eq!(meta.permissions().mode() & 0o777, 0o700);
+        assert!(flag.get(), "a root we created ourselves is trusted");
+    }
+
+    /// The root must be validated *after* the create attempt, not before: under a sticky
+    /// parent another uid may still win the race to create the not-yet-existing `pc`
+    /// (sticky stops them renaming ours away, not creating it first), and a create that
+    /// tolerates `AlreadyExists` would otherwise hand us their directory unchecked.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_prepare_socket_root_validates_raced_creation() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let parent = dir.path().join("windmill");
+        std::fs::create_dir(&parent).unwrap();
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o1777)).unwrap();
+
+        // Stand in for the racer's dir: present before we look, and not exclusively ours.
+        let root = parent.join("pc");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o777)).unwrap();
+
+        let flag = TrustFlag::lock();
+        flag.set(true);
+        prepare_socket_root(root.to_str().unwrap(), std::time::Duration::from_secs(1)).await;
+
+        assert!(
+            !flag.get(),
+            "a root raced into place under a sticky parent must not be trusted"
+        );
     }
 
     /// A root we do not exclusively own may have been pre-planted by another local user,
