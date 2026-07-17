@@ -1061,12 +1061,16 @@ pub async fn reload_otel_tracing_proxy_setting(conn: &Connection) {
                 if current.enabled != new_settings.enabled
                     || current.enabled_languages != new_settings.enabled_languages
                     || current.no_proxy_hosts != new_settings.no_proxy_hosts
+                    || current.insecure_upstream_hosts != new_settings.insecure_upstream_hosts
+                    || current.upstream_ca_certs != new_settings.upstream_ca_certs
                 {
                     tracing::info!(
-                        "OTEL tracing proxy settings changed: enabled={}, languages={:?}, no_proxy_hosts={:?}",
+                        "OTEL tracing proxy settings changed: enabled={}, languages={:?}, no_proxy_hosts={:?}, insecure_upstream_hosts={:?}, upstream_ca_certs={}",
                         new_settings.enabled,
                         new_settings.enabled_languages,
                         new_settings.no_proxy_hosts,
+                        new_settings.insecure_upstream_hosts,
+                        if new_settings.upstream_ca_certs.as_deref().unwrap_or("").trim().is_empty() { "unset" } else { "set" },
                     );
                     *current = new_settings;
                 }
