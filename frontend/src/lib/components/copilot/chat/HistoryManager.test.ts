@@ -305,6 +305,33 @@ describe('HistoryManager legacy chat-history migration', () => {
 		expect((chat?.actualMessages[1].content as any[])[0].image_url.url).toBe(X)
 	})
 
+	it('reopening a rotated chat reuses its blob records on the next save', async () => {
+		const hm = new HistoryManager()
+		await hm.init()
+		const chatId = hm.getCurrentChatId()
+		const png = 'data:image/png;base64,STABLEBYTES'
+		await hm.save(
+			[
+				{ role: 'user', content: 'x', images: [{ dataUrl: png, mediaType: 'image/png' }] }
+			] as DisplayMessage[],
+			[] as ChatCompletionMessageParam[]
+		) // rotates to a fresh chat, pruning the id cache
+
+		const before = await openDB('copilot-chat-history::admin@test')
+		const idsBefore = await before.getAllKeys('images' as never)
+		before.close()
+
+		// Reopening must reseed the stable blob id — a re-save that minted a new
+		// id would rewrite every blob (and delete the old ones) on each reopen.
+		const chat = await hm.loadPastChat(chatId)
+		await hm.saveChat(chat!.displayMessages as DisplayMessage[], chat!.actualMessages)
+
+		const after = await openDB('copilot-chat-history::admin@test')
+		const idsAfter = await after.getAllKeys('images' as never)
+		after.close()
+		expect(idsAfter).toEqual(idsBefore)
+	})
+
 	it('the same image in two chats gets two owned blobs; deleting one chat spares the other', async () => {
 		const png = 'data:image/png;base64,SHAREDBYTES'
 		const display = [

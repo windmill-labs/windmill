@@ -535,12 +535,12 @@ export default class HistoryManager {
 							}
 						: {})
 			}
-			// The in-memory mirror keeps the inline data URLs: IndexedDB can be
-			// unavailable (whenReady() → undefined in private browsing / blocked
-			// opens), and history must stay fully usable from memory then — refs
-			// with no backing store would break thumbnails and resend `wm-image:`
-			// URLs. The strings are shared with the live arrays, so this retains
-			// no extra bytes. Only the clone bound for the DB is dehydrated.
+			// The mirror takes the inline copy first: IndexedDB can be unavailable
+			// (whenReady() → undefined in private browsing / blocked opens), and
+			// history must stay fully usable from memory then — refs with no
+			// backing store would break thumbnails and resend `wm-image:` URLs.
+			// persistDehydratedChat converges it to the ref-backed clone once the
+			// DB commit succeeds.
 			this.savedChats = {
 				...this.savedChats,
 				[updatedChat.id]: updatedChat
@@ -568,6 +568,17 @@ export default class HistoryManager {
 			const keep = this.keptImageIds(refs)
 			await this.writeKeptImageBlobs(db, persisted.id, blobs, keep)
 			await db.put('chats', persisted)
+			// Once the DB holds the record, converge the mirror to the ref-backed
+			// clone: a reopened chat then hydrates through the store (reseeding
+			// stable blob ids — an inline mirror would mint new ids on its next
+			// save and bulk-rewrite every blob) and rotated chats stop pinning
+			// this session's image bytes in memory. When the DB is unavailable
+			// this line is never reached, so the mirror keeps the inline copy.
+			// Existence check: a concurrent deletePastChat must not be resurrected
+			// (queue order otherwise makes last-writer-wins correct).
+			if (this.savedChats[persisted.id]) {
+				this.savedChats = { ...this.savedChats, [persisted.id]: persisted }
+			}
 			await this.deleteStaleImageBlobs(db, persisted.id, keep)
 		})
 	}
