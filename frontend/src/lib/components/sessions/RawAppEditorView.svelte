@@ -9,7 +9,8 @@
 	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import type {
 		RawAppRuntimeLogRequester,
-		RawAppRunsProvider
+		RawAppRunsProvider,
+		RawAppScreenshotRequester
 	} from '$lib/components/raw_apps/utils'
 
 	let {
@@ -83,6 +84,21 @@
 	function registerRunsProvider(provider: RawAppRunsProvider | undefined) {
 		runtime.setAppRunsProvider(provider)
 	}
+
+	// The preview host keeps every opened tab mounted, so registering on mount would
+	// leave a background tab owning the runtime's single screenshot slot and
+	// take_screenshot would capture an app the user isn't looking at. Ownership
+	// follows the visible tab instead, and only the owner may release it.
+	let screenshotRequester = $state<RawAppScreenshotRequester | undefined>(undefined)
+	function registerScreenshotRequester(requester: RawAppScreenshotRequester | undefined) {
+		screenshotRequester = requester
+	}
+	$effect(() => {
+		const requester = screenshotRequester
+		if (!active || !requester) return
+		runtime.setScreenshotRequester(requester)
+		return () => runtime.clearScreenshotRequester(requester)
+	})
 </script>
 
 {#if cell.saved.val}
@@ -141,6 +157,7 @@
 				defaultSplitWithPreview={false}
 				onRuntimeLogRequester={registerRuntimeLogRequester}
 				onRunsProvider={registerRunsProvider}
+				onScreenshotRequester={registerScreenshotRequester}
 			/>
 		{/if}
 	{/snippet}

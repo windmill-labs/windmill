@@ -11,15 +11,30 @@
 	const aiChatManager = getAiChatManager()
 </script>
 
-{#if aiChatManager.queuedMessage}
+<!-- Image-only queues have empty text; without the image row the queued draft
+     would be invisible — undismissable, then auto-sent as a surprise turn. -->
+{#if aiChatManager.queuedMessage || aiChatManager.queuedImages.length > 0}
 	<div
 		class="mb-1 flex flex-row items-start gap-1 rounded-md bg-surface-input px-3 py-2 opacity-60"
 		title={aiChatManager.queuedMessage}
 	>
 		<div class="min-w-0 grow">
-			<p class="text-xs text-secondary whitespace-pre-wrap line-clamp-2">
-				{aiChatManager.queuedMessage}
-			</p>
+			{#if aiChatManager.queuedImages.length > 0}
+				<div class="flex flex-row flex-wrap gap-1 {aiChatManager.queuedMessage ? 'mb-1' : ''}">
+					{#each aiChatManager.queuedImages as image, i (i)}
+						<img
+							src={image.dataUrl}
+							alt={image.name ?? 'queued image'}
+							class="h-6 w-6 object-cover rounded border border-border-light"
+						/>
+					{/each}
+				</div>
+			{/if}
+			{#if aiChatManager.queuedMessage}
+				<p class="text-xs text-secondary whitespace-pre-wrap line-clamp-2">
+					{aiChatManager.queuedMessage}
+				</p>
+			{/if}
 		</div>
 		<Button
 			variant="subtle"

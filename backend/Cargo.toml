@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.760.1"
+version = "1.761.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -87,7 +87,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.760.1"
+version = "1.761.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -681,5 +681,8 @@ rumqttc = { version = "0.24.0", features = ["use-native-tls"]}
 strum = { version = "0.27", features = ["derive"] }
 strum_macros = "0.27"
 hudsucker = { version = "0.22", features = ["rcgen-ca", "native-tls-client"] }
-hyper-http-proxy = { version = "1", default-features = false, features = ["native-tls"] }
+hyper-http-proxy = { version = "1", default-features = false, features = ["rustls-tls-native-roots"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "ring", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls-native-certs = "0.8"
 rcgen = "0.13"
