@@ -3395,17 +3395,28 @@ lazy_static::lazy_static! {
 /// scanning inside the advisory lock is what makes a double-push impossible —
 /// whoever holds it re-reads the unarmed set, so a schedule another replica just
 /// re-armed is seen armed and its tally dropped, rather than pushed twice.
-pub async fn reconcile_unarmed_schedules(db: &Pool<Postgres>) {
-    let mut lock_conn = match db.acquire().await {
-        Ok(c) => c,
+///
+/// Not an authorization boundary: it re-arms schedules across every workspace, so
+/// this is a system caller (the monitor loop) only.
+async fn reconcile_unarmed_schedules(db: &Pool<Postgres>) {
+    // Transaction-scoped advisory lock, not session-scoped: monitor_db runs under a
+    // 600s timeout, and if it fires the whole future is dropped mid-pass. A session
+    // lock taken on a pooled connection would then ride that connection back into the
+    // pool still held, wedging reconciliation on every replica until the process
+    // restarts. An xact lock is released when its transaction ends — including the
+    // rollback a dropped `Transaction` performs — so cancellation can't strand it.
+    // The tx is held open only to own the lock; the scan and re-arm run on separate
+    // pool connections.
+    let mut lock_tx = match db.begin().await {
+        Ok(tx) => tx,
         Err(e) => {
-            tracing::error!("schedule reconcile: failed to acquire connection: {e:#}");
+            tracing::error!("schedule reconcile: failed to begin lock tx: {e:#}");
             return;
         }
     };
-    let locked: bool = match sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
+    let locked: bool = match sqlx::query_scalar("SELECT pg_try_advisory_xact_lock($1)")
         .bind(SCHEDULE_RECONCILE_LOCK_ID)
-        .fetch_one(&mut *lock_conn)
+        .fetch_one(&mut *lock_tx)
         .await
     {
         Ok(v) => v,
@@ -3423,12 +3434,9 @@ pub async fn reconcile_unarmed_schedules(db: &Pool<Postgres>) {
         tracing::error!("schedule reconcile: {e:#}");
     }
 
-    if let Err(e) = sqlx::query("SELECT pg_advisory_unlock($1)")
-        .bind(SCHEDULE_RECONCILE_LOCK_ID)
-        .execute(&mut *lock_conn)
-        .await
-    {
-        tracing::error!("schedule reconcile: advisory unlock failed: {e:#}");
+    // Ends the transaction and releases the xact lock; a plain drop would too.
+    if let Err(e) = lock_tx.rollback().await {
+        tracing::error!("schedule reconcile: releasing lock failed: {e:#}");
     }
 }
 

@@ -665,6 +665,30 @@ pub async fn rearm_schedule(db: &DB, w_id: &str, path: &str) -> Result<RearmOutc
     if !schedule.enabled {
         return Ok(RearmOutcome::NoOp);
     }
+    // Re-check for a queued occurrence now that the row is locked: a normal
+    // completion, an edit, or a re-enable could have pushed one between the unarmed
+    // scan and this lock. push_scheduled_job only dedups the exact computed
+    // scheduled_for, so re-arming a schedule that has since become armed and crossed a
+    // cron boundary would queue a second root occurrence. Mirrors the anti-join in
+    // find_unarmed_schedules.
+    let already_armed: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM v2_job_queue q JOIN v2_job j USING (id)
+             WHERE j.workspace_id = $1
+                 AND j.trigger_kind = 'schedule'
+                 AND j.trigger = $2
+                 AND j.runnable_path = $3
+                 AND j.parent_job IS NULL
+         )",
+    )
+    .bind(w_id)
+    .bind(path)
+    .bind(&schedule.script_path)
+    .fetch_one(&mut *tx)
+    .await?;
+    if already_armed {
+        return Ok(RearmOutcome::NoOp);
+    }
     match push_scheduled_job(db, tx, &schedule, None, None).await {
         Ok(tx) => {
             tx.commit().await?;
@@ -674,9 +698,6 @@ pub async fn rearm_schedule(db: &DB, w_id: &str, path: &str) -> Result<RearmOutc
         // (runnable gone, quota blown) disables the schedule with the reason
         // surfaced on it, rather than being retried on every pass forever.
         Err(err @ (error::Error::NotFound(_) | error::Error::QuotaExceeded(_))) => {
-            tracing::error!(
-                "Could not re-arm schedule {path} in {w_id}: {err}. Disabling schedule."
-            );
             // The failed push consumed (and rolled back) the tx along with the row
             // lock, so re-check what the error was about: a schedule since edited
             // onto a runnable that does exist must not be disabled by a stale
@@ -692,11 +713,16 @@ pub async fn rearm_schedule(db: &DB, w_id: &str, path: &str) -> Result<RearmOutc
             )
             .fetch_optional(db)
             .await?;
-            Ok(if disabled.is_some() {
-                RearmOutcome::Disabled
+            // Log only once the guard has actually disabled it, so a schedule the
+            // guard spared (re-pointed at a valid runnable) isn't reported as disabled.
+            if disabled.is_some() {
+                tracing::error!(
+                    "Could not re-arm schedule {path} in {w_id}: {err}. Disabled schedule."
+                );
+                Ok(RearmOutcome::Disabled)
             } else {
-                RearmOutcome::NoOp
-            })
+                Ok(RearmOutcome::NoOp)
+            }
         }
         Err(err) => Err(err),
     }

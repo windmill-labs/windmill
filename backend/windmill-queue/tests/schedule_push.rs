@@ -1859,4 +1859,24 @@ mod schedule_push {
         assert!(error.is_some());
         Ok(())
     }
+
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_rearm_schedule_skips_already_armed(db: Pool<Postgres>) -> anyhow::Result<()> {
+        // An occurrence can be queued (a normal completion, an edit, a re-enable)
+        // between the unarmed scan and rearm_schedule acquiring the row lock. Re-arming
+        // then would double-push, since push_scheduled_job only dedups the exact
+        // computed scheduled_for.
+        insert_schedule(&db, "f/system/test_schedule", "f/system/test_script", true).await;
+        let tx = db.begin().await?;
+        let tx = push_scheduled_job(&db, tx, &make_schedule(|_| {}), None, None).await?;
+        tx.commit().await?;
+        assert_eq!(count_queued_jobs(&db).await, 1);
+
+        assert_eq!(
+            rearm_schedule(&db, "test-workspace", "f/system/test_schedule").await?,
+            RearmOutcome::NoOp
+        );
+        assert_eq!(count_queued_jobs(&db).await, 1);
+        Ok(())
+    }
 }
