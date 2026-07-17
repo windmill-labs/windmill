@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 import {
 	boundImagePartBytes,
+	captureScale,
 	fileToAttachedImage,
 	imagesFromContent,
 	MAX_IMAGE_BYTES,
@@ -155,5 +156,18 @@ describe('imagesFromContent', () => {
 	it('is undefined for string content and image-free part arrays', () => {
 		expect(imagesFromContent('plain')).toBeUndefined()
 		expect(imagesFromContent([{ type: 'text', text: 'plain' }])).toBeUndefined()
+	})
+})
+
+describe('captureScale', () => {
+	it('captures small targets above CSS resolution, capped at 2x', () => {
+		expect(captureScale(400)).toBe(2)
+	})
+
+	it('never yields a raster larger than MAX_IMAGE_EDGE, even below 1x', () => {
+		// A tall scrolling app body: rasterising at >=1x would allocate an
+		// unbounded canvas only for normalize to shrink or reject it.
+		expect(captureScale(10_000) * 10_000).toBe(1568)
+		expect(captureScale(10_000)).toBeLessThan(1)
 	})
 })
