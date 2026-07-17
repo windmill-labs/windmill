@@ -521,12 +521,11 @@ pub fn build_request_body(
     }
 }
 
-/// Create HTTP request with authentication
 /// Scopes to embed in the JWT minted for a proxied MCP endpoint request. The MCP
 /// runner already authorized *which* endpoint may be called; this bounds *what
 /// the resulting internal request can do*.
 ///
-/// - Unscoped caller (cookie / full-privilege token): unscoped JWT (unchanged).
+/// - Unscoped caller (cookie / full-privilege token): unscoped JWT.
 /// - Scope-restricted caller whose own scopes already authorize the route: keep
 ///   those scopes verbatim, so the target handler's per-path `check_scopes` still
 ///   enforces the caller's path caps (e.g. a `variables:read:u/admin/safe/*`
@@ -558,6 +557,7 @@ fn jwt_scopes_for_proxied_route(
     Ok(Some(vec![scope]))
 }
 
+/// Create HTTP request with authentication
 pub async fn create_http_request(
     method: &str,
     url: &str,

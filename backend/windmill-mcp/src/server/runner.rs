@@ -860,11 +860,10 @@ mod tests {
         }
     }
 
-    // The core regression: a folder-scoped token (mcp:endpoints:* +
+    // The core invariant: a folder-scoped token (mcp:endpoints:* +
     // mcp:scripts:f/team/*, as the folder-scope UI emits) must not run a script
-    // outside its allowed folders via runScriptByPath. Before the fix, the
-    // single-workspace call gate was endpoint-name only, so mcp:endpoints:*
-    // authorized runScriptByPath for any path.
+    // outside its allowed folders via runScriptByPath — mcp:endpoints:* alone
+    // must never authorize an arbitrary path.
     #[test]
     fn run_by_path_call_enforces_script_scope() {
         let config = cfg(&[
@@ -1016,8 +1015,8 @@ mod tests {
         }
     }
 
-    // A token that never expressed path patterns (endpoints-only) keeps its
-    // previous behavior: the endpoint scope alone authorizes any path.
+    // A token that never expressed path patterns (endpoints-only) is not
+    // confined: the endpoint scope alone authorizes any path.
     #[test]
     fn path_arg_tools_unconfined_without_path_patterns() {
         let config = cfg(&["mcp:endpoints:*"]);
