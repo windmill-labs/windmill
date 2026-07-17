@@ -3382,11 +3382,41 @@ const SCHEDULE_RECONCILE_STRIKES: u8 = 2;
 /// over several passes instead of enqueuing every occurrence at once.
 const SCHEDULE_RECONCILE_MAX_PER_PASS: usize = 50;
 
+/// Consecutive failed re-arm attempts after which a schedule's persistent failure
+/// is surfaced once (its `error` recorded + a critical alert). Most re-arm
+/// failures are a transient blip that clears on the next attempt; a schedule that
+/// keeps failing has a real cause (bad stored cron/timezone/args, lapsed license)
+/// and would otherwise be enabled-yet-silently-dead.
+const SCHEDULE_REARM_ALERT_THRESHOLD: u32 = 3;
+
+/// Cap on the exponential back-off (in reconcile passes) between re-arm retries of
+/// a schedule that keeps failing. Without a back-off a permanently-failing push
+/// retries every pass forever; the delay grows 2, 4, 8, … up to this cap and
+/// resets the moment the schedule re-arms.
+const SCHEDULE_REARM_MAX_BACKOFF_PASSES: u32 = 32;
+
+/// State for a schedule that keeps failing to re-arm: paces retries and drives the
+/// one-time visibility so the loop is neither hot nor silent.
+#[derive(Default)]
+struct RearmFailureState {
+    consecutive_failures: u32,
+    /// Reconcile passes still to skip before the next attempt (exponential back-off).
+    cooldown_passes: u32,
+    /// Whether the persistent failure has already been surfaced.
+    surfaced: bool,
+}
+
 lazy_static::lazy_static! {
     /// `(workspace_id, path)` -> consecutive passes seen with no queued occurrence.
     /// Bounded by the number of enabled schedules; entries drop as soon as a
     /// schedule is seen armed again.
     static ref UNARMED_SCHEDULES: Mutex<std::collections::HashMap<(String, String), u8>> =
+        Mutex::new(std::collections::HashMap::new());
+
+    /// `(workspace_id, path)` -> back-off/visibility state for schedules that keep
+    /// failing to re-arm. Entries drop as soon as a schedule re-arms or is no
+    /// longer unarmed (armed, disabled, deleted).
+    static ref SCHEDULE_REARM_FAILURES: Mutex<std::collections::HashMap<(String, String), RearmFailureState>> =
         Mutex::new(std::collections::HashMap::new());
 }
 
@@ -3467,8 +3497,25 @@ fn strike_unarmed(
 }
 
 async fn reconcile_unarmed_schedules_inner(db: &Pool<Postgres>) -> error::Result<()> {
-    let current = find_unarmed_schedules(db).await?.into_iter().collect();
-    let mut to_rearm = strike_unarmed(&mut UNARMED_SCHEDULES.lock().unwrap(), current);
+    let current: std::collections::HashSet<(String, String)> =
+        find_unarmed_schedules(db).await?.into_iter().collect();
+    let mut to_rearm = strike_unarmed(&mut UNARMED_SCHEDULES.lock().unwrap(), current.clone());
+
+    // Back off schedules that keep failing to re-arm (bad stored cron/timezone/args,
+    // lapsed license): skip those still cooling down, and forget state for any that
+    // are no longer unarmed. Without this a permanently-failing push is retried
+    // every pass forever.
+    {
+        let mut failures = SCHEDULE_REARM_FAILURES.lock().unwrap();
+        failures.retain(|k, _| current.contains(k));
+        to_rearm.retain(|k| match failures.get_mut(k) {
+            Some(state) if state.cooldown_passes > 0 => {
+                state.cooldown_passes -= 1;
+                false
+            }
+            _ => true,
+        });
+    }
 
     // The first pass on an instance that has never been swept can find a large
     // backlog; re-arming it all at once would enqueue that whole backlog in one
@@ -3490,11 +3537,76 @@ async fn reconcile_unarmed_schedules_inner(db: &Pool<Postgres>) -> error::Result
                         "schedule reconcile: re-armed enabled schedule {path} in {w_id}, which had no queued occurrence"
                     );
                 }
-                UNARMED_SCHEDULES.lock().unwrap().remove(&(w_id, path));
+                UNARMED_SCHEDULES
+                    .lock()
+                    .unwrap()
+                    .remove(&(w_id.clone(), path.clone()));
+                // Clear the error we recorded once it re-arms, so a recovered
+                // schedule stops showing a stale failure.
+                let was_surfaced = SCHEDULE_REARM_FAILURES
+                    .lock()
+                    .unwrap()
+                    .remove(&(w_id.clone(), path.clone()))
+                    .is_some_and(|s| s.surfaced);
+                if was_surfaced {
+                    if let Err(e) = sqlx::query!(
+                        "UPDATE schedule SET error = NULL WHERE workspace_id = $1 AND path = $2 AND enabled IS TRUE",
+                        w_id,
+                        path
+                    )
+                    .execute(db)
+                    .await
+                    {
+                        tracing::error!(
+                            "schedule reconcile: could not clear error for {path} in {w_id}: {e:#}"
+                        );
+                    }
+                }
             }
-            Err(e) => tracing::error!(
-                "schedule reconcile: could not re-arm schedule {path} in {w_id}: {e:#}"
-            ),
+            Err(e) => {
+                tracing::error!(
+                    "schedule reconcile: could not re-arm schedule {path} in {w_id}: {e:#}"
+                );
+                let should_surface = {
+                    let mut failures = SCHEDULE_REARM_FAILURES.lock().unwrap();
+                    let state = failures.entry((w_id.clone(), path.clone())).or_default();
+                    state.consecutive_failures += 1;
+                    state.cooldown_passes = (1u32 << state.consecutive_failures.min(5))
+                        .min(SCHEDULE_REARM_MAX_BACKOFF_PASSES);
+                    let surface = !state.surfaced
+                        && state.consecutive_failures >= SCHEDULE_REARM_ALERT_THRESHOLD;
+                    state.surfaced |= surface;
+                    surface
+                };
+                // Surface without disabling: record the error for the owner (schedule
+                // stays enabled) and raise a critical alert. rearm_schedule never
+                // disables, so this is the only signal a persistently-broken schedule
+                // gives beyond server logs.
+                if should_surface {
+                    if let Err(err) = sqlx::query!(
+                        "UPDATE schedule SET error = $1 WHERE workspace_id = $2 AND path = $3 AND enabled IS TRUE",
+                        e.to_string(),
+                        w_id,
+                        path
+                    )
+                    .execute(db)
+                    .await
+                    {
+                        tracing::error!(
+                            "schedule reconcile: could not record error for {path} in {w_id}: {err:#}"
+                        );
+                    }
+                    report_critical_error(
+                        format!(
+                            "Schedule {path} in workspace {w_id} is enabled but has repeatedly failed to re-arm and will not run until the cause is fixed: {e:#}"
+                        ),
+                        db.clone(),
+                        Some(&w_id),
+                        None,
+                    )
+                    .await;
+                }
+            }
         }
     }
     Ok(())
