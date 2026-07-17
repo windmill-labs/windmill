@@ -60,23 +60,26 @@ const DELEGATE_GIT_REPO_TARGET: &str = "delegate_git_repository";
 /// same job dir is fine.
 const AF_UNIX_PATH_LIMIT: usize = 107;
 
-lazy_static::lazy_static! {
-    /// Root for the per-job dir in which ansible's persistent-connection plugins
-    /// (`network_cli`, `httpapi`, `netconf`) bind their unix socket, named after a digest
-    /// of the connection. `sockaddr_un.sun_path` caps the whole socket path at 107 bytes,
-    /// which the job dir alone already exhausts, so the socket dir must stay short and
-    /// cannot live under `ANSIBLE_HOME` (which Windmill pins into the job dir).
-    ///
-    /// Rooted directly at `/tmp`, whose sticky bit is what stops another uid renaming our
-    /// root away — the property [`prepare_socket_root`] needs from a parent. Notably NOT
-    /// under `WINDMILL_DIR`: the shipped image chmods that tree to a non-sticky 0777 so any
-    /// UID can write it (`Dockerfile`, "Make directories world-accessible for any UID"),
-    /// which is exactly the parent an attacker can swap entries in. Default `/tmp/wm-pc`
-    /// leaves 84 of the 107 bytes at full socket length; override if `/tmp` is unsuitable.
-    static ref PERSISTENT_CONTROL_PATH_ROOT: String =
-        std::env::var("WINDMILL_ANSIBLE_CONTROL_PATH_ROOT")
-            .unwrap_or_else(|_| "/tmp/wm-pc".to_string());
-}
+/// Root for the per-job dir in which ansible's persistent-connection plugins
+/// (`network_cli`, `httpapi`, `netconf`) bind their unix socket, named after a digest of the
+/// connection. `sockaddr_un.sun_path` caps the whole socket path at [`AF_UNIX_PATH_LIMIT`],
+/// which the job dir alone already exhausts, so the socket dir must stay short and cannot
+/// live under `ANSIBLE_HOME` (which Windmill pins into the job dir).
+///
+/// Fixed, and directly under `/tmp`, for two reasons that are easy to undo by accident:
+/// `/tmp`'s sticky bit is what stops another uid renaming our root away, the one property
+/// [`prepare_socket_root`] needs from a parent; and every component of a fixed path is one
+/// nobody can point elsewhere, so trusting the root does not mean trusting an ancestor
+/// chain. Notably NOT under `WINDMILL_DIR`: the shipped image chmods that tree to a
+/// non-sticky 0777 so any UID can write it (`Dockerfile`, "Make directories
+/// world-accessible for any UID"), which is exactly the parent an attacker can swap entries
+/// in.
+const PERSISTENT_CONTROL_PATH_ROOT: &str = "/tmp/wm-pc";
+
+/// The budget this whole change exists to protect: root + `/` + a 32-char job uuid + `/` +
+/// a socket name, allowing a full 40-char sha1 (ansible truncates it far shorter today, but
+/// a custom control path may not).
+const _: () = assert!(PERSISTENT_CONTROL_PATH_ROOT.len() + 1 + 32 + 1 + 40 <= AF_UNIX_PATH_LIMIT);
 
 /// Cleared when the root cannot be trusted (see [`prepare_socket_root`]), which makes jobs
 /// stop naming it and fall back to ansible's own `{ANSIBLE_HOME}/pc` default — inside the
@@ -92,11 +95,11 @@ static SOCKET_ROOT_TRUSTED: std::sync::atomic::AtomicBool =
 fn persistent_control_path_dir(job_id: &Uuid) -> Option<String> {
     SOCKET_ROOT_TRUSTED
         .load(std::sync::atomic::Ordering::Relaxed)
-        .then(|| format!("{}/{}", &*PERSISTENT_CONTROL_PATH_ROOT, job_id.simple()))
+        .then(|| format!("{PERSISTENT_CONTROL_PATH_ROOT}/{}", job_id.simple()))
 }
 
 /// Whether `name` is one this module could have created, i.e. `Uuid::simple` (32 hex, no
-/// hyphens). The gate for deleting anything under the configurable root.
+/// hyphens). Belt to the root check's braces: nothing else should ever be in there.
 fn is_persistent_control_path_dir_name(name: &str) -> bool {
     name.len() == 32 && Uuid::try_parse(name).is_ok()
 }
@@ -115,26 +118,13 @@ impl Drop for PersistentControlPathGuard {
 /// died before their guard could run.
 #[cfg(unix)]
 pub async fn prepare_persistent_control_path_root() {
-    let root = &*PERSISTENT_CONTROL_PATH_ROOT;
-    // An overridden root can be long enough to put the budget back out of reach; the
-    // playbook-side error is opaque, so say so once at startup instead.
-    let longest_socket_path = root.len() + 1 + 32 + 1 + 40;
-    if longest_socket_path > AF_UNIX_PATH_LIMIT {
-        tracing::warn!(
-            "WINDMILL_ANSIBLE_CONTROL_PATH_ROOT is long enough that ansible \
-             persistent-connection sockets under {root} may reach {longest_socket_path} \
-             bytes, over the AF_UNIX limit of {AF_UNIX_PATH_LIMIT}; network playbooks may \
-             fail with `AF_UNIX path too long`."
-        );
-    }
-
     // A play holds its socket dir for as long as it runs, touching the mtime only when
     // connections open, so anything younger than the longest permitted job may still be
     // live — including on another worker sharing this host.
     let stale_after = std::time::Duration::from_secs(
         windmill_common::worker::MAX_TIMEOUT.saturating_add(24 * 60 * 60),
     );
-    prepare_socket_root(root, stale_after).await
+    prepare_socket_root(PERSISTENT_CONTROL_PATH_ROOT, stale_after).await
 }
 
 /// Reject a root that another local user could control, and mark it untrusted so jobs stop
@@ -222,9 +212,9 @@ async fn prepare_socket_root(root: &str, stale_after: std::time::Duration) {
         return;
     };
     while let Ok(Some(entry)) = entries.next_entry().await {
-        // Only reap what we could have created. The root is configurable, so it may well
-        // be a directory holding things that are not ours, and a recursive delete of
-        // whatever happens to be old in there is not a mistake worth risking.
+        // Only reap what we could have created. Nothing else should ever be in a root we
+        // made 0700 ourselves, but this is a recursive delete running as the worker's uid:
+        // cheap to bound by name, expensive to get wrong.
         if !entry
             .file_name()
             .to_str()
@@ -2608,8 +2598,8 @@ collections_path : a/col:b/col
     }
 
     /// The sweep only reaps what no live job can own: a play may hold its socket dir for
-    /// the whole of MAX_TIMEOUT without touching the mtime again. And since the root is
-    /// configurable, it only ever touches names it could have created itself.
+    /// the whole of MAX_TIMEOUT without touching the mtime again. And it only ever touches
+    /// names it could have created itself.
     #[cfg(unix)]
     #[tokio::test]
     async fn test_prepare_socket_root_sweeps_only_stale_dirs() {
@@ -2734,18 +2724,17 @@ collections_path : a/col:b/col
         );
     }
 
-    /// The default root must hang off a parent whose sticky bit protects it. Notably not
+    /// The root must hang off a parent whose sticky bit protects it. Notably not
     /// `WINDMILL_DIR`: the shipped image chmods that whole tree to a non-sticky 0777 so any
     /// UID can write it, which would make the root untrusted and silently disable this fix
     /// in the standard image while every local test still passed.
     #[test]
-    fn test_default_control_path_root_hangs_off_tmp_not_windmill_dir() {
-        let root = &*PERSISTENT_CONTROL_PATH_ROOT;
+    fn test_control_path_root_hangs_off_tmp_not_windmill_dir() {
         assert_eq!(
-            std::path::Path::new(root).parent(),
+            std::path::Path::new(PERSISTENT_CONTROL_PATH_ROOT).parent(),
             Some(std::path::Path::new("/tmp"))
         );
-        assert!(!root.starts_with(&*windmill_common::worker::WINDMILL_DIR));
+        assert!(!PERSISTENT_CONTROL_PATH_ROOT.starts_with(&*windmill_common::worker::WINDMILL_DIR));
     }
 
     /// A parent that others can write (and that is not sticky) lets them rename the root
