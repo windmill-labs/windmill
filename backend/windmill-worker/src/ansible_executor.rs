@@ -103,6 +103,7 @@ fn persistent_control_path_dir(job_id: &Uuid) -> Option<String> {
 
 /// Whether `name` is one this module could have created, i.e. `Uuid::simple` (32 hex, no
 /// hyphens). Belt to the root check's braces: nothing else should ever be in there.
+#[cfg(unix)]
 fn is_persistent_control_path_dir_name(name: &str) -> bool {
     name.len() == 32 && Uuid::try_parse(name).is_ok()
 }
@@ -2693,6 +2694,7 @@ collections_path : a/col:b/col
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn test_is_persistent_control_path_dir_name() {
         assert!(is_persistent_control_path_dir_name(
