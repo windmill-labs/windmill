@@ -70,6 +70,28 @@
 	// iframe context and refuse to mount when embedded.
 	const embedded = typeof window !== 'undefined' && window.self !== window.top
 
+	// Warm the lazily-loaded editor views (see PreviewTabHost) once the page is
+	// idle: entering session mode stays instant, and by the time the user opens
+	// an editor tab its chunk is usually already cached. Sequential so the
+	// prefetch trickles instead of fanning out four heavy graphs at once.
+	$effect(() => {
+		if (embedded || !globalEnabled) return
+		const prefetch = async () => {
+			await import('$lib/components/sessions/ScriptEditorView.svelte')
+			await import('$lib/components/sessions/FlowEditorView.svelte')
+			await import('$lib/components/sessions/RawAppEditorView.svelte')
+			await import('$lib/components/sessions/PipelineEditorView.svelte')
+		}
+		const hasIdle = 'requestIdleCallback' in window
+		const handle = hasIdle
+			? window.requestIdleCallback(() => void prefetch())
+			: window.setTimeout(() => void prefetch(), 2000)
+		return () => {
+			if (hasIdle) window.cancelIdleCallback(handle)
+			else window.clearTimeout(handle)
+		}
+	})
+
 	const sessionName = $derived(page.url.searchParams.get('session_name') ?? '')
 
 	// Unfiltered resolution by name — drives the "session not found" fallback and
