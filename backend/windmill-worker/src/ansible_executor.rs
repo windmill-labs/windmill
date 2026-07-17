@@ -95,6 +95,12 @@ fn persistent_control_path_dir(job_id: &Uuid) -> Option<String> {
         .then(|| format!("{}/{}", &*PERSISTENT_CONTROL_PATH_ROOT, job_id.simple()))
 }
 
+/// Whether `name` is one this module could have created, i.e. `Uuid::simple` (32 hex, no
+/// hyphens). The gate for deleting anything under the configurable root.
+fn is_persistent_control_path_dir_name(name: &str) -> bool {
+    name.len() == 32 && Uuid::try_parse(name).is_ok()
+}
+
 /// Removes the job's socket dir on the way out. It lives outside `job_dir`, so the
 /// worker's job-dir sweep does not cover it.
 struct PersistentControlPathGuard(String);
@@ -134,8 +140,8 @@ pub async fn prepare_persistent_control_path_root() {
 /// Reject a root that another local user could control, and mark it untrusted so jobs stop
 /// naming it. Returns without sweeping in that case.
 ///
-/// SECURITY: the root sits under `WINDMILL_DIR`, typically in a world-writable `/tmp`, so a
-/// local user who wins the race to create it owns the parent of every job's socket dir —
+/// SECURITY: the root sits in a world-writable `/tmp`, so a local user who wins the race to
+/// create it owns the parent of every job's socket dir —
 /// enough to hand ansible a socket of their choosing (a device session, credentials and
 /// all, runs over it), or to swap in a symlink and redirect the sweep's path-based
 /// `remove_dir_all` onto a target of their choosing, as the worker's uid. Three things must
@@ -216,6 +222,16 @@ async fn prepare_socket_root(root: &str, stale_after: std::time::Duration) {
         return;
     };
     while let Ok(Some(entry)) = entries.next_entry().await {
+        // Only reap what we could have created. The root is configurable, so it may well
+        // be a directory holding things that are not ours, and a recursive delete of
+        // whatever happens to be old in there is not a mistake worth risking.
+        if !entry
+            .file_name()
+            .to_str()
+            .is_some_and(is_persistent_control_path_dir_name)
+        {
+            continue;
+        }
         // `DirEntry::metadata` does not traverse symlinks, so a planted link is never
         // followed here either.
         let stale = match entry.metadata().await.and_then(|m| m.modified()) {
@@ -2592,7 +2608,8 @@ collections_path : a/col:b/col
     }
 
     /// The sweep only reaps what no live job can own: a play may hold its socket dir for
-    /// the whole of MAX_TIMEOUT without touching the mtime again.
+    /// the whole of MAX_TIMEOUT without touching the mtime again. And since the root is
+    /// configurable, it only ever touches names it could have created itself.
     #[cfg(unix)]
     #[tokio::test]
     async fn test_prepare_socket_root_sweeps_only_stale_dirs() {
@@ -2600,12 +2617,15 @@ collections_path : a/col:b/col
         let root = dir.path().join("wm-pc");
         std::fs::create_dir(&root).unwrap();
 
-        let stale = root.join("stale-job");
-        let live = root.join("live-job");
-        std::fs::create_dir(&stale).unwrap();
-        std::fs::create_dir(&live).unwrap();
+        let stale = root.join(Uuid::new_v4().simple().to_string());
+        let live = root.join(Uuid::new_v4().simple().to_string());
+        let foreign = root.join("someone-elses-data");
+        for p in [&stale, &live, &foreign] {
+            std::fs::create_dir(p).unwrap();
+        }
         backdate(&stale, std::time::Duration::from_secs(48 * 60 * 60));
         backdate(&live, std::time::Duration::from_secs(12 * 60 * 60));
+        backdate(&foreign, std::time::Duration::from_secs(48 * 60 * 60));
 
         let _flag = TrustFlag::lock();
         prepare_socket_root(
@@ -2616,6 +2636,23 @@ collections_path : a/col:b/col
 
         assert!(!stale.exists(), "dir older than the cutoff must be reaped");
         assert!(live.exists(), "a dir a live job may still own must be kept");
+        assert!(
+            foreign.exists(),
+            "a stale dir we never created must be left alone"
+        );
+    }
+
+    #[test]
+    fn test_is_persistent_control_path_dir_name() {
+        assert!(is_persistent_control_path_dir_name(
+            &Uuid::new_v4().simple().to_string()
+        ));
+        // Hyphenated form is not what we create, so it is not ours to delete.
+        assert!(!is_persistent_control_path_dir_name(
+            &Uuid::new_v4().to_string()
+        ));
+        assert!(!is_persistent_control_path_dir_name("someone-elses-data"));
+        assert!(!is_persistent_control_path_dir_name(""));
     }
 
     #[cfg(unix)]
@@ -2678,7 +2715,9 @@ collections_path : a/col:b/col
         std::fs::create_dir(&root).unwrap();
         std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o777)).unwrap();
 
-        let stale = root.join("stale-job");
+        // UUID-named, so survival proves the trust check stopped the sweep rather than the
+        // name filter.
+        let stale = root.join(Uuid::new_v4().simple().to_string());
         std::fs::create_dir(&stale).unwrap();
         backdate(&stale, std::time::Duration::from_secs(48 * 60 * 60));
 
@@ -2721,7 +2760,9 @@ collections_path : a/col:b/col
         let parent = dir.path().join("windmill");
         let root = parent.join("pc");
         std::fs::create_dir_all(&root).unwrap();
-        let stale = root.join("stale-job");
+        // UUID-named, so survival proves the trust check stopped the sweep rather than the
+        // name filter.
+        let stale = root.join(Uuid::new_v4().simple().to_string());
         std::fs::create_dir(&stale).unwrap();
         backdate(&stale, std::time::Duration::from_secs(48 * 60 * 60));
         std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o777)).unwrap();
@@ -2789,7 +2830,9 @@ collections_path : a/col:b/col
     async fn test_prepare_socket_root_refuses_symlinked_root() {
         let dir = tempfile::tempdir().unwrap();
         let victim = dir.path().join("victim");
-        let victim_child = victim.join("precious");
+        // UUID-named, so survival proves the symlink was not followed rather than the name
+        // filter sparing it.
+        let victim_child = victim.join(Uuid::new_v4().simple().to_string());
         std::fs::create_dir_all(&victim_child).unwrap();
         backdate(&victim_child, std::time::Duration::from_secs(48 * 60 * 60));
 
