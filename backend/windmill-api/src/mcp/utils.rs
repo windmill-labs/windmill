@@ -448,23 +448,6 @@ pub fn build_query_string(
     }
 }
 
-/// Value of the path parameter named `original_name`.
-///
-/// A same-named body field is optional and clients routinely omit it, but the API still
-/// requires the key in the body and rejects the request without it.
-fn same_named_path_param_value<'a>(
-    original_name: &str,
-    args_map: &'a serde_json::Map<String, Value>,
-    path_params_schema: &Option<Value>,
-) -> Option<&'a Value> {
-    path_params_schema
-        .as_ref()?
-        .get("properties")?
-        .as_object()?
-        .contains_key(original_name)
-        .then(|| args_map.get(original_name))?
-}
-
 /// Build request body from arguments
 pub fn build_request_body(
     method: &str,
@@ -520,18 +503,11 @@ pub fn build_request_body(
     let body_map: serde_json::Map<String, Value> = props
         .keys()
         .filter_map(|param_name| {
-            // Use the original name as the key in the request body
-            let original_name = get_original_name(param_name, body_field_renames);
-            let arg = args_map.get(param_name);
-            // An explicit null is treated as "not supplied" for the fallback only:
-            // clients commonly null out optional fields. Fields without a path
-            // counterpart keep their null, which the API reads as absent anyway.
-            let value = match arg {
-                Some(value) if !value.is_null() => Some(value),
-                _ => same_named_path_param_value(&original_name, args_map, path_params_schema)
-                    .or(arg),
-            }?;
-            Some((original_name, value.clone()))
+            args_map.get(param_name).map(|value| {
+                // Use the original name as the key in the request body
+                let original_name = get_original_name(param_name, body_field_renames);
+                (original_name, value.clone())
+            })
         })
         .collect();
 
@@ -719,33 +695,10 @@ mod tests {
     }
 
     #[test]
-    fn build_request_body_defaults_body_path_to_path_param() {
-        let (path_schema, body_schema, body_renames) = update_flow_schemas();
-        // Omitted entirely, and explicitly nulled: clients do both.
-        for args in [
-            json!({ "path": "f/team/my_flow", "summary": "s", "value": {} }),
-            json!({ "path": "f/team/my_flow", "path__body": null, "summary": "s", "value": {} }),
-        ] {
-            let args = args.as_object().unwrap().clone();
-            let body = build_request_body(
-                "POST",
-                &args,
-                &body_schema,
-                &body_renames,
-                &path_schema,
-                &None,
-            )
-            .expect("body should be built");
-            assert_eq!(
-                body.as_object().unwrap().get("path"),
-                Some(&json!("f/team/my_flow")),
-                "an absent path__body must default to the path parameter"
-            );
-        }
-    }
-
-    #[test]
-    fn build_request_body_keeps_explicit_body_path() {
+    fn build_request_body_maps_body_path_alias_for_rename() {
+        // The mangled body field carries the *new* path when renaming; it must reach the
+        // API under its original name `path`. (An omitted `path__body` is intentionally
+        // absent from the body — the server defaults it from the URL path parameter.)
         let (path_schema, body_schema, body_renames) = update_flow_schemas();
         let args: serde_json::Map<String, Value> = json!({
             "path": "f/team/my_flow",
@@ -769,7 +722,7 @@ mod tests {
         assert_eq!(
             body.as_object().unwrap().get("path"),
             Some(&json!("f/team/renamed_flow")),
-            "an explicit path__body renames the item and must win"
+            "path__body must be sent as `path` so a rename takes effect"
         );
     }
 
