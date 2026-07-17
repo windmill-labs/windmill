@@ -10,7 +10,7 @@ mod schedule_push {
     use windmill_common::scripts::ScriptHash;
     use windmill_common::users::username_to_permissioned_as;
     use windmill_queue::jobs::{try_schedule_next_job, MiniCompletedJob};
-    use windmill_queue::schedule::push_scheduled_job;
+    use windmill_queue::schedule::{find_unarmed_schedules, push_scheduled_job, rearm_schedule};
 
     fn make_schedule(overrides: impl FnOnce(&mut Schedule)) -> Schedule {
         let mut s = Schedule {
@@ -1760,6 +1760,80 @@ mod schedule_push {
         .fetch_one(&db)
         .await?;
         assert!(!row_exists, "managed schedule row must be deleted");
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // find_unarmed_schedules / rearm_schedule: recovery for a schedule left
+    // enabled with no queued occurrence (a run that died on an abnormal path
+    // skipped its next-occurrence push). Without this the chain stays dead
+    // until the schedule is manually disabled and re-enabled.
+    // -----------------------------------------------------------------------
+
+    async fn insert_schedule(db: &Pool<Postgres>, path: &str, script_path: &str, enabled: bool) {
+        sqlx::query(
+            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap, permissioned_as)
+             VALUES ('test-workspace', $1, 'test-user', now(), '0 0 */5 * * *', 'UTC', $3, $2, false, 'test@windmill.dev', '{}', false, true, 'u/test-user')",
+        )
+        .bind(path)
+        .bind(script_path)
+        .bind(enabled)
+        .execute(db)
+        .await
+        .unwrap();
+    }
+
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_find_unarmed_schedules(db: Pool<Postgres>) -> anyhow::Result<()> {
+        insert_schedule(&db, "f/system/test_schedule", "f/system/test_script", true).await;
+        insert_schedule(&db, "f/system/disabled", "f/system/test_script", false).await;
+
+        // No occurrence queued yet: the enabled schedule is unarmed, the disabled one is ignored.
+        assert_eq!(
+            find_unarmed_schedules(&db).await?,
+            vec![(
+                "test-workspace".to_string(),
+                "f/system/test_schedule".to_string()
+            )]
+        );
+
+        // Once an occurrence is queued it is armed and must not be reported —
+        // re-arming it would double-push the occurrence.
+        let tx = db.begin().await?;
+        let tx = push_scheduled_job(&db, tx, &make_schedule(|_| {}), None, None).await?;
+        tx.commit().await?;
+        assert_eq!(count_queued_jobs(&db).await, 1);
+        assert!(find_unarmed_schedules(&db).await?.is_empty());
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_rearm_schedule_pushes_next_occurrence(db: Pool<Postgres>) -> anyhow::Result<()> {
+        insert_schedule(&db, "f/system/test_schedule", "f/system/test_script", true).await;
+
+        rearm_schedule(&db, "test-workspace", "f/system/test_schedule").await?;
+
+        assert_eq!(count_queued_jobs(&db).await, 1);
+        assert!(find_unarmed_schedules(&db).await?.is_empty());
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_rearm_schedule_disables_unresolvable(db: Pool<Postgres>) -> anyhow::Result<()> {
+        insert_schedule(&db, "f/system/bad_schedule", "f/system/nonexistent", true).await;
+
+        // An occurrence that can never be pushed must not be retried forever: the
+        // schedule is disabled with the reason surfaced on it.
+        rearm_schedule(&db, "test-workspace", "f/system/bad_schedule").await?;
+
+        assert_eq!(count_queued_jobs(&db).await, 0);
+        let (enabled, error): (bool, Option<String>) = sqlx::query_as(
+            "SELECT enabled, error FROM schedule WHERE workspace_id = 'test-workspace' AND path = 'f/system/bad_schedule'",
+        )
+        .fetch_one(&db)
+        .await?;
+        assert!(!enabled);
+        assert!(error.is_some());
         Ok(())
     }
 }

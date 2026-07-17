@@ -597,6 +597,72 @@ pub async fn push_scheduled_job<'c>(
     Ok(tx) // TODO: Bubble up pushed UUID from here
 }
 
+/// Enabled schedules with no occurrence in the queue, as `(workspace_id, path)`.
+///
+/// Every path that completes a scheduled job pushes the next occurrence in the
+/// same transaction (for flows, on entry to step 0), so an enabled schedule
+/// always has a queued occurrence — a run in progress is itself one. A run that
+/// dies through an abnormal path can skip that push though, leaving the schedule
+/// enabled yet dead until it is manually disabled and re-enabled. This is how the
+/// monitor spots that state; see `rearm_schedule` for the recovery.
+pub async fn find_unarmed_schedules(db: &DB) -> Result<Vec<(String, String)>> {
+    let rows = sqlx::query!(
+        // Query plan: the anti-join builds from `v2_job_queue` (only pending and
+        // running jobs) rather than probing `v2_job` once per schedule.
+        "SELECT s.workspace_id, s.path
+         FROM schedule s JOIN workspace w ON w.id = s.workspace_id AND NOT w.deleted
+         WHERE s.enabled IS TRUE
+             AND NOT EXISTS (
+                 SELECT 1 FROM v2_job_queue q JOIN v2_job j USING (id)
+                 WHERE j.workspace_id = s.workspace_id
+                     AND j.trigger_kind = 'schedule'
+                     AND j.trigger = s.path
+                     AND j.runnable_path = s.script_path
+                     AND j.parent_job IS NULL
+             )"
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().map(|r| (r.workspace_id, r.path)).collect())
+}
+
+/// Push the next occurrence of a schedule that has none queued.
+pub async fn rearm_schedule(db: &DB, w_id: &str, path: &str) -> Result<()> {
+    let mut tx = db.begin().await?;
+    let Some(schedule) = get_schedule_opt(&mut *tx, w_id, path).await? else {
+        return Ok(());
+    };
+    // Re-read inside the transaction: the schedule may have been disabled since
+    // it was found unarmed.
+    if !schedule.enabled {
+        return Ok(());
+    }
+    match push_scheduled_job(db, tx, &schedule, None, None).await {
+        Ok(tx) => {
+            tx.commit().await?;
+            Ok(())
+        }
+        // Mirrors try_schedule_next_job: an occurrence that can never be pushed
+        // (runnable gone, quota blown) disables the schedule with the reason
+        // surfaced on it, rather than being retried on every pass forever.
+        Err(err @ (error::Error::NotFound(_) | error::Error::QuotaExceeded(_))) => {
+            tracing::error!(
+                "Could not re-arm schedule {path} in {w_id}: {err}. Disabling schedule."
+            );
+            sqlx::query!(
+                "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
+                err.to_string(),
+                w_id,
+                path
+            )
+            .execute(db)
+            .await?;
+            Ok(())
+        }
+        Err(err) => Err(err),
+    }
+}
+
 pub async fn get_schedule_opt<'c>(
     e: impl PgExecutor<'c>,
     w_id: &str,

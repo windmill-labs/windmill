@@ -108,7 +108,11 @@ use windmill_common::{
 };
 #[cfg(feature = "parquet")]
 use windmill_object_store::reload_object_store_setting;
-use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
+use windmill_queue::{
+    cancel_job, get_queued_job_v2,
+    schedule::{find_unarmed_schedules, rearm_schedule},
+    SameWorkerPayload,
+};
 use windmill_worker::{
     result_processor::handle_job_error, JobCompletedSender, JobIsolationLevel,
     OtelTracingProxySettings, SameWorkerSender, WorkspaceRegistryMap, BUNFIG_INSTALL_SCOPES,
@@ -3282,6 +3286,15 @@ pub async fn monitor_db(
         }
     };
 
+    // run every 30 iterations (~5min at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
+    let reconcile_unarmed_schedules_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(30) {
+            if let Some(db) = conn.as_sql() {
+                reconcile_unarmed_schedules(&db).await;
+            }
+        }
+    };
+
     // Poll git-sync repositories for new commits and pull them into the
     // workspace (repo → Windmill auto-pull). Runs every 2 iterations.
     let git_auto_pull_f = async {
@@ -3345,7 +3358,104 @@ pub async fn monitor_db(
         cleanup_scheduled_job_deletions_f,
         git_auto_pull_f,
         pipeline_freshness_watchdog_f,
+        reconcile_unarmed_schedules_f,
     );
+}
+
+/// Advisory lock id ensuring only one server replica reconciles schedules at a
+/// time (adjacent to GIT_AUTO_PULL_LOCK_ID).
+const SCHEDULE_RECONCILE_LOCK_ID: i64 = 737_483_922;
+
+/// Consecutive reconciliation passes an enabled schedule must be observed with no
+/// queued occurrence before it is re-armed. The next occurrence is pushed in the
+/// same transaction that completes the previous one (or, for flows, on entry to
+/// step 0), so an unarmed schedule is normally only ever a mid-flight push or a
+/// push being retried. Requiring two passes keeps the reconciler from racing
+/// those and double-pushing an occurrence.
+const SCHEDULE_RECONCILE_STRIKES: u8 = 2;
+
+lazy_static::lazy_static! {
+    /// `(workspace_id, path)` -> consecutive passes seen with no queued occurrence.
+    /// Bounded by the number of enabled schedules; entries drop as soon as a
+    /// schedule is seen armed again.
+    static ref UNARMED_SCHEDULES: Mutex<std::collections::HashMap<(String, String), u8>> =
+        Mutex::new(std::collections::HashMap::new());
+}
+
+/// Re-arm enabled schedules that have no queued occurrence.
+///
+/// Every path that completes a scheduled job is supposed to push the next
+/// occurrence atomically, but a run that dies through an abnormal path (a flow
+/// whose status update fails and is later force-completed by zombie detection,
+/// say) can skip that push and leave the schedule enabled yet dead forever. This
+/// is the backstop: without it the only recovery is a manual disable/enable.
+pub async fn reconcile_unarmed_schedules(db: &Pool<Postgres>) {
+    let mut lock_conn = match db.acquire().await {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("schedule reconcile: failed to acquire connection: {e:#}");
+            return;
+        }
+    };
+    let locked: bool = match sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
+        .bind(SCHEDULE_RECONCILE_LOCK_ID)
+        .fetch_one(&mut *lock_conn)
+        .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("schedule reconcile: advisory lock failed: {e:#}");
+            return;
+        }
+    };
+    if !locked {
+        // Another replica is already reconciling this tick.
+        return;
+    }
+
+    if let Err(e) = reconcile_unarmed_schedules_inner(db).await {
+        tracing::error!("schedule reconcile: {e:#}");
+    }
+
+    if let Err(e) = sqlx::query("SELECT pg_advisory_unlock($1)")
+        .bind(SCHEDULE_RECONCILE_LOCK_ID)
+        .execute(&mut *lock_conn)
+        .await
+    {
+        tracing::error!("schedule reconcile: advisory unlock failed: {e:#}");
+    }
+}
+
+async fn reconcile_unarmed_schedules_inner(db: &Pool<Postgres>) -> error::Result<()> {
+    let to_rearm = {
+        let current: std::collections::HashSet<(String, String)> =
+            find_unarmed_schedules(db).await?.into_iter().collect();
+        let mut seen = UNARMED_SCHEDULES.lock().unwrap();
+        seen.retain(|k, _| current.contains(k));
+        current
+            .into_iter()
+            .filter(|k| {
+                let strikes = seen.entry(k.clone()).or_insert(0);
+                *strikes = strikes.saturating_add(1);
+                *strikes >= SCHEDULE_RECONCILE_STRIKES
+            })
+            .collect::<Vec<_>>()
+    };
+
+    for (w_id, path) in to_rearm {
+        match rearm_schedule(db, &w_id, &path).await {
+            Ok(()) => {
+                tracing::warn!(
+                    "schedule reconcile: re-armed enabled schedule {path} in {w_id}, which had no queued occurrence"
+                );
+                UNARMED_SCHEDULES.lock().unwrap().remove(&(w_id, path));
+            }
+            Err(e) => tracing::error!(
+                "schedule reconcile: could not re-arm schedule {path} in {w_id}: {e:#}"
+            ),
+        }
+    }
+    Ok(())
 }
 
 /// Advisory lock id ensuring only one server replica runs the git auto-pull
