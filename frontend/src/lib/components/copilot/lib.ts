@@ -17,7 +17,12 @@ import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
 import { requiresMaxCompletionTokens, usesAnthropicMessagesApi } from './modelConfig'
 import { applyReasoningToConfig } from './reasoningRegistry'
 import { formatResourceTypes } from './utils'
-import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
+import {
+	appendPendingToolImages,
+	processToolCall,
+	type Tool,
+	type ToolCallbacks
+} from './chat/shared'
 import { hasValidToolCallArguments } from './chat/toolCallArguments'
 import {
 	getNonStreamingOpenAIResponsesCompletion,
@@ -1260,6 +1265,7 @@ export async function parseOpenAICompletion(
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)
 		}
+		appendPendingToolImages(messages, addedMessages, callbacks)
 	} else if (malformedFunctionCallError) {
 		// Malformed function call with no tool calls - create artificial tool call to inform AI
 		const fakeToolCallId = generateRandomString()
