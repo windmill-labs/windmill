@@ -5,7 +5,6 @@
 	import { logoutWithRedirect } from '$lib/logoutKit'
 	import {
 		clearWorkspaceFromStorage,
-		superadmin,
 		userStore,
 		usersWorkspaceStore,
 		workspaceStore
@@ -46,100 +45,64 @@
 		return list
 	}
 
-	// A fork that was deleted remotely while the tab was open disappears from the
-	// user's workspace list on the next load (the list is membership-gated and the
-	// row is hard-deleted). Landing on it otherwise breaks the page: a member gets
-	// logged out (whoami fails), a superadmin silently renders a dead workspace
-	// whose every request 404s. Detect the vanished fork and bounce the user to its
-	// parent (remembered in localStorage while the fork was reachable), or to the
-	// workspace picker if the parent is unknown / also gone. Returns true when it
-	// handled the situation so the caller skips normal loading.
-	async function tryRecoverFromDeletedFork(
-		workspaceId: string,
-		workspacesPromise: Promise<{ workspaces: { id: string }[] }>
-	): Promise<boolean> {
-		// Managed dev workspaces are forks with bare IDs (no `wm-fork-` prefix), so
-		// the prefix alone can't identify every fork. A remembered parent — recorded
-		// while the workspace was still reachable and its parent_workspace_id visible
-		// — flags those prefixless forks once their server row is gone.
-		const looksLikeFork =
-			workspaceId.startsWith('wm-fork-') || getRememberedForkParent(workspaceId) != undefined
-		if (!looksLikeFork) return false
-
-		// Reuse the list already being fetched in onMount rather than issuing a
-		// second identical request.
-		let workspaces: { id: string }[]
-		try {
-			workspaces = (await workspacesPromise).workspaces
-		} catch {
-			return false
-		}
-
-		// Fork still reachable → nothing to recover from.
-		if (workspaces.some((w) => w.id === workspaceId)) return false
-
-		// The membership-gated list omits any workspace the user isn't a member of,
-		// so a superadmin's absence from it doesn't mean the fork is gone. Confirm
-		// genuine deletion against the DB before recovering — otherwise a live fork
-		// the superadmin merely isn't a member of would be treated as deleted.
-		if ($superadmin) {
-			try {
-				await WorkspaceService.getWorkspaceAsSuperAdmin({ workspace: workspaceId })
-				// Fork still exists → not deleted, let normal loading proceed.
-				return false
-			} catch (e) {
-				// Only a 404 confirms the fork is truly gone. Any other failure
-				// (transient network error, 500, …) is inconclusive, so abort the
-				// deletion path rather than redirect away from a live workspace.
-				if ((e as { status?: number } | null | undefined)?.status !== 404) {
-					return false
-				}
-			}
-		}
-
-		// The fork is gone, but only redirect if the session itself is still valid;
-		// otherwise let the normal flow handle the (genuine) auth failure.
-		try {
-			await UserService.globalWhoami()
-		} catch {
-			return false
-		}
-
+	// A fork deleted remotely while the tab was open leaves the client pointing at a
+	// dead workspace id: every request 404s and members get logged out. The fork's
+	// parent linkage lived only in its own (now deleted) row, so we mirror it to
+	// localStorage while the fork is reachable (see forkParentMemory) and use it here
+	// to send the user back to the parent. Returns true when it handled the situation
+	// so the caller skips normal loading.
+	async function tryRecoverFromDeletedWorkspace(workspaceId: string): Promise<boolean> {
+		// A remembered parent is both what makes a workspace recoverable and the marker
+		// that it is a fork — including dev workspaces, whose ids carry no `wm-fork-`
+		// prefix.
 		const parentId = getRememberedForkParent(workspaceId)
-		const parentReachable = parentId != undefined && workspaces.some((w) => w.id === parentId)
-		forgetForkParent(workspaceId)
+		if (parentId == undefined) return false
 
-		if (parentId != undefined && parentReachable) {
-			switchWorkspace(parentId)
-			const parentUser = await getUserExt(parentId)
-			if (parentUser) {
-				$userStore = parentUser
-				sendUserToast(
-					`Fork ${workspaceId} was deleted remotely, returning you to its parent workspace ${parentId}.`,
-					'warning'
-				)
-				await goto('/')
-				return true
-			}
-			// Parent unexpectedly didn't resolve a user — fall through to the picker
-			// rather than risk the forced-logout path this recovery exists to avoid.
+		// `exists` is not membership-gated, so it settles "is this workspace gone?"
+		// identically for members, non-members and superadmins, and it requires a valid
+		// session. Only a conclusive `false` means deleted: any rejection (expired
+		// session, transient failure) is inconclusive and must leave the normal loading
+		// path — including its genuine auth handling — untouched.
+		let exists: boolean
+		try {
+			exists = await WorkspaceService.existsWorkspace({ requestBody: { id: workspaceId } })
+		} catch {
+			return false
+		}
+		if (exists) return false
+
+		forgetForkParent(workspaceId)
+		switchWorkspace(parentId)
+
+		const parentUser = await getUserExt(parentId)
+		if (parentUser) {
+			$userStore = parentUser
+			sendUserToast(
+				`Workspace ${workspaceId} not found, switched to parent workspace ${parentId}.`,
+				'warning'
+			)
+			await goto('/')
+			return true
 		}
 
+		// Parent also gone or not accessible — let the user pick, rather than risk the
+		// forced-logout path this recovery exists to avoid.
 		clearWorkspaceFromStorage()
 		workspaceStore.set(undefined)
-		sendUserToast(`Fork ${workspaceId} is no longer available, please pick a workspace.`, 'warning')
+		sendUserToast(
+			`Workspace ${workspaceId} is no longer available, please pick a workspace.`,
+			'warning'
+		)
 		await goto('/user/workspaces')
 		return true
 	}
 
-	async function loadUser(workspacesPromise: Promise<{ workspaces: { id: string }[] }>) {
+	async function loadUser() {
 		try {
 			await refreshSuperadmin()
 
 			if ($workspaceStore) {
-				// Check up-front (independent of whoami, which succeeds for superadmins
-				// even on a dead workspace) whether the active fork was deleted remotely.
-				if (await tryRecoverFromDeletedFork($workspaceStore, workspacesPromise)) {
+				if (await tryRecoverFromDeletedWorkspace($workspaceStore)) {
 					return
 				}
 				if ($userStore) {
@@ -232,7 +195,8 @@
 		computeDrift()
 
 		if (page.url.pathname != '/user/login') {
-			loadUser(setUserWorkspaceStore())
+			setUserWorkspaceStore().catch((e) => console.error('could not load workspace list', e))
+			loadUser()
 			UserService.refreshUserToken({ ifExpiringInLessThanS: 30 * 60 })
 		}
 
