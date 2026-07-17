@@ -134,8 +134,8 @@ RUN addgroup --gid 1000 windmill && \
 # (/tmp/windmill/cache/uv) after the base already made it world-writable, leaving
 # root-owned 0755 dirs that make uv fail EACCES for a non-root UID. /pyls/.cache
 # (XDG_CACHE_HOME, incl. DENO_DIR) and /tmp/monaco are written at runtime too.
-RUN chmod -R a+rX /usr/local /pyls /debugger /multiplayer && \
-    chmod -R a+rw /tmp/windmill /pyls/.cache /tmp/monaco && \
+RUN chmod -R a+rX /usr/local /pyls /debugger /multiplayer /tmp/monaco && \
+    chmod -R a+rw /tmp/windmill /pyls/.cache && \
     find /tmp/windmill /pyls/.cache /tmp/monaco -type d -exec chmod 777 {} +
 
 # Expose all service ports
