@@ -570,11 +570,22 @@ pub async fn create_http_request(
         None
     };
 
-    // Add authorization header
+    // Add authorization header. Carry the caller's job provenance into the proxy
+    // JWT: a job's WM_TOKEN is capped at workspace admin (GHSA-hfh4-cx4h-3fcr), and
+    // dropping `job_id` here would re-mint an uncapped token that satisfies
+    // require_super_admin / require_devops_role on the proxied route.
     let authed = Authed::from(api_authed.clone());
-    let token = create_jwt_token(authed, workspace_id, 3600, None, None, None, scopes)
-        .await
-        .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+    let token = create_jwt_token(
+        authed,
+        workspace_id,
+        3600,
+        api_authed.job_id,
+        None,
+        None,
+        scopes,
+    )
+    .await
+    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
     request_builder = request_builder.header("Authorization", format!("Bearer {}", token));
 
     // Add body if present
@@ -877,6 +888,95 @@ mod tests {
         assert_eq!(
             scope_patterns_condition(&strings(&["f/a_b/*"])),
             Some("((o.path = 'f/a_b' OR o.path LIKE 'f/a\\_b/%' ESCAPE '\\'))".to_string())
+        );
+    }
+
+    fn test_api_authed(job_id: Option<uuid::Uuid>) -> ApiAuthed {
+        ApiAuthed {
+            email: "admin@windmill.dev".to_string(),
+            username: "admin".to_string(),
+            is_admin: true,
+            is_operator: false,
+            groups: vec![],
+            folders: vec![],
+            scopes: None,
+            username_override: None,
+            token_prefix: None,
+            read_only: false,
+            job_id,
+        }
+    }
+
+    /// Capture the `Authorization` header of the single request `create_http_request`
+    /// proxies, decode the minted JWT, and return its `job_id` claim.
+    async fn proxied_jwt_job_id(caller: &ApiAuthed) -> Option<String> {
+        use axum::{extract::State, routing::get, Router};
+        use std::sync::{Arc, Mutex};
+        use windmill_common::auth::JWTAuthClaims;
+
+        // The internal JWT secret must be non-empty for encode/decode to round-trip.
+        windmill_common::jwt::JWT_SECRET.store(Arc::new("mytestsecret".to_string()));
+
+        let captured: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let app = Router::new()
+            .route(
+                "/",
+                get(
+                    |State(state): State<Arc<Mutex<Option<String>>>>,
+                     headers: axum::http::HeaderMap| async move {
+                        if let Some(auth) = headers.get(axum::http::header::AUTHORIZATION) {
+                            *state.lock().unwrap() =
+                                Some(auth.to_str().unwrap_or_default().to_string());
+                        }
+                        "ok"
+                    },
+                ),
+            )
+            .with_state(captured.clone());
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let url = format!("http://{addr}/");
+        create_http_request("GET", &url, "test-workspace", caller, None)
+            .await
+            .expect("proxied request should succeed");
+
+        server.abort();
+
+        let header = captured.lock().unwrap().clone().expect("no auth header captured");
+        let token = header.strip_prefix("Bearer ").unwrap().to_string();
+        let jwt = token.strip_prefix("jwt_").expect("expected an internal jwt_ token");
+        let claims: JWTAuthClaims =
+            windmill_common::jwt::decode_with_internal_secret(jwt).await.unwrap();
+        claims.job_id
+    }
+
+    /// Regression for GHSA-hfh4-cx4h-3fcr: the MCP proxy must carry the caller's
+    /// job provenance into the JWT it mints, otherwise a job's WM_TOKEN — capped at
+    /// workspace admin — would be re-minted uncapped and pass require_super_admin /
+    /// require_devops_role on the proxied route (e.g. listWorkers).
+    #[tokio::test]
+    async fn create_http_request_preserves_job_id_provenance() {
+        let job_id = uuid::Uuid::from_u128(0x0123_4567_89ab_cdef_0123_4567_89ab_cdef);
+        assert_eq!(
+            proxied_jwt_job_id(&test_api_authed(Some(job_id))).await,
+            Some(job_id.to_string()),
+            "a job-token caller's job_id must be preserved in the proxied JWT"
+        );
+    }
+
+    /// The mirror invariant: a non-job caller must not gain a spurious job_id (which
+    /// would wrongly cap a legitimate interactive/superadmin MCP token).
+    #[tokio::test]
+    async fn create_http_request_keeps_non_job_caller_unstamped() {
+        assert_eq!(
+            proxied_jwt_job_id(&test_api_authed(None)).await,
+            None,
+            "a non-job caller must not be stamped with a job_id"
         );
     }
 }
