@@ -16,7 +16,7 @@ use windmill_common::{
     git_sync_oss::{prepend_token_to_github_url, sanitize_git_url},
     worker::{
         is_allowed_file_location, split_python_requirements, to_raw_value, write_file,
-        write_file_at_user_defined_location, Connection, PyVAlias, WINDMILL_DIR, WORKER_CONFIG,
+        write_file_at_user_defined_location, Connection, PyVAlias, WORKER_CONFIG,
     },
 };
 use windmill_queue::MiniPulledJob;
@@ -55,6 +55,11 @@ const WINDMILL_ANSIBLE_PASSWORD_FILENAME: &str = ".windmill.ansible_vault_passwo
 
 const DELEGATE_GIT_REPO_TARGET: &str = "delegate_git_repository";
 
+/// Usable bytes in `sockaddr_un.sun_path` (108 minus the NUL). An ABI constant, not a
+/// filesystem limit — which is why only the socket breaks while every regular file in the
+/// same job dir is fine.
+const AF_UNIX_PATH_LIMIT: usize = 107;
+
 lazy_static::lazy_static! {
     /// Root for the per-job dir in which ansible's persistent-connection plugins
     /// (`network_cli`, `httpapi`, `netconf`) bind their unix socket, named after a digest
@@ -62,11 +67,15 @@ lazy_static::lazy_static! {
     /// which the job dir alone already exhausts, so the socket dir must stay short and
     /// cannot live under `ANSIBLE_HOME` (which Windmill pins into the job dir).
     ///
-    /// Rooted at `WINDMILL_DIR` rather than a fresh `/tmp` name: the worker already
-    /// creates and owns it (job dirs live there), so this adds no new squattable path,
-    /// and an operator whose `/tmp` is unsuitable can move it with the same env var.
-    /// Default `/tmp/windmill/pc` leaves 90 of the 107 bytes at full socket length.
-    static ref PERSISTENT_CONTROL_PATH_ROOT: String = format!("{}/pc", &*WINDMILL_DIR);
+    /// Rooted directly at `/tmp`, whose sticky bit is what stops another uid renaming our
+    /// root away — the property [`prepare_socket_root`] needs from a parent. Notably NOT
+    /// under `WINDMILL_DIR`: the shipped image chmods that tree to a non-sticky 0777 so any
+    /// UID can write it (`Dockerfile`, "Make directories world-accessible for any UID"),
+    /// which is exactly the parent an attacker can swap entries in. Default `/tmp/wm-pc`
+    /// leaves 84 of the 107 bytes at full socket length; override if `/tmp` is unsuitable.
+    static ref PERSISTENT_CONTROL_PATH_ROOT: String =
+        std::env::var("WINDMILL_ANSIBLE_CONTROL_PATH_ROOT")
+            .unwrap_or_else(|_| "/tmp/wm-pc".to_string());
 }
 
 /// Cleared when the root cannot be trusted (see [`prepare_socket_root`]), which makes jobs
@@ -101,14 +110,15 @@ impl Drop for PersistentControlPathGuard {
 #[cfg(unix)]
 pub async fn prepare_persistent_control_path_root() {
     let root = &*PERSISTENT_CONTROL_PATH_ROOT;
-    // A custom WINDMILL_DIR can be long enough to put the budget back out of reach; the
-    // playbook error is opaque, so say so once at startup instead.
+    // An overridden root can be long enough to put the budget back out of reach; the
+    // playbook-side error is opaque, so say so once at startup instead.
     let longest_socket_path = root.len() + 1 + 32 + 1 + 40;
-    if longest_socket_path > 107 {
+    if longest_socket_path > AF_UNIX_PATH_LIMIT {
         tracing::warn!(
-            "WINDMILL_DIR is long enough that ansible persistent-connection sockets under \
-             {root} may exceed the {longest_socket_path}-byte AF_UNIX limit of 107; \
-             network playbooks may fail with `AF_UNIX path too long`."
+            "WINDMILL_ANSIBLE_CONTROL_PATH_ROOT is long enough that ansible \
+             persistent-connection sockets under {root} may reach {longest_socket_path} \
+             bytes, over the AF_UNIX limit of {AF_UNIX_PATH_LIMIT}; network playbooks may \
+             fail with `AF_UNIX path too long`."
         );
     }
 
@@ -1106,12 +1116,6 @@ remote_tmp={job_dir}/.ansible/tmp
     Ok(())
 }
 
-/// Read a colon-separated path list (e.g. `roles_path`, `collections_path`) from
-/// the `[defaults]` section of an ansible.cfg. Returns the raw entries as written,
-/// unresolved. Deliberately minimal: no inline-comment or continuation handling,
-/// which ansible's configparser also does not apply to these values. `key` and `=`
-/// or `:` as the delimiter are both matched (Python configparser accepts either),
-/// with the value itself split on `:` (`os.pathsep`).
 /// The section a header line opens, if it is one. Mirrors configparser's `SECTCRE`
 /// (`\[(?P<header>.+)\]`, matched not fullmatched, `.+` greedy): the name runs to the
 /// *last* `]`, and anything after it — an inline comment, say — is ignored.
@@ -1121,6 +1125,12 @@ fn parse_ansible_cfg_section_header(trimmed: &str) -> Option<&str> {
     Some(rest[..end].trim())
 }
 
+/// Read a colon-separated path list (e.g. `roles_path`, `collections_path`) from
+/// the `[defaults]` section of an ansible.cfg. Returns the raw entries as written,
+/// unresolved. Deliberately minimal: no inline-comment or continuation handling,
+/// which ansible's configparser also does not apply to these values. `key` and `=`
+/// or `:` as the delimiter are both matched (Python configparser accepts either),
+/// with the value itself split on `:` (`os.pathsep`).
 fn parse_ansible_cfg_path_list(content: &str, key: &str) -> Option<Vec<String>> {
     let mut in_defaults = false;
     for line in content.lines() {
@@ -2264,7 +2274,7 @@ mod tests {
         // dir + `/` + socket name, budgeted at a full 40-char sha1 (ansible truncates
         // it far shorter today, but a custom control path may not).
         assert!(
-            control_path_dir.len() + 1 + 40 <= 107,
+            control_path_dir.len() + 1 + 40 <= AF_UNIX_PATH_LIMIT,
             "socket path would exceed sun_path: {control_path_dir}"
         );
     }
@@ -2683,6 +2693,20 @@ collections_path : a/col:b/col
             stale.exists(),
             "must not sweep a root that others can write to"
         );
+    }
+
+    /// The default root must hang off a parent whose sticky bit protects it. Notably not
+    /// `WINDMILL_DIR`: the shipped image chmods that whole tree to a non-sticky 0777 so any
+    /// UID can write it, which would make the root untrusted and silently disable this fix
+    /// in the standard image while every local test still passed.
+    #[test]
+    fn test_default_control_path_root_hangs_off_tmp_not_windmill_dir() {
+        let root = &*PERSISTENT_CONTROL_PATH_ROOT;
+        assert_eq!(
+            std::path::Path::new(root).parent(),
+            Some(std::path::Path::new("/tmp"))
+        );
+        assert!(!root.starts_with(&*windmill_common::worker::WINDMILL_DIR));
     }
 
     /// A parent that others can write (and that is not sticky) lets them rename the root
