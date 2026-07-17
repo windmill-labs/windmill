@@ -162,6 +162,21 @@ async fn exists_workers_with_tags(
         let has_devops_role = require_devops_role(&db, &authed.email).await.is_ok();
         if !has_devops_role {
             if let Some(ref workspace) = tags_query.workspace {
+                // This route is global, so the workspace is an unauthorized query param: check
+                // membership before reading its lineage, which would otherwise disclose whether
+                // an arbitrary workspace descends from one named by a `tag(parent*)` rule.
+                let is_member = sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2 AND NOT disabled)",
+                    workspace,
+                    &authed.email
+                )
+                .fetch_one(&db)
+                .await?
+                .unwrap_or(false);
+                if !is_member {
+                    return Ok(Json(std::collections::HashMap::new()));
+                }
+
                 // Filter to only tags visible in this workspace
                 let chain = workspace_with_fork_ancestors(&db, workspace).await?;
                 let custom_tags = CUSTOM_TAGS_PER_WORKSPACE.load();
