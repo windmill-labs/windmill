@@ -20,6 +20,9 @@ import {
 /** Regex search over a selected element's rendered HTML. */
 export type RawAppDomSearchQuery = {
 	mode: 'search'
+	/** Raw-app path to read from. Routes the query to that app's (still-mounted)
+	 * preview even when another tab is visible; omit to use the active preview. */
+	appPath?: string
 	/** CSS selector; omit for the whole `document.body`. */
 	selector?: string
 	pattern: string
@@ -29,6 +32,7 @@ export type RawAppDomSearchQuery = {
 /** Bounded line-window read of a selected element's rendered HTML. */
 export type RawAppDomReadQuery = {
 	mode: 'read'
+	appPath?: string
 	selector?: string
 	startLine?: number
 	endLine?: number

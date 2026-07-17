@@ -95,15 +95,23 @@
 	function registerDomRequester(requester: RawAppDomRequester | undefined) {
 		domRequester = requester
 	}
-	// Per-tab token: the runtime only lets THIS tab release the slot it claimed, so
-	// two raw-app tabs (one releasing while the other claims) can't blank the new
-	// owner regardless of effect order.
+	// Register this tab's requester keyed by its app path. ALL mounted preview
+	// tabs register (hidden ones stay mounted), so a DOM-scoped turn reads its own
+	// app's live DOM even when another tab is visible — search_dom / read_dom route
+	// by the chip's app path.
+	$effect(() => {
+		const p = path
+		const r = domRequester
+		if (!r) return
+		runtime.registerDomRequester(p, r)
+		return () => runtime.unregisterDomRequester(p, r)
+	})
+	// The visible tab is the default target for a query that names no app path.
 	const domSlotOwner = {}
 	$effect(() => {
 		if (!active) return
-		runtime.setDomRequester(domRequester, domSlotOwner)
-		// Cleanup runs when this tab goes inactive or unmounts → release the slot.
-		return () => runtime.releaseDomRequester(domSlotOwner)
+		runtime.setActiveDomApp(path, domSlotOwner)
+		return () => runtime.releaseActiveDomApp(domSlotOwner)
 	})
 
 	// An element picked in the preview inspector becomes a selector chip on the
@@ -148,10 +156,6 @@
 				.getSelectedContext()
 				.some((c) => c.type === 'app_dom_selector' && c.appPath !== p)
 			if (foreign) runtime.manager.contextManager.clearSelectedDomElements()
-			// A prompt queued while another app was active would describe that app's
-			// elements, but search_dom / read_dom now target THIS preview — drop its
-			// stale DOM chips so it can't query the wrong app.
-			runtime.manager.dropQueuedDomContextForOtherApps(p)
 		})
 	})
 

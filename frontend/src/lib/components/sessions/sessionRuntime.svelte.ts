@@ -178,8 +178,14 @@ export interface SessionRuntime {
 	): Promise<void>
 	setRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined): void
 	requestRuntimeLogs(limit: number): Promise<RawAppRuntimeLogEntry[] | undefined>
-	setDomRequester(requester: RawAppDomRequester | undefined, owner: unknown): void
-	releaseDomRequester(owner: unknown): void
+	/** Register a mounted raw-app preview's DOM requester, keyed by app path.
+	 * ALL mounted preview tabs register (hidden ones stay mounted), so a
+	 * DOM-scoped turn can read its own app even when another tab is visible. */
+	registerDomRequester(appPath: string, requester: RawAppDomRequester): void
+	unregisterDomRequester(appPath: string, requester: RawAppDomRequester): void
+	/** The visible preview — the default target for a query with no app path. */
+	setActiveDomApp(appPath: string, owner: unknown): void
+	releaseActiveDomApp(owner: unknown): void
 	requestDom(query: RawAppDomQuery): Promise<RawAppDomResult | undefined>
 	setAppRunsProvider(provider: RawAppRunsProvider | undefined): void
 	getAppRuns(): RawAppRunSummary[] | undefined
@@ -454,8 +460,10 @@ function createRuntime(session: Session): SessionRuntime {
 	const pipelineEditorState = new PipelineEditorState()
 
 	let runtimeLogRequester: RawAppRuntimeLogRequester | undefined = undefined
-	let domRequester: RawAppDomRequester | undefined = undefined
-	let domRequesterOwner: unknown = undefined
+	// appPath → requester, one entry per mounted raw-app preview tab.
+	const domRequesters = new Map<string, RawAppDomRequester>()
+	let activeDomAppPath: string | undefined = undefined
+	let activeDomOwner: unknown = undefined
 	let appRunsProvider: RawAppRunsProvider | undefined = undefined
 
 	return {
@@ -781,20 +789,42 @@ function createRuntime(session: Session): SessionRuntime {
 		async requestRuntimeLogs(limit) {
 			return runtimeLogRequester ? runtimeLogRequester(limit) : undefined
 		},
-		setDomRequester(requester, owner) {
-			domRequester = requester
-			domRequesterOwner = owner
+		registerDomRequester(appPath, requester) {
+			domRequesters.set(appPath, requester)
 		},
-		releaseDomRequester(owner) {
-			// Only the tab that claimed the slot may clear it, so a set/release race
-			// when switching between two raw-app tabs can't blank the new owner.
-			if (domRequesterOwner === owner) {
-				domRequester = undefined
-				domRequesterOwner = undefined
+		unregisterDomRequester(appPath, requester) {
+			// Identity-guarded: a remount may already have replaced this entry.
+			if (domRequesters.get(appPath) === requester) domRequesters.delete(appPath)
+		},
+		setActiveDomApp(appPath, owner) {
+			activeDomAppPath = appPath
+			activeDomOwner = owner
+		},
+		releaseActiveDomApp(owner) {
+			// Owner-guarded so a set/release race between two tabs can't blank the
+			// new active app regardless of effect order.
+			if (activeDomOwner === owner) {
+				activeDomAppPath = undefined
+				activeDomOwner = undefined
 			}
 		},
 		async requestDom(query) {
-			return domRequester ? domRequester(query) : undefined
+			if (domRequesters.size === 0) return undefined
+			// Route to the query's own app when specified (a DOM-scoped turn reads
+			// its element's app even when another tab is now visible), else the
+			// active preview, else the only one open.
+			const path =
+				query.appPath ??
+				activeDomAppPath ??
+				(domRequesters.size === 1 ? [...domRequesters.keys()][0] : undefined)
+			if (path === undefined) return undefined
+			const requester = domRequesters.get(path)
+			if (!requester) {
+				return {
+					text: `The preview for "${path}" is no longer open, so its DOM can't be read. Re-open that raw app in the session to inspect it.`
+				}
+			}
+			return requester(query)
 		},
 		setAppRunsProvider(provider) {
 			appRunsProvider = provider
