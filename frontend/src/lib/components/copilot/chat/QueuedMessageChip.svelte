@@ -23,7 +23,7 @@
 				<div class="flex flex-row flex-wrap gap-1 {aiChatManager.queuedMessage ? 'mb-1' : ''}">
 					{#each aiChatManager.queuedImages as image, i (i)}
 						<img
-							src={image.previewUrl ?? image.dataUrl}
+							src={image.dataUrl}
 							alt={image.name ?? 'queued image'}
 							class="h-6 w-6 object-cover rounded border border-border-light"
 						/>

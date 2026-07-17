@@ -5,8 +5,8 @@
  * Every image the model sees passes through here first so it is bounded in BOTH
  * dimensions (≤ MAX_EDGE longest side — beyond this the provider downscales anyway
  * and just bills more tokens) and bytes. Bounding bytes matters because the data URL
- * is persisted in chat history (IndexedDB, re-snapshotted on every saveChat) and
- * counts toward the context window. Everything is rasterised to PNG/JPEG so exotic
+ * rides every request (stateless APIs resend the whole history) and is persisted in
+ * the chat history's blob store. Everything is rasterised to PNG/JPEG so exotic
  * inputs (SVG, WebP, HEIC where the browser can decode it) become a media type all
  * providers accept.
  */
@@ -17,12 +17,6 @@ import type {
 
 /** Longest-edge cap. Matches the point past which vision models downscale server-side. */
 export const MAX_IMAGE_EDGE = 1568
-/**
- * Longest edge for the copy kept in `displayMessages`. Those are never compacted and
- * are re-cloned into IndexedDB on every saveChat, so the transcript must not hold a
- * model-resolution blob — the tool card only ever renders it ~192px tall.
- */
-export const THUMBNAIL_IMAGE_EDGE = 384
 /** Above this many bytes a PNG re-encodes to JPEG to keep history/storage bounded. */
 const PNG_SIZE_CAP = 700_000
 /**
@@ -48,57 +42,32 @@ export type AttachedImage = {
 	mediaType: ImageMediaType
 	/** Original filename when it came from a user file; absent for screenshots. */
 	name?: string
-	/**
-	 * Smaller copy for the chips and the message bubble — the transcript must not
-	 * keep the model's copy (see THUMBNAIL_IMAGE_EDGE). Absent when a downscale
-	 * would not be smaller.
-	 */
-	previewUrl?: string
 }
 
-/** The copy to show and persist in the transcript: bounded when that helps. */
-export function transcriptImage(image: AttachedImage): AttachedImage {
-	if (!image.previewUrl) return image
-	return { dataUrl: image.previewUrl, mediaType: image.mediaType, name: image.name }
-}
-
-/** Stands in for a stripped/evicted image part. Slot-parsing below relies on it. */
+/** Stands in for a stripped or evicted image part in message content. */
 export const IMAGE_OMITTED_PLACEHOLDER = '[image omitted]'
 
 /**
- * Recover the model's own images from an API message's content parts, one entry
- * per original attachment slot — `null` where the byte bound evicted one (its
- * placeholder holds the position, keeping transcript thumbnails paired with the
- * right surviving image). Resending a turn must read images from here, never
- * from the transcript: that copy is a bounded thumbnail, and re-sending it
- * would silently downgrade the model's input.
+ * Recover the model's own images from an API message's content parts. Anything
+ * resending a turn (retry, edit) must read images from here, never from the
+ * transcript bubble: a provider rejection strips them from history while the
+ * bubble keeps its copy so the user can still see what they sent — resending
+ * that copy would re-attach the image the provider just refused.
  */
-export function imageSlotsFromContent(content: unknown): (AttachedImage | null)[] | undefined {
+export function imagesFromContent(content: unknown): AttachedImage[] | undefined {
 	if (!Array.isArray(content)) return undefined
-	const slots = (content as any[]).flatMap((part): (AttachedImage | null)[] => {
-		if (part?.type === 'image_url' && typeof part?.image_url?.url === 'string') {
-			const dataUrl = part.image_url.url as string
-			return [
-				{
-					dataUrl,
-					mediaType:
-						parseImageDataUrl(dataUrl).mediaType === 'image/jpeg' ? 'image/jpeg' : 'image/png'
-				}
-			]
-		}
-		if (part?.type === 'text' && part.text === IMAGE_OMITTED_PLACEHOLDER) return [null]
-		return []
+	const images = (content as any[]).flatMap((part): AttachedImage[] => {
+		if (part?.type !== 'image_url' || typeof part?.image_url?.url !== 'string') return []
+		const dataUrl = part.image_url.url as string
+		return [
+			{
+				dataUrl,
+				mediaType:
+					parseImageDataUrl(dataUrl).mediaType === 'image/jpeg' ? 'image/jpeg' : 'image/png'
+			}
+		]
 	})
-	return slots.length > 0 ? slots : undefined
-}
-
-/** The surviving images of a slot array, for consumers that resend rather than
- *  display (an evicted image has no full copy left to resend). */
-export function compactImageSlots(
-	slots: (AttachedImage | null)[] | undefined
-): AttachedImage[] | undefined {
-	const images = slots?.filter((image): image is AttachedImage => image !== null)
-	return images && images.length > 0 ? images : undefined
+	return images.length > 0 ? images : undefined
 }
 
 export function isImageFile(file: File | Blob): boolean {
@@ -187,17 +156,7 @@ export async function fileToAttachedImage(file: File | Blob): Promise<AttachedIm
 	if (file.size > MAX_IMAGE_BYTES) throw new Error('Image file is too large')
 	const name = file instanceof File ? file.name : undefined
 	const dataUrl = await blobToDataUrl(file)
-	const image = await normalizeImageDataUrl(dataUrl, name)
-	// Derive the preview from the already-bounded copy, not the source: re-decoding
-	// the original would allocate its full bitmap (~4 bytes/pixel) a second time.
-	// Built here rather than at send time because this path already awaits behind a
-	// spinner, whereas the send path shows its bubble optimistically.
-	const preview = await normalizeImageDataUrl(image.dataUrl, name, THUMBNAIL_IMAGE_EDGE)
-	// A downscale of flat UI colours can encode larger than the original, so only
-	// keep it when it actually saves something.
-	return preview.dataUrl.length < image.dataUrl.length
-		? { ...image, previewUrl: preview.dataUrl }
-		: image
+	return await normalizeImageDataUrl(dataUrl, name)
 }
 
 /** Split a data URL into its media type and base64 payload (for the Anthropic converter). */
@@ -225,7 +184,7 @@ export function messagesHaveImageParts(messages: ChatCompletionMessageParam[]): 
  * Total decoded image bytes one request may carry. Providers reject the whole
  * request body over a size limit (20MB on Bedrock, 32MB direct Anthropic), and
  * that 413 never mentions images, so the vision-rejection fallback cannot
- * recover it — the history must stay under the limit in the first place.
+ * recover it — each request must stay under the limit in the first place.
  * Compaction cannot be relied on for this: it triggers on estimated tokens,
  * and images are cheap in tokens relative to their bytes. 12MB decoded is
  * ~16MB of base64 on the wire, safely under the tightest limit with text.

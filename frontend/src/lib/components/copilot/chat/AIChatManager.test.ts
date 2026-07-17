@@ -1006,116 +1006,20 @@ describe('AIChatManager queued messages', () => {
 	// Images evicted from requests by the byte bound must not keep their full
 	// data URLs in stored history: provider-reported usage excludes them, so
 	// compaction would never prune them and every save re-clones the payload.
-	it('prunes over-cap images from stored history at send time', async () => {
+	// The bubble and the API message must share the exact same data URL — the
+	// history's blob store dedups them to a single record on save, so a
+	// transcript-side copy (e.g. a downscale) would double the stored bytes.
+	it('sends and displays the same image copy', async () => {
 		replyWith('done')
 		const manager = createManager(createInputMock())
 		manager.mode = AIMode.GLOBAL
-		// ~7MB decoded each: the newest fits the 12MB cap alone, both together don't
-		const imageTurn = (marker: string, text: string) =>
-			({
-				role: 'user',
-				content: [
-					{ type: 'text', text },
-					{
-						type: 'image_url',
-						image_url: { url: 'data:image/png;base64,' + marker.repeat(9_400_000) }
-					}
-				]
-			}) as any
-		manager.messages = [
-			imageTurn('A', 'first'),
-			{ role: 'assistant', content: 'ok' },
-			imageTurn('B', 'second'),
-			{ role: 'assistant', content: 'ok' }
-		]
 
-		await manager.sendRequest({ instructions: 'plain follow-up' })
+		await manager.sendRequest({ instructions: 'look', images: [img('a')] })
 
-		// the oldest image's full data URL is gone from stored history...
-		const oldest = manager.messages[0] as any
-		expect(oldest.content.some((p: any) => p.type === 'image_url')).toBe(false)
-		expect(JSON.stringify(oldest.content)).toContain('[image omitted]')
-		// ...the newest full-size copy is retained (still within budget)
-		expect((manager.messages[2] as any).content.some((p: any) => p.type === 'image_url')).toBe(true)
-	})
-
-	// Screenshots taken by tools grow the history mid-loop, after the send-time
-	// bound ran — the committed history must be bounded again before it persists.
-	it('bounds committed screenshot follow-ups in stored history', async () => {
-		const manager = createManager(createInputMock())
-		manager.mode = AIMode.GLOBAL
-		const shot = (marker: string) => ({
-			role: 'user' as const,
-			content: [
-				{ type: 'text', text: 'Screenshot of the app preview:' },
-				{
-					type: 'image_url',
-					image_url: { url: 'data:image/png;base64,' + marker.repeat(9_400_000) }
-				}
-			]
-		})
-		mocks.runChatLoop.mockImplementation(async (config: any) => {
-			const added = [shot('A'), { role: 'assistant', content: 'looks good' }, shot('B')] as any[]
-			added.forEach((m) => config.addedMessages?.push(m))
-			return {
-				addedMessages: added,
-				tokenUsage: { prompt: 0, completion: 0, total: 0 },
-				hitMaxIterations: false
-			}
-		})
-
-		await manager.sendRequest({ instructions: 'build and verify' })
-
-		const withImages = manager.messages.filter(
-			(m: any) => Array.isArray(m.content) && m.content.some((p: any) => p.type === 'image_url')
-		)
-		// only the newest screenshot keeps its full-size copy
-		expect(withImages).toHaveLength(1)
-		expect(JSON.stringify(withImages[0].content)).toContain('BBBB')
-	})
-
-	// Evicting one image from a message must not shift the survivors onto the
-	// wrong transcript thumbnails (expand/edit/retry would misidentify them).
-	it('pairs surviving images with their own thumbnails after partial eviction', () => {
-		const manager = createManager(createInputMock())
-		manager.displayMessages = [
-			{
-				role: 'user',
-				content: 'three pics',
-				index: 0,
-				images: [
-					{ dataUrl: 'data:image/png;base64,THUMB_A', mediaType: 'image/png' },
-					{ dataUrl: 'data:image/png;base64,THUMB_B', mediaType: 'image/png' },
-					{ dataUrl: 'data:image/png;base64,THUMB_C', mediaType: 'image/png' }
-				]
-			} as any
-		]
-		manager.messages = [
-			{
-				role: 'user',
-				content: [
-					{ type: 'text', text: 'three pics' },
-					{ type: 'text', text: '[image omitted]' }, // A was evicted by the byte bound
-					{ type: 'image_url', image_url: { url: 'data:image/png;base64,FULL_B' } },
-					{ type: 'image_url', image_url: { url: 'data:image/png;base64,FULL_C' } }
-				]
-			} as any
-		]
-
-		const stored = manager.storedImages(0)
-
-		// Slot-aligned with the thumbnails: the bubble indexes this array directly,
-		// so A's evicted slot must stay in place rather than shifting B onto it.
-		expect(stored).toHaveLength(3)
-		expect(stored?.[0]).toBeNull()
-		expect(stored?.[1]).toMatchObject({
-			dataUrl: 'data:image/png;base64,FULL_B',
-			previewUrl: 'data:image/png;base64,THUMB_B'
-		})
-		expect(stored?.[2]).toMatchObject({
-			dataUrl: 'data:image/png;base64,FULL_C',
-			previewUrl: 'data:image/png;base64,THUMB_C'
-		})
+		const bubble = manager.displayMessages.find((m) => m.role === 'user') as any
+		const sent = mocks.runChatLoop.mock.calls[0][0].messages.at(-1)
+		const sentUrl = sent.content.find((p: any) => p.type === 'image_url').image_url.url
+		expect(bubble.images[0].dataUrl).toBe(sentUrl)
 	})
 
 	it('queues an image-only message and restores it on dequeue', () => {
@@ -1130,35 +1034,6 @@ describe('AIChatManager queued messages', () => {
 
 		expect(manager.queuedImages).toEqual([])
 		expect(input.prependText).toHaveBeenCalledWith('', [img('a')])
-	})
-
-	// The tool card persists only a bounded thumbnail; the expanded view resolves
-	// the full capture from this session-scoped map.
-	// The full copy is persisted out-of-band (not in the per-save chat record) so
-	// the tool card's expanded view keeps its quality across reloads.
-	it('persists tool images for the expanded view and resolves them from storage', async () => {
-		const manager = createManager(createInputMock())
-		manager.mode = AIMode.GLOBAL
-		const save = vi.spyOn(manager.historyManager, 'saveToolImage').mockResolvedValue(undefined)
-		const load = vi
-			.spyOn(manager.historyManager, 'loadToolImage')
-			.mockResolvedValue('data:image/png;base64,FULLSHOT')
-		mocks.runChatLoop.mockImplementation(async (config: any) => {
-			config.callbacks.attachToolImage('tool-1', img('FULLSHOT'))
-			const message = { role: 'assistant' as const, content: 'done' }
-			config.addedMessages?.push(message)
-			return {
-				addedMessages: [message],
-				tokenUsage: { prompt: 0, completion: 0, total: 0 },
-				hitMaxIterations: false
-			}
-		})
-
-		await manager.sendRequest({ instructions: 'screenshot it' })
-
-		expect(save).toHaveBeenCalledWith('tool-1', 'data:image/png;base64,FULLSHOT')
-		await expect(manager.fullResToolImage('tool-1')).resolves.toBe('data:image/png;base64,FULLSHOT')
-		expect(load).toHaveBeenCalledWith('tool-1')
 	})
 
 	it('drops queued images when the conversation is switched away', async () => {

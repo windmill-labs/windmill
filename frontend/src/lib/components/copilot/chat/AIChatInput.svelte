@@ -701,8 +701,7 @@
 					<!-- The chip is a 48px object-cover crop, so the expanded view is the only
 					     way to check what was actually attached before sending it. -->
 					<ExpandableImage
-						src={image.previewUrl ?? image.dataUrl}
-						fullSrc={image.dataUrl}
+						src={image.dataUrl}
 						alt={image.name ?? 'attached image'}
 						class="h-12 w-12 object-cover rounded border border-border-light"
 					/>

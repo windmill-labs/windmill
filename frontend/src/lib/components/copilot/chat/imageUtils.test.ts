@@ -3,11 +3,11 @@ import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 import {
 	boundImagePartBytes,
 	fileToAttachedImage,
+	imagesFromContent,
 	MAX_IMAGE_BYTES,
 	messagesHaveImageParts,
 	parseImageDataUrl,
-	stripImagePartsFromMessages,
-	transcriptImage
+	stripImagePartsFromMessages
 } from './imageUtils'
 
 describe('fileToAttachedImage size bound', () => {
@@ -138,22 +138,22 @@ describe('messagesHaveImageParts', () => {
 	})
 })
 
-describe('transcriptImage', () => {
-	// The transcript must never hold the copy sent to the model (see THUMBNAIL_IMAGE_EDGE).
-	it('uses the bounded copy and drops the model-resolution one', () => {
-		const shown = transcriptImage({
-			dataUrl: 'data:image/png;base64,FULLRES',
-			mediaType: 'image/png',
-			name: 'a.png',
-			previewUrl: 'data:image/png;base64,SMALL'
-		})
-		expect(shown.dataUrl).toBe('data:image/png;base64,SMALL')
-		expect(shown.previewUrl).toBeUndefined()
-		expect(shown.name).toBe('a.png')
+describe('imagesFromContent', () => {
+	it('recovers image parts and skips text (including the omitted placeholder)', () => {
+		const content = [
+			{ type: 'text', text: 'look' },
+			{ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,AAAA' } },
+			{ type: 'text', text: '[image omitted]' },
+			{ type: 'image_url', image_url: { url: 'data:image/png;base64,BBBB' } }
+		]
+		expect(imagesFromContent(content)).toEqual([
+			{ dataUrl: 'data:image/jpeg;base64,AAAA', mediaType: 'image/jpeg' },
+			{ dataUrl: 'data:image/png;base64,BBBB', mediaType: 'image/png' }
+		])
 	})
 
-	it('keeps the original when a downscale would not be smaller', () => {
-		const only = { dataUrl: 'data:image/png;base64,X', mediaType: 'image/png' as const }
-		expect(transcriptImage(only)).toBe(only)
+	it('is undefined for string content and image-free part arrays', () => {
+		expect(imagesFromContent('plain')).toBeUndefined()
+		expect(imagesFromContent([{ type: 'text', text: 'plain' }])).toBeUndefined()
 	})
 })

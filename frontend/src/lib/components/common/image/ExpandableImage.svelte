@@ -17,14 +17,8 @@
 	import Modal2 from '../modal/Modal2.svelte'
 
 	interface Props {
-		/** Source of the inline thumbnail. */
+		/** Source of both the inline thumbnail and the expanded view. */
 		src: string
-		/**
-		 * Source for the expanded view; defaults to `src`. Pass the full-resolution
-		 * copy when `src` is a bounded thumbnail, so expanding reveals real detail
-		 * rather than an upscale of the thumbnail.
-		 */
-		fullSrc?: string
 		/** Names the image, and the expanded view when no `title` is given. */
 		alt?: string
 		/** Heading of the expanded view; defaults to `alt`. */
@@ -33,7 +27,7 @@
 		class?: string
 	}
 
-	let { src, fullSrc, alt = '', title, class: className = '' }: Props = $props()
+	let { src, alt = '', title, class: className = '' }: Props = $props()
 
 	let isOpen = $state(false)
 
@@ -83,5 +77,5 @@
 >
 	<!-- Capped, never stretched: the image keeps its natural size up to the
 	     viewport bound, so a small source gains room without turning blurry. -->
-	<img src={fullSrc ?? src} {alt} class="max-h-[75vh] max-w-[80vw] object-contain mx-auto" />
+	<img {src} {alt} class="max-h-[75vh] max-w-[80vw] object-contain mx-auto" />
 </Modal2>

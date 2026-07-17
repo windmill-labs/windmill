@@ -60,13 +60,10 @@ import { getStringError } from './utils'
 import { type PasteAttachment } from './pasteTokens'
 import {
 	type AttachedImage,
-	boundImagePartBytes,
-	compactImageSlots,
-	imageSlotsFromContent,
+	imagesFromContent,
 	MAX_ATTACHED_IMAGES,
 	messagesHaveImageParts,
-	stripImagePartsFromMessages,
-	transcriptImage
+	stripImagePartsFromMessages
 } from './imageUtils'
 import { chatDraft, expanded } from './chatDraft'
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
@@ -1846,9 +1843,6 @@ export class AIChatManager {
 				this.displayMessages = this.displayMessages.slice(0, -1)
 			}
 		}
-		// Interrupted turns can carry mid-loop screenshots too — bound before the
-		// error/abort paths persist this history.
-		this.messages = boundImagePartBytes(this.messages)
 	}
 
 	// Roll a turn that produced nothing usable back out of the transcript and
@@ -2226,9 +2220,9 @@ export class AIChatManager {
 				role: 'user',
 				content: this.instructions,
 				pastes: pastes.length > 0 ? pastes : undefined,
-				// The bubble keeps the bounded copy; the model's full-size one already
-				// rides in `messages` (see THUMBNAIL_IMAGE_EDGE).
-				images: images.length > 0 ? images.map(transcriptImage) : undefined,
+				// Same objects as the API message's parts: sharing the exact data URL
+				// lets the history's blob store persist one copy for both.
+				images: images.length > 0 ? images : undefined,
 				index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
 			}
 		]
@@ -2427,13 +2421,6 @@ export class AIChatManager {
 			const projectedContextTokens = this.contextTokens + this.estimateMessagesTokens([userMessage])
 
 			this.messages.push(userMessage)
-			// The loop bounds each request's image bytes, but the evicted images
-			// would otherwise sit in stored history forever: provider-reported usage
-			// excludes them, so token-driven compaction never prunes them and every
-			// save re-clones the growing payload into IndexedDB. Bound the stored
-			// copy before EVERY save (the bubbles keep their thumbnails); the commit
-			// paths do the same for mid-loop screenshot growth.
-			this.messages = boundImagePartBytes(this.messages)
 			await this.historyManager.saveChat(
 				this.displayMessages,
 				this.messages,
@@ -2572,12 +2559,6 @@ export class AIChatManager {
 					attachToolImage: (toolId, image) => {
 						const existing = this.pendingToolImages.get(toolId) ?? []
 						this.pendingToolImages.set(toolId, [...existing, image])
-						// The full copy is persisted out-of-band (written once, not
-						// re-cloned per save) so the expanded view keeps its quality
-						// across reloads; the transcript card only stores a thumbnail.
-						void this.historyManager.saveToolImage(toolId, image.dataUrl).catch((e) => {
-							console.error('Could not persist tool image', e)
-						})
 					},
 					takePendingToolImages: () => {
 						const images = [...this.pendingToolImages.values()].flat()
@@ -2666,9 +2647,8 @@ export class AIChatManager {
 					sendUserToast('The model returned no response — your message was restored to the input.')
 				}
 			} else {
-				// Clean turn with output → commit as-is. Bounded again because tool
-				// screenshots grow the history mid-loop (see the send-time bound).
-				this.messages = boundImagePartBytes([...this.messages, ...collectedMessages])
+				// Clean turn with output → commit as-is.
+				this.messages = [...this.messages, ...collectedMessages]
 				// The provider's report describes the stored history exactly:
 				// compaction mutates it before sending, so what was sent IS what is
 				// stored — no anchoring or index bookkeeping needed. Without a
@@ -2823,37 +2803,17 @@ export class AIChatManager {
 		this.inlineAbortController?.abort(cancelReason)
 	}
 
-	/** The full-resolution copy of a tool-produced image, for the tool card's
-	 * expanded view. Undefined when it was never persisted or was evicted by
-	 * the per-chat cap — the card then falls back to its thumbnail. */
-	fullResToolImage(toolCallId: string): Promise<string | undefined> {
-		return this.historyManager.loadToolImage(toolCallId)
-	}
-
 	/**
-	 * The images of a stored user turn as the model saw them, aligned with the
-	 * transcript's thumbnails: entry i belongs to `shown.images[i]`, `null` where
-	 * the byte bound evicted one (so eviction can't shift the survivors onto the
-	 * wrong thumbnails). Anything resending a turn (retry, edit) must read them
-	 * from here — compacted via `compactImageSlots` — never from the transcript:
-	 * that copy is a bounded thumbnail, and resending it would silently downgrade
-	 * the model's input.
+	 * The images of a stored user turn as the model saw them. Anything resending
+	 * a turn (retry, edit) must read them from here, never from the transcript
+	 * bubble: a provider rejection strips them from history while the bubble
+	 * keeps its copy so the user can still see what they sent — resending that
+	 * copy would re-attach the image the provider just refused.
 	 */
-	storedImages(displayMessageIndex: number): (AttachedImage | null)[] | undefined {
+	storedImages(displayMessageIndex: number): AttachedImage[] | undefined {
 		const shown = this.displayMessages[displayMessageIndex]
 		if (!shown || shown.role !== 'user') return undefined
-		const slots = imageSlotsFromContent(this.messages[shown.index]?.content)
-		// Never fall back to the transcript's copy. It outlives a rejection that
-		// stripped the real one from history (the bubble keeps its thumbnail so the
-		// user can still see what they sent), and resending it would re-attach the
-		// image the provider just refused, failing the retry the same way.
-		if (!slots) return undefined
-		const sent = slots.map((image, i) => {
-			if (!image) return null
-			const preview = shown.images?.[i]?.dataUrl
-			return preview && preview !== image.dataUrl ? { ...image, previewUrl: preview } : image
-		})
-		return sent.some((image) => image !== null) ? sent : undefined
+		return imagesFromContent(this.messages[shown.index]?.content)
 	}
 
 	restartGeneration = (
@@ -2870,7 +2830,7 @@ export class AIChatManager {
 
 		// Read while both arrays are intact: storedImages pairs the API message with
 		// its transcript entry, and the truncations below drop them.
-		const sentImages = compactImageSlots(this.storedImages(displayMessageIndex))
+		const sentImages = this.storedImages(displayMessageIndex)
 
 		// Remove all messages including and after the specified user message
 		this.displayMessages = this.displayMessages.slice(0, displayMessageIndex)
@@ -2959,7 +2919,7 @@ export class AIChatManager {
 	}
 
 	loadPastChat = async (id: string) => {
-		const chat = this.historyManager.loadPastChat(id)
+		const chat = await this.historyManager.loadPastChat(id)
 		if (chat) {
 			// Drop any message queued in the current conversation so it doesn't
 			// auto-send into the loaded one or linger as a card across the switch.

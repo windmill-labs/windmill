@@ -5,16 +5,20 @@ import { createLongHash } from '$lib/editorLangUtils'
 import { userScopedDb, type UserScopedDbMigrateDeps } from '$lib/userScopedDb'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 import type { PersistedContextUsage } from './tokenUsage'
+import { IMAGE_OMITTED_PLACEHOLDER, type AttachedImage } from './imageUtils'
+import { randomUUID } from '$lib/utils/uuid'
 
 // Base IndexedDB name; userScopedDb namespaces the effective DB by the logged-in
 // user's email so chat messages are never physically shared across users on a
 // shared browser. The bare name is also the legacy (pre-namespacing) DB, claimed
 // once on first login.
 const DB_NAME = 'copilot-chat-history'
-// v2 adds the toolImages store.
-const DB_VERSION = 2
-/** Newest tool images kept per chat; each is a bounded (≤1568px) data URL. */
-const MAX_TOOL_IMAGES_PER_CHAT = 30
+// v3 adds the images blob store (replacing v2's short-lived toolImages store).
+const DB_VERSION = 3
+/** Newest image blobs kept per chat; each is a bounded (≤1568px) data URL. */
+const MAX_IMAGES_PER_CHAT = 30
+/** Marks a persisted image whose bytes live in the `images` store. */
+const IMAGE_REF_PREFIX = 'wm-image:'
 
 interface ChatSchema extends IDBSchema {
 	chats: {
@@ -41,11 +45,13 @@ interface ChatSchema extends IDBSchema {
 			backgroundJobs?: ChatJob[]
 		}
 	}
-	// Full-resolution copies of tool-produced images (screenshots), keyed by tool
-	// call id. Out-of-band from the chat record on purpose: the record is
-	// re-cloned on every saveChat, while these blobs are written once at capture
-	// and read only when the tool card's thumbnail is expanded.
-	toolImages: {
+	// Image bytes, out-of-band from the chat record on purpose: the record is
+	// re-cloned into IndexedDB on every saveChat, while a blob is written once
+	// and read again only when its chat is reloaded. The persisted message
+	// arrays carry `wm-image:<id>` refs in place of the data URLs; swapping
+	// happens entirely inside this class (dehydrate on save, hydrate on load),
+	// so live chat state never sees a ref.
+	images: {
 		key: string
 		value: {
 			id: string
@@ -61,16 +67,21 @@ function createChatStore(db: IDBPDatabase<ChatSchema>): void {
 	if (!db.objectStoreNames.contains('chats')) {
 		db.createObjectStore('chats', { keyPath: 'id' })
 	}
-	if (!db.objectStoreNames.contains('toolImages')) {
-		const store = db.createObjectStore('toolImages', { keyPath: 'id' })
+	// v2 briefly kept full-resolution tool screenshots in their own store; the
+	// general blob store below covers them now.
+	if ((db.objectStoreNames as DOMStringList).contains('toolImages')) {
+		db.deleteObjectStore('toolImages' as never)
+	}
+	if (!db.objectStoreNames.contains('images')) {
+		const store = db.createObjectStore('images', { keyPath: 'id' })
 		store.createIndex('by-chat', ['chatId', 'savedAt'])
 	}
 }
 
-/** All toolImages primary keys for a chat, oldest first (index is [chatId, savedAt]). */
-function toolImageKeysForChat(db: IDBPDatabase<ChatSchema>, chatId: string) {
+/** All image-blob primary keys for a chat, oldest first (index is [chatId, savedAt]). */
+function imageKeysForChat(db: IDBPDatabase<ChatSchema>, chatId: string) {
 	return db.getAllKeysFromIndex(
-		'toolImages',
+		'images',
 		'by-chat',
 		IDBKeyRange.bound([chatId, -Infinity], [chatId, Infinity])
 	)
@@ -176,6 +187,16 @@ export default class HistoryManager {
 	// session-tagged chats are excluded from history.
 	private sessionId: string | undefined = $state(undefined)
 
+	// dataUrl → stable blob id, so every save of the same conversation maps an
+	// image to the record written the first time (write-once) instead of minting
+	// a new one per save. Hydration seeds it back, so a reloaded chat re-saves
+	// under its original ids too.
+	private imageIdByUrl = new Map<string, string>()
+	// Blobs written in one burst share a Date.now() millisecond; savedAt is the
+	// cap's eviction order, so force it strictly monotonic (ties would break by
+	// random uuid, evicting an arbitrary blob instead of the oldest).
+	private lastImageSavedAt = 0
+
 	private pastChats = $derived(
 		Object.values(this.savedChats)
 			.filter((c) => c.id !== this.currentChatId)
@@ -247,6 +268,117 @@ export default class HistoryManager {
 		return this.savedChats[id]?.backgroundJobs
 	}
 
+	/**
+	 * Swap every inline image (data URL) in the given message arrays for a
+	 * `wm-image:<id>` ref, mutating them in place — callers pass the snapshot
+	 * that goes to IndexedDB, never live chat state. Returns the id → dataUrl
+	 * map of every image the arrays reference (persistImageBlobs skips the ones
+	 * already stored).
+	 */
+	private dehydrateImages(
+		actualMessages: ChatCompletionMessageParam[],
+		displayMessages: DisplayMessage[]
+	): Map<string, string> {
+		const blobs = new Map<string, string>()
+		const refFor = (dataUrl: string): string => {
+			let id = this.imageIdByUrl.get(dataUrl)
+			if (!id) {
+				id = randomUUID()
+				this.imageIdByUrl.set(dataUrl, id)
+			}
+			blobs.set(id, dataUrl)
+			return IMAGE_REF_PREFIX + id
+		}
+		for (const message of actualMessages) {
+			if (!Array.isArray(message.content)) continue
+			for (const part of message.content as any[]) {
+				if (part?.type === 'image_url' && part.image_url?.url?.startsWith('data:')) {
+					part.image_url.url = refFor(part.image_url.url)
+				}
+			}
+		}
+		for (const message of displayMessages) {
+			if (message.role === 'user' && message.images) {
+				for (const image of message.images) {
+					if (image.dataUrl.startsWith('data:')) image.dataUrl = refFor(image.dataUrl)
+				}
+			} else if (message.role === 'tool' && message.imageUrl?.startsWith('data:')) {
+				message.imageUrl = refFor(message.imageUrl)
+			}
+		}
+		return blobs
+	}
+
+	/** Write-once blob persistence, capped to the newest per chat so an
+	 *  image-heavy conversation can't grow the store unbounded (an evicted
+	 *  blob's refs hydrate to the omitted-image placeholder). */
+	private async persistImageBlobs(
+		db: IDBPDatabase<ChatSchema>,
+		chatId: string,
+		blobs: Map<string, string>
+	) {
+		if (blobs.size === 0) return
+		for (const [id, dataUrl] of blobs) {
+			if ((await db.getKey('images', id)) === undefined) {
+				this.lastImageSavedAt = Math.max(Date.now(), this.lastImageSavedAt + 1)
+				await db.put('images', { id, chatId, dataUrl, savedAt: this.lastImageSavedAt })
+			}
+		}
+		const keys = await imageKeysForChat(db, chatId)
+		for (const key of keys.slice(0, Math.max(0, keys.length - MAX_IMAGES_PER_CHAT))) {
+			await db.delete('images', key)
+		}
+	}
+
+	/**
+	 * Resolve every `wm-image:` ref in the chat clone back to its data URL,
+	 * in place. A missing blob (evicted by the per-chat cap) degrades the API
+	 * part to the omitted-image placeholder and drops the transcript copy.
+	 * Inline data URLs (records persisted before the blob store) pass through
+	 * untouched.
+	 */
+	private async hydrateImages(
+		db: IDBPDatabase<ChatSchema>,
+		actualMessages: ChatCompletionMessageParam[],
+		displayMessages: DisplayMessage[]
+	) {
+		const load = async (ref: string): Promise<string | undefined> => {
+			const id = ref.slice(IMAGE_REF_PREFIX.length)
+			const dataUrl = (await db.get('images', id))?.dataUrl
+			if (dataUrl) this.imageIdByUrl.set(dataUrl, id)
+			return dataUrl
+		}
+		for (const message of actualMessages) {
+			if (!Array.isArray(message.content)) continue
+			const content = message.content as any[]
+			for (let i = 0; i < content.length; i++) {
+				const part = content[i]
+				if (part?.type === 'image_url' && part.image_url?.url?.startsWith(IMAGE_REF_PREFIX)) {
+					const dataUrl = await load(part.image_url.url)
+					content[i] = dataUrl
+						? { ...part, image_url: { ...part.image_url, url: dataUrl } }
+						: { type: 'text', text: IMAGE_OMITTED_PLACEHOLDER }
+				}
+			}
+		}
+		for (const message of displayMessages) {
+			if (message.role === 'user' && message.images) {
+				const images: AttachedImage[] = []
+				for (const image of message.images) {
+					if (!image.dataUrl.startsWith(IMAGE_REF_PREFIX)) {
+						images.push(image)
+						continue
+					}
+					const dataUrl = await load(image.dataUrl)
+					if (dataUrl) images.push({ ...image, dataUrl })
+				}
+				message.images = images.length > 0 ? images : undefined
+			} else if (message.role === 'tool' && message.imageUrl?.startsWith(IMAGE_REF_PREFIX)) {
+				message.imageUrl = await load(message.imageUrl)
+			}
+		}
+	}
+
 	async saveChat(
 		displayMessages: DisplayMessage[],
 		messages: ChatCompletionMessageParam[],
@@ -304,13 +436,21 @@ export default class HistoryManager {
 							}
 						: {})
 			}
+			// The snapshot (and the savedChats copy below, which mirrors what the DB
+			// holds) keeps refs; the caller's live arrays keep their data URLs.
+			const blobs = this.dehydrateImages(updatedChat.actualMessages, updatedChat.displayMessages)
 			this.savedChats = {
 				...this.savedChats,
 				[updatedChat.id]: updatedChat
 			}
 
 			const db = await this.dbh.whenReady()
-			if (db) await db.put('chats', updatedChat)
+			if (db) {
+				// Blobs land before the record that references them, so a failed write
+				// cannot leave a saved chat pointing at bytes that never made it.
+				await this.persistImageBlobs(db, updatedChat.id, blobs)
+				await db.put('chats', updatedChat)
+			}
 		}
 	}
 
@@ -325,28 +465,6 @@ export default class HistoryManager {
 		this.currentChatId = createLongHash()
 	}
 
-	/** Persist a tool image once, capped to the newest per chat so a
-	 *  screenshot-heavy session can't grow the store unbounded. */
-	async saveToolImage(toolCallId: string, dataUrl: string) {
-		const db = await this.dbh.whenReady()
-		if (!db) return
-		await db.put('toolImages', {
-			id: toolCallId,
-			chatId: this.currentChatId,
-			dataUrl,
-			savedAt: Date.now()
-		})
-		const keys = await toolImageKeysForChat(db, this.currentChatId)
-		for (const key of keys.slice(0, Math.max(0, keys.length - MAX_TOOL_IMAGES_PER_CHAT))) {
-			await db.delete('toolImages', key)
-		}
-	}
-
-	async loadToolImage(toolCallId: string): Promise<string | undefined> {
-		const db = await this.dbh.whenReady()
-		return (await db?.get('toolImages', toolCallId))?.dataUrl
-	}
-
 	deletePastChat(id: string) {
 		this.savedChats = Object.fromEntries(
 			Object.entries(this.savedChats).filter(([key]) => key !== id)
@@ -354,16 +472,20 @@ export default class HistoryManager {
 		void this.dbh.whenReady().then(async (db) => {
 			if (!db) return
 			await db.delete('chats', id)
-			const keys = await toolImageKeysForChat(db, id)
-			await Promise.all(keys.map((key) => db.delete('toolImages', key)))
+			const keys = await imageKeysForChat(db, id)
+			await Promise.all(keys.map((key) => db.delete('images', key)))
 		})
 	}
 
-	loadPastChat(id: string) {
+	async loadPastChat(id: string) {
 		const chat = this.savedChats[id]
-		if (chat) {
-			this.currentChatId = id
-			return chat
-		}
+		if (!chat) return
+		this.currentChatId = id
+		// Hand back a hydrated clone: the stored record keeps its refs (matching
+		// what the DB holds) while the live chat gets real data URLs.
+		const snapshot = $state.snapshot(chat) as typeof chat
+		const db = await this.dbh.whenReady()
+		if (db) await this.hydrateImages(db, snapshot.actualMessages, snapshot.displayMessages)
+		return snapshot
 	}
 }

@@ -46,12 +46,7 @@ import {
 } from '$lib/components/raw_apps/templates'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
-import {
-	dataUrlToImagePart,
-	normalizeImageDataUrl,
-	THUMBNAIL_IMAGE_EDGE,
-	type AttachedImage
-} from '../imageUtils'
+import { dataUrlToImagePart, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
 import { modelSupportsVision } from '../../modelConfig'
 import { tryGetCurrentModel } from '$lib/aiStore'
 import { isChromiumBrowser } from '$lib/utils'
@@ -2960,17 +2955,11 @@ export const globalTools: Tool<{}>[] = [
 			// completes (see appendPendingToolImages).
 			const image = await normalizeImageDataUrl(result.dataUrl)
 			ctx.toolCallbacks.attachToolImage?.(ctx.toolId, image)
-			// The card's copy lives in the transcript, so shrink it when that helps
-			// (see AttachedImage.previewUrl in imageUtils). Derive it from the already-
-			// bounded copy, not the raw capture, to avoid decoding the full bitmap twice.
-			// Downscaling interpolates flat UI colours into gradients, which PNG can
-			// encode *larger*, so keep whichever is actually smaller.
-			const thumbnail = await normalizeImageDataUrl(image.dataUrl, undefined, THUMBNAIL_IMAGE_EDGE)
-			const cardImage =
-				thumbnail.dataUrl.length < image.dataUrl.length ? thumbnail.dataUrl : image.dataUrl
+			// The card shows the same copy the model gets; sharing the exact data URL
+			// lets the history's blob store persist one copy for both.
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
 				content: 'Screenshot captured',
-				imageUrl: cardImage
+				imageUrl: image.dataUrl
 			})
 			return (
 				'Screenshot captured; the image is attached in the following message.\n\n' +

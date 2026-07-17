@@ -90,43 +90,137 @@ describe('HistoryManager legacy chat-history migration', () => {
 		expect(hm.getAllSavedChats()).toEqual([])
 	})
 
-	it('serves a persisted tool image to a fresh instance (reload survival)', async () => {
-		const hm = new HistoryManager()
-		await hm.init()
-		await hm.saveToolImage('tool-1', 'data:image/png;base64,FULL')
-
-		const reloaded = new HistoryManager()
-		await reloaded.init()
-		await expect(reloaded.loadToolImage('tool-1')).resolves.toBe('data:image/png;base64,FULL')
-		await expect(reloaded.loadToolImage('unknown')).resolves.toBeUndefined()
-	})
-
-	it('caps stored tool images per chat, evicting the oldest', async () => {
-		const hm = new HistoryManager()
-		await hm.init()
-		for (let i = 0; i <= 30; i++) {
-			await hm.saveToolImage(`tool-${String(i).padStart(2, '0')}`, `data:${i}`)
-		}
-		await expect(hm.loadToolImage('tool-00')).resolves.toBeUndefined()
-		await expect(hm.loadToolImage('tool-01')).resolves.toBe('data:1')
-		await expect(hm.loadToolImage('tool-30')).resolves.toBe('data:30')
-	})
-
-	it("deletes a chat's tool images along with the chat", async () => {
+	it('persists image bytes out of the chat record and hydrates them back on load', async () => {
+		const png = 'data:image/png;base64,FULLBYTES'
 		const hm = new HistoryManager()
 		await hm.init()
 		const chatId = hm.getCurrentChatId()
-		await hm.saveToolImage('tool-1', 'data:full')
 		await hm.saveChat(
-			[{ role: 'user', content: 'x' }] as DisplayMessage[],
+			[
+				{ role: 'user', content: 'look', images: [{ dataUrl: png, mediaType: 'image/png' }] },
+				{ role: 'tool', tool_call_id: 't1', content: 'shot', imageUrl: png }
+			] as DisplayMessage[],
+			[
+				{
+					role: 'user',
+					content: [
+						{ type: 'text', text: 'look' },
+						{ type: 'image_url', image_url: { url: png } }
+					]
+				}
+			] as ChatCompletionMessageParam[]
+		)
+
+		// The chat record holds refs, not bytes — and the shared data URL of the
+		// bubble, tool card, and API part dedups to a single blob record.
+		const db = await openDB('copilot-chat-history::admin@test')
+		const record = await db.get('chats' as never, chatId)
+		expect(JSON.stringify(record)).not.toContain('FULLBYTES')
+		expect((record as any).actualMessages[0].content[1].image_url.url).toMatch(/^wm-image:/)
+		expect(await db.count('images' as never)).toBe(1)
+		db.close()
+
+		// A fresh instance (reload) hydrates the refs back to the original bytes.
+		const reloaded = new HistoryManager()
+		await reloaded.init()
+		const chat = await reloaded.loadPastChat(chatId)
+		expect((chat?.actualMessages[0].content as any[])[1].image_url.url).toBe(png)
+		expect((chat?.displayMessages[0] as any).images[0].dataUrl).toBe(png)
+		expect((chat?.displayMessages[1] as any).imageUrl).toBe(png)
+	})
+
+	it('re-saving the same conversation does not mint new blob records', async () => {
+		const png = 'data:image/png;base64,STABLE'
+		const display = [
+			{ role: 'user', content: 'x', images: [{ dataUrl: png, mediaType: 'image/png' }] }
+		] as DisplayMessage[]
+		const hm = new HistoryManager()
+		await hm.init()
+		await hm.saveChat(display, [] as ChatCompletionMessageParam[])
+		await hm.saveChat(display, [] as ChatCompletionMessageParam[])
+
+		const db = await openDB('copilot-chat-history::admin@test')
+		expect(await db.count('images' as never)).toBe(1)
+		db.close()
+	})
+
+	it('caps stored blobs per chat; an evicted ref hydrates to the omitted placeholder', async () => {
+		const hm = new HistoryManager()
+		await hm.init()
+		const chatId = hm.getCurrentChatId()
+		const urlFor = (i: number) => `data:image/png;base64,IMG${String(i).padStart(2, '0')}`
+		const messages = [] as ChatCompletionMessageParam[]
+		for (let i = 0; i <= 30; i++) {
+			messages.push({
+				role: 'user',
+				content: [{ type: 'image_url', image_url: { url: urlFor(i) } }]
+			} as ChatCompletionMessageParam)
+			await hm.saveChat([{ role: 'user', content: 'x' }] as DisplayMessage[], messages)
+		}
+
+		const reloaded = new HistoryManager()
+		await reloaded.init()
+		const chat = await reloaded.loadPastChat(chatId)
+		expect((chat?.actualMessages[0].content as any[])[0]).toEqual({
+			type: 'text',
+			text: '[image omitted]'
+		})
+		expect((chat?.actualMessages[1].content as any[])[0].image_url.url).toBe(urlFor(1))
+		expect((chat?.actualMessages[30].content as any[])[0].image_url.url).toBe(urlFor(30))
+	})
+
+	it("deletes a chat's image blobs along with the chat", async () => {
+		const hm = new HistoryManager()
+		await hm.init()
+		const chatId = hm.getCurrentChatId()
+		await hm.saveChat(
+			[
+				{
+					role: 'user',
+					content: 'x',
+					images: [{ dataUrl: 'data:image/png;base64,GONE', mediaType: 'image/png' }]
+				}
+			] as DisplayMessage[],
 			[] as ChatCompletionMessageParam[]
 		)
 
 		hm.deletePastChat(chatId)
 
 		await vi.waitFor(async () => {
-			expect(await hm.loadToolImage('tool-1')).toBeUndefined()
+			const db = await openDB('copilot-chat-history::admin@test')
+			const count = await db.count('images' as never)
+			db.close()
+			expect(count).toBe(0)
 		})
+	})
+
+	it('loads pre-blob-store records with inline data URLs untouched', async () => {
+		const png = 'data:image/png;base64,LEGACYINLINE'
+		const hm = new HistoryManager()
+		await hm.init()
+		// Simulate a record persisted before the blob store existed.
+		const db = await openDB('copilot-chat-history::admin@test')
+		await db.put(
+			'chats' as never,
+			{
+				id: 'legacy1',
+				title: 'legacy',
+				lastModified: 1,
+				actualMessages: [
+					{ role: 'user', content: [{ type: 'image_url', image_url: { url: png } }] }
+				],
+				displayMessages: [
+					{ role: 'user', content: 'x', images: [{ dataUrl: png, mediaType: 'image/png' }] }
+				]
+			} as never
+		)
+		db.close()
+
+		const reloaded = new HistoryManager()
+		await reloaded.init()
+		const chat = await reloaded.loadPastChat('legacy1')
+		expect((chat?.actualMessages[0].content as any[])[0].image_url.url).toBe(png)
+		expect((chat?.displayMessages[0] as any).images[0].dataUrl).toBe(png)
 	})
 
 	it('writes land in the current user DB after an in-place user switch', async () => {
