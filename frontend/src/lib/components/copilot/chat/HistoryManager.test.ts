@@ -634,11 +634,12 @@ describe('HistoryManager image-only chats', () => {
 })
 
 describe('HistoryManager without IndexedDB', () => {
-	it('keeps history usable from memory when the database is unavailable', async () => {
+	it('degrades cleanly: refs never leak into bubbles or message content', async () => {
 		// whenReady() resolves undefined when opens fail (private browsing,
-		// blocked, corrupt) — history then lives in memory only, and must keep
-		// its inline image bytes: refs without a backing store would break
-		// thumbnails and resend `wm-image:` URLs on retry.
+		// blocked, corrupt). History then simply doesn't persist — like every
+		// other userScopedDb consumer — but a reloaded chat must degrade its
+		// unresolvable refs to omitted-image placeholders, never hand raw
+		// `wm-image:` URLs to an <img> or an outgoing request.
 		;(globalThis as any).indexedDB = {
 			open: () => {
 				throw new Error('blocked')
@@ -661,8 +662,12 @@ describe('HistoryManager without IndexedDB', () => {
 		)
 
 		const chat = await hm.loadPastChat(chatId)
-		expect((chat?.displayMessages[0] as any).images[0].dataUrl).toBe(png)
-		expect((chat?.actualMessages[0].content as any[])[0].image_url.url).toBe(png)
+		expect((chat?.displayMessages[0] as any).images).toBeUndefined()
+		expect((chat?.actualMessages[0].content as any[])[0]).toEqual({
+			type: 'text',
+			text: '[image omitted]'
+		})
+		expect(JSON.stringify(chat)).not.toContain('wm-image:')
 	})
 })
 

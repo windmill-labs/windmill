@@ -245,11 +245,8 @@ export default class HistoryManager {
 	)
 
 	async init() {
-		// (Re)initializing adopts a new identity's history: invalidate every
-		// pending convergence and cached blob id from the previous one — a prior
-		// user's write that already passed enqueueDbWrite's identity checks must
-		// not merge its record into this mirror when its transaction finishes.
-		this.mirrorRev.clear()
+		// (Re)initializing adopts a new identity's history: drop the previous
+		// identity's cached blob ids with it.
 		this.imageIdByUrl.clear()
 		// whenReady() is email-gated (returns undefined before the user is known —
 		// all callers run post-login, and the singleton re-inits via onUserChange),
@@ -292,9 +289,7 @@ export default class HistoryManager {
 		const snapshot = $state.snapshot(existing)
 		const updated = { ...snapshot, sessionId }
 		this.savedChats = { ...this.savedChats, [chatId]: updated }
-		// Through the dehydrating path: a chat saved this session holds inline
-		// data URLs in the mirror, which must not reach the DB.
-		await this.persistDehydratedChat(updated)
+		await this.enqueueDbWrite((db) => db.put('chats', updated))
 	}
 
 	getPastChats() {
@@ -421,20 +416,21 @@ export default class HistoryManager {
 
 	/**
 	 * Resolve every `wm-image:` ref in the chat clone back to its data URL,
-	 * in place. A missing blob (evicted by the per-chat cap) degrades the API
-	 * part to the omitted-image placeholder and drops the transcript copy.
-	 * Inline data URLs (records persisted before the blob store) pass through
-	 * untouched.
+	 * in place. A missing blob (evicted by the per-chat cap, or IndexedDB
+	 * unavailable altogether) degrades the API part to the omitted-image
+	 * placeholder and drops the transcript copy — a ref must never leak into
+	 * bubbles or outgoing requests. Inline data URLs (records persisted before
+	 * the blob store) pass through untouched.
 	 */
 	private async hydrateImages(
-		db: IDBPDatabase<ChatSchema>,
+		db: IDBPDatabase<ChatSchema> | undefined,
 		chatId: string,
 		actualMessages: ChatCompletionMessageParam[],
 		displayMessages: DisplayMessage[]
 	) {
 		const load = async (ref: string): Promise<string | undefined> => {
 			const id = ref.slice(IMAGE_REF_PREFIX.length)
-			const dataUrl = (await db.get('images', id))?.dataUrl
+			const dataUrl = (await db?.get('images', id))?.dataUrl
 			if (dataUrl) this.imageIdByUrl.set(this.imageIdKey(chatId, dataUrl), id)
 			return dataUrl
 		}
@@ -541,68 +537,39 @@ export default class HistoryManager {
 							}
 						: {})
 			}
-			// The mirror takes the inline copy first: IndexedDB can be unavailable
-			// (whenReady() → undefined in private browsing / blocked opens), and
-			// history must stay fully usable from memory then — refs with no
-			// backing store would break thumbnails and resend `wm-image:` URLs.
-			// persistDehydratedChat converges it to the ref-backed clone once the
-			// DB commit succeeds.
+			// The mirror mirrors what the DB holds (refs — the snapshot is
+			// dehydrated below before either sees it): a reopened chat hydrates
+			// through the store, reseeding stable blob ids. When IndexedDB is
+			// unavailable the writes no-op and hydration degrades the refs to
+			// omitted-image placeholders — like every other userScopedDb consumer,
+			// history simply doesn't persist there.
+			const { blobs, refs } = this.dehydrateImages(
+				updatedChat.id,
+				updatedChat.actualMessages,
+				updatedChat.displayMessages
+			)
 			this.savedChats = {
 				...this.savedChats,
 				[updatedChat.id]: updatedChat
 			}
-			await this.persistDehydratedChat(updatedChat)
+			await this.enqueueDbWrite(async (db) => {
+				// Write order is the crash-safety story: kept blobs land before the
+				// record that references them, and stale blobs are deleted only after
+				// the new record is committed. A failure at any step leaves the last
+				// committed record fully hydratable — at worst orphan blobs linger
+				// until the next successful save's delete pass reclaims them.
+				const keep = this.keptImageIds(refs)
+				await this.writeKeptImageBlobs(db, updatedChat.id, blobs, keep)
+				await db.put('chats', updatedChat)
+				// Best-effort: the record is already committed, so a failed cleanup
+				// (e.g. a user switch closed this handle mid-op) must not turn a
+				// successful save into a rejection — the orphans are reclaimed by
+				// the next successful save's pass.
+				await this.deleteStaleImageBlobs(db, updatedChat.id, keep).catch((err) =>
+					console.error('Could not prune stale image blobs', err)
+				)
+			})
 		}
-	}
-
-	// Bumped for every mirror write (see persistDehydratedChat). Convergence
-	// runs later, from the write queue, and must not REWIND the mirror to an
-	// older snapshot while newer writes wait: the mirror is also the fallback
-	// source for omitted modifiedItems/backgroundJobs, and a save reading a
-	// rewound mirror would permanently erase the newer fields.
-	private mirrorRev = new Map<string, number>()
-	private revCounter = 0
-
-	/** Dehydrate a clone of the record and write it (and its blobs) to the DB;
-	 *  the caller's copy keeps its inline data URLs. */
-	private persistDehydratedChat(record: HistoryManager['savedChats'][string]) {
-		const rev = ++this.revCounter
-		this.mirrorRev.set(record.id, rev)
-		// structuredClone shares string values, so this copies structure, not bytes.
-		const persisted = structuredClone(record)
-		const { blobs, refs } = this.dehydrateImages(
-			persisted.id,
-			persisted.actualMessages,
-			persisted.displayMessages
-		)
-		return this.enqueueDbWrite(async (db) => {
-			// Write order is the crash-safety story: kept blobs land before the
-			// record that references them, and stale blobs are deleted only after
-			// the new record is committed. A failure at any step leaves the last
-			// committed record fully hydratable — at worst orphan blobs linger
-			// until the next successful save's delete pass reclaims them.
-			const keep = this.keptImageIds(refs)
-			await this.writeKeptImageBlobs(db, persisted.id, blobs, keep)
-			await db.put('chats', persisted)
-			// Once the DB holds the record, converge the mirror to the ref-backed
-			// clone: a reopened chat then hydrates through the store (reseeding
-			// stable blob ids — an inline mirror would mint new ids on its next
-			// save and bulk-rewrite every blob) and rotated chats stop pinning
-			// this session's image bytes in memory. When the DB is unavailable
-			// this line is never reached, so the mirror keeps the inline copy.
-			// Guarded by revision so it never rewinds the mirror past a newer
-			// write (or resurrects a concurrent deletePastChat).
-			if (this.mirrorRev.get(persisted.id) === rev) {
-				this.savedChats = { ...this.savedChats, [persisted.id]: persisted }
-			}
-			// Best-effort: the record is already committed, so a failed cleanup
-			// (e.g. a user switch closed this handle mid-op) must not turn a
-			// successful save into a rejection — the orphans are reclaimed by the
-			// next successful save's pass.
-			await this.deleteStaleImageBlobs(db, persisted.id, keep).catch((err) =>
-				console.error('Could not prune stale image blobs', err)
-			)
-		})
 	}
 
 	async save(
@@ -621,8 +588,6 @@ export default class HistoryManager {
 		this.savedChats = Object.fromEntries(
 			Object.entries(this.savedChats).filter(([key]) => key !== id)
 		)
-		// A pending save's convergence must not resurrect the deleted mirror.
-		this.mirrorRev.delete(id)
 		void this.enqueueDbWrite(async (db) => {
 			await db.delete('chats', id)
 			const keys = await imageKeysForChat(db, id)
@@ -636,10 +601,12 @@ export default class HistoryManager {
 		this.currentChatId = id
 		this.pruneImageIds(id)
 		// Hand back a hydrated clone: the stored record keeps its refs (matching
-		// what the DB holds) while the live chat gets real data URLs.
+		// what the DB holds) while the live chat gets real data URLs. Hydration
+		// runs even without a DB so refs degrade to placeholders instead of
+		// leaking into bubbles and requests.
 		const snapshot = $state.snapshot(chat) as typeof chat
 		const db = await this.dbh.whenReady()
-		if (db) await this.hydrateImages(db, id, snapshot.actualMessages, snapshot.displayMessages)
+		await this.hydrateImages(db, id, snapshot.actualMessages, snapshot.displayMessages)
 		return snapshot
 	}
 }
