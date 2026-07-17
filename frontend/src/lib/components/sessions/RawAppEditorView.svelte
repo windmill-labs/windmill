@@ -96,7 +96,11 @@
 	{onNavigate}
 	{isActiveSession}
 	isActiveTab={active}
-	effectivePath={() => cell.store.val?.path ?? path}
+	effectivePath={() =>
+		// A raw app's typed rename lives in `draft_path` (`val.path` is the storage
+		// key), unlike scripts where `val.path` is the typed name — without it the
+		// live-draft registration hides a staged rename from lists and pickers.
+		(cell.store.val?.draft_path || cell.store.val?.path) ?? path}
 >
 	{#snippet editor()}
 		{#if cell.store.val}

@@ -283,6 +283,17 @@ pub struct OtelTracingProxySettings {
     pub enabled_languages: HashSet<ScriptLang>,
     #[serde(default)]
     pub no_proxy_hosts: Option<String>,
+    /// Comma-separated host/IP patterns for which the MITM proxy skips upstream TLS
+    /// verification. Unlike `no_proxy_hosts` (which bypasses the proxy entirely, so the
+    /// request goes untraced), these hosts stay traced — only the proxy's own upstream
+    /// certificate check is disabled. Same suffix-matching semantics as `no_proxy_hosts`.
+    #[serde(default)]
+    pub insecure_upstream_hosts: Option<String>,
+    /// Extra CA certificates (PEM bundle) added to the MITM proxy's upstream trust store,
+    /// on top of the system roots. Lets the proxy verify internal endpoints signed by a
+    /// private CA without disabling verification.
+    #[serde(default)]
+    pub upstream_ca_certs: Option<String>,
 }
 
 #[cfg(feature = "prometheus")]
@@ -341,6 +352,14 @@ lazy_static::lazy_static! {
     .ok()
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(false);
+
+    /// Per-language override for the nsjail `rlimit_as` (virtual address space) cap.
+    /// Value is in MiB, or `unlimited`/`none`/`inf`/`0` to uncap. Unset keeps the
+    /// historical default baked into the proto. See `render_nsjail_rlimit_as`.
+    pub static ref NSJAIL_PY_RLIMIT_AS_MB: Option<String> =
+        std::env::var("NSJAIL_PY_RLIMIT_AS_MB").ok();
+    pub static ref NSJAIL_ANSIBLE_RLIMIT_AS_MB: Option<String> =
+        std::env::var("NSJAIL_ANSIBLE_RLIMIT_AS_MB").ok();
 
     // pub static ref DISABLE_NSJAIL: bool = false;
     pub static ref DISABLE_NSJAIL: bool = std::env::var("DISABLE_NSJAIL")
@@ -1997,6 +2016,9 @@ pub async fn run_worker(
     }
 
     create_directory_async(&worker_dir).await;
+
+    #[cfg(all(feature = "python", unix))]
+    crate::ansible_executor::prepare_persistent_control_path_root().await;
 
     if is_sandboxing_enabled() {
         let _ = write_file(

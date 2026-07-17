@@ -624,6 +624,13 @@ pub(crate) fn create_nativets_runtime(
         op_state.put(LogString { s: log_sender });
     }
 
+    // Per-isolate JS init that can't run in the snapshot (runtime.js executes at
+    // snapshot-build time): currently seeds performance.timeOrigin via
+    // setTimeOrigin(), which must read this isolate's wall clock.
+    js_runtime
+        .execute_script("<wm_init>", "globalThis.__wmInitPerIsolate()")
+        .map_err(windmill_common::error::to_anyhow)?;
+
     Ok(CreatedRuntime { js_runtime, log_receiver, memory_limit_rx })
 }
 

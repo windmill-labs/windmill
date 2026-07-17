@@ -68,6 +68,7 @@ use windmill_common::error::AppError;
 mod ai;
 mod ai_skills;
 mod apps;
+pub use apps::invalidate_app_policy_cache;
 pub mod args;
 mod audit;
 pub mod auth;
