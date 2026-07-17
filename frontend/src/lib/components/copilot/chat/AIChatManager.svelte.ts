@@ -1002,12 +1002,17 @@ export class AIChatManager {
 	): Promise<'ok' | 'empty' | 'aborted' | 'error'> => {
 		this.compacting = true
 		try {
+			// Cap the summarizer's output at the budget already reserved for the
+			// summary. Without a cap the model's default max_tokens applies, and the
+			// Anthropic SDK rejects non-streaming requests whose max_tokens implies
+			// >10 minutes of generation (~21k tokens) before anything is sent.
 			const raw = await getNonStreamingCompletion(
 				[
 					...sanitizeToolCallArguments(prefix),
 					{ role: 'user', content: getCompactionSummaryPrompt() }
 				],
-				abortController
+				abortController,
+				{ maxTokensCap: SUMMARY_OUTPUT_RESERVE_TOKENS }
 			)
 			const formatted = formatCompactSummary(raw ?? '')
 			if (!formatted) {
