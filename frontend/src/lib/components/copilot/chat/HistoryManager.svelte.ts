@@ -308,14 +308,13 @@ export default class HistoryManager {
 			blobs.set(id, dataUrl)
 			return IMAGE_REF_PREFIX + id
 		}
-		for (const message of actualMessages) {
-			if (!Array.isArray(message.content)) continue
-			for (const part of message.content as any[]) {
-				if (part?.type === 'image_url' && part.image_url?.url?.startsWith('data:')) {
-					part.image_url.url = refFor(part.image_url.url)
-				}
-			}
-		}
+		// The map's insertion order is the cap's notion of image age (see
+		// persistImageBlobs), so the transcript walks FIRST: it is always whole
+		// and chronological, while drop-oldest compaction removes old API
+		// messages — walking those first would slot a dropped message's
+		// still-displayed image after the API tail, aging newer images past it.
+		// Shared data URLs (bubble/tool card ↔ API part) keep the transcript's
+		// position on the later walk (Map.set on an existing key doesn't move it).
 		for (const message of displayMessages) {
 			if (message.role === 'user' && message.images) {
 				for (const image of message.images) {
@@ -323,6 +322,14 @@ export default class HistoryManager {
 				}
 			} else if (message.role === 'tool' && message.imageUrl?.startsWith('data:')) {
 				message.imageUrl = refFor(message.imageUrl)
+			}
+		}
+		for (const message of actualMessages) {
+			if (!Array.isArray(message.content)) continue
+			for (const part of message.content as any[]) {
+				if (part?.type === 'image_url' && part.image_url?.url?.startsWith('data:')) {
+					part.image_url.url = refFor(part.image_url.url)
+				}
 			}
 		}
 		return blobs
@@ -338,8 +345,8 @@ export default class HistoryManager {
 	) {
 		if (blobs.size === 0) return
 		// Only the newest MAX_IMAGES_PER_CHAT referenced blobs are eligible for
-		// writing (the dehydrate walk visits messages oldest-first, so map order
-		// is chronological). Older refs are left dangling deliberately: re-putting
+		// writing (dehydrateImages orders the map chronologically). Older refs
+		// are left dangling deliberately: re-putting
 		// a blob the cap already evicted would stamp it newest and push the next
 		// eviction onto a NEWER image — repeated saves of an over-cap chat would
 		// rotate the hole toward the latest attachment.

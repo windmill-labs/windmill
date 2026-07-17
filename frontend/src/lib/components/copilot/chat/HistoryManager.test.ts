@@ -175,6 +175,36 @@ describe('HistoryManager legacy chat-history migration', () => {
 		expect((chat?.actualMessages[30].content as any[])[0].image_url.url).toBe(urlFor(30))
 	})
 
+	it('keeps blob chronology when drop-oldest compaction removed old API counterparts', async () => {
+		const hm = new HistoryManager()
+		await hm.init()
+		const chatId = hm.getCurrentChatId()
+		const urlFor = (i: number) => `data:image/png;base64,IMG${String(i).padStart(2, '0')}`
+		// Transcript keeps all 31 bubbles; drop-oldest compaction pruned the API
+		// history down to the newest 4 image messages.
+		const display = Array.from({ length: 31 }, (_, i) => ({
+			role: 'user',
+			content: 'x',
+			index: i - 27,
+			images: [{ dataUrl: urlFor(i), mediaType: 'image/png' }]
+		})) as DisplayMessage[]
+		const messages = Array.from({ length: 4 }, (_, i) => ({
+			role: 'user',
+			content: [{ type: 'image_url', image_url: { url: urlFor(27 + i) } }]
+		})) as ChatCompletionMessageParam[]
+		await hm.saveChat(display, messages)
+		await hm.saveChat(display, messages)
+
+		const reloaded = new HistoryManager()
+		await reloaded.init()
+		const chat = await reloaded.loadPastChat(chatId)
+		// The oldest transcript image is the one over the cap...
+		expect((chat?.displayMessages[0] as any).images).toBeUndefined()
+		// ...never a newer one that merely lost its API counterpart ordering.
+		expect((chat?.actualMessages[0].content as any[])[0].image_url.url).toBe(urlFor(27))
+		expect((chat?.displayMessages[30] as any).images[0].dataUrl).toBe(urlFor(30))
+	})
+
 	it('the same image in two chats gets two owned blobs; deleting one chat spares the other', async () => {
 		const png = 'data:image/png;base64,SHAREDBYTES'
 		const display = [
