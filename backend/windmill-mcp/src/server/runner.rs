@@ -854,7 +854,6 @@ mod tests {
             path_params_schema: None,
             query_params_schema: None,
             body_schema: None,
-            path_field_renames: None,
             query_field_renames: None,
             body_field_renames: None,
         }
