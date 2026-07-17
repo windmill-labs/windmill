@@ -634,19 +634,25 @@ pub async fn find_unarmed_schedules(db: &DB) -> Result<Vec<(String, String)>> {
 pub enum RearmOutcome {
     /// The next occurrence was pushed.
     Rearmed,
-    /// The occurrence could not be pushed and never will be, so the schedule was
-    /// disabled with the reason recorded on it.
-    Disabled,
     /// Nothing to do: the schedule was deleted or disabled since it was found.
     NoOp,
 }
 
 /// Push the next occurrence of a schedule that has none queued.
 ///
+/// Only ever starts a schedule, never stops one: re-arming something that did not
+/// need it costs one extra run, whereas wrongly disabling one is the silent
+/// permanent stoppage this whole mechanism exists to prevent. So an occurrence
+/// that cannot be pushed is logged and left alone — the schedule is already not
+/// running, and `try_schedule_next_job` still disables on the completion path,
+/// where the population is limited to actively-cycling schedules. Keep it that
+/// way: this sweeps *every* enabled schedule, including ones broken long before
+/// this code existed and never swept before.
+///
 /// Not an authorization boundary: it pushes under the schedule's own
-/// `permissioned_as` identity and can disable any `(w_id, path)`, so this is for
-/// system callers (the monitor's reconciliation pass) only. A caller acting for a
-/// user MUST already have enforced their permissions on `w_id` and `path`.
+/// `permissioned_as` identity for any `(w_id, path)`, so this is for system
+/// callers (the monitor's reconciliation pass) only. A caller acting for a user
+/// MUST already have enforced their permissions on `w_id` and `path`.
 pub async fn rearm_schedule(db: &DB, w_id: &str, path: &str) -> Result<RearmOutcome> {
     let mut tx = db.begin().await?;
     // Lock the row for the whole push: an edit or a disable committing between the
@@ -694,35 +700,13 @@ pub async fn rearm_schedule(db: &DB, w_id: &str, path: &str) -> Result<RearmOutc
             tx.commit().await?;
             Ok(RearmOutcome::Rearmed)
         }
-        // Mirrors try_schedule_next_job: an occurrence that can never be pushed
-        // (runnable gone, quota blown) disables the schedule with the reason
-        // surfaced on it, rather than being retried on every pass forever.
+        // An occurrence that can never be pushed (runnable gone, quota blown) is
+        // reported, not acted on — see the note above on why this never disables.
         Err(err @ (error::Error::NotFound(_) | error::Error::QuotaExceeded(_))) => {
-            // The failed push consumed (and rolled back) the tx along with the row
-            // lock, so re-check what the error was about: a schedule since edited
-            // onto a runnable that does exist must not be disabled by a stale
-            // NotFound.
-            let disabled = sqlx::query_scalar!(
-                "UPDATE schedule SET enabled = false, error = $1
-                 WHERE workspace_id = $2 AND path = $3 AND script_path = $4 AND enabled IS TRUE
-                 RETURNING 1",
-                err.to_string(),
-                w_id,
-                path,
-                &schedule.script_path
-            )
-            .fetch_optional(db)
-            .await?;
-            // Log only once the guard has actually disabled it, so a schedule the
-            // guard spared (re-pointed at a valid runnable) isn't reported as disabled.
-            if disabled.is_some() {
-                tracing::error!(
-                    "Could not re-arm schedule {path} in {w_id}: {err}. Disabled schedule."
-                );
-                Ok(RearmOutcome::Disabled)
-            } else {
-                Ok(RearmOutcome::NoOp)
-            }
+            tracing::error!(
+                "Could not re-arm schedule {path} in {w_id}: {err}. Leaving it enabled; it will not run until the cause is fixed."
+            );
+            Ok(RearmOutcome::NoOp)
         }
         Err(err) => Err(err),
     }

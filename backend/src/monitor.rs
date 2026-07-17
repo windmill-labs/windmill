@@ -3374,6 +3374,10 @@ const SCHEDULE_RECONCILE_LOCK_ID: i64 = 737_483_922;
 /// those and double-pushing an occurrence.
 const SCHEDULE_RECONCILE_STRIKES: u8 = 2;
 
+/// Most schedules re-armed in one pass, so a large first-pass backlog is drained
+/// over several passes instead of enqueuing every occurrence at once.
+const SCHEDULE_RECONCILE_MAX_PER_PASS: usize = 50;
+
 lazy_static::lazy_static! {
     /// `(workspace_id, path)` -> consecutive passes seen with no queued occurrence.
     /// Bounded by the number of enabled schedules; entries drop as soon as a
@@ -3460,7 +3464,19 @@ fn strike_unarmed(
 
 async fn reconcile_unarmed_schedules_inner(db: &Pool<Postgres>) -> error::Result<()> {
     let current = find_unarmed_schedules(db).await?.into_iter().collect();
-    let to_rearm = strike_unarmed(&mut UNARMED_SCHEDULES.lock().unwrap(), current);
+    let mut to_rearm = strike_unarmed(&mut UNARMED_SCHEDULES.lock().unwrap(), current);
+
+    // The first pass on an instance that has never been swept can find a large
+    // backlog; re-arming it all at once would enqueue that whole backlog in one
+    // go. The overflow keeps its tally and is picked up next pass.
+    if to_rearm.len() > SCHEDULE_RECONCILE_MAX_PER_PASS {
+        tracing::warn!(
+            "schedule reconcile: {} schedules have no queued occurrence, re-arming {} this pass and the rest on later passes",
+            to_rearm.len(),
+            SCHEDULE_RECONCILE_MAX_PER_PASS
+        );
+        to_rearm.truncate(SCHEDULE_RECONCILE_MAX_PER_PASS);
+    }
 
     for (w_id, path) in to_rearm {
         match rearm_schedule(db, &w_id, &path).await {
@@ -3470,8 +3486,6 @@ async fn reconcile_unarmed_schedules_inner(db: &Pool<Postgres>) -> error::Result
                         "schedule reconcile: re-armed enabled schedule {path} in {w_id}, which had no queued occurrence"
                     );
                 }
-                // Disabled/NoOp schedules stop matching the scan, so their tally
-                // is dropped on the next pass either way.
                 UNARMED_SCHEDULES.lock().unwrap().remove(&(w_id, path));
             }
             Err(e) => tracing::error!(

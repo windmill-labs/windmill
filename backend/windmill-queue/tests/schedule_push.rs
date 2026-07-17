@@ -1839,14 +1839,16 @@ mod schedule_push {
     }
 
     #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
-    async fn test_rearm_schedule_disables_unresolvable(db: Pool<Postgres>) -> anyhow::Result<()> {
+    async fn test_rearm_schedule_never_disables(db: Pool<Postgres>) -> anyhow::Result<()> {
         insert_schedule(&db, "f/system/bad_schedule", "f/system/nonexistent", true).await;
 
-        // An occurrence that can never be pushed must not be retried forever: the
-        // schedule is disabled with the reason surfaced on it.
+        // Reconciliation only ever starts a schedule. An unpushable occurrence is
+        // reported and left alone: this sweeps every enabled schedule in the
+        // instance, so disabling here would turn a wrong invariant into the exact
+        // silent stoppage the reconciler exists to undo.
         assert_eq!(
             rearm_schedule(&db, "test-workspace", "f/system/bad_schedule").await?,
-            RearmOutcome::Disabled
+            RearmOutcome::NoOp
         );
 
         assert_eq!(count_queued_jobs(&db).await, 0);
@@ -1855,8 +1857,8 @@ mod schedule_push {
         )
         .fetch_one(&db)
         .await?;
-        assert!(!enabled);
-        assert!(error.is_some());
+        assert!(enabled, "reconciliation must never disable a schedule");
+        assert!(error.is_none());
         Ok(())
     }
 
