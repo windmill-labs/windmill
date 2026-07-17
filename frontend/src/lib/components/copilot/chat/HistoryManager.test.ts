@@ -157,6 +157,12 @@ describe('HistoryManager legacy chat-history migration', () => {
 			} as ChatCompletionMessageParam)
 			await hm.saveChat([{ role: 'user', content: 'x' }] as DisplayMessage[], messages)
 		}
+		// Re-saving the over-cap chat must not resurrect the evicted oldest blob
+		// (its live data URL is still in the arrays): a re-put would stamp it
+		// newest and push the eviction onto a newer image, and repeated saves
+		// would rotate the hole toward the latest attachment.
+		await hm.saveChat([{ role: 'user', content: 'x' }] as DisplayMessage[], messages)
+		await hm.saveChat([{ role: 'user', content: 'x' }] as DisplayMessage[], messages)
 
 		const reloaded = new HistoryManager()
 		await reloaded.init()
@@ -167,6 +173,36 @@ describe('HistoryManager legacy chat-history migration', () => {
 		})
 		expect((chat?.actualMessages[1].content as any[])[0].image_url.url).toBe(urlFor(1))
 		expect((chat?.actualMessages[30].content as any[])[0].image_url.url).toBe(urlFor(30))
+	})
+
+	it('the same image in two chats gets two owned blobs; deleting one chat spares the other', async () => {
+		const png = 'data:image/png;base64,SHAREDBYTES'
+		const display = [
+			{ role: 'user', content: 'x', images: [{ dataUrl: png, mediaType: 'image/png' }] }
+		] as DisplayMessage[]
+		const hm = new HistoryManager()
+		await hm.init()
+		const chatA = hm.getCurrentChatId()
+		await hm.save(display, [] as ChatCompletionMessageParam[]) // rotates to a new chat
+		const chatB = hm.getCurrentChatId()
+		await hm.saveChat(display, [] as ChatCompletionMessageParam[])
+
+		const db = await openDB('copilot-chat-history::admin@test')
+		expect(await db.count('images' as never)).toBe(2)
+		db.close()
+
+		hm.deletePastChat(chatA)
+		await vi.waitFor(async () => {
+			const d = await openDB('copilot-chat-history::admin@test')
+			const count = await d.count('images' as never)
+			d.close()
+			expect(count).toBe(1)
+		})
+
+		const reloaded = new HistoryManager()
+		await reloaded.init()
+		const chat = await reloaded.loadPastChat(chatB)
+		expect((chat?.displayMessages[0] as any).images[0].dataUrl).toBe(png)
 	})
 
 	it("deletes a chat's image blobs along with the chat", async () => {

@@ -187,11 +187,28 @@ export default class HistoryManager {
 	// session-tagged chats are excluded from history.
 	private sessionId: string | undefined = $state(undefined)
 
-	// dataUrl → stable blob id, so every save of the same conversation maps an
-	// image to the record written the first time (write-once) instead of minting
-	// a new one per save. Hydration seeds it back, so a reloaded chat re-saves
-	// under its original ids too.
+	// chatId+dataUrl → stable blob id, so every save of the same conversation
+	// maps an image to the record written the first time (write-once) instead of
+	// minting a new one per save. Hydration seeds it back, so a reloaded chat
+	// re-saves under its original ids too. Scoped by chat: each blob record has
+	// exactly one owning chat, so the same image pasted into two chats becomes
+	// two records — sharing one would let chat A's deletion or cap eviction
+	// destroy bytes chat B still references.
 	private imageIdByUrl = new Map<string, string>()
+
+	private imageIdKey(chatId: string, dataUrl: string): string {
+		return chatId + '\n' + dataUrl
+	}
+
+	/** Drop cached blob ids of every chat but the given one, so the map doesn't
+	 *  pin past chats' data URL strings in memory for the whole session (a
+	 *  reopened chat re-seeds its ids through hydration). */
+	private pruneImageIds(keepChatId: string) {
+		const prefix = keepChatId + '\n'
+		for (const key of this.imageIdByUrl.keys()) {
+			if (!key.startsWith(prefix)) this.imageIdByUrl.delete(key)
+		}
+	}
 	// Blobs written in one burst share a Date.now() millisecond; savedAt is the
 	// cap's eviction order, so force it strictly monotonic (ties would break by
 	// random uuid, evicting an arbitrary blob instead of the oldest).
@@ -276,15 +293,17 @@ export default class HistoryManager {
 	 * already stored).
 	 */
 	private dehydrateImages(
+		chatId: string,
 		actualMessages: ChatCompletionMessageParam[],
 		displayMessages: DisplayMessage[]
 	): Map<string, string> {
 		const blobs = new Map<string, string>()
 		const refFor = (dataUrl: string): string => {
-			let id = this.imageIdByUrl.get(dataUrl)
+			const key = this.imageIdKey(chatId, dataUrl)
+			let id = this.imageIdByUrl.get(key)
 			if (!id) {
 				id = randomUUID()
-				this.imageIdByUrl.set(dataUrl, id)
+				this.imageIdByUrl.set(key, id)
 			}
 			blobs.set(id, dataUrl)
 			return IMAGE_REF_PREFIX + id
@@ -318,7 +337,13 @@ export default class HistoryManager {
 		blobs: Map<string, string>
 	) {
 		if (blobs.size === 0) return
-		for (const [id, dataUrl] of blobs) {
+		// Only the newest MAX_IMAGES_PER_CHAT referenced blobs are eligible for
+		// writing (the dehydrate walk visits messages oldest-first, so map order
+		// is chronological). Older refs are left dangling deliberately: re-putting
+		// a blob the cap already evicted would stamp it newest and push the next
+		// eviction onto a NEWER image — repeated saves of an over-cap chat would
+		// rotate the hole toward the latest attachment.
+		for (const [id, dataUrl] of [...blobs].slice(-MAX_IMAGES_PER_CHAT)) {
 			if ((await db.getKey('images', id)) === undefined) {
 				this.lastImageSavedAt = Math.max(Date.now(), this.lastImageSavedAt + 1)
 				await db.put('images', { id, chatId, dataUrl, savedAt: this.lastImageSavedAt })
@@ -339,13 +364,14 @@ export default class HistoryManager {
 	 */
 	private async hydrateImages(
 		db: IDBPDatabase<ChatSchema>,
+		chatId: string,
 		actualMessages: ChatCompletionMessageParam[],
 		displayMessages: DisplayMessage[]
 	) {
 		const load = async (ref: string): Promise<string | undefined> => {
 			const id = ref.slice(IMAGE_REF_PREFIX.length)
 			const dataUrl = (await db.get('images', id))?.dataUrl
-			if (dataUrl) this.imageIdByUrl.set(dataUrl, id)
+			if (dataUrl) this.imageIdByUrl.set(this.imageIdKey(chatId, dataUrl), id)
 			return dataUrl
 		}
 		for (const message of actualMessages) {
@@ -438,7 +464,11 @@ export default class HistoryManager {
 			}
 			// The snapshot (and the savedChats copy below, which mirrors what the DB
 			// holds) keeps refs; the caller's live arrays keep their data URLs.
-			const blobs = this.dehydrateImages(updatedChat.actualMessages, updatedChat.displayMessages)
+			const blobs = this.dehydrateImages(
+				updatedChat.id,
+				updatedChat.actualMessages,
+				updatedChat.displayMessages
+			)
 			this.savedChats = {
 				...this.savedChats,
 				[updatedChat.id]: updatedChat
@@ -463,6 +493,7 @@ export default class HistoryManager {
 	) {
 		await this.saveChat(displayMessages, messages, contextUsage, modifiedItems, backgroundJobs)
 		this.currentChatId = createLongHash()
+		this.pruneImageIds(this.currentChatId)
 	}
 
 	deletePastChat(id: string) {
@@ -481,11 +512,12 @@ export default class HistoryManager {
 		const chat = this.savedChats[id]
 		if (!chat) return
 		this.currentChatId = id
+		this.pruneImageIds(id)
 		// Hand back a hydrated clone: the stored record keeps its refs (matching
 		// what the DB holds) while the live chat gets real data URLs.
 		const snapshot = $state.snapshot(chat) as typeof chat
 		const db = await this.dbh.whenReady()
-		if (db) await this.hydrateImages(db, snapshot.actualMessages, snapshot.displayMessages)
+		if (db) await this.hydrateImages(db, id, snapshot.actualMessages, snapshot.displayMessages)
 		return snapshot
 	}
 }
