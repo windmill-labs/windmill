@@ -45,10 +45,13 @@
 	import type { SelectedContext } from './app/core'
 	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
 	import { type FileToAttach } from './files/attachedFiles.svelte'
+	import { isImageFile } from './imageUtils'
 	import {
 		hasFileSystemAccess,
 		pickDirectory,
 		handlesFromDataTransfer,
+		isDirectoryHandle,
+		isFileHandle,
 		readDroppedEntries
 	} from './files/fsAccess'
 	import { sendUserToast } from '$lib/toast'
@@ -270,9 +273,10 @@
 
 	// File attachment is GLOBAL-mode only.
 	const canAttachFiles = $derived(aiChatManager.mode === AIMode.GLOBAL && !disabled)
-	// Steers the OS file picker toward text formats (soft hint; content sniff is authoritative).
+	// Steers the OS file picker toward text + image formats (soft hint; images attach to
+	// the message, other files link as text context after a content sniff).
 	const TEXT_FILE_ACCEPT =
-		'text/*,.txt,.csv,.tsv,.json,.jsonl,.ndjson,.md,.markdown,.log,.yaml,.yml,.toml,.ini,.cfg,.conf,.env,.xml,.html,.htm,.css,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.rb,.rs,.go,.java,.kt,.c,.h,.cpp,.cc,.cs,.php,.sh,.bash,.zsh,.sql,.svelte,.vue,.dockerfile'
+		'image/*,text/*,.txt,.csv,.tsv,.json,.jsonl,.ndjson,.md,.markdown,.log,.yaml,.yml,.toml,.ini,.cfg,.conf,.env,.xml,.html,.htm,.css,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.rb,.rs,.go,.java,.kt,.c,.h,.cpp,.cc,.cs,.php,.sh,.bash,.zsh,.sql,.svelte,.vue,.dockerfile'
 	let fileInputEl = $state<HTMLInputElement | null>(null)
 	let folderInputEl = $state<HTMLInputElement | null>(null)
 	let dragDepth = $state(0)
@@ -358,17 +362,32 @@
 		e.preventDefault()
 		const dt = e.dataTransfer
 		if (!dt) return
+		// Images attach to the message; other files link as text context. Images are
+		// reserved from dt.files BEFORE any await (a send mid-ingestion would land
+		// them on the next message), and dt.files is the only place a disk-less drag
+		// exists — a cross-tab image resolves every getAsFileSystemHandle() to null.
+		const flatFiles = Array.from(dt.files ?? [])
+		const topLevelImages = flatFiles.filter(isImageFile)
+		const imageWork: Promise<unknown>[] = []
+		if (topLevelImages.length > 0) {
+			imageWork.push(aiChatInput?.addImages(topLevelImages) ?? Promise.resolve())
+		}
 		if (canUseFsAccess) {
 			// getAsFileSystemHandle calls are kicked off synchronously inside this call.
 			const handles = await handlesFromDataTransfer(dt)
-			for (const h of handles) {
-				if (h.kind === 'directory') {
-					// Folders link as a live handle.
-					await addDirHandle(h as FileSystemDirectoryHandle)
-				} else {
-					// Files are always snapshotted (handle discarded).
-					await handleAddFiles([{ file: await (h as FileSystemFileHandle).getFile() }])
-				}
+			// No handles → nothing beyond dt.files exists; its text files are all there is.
+			// Handle-backed files are top-level by definition, so their images are
+			// already reserved above — only text files remain to route.
+			const looseFiles =
+				handles.length === 0
+					? flatFiles
+					: await Promise.all(handles.filter(isFileHandle).map((h) => h.getFile()))
+			// Files are always snapshotted (handle discarded).
+			const textFiles = looseFiles.filter((f) => !isImageFile(f))
+			if (textFiles.length > 0) await handleAddFiles(textFiles)
+			// Folders link as a live handle.
+			for (const h of handles.filter(isDirectoryHandle)) {
+				await addDirHandle(h)
 			}
 		} else {
 			// Fallback (no File System Access API): snapshot dropped files AND folders by walking
@@ -376,14 +395,33 @@
 			// (they're only valid during this event) before its first await; if it yields nothing
 			// (no entry API), fall back to the flat dt.files.
 			const entries = await readDroppedEntries(Array.from(dt.items ?? []))
-			if (entries.length > 0) await handleAddFiles(entries)
-			else if (dt.files.length > 0) await handleAddFiles(dt.files)
+			const source: FileToAttach[] = entries.length > 0 ? entries : flatFiles
+			// Only top-level images attach to the message, and those were already
+			// reserved from dt.files before the walk — drop them here so they aren't
+			// re-reported as skipped non-text. Folder-nested images are deliberately
+			// NOT attached (the FSA path never extracts folder contents either); they
+			// ride the text ingestion and are summarized as skipped.
+			const textEntries = source.filter((entry) => {
+				const file = entry instanceof File ? entry : entry.file
+				const nested = !(entry instanceof File) && entry.path?.includes('/')
+				return !isImageFile(file) || !!nested
+			})
+			if (textEntries.length > 0) await handleAddFiles(textEntries)
 		}
+		await Promise.all(imageWork)
 	}
 
-	function onFileInputChange(e: Event) {
+	async function onFileInputChange(e: Event) {
 		const input = e.currentTarget as HTMLInputElement
-		if (input.files && input.files.length > 0) void handleAddFiles(input.files)
+		if (input.files && input.files.length > 0) {
+			const picked = Array.from(input.files)
+			const imageFiles = picked.filter(isImageFile)
+			const textFiles = picked.filter((f) => !isImageFile(f))
+			// Reserved before the text work is awaited — see onPanelDrop.
+			const imageWork = imageFiles.length > 0 ? aiChatInput?.addImages(imageFiles) : undefined
+			if (textFiles.length > 0) await handleAddFiles(textFiles)
+			await imageWork
+		}
 		input.value = '' // allow re-selecting the same file
 	}
 
@@ -504,7 +542,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		>
 			<div class="flex flex-col items-center gap-1 text-blue-600 dark:text-blue-300">
 				<Plus size={24} />
-				<span class="text-sm font-medium">Drop files to attach</span>
+				<span class="text-sm font-medium">Drop files or images to attach</span>
 			</div>
 		</div>
 	{/if}
@@ -797,7 +835,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{#if canAttachFiles}
 							<DropdownV2
 								items={() => [
-									{ displayName: 'Attach file', icon: FileText, action: () => linkFiles() },
+									{
+										displayName: 'Attach file or image',
+										icon: FileText,
+										action: () => linkFiles()
+									},
 									{
 										// A real (live) link needs the File System Access API; without it the
 										// folder is only snapshotted, so call it "Add folder", not "Link folder".
@@ -825,9 +867,12 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 											<div class="max-w-64 text-xs">
 												<p class="font-semibold">Attach files or link a folder</p>
 												<p class="mt-1">
-													Nothing is uploaded. Files are kept locally in your browser; a folder is
-													linked live from disk. The assistant lists, searches, and reads them on
-													demand — their contents aren't sent unless it reads them.
+													Text files stay in your browser, and a folder is linked live from disk.
+													The assistant lists, searches, and reads them on demand, so their contents
+													are sent only when it reads one.
+												</p>
+												<p class="mt-1">
+													Images are sent with your next message, so the assistant can see them.
 												</p>
 											</div>
 										{/snippet}

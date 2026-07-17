@@ -4360,6 +4360,7 @@ async fn push_next_flow_job(
             let is_super_admin =
                 windmill_common::auth::is_super_admin_email(db, email).await?;
             check_tag_available_for_workspace_internal(
+                db,
                 &flow_job.workspace_id,
                 tag_str,
                 is_super_admin,

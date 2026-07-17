@@ -1420,6 +1420,21 @@ pub async fn fork_ancestor_chain(db: &crate::DB, w_id: &str) -> Result<Vec<Strin
     Ok(chain)
 }
 
+/// `w_id` followed by its fork ancestors, nearest-first: the id sequence to match a
+/// workspace-scoped rule against when the rule can extend to a fork subtree.
+///
+/// Reads lineage for any `w_id` with no authorization check, like [`fork_ancestor_chain`], so the
+/// caller must already be authorized for `w_id`: routes that take it from the path get that from
+/// `ApiAuthed`, but a caller-supplied id must be membership-checked first. Otherwise even using
+/// the chain only for a scoping decision discloses whether an arbitrary workspace descends from
+/// one the rule names.
+pub async fn workspace_with_fork_ancestors(db: &crate::DB, w_id: &str) -> Result<Vec<String>> {
+    let mut chain = Vec::with_capacity(4);
+    chain.push(w_id.to_string());
+    chain.extend(fork_ancestor_chain(db, w_id).await?);
+    Ok(chain)
+}
+
 pub async fn get_ducklake_from_db_unchecked(
     name: &str,
     w_id: &str,

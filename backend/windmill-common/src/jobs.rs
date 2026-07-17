@@ -19,6 +19,7 @@ use crate::{
     users::username_to_permissioned_as,
     utils::{StripPath, HTTP_CLIENT},
     worker::{to_raw_value, CUSTOM_TAGS_PER_WORKSPACE, WINDMILL_DIR},
+    workspaces::workspace_with_fork_ancestors,
     FlowVersionInfo, ScriptHashInfo, Tag,
 };
 
@@ -346,6 +347,7 @@ lazy_static::lazy_static! {
 // make it job-token-aware: a job's WM_TOKEN must never count as superadmin
 // (GHSA-hfh4-cx4h-3fcr). See `is_super_admin_authed` at the request wrapper.
 pub async fn check_tag_available_for_workspace_internal(
+    db: &DB,
     w_id: &str,
     tag: &str,
     is_super_admin: bool,
@@ -362,7 +364,14 @@ pub async fn check_tag_available_for_workspace_internal(
     if custom_tags_per_w.global.contains(&tag.to_string()) {
         is_tag_in_workspace_custom_tags = true;
     } else if let Some(specific_tag) = custom_tags_per_w.specific.get(tag) {
-        is_tag_in_workspace_custom_tags = specific_tag.applies_to_workspace(w_id);
+        // Only a fork-scoped tag can match through the lineage, so every other tag keeps the
+        // ancestor lookup off the push path entirely.
+        let chain = if specific_tag.is_fork_scoped() {
+            workspace_with_fork_ancestors(db, w_id).await?
+        } else {
+            vec![w_id.to_string()]
+        };
+        is_tag_in_workspace_custom_tags = specific_tag.applies_to_workspace(&chain);
     }
 
     match is_tag_in_scope_tags {

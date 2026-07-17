@@ -5338,9 +5338,10 @@ async fn test_duckdb_ffi(db: Pool<Postgres>) -> anyhow::Result<()> {
 /// This validates that `check_tag_available_for_workspace_internal` is properly called
 /// when pushing jobs from worker_flow.
 #[sqlx::test(fixtures("base"))]
+#[serial]
 async fn test_flow_substep_tag_availability_check(db: Pool<Postgres>) -> anyhow::Result<()> {
     use windmill_common::worker::{
-        CustomTags, SpecificTagData, SpecificTagType, CUSTOM_TAGS_PER_WORKSPACE,
+        CustomTags, SpecificTagData, SpecificTagType, WorkspaceMatcher, CUSTOM_TAGS_PER_WORKSPACE,
     };
 
     initialize_tracing().await;
@@ -5354,7 +5355,10 @@ async fn test_flow_substep_tag_availability_check(db: Pool<Postgres>) -> anyhow:
             "restricted-tag".to_string(),
             SpecificTagData {
                 tag_type: SpecificTagType::NoneExcept,
-                workspaces: vec!["other-workspace".to_string()],
+                workspaces: vec![WorkspaceMatcher {
+                    id: "other-workspace".to_string(),
+                    include_forks: false,
+                }],
             },
         )]),
     }));
@@ -5399,6 +5403,61 @@ async fn test_flow_substep_tag_availability_check(db: Pool<Postgres>) -> anyhow:
     );
 
     // Clean up: reset custom tags
+    CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::default()));
+
+    Ok(())
+}
+
+/// The `*` fork marker only grants through a real `parent_workspace_id` lineage lookup, which the
+/// parse-level unit tests cannot reach: they hand `applies_to_workspace` a synthetic chain, so a
+/// regression in the lookup or in the `is_fork_scoped()` gate that skips it would pass them.
+#[sqlx::test(fixtures("base"))]
+#[serial]
+async fn test_fork_marker_tag_admission_through_lineage(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_common::jobs::check_tag_available_for_workspace_internal;
+    use windmill_common::worker::{CustomTags, CUSTOM_TAGS_PER_WORKSPACE};
+
+    initialize_tracing().await;
+
+    // The ancestor chain is cached process-wide by workspace id, so use one no other test takes.
+    let fork = "wm-fork-tagmarker";
+    sqlx::query!(
+        "INSERT INTO workspace (id, name, owner, parent_workspace_id)
+         VALUES ($1, $1, 'test-user', 'test-workspace')",
+        fork
+    )
+    .execute(&db)
+    .await?;
+
+    CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::from(vec![
+        "forky(test-workspace*)".to_string(),
+        "bare(test-workspace)".to_string(),
+    ])));
+
+    // A non-superadmin caller (a superadmin would bypass the scope check entirely).
+    let is_super_admin = false;
+
+    for (w_id, tag) in [("test-workspace", "bare"), ("test-workspace", "forky")] {
+        assert!(
+            check_tag_available_for_workspace_internal(&db, w_id, tag, is_super_admin, None)
+                .await
+                .is_ok(),
+            "{tag} should be available in the workspace it names"
+        );
+    }
+    assert!(
+        check_tag_available_for_workspace_internal(&db, fork, "forky", is_super_admin, None)
+            .await
+            .is_ok(),
+        "a `*` tag must be granted to a fork through its parent lineage"
+    );
+    assert!(
+        check_tag_available_for_workspace_internal(&db, fork, "bare", is_super_admin, None)
+            .await
+            .is_err(),
+        "an unmarked tag must not reach a fork of the workspace it names"
+    );
+
     CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::default()));
 
     Ok(())

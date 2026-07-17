@@ -10,7 +10,9 @@ mod schedule_push {
     use windmill_common::scripts::ScriptHash;
     use windmill_common::users::username_to_permissioned_as;
     use windmill_queue::jobs::{try_schedule_next_job, MiniCompletedJob};
-    use windmill_queue::schedule::push_scheduled_job;
+    use windmill_queue::schedule::{
+        find_unarmed_schedules, push_scheduled_job, rearm_schedule, RearmOutcome,
+    };
 
     fn make_schedule(overrides: impl FnOnce(&mut Schedule)) -> Schedule {
         let mut s = Schedule {
@@ -1760,6 +1762,123 @@ mod schedule_push {
         .fetch_one(&db)
         .await?;
         assert!(!row_exists, "managed schedule row must be deleted");
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // find_unarmed_schedules / rearm_schedule: recovery for a schedule left
+    // enabled with no queued occurrence (a run that died on an abnormal path
+    // skipped its next-occurrence push). Without this the chain stays dead
+    // until the schedule is manually disabled and re-enabled.
+    // -----------------------------------------------------------------------
+
+    async fn insert_schedule(db: &Pool<Postgres>, path: &str, script_path: &str, enabled: bool) {
+        sqlx::query(
+            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap, permissioned_as)
+             VALUES ('test-workspace', $1, 'test-user', now(), '0 0 */5 * * *', 'UTC', $3, $2, false, 'test@windmill.dev', '{}', false, true, 'u/test-user')",
+        )
+        .bind(path)
+        .bind(script_path)
+        .bind(enabled)
+        .execute(db)
+        .await
+        .unwrap();
+    }
+
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_find_unarmed_schedules(db: Pool<Postgres>) -> anyhow::Result<()> {
+        insert_schedule(&db, "f/system/test_schedule", "f/system/test_script", true).await;
+        insert_schedule(&db, "f/system/disabled", "f/system/test_script", false).await;
+
+        // No occurrence queued yet: the enabled schedule is unarmed, the disabled one is ignored.
+        assert_eq!(
+            find_unarmed_schedules(&db).await?,
+            vec![(
+                "test-workspace".to_string(),
+                "f/system/test_schedule".to_string()
+            )]
+        );
+
+        // Once an occurrence is queued it is armed and must not be reported —
+        // re-arming it would double-push the occurrence.
+        let tx = db.begin().await?;
+        let tx = push_scheduled_job(&db, tx, &make_schedule(|_| {}), None, None).await?;
+        tx.commit().await?;
+        assert_eq!(count_queued_jobs(&db).await, 1);
+        assert!(find_unarmed_schedules(&db).await?.is_empty());
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_rearm_schedule_pushes_next_occurrence(db: Pool<Postgres>) -> anyhow::Result<()> {
+        insert_schedule(&db, "f/system/test_schedule", "f/system/test_script", true).await;
+
+        assert_eq!(
+            rearm_schedule(&db, "test-workspace", "f/system/test_schedule").await?,
+            RearmOutcome::Rearmed
+        );
+
+        assert_eq!(count_queued_jobs(&db).await, 1);
+        assert!(find_unarmed_schedules(&db).await?.is_empty());
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_rearm_schedule_skips_disabled(db: Pool<Postgres>) -> anyhow::Result<()> {
+        // A disable that lands between the scan and the re-arm must win: pushing an
+        // occurrence for a disabled schedule would resurrect a schedule the user
+        // just turned off.
+        insert_schedule(&db, "f/system/test_schedule", "f/system/test_script", false).await;
+
+        assert_eq!(
+            rearm_schedule(&db, "test-workspace", "f/system/test_schedule").await?,
+            RearmOutcome::NoOp
+        );
+        assert_eq!(count_queued_jobs(&db).await, 0);
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_rearm_schedule_never_disables(db: Pool<Postgres>) -> anyhow::Result<()> {
+        insert_schedule(&db, "f/system/bad_schedule", "f/system/nonexistent", true).await;
+
+        // Reconciliation only ever starts a schedule. An unpushable occurrence is
+        // reported and left alone: this sweeps every enabled schedule in the
+        // instance, so disabling here would turn a wrong invariant into the exact
+        // silent stoppage the reconciler exists to undo.
+        assert_eq!(
+            rearm_schedule(&db, "test-workspace", "f/system/bad_schedule").await?,
+            RearmOutcome::NoOp
+        );
+
+        assert_eq!(count_queued_jobs(&db).await, 0);
+        let (enabled, error): (bool, Option<String>) = sqlx::query_as(
+            "SELECT enabled, error FROM schedule WHERE workspace_id = 'test-workspace' AND path = 'f/system/bad_schedule'",
+        )
+        .fetch_one(&db)
+        .await?;
+        assert!(enabled, "reconciliation must never disable a schedule");
+        assert!(error.is_none());
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_rearm_schedule_skips_already_armed(db: Pool<Postgres>) -> anyhow::Result<()> {
+        // An occurrence can be queued (a normal completion, an edit, a re-enable)
+        // between the unarmed scan and rearm_schedule acquiring the row lock. Re-arming
+        // then would double-push, since push_scheduled_job only dedups the exact
+        // computed scheduled_for.
+        insert_schedule(&db, "f/system/test_schedule", "f/system/test_script", true).await;
+        let tx = db.begin().await?;
+        let tx = push_scheduled_job(&db, tx, &make_schedule(|_| {}), None, None).await?;
+        tx.commit().await?;
+        assert_eq!(count_queued_jobs(&db).await, 1);
+
+        assert_eq!(
+            rearm_schedule(&db, "test-workspace", "f/system/test_schedule").await?,
+            RearmOutcome::NoOp
+        );
+        assert_eq!(count_queued_jobs(&db).await, 1);
         Ok(())
     }
 }

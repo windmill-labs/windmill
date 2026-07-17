@@ -58,7 +58,7 @@ pub async fn check_tag_available_for_workspace(
         let tags = get_scope_tags(authed);
         // Job-aware: a WM_TOKEN running as a superadmin must not unlock restricted tags.
         let is_super_admin = windmill_api_auth::is_super_admin_authed(db, authed).await?;
-        check_tag_available_for_workspace_internal(w_id, tag, is_super_admin, tags).await
+        check_tag_available_for_workspace_internal(db, w_id, tag, is_super_admin, tags).await
     } else {
         Ok(())
     }
