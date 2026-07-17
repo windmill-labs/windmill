@@ -1765,6 +1765,7 @@ export const readSkillTool: Tool<{}> = {
 		'read_skill',
 		'Load the full instructions for a workspace AI skill by name. Skills are listed in the system prompt under "Skills"; call this before acting on a task a skill covers, then follow its instructions.'
 	),
+	readonly: true,
 	fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 		const parsed = readSkillSchema.parse(args)
 		toolCallbacks.setToolStatus(toolId, { content: `Reading skill "${parsed.name}"...` })
@@ -2041,6 +2042,7 @@ export const openPageTool: Tool<{}> = {
 		'open_page',
 		OPEN_PAGE_DESCRIPTION
 	),
+	readonly: true,
 	// Keep the row expanded so the link chip (attached below as an action) is visible
 	// without the user having to expand the tool call.
 	showDetails: true,
@@ -2114,6 +2116,7 @@ export const globalTools: Tool<{}>[] = [
 			'get_instructions',
 			'Get authoring guidance for scripts, flows, data pipelines, resources, apps, or the datatable SQL SDK (wmill.datatable()) used inside runnables.'
 		),
+		readonly: true,
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			const parsed = getInstructionsSchema.parse(args)
 			const label =
@@ -2134,6 +2137,7 @@ export const globalTools: Tool<{}>[] = [
 			'Ask the user a question with proposed answers and wait for their selected or custom answer before continuing.'
 		),
 		streamingLabel: 'Asking the user a question...',
+		readonly: true,
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			const parsed = askUserQuestionSchema.parse(args)
 			const userQuestion = {
@@ -2273,6 +2277,7 @@ export const globalTools: Tool<{}>[] = [
 			'list_workspace_items',
 			'List workspace items and drafts. Returns metadata only.'
 		),
+		readonly: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = listWorkspaceItemsSchema.parse(args)
 			const types = getRequestedTypes(parsed.types)
@@ -2315,6 +2320,7 @@ export const globalTools: Tool<{}>[] = [
 			'read_workspace_item',
 			'Read one workspace item or draft.'
 		),
+		readonly: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = readWorkspaceItemSchema.parse(args)
 			if (parsed.type === 'trigger' && !parsed.trigger_kind) {
@@ -2515,6 +2521,7 @@ export const globalTools: Tool<{}>[] = [
 			'list_runs',
 			"List recent runs (jobs), most recent first. Optionally filter by path, creator, label, or status. Returns compact metadata only — use get_job_logs with a returned id to read a run's logs."
 		),
+		readonly: true,
 		showDetails: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = listRunsSchema.parse(args)
@@ -2543,6 +2550,7 @@ export const globalTools: Tool<{}>[] = [
 			'get_job_logs',
 			'Fetch the logs of a job by its id. Use this to inspect the output of an existing run.'
 		),
+		readonly: true,
 		showDetails: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = getJobLogsSchema.parse(args)
@@ -2691,6 +2699,7 @@ export const globalTools: Tool<{}>[] = [
 			'search_resource_types',
 			'Search workspace resource types and schemas.'
 		),
+		readonly: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = searchResourceTypesSchema.parse(args)
 			toolCallbacks.setToolStatus(toolId, {
@@ -2720,6 +2729,7 @@ export const globalTools: Tool<{}>[] = [
 			'read_flow_module_code',
 			'Read inline script code from one flow module.'
 		),
+		readonly: true,
 		fn: async (ctx) => {
 			const parsed = readFlowModuleCodeSchema.parse(ctx.args)
 			return readFlowModuleCode(parsed, ctx)
@@ -2759,6 +2769,7 @@ export const globalTools: Tool<{}>[] = [
 			'read_app_file',
 			'Read one raw app frontend file or inline backend runnable. Large files are truncated to a head slice; pass offset/limit to page through the rest.'
 		),
+		readonly: true,
 		fn: async (ctx) => {
 			const parsed = readAppFileSchema.parse(ctx.args)
 			return readAppFile(parsed, ctx)
@@ -2770,6 +2781,7 @@ export const globalTools: Tool<{}>[] = [
 			'search_app',
 			"Grep across all of a raw app's frontend files and inline backend runnables in one call. Returns matching file:line rows (capped), not file bodies — use it to locate a symbol or string before read_app_file instead of reading whole files one by one."
 		),
+		readonly: true,
 		fn: async (ctx) => {
 			const parsed = searchAppSchema.parse(ctx.args)
 			return searchApp(parsed, ctx)
@@ -2847,6 +2859,7 @@ export const globalTools: Tool<{}>[] = [
 			'open_preview',
 			'Open the live preview / editor for a workspace item in the side panel next to the chat. ONLY works inside an AI session — call this after writing or editing a script, flow, or raw app to let the user see and interact with it. The path you pass is the path of the item; for code-based apps use kind="raw_app" (legacy drag-and-drop apps are not previewable). Returns an error if there is no active session.'
 		),
+		readonly: true,
 		fn: async (ctx) => {
 			const parsed = openPreviewSchema.parse(ctx.args)
 			return openSessionPreview(parsed, sessionIdFromCtx(ctx))
@@ -2858,6 +2871,7 @@ export const globalTools: Tool<{}>[] = [
 			'get_preview_status',
 			'Check whether the side-panel preview is open in this AI session and which item (kind + path) it is showing. Call this before offering or calling open_preview so you do not re-open a preview that is already showing the item you just edited. Only meaningful inside a session.'
 		),
+		readonly: true,
 		fn: async (ctx) => getSessionPreviewStatus(sessionIdFromCtx(ctx))
 	},
 	{
@@ -2866,6 +2880,7 @@ export const globalTools: Tool<{}>[] = [
 			'close_page',
 			'Close one or more preview tabs in the side panel of this AI session. Pass `match` to close the tab(s) whose page name or item path contains that text, or `all: true` to clear the panel. Use this when the user asks to close/dismiss a tab they no longer need. Only works inside a session.'
 		),
+		readonly: true,
 		fn: async (ctx) => {
 			const parsed = closePageSchema.parse(ctx.args)
 			return closeSessionPreviewTabs(parsed, sessionIdFromCtx(ctx))
@@ -2877,6 +2892,7 @@ export const globalTools: Tool<{}>[] = [
 			'get_app_runtime_logs',
 			'Fetch the most recent browser console logs (and uncaught errors) from the raw app preview currently open in this AI session.'
 		),
+		readonly: true,
 		showDetails: true,
 		autoCollapseDetails: false,
 		fn: async (ctx) => {
@@ -2896,6 +2912,7 @@ export const globalTools: Tool<{}>[] = [
 			'list_app_runs',
 			'List the backend runnable executions (jobs) the raw app preview currently open in this AI session has triggered, newest first.'
 		),
+		readonly: true,
 		showDetails: true,
 		fn: async (ctx) => {
 			const parsed = listAppRunsSchema.parse(ctx.args)

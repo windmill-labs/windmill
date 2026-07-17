@@ -93,6 +93,7 @@ const searchFilesToolDef = createToolDef(
 
 export const searchFilesTool: Tool<{}> = {
 	def: searchFilesToolDef,
+	readonly: true,
 	fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 		const store = storeFrom(helpers)
 		if (!store || store.count === 0) {
@@ -152,6 +153,7 @@ const readFileToolDef = createToolDef(
 
 export const readFileTool: Tool<{}> = {
 	def: readFileToolDef,
+	readonly: true,
 	fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 		const store = storeFrom(helpers)
 		if (!store || store.count === 0) {

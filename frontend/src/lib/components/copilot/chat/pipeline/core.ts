@@ -191,6 +191,7 @@ const testPipelineNodeToolDef = createToolDef(
 export const pipelineTools: Tool<PipelineToolHelpers>[] = [
 	{
 		def: getPipelineGraphToolDef,
+		readonly: true,
 		fn: async ({ helpers, toolId, toolCallbacks }) => {
 			const pipeline = requirePipeline(helpers)
 			toolCallbacks.setToolStatus(toolId, { content: 'Reading pipeline graph...' })
@@ -204,6 +205,7 @@ export const pipelineTools: Tool<PipelineToolHelpers>[] = [
 	},
 	{
 		def: readPipelineNodeToolDef,
+		readonly: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const pipeline = requirePipeline(helpers)
 			const { path } = readPipelineNodeSchema.parse(args)

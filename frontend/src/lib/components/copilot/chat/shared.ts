@@ -539,6 +539,7 @@ export type ToolDisplayMessage = {
 	showFade?: boolean
 	actions?: ToolDisplayAction[]
 	userQuestion?: UserQuestionDisplay
+	planArtifactId?: string
 }
 
 export type AssistantDisplayMessage = BaseDisplayMessage & {
@@ -701,6 +702,43 @@ export async function processToolCall<T>({
 			}
 		}
 
+		// Fails closed: untagged ⇒ mutating ⇒ blocked. Re-run after the confirmation
+		// wait too — plan mode can be entered while a mutating tool's card is pending,
+		// and that approval must not slip past.
+		const planModeBlock = (): ChatCompletionMessageParam | undefined => {
+			if (
+				!toolCallbacks.isPlanModeActive?.() ||
+				!tool ||
+				tool.readonly === true ||
+				toolCall.function.name === 'exit_plan_mode'
+			) {
+				return undefined
+			}
+			const blocked =
+				'Blocked: plan mode is active. Put this change in your plan; call exit_plan_mode when ready for approval.'
+			toolCallbacks.onToolBlockedByPlanMode?.()
+			toolCallbacks.setToolStatus(toolCall.id, {
+				content: blocked,
+				parameters: args,
+				isLoading: false,
+				isStreamingArguments: false,
+				error: blocked,
+				needsConfirmation: false,
+				showDetails: tool?.showDetails,
+				autoCollapseDetails: tool?.autoCollapseDetails
+			})
+			return {
+				role: 'tool' as const,
+				tool_call_id: toolCall.id,
+				content: blocked
+			}
+		}
+
+		const preConfirmationBlock = planModeBlock()
+		if (preConfirmationBlock) {
+			return preConfirmationBlock
+		}
+
 		// Check if tool requires confirmation
 		const requiresConfirmation = tool?.requiresConfirmation === true
 		const autoAcceptConfirmation =
@@ -725,9 +763,11 @@ export async function processToolCall<T>({
 
 		// If confirmation is needed and we have the callback, wait for it
 		if (needsConfirmation && toolCallbacks.requestConfirmation) {
-			const confirmed = await toolCallbacks.requestConfirmation(toolCall.id)
+			tool?.onConfirmationRequested?.({ args, toolCallbacks, toolId: toolCall.id })
+			const confirmed = await toolCallbacks.requestConfirmation(toolCall.id, toolCall.function.name)
 
 			if (!confirmed) {
+				tool?.onConfirmationRejected?.({ args, toolCallbacks, toolId: toolCall.id })
 				toolCallbacks.setToolStatus(toolCall.id, {
 					content: 'Cancelled by user',
 					isLoading: false,
@@ -738,8 +778,14 @@ export async function processToolCall<T>({
 				return {
 					role: 'tool' as const,
 					tool_call_id: toolCall.id,
-					content: 'Tool execution was cancelled by user'
+					content: tool?.cancellationMessage ?? 'Tool execution was cancelled by user'
 				}
+			}
+
+			const postConfirmationBlock = planModeBlock()
+			if (postConfirmationBlock) {
+				tool?.onConfirmationRejected?.({ args, toolCallbacks, toolId: toolCall.id })
+				return postConfirmationBlock
 			}
 
 			// Update status to executing after confirmation
@@ -812,10 +858,22 @@ export interface Tool<T> {
 		helpers: T
 	}) => MaybePromise<string | undefined>
 	setSchema?: (helpers: any) => Promise<void>
+	/** Safe to run while plan mode is active. Absent ⇒ mutating: the plan-mode gate
+	 * blocks anything not explicitly `true`. Distinct from `requiresConfirmation` —
+	 * unconfirmed mutating tools exist, so one must not be derived from the other. */
+	readonly?: boolean
 	requiresConfirmation?: boolean
 	/** Header shown on the confirmation card before the tool runs. Pass a function
 	 * to derive it from the parsed arguments (e.g. name the script being tested). */
 	confirmationMessage?: string | ((args: any) => string)
+	/** Fires only when a confirmation card gates the call, never on auto-accept, so `fn` must
+	 * not rely on it having run. Whatever it sets up is undone by `onConfirmationRejected`,
+	 * which fires on every exit that skips `fn`. Neither is awaited, so neither may throw. */
+	onConfirmationRequested?: (p: { args: any; toolCallbacks: ToolCallbacks; toolId: string }) => void
+	onConfirmationRejected?: (p: { args: any; toolCallbacks: ToolCallbacks; toolId: string }) => void
+	/** Model-facing result returned when the user rejects the confirmation; defaults
+	 * to a generic cancellation. */
+	cancellationMessage?: string
 	showDetails?: boolean
 	autoCollapseDetails?: boolean
 	streamArguments?: boolean
@@ -924,8 +982,10 @@ export interface ToolCallbacks {
 	/** Fired when the model starts reasoning — drives a "Thinking" indicator even when
 	 * no summary text is returned (e.g. OpenAI reasoning models). */
 	onReasoningStart?: () => void
-	requestConfirmation?: (toolId: string) => Promise<boolean>
+	requestConfirmation?: (toolId: string, toolName?: string) => Promise<boolean>
 	shouldAutoAcceptToolConfirmations?: () => boolean
+	isPlanModeActive?: () => boolean
+	onToolBlockedByPlanMode?: () => void
 	requestUserQuestion?: (
 		toolId: string,
 		question: UserQuestionDisplay
@@ -1027,6 +1087,7 @@ const searchHubScriptsToolDef = createToolDef(
 
 export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 	def: searchHubScriptsToolDef,
+	readonly: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {
 		toolCallbacks.setToolStatus(toolId, {
 			content: 'Searching for hub scripts related to "' + args.query + '"...'
@@ -1856,6 +1917,7 @@ export const workspaceRunnablesSearch = new WorkspaceRunnablesSearch()
 
 export const createSearchWorkspaceTool = () => ({
 	def: searchWorkspaceToolDef,
+	readonly: true,
 	fn: async ({
 		args,
 		workspace,
@@ -1906,6 +1968,7 @@ const getRunnableDetailsToolDef = createToolDef(
 
 export const createGetRunnableDetailsTool = () => ({
 	def: getRunnableDetailsToolDef,
+	readonly: true,
 	fn: async ({
 		args,
 		workspace,

@@ -383,6 +383,290 @@ describe('AIChatManager autonomy mode', () => {
 		expect(applied).toBe(true)
 	})
 
+	it('makes plan mode available only in session chats', () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+
+		expect(manager.planModeAvailable).toBe(false)
+		expect(manager.planModeActive).toBe(false)
+
+		manager.isSessionChat = true
+		expect(manager.planModeAvailable).toBe(true)
+		expect(manager.planModeActive).toBe(true)
+
+		manager.mode = AIMode.NAVIGATOR
+		expect(manager.planModeActive).toBe(false)
+	})
+
+	it('captures the prior posture on entering plan mode and restores it on exit', () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.SCRIPT
+		manager.setAutonomyMode(AIAutonomyMode.ACCEPT_EDIT)
+
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.PLAN)
+		expect(manager.prePlanAutonomyMode).toBe(AIAutonomyMode.ACCEPT_EDIT)
+
+		manager.setAutonomyMode(manager.prePlanAutonomyMode ?? AIAutonomyMode.DEFAULT)
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.ACCEPT_EDIT)
+		expect(manager.prePlanAutonomyMode).toBeUndefined()
+	})
+
+	it('enter_plan_mode enters plan mode and records the prior posture', async () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		manager.setAutonomyMode(AIAutonomyMode.ACCEPT_EDIT)
+
+		await manager.enterPlanModeTool.fn({
+			args: { reason: 'research the change first' },
+			workspace: 'test-workspace',
+			helpers: {},
+			toolCallbacks: {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn()
+			},
+			toolId: 'call_enter'
+		})
+
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.PLAN)
+		expect(manager.planModeActive).toBe(true)
+		expect(manager.prePlanAutonomyMode).toBe(AIAutonomyMode.ACCEPT_EDIT)
+	})
+
+	it('offers exactly one plan-mode tool depending on session, availability, autonomy, and state', () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+
+		expect(manager.planModeTool).toBeUndefined()
+
+		manager.isSessionChat = true
+		expect(manager.planModeTool).toBe(manager.enterPlanModeTool)
+
+		manager.setAutonomyMode(AIAutonomyMode.YOLO)
+		expect(manager.planModeTool).toBeUndefined()
+
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+		expect(manager.planModeTool).toBe(manager.exitPlanModeTool)
+
+		manager.mode = AIMode.NAVIGATOR
+		expect(manager.planModeTool).toBeUndefined()
+	})
+
+	it('declines a pending enter_plan_mode when the user switches to YOLO, but accepts other tools', async () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.SCRIPT
+		manager.setAutonomyMode(AIAutonomyMode.DEFAULT)
+
+		const enterConfirmed = manager.requestConfirmation('call_enter', 'enter_plan_mode')
+		const writeConfirmed = manager.requestConfirmation('call_write', 'write_script')
+
+		// Switching to YOLO auto-accepts pending confirmations — except the plan-entry
+		// proposal, which must not force the user into read-only plan mode.
+		manager.setAutonomyMode(AIAutonomyMode.YOLO)
+
+		expect(await enterConfirmed).toBe(false)
+		expect(await writeConfirmed).toBe(true)
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.YOLO)
+	})
+
+	it('exit_plan_mode restores the pre-plan posture', async () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		manager.setAutonomyMode(AIAutonomyMode.YOLO)
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+
+		await manager.exitPlanModeTool.fn({
+			args: { summary: 'do the thing' },
+			workspace: 'test-workspace',
+			helpers: {},
+			toolCallbacks: {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn()
+			},
+			toolId: 'call_exit'
+		})
+
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.YOLO)
+		expect(manager.planModeActive).toBe(false)
+	})
+
+	const callExitPlanMode = (manager: AIChatManager, summary: string, setToolStatus = vi.fn()) =>
+		manager.exitPlanModeTool.fn({
+			args: { summary },
+			workspace: 'test-workspace',
+			helpers: {},
+			toolCallbacks: {
+				setToolStatus,
+				removeToolStatus: vi.fn()
+			},
+			toolId: 'call_exit'
+		})
+
+	const proposePlan = async (manager: AIChatManager, summary: string) => {
+		const setToolStatus = vi.fn()
+		manager.exitPlanModeTool.onConfirmationRequested?.({
+			args: { summary },
+			toolCallbacks: { setToolStatus, removeToolStatus: vi.fn() },
+			toolId: 'call_exit'
+		})
+		// The hook deliberately does not block the card, so let its save settle.
+		const save = (manager as any).planSave
+		expect(save).toBeInstanceOf(Promise)
+		await save
+		return setToolStatus
+	}
+
+	const rejectPlan = async (manager: AIChatManager) => {
+		manager.exitPlanModeTool.onConfirmationRejected?.({
+			args: {},
+			toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn() },
+			toolId: 'call_exit'
+		})
+		await vi.waitFor(() => expect(manager.artifacts.remove).toHaveBeenCalled())
+	}
+
+	const planningManager = () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		manager.sessionId = 'session-1'
+		manager.openArtifact = vi.fn()
+		manager.closeArtifact = vi.fn()
+		let n = 0
+		manager.artifacts.create = vi.fn(async (_s: string, input: any) => ({
+			id: `artifact-${++n}`,
+			name: input.name
+		})) as any
+		manager.artifacts.remove = vi.fn(async () => {}) as any
+		manager.setAutonomyMode(AIAutonomyMode.DEFAULT)
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+		return manager
+	}
+
+	it('saves and opens the plan document when the approval card appears', async () => {
+		const manager = planningManager()
+
+		const setToolStatus = await proposePlan(manager, '# Add retries\n\nStep one.')
+
+		expect(manager.artifacts.create).toHaveBeenCalledWith(
+			'session-1',
+			expect.objectContaining({
+				name: 'Add retries',
+				content: '# Add retries\n\nStep one.',
+				kind: 'md'
+			})
+		)
+		expect(manager.openArtifact).toHaveBeenCalledWith('artifact-1', 'Add retries')
+		// The card resolves its document by this id, so losing it orphans the link.
+		expect(setToolStatus).toHaveBeenCalledWith('call_exit', { planArtifactId: 'artifact-1' })
+		expect(manager.planModeActive).toBe(true)
+	})
+
+	it('discards the plan document when the user keeps planning', async () => {
+		const manager = planningManager()
+
+		await proposePlan(manager, '# First cut\n\nStep one.')
+		await rejectPlan(manager)
+
+		expect(manager.closeArtifact).toHaveBeenCalledWith('artifact-1')
+		expect(manager.artifacts.remove).toHaveBeenCalledWith('artifact-1')
+		// A revised plan is a new document, not a resurrection of the rejected one.
+		await proposePlan(manager, '# Second cut\n\nStep two.')
+		await callExitPlanMode(manager, '# Second cut\n\nStep two.')
+
+		expect(manager.artifacts.remove).toHaveBeenCalledTimes(1)
+		expect(manager.openArtifact).toHaveBeenLastCalledWith('artifact-2', 'Second cut')
+	})
+
+	it('approving keeps the plan document and adds no copy', async () => {
+		const manager = planningManager()
+
+		await proposePlan(manager, '# Add retries\n\nStep one.')
+		await callExitPlanMode(manager, '# Add retries\n\nStep one.')
+
+		expect(manager.artifacts.create).toHaveBeenCalledTimes(1)
+		expect(manager.artifacts.remove).not.toHaveBeenCalled()
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.DEFAULT)
+	})
+
+	it('saves, opens and links the plan document even when no card gated the call', async () => {
+		const manager = planningManager()
+		const setToolStatus = vi.fn()
+
+		// The hook never runs when the call skips the card, so fn must produce the document.
+		await callExitPlanMode(manager, '# Add retries\n\nStep one.', setToolStatus)
+
+		expect(manager.artifacts.create).toHaveBeenCalledTimes(1)
+		expect(manager.openArtifact).toHaveBeenCalledWith('artifact-1', 'Add retries')
+		expect(setToolStatus).toHaveBeenCalledWith('call_exit', { planArtifactId: 'artifact-1' })
+	})
+
+	it('switching to YOLO approves the plan, keeps its document, and holds full autonomy', async () => {
+		const manager = planningManager()
+		await proposePlan(manager, '# Add retries\n\nStep one.')
+		const exitConfirmed = manager.requestConfirmation('call_exit', 'exit_plan_mode')
+
+		manager.setAutonomyMode(AIAutonomyMode.YOLO)
+
+		expect(await exitConfirmed).toBe(true)
+		await callExitPlanMode(manager, '# Add retries\n\nStep one.')
+		// fn must not restore a pre-plan posture over the autonomy the user just chose.
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.YOLO)
+		expect(manager.artifacts.remove).not.toHaveBeenCalled()
+		expect(manager.closeArtifact).not.toHaveBeenCalled()
+	})
+
+	it('restores the posture and claims no document when saving the plan fails', async () => {
+		const manager = planningManager()
+		manager.artifacts.create = vi.fn(async () => {
+			throw new Error('indexeddb unavailable')
+		}) as any
+		const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+		const setToolStatus = await proposePlan(manager, '# Add retries\n\nStep one.')
+		const result = await callExitPlanMode(manager, '# Add retries\n\nStep one.')
+
+		expect(manager.openArtifact).not.toHaveBeenCalled()
+		expect(setToolStatus).not.toHaveBeenCalled()
+		expect(result).not.toContain('saved as a document')
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.DEFAULT)
+		expect(manager.planModeActive).toBe(false)
+		consoleError.mockRestore()
+	})
+
+	it('approves a pending enter_plan_mode card when the user enters plan mode via the picker', async () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		manager.setAutonomyMode(AIAutonomyMode.DEFAULT)
+
+		const enterConfirmed = manager.requestConfirmation('call_enter', 'enter_plan_mode')
+
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+
+		expect(await enterConfirmed).toBe(true)
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.PLAN)
+		expect(manager.planModeActive).toBe(true)
+	})
+
+	it('declines a pending exit_plan_mode card when the user leaves plan mode via the picker', async () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+
+		const exitConfirmed = manager.requestConfirmation('call_exit', 'exit_plan_mode')
+
+		manager.setAutonomyMode(AIAutonomyMode.DEFAULT)
+
+		expect(await exitConfirmed).toBe(false)
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.DEFAULT)
+		expect(manager.planModeActive).toBe(false)
+	})
+
 	it('does not pass the AI session id as a flow test conversation id in global mode', async () => {
 		const manager = new AIChatManager()
 		const testFlow = vi.fn(async () => 'job-flow-preview')

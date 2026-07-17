@@ -10,6 +10,7 @@
 		ChevronDown,
 		ChevronsRight,
 		CheckIcon,
+		ClipboardList,
 		FileText,
 		Folder,
 		Hand,
@@ -59,12 +60,15 @@
 	// compact trigger pill to save horizontal space.
 	type AutonomyModeOption = { label: string; shortLabel?: string; mode: AIAutonomyMode }
 	const autonomyModeOptions: AutonomyModeOption[] = [
+		{ label: 'Plan (read-only)', shortLabel: 'Plan', mode: AIAutonomyMode.PLAN },
 		{ label: 'Ask permission', mode: AIAutonomyMode.DEFAULT },
 		{ label: 'Auto-accept edits', mode: AIAutonomyMode.ACCEPT_EDIT },
 		{ label: 'Yolo (bypass permissions)', shortLabel: 'Yolo', mode: AIAutonomyMode.YOLO }
 	]
 	const autonomyModeLabel = (mode: AIAutonomyMode) => {
-		const option = autonomyModeOptions.find((o) => o.mode === mode) ?? autonomyModeOptions[0]
+		const option =
+			autonomyModeOptions.find((o) => o.mode === mode) ??
+			autonomyModeOptions.find((o) => o.mode === AIAutonomyMode.DEFAULT)!
 		return option.shortLabel ?? option.label
 	}
 	// "Auto-accept edits" only applies where script/flow edits can be accepted,
@@ -73,9 +77,12 @@
 	const isAutonomyModeAvailable = (
 		mode: AIAutonomyMode,
 		autoAcceptEditsAvailable: boolean,
-		autoAcceptToolConfirmationsAvailable: boolean
+		autoAcceptToolConfirmationsAvailable: boolean,
+		planModeAvailable: boolean
 	) => {
 		switch (mode) {
+			case AIAutonomyMode.PLAN:
+				return planModeAvailable
 			case AIAutonomyMode.DEFAULT:
 				return true
 			case AIAutonomyMode.ACCEPT_EDIT:
@@ -88,11 +95,15 @@
 	// Ask-permission holds (raised hand); auto-accept/bypass fast-forward. Color
 	// ramps from muted (ask) to accent (auto-accept) to red (bypass).
 	const autonomyModeIcon = (mode: AIAutonomyMode) =>
-		mode === AIAutonomyMode.DEFAULT ? Hand : ChevronsRight
+		mode === AIAutonomyMode.PLAN
+			? ClipboardList
+			: mode === AIAutonomyMode.DEFAULT
+				? Hand
+				: ChevronsRight
 	const autonomyModeIconColor = (mode: AIAutonomyMode) =>
 		mode === AIAutonomyMode.YOLO
 			? 'text-red-500'
-			: mode === AIAutonomyMode.DEFAULT
+			: mode === AIAutonomyMode.PLAN || mode === AIAutonomyMode.DEFAULT
 				? 'text-secondary'
 				: 'text-accent'
 
@@ -399,7 +410,8 @@
 			isAutonomyModeAvailable(
 				option.mode,
 				aiChatManager.autoAcceptEditsAvailable,
-				aiChatManager.autoAcceptToolConfirmationsAvailable
+				aiChatManager.autoAcceptToolConfirmationsAvailable,
+				aiChatManager.planModeAvailable
 			)
 		)
 	)
@@ -413,6 +425,8 @@
 	const showAutonomyModeSelector = $derived(!disabled && availableAutonomyModeOptions.length > 1)
 	const autonomyModeTooltip = $derived.by(() => {
 		switch (effectiveAutonomyMode) {
+			case AIAutonomyMode.PLAN:
+				return 'Read-only: the assistant researches and drafts a plan for your approval before it can change anything.'
 			case AIAutonomyMode.ACCEPT_EDIT:
 				return 'Automatically accepts script and flow edits. Tool calls still ask for confirmation.'
 			case AIAutonomyMode.YOLO:
