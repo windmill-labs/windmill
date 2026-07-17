@@ -295,7 +295,7 @@ pub async fn get_hub_script_schema(path: &str, db: &DB) -> Result<Option<Schema>
 // ============================================================================
 
 /// Look up the original field name from a field_renames map.
-/// field_renames maps renamed_key -> original_key (e.g. {"path__path": "path"}).
+/// field_renames maps renamed_key -> original_key (e.g. {"path__body": "path"}).
 fn get_original_name(renamed_key: &str, field_renames: &Option<Value>) -> String {
     field_renames
         .as_ref()
@@ -373,20 +373,17 @@ pub fn substitute_path_params(
     workspace_id: &str,
     args_map: &serde_json::Map<String, Value>,
     path_schema: &Option<Value>,
-    path_field_renames: &Option<Value>,
 ) -> BackendResult<String> {
     let mut path_template = path.replace("{workspace}", workspace_id);
 
     if let Some(schema) = path_schema {
         if let Some(props) = schema.get("properties").and_then(|p| p.as_object()) {
             for (param_name, _) in props {
-                // param_name may be renamed (e.g. "path__path"), get original for URL placeholder
-                let original_name = get_original_name(param_name, path_field_renames);
-                let placeholder = format!("{{{}}}", original_name);
+                let placeholder = format!("{{{}}}", param_name);
                 match args_map.get(param_name) {
                     Some(param_value) => {
                         if let Some(str_val) = param_value.as_str() {
-                            validate_path_param_value(&original_name, str_val)?;
+                            validate_path_param_value(param_name, str_val)?;
                             path_template = path_template.replace(&placeholder, str_val);
                         }
                     }
@@ -451,7 +448,7 @@ pub fn build_query_string(
     }
 }
 
-/// Value of the path parameter whose original (un-mangled) name is `original_name`.
+/// Value of the path parameter named `original_name`.
 ///
 /// A same-named body field is optional and clients routinely omit it, but the API still
 /// requires the key in the body and rejects the request without it.
@@ -459,15 +456,13 @@ fn same_named_path_param_value<'a>(
     original_name: &str,
     args_map: &'a serde_json::Map<String, Value>,
     path_params_schema: &Option<Value>,
-    path_field_renames: &Option<Value>,
 ) -> Option<&'a Value> {
     path_params_schema
         .as_ref()?
         .get("properties")?
         .as_object()?
-        .keys()
-        .find(|param_name| get_original_name(param_name, path_field_renames) == original_name)
-        .and_then(|param_name| args_map.get(param_name))
+        .contains_key(original_name)
+        .then(|| args_map.get(original_name))?
 }
 
 /// Build request body from arguments
@@ -477,7 +472,6 @@ pub fn build_request_body(
     body_schema: &Option<Value>,
     body_field_renames: &Option<Value>,
     path_params_schema: &Option<Value>,
-    path_field_renames: &Option<Value>,
     query_params_schema: &Option<Value>,
 ) -> Option<Value> {
     if method == "GET" {
@@ -534,13 +528,8 @@ pub fn build_request_body(
             // counterpart keep their null, which the API reads as absent anyway.
             let value = match arg {
                 Some(value) if !value.is_null() => Some(value),
-                _ => same_named_path_param_value(
-                    &original_name,
-                    args_map,
-                    path_params_schema,
-                    path_field_renames,
-                )
-                .or(arg),
+                _ => same_named_path_param_value(&original_name, args_map, path_params_schema)
+                    .or(arg),
             }?;
             Some((original_name, value.clone()))
         })
@@ -675,16 +664,8 @@ mod tests {
         .unwrap()
         .clone();
 
-        let body = build_request_body(
-            "POST",
-            &args,
-            &body_schema,
-            &None,
-            &path_schema,
-            &None,
-            &None,
-        )
-        .expect("passthrough body should be built");
+        let body = build_request_body("POST", &args, &body_schema, &None, &path_schema, &None)
+            .expect("passthrough body should be built");
         let obj = body.as_object().unwrap();
         assert_eq!(obj.get("name"), Some(&json!("alice")));
         assert_eq!(obj.get("count"), Some(&json!(3)));
@@ -706,8 +687,7 @@ mod tests {
             .as_object()
             .unwrap()
             .clone();
-        let body =
-            build_request_body("POST", &args, &body_schema, &None, &None, &None, &None).unwrap();
+        let body = build_request_body("POST", &args, &body_schema, &None, &None, &None).unwrap();
         let obj = body.as_object().unwrap();
         assert_eq!(obj.get("value"), Some(&json!("x")));
         assert!(
@@ -716,16 +696,15 @@ mod tests {
         );
     }
 
-    // updateFlow-shaped: `path` exists both as a path parameter and as a required
-    // body field, so both are exposed under mangled names.
-    fn update_flow_schemas() -> (Option<Value>, Option<Value>, Option<Value>, Option<Value>) {
+    // updateFlow-shaped: `path` is both a path parameter and a body field. The path
+    // parameter keeps the plain name; only the body side is mangled.
+    fn update_flow_schemas() -> (Option<Value>, Option<Value>, Option<Value>) {
         (
             Some(json!({
                 "type": "object",
-                "properties": { "path__path": { "type": "string" } },
-                "required": ["path__path"]
+                "properties": { "path": { "type": "string" } },
+                "required": ["path"]
             })),
-            Some(json!({ "path__path": "path" })),
             Some(json!({
                 "type": "object",
                 "properties": {
@@ -741,11 +720,11 @@ mod tests {
 
     #[test]
     fn build_request_body_defaults_body_path_to_path_param() {
-        let (path_schema, path_renames, body_schema, body_renames) = update_flow_schemas();
+        let (path_schema, body_schema, body_renames) = update_flow_schemas();
         // Omitted entirely, and explicitly nulled: clients do both.
         for args in [
-            json!({ "path__path": "f/team/my_flow", "summary": "s", "value": {} }),
-            json!({ "path__path": "f/team/my_flow", "path__body": null, "summary": "s", "value": {} }),
+            json!({ "path": "f/team/my_flow", "summary": "s", "value": {} }),
+            json!({ "path": "f/team/my_flow", "path__body": null, "summary": "s", "value": {} }),
         ] {
             let args = args.as_object().unwrap().clone();
             let body = build_request_body(
@@ -754,7 +733,6 @@ mod tests {
                 &body_schema,
                 &body_renames,
                 &path_schema,
-                &path_renames,
                 &None,
             )
             .expect("body should be built");
@@ -768,9 +746,9 @@ mod tests {
 
     #[test]
     fn build_request_body_keeps_explicit_body_path() {
-        let (path_schema, path_renames, body_schema, body_renames) = update_flow_schemas();
+        let (path_schema, body_schema, body_renames) = update_flow_schemas();
         let args: serde_json::Map<String, Value> = json!({
-            "path__path": "f/team/my_flow",
+            "path": "f/team/my_flow",
             "path__body": "f/team/renamed_flow",
             "summary": "s",
             "value": {}
@@ -785,7 +763,6 @@ mod tests {
             &body_schema,
             &body_renames,
             &path_schema,
-            &path_renames,
             &None,
         )
         .expect("body should be built");
@@ -800,9 +777,7 @@ mod tests {
     fn build_request_body_get_has_no_body() {
         let body_schema = Some(json!({ "type": "object", "additionalProperties": true }));
         let args: serde_json::Map<String, Value> = json!({ "a": 1 }).as_object().unwrap().clone();
-        assert!(
-            build_request_body("GET", &args, &body_schema, &None, &None, &None, &None).is_none()
-        );
+        assert!(build_request_body("GET", &args, &body_schema, &None, &None, &None).is_none());
     }
 
     #[test]
@@ -868,7 +843,6 @@ mod tests {
             "dev",
             &args,
             &path_schema,
-            &None,
         );
         assert!(
             result.is_err(),
@@ -890,7 +864,6 @@ mod tests {
             "dev",
             &args,
             &path_schema,
-            &None,
         )
         .expect("legitimate path should substitute");
         assert_eq!(result, "/w/dev/scripts/get/p/u/alice/my_script");

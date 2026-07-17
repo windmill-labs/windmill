@@ -295,7 +295,6 @@ impl McpBackend for WindmillBackend {
             workspace_id,
             args_map,
             &endpoint_tool.path_params_schema,
-            &endpoint_tool.path_field_renames,
         )?;
         let query_string = build_query_string(
             args_map,
@@ -314,7 +313,6 @@ impl McpBackend for WindmillBackend {
             &endpoint_tool.body_schema,
             &endpoint_tool.body_field_renames,
             &endpoint_tool.path_params_schema,
-            &endpoint_tool.path_field_renames,
             &endpoint_tool.query_params_schema,
         );
 

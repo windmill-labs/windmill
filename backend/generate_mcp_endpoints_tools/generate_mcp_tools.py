@@ -165,13 +165,14 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
 
     conflicts = (path_keys & query_keys) | (path_keys & body_keys) | (query_keys & body_keys)
 
-    path_field_renames = {}
     query_field_renames = {}
     body_field_renames = {}
 
     for field in conflicts:
+        # The path parameter keeps the plain name: it identifies the item, is what a
+        # caller reaches for first, and matches the non-colliding endpoints (`getFlowByPath`
+        # takes `path`). Only the other locations carry a suffix.
         schemas_and_renames = [
-            (path_params_schema, path_keys, '__path', path_field_renames),
             (query_params_schema, query_keys, '__query', query_field_renames),
             (body_schema, body_keys, '__body', body_field_renames),
         ]
@@ -209,7 +210,7 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
             if isinstance(prop, dict):
                 existing_desc = prop.get('description', '').rstrip('. ')
                 prop['description'] = (
-                    f"{existing_desc}. Defaults to `{field}__path` when omitted; "
+                    f"{existing_desc}. Defaults to `{field}` when omitted; "
                     f"set it only to change the {field}."
                 ).lstrip('. ')
 
@@ -217,7 +218,7 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
     path_params_schema = path_params_schema if path_params_schema and path_params_schema.get('properties') else None
     query_params_schema = query_params_schema if query_params_schema and query_params_schema.get('properties') else None
 
-    return (path_params_schema, query_params_schema, body_schema, path_field_renames, query_field_renames, body_field_renames)
+    return (path_params_schema, query_params_schema, body_schema, query_field_renames, body_field_renames)
 
 # Cache for loaded external files
 _external_file_cache: Dict[str, Dict[str, Any]] = {}
@@ -469,7 +470,7 @@ export const mcpEndpointTools: EndpointTool[] = [];
         method = tool['method'].upper()
 
         # Generate separate schemas
-        path_params_schema, query_params_schema, body_schema, path_field_renames, query_field_renames, body_field_renames = extract_separate_schemas(
+        path_params_schema, query_params_schema, body_schema, query_field_renames, body_field_renames = extract_separate_schemas(
             tool['parameters'], tool['requestBody'], spec, tool['required_fields'], base_path,
             tool.get('include_fields'), tool.get('opaque_fields'), tool.get('include_query_params')
         )
@@ -478,7 +479,6 @@ export const mcpEndpointTools: EndpointTool[] = [];
         path_params_ts = json.dumps(path_params_schema, indent=8) if path_params_schema else "undefined"
         query_params_ts = json.dumps(query_params_schema, indent=8) if query_params_schema else "undefined"
         body_schema_ts = json.dumps(body_schema, indent=8) if body_schema else "undefined"
-        path_field_renames_ts = json.dumps(path_field_renames, indent=8) if path_field_renames else "undefined"
         query_field_renames_ts = json.dumps(query_field_renames, indent=8) if query_field_renames else "undefined"
         body_field_renames_ts = json.dumps(body_field_renames, indent=8) if body_field_renames else "undefined"
 
@@ -492,7 +492,6 @@ export const mcpEndpointTools: EndpointTool[] = [];
         pathParamsSchema: {path_params_ts},
         queryParamsSchema: {query_params_ts},
         bodySchema: {body_schema_ts},
-        pathFieldRenames: {path_field_renames_ts},
         queryFieldRenames: {query_field_renames_ts},
         bodyFieldRenames: {body_field_renames_ts}
     }}"""
@@ -513,7 +512,6 @@ export interface EndpointTool {{
     pathParamsSchema?: object;
     queryParamsSchema?: object;
     bodySchema?: object;
-    pathFieldRenames?: Record<string, string>;
     queryFieldRenames?: Record<string, string>;
     bodyFieldRenames?: Record<string, string>;
 }}
@@ -545,7 +543,7 @@ pub fn all_tools() -> Vec<EndpointTool> {{
         method = tool['method'].upper()
 
         # Generate separate schemas
-        path_params_schema, query_params_schema, body_schema, path_field_renames, query_field_renames, body_field_renames = extract_separate_schemas(
+        path_params_schema, query_params_schema, body_schema, query_field_renames, body_field_renames = extract_separate_schemas(
             tool['parameters'], tool['requestBody'], spec, tool['required_fields'], base_path,
             tool.get('include_fields'), tool.get('opaque_fields'), tool.get('include_query_params')
         )
@@ -553,7 +551,6 @@ pub fn all_tools() -> Vec<EndpointTool> {{
         path_params_rust = schema_to_rust_value(path_params_schema)
         query_params_rust = schema_to_rust_value(query_params_schema)
         body_schema_rust = schema_to_rust_value(body_schema)
-        path_field_renames_rust = schema_to_rust_value(path_field_renames if path_field_renames else None)
         query_field_renames_rust = schema_to_rust_value(query_field_renames if query_field_renames else None)
         body_field_renames_rust = schema_to_rust_value(body_field_renames if body_field_renames else None)
 
@@ -567,7 +564,6 @@ pub fn all_tools() -> Vec<EndpointTool> {{
         path_params_schema: {path_params_rust},
         query_params_schema: {query_params_rust},
         body_schema: {body_schema_rust},
-        path_field_renames: {path_field_renames_rust},
         query_field_renames: {query_field_renames_rust},
         body_field_renames: {body_field_renames_rust},
     }}"""
