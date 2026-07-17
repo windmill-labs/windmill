@@ -698,7 +698,7 @@ mod tests {
     fn build_request_body_maps_body_path_alias_for_rename() {
         // The mangled body field carries the *new* path when renaming; it must reach the
         // API under its original name `path`. (An omitted `path__body` is intentionally
-        // absent from the body — the server defaults it from the URL path parameter.)
+        // absent from the body; the server defaults it from the URL path parameter.)
         let (path_schema, body_schema, body_renames) = update_flow_schemas();
         let args: serde_json::Map<String, Value> = json!({
             "path": "f/team/my_flow",

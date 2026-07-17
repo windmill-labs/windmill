@@ -1286,13 +1286,11 @@ mod tests {
 
     #[test]
     fn edit_flow_defaults_path_from_url_and_renames_when_given() {
-        // Omitted body path: update in place at the URL path (GIT-925 — a body
-        // without `path` used to fail deserialization on the required NewFlow.path).
+        // An omitted body path resolves to the URL path; an explicit body path renames.
         let ef: EditFlow =
             serde_json::from_value(json!({ "summary": "s", "value": { "modules": [] } })).unwrap();
         assert_eq!(ef.into_new_flow("f/team/my_flow").path, "f/team/my_flow");
 
-        // Explicit body path: rename to it.
         let ef: EditFlow = serde_json::from_value(
             json!({ "path": "f/team/renamed", "summary": "s", "value": { "modules": [] } }),
         )

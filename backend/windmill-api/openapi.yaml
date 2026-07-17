@@ -10775,7 +10775,7 @@ paths:
           application/json:
             schema:
               allOf:
-                - $ref: "#/components/schemas/OpenFlowWPath"
+                - $ref: "#/components/schemas/EditFlow"
                 - type: object
                   properties:
                     deployment_message:
@@ -29097,6 +29097,37 @@ components:
                 type: string
           required:
             - path
+    # Like OpenFlowWPath but `path` is optional: on update the flow is identified by
+    # the URL, so the body path is only needed to rename it. Kept as a separate schema
+    # (rather than making OpenFlowWPath.path optional) so createFlow still requires path.
+    EditFlow:
+      allOf:
+        - $ref: "../../openflow.openapi.yaml#/components/schemas/OpenFlow"
+        - type: object
+          properties:
+            path:
+              type: string
+            tag:
+              type: string
+            ws_error_handler_muted:
+              type: boolean
+            priority:
+              type: integer
+            dedicated_worker:
+              type: boolean
+            timeout:
+              type: number
+            visible_to_runner_only:
+              type: boolean
+            on_behalf_of_email:
+              type: string
+            preserve_on_behalf_of:
+              type: boolean
+              description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email value instead of overwriting it."
+            labels:
+              type: array
+              items:
+                type: string
 
     FlowPreview:
       type: object
