@@ -30,6 +30,14 @@
 			!message.isLoading &&
 			!message.isStreamingArguments
 	)
+	const planDoc = $derived(
+		message.planArtifactId
+			? aiChatManager.artifacts.artifacts.find((a) => a.id === message.planArtifactId)
+			: undefined
+	)
+	// A bare flag would leak this expansion onto the next message reusing this instance.
+	let expandedCardId = $state<string | undefined>(undefined)
+	const planExpanded = $derived(expandedCardId === message.tool_call_id)
 
 	const isPlanEnter = $derived(message.toolName === 'enter_plan_mode')
 	const planReason = $derived(
@@ -81,21 +89,46 @@
 {:else if isPlanReview}
 	<div class="my-1 rounded-md border border-border-light bg-surface overflow-hidden">
 		<div
-			class="flex items-center gap-2 px-3 py-2 border-b border-border-light bg-surface-secondary/30"
+			class="flex items-center justify-between gap-2 px-3 py-2 border-b border-border-light bg-surface-secondary/30"
 		>
-			{#if message.isLoading && !message.needsConfirmation}
-				<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500" />
-			{:else if planApproved}
-				<Check class="w-3.5 h-3.5 text-green-600" />
-			{:else}
-				<ClipboardList class="w-3.5 h-3.5 text-secondary" />
+			<button
+				class="flex items-center gap-2 min-w-0 text-left"
+				onclick={() => (expandedCardId = planExpanded ? undefined : message.tool_call_id)}
+				disabled={!planText}
+				aria-expanded={planExpanded}
+			>
+				{#if message.isLoading && !message.needsConfirmation}
+					<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500" />
+				{:else if planApproved}
+					<Check class="w-3.5 h-3.5 text-green-600" />
+				{:else}
+					<ClipboardList class="w-3.5 h-3.5 text-secondary" />
+				{/if}
+				<span class="text-primary font-medium text-xs">
+					{planApproved ? 'Plan approved' : message.error ? 'Kept planning' : 'Proposed plan'}
+				</span>
+				{#if planText}
+					<ChevronRight
+						class={twMerge(
+							'w-3 h-3 text-secondary transition-transform duration-150',
+							planExpanded ? 'rotate-90' : ''
+						)}
+					/>
+				{/if}
+			</button>
+			{#if planDoc}
+				<Button
+					variant="subtle"
+					size="xs"
+					on:click={() => aiChatManager.openArtifact?.(planDoc.id, planDoc.name)}
+				>
+					Open plan document
+				</Button>
 			{/if}
-			<span class="text-primary font-medium text-xs">
-				{planApproved ? 'Plan approved' : message.error ? 'Kept planning' : 'Proposed plan'}
-			</span>
 		</div>
-		{#if planText}
+		{#if planText && planExpanded}
 			<div
+				transition:slide={{ duration: 150 }}
 				class="px-3 py-2 prose prose-sm dark:prose-invert w-full max-w-full leading-snug space-y-2 prose-ul:!pl-6
 					prose-p:text-xs prose-li:text-xs prose-code:text-xs prose-pre:text-xs
 					prose-code:break-words prose-a:break-words

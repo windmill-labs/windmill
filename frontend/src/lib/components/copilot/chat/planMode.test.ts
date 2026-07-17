@@ -1,5 +1,32 @@
 import { describe, it, expect } from 'vitest'
-import { appendPlanModeInstructions } from './planMode'
+import { appendPlanModeInstructions, derivePlanTitle } from './planMode'
+
+describe('derivePlanTitle', () => {
+	it('uses the first markdown heading of any level', () => {
+		expect(derivePlanTitle('## Add a retry policy\n\nSteps...')).toBe('Add a retry policy')
+		expect(derivePlanTitle('Lead-in\n\n# Top level\n\n## Later')).toBe('Top level')
+	})
+
+	it('falls back to a default when the summary has no heading', () => {
+		expect(derivePlanTitle('Just prose, no heading.')).toBe('Implementation plan')
+		expect(derivePlanTitle('#### Too deep')).toBe('Implementation plan')
+		// A bare '#' must not swallow the blank line and title the plan after the next prose.
+		expect(derivePlanTitle('#\n\nJust prose.')).toBe('Implementation plan')
+	})
+
+	it('ignores headings inside fenced code blocks', () => {
+		expect(derivePlanTitle('Lead-in.\n\n```bash\n# Install the deps\n```\n\n## Real title')).toBe(
+			'Real title'
+		)
+		expect(derivePlanTitle('Lead-in.\n\n~~~bash\n# Install the deps\n~~~\n\n## Real title')).toBe(
+			'Real title'
+		)
+		// A longer fence closes only on its own length, so an inner fence must not end it.
+		expect(derivePlanTitle('Lead-in.\n\n````md\n```\n# Inner\n```\n````\n\n## Real title')).toBe(
+			'Real title'
+		)
+	})
+})
 
 describe('appendPlanModeInstructions', () => {
 	const base = { role: 'system' as const, content: 'BASE' }

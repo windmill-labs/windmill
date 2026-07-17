@@ -112,7 +112,11 @@ import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { AttachedFilesStore } from './files/attachedFiles.svelte'
 import { SessionArtifactsStore } from './artifacts/artifactsState.svelte'
 import { appendAttachedFilesRoster } from './files/fileTools'
-import { appendPlanModeInstructions, ENTER_PLAN_MODE_TOOL_DESCRIPTION } from './planMode'
+import {
+	appendPlanModeInstructions,
+	derivePlanTitle,
+	ENTER_PLAN_MODE_TOOL_DESCRIPTION
+} from './planMode'
 
 // SSR and users who prefer reduced motion get no typewriter pacing.
 function prefersInstantReveal(): boolean {
@@ -426,6 +430,7 @@ export class AIChatManager {
 	planModeAvailable = $derived(this.isSessionChat && supportsPlanMode(this.mode))
 	planModeActive = $derived(this.autonomyMode === AIAutonomyMode.PLAN && this.planModeAvailable)
 	prePlanAutonomyMode = $state<AIAutonomyMode | undefined>(undefined)
+	private planSave: Promise<{ id: string; name: string } | undefined> | undefined
 	#automaticScroll = $state<boolean>(true)
 	systemMessage = $state<ChatCompletionSystemMessageParam>({
 		role: 'system',
@@ -1281,6 +1286,7 @@ export class AIChatManager {
 		const leavingPlan = mode !== AIAutonomyMode.PLAN && this.autonomyMode === AIAutonomyMode.PLAN
 		if (enteringPlan) {
 			this.prePlanAutonomyMode = this.autonomyMode
+			this.planSave = undefined
 		} else if (mode !== AIAutonomyMode.PLAN) {
 			this.prePlanAutonomyMode = undefined
 			this.planBlocksThisTurn = 0
@@ -1684,6 +1690,49 @@ export class AIChatManager {
 		}
 	}
 
+	private ensurePlanDoc = (p: { args: any; toolCallbacks: ToolCallbacks; toolId: string }) =>
+		(this.planSave ??= this.savePlanDoc(p))
+
+	// A failed save must not block the plan card or the posture restore.
+	private savePlanDoc = async ({
+		args,
+		toolCallbacks,
+		toolId
+	}: {
+		args: any
+		toolCallbacks: ToolCallbacks
+		toolId: string
+	}) => {
+		if (!this.isSessionChat || !this.sessionId) return undefined
+		try {
+			const plan = await this.artifacts.create(this.sessionId, {
+				name: derivePlanTitle(args.summary),
+				content: args.summary,
+				kind: 'md',
+				chatId: this.historyManager.getCurrentChatId()
+			})
+			this.openArtifact?.(plan.id, plan.name)
+			toolCallbacks.setToolStatus(toolId, { planArtifactId: plan.id })
+			return plan
+		} catch (e) {
+			console.error('Failed to persist plan artifact', e)
+			return undefined
+		}
+	}
+
+	private discardPlan = async () => {
+		const pending = this.planSave
+		this.planSave = undefined
+		const plan = await pending
+		if (!plan) return
+		this.closeArtifact?.(plan.id)
+		try {
+			await this.artifacts.remove(plan.id)
+		} catch (e) {
+			console.error('Failed to discard plan artifact', e)
+		}
+	}
+
 	exitPlanModeTool: Tool<any> = {
 		def: {
 			type: 'function' as const,
@@ -1710,12 +1759,21 @@ export class AIChatManager {
 		cancellationMessage:
 			'The user chose to keep planning instead of executing. Keep refining the plan and wait for them before executing.',
 		showDetails: true,
-		fn: async () => {
+		onConfirmationRequested: (p) => {
+			void this.ensurePlanDoc(p)
+		},
+		onConfirmationRejected: () => {
+			void this.discardPlan()
+		},
+		fn: async ({ args, toolCallbacks, toolId }) => {
+			const saved = await this.ensurePlanDoc({ args, toolCallbacks, toolId })
 			// No-op if the user already left plan mode while the card was pending.
 			if (this.planModeActive) {
 				this.setAutonomyMode(this.prePlanAutonomyMode ?? AIAutonomyMode.DEFAULT)
 			}
-			return 'Plan approved. You may now execute it.'
+			return saved
+				? 'Plan approved and saved as a document. You may now execute it.'
+				: 'Plan approved. You may now execute it.'
 		}
 	}
 

@@ -493,6 +493,135 @@ describe('AIChatManager autonomy mode', () => {
 		expect(manager.planModeActive).toBe(false)
 	})
 
+	const callExitPlanMode = (manager: AIChatManager, summary: string, setToolStatus = vi.fn()) =>
+		manager.exitPlanModeTool.fn({
+			args: { summary },
+			workspace: 'test-workspace',
+			helpers: {},
+			toolCallbacks: {
+				setToolStatus,
+				removeToolStatus: vi.fn()
+			},
+			toolId: 'call_exit'
+		})
+
+	const proposePlan = async (manager: AIChatManager, summary: string) => {
+		const setToolStatus = vi.fn()
+		manager.exitPlanModeTool.onConfirmationRequested?.({
+			args: { summary },
+			toolCallbacks: { setToolStatus, removeToolStatus: vi.fn() },
+			toolId: 'call_exit'
+		})
+		// The hook deliberately does not block the card, so let its save settle.
+		const save = (manager as any).planSave
+		expect(save).toBeInstanceOf(Promise)
+		await save
+		return setToolStatus
+	}
+
+	const rejectPlan = async (manager: AIChatManager) => {
+		manager.exitPlanModeTool.onConfirmationRejected?.({
+			args: {},
+			toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn() },
+			toolId: 'call_exit'
+		})
+		await vi.waitFor(() => expect(manager.artifacts.remove).toHaveBeenCalled())
+	}
+
+	const planningManager = () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		manager.sessionId = 'session-1'
+		manager.openArtifact = vi.fn()
+		manager.closeArtifact = vi.fn()
+		let n = 0
+		manager.artifacts.create = vi.fn(async (_s: string, input: any) => ({
+			id: `artifact-${++n}`,
+			name: input.name
+		})) as any
+		manager.artifacts.remove = vi.fn(async () => {}) as any
+		manager.setAutonomyMode(AIAutonomyMode.DEFAULT)
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+		return manager
+	}
+
+	it('saves and opens the plan document when the approval card appears', async () => {
+		const manager = planningManager()
+
+		const setToolStatus = await proposePlan(manager, '# Add retries\n\nStep one.')
+
+		expect(manager.artifacts.create).toHaveBeenCalledWith(
+			'session-1',
+			expect.objectContaining({
+				name: 'Add retries',
+				content: '# Add retries\n\nStep one.',
+				kind: 'md'
+			})
+		)
+		expect(manager.openArtifact).toHaveBeenCalledWith('artifact-1', 'Add retries')
+		// The card resolves its document by this id, so losing it orphans the link.
+		expect(setToolStatus).toHaveBeenCalledWith('call_exit', { planArtifactId: 'artifact-1' })
+		expect(manager.planModeActive).toBe(true)
+	})
+
+	it('discards the plan document when the user keeps planning', async () => {
+		const manager = planningManager()
+
+		await proposePlan(manager, '# First cut\n\nStep one.')
+		await rejectPlan(manager)
+
+		expect(manager.closeArtifact).toHaveBeenCalledWith('artifact-1')
+		expect(manager.artifacts.remove).toHaveBeenCalledWith('artifact-1')
+		// A revised plan is a new document, not a resurrection of the rejected one.
+		await proposePlan(manager, '# Second cut\n\nStep two.')
+		await callExitPlanMode(manager, '# Second cut\n\nStep two.')
+
+		expect(manager.artifacts.remove).toHaveBeenCalledTimes(1)
+		expect(manager.openArtifact).toHaveBeenLastCalledWith('artifact-2', 'Second cut')
+	})
+
+	it('approving keeps the plan document and adds no copy', async () => {
+		const manager = planningManager()
+
+		await proposePlan(manager, '# Add retries\n\nStep one.')
+		await callExitPlanMode(manager, '# Add retries\n\nStep one.')
+
+		expect(manager.artifacts.create).toHaveBeenCalledTimes(1)
+		expect(manager.artifacts.remove).not.toHaveBeenCalled()
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.DEFAULT)
+	})
+
+	it('saves, opens and links the plan document even when no card gated the call', async () => {
+		const manager = planningManager()
+		const setToolStatus = vi.fn()
+
+		// The hook never runs when the call skips the card, so fn must produce the document.
+		await callExitPlanMode(manager, '# Add retries\n\nStep one.', setToolStatus)
+
+		expect(manager.artifacts.create).toHaveBeenCalledTimes(1)
+		expect(manager.openArtifact).toHaveBeenCalledWith('artifact-1', 'Add retries')
+		expect(setToolStatus).toHaveBeenCalledWith('call_exit', { planArtifactId: 'artifact-1' })
+	})
+
+	it('restores the posture and claims no document when saving the plan fails', async () => {
+		const manager = planningManager()
+		manager.artifacts.create = vi.fn(async () => {
+			throw new Error('indexeddb unavailable')
+		}) as any
+		const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+		const setToolStatus = await proposePlan(manager, '# Add retries\n\nStep one.')
+		const result = await callExitPlanMode(manager, '# Add retries\n\nStep one.')
+
+		expect(manager.openArtifact).not.toHaveBeenCalled()
+		expect(setToolStatus).not.toHaveBeenCalled()
+		expect(result).not.toContain('saved as a document')
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.DEFAULT)
+		expect(manager.planModeActive).toBe(false)
+		consoleError.mockRestore()
+	})
+
 	it('approves a pending enter_plan_mode card when the user enters plan mode via the picker', async () => {
 		const manager = new AIChatManager()
 		manager.mode = AIMode.GLOBAL

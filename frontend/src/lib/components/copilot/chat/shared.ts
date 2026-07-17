@@ -539,6 +539,7 @@ export type ToolDisplayMessage = {
 	showFade?: boolean
 	actions?: ToolDisplayAction[]
 	userQuestion?: UserQuestionDisplay
+	planArtifactId?: string
 }
 
 export type AssistantDisplayMessage = BaseDisplayMessage & {
@@ -762,9 +763,11 @@ export async function processToolCall<T>({
 
 		// If confirmation is needed and we have the callback, wait for it
 		if (needsConfirmation && toolCallbacks.requestConfirmation) {
+			tool?.onConfirmationRequested?.({ args, toolCallbacks, toolId: toolCall.id })
 			const confirmed = await toolCallbacks.requestConfirmation(toolCall.id, toolCall.function.name)
 
 			if (!confirmed) {
+				tool?.onConfirmationRejected?.({ args, toolCallbacks, toolId: toolCall.id })
 				toolCallbacks.setToolStatus(toolCall.id, {
 					content: 'Cancelled by user',
 					isLoading: false,
@@ -781,6 +784,7 @@ export async function processToolCall<T>({
 
 			const postConfirmationBlock = planModeBlock()
 			if (postConfirmationBlock) {
+				tool?.onConfirmationRejected?.({ args, toolCallbacks, toolId: toolCall.id })
 				return postConfirmationBlock
 			}
 
@@ -862,6 +866,11 @@ export interface Tool<T> {
 	/** Header shown on the confirmation card before the tool runs. Pass a function
 	 * to derive it from the parsed arguments (e.g. name the script being tested). */
 	confirmationMessage?: string | ((args: any) => string)
+	/** Fires only when a confirmation card gates the call, never on auto-accept, so `fn` must
+	 * not rely on it having run. Whatever it sets up is undone by `onConfirmationRejected`,
+	 * which fires on every exit that skips `fn`. Neither is awaited, so neither may throw. */
+	onConfirmationRequested?: (p: { args: any; toolCallbacks: ToolCallbacks; toolId: string }) => void
+	onConfirmationRejected?: (p: { args: any; toolCallbacks: ToolCallbacks; toolId: string }) => void
 	/** Model-facing result returned when the user rejects the confirmation; defaults
 	 * to a generic cancellation. */
 	cancellationMessage?: string
