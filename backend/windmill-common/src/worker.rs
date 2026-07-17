@@ -114,7 +114,7 @@ pub const FORK_SCOPE_MARKER: char = '*';
 /// The marker is opt-in in BOTH scope forms so that no existing tag string changes meaning:
 /// `sensitive(^prod)` keeps excluding only `prod` itself, and `sensitive(^prod*)` is how you
 /// exclude its forks too.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct WorkspaceMatcher {
     pub id: String,
     pub include_forks: bool,
@@ -141,6 +141,14 @@ impl std::fmt::Display for WorkspaceMatcher {
             f.write_str(FORK_SCOPE_MARKER.encode_utf8(&mut [0u8; 4]))?;
         }
         Ok(())
+    }
+}
+
+/// Renders the authored `prod` / `prod*` form rather than the struct fields: `CustomTags` is
+/// `{:?}`-dumped into the "tag is not in the allowed CUSTOM_TAGS" error operators see.
+impl std::fmt::Debug for WorkspaceMatcher {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&self.to_string(), f)
     }
 }
 
