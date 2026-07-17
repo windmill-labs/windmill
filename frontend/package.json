@@ -157,7 +157,7 @@
 		"vscode-ws-jsonrpc": "~3.5.0",
 		"windmill-parser-wasm-asset": "1.749.0",
 		"windmill-parser-wasm-csharp": "1.510.1",
-		"windmill-parser-wasm-go": "1.510.1",
+		"windmill-parser-wasm-go": "1.761.0",
 		"windmill-parser-wasm-java": "1.510.1",
 		"windmill-parser-wasm-nu": "1.510.1",
 		"windmill-parser-wasm-php": "1.647.1",
