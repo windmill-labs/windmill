@@ -510,6 +510,35 @@ describe('HistoryManager image-only chats', () => {
 		expect(hm.getAllSavedChats().find((c) => c.id === id)?.title).toBe('mockup.png')
 	})
 
+	it('keeps the filename title when the evicted bubble re-saves as an omission marker', async () => {
+		const hm = new HistoryManager()
+		await hm.init()
+		const id = hm.getCurrentChatId()
+		await hm.saveChat(
+			[
+				{
+					role: 'user',
+					content: '',
+					images: [
+						{ dataUrl: 'data:image/png;base64,A', mediaType: 'image/png', name: 'mockup.png' }
+					]
+				}
+			] as DisplayMessage[],
+			[] as ChatCompletionMessageParam[]
+		)
+		// Post-reload shape of an evicted image-only first bubble: the omission
+		// marker as content, images gone. Re-saving must not adopt the marker as
+		// the chat's title.
+		await hm.saveChat(
+			[
+				{ role: 'user', content: '[image omitted]' },
+				{ role: 'user', content: 'follow-up' }
+			] as DisplayMessage[],
+			[] as ChatCompletionMessageParam[]
+		)
+		expect(hm.getAllSavedChats().find((c) => c.id === id)?.title).toBe('mockup.png')
+	})
+
 	it('shows an omission marker when an evicted image-only bubble reloads', async () => {
 		const hm = new HistoryManager()
 		await hm.init()
@@ -533,6 +562,39 @@ describe('HistoryManager image-only chats', () => {
 		expect((chat?.displayMessages[0] as any).content).toBe('[image omitted]')
 		expect((chat?.displayMessages[1] as any).images[0].dataUrl).toBe(urlFor(1))
 		expect((chat?.displayMessages[1] as any).content).toBe('')
+	})
+})
+
+describe('HistoryManager without IndexedDB', () => {
+	it('keeps history usable from memory when the database is unavailable', async () => {
+		// whenReady() resolves undefined when opens fail (private browsing,
+		// blocked, corrupt) — history then lives in memory only, and must keep
+		// its inline image bytes: refs without a backing store would break
+		// thumbnails and resend `wm-image:` URLs on retry.
+		;(globalThis as any).indexedDB = {
+			open: () => {
+				throw new Error('blocked')
+			}
+		}
+		const hm = new HistoryManager()
+		await hm.init()
+		const chatId = hm.getCurrentChatId()
+		const png = 'data:image/png;base64,MEMORYONLY'
+		await hm.saveChat(
+			[
+				{ role: 'user', content: 'x', images: [{ dataUrl: png, mediaType: 'image/png' }] }
+			] as DisplayMessage[],
+			[
+				{
+					role: 'user',
+					content: [{ type: 'image_url', image_url: { url: png } }]
+				}
+			] as ChatCompletionMessageParam[]
+		)
+
+		const chat = await hm.loadPastChat(chatId)
+		expect((chat?.displayMessages[0] as any).images[0].dataUrl).toBe(png)
+		expect((chat?.actualMessages[0].content as any[])[0].image_url.url).toBe(png)
 	})
 })
 

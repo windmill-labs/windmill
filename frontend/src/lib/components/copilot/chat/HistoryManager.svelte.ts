@@ -286,7 +286,9 @@ export default class HistoryManager {
 		const snapshot = $state.snapshot(existing)
 		const updated = { ...snapshot, sessionId }
 		this.savedChats = { ...this.savedChats, [chatId]: updated }
-		await this.enqueueDbWrite((db) => db.put('chats', updated))
+		// Through the dehydrating path: a chat saved this session holds inline
+		// data URLs in the mirror, which must not reach the DB.
+		await this.persistDehydratedChat(updated)
 	}
 
 	getPastChats() {
@@ -307,13 +309,14 @@ export default class HistoryManager {
 
 	/**
 	 * Swap every inline image (data URL) in the given message arrays for a
-	 * `wm-image:<id>` ref, mutating them in place — callers pass the snapshot
-	 * that goes to IndexedDB, never live chat state. Returns the id → dataUrl
-	 * map of every image the arrays reference, plus every reference in walk
-	 * order — persistImageBlobs ranks ids by their newest reference, so the
-	 * transcript walks FIRST: it is always whole and chronological, while
-	 * drop-oldest compaction removes old API messages, which would misorder a
-	 * dropped message's still-displayed image.
+	 * `wm-image:<id>` ref, mutating them in place — callers pass a clone bound
+	 * for IndexedDB, never live chat state or the in-memory savedChats mirror.
+	 * Returns the id → dataUrl map of every image the arrays reference, plus
+	 * every reference (pre-existing refs included) in walk order —
+	 * persistImageBlobs ranks ids by their newest reference, so the transcript
+	 * walks FIRST: it is always whole and chronological, while drop-oldest
+	 * compaction removes old API messages, which would misorder a dropped
+	 * message's still-displayed image.
 	 */
 	private dehydrateImages(
 		chatId: string,
@@ -322,30 +325,46 @@ export default class HistoryManager {
 	): { blobs: Map<string, string>; refs: string[] } {
 		const blobs = new Map<string, string>()
 		const refs: string[] = []
-		const refFor = (dataUrl: string): string => {
-			const key = this.imageIdKey(chatId, dataUrl)
+		const refFor = (url: string): string => {
+			// Already a ref (a record that was never rehydrated): it still counts
+			// as a reference — omitting it would let the stale-delete pass reclaim
+			// its blob — but there are no bytes to (re)write.
+			if (url.startsWith(IMAGE_REF_PREFIX)) {
+				refs.push(url.slice(IMAGE_REF_PREFIX.length))
+				return url
+			}
+			const key = this.imageIdKey(chatId, url)
 			let id = this.imageIdByUrl.get(key)
 			if (!id) {
 				id = randomUUID()
 				this.imageIdByUrl.set(key, id)
 			}
-			blobs.set(id, dataUrl)
+			blobs.set(id, url)
 			refs.push(id)
 			return IMAGE_REF_PREFIX + id
 		}
 		for (const message of displayMessages) {
 			if (message.role === 'user' && message.images) {
 				for (const image of message.images) {
-					if (image.dataUrl.startsWith('data:')) image.dataUrl = refFor(image.dataUrl)
+					if (image.dataUrl.startsWith('data:') || image.dataUrl.startsWith(IMAGE_REF_PREFIX)) {
+						image.dataUrl = refFor(image.dataUrl)
+					}
 				}
-			} else if (message.role === 'tool' && message.imageUrl?.startsWith('data:')) {
+			} else if (
+				message.role === 'tool' &&
+				(message.imageUrl?.startsWith('data:') || message.imageUrl?.startsWith(IMAGE_REF_PREFIX))
+			) {
 				message.imageUrl = refFor(message.imageUrl)
 			}
 		}
 		for (const message of actualMessages) {
 			if (!Array.isArray(message.content)) continue
 			for (const part of message.content as any[]) {
-				if (part?.type === 'image_url' && part.image_url?.url?.startsWith('data:')) {
+				if (
+					part?.type === 'image_url' &&
+					(part.image_url?.url?.startsWith('data:') ||
+						part.image_url?.url?.startsWith(IMAGE_REF_PREFIX))
+				) {
 					part.image_url.url = refFor(part.image_url.url)
 				}
 			}
@@ -472,12 +491,14 @@ export default class HistoryManager {
 				titleSource.role === 'user' && titleSource.images?.length
 					? (titleSource.images[0].name ?? 'Image attachment')
 					: ''
+			// A hydrated omission marker is not user text — deriving from it would
+			// overwrite the filename title an evicted image-only chat was given.
 			const title =
 				displayMessages[0].role === 'summary' && existingTitle !== undefined
 					? existingTitle
-					: derivedTitle.trim()
+					: derivedTitle.trim() && derivedTitle !== IMAGE_OMITTED_PLACEHOLDER
 						? derivedTitle
-						: imageFallback
+						: imageFallback || existingTitle || ''
 			// we don't want to save the snapshot in the history
 			const updatedChat = {
 				actualMessages: $state.snapshot(messages),
@@ -514,30 +535,41 @@ export default class HistoryManager {
 							}
 						: {})
 			}
-			// The snapshot (and the savedChats copy below, which mirrors what the DB
-			// holds) keeps refs; the caller's live arrays keep their data URLs.
-			const { blobs, refs } = this.dehydrateImages(
-				updatedChat.id,
-				updatedChat.actualMessages,
-				updatedChat.displayMessages
-			)
+			// The in-memory mirror keeps the inline data URLs: IndexedDB can be
+			// unavailable (whenReady() → undefined in private browsing / blocked
+			// opens), and history must stay fully usable from memory then — refs
+			// with no backing store would break thumbnails and resend `wm-image:`
+			// URLs. The strings are shared with the live arrays, so this retains
+			// no extra bytes. Only the clone bound for the DB is dehydrated.
 			this.savedChats = {
 				...this.savedChats,
 				[updatedChat.id]: updatedChat
 			}
-
-			await this.enqueueDbWrite(async (db) => {
-				// Write order is the crash-safety story: kept blobs land before the
-				// record that references them, and stale blobs are deleted only after
-				// the new record is committed. A failure at any step leaves the last
-				// committed record fully hydratable — at worst orphan blobs linger
-				// until the next successful save's delete pass reclaims them.
-				const keep = this.keptImageIds(refs)
-				await this.writeKeptImageBlobs(db, updatedChat.id, blobs, keep)
-				await db.put('chats', updatedChat)
-				await this.deleteStaleImageBlobs(db, updatedChat.id, keep)
-			})
+			await this.persistDehydratedChat(updatedChat)
 		}
+	}
+
+	/** Dehydrate a clone of the record and write it (and its blobs) to the DB;
+	 *  the caller's copy keeps its inline data URLs. */
+	private persistDehydratedChat(record: HistoryManager['savedChats'][string]) {
+		// structuredClone shares string values, so this copies structure, not bytes.
+		const persisted = structuredClone(record)
+		const { blobs, refs } = this.dehydrateImages(
+			persisted.id,
+			persisted.actualMessages,
+			persisted.displayMessages
+		)
+		return this.enqueueDbWrite(async (db) => {
+			// Write order is the crash-safety story: kept blobs land before the
+			// record that references them, and stale blobs are deleted only after
+			// the new record is committed. A failure at any step leaves the last
+			// committed record fully hydratable — at worst orphan blobs linger
+			// until the next successful save's delete pass reclaims them.
+			const keep = this.keptImageIds(refs)
+			await this.writeKeptImageBlobs(db, persisted.id, blobs, keep)
+			await db.put('chats', persisted)
+			await this.deleteStaleImageBlobs(db, persisted.id, keep)
+		})
 	}
 
 	async save(
