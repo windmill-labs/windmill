@@ -10,7 +10,6 @@ export interface EndpointTool {
     pathParamsSchema?: object;
     queryParamsSchema?: object;
     bodySchema?: object;
-    pathFieldRenames?: Record<string, string>;
     queryFieldRenames?: Record<string, string>;
     bodyFieldRenames?: Record<string, string>;
 }
@@ -36,7 +35,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         ]
 },
         bodySchema: undefined,
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -64,7 +62,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         ]
 },
         bodySchema: undefined,
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -134,7 +131,6 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "description"
         ]
 },
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -157,7 +153,6 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         queryParamsSchema: undefined,
         bodySchema: undefined,
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -170,13 +165,12 @@ export const mcpEndpointTools: EndpointTool[] = [
         pathParamsSchema: {
         "type": "object",
         "properties": {
-                "path__path": {
-                        "type": "string",
-                        "description": "(path parameter)"
+                "path": {
+                        "type": "string"
                 }
         },
         "required": [
-                "path__path"
+                "path"
         ]
 },
         queryParamsSchema: {
@@ -215,12 +209,9 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "path__body": {
                         "type": "string",
-                        "description": "The path to the variable (body parameter)"
+                        "description": "The path to the variable (body parameter). Defaults to `path` when omitted; set it only to change the path."
                 }
         }
-},
-        pathFieldRenames: {
-        "path__path": "path"
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: {
@@ -263,7 +254,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         "required": []
 },
         bodySchema: undefined,
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -317,7 +307,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         "required": []
 },
         bodySchema: undefined,
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -372,7 +361,6 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "resource_type"
         ]
 },
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -395,7 +383,6 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         queryParamsSchema: undefined,
         bodySchema: undefined,
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -408,13 +395,12 @@ export const mcpEndpointTools: EndpointTool[] = [
         pathParamsSchema: {
         "type": "object",
         "properties": {
-                "path__path": {
-                        "type": "string",
-                        "description": "(path parameter)"
+                "path": {
+                        "type": "string"
                 }
         },
         "required": [
-                "path__path"
+                "path"
         ]
 },
         queryParamsSchema: undefined,
@@ -443,12 +429,9 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "path__body": {
                         "type": "string",
-                        "description": "The path to the resource (body parameter)"
+                        "description": "The path to the resource (body parameter). Defaults to `path` when omitted; set it only to change the path."
                 }
         }
-},
-        pathFieldRenames: {
-        "path__path": "path"
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: {
@@ -483,7 +466,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         "required": []
 },
         bodySchema: undefined,
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -545,7 +527,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         "required": []
 },
         bodySchema: undefined,
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -558,7 +539,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         pathParamsSchema: undefined,
         queryParamsSchema: undefined,
         bodySchema: undefined,
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -656,7 +636,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         "required": []
 },
         bodySchema: undefined,
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -708,7 +687,6 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "language"
         ]
 },
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -731,7 +709,6 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         queryParamsSchema: undefined,
         bodySchema: undefined,
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -763,7 +740,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         "required": []
 },
         bodySchema: undefined,
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -798,7 +774,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         "required": []
 },
         bodySchema: undefined,
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -825,7 +800,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         "description": "The arguments to pass to the script or flow",
         "additionalProperties": true
 },
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -895,7 +869,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         "required": []
 },
         bodySchema: undefined,
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -930,7 +903,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         "required": []
 },
         bodySchema: undefined,
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -976,7 +948,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         ],
         "description": "Top-level flow definition containing metadata, configuration, and the flow structure"
 },
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -989,13 +960,12 @@ export const mcpEndpointTools: EndpointTool[] = [
         pathParamsSchema: {
         "type": "object",
         "properties": {
-                "path__path": {
-                        "type": "string",
-                        "description": "(path parameter)"
+                "path": {
+                        "type": "string"
                 }
         },
         "required": [
-                "path__path"
+                "path"
         ]
 },
         queryParamsSchema: undefined,
@@ -1024,18 +994,14 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "path__body": {
                         "type": "string",
-                        "description": "(body parameter)"
+                        "description": "(body parameter). Defaults to `path` when omitted; set it only to change the path."
                 }
         },
         "required": [
                 "summary",
-                "value",
-                "path__body"
+                "value"
         ],
         "description": "Top-level flow definition containing metadata, configuration, and the flow structure"
-},
-        pathFieldRenames: {
-        "path__path": "path"
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: {
@@ -1070,7 +1036,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         "required": []
 },
         bodySchema: undefined,
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -1108,7 +1073,6 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "policy"
         ]
 },
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -1121,13 +1085,12 @@ export const mcpEndpointTools: EndpointTool[] = [
         pathParamsSchema: {
         "type": "object",
         "properties": {
-                "path__path": {
-                        "type": "string",
-                        "description": "(path parameter)"
+                "path": {
+                        "type": "string"
                 }
         },
         "required": [
-                "path__path"
+                "path"
         ]
 },
         queryParamsSchema: undefined,
@@ -1148,12 +1111,9 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "path__body": {
                         "type": "string",
-                        "description": "(body parameter)"
+                        "description": "(body parameter). Defaults to `path` when omitted; set it only to change the path."
                 }
         }
-},
-        pathFieldRenames: {
-        "path__path": "path"
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: {
@@ -1183,7 +1143,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         "description": "The arguments to pass to the script or flow",
         "additionalProperties": true
 },
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -1278,7 +1237,6 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "language"
         ]
 },
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -1399,7 +1357,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         "required": []
 },
         bodySchema: undefined,
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -1566,7 +1523,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         "required": []
 },
         bodySchema: undefined,
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -1605,7 +1561,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         "required": []
 },
         bodySchema: undefined,
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -1637,7 +1592,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         "required": []
 },
         bodySchema: undefined,
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -1847,7 +1801,6 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "args"
         ]
 },
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -2050,7 +2003,6 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "args"
         ]
 },
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -2073,7 +2025,6 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         queryParamsSchema: undefined,
         bodySchema: undefined,
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -2105,7 +2056,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         "required": []
 },
         bodySchema: undefined,
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -2171,7 +2121,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         "required": []
 },
         bodySchema: undefined,
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     },
@@ -2201,7 +2150,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         "required": []
 },
         bodySchema: undefined,
-        pathFieldRenames: undefined,
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
     }

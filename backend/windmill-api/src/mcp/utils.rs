@@ -295,7 +295,7 @@ pub async fn get_hub_script_schema(path: &str, db: &DB) -> Result<Option<Schema>
 // ============================================================================
 
 /// Look up the original field name from a field_renames map.
-/// field_renames maps renamed_key -> original_key (e.g. {"path__path": "path"}).
+/// field_renames maps renamed_key -> original_key (e.g. {"path__body": "path"}).
 fn get_original_name(renamed_key: &str, field_renames: &Option<Value>) -> String {
     field_renames
         .as_ref()
@@ -373,20 +373,17 @@ pub fn substitute_path_params(
     workspace_id: &str,
     args_map: &serde_json::Map<String, Value>,
     path_schema: &Option<Value>,
-    path_field_renames: &Option<Value>,
 ) -> BackendResult<String> {
     let mut path_template = path.replace("{workspace}", workspace_id);
 
     if let Some(schema) = path_schema {
         if let Some(props) = schema.get("properties").and_then(|p| p.as_object()) {
             for (param_name, _) in props {
-                // param_name may be renamed (e.g. "path__path"), get original for URL placeholder
-                let original_name = get_original_name(param_name, path_field_renames);
-                let placeholder = format!("{{{}}}", original_name);
+                let placeholder = format!("{{{}}}", param_name);
                 match args_map.get(param_name) {
                     Some(param_value) => {
                         if let Some(str_val) = param_value.as_str() {
-                            validate_path_param_value(&original_name, str_val)?;
+                            validate_path_param_value(param_name, str_val)?;
                             path_template = path_template.replace(&placeholder, str_val);
                         }
                     }
@@ -675,6 +672,60 @@ mod tests {
         );
     }
 
+    // updateFlow-shaped: `path` is both a path parameter and a body field. The path
+    // parameter keeps the plain name; only the body side is mangled.
+    fn update_flow_schemas() -> (Option<Value>, Option<Value>, Option<Value>) {
+        (
+            Some(json!({
+                "type": "object",
+                "properties": { "path": { "type": "string" } },
+                "required": ["path"]
+            })),
+            Some(json!({
+                "type": "object",
+                "properties": {
+                    "summary": { "type": "string" },
+                    "value": { "type": "object" },
+                    "path__body": { "type": "string" }
+                },
+                "required": ["summary", "value"]
+            })),
+            Some(json!({ "path__body": "path" })),
+        )
+    }
+
+    #[test]
+    fn build_request_body_maps_body_path_alias_for_rename() {
+        // The mangled body field carries the *new* path when renaming; it must reach the
+        // API under its original name `path`. (An omitted `path__body` is intentionally
+        // absent from the body; the server defaults it from the URL path parameter.)
+        let (path_schema, body_schema, body_renames) = update_flow_schemas();
+        let args: serde_json::Map<String, Value> = json!({
+            "path": "f/team/my_flow",
+            "path__body": "f/team/renamed_flow",
+            "summary": "s",
+            "value": {}
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+
+        let body = build_request_body(
+            "POST",
+            &args,
+            &body_schema,
+            &body_renames,
+            &path_schema,
+            &None,
+        )
+        .expect("body should be built");
+        assert_eq!(
+            body.as_object().unwrap().get("path"),
+            Some(&json!("f/team/renamed_flow")),
+            "path__body must be sent as `path` so a rename takes effect"
+        );
+    }
+
     #[test]
     fn build_request_body_get_has_no_body() {
         let body_schema = Some(json!({ "type": "object", "additionalProperties": true }));
@@ -745,7 +796,6 @@ mod tests {
             "dev",
             &args,
             &path_schema,
-            &None,
         );
         assert!(
             result.is_err(),
@@ -767,7 +817,6 @@ mod tests {
             "dev",
             &args,
             &path_schema,
-            &None,
         )
         .expect("legitimate path should substitute");
         assert_eq!(result, "/w/dev/scripts/get/p/u/alice/my_script");
