@@ -32,35 +32,36 @@
 			.map((c) => ({ value: c.email, label: `${c.username} (${c.email})` }))
 	)
 
-	async function loadMembers(): Promise<void> {
-		members = await UserService.listUsers({ workspace: $workspaceStore! })
+	async function loadMembers(workspace: string): Promise<void> {
+		const loaded = await UserService.listUsers({ workspace })
+		if (workspace !== $workspaceStore) return
+		members = loaded
 	}
 
-	async function loadCandidates(): Promise<void> {
-		if (!parentWorkspaceId) {
-			candidates = []
-			return
-		}
+	async function loadCandidates(workspace: string, parent: string): Promise<void> {
 		try {
-			const parentMembers = await UserService.listUsers({ workspace: parentWorkspaceId })
+			const parentMembers = await UserService.listUsers({ workspace: parent })
+			if (workspace !== $workspaceStore) return
 			candidates = parentMembers.filter((u) => !u.operator && !u.disabled)
 		} catch (e) {
 			console.warn('Failed to list the parent workspace members:', e)
-			candidates = []
+			if (workspace === $workspaceStore) {
+				candidates = []
+			}
 		}
 	}
 
-	async function addCandidate(): Promise<void> {
+	async function addCandidate(workspace: string): Promise<void> {
 		if (!selectedCandidate) return
 		adding = true
 		try {
 			await WorkspaceService.addUser({
-				workspace: $workspaceStore!,
+				workspace,
 				requestBody: { email: selectedCandidate, is_admin: false, operator: false }
 			})
 			sendUserToast(`Added ${selectedCandidate} as a developer of this fork`)
 			selectedCandidate = undefined
-			await loadMembers()
+			await loadMembers(workspace)
 		} catch (e) {
 			console.error('Failed to add member:', e)
 			sendUserToast(`Failed to add member: ${e}`, true)
@@ -69,11 +70,11 @@
 		}
 	}
 
-	async function removeMember(username: string): Promise<void> {
+	async function removeMember(workspace: string, username: string): Promise<void> {
 		try {
-			await UserService.deleteUser({ workspace: $workspaceStore!, username })
+			await UserService.deleteUser({ workspace, username })
 			sendUserToast(`Removed ${username} from this fork`)
-			await loadMembers()
+			await loadMembers(workspace)
 		} catch (e) {
 			console.error('Failed to remove member:', e)
 			sendUserToast(`Failed to remove member: ${e}`, true)
@@ -81,11 +82,19 @@
 	}
 
 	$effect(() => {
-		;[$workspaceStore, parentWorkspaceId]
+		const workspace = $workspaceStore
+		const parent = parentWorkspaceId
 		untrack(() => {
-			if ($workspaceStore && parentWorkspaceId) {
-				loadMembers()
-				loadCandidates()
+			// A workspace switch keeps this component mounted, so everything keyed to the previous fork
+			// goes: a pending removal would otherwise carry that fork's username into this one, where
+			// the same username can be a different person.
+			members = undefined
+			candidates = []
+			selectedCandidate = undefined
+			removeConfirmedCallback = undefined
+			if (workspace && parent) {
+				loadMembers(workspace)
+				loadCandidates(workspace, parent)
 			}
 		})
 	})
@@ -136,8 +145,8 @@
 					<Button
 						variant="accent"
 						unifiedSize="md"
-						disabled={!selectedCandidate || adding}
-						onClick={addCandidate}
+						disabled={!selectedCandidate || adding || !$workspaceStore}
+						onClick={() => addCandidate($workspaceStore!)}
 					>
 						Add as developer
 					</Button>
@@ -191,7 +200,8 @@
 										: undefined}
 								startIcon={{ icon: UserMinus }}
 								onClick={() => {
-									removeConfirmedCallback = () => removeMember(username)
+									const workspace = $workspaceStore!
+									removeConfirmedCallback = () => removeMember(workspace, username)
 								}}
 							>
 								Remove

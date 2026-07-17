@@ -50,6 +50,23 @@ async fn test_fork_creator_can_only_manage_developers_on_their_fork(
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
+    // Seating an eligible member on someone else's username is what would hand them that user's
+    // cloned private assets. `test-user-4` is the target that matters: a fork clones the parent's
+    // `u/test-user-4/` scripts, variables and secrets but not their membership, so the username is
+    // free of the unique constraint on `usr` and the squat would otherwise land.
+    let resp = add_user(
+        port,
+        "wm-fork-test",
+        FORK_OWNER_TOKEN,
+        json!({ "email": "test3@windmill.dev", "username": "test-user-4", "is_admin": false, "operator": false }),
+    )
+    .await;
+    assert_eq!(
+        resp.status(),
+        403,
+        "fork creator cannot choose the username a member joins under"
+    );
+
     // The creator adds a developer of the parent as a developer of their fork.
     let resp = add_user(
         port,
@@ -59,6 +76,18 @@ async fn test_fork_creator_can_only_manage_developers_on_their_fork(
     )
     .await;
     assert_eq!(resp.status(), 201, "fork creator can add a developer");
+
+    // They join under the username they hold in the parent, which is the `u/` namespace the fork
+    // cloned for them.
+    let username: String = sqlx::query_scalar(
+        "SELECT username FROM usr WHERE workspace_id = 'wm-fork-test' AND email = 'test3@windmill.dev'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        username, "test-user-3",
+        "added member keeps their parent username"
+    );
 
     // ... but never as an admin.
     let resp = add_user(

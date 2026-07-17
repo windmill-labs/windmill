@@ -1854,29 +1854,26 @@ pub async fn delete_workspace_user_internal(
 /// from the fork they created, so that adding the wrong collaborator is theirs to undo rather than
 /// an admin's. Never on a root workspace, and never against an admin of the fork — the counterpart
 /// of the add grant, whose bounds are spelled out on `add_user` in `windmill-api-workspaces`.
+///
+/// `target_is_admin` must come from a row locked by the caller's deletion transaction: the grant
+/// turns on the target not being an admin, so a promotion committing between the check and the
+/// delete would remove an admin after all. `None` (no such member) is left to the caller's 404,
+/// which is raised only after this returns so that a non-creator cannot probe who exists.
 async fn authorize_fork_owner_delete_user(
-    db: &DB,
+    tx: &mut Transaction<'_, Postgres>,
     w_id: &str,
     authed: &ApiAuthed,
     username_to_delete: &str,
+    target_is_admin: Option<bool>,
 ) -> Result<()> {
-    if windmill_common::workspaces::fork_owned_by(db, w_id, &authed.email)
+    if windmill_common::workspaces::fork_owned_by(&mut **tx, w_id, &authed.email)
         .await?
         .is_none()
     {
         return Err(Error::RequireAdmin(authed.username.clone()));
     }
 
-    let target_is_admin = sqlx::query_scalar!(
-        "SELECT is_admin FROM usr WHERE workspace_id = $1 AND username = $2",
-        w_id,
-        username_to_delete,
-    )
-    .fetch_optional(db)
-    .await?
-    .unwrap_or(false);
-
-    if target_is_admin {
+    if target_is_admin == Some(true) {
         return Err(Error::PermissionDenied(format!(
             "as the creator of fork {w_id} you cannot remove {username_to_delete}, who is an admin \
              of it"
@@ -1891,21 +1888,29 @@ async fn delete_workspace_user(
     Extension(db): Extension<DB>,
     Path((w_id, username_to_delete)): Path<(String, String)>,
 ) -> Result<String> {
-    if !authed.is_admin {
-        authorize_fork_owner_delete_user(&db, &w_id, &authed, &username_to_delete).await?;
-    }
-
     let mut tx = db.begin().await?;
 
-    let email_to_delete_o = sqlx::query_scalar!(
-        "SELECT email FROM usr where username = $1 AND workspace_id = $2",
+    // Locked so that the authorization below and the delete it guards see the same row.
+    let target = sqlx::query!(
+        "SELECT email, is_admin FROM usr where username = $1 AND workspace_id = $2 FOR UPDATE",
         username_to_delete,
         &w_id,
     )
     .fetch_optional(&mut *tx)
     .await?;
 
-    let email_to_delete = not_found_if_none(email_to_delete_o, "User", &username_to_delete)?;
+    if !authed.is_admin {
+        authorize_fork_owner_delete_user(
+            &mut tx,
+            &w_id,
+            &authed,
+            &username_to_delete,
+            target.as_ref().map(|t| t.is_admin),
+        )
+        .await?;
+    }
+
+    let email_to_delete = not_found_if_none(target, "User", &username_to_delete)?.email;
 
     delete_workspace_user_internal(
         &w_id,

@@ -662,8 +662,13 @@ pub async fn fork_subtree_height(db: &crate::DB, w_id: &str) -> Result<i64> {
 /// `add_user` in `windmill-api-workspaces`).
 ///
 /// Unauthenticated helper: reads workspace hierarchy for any `w_id`, so callers must already be
-/// authorized for that workspace (or run in trusted server-side code).
-pub async fn fork_owned_by(db: &crate::DB, w_id: &str, email: &str) -> Result<Option<String>> {
+/// authorized for that workspace (or run in trusted server-side code). Takes any executor so that a
+/// caller can run it inside the transaction whose writes the grant authorizes.
+pub async fn fork_owned_by<'e, E: sqlx::Executor<'e, Database = sqlx::Postgres>>(
+    db: E,
+    w_id: &str,
+    email: &str,
+) -> Result<Option<String>> {
     let parent = sqlx::query_scalar!(
         "SELECT parent_workspace_id FROM workspace
          WHERE id = $1 AND owner = $2 AND parent_workspace_id IS NOT NULL AND NOT deleted",

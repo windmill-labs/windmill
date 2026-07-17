@@ -26,3 +26,8 @@ INSERT INTO usr (workspace_id, email, username, is_admin, operator, role) VALUES
 -- add_user resolves the instance-wide username from `password`.
 UPDATE password SET username = 'test-user-2' WHERE email = 'test2@windmill.dev';
 UPDATE password SET username = 'test-user-3' WHERE email = 'test3@windmill.dev';
+
+-- With automated username creation off, `add_user` takes the username from the caller. That branch
+-- is what the fork creator must not be able to steer, so the tests run against it.
+INSERT INTO global_settings (name, value) VALUES ('automate_username_creation', 'false'::jsonb)
+	ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value;

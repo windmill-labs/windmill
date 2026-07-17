@@ -777,11 +777,16 @@
 	})
 
 	$effect(() => {
+		// `canAdmin` is read as a dependency, not inside untrack: $userStore is repopulated
+		// asynchronously after a workspace switch, so the run triggered by the switch can still see
+		// the previous workspace's role. Re-running once it lands is what loads the settings for an
+		// admin who switched in from a workspace where they were not one.
+		const admin = canAdmin
 		if ($workspaceStore) {
 			untrack(() => {
 				// `getSettings` and the OAuth config are admin-only and carry integration secrets. A fork
 				// creator reaches this page for the members screen alone, which needs none of them.
-				if (!canAdmin) {
+				if (!admin) {
 					loadedSettings = true
 					return
 				}
@@ -1427,10 +1432,10 @@
 						{:else if tab == 'premium'}
 							{#if currentWorkspace?.parent_workspace_id}
 								<Alert type="info" title="Billing is managed on the parent workspace">
-									This workspace is a fork of <b>{currentWorkspace.parent_workspace_id}</b>. It
-									runs on the parent's plan and its executions count toward the parent's usage and
-									bill, so there is no separate subscription here. Manage billing, seats, and quotas
-									from the parent workspace's settings.
+									This workspace is a fork of <b>{currentWorkspace.parent_workspace_id}</b>. It runs
+									on the parent's plan and its executions count toward the parent's usage and bill,
+									so there is no separate subscription here. Manage billing, seats, and quotas from
+									the parent workspace's settings.
 								</Alert>
 							{:else}
 								<PremiumInfo {customer_id} {plan} />
