@@ -52,10 +52,10 @@ impl CustomTags {
                 let tag_name = cap.get(1).unwrap().as_str().to_string();
                 let workspace_str = cap.get(2).unwrap().as_str();
                 let tag_type = SpecificTagType::from_regex_string(workspace_str);
-                let workspaces: Vec<String> = workspace_str
+                let workspaces: Vec<WorkspaceMatcher> = workspace_str
                     .split(tag_type.corresponding_separator())
                     .filter(|s| !s.is_empty())
-                    .map(str::to_string)
+                    .map(WorkspaceMatcher::parse)
                     .collect();
                 if workspaces.is_empty() {
                     tracing::warn!("Ignoring tag `{}` with empty exclusion/inclusion list", e);
@@ -70,11 +70,13 @@ impl CustomTags {
         Self { global, specific }
     }
 
-    pub fn to_string_vec(&self, filter_with_workspace: Option<String>) -> Vec<String> {
-        let specific = if let Some(workspace) = filter_with_workspace {
+    /// `filter_with_workspace` is the workspace's id chain (see [`SpecificTagData::applies_to_workspace`]);
+    /// `None` re-emits the authored `tag(ws1+ws2)` strings for the settings editor.
+    pub fn to_string_vec(&self, filter_with_workspace: Option<&[String]>) -> Vec<String> {
+        let specific = if let Some(chain) = filter_with_workspace {
             self.specific
                 .iter()
-                .filter(|(_, tag_data)| tag_data.applies_to_workspace(&workspace))
+                .filter(|(_, tag_data)| tag_data.applies_to_workspace(chain))
                 .map(|(tag, _)| tag.clone())
                 .collect::<Vec<String>>()
         } else {
@@ -82,7 +84,12 @@ impl CustomTags {
                 .iter()
                 .map(|(tag, tag_data)| {
                     let separator = tag_data.tag_type.corresponding_separator();
-                    let mut workspaces = tag_data.workspaces.join(&*separator.to_string());
+                    let mut workspaces = tag_data
+                        .workspaces
+                        .iter()
+                        .map(|w| w.to_string())
+                        .collect::<Vec<_>>()
+                        .join(&*separator.to_string());
                     if tag_data.tag_type == SpecificTagType::AllExcluding {
                         // the AllExcluding tag syntax has a leading separator
                         workspaces.insert(0, separator);
@@ -95,18 +102,77 @@ impl CustomTags {
         all_tags.into_iter().chain(specific.into_iter()).collect()
     }
 }
+
+/// Marker suffixed to a workspace id inside a custom tag's scope (`mytag(prod*)`) to extend the
+/// entry to that workspace's forks. `*` cannot appear in a workspace id (the `proper_id` check
+/// constraint restricts them to `^\w+(-\w+)*$`), so it can never collide with a real id.
+pub const FORK_SCOPE_MARKER: char = '*';
+
+/// One workspace entry in a custom tag's scope. Bare (`prod`) matches that workspace only;
+/// with the [`FORK_SCOPE_MARKER`] (`prod*`) it also matches its forks, transitively.
+///
+/// The marker is opt-in in BOTH scope forms so that no existing tag string changes meaning:
+/// `sensitive(^prod)` keeps excluding only `prod` itself, and `sensitive(^prod*)` is how you
+/// exclude its forks too.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WorkspaceMatcher {
+    pub id: String,
+    pub include_forks: bool,
+}
+
+impl WorkspaceMatcher {
+    fn parse(entry: &str) -> Self {
+        match entry.strip_suffix(FORK_SCOPE_MARKER) {
+            Some(id) => Self { id: id.to_string(), include_forks: true },
+            None => Self { id: entry.to_string(), include_forks: false },
+        }
+    }
+
+    fn matches(&self, workspace_id: &str, fork_ancestors: &[String]) -> bool {
+        workspace_id == self.id
+            || (self.include_forks && fork_ancestors.iter().any(|a| *a == self.id))
+    }
+}
+
+impl std::fmt::Display for WorkspaceMatcher {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.id)?;
+        if self.include_forks {
+            f.write_str(FORK_SCOPE_MARKER.encode_utf8(&mut [0u8; 4]))?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SpecificTagData {
     pub tag_type: SpecificTagType,
-    pub workspaces: Vec<String>,
+    pub workspaces: Vec<WorkspaceMatcher>,
 }
 
 impl SpecificTagData {
-    pub fn applies_to_workspace(&self, workspace_id: &str) -> bool {
+    /// `chain` is the workspace itself followed by its fork ancestors, nearest-first, as built by
+    /// `workspaces::workspace_with_fork_ancestors`. Pass a single-element slice when
+    /// [`Self::is_fork_scoped`] is false: the ancestors cannot affect the outcome then.
+    pub fn applies_to_workspace(&self, chain: &[String]) -> bool {
+        let Some((workspace_id, fork_ancestors)) = chain.split_first() else {
+            return false;
+        };
+        let matched = self
+            .workspaces
+            .iter()
+            .any(|w| w.matches(workspace_id, fork_ancestors));
         match self.tag_type {
-            SpecificTagType::AllExcluding => !self.workspaces.contains(&workspace_id.to_string()),
-            SpecificTagType::NoneExcept => self.workspaces.contains(&workspace_id.to_string()),
+            SpecificTagType::AllExcluding => !matched,
+            SpecificTagType::NoneExcept => matched,
         }
+    }
+
+    /// Whether any entry carries the fork marker, i.e. whether resolving the workspace's fork
+    /// lineage can change what [`Self::applies_to_workspace`] returns. Lets hot callers skip the
+    /// lineage lookup for the (overwhelmingly common) fork-agnostic tag.
+    pub fn is_fork_scoped(&self) -> bool {
+        self.workspaces.iter().any(|w| w.include_forks)
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -295,12 +361,14 @@ lazy_static::lazy_static! {
     //    ^([\w-]+)         # Group 1: tag name
     //    \(                # Literal '('
     //    (                 # Group 2: the full workspace list
-    //      (?:[\w-]+\+)*[\w-]+     # NoneExcept pattern: ws1+ws2
-    //      |                      # OR
-    //      (?:\^[\w-]+)+          # AllExcluding pattern: ^ws1^ws2
+    //      (?:[\w-]+\*?\+)*[\w-]+\*?   # NoneExcept pattern: ws1+ws2*
+    //      |                          # OR
+    //      (?:\^[\w-]+\*?)+           # AllExcluding pattern: ^ws1^ws2*
     //    )
     //    \)$               # Closing ')'
-    static ref CUSTOM_TAG_REGEX: Regex = Regex::new(r"^([\w-]+)\(((?:[\w-]+\+)*[\w-]+|(?:\^[\w-]+)+)\)$").unwrap();
+    //
+    // The optional `*` after each workspace id is the fork marker, see [`WorkspaceMatcher`].
+    static ref CUSTOM_TAG_REGEX: Regex = Regex::new(r"^([\w-]+)\(((?:[\w-]+\*?\+)*[\w-]+\*?|(?:\^[\w-]+\*?)+)\)$").unwrap();
 
     pub static ref DISABLE_BUNDLING: bool = std::env::var("DISABLE_BUNDLING")
     .ok()
@@ -2332,6 +2400,19 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    fn matcher(id: &str) -> WorkspaceMatcher {
+        WorkspaceMatcher { id: id.to_string(), include_forks: false }
+    }
+
+    fn fork_matcher(id: &str) -> WorkspaceMatcher {
+        WorkspaceMatcher { id: id.to_string(), include_forks: true }
+    }
+
+    /// A workspace id chain: the workspace itself, then its fork ancestors nearest-first.
+    fn chain(ids: &[&str]) -> Vec<String> {
+        ids.iter().map(|s| s.to_string()).collect()
+    }
+
     #[test]
     fn test_bash_sandbox_image_annotation() {
         // `# sandbox <image>` selects the container runtime and returns the image.
@@ -2430,14 +2511,14 @@ mod tests {
             "feat".to_string(),
             SpecificTagData {
                 tag_type: SpecificTagType::NoneExcept,
-                workspaces: vec!["ws1".to_string(), "ws2".to_string()],
+                workspaces: vec![matcher("ws1"), matcher("ws2")],
             },
         );
         expected.insert(
             "hotfix".to_string(),
             SpecificTagData {
                 tag_type: SpecificTagType::AllExcluding,
-                workspaces: vec!["ws3".to_string(), "ws4".to_string()],
+                workspaces: vec![matcher("ws3"), matcher("ws4")],
             },
         );
 
@@ -2480,7 +2561,7 @@ mod tests {
 
         let data = tags.specific.get("urgent").unwrap();
         assert_eq!(data.tag_type, SpecificTagType::NoneExcept);
-        assert_eq!(data.workspaces, vec!["ws1", "ws2"]);
+        assert_eq!(data.workspaces, vec![matcher("ws1"), matcher("ws2")]);
     }
 
     #[test]
@@ -2493,7 +2574,7 @@ mod tests {
 
         let data = tags.specific.get("legacy").unwrap();
         assert_eq!(data.tag_type, SpecificTagType::AllExcluding);
-        assert_eq!(data.workspaces, vec!["ws1", "ws2"]);
+        assert_eq!(data.workspaces, vec![matcher("ws1"), matcher("ws2")]);
     }
 
     #[test]
@@ -2510,10 +2591,10 @@ mod tests {
         let input = vec!["urgent(ws1+ws2)".to_string()];
         let tags = CustomTags::from(input);
 
-        let output = tags.to_string_vec(Some("ws1".to_string()));
+        let output = tags.to_string_vec(Some(&chain(&["ws1"])));
         assert_eq!(output, vec!["urgent"]);
 
-        let output_none = tags.to_string_vec(Some("ws3".to_string()));
+        let output_none = tags.to_string_vec(Some(&chain(&["ws3"])));
         assert!(output_none.is_empty());
     }
 
@@ -2522,10 +2603,10 @@ mod tests {
         let input = vec!["legacy(^ws1^ws2)".to_string()];
         let tags = CustomTags::from(input);
 
-        let output = tags.to_string_vec(Some("ws3".to_string()));
+        let output = tags.to_string_vec(Some(&chain(&["ws3"])));
         assert_eq!(output, vec!["legacy"]);
 
-        let output_excluded = tags.to_string_vec(Some("ws1".to_string()));
+        let output_excluded = tags.to_string_vec(Some(&chain(&["ws1"])));
         assert!(output_excluded.is_empty());
     }
 
@@ -2541,6 +2622,68 @@ mod tests {
         let mut result = tags.to_string_vec(None);
         result.sort();
         assert_eq!(result, vec!["foo", "legacy(^ws1^ws2)", "urgent(ws1+ws2)"]);
+    }
+
+    #[test]
+    fn test_fork_marker_parses_and_round_trips() {
+        let tags = CustomTags::from(vec![
+            "urgent(prod*+ws2)".to_string(),
+            "legacy(^prod*)".to_string(),
+        ]);
+
+        let urgent = tags.specific.get("urgent").unwrap();
+        assert_eq!(
+            urgent.workspaces,
+            vec![fork_matcher("prod"), matcher("ws2")]
+        );
+        assert!(urgent.is_fork_scoped());
+
+        let legacy = tags.specific.get("legacy").unwrap();
+        assert_eq!(legacy.workspaces, vec![fork_matcher("prod")]);
+
+        // The settings editor re-emits what it parsed; dropping `*` here would silently widen
+        // an excluding tag / narrow an including one on every save.
+        let mut result = tags.to_string_vec(None);
+        result.sort();
+        assert_eq!(result, vec!["legacy(^prod*)", "urgent(prod*+ws2)"]);
+    }
+
+    #[test]
+    fn test_fork_marker_extends_none_except_to_forks_only_when_present() {
+        let fork = chain(&["wm-fork-x", "prod"]);
+        let nested = chain(&["wm-fork-y", "wm-fork-x", "prod"]);
+
+        let marked = CustomTags::from(vec!["urgent(prod*)".to_string()]);
+        let marked = marked.specific.get("urgent").unwrap();
+        assert!(marked.applies_to_workspace(&chain(&["prod"])));
+        assert!(marked.applies_to_workspace(&fork));
+        assert!(marked.applies_to_workspace(&nested));
+        assert!(!marked.applies_to_workspace(&chain(&["wm-fork-z", "other"])));
+
+        // Without the marker a fork must NOT inherit the parent's tag.
+        let unmarked = CustomTags::from(vec!["urgent(prod)".to_string()]);
+        let unmarked = unmarked.specific.get("urgent").unwrap();
+        assert!(unmarked.applies_to_workspace(&chain(&["prod"])));
+        assert!(!unmarked.applies_to_workspace(&fork));
+        // Gates the ancestor lookup, so a wrong answer here silently disables the marker.
+        assert!(!unmarked.is_fork_scoped());
+    }
+
+    #[test]
+    fn test_fork_marker_extends_all_excluding_to_forks_only_when_present() {
+        let fork = chain(&["wm-fork-x", "prod"]);
+
+        // Pre-existing exclusions keep their exact meaning: only `prod` itself is excluded.
+        let unmarked = CustomTags::from(vec!["legacy(^prod)".to_string()]);
+        let unmarked = unmarked.specific.get("legacy").unwrap();
+        assert!(!unmarked.applies_to_workspace(&chain(&["prod"])));
+        assert!(unmarked.applies_to_workspace(&fork));
+
+        let marked = CustomTags::from(vec!["legacy(^prod*)".to_string()]);
+        let marked = marked.specific.get("legacy").unwrap();
+        assert!(!marked.applies_to_workspace(&chain(&["prod"])));
+        assert!(!marked.applies_to_workspace(&fork));
+        assert!(marked.applies_to_workspace(&chain(&["other"])));
     }
 
     #[test]

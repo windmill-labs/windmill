@@ -5340,7 +5340,7 @@ async fn test_duckdb_ffi(db: Pool<Postgres>) -> anyhow::Result<()> {
 #[sqlx::test(fixtures("base"))]
 async fn test_flow_substep_tag_availability_check(db: Pool<Postgres>) -> anyhow::Result<()> {
     use windmill_common::worker::{
-        CustomTags, SpecificTagData, SpecificTagType, CUSTOM_TAGS_PER_WORKSPACE,
+        CustomTags, SpecificTagData, SpecificTagType, WorkspaceMatcher, CUSTOM_TAGS_PER_WORKSPACE,
     };
 
     initialize_tracing().await;
@@ -5354,7 +5354,10 @@ async fn test_flow_substep_tag_availability_check(db: Pool<Postgres>) -> anyhow:
             "restricted-tag".to_string(),
             SpecificTagData {
                 tag_type: SpecificTagType::NoneExcept,
-                workspaces: vec!["other-workspace".to_string()],
+                workspaces: vec![WorkspaceMatcher {
+                    id: "other-workspace".to_string(),
+                    include_forks: false,
+                }],
             },
         )]),
     }));

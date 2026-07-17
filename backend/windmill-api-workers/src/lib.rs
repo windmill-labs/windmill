@@ -21,6 +21,7 @@ use windmill_common::{
     jobs::{HIDE_WORKERS_FOR_NON_ADMINS, TAGS_ARE_SENSITIVE},
     utils::{paginate, Pagination},
     worker::{ALL_TAGS, CUSTOM_TAGS_PER_WORKSPACE, DEFAULT_TAGS, DEFAULT_TAGS_PER_WORKSPACE},
+    workspaces::workspace_with_fork_ancestors,
     DB,
 };
 
@@ -162,8 +163,9 @@ async fn exists_workers_with_tags(
         if !has_devops_role {
             if let Some(ref workspace) = tags_query.workspace {
                 // Filter to only tags visible in this workspace
+                let chain = workspace_with_fork_ancestors(&db, workspace).await?;
                 let custom_tags = CUSTOM_TAGS_PER_WORKSPACE.load();
-                let allowed_tags = custom_tags.to_string_vec(Some(workspace.clone()));
+                let allowed_tags = custom_tags.to_string_vec(Some(&chain));
                 tags.retain(|t| allowed_tags.contains(t));
             } else {
                 // No workspace provided and not superadmin - return empty
@@ -222,10 +224,12 @@ async fn get_custom_tags(
 
 async fn get_custom_tags_for_workspace(
     _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<String>> {
+    let chain = workspace_with_fork_ancestors(&db, &w_id).await?;
     let tags_o = CUSTOM_TAGS_PER_WORKSPACE.load();
-    let all_tags = tags_o.to_string_vec(Some(w_id));
+    let all_tags = tags_o.to_string_vec(Some(&chain));
     Ok(Json(all_tags))
 }
 

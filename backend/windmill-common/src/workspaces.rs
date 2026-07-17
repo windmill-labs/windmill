@@ -1391,6 +1391,17 @@ pub async fn fork_ancestor_chain(db: &crate::DB, w_id: &str) -> Result<Vec<Strin
     Ok(chain)
 }
 
+/// `w_id` followed by its fork ancestors, nearest-first: the id sequence to match a
+/// workspace-scoped rule against when the rule can extend to a fork subtree.
+///
+/// Same authorization caveat as [`fork_ancestor_chain`].
+pub async fn workspace_with_fork_ancestors(db: &crate::DB, w_id: &str) -> Result<Vec<String>> {
+    let mut chain = Vec::with_capacity(4);
+    chain.push(w_id.to_string());
+    chain.extend(fork_ancestor_chain(db, w_id).await?);
+    Ok(chain)
+}
+
 pub async fn get_ducklake_from_db_unchecked(
     name: &str,
     w_id: &str,
