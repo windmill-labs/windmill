@@ -1422,6 +1422,35 @@ pub(crate) async fn tarball_workspace(
         .await?;
 
         // Use v2 format only if explicitly requested, otherwise use v1 (legacy) for backward compatibility
+        // Server-owned auto-pull state (the HMAC webhook secret + hook id/error and
+        // the synced-sha / last-pull status) must never leave the server: keep it out
+        // of export archives and synced repos, and don't let a re-imported workspace
+        // inherit another install's hook/sync state. Mirrors the GET-settings redaction.
+        fn redact_git_sync_for_export(git_sync: Option<Value>) -> Option<Value> {
+            let mut git_sync = git_sync?;
+            if let Some(repos) = git_sync
+                .get_mut("repositories")
+                .and_then(|r| r.as_array_mut())
+            {
+                for repo in repos {
+                    if let Some(auto_pull) =
+                        repo.get_mut("auto_pull").and_then(|a| a.as_object_mut())
+                    {
+                        for field in [
+                            "webhook_secret",
+                            "webhook_id",
+                            "webhook_error",
+                            "last_synced_sha",
+                            "last_pull_status",
+                        ] {
+                            auto_pull.remove(field);
+                        }
+                    }
+                }
+            }
+            Some(git_sync)
+        }
+
         let settings_str = if settings_version.as_deref() == Some("v2") {
             let settings = SimplifiedSettings {
                 auto_invite: row.auto_invite,
@@ -1431,7 +1460,7 @@ pub(crate) async fn tarball_workspace(
                 success_handler: row.success_handler,
                 ai_config: row.ai_config,
                 large_file_storage: row.large_file_storage,
-                git_sync: row.git_sync,
+                git_sync: redact_git_sync_for_export(row.git_sync),
                 default_app: row.default_app,
                 default_scripts: row.default_scripts,
                 name: row.name.clone().unwrap_or_default(),
@@ -1502,7 +1531,7 @@ pub(crate) async fn tarball_workspace(
                 error_handler_muted_on_cancel,
                 ai_config: row.ai_config,
                 large_file_storage: row.large_file_storage,
-                git_sync: row.git_sync,
+                git_sync: redact_git_sync_for_export(row.git_sync),
                 default_app: row.default_app,
                 default_scripts: row.default_scripts,
                 name: row.name.unwrap_or_default(),

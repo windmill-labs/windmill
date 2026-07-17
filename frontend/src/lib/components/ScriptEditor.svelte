@@ -210,11 +210,13 @@
 		// Fired whenever a test run is started from this editor, with the
 		// preview job id. Used by whitelabel embedders to track test jobs.
 		onTestJob?: (e: { jobId: string }) => void
-		// When true the right-hand test/run pane mounts collapsed. The user
-		// can still expand it via `toggleTestPanel`. Defaults to false so the
-		// regular /scripts/edit route keeps its current open-by-default UX;
-		// the session preview opts in to save vertical real estate.
-		initialTestPanelCollapsed?: boolean
+		// Drives the right-hand test/run pane collapsed state. Seeds the pane
+		// collapsed at mount when true, and is edge-triggered afterwards: a later
+		// change collapses/expands the pane (but the user's own toggles in between
+		// are preserved — the effect only acts on a transition). Defaults to false
+		// so the regular /scripts/edit route keeps its open-by-default UX; the
+		// session preview collapses it to save space and reopens it in full screen.
+		testPanelCollapsed?: boolean
 		// Lets the AI toolbar button open the script in a fresh AI session
 		// instead of the inline chat panel (see OpenInSessionButton for gating).
 		sessionOpen?: OpenInSessionSource
@@ -269,7 +271,7 @@
 		previewLayout = 'right',
 		onTestStateChange,
 		onTestJob,
-		initialTestPanelCollapsed = false,
+		testPanelCollapsed = false,
 		sessionOpen = undefined,
 		schemaContractContext = undefined,
 		workspaceOverride = undefined
@@ -1626,10 +1628,10 @@
 	// dynamic minimum below — so when the editor shrinks, the displayed test
 	// pane grows to honor the new minimum without needing an effect. The code
 	// pane's size is purely derived from it (100 - test).
-	// `initialTestPanelCollapsed` seeds the raw value at 0 (collapsed) while
+	// `testPanelCollapsed` seeds the raw value at 0 (collapsed) while
 	// keeping the "remembered" size at 30, so the user's first toggle expands
 	// the pane to a sensible width rather than 0.
-	let rawTestPanelSize = $state(untrack(() => (initialTestPanelCollapsed ? 0 : 30)))
+	let rawTestPanelSize = $state(untrack(() => (testPanelCollapsed ? 0 : 30)))
 	let storedTestPanelSize = 30
 	const testPanelSize = $derived(
 		rawTestPanelSize === 0 ? 0 : Math.max(rawTestPanelSize, testPaneMinPercent)
@@ -1637,7 +1639,12 @@
 	const codePanelSize = $derived(100 - testPanelSize)
 
 	function expandTestPanel() {
-		rawTestPanelSize = Math.max(storedTestPanelSize, testPaneMinPercent)
+		// Restore the remembered *intent* only. `testPanelSize` clamps up to the
+		// dynamic pixel-min reactively, so we must NOT bake `testPaneMinPercent`
+		// into the raw size here: when the container is still narrow (e.g. the
+		// frame the session preview enters full screen, before the pane widens),
+		// that min is a huge fraction and would stick as an oversized pane.
+		rawTestPanelSize = storedTestPanelSize
 	}
 
 	function collapseTestPanel() {
@@ -1654,6 +1661,22 @@
 			expandTestPanel()
 		}
 	}
+
+	// React to an external `testPanelCollapsed` change (e.g. the session preview
+	// entering/leaving full screen) without clobbering the user's own toggles:
+	// only act on a genuine transition, reading the live size untracked so a drag
+	// never re-runs this. The mount seed already matches `testPanelCollapsed`, so
+	// the initial run is a no-op.
+	$effect(() => {
+		const collapsed = testPanelCollapsed
+		untrack(() => {
+			if (collapsed && testPanelSize > 0) {
+				collapseTestPanel()
+			} else if (!collapsed && testPanelSize === 0) {
+				expandTestPanel()
+			}
+		})
+	})
 
 	// When the compact preview shows a SchemaForm above the logs
 	// (`argsAboveLogs`), give the preview pane extra height so the args

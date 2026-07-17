@@ -46,8 +46,10 @@
 	import { setToolCompletionListener } from '$lib/components/copilot/chat/shared'
 	import { base } from '$lib/base'
 	import {
+		artifactKey,
 		matchPreviewPage,
 		pageKey,
+		parseArtifactRoute,
 		parsePreviewItemRoute,
 		previewLocationLabel,
 		type PreviewTarget
@@ -241,6 +243,10 @@
 		owner?.close(id)
 		const sid = activeRuntime?.sessionId
 		if (sid) mountedTabKeys.delete(tabKey(sid, id))
+		// The active tab is excluded from the picker's pointerdown-outside (so a
+		// label click can toggle it); without this, closing the active tab would
+		// carry the open picker over to the newly active one.
+		activeTabPickerOpen = false
 	}
 	function reorderTabs(next: TabItem[]) {
 		owner?.reorder(next.map((t) => t.id))
@@ -343,6 +349,12 @@
 	// Page path shown after the workspace breadcrumb — the active tab's observed
 	// location, so the breadcrumb tracks where the user browses inside the tab.
 	const displayPath = $derived(owner?.activeTab?.loc ?? owner?.activeTab?.url ?? `${base}/`)
+	// Artifacts have no workspace page, so "Open in workspace" can't resolve for them.
+	const activeArtifact = $derived(owner?.activeTab ? parseArtifactRoute(owner.activeTab.url) : null)
+	const activeTabIsArtifact = $derived(activeArtifact != null)
+	// The active session's artifacts, surfaced as an "Artifacts" branch in the
+	// preview pickers.
+	const sessionArtifacts = $derived(activeRuntime?.manager.artifacts.artifacts ?? [])
 	// Writes to the tab's own session model: a hidden warm session's iframe can
 	// finish loading while another session is shown, and its location must not
 	// land on the visible session's tabs.
@@ -413,9 +425,13 @@
 	const parsedRoute = $derived(parsePreviewItemRoute(displayPath))
 
 	// Split the item path into breadcrumb dirs + leaf, mirroring EditorHeader:
-	// scope (`f/<folder>` | `u/<user>`) → subfolders → item name.
+	// scope (`f/<folder>` | `u/<user>`) → subfolders → item name. Prefers the
+	// tab's friendly path (a draft-only item's typed name): the picker tree
+	// groups such an item under its friendly folder, so dirs derived from the
+	// `…/draft_<uuid>` storage path would scope the picker into a folder the
+	// item isn't displayed in.
 	const segments = $derived.by(() => {
-		const itemPath = parsedRoute?.itemPath
+		const itemPath = owner?.activeTab?.friendlyPath ?? parsedRoute?.itemPath
 		if (!itemPath) return null
 		const parts = itemPath.split('/')
 		if (parts.length < 3) return null
@@ -456,7 +472,9 @@
 			? leafKeyFor(parsedRoute.kind, parsedRoute.itemPath)
 			: currentPage
 				? pageKey(currentPage.path)
-				: undefined
+				: activeArtifact
+					? artifactKey(activeArtifact.id)
+					: undefined
 	)
 	let activeTabPickerOpen = $state(false)
 
@@ -636,17 +654,19 @@
 							<!-- Open-in-full-page + full-screen toggle, floating over the top-right
 								     corner to mirror the collapse control. -->
 							<div class="absolute top-1 right-1 z-30 flex items-center gap-0.5">
-								<a
-									href={withWorkspaceParam(
-										owner?.activeTab?.loc || owner?.activeTab?.url || `${base}/`,
-										previewWorkspace
-									)}
-									title="Open in workspace"
-									aria-label="Open in workspace"
-									class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
-								>
-									<ExternalLink size={14} />
-								</a>
+								{#if !activeTabIsArtifact}
+									<a
+										href={withWorkspaceParam(
+											owner?.activeTab?.loc || owner?.activeTab?.url || `${base}/`,
+											previewWorkspace
+										)}
+										title="Open in workspace"
+										aria-label="Open in workspace"
+										class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
+									>
+										<ExternalLink size={14} />
+									</a>
+								{/if}
 								<button
 									type="button"
 									onclick={() => (fullscreen = !fullscreen)}
@@ -663,49 +683,74 @@
 							</div>
 
 							<!-- Tab strip: open preview pages, shared with the raw-app editor
-								     (DraggableTabs). The active tab hosts its own breadcrumb picker via
-								     the accessory chevron; the "+" trailing opens the router picker.
+								     (DraggableTabs). Clicking the active tab (label or accessory chevron)
+								     toggles its breadcrumb picker; the "+" trailing opens the router picker.
 								     Left/right padding clears the floating collapse/fullscreen buttons. -->
 							<DraggableTabs
 								tabs={previewTabItems}
 								activeId={owner?.activeId ?? ''}
 								onSelect={selectTab}
+								onActiveClick={() => (activeTabPickerOpen = !activeTabPickerOpen)}
 								onClose={closeTab}
 								onReorder={reorderTabs}
-								class="h-8 border-b border-light bg-surface-secondary/50 {fullscreen
+								class="session-preview-tab-strip h-8 border-b border-light bg-surface-secondary/50 {fullscreen
 									? 'pl-1.5'
 									: 'pl-9'} pr-16"
 							>
 								{#snippet tabAccessory(_tab, isActive)}
 									{#if isActive}
+										<!-- Any active-tab click toggles the picker (`onActiveClick`); the tab
+										     is excluded from pointerdown-outside so toggle doesn't race close.
+										     The trigger is an inert whole-tab overlay (anchor only — clickable
+										     would break dnd reorder); the chevron is purely visual. -->
 										<Popover
 											placement="bottom-start"
 											usePointerDownOutside
-											excludeSelectors=".drawer"
+											excludeSelectors=".drawer, .session-preview-tab-strip [role='tab'][aria-selected='true']"
 											disableFocusTrap
 											closeOnOtherPopoverOpen
 											enableFlyTransition
 											bind:isOpen={activeTabPickerOpen}
 											openFocus="[data-workspace-picker-search]"
 											contentClasses="flex flex-col overflow-hidden"
-											class="flex items-center shrink-0 cursor-pointer text-tertiary hover:text-primary"
+											class="absolute inset-0 pointer-events-none"
+											triggerAttrs={{
+												'aria-label': 'Change preview',
+												tabindex: -1,
+												// The inert trigger only ever receives focus from melt's
+												// close-time restore; hand it straight to the tab so
+												// arrow/Delete tab shortcuts keep working.
+												onfocus: (e: FocusEvent) =>
+													(e.currentTarget as HTMLElement)
+														.closest<HTMLElement>('[role="tab"]')
+														?.focus()
+											}}
 										>
-											{#snippet trigger()}
-												<ChevronDown size={12} />
-											{/snippet}
 											{#snippet content()}
-												<PreviewRouterPicker
-													initialScope={activePickerScope}
-													initialHighlight={activePickerHighlight}
-													{currentItem}
-													workspaceId={previewWorkspace}
-													onPick={(t) => {
-														activeTabPickerOpen = false
-														navigatePreviewTo(t)
-													}}
-												/>
+												<!-- The picker snapshots its scope at mount, but `friendlyPath` is
+												     stamped async once the editor cell loads — a picker opened
+												     before the stamp is scoped to the `draft_<uuid>` storage
+												     folder while the tree groups the draft under its friendly
+												     folder. Remount on the scope dir so it re-lands on the item. -->
+												{#key activePickerScope?.dir ?? ''}
+													<PreviewRouterPicker
+														initialScope={activePickerScope}
+														initialHighlight={activePickerHighlight}
+														{currentItem}
+														workspaceId={previewWorkspace}
+														artifacts={sessionArtifacts}
+														onPick={(t) => {
+															activeTabPickerOpen = false
+															navigatePreviewTo(t)
+														}}
+													/>
+												{/key}
 											{/snippet}
 										</Popover>
+										<ChevronDown
+											size={12}
+											class="shrink-0 text-tertiary group-hover:text-primary"
+										/>
 									{/if}
 								{/snippet}
 								{#snippet afterTabs()}
@@ -727,6 +772,7 @@
 										{#snippet content()}
 											<PreviewRouterPicker
 												workspaceId={previewWorkspace}
+												artifacts={sessionArtifacts}
 												onPick={(t) => {
 													newTabOpen = false
 													openInNewTab(t)
@@ -761,6 +807,7 @@
 											mounted={mountedTabKeys.has(tabKey(s.id, tab.id))}
 											label={tabLabelFor(tab)}
 											darkMode={isDarkMode.val}
+											{fullscreen}
 											onNavigate={navigateEditorTo}
 											onLoad={(frame) => tabs && onTabLoad(tabs, tab, frame)}
 										/>
@@ -800,6 +847,7 @@
 											{#snippet content()}
 												<PreviewRouterPicker
 													workspaceId={previewWorkspace}
+													artifacts={sessionArtifacts}
 													onPick={(t) => {
 														emptyStateNewTabOpen = false
 														openInNewTab(t)

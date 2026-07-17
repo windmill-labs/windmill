@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.757.0
+  version: 1.761.0
   title: Windmill API
 
   contact:
@@ -1273,32 +1273,6 @@ paths:
                 required:
                   - id
                   - name
-
-  /w/{workspace}/workspaces/set_dev_workspace_label:
-    post:
-      summary: set the cosmetic display label (dev/staging) of this dev workspace
-      operationId: setDevWorkspaceLabel
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                dev_workspace_label:
-                  type: string
-                  enum: [dev, staging]
-      responses:
-        "200":
-          description: dev workspace label updated
-          content:
-            text/plain:
-              schema:
-                type: string
 
   /workspaces/exists:
     post:
@@ -8598,6 +8572,11 @@ paths:
           description: List every draft in the workspace (all users), not just the current user's own + legacy rows. Other users' rows come back with `mine=false` (view-only).
           schema:
             type: boolean
+        - name: compare_to_workspace
+          in: query
+          description: A fork passes its parent workspace id here to have each row flagged with `unchanged_from_parent`. Ignored unless it is exactly this workspace's parent.
+          schema:
+            type: string
       responses:
         "200":
           description: the user's drafts
@@ -8633,6 +8612,9 @@ paths:
                     mine:
                       type: boolean
                       description: The row belongs to the current user (own draft or the legacy no-owner row) and is therefore actionable. Always true in the default listing; with `all_users=true`, other users' rows are false (view-only).
+                    unchanged_from_parent:
+                      type: boolean
+                      description: Only present when `compare_to_workspace` was passed. True when this draft is identical to the parent's draft at the same path/kind/owner (cloned in on fork and never edited here).
                     draft_users:
                       description: |
                         Draft authors at this (path, kind) — the legacy NULL-email row surfaced as a null username.
@@ -12139,6 +12121,8 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/S3Sig"
+        - $ref: "#/components/parameters/S3Exp"
       responses:
         "200":
           description: FileMetadata
@@ -12191,6 +12175,8 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/S3Sig"
+        - $ref: "#/components/parameters/S3Exp"
       responses:
         "200":
           description: FilePreview
@@ -12241,6 +12227,8 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/S3Sig"
+        - $ref: "#/components/parameters/S3Exp"
       responses:
         "200":
           description: Parquet Preview
@@ -12293,6 +12281,8 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/S3Sig"
+        - $ref: "#/components/parameters/S3Exp"
       responses:
         "200":
           description: Csv Preview
@@ -12325,6 +12315,8 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/S3Sig"
+        - $ref: "#/components/parameters/S3Exp"
       responses:
         "200":
           description: Table count
@@ -12354,6 +12346,8 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/S3Sig"
+        - $ref: "#/components/parameters/S3Exp"
       responses:
         "200":
           description: The downloaded file
@@ -22660,6 +22654,18 @@ components:
       required: true
       schema:
         type: string
+    S3Sig:
+      name: sig
+      in: query
+      description: HMAC signature of a presigned S3 object (bypasses the app provenance gate)
+      schema:
+        type: string
+    S3Exp:
+      name: exp
+      in: query
+      description: Expiry timestamp of a presigned S3 object signature
+      schema:
+        type: string
     CustomPath:
       name: custom_path
       in: path
@@ -29909,8 +29915,70 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/GitSyncObjectType"
+        auto_pull:
+          $ref: "#/components/schemas/AutoPullSettings"
+        promotion_open_prs:
+          type: boolean
+        fork_open_prs:
+          type: boolean
+        open_pr_error:
+          type: string
+          description: server-owned, last failure opening a PR for a deploy branch of this repo
       required:
         - git_repo_resource_path
+
+    AutoPullMode:
+      type: string
+      enum:
+        - auto
+        - webhook
+        - polling
+
+    AutoPullStatus:
+      type: object
+      properties:
+        synced_sha:
+          type: string
+        at:
+          type: integer
+          format: int64
+        job_id:
+          type: string
+          format: uuid
+        success:
+          type: boolean
+        error:
+          type: string
+      required:
+        - at
+        - success
+
+    AutoPullSettings:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        mode:
+          $ref: "#/components/schemas/AutoPullMode"
+        poll_interval_s:
+          type: integer
+        sync_forks:
+          type: boolean
+        webhook_id:
+          type: integer
+          format: int64
+        webhook_secret:
+          type: string
+        webhook_error:
+          type: string
+        last_synced_sha:
+          type: object
+          additionalProperties:
+            type: string
+        last_pull_status:
+          $ref: "#/components/schemas/AutoPullStatus"
+      required:
+        - enabled
 
     MetricMetadata:
       type: object

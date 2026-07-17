@@ -14,7 +14,9 @@
 		emptyString,
 		urlParamsToObject,
 		extractTagFromSharableHash,
-		isDynamicTag
+		interpolateTag,
+		isDynamicTag,
+		isTagTemplate
 	} from '$lib/utils'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
@@ -178,9 +180,16 @@
 			})
 			pinnedVersion = undefined
 		}
-		// A carried tag is the previous run's resolved value; when the flow's tag is
-		// dynamic, drop it so the backend re-resolves from the (possibly edited) args
-		if (carriedTag && isDynamicTag(flow.tag)) {
+		// A carried non-template value equal to the resolution of the flow's own dynamic
+		// tag for these args is not an override but the previous run's pinned resolution:
+		// drop it so the backend re-resolves from the (possibly edited) args. A differing
+		// value is a genuine user override and a template re-resolves at push, so both stay.
+		if (
+			carriedTag &&
+			isDynamicTag(flow.tag) &&
+			!isTagTemplate(carriedTag) &&
+			interpolateTag(flow.tag ?? '', $workspaceStore!, args) === carriedTag
+		) {
 			if (overrideTag === carriedTag) {
 				overrideTag = undefined
 				overrideTagNote = `tag ${flow.tag} is resolved at run time, so the previous run's tag ${carriedTag} was not applied`

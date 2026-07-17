@@ -10,7 +10,7 @@ use crate::common::transform::{
     reverse_transform, reverse_transform_key,
 };
 use crate::common::types::{McpToken, MultiWorkspaceMcp, ResourceInfo, ToolableItem, WorkspaceId};
-use crate::server::backend::{McpAuth, McpBackend};
+use crate::server::backend::{McpAuth, McpBackend, PathFilter};
 use crate::server::endpoints::{
     endpoint_tool_to_mcp_tool, endpoint_tool_to_mcp_tool_multi, list_workspaces_tool, EndpointTool,
 };
@@ -429,11 +429,23 @@ impl<B: McpBackend> Runner<B> {
         // mutating action), so skip the script/flow/hub/resource fetches
         // entirely — they would only be discarded below.
         if !read_only {
+            // For granular tokens, push the scope patterns into the SQL query so
+            // in-scope items survive the fetch cap (see `PathFilter`). The Rust
+            // filter below still runs as a defense-in-depth check. Non-granular
+            // (favorites/all) tokens are already narrowed by the favorites join
+            // or intentionally unfiltered.
+            let script_filter = scope_config
+                .granular
+                .then(|| PathFilter::Patterns(scope_config.scripts.as_slice()));
+            let flow_filter = scope_config
+                .granular
+                .then(|| PathFilter::Patterns(scope_config.flows.as_slice()));
+
             let (scripts, flows, resource_types, hub_scripts) = tokio::try_join!(
                 self.backend
-                    .list_scripts(auth, workspace_id, favorites_only, None),
+                    .list_scripts(auth, workspace_id, favorites_only, script_filter),
                 self.backend
-                    .list_flows(auth, workspace_id, favorites_only, None),
+                    .list_flows(auth, workspace_id, favorites_only, flow_filter),
                 self.backend.list_resource_types(auth, workspace_id),
                 async {
                     if let Some(ref apps) = scope_config.hub_apps {
@@ -597,11 +609,12 @@ impl<B: McpBackend> Runner<B> {
             (type_str, version_id, true)
         } else {
             let path_prefix = extract_path_prefix_from_hashed(name.as_ref());
+            let path_filter = path_prefix.as_deref().map(PathFilter::Prefix);
             let favorites_only = scope_config.favorites;
             let matched_path = if type_str == "script" {
                 find_matching_path(
                     self.backend
-                        .list_scripts(auth, workspace_id, favorites_only, path_prefix.as_deref())
+                        .list_scripts(auth, workspace_id, favorites_only, path_filter)
                         .await
                         .map_err(|e| ErrorData::internal_error(e.message, None))?,
                     name.as_ref(),
@@ -609,7 +622,7 @@ impl<B: McpBackend> Runner<B> {
             } else {
                 find_matching_path(
                     self.backend
-                        .list_flows(auth, workspace_id, favorites_only, path_prefix.as_deref())
+                        .list_flows(auth, workspace_id, favorites_only, path_filter)
                         .await
                         .map_err(|e| ErrorData::internal_error(e.message, None))?,
                     name.as_ref(),

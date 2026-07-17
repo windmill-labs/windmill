@@ -77,7 +77,12 @@
 	{onNavigate}
 	{isActiveSession}
 	isActiveTab={active}
-	effectivePath={() => cell.store.val?.path ?? path}
+	effectivePath={() =>
+		// A flow's typed rename lives in `draft_path` (`val.path` is the storage
+		// key), unlike scripts where `val.path` is the typed name — without it the
+		// live-draft registration hides a staged rename from lists and pickers.
+		((cell.store.val as { draft_path?: string } | undefined)?.draft_path || cell.store.val?.path) ??
+		path}
 >
 	{#snippet editor()}
 		<!-- customUi hides the in-editor "Flow AI Chat" button: the session already

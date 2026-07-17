@@ -167,7 +167,12 @@ pub enum ObjectType {
     DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28719/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28786/sync-script-to-git-repo-windmill";
+
+/// Hub script that applies a repository's state back into a workspace
+/// (the repo → Windmill / "pull" direction). Same script the UI runs from
+/// `PullWorkspaceModal` with `pull: true`; the slug's `:` is percent-encoded.
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28787/git-sync%3A-init-repository-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -188,6 +193,39 @@ pub fn validate_fork_workspace_id(id: &str) -> error::Result<()> {
 /// because it is interpolated into a `wm-fork/<original_branch>/<id>` branch name like any fork.
 pub fn validate_dev_workspace_id(id: &str) -> error::Result<()> {
     validate_workspace_branch_id(id, false)
+}
+
+/// Split a fork git branch `wm-fork/<base_branch>/<suffix>` into `(base_branch, suffix)`.
+///
+/// Inverse of the CLI/hub-script `forkBranchName`. The suffix is a workspace id
+/// fragment and can't contain `/` (enforced by [`validate_fork_workspace_id`] /
+/// [`validate_dev_workspace_id`] at every fork/dev creation and attach path), while
+/// the base branch may (`release/v2`), so the split is on the last separator.
+/// Returns `None` for anything else.
+pub fn parse_fork_branch(branch: &str) -> Option<(&str, &str)> {
+    let rest = branch.strip_prefix("wm-fork/")?;
+    let idx = rest.rfind('/')?;
+    let (base, suffix) = (&rest[..idx], &rest[idx + 1..]);
+    if base.is_empty() || suffix.is_empty() {
+        return None;
+    }
+    Some((base, suffix))
+}
+
+/// Workspace ids that could own a fork branch with this suffix: a generated fork
+/// (`wm-fork-<suffix>`, whose branch strips the id prefix) or a dev workspace
+/// (prefix-less id used verbatim). Ordered generated-fork first so an ambiguous
+/// suffix resolves deterministically.
+pub fn fork_branch_workspace_id_candidates(suffix: &str) -> [String; 2] {
+    [format!("{WM_FORK_PREFIX}{suffix}"), suffix.to_string()]
+}
+
+/// Git branch a dev workspace syncs with: its environment label verbatim, as a
+/// first-class top-level branch (`dev`, `staging` — the classic env-branch
+/// layout), defaulting to `dev` when the label is unset. Throwaway forks use
+/// the namespaced `wm-fork/<base>/<suffix>` form instead.
+pub fn dev_workspace_branch(label: Option<&str>) -> String {
+    label.filter(|l| !l.is_empty()).unwrap_or("dev").to_string()
 }
 
 /// The `workspace.name` column is `character varying(50)`, so a name longer than 50 characters
@@ -244,12 +282,13 @@ fn validate_workspace_branch_id(id: &str, require_fork_prefix: bool) -> error::R
     if id.contains("@{") {
         return reject("cannot contain '@{'");
     }
-    if id.contains("//") {
-        return reject("cannot contain '//'");
-    }
     for ch in id.chars() {
         match ch {
-            ':' | '~' | '^' | '?' | '*' | '[' | '\\' | ' ' => {
+            // '/' is git-legal in a branch but banned here: the id becomes the last
+            // component of `wm-fork/<base_branch>/<id>` and `parse_fork_branch` splits
+            // that branch on the last '/' (the base branch itself may contain '/'),
+            // so a slash in the id would make the fork unroutable for auto-sync.
+            ':' | '~' | '^' | '?' | '*' | '[' | '\\' | ' ' | '/' => {
                 return reject(&format!("contains forbidden character '{}'", ch));
             }
             c if c.is_ascii_control() || c == '\u{7f}' => {
@@ -258,16 +297,14 @@ fn validate_workspace_branch_id(id: &str, require_fork_prefix: bool) -> error::R
             _ => {}
         }
     }
-    // Each slash-separated component cannot start with '.' or end with '.lock'.
-    for component in id.split('/') {
-        if component.starts_with('.') {
-            return reject("a path component cannot start with '.'");
-        }
-        if component.ends_with(".lock") {
-            return reject("a path component cannot end with '.lock'");
-        }
+    if id.starts_with('.') {
+        return reject("cannot start with '.'");
     }
     Ok(())
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -283,6 +320,27 @@ pub struct GitRepositorySettings {
     pub group_by_folder: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<GitSyncSettings>,
+    /// Configuration for automatically pulling changes from the git repository
+    /// back into the workspace (repo → Windmill direction). Absent means the
+    /// reverse direction is not automated (the historical behaviour).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_pull: Option<AutoPullSettings>,
+    /// Open a PR when a deploy pushes a `wm_deploy/**` branch of this promotion
+    /// repo (app-backed only; runs from the deploy callback so it works without
+    /// inbound webhooks). Off by default so upgrades don't change behavior.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub promotion_open_prs: bool,
+    /// Parent-level: open a PR when a fork of this workspace deploys to its
+    /// `wm-fork/**` branch (app-backed only; the fork's deploy callback reads
+    /// this from the parent). Off by default.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub fork_open_prs: bool,
+    /// Server-owned: the last failure opening a PR for a deploy branch of this
+    /// repo (e.g. the GitHub App installation hasn't approved the pull-request
+    /// permission). Written by the deploy completion hook, cleared on the next
+    /// successful PR; never accepted from clients.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open_pr_error: Option<String>,
 }
 
 impl GitRepositorySettings {
@@ -311,6 +369,128 @@ impl GitRepositorySettings {
             });
 
         Ok(current >= min_version) // this works on assumption that all scripts in hub have sequential ids
+    }
+}
+
+/// How auto-pull triggers are delivered for a repository.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AutoPullMode {
+    /// Try to create a repo webhook; fall back to polling if the instance is not
+    /// reachable from GitHub or the app lacks the webhook permission.
+    #[default]
+    Auto,
+    /// Webhook delivery only (no polling fallback).
+    Webhook,
+    /// Polling only (`git ls-remote` on an interval).
+    Polling,
+}
+
+/// Outcome of the most recent auto-pull attempt, surfaced in the UI.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AutoPullStatus {
+    /// Commit sha the workspace was last synced to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub synced_sha: Option<String>,
+    /// Unix timestamp (seconds) of the attempt.
+    pub at: i64,
+    /// Job id of the pull run, if one was enqueued.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job_id: Option<uuid::Uuid>,
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Per-repository configuration for automatic repo → Windmill pull sync.
+///
+/// Stored inside `GitRepositorySettings` (workspace_settings.git_sync JSONB).
+/// Webhook fields are populated in phase 2; phase 1 exercises the polling path
+/// only, but the full shape is defined up front to avoid a second schema change.
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub struct AutoPullSettings {
+    /// Default so a server-written status-only blob (fork workspaces, which never
+    /// enable auto-pull themselves) parses even without the field.
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub mode: AutoPullMode,
+    /// Polling interval in seconds. Defaults to `DEFAULT_AUTO_PULL_POLL_INTERVAL_S`
+    /// when polling without an active webhook, relaxed once a webhook is live.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub poll_interval_s: Option<u32>,
+    /// Parent-level: also pull each live fork of this workspace from its own
+    /// `wm-fork/<branch>/<id>` branch when that branch moves (webhook or poll),
+    /// the managed equivalent of the `push-on-merge-to-forks` GitHub Action.
+    /// Configured once on the parent; forks never enable auto-pull themselves.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub sync_forks: bool,
+    /// GitHub repository webhook id (managed-app, phase 2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webhook_id: Option<i64>,
+    /// HMAC secret for the repo webhook, encrypted at rest (managed-app, phase 2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webhook_secret: Option<String>,
+    /// Why the repo has no active webhook while one was requested (auto/webhook
+    /// mode): instance base URL unset, app missing the webhook permission, etc.
+    /// Surfaced in the UI as a "falling back to polling" warning; `None` when the
+    /// webhook is live or the repo is polling-only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webhook_error: Option<String>,
+    /// Last synced commit sha per tracked git ref (e.g. `refs/heads/main`).
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub last_synced_sha: std::collections::HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_pull_status: Option<AutoPullStatus>,
+}
+
+// Manual Debug so the HMAC `webhook_secret` (even encrypted) never lands in logs.
+impl std::fmt::Debug for AutoPullSettings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AutoPullSettings")
+            .field("enabled", &self.enabled)
+            .field("mode", &self.mode)
+            .field("poll_interval_s", &self.poll_interval_s)
+            .field("sync_forks", &self.sync_forks)
+            .field("webhook_id", &self.webhook_id)
+            .field(
+                "webhook_secret",
+                &self.webhook_secret.as_ref().map(|_| "<redacted>"),
+            )
+            .field("webhook_error", &self.webhook_error)
+            .field("last_synced_sha", &self.last_synced_sha)
+            .field("last_pull_status", &self.last_pull_status)
+            .finish()
+    }
+}
+
+/// Default polling interval when a webhook is not active.
+pub const DEFAULT_AUTO_PULL_POLL_INTERVAL_S: u32 = 60;
+
+/// Relaxed polling interval used as a safety net while a webhook is active.
+pub const WEBHOOK_AUTO_PULL_POLL_INTERVAL_S: u32 = 600;
+
+impl AutoPullSettings {
+    /// Effective polling interval in seconds, honouring the explicit override and
+    /// relaxing to `WEBHOOK_AUTO_PULL_POLL_INTERVAL_S` when a webhook is live.
+    pub fn effective_poll_interval_s(&self) -> u32 {
+        self.poll_interval_s.unwrap_or_else(|| {
+            if self.webhook_id.is_some() {
+                WEBHOOK_AUTO_PULL_POLL_INTERVAL_S
+            } else {
+                DEFAULT_AUTO_PULL_POLL_INTERVAL_S
+            }
+        })
+    }
+
+    /// Whether a freshly observed `(git_ref, head_sha)` warrants enqueuing a pull.
+    ///
+    /// A trigger (poll or webhook) is only a hint: we pull when auto-pull is
+    /// enabled and the observed head differs from the last sha we synced for
+    /// that ref. Re-observing the same head (e.g. a redundant poll, or the
+    /// commit our own deploy callback just pushed back) is a no-op.
+    pub fn should_pull(&self, git_ref: &str, head_sha: &str) -> bool {
+        self.enabled && self.last_synced_sha.get(git_ref).map(String::as_str) != Some(head_sha)
     }
 }
 
@@ -1784,6 +1964,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_parse_fork_branch() {
+        // Generated fork (`wm-fork-abc`) and dev workspace (`staging`) forms.
+        assert_eq!(parse_fork_branch("wm-fork/main/abc"), Some(("main", "abc")));
+        assert_eq!(
+            parse_fork_branch("wm-fork/main/staging"),
+            Some(("main", "staging"))
+        );
+        // Base branch may itself contain slashes; the suffix never does.
+        assert_eq!(
+            parse_fork_branch("wm-fork/release/v2/abc"),
+            Some(("release/v2", "abc"))
+        );
+        assert_eq!(parse_fork_branch("main"), None);
+        assert_eq!(parse_fork_branch("wm-fork/main"), None);
+        assert_eq!(parse_fork_branch("wm-fork/main/"), None);
+        assert_eq!(parse_fork_branch("wm-fork//abc"), None);
+        assert_eq!(parse_fork_branch("wm_deploy/main/abc"), None);
+    }
+
+    #[test]
+    fn test_fork_branch_workspace_id_candidates_prefers_generated_fork() {
+        let [first, second] = fork_branch_workspace_id_candidates("abc");
+        assert_eq!(first, "wm-fork-abc");
+        assert_eq!(second, "abc");
+    }
+
+    #[test]
     fn test_validate_fork_workspace_id_accepts_valid() {
         validate_fork_workspace_id("wm-fork-test-allow").unwrap();
         validate_fork_workspace_id("wm-fork-my_workspace.42").unwrap();
@@ -1808,6 +2015,9 @@ mod tests {
             "wm-fork-test[allow",
             "wm-fork-test\\allow",
             "wm-fork-test\nallow",
+            // '/' is git-legal but banned: it would break the parse_fork_branch
+            // last-'/' split that routes auto-pull into the fork workspace.
+            "wm-fork-test/allow",
         ] {
             assert!(
                 validate_fork_workspace_id(bad).is_err(),
@@ -1856,6 +2066,59 @@ mod tests {
     fn test_validate_fork_workspace_id_rejects_too_long() {
         let long_id = format!("wm-fork-{}", "a".repeat(43));
         assert!(validate_fork_workspace_id(&long_id).is_err());
+    }
+
+    fn auto_pull(enabled: bool, synced: &[(&str, &str)]) -> AutoPullSettings {
+        AutoPullSettings {
+            enabled,
+            mode: AutoPullMode::Auto,
+            poll_interval_s: None,
+            sync_forks: false,
+            webhook_id: None,
+            webhook_secret: None,
+            webhook_error: None,
+            last_synced_sha: synced
+                .iter()
+                .map(|(r, s)| (r.to_string(), s.to_string()))
+                .collect(),
+            last_pull_status: None,
+        }
+    }
+
+    #[test]
+    fn test_should_pull_on_new_or_changed_sha() {
+        let s = auto_pull(true, &[("refs/heads/main", "aaa")]);
+        // unchanged head → no pull
+        assert!(!s.should_pull("refs/heads/main", "aaa"));
+        // moved head → pull
+        assert!(s.should_pull("refs/heads/main", "bbb"));
+        // never-seen ref → pull
+        assert!(s.should_pull("refs/heads/dev", "ccc"));
+    }
+
+    #[test]
+    fn test_should_pull_respects_enabled_flag() {
+        let s = auto_pull(false, &[]);
+        assert!(!s.should_pull("refs/heads/main", "bbb"));
+    }
+
+    #[test]
+    fn test_effective_poll_interval() {
+        let mut s = auto_pull(true, &[]);
+        assert_eq!(
+            s.effective_poll_interval_s(),
+            DEFAULT_AUTO_PULL_POLL_INTERVAL_S
+        );
+        // explicit override wins
+        s.poll_interval_s = Some(15);
+        assert_eq!(s.effective_poll_interval_s(), 15);
+        // with a live webhook and no override, relax to the webhook interval
+        s.poll_interval_s = None;
+        s.webhook_id = Some(42);
+        assert_eq!(
+            s.effective_poll_interval_s(),
+            WEBHOOK_AUTO_PULL_POLL_INTERVAL_S
+        );
     }
 
     #[test]
@@ -1931,10 +2194,12 @@ mod tests {
 
     #[test]
     fn test_fork_data_path_prefix_isolation() {
-        // Fork/dev ids are git-branch-safe and may contain `/`: `wm-fork-a/b` is a valid id.
-        // Its data prefix must NOT nest inside `wm-fork-a`'s, or deleting `wm-fork-a` would
-        // sweep the sibling's files via the object-store prefix listing.
-        assert!(validate_fork_workspace_id("wm-fork-a/b").is_ok());
+        // New fork/dev ids can't contain `/` (it would break the parse_fork_branch
+        // last-'/' split), but ids created before that ban may still exist, so the
+        // data-path mangling must keep handling them: `wm-fork-a/b`'s prefix must
+        // NOT nest inside `wm-fork-a`'s, or deleting `wm-fork-a` would sweep the
+        // sibling's files via the object-store prefix listing.
+        assert!(validate_fork_workspace_id("wm-fork-a/b").is_err());
         let a = fork_data_path("lake", "wm-fork-a");
         let ab = fork_data_path("lake", "wm-fork-a/b");
         assert!(

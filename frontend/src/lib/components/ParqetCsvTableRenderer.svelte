@@ -26,6 +26,10 @@
 		// through the app-scoped, provenance-gated `apps_u/*` endpoints instead of
 		// the viewer-scoped `job_helpers/*` API. Undefined in the editor/preview.
 		appPath?: string | undefined
+		// HMAC bearer (`exp=..&sig=..`) minted by `signS3Objects`. When present on a
+		// deployed-app read, it bypasses the provenance gate — matching the download
+		// and image routes. Forwarded to every app-scoped preview/count/export call.
+		presigned?: string | undefined
 	}
 
 	let {
@@ -33,8 +37,17 @@
 		storage,
 		workspaceId,
 		disable_download = false,
-		appPath = undefined
+		appPath = undefined,
+		presigned = undefined
 	}: Props = $props()
+
+	// Split the presigned bearer into typed query params for the generated client.
+	// Only meaningful in deployed-app (`appPath`) reads; empty otherwise.
+	function presignedParams(): { sig?: string; exp?: string } {
+		if (!appPath || !presigned) return {}
+		const p = new URLSearchParams(presigned)
+		return { sig: p.get('sig') ?? undefined, exp: p.get('exp') ?? undefined }
+	}
 
 	// Route the parquet/csv read through the app-scoped endpoints when `appPath`
 	// is set, else the viewer-scoped helpers. Same request/response shape either
@@ -48,7 +61,8 @@
 					fileKey: s3resource,
 					searchCol,
 					searchTerm,
-					storage
+					storage,
+					...presignedParams()
 				})
 			: HelpersService.loadTableRowCount({
 					workspace,
@@ -71,7 +85,14 @@
 		const workspace = workspaceId ?? $workspaceStore!
 		const csv = s3resource.endsWith('.csv')
 		if (appPath) {
-			const data = { workspace, path: appPath, fileKey: s3resource, storage, ...args }
+			const data = {
+				workspace,
+				path: appPath,
+				fileKey: s3resource,
+				storage,
+				...args,
+				...presignedParams()
+			}
 			return csv ? AppService.appLoadCsvPreview(data) : AppService.appLoadParquetPreview(data)
 		}
 		const data = { workspace, path: s3resource, storage, ...args }
@@ -230,7 +251,7 @@
 	{/if}
 	{#if !disable_download && !s3resource.endsWith('.csv')}
 		{@const csvApiPath = appPath
-			? `/w/${workspaceId}/apps_u/download_s3_parquet_file_as_csv/${appPath}?file_key=${encodeURIComponent(s3resource)}${storage ? `&storage=${storage}` : ''}`
+			? `/w/${workspaceId}/apps_u/download_s3_parquet_file_as_csv/${appPath}?file_key=${encodeURIComponent(s3resource)}${storage ? `&storage=${storage}` : ''}${presigned ? `&${presigned}` : ''}`
 			: `/w/${workspaceId}/job_helpers/download_s3_parquet_file_as_csv?file_key=${encodeURIComponent(s3resource)}${storage ? `&storage=${storage}` : ''}`}
 		{@const csvName = (s3resource.split('/').pop() ?? 'download') + '.csv'}
 		{#if shouldDownloadViaClient()}

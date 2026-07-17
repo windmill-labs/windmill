@@ -1055,6 +1055,7 @@
     You just opened the runs page for me in the side panel. Close that tab, I'm done looking at it.
   runtime:
     maxTurns: 6
+    sessionChat: true
   validate:
     draftCountExactly: 0
   toolExpect:
@@ -1509,3 +1510,26 @@
     - creates a new shared folder named "analytics" via create_folder
     - drafts a script placed in that folder (f/analytics/...) returning an ISO timestamp
     - leaves the script as a draft only
+
+- id: global-artifact-plan-create
+  prompt: |-
+    I'm about to build a customer onboarding flow, but first I want a short written plan I can review and iterate on before any code.
+    Draft a markdown plan with a title, a one-sentence summary, and three or four bullet steps.
+    Keep it as something I can reopen and revise later — don't build the flow itself yet.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 6
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - create_artifact
+    forbiddenToolsUsed:
+      - write_flow
+      - write_script
+      - deploy_workspace_item
+  judgeChecklist:
+    - saves the plan as a markdown artifact via create_artifact rather than only replying inline
+    - the artifact content has a title, a one-line summary, and three or four bullet steps for onboarding
+    - does not create a flow or script draft yet
