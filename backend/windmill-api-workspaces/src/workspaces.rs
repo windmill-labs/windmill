@@ -7,8 +7,8 @@
  */
 
 use windmill_api_auth::{
-    build_scope_path_predicate, check_scopes, require_devops_role, require_is_writer,
-    require_super_admin, ApiAuthed,
+    build_scope_path_predicate, check_scopes, require_devops_role, require_instance_admin,
+    require_is_writer, require_super_admin, ApiAuthed,
 };
 use windmill_api_users::users::WorkspaceInvite;
 use windmill_common::email_oss::send_email_if_possible;
@@ -7042,7 +7042,9 @@ async fn unarchive_workspace(
     Path(w_id): Path<String>,
     authed: ApiAuthed,
 ) -> Result<String> {
-    require_admin(authed.is_admin, &authed.username)?;
+    // Global route (unarchives any workspace by id) gated on the caller's own
+    // is_admin claim, so it must reject a job token — see require_instance_admin.
+    require_instance_admin(&authed)?;
 
     // Unarchiving re-activates a soft-deleted workspace, so it must respect the
     // same CE workspace-count cap as creating one. The archived workspace is

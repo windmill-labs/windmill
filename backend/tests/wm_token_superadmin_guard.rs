@@ -412,3 +412,85 @@ async fn test_wm_token_rejected_by_admin_or_devops_gate(db: Pool<Postgres>) -> a
 
     Ok(())
 }
+
+/// Instance-global routes with no workspace binding that gate on the caller's own
+/// `is_admin` claim must reject a WM_TOKEN — `is_admin` is a workspace-admin claim
+/// (also true for superadmins), and a job token is capped at workspace admin, so it
+/// must not wield that claim as instance authorization (GHSA-hfh4-cx4h-3fcr).
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_wm_token_rejected_by_instance_admin_gates(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    set_jwt_secret().await;
+
+    // A worker-group config carrying a static env value that must stay masked.
+    sqlx::query(
+        "INSERT INTO config (name, config) VALUES ('worker__wm2082grp', $1)",
+    )
+    .bind(json!({ "env_vars_static": { "LEAKY": "supersecretvalue" } }))
+    .execute(&db)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api");
+
+    // The exact token a deployer obtains via an app on_behalf_of pointed at a
+    // superadmin: is_admin=true, but carrying a job_id.
+    let sa_wm = wm_token("test@windmill.dev", true).await;
+
+    // 1. Arbitrary workspace unarchive (mutation on any workspace by id).
+    let resp = authed(
+        client().post(format!("{base}/workspaces/unarchive/test-workspace")),
+        &sa_wm,
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "superadmin WM_TOKEN must not unarchive an arbitrary workspace: {}",
+        resp.text().await?
+    );
+
+    // 2. Global concurrency-group pruning.
+    let resp = authed(
+        client().delete(format!("{base}/concurrency_groups/prune/anykey")),
+        &sa_wm,
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "superadmin WM_TOKEN must not prune a global concurrency group: {}",
+        resp.text().await?
+    );
+
+    // 3. Worker-group config: the static env value must be masked for a job token.
+    let body = authed(client().get(format!("{base}/configs/list_worker_groups")), &sa_wm)
+        .send()
+        .await?
+        .text()
+        .await?;
+    assert!(
+        !body.contains("supersecretvalue"),
+        "superadmin WM_TOKEN must get the obfuscated worker-group view: {body}"
+    );
+
+    // No false positive: a real superadmin API token (no job_id) still sees the
+    // unobfuscated value — the cap keys off the job token, not the identity.
+    let body = authed(
+        client().get(format!("{base}/configs/list_worker_groups")),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?
+    .text()
+    .await?;
+    assert!(
+        body.contains("supersecretvalue"),
+        "a real superadmin token must still see the unobfuscated worker-group config: {body}"
+    );
+
+    Ok(())
+}

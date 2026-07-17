@@ -245,6 +245,35 @@ pub async fn is_super_admin_authed(db: &DB, authed: &ApiAuthed) -> error::Result
     is_super_admin_email(db, &authed.email).await
 }
 
+/// Instance-global admin predicate, job-token-aware. `ApiAuthed::is_admin` is a
+/// *workspace*-admin claim (also true for superadmins), and a `WM_TOKEN` is capped
+/// at workspace admin (GHSA-hfh4-cx4h-3fcr). Routes with no workspace binding that
+/// treat `is_admin` as instance authorization (worker-group config, arbitrary
+/// workspace unarchive, global concurrency pruning) must use this instead of the
+/// raw `authed.is_admin`, so a job token can't wield a workspace-admin claim as an
+/// instance action. Interactive admins are unaffected.
+pub fn is_instance_admin(authed: &ApiAuthed) -> bool {
+    authed.is_admin && authed.job_id.is_none()
+}
+
+/// Hard-gate variant of [`is_instance_admin`] for instance-global routes: rejects
+/// a job token (`WM_TOKEN`) explicitly, then requires admin.
+pub fn require_instance_admin(authed: &ApiAuthed) -> error::Result<()> {
+    if authed.job_id.is_some() {
+        return Err(Error::NotAuthorized(
+            "This endpoint cannot be called with a job token ($WM_TOKEN): it is an \
+             instance-global admin action and a job token is capped at workspace admin. \
+             If a script genuinely needs this, create a dedicated token from the User \
+             settings drawer and use it explicitly instead of $WM_TOKEN."
+                .to_owned(),
+        ));
+    }
+    if !authed.is_admin {
+        return Err(Error::RequireAdmin(authed.username.clone()));
+    }
+    Ok(())
+}
+
 /// Forbid sensitive global user/token management when authenticated as a
 /// superadmin *via a job token* (`WM_TOKEN`).
 ///

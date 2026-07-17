@@ -23,7 +23,7 @@ use windmill_common::{
     DB,
 };
 
-use windmill_api_auth::{require_devops_role, ApiAuthed};
+use windmill_api_auth::{is_instance_admin, require_devops_role, ApiAuthed};
 
 pub fn global_service() -> Router {
     Router::new()
@@ -75,7 +75,10 @@ async fn list_worker_groups(
             }
         }
     }
-    let configs = if !authed.is_admin {
+    // Worker-group configs are instance-global and expose env_vars_static (may hold
+    // secrets); a job token (capped at workspace admin) gets the obfuscated view even
+    // when its identity is a superadmin. See is_instance_admin (GHSA-hfh4-cx4h-3fcr).
+    let configs = if !is_instance_admin(&authed) {
         let mut obfuscated_configs: Vec<Config> = vec![];
         for config in configs_raw {
             let config_value_opt = config.config.as_object().map(|obj| obj.to_owned());
