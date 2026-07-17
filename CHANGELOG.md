@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.762.1](https://github.com/windmill-labs/windmill/compare/v1.762.0...v1.762.1) (2026-07-17)
+
+
+### Bug Fixes
+
+* **schedules:** stop disabling schedules on transient push errors ([#10179](https://github.com/windmill-labs/windmill/issues/10179)) ([c82056c](https://github.com/windmill-labs/windmill/commit/c82056cfde93ab0e26cf82aa4f7650c060565542))
+* **worker:** gate ansible socket-dir name check to unix ([#10180](https://github.com/windmill-labs/windmill/issues/10180)) ([203f6c6](https://github.com/windmill-labs/windmill/commit/203f6c69dd24fc055a4bf604315aa757f35d0565))
+
 ## [1.762.0](https://github.com/windmill-labs/windmill/compare/v1.761.0...v1.762.0) (2026-07-17)
 
 
