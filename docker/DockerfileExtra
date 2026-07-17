@@ -131,9 +131,9 @@ RUN addgroup --gid 1000 windmill && \
     adduser --disabled-password --gecos "" --uid 1000 --gid 1000 windmill
 
 # The root-run installs above write into the base image's UV_CACHE_DIR
-# (/tmp/windmill/cache/uv) and XDG_CACHE_HOME (/pyls/.cache) after the base image
-# already made those world-writable, leaving root-owned 0755 dirs. uv, the LSP and
-# gopls write there at runtime, so a non-root UID needs them world-writable again.
+# (/tmp/windmill/cache/uv) after the base already made it world-writable, leaving
+# root-owned 0755 dirs that make uv fail EACCES for a non-root UID. /pyls/.cache
+# (XDG_CACHE_HOME, incl. DENO_DIR) and /tmp/monaco are written at runtime too.
 RUN chmod -R a+rX /usr/local /pyls /debugger /multiplayer && \
     chmod -R a+rw /tmp/windmill /pyls/.cache /tmp/monaco && \
     find /tmp/windmill /pyls/.cache /tmp/monaco -type d -exec chmod 777 {} +

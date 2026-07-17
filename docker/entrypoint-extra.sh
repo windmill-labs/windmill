@@ -21,14 +21,17 @@ cleanup() {
 
 trap cleanup SIGTERM SIGINT
 
-# An arbitrary non-root UID gets HOME=/ and cannot write the image's 0700 /root,
-# so redirect $HOME somewhere writable before anything writes under it (netrc
-# below, plus bun/npm/go caches in the services). Left alone when running as root.
-if [ ! -w "${HOME:-/root}" ]; then
-    echo "[entrypoint] HOME=${HOME:-/root} is not writable for UID $(id -u), using HOME=/tmp/windmill-home"
-    export HOME=/tmp/windmill-home
+# An arbitrary non-root UID gets HOME=/ and cannot write the image's 0700 /root, so
+# redirect $HOME before anything writes under it (netrc below, plus the bun/npm/go
+# caches in the services). Keep the fallback UID-scoped: a leftover dir from a
+# different UID on a shared /tmp is not writable. Root keeps HOME=/root.
+HOME="${HOME:-/root}"
+if [ ! -w "$HOME" ]; then
+    echo "[entrypoint] HOME=$HOME is not writable for UID $(id -u), using HOME=/tmp/windmill-home-$(id -u)"
+    HOME="/tmp/windmill-home-$(id -u)"
     mkdir -p "$HOME"
 fi
+export HOME
 
 # Setup NETRC if provided (for LSP)
 if [ -n "$NETRC" ]; then
