@@ -354,31 +354,41 @@ export default class HistoryManager {
 	}
 
 	/**
-	 * Make the chat's stored blobs exactly the record's newest
-	 * MAX_IMAGES_PER_CHAT distinct images: rank ids by their LAST reference in
-	 * the record, write the kept ones that are missing, delete everything else
-	 * the chat owns. The saved record is the single source of truth — deriving
-	 * the whole set from it (rather than from persisted write times) keeps
+	 * The record's newest MAX_IMAGES_PER_CHAT distinct images, ranked by their
+	 * LAST reference — the exact set of blobs the chat should own once the
+	 * record is committed. The saved record is the single source of truth:
+	 * deriving the set from it (rather than from persisted write times) keeps
 	 * eviction deterministic and idempotent when turns are truncated, identical
 	 * bytes are re-attached, or compaction rewrites the arrays. A ref outside
 	 * the kept set hydrates to the omitted-image placeholder.
 	 */
-	private async persistImageBlobs(
-		db: IDBPDatabase<ChatSchema>,
-		chatId: string,
-		blobs: Map<string, string>,
-		refs: string[]
-	) {
+	private keptImageIds(refs: string[]): Set<string> {
 		const keep = new Set<string>()
 		for (let i = refs.length - 1; i >= 0 && keep.size < MAX_IMAGES_PER_CHAT; i--) {
 			keep.add(refs[i])
 		}
+		return keep
+	}
+
+	private async writeKeptImageBlobs(
+		db: IDBPDatabase<ChatSchema>,
+		chatId: string,
+		blobs: Map<string, string>,
+		keep: Set<string>
+	) {
 		for (const id of keep) {
 			const dataUrl = blobs.get(id)
 			if (dataUrl !== undefined && (await db.getKey('images', id)) === undefined) {
 				await db.put('images', { id, chatId, dataUrl, savedAt: Date.now() })
 			}
 		}
+	}
+
+	private async deleteStaleImageBlobs(
+		db: IDBPDatabase<ChatSchema>,
+		chatId: string,
+		keep: Set<string>
+	) {
 		for (const key of await imageKeysForChat(db, chatId)) {
 			if (!keep.has(key)) await db.delete('images', key)
 		}
@@ -504,10 +514,15 @@ export default class HistoryManager {
 			}
 
 			await this.enqueueDbWrite(async (db) => {
-				// Blobs land before the record that references them, so a failed write
-				// cannot leave a saved chat pointing at bytes that never made it.
-				await this.persistImageBlobs(db, updatedChat.id, blobs, refs)
+				// Write order is the crash-safety story: kept blobs land before the
+				// record that references them, and stale blobs are deleted only after
+				// the new record is committed. A failure at any step leaves the last
+				// committed record fully hydratable — at worst orphan blobs linger
+				// until the next successful save's delete pass reclaims them.
+				const keep = this.keptImageIds(refs)
+				await this.writeKeptImageBlobs(db, updatedChat.id, blobs, keep)
 				await db.put('chats', updatedChat)
+				await this.deleteStaleImageBlobs(db, updatedChat.id, keep)
 			})
 		}
 	}

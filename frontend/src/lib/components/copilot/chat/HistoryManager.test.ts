@@ -389,6 +389,56 @@ describe('HistoryManager legacy chat-history migration', () => {
 		expect((chat?.displayMessages[0] as any).images[0].dataUrl).toBe(png)
 	})
 
+	it("a failed record put cannot orphan the previous record's blobs", async () => {
+		const png = 'data:image/png;base64,SURVIVES'
+		const hm = new HistoryManager()
+		await hm.init()
+		const chatId = hm.getCurrentChatId()
+		await hm.saveChat(
+			[
+				{ role: 'user', content: 'x', images: [{ dataUrl: png, mediaType: 'image/png' }] }
+			] as DisplayMessage[],
+			[] as ChatCompletionMessageParam[]
+		)
+
+		// Make the next `chats` put fail (quota/connection failure), on a save
+		// whose record drops the image — its blob is now stale, but deleting it
+		// before the record commit would corrupt the still-current OLD record.
+		const probe = await openDB('probe-proto', 1, {
+			upgrade: (d) => {
+				d.createObjectStore('s')
+			}
+		})
+		const proto = Object.getPrototypeOf(
+			probe.transaction('s' as never, 'readwrite').objectStore('s' as never)
+		)
+		probe.close()
+		const origPut = proto.put
+		let failNext = true
+		proto.put = function (this: { name: string }, ...args: unknown[]) {
+			if (this.name === 'chats' && failNext) {
+				failNext = false
+				throw new Error('simulated quota failure')
+			}
+			return origPut.apply(this, args)
+		}
+		try {
+			await expect(
+				hm.saveChat(
+					[{ role: 'user', content: 'no image' }] as DisplayMessage[],
+					[] as ChatCompletionMessageParam[]
+				)
+			).rejects.toThrow('simulated quota failure')
+		} finally {
+			proto.put = origPut
+		}
+
+		const reloaded = new HistoryManager()
+		await reloaded.init()
+		const chat = await reloaded.loadPastChat(chatId)
+		expect((chat?.displayMessages[0] as any).images[0].dataUrl).toBe(png)
+	})
+
 	it('drops queued writes when the user switches before they execute (no cross-user leak)', async () => {
 		const hm = new HistoryManager()
 		await hm.init()
