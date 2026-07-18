@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.761.0](https://github.com/windmill-labs/windmill/compare/v1.760.1...v1.761.0) (2026-07-16)
+
+
+### Features
+
+* **ai-sessions:** CRUD markdown artifacts in sessions ([#10046](https://github.com/windmill-labs/windmill/issues/10046)) ([0ea5705](https://github.com/windmill-labs/windmill/commit/0ea570570e65abf64b3b171e592a8dd3eea0b105))
+* **alerts:** include disk total and top consumers in low-disk alert ([#10144](https://github.com/windmill-labs/windmill/issues/10144)) ([4e0fd4d](https://github.com/windmill-labs/windmill/commit/4e0fd4db5589f91426ca025184da7b977d5a16d6))
+* automatic git-to-windmill sync (polling, webhooks, in-app PRs + checks) ([#9552](https://github.com/windmill-labs/windmill/issues/9552)) ([51d8db6](https://github.com/windmill-labs/windmill/commit/51d8db6602bc192879e50b54a5fe6b6b8beb63f4))
+* display openai reasoning summaries in ai chat ([#10147](https://github.com/windmill-labs/windmill/issues/10147)) ([4ee1d32](https://github.com/windmill-labs/windmill/commit/4ee1d32101eb527ef707c3c4af456892f0a059ab))
+* **forks:** add "Hide unchanged drafts" toggle to fork deploy-draft tab ([#10022](https://github.com/windmill-labs/windmill/issues/10022)) ([4fc3f30](https://github.com/windmill-labs/windmill/commit/4fc3f304c632eda15876c28cb6f473a799a41f48))
+* **frontend:** flatten workspace pickers, whole-tab picker trigger ([#10145](https://github.com/windmill-labs/windmill/issues/10145)) ([7fda6a0](https://github.com/windmill-labs/windmill/commit/7fda6a05345d14f62dc2124d682650d50eecbe98))
+
+
+### Bug Fixes
+
+* **ai:** show the question in askUserQuestion tool-call labels ([#10153](https://github.com/windmill-labs/windmill/issues/10153)) ([fa03984](https://github.com/windmill-labs/windmill/commit/fa03984a14bb71f0ea2a27bfa23339a9d0d8e86b))
+* **alerts:** identify server replica in low-disk alert + per-host dedup tag ([#10143](https://github.com/windmill-labs/windmill/issues/10143)) ([3bd9f05](https://github.com/windmill-labs/windmill/commit/3bd9f0593866740935f79c8b2c1cb92829059105))
+* **frontend:** sanitize job result markup, gate it on unsandboxed public apps ([#10127](https://github.com/windmill-labs/windmill/issues/10127)) ([7b813d1](https://github.com/windmill-labs/windmill/commit/7b813d1f74baef200d9f1387e02925083b79b265))
+* **frontend:** show friendly draft path for draft-only items in pickers ([#10136](https://github.com/windmill-labs/windmill/issues/10136)) ([568dbbe](https://github.com/windmill-labs/windmill/commit/568dbbee852d59986581b0d16f5ac3e06d6bad6a))
+* **frontend:** surface real tool call errors in AI chat ([#10146](https://github.com/windmill-labs/windmill/issues/10146)) ([0694b84](https://github.com/windmill-labs/windmill/commit/0694b84da7bbb9404fd386e3ce109a574a0e9c93))
+* heartbeat job ping during s3object materialization in SQL executors ([#10152](https://github.com/windmill-labs/windmill/issues/10152)) ([7d5009e](https://github.com/windmill-labs/windmill/commit/7d5009e3928bb200150eb998ed0b3016c3395987))
+* **mcp:** push granular scope patterns into SQL so scoped scripts/flows aren't truncated ([#10140](https://github.com/windmill-labs/windmill/issues/10140)) ([91d6606](https://github.com/windmill-labs/windmill/commit/91d6606868d0e9c5f78ab48a592ef95ffaeeca61))
+* **migrations:** grant zombie_job_counter to windmill roles ([#10159](https://github.com/windmill-labs/windmill/issues/10159)) ([0e547ad](https://github.com/windmill-labs/windmill/commit/0e547adf23b615f0caccc88eb9101bb0604bb51b))
+* **raw-apps:** full code ui builder improvements ([c55ac53](https://github.com/windmill-labs/windmill/commit/c55ac5326fbb4532f22b7250a58b69396a4c868a))
+* **raw-apps:** prevent and surface the silent blank screen from an unmounted #root ([#10150](https://github.com/windmill-labs/windmill/issues/10150)) ([24750e6](https://github.com/windmill-labs/windmill/commit/24750e6ef1a1a975e0063df6809774f913b5d01b))
+* **self-host:** unbreak self-hosted Caddy after the caddy-l4 syntax change ([#10156](https://github.com/windmill-labs/windmill/issues/10156)) ([2f6c35b](https://github.com/windmill-labs/windmill/commit/2f6c35b15bf70f17eb8ff08281e0ecf8313e7b35))
+
 ## [1.760.1](https://github.com/windmill-labs/windmill/compare/v1.760.0...v1.760.1) (2026-07-15)
 
 
