@@ -3391,9 +3391,10 @@ const SCHEDULE_REARM_ALERT_THRESHOLD: u32 = 3;
 
 /// Cap on the exponential back-off (in reconcile passes) between re-arm retries of
 /// a schedule that keeps failing. Without a back-off a permanently-failing push
-/// retries every pass forever; the delay grows 2, 4, 8, … up to this cap and
-/// resets the moment the schedule re-arms.
-const SCHEDULE_REARM_MAX_BACKOFF_PASSES: u32 = 32;
+/// retries every pass forever; the delay grows 2, 4, 8 and holds at this cap, and
+/// resets the moment the schedule re-arms. Kept small so a schedule fixed out of
+/// band (the UI/API re-arms immediately) still auto-recovers within a few passes.
+const SCHEDULE_REARM_MAX_BACKOFF_PASSES: u32 = 8;
 
 /// State for a schedule that keeps failing to re-arm: paces retries and drives the
 /// one-time visibility so the loop is neither hot nor silent.
