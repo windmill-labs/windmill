@@ -601,6 +601,18 @@
 			e.preventDefault()
 			aiChatManager.cancel()
 		} else if (
+			e.key === 'Tab' &&
+			e.shiftKey &&
+			!e.defaultPrevented &&
+			editingMessageIndex === null &&
+			onSendRequest === undefined
+		) {
+			// Shift+Tab cycles the chat mode instead of reverse-focusing. Main
+			// composer only — the edit input and custom-send consumers (inline
+			// widget) are pinned to their mode.
+			e.preventDefault()
+			aiChatManager.cycleMode()
+		} else if (
 			e.key === 'ArrowUp' &&
 			!e.defaultPrevented &&
 			editingMessageIndex === null &&

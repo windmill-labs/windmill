@@ -1369,6 +1369,16 @@ export class AIChatManager {
 		}
 	}
 
+	/** Cycle to the next allowed mode (Shift+Tab in the composer). */
+	cycleMode() {
+		const modes = Object.values(AIMode).filter((mode) => this.allowedModes[mode])
+		if (modes.length < 2) {
+			return
+		}
+		const index = modes.indexOf(this.mode)
+		this.changeMode(modes[(index + 1) % modes.length])
+	}
+
 	updateMode(currentMode: AIMode) {
 		if (
 			!this.allowedModes[currentMode] &&

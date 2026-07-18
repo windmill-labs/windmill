@@ -15,7 +15,7 @@
 {#if aiChatManager.queuedMessage}
 	<div
 		class="mb-1 flex flex-row items-start gap-1 rounded-md bg-surface-input px-3 py-2 opacity-60 hover:opacity-100 cursor-pointer"
-		title="Put the queued message back in the input"
+		title={aiChatManager.queuedMessage}
 		role="button"
 		tabindex="0"
 		onclick={() => aiChatManager.dequeueMessage()}
