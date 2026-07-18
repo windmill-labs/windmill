@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.762.2](https://github.com/windmill-labs/windmill/compare/v1.762.1...v1.762.2) (2026-07-18)
+
+
+### Bug Fixes
+
+* **scripts:** populate auto_kind from draft JSON for draft-only scripts ([#10183](https://github.com/windmill-labs/windmill/issues/10183)) ([cba5f0d](https://github.com/windmill-labs/windmill/commit/cba5f0d8a8c2261a190d0f10396a6ad6aed89366))
+
 ## [1.762.1](https://github.com/windmill-labs/windmill/compare/v1.762.0...v1.762.1) (2026-07-17)
 
 
