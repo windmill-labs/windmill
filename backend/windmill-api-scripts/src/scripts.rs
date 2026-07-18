@@ -417,11 +417,19 @@ async fn list_scripts(
             // A draft-only pipeline node (`// pipeline`) has no deployed row to carry
             // auto_kind, so compute it from the draft content — mirroring the create
             // path — so the home page folds it into its pipeline like a deployed member.
+            // Otherwise fall back to the `auto_kind` the frontend saved into the draft
+            // (e.g. `lib` for scripts without a `main`); the content-derived pipeline
+            // annotation keeps priority since it mirrors the deploy-time computation.
             let auto_kind = v
                 .get("content")
                 .and_then(|s| s.as_str())
                 .filter(|c| parse_pipeline_annotations(c).in_pipeline)
-                .map(|_| "pipeline".to_string());
+                .map(|_| "pipeline".to_string())
+                .or_else(|| {
+                    v.get("auto_kind")
+                        .and_then(|s| s.as_str())
+                        .map(|s| s.to_string())
+                });
             rows.push(ListableScript {
                 hash: ScriptHash(0),
                 path: row.path,

@@ -61,6 +61,7 @@ import {
 	setGetRuntimeLogsHandler,
 	setGetDomHandler,
 	setListAppRunsHandler,
+	setScreenshotHandler,
 	setOpenPagePreviewHandler,
 	setOpenPreviewHandler
 } from '$lib/components/copilot/chat/global/core'
@@ -70,7 +71,8 @@ import {
 	type RawAppRuntimeLogEntry,
 	type RawAppRuntimeLogRequester,
 	type RawAppRunSummary,
-	type RawAppRunsProvider
+	type RawAppRunsProvider,
+	type RawAppScreenshotRequester
 } from '$lib/components/raw_apps/utils'
 import type {
 	RawAppDomQuery,
@@ -189,6 +191,10 @@ export interface SessionRuntime {
 	requestDom(query: RawAppDomQuery): Promise<RawAppDomResult | undefined>
 	setAppRunsProvider(provider: RawAppRunsProvider | undefined): void
 	getAppRuns(): RawAppRunSummary[] | undefined
+	setScreenshotRequester(requester: RawAppScreenshotRequester | undefined): void
+	/** Release the slot only if `requester` still owns it. */
+	clearScreenshotRequester(requester: RawAppScreenshotRequester): void
+	requestScreenshot(): Promise<string | undefined>
 	// Discard the local draft + force-reload the editor, so the preview matches
 	// the deployed version. Used by editor onDeploy + the chat deploy handler.
 	syncPreviewWithDeployed(
@@ -465,6 +471,7 @@ function createRuntime(session: Session): SessionRuntime {
 	let activeDomAppPath: string | undefined = undefined
 	let activeDomOwner: unknown = undefined
 	let appRunsProvider: RawAppRunsProvider | undefined = undefined
+	let screenshotRequester: RawAppScreenshotRequester | undefined = undefined
 
 	return {
 		sessionId: session.id,
@@ -831,6 +838,19 @@ function createRuntime(session: Session): SessionRuntime {
 		},
 		getAppRuns() {
 			return appRunsProvider ? appRunsProvider() : undefined
+		},
+		setScreenshotRequester(requester) {
+			screenshotRequester = requester
+		},
+		clearScreenshotRequester(requester) {
+			// Tabs unmount in any order and several stay mounted at once, so a
+			// departing tab must not unregister whichever one now owns the slot.
+			if (screenshotRequester === requester) {
+				screenshotRequester = undefined
+			}
+		},
+		async requestScreenshot() {
+			return screenshotRequester ? screenshotRequester() : undefined
 		}
 	}
 }
@@ -1127,6 +1147,34 @@ setListAppRunsHandler(({ sessionId: callerSessionId, limit }) => {
 		aiResult: formatAppRunsForChat(limited),
 		uiMessage: `Fetched app runs`,
 		toolResult: formatAppRunsForChat(limited)
+	}
+})
+
+setScreenshotHandler(async ({ sessionId: callerSessionId }) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
+	const runtime = sessionId ? runtimes.get(sessionId) : undefined
+	if (!runtime) {
+		return {
+			error:
+				'Error: take_screenshot is only available inside an AI session. Tell the user screenshots can only be captured from a session preview.',
+			uiMessage: 'Screenshot unavailable'
+		}
+	}
+	try {
+		const dataUrl = await runtime.requestScreenshot()
+		if (dataUrl === undefined) {
+			return {
+				error:
+					'No raw app preview is open for this session, so there is nothing to screenshot. Next step: call open_preview with kind="raw_app" and the app path, wait for it to load, then call take_screenshot again.',
+				uiMessage: 'Screenshot unavailable'
+			}
+		}
+		return { dataUrl }
+	} catch (e) {
+		return {
+			error: `Could not capture the app preview: ${e instanceof Error ? e.message : String(e)}`,
+			uiMessage: 'Screenshot failed'
+		}
 	}
 })
 

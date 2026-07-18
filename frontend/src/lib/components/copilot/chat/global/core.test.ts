@@ -3752,8 +3752,27 @@ describe('session-only preview tools gating', () => {
 		expect(names).toContain('list_app_runs')
 		expect(names).toContain('search_dom')
 		expect(names).toContain('read_dom')
-		// session set is the full globalTools
-		expect(names.length).toBe(globalTools.length)
+		// The session set is the full globalTools minus capability-gated tools:
+		// this environment is not Chromium, so take_screenshot is withheld (DOM
+		// capture is only faithful on Blink). search_dom / read_dom are not gated.
+		expect(names).not.toContain('take_screenshot')
+		expect(names.length).toBe(globalTools.length - 1)
+	})
+
+	it('offers take_screenshot inside a session only on Chromium', () => {
+		vi.stubGlobal('navigator', {
+			userAgentData: { brands: [{ brand: 'Chromium', version: '138' }] },
+			userAgent: 'stubbed'
+		})
+		try {
+			const names = toolNames(true)
+			expect(names).toContain('take_screenshot')
+			expect(names.length).toBe(globalTools.length)
+			// still session-only, even on Chromium
+			expect(toolNames(false)).not.toContain('take_screenshot')
+		} finally {
+			vi.unstubAllGlobals()
+		}
 	})
 
 	it('mentions open_preview / get_app_runtime_logs / list_app_runs in the system prompt only when preview tools are enabled', () => {

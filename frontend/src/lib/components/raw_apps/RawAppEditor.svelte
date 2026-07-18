@@ -23,7 +23,8 @@
 		type RawAppRuntimeLogEntry,
 		type RawAppRuntimeLogRequester,
 		type RawAppRunSummary,
-		type RawAppRunsProvider
+		type RawAppRunsProvider,
+		type RawAppScreenshotRequester
 	} from './utils'
 	import { runDomQueryOnHtml, type RawAppDomQuery, type RawAppDomRequester } from './rawAppDom'
 	import InlineElementPrompt from './InlineElementPrompt.svelte'
@@ -39,6 +40,7 @@
 		InspectorElementInfo
 	} from '../copilot/chat/app/core'
 	import { createAppSelectedContext, type AppCodeSelectionElement } from '../copilot/chat/context'
+	import { captureScale, MAX_IMAGE_EDGE } from '../copilot/chat/imageUtils'
 	import { rawAppLintStore } from './lintStore'
 	import { dbSchemas } from '$lib/stores'
 	import {
@@ -141,6 +143,7 @@
 		// Session preview only: send a prompt scoped to a selected element (via the
 		// inline mini-composer anchored over it in the preview).
 		onInlinePrompt?: (selector: string, prompt: string) => void
+		onScreenshotRequester?: (requester: RawAppScreenshotRequester | undefined) => void
 		// Restoring an older deployment from the history drawer. A callback prop
 		// (not `on:restore` forwarding): forwarding a `createEventDispatcher`
 		// event up through these runes-mode components silently drops it.
@@ -188,6 +191,7 @@
 		onInspectorDeselect = undefined,
 		onInspectorClearAll = undefined,
 		onInlinePrompt = undefined,
+		onScreenshotRequester = undefined,
 		onRestore,
 		onSavedNewAppPath,
 		condensedHeader = false
@@ -1532,14 +1536,123 @@
 		return out.reverse()
 	}
 
+	// Only values whose non-wrapping counterpart collapses whitespace identically.
+	// `pre-line`/`break-spaces` have no such counterpart: forcing them to nowrap
+	// would eat their preserved newlines, so they are left to re-wrap.
+	const NON_WRAPPING_EQUIVALENT: Record<string, string> = {
+		normal: 'nowrap',
+		'pre-wrap': 'pre'
+	}
+
+	// getClientRects yields a rect per contained node, not per line box, so the
+	// count alone says nothing: `a <b>b</b>` is two rects on one line. Rects
+	// sharing a line overlap vertically, and `top` alone would split a line that
+	// mixes font sizes — so count vertically disjoint runs.
+	function countLines(range: Range): number {
+		const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0 || r.height > 0)
+		if (rects.length === 0) return 0
+		rects.sort((a, b) => a.top - b.top)
+		let lines = 1
+		let lineBottom = rects[0].bottom
+		for (const r of rects) {
+			if (r.top >= lineBottom) {
+				lines++
+				lineBottom = r.bottom
+			} else {
+				lineBottom = Math.max(lineBottom, r.bottom)
+			}
+		}
+		return lines
+	}
+
+	// A box that shrink-wraps its text can have zero sub-pixel slack (a 208.59px box
+	// holding a 208.59px text run). The capture re-runs layout in whole pixels, so
+	// the text no longer fits, wraps, and is then clipped out of the box entirely.
+	// Pinning runs that are already single-line is a no-op on the live DOM but stops
+	// the re-layout from re-deciding where they break.
+	function pinSingleLineText(root: HTMLElement): () => void {
+		const doc = root.ownerDocument
+		const view = doc.defaultView
+		if (!view) return () => {}
+		// Measure every candidate before mutating any of them: interleaving reads and
+		// writes forces a synchronous reflow per element.
+		const pending: Array<[HTMLElement, string]> = []
+		const walker = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT)
+		let node: Node | null
+		while ((node = walker.nextNode())) {
+			const el = node as HTMLElement
+			if (!(el instanceof view.HTMLElement)) continue
+			const hasOwnText = Array.from(el.childNodes).some(
+				(c) => c.nodeType === Node.TEXT_NODE && (c.textContent ?? '').trim() !== ''
+			)
+			if (!hasOwnText) continue
+			const replacement = NON_WRAPPING_EQUIVALENT[view.getComputedStyle(el).whiteSpace]
+			if (!replacement) continue
+			const range = doc.createRange()
+			range.selectNodeContents(el)
+			if (countLines(range) !== 1) continue // already wraps — leave its breaks alone
+			pending.push([el, replacement])
+		}
+		const restores = pending.map(([el, replacement]) => {
+			const prev = el.style.getPropertyValue('white-space')
+			const prio = el.style.getPropertyPriority('white-space')
+			el.style.setProperty('white-space', replacement, 'important')
+			return () => {
+				if (prev) el.style.setProperty('white-space', prev, prio)
+				else el.style.removeProperty('white-space')
+			}
+		})
+		return () => restores.forEach((r) => r())
+	}
+
+	// Capture the live preview as a PNG data URL. The preview iframe
+	// (/ui_builder/app-preview.html) is same-origin with no sandbox, so its rendered
+	// document is reachable and can be serialized from here. There is no native
+	// element-screenshot API; modern-screenshot reconstructs the DOM into an SVG
+	// foreignObject, so a WebGL canvas is only captured when its context was created
+	// with preserveDrawingBuffer. Lazy-imported so the library only loads on demand.
+	const captureScreenshot: RawAppScreenshotRequester = async () => {
+		const target = previewIframe?.contentDocument?.body
+		if (!previewIframe || !previewIframeLoaded || !target) {
+			throw new Error('App preview is not ready')
+		}
+		// Collapsing the preview leaves the iframe mounted and populated at zero
+		// width, which passes every check above and then fails inside the rasteriser
+		// as an opaque decode error. Name the cause so the agent can act on it.
+		if (!target.clientWidth || !target.clientHeight) {
+			throw new Error(
+				'The app preview is collapsed, so there is nothing to capture. Ask the user to expand the preview panel, then try again.'
+			)
+		}
+		const { domToPng } = await import('modern-screenshot')
+		// Above CSS resolution for small previews (a 1× capture of a ~900px preview
+		// reads blurry next to the live render), sub-1× for oversized bodies — see
+		// captureScale. maximumCanvasSize is the belt over that math: the rasterised
+		// box can exceed the body's client size, and an unbounded canvas on a tall
+		// scrolling app can freeze the tab before normalize ever bounds the pixels.
+		const scale = captureScale(Math.max(target.clientWidth, target.clientHeight))
+		const restore = pinSingleLineText(target)
+		try {
+			return await domToPng(target, {
+				backgroundColor: '#ffffff',
+				scale,
+				maximumCanvasSize: MAX_IMAGE_EDGE
+			})
+		} finally {
+			restore()
+		}
+	}
+
 	onMount(() => {
 		onRuntimeLogRequester?.(requestRuntimeLogs)
 		onRunsProvider?.(getRuns)
 		onDomRequester?.(requestDomQuery)
+		onScreenshotRequester?.(captureScreenshot)
 		return () => {
 			onRuntimeLogRequester?.(undefined)
 			onRunsProvider?.(undefined)
 			onDomRequester?.(undefined)
+			onScreenshotRequester?.(undefined)
 			for (const requestId of Array.from(pendingRuntimeLogReqs.keys()))
 				resolvePendingRuntimeLogRequest(requestId, undefined)
 		}

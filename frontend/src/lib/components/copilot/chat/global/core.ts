@@ -47,6 +47,10 @@ import {
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
 import type { RawAppDomQuery } from '$lib/components/raw_apps/rawAppDom'
+import { dataUrlToImagePart, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
+import { modelSupportsVision } from '../../modelConfig'
+import { tryGetCurrentModel } from '$lib/aiStore'
+import { isChromiumBrowser } from '$lib/utils'
 import {
 	applyEditableFlowJsonToFlow,
 	buildEditableFlowJson,
@@ -193,6 +197,8 @@ export type GlobalActiveEditorContext = {
 export type GlobalUserMessageOptions = {
 	workspace?: string
 	activeEditor?: GlobalActiveEditorContext
+	/** Images attached to this message; delivered as image_url content parts. */
+	images?: AttachedImage[]
 }
 
 const itemTypeSchema = z.enum(ITEM_TYPES)
@@ -842,6 +848,8 @@ const readDomSchema = z.object({
 		.describe('1-based last line to read. The window is capped at 200 lines.')
 })
 
+const takeScreenshotSchema = z.object({})
+
 const FRAMEWORK_KEYS = [
 	'react19',
 	'react18',
@@ -968,6 +976,11 @@ Rules:
 - When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
 - To inspect what actually rendered in a running raw app (verify an edit landed on screen, diagnose a blank/empty or wrong view, answer "what's showing"), use search_dom (regex over the live HTML) and read_dom (a line-numbered window). Pass a \`selector\` to scope to an element — prefer the selector from a DOM element chip the user attached — or omit it for the whole page. When a chip lists an \`app_path\`, pass it too so the RIGHT app is read (several previews can be open; a query without \`app_path\` hits the visible one). The DOM is read live and is never in context; no match means the element isn't rendered. Both need the raw app preview open.
 - get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.
+${
+	isChromiumBrowser()
+		? `- When the user raises how a raw app looks (something is off, or they want the design or layout improved), call take_screenshot to see what they are looking at before changing anything. Reach for it when the request is about appearance, not to review your own edits, which you can read back from the code. It needs the raw app preview open (open_preview kind="raw_app").`
+		: `- When the user raises how a raw app looks (something is off, or they want the design or layout improved) and their description alone isn't specific enough to pinpoint the problem, ask them to paste or drop a screenshot of it into the chat before changing anything.`
+}
 - open_page opens its page as a tab in the side-panel preview next to the chat — the only way to show one of these pages there (open_preview only handles editable items). Changing filters on a page already open updates that same tab; only pass new_tab when the user explicitly asks for a separate tab.
 - create_artifact saves a persistent markdown document (a planning doc, design write-up, spec, or other longer structured output) shown in the session preview panel. Prefer it over a long inline reply for content the user will revisit; keep brief answers inline. To revise one, call list_artifacts then read_artifact for the current content, then update_artifact to overwrite it — never create a second artifact for the same document.`
 			: ''
@@ -3000,6 +3013,54 @@ export const globalTools: Tool<{}>[] = [
 			return result.aiResult
 		}
 	},
+	{
+		def: createToolDef(
+			takeScreenshotSchema,
+			'take_screenshot',
+			// Keep this short: every global session iteration re-sends it. How to read
+			// the result belongs on the result, where only a real capture pays for it.
+			'Capture a screenshot of the raw app preview currently open in this AI session and attach it as an image so you can see the rendered UI. Use it when the user raises how the app looks, whether reporting a problem or asking for the design improved, rather than to check your own edits. The image is attached in the following message. Requires the raw app preview open (open_preview kind="raw_app").'
+		),
+		showDetails: true,
+		fn: async (ctx) => {
+			// A known text-only model would reject the follow-up image message and fail
+			// the turn, so refuse before capturing rather than buffer an image it can
+			// never read. The model is re-read here because it can change between turns.
+			const model = tryGetCurrentModel()
+			if (model && !modelSupportsVision(model.provider, model.model)) {
+				const cannotSee = `${model.model} cannot read images, so a screenshot would be discarded. Ask the user to describe what looks wrong, or to switch to a model that supports images.`
+				ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+					content: `${model.model} cannot read images`,
+					error: cannotSee
+				})
+				return cannotSee
+			}
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Capturing screenshot...' })
+			const result = await getSessionScreenshot(sessionIdFromCtx(ctx))
+			if (!result.dataUrl) {
+				ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+					content: result.uiMessage ?? 'Screenshot unavailable',
+					error: result.error
+				})
+				return result.error ?? 'Could not capture the app preview.'
+			}
+			// Normalize (downscale + png/jpeg) so history/context never carry a full-res blob;
+			// buffered here and flushed as a follow-up user image message once the tool batch
+			// completes (see appendPendingToolImages).
+			const image = await normalizeImageDataUrl(result.dataUrl)
+			ctx.toolCallbacks.attachToolImage?.(ctx.toolId, image)
+			// The card shows the same copy the model gets; sharing the exact data URL
+			// lets the history's blob store persist one copy for both.
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+				content: 'Screenshot captured',
+				imageUrl: image.dataUrl
+			})
+			return (
+				'Screenshot captured; the image is attached in the following message.\n\n' +
+				'It is rebuilt from the DOM rather than captured from the screen, so it can differ from what the user sees, and it differs by browser. Treat what you see as real and fix it. Before dismissing anything as a capture artifact, read the source for that element and name the specific cause; if you cannot, it is a real bug. If you are still unsure, say what looks wrong and ask the user to screenshot it themselves and drag the image into the chat rather than guessing.'
+			)
+		}
+	},
 	// Workspace-scoped datatable tools (unrestricted: no whitelist, no creation policy)
 	...getDatatableTools(),
 	// Read-only tools over files the user attached to the conversation
@@ -3017,6 +3078,7 @@ export const SESSION_PREVIEW_TOOL_NAMES = new Set([
 	'list_app_runs',
 	'search_dom',
 	'read_dom',
+	'take_screenshot',
 	'create_artifact',
 	'update_artifact',
 	'list_artifacts',
@@ -3029,9 +3091,16 @@ export const SESSION_PREVIEW_TOOL_NAMES = new Set([
  * global side-panel chat.
  */
 export function globalToolsFor({ sessionPreview }: { sessionPreview: boolean }): Tool<{}>[] {
-	return sessionPreview
+	const tools = sessionPreview
 		? globalTools
 		: globalTools.filter((t) => !SESSION_PREVIEW_TOOL_NAMES.has(t.def.function.name))
+	// DOM capture re-renders the app through the engine's SVG-image path, which is
+	// only faithful on Blink — Gecko/WebKit shift text spacing and wrapping (font
+	// fallback, sub-pixel rounding). Elsewhere the tool is withheld entirely and
+	// the system prompt tells the agent to ask the user for a screenshot instead.
+	return isChromiumBrowser()
+		? tools
+		: tools.filter((t) => t.def.function.name !== 'take_screenshot')
 }
 
 type WriteDraftCtx = {
@@ -3267,6 +3336,28 @@ function getSessionDom(
 		})
 	}
 	return getDomHandler({ sessionId, query })
+}
+
+export type SessionScreenshotResult = { dataUrl?: string; error?: string; uiMessage?: string }
+export type ScreenshotHandler = (req: {
+	sessionId: string | undefined
+}) => Promise<SessionScreenshotResult>
+
+let screenshotHandler: ScreenshotHandler | undefined
+
+export function setScreenshotHandler(handler: ScreenshotHandler | undefined): void {
+	screenshotHandler = handler
+}
+
+function getSessionScreenshot(sessionId: string | undefined): Promise<SessionScreenshotResult> {
+	if (!screenshotHandler) {
+		return Promise.resolve({
+			error:
+				'Error: take_screenshot is only available inside an AI session with a raw app preview open. Ask the user to open the raw app preview (open_preview kind="raw_app"), then try again.',
+			uiMessage: 'Screenshot unavailable'
+		})
+	}
+	return screenshotHandler({ sessionId })
 }
 
 // Registered by the session runtime to reload the open preview after a chat
@@ -5394,6 +5485,20 @@ export function prepareGlobalUserMessage(
 	}
 
 	content += `## INSTRUCTIONS:\n${instructions}`
+
+	const images = options.images ?? []
+	if (images.length > 0) {
+		// Multimodal message: the text block plus one image_url part per attachment.
+		// The provider converters translate image_url for Anthropic/Responses; the
+		// OpenAI-compatible path sends it as-is.
+		return {
+			role: 'user',
+			content: [
+				{ type: 'text', text: content },
+				...images.map((img) => dataUrlToImagePart(img.dataUrl))
+			]
+		}
+	}
 
 	return {
 		role: 'user',

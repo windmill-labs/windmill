@@ -16,8 +16,40 @@ import type { MessageStream } from '@anthropic-ai/sdk/lib/MessageStream'
 import type { AIProviderModel } from '$lib/gen'
 import { getProviderAndCompletionConfig, workspaceAIClients } from '../lib'
 import { applyReasoningToConfig } from '../reasoningRegistry'
-import { processToolCall, type Tool, type ToolCallbacks } from './shared'
+import { appendPendingToolImages, processToolCall, type Tool, type ToolCallbacks } from './shared'
 import { anthropicUsageToChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
+import { parseImageDataUrl } from './imageUtils'
+
+const ANTHROPIC_IMAGE_MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
+
+/**
+ * Convert an OpenAI user-message content array (text + image_url parts) to Anthropic
+ * content blocks. Returns a plain string when the content is a lone text part so
+ * simple messages stay unchanged. Non-image/text parts are dropped.
+ */
+function openAIUserContentToAnthropic(content: unknown): string | any[] {
+	if (typeof content === 'string') return content
+	if (!Array.isArray(content)) return JSON.stringify(content)
+	const blocks: any[] = []
+	for (const part of content) {
+		if (part?.type === 'text' && typeof part.text === 'string') {
+			blocks.push({ type: 'text', text: part.text })
+		} else if (part?.type === 'image_url' && part.image_url?.url) {
+			const { mediaType, base64 } = parseImageDataUrl(part.image_url.url)
+			if (!base64) continue
+			blocks.push({
+				type: 'image',
+				source: {
+					type: 'base64',
+					media_type: ANTHROPIC_IMAGE_MEDIA_TYPES.has(mediaType) ? mediaType : 'image/png',
+					data: base64
+				}
+			})
+		}
+	}
+	if (blocks.length === 1 && blocks[0].type === 'text') return blocks[0].text
+	return blocks
+}
 
 interface ParsedCompletionResult {
 	shouldContinue: boolean
@@ -310,6 +342,7 @@ export async function parseAnthropicCompletion(
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)
 		}
+		appendPendingToolImages(messages, addedMessages, callbacks)
 		return { shouldContinue: true, tokenUsage }
 	}
 
@@ -367,8 +400,7 @@ export function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessage
 		if (message.role === 'user') {
 			anthropicMessages.push({
 				role: 'user',
-				content:
-					typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+				content: openAIUserContentToAnthropic(message.content)
 			})
 		} else if (message.role === 'assistant') {
 			// Replay a captured assistant turn verbatim so its thinking-block signatures
@@ -443,8 +475,8 @@ export function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessage
 	// block of the last message. Each continuation only appends a tool result plus the
 	// next turn, so everything up to here is read from cache — which is what keeps
 	// replaying assistant turns verbatim (web-search results included) affordable.
-	// cache_control is valid on text/tool_use/tool_result blocks, but a thinking or
-	// redacted_thinking block must never be modified, so skip the breakpoint there.
+	// cache_control is valid on text/tool_use/tool_result/image blocks, but a thinking
+	// or redacted_thinking block must never be modified, so skip the breakpoint there.
 	if (anthropicMessages.length > 0) {
 		const lastMessage = anthropicMessages[anthropicMessages.length - 1]
 		if (typeof lastMessage.content === 'string') {

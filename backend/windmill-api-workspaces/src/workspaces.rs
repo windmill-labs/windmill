@@ -514,6 +514,10 @@ struct UserWorkspace {
     pub parent_workspace_id: Option<String>,
     pub is_dev_workspace: bool,
     pub dev_workspace_label: Option<String>,
+    /// Creator of the workspace (`workspace.owner`). On a fork it identifies the forker, who gets a
+    /// narrow membership grant over it even without being an admin — the UI keys the fork members
+    /// screen off this.
+    pub created_by: Option<String>,
     pub disabled: bool,
 }
 
@@ -4298,6 +4302,7 @@ async fn user_workspaces(
         UserWorkspace,
         "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color, workspace.parent_workspace_id,
                 workspace.is_dev_workspace, workspace.dev_workspace_label,
+                workspace.owner AS \"created_by?\",
                 CASE WHEN usr.operator THEN workspace_settings.operator_settings ELSE NULL END as operator_settings,
                 usr.disabled
          FROM workspace
@@ -7174,6 +7179,72 @@ If you do not have an account on {}, login with SSO or ask an admin to create an
     ))
 }
 
+/// Non-admin path for `add_user`: the creator of a fork may bring collaborators into the fork they
+/// created, so a team can work on it without an admin of the fork having to step in. The grant is
+/// deliberately narrow, because a fork holds a full clone of its parent (secrets included) and the
+/// creator may be an ordinary developer:
+/// - only on a fork they created, never on a root workspace;
+/// - only as a developer, so it can never mint an admin (nor an operator, which would need the
+///   workspace's operator settings to be meaningful);
+/// - only for someone who is already a developer or admin of the parent, so pulling them into the
+///   fork cannot widen who can read the parent's data.
+///
+/// Anything outside those bounds stays an admin's call. Returns the username the new member must be
+/// given in the fork.
+async fn authorize_fork_owner_add_user(
+    db: &DB,
+    w_id: &str,
+    authed: &ApiAuthed,
+    nu: &NewWorkspaceUser,
+) -> Result<String> {
+    let parent = windmill_common::workspaces::fork_owned_by(db, w_id, &authed.email)
+        .await?
+        .ok_or_else(|| Error::RequireAdmin(authed.username.clone()))?;
+
+    if nu.is_admin || nu.operator {
+        return Err(Error::PermissionDenied(format!(
+            "as the creator of fork {w_id} you can only add members as developers; ask an admin of \
+             {w_id} for any other role"
+        )));
+    }
+
+    let parent_username = sqlx::query_scalar!(
+        "SELECT username FROM usr
+         WHERE workspace_id = $1 AND email = $2 AND NOT operator AND NOT disabled",
+        parent,
+        nu.email,
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let Some(parent_username) = parent_username else {
+        return Err(Error::PermissionDenied(format!(
+            "as the creator of fork {w_id} you can only add developers or admins of its parent \
+             workspace {parent}; {} is not one, so only an admin of {w_id} can add them",
+            nu.email
+        )));
+    };
+
+    // Ownership of a `u/<username>/` path is decided by the username alone, and the fork holds a
+    // clone of every such path from the parent. Seating the new member on a username other than
+    // their own would therefore hand them that parent user's cloned scripts, variables and secrets
+    // — so their parent username is the only one they may be given here, whatever the caller asked
+    // for (`add_user` otherwise lets the caller choose it when AUTOMATE_USERNAME_CREATION is off).
+    if nu
+        .username
+        .as_deref()
+        .is_some_and(|u| !u.is_empty() && u != parent_username)
+    {
+        return Err(Error::PermissionDenied(format!(
+            "as the creator of fork {w_id} you cannot choose the username of a member you add; {} \
+             joins as '{parent_username}', the username they already have in {parent}",
+            nu.email
+        )));
+    }
+
+    Ok(parent_username)
+}
+
 async fn add_user(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -7181,8 +7252,6 @@ async fn add_user(
     Path(w_id): Path<String>,
     Json(mut nu): Json<NewWorkspaceUser>,
 ) -> Result<(StatusCode, String)> {
-    require_admin(authed.is_admin, &authed.username)?;
-
     #[cfg(not(feature = "enterprise"))]
     if w_id == "admins" {
         return Err(Error::BadRequest(
@@ -7191,6 +7260,12 @@ async fn add_user(
     }
 
     nu.email = nu.email.to_lowercase();
+
+    let fork_owner_username = if !authed.is_admin {
+        Some(authorize_fork_owner_add_user(&db, &w_id, &authed, &nu).await?)
+    } else {
+        None
+    };
 
     #[cfg(feature = "enterprise")]
     if let Some(msg) =
@@ -7227,7 +7302,9 @@ async fn add_user(
     .flatten()
     .unwrap_or(true);
 
-    let username = if automate_username_creation {
+    let username = if let Some(username) = fork_owner_username {
+        username
+    } else if automate_username_creation {
         if nu.username.is_some() && nu.username.unwrap().len() > 0 {
             return Err(Error::BadRequest(
                 "username is not allowed when username creation is automated".to_string(),

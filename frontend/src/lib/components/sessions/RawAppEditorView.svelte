@@ -9,7 +9,8 @@
 	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import type {
 		RawAppRuntimeLogRequester,
-		RawAppRunsProvider
+		RawAppRunsProvider,
+		RawAppScreenshotRequester
 	} from '$lib/components/raw_apps/utils'
 	import type { RawAppDomRequester } from '$lib/components/raw_apps/rawAppDom'
 	import type { InspectorElementInfo } from '$lib/components/copilot/chat/app/core'
@@ -184,11 +185,26 @@
 			.getSelectedContext()
 			.filter((c) => c.type !== 'app_dom_selector' || c.selector === selector)
 		if (runtime.manager.loading) {
-			runtime.manager.queueMessage(prompt, snapshot)
+			runtime.manager.queueMessage(prompt, [], snapshot)
 		} else {
 			void runtime.manager.sendRequest({ instructions: prompt, contextOverride: snapshot })
 		}
 	}
+
+	// The preview host keeps every opened tab mounted, so registering on mount would
+	// leave a background tab owning the runtime's single screenshot slot and
+	// take_screenshot would capture an app the user isn't looking at. Ownership
+	// follows the visible tab instead, and only the owner may release it.
+	let screenshotRequester = $state<RawAppScreenshotRequester | undefined>(undefined)
+	function registerScreenshotRequester(requester: RawAppScreenshotRequester | undefined) {
+		screenshotRequester = requester
+	}
+	$effect(() => {
+		const requester = screenshotRequester
+		if (!active || !requester) return
+		runtime.setScreenshotRequester(requester)
+		return () => runtime.clearScreenshotRequester(requester)
+	})
 </script>
 
 {#if cell.saved.val}
@@ -253,6 +269,7 @@
 				{onInspectorDeselect}
 				{onInspectorClearAll}
 				{onInlinePrompt}
+				onScreenshotRequester={registerScreenshotRequester}
 			/>
 		{/if}
 	{/snippet}

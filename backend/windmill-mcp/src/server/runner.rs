@@ -12,7 +12,7 @@ use crate::common::transform::{
 use crate::common::types::{McpToken, MultiWorkspaceMcp, ResourceInfo, ToolableItem, WorkspaceId};
 use crate::server::backend::{McpAuth, McpBackend, PathFilter};
 use crate::server::endpoints::{
-    endpoint_tool_to_mcp_tool, endpoint_tool_to_mcp_tool_multi, list_workspaces_tool,
+    endpoint_tool_to_mcp_tool, endpoint_tool_to_mcp_tool_multi, list_workspaces_tool, EndpointTool,
 };
 use crate::server::tools::create_tool_from_item;
 use rmcp::handler::server::ServerHandler;
@@ -126,18 +126,174 @@ impl<B: McpBackend> Runner<B> {
     }
 }
 
-/// The run-by-path endpoint tools execute an arbitrary script/flow named by a
-/// `path` argument. In multi-workspace mode they are the only way to run
-/// scripts/flows, so their authorization must honor the `mcp:scripts:` /
-/// `mcp:flows:` path scopes (not the generic endpoint scope) — otherwise a
-/// granular token could run items outside its allowed paths. Returns the scope
-/// resource type ("script"/"flow") for these endpoints, `None` otherwise.
-fn run_by_path_scope_kind(endpoint_name: &str) -> Option<&'static str> {
+/// How an endpoint tool interacts with the token's `mcp:scripts:` / `mcp:flows:`
+/// path scopes.
+enum EndpointPathPolicy {
+    /// Executes the script/flow named by the `path` argument. Gated by the
+    /// script/flow scope alone (an endpoint scope is not enough to run things):
+    /// in multi-workspace mode these are the only way to run scripts/flows, so a
+    /// granular token must not run items outside its allowed paths.
+    RunByPath(&'static str),
+    /// Reads/writes the script/flow named by the listed path arguments. The
+    /// endpoint scope grants the capability; when the token also carries path
+    /// patterns for `kind`, every listed argument must match them.
+    PathArgs { kind: &'static str, fields: &'static [&'static str] },
+    /// Affects scripts without taking a checkable path (delete-by-hash) or
+    /// executes arbitrary code (preview). Unavailable to path-confined tokens —
+    /// allowing these would bypass the path patterns entirely.
+    Unconfinable(&'static str),
+}
+
+fn endpoint_path_policy(endpoint_name: &str) -> Option<EndpointPathPolicy> {
+    use EndpointPathPolicy::*;
     match endpoint_name {
-        "runScriptByPath" => Some("script"),
-        "runFlowByPath" => Some("flow"),
+        "runScriptByPath" => Some(RunByPath("script")),
+        "runFlowByPath" => Some(RunByPath("flow")),
+        "getScriptByPath" | "deleteScriptByPath" | "createScript" => {
+            Some(PathArgs { kind: "script", fields: &["path"] })
+        }
+        "getFlowByPath" | "deleteFlowByPath" | "createFlow" => {
+            Some(PathArgs { kind: "flow", fields: &["path"] })
+        }
+        // updateFlow addresses the flow via the URL path and can move it to the
+        // path given in the body — both must stay within scope.
+        "updateFlow" => Some(PathArgs { kind: "flow", fields: &["path__path", "path__body"] }),
+        "deleteScriptByHash" | "runScriptPreviewAndWaitResult" => Some(Unconfinable("script")),
         _ => None,
     }
+}
+
+/// Whether the token restricts `kind` ("script"/"flow") to specific paths. A
+/// `*` pattern grants every path (see `is_resource_allowed`), so it does not
+/// count as confinement.
+fn path_confined(scope_config: &crate::common::scope::McpScopeConfig, kind: &str) -> bool {
+    if scope_config.all {
+        return false;
+    }
+    let patterns = match kind {
+        "script" => &scope_config.scripts,
+        "flow" => &scope_config.flows,
+        _ => return false,
+    };
+    !patterns.is_empty() && !patterns.iter().any(|p| p == "*")
+}
+
+fn require_path_arg<'a>(
+    endpoint_tool: &EndpointTool,
+    args: &'a Value,
+    field: &str,
+) -> Result<&'a str, ErrorData> {
+    args.get(field)
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            ErrorData::invalid_params(
+                format!(
+                    "Missing required '{}' argument for tool '{}'.",
+                    field, endpoint_tool.name
+                ),
+                None,
+            )
+        })
+}
+
+/// Whether an endpoint tool is in scope for *listing*. Run-by-path endpoints are
+/// gated by the script/flow scope (`has_any` — the token can run at least one
+/// path of that kind); unconfinable endpoints are hidden from path-confined
+/// tokens (their calls would always be denied); every other endpoint by the
+/// endpoint-name scope.
+fn endpoint_tool_in_scope(
+    scope_config: &crate::common::scope::McpScopeConfig,
+    endpoint_tool: &EndpointTool,
+) -> bool {
+    let endpoint_allowed =
+        !scope_config.granular || scope_config.is_allowed("endpoint", &endpoint_tool.name);
+    match endpoint_path_policy(&endpoint_tool.name) {
+        Some(EndpointPathPolicy::RunByPath(kind)) => scope_config.has_any(kind),
+        Some(EndpointPathPolicy::Unconfinable(kind)) => {
+            endpoint_allowed && !path_confined(scope_config, kind)
+        }
+        _ => endpoint_allowed,
+    }
+}
+
+/// Authorize an endpoint-tool *call* against the token's MCP scopes and
+/// read-only flag. Shared by single- and multi-workspace modes so both enforce
+/// the same rules — otherwise a granular token could run items outside its
+/// allowed paths through the single-workspace path. Run-by-path endpoints
+/// (runScriptByPath/runFlowByPath) are gated by the script/flow scope for the
+/// requested `path` (the endpoint-name scope alone is insufficient); other
+/// endpoints by the endpoint-name scope, with script/flow path arguments
+/// additionally confined to the token's path patterns when it has any; and
+/// non-GET endpoints are refused for read-only tokens.
+fn authorize_endpoint_call(
+    scope_config: &crate::common::scope::McpScopeConfig,
+    endpoint_tool: &EndpointTool,
+    args: &Value,
+    read_only: bool,
+) -> Result<(), ErrorData> {
+    match endpoint_path_policy(&endpoint_tool.name) {
+        Some(EndpointPathPolicy::RunByPath(kind)) => {
+            let path = require_path_arg(endpoint_tool, args, "path")?;
+            // No `granular` gate: is_allowed already encodes every mode — true for
+            // mcp:all, pattern-matched for granular scopes, and false for
+            // mcp:favorites (a favorites token can't run an arbitrary path).
+            if !scope_config.is_allowed(kind, path) {
+                return Err(ErrorData::internal_error(
+                    format!("Access denied: {} '{}' not in token scope", kind, path),
+                    None,
+                ));
+            }
+        }
+        policy => {
+            if scope_config.granular && !scope_config.is_allowed("endpoint", &endpoint_tool.name) {
+                return Err(ErrorData::internal_error(
+                    format!(
+                        "Access denied: endpoint '{}' not in token scope",
+                        endpoint_tool.name
+                    ),
+                    None,
+                ));
+            }
+            match policy {
+                Some(EndpointPathPolicy::PathArgs { kind, fields })
+                    if path_confined(scope_config, kind) =>
+                {
+                    for field in fields {
+                        let path = require_path_arg(endpoint_tool, args, field)?;
+                        if !scope_config.is_allowed(kind, path) {
+                            return Err(ErrorData::internal_error(
+                                format!("Access denied: {} '{}' not in token scope", kind, path),
+                                None,
+                            ));
+                        }
+                    }
+                }
+                Some(EndpointPathPolicy::Unconfinable(kind))
+                    if path_confined(scope_config, kind) =>
+                {
+                    return Err(ErrorData::internal_error(
+                        format!(
+                            "Access denied: endpoint '{}' is not available to a token restricted to specific {} paths",
+                            endpoint_tool.name, kind
+                        ),
+                        None,
+                    ));
+                }
+                _ => {}
+            }
+        }
+    }
+    if read_only && !crate::server::is_endpoint_read_only(endpoint_tool) {
+        return Err(ErrorData::internal_error(
+            format!(
+                "Access denied: endpoint '{}' is not read-only and this token is restricted to read-only operations",
+                endpoint_tool.name
+            ),
+            None,
+        ));
+    }
+    Ok(())
 }
 
 fn find_matching_path<T: ToolableItem>(candidates: Vec<T>, request_name: &str) -> Option<String> {
@@ -373,10 +529,13 @@ impl<B: McpBackend> Runner<B> {
             }
         }
 
-        // Add endpoint tools from the generated MCP tools, filtered by scope
+        // Add endpoint tools from the generated MCP tools, filtered by scope.
+        // Uses the same run-by-path-aware gate as multi-workspace mode so a
+        // granular token only sees runScriptByPath / runFlowByPath when it can
+        // actually run scripts / flows.
         let endpoint_tools = self.backend.all_endpoint_tools();
         for endpoint_tool in endpoint_tools {
-            if scope_config.granular && !scope_config.is_allowed("endpoint", &endpoint_tool.name) {
+            if !endpoint_tool_in_scope(scope_config, &endpoint_tool) {
                 continue;
             }
             if read_only && !crate::server::is_endpoint_read_only(&endpoint_tool) {
@@ -403,27 +562,9 @@ impl<B: McpBackend> Runner<B> {
         let endpoint_tools = self.backend.all_endpoint_tools();
         for endpoint_tool in &endpoint_tools {
             if endpoint_tool.name.as_ref() == name.as_ref() {
-                // Validate endpoint scope
-                if scope_config.granular
-                    && !scope_config.is_allowed("endpoint", &endpoint_tool.name)
-                {
-                    return Err(ErrorData::internal_error(
-                        format!(
-                            "Access denied: endpoint '{}' not in token scope",
-                            endpoint_tool.name
-                        ),
-                        None,
-                    ));
-                }
-                if read_only && !crate::server::is_endpoint_read_only(endpoint_tool) {
-                    return Err(ErrorData::internal_error(
-                        format!(
-                            "Access denied: endpoint '{}' is not read-only and this token is restricted to read-only operations",
-                            endpoint_tool.name
-                        ),
-                        None,
-                    ));
-                }
+                // Authorize against the token's MCP scopes and read-only flag,
+                // including the run-by-path path check (shared with multi mode).
+                authorize_endpoint_call(scope_config, endpoint_tool, &args, read_only)?;
 
                 // This is an endpoint tool, call via backend
                 let result = self
@@ -580,16 +721,7 @@ impl<B: McpBackend> Runner<B> {
 
         let endpoint_tools = self.backend.all_endpoint_tools();
         for endpoint_tool in endpoint_tools {
-            // Run-by-path tools are gated by script/flow scope (they run an
-            // arbitrary path); every other endpoint by the endpoint scope.
-            let allowed = match run_by_path_scope_kind(&endpoint_tool.name) {
-                Some(kind) => scope_config.has_any(kind),
-                None => {
-                    !scope_config.granular
-                        || scope_config.is_allowed("endpoint", &endpoint_tool.name)
-                }
-            };
-            if !allowed {
+            if !endpoint_tool_in_scope(scope_config, &endpoint_tool) {
                 continue;
             }
             if read_only && !crate::server::is_endpoint_read_only(&endpoint_tool) {
@@ -641,59 +773,13 @@ impl<B: McpBackend> Runner<B> {
                 )
             })?;
 
-        // Authorize the tool. Run-by-path endpoints (runScriptByPath /
-        // runFlowByPath) run an arbitrary `path` and must be checked against the
-        // script/flow scope for that path — the endpoint scope alone would let a
-        // granular token run items outside its allowed paths.
-        match run_by_path_scope_kind(&endpoint_tool.name) {
-            Some(kind) => {
-                let path = args
-                    .get("path")
-                    .and_then(|v| v.as_str())
-                    .filter(|s| !s.is_empty())
-                    .ok_or_else(|| {
-                        ErrorData::invalid_params(
-                            format!(
-                                "Missing required 'path' argument for tool '{}'.",
-                                endpoint_tool.name
-                            ),
-                            None,
-                        )
-                    })?;
-                // No `granular` gate: is_allowed already encodes every mode —
-                // true for mcp:all, pattern-matched for granular scopes, and
-                // false for mcp:favorites (a favorites token can't run an
-                // arbitrary path, only its enumerated favorites).
-                if !scope_config.is_allowed(kind, path) {
-                    return Err(ErrorData::internal_error(
-                        format!("Access denied: {} '{}' not in token scope", kind, path),
-                        None,
-                    ));
-                }
-            }
-            None => {
-                if scope_config.granular
-                    && !scope_config.is_allowed("endpoint", &endpoint_tool.name)
-                {
-                    return Err(ErrorData::internal_error(
-                        format!(
-                            "Access denied: endpoint '{}' not in token scope",
-                            endpoint_tool.name
-                        ),
-                        None,
-                    ));
-                }
-            }
-        }
-        if read_only && !crate::server::is_endpoint_read_only(endpoint_tool) {
-            return Err(ErrorData::internal_error(
-                format!(
-                    "Access denied: endpoint '{}' is not read-only and this token is restricted to read-only operations",
-                    endpoint_tool.name
-                ),
-                None,
-            ));
-        }
+        // Authorize the tool against the token's MCP scopes and read-only flag
+        // (shared with single-workspace mode). Run-by-path endpoints
+        // (runScriptByPath / runFlowByPath) run an arbitrary `path` and are
+        // checked against the script/flow scope for that path — the endpoint
+        // scope alone would let a granular token run items outside its allowed
+        // paths.
+        authorize_endpoint_call(scope_config, endpoint_tool, &args, read_only)?;
 
         // Workspace-scoped endpoints need an explicit target workspace and a
         // per-workspace auth; global endpoints (e.g. docs) use the base identity.
@@ -744,5 +830,272 @@ impl<B: McpBackend> Runner<B> {
                 serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string()),
             ),
         )]))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::scope::{parse_mcp_scopes, McpScopeConfig};
+    use serde_json::json;
+    use std::borrow::Cow;
+
+    fn cfg(scopes: &[&str]) -> McpScopeConfig {
+        parse_mcp_scopes(&scopes.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap()
+    }
+
+    fn ep(name: &'static str, method: &'static str) -> EndpointTool {
+        EndpointTool {
+            name: Cow::Borrowed(name),
+            description: Cow::Borrowed(""),
+            instructions: Cow::Borrowed(""),
+            path: Cow::Borrowed("/w/{workspace}/jobs/run/p/{path}"),
+            method: Cow::Borrowed(method),
+            path_params_schema: None,
+            query_params_schema: None,
+            body_schema: None,
+            query_field_renames: None,
+            body_field_renames: None,
+        }
+    }
+
+    // The core invariant: a folder-scoped token (mcp:endpoints:* +
+    // mcp:scripts:f/team/*, as the folder-scope UI emits) must not run a script
+    // outside its allowed folders via runScriptByPath — mcp:endpoints:* alone
+    // must never authorize an arbitrary path.
+    #[test]
+    fn run_by_path_call_enforces_script_scope() {
+        let config = cfg(&[
+            "mcp:scripts:f/team/*",
+            "mcp:flows:f/team/*",
+            "mcp:endpoints:*",
+        ]);
+        let tool = ep("runScriptByPath", "POST");
+
+        assert!(
+            authorize_endpoint_call(&config, &tool, &json!({"path": "f/team/deploy"}), false)
+                .is_ok()
+        );
+        assert!(
+            authorize_endpoint_call(&config, &tool, &json!({"path": "f/secret/admin"}), false)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn run_by_path_call_requires_path_arg() {
+        let tool = ep("runFlowByPath", "POST");
+        assert!(authorize_endpoint_call(&cfg(&["mcp:all"]), &tool, &json!({}), false).is_err());
+    }
+
+    #[test]
+    fn run_by_path_flow_scope_independent_of_script_scope() {
+        // A flow-only token can run flows by path but not scripts by path.
+        let config = cfg(&["mcp:flows:f/team/*", "mcp:endpoints:*"]);
+        assert!(authorize_endpoint_call(
+            &config,
+            &ep("runFlowByPath", "POST"),
+            &json!({"path": "f/team/x"}),
+            false
+        )
+        .is_ok());
+        assert!(authorize_endpoint_call(
+            &config,
+            &ep("runScriptByPath", "POST"),
+            &json!({"path": "f/team/x"}),
+            false
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn non_run_by_path_gated_by_endpoint_scope() {
+        let get_var = ep("getVariable", "GET");
+        assert!(authorize_endpoint_call(
+            &cfg(&["mcp:endpoints:getVariable"]),
+            &get_var,
+            &json!({"path": "u/a/b"}),
+            false
+        )
+        .is_ok());
+        // A granular token without the endpoint scope is denied.
+        assert!(authorize_endpoint_call(
+            &cfg(&["mcp:scripts:f/team/*"]),
+            &get_var,
+            &json!({"path": "u/a/b"}),
+            false
+        )
+        .is_err());
+        // mcp:all (non-granular) allows any endpoint.
+        assert!(authorize_endpoint_call(&cfg(&["mcp:all"]), &get_var, &json!({}), false).is_ok());
+    }
+
+    #[test]
+    fn read_only_refuses_non_get_endpoint() {
+        // Reaches the read-only check via mcp:all so scope isn't the blocker.
+        assert!(authorize_endpoint_call(
+            &cfg(&["mcp:all"]),
+            &ep("createResource", "POST"),
+            &json!({}),
+            true
+        )
+        .is_err());
+        assert!(authorize_endpoint_call(
+            &cfg(&["mcp:all"]),
+            &ep("getVariable", "GET"),
+            &json!({"path": "u/a/b"}),
+            true
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn listing_run_by_path_needs_runnable_scope() {
+        let tool = ep("runScriptByPath", "POST");
+        // An endpoint-only token cannot run any script, so the tool isn't listed.
+        assert!(!endpoint_tool_in_scope(&cfg(&["mcp:endpoints:*"]), &tool));
+        // A script-scoped token can, so it is listed.
+        assert!(endpoint_tool_in_scope(
+            &cfg(&["mcp:scripts:f/team/*"]),
+            &tool
+        ));
+        assert!(endpoint_tool_in_scope(&cfg(&["mcp:all"]), &tool));
+        // Non-run-by-path endpoints are governed by the endpoint scope.
+        let get_var = ep("getVariable", "GET");
+        assert!(endpoint_tool_in_scope(
+            &cfg(&["mcp:endpoints:getVariable"]),
+            &get_var
+        ));
+        assert!(!endpoint_tool_in_scope(
+            &cfg(&["mcp:scripts:f/team/*"]),
+            &get_var
+        ));
+    }
+
+    // A folder-scoped token must not read/write/delete scripts or flows outside
+    // its allowed paths through the non-run endpoint tools either.
+    #[test]
+    fn path_arg_tools_confined_by_path_patterns() {
+        let config = cfg(&[
+            "mcp:scripts:f/team/*",
+            "mcp:flows:f/team/*",
+            "mcp:endpoints:*",
+        ]);
+        for name in ["getScriptByPath", "deleteScriptByPath", "createScript"] {
+            let tool = ep(name, "POST");
+            assert!(
+                authorize_endpoint_call(&config, &tool, &json!({"path": "f/team/x"}), false)
+                    .is_ok(),
+                "{name} should allow in-scope path"
+            );
+            assert!(
+                authorize_endpoint_call(&config, &tool, &json!({"path": "f/secret/x"}), false)
+                    .is_err(),
+                "{name} should deny out-of-scope path"
+            );
+            // Confinement can't be verified without the path argument.
+            assert!(
+                authorize_endpoint_call(&config, &tool, &json!({}), false).is_err(),
+                "{name} should require the path argument when confined"
+            );
+        }
+        for name in ["getFlowByPath", "deleteFlowByPath", "createFlow"] {
+            let tool = ep(name, "POST");
+            assert!(
+                authorize_endpoint_call(&config, &tool, &json!({"path": "f/team/x"}), false)
+                    .is_ok(),
+                "{name} should allow in-scope path"
+            );
+            assert!(
+                authorize_endpoint_call(&config, &tool, &json!({"path": "f/secret/x"}), false)
+                    .is_err(),
+                "{name} should deny out-of-scope path"
+            );
+        }
+    }
+
+    // A token that never expressed path patterns (endpoints-only) is not
+    // confined: the endpoint scope alone authorizes any path.
+    #[test]
+    fn path_arg_tools_unconfined_without_path_patterns() {
+        let config = cfg(&["mcp:endpoints:*"]);
+        for name in ["getScriptByPath", "createScript", "deleteFlowByPath"] {
+            assert!(authorize_endpoint_call(
+                &config,
+                &ep(name, "POST"),
+                &json!({"path": "f/anywhere/x"}),
+                false
+            )
+            .is_ok());
+        }
+        // A `*` pattern grants every path, so it doesn't confine either.
+        let star = cfg(&["mcp:scripts:*", "mcp:endpoints:*"]);
+        assert!(authorize_endpoint_call(
+            &star,
+            &ep("createScript", "POST"),
+            &json!({"path": "f/anywhere/x"}),
+            false
+        )
+        .is_ok());
+    }
+
+    // updateFlow both addresses a flow (URL path) and can move it (body path):
+    // a confined token must have both within scope.
+    #[test]
+    fn update_flow_checks_target_and_destination_paths() {
+        let config = cfg(&["mcp:flows:f/team/*", "mcp:endpoints:*"]);
+        let tool = ep("updateFlow", "POST");
+        assert!(authorize_endpoint_call(
+            &config,
+            &tool,
+            &json!({"path__path": "f/team/a", "path__body": "f/team/b"}),
+            false
+        )
+        .is_ok());
+        // Moving a flow out of the allowed folder is denied.
+        assert!(authorize_endpoint_call(
+            &config,
+            &tool,
+            &json!({"path__path": "f/team/a", "path__body": "f/secret/a"}),
+            false
+        )
+        .is_err());
+        // Touching a flow outside the allowed folder is denied.
+        assert!(authorize_endpoint_call(
+            &config,
+            &tool,
+            &json!({"path__path": "f/secret/a", "path__body": "f/team/a"}),
+            false
+        )
+        .is_err());
+    }
+
+    // Tools that can't be path-checked (delete-by-hash) or execute arbitrary
+    // code (preview) would bypass path confinement, so a path-confined token is
+    // denied them entirely — and doesn't see them listed.
+    #[test]
+    fn unconfinable_tools_denied_for_path_confined_token() {
+        let confined = cfg(&["mcp:scripts:f/team/*", "mcp:endpoints:*"]);
+        for name in ["deleteScriptByHash", "runScriptPreviewAndWaitResult"] {
+            let tool = ep(name, "POST");
+            assert!(authorize_endpoint_call(&confined, &tool, &json!({}), false).is_err());
+            assert!(!endpoint_tool_in_scope(&confined, &tool));
+            // Without script path patterns the tools stay available.
+            assert!(
+                authorize_endpoint_call(&cfg(&["mcp:endpoints:*"]), &tool, &json!({}), false)
+                    .is_ok()
+            );
+            assert!(authorize_endpoint_call(&cfg(&["mcp:all"]), &tool, &json!({}), false).is_ok());
+            assert!(endpoint_tool_in_scope(&cfg(&["mcp:endpoints:*"]), &tool));
+        }
+        // Flow-only confinement doesn't affect script-kind unconfinable tools.
+        let flow_confined = cfg(&["mcp:flows:f/team/*", "mcp:endpoints:*"]);
+        assert!(authorize_endpoint_call(
+            &flow_confined,
+            &ep("deleteScriptByHash", "POST"),
+            &json!({}),
+            false
+        )
+        .is_ok());
     }
 }
