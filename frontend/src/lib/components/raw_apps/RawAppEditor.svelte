@@ -1407,6 +1407,11 @@
 		// label pills it injects into <body>, and the outline classes it adds to
 		// app elements (highlights are element outlines, not overlay nodes).
 		const clone = el.cloneNode(true) as Element
+		// The preview harness appends the compiled app bundle as a <script> under
+		// <body>. It is source, not rendered output: serializing it would let
+		// search_dom match strings that exist only in source and pollute / truncate
+		// read_dom's line window with bundle JS. Drop every script from the clone.
+		clone.querySelectorAll('script').forEach((n) => n.remove())
 		clone.querySelectorAll('.inspector-label').forEach((n) => n.remove())
 		// The outline classes sit on the selected element itself (the clone root),
 		// not only its descendants — querySelectorAll skips the root, so strip it too.

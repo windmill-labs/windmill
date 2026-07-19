@@ -2338,7 +2338,9 @@ export class AIChatManager {
 				// re-select); a newer selection made since is left intact.
 				for (const c of options.contextOverride) {
 					if (c.type === 'app_dom_selector') {
-						this.contextManager?.removeSelectedDomElement(c.selector)
+						// Match appPath too: another app's live chip can share this
+						// selector, and dropping it would discard a newer selection.
+						this.contextManager?.removeSelectedDomElement(c.selector, c.appPath)
 					}
 				}
 			} else {

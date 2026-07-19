@@ -87,11 +87,8 @@
 		runtime.setAppRunsProvider(provider)
 	}
 
-	// Only the ACTIVE preview tab owns the runtime's single DOM-requester slot, so
-	// search_dom / read_dom always target the visible app. Hidden preview tabs stay
-	// mounted, so the slot must be RELEASED when this tab is hidden (switching to a
-	// flow/script/page tab, or to another raw-app tab) — otherwise it keeps
-	// targeting a now-hidden raw app.
+	// This tab's live DOM query requester, registered in the runtime's per-app-path
+	// map below so search_dom / read_dom can reach it while it is mounted.
 	let domRequester = $state<RawAppDomRequester | undefined>(undefined)
 	function registerDomRequester(requester: RawAppDomRequester | undefined) {
 		domRequester = requester
@@ -145,10 +142,11 @@
 			.map((c) => c.selector)
 	)
 
-	// The DOM requester (search_dom / read_dom) is scoped to the ACTIVE preview
-	// tab, so a chip picked in another tab would silently resolve against this
-	// app. When this tab becomes active, drop any chips from a different app so
-	// the chip context and the live DOM target can never diverge.
+	// Chips route per app (each carries its app path) and highlights are filtered
+	// per app, so cross-app chips are technically safe. But the composer chip row
+	// shows every chip without an app label, so chips from two apps would be
+	// indistinguishable there. Keep the selection to a single app: when this tab
+	// becomes active, drop any chips belonging to a different app.
 	$effect(() => {
 		if (!active) return
 		const p = path
@@ -160,9 +158,10 @@
 		})
 	})
 
-	// Removals originating in the preview (× on an overlay) or on rebuild.
+	// Removals originating in the preview (× on an overlay) or on rebuild. Scope to
+	// this app: another preview tab can hold a chip with the same selector string.
 	function onInspectorDeselect(selector: string) {
-		runtime.manager.contextManager.removeSelectedDomElement(selector)
+		runtime.manager.contextManager.removeSelectedDomElement(selector, path)
 	}
 	function onInspectorClearAll() {
 		runtime.manager.contextManager.clearSelectedDomElements()

@@ -2399,3 +2399,24 @@ describe('AIChatManager background job completion', () => {
 		expect(manager.pendingJobNotes[0]).toContain('Background job job-1 for "run" succeeded')
 	})
 })
+
+describe('DOM selector chips scoped by app path', () => {
+	const domChips = (manager: AIChatManager) =>
+		manager.contextManager.getSelectedContext().filter((c) => c.type === 'app_dom_selector')
+
+	it('keeps same-selector chips from different apps and removes only the scoped one', () => {
+		const manager = new AIChatManager()
+		const cm = manager.contextManager
+		const base = { selector: 'div.card', tagName: 'div' }
+		cm.addSelectedDomElement({ ...base, appPath: 'f/app/a' })
+		cm.addSelectedDomElement({ ...base, appPath: 'f/app/b' })
+		// Same selector, different apps: both survive (dedup is per app path).
+		expect(domChips(manager)).toHaveLength(2)
+
+		// A selector-only removal would wipe both; scoping by appPath keeps app A's.
+		cm.removeSelectedDomElement('div.card', 'f/app/b')
+		const remaining = domChips(manager)
+		expect(remaining).toHaveLength(1)
+		expect(remaining[0].appPath).toBe('f/app/a')
+	})
+})

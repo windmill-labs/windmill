@@ -399,7 +399,10 @@ export default class ContextManager {
 	}) {
 		if (
 			this.selectedContext.find(
-				(c) => c.type === 'app_dom_selector' && c.selector === info.selector
+				(c) =>
+					c.type === 'app_dom_selector' &&
+					c.selector === info.selector &&
+					c.appPath === info.appPath
 			)
 		) {
 			return
@@ -421,10 +424,17 @@ export default class ContextManager {
 		]
 	}
 
-	/** Remove one DOM selector chip (× on the chip or on the preview overlay). */
-	removeSelectedDomElement(selector: string) {
+	/** Remove one DOM selector chip (× on the chip or on the preview overlay).
+	 * Scope by appPath when known: two apps can generate the same selector, so a
+	 * selector-only match would drop another app's chip. */
+	removeSelectedDomElement(selector: string, appPath?: string) {
 		this.selectedContext = this.selectedContext.filter(
-			(c) => !(c.type === 'app_dom_selector' && c.selector === selector)
+			(c) =>
+				!(
+					c.type === 'app_dom_selector' &&
+					c.selector === selector &&
+					(appPath === undefined || c.appPath === appPath)
+				)
 		)
 	}
 
