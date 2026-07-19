@@ -604,12 +604,15 @@
 			e.key === 'Tab' &&
 			e.shiftKey &&
 			!e.defaultPrevented &&
+			e.target instanceof HTMLTextAreaElement &&
 			editingMessageIndex === null &&
 			onSendRequest === undefined
 		) {
-			// Shift+Tab cycles the chat mode instead of reverse-focusing. Main
-			// composer only — the edit input and custom-send consumers (inline
-			// widget) are pinned to their mode.
+			// Shift+Tab in the textarea cycles the chat mode instead of
+			// reverse-focusing. Textarea only — from the send button or badge
+			// buttons it keeps moving focus; and main composer only — the edit
+			// input and custom-send consumers (inline widget) are pinned to
+			// their mode.
 			e.preventDefault()
 			aiChatManager.cycleMode()
 		} else if (
