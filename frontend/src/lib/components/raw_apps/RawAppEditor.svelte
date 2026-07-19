@@ -1403,6 +1403,15 @@
 				text: `No element matches selector "${selector}". It may not be rendered yet, or the selector is wrong. Try a broader selector or omit it to read the whole page.`
 			}
 		}
+		// A <script> is source the browser executes, not rendered output. The
+		// descendant strip below can't reach a selected script (it IS the clone
+		// root, which querySelectorAll skips), so reject it here — otherwise a
+		// `script` query would serialize the whole compiled app bundle.
+		if (el.tagName.toLowerCase() === 'script') {
+			return {
+				text: `The "${selector}" selector matches a <script> element — source code the browser executes, not rendered output. Omit the selector to read the whole page, or target a rendered element.`
+			}
+		}
 		// Strip the inspector's own artifacts so the model never sees them: the
 		// label pills it injects into <body>, and the outline classes it adds to
 		// app elements (highlights are element outlines, not overlay nodes).
