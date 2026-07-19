@@ -1241,20 +1241,43 @@ describe('AIChatManager queued messages', () => {
 			appPath: 'f/app',
 			tagName: 'div'
 		})
-		// Cancel before any usable output → the rollback (restoreUnsentTurn) path.
+		// The chip is consumed on send; while the turn streams the user selects a
+		// different element, then cancels before any usable output (rollback path).
 		mocks.runChatLoop.mockImplementationOnce(async ({ abortController }: any) => {
+			manager.contextManager.addSelectedDomElement({
+				selector: 'div.other',
+				appPath: 'f/app',
+				tagName: 'div'
+			})
 			abortController.abort('user_cancelled')
 			throw new Error('aborted')
 		})
 
 		await manager.sendRequest({ instructions: 'make it red' })
 
-		// The chip was consumed on send; the rollback must put it back so a resend
-		// keeps its element scope (otherwise the restored prompt loses its target).
+		// Rollback restores THIS turn's chip and replaces the chip selected mid-stream,
+		// so the restored draft stays coherent (its instruction targets div.card only).
 		const chips = manager.contextManager
 			.getSelectedContext()
 			.filter((c) => c.type === 'app_dom_selector')
 		expect(chips.map((c) => c.selector)).toEqual(['div.card'])
+	})
+
+	it('restores a dequeued inline prompt’s pinned DOM context, replacing the live selection', () => {
+		const manager = createManager(createInputMock())
+		const cm = manager.contextManager
+		// Prompt A was queued with its own element pinned.
+		cm.setSelectedDomElement({ selector: 'div.a', appPath: 'f/app', tagName: 'div' })
+		manager.queueMessage('style A', [], [...cm.getSelectedContext()])
+		// The user then selects B in the live preview.
+		cm.setSelectedDomElement({ selector: 'div.b', appPath: 'f/app', tagName: 'div' })
+
+		// Returning the queued draft to the composer must restore A's context, not
+		// leave B's live selection (which would retarget the restored prompt).
+		manager.dequeueMessage()
+
+		const chips = cm.getSelectedContext().filter((c) => c.type === 'app_dom_selector')
+		expect(chips.map((c) => c.selector)).toEqual(['div.a'])
 	})
 
 	it('re-queues the message when its auto-send is rejected by beforeSend', async () => {

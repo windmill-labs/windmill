@@ -235,6 +235,21 @@
 		(selectedContext ?? []).filter((c): c is AppDomSelectorElement => c.type === 'app_dom_selector')
 	)
 
+	// DOM selector chips can share a display title (two `button.btn` from repeated
+	// elements), so identify them by (appPath, selector) — keying or removing by
+	// title would collide, giving repeated chips one Svelte key and deleting them
+	// together. Other context types stay identified by (type, title).
+	function contextKey(c: ContextElement): string {
+		return c.type === 'app_dom_selector' ? `dom:${c.appPath}:${c.selector}` : `${c.type}:${c.title}`
+	}
+	function isSameContextElement(a: ContextElement, b: ContextElement): boolean {
+		if (a.type !== b.type) return false
+		if (a.type === 'app_dom_selector' && b.type === 'app_dom_selector') {
+			return a.selector === b.selector && a.appPath === b.appPath
+		}
+		return a.title === b.title
+	}
+
 	/** Append `@title` to the textarea so the button-picker path stays in
 	 * sync with the inline `@<word>` mention path — both leave a visible
 	 * token tied to the selectedContext entry, which the textarea diffs on
@@ -691,14 +706,12 @@
 {#snippet contextPickerRow()}
 	{#if selectedContext.length > 0}
 		<div class="flex flex-row flex-wrap items-center gap-1 px-2.5 pt-2">
-			{#each selectedContext as element (element.type + '-' + element.title)}
+			{#each selectedContext as element (contextKey(element))}
 				<ContextElementBadge
 					contextElement={element}
 					deletable
 					onDelete={() => {
-						selectedContext = selectedContext?.filter(
-							(c) => c.type !== element.type || c.title !== element.title
-						)
+						selectedContext = selectedContext?.filter((c) => !isSameContextElement(c, element))
 						removeMention(element.title)
 					}}
 				/>
@@ -712,14 +725,12 @@
 {#snippet domSelectorChipRow()}
 	{#if domSelectorChips.length > 0}
 		<div class="flex flex-row flex-wrap items-center gap-1 px-2.5 pt-2">
-			{#each domSelectorChips as element (element.selector)}
+			{#each domSelectorChips as element (contextKey(element))}
 				<ContextElementBadge
 					contextElement={element}
 					deletable
 					onDelete={() => {
-						selectedContext = selectedContext?.filter(
-							(c) => !(c.type === 'app_dom_selector' && c.selector === element.selector)
-						)
+						selectedContext = selectedContext?.filter((c) => !isSameContextElement(c, element))
 					}}
 				/>
 			{/each}
@@ -788,9 +799,7 @@
 				placeholder={modePlaceholder}
 				onAddContext={(contextElement) => void addContextToSelection(contextElement)}
 				onRemoveContext={(element) => {
-					selectedContext = selectedContext?.filter(
-						(c) => c.type !== element.type || c.title !== element.title
-					)
+					selectedContext = selectedContext?.filter((c) => !isSameContextElement(c, element))
 				}}
 				onSendRequest={() => {
 					if (disabled) {

@@ -1496,6 +1496,20 @@ export class AIChatManager {
 		this.queuedContext = queued.context
 	}
 
+	/** Put a draft's pinned DOM selector chips back as the live selection,
+	 * replacing any chips selected since — so a restored draft and the selection
+	 * stay coherent (its instruction targets the element it was written for). No-op
+	 * when the draft pinned no DOM chips, so a plain-text draft leaves the live
+	 * selection untouched. */
+	#restoreDomContext(context: ContextElement[] | undefined) {
+		const domChips = (context ?? []).filter((c) => c.type === 'app_dom_selector')
+		if (domChips.length === 0) return
+		this.contextManager?.clearSelectedDomElements()
+		for (const c of domChips) {
+			this.contextManager?.addSelectedDomElement(c)
+		}
+	}
+
 	/** Remove the queued message and put it back into the input, images included. */
 	dequeueMessage() {
 		if (!this.#hasQueuedMessage()) {
@@ -1503,6 +1517,10 @@ export class AIChatManager {
 		}
 		const queued = this.#takeQueue()
 		this.restoreToInput(queued.text, queued.images)
+		// The queued draft pinned its own DOM context; restore it so sending from
+		// the composer targets the element the draft was written for, not whatever
+		// is selected now.
+		this.#restoreDomContext(queued.context)
 	}
 
 	/** Put what the user typed back where they can see it: into the input
@@ -2704,15 +2722,13 @@ export class AIChatManager {
 				)
 				// restoreUnsentTurn hands the text/pastes/images back for a resend, but
 				// the DOM selector chips were already consumed from the live selection
-				// before the request went out. Re-add them so the restored prompt keeps
-				// its element scope. Skipped on a queued-message handoff (that message
-				// carries its own context and this prompt is dropped).
+				// before the request went out. Restore this turn's own chips so the
+				// resend keeps its element scope — replacing (not merging) any chips
+				// selected during the stream, so the restored draft stays coherent.
+				// Skipped on a queued-message handoff (that message carries its own
+				// context and this prompt is dropped).
 				if (!willAutoSendQueued) {
-					for (const c of oldSelectedContext) {
-						if (c.type === 'app_dom_selector') {
-							this.contextManager?.addSelectedDomElement(c)
-						}
-					}
+					this.#restoreDomContext(oldSelectedContext)
 				}
 				if (this.displayMessages.length === 0) {
 					// saveChat no-ops on an empty transcript; the chat persisted earlier
