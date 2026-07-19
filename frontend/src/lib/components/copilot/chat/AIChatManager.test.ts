@@ -2436,4 +2436,24 @@ describe('DOM selector chips scoped by app path', () => {
 		cm.clearSelectedDomElements()
 		expect(domChips(manager)).toHaveLength(0)
 	})
+
+	it('unions DOM chips across inline prompts queued during one stream', () => {
+		const manager = new AIChatManager()
+		const cm = manager.contextManager
+		cm.setSelectedDomElement({ selector: 'div.a', appPath: 'f/app', tagName: 'div' })
+		const snapA = [...cm.getSelectedContext()]
+		cm.setSelectedDomElement({ selector: 'div.b', appPath: 'f/app', tagName: 'div' })
+		const snapB = [...cm.getSelectedContext()]
+
+		// Two element-scoped inline prompts queued while a turn streams. The earlier
+		// element's chip must survive so its instruction isn't retargeted to the later one.
+		manager.queueMessage('make A red', [], snapA)
+		manager.queueMessage('make B bigger', [], snapB)
+
+		const queuedSelectors = (manager.queuedContext ?? [])
+			.filter((c) => c.type === 'app_dom_selector')
+			.map((c) => c.selector)
+			.sort()
+		expect(queuedSelectors).toEqual(['div.a', 'div.b'])
+	})
 })

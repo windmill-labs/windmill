@@ -1403,13 +1403,20 @@
 				text: `No element matches selector "${selector}". It may not be rendered yet, or the selector is wrong. Try a broader selector or omit it to read the whole page.`
 			}
 		}
-		// A <script> is source the browser executes, not rendered output. The
-		// descendant strip below can't reach a selected script (it IS the clone
-		// root, which querySelectorAll skips), so reject it here — otherwise a
-		// `script` query would serialize the whole compiled app bundle.
+		// A <script> is source the browser executes, not rendered output; an
+		// `.inspector-label` is chrome this inspector injects. The descendant strips
+		// below can't reach either when it IS the clone root (querySelectorAll skips
+		// the root), so reject such a root here — otherwise a `script` query would
+		// serialize the whole compiled bundle and an `.inspector-label` query would
+		// return inspector chrome.
 		if (el.tagName.toLowerCase() === 'script') {
 			return {
 				text: `The "${selector}" selector matches a <script> element — source code the browser executes, not rendered output. Omit the selector to read the whole page, or target a rendered element.`
+			}
+		}
+		if (el.classList.contains('inspector-label')) {
+			return {
+				text: `The "${selector}" selector matches an inspector label — UI chrome injected by the element picker, not part of the app. Target a rendered app element instead.`
 			}
 		}
 		// Strip the inspector's own artifacts so the model never sees them: the

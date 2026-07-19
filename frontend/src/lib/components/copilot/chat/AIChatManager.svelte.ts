@@ -1440,9 +1440,31 @@ export class AIChatManager {
 			}
 			this.queuedImages = merged.slice(0, MAX_ATTACHED_IMAGES)
 		}
-		// Pin the context snapshot to the queued message (last writer wins if several
-		// queue while streaming — the common case is a single inline prompt).
-		if (context && context.length > 0) this.queuedContext = context
+		// Pin the context snapshot to the queued message. The queued text accumulates
+		// (several inline prompts can queue during one stream), so union the DOM
+		// selector chips too — replacing would drop an earlier prompt's element and
+		// misapply its instruction. Non-DOM context comes from the latest snapshot.
+		if (context && context.length > 0) {
+			if (!this.queuedContext) {
+				this.queuedContext = context
+			} else {
+				const merged = [...context]
+				for (const c of this.queuedContext) {
+					if (
+						c.type === 'app_dom_selector' &&
+						!merged.some(
+							(m) =>
+								m.type === 'app_dom_selector' &&
+								m.selector === c.selector &&
+								m.appPath === c.appPath
+						)
+					) {
+						merged.push(c)
+					}
+				}
+				this.queuedContext = merged
+			}
+		}
 	}
 
 	/** Whether anything is waiting in the queue — an image-only message has empty text. */
