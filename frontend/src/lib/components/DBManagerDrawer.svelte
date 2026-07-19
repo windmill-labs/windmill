@@ -16,6 +16,7 @@
 		Upload
 	} from 'lucide-svelte'
 	import DBManagerContent from './DBManagerContent.svelte'
+	import DataTableMigrationsButton from './workspaceSettings/DataTableMigrationsButton.svelte'
 	import { resource } from 'runed'
 	import { untrack } from 'svelte'
 	import type { DbManagerUriState } from './dbManagerDrawerModel.svelte'
@@ -34,13 +35,15 @@
 
 	let open = $derived(uriState.open)
 
+	// The workspace the drawer's DB operations run against — the acting workspace of
+	// the editor that opened it (set via openDrawer), else the nav workspace.
+	let ws = $derived(uriState.workspace ?? $workspaceStore)
+
 	// Load available datatables when drawer opens with datatable input
 	const datatables = resource<string[]>([], async () => {
-		if (!$workspaceStore) return []
+		if (!ws) return []
 		try {
-			return (await WorkspaceService.listDataTables({ workspace: $workspaceStore })).map(
-				(d) => d.name
-			)
+			return (await WorkspaceService.listDataTables({ workspace: ws })).map((d) => d.name)
 		} catch (e) {
 			console.error('Failed to load datatables:', e)
 			return []
@@ -105,12 +108,17 @@
 		return toSourceIdentifier(input.resourcePath)
 	}
 
+	function refreshManager() {
+		dbManagerContent?.refresh()
+		dbManagerContent?.dbManager()?.dbTable()?.refresh()
+	}
+
 	async function handleExportSchema() {
 		const source = currentSourceIdentifier()
-		if (!source || !$workspaceStore) return
+		if (!source || !ws) return
 		try {
 			exportResult = await WorkspaceService.exportPgSchema({
-				workspace: $workspaceStore,
+				workspace: ws,
 				requestBody: { source }
 			})
 			exportDrawerOpen = true
@@ -120,13 +128,13 @@
 	}
 
 	async function handleImportDatabase() {
-		if (!importSource || !$workspaceStore) return
+		if (!importSource || !ws) return
 		const target = currentSourceIdentifier()
 		if (!target) return
 		importLoading = true
 		try {
 			await WorkspaceService.importPgDatabase({
-				workspace: $workspaceStore,
+				workspace: ws,
 				requestBody: {
 					source: toSourceIdentifier(importSource),
 					target,
@@ -167,11 +175,12 @@
 		noPadding
 		id="db-manager-drawer"
 	>
-		{#if uriState.effectiveInput && $workspaceStore}
+		{#if uriState.effectiveInput && ws}
 			{#key uriState.selectedDatatable}
 				<DBManagerContent
 					bind:this={dbManagerContent}
 					input={uriState.effectiveInput}
+					workspace={uriState.workspace}
 					bind:hasReplResult
 					bind:selectedSchemaKey={uriState.selectedSchema}
 					bind:selectedTableKey={uriState.selectedTable}
@@ -201,6 +210,13 @@
 			{/key}
 		{/if}
 		{#snippet actions()}
+			{#if uriState.isDatatableInput && uriState.selectedDatatable && ws}
+				<DataTableMigrationsButton
+					workspace={ws}
+					datatable={uriState.selectedDatatable}
+					onSchemaChanged={refreshManager}
+				/>
+			{/if}
 			{#if enableImportExport}
 				<Button startIcon={{ icon: Download }} onClick={handleExportSchema}>Export</Button>
 				<Button startIcon={{ icon: Upload }} onClick={() => (importDrawerOpen = true)}>
@@ -209,16 +225,13 @@
 			{/if}
 			<Button
 				loading={dbManagerContent?.isLoading() ?? false}
-				on:click={() => {
-					dbManagerContent?.refresh()
-					dbManagerContent?.dbManager()?.dbTable()?.refresh()
-				}}
+				on:click={refreshManager}
 				startIcon={{ icon: RefreshCcw }}
+				iconOnly
+				title="Refresh"
 				size="xs"
 				color="light"
-			>
-				Refresh
-			</Button>
+			/>
 
 			<Button
 				on:click={() => (expand = !expand)}
@@ -234,7 +247,9 @@
 	<DrawerContent title="Export Schemas" on:close={() => (exportDrawerOpen = false)}>
 		{#if exportResult}
 			<div class="flex flex-col gap-2 h-full relative">
-				<pre class="overflow-auto text-xs bg-surface-secondary p-4 rounded flex-1">{exportResult}</pre>
+				<pre class="overflow-auto text-xs bg-surface-secondary p-4 rounded flex-1"
+					>{exportResult}</pre
+				>
 				<Button
 					size="xs"
 					color="light"
@@ -262,7 +277,12 @@
 			</Alert>
 			<div class="flex flex-col gap-2">
 				<span class="text-sm font-medium">Source database</span>
-				<ResourcePicker datatableAsPgResource bind:value={importSource} resourceType="postgresql" />
+				<ResourcePicker
+					datatableAsPgResource
+					bind:value={importSource}
+					resourceType="postgresql"
+					workspace={ws}
+				/>
 			</div>
 			<div class="flex flex-col gap-2">
 				<span class="text-sm font-medium">Import mode</span>

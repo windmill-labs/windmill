@@ -1,5 +1,5 @@
 import type { ScriptLang } from '$lib/gen/types.gen'
-import { WorkspaceService } from '$lib/gen'
+import { WorkspaceService, JobService, type CompletedJob } from '$lib/gen'
 import type { FlowOptions, ScriptOptions } from './ContextManager.svelte'
 import {
 	flowTools,
@@ -19,7 +19,15 @@ import {
 	type DisplayMessage,
 	type Tool,
 	type ToolCallbacks,
-	type ToolDisplayMessage
+	type ToolDisplayMessage,
+	type UserQuestionDisplay,
+	type ChatJob,
+	type ChatJobInit,
+	type ChatJobStatus,
+	completedJobToolStatus,
+	backgroundJobCompletionNote,
+	deriveChatJobStatus,
+	trimJob
 } from './shared'
 import type {
 	ChatCompletionMessageParam,
@@ -37,6 +45,7 @@ import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
 import { workspaceAIClients, getNonStreamingCompletion } from '../lib'
+import { modelSupportsVision } from '../modelConfig'
 import { getKnownModelContextWindow } from '../modelConfig'
 import {
 	getCompactionSummaryPrompt,
@@ -44,8 +53,18 @@ import {
 	buildSummaryMessageContent
 } from './compactionPrompt'
 import { dfs } from '$lib/components/flows/previousResults'
+import { SvelteSet } from 'svelte/reactivity'
+import type { UserDraftItemKind } from '$lib/gen'
+import { maskKey } from '$lib/components/sessions/modifiedItemsMask'
 import { getStringError } from './utils'
 import { type PasteAttachment } from './pasteTokens'
+import {
+	type AttachedImage,
+	imagesFromContent,
+	MAX_ATTACHED_IMAGES,
+	messagesHaveImageParts,
+	stripImagePartsFromMessages
+} from './imageUtils'
 import { chatDraft, expanded } from './chatDraft'
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
@@ -55,6 +74,7 @@ import { BROWSER } from 'esm-env'
 import { workspaceStore, type DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { readDocsPageTool, searchDocsTool } from './docs/core'
+import { TypewriterReveal } from './typewriterReveal'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
 import {
 	createAppBackendRunnableContextElement,
@@ -67,6 +87,7 @@ import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { runChatLoop, truncateToToolPairedPrefix } from './chatLoop'
+import { sanitizeToolCallArguments } from './toolCallArguments'
 import { normalizeContextUsage } from './tokenUsage'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import {
@@ -87,11 +108,23 @@ import {
 	type AiSkillListItem,
 	type GlobalToolHelpers
 } from './global/core'
+import { formatChatJobCompletion } from './datatableTools'
 import { isGlobalAiEnabled } from './global/gate'
+import {
+	pipelineTools,
+	getPipelinePromptSection,
+	type PipelineAIChatHelpers
+} from './pipeline/core'
 import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userScopedStorage'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { AttachedFilesStore } from './files/attachedFiles.svelte'
+import { SessionArtifactsStore } from './artifacts/artifactsState.svelte'
 import { appendAttachedFilesRoster } from './files/fileTools'
+
+// SSR and users who prefer reduced motion get no typewriter pacing.
+function prefersInstantReveal(): boolean {
+	return !BROWSER || (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false)
+}
 
 // Compaction of the stored history: once the projected request size
 // (contextTokens — the provider's report when current, a fresh chars/4
@@ -103,6 +136,9 @@ import { appendAttachedFilesRoster } from './files/fileTools'
 // schema changes from mode switches, and the estimate's chars/4 error.
 const COMPACTION_TRIGGER_RATIO = 0.8
 const COMPACTION_TARGET_RATIO = 0.7
+// Flat per-image token estimate for a downscaled (≤1568px) vision image. Used instead
+// of chars/4 on the base64 data URL, which would overcount by ~50x.
+const IMAGE_TOKEN_ESTIMATE = 1200
 // Headroom reserved within the target budget for the summary message itself, so
 // the summary + kept tail + overhead land under the target ratio.
 const SUMMARY_OUTPUT_RESERVE_TOKENS = 8000
@@ -129,6 +165,21 @@ const AI_AUTONOMY_MODE_STORAGE_KEY = 'ai-chat-autonomy-mode'
 const LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY = 'ai-chat-yolo-mode'
 const WEB_SEARCH_ERROR_HINT =
 	'Web search is unavailable for this provider/model/key. Disable web search in workspace settings and try again.'
+// The full explanation is shown once per browser; afterwards the hidden
+// thinking is only hinted at discreetly in the typing indicator.
+const REASONING_SUMMARY_WARNED_STORAGE_KEY = 'ai-chat-reasoning-summary-unverified-warned'
+
+function providerDisplayName(provider: string): string {
+	return provider === 'azure_openai' ? 'Azure OpenAI' : 'OpenAI'
+}
+
+function reasoningSummaryUnavailableMessage(provider: string): string {
+	const verifyHint =
+		provider === 'azure_openai'
+			? 'To display it, verify your organization with your provider, then reload this page.'
+			: 'To display it, verify your organization in the OpenAI platform settings (Settings > General), then reload this page.'
+	return `This model is reasoning, but your ${providerDisplayName(provider)} organization is not verified to generate reasoning summaries, so its thinking stays hidden. ${verifyHint}`
+}
 
 export enum AIMode {
 	SCRIPT = 'script',
@@ -234,6 +285,32 @@ function appendWebSearchErrorHint(message: string, shouldAppend: boolean): strin
 	return `${message}${separator}${WEB_SEARCH_ERROR_HINT}`
 }
 
+/**
+ * Whether a provider rejected the request over an image it could not take. The
+ * vision gate only knows the models we ship, so this is the net for the rest:
+ * every provider words it differently, hence matching on the subject rather than
+ * a code. Only consulted when the outbound request actually carried an image, so
+ * an unrelated error mentioning "image" cannot trigger it on its own.
+ */
+function isImageRejection(err: unknown, models: (string | undefined)[] = []): boolean {
+	let message = (err instanceof Error ? err.message : String(err)).toLowerCase()
+	// Vision-capable model ids often contain the subject words themselves
+	// (llama-3.2-90b-vision-instruct, Phi-4-multimodal-instruct) and providers echo
+	// the id in unrelated errors (rate limits, capacity). A match inside the id
+	// would treat those as rejections and destroy good images, so drop the ids
+	// before matching — only the error's own wording counts. Callers pass every
+	// model the turn may have used: the error can come from the model selected at
+	// send time OR the one currently selected (switchable mid-flight).
+	for (const model of models) {
+		if (model) message = message.replaceAll(model.toLowerCase(), '')
+	}
+	// Whole words only: "provisioning"/"provisioned" contain "vision", and a
+	// transient capacity error must not destroy good images. image_url and
+	// input_image are the content-part names providers echo in schema errors
+	// ('_' is a word char, so \bimage\b alone would miss them).
+	return /\bimages?(_url)?\b|\binput_image\b|\bvision\b|\bmultimodal\b/.test(message)
+}
+
 function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean): string {
 	const errorMessage =
 		err instanceof Error ? err.message : typeof err === 'string' ? err : undefined
@@ -248,12 +325,15 @@ export class AIChatManager {
 	historyManager = new HistoryManager()
 	/** Files the user attached to the current GLOBAL-mode conversation. */
 	attachedFiles = new AttachedFilesStore()
+	/** Markdown artifacts the copilot created for the current session. */
+	artifacts = new SessionArtifactsStore()
 	abortController: AbortController | undefined = undefined
 	inlineAbortController: AbortController | undefined = undefined
 	// Flag to skip Responses API if it's not available (e.g., Azure region doesn't support it)
 	skipResponsesApi = false
 
 	mode = $state<AIMode>(AIMode.NAVIGATOR)
+	pipelineAiChatHelpers = $state<PipelineAIChatHelpers | undefined>(undefined)
 	readonly isOpen = $derived(chatState.size > 0)
 	savedSize = $state<number>(0)
 	instructions = $state<string>('')
@@ -263,12 +343,95 @@ export class AIChatManager {
 	// the turn finishes (clean completion or user cancel). Ephemeral — never
 	// saved to displayMessages or history.
 	queuedMessage = $state<string>('')
+	// Images attached to that message. Kept beside the text rather than inside it
+	// because the queued chip renders `queuedMessage` as a plain string. Always
+	// move the two together — #takeQueue/#clearQueue/#restoreQueue exist so no
+	// call site can drop one and auto-send a message the user never wrote.
+	queuedImages = $state<AttachedImage[]>([])
+	// Jobs the chat started that detached into the background (global/sessions
+	// chat only). Rendered in the jobs tray, persisted with the chat, and advanced
+	// by a single background poller. See registerJob / #pollBackgroundJobs.
+	backgroundJobs = $state<ChatJob[]>([])
+	// Completion notes for finished background jobs awaiting delivery to the model.
+	// Drained as a preamble into the next turn — either the user's next message, or,
+	// when the chat is idle, an auto-resume turn started for them (see
+	// #maybeAutoResumeFromJobs). Ephemeral like queuedMessage — not persisted.
+	pendingJobNotes = $state<string[]>([])
+	// Guards #maybeAutoResumeFromJobs against re-entering while its own turn spins up.
+	#autoResuming = false
+	#jobPollTimer: ReturnType<typeof setTimeout> | undefined = undefined
+	#jobPollDelay = 2000
+	// True while a #pollBackgroundJobs pass is executing. #stopJobPoller only clears
+	// the scheduled timer, not an in-flight poll, so without this a refreshBackgroundJobs
+	// mid-poll (cancel / approval close) would start a second concurrent poll chain and
+	// double the poll rate. The guard makes such a refresh coalesce into the running pass.
+	#isPolling = false
+	// Bumped on every conversation switch (clearBackgroundJobs). An in-flight poll
+	// captures it before its awaits and bails if it changed, so a getJob that
+	// resolves after the user switched chats can't mutate the newly-loaded one.
+	#jobPollGeneration = 0
+	// Consecutive getJob failures per background job, so a vanished/404 job can be
+	// drained instead of polled forever. Ephemeral, keyed by jobId.
+	#jobPollFailures = new Map<string, number>()
+	/** Opens a run in the sessions preview pane. Set by the session runtime;
+	 * undefined in the global side-panel chat, where the tray falls back to opening
+	 * the run in a new browser tab. */
+	openRunInPreview?: (a: { jobId: string; workspace: string; label: string }) => void
+	openArtifact?: (artifactId: string, name: string) => void
+	closeArtifact?: (artifactId: string) => void
 	loading = $state<boolean>(false)
 	currentReply = $state<string>('')
 	currentReasoning = $state<string>('')
 	currentReasoningActive = $state<boolean>(false)
+	// The provider reasons but refuses to stream summaries (unverified OpenAI
+	// organization) — drives the discreet "Thinking (hidden)" indicator. Keyed
+	// by workspace:provider like the chat-loop fallback cache, so the hint never
+	// carries over to a provider or workspace whose summaries work. A list, not
+	// a scalar: several workspace/provider pairs can be unavailable at once, and
+	// the chat loop only notifies on first detection per pair.
+	private reasoningSummaryUnavailableFor = $state<string[]>([])
+
+	private reasoningSummaryKey(provider: string): string {
+		return `${this.operatingWorkspace ?? ''}:${provider}`
+	}
+
+	/** Label for the live "Thinking" indicator when thinking stays hidden for
+	 * the current workspace/provider, undefined otherwise. */
+	get reasoningHiddenIndicatorLabel(): string | undefined {
+		if (this.reasoningSummaryUnavailableFor.length === 0) {
+			return undefined
+		}
+		const provider = getCurrentModel().provider
+		if (!this.reasoningSummaryUnavailableFor.includes(this.reasoningSummaryKey(provider))) {
+			return undefined
+		}
+		return `Thinking (hidden, ${providerDisplayName(provider)} org not verified)`
+	}
+	// Smooths the provider's bursty delivery into continuous typing by revealing
+	// buffered text a slice per frame. The reply and the reasoning/thinking stream
+	// each get their own reveal (independent buffers, both append to their own
+	// $state). Reduced-motion (sampled once — the pref never changes mid-session)
+	// and SSR fall back to instant.
+	private replyReveal = new TypewriterReveal({
+		onReveal: (chunk) => (this.currentReply += chunk),
+		instant: prefersInstantReveal()
+	})
+	private reasoningReveal = new TypewriterReveal({
+		onReveal: (chunk) => (this.currentReasoning += chunk),
+		instant: prefersInstantReveal()
+	})
 	displayMessages = $state<DisplayMessage[]>([])
 	messages = $state<ChatCompletionMessageParam[]>([])
+	/** Images buffered by tools (e.g. take_screenshot) during the current tool batch,
+	 * keyed by toolId. Drained by appendPendingToolImages into a follow-up user message
+	 * after the batch. Cleared at each turn start so an aborted batch can't leak. */
+	private pendingToolImages = new Map<string, AttachedImage[]>()
+	/** Model of the most recent loop iteration, recorded via onBeforeIteration.
+	 * The selector stays switchable mid-flight, so when a request fails neither
+	 * the send-time nor the currently-selected model necessarily names the one
+	 * whose request is being classified (A→B→C switches). Reset at each turn
+	 * start, consumed by image-rejection recovery. */
+	private lastIterationModel: ReturnType<typeof getCurrentModel> | undefined = undefined
 	/** Provider-reported context size of the last committed turn (prompt +
 	 * completion of its latest completion — exact, includes system prompt and
 	 * tools), or undefined whenever no report describes the current history
@@ -282,6 +445,11 @@ export class AIChatManager {
 	// True while the summarization round-trip is in flight, so the UI can show a
 	// "Compacting conversation" label on the processing indicator.
 	compacting = $state(false)
+	// General-purpose label for the processing indicator, set by a beforeSend hook
+	// to describe pre-flight work (e.g. "Creating workspace fork...") that runs
+	// before the request goes out. Takes precedence over the compacting/thinking
+	// labels while set; the hook clears it back to undefined when done.
+	loadingLabel = $state<string | undefined>(undefined)
 	autonomyMode = $state<AIAutonomyMode>(getPersistedAutonomyMode())
 	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
 	autoAcceptEditsActive = $derived(
@@ -323,7 +491,7 @@ export class AIChatManager {
 	cachedDatatables = $state<AppDatatableElement[]>([])
 
 	private confirmationCallbacks = new Map<string, (value: boolean) => void>()
-	private userQuestionCallbacks = new Map<string, (choice: string | undefined) => void>()
+	private userQuestionCallbacks = new Map<string, (choices: string[] | undefined) => void>()
 	private appDatatablesRefreshTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 
 	disabledModes: Partial<Record<AIMode, boolean>> = $state({})
@@ -335,6 +503,408 @@ export class AIChatManager {
 	// tool `helpers` in GLOBAL mode so the preview/deploy tools dispatch to THIS
 	// session rather than the UI-active one — keeps backgrounded sessions isolated.
 	sessionId: string | undefined = undefined
+	// Resolves the workspace this chat operates on. Session chats set it to their
+	// own (possibly forked) workspace so the chat targets it WITHOUT switching the
+	// global workspaceStore. Undefined for the global side-panel chat, which
+	// follows the active workspace. Always read via `operatingWorkspace`.
+	workspaceResolver: (() => string | undefined) | undefined = undefined
+
+	// The workspace every workspace-scoped chat action targets — skills, tool
+	// loop, logging, user-message context, and commit. Session-resolved when a
+	// resolver is set, else the globally-active workspace.
+	get operatingWorkspace(): string | undefined {
+		return this.workspaceResolver?.() ?? get(workspaceStore)
+	}
+
+	// Fired whenever the active chat id changes away from the one the consumer
+	// knows (a "/clear" rotation or a history switch). Session runtimes wire this
+	// to keep the session record's chatId aligned — the compare-page handoff
+	// (`from_session`) reads it, and a stale id would preselect the previous
+	// chat's items. Set here (not imported) to avoid a copilot→sessions cycle.
+	onChatRotated: ((chatId: string) => void) | undefined = undefined
+
+	// Workspace items the CURRENT chat modified via AI tool calls, as
+	// `${UserDraftItemKind}:${storagePath}` keys (see modifiedItemsMask.ts).
+	// undefined = untracked: only the global side-panel chat (never initialised),
+	// which falls back to the show-all bar. Session chats are always tracked (a
+	// SvelteSet, even empty) — see loadPastChat/initRuntime — so their Edits
+	// surface never claims drafts the session didn't touch. Reactive so the
+	// session bar updates as tools record mid-turn.
+	modifiedItems = $state<SvelteSet<string> | undefined>(undefined)
+
+	// Start tracking for a brand-new session chat (empty = "tracked, nothing yet").
+	initModifiedItemsTracking() {
+		this.modifiedItems = new SvelteSet()
+	}
+
+	// Record an item an AI tool call created/edited/deleted. No-op when untracked
+	// (the global singleton never initialises the set), so it stays unaffected.
+	recordModifiedItem(itemKind: UserDraftItemKind, storagePath: string) {
+		this.modifiedItems?.add(maskKey(itemKind, storagePath))
+	}
+
+	// Un-record an item whose chat-made change was discarded — without this the
+	// still-existing deployed item would keep reading as this chat's "Deployed"
+	// edit. Persisted immediately: unlike recordModifiedItem (whose persistence
+	// rides on the turn's saveChat), a discard can fire from the review dock
+	// outside any turn, and waiting would resurrect the entry on reload.
+	async removeModifiedItem(itemKind: UserDraftItemKind, storagePath: string) {
+		if (!this.modifiedItems?.delete(maskKey(itemKind, storagePath))) return
+		await this.#persistModifiedItems()
+	}
+
+	// Move a mask entry to the path a draft actually deployed to. A draft-only
+	// flow/app parks at a synthetic `draft_{uuid}` storage path and deploys to
+	// its chosen path — without the move, the existence check at the synthetic
+	// path fails after reload and the deployed row vanishes from the dock.
+	async renameModifiedItem(itemKind: UserDraftItemKind, fromPath: string, toPath: string) {
+		if (fromPath === toPath) return
+		if (!this.modifiedItems?.delete(maskKey(itemKind, fromPath))) return
+		this.modifiedItems.add(maskKey(itemKind, toPath))
+		await this.#persistModifiedItems()
+	}
+
+	// Serialized, snapshot-at-write-time persistence: two rapid dock actions
+	// would otherwise race their saveChat writes, and the earlier (staler)
+	// snapshot could land last — dropping the later mutation until the next
+	// turn-end save.
+	#maskPersistQueue: Promise<void> = Promise.resolve()
+	#persistModifiedItems(): Promise<void> {
+		this.#maskPersistQueue = this.#maskPersistQueue.then(() =>
+			this.historyManager
+				.saveChat(
+					this.displayMessages,
+					this.messages,
+					this.contextUsage,
+					this.modifiedItems ? [...this.modifiedItems] : undefined
+				)
+				// Swallow (and log) a failed write so it can't wedge the queue as a
+				// rejected link — the next persist snapshots the full current set, so
+				// a lost write self-heals on the next mutation or turn-end save.
+				.catch((e) => console.error('Failed to persist modified-items mask', e))
+		)
+		return this.#maskPersistQueue
+	}
+
+	// ===== Background jobs (global/sessions chat only) =====
+	//
+	// A test-run tool that doesn't finish within the inline wait detaches: it
+	// returns a "still running" handle to the model and registers the job here.
+	// A single poller advances all detached jobs; on completion it fills the tool
+	// card and queues a notify-only note for the model's next turn.
+
+	private isJobNonTerminal(status: ChatJobStatus): boolean {
+		// suspended (awaiting approval) and scheduled are non-terminal — the poller
+		// MUST keep watching them, else an approval would never clear from the tray.
+		return (
+			status === 'queued' ||
+			status === 'running' ||
+			status === 'suspended' ||
+			status === 'scheduled'
+		)
+	}
+
+	/** Record a job the moment it starts, so the tray shows it while it is still
+	 * inline-waiting. Idempotent on jobId. The init carries the serializable
+	 * `resultFormat` (persisted), so completion formatting survives a reload. */
+	registerJob = (init: ChatJobInit) => {
+		if (this.backgroundJobs.some((j) => j.jobId === init.jobId)) return
+		this.backgroundJobs = [
+			...this.backgroundJobs,
+			{ ...init, createdAt: Date.now(), status: 'queued', detached: false, reported: false }
+		]
+	}
+
+	/** Merge a partial update into a tracked job by id. */
+	updateJob = (jobId: string, update: Partial<ChatJob>) => {
+		const idx = this.backgroundJobs.findIndex((j) => j.jobId === jobId)
+		if (idx === -1) return
+		this.backgroundJobs[idx] = { ...this.backgroundJobs[idx], ...update }
+		this.backgroundJobs = [...this.backgroundJobs]
+	}
+
+	/** A job left the inline wait — hand it to the background poller. */
+	markJobDetached = (jobId: string) => {
+		this.updateJob(jobId, { detached: true })
+		this.#ensureJobPoller()
+		void this.#persistBackgroundJobs()
+	}
+
+	/** User-facing cancel from the jobs tray. */
+	cancelJob = async (jobId: string) => {
+		const job = this.backgroundJobs.find((j) => j.jobId === jobId)
+		if (!job) return
+		try {
+			await JobService.cancelQueuedJob({ workspace: job.workspace, id: jobId, requestBody: {} })
+			// Don't mark terminal here: a bare `status: 'canceled'` would (a) leave the
+			// `job` snapshot that drives JobStatusIcon stale (badge stuck on running)
+			// and (b) make isJobNonTerminal false so the poller stops before it can
+			// refresh either. Let the poller observe the canceled CompletedJob and set
+			// status + job together; poke it so the tray converges within a tick.
+			this.refreshBackgroundJobs()
+		} catch (e) {
+			console.error('Failed to cancel job', jobId, e)
+			sendUserToast('Failed to cancel job', true)
+		}
+	}
+
+	/** Remove a finished job from the tray. */
+	dismissJob = (jobId: string) => {
+		this.backgroundJobs = this.backgroundJobs.filter((j) => j.jobId !== jobId)
+		void this.#persistBackgroundJobs()
+	}
+
+	/** Force an immediate background-job poll (e.g. right after an approval) instead
+	 * of waiting for the next scheduled tick. */
+	refreshBackgroundJobs = () => {
+		this.#stopJobPoller()
+		this.#jobPollDelay = 2000
+		void this.#pollBackgroundJobs()
+	}
+
+	#ensureJobPoller() {
+		if (this.#jobPollTimer !== undefined) return
+		// A poll pass is running (it cleared #jobPollTimer on entry). It reschedules
+		// from the current job set when it finishes, so the job that just detached is
+		// already covered. Scheduling here instead would create a second timer that the
+		// end-of-pass reschedule overwrites WITHOUT clearing — orphaning it into a
+		// duplicate, self-perpetuating poll chain. Coalesce into the active pass.
+		if (this.#isPolling) return
+		if (!this.backgroundJobs.some((j) => j.detached && this.isJobNonTerminal(j.status))) return
+		this.#jobPollDelay = 2000
+		this.#scheduleJobPoll()
+	}
+
+	#scheduleJobPoll() {
+		this.#jobPollTimer = setTimeout(() => void this.#pollBackgroundJobs(), this.#jobPollDelay)
+	}
+
+	#stopJobPoller() {
+		if (this.#jobPollTimer !== undefined) {
+			clearTimeout(this.#jobPollTimer)
+			this.#jobPollTimer = undefined
+		}
+	}
+
+	// Guarded entry point for every poll trigger (scheduled tick, #ensureJobPoller,
+	// and refreshBackgroundJobs): if a pass is already running, coalesce into it
+	// instead of starting a second concurrent chain that would double the poll rate.
+	async #pollBackgroundJobs() {
+		if (this.#isPolling) return
+		this.#isPolling = true
+		try {
+			await this.#runBackgroundJobsPoll()
+		} finally {
+			this.#isPolling = false
+		}
+	}
+
+	async #runBackgroundJobsPoll() {
+		this.#jobPollTimer = undefined
+		const gen = this.#jobPollGeneration
+		const pending = this.backgroundJobs.filter((j) => j.detached && this.isJobNonTerminal(j.status))
+		if (pending.length === 0) return
+
+		let anyTerminal = false
+		for (const job of pending) {
+			try {
+				const fetched = await JobService.getJob({
+					workspace: job.workspace,
+					id: job.jobId,
+					noLogs: false,
+					noCode: true
+				})
+				// The user switched conversations while this getJob was in flight; its
+				// result belongs to a chat that's gone. Drop it rather than mutate the
+				// newly-loaded one (which re-armed its own poller on load).
+				if (gen !== this.#jobPollGeneration) return
+				this.#jobPollFailures.delete(job.jobId)
+				if (fetched.type === 'CompletedJob') {
+					anyTerminal = true
+					this.#onBackgroundJobComplete(job, fetched as CompletedJob)
+				} else {
+					// Store the derived status and the trimmed Job together so the tray
+					// badge (JobStatusIcon) and the scalar status can never drift.
+					this.updateJob(job.jobId, {
+						status: deriveChatJobStatus(fetched),
+						job: trimJob(fetched)
+					})
+				}
+			} catch (e) {
+				// Same generation guard as the success path — a switch during the failing
+				// getJob means this result is for a conversation that's gone.
+				if (gen !== this.#jobPollGeneration) return
+				// A vanished job (404) or repeated failures must not keep the poller
+				// alive forever — now that suspended/scheduled are polled too, drain it
+				// as failed so isJobNonTerminal lets the poller stop.
+				const httpStatus = (e as { status?: number })?.status
+				const failures = (this.#jobPollFailures.get(job.jobId) ?? 0) + 1
+				this.#jobPollFailures.set(job.jobId, failures)
+				if (httpStatus === 404 || failures >= 5) {
+					this.#jobPollFailures.delete(job.jobId)
+					// Vanished (404) or unreachable after repeated polls. Mark it failed WITH
+					// a snapshot + tool-card patch (mirroring #onBackgroundJobComplete) so
+					// neither the tray badge nor the launching tool card stays frozen on
+					// "running" — a bare `status: 'failure'` with no `job` would render the
+					// orange queued badge (JobsSegment's `!job.job` fallback). The synthetic
+					// failed CompletedJob keeps the `success`-key discriminant so JobStatusIcon
+					// and deriveChatJobStatus agree. No model note/auto-resume: a vanished job
+					// isn't a meaningful completion to react to (usually transient infra).
+					const gone = {
+						type: 'CompletedJob',
+						id: job.jobId,
+						success: false,
+						canceled: false
+					} as unknown as CompletedJob
+					this.updateJob(job.jobId, { status: 'failure', reported: true, job: trimJob(gone) })
+					this.applyToolStatus(job.toolCallId, {
+						content: 'Background job could not be retrieved (it may have been removed)',
+						error: `Job ${job.jobId} was unreachable`
+					})
+					anyTerminal = true
+				} else {
+					console.error('Failed to poll background job', job.jobId, e)
+				}
+			}
+		}
+
+		if (anyTerminal) {
+			void this.#persistBackgroundJobs()
+		}
+
+		// Reschedule while anything is still in flight, backing off up to 5s.
+		if (this.backgroundJobs.some((j) => j.detached && this.isJobNonTerminal(j.status))) {
+			this.#jobPollDelay = Math.min(this.#jobPollDelay + 1000, 5000)
+			this.#scheduleJobPoll()
+		}
+
+		// Something finished this cycle — if the chat is idle, react to it now
+		// instead of waiting for the user's next message. Fire-and-forget so the
+		// poller loop above isn't blocked by the turn.
+		if (anyTerminal) void this.#maybeAutoResumeFromJobs()
+	}
+
+	#onBackgroundJobComplete(job: ChatJob, completed: CompletedJob) {
+		const status = deriveChatJobStatus(completed)
+		this.updateJob(job.jobId, {
+			status,
+			durationMs: completed.duration_ms,
+			reported: true,
+			job: trimJob(completed)
+		})
+		// If the launching tool stamped a resultFormat, reconstruct its shaped card +
+		// model text so the detached path reports the same contract the inline path
+		// would (row-capped rows, friendly datatable errors) — even after a reload,
+		// since resultFormat is persisted on the job. A canceled job skips formatting:
+		// its card is the neutral "canceled" state, not a result.
+		const formatted =
+			status === 'canceled' || !job.resultFormat
+				? undefined
+				: formatChatJobCompletion(completed, job.resultFormat)
+		// Fill the tool card that launched it (we run outside a turn here).
+		this.applyToolStatus(job.toolCallId, formatted?.card ?? completedJobToolStatus(completed))
+		// A user-canceled job needs no model note or auto-resume: the user stopped it
+		// deliberately, so announcing it (as "FAILED", since a canceled job isn't a
+		// success) or burning a turn on it would be noise.
+		if (status === 'canceled') return
+		// Queue a completion note for the model. Delivered on the next turn —
+		// either the user's next message or an idle auto-resume (fired by the poller).
+		this.pendingJobNotes = [
+			...this.pendingJobNotes,
+			backgroundJobCompletionNote(job.jobId, job.label, completed, formatted?.llmText)
+		]
+	}
+
+	/**
+	 * Stage 2 wake: when a background job finishes and the chat is otherwise idle,
+	 * start a turn on the user's behalf so the model reacts to the result (reports
+	 * it, continues the plan) instead of waiting for the next manual message. The
+	 * rich completion note reaches the model via the pendingJobNotes preamble in
+	 * sendRequest; the visible bubble is just a short, clearly-automated line.
+	 *
+	 * Bounded so it can't run away: fires only when idle (no in-flight turn) and
+	 * only when notes exist — and sendRequest drains the notes, so a turn that
+	 * doesn't spawn a new job leaves nothing to re-trigger on. A turn that DOES
+	 * spawn another job resumes again when that one finishes, which is the point.
+	 */
+	async #maybeAutoResumeFromJobs() {
+		if (this.#autoResuming) return
+		// Global/sessions chat only (the only mode with a jobs tray + preamble).
+		if (this.mode !== AIMode.GLOBAL) return
+		// Mid-turn: the notes will ride that turn's preamble, so don't start another.
+		if (this.loading) return
+		if (this.pendingJobNotes.length === 0) return
+		// Nothing to continue (empty chat), or the user is mid-compose — don't
+		// clobber their draft or auto-send it. Their eventual send carries the notes.
+		if (this.messages.length === 0 || this.instructions.trim()) return
+		this.#autoResuming = true
+		try {
+			const count = this.pendingJobNotes.length
+			this.instructions =
+				count === 1 ? 'A background job just finished.' : `${count} background jobs just finished.`
+			await this.sendRequest()
+		} catch (e) {
+			console.error('Auto-resume after background job failed', e)
+		} finally {
+			this.#autoResuming = false
+		}
+	}
+
+	// Serialized snapshot-at-write persistence, mirroring #persistModifiedItems.
+	// Omits the modified-items mask so a concurrent mask write isn't clobbered
+	// (saveChat keeps the prior mask when it is undefined).
+	#jobPersistQueue: Promise<void> = Promise.resolve()
+	#persistBackgroundJobs(): Promise<void> {
+		this.#jobPersistQueue = this.#jobPersistQueue.then(() =>
+			this.historyManager
+				.saveChat(
+					this.displayMessages,
+					this.messages,
+					this.contextUsage,
+					undefined,
+					$state.snapshot(this.backgroundJobs)
+				)
+				.catch((e) => console.error('Failed to persist background jobs', e))
+		)
+		return this.#jobPersistQueue
+	}
+
+	/** Reset background-job state on conversation switch. */
+	private clearBackgroundJobs() {
+		this.#stopJobPoller()
+		// Invalidate any in-flight poll so its post-await continuation can't write
+		// into the conversation we're switching to.
+		this.#jobPollGeneration++
+		this.backgroundJobs = []
+		this.pendingJobNotes = []
+	}
+
+	/** Merge a status patch into the tool card identified by tool_call_id, or
+	 * create it. Shared by the per-turn setToolStatus callback and the background
+	 * job poller (which runs outside a turn). */
+	applyToolStatus = (id: string, metadata?: Partial<ToolDisplayMessage>) => {
+		const existingIdx = this.displayMessages.findIndex(
+			(m) => m.role === 'tool' && m.tool_call_id === id
+		)
+		if (existingIdx !== -1) {
+			const existing = this.displayMessages[existingIdx] as ToolDisplayMessage
+			if (existing.content.length === 0 && metadata?.error) {
+				this.displayMessages[existingIdx].content = metadata.error
+			}
+			this.displayMessages[existingIdx] = {
+				...existing,
+				...(metadata || {})
+			} as ToolDisplayMessage
+		} else {
+			const newMessage: ToolDisplayMessage = {
+				role: 'tool',
+				tool_call_id: id,
+				content: metadata?.content ?? metadata?.error ?? '',
+				...(metadata || {})
+			}
+			this.displayMessages.push(newMessage)
+		}
+	}
 
 	// Workspace AI skills (name + description) advertised in the GLOBAL system
 	// prompt and surfaced as slash commands in session chat. Loaded
@@ -383,6 +953,15 @@ export class AIChatManager {
 			const tokenPerCharacter = 4
 			if (typeof message.content === 'string') {
 				acc += message.content.length / tokenPerCharacter
+			} else if (Array.isArray(message.content)) {
+				// Multimodal content: chars/4 for the text parts, a flat estimate per image
+				// (a base64 data URL is huge as text but only ~1.1-1.6k tokens as vision input,
+				// so JSON.stringify here would overcount by orders of magnitude).
+				for (const part of message.content as any[]) {
+					if (part?.type === 'text') acc += (part.text?.length ?? 0) / tokenPerCharacter
+					else if (part?.type === 'image_url') acc += IMAGE_TOKEN_ESTIMATE
+					else acc += JSON.stringify(part).length / tokenPerCharacter
+				}
 			} else if (message.content) {
 				acc += JSON.stringify(message.content).length / tokenPerCharacter
 			}
@@ -452,12 +1031,15 @@ export class AIChatManager {
 		}
 		this.messages = this.messages.slice(drop)
 		// User display messages carry the index of their API message so restart
-		// can rewind to it; re-base them on the compacted history. A message
-		// whose API counterpart was dropped clamps to 0: everything before it
-		// was dropped too (compaction only removes prefixes), so restarting
-		// from it restarts from an empty history.
+		// can rewind to it; re-base them on the compacted history. A message whose
+		// API counterpart was dropped goes negative — deliberately NOT clamped to
+		// 0, which would alias it to the first surviving message and let
+		// storedImages hand a retry that message's images. Negative reads as
+		// "counterpart gone": storedImages finds nothing there, and restart maps
+		// it to an empty history (everything before it was dropped too, since
+		// compaction only removes prefixes).
 		this.displayMessages = this.displayMessages.map((m) =>
-			m.role === 'user' ? { ...m, index: Math.max(0, m.index - drop) } : m
+			m.role === 'user' ? { ...m, index: m.index - drop } : m
 		)
 		return freed
 	}
@@ -484,9 +1066,19 @@ export class AIChatManager {
 	): Promise<'ok' | 'empty' | 'aborted' | 'error'> => {
 		this.compacting = true
 		try {
+			// Cap the summarizer's output at the budget already reserved for the
+			// summary. Without a cap the model's default max_tokens applies, and the
+			// Anthropic SDK rejects non-streaming requests whose max_tokens implies
+			// >10 minutes of generation (~21k tokens) before anything is sent.
 			const raw = await getNonStreamingCompletion(
-				[...prefix, { role: 'user', content: getCompactionSummaryPrompt() }],
-				abortController
+				[
+					// Strip image blobs from the summarizer input — the summary text stands in
+					// for them, so re-sending base64 to the summarizer only wastes tokens.
+					...stripImagePartsFromMessages(sanitizeToolCallArguments(prefix)),
+					{ role: 'user', content: getCompactionSummaryPrompt() }
+				],
+				abortController,
+				{ maxTokensCap: SUMMARY_OUTPUT_RESERVE_TOKENS }
 			)
 			const formatted = formatCompactSummary(raw ?? '')
 			if (!formatted) {
@@ -571,9 +1163,16 @@ export class AIChatManager {
 			tailTokens += t
 			keepFrom = i
 		}
-		// The tail must start on a user message — move the boundary forward over
-		// any leading tool/assistant messages, folding them into the prefix.
-		while (keepFrom < last && this.messages[keepFrom].role !== 'user') {
+		// The tail must start on a user message the transcript also shows — move the
+		// boundary forward over leading tool/assistant messages, and over synthetic
+		// user messages that carry no display entry (the image follow-ups
+		// appendPendingToolImages injects). Landing on one would slice `messages`
+		// and `displayMessages` at different turns, silently dropping the cards in
+		// between from the visible history.
+		const shownUserIndices = new Set(
+			this.displayMessages.filter((m) => m.role === 'user').map((m) => m.index)
+		)
+		while (keepFrom < last && !shownUserIndices.has(keepFrom)) {
 			keepFrom++
 		}
 
@@ -583,11 +1182,10 @@ export class AIChatManager {
 			return false
 		}
 
-		// The user message at the boundary has a display counterpart with the same
-		// index; resolve it before any mutation so a corrupt transcript can never
-		// result from an unexpected miss.
+		// Exact index, never >=: a miss must fail the compaction, because resolving
+		// to a later turn would slice the transcript short of the kept API tail.
 		const displayKeepFrom = this.displayMessages.findIndex(
-			(m) => m.role === 'user' && m.index >= keepFrom
+			(m) => m.role === 'user' && m.index === keepFrom
 		)
 		if (displayKeepFrom === -1) {
 			this.consecutiveCompactionFailures++
@@ -652,15 +1250,13 @@ export class AIChatManager {
 					await this.historyManager.saveChat(
 						this.displayMessages,
 						this.messages,
-						this.contextUsage
+						this.contextUsage,
+						this.modifiedItems ? [...this.modifiedItems] : undefined
 					)
 					sendUserToast('Conversation compacted.')
 					break
 				case 'empty':
-					sendUserToast(
-						'Compaction produced an empty summary — conversation left unchanged.',
-						true
-					)
+					sendUserToast('Compaction produced an empty summary — conversation left unchanged.', true)
 					break
 				case 'error':
 					sendUserToast('Failed to compact the conversation.', true)
@@ -675,12 +1271,15 @@ export class AIChatManager {
 		// epilogue (loading gated its capture): auto-send after a successful
 		// compaction or a deliberate user cancel — the user is ready to move on —
 		// while a failed/empty compaction or a programmatic cancel leaves it queued.
-		if ((result === 'ok' || this.wasCancelledByUser()) && this.queuedMessage) {
-			const next = this.queuedMessage
-			this.queuedMessage = ''
-			const accepted = await this.sendRequest({ instructions: next })
+		if ((result === 'ok' || this.wasCancelledByUser()) && this.#hasQueuedMessage()) {
+			const next = this.#takeQueue()
+			const accepted = await this.sendRequest({
+				instructions: next.text,
+				images: next.images,
+				queued: true
+			})
 			if (accepted === false) {
-				this.queuedMessage = next
+				this.#restoreQueue(next)
 			}
 		}
 	}
@@ -771,35 +1370,40 @@ export class AIChatManager {
 
 	requestUserQuestion = (
 		toolId: string,
-		_question: { question: string; choices: string[] }
-	): Promise<string | undefined> => {
+		_question: UserQuestionDisplay
+	): Promise<string[] | undefined> => {
 		return new Promise((resolve) => {
 			this.userQuestionCallbacks.set(toolId, resolve)
 		})
 	}
 
-	handleUserQuestionAnswer = (toolId: string, choice: string) => {
+	handleUserQuestionAnswer = (toolId: string, choices: string[]) => {
 		const callback = this.userQuestionCallbacks.get(toolId)
 		if (!callback) {
 			return
 		}
 
+		// Display-only readback for the collapsed tool-header: a compact comma list.
+		// The model-facing return (bare string / newline-bulleted) is built by the
+		// tool fn from the resolved choices below.
+		const answerSummary = choices.join(', ')
+
 		this.displayMessages = this.displayMessages.map((message) => {
 			if (message.role === 'tool' && message.tool_call_id === toolId && message.userQuestion) {
 				return {
 					...message,
-					content: `User answered question: ${choice}`,
+					content: `Asked: ${message.userQuestion.question} — ${answerSummary}`,
 					isLoading: false,
 					userQuestion: {
 						...message.userQuestion,
-						selectedChoice: choice
+						selectedChoices: choices
 					}
 				}
 			}
 			return message
 		})
 
-		callback(choice)
+		callback(choices)
 		this.userQuestionCallbacks.delete(toolId)
 	}
 
@@ -809,33 +1413,67 @@ export class AIChatManager {
 
 	/** Queue the message typed while a turn is streaming. There is only ever
 	 * one queued message; pressing Enter again appends the new text as another
-	 * line so it all goes out as a single message. */
-	queueMessage(text: string) {
+	 * line so it all goes out as a single message, and its images accumulate
+	 * alongside it. */
+	queueMessage(text: string, images: AttachedImage[] = []) {
 		const trimmed = text.trim()
-		if (!trimmed) {
+		// An image with no text is still a message; only a fully empty send is ignored.
+		if (!trimmed && images.length === 0) {
 			return
 		}
-		this.queuedMessage = this.queuedMessage ? `${this.queuedMessage}\n${trimmed}` : trimmed
+		if (trimmed) {
+			this.queuedMessage = this.queuedMessage ? `${this.queuedMessage}\n${trimmed}` : trimmed
+		}
+		if (images.length > 0) {
+			const merged = [...this.queuedImages, ...images]
+			if (merged.length > MAX_ATTACHED_IMAGES) {
+				sendUserToast(`Only the first ${MAX_ATTACHED_IMAGES} images are kept.`, true)
+			}
+			this.queuedImages = merged.slice(0, MAX_ATTACHED_IMAGES)
+		}
 	}
 
-	/** Remove the queued message and put its text back into the input. */
-	dequeueMessage() {
-		if (!this.queuedMessage) {
-			return
-		}
-		const message = this.queuedMessage
+	/** Whether anything is waiting in the queue — an image-only message has empty text. */
+	#hasQueuedMessage(): boolean {
+		return this.queuedMessage !== '' || this.queuedImages.length > 0
+	}
+
+	/** Detach the queue for sending. Text and images always leave together. */
+	#takeQueue(): { text: string; images: AttachedImage[] } {
+		const taken = { text: this.queuedMessage, images: this.queuedImages }
+		this.#clearQueue()
+		return taken
+	}
+
+	#clearQueue() {
 		this.queuedMessage = ''
-		this.restoreToInput(message)
+		this.queuedImages = []
 	}
 
-	/** Put text the user typed back where they can see it: into the input
+	/** Put a taken queue back after an auto-send bailed before becoming a turn. */
+	#restoreQueue(queued: { text: string; images: AttachedImage[] }) {
+		this.queuedMessage = queued.text
+		this.queuedImages = queued.images
+	}
+
+	/** Remove the queued message and put it back into the input, images included. */
+	dequeueMessage() {
+		if (!this.#hasQueuedMessage()) {
+			return
+		}
+		const queued = this.#takeQueue()
+		this.restoreToInput(queued.text, queued.images)
+	}
+
+	/** Put what the user typed back where they can see it: into the input
 	 * when it's mounted, otherwise back into the queue so it reappears with
 	 * the chat panel instead of being silently dropped. */
-	private restoreToInput(text: string) {
+	private restoreToInput(text: string, images: AttachedImage[] = []) {
 		if (this.aiChatInput) {
-			this.aiChatInput.prependText(text)
+			this.aiChatInput.prependText(text, images)
 		} else {
 			this.queuedMessage = text
+			this.queuedImages = images
 		}
 	}
 
@@ -958,28 +1596,7 @@ export class AIChatManager {
 			this.tools = [searchDocsTool, readDocsPageTool, ...this.apiTools]
 			this.helpers = {}
 		} else if (mode === AIMode.GLOBAL) {
-			this.systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(mode), {
-				previewTools: this.isSessionChat,
-				skills: this.globalSkills
-			})
-			this.tools = globalToolsFor({ sessionPreview: this.isSessionChat })
-			this.helpers = {
-				...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
-				testActiveFlow: async (args?: Record<string, any>) =>
-					this.flowAiChatHelpers?.testFlow(args),
-				attachedFiles: this.attachedFiles,
-				getUserInstructions: () => getUserCustomPrompts()[AIMode.GLOBAL] ?? '',
-				setUserInstructions: (instructions: string) => {
-					const prompts = getUserCustomPrompts()
-					if (instructions.trim()) {
-						prompts[AIMode.GLOBAL] = instructions
-					} else {
-						delete prompts[AIMode.GLOBAL]
-					}
-					setUserCustomPrompts(prompts)
-					this.rebuildGlobalSystemMessage()
-				}
-			} satisfies GlobalToolHelpers
+			this.configureGlobalMode()
 			void this.refreshGlobalSkills()
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
@@ -992,7 +1609,57 @@ export class AIChatManager {
 	// Fetch the workspace's AI skills and, if GLOBAL mode is still active, rebuild
 	// the system message so the next chat-loop iteration advertises them. Ignore
 	// stale resolves so workspace changes cannot overwrite newer skills.
-	refreshGlobalSkills = async (workspace = get(workspaceStore) ?? '') => {
+	// Build the global-mode system message, tools, and helpers, layering on the
+	// pipeline surface when a /pipeline editor has registered helpers. Centralized
+	// so changeMode, refreshGlobalSkills, and setPipelineHelpers stay consistent —
+	// each rebuild would otherwise drop the pipeline augmentation the others added.
+	private configureGlobalMode = () => {
+		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
+			previewTools: this.isSessionChat,
+			skills: this.globalSkills
+		})
+		const baseHelpers: GlobalToolHelpers = {
+			// A session targets its own fixed (possibly forked) workspace, so capture it for
+			// permission gating. The global side-panel chat follows the live navigation
+			// workspace instead, so leave it unset there — allowedOpenPages reads the store.
+			...(this.isSessionChat
+				? {
+						isSessionChat: true,
+						sessionId: this.sessionId,
+						operatingWorkspace: this.operatingWorkspace,
+						artifacts: this.artifacts,
+						getChatId: () => this.historyManager.getCurrentChatId(),
+						openArtifact: this.openArtifact
+					}
+				: {}),
+			testActiveFlow: async (args?: Record<string, any>) => this.flowAiChatHelpers?.testFlow(args),
+			attachedFiles: this.attachedFiles,
+			getUserInstructions: () => getUserCustomPrompts()[AIMode.GLOBAL] ?? '',
+			setUserInstructions: (instructions: string) => {
+				const prompts = getUserCustomPrompts()
+				if (instructions.trim()) {
+					prompts[AIMode.GLOBAL] = instructions
+				} else {
+					delete prompts[AIMode.GLOBAL]
+				}
+				setUserCustomPrompts(prompts)
+				this.rebuildGlobalSystemMessage()
+			}
+		}
+		const pipeline = this.pipelineAiChatHelpers
+		if (pipeline) {
+			systemMessage.content += getPipelinePromptSection(pipeline.getPipelineContext())
+			this.tools = [...globalToolsFor({ sessionPreview: this.isSessionChat }), ...pipelineTools]
+			this.helpers = { ...baseHelpers, pipeline }
+		} else {
+			this.tools = globalToolsFor({ sessionPreview: this.isSessionChat })
+			this.helpers = baseHelpers
+		}
+		this.systemMessage = systemMessage
+		this.syncArtifactsSession()
+	}
+
+	refreshGlobalSkills = async (workspace = this.operatingWorkspace ?? '') => {
 		const refreshId = ++this.globalSkillsRefreshId
 		const skills = await loadWorkspaceSkills(workspace)
 		if (refreshId !== this.globalSkillsRefreshId) {
@@ -1000,10 +1667,7 @@ export class AIChatManager {
 		}
 		this.globalSkills = skills
 		if (this.mode === AIMode.GLOBAL) {
-			this.systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
-				previewTools: this.isSessionChat,
-				skills
-			})
+			this.configureGlobalMode()
 		}
 	}
 
@@ -1014,10 +1678,18 @@ export class AIChatManager {
 		if (this.mode !== AIMode.GLOBAL) {
 			return
 		}
-		this.systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
+		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
 			previewTools: this.isSessionChat,
 			skills: this.globalSkills
 		})
+		// Preserve the active pipeline-editor augmentation that configureGlobalMode
+		// adds — otherwise update_user_instructions (which calls this) would drop the
+		// /pipeline/<folder> context + direct-draft/materialize guidance mid-session.
+		const pipeline = this.pipelineAiChatHelpers
+		if (pipeline) {
+			systemMessage.content += getPipelinePromptSection(pipeline.getPipelineContext())
+		}
+		this.systemMessage = systemMessage
 	}
 
 	private expandGlobalSkillCommand = (instructions: string): string => {
@@ -1189,12 +1861,25 @@ export class AIChatManager {
 		modelLenAfterUser: number,
 		instructions: string,
 		pastes: PasteAttachment[],
-		restoreToInput: boolean = true
+		restoreToInput: boolean = true,
+		images: AttachedImage[] = []
 	) => {
 		this.displayMessages = this.displayMessages.slice(0, displayLenAfterUser - 1)
 		this.messages = this.messages.slice(0, modelLenAfterUser - 1)
 		if (restoreToInput) {
-			this.aiChatInput?.restoreInstructions(instructions, pastes)
+			this.aiChatInput?.restoreInstructions(instructions, pastes, images)
+		}
+	}
+
+	private notifyReasoningSummaryUnavailable = () => {
+		const provider = getCurrentModel().provider
+		const key = this.reasoningSummaryKey(provider)
+		if (!this.reasoningSummaryUnavailableFor.includes(key)) {
+			this.reasoningSummaryUnavailableFor = [...this.reasoningSummaryUnavailableFor, key]
+		}
+		if (getLocalSetting(REASONING_SUMMARY_WARNED_STORAGE_KEY) !== 'true') {
+			storeLocalSetting(REASONING_SUMMARY_WARNED_STORAGE_KEY, 'true')
+			sendUserToast(reasoningSummaryUnavailableMessage(provider), 'warning', [], undefined, 10000)
 		}
 	}
 
@@ -1217,6 +1902,11 @@ export class AIChatManager {
 		systemMessage?: ChatCompletionSystemMessageParam
 		onWebSearchUnavailable?: () => void
 	}) => {
+		// Fresh batch for this turn — drop any images an aborted prior turn left buffered.
+		this.pendingToolImages.clear()
+		// Stale from a prior turn it would misattribute a pre-first-iteration failure.
+		this.lastIterationModel = undefined
+		const onReasoningSummaryUnavailable = () => this.notifyReasoningSummaryUnavailable()
 		try {
 			// Use JS getters so runChatLoop re-reads tools/helpers/systemMessage/modelProvider
 			// on each iteration. This is critical for changeModeTool (Navigator → Script/Flow)
@@ -1248,16 +1938,25 @@ export class AIChatManager {
 				get webSearch() {
 					return isWebSearchEnabledForProvider(getCurrentModel().provider)
 				},
-				clients: {
-					openai: workspaceAIClients.getOpenaiClient(),
-					anthropic: workspaceAIClients.getAnthropicClient()
+				// Build the proxy clients against the operating workspace, not the global
+				// singleton: a session deliberately leaves workspaceStore untouched, so the
+				// singleton (init'd only on global workspace changes) would route the LLM
+				// request through the navigation workspace's /ai/proxy instead of the
+				// session's — sending it to the wrong workspace's AI credentials.
+				get clients() {
+					const ws = self.operatingWorkspace ?? ''
+					return {
+						openai: workspaceAIClients.createOpenaiClient(ws),
+						anthropic: workspaceAIClients.createAnthropicClient(ws)
+					}
 				},
-				workspace: get(workspaceStore) ?? '',
+				workspace: this.operatingWorkspace ?? '',
 				skipResponsesApi: this.skipResponsesApi,
 				onSkipResponsesApi: () => {
 					this.skipResponsesApi = true
 				},
 				onWebSearchUnavailable,
+				onReasoningSummaryUnavailable,
 				getPendingUserMessage: () => {
 					const pendingPrompt = this.pendingPrompt
 					if (!pendingPrompt) return undefined
@@ -1277,12 +1976,13 @@ export class AIChatManager {
 						return prepareGlobalUserMessage(
 							pendingPrompt,
 							this.contextManager.getSelectedContext(),
-							{ workspace: get(workspaceStore) }
+							{ workspace: this.operatingWorkspace }
 						)
 					}
 					return undefined
 				},
-				onBeforeIteration: async (tools) => {
+				onBeforeIteration: async (tools, _helpers, modelProvider) => {
+					this.lastIterationModel = modelProvider
 					for (const tool of tools) {
 						if (tool.setSchema) {
 							await tool.setSchema(this.helpers)
@@ -1388,10 +2088,10 @@ export class AIChatManager {
 		}
 	}
 
-	// Optional pre-flight hook called once per send, after validation but
-	// before any UI state mutates or backend calls go out. Sessions use
-	// this to commit/materialise the workspace (creating a staged fork via
-	// the API) so the first message targets the correct workspace.
+	// Optional pre-flight hook called once per send, after the user's message
+	// bubble + loading indicator are shown optimistically but before the request
+	// goes out. Sessions use this to commit/materialise the workspace (creating a
+	// staged fork via the API) so the first message targets the correct workspace.
 	beforeSend?: () => Promise<void> | void
 	afterFirstTurnSaved?: () => Promise<void> | void
 
@@ -1401,9 +2101,14 @@ export class AIChatManager {
 			addBackCode?: boolean
 			instructions?: string
 			pastes?: PasteAttachment[]
+			images?: AttachedImage[]
 			mode?: AIMode
 			lang?: ScriptLang | 'bunnative'
 			isPreprocessor?: boolean
+			/** Auto-send of a queued draft: on preflight failure the caller re-queues
+			 * it, so the composer restore must not also fire (the draft would exist
+			 * twice — queue chip and composer). */
+			queued?: boolean
 		} = {}
 	) => {
 		// Returns whether the input was consumed: true when it was sent as a chat
@@ -1419,10 +2124,17 @@ export class AIChatManager {
 			lang: options.lang,
 			isPreprocessor: options.isPreprocessor
 		})
-		if (options.instructions) {
+		// Explicitly-passed instructions win even when empty: an image-only send
+		// carries '' and must not inherit stale text a failed or cancelled earlier
+		// turn left in this.instructions.
+		if (options.instructions !== undefined) {
 			this.instructions = options.instructions
 		}
-		if (!this.instructions.trim()) {
+		// Only a truly empty draft is dropped here. An image with no text is a
+		// valid GLOBAL-mode message; outside GLOBAL an image-bearing draft must
+		// still get past this guard to reach the refusal below, which puts it
+		// back in the composer instead of silently losing it.
+		if (!this.instructions.trim() && (options.images?.length ?? 0) === 0) {
 			return false
 		}
 		// Built-in session commands run locally instead of becoming a chat turn.
@@ -1459,6 +2171,75 @@ export class AIChatManager {
 		} catch (e) {
 			console.error('Attached-files upkeep failed before send', e)
 		}
+		// beforeSend runs sequential API calls (session materialise + workspace fork
+		// creation) that can take seconds. Show the user bubble and loading indicator
+		// optimistically before it so the input doesn't just clear into a void.
+		// Context elements and the snapshot are attached after beforeSend (see below).
+		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
+		const pastes = options.pastes ?? []
+		// Images ride only on GLOBAL turns, but the composer stays mounted across
+		// a mode switch, so chips attached in GLOBAL can arrive with a send in any
+		// mode. Refuse and restore rather than silently dropping attachments the
+		// user can see. This sits past the awaits above on purpose: the composer
+		// clears itself synchronously right after calling sendRequest, so an
+		// earlier restore would be wiped. Queued drafts are the caller's to
+		// restore (it re-queues on false).
+		if ((options.images?.length ?? 0) > 0 && this.mode !== AIMode.GLOBAL) {
+			sendUserToast('Switch back to the chat mode to send images. Your message was kept.', true)
+			if (!options.queued) {
+				this.aiChatInput?.restoreInstructions(this.instructions, pastes, options.images ?? [])
+			}
+			return false
+		}
+		// Non-GLOBAL sends with images were refused above. The vision check is
+		// repeated here, not just at attach time: the model can be switched to a
+		// text-only one after attaching, and sending the image then fails the turn.
+		const requestedImages = options.images ?? []
+		const sendModel = tryGetCurrentModel()
+		const modelIsBlind = !!sendModel && !modelSupportsVision(sendModel.provider, sendModel.model)
+		if (requestedImages.length > 0 && modelIsBlind) {
+			// An image-only message has nothing left once the images are dropped —
+			// put them back in the composer instead of silently discarding them
+			// (the input already cleared itself optimistically on send). Queued
+			// drafts are the caller's to restore (it re-queues on false).
+			if (!this.instructions.trim()) {
+				sendUserToast(`${sendModel.model} can't read images. Switch to a vision model first.`, true)
+				if (!options.queued) this.restoreToInput('', requestedImages)
+				return false
+			}
+			sendUserToast(
+				`${sendModel.model} can't read images; sending without the ${requestedImages.length} attached image(s).`,
+				true
+			)
+		}
+		const images = modelIsBlind ? [] : requestedImages
+		const optimisticIndex = this.displayMessages.length
+		this.loading = true
+		// Create the abort controller before the (possibly slow) beforeSend pre-flight,
+		// not after: the loading indicator below exposes Stop/Escape during "Creating
+		// workspace fork...", and those call cancel() → abortController.abort(). Without a
+		// controller here that abort would hit nothing and the request would still fire
+		// once the pre-flight resolves; the pre-flight-cancel check after beforeSend honours it.
+		this.abortController = new AbortController()
+		this.displayMessages = [
+			...this.displayMessages,
+			{
+				role: 'user',
+				content: this.instructions,
+				pastes: pastes.length > 0 ? pastes : undefined,
+				// Same objects as the API message's parts: sharing the exact data URL
+				// lets the history's blob store persist one copy for both.
+				images: images.length > 0 ? images : undefined,
+				index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
+			}
+		]
+		// Undo the optimistic bubble + loading/label. Shared by the beforeSend-failure and
+		// pre-flight-cancel paths below; callers put the message back in the composer.
+		const rollbackOptimisticSend = () => {
+			this.displayMessages = this.displayMessages.filter((_, i) => i !== optimisticIndex)
+			this.loading = false
+			this.loadingLabel = undefined
+		}
 		if (this.beforeSend) {
 			try {
 				await this.beforeSend()
@@ -1466,8 +2247,13 @@ export class AIChatManager {
 				// beforeSend commits the session's workspace before the first
 				// message hits the backend. If it throws, sending anyway would
 				// silently target the wrong workspace (typically the parent), so
-				// abort and tell the user — their message text stays in the input.
+				// abort and put the message back in the composer (which cleared
+				// itself optimistically on send).
 				console.error('AIChatManager beforeSend hook failed', e)
+				rollbackOptimisticSend()
+				if (!options.queued) {
+					this.aiChatInput?.restoreInstructions(this.instructions, pastes, images)
+				}
 				sendUserToast(
 					`Could not prepare the session before sending: ${
 						e instanceof Error ? e.message : String(e)
@@ -1480,9 +2266,28 @@ export class AIChatManager {
 		// Session chats commit their workspace in beforeSend; skills must match the
 		// committed workspace before the system prompt is sent.
 		if (this.mode === AIMode.GLOBAL) {
-			await this.refreshGlobalSkills(get(workspaceStore) ?? '')
+			await this.refreshGlobalSkills(this.operatingWorkspace ?? '')
 		}
-		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
+		// Stop/Escape during the beforeSend pre-flight aborted this send before any
+		// request went out. Mirror the main "cancelled before usable output" recovery:
+		// roll the optimistic turn back, then either hand off to a queued message (the
+		// input cleared the composer on send, so a deliberate cancel with a queued
+		// message auto-sends it) or restore this prompt to the composer so it isn't lost.
+		if (this.abortController.signal.aborted) {
+			rollbackOptimisticSend()
+			if (this.wasCancelledByUser() && this.#hasQueuedMessage()) {
+				const next = this.#takeQueue()
+				const accepted = await this.sendRequest({
+					instructions: next.text,
+					images: next.images,
+					queued: true
+				})
+				if (accepted === false) this.#restoreQueue(next)
+			} else {
+				this.aiChatInput?.restoreInstructions(this.instructions, pastes, images)
+			}
+			return true
+		}
 		// Declared outside `try` so the catch can recover what the loop produced
 		// before a failure: the structured messages and the latest streamed text
 		// that never became one.
@@ -1501,14 +2306,13 @@ export class AIChatManager {
 			if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
 				this.contextManager?.updateContextOnRequest(options)
 			}
-			this.loading = true
+			// loading + abortController were set optimistically before beforeSend, above.
 			this.#automaticScroll = true
-			this.abortController = new AbortController()
 
 			const model = tryGetCurrentModel()
 			if (model) {
 				WorkspaceService.logAiChat({
-					workspace: get(workspaceStore) ?? '',
+					workspace: this.operatingWorkspace ?? '',
 					requestBody: {
 						session_id: this.historyManager.getCurrentChatId(),
 						provider: model.provider,
@@ -1533,31 +2337,42 @@ export class AIChatManager {
 				snapshot = { type: 'app', value: this.appAiChatHelpers!.snapshot() }
 			}
 
-			const pastes = options.pastes ?? []
-			this.displayMessages = [
-				...this.displayMessages,
-				{
-					role: 'user',
-					content: this.instructions,
-					contextElements:
-						this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW || this.mode === AIMode.GLOBAL
-							? oldSelectedContext
-							: undefined,
-					pastes: pastes.length > 0 ? pastes : undefined,
-					snapshot,
-					index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
-				}
-			]
+			// Attach the enrichments that are only known after beforeSend (selected
+			// context + snapshot) to the optimistic user message pushed before it.
+			this.displayMessages = this.displayMessages.map((m, i) =>
+				i === optimisticIndex
+					? {
+							...m,
+							contextElements:
+								this.mode === AIMode.SCRIPT ||
+								this.mode === AIMode.FLOW ||
+								this.mode === AIMode.GLOBAL
+									? oldSelectedContext
+									: undefined,
+							snapshot
+						}
+					: m
+			)
 			// For restoreUnsentTurn: the compact composer form (with paste tokens),
 			// not the expanded LLM text, plus the rollback anchor after the user turn.
 			const sentInstructions = this.instructions
 			const sentPastes = pastes
+			const sentImages = images
 			// The LLM gets the full pasted content; the display message above keeps
 			// the compact tokens + registry so the bubble can render/expand chips.
 			const oldInstructions = expanded(chatDraft(this.instructions, pastes))
+			// Deliver background-job completions to the model as a preamble on this
+			// turn (notify-only wake). Folded into the model-facing text only — the
+			// display bubble keeps this.instructions, and no extra message is added, so
+			// the display↔messages index pairing above stays intact. Ephemeral.
+			const jobNotesPreamble =
+				this.mode === AIMode.GLOBAL && this.pendingJobNotes.length > 0
+					? this.pendingJobNotes.join('\n\n') + '\n\n'
+					: ''
+			if (jobNotesPreamble) this.pendingJobNotes = []
 			const modelInstructions =
 				this.mode === AIMode.GLOBAL
-					? this.expandGlobalSkillCommand(oldInstructions)
+					? jobNotesPreamble + this.expandGlobalSkillCommand(oldInstructions)
 					: oldInstructions
 			this.instructions = ''
 
@@ -1592,7 +2407,8 @@ export class AIChatManager {
 					break
 				case AIMode.GLOBAL:
 					userMessage = prepareGlobalUserMessage(modelInstructions, oldSelectedContext, {
-						workspace: get(workspaceStore)
+						workspace: this.operatingWorkspace,
+						images: sentImages
 					})
 					break
 				case AIMode.APP:
@@ -1612,8 +2428,15 @@ export class AIChatManager {
 			const projectedContextTokens = this.contextTokens + this.estimateMessagesTokens([userMessage])
 
 			this.messages.push(userMessage)
-			await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
+			await this.historyManager.saveChat(
+				this.displayMessages,
+				this.messages,
+				this.contextUsage,
+				this.modifiedItems ? [...this.modifiedItems] : undefined
+			)
 
+			this.replyReveal.reset()
+			this.reasoningReveal.reset()
 			this.currentReply = ''
 			this.currentReasoning = ''
 			this.currentReasoningActive = false
@@ -1648,7 +2471,12 @@ export class AIChatManager {
 							this.contextUsage = Math.max(0, this.contextUsage - freed)
 						}
 					}
-					await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
+					await this.historyManager.saveChat(
+						this.displayMessages,
+						this.messages,
+						this.contextUsage,
+						this.modifiedItems ? [...this.modifiedItems] : undefined
+					)
 				}
 			}
 			// Rollback anchors for restoreUnsentTurn: captured after compaction so
@@ -1666,13 +2494,24 @@ export class AIChatManager {
 					onMessageEnd: () => void
 				}
 			} = {
+				// The full history goes to the loop, image parts included, even on a
+				// known text-only model: runChatLoop strips them per iteration for
+				// whatever model that iteration runs on, so a mid-loop switch in either
+				// direction (vision→text or text→vision) sees the right view. A copy
+				// stripped here instead could never be un-stripped by a later iteration.
 				messages: [...this.messages],
 				abortController: this.abortController,
 				callbacks: {
-					onNewToken: (token) => (this.currentReply += token),
-					onReasoningDelta: (token) => (this.currentReasoning += token),
+					onNewToken: (token) => this.replyReveal.push(token),
+					onReasoningDelta: (token) => this.reasoningReveal.push(token),
 					onReasoningStart: () => (this.currentReasoningActive = true),
 					onMessageEnd: () => {
+						// Drain any un-revealed backlog into currentReply first, so the reads
+						// below see the full text. This funnel covers clean completion, tool
+						// boundaries, and abort/error — flush-before-read is the invariant that
+						// keeps text from being lost or duplicated on any exit path.
+						this.replyReveal.flush()
+						this.reasoningReveal.flush()
 						// Keep the streamed text for the abort/error paths. Non-empty only:
 						// parsers flush (and reset) when a tool call starts after text, and
 						// the catch's later empty call would wipe it — stale keeps are
@@ -1698,31 +2537,17 @@ export class AIChatManager {
 						this.currentReasoning = ''
 						this.currentReasoningActive = false
 					},
-					setToolStatus: (id, metadata) => {
-						const existingIdx = this.displayMessages.findIndex(
-							(m) => m.role === 'tool' && m.tool_call_id === id
-						)
-						if (existingIdx !== -1) {
-							// Update existing tool message with metadata
-							const existing = this.displayMessages[existingIdx] as ToolDisplayMessage
-							if (existing.content.length === 0 && metadata?.error) {
-								this.displayMessages[existingIdx].content = metadata.error
+					setToolStatus: this.applyToolStatus,
+					// Job-tracking hooks enable detach-into-background; wire them only in
+					// GLOBAL mode (global chat + sessions). In-editor script/flow/pipeline
+					// chats leave these undefined, so their test runs keep blocking.
+					...(this.mode === AIMode.GLOBAL
+						? {
+								onJobStarted: (job) => this.registerJob(job),
+								onJobStatus: (jobId, update) => this.updateJob(jobId, update),
+								onJobDetached: (jobId) => this.markJobDetached(jobId)
 							}
-							this.displayMessages[existingIdx] = {
-								...existing,
-								...(metadata || {})
-							} as ToolDisplayMessage
-						} else {
-							// Create new tool message with metadata
-							const newMessage: ToolDisplayMessage = {
-								role: 'tool',
-								tool_call_id: id,
-								content: metadata?.content ?? metadata?.error ?? '',
-								...(metadata || {})
-							}
-							this.displayMessages.push(newMessage)
-						}
-					},
+						: {}),
 					removeToolStatus: (id) => {
 						const existingIdx = this.displayMessages.findIndex(
 							(m) => m.role === 'tool' && m.tool_call_id === id
@@ -1734,7 +2559,19 @@ export class AIChatManager {
 					},
 					requestConfirmation: this.requestConfirmation,
 					shouldAutoAcceptToolConfirmations: () => this.autoAcceptToolConfirmationsActive,
-					requestUserQuestion: this.requestUserQuestion
+					requestUserQuestion: this.requestUserQuestion,
+					onItemModified: (kind, path) => this.recordModifiedItem(kind, path),
+					onItemDeployed: (kind, from, to) => void this.renameModifiedItem(kind, from, to),
+					onItemDiscarded: (kind, path) => void this.removeModifiedItem(kind, path),
+					attachToolImage: (toolId, image) => {
+						const existing = this.pendingToolImages.get(toolId) ?? []
+						this.pendingToolImages.set(toolId, [...existing, image])
+					},
+					takePendingToolImages: () => {
+						const images = [...this.pendingToolImages.values()].flat()
+						this.pendingToolImages.clear()
+						return images
+					}
 				}
 			}
 
@@ -1770,7 +2607,12 @@ export class AIChatManager {
 				this.contextUsage = result?.lastIterationUsage
 					? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
 					: undefined
-				await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
+				await this.historyManager.saveChat(
+					this.displayMessages,
+					this.messages,
+					this.contextUsage,
+					this.modifiedItems ? [...this.modifiedItems] : undefined
+				)
 				// Still counts as the saved first turn — skipping the hook here would
 				// permanently miss it (the next turn isn't "first" anymore).
 				if (isFirstUserTurn && this.afterFirstTurnSaved) {
@@ -1786,13 +2628,14 @@ export class AIChatManager {
 				// When the user cancelled with a message queued, that message is
 				// about to auto-send (see the flush below) — drop the rolled-back
 				// prompt instead of restoring it to the input so the handoff is clean.
-				const willAutoSendQueued = this.wasCancelledByUser() && !!this.queuedMessage
+				const willAutoSendQueued = this.wasCancelledByUser() && this.#hasQueuedMessage()
 				this.restoreUnsentTurn(
 					displayLenAfterUser,
 					modelLenAfterUser,
 					sentInstructions,
 					sentPastes,
-					!willAutoSendQueued
+					!willAutoSendQueued,
+					sentImages
 				)
 				if (this.displayMessages.length === 0) {
 					// saveChat no-ops on an empty transcript; the chat persisted earlier
@@ -1800,7 +2643,12 @@ export class AIChatManager {
 					// user message on reload. Remove it instead.
 					this.historyManager.deletePastChat(this.historyManager.getCurrentChatId())
 				} else {
-					await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
+					await this.historyManager.saveChat(
+						this.displayMessages,
+						this.messages,
+						this.contextUsage,
+						this.modifiedItems ? [...this.modifiedItems] : undefined
+					)
 				}
 				if (!wasAborted) {
 					sendUserToast('The model returned no response — your message was restored to the input.')
@@ -1819,7 +2667,12 @@ export class AIChatManager {
 				if (this.autoAcceptEditsActive) {
 					this.acceptPendingFlowEdits()
 				}
-				await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
+				await this.historyManager.saveChat(
+					this.displayMessages,
+					this.messages,
+					this.contextUsage,
+					this.modifiedItems ? [...this.modifiedItems] : undefined
+				)
 				// Only this branch is a clean send: the queued-message flush below
 				// auto-sends the next message after it (set after saveChat so a
 				// persistence failure falls through to the restore path instead).
@@ -1837,13 +2690,50 @@ export class AIChatManager {
 			// re-committing would duplicate the turn's messages.
 			if (!turnOutcomeHandled) {
 				this.commitInterruptedTurn(collectedMessages, partialReply)
+				// The turn is kept as context, images and all — but a provider that just
+				// refused an image would refuse it again on every later turn, wedging the
+				// conversation with no way out but editing the message or starting over.
+				// Drop the parts so the text still gets an answer; the bubbles keep their
+				// thumbnails, so the user can still see what they sent. Gated on the
+				// history, not this turn's attachments: the refused image can also be a
+				// screenshot follow-up or an earlier turn's upload (an unlisted text-only
+				// model gets the full history).
+				// The failing request is the last iteration's — the loop strips image
+				// parts per iteration, so that request carried them only if ITS model
+				// passed the vision gate. The send-time flag is only the fallback for a
+				// failure before the first iteration read the model (a turn can start on
+				// a known text-only model and switch mid-loop to an unlisted blind one).
+				const failingModel = this.lastIterationModel
+				const requestCarriedImages = failingModel
+					? modelSupportsVision(failingModel.provider, failingModel.model)
+					: !modelIsBlind
+				if (
+					requestCarriedImages &&
+					messagesHaveImageParts(this.messages) &&
+					isImageRejection(err, [
+						sendModel?.model,
+						tryGetCurrentModel()?.model,
+						failingModel?.model
+					])
+				) {
+					this.messages = stripImagePartsFromMessages(this.messages)
+					sendUserToast(
+						`${tryGetCurrentModel()?.model ?? 'The model'} could not read the attached image(s), so they were removed from the conversation. Your message was kept.`,
+						true
+					)
+				}
 				// Any prior report no longer describes the history (a partial turn
 				// was just committed); clear it so readers estimate instead. When
 				// the failure WAS a context-length error, that high estimate forces
 				// compaction on the next send instead of failing the same way again.
 				this.contextUsage = undefined
 				try {
-					await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
+					await this.historyManager.saveChat(
+						this.displayMessages,
+						this.messages,
+						this.contextUsage,
+						this.modifiedItems ? [...this.modifiedItems] : undefined
+					)
 				} catch (saveErr) {
 					console.error('Failed to persist partial chat after error', saveErr)
 				}
@@ -1852,6 +2742,11 @@ export class AIChatManager {
 			sendUserToast(getSendRequestErrorMessage(err, webSearchUnavailable), true)
 		} finally {
 			this.loading = false
+			// Turn teardown: cancel any in-flight reveal frame and drop leftover
+			// backlog. onMessageEnd already flushed on every outcome, so this only
+			// releases the loop; it never discards uncommitted text.
+			this.replyReveal.reset()
+			this.reasoningReveal.reset()
 		}
 		// Flush the queued message. Send it after a cleanly committed turn OR a
 		// deliberate user cancel (Esc / Stop) — in both cases the user is ready
@@ -1859,16 +2754,24 @@ export class AIChatManager {
 		// empty-response rollback, or a programmatic cancel (panel teardown,
 		// save-and-clear) leaves it in place as a card so it isn't fired into a
 		// failed or torn-down turn.
-		if ((turnCommittedCleanly || this.wasCancelledByUser()) && this.queuedMessage) {
-			const next = this.queuedMessage
-			this.queuedMessage = ''
-			const accepted = await this.sendRequest({ instructions: next })
+		if ((turnCommittedCleanly || this.wasCancelledByUser()) && this.#hasQueuedMessage()) {
+			const next = this.#takeQueue()
+			const accepted = await this.sendRequest({
+				instructions: next.text,
+				images: next.images,
+				queued: true
+			})
 			if (accepted === false) {
 				// The auto-send bailed before becoming a turn (e.g. beforeSend
 				// failed); keep it as the queued message instead of losing it.
-				this.queuedMessage = next
+				this.#restoreQueue(next)
 			}
 		}
+		// A background job may have finished mid-turn: its note missed this turn's
+		// preamble (captured at the start) and the poller skipped auto-resume while
+		// we were loading. Now that we're idle, deliver it via an auto-resume. Skips
+		// itself if the queued-message flush above already carried the notes.
+		void this.#maybeAutoResumeFromJobs()
 		return true
 	}
 
@@ -1907,10 +2810,29 @@ export class AIChatManager {
 		this.inlineAbortController?.abort(cancelReason)
 	}
 
+	/**
+	 * The images of a stored user turn as the model saw them. Anything resending
+	 * a turn (retry, edit) must read them from here, never from the transcript
+	 * bubble: a provider rejection strips them from history while the bubble
+	 * keeps its copy so the user can still see what they sent — resending that
+	 * copy would re-attach the image the provider just refused.
+	 */
+	storedImages(displayMessageIndex: number): AttachedImage[] | undefined {
+		const shown = this.displayMessages[displayMessageIndex]
+		if (!shown || shown.role !== 'user') return undefined
+		// The wire format has no filename; recover it from the bubble's entry
+		// (same attachment order) so a retried/edited image keeps its name — the
+		// history title of an image-only chat derives from it.
+		return imagesFromContent(this.messages[shown.index]?.content)?.map((image, i) =>
+			shown.images?.[i]?.name ? { ...image, name: shown.images[i].name } : image
+		)
+	}
+
 	restartGeneration = (
 		displayMessageIndex: number,
 		newContent?: string,
-		pastes?: PasteAttachment[]
+		pastes?: PasteAttachment[],
+		images?: AttachedImage[]
 	) => {
 		const userMessage = this.displayMessages[displayMessageIndex]
 
@@ -1918,11 +2840,19 @@ export class AIChatManager {
 			throw new Error('No user message found at the specified index')
 		}
 
+		// Read while both arrays are intact: storedImages pairs the API message with
+		// its transcript entry, and the truncations below drop them.
+		const sentImages = this.storedImages(displayMessageIndex)
+
 		// Remove all messages including and after the specified user message
 		this.displayMessages = this.displayMessages.slice(0, displayMessageIndex)
 
-		// Find corresponding message in actual messages and remove it and everything after it
-		let actualMessageIndex = this.messages.findIndex((_, i) => i === userMessage.index)
+		// Find corresponding message in actual messages and remove it and everything
+		// after it. A negative index marks a message whose API counterpart was
+		// removed by drop-oldest compaction — everything before it went too, so
+		// restarting from it restarts from an empty history.
+		let actualMessageIndex =
+			userMessage.index < 0 ? 0 : this.messages.findIndex((_, i) => i === userMessage.index)
 
 		if (actualMessageIndex === -1) {
 			throw new Error('No actual user message found to restart from')
@@ -1938,7 +2868,10 @@ export class AIChatManager {
 
 		// Resend the request with the same instructions
 		this.instructions = newContent ?? userMessage.content
-		this.sendRequest({ pastes: pastes ?? userMessage.pastes })
+		this.sendRequest({
+			pastes: pastes ?? userMessage.pastes,
+			images: images ?? sentImages
+		})
 	}
 
 	fix = () => {
@@ -1971,32 +2904,73 @@ export class AIChatManager {
 		this.cancel('saveAndClear')
 		// Drop any message queued in this conversation so it can't auto-send into
 		// the fresh chat or linger as a card across the switch.
-		this.queuedMessage = ''
-		await this.historyManager.save(this.displayMessages, this.messages, this.contextUsage)
+		this.#clearQueue()
+		// The tray + poller belong to the conversation being left; the just-saved
+		// chat keeps its persisted jobs (save() omits the arg → fallback preserves).
+		this.clearBackgroundJobs()
+		await this.historyManager.save(
+			this.displayMessages,
+			this.messages,
+			this.contextUsage,
+			this.modifiedItems ? [...this.modifiedItems] : undefined
+		)
 		this.displayMessages = []
 		this.messages = []
 		this.contextUsage = undefined
+		// The mask belongs to the conversation just saved — the fresh chat starts
+		// its own (empty) tracking; carrying entries over would claim the previous
+		// conversation's edits for the new one. Untracked chats stay untracked.
+		if (this.modifiedItems) this.modifiedItems = new SvelteSet()
 		// In an AI session, linked files are session-scoped: they persist across conversations
 		// (cleared only when the session is deleted). The ephemeral global side-panel chat has no
 		// session, so "New chat" must clear them — otherwise the next, unrelated conversation
 		// would still get the previous file roster and could read/search it.
 		if (!this.isSessionChat) this.attachedFiles.clear()
+		this.syncArtifactsSession()
+		this.onChatRotated?.(this.historyManager.getCurrentChatId())
 	}
 
 	loadPastChat = async (id: string) => {
-		const chat = this.historyManager.loadPastChat(id)
+		const chat = await this.historyManager.loadPastChat(id)
 		if (chat) {
 			// Drop any message queued in the current conversation so it doesn't
 			// auto-send into the loaded one or linger as a card across the switch.
-			this.queuedMessage = ''
+			this.#clearQueue()
+			// Stop the poller for the conversation being left before swapping in the
+			// loaded chat's jobs below.
+			this.clearBackgroundJobs()
 			// Same isolation as saveAndClear: the ephemeral global chat's attachments belong to
 			// the conversation being left, not the one being loaded; sessions keep them.
 			if (!this.isSessionChat) this.attachedFiles.clear()
 			this.displayMessages = chat.displayMessages
 			this.messages = chat.actualMessages
 			this.contextUsage = normalizeContextUsage(chat.contextUsage)
+			// Seed the modified-items mask from the stored chat. A session's Edits
+			// surface is scoped strictly to what this session edited, so it must never
+			// fall back to showing every draft in the (possibly forked) workspace: a
+			// legacy chat with no stored mask seeds an empty tracked set, not undefined.
+			// The global side-panel chat never tracks, so leave it untouched there.
+			if (this.isSessionChat) {
+				const stored = this.historyManager.getModifiedItems(id)
+				this.modifiedItems = new SvelteSet(stored ?? [])
+			}
+			// Rebuild the jobs tray from the loaded chat, and re-attach the poller to
+			// any job that was still in flight when it was last persisted.
+			const storedJobs = this.historyManager.getBackgroundJobs(id)
+			this.backgroundJobs = storedJobs ? storedJobs.map((j) => ({ ...j })) : []
+			for (const j of this.backgroundJobs) {
+				if (this.isJobNonTerminal(j.status)) j.detached = true
+			}
+			if (this.backgroundJobs.length > 0) this.backgroundJobs = [...this.backgroundJobs]
+			this.#ensureJobPoller()
 			this.#automaticScroll = true
+			this.syncArtifactsSession()
+			this.onChatRotated?.(id)
 		}
+	}
+
+	private syncArtifactsSession = () => {
+		void this.artifacts.setSession(this.isSessionChat ? this.sessionId : undefined)
 	}
 
 	get automaticScroll() {
@@ -2132,7 +3106,7 @@ export class AIChatManager {
 						moduleState && !moduleState.previewSuccess
 							? getStringError(moduleState.previewResult)
 							: undefined,
-					getCode: () => module.value.type === 'rawscript' ? module.value.content : '',
+					getCode: () => (module.value.type === 'rawscript' ? module.value.content : ''),
 					lang: module.value.language,
 					path: module.id,
 					...editorRelated
@@ -2173,6 +3147,28 @@ export class AIChatManager {
 
 		return () => {
 			this.flowAiChatHelpers = undefined
+		}
+	}
+
+	// Registered by the /pipeline editor while it is mounted. Rebuilds the global
+	// tool set so the pipeline tools appear (and disappear on unregister). Pipeline
+	// AI edits apply directly as drafts, so there is nothing to auto-accept.
+	// Returns a cleanup that tears the registration back down.
+	setPipelineHelpers = (pipelineHelpers: PipelineAIChatHelpers) => {
+		this.pipelineAiChatHelpers = pipelineHelpers
+		untrack(() => {
+			if (this.mode === AIMode.GLOBAL) {
+				this.configureGlobalMode()
+			}
+		})
+
+		return () => {
+			this.pipelineAiChatHelpers = undefined
+			untrack(() => {
+				if (this.mode === AIMode.GLOBAL) {
+					this.configureGlobalMode()
+				}
+			})
 		}
 	}
 
@@ -2261,7 +3257,11 @@ export class AIChatManager {
 				return {
 					...message,
 					isLoading: false,
-					content: messageText,
+					// A question's card disappears once canceled, so keep the question
+					// itself readable in the collapsed header.
+					content: message.userQuestion
+						? `Asked: ${message.userQuestion.question} — ${messageText}`
+						: messageText,
 					error: messageText,
 					userQuestion: message.userQuestion
 						? { ...message.userQuestion, canceled: true }

@@ -13,7 +13,7 @@ import {
 	workspaceAIClients
 } from '../lib'
 import { applyReasoningToConfig } from '../reasoningRegistry'
-import { processToolCall, type Tool, type ToolCallbacks } from './shared'
+import { appendPendingToolImages, processToolCall, type Tool, type ToolCallbacks } from './shared'
 import type { ResponseStream } from 'openai/lib/responses/ResponseStream.mjs'
 import type { AIProviderModel } from '$lib/gen'
 import { openAIResponsesUsageToChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
@@ -48,6 +48,23 @@ function setOpenAIWebSearchStatus(
 }
 
 // Conversion utilities for Responses API
+
+/**
+ * Translate Chat-Completions message content to Responses-native content. Strings
+ * pass through; a content-part array maps text→input_text and image_url→input_image
+ * (Responses takes image_url as a plain string, not the {url} object).
+ */
+export function toResponsesContent(content: unknown): unknown {
+	if (!Array.isArray(content)) return content
+	return content.map((part) => {
+		if (part?.type === 'text') return { type: 'input_text', text: part.text }
+		if (part?.type === 'image_url' && part.image_url?.url) {
+			return { type: 'input_image', image_url: part.image_url.url }
+		}
+		return part
+	})
+}
+
 function convertMessagesToResponsesInput(messages: ChatCompletionMessageParam[]): {
 	instructions?: string
 	input: Array<any>
@@ -100,7 +117,7 @@ function convertMessagesToResponsesInput(messages: ChatCompletionMessageParam[])
 			input.push({
 				type: 'message' as const,
 				role: m.role === 'developer' ? 'developer' : m.role === 'assistant' ? 'assistant' : 'user',
-				content: m.content
+				content: toResponsesContent(m.content)
 			})
 		}
 	}
@@ -159,6 +176,7 @@ export async function getOpenAIResponsesCompletion(
 		openaiClient?: OpenAI
 		webSearch?: boolean
 		reasoningEffort?: string
+		reasoningSummary?: boolean
 	}
 ) {
 	const { provider, config } = getProviderAndCompletionConfig({
@@ -173,6 +191,13 @@ export async function getOpenAIResponsesCompletion(
 		'responses',
 		options?.reasoningEffort
 	)
+
+	// Reasoning summaries make the model's thinking renderable in the chat, but
+	// OpenAI rejects the request (400 on reasoning.summary) for organizations
+	// that haven't completed verification — callers opt in and fall back.
+	if (options?.reasoningSummary && responsesConfig.reasoning) {
+		responsesConfig.reasoning = { ...responsesConfig.reasoning, summary: 'auto' }
+	}
 
 	// Enable OpenAI's built-in web search tool. The proxy forwards the body
 	// verbatim, so this reaches OpenAI as a native server-side tool.
@@ -291,6 +316,20 @@ export async function parseOpenAIResponsesCompletion(
 		textContent += event.delta
 	})
 
+	// Stream the reasoning summary (present when the request asked for
+	// reasoning.summary) into the thinking display. Summaries arrive as
+	// separate parts; join them as paragraphs.
+	let reasoningSummaryParts = 0
+	runner.on('response.reasoning_summary_part.added', () => {
+		reasoningSummaryParts++
+		if (reasoningSummaryParts > 1) {
+			callbacks.onReasoningDelta?.('\n\n')
+		}
+	})
+	runner.on('response.reasoning_summary_text.delta', (event) => {
+		callbacks.onReasoningDelta?.(event.delta)
+	})
+
 	// Handle new output items (including function calls)
 	runner.on('response.output_item.added', (event) => {
 		const item = event.item
@@ -315,7 +354,7 @@ export async function parseOpenAIResponsesCompletion(
 			callbacks.onMessageEnd()
 			callbacks.setToolStatus(`${item.id}`, {
 				isLoading: true,
-				content: `Calling ${item.name}...`,
+				content: tool?.streamingLabel ?? `Calling ${item.name}...`,
 				toolName: item.name,
 				isStreamingArguments: shouldStream,
 				showFade: tool?.showFade,
@@ -440,6 +479,7 @@ export async function parseOpenAIResponsesCompletion(
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)
 		}
+		appendPendingToolImages(messages, addedMessages, callbacks)
 		return { shouldContinue: true, tokenUsage }
 	}
 
@@ -454,12 +494,14 @@ export async function getNonStreamingOpenAIResponsesCompletion(
 		workspace?: string
 		resourcePath?: string
 		forceModelProvider?: AIProviderModel
+		maxTokensCap?: number
 	}
 ): Promise<string> {
 	const { provider, config } = getProviderAndCompletionConfig({
 		messages,
 		stream: false,
-		forceModelProvider: options?.forceModelProvider
+		forceModelProvider: options?.forceModelProvider,
+		maxTokensCap: options?.maxTokensCap
 	})
 
 	const { instructions, input } = convertMessagesToResponsesInput(messages)

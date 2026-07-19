@@ -36,7 +36,7 @@ const { backendDrafts, serverTimestamps, failingWrites, failingReads } = vi.hois
 	// concurrent writer advancing the row; otherwise empty, so the conflict
 	// branch in `updateDraft` stays inert for every pre-existing test.
 	serverTimestamps: new Map<string, string>(),
-	// Keys whose `updateDraft` / `getDraftForUser` throw a non-404 (network/5xx);
+	// Keys whose `updateDraft` / draft reads throw a non-404 (network/5xx);
 	// only set by the error-handling tests, empty otherwise.
 	failingWrites: new Set<string>(),
 	failingReads: new Set<string>()
@@ -132,13 +132,17 @@ vi.mock('$lib/gen', async () => {
 			existsSchedule: vi.fn(async () => false),
 			getSchedule: vi.fn(async () => {
 				throw new Error('getSchedule mock not configured')
-			})
+			}),
+			createSchedule: vi.fn(async () => 'created'),
+			updateSchedule: vi.fn(async () => 'updated')
 		}),
 		HttpTriggerService: wrapService(actual.HttpTriggerService, {
 			existsHttpTrigger: vi.fn(async () => false),
 			getHttpTrigger: vi.fn(async () => {
 				throw new Error('getHttpTrigger mock not configured')
-			})
+			}),
+			createHttpTrigger: vi.fn(async () => 'created'),
+			updateHttpTrigger: vi.fn(async () => 'updated')
 		}),
 		AppService: wrapService(actual.AppService, {
 			existsApp: vi.fn(async () => false),
@@ -156,7 +160,9 @@ vi.mock('$lib/gen', async () => {
 			existsResource: vi.fn(async () => false),
 			getResource: vi.fn(async () => {
 				throw new Error('getResource mock not configured')
-			})
+			}),
+			createResource: vi.fn(async () => 'created'),
+			updateResource: vi.fn(async () => 'updated')
 		}),
 		VariableService: wrapService(actual.VariableService, {
 			existsVariable: vi.fn(async () => false),
@@ -190,21 +196,39 @@ vi.mock('$lib/gen', async () => {
 				return { status: 'saved', current_timestamp: '2026-06-15T00:00:00Z' }
 			}),
 			getDraftForUser: vi.fn(async ({ kind, path }: any) => {
+				// The real endpoint rejects drawer kinds up front (drafts for
+				// schedule/trigger/resource/variable are private to their owner) —
+				// mirror it so a caller regressing to this route for those kinds
+				// fails in tests the same way it does against the backend.
+				if (!['script', 'flow', 'app', 'raw_app'].includes(kind))
+					throw Object.assign(new Error('drafts for this item kind are private to their owner'), {
+						status: 404
+					})
 				const key = `${kind}:${path}`
 				if (failingReads.has(key)) throw Object.assign(new Error('server error'), { status: 500 })
-				// 404-shaped (status) like the real ApiError, so the adapter's
-				// narrowed catch treats it as "no draft" rather than re-throwing.
 				if (!backendDrafts.has(key))
 					throw Object.assign(new Error('no draft for that owner at that path'), { status: 404 })
+				return { value: backendDrafts.get(key), created_at: '2026-06-15T00:00:00Z' }
+			}),
+			getOwnDraft: vi.fn(async ({ kind, path }: any) => {
+				const key = `${kind}:${path}`
+				if (failingReads.has(key)) throw Object.assign(new Error('server error'), { status: 500 })
+				// The real endpoint returns 200 with null when the user has no draft.
+				if (!backendDrafts.has(key)) return null
 				return { value: backendDrafts.get(key), created_at: '2026-06-15T00:00:00Z' }
 			}),
 			listDrafts: vi.fn(async () =>
 				Array.from(backendDrafts.entries()).map(([key, value]) => {
 					const idx = key.indexOf(':')
+					const path = key.slice(idx + 1)
+					// Like the real endpoint: friendly path from the draft JSON, only
+					// when set and different from the storage path.
+					const draftPath = (value as any)?.draft_path
 					return {
 						kind: key.slice(0, idx),
-						path: key.slice(idx + 1),
+						path,
 						summary: (value as any)?.summary,
+						...(draftPath && draftPath !== path ? { draft_path: draftPath } : {}),
 						draft_only: true,
 						created_at: '2026-06-15T00:00:00Z'
 					}
@@ -244,6 +268,7 @@ import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import {
 	clearGlobalDrafts,
 	deleteGlobalDraft,
+	listGlobalDrafts,
 	persistGlobalDraft,
 	readGlobalDraftValue,
 	saveGlobalAppDraft
@@ -1163,6 +1188,170 @@ describe('global AI tools', () => {
 		expect(draft).not.toHaveProperty('override')
 	})
 
+	// Schedule drafts (like all drawer kinds) are private to their owner, so the
+	// cross-user draft route 404s on them. Reading them back must go through the
+	// own-draft route, else a freshly written schedule draft is listed but can
+	// never be read or deployed.
+	it('reads and deploys a schedule draft written by the chat', async () => {
+		await callGlobalTool('write_schedule', {
+			path: 'u/admin/test_schedule_greet',
+			schedule: '0 0 9 * * *',
+			timezone: 'UTC',
+			script_path: 'f/scripts/greet',
+			is_flow: false,
+			args: {}
+		})
+
+		const readRaw = await callGlobalTool('read_workspace_item', {
+			type: 'schedule',
+			path: 'u/admin/test_schedule_greet'
+		})
+		expect(JSON.parse(readRaw)).toMatchObject({
+			type: 'schedule',
+			path: 'u/admin/test_schedule_greet',
+			isDraft: true
+		})
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'schedule',
+			path: 'u/admin/test_schedule_greet'
+		})
+		expect(ScheduleService.createSchedule).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: expect.objectContaining({
+				path: 'u/admin/test_schedule_greet',
+				schedule: '0 0 9 * * *',
+				script_path: 'f/scripts/greet'
+			})
+		})
+		// The draft is consumed by the deploy.
+		expect(
+			getBackendDraft('trigger_schedule', 'u/admin/test_schedule_greet', {
+				workspace: WORKSPACE
+			})
+		).toBeUndefined()
+	})
+
+	// Same private-owner read path as schedules, for the trigger drawer kinds.
+	it('reads and deploys a trigger draft written by the chat', async () => {
+		await callGlobalTool('write_trigger', {
+			kind: 'http',
+			config: {
+				path: 'u/admin/fresh_route',
+				script_path: 'f/scripts/handler',
+				is_flow: false,
+				route_path: 'api/fresh',
+				http_method: 'get',
+				authentication_method: 'none',
+				is_static_website: false
+			}
+		})
+
+		const readRaw = await callGlobalTool('read_workspace_item', {
+			type: 'trigger',
+			trigger_kind: 'http',
+			path: 'u/admin/fresh_route'
+		})
+		expect(JSON.parse(readRaw)).toMatchObject({
+			type: 'trigger',
+			triggerKind: 'http',
+			path: 'u/admin/fresh_route',
+			isDraft: true
+		})
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'trigger',
+			trigger_kind: 'http',
+			path: 'u/admin/fresh_route'
+		})
+		expect(HttpTriggerService.createHttpTrigger).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: expect.objectContaining({
+				path: 'u/admin/fresh_route',
+				route_path: 'api/fresh',
+				script_path: 'f/scripts/handler'
+			})
+		})
+		expect(
+			getBackendDraft('trigger_http', 'u/admin/fresh_route', { workspace: WORKSPACE })
+		).toBeUndefined()
+	})
+
+	// Same private-owner read path as schedules, for the resource drawer kind.
+	it('reads and deploys a resource draft written by the chat', async () => {
+		await callGlobalTool('write_resource', {
+			path: 'u/admin/fresh_db',
+			value: { host: 'db.example.com', port: 5432 },
+			resource_type: 'postgresql',
+			description: 'fresh database'
+		})
+
+		const readRaw = await callGlobalTool('read_workspace_item', {
+			type: 'resource',
+			path: 'u/admin/fresh_db'
+		})
+		expect(JSON.parse(readRaw)).toMatchObject({
+			type: 'resource',
+			path: 'u/admin/fresh_db',
+			isDraft: true
+		})
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'resource',
+			path: 'u/admin/fresh_db'
+		})
+		expect(ResourceService.createResource).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: expect.objectContaining({
+				path: 'u/admin/fresh_db',
+				resource_type: 'postgresql',
+				value: { host: 'db.example.com', port: 5432 }
+			})
+		})
+		expect(
+			getBackendDraft('resource', 'u/admin/fresh_db', { workspace: WORKSPACE })
+		).toBeUndefined()
+	})
+
+	// Same private-owner read path as schedules, for the variable drawer kind.
+	// Secret variables deploy through the ephemeral in-memory value instead
+	// (see the ephemeral-value tests above); this pins the plain-value cycle.
+	it('reads and deploys a non-secret variable draft written by the chat', async () => {
+		await callGlobalTool('write_variable', {
+			path: 'u/admin/fresh_config',
+			value: 'plain-value',
+			is_secret: false,
+			description: 'fresh config'
+		})
+
+		const readRaw = await callGlobalTool('read_workspace_item', {
+			type: 'variable',
+			path: 'u/admin/fresh_config'
+		})
+		expect(JSON.parse(readRaw)).toMatchObject({
+			type: 'variable',
+			path: 'u/admin/fresh_config',
+			isDraft: true
+		})
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'variable',
+			path: 'u/admin/fresh_config'
+		})
+		expect(VariableService.createVariable).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: expect.objectContaining({
+				path: 'u/admin/fresh_config',
+				value: 'plain-value',
+				is_secret: false,
+				description: 'fresh config'
+			})
+		})
+		expect(
+			getBackendDraft('variable', 'u/admin/fresh_config', { workspace: WORKSPACE })
+		).toBeUndefined()
+	})
+
 	it('requires trigger_kind when discarding a trigger draft', async () => {
 		await expect(
 			callGlobalTool('discard_local_draft', {
@@ -1421,6 +1610,62 @@ describe('global AI tools', () => {
 
 			const draft = getBackendDraft<any>('raw_app', 'f/apps/fresh', { workspace: WORKSPACE })
 			expect(draft.parent_version).toBe(5)
+		})
+
+		it('keeps a draft-only app friendly draft_path through the save whitelist on chat edits', async () => {
+			// A renamed draft-only app parks its typed name in the draft's
+			// `draft_path`. A chat edit round-trips the value through
+			// normalizeAppDraftValue — dropping the field there would rename the
+			// app back to its `draft_<uuid>` storage key.
+			seedBackendDraft('raw_app', 'u/admin/draft_abc', {
+				summary: 'a',
+				files: { '/index.tsx': 'old' },
+				runnables: {},
+				data: { tables: [] },
+				draft_path: 'u/admin/my_pretty_app'
+			})
+
+			await callGlobalTool('write_app_file', {
+				path: 'u/admin/draft_abc',
+				file_path: '/index.tsx',
+				content: 'new'
+			})
+
+			const draft = getBackendDraft<any>('raw_app', 'u/admin/draft_abc', { workspace: WORKSPACE })
+			expect(draft.files['/index.tsx']).toBe('new')
+			expect(draft.draft_path).toBe('u/admin/my_pretty_app')
+		})
+
+		it('lists a live raw app staged rename as draftPath even when registered at the storage key', async () => {
+			// Flow/raw-app renames live in the value's `draft_path` while `path`
+			// stays the storage key; a live registration whose effectivePath is the
+			// storage key must not hide the staged rename from listGlobalDrafts —
+			// the pickers regroup the item under it.
+			const storageKey = 'u/admin/draft_live1'
+			const staged = 'f/team/renamed_app'
+			seedBackendDraft(
+				'raw_app',
+				storageKey,
+				{
+					summary: '',
+					files: { '/App.tsx': 'export default () => null' },
+					runnables: {},
+					data: { tables: [] },
+					draft_path: staged
+				},
+				{ workspace: WORKSPACE }
+			)
+			UserDraft.setLiveEditorDraft({
+				workspace: WORKSPACE,
+				itemKind: 'raw_app',
+				storagePath: storageKey,
+				effectivePath: storageKey
+			})
+
+			const items = await listGlobalDrafts(WORKSPACE)
+			const app = items.find((i) => i.type === 'app' && i.path === storageKey)
+			expect(app?.draftPath).toBe(staged)
+			expect(app?.isLiveDraft).toBe(true)
 		})
 
 		it('blocks deploying an app draft started from an older deployed version', async () => {
@@ -2577,6 +2822,45 @@ describe('global AI tools', () => {
 		expect(item.value.value).toBeUndefined()
 	})
 
+	it('writes and reads back free-floating flow notes', async () => {
+		const writeResult = JSON.parse(
+			await callGlobalTool('write_flow', {
+				path: 'f/flows/with-notes',
+				summary: 'Flow with notes',
+				modules: JSON.stringify([
+					{
+						id: 'start',
+						summary: 'Start',
+						value: { type: 'identity' }
+					}
+				]),
+				notes: JSON.stringify([
+					{ id: 'n1', type: 'free', text: 'What this flow does', color: 'blue' }
+				])
+			})
+		)
+
+		expect(writeResult.success).toBe(true)
+
+		const item = JSON.parse(
+			await callGlobalTool('read_workspace_item', {
+				type: 'flow',
+				path: 'f/flows/with-notes'
+			})
+		)
+
+		expect(item.value.notes).toHaveLength(1)
+		expect(item.value.notes[0]).toMatchObject({
+			id: 'n1',
+			type: 'free',
+			text: 'What this flow does',
+			color: 'blue'
+		})
+		// Free notes with no explicit geometry get auto-placed/sized by validation.
+		expect(item.value.notes[0].position).toBeDefined()
+		expect(item.value.notes[0].size).toBeDefined()
+	})
+
 	it('test_run_script previews draft script content by path', async () => {
 		const content = 'export async function main(name: string) {\n\treturn `hello ${name}`\n}'
 		await callGlobalTool('write_script', {
@@ -2943,7 +3227,7 @@ describe('global AI tools', () => {
 		const callbacks: ToolCallbacks = {
 			setToolStatus: vi.fn(),
 			removeToolStatus: vi.fn(),
-			requestUserQuestion: vi.fn(async (_toolId, question) => question.choices[1])
+			requestUserQuestion: vi.fn(async (_toolId, question) => [question.choices[1]])
 		}
 
 		const raw = await callGlobalTool(
@@ -2966,10 +3250,48 @@ describe('global AI tools', () => {
 		expect(callbacks.setToolStatus).toHaveBeenLastCalledWith(
 			'test-askUserQuestion',
 			expect.objectContaining({
-				content: 'User answered question: python3',
+				content: 'Asked: Which script language should be used? — python3',
 				isLoading: false,
 				result: 'python3',
-				userQuestion: expect.objectContaining({ selectedChoice: 'python3' })
+				userQuestion: expect.objectContaining({ selectedChoices: ['python3'] })
+			})
+		)
+	})
+
+	it('returns a newline-bulleted list when several answers are selected', async () => {
+		const callbacks: ToolCallbacks = {
+			setToolStatus: vi.fn(),
+			removeToolStatus: vi.fn(),
+			requestUserQuestion: vi.fn(async (_toolId, question) => [
+				question.choices[0],
+				question.choices[2]
+			])
+		}
+
+		const raw = await callGlobalTool(
+			'askUserQuestion',
+			{
+				question: 'Which languages should be supported?',
+				choices: ['bun', 'python3', 'go'],
+				multiSelect: true
+			},
+			callbacks
+		)
+
+		// Model-facing return stays newline-bulleted; the header readback is a
+		// compact comma list.
+		expect(raw).toBe('- bun\n- go')
+		expect(callbacks.requestUserQuestion).toHaveBeenCalledWith(
+			'test-askUserQuestion',
+			expect.objectContaining({ multiSelect: true })
+		)
+		expect(callbacks.setToolStatus).toHaveBeenLastCalledWith(
+			'test-askUserQuestion',
+			expect.objectContaining({
+				content: 'Asked: Which languages should be supported? — bun, go',
+				isLoading: false,
+				result: '- bun\n- go',
+				userQuestion: expect.objectContaining({ selectedChoices: ['bun', 'go'] })
 			})
 		)
 	})
@@ -2979,7 +3301,7 @@ describe('global AI tools', () => {
 		const callbacks: ToolCallbacks = {
 			setToolStatus: vi.fn(),
 			removeToolStatus: vi.fn(),
-			requestUserQuestion: vi.fn(async (_toolId, question) => question.choices[9])
+			requestUserQuestion: vi.fn(async (_toolId, question) => [question.choices[9]])
 		}
 
 		const raw = await callGlobalTool(
@@ -3024,7 +3346,7 @@ describe('global AI tools', () => {
 		const callbacks: ToolCallbacks = {
 			setToolStatus: vi.fn(),
 			removeToolStatus: vi.fn(),
-			requestUserQuestion: vi.fn(async () => 'use deno instead')
+			requestUserQuestion: vi.fn(async () => ['use deno instead'])
 		}
 
 		const raw = await callGlobalTool(
@@ -3040,9 +3362,9 @@ describe('global AI tools', () => {
 		expect(callbacks.setToolStatus).toHaveBeenLastCalledWith(
 			'test-askUserQuestion',
 			expect.objectContaining({
-				content: 'User answered question: use deno instead',
+				content: 'Asked: Which script language should be used? — use deno instead',
 				result: 'use deno instead',
-				userQuestion: expect.objectContaining({ selectedChoice: 'use deno instead' })
+				userQuestion: expect.objectContaining({ selectedChoices: ['use deno instead'] })
 			})
 		)
 	})
@@ -3086,13 +3408,76 @@ describe('folder tools', () => {
 	})
 
 	it('create_folder surfaces a backend error (e.g. name conflict)', async () => {
-		vi.mocked(FolderService.createFolder).mockRejectedValueOnce(
-			new Error('Folder already exists')
-		)
+		vi.mocked(FolderService.createFolder).mockRejectedValueOnce(new Error('Folder already exists'))
 		const raw = await callGlobalTool('create_folder', { name: 'taken' })
 		const parsed = JSON.parse(raw)
 		expect(parsed.success).toBe(false)
 		expect(parsed.error).toContain('Folder already exists')
+	})
+})
+
+describe('session pipeline gate', () => {
+	const FLAG = 'wm_dev_session_pipelines'
+	afterEach(() => {
+		localStorage.removeItem(FLAG)
+	})
+
+	it('replaces the session prompt pipeline guidance with the alpha notice by default', () => {
+		const content = prepareGlobalSystemMessage(undefined, { previewTools: true }).content as string
+		expect(content).toContain('Data pipelines are in alpha and NOT yet available in this chat')
+		expect(content).not.toContain('call get_instructions with subject "pipeline"')
+		expect(content).not.toContain('Building a data pipeline: call open_preview')
+	})
+
+	it('restores the session pipeline guidance when the dev flag is set', () => {
+		localStorage.setItem(FLAG, '1')
+		const content = prepareGlobalSystemMessage(undefined, { previewTools: true }).content as string
+		expect(content).toContain('call get_instructions with subject "pipeline"')
+		expect(content).toContain('Building a data pipeline: call open_preview')
+		expect(content).not.toContain('Data pipelines are in alpha and NOT yet available in this chat')
+	})
+
+	it('leaves the standalone (non-session) chat pipeline guidance ungated', () => {
+		const content = prepareGlobalSystemMessage(undefined, { previewTools: false }).content as string
+		expect(content).toContain('call get_instructions with subject "pipeline"')
+		expect(content).not.toContain('Data pipelines are in alpha and NOT yet available in this chat')
+	})
+
+	it('refuses get_instructions(pipeline) in a session but not outside one', async () => {
+		const inSession = await callGlobalTool('get_instructions', { subject: 'pipeline' }, undefined, {
+			isSessionChat: true,
+			sessionId: 'session-1'
+		})
+		expect(inSession).toContain('data pipelines are in alpha')
+
+		const outsideSession = await callGlobalTool('get_instructions', { subject: 'pipeline' })
+		expect(outsideSession).not.toContain('data pipelines are in alpha')
+
+		// The eval harness passes a sessionId to standalone (non-session) chats;
+		// only the explicit isSessionChat marker may engage the gate.
+		const standaloneWithSessionId = await callGlobalTool(
+			'get_instructions',
+			{ subject: 'pipeline' },
+			undefined,
+			{ sessionId: 'eval-session' }
+		)
+		expect(standaloneWithSessionId).not.toContain('data pipelines are in alpha')
+	})
+
+	it('refuses open_preview(kind=pipeline) while gated', async () => {
+		const handler = vi.fn(() => 'opened')
+		setOpenPreviewHandler(handler)
+		try {
+			const gated = await callGlobalTool('open_preview', { kind: 'pipeline', path: 'my_folder' })
+			expect(gated).toContain('data pipelines are in alpha')
+			expect(handler).not.toHaveBeenCalled()
+
+			localStorage.setItem(FLAG, '1')
+			const opened = await callGlobalTool('open_preview', { kind: 'pipeline', path: 'my_folder' })
+			expect(opened).toBe('opened')
+		} finally {
+			setOpenPreviewHandler(undefined)
+		}
 	})
 })
 
@@ -3371,8 +3756,27 @@ describe('session-only preview tools gating', () => {
 		expect(names).toContain('get_preview_status')
 		expect(names).toContain('get_app_runtime_logs')
 		expect(names).toContain('list_app_runs')
-		// session set is the full globalTools
-		expect(names.length).toBe(globalTools.length)
+		// The session set is the full globalTools minus capability-gated tools:
+		// this environment is not Chromium, so take_screenshot is withheld (DOM
+		// capture is only faithful on Blink).
+		expect(names).not.toContain('take_screenshot')
+		expect(names.length).toBe(globalTools.length - 1)
+	})
+
+	it('offers take_screenshot inside a session only on Chromium', () => {
+		vi.stubGlobal('navigator', {
+			userAgentData: { brands: [{ brand: 'Chromium', version: '138' }] },
+			userAgent: 'stubbed'
+		})
+		try {
+			const names = toolNames(true)
+			expect(names).toContain('take_screenshot')
+			expect(names.length).toBe(globalTools.length)
+			// still session-only, even on Chromium
+			expect(toolNames(false)).not.toContain('take_screenshot')
+		} finally {
+			vi.unstubAllGlobals()
+		}
 	})
 
 	it('mentions open_preview / get_app_runtime_logs / list_app_runs in the system prompt only when preview tools are enabled', () => {

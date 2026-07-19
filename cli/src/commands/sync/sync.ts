@@ -23,10 +23,17 @@ import {
   showDiff,
   extractNativeTriggerInfo,
   redactEncryptionKey,
+  isDatatableMigrationPath,
+  parseDatatableMigrationPath,
 } from "../../types.ts";
 import { downloadZip } from "./pull.ts";
 import { runLint, printReport, checkMissingLocks } from "../lint/lint.ts";
 import { pullSharedUi, pushSharedUi } from "../shared_ui.ts";
+import {
+  pushMigrationFromDisk,
+  offerToRunNewMigrations,
+  validateLocalMigrations,
+} from "../datatable_migrations.ts";
 
 import {
   exts,
@@ -41,6 +48,7 @@ import { handleFile } from "../script/script.ts";
 import {
   deepEqual,
   fetchRemoteVersion,
+  getHeaders,
   isFileResource,
   isFilesetResource,
   isRawAppFile,
@@ -1000,7 +1008,11 @@ function ZipFSElement(
             }
 
             if (stripOnBehalfOf) {
-              (flow as any).has_on_behalf_of = !!(flow as any).on_behalf_of_email;
+              // Only emit the flag when set; a `false` here is the default and
+              // would produce a spurious diff for every ownerless flow.
+              if ((flow as any).on_behalf_of_email) {
+                (flow as any).has_on_behalf_of = true;
+              }
               delete (flow as any).on_behalf_of_email;
             }
 
@@ -1285,7 +1297,11 @@ function ZipFSElement(
               parsed["codebase"] = undefined;
             }
             if (stripOnBehalfOf) {
-              parsed["has_on_behalf_of"] = !!parsed["on_behalf_of_email"];
+              // Only emit the flag when set; a `false` here is the default and
+              // would produce a spurious diff for every ownerless script.
+              if (parsed["on_behalf_of_email"]) {
+                parsed["has_on_behalf_of"] = true;
+              }
               delete parsed["on_behalf_of_email"];
             }
             // Modules are stored as files in __mod/ folder, not in metadata
@@ -1332,13 +1348,19 @@ function ZipFSElement(
               if (stripOnBehalfOf) {
                 const isSchedule = p.endsWith(".schedule.json");
                 const isTrigger = p.endsWith("_trigger.json");
+                // Only emit the flag when set; a `false` here is the default and
+                // would produce a spurious diff for every ownerless schedule/trigger.
                 if (isSchedule) {
-                  parsed["has_permissioned_as"] = !!parsed["permissioned_as"];
+                  if (parsed["permissioned_as"]) {
+                    parsed["has_permissioned_as"] = true;
+                  }
                   delete parsed["permissioned_as"];
                   delete parsed["email"];
                   delete parsed["edited_by"];
                 } else if (isTrigger) {
-                  parsed["has_permissioned_as"] = !!parsed["permissioned_as"];
+                  if (parsed["permissioned_as"]) {
+                    parsed["has_permissioned_as"] = true;
+                  }
                   delete parsed["permissioned_as"];
                   delete parsed["edited_by"];
                 }
@@ -2476,7 +2498,8 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
       !p.startsWith("g" + SEP) &&
       !p.startsWith("users" + SEP) &&
       !p.startsWith("groups" + SEP) &&
-      !p.startsWith("dependencies" + SEP)
+      !p.startsWith("dependencies" + SEP) &&
+      !p.startsWith("migrations" + SEP)
     );
   }
 
@@ -2487,6 +2510,11 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
 
   try {
     const typ = getTypeStrFromPath(p);
+    // Datatable migrations live under migrations/datatable/<datatable>/, outside
+    // the u/f/g namespaces, but are valid wmill files.
+    if (typ == "datatable_migration") {
+      return false;
+    }
     if (
       typ == "resource-type" ||
       typ == "settings" ||
@@ -2518,7 +2546,8 @@ export const isWhitelisted = (p: string) => {
     p == "ui" ||
     p == "users" ||
     p == "groups" ||
-    p == "dependencies"
+    p == "dependencies" ||
+    p == "migrations"
   );
 };
 
@@ -2613,6 +2642,11 @@ interface ChangeTracker {
 }
 
 async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
+  // Datatable migration .sql files are not scripts; they're synced via the
+  // dedicated datatable_migration handler in the push loop.
+  if (isDatatableMigrationPath(p)) {
+    return;
+  }
   const isScript = exts.some((e) => p.endsWith(e)) && !isFileResource(p) && !isFilesetResource(p);
   if (isScript) {
     if (isFlowPath(p)) {
@@ -2759,6 +2793,8 @@ export async function pull(
       gitDeployItems?: string;
       onlyCreateBranch?: boolean;
       parentWorkspaceId?: string;
+      devWorkspaceLabel?: string;
+      parentDevWorkspaceLabel?: string;
       gitCommitterEmail?: string;
       gitCommitterName?: string;
     },
@@ -2827,37 +2863,55 @@ export async function pull(
     }
     const clonedBranchName = getCurrentGitBranch() ?? "main";
 
-    // Fork workspaces force-disable use_individual_branch / group_by_folder
-    // (1:1 with the hub script's inner()).
-    const targetIsFork = isForkWorkspace(workspace.workspaceId);
+    // Fork / dev workspaces force-disable use_individual_branch / group_by_folder
+    // (1:1 with the hub script's inner()). Dev workspaces have a prefix-less id, so
+    // detect them via the parent-workspace id the backend passes.
+    const targetIsFork = isForkWorkspace(
+      workspace.workspaceId,
+      opts.parentWorkspaceId,
+    );
     const useIndividualBranch = targetIsFork
       ? false
       : !!opts.useIndividualBranch;
     const groupByFolder = targetIsFork ? false : !!opts.groupByFolder;
 
-    // Fork-of-a-fork: only when the parent workspace is itself a fork, root
-    // the new branch on the parent's fork branch (mirrors the hub script's
-    // `parent_workspace_id?.startsWith(FORKED_…)` gate).
-    if (opts.parentWorkspaceId && isForkWorkspace(opts.parentWorkspaceId)) {
-      const parentBranch = computeGitSyncDeployBranch({
-        workspaceId: opts.parentWorkspaceId,
-        items: deployItems,
-        useIndividualBranch,
-        groupByFolder,
-        clonedBranchName,
-      });
-      if (parentBranch && parentBranch !== clonedBranchName) {
-        checkoutGitSyncDeployBranch(parentBranch);
-      }
+    // Fork-of-a-fork: when the parent workspace is itself a fork, root the new
+    // branch on the parent's fork branch (the content this fork diverged from).
+    // A dev-workspace parent has a prefix-less id the prefix check can't see, so
+    // the backend passes its environment label; its branch is the label verbatim.
+    const parentBranch = opts.parentDevWorkspaceLabel
+      ? opts.parentDevWorkspaceLabel
+      : opts.parentWorkspaceId && isForkWorkspace(opts.parentWorkspaceId)
+        ? computeGitSyncDeployBranch({
+            workspaceId: opts.parentWorkspaceId,
+            items: deployItems,
+            useIndividualBranch,
+            groupByFolder,
+            clonedBranchName,
+          })
+        : null;
+    if (parentBranch && parentBranch !== clonedBranchName) {
+      checkoutGitSyncDeployBranch(parentBranch);
     }
 
     const deployBranch = computeGitSyncDeployBranch({
       workspaceId: workspace.workspaceId,
+      parentWorkspaceId: opts.parentWorkspaceId,
+      devWorkspaceLabel: opts.devWorkspaceLabel,
       items: deployItems,
       useIndividualBranch,
       groupByFolder,
       clonedBranchName,
     });
+    // A dev workspace whose environment-label branch equals the repository's
+    // tracked branch would silently commit the fork's content straight to the
+    // tracked branch. Refuse instead of deploying in place.
+    if (targetIsFork && deployBranch && deployBranch === clonedBranchName) {
+      log.error(
+        `Fork branch '${deployBranch}' equals the checked-out branch '${clonedBranchName}'; refusing to deploy a fork directly to the tracked branch. Use a different dev workspace label or tracked branch.`,
+      );
+      process.exit(1);
+    }
     if (deployBranch && deployBranch !== clonedBranchName) {
       checkoutGitSyncDeployBranch(deployBranch);
     }
@@ -3118,7 +3172,7 @@ export async function pull(
           change.path.endsWith(".json")
         ) {
           log.info(
-            `Editing ${getTypeStrFromPath(change.path)} ${targetPath}${
+            `Editing ${changeTypeLabel(change.path)}${targetPath}${
               targetPath !== change.path
                 ? colors.gray(` (workspace-specific override for ${change.path})`)
                 : ""
@@ -3136,7 +3190,7 @@ export async function pull(
         if (opts.stateful) {
           await mkdir(path.dirname(stateTarget), { recursive: true });
           log.info(
-            `Adding ${getTypeStrFromPath(change.path)} ${targetPath}${
+            `Adding ${changeTypeLabel(change.path)}${targetPath}${
               targetPath !== change.path
                 ? colors.gray(` (workspace-specific override for ${change.path})`)
                 : ""
@@ -3145,7 +3199,7 @@ export async function pull(
         }
         await writeFile(target, change.content, "utf-8");
         log.info(
-          `Writing ${getTypeStrFromPath(change.path)} ${targetPath}${
+          `Writing ${changeTypeLabel(change.path)}${targetPath}${
             targetPath !== change.path
               ? colors.gray(` (workspace-specific override for ${change.path})`)
               : ""
@@ -3157,7 +3211,7 @@ export async function pull(
       } else if (change.name === "deleted") {
         try {
           log.info(
-            `Deleting ${getTypeStrFromPath(change.path)} ${change.path}`,
+            `Deleting ${changeTypeLabel(change.path)}${change.path}`,
           );
           await rm(target);
           if (opts.stateful) {
@@ -3349,6 +3403,9 @@ export async function pull(
     log.warn(`Failed to pull shared UI folder: ${e}`);
   }
 
+  // Datatable migrations are part of the workspace export now, so they flow
+  // through the normal diff/apply above as `datatable_migration` items.
+
   // Git-sync deployment-callback mode stops here: branch checkout + pull have
   // happened, but commit + push are the caller's job. The hub script does
   // them in-process with `set_gpg_signing_secret` so the agent's pre-warmed
@@ -3371,6 +3428,8 @@ export async function gitDeploy(
       groupByFolder?: boolean;
       onlyCreateBranch?: boolean;
       parentWorkspaceId?: string;
+      devWorkspaceLabel?: string;
+      parentDevWorkspaceLabel?: string;
       skipSecrets?: boolean;
       gitCommitterEmail?: string;
       gitCommitterName?: string;
@@ -3386,11 +3445,12 @@ export async function gitDeploy(
     }
   }
 
-  // Fork workspaces force-disable use_individual_branch / group_by_folder
-  // (1:1 with the hub script's inner()): a fork always syncs to its own
+  // Fork / dev workspaces force-disable use_individual_branch / group_by_folder
+  // (1:1 with the hub script's inner()): they always sync to their own
   // wm-fork/<branch>/<id> branch, and — critically — that disabling also
-  // flips the include/promotion derivation below.
-  const isFork = isForkWorkspace(opts.workspace ?? "");
+  // flips the include/promotion derivation below. Dev workspaces have a
+  // prefix-less id, so detect them via the parent-workspace id too.
+  const isFork = isForkWorkspace(opts.workspace ?? "", opts.parentWorkspaceId);
   const useIndividualBranch = isFork ? false : !!opts.useIndividualBranch;
 
   // Derive the include filters from the deployed items (replaces the hub
@@ -3424,6 +3484,14 @@ export async function gitDeploy(
   } as any);
 }
 
+// Display label for a change's type, with a trailing space. Datatable migrations
+// are self-describing via their `migrations/datatable/...` path, so they get no
+// label prefix.
+function changeTypeLabel(p: string): string {
+  const t = getTypeStrFromPath(p);
+  return t === "datatable_migration" ? "" : `${t} `;
+}
+
 function prettyChanges(
   changes: Change[],
   specificItems?: SpecificItemsConfig,
@@ -3455,7 +3523,7 @@ function prettyChanges(
     if (change.name === "added") {
       log.info(
         colors.green(
-          `+ ${getTypeStrFromPath(change.path)} ` +
+          `+ ${changeTypeLabel(change.path)}` +
             displayPath +
             colors.gray(wsNote),
         ) + extraNote,
@@ -3463,7 +3531,7 @@ function prettyChanges(
     } else if (change.name === "deleted") {
       log.info(
         colors.red(
-          `- ${getTypeStrFromPath(change.path)} ` +
+          `- ${changeTypeLabel(change.path)}` +
             displayPath +
             colors.gray(wsNote),
         ),
@@ -3472,7 +3540,7 @@ function prettyChanges(
       const changeType = getTypeStrFromPath(change.path);
       log.info(
         colors.yellow(
-          `~ ${changeType} ` +
+          `~ ${changeTypeLabel(change.path)}` +
             displayPath +
             colors.gray(wsNote) +
             (change.codebase ? ` (codebase changed)` : ""),
@@ -3549,6 +3617,61 @@ function removeSuffix(str: string, suffix: string) {
 // to get explicit user confirmation before applying it for real.
 const SYNC_PUSH_DESTRUCTIVE_WARNING =
   "`wmill sync push` is destructive: applying it deploys these changes to the remote workspace and overwrites or deletes remote items that differ from or are absent locally — this is not automatically reversible. If you are an AI agent, do NOT run `wmill sync push` (without --dry-run) until the user has explicitly confirmed this deploy, unless your custom instructions explicitly allow bypassing that confirmation.";
+
+// A script pushed without a local lock queues a server-side dependency job; if
+// that job fails the script deploys broken (no lock/assets) with no CLI signal.
+// One-shot (no polling): report this push's already-failed + still-running
+// dependency jobs.
+async function checkServerLockJobs(
+  workspaceId: string,
+  sinceIso: string,
+  changedPaths: string[],
+): Promise<{ pending: number; failed: { path: string; error?: string }[] }> {
+  // A dependency job's script_path has no file extension; changed paths do.
+  const belongsToPush = (scriptPath?: string) =>
+    !!scriptPath &&
+    changedPaths.some(
+      (p) => p === scriptPath || p.startsWith(scriptPath + "."),
+    );
+  // Raw fetch: the checked-in generated client predates the `created_after` /
+  // `success` filters on the job list routes (see the `apiGet` note in
+  // pipeline.ts).
+  const listJobs = async (path: string): Promise<unknown[]> => {
+    const { OpenAPI } = await import("../../../gen/index.ts");
+    const resp = await fetch(`${OpenAPI.BASE}${path}`, {
+      headers: { ...getHeaders(), Authorization: `Bearer ${OpenAPI.TOKEN}` },
+    });
+    if (!resp.ok) throw new Error(`GET ${path} -> ${resp.status}`);
+    return (await resp.json()) as unknown[];
+  };
+  try {
+    const since = encodeURIComponent(sinceIso);
+    const [queued, completed] = await Promise.all([
+      listJobs(
+        `/w/${workspaceId}/jobs/queue/list?job_kinds=dependencies&created_after=${since}`,
+      ),
+      listJobs(
+        `/w/${workspaceId}/jobs/completed/list?job_kinds=dependencies&created_after=${since}&success=false`,
+      ),
+    ]);
+    const pending = (queued as { script_path?: string }[]).filter((j) =>
+      belongsToPush(j.script_path),
+    ).length;
+    const failed = (
+      completed as { script_path?: string; result?: unknown }[]
+    )
+      .filter((j) => belongsToPush(j.script_path))
+      .map((j) => ({
+        path: j.script_path!,
+        error: (j.result as { error?: { message?: string } } | undefined)
+          ?.error?.message,
+      }));
+    return { pending, failed };
+  } catch {
+    // Advisory only: a failed check must not fail an otherwise-complete push.
+    return { pending: 0, failed: [] };
+  }
+}
 
 export async function push(
   opts: GlobalOptions & SyncOptions & { repository?: string; branch?: string; acceptOverridingPermissionedAsWithSelf?: boolean },
@@ -4165,6 +4288,24 @@ export async function push(
       ));
     }
 
+    // Reject malformed datatable migrations (duplicate timestamps, orphan downs)
+    // before touching the remote, scanning only the data tables in this push.
+    const migrationDatatables = new Set(
+      changes
+        .map((c) => parseDatatableMigrationPath(c.path)?.datatable)
+        .filter((d): d is string => !!d),
+    );
+    if (migrationDatatables.size > 0) {
+      const migrationErrors = validateLocalMigrations(migrationDatatables);
+      if (migrationErrors.length > 0) {
+        log.error(
+          "Invalid datatable migrations, aborting push:\n" +
+            migrationErrors.map((e) => `  - ${e}`).join("\n"),
+        );
+        process.exit(1);
+      }
+    }
+
     if (
       !opts.yes &&
       !(await Confirm.prompt({
@@ -4176,6 +4317,7 @@ export async function push(
     }
 
     const start = performance.now();
+    const pushStartedAt = new Date().toISOString();
     log.info(colors.gray(`Applying changes to files ...`));
 
     let stateful = opts.stateful;
@@ -4236,6 +4378,21 @@ export async function push(
     // Cache git branch at the start to avoid repeated execSync calls per change
     const cachedWsNameForPush = wsNameForFiles || (isGitRepository() ? getCurrentGitBranch() : null);
 
+    // Datatable migrations are two files (.up.sql/.down.sql) for one record, so
+    // dedupe upsert/delete by (datatable, version) across the whole push.
+    const pushedMigrationKeys = new Set<string>();
+    // Migrations newly added by this push (an added .up.sql) — offered to run once
+    // the push has completed.
+    const newDatatableMigrations = changes
+      .filter((c) => c.name === "added")
+      .map((c) => parseDatatableMigrationPath(c.path))
+      .filter((p) => !!p && p.kind === "up")
+      .map((p) => ({
+        datatable: p!.datatable,
+        timestamp: p!.timestamp,
+        name: p!.name,
+      }));
+
     while (queue.length > 0 || pool.size > 0) {
       // Fill the pool until we reach the effective parallelism limit.
       // During the folder-meta phase this is 1 (sequential) so no item change
@@ -4263,6 +4420,20 @@ export async function push(
           }
 
           for await (const change of changes) {
+            // A datatable migration is one record across two files; upsert/delete
+            // it from disk once (deduped), regardless of which file changed.
+            if (isDatatableMigrationPath(change.path)) {
+              const parsed = parseDatatableMigrationPath(change.path);
+              if (parsed) {
+                const key = `${parsed.datatable}\0${parsed.timestamp}`;
+                if (!pushedMigrationKeys.has(key)) {
+                  pushedMigrationKeys.add(key);
+                  await pushMigrationFromDisk(workspace.workspaceId, parsed);
+                }
+              }
+              continue;
+            }
+
             let stateTarget = undefined;
             if (stateful) {
               try {
@@ -4917,9 +5088,40 @@ export async function push(
     } catch (e) {
       log.warn(`Failed to push shared UI folder: ${e}`);
     }
+    try {
+      await offerToRunNewMigrations(workspace.workspaceId, newDatatableMigrations, {
+        yes: opts.yes,
+        jsonOutput: opts.jsonOutput,
+      });
+    } catch (e: any) {
+      log.warn(
+        `Failed to run new datatable migrations: ${e?.body ?? e?.message ?? e}`,
+      );
+    }
+    const lockJobs = await checkServerLockJobs(
+      workspace.workspaceId,
+      pushStartedAt,
+      changes.map((c) => c.path.replaceAll(SEP, "/")),
+    );
+    if (!opts.jsonOutput) {
+      for (const f of lockJobs.failed) {
+        log.warn(
+          `⚠ server-side lock generation FAILED for ${f.path} — the deployed script is broken until it locks.` +
+            (f.error ? `\n  ${f.error.split("\n")[0]}` : ""),
+        );
+      }
+      if (lockJobs.pending > 0) {
+        log.info(
+          colors.gray(
+            `${lockJobs.pending} server-side lock job(s) still running — locks (and inferred assets) land when they finish; check the Runs page if a script stays broken.`,
+          ),
+        );
+      }
+    }
     if (opts.jsonOutput) {
       const result = {
         success: true,
+        lock_jobs: lockJobs,
         message: `All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}`,
         changes: changes.map((change) => ({
           type: change.name,
@@ -4961,6 +5163,7 @@ export async function push(
     } catch (e) {
       log.warn(`Failed to push shared UI folder: ${e}`);
     }
+    // No changes pushed, so no new datatable migrations to run.
     if (opts.jsonOutput) {
       console.log(
         JSON.stringify(
@@ -5137,6 +5340,14 @@ const command = new Command()
   .option(
     "--parent-workspace-id <id:string>",
     "Parent workspace id, used to root a fork-of-a-fork branch",
+  )
+  .option(
+    "--dev-workspace-label <label:string>",
+    "Environment label of a dev workspace (dev/staging); its deploys go to that branch",
+  )
+  .option(
+    "--parent-dev-workspace-label <label:string>",
+    "Environment label of the parent dev workspace; roots a fork-of-dev branch on it",
   )
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option(

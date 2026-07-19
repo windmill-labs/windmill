@@ -1,7 +1,5 @@
 import type { Flow, NewSchedule, NewScript } from '$lib/gen/types.gen'
 import { DraftService } from '$lib/gen'
-import { get } from 'svelte/store'
-import { userStore } from '$lib/stores'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { UserDraft, type UserDraftEntry, type UserDraftItemKind } from '$lib/userDraft.svelte'
@@ -69,7 +67,10 @@ function normalizeAppDraftValue(value: AppDraftValue): AppDraftValue {
 		custom_path: value.custom_path,
 		// Carry the fork-base version through the whitelist — it is dropped on every
 		// save otherwise, which would defeat the stale-draft check.
-		parent_version: value.parent_version
+		parent_version: value.parent_version,
+		// Same for the friendly path of a draft-only app: dropping it here would
+		// rename the app back to its `draft_<uuid>` storage key on every chat edit.
+		draft_path: value.draft_path
 	}
 }
 
@@ -108,7 +109,7 @@ function clearEphemeralSecretVariableDraftValues(workspace: string): void {
 	secretVariableDraftValues.delete(workspace)
 }
 
-function itemKindFor(
+export function itemKindFor(
 	type: WorkspaceItemType,
 	triggerKind?: TriggerKind
 ): UserDraftItemKind | undefined {
@@ -135,6 +136,10 @@ function scriptDraftToWorkspaceItem(path: string, draft: NewScript): WorkspaceIt
 	return {
 		type: 'script',
 		path,
+		// The session editor parks a rename in the draft's `draft_path` (see
+		// sessionDraftCodecs.ts); surface it so lists/pickers show the friendly
+		// name instead of the `draft_<uuid>` storage key.
+		draftPath: (draft as NewScript & { draft_path?: string }).draft_path,
 		summary: draft.summary,
 		language: draft.language,
 		value: draft.content,
@@ -147,6 +152,7 @@ function flowDraftToWorkspaceItem(path: string, draft: Flow): WorkspaceItem {
 	return {
 		type: 'flow',
 		path,
+		draftPath: (draft as Flow & { draft_path?: string }).draft_path,
 		summary: draft.summary,
 		// The persisted flow draft carries `version_id` (the deployed head it was
 		// forked from, pinned at fork by writeDraft/the editor) — the flow analog
@@ -167,6 +173,7 @@ function appDraftToWorkspaceItem(path: string, draft: AppDraftValue): WorkspaceI
 	return {
 		type: 'app',
 		path,
+		draftPath: value.draft_path,
 		summary: value.summary,
 		parentVersionId: value.parent_version,
 		value,
@@ -268,7 +275,14 @@ function userDraftEntryToWorkspaceItem(
 				: undefined
 		}
 	}
-	return item && isLiveDraft ? { ...item, isLiveDraft: true } : item
+	if (!item) return undefined
+	// Drop a draftPath that just repeats `path` (no extra display information),
+	// keep it otherwise — including on live entries: a live editor that
+	// registers its storage key as the effective path (flow/raw-app renames
+	// live in the value's `draft_path`, not `path`) must not hide the staged
+	// rename from lists and pickers.
+	const draftPath = item.draftPath === item.path ? undefined : item.draftPath
+	return isLiveDraft ? { ...item, draftPath, isLiveDraft: true } : { ...item, draftPath }
 }
 
 function liveDisplayPath(
@@ -336,29 +350,26 @@ function getGlobalDraftSlot(
 }
 
 // Current user's persisted draft value (+ records the sync baseline so a later
-// save detects external conflicts). undefined on 404 (no draft at that path).
+// save detects external conflicts). undefined when no draft exists at that path.
+// Uses `getOwnDraft` (not `getDraftForUser`): the latter rejects drawer kinds
+// (schedule/trigger/resource/variable drafts are private to their owner), which
+// would make those drafts write-only here — listed but never readable/deployable.
+// Errors (403/500/network) MUST propagate: swallowing one would make the write
+// merge fall through to the deployed item instead of the user's in-progress
+// draft, silently overwriting their draft-only changes.
 async function fetchBackendDraftValue(
 	workspace: string,
 	itemKind: UserDraftItemKind,
 	storagePath: string
 ): Promise<unknown | undefined> {
-	try {
-		const resp = await DraftService.getDraftForUser({
-			workspace,
-			kind: itemKind as any,
-			path: storagePath,
-			username: get(userStore)?.username
-		})
-		UserDraftDbSyncer.recordRemoteSync({ workspace, itemKind, path: storagePath }, resp.created_at)
-		return resp.value ?? undefined
-	} catch (e) {
-		// 404 = no draft for this owner at that path (the intended empty case).
-		// Anything else (403/500/network) MUST propagate: swallowing it would make
-		// the write merge fall through to the deployed item instead of the user's
-		// in-progress draft, silently overwriting their draft-only changes.
-		if ((e as { status?: number } | null | undefined)?.status === 404) return undefined
-		throw e
-	}
+	const resp = await DraftService.getOwnDraft({
+		workspace,
+		kind: itemKind,
+		path: storagePath
+	})
+	if (!resp) return undefined
+	UserDraftDbSyncer.recordRemoteSync({ workspace, itemKind, path: storagePath }, resp.created_at)
+	return resp.value ?? undefined
 }
 
 // Draft VALUE for a write merge: cell-if-present (the user's freshest in-tab
@@ -377,10 +388,25 @@ export async function readGlobalDraftValue<V>(
 	return (await fetchBackendDraftValue(workspace, itemKind, storagePath)) as V | undefined
 }
 
+// `itemKind` + `storagePath` are the canonical identity of the persisted draft
+// (NOT item.path, which is the friendly display path). Callers use them to record
+// the chat's modified-items mask.
 export type DraftPersistResult =
-	| { status: 'saved'; item: WorkspaceItem }
-	| { status: 'conflict'; item: WorkspaceItem; serverTimestamp?: string }
-	| { status: 'error'; item: WorkspaceItem; message: string }
+	| { status: 'saved'; item: WorkspaceItem; itemKind: UserDraftItemKind; storagePath: string }
+	| {
+			status: 'conflict'
+			item: WorkspaceItem
+			itemKind: UserDraftItemKind
+			storagePath: string
+			serverTimestamp?: string
+	  }
+	| {
+			status: 'error'
+			item: WorkspaceItem
+			itemKind: UserDraftItemKind
+			storagePath: string
+			message: string
+	  }
 
 // Persist a built draft value. `UserDraft.seed` reflects it into an open editor's
 // cell WITHOUT a double-POST (no-ops if no cell; its seedNextWrite suppresses the
@@ -417,14 +443,20 @@ export async function persistGlobalDraft(
 	// the chat "saved" while the DB-backed source of truth was never updated.
 	const saveState = UserDraftDbSyncer.getState({ workspace, itemKind, path: storagePath })
 	if (saveState.state === 'failed') {
-		return { status: 'error', item, message: saveState.failureMessage ?? 'Draft save failed' }
+		return {
+			status: 'error',
+			item,
+			itemKind,
+			storagePath,
+			message: saveState.failureMessage ?? 'Draft save failed'
+		}
 	}
 	const conflict = opts.force
 		? undefined
 		: UserDraftDbSyncer.getConflict({ workspace, itemKind, path: storagePath }).conflict
 	return conflict
-		? { status: 'conflict', item, serverTimestamp: conflict.serverTimestamp }
-		: { status: 'saved', item }
+		? { status: 'conflict', item, itemKind, storagePath, serverTimestamp: conflict.serverTimestamp }
+		: { status: 'saved', item, itemKind, storagePath }
 }
 
 export async function getGlobalDraft(
@@ -457,6 +489,7 @@ function backendDraftRowToWorkspaceItem(
 		kind: string
 		path: string
 		summary?: string
+		draft_path?: string
 	}
 ): WorkspaceItem | undefined {
 	if (!(GLOBAL_DRAFT_KINDS as readonly string[]).includes(row.kind)) return undefined
@@ -490,6 +523,12 @@ function backendDraftRowToWorkspaceItem(
 	return {
 		type,
 		path: displayPath,
+		// The row's friendly path (from the draft JSON) names the item; only a
+		// draft_path that repeats the display path adds nothing. Kept even for
+		// live rows — a live registration whose effective path is the storage key
+		// (flow/raw-app renames live in the value's `draft_path`, not `path`)
+		// must not hide the staged rename.
+		draftPath: row.draft_path === displayPath ? undefined : row.draft_path,
 		summary: row.summary,
 		value: undefined,
 		isDraft: true,

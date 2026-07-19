@@ -14,7 +14,13 @@
 	import { editUrlFor } from './sessions/forkEditUrl'
 	import { AppService, FlowService, ScriptService, type WorkspaceItemDiff } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { getDraftDiffValues, deployDraft, discardDraft } from '$lib/utils_draft_deploy'
+	import {
+		getDraftDiffValues,
+		deployDraft,
+		discardDraft,
+		draftBaseIsStale
+	} from '$lib/utils_draft_deploy'
+	import { checkDeployPermission, type DeployPermission } from '$lib/utils_workspace_deploy'
 	import { type DraftItem, useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import type { Kind as LayoutKind } from '$lib/utils_deployable'
 	import { userStore } from '$lib/stores'
@@ -35,6 +41,15 @@
 		deployCount?: number
 		updateCount?: number
 		draftCount?: number
+		/** When set (reached via a session's Review button), preselect only the
+		 * rows this chat modified — `${UserDraftItemKind}:${path}` keys, matching
+		 * Row.key. Undefined → preselect all deployable rows (the default). All rows
+		 * are still shown either way. */
+		chatMask?: Set<string>
+		/** False while the (async) chatMask is still loading. The select-all default
+		 * waits for this so it doesn't race the mask and select everything. Defaults
+		 * to true for callers that don't pass a mask. */
+		chatMaskReady?: boolean
 		/** Selecting deploy_to/update asks the page to swap to CompareWorkspaces. */
 		onModeSelected?: (v: CompareMode) => void
 		/** Fired after a deploy/discard so the page can refresh the *fork*
@@ -52,6 +67,8 @@
 		deployCount = 0,
 		updateCount = 0,
 		draftCount = 0,
+		chatMask,
+		chatMaskReady = true,
 		onModeSelected,
 		onChanged
 	}: Props = $props()
@@ -77,6 +94,9 @@
 		 * actionable. Other users' rows (shown when "Show all drafts" is on) are
 		 * view-only: you can't deploy/discard someone else's draft. */
 		mine: boolean
+		/** Fork only: true when this draft is identical to the parent's (inherited
+		 * on fork, never edited here). Drives "Hide unchanged drafts". */
+		unchanged_from_parent?: boolean
 	}
 	function getItemKey(kind: string, path: string): string {
 		return `${kind}:${path}`
@@ -116,10 +136,15 @@
 	let showAll = $state(false)
 	const allDrafts = useWorkspaceDrafts(
 		() => (showAll ? currentWorkspaceId : undefined),
-		() => true
+		() => true,
+		() => (isFork ? parentWorkspaceId : undefined)
 	)
 	const sourceItems = $derived(showAll ? allDrafts.items : draftItems)
 	const loading = $derived(showAll ? allDrafts.loading : draftsLoading)
+
+	// On by default: a fork inherits the parent's drafts on creation, and those
+	// (unrelated to the fork's own work) are the common case worth hiding.
+	let hideUnchanged = $state(true)
 
 	// The list (and, in the default view, the Draft Count) come from the Workspace
 	// Drafts module; deploy/discard invalidate the resource, so the list refetches
@@ -147,10 +172,11 @@
 			.filter((u): u is string => !!u && u !== currentUsername)
 	}
 
-	// The backend already returns exactly the rows for the current view (own +
-	// legacy, or every user's with "Show all drafts"), so there's no client-side
-	// filtering — `visibleItems` is just the mapped list.
-	const visibleItems = $derived(items)
+	// The backend returns exactly the rows for the current view; the only
+	// client-side filter is "Hide unchanged drafts".
+	const visibleItems = $derived(
+		isFork && hideUnchanged ? items.filter((i) => i.unchanged_from_parent !== true) : items
+	)
 
 	// A row is actionable when it isn't already deployed this session, the user has
 	// write permission, AND it's their own draft (you can't deploy someone else's
@@ -216,27 +242,11 @@
 							path: item.path,
 							getDraft: true
 						}))) as any
-			// A draft is stale when the version it forked from no longer matches the
-			// current deployed head: a newer version was deployed after the draft began.
-			// Scripts compare `parent_hash` vs the deployed `hash`; flows the pinned
-			// `version_id` vs the deployed head `version_id`; apps the pinned
-			// `parent_version` vs the deployed head (`versions[last]`).
 			const draftBlob = r.draft as any
-			const appHead = Array.isArray(r.versions) ? r.versions[r.versions.length - 1] : undefined
-			const stale =
-				item.draftKind === 'script'
-					? !!r.hash && !!draftBlob?.parent_hash && draftBlob.parent_hash !== r.hash
-					: item.draftKind === 'flow'
-						? r.version_id != null &&
-							draftBlob?.version_id != null &&
-							draftBlob.version_id !== r.version_id
-						: appHead != null &&
-							draftBlob?.parent_version != null &&
-							draftBlob.parent_version !== appHead
 			summaryCache[item.key] = {
 				deployed: r.summary,
 				draft: draftBlob?.summary,
-				stale,
+				stale: draftBaseIsStale(item.draftKind, r),
 				loading: false
 			}
 		} catch (error) {
@@ -263,6 +273,21 @@
 
 	let selectedItems = $state<string[]>([])
 	let deploying = $state(false)
+
+	// Whether the user may deploy drafts into this workspace — fills the
+	// `RestrictDeployToDeployers` (+ operator) gap via the shared util, same as the
+	// fork compare page and the session review drawer. Fail-open while resolving.
+	let deployPerm = $state<DeployPermission>({ ok: true })
+	$effect(() => {
+		const ws = currentWorkspaceId
+		// Reset to fail-open on workspace change, and drop a stale resolution —
+		// otherwise the previous workspace's verdict lingers (or lands last) and
+		// gates the wrong workspace.
+		deployPerm = { ok: true }
+		void checkDeployPermission(ws).then((p) => {
+			if (ws === currentWorkspaceId) deployPerm = p
+		})
+	})
 	// Select all on the first non-empty load (deploy-all is the common intent);
 	// only once, so a refetch after a deploy doesn't re-select the leftovers.
 	let hasAutoSelected = $state(false)
@@ -286,8 +311,13 @@
 	})
 
 	$effect(() => {
-		if (!hasAutoSelected && visibleItems.length > 0) {
-			selectedItems = visibleItems.filter(isSelectable).map((i) => i.key)
+		if (!hasAutoSelected && chatMaskReady && visibleItems.length > 0) {
+			// Default intent is deploy-all; when reached from a session's Review
+			// (chatMask set), preselect only that chat's items instead.
+			const selectable = visibleItems.filter(isSelectable)
+			selectedItems = (chatMask ? selectable.filter((i) => chatMask.has(i.key)) : selectable).map(
+				(i) => i.key
+			)
 			hasAutoSelected = true
 		}
 	})
@@ -525,20 +555,35 @@
 			onDeselectAll={deselectAll}
 			emptyMessage={loading
 				? 'Loading drafts…'
-				: showAll
-					? 'No drafts in this workspace'
-					: 'No drafts you authored in this workspace'}
+				: isFork && hideUnchanged && items.length > 0
+					? 'All drafts are unchanged from the parent workspace. Turn off "Hide unchanged drafts" to show them.'
+					: showAll
+						? 'No drafts in this workspace'
+						: 'No drafts you authored in this workspace'}
 		>
 			{#snippet selectAllActions()}
-				<Toggle
-					bind:checked={showAll}
-					size="xs"
-					options={{
-						right: 'Show all drafts',
-						rightTooltip:
-							"Show every user's drafts in this workspace, not just yours. Others' drafts are view-only — you can only deploy or discard your own."
-					}}
-				/>
+				<div class="flex items-center gap-4">
+					{#if isFork}
+						<Toggle
+							bind:checked={hideUnchanged}
+							size="xs"
+							options={{
+								right: 'Hide unchanged drafts',
+								rightTooltip:
+									"Hide drafts identical to the parent workspace. A fork inherits the parent's drafts when it's created; those are unrelated to the changes made in this fork."
+							}}
+						/>
+					{/if}
+					<Toggle
+						bind:checked={showAll}
+						size="xs"
+						options={{
+							right: 'Show all drafts',
+							rightTooltip:
+								"Show every user's drafts in this workspace, not just yours. Others' drafts are view-only — you can only deploy or discard your own."
+						}}
+					/>
+				</div>
 			{/snippet}
 
 			{#snippet header()}
@@ -695,15 +740,19 @@
 			{/snippet}
 
 			{#snippet footer()}
-				<div class="flex items-center justify-end">
+				<div class="flex flex-col items-end gap-2">
 					<Button
 						variant="accent"
-						disabled={selectedCount === 0 || deploying}
+						disabled={selectedCount === 0 || deploying || !deployPerm.ok}
+						title={!deployPerm.ok ? deployPerm.reason : undefined}
 						loading={deploying}
 						onClick={deploySelected}
 					>
 						Deploy {selectedCount} draft{selectedCount !== 1 ? 's' : ''}
 					</Button>
+					{#if !deployPerm.ok}
+						<span class="text-xs text-yellow-600">{deployPerm.reason}</span>
+					{/if}
 				</div>
 			{/snippet}
 		</WorkspaceDeployLayout>

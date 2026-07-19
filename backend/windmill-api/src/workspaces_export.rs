@@ -919,11 +919,16 @@ pub(crate) async fn tarball_workspace(
     }
 
     if include_schedules.unwrap_or(false) {
+        // Managed ducklake-maintenance schedules are excluded: they are
+        // derived from the workspace ducklake settings (and admins bypass the
+        // RLS that hides them), so exporting them would drag unsyncable rows
+        // into git.
         let schedules = sqlx::query_as::<_, Schedule>(
             "SELECT workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, args, extra_perms, email, permissioned_as, error, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, on_success, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, summary, description, tag, paused_until, cron_version, dynamic_skip, labels FROM schedule
-             WHERE workspace_id = $1",
+             WHERE workspace_id = $1 AND NOT starts_with(path, $2)",
         )
         .bind(&w_id)
+        .bind(windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX)
         .fetch_all(&mut *tx)
         .await?;
 
@@ -1417,6 +1422,35 @@ pub(crate) async fn tarball_workspace(
         .await?;
 
         // Use v2 format only if explicitly requested, otherwise use v1 (legacy) for backward compatibility
+        // Server-owned auto-pull state (the HMAC webhook secret + hook id/error and
+        // the synced-sha / last-pull status) must never leave the server: keep it out
+        // of export archives and synced repos, and don't let a re-imported workspace
+        // inherit another install's hook/sync state. Mirrors the GET-settings redaction.
+        fn redact_git_sync_for_export(git_sync: Option<Value>) -> Option<Value> {
+            let mut git_sync = git_sync?;
+            if let Some(repos) = git_sync
+                .get_mut("repositories")
+                .and_then(|r| r.as_array_mut())
+            {
+                for repo in repos {
+                    if let Some(auto_pull) =
+                        repo.get_mut("auto_pull").and_then(|a| a.as_object_mut())
+                    {
+                        for field in [
+                            "webhook_secret",
+                            "webhook_id",
+                            "webhook_error",
+                            "last_synced_sha",
+                            "last_pull_status",
+                        ] {
+                            auto_pull.remove(field);
+                        }
+                    }
+                }
+            }
+            Some(git_sync)
+        }
+
         let settings_str = if settings_version.as_deref() == Some("v2") {
             let settings = SimplifiedSettings {
                 auto_invite: row.auto_invite,
@@ -1426,7 +1460,7 @@ pub(crate) async fn tarball_workspace(
                 success_handler: row.success_handler,
                 ai_config: row.ai_config,
                 large_file_storage: row.large_file_storage,
-                git_sync: row.git_sync,
+                git_sync: redact_git_sync_for_export(row.git_sync),
                 default_app: row.default_app,
                 default_scripts: row.default_scripts,
                 name: row.name.clone().unwrap_or_default(),
@@ -1497,7 +1531,7 @@ pub(crate) async fn tarball_workspace(
                 error_handler_muted_on_cancel,
                 ai_config: row.ai_config,
                 large_file_storage: row.large_file_storage,
-                git_sync: row.git_sync,
+                git_sync: redact_git_sync_for_export(row.git_sync),
                 default_app: row.default_app,
                 default_scripts: row.default_scripts,
                 name: row.name.unwrap_or_default(),
@@ -1539,6 +1573,34 @@ pub(crate) async fn tarball_workspace(
         archive
             .write_to_archive(&key_json, "encryption_key.json")
             .await?;
+    }
+
+    {
+        // Data table migrations live in the `datatable_migrations` table; surface
+        // them in the export as `migrations/datatable/<datatable>/<version>_<name>`
+        // .up.sql (and .down.sql when present) so `wmill sync` treats them like any
+        // other workspace item.
+        let migrations = sqlx::query!(
+            "SELECT datatable, timestamp, name, code_up, code_down FROM datatable_migrations \
+             WHERE workspace_id = $1 ORDER BY datatable, timestamp",
+            &w_id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        for m in migrations {
+            let base = format!(
+                "migrations/datatable/{}/{}_{}",
+                m.datatable, m.timestamp, m.name
+            );
+            archive
+                .write_to_archive(&m.code_up, &format!("{base}.up.sql"))
+                .await?;
+            if let Some(code_down) = m.code_down {
+                archive
+                    .write_to_archive(&code_down, &format!("{base}.down.sql"))
+                    .await?;
+            }
+        }
     }
 
     archive.finish().await?;

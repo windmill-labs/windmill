@@ -14,6 +14,7 @@
 	// import { addWmillClient } from './utils'
 	import RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import { setRawAppOperatingWorkspace } from './rawAppWorkspace'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import {
 		genWmillTs,
@@ -22,7 +23,8 @@
 		type RawAppRuntimeLogEntry,
 		type RawAppRuntimeLogRequester,
 		type RawAppRunSummary,
-		type RawAppRunsProvider
+		type RawAppRunsProvider,
+		type RawAppScreenshotRequester
 	} from './utils'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import RawAppSidebar from './RawAppSidebar.svelte'
@@ -36,6 +38,7 @@
 		InspectorElementInfo
 	} from '../copilot/chat/app/core'
 	import { createAppSelectedContext, type AppCodeSelectionElement } from '../copilot/chat/context'
+	import { captureScale, MAX_IMAGE_EDGE } from '../copilot/chat/imageUtils'
 	import { rawAppLintStore } from './lintStore'
 	import { dbSchemas } from '$lib/stores'
 	import {
@@ -71,6 +74,8 @@
 		summary?: string
 		path: string
 		newPath?: string | undefined
+		/** Initial labels for the app, threaded from the loaded app data. */
+		labels?: string[]
 		savedApp?:
 			| {
 					value: any
@@ -82,6 +87,7 @@
 					/** No deployed counterpart exists (draft-only); disables Diff. */
 					no_deployed?: boolean
 					custom_path?: string
+					labels?: string[]
 			  }
 			| undefined
 		diffDrawer?: DiffDrawer | undefined
@@ -121,6 +127,19 @@
 		onOpenOthersDrafts?: () => void
 		onRuntimeLogRequester?: (requester: RawAppRuntimeLogRequester | undefined) => void
 		onRunsProvider?: (provider: RawAppRunsProvider | undefined) => void
+		onScreenshotRequester?: (requester: RawAppScreenshotRequester | undefined) => void
+		// Restoring an older deployment from the history drawer. A callback prop
+		// (not `on:restore` forwarding): forwarding a `createEventDispatcher`
+		// event up through these runes-mode components silently drops it.
+		onRestore?: (restoredApp: any) => void
+		// Deploy created the app at a new path; the page navigates to it. Callback
+		// prop for the same reason as `onRestore` — `on:savedNewAppPath` forwarding
+		// through these runes-mode components is dropped.
+		onSavedNewAppPath?: (path: string) => void
+		// Condensed top bar: smaller (sm) buttons, a shorter bar, and the
+		// EditorHeader's path/breadcrumb row dropped (summary only). Used by the
+		// session preview to save vertical room.
+		condensedHeader?: boolean
 	}
 
 	let {
@@ -132,6 +151,7 @@
 		summary = $bindable(''),
 		path,
 		newPath = undefined,
+		labels = undefined,
 		savedApp = $bindable(undefined),
 		diffDrawer = undefined,
 		onNavigate,
@@ -148,9 +168,21 @@
 		othersDraftsCount = 0,
 		onOpenOthersDrafts,
 		onRuntimeLogRequester = undefined,
-		onRunsProvider = undefined
+		onRunsProvider = undefined,
+		onScreenshotRequester = undefined,
+		onRestore,
+		onSavedNewAppPath,
+		condensedHeader = false
 	}: Props = $props()
 	export const version: number | undefined = undefined
+
+	// Workspace this editor operates on: the session's acting workspace when
+	// embedded in a session preview (autosaveWorkspace), else the navigation
+	// workspace. Deploy/save/background-runner must target it, not $workspaceStore.
+	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	// Expose it to the sidebar sub-components (inline scripts, datatable/shared-UI
+	// drawers, DB selector) so their lookups target the app's workspace too.
+	setRawAppOperatingWorkspace(() => opWorkspace)
 
 	// Convert to object format for child components
 	let dataTableRefsObjects = $derived(data.tables.map(parseDataTableRef))
@@ -261,6 +293,31 @@
 
 	// Latest UI Builder error; cleared on next successful build.
 	let buildError = $state<string | undefined>(undefined)
+	// Latest uncaught runtime error thrown by the rendered app; cleared on next build.
+	let runtimeError = $state<string | undefined>(undefined)
+	// Set when a build ran cleanly but never mounted anything into #root — the
+	// entrypoint defines a component without ever mounting it. Cleared on next build.
+	let emptyRender = $state(false)
+	// The repair hint above has to match the app's framework: only React apps have
+	// an `index.tsx` and `createRoot`; Svelte and Vue mount from `index.ts`. Keyed
+	// off file extensions rather than exact template filenames, which users rename.
+	let mountHint = $derived.by(() => {
+		const paths = Object.keys(files ?? {}).map((p) => p.replace(/^\//, ''))
+		const entrypoint = paths.find((p) => /^index\.(tsx|jsx|ts|js)$/.test(p))
+		if (paths.some((p) => p.endsWith('.svelte'))) {
+			return {
+				entrypoint: entrypoint ?? 'index.ts',
+				call: "mount(App, { target: document.getElementById('root')! })"
+			}
+		}
+		if (paths.some((p) => p.endsWith('.vue'))) {
+			return { entrypoint: entrypoint ?? 'index.ts', call: "createApp(App).mount('#root')" }
+		}
+		return {
+			entrypoint: entrypoint ?? 'index.tsx',
+			call: "createRoot(document.getElementById('root')!).render(<App />)"
+		}
+	})
 	let logsCollapsed = $state(false)
 	let logsDiv: HTMLDivElement | undefined = $state(undefined)
 	$effect(() => {
@@ -504,6 +561,24 @@
 		'boolean'
 	)
 
+	// Auto-compact when the editor opens in a narrow container (e.g. the session
+	// preview pane): drop to the merged single-pane view and retract the file
+	// sidebar. Applied once, on the first measured layout — later resizes are the
+	// user's call. The sidebar is set without persisting so a transient narrow
+	// open never overrides the user's saved expand/collapse preference.
+	let rootWidth = $state(0)
+	const NARROW_PX = 900
+	let appliedNarrowDefault = false
+	$effect(() => {
+		const w = rootWidth
+		if (appliedNarrowDefault || w <= 0) return
+		appliedNarrowDefault = true
+		if (w < NARROW_PX) {
+			splitWithPreview = false
+			sidebarCollapsed.setWithoutPersist(true)
+		}
+	})
+
 	function handleYamlApply(update: RawAppYamlUpdate) {
 		if (update.summary !== undefined) {
 			summary = update.summary
@@ -586,10 +661,10 @@
 	let sharedUiLoaded = $state(false)
 
 	async function loadSharedUi() {
-		if (!$workspaceStore) return
+		if (!opWorkspace) return
 		try {
 			const res = (await WorkspaceService.getSharedUi({
-				workspace: $workspaceStore
+				workspace: opWorkspace
 			})) as { files?: Record<string, string>; version?: number }
 			sharedUiFiles = res.files ?? {}
 			sharedUiVersion = res.version ?? 0
@@ -873,12 +948,12 @@
 				handleHistorySelect(id)
 			},
 			listDatatableTables: async (): Promise<AppDatatableMetadata[]> => {
-				if (!$workspaceStore) {
+				if (!opWorkspace) {
 					return []
 				}
 
 				const tables = await WorkspaceService.listDataTableTables({
-					workspace: $workspaceStore
+					workspace: opWorkspace
 				})
 				return filterDatatableTables(tables)
 			},
@@ -887,7 +962,7 @@
 				schemaName: string,
 				tableName: string
 			): Promise<Record<string, string>> => {
-				if (!$workspaceStore) {
+				if (!opWorkspace) {
 					return {}
 				}
 
@@ -901,7 +976,7 @@
 				}
 
 				const schema = await WorkspaceService.getDataTableTableSchema({
-					workspace: $workspaceStore,
+					workspace: opWorkspace,
 					datatableName,
 					schemaName,
 					tableName
@@ -917,13 +992,13 @@
 				sql: string,
 				newTable?: { schema: string; name: string }
 			): Promise<{ success: boolean; result?: Record<string, any>[]; error?: string }> => {
-				if (!$workspaceStore) {
+				if (!opWorkspace) {
 					return { success: false, error: 'Workspace not available' }
 				}
 
 				try {
 					const result = await runScriptAndPollResult({
-						workspace: $workspaceStore,
+						workspace: opWorkspace,
 						requestBody: {
 							language: 'postgresql',
 							content: sql,
@@ -944,6 +1019,7 @@
 							// Clear the cached schema so it gets refreshed with the new table
 							const resourcePath = `datatable://${datatableName}`
 							delete $dbSchemas[resourcePath]
+							delete $dbSchemas[`${opWorkspace}:${resourcePath}`]
 						}
 					}
 
@@ -1020,10 +1096,7 @@
 		// the preview iframe so it renders the new app.
 		if (fromUiBuilder && e.data.type === 'preview') {
 			lastBuild = { css: e.data.css, js: e.data.js }
-			previewIframe?.contentWindow?.postMessage(
-				{ type: 'preview', css: e.data.css, js: e.data.js },
-				'*'
-			)
+			feedPreviewIframe(lastBuild)
 			syncExternalPreview()
 			return
 		}
@@ -1050,6 +1123,28 @@
 
 		if (fromPreview && e.data.type === 'runtimeLogsResponse') {
 			resolvePendingRuntimeLogRequest(e.data.requestId, normalizeRawAppRuntimeLogs(e.data.logs))
+			return
+		}
+
+		// The build ran without mounting the app, so the preview is blank with
+		// nothing to report — surfaced as a hint naming the missing mount call.
+		// `renderAppeared` withdraws it if a mount lands after the grace window.
+		if (fromPreview && e.data.type === 'emptyRender') {
+			emptyRender = true
+			return
+		}
+		if (fromPreview && e.data.type === 'renderAppeared') {
+			emptyRender = false
+			return
+		}
+
+		// Uncaught error/rejection from the rendered app — surfaced in the preview
+		// overlay so a runtime crash isn't a silent blank error.
+		if (fromPreview && e.data.type === 'runtimeError') {
+			runtimeError =
+				typeof e.data.message === 'string' && e.data.message
+					? e.data.message
+					: 'Unknown runtime error'
 			return
 		}
 
@@ -1140,6 +1235,18 @@
 		if (lastBuild) {
 			postToExternalPreview({ type: 'preview', css: lastBuild.css, js: lastBuild.js })
 		}
+	}
+
+	// Feed a build into the inline preview iframe. Clears the previous run's
+	// overlays first: a fresh render supersedes the old crash or blank, and
+	// app-preview.html re-posts if the new render fails the same way.
+	function feedPreviewIframe(build: { css: string; js: string }) {
+		runtimeError = undefined
+		emptyRender = false
+		previewIframe?.contentWindow?.postMessage(
+			{ type: 'preview', css: build.css, js: build.js },
+			'*'
+		)
 	}
 
 	// Full (re)feed of the detached window: theme first, then the build. Used
@@ -1249,12 +1356,121 @@
 		return out.reverse()
 	}
 
+	// Only values whose non-wrapping counterpart collapses whitespace identically.
+	// `pre-line`/`break-spaces` have no such counterpart: forcing them to nowrap
+	// would eat their preserved newlines, so they are left to re-wrap.
+	const NON_WRAPPING_EQUIVALENT: Record<string, string> = {
+		normal: 'nowrap',
+		'pre-wrap': 'pre'
+	}
+
+	// getClientRects yields a rect per contained node, not per line box, so the
+	// count alone says nothing: `a <b>b</b>` is two rects on one line. Rects
+	// sharing a line overlap vertically, and `top` alone would split a line that
+	// mixes font sizes — so count vertically disjoint runs.
+	function countLines(range: Range): number {
+		const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0 || r.height > 0)
+		if (rects.length === 0) return 0
+		rects.sort((a, b) => a.top - b.top)
+		let lines = 1
+		let lineBottom = rects[0].bottom
+		for (const r of rects) {
+			if (r.top >= lineBottom) {
+				lines++
+				lineBottom = r.bottom
+			} else {
+				lineBottom = Math.max(lineBottom, r.bottom)
+			}
+		}
+		return lines
+	}
+
+	// A box that shrink-wraps its text can have zero sub-pixel slack (a 208.59px box
+	// holding a 208.59px text run). The capture re-runs layout in whole pixels, so
+	// the text no longer fits, wraps, and is then clipped out of the box entirely.
+	// Pinning runs that are already single-line is a no-op on the live DOM but stops
+	// the re-layout from re-deciding where they break.
+	function pinSingleLineText(root: HTMLElement): () => void {
+		const doc = root.ownerDocument
+		const view = doc.defaultView
+		if (!view) return () => {}
+		// Measure every candidate before mutating any of them: interleaving reads and
+		// writes forces a synchronous reflow per element.
+		const pending: Array<[HTMLElement, string]> = []
+		const walker = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT)
+		let node: Node | null
+		while ((node = walker.nextNode())) {
+			const el = node as HTMLElement
+			if (!(el instanceof view.HTMLElement)) continue
+			const hasOwnText = Array.from(el.childNodes).some(
+				(c) => c.nodeType === Node.TEXT_NODE && (c.textContent ?? '').trim() !== ''
+			)
+			if (!hasOwnText) continue
+			const replacement = NON_WRAPPING_EQUIVALENT[view.getComputedStyle(el).whiteSpace]
+			if (!replacement) continue
+			const range = doc.createRange()
+			range.selectNodeContents(el)
+			if (countLines(range) !== 1) continue // already wraps — leave its breaks alone
+			pending.push([el, replacement])
+		}
+		const restores = pending.map(([el, replacement]) => {
+			const prev = el.style.getPropertyValue('white-space')
+			const prio = el.style.getPropertyPriority('white-space')
+			el.style.setProperty('white-space', replacement, 'important')
+			return () => {
+				if (prev) el.style.setProperty('white-space', prev, prio)
+				else el.style.removeProperty('white-space')
+			}
+		})
+		return () => restores.forEach((r) => r())
+	}
+
+	// Capture the live preview as a PNG data URL. The preview iframe
+	// (/ui_builder/app-preview.html) is same-origin with no sandbox, so its rendered
+	// document is reachable and can be serialized from here. There is no native
+	// element-screenshot API; modern-screenshot reconstructs the DOM into an SVG
+	// foreignObject, so a WebGL canvas is only captured when its context was created
+	// with preserveDrawingBuffer. Lazy-imported so the library only loads on demand.
+	const captureScreenshot: RawAppScreenshotRequester = async () => {
+		const target = previewIframe?.contentDocument?.body
+		if (!previewIframe || !previewIframeLoaded || !target) {
+			throw new Error('App preview is not ready')
+		}
+		// Collapsing the preview leaves the iframe mounted and populated at zero
+		// width, which passes every check above and then fails inside the rasteriser
+		// as an opaque decode error. Name the cause so the agent can act on it.
+		if (!target.clientWidth || !target.clientHeight) {
+			throw new Error(
+				'The app preview is collapsed, so there is nothing to capture. Ask the user to expand the preview panel, then try again.'
+			)
+		}
+		const { domToPng } = await import('modern-screenshot')
+		// Above CSS resolution for small previews (a 1× capture of a ~900px preview
+		// reads blurry next to the live render), sub-1× for oversized bodies — see
+		// captureScale. maximumCanvasSize is the belt over that math: the rasterised
+		// box can exceed the body's client size, and an unbounded canvas on a tall
+		// scrolling app can freeze the tab before normalize ever bounds the pixels.
+		const scale = captureScale(Math.max(target.clientWidth, target.clientHeight))
+		const restore = pinSingleLineText(target)
+		try {
+			return await domToPng(target, {
+				backgroundColor: '#ffffff',
+				scale,
+				maximumCanvasSize: MAX_IMAGE_EDGE
+			})
+		} finally {
+			restore()
+		}
+	}
+
 	onMount(() => {
 		onRuntimeLogRequester?.(requestRuntimeLogs)
 		onRunsProvider?.(getRuns)
+		onScreenshotRequester?.(captureScreenshot)
 		return () => {
 			onRuntimeLogRequester?.(undefined)
 			onRunsProvider?.(undefined)
+			onScreenshotRequester?.(undefined)
 			for (const requestId of Array.from(pendingRuntimeLogReqs.keys()))
 				resolvePendingRuntimeLogRequest(requestId, undefined)
 		}
@@ -1286,10 +1502,7 @@
 			// Replay the last build so the preview repopulates without
 			// waiting for the user to trigger another bundle.
 			if (lastBuild) {
-				previewIframe?.contentWindow?.postMessage(
-					{ type: 'preview', css: lastBuild.css, js: lastBuild.js },
-					'*'
-				)
+				feedPreviewIframe(lastBuild)
 			}
 			// Escape inside the preview exits inspect mode — the keydown fires in
 			// the iframe's document, so the parent window listener can't see it.
@@ -1509,9 +1722,9 @@
 	// Force an immediate flush. No toast — the AutosaveIndicator narrates the
 	// result, and `flush` never rejects (postSave routes errors to the failures map).
 	function flushDraft() {
-		if (!$workspaceStore || !liveEditorDraftStoragePath) return
+		if (!opWorkspace || !liveEditorDraftStoragePath) return
 		void UserDraftDbSyncer.flush({
-			workspace: $workspaceStore,
+			workspace: opWorkspace,
 			itemKind: 'raw_app',
 			path: liveEditorDraftStoragePath
 		})
@@ -1579,7 +1792,7 @@
 <DarkModeObserver bind:darkMode />
 
 <RawAppBackgroundRunner
-	workspace={$workspaceStore ?? ''}
+	workspace={opWorkspace ?? ''}
 	editor
 	iframe={previewIframe}
 	bind:jobs
@@ -1589,19 +1802,20 @@
 	gateJobIds={false}
 	extraSourceWindow={() => externalPreviewWindow}
 />
-<div class="max-h-screen overflow-hidden h-screen min-h-0 flex flex-col">
+<div bind:clientWidth={rootWidth} class="max-h-full overflow-hidden h-full min-h-0 flex flex-col">
 	<RawAppEditorHeader
 		bind:jobs
 		bind:jobsById
 		bind:savedApp
 		bind:summary
 		bind:pendingDraftPath
-		on:restore
-		on:savedNewAppPath
+		{onRestore}
+		{onSavedNewAppPath}
 		{policy}
 		{diffDrawer}
 		{newApp}
 		{newPath}
+		{labels}
 		appPath={path}
 		{liveEditorDraftStoragePath}
 		{autosaveWorkspace}
@@ -1623,6 +1837,7 @@
 		onOpenYamlEditor={() => yamlEditorDrawer?.openDrawer()}
 		sidebarCollapsed={sidebarCollapsed.val}
 		onToggleSidebar={() => (sidebarCollapsed.val = !sidebarCollapsed.val)}
+		{condensedHeader}
 	/>
 
 	<RawAppYamlEditor
@@ -1839,14 +2054,7 @@
 												aria-label="Rebuild"
 												onclick={() => {
 													if (lastBuild) {
-														previewIframe?.contentWindow?.postMessage(
-															{
-																type: 'preview',
-																css: lastBuild.css,
-																js: lastBuild.js
-															},
-															'*'
-														)
+														feedPreviewIframe(lastBuild)
 													}
 												}}
 											>
@@ -1894,6 +2102,34 @@
 											<pre class="overflow-auto whitespace-pre-wrap text-xs max-h-60"
 												>{buildError}</pre
 											>
+										</Alert>
+									</div>
+								{:else if runtimeError}
+									<div class="absolute top-12 left-2 right-2 z-20 isolate" role="alert">
+										<Alert
+											type="error"
+											title="Runtime error"
+											class="relative before:absolute before:inset-0 before:-z-10 before:rounded-md before:bg-surface before:content-['']"
+										>
+											<pre class="overflow-auto whitespace-pre-wrap text-xs max-h-60"
+												>{runtimeError}</pre
+											>
+										</Alert>
+									</div>
+								{:else if emptyRender}
+									<div class="absolute top-12 left-2 right-2 z-20 isolate" role="alert">
+										<Alert
+											type="error"
+											title="Nothing was mounted"
+											class="relative before:absolute before:inset-0 before:-z-10 before:rounded-md before:bg-surface before:content-['']"
+										>
+											<span class="text-xs">
+												The build succeeded but nothing mounted into <code>#root</code>. Add a mount
+												call to <code>{mountHint.entrypoint}</code>:
+												<code class="block mt-1 whitespace-pre-wrap break-all"
+													>{mountHint.call}</code
+												>
+											</span>
 										</Alert>
 									</div>
 								{/if}

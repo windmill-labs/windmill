@@ -30,38 +30,73 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check-membership:
-    if: github.event_name == 'pull_request'
-    uses: ./.github/workflows/check-org-membership.yml
-    with:
-      commenter: ${{ github.event.pull_request.user.login }}
-    secrets:
-      access_token: ${{ secrets.ORG_ACCESS_TOKEN }}
-
   auto-review:
-    needs: check-membership
     runs-on: ubuntu-latest
+    # A non-fork PR (head.repo.fork == false) can only be opened by someone with push
+    # access to this repo, so fork==false already enforces write access. Do NOT re-add
+    # an author_association gate: the pull_request webhook payload reports private org
+    # members as CONTRIBUTOR/NONE (only public members show as MEMBER), which silently
+    # skips auto-review for every private member.
     if: |
-      always() &&
+      github.event_name == 'workflow_call' ||
       (
-        needs.check-membership.result == 'skipped' ||
-        (needs.check-membership.result == 'success' && needs.check-membership.outputs.is_member == 'true')
-      ) &&
-      (
-        github.event_name == 'workflow_call' ||
-        (github.event.pull_request.draft == false || github.event.pull_request.ready_for_review == true)
+        (github.event.pull_request.draft == false || github.event.pull_request.ready_for_review == true) &&
+        github.event.pull_request.head.repo.fork == false
       )
     permissions:
       contents: read
       pull-requests: read
       id-token: write
     steps:
+      # An agent-driven PR flips to ready only after a clean /review round on a
+      # draft, marked by an author comment naming the head SHA (pr skill, "Review
+      # rounds"). Re-reviewing that same head on ready_for_review is redundant.
+      # The marker alone is author attestation, so also require reviewer evidence:
+      # a Codex review (posted by github-actions[bot], not forgeable by the author)
+      # that predates the marker and carries a non-blocking verdict. Comment-
+      # triggered (workflow_call) and opened runs never skip. Keep the three
+      # copies of this check in sync (pr-ready-review / codex-pr-review /
+      # pi-pr-review); a shared local action would need the repo checked out
+      # before the check, which the codex/pi fork paths deliberately avoid.
+      - name: Check clean-round marker
+        id: marker
+        if: github.event_name == 'pull_request' && github.event.action == 'ready_for_review'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          # Fetch failures fail open (skip=false): an API hiccup must run the
+          # review, never skip it or fail the job.
+          COMMENTS=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" --paginate | jq -s '[.[][]]') || COMMENTS='[]'
+          MARKER_TIME=$(jq -r --arg author "$PR_AUTHOR" --arg marker "✅ Review round clean @ $HEAD_SHA" \
+            '[.[] | select(.user.login == $author) | select(.body | contains($marker)) | .created_at] | min // empty' <<<"$COMMENTS")
+          CODEX_VERDICT=''
+          if [ -n "$MARKER_TIME" ]; then
+            # Only Codex evidence that predates the marker counts: the ready-
+            # triggered Codex run itself posts after the flip and must not vouch
+            # for a sibling reviewer's skip.
+            CODEX_VERDICT=$(jq -r --arg mt "$MARKER_TIME" \
+              '[.[] | select(.user.login == "github-actions[bot]") | select(.body | contains("## Codex Review")) | select(.created_at < $mt)] | last | .body // ""' <<<"$COMMENTS" \
+              | grep -m1 -oE '(Good to merge|Mergeable, but should ideally address nits|Should address issues before merging)' || true)
+          fi
+          if [ -n "$MARKER_TIME" ] && [ -n "$CODEX_VERDICT" ] && [ "$CODEX_VERDICT" != "Should address issues before merging" ]; then
+            echo "Clean review round marker found for $HEAD_SHA with pre-marker non-blocking Codex verdict; skipping redundant review."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout repository
+        if: steps.marker.outputs.skip != 'true'
         uses: actions/checkout@v5
         with:
           fetch-depth: 1
 
       - name: Check EE access
+        if: steps.marker.outputs.skip != 'true'
         id: ee
         env:
           EE_TOKEN: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
@@ -88,6 +123,7 @@ jobs:
         run: ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
       - name: Resolve PR number
+        if: steps.marker.outputs.skip != 'true'
         id: resolve
         env:
           GH_TOKEN: ${{ github.token }}
@@ -107,6 +143,7 @@ jobs:
           echo "pr_author=$PR_AUTHOR" >> "$GITHUB_OUTPUT"
 
       - name: Fetch prior PR discussion
+        if: steps.marker.outputs.skip != 'true'
         id: prior
         env:
           GH_TOKEN: ${{ github.token }}
@@ -125,6 +162,7 @@ jobs:
           ' prior-comments.json > prior-comments.md
 
       - name: Read review prompt
+        if: steps.marker.outputs.skip != 'true'
         id: review-prompt
         env:
           EXTRA_PROMPT: ${{ inputs.extra_prompt }}
@@ -148,6 +186,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Automatic PR Review
+        if: steps.marker.outputs.skip != 'true'
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

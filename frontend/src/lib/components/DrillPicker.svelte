@@ -61,6 +61,10 @@ leaves and ignores the current scope.
 		 * — needed in internal-filter mode where the host can't observe the
 		 * picker's own search box otherwise. */
 		onFilterChange?: (filter: string) => void
+		/** Loading indicator for the ROOT level (scope `[]`), which has no
+		 * branch to carry a `loading` flag. Needed by flat workspace layouts
+		 * whose root entries only exist once items are fetched. */
+		rootLoading?: boolean
 	}
 
 	let {
@@ -75,7 +79,8 @@ leaves and ignores the current scope.
 		branchIcon,
 		leafSecondary,
 		onScopeChange,
-		onFilterChange
+		onFilterChange,
+		rootLoading = false
 	}: Props = $props()
 
 	let searchInput: TextInput | undefined = $state()
@@ -173,10 +178,21 @@ leaves and ignores the current scope.
 	let highlightedKey = $state<string | undefined>(untrack(() => initialHighlight))
 	let highlightedId = $derived(highlightedKey ? idFor(highlightedKey) : undefined)
 
+	// Visible leaf flagged `current`, if any. When the highlight's key vanishes
+	// (rows replaced under it — e.g. the workspace tree swapping a synthetic
+	// current-item leaf for the loaded storage-keyed row, whose key differs),
+	// this is the right anchor to fall back to: resetting to the first row
+	// would make Enter silently target an unrelated sibling.
+	const currentLeafKey = $derived(
+		isSearching
+			? (searchedItems ?? ([] as typeof searchItems)).find((r) => r.leaf.current)?.leaf.key
+			: entryList.find((e) => e.type === 'leaf' && e.node.current)?.key
+	)
+
 	$effect(() => {
 		if (navKeys.length === 0) return
 		if (!highlightedKey || !navKeys.includes(highlightedKey)) {
-			highlightedKey = navKeys[0]
+			highlightedKey = currentLeafKey ?? navKeys[0]
 		}
 	})
 
@@ -341,7 +357,7 @@ leaves and ignores the current scope.
 		})
 	})
 
-	const branchLoading = $derived(currentBranch?.loading ?? false)
+	const branchLoading = $derived(currentBranch ? (currentBranch.loading ?? false) : rootLoading)
 </script>
 
 <SearchItems
@@ -412,7 +428,7 @@ leaves and ignores the current scope.
 	bind:this={pickerRoot}
 	class={flush
 		? 'flex flex-col w-full h-full'
-		: 'flex flex-col w-[min(420px,calc(100vw-20px))] max-h-[60vh]'}
+		: 'flex flex-col w-[min(420px,calc(100vw-20px))] max-h-[60vh] min-h-0'}
 	onkeydown={handleSearchKeydown}
 	onmousemove={() => (mouseActive = true)}
 >
@@ -515,6 +531,14 @@ leaves and ignores the current scope.
 						</button>
 					{/if}
 				{/each}
+				{#if branchLoading}
+					<!-- More rows are still being fetched (flat-layout roots surface
+					     entries only as their kinds load — e.g. Pages present, dirs
+					     pending). The empty case is handled above. -->
+					<div role="status" class="px-3 py-1.5 text-xs text-tertiary flex items-center gap-2">
+						<Loader2 size={14} class="animate-spin" /> Loading…
+					</div>
+				{/if}
 			</div>
 		{/if}
 	</div>

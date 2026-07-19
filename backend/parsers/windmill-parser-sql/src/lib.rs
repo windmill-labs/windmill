@@ -826,6 +826,29 @@ fn parse_duckdb_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
     }
 
     args.append(&mut parse_sql_sanitized_interpolation(code));
+
+    // A `// partitioned` script receives its resolved partition as a job arg
+    // named `partition` (windmill_common::partition::PARTITION_ARG), and duckdb
+    // binds named parameters only when they appear in the parsed signature —
+    // so auto-declare it (as `-- $partition (text)` would) to make `$partition`
+    // usable without a manual declaration. An explicit declaration wins.
+    // `has_default` keeps the field optional: the platform resolves the value
+    // at run start when it is not passed explicitly.
+    if !args.iter().any(|arg| arg.name == "partition")
+        && windmill_parser::asset_parser::parse_pipeline_annotations(code)
+            .partition
+            .is_some()
+    {
+        args.push(Arg {
+            name: "partition".to_string(),
+            typ: Typ::Str(None),
+            default: None,
+            otyp: Some("text".to_string()),
+            has_default: true,
+            oidx: None,
+            otyp_inferred: false,
+        });
+    }
     Ok(Some(args))
 }
 
@@ -1983,6 +2006,65 @@ SELECT x
             }
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_duckdb_partitioned_auto_declares_partition() -> anyhow::Result<()> {
+        let code = r#"// partitioned daily
+// materialize ducklake://main/sales_daily
+SELECT $partition AS day, count(*) AS n FROM sales WHERE day = $partition
+"#;
+        let args = parse_duckdb_sig(code)?.args;
+        assert_eq!(
+            args,
+            vec![Arg {
+                otyp: Some("text".to_string()),
+                name: "partition".to_string(),
+                typ: Typ::Str(None),
+                default: None,
+                has_default: true,
+                oidx: None,
+                otyp_inferred: false,
+            }]
+        );
+
+        // `--`-style annotation headers auto-declare too.
+        let dash_code = "-- partitioned hourly\nSELECT $partition AS h\n";
+        assert_eq!(parse_duckdb_sig(dash_code)?.args, args);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_duckdb_partitioned_explicit_declaration_wins() -> anyhow::Result<()> {
+        let code = r#"// partitioned daily
+-- $partition (text)
+-- $limit (int) = 10
+SELECT * FROM sales WHERE day = $partition LIMIT $limit
+"#;
+        let args = parse_duckdb_sig(code)?.args;
+        // No duplicate: the explicit (required) declaration is kept as-is.
+        assert_eq!(args.iter().filter(|a| a.name == "partition").count(), 1);
+        assert_eq!(
+            args[0],
+            Arg {
+                otyp: Some("text".to_string()),
+                name: "partition".to_string(),
+                typ: Typ::Str(None),
+                default: None,
+                has_default: false,
+                oidx: None,
+                otyp_inferred: false,
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_duckdb_unpartitioned_does_not_declare_partition() -> anyhow::Result<()> {
+        let code = "SELECT 1 AS partition_count\n";
+        assert_eq!(parse_duckdb_sig(code)?.args, vec![]);
         Ok(())
     }
 }

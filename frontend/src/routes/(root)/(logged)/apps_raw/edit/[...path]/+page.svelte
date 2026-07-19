@@ -1,7 +1,6 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-	import { onDestroy } from 'svelte'
-	import { stripNewDraftFlagOnSave } from '$lib/newDraftFlag'
+	import { onDestroy, untrack } from 'svelte'
+	import { stripNewDraftFlag, stripNewDraftFlagOnSave, shouldSeedNewDraft } from '$lib/newDraftFlag'
 
 	import { AppService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -57,6 +56,7 @@
 	// let lastVersion = 0
 	let policy: any = $state({})
 	let summary = $state('')
+	let labels = $state<string[] | undefined>(undefined)
 	/** User-typed path from `RawAppEditorHeader` when it differs from
 	 *  `savedApp.path`; mirrored into the draft below as `draft_path` for the
 	 *  home list's friendly name. */
@@ -72,6 +72,7 @@
 				summary: string
 				policy: any
 				custom_path?: string
+				labels?: string[]
 				no_deployed?: boolean
 		  }
 		| undefined = $state(undefined)
@@ -140,6 +141,7 @@
 		if (extractedData) data = extractedData
 		files = app.value.files
 		summary = app.summary
+		labels = app.labels
 		// lastVersion = app.version
 		policy = app.policy
 		// Prefer the saved `draft_path` so the topbar shows the pending name, not
@@ -171,7 +173,10 @@
 		// `draft_{uuid}` path. Skip the backend fetch (would 404) and seed every
 		// piece of state RawAppEditor needs — rendering gates on `files`, so an
 		// unset `files` blanks the page. `path = ''` for the friendly auto-name.
-		if (page.url.searchParams.get('new_draft') === 'true') {
+		// Skip the seed branch once the draft is persisted this session so a stale
+		// `?new_draft` loads the saved draft instead of blanking it — see
+		// shouldSeedNewDraft.
+		if (shouldSeedNewDraft(page.url.searchParams, $workspaceStore, 'raw_app', path)) {
 			isNewApp = true
 			// Page reused across same-route nav: clear the previous path's
 			// draft-presence state so it doesn't bleed onto the fresh draft.
@@ -179,6 +184,10 @@
 			loadedFromDraft = false
 			draftSavedAt = undefined
 			deployedAt = undefined
+			// `labels` is route-level state; reset it too so a fresh draft doesn't
+			// inherit (and then deploy) the previously-opened app's labels. The
+			// import branch re-seeds it via extractRawApp below.
+			labels = undefined
 			// Brand-new raw app: no deployed baseline, so never discard-on-equal.
 			deployedBaseline = undefined
 			// Suspend autosave across the bootstrap: the seed template and the
@@ -266,6 +275,10 @@
 			templatePicker = true
 			return
 		}
+		// Falling through with `?new_draft=true` still set means the draft is
+		// already persisted (see shouldSeedNewDraft) — drop the now-meaningless
+		// flag so it doesn't linger in the URL / remembered nav route.
+		stripNewDraftFlag()
 		const backendApp = (await AppService.getAppByPath({
 			path: page.params.path ?? '',
 			workspace: $workspaceStore!,
@@ -355,6 +368,7 @@
 			path: backendApp_.path,
 			policy: backendApp_.policy,
 			custom_path: backendApp_.custom_path,
+			labels: backendApp_.labels,
 			no_deployed: backendApp_.no_deployed
 		}
 		// Extract the effective raw app into the editor's local pieces. The bundle
@@ -404,16 +418,22 @@
 		}
 	}
 
-	run(() => {
+	$effect(() => {
 		// Re-run on workspace OR path change so navigating from one raw app editor
 		// to another (e.g. via the workspace picker) reloads the new app.
 		const currentPath = page.params.path
 		if ($workspaceStore && currentPath !== undefined) {
-			// Clear files so RawAppEditor unmounts; it will remount when loadApp
-			// completes with fresh data, re-initializing its internal stores.
-			files = undefined
-			path = currentPath
-			loadApp()
+			// untrack so loadApp's reactive reads (the draft-hint SvelteMap via
+			// shouldSeedNewDraft) don't subscribe this effect — else the first
+			// autosave's optimistic hint flip re-fires loadApp mid-bootstrap and
+			// 404s on the not-yet-POSTed draft. Depend only on path/workspace above.
+			untrack(() => {
+				// Clear files so RawAppEditor unmounts; it remounts when loadApp
+				// completes with fresh data, re-initializing its internal stores.
+				files = undefined
+				path = currentPath
+				loadApp()
+			})
 		}
 	})
 
@@ -449,16 +469,17 @@
 
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 
-	function onRestore(ev: any) {
+	function onRestore(restoredApp: any) {
 		sendUserToast('App restored from previous deployment')
-		let prev = ev.detail
+		let prev = restoredApp
 		extractRawApp(prev)
 		savedApp = {
 			summary: prev.summary,
 			value: structuredClone(stateSnapshot(prev.value)),
 			path: prev.path,
 			policy: structuredClone(stateSnapshot(policy)),
-			custom_path: prev.custom_path
+			custom_path: prev.custom_path,
+			labels: prev.labels
 		}
 		redraw++
 	}
@@ -536,18 +557,19 @@
 	{#key redraw}
 		<div class="h-screen">
 			<RawAppEditor
-				on:savedNewAppPath={(event) => {
+				onSavedNewAppPath={(savedPath) => {
 					draftSync.remove()
-					goto(`/apps_raw/edit/${event.detail}`)
-					newPath = event.detail
+					goto(`/apps_raw/edit/${savedPath}`)
+					newPath = savedPath
 				}}
-				on:restore={onRestore}
+				{onRestore}
 				bind:files
 				bind:runnables
 				bind:data
 				bind:summary
 				bind:pendingDraftPath
 				{newPath}
+				{labels}
 				path={page.params.path ?? ''}
 				liveEditorDraftStoragePath={path}
 				{policy}

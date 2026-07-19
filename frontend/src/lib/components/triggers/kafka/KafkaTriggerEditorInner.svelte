@@ -7,6 +7,7 @@
 	import TriggerRunnablePicker from '$lib/components/triggers/TriggerRunnablePicker.svelte'
 	import { KafkaTriggerService, type ErrorHandler, type Retry, type TriggerMode } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
@@ -66,6 +67,8 @@
 		onDelete = undefined,
 		onReset = undefined
 	}: Props = $props()
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	let drawer: Drawer | undefined = $state()
 	let is_flow: boolean = $state(false)
@@ -131,7 +134,7 @@
 	const draftSync = useTriggerDraftSync({
 		itemKind: 'trigger_kafka',
 		path: () => initialPath,
-		workspace: () => $workspaceStore,
+		workspace: () => wsId,
 		drawerLoading: () => drawerLoading,
 		getCfg: () => kafkaConfig,
 		applyCfg: loadTriggerConfig,
@@ -260,7 +263,7 @@
 			return { overlay: undefined, noDeployed: false }
 		}
 		const s = await KafkaTriggerService.getKafkaTrigger({
-			workspace: $workspaceStore!,
+			workspace: wsId!,
 			path: initialPath,
 			getDraft: true
 		})
@@ -304,7 +307,7 @@
 			initialPath,
 			cfg,
 			edit,
-			$workspaceStore!,
+			wsId!,
 			usedTriggerKinds
 		)
 		if (isSaved) {
@@ -333,7 +336,7 @@
 		resetLoading = true
 		try {
 			await KafkaTriggerService.resetKafkaOffsets({
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				path: initialPath
 			})
 			sendUserToast(
@@ -355,7 +358,7 @@
 				(force) =>
 					KafkaTriggerService.setKafkaTriggerMode({
 						path: initialPath,
-						workspace: $workspaceStore ?? '',
+						workspace: wsId ?? '',
 						requestBody: { mode: newMode, force }
 					}),
 				'Kafka trigger'
@@ -416,6 +419,7 @@
 {#if useDrawer}
 	<Drawer size="800px" bind:this={drawer}>
 		<DrawerContent
+			bannerReserved={draftSync.hasBaseline}
 			title={edit
 				? can_write
 					? `Edit Kafka trigger ${initialPath}`
@@ -430,6 +434,7 @@
 				<LocalDraftBanner
 					show={draftSync.hasDraft}
 					getDeployed={() => draftSync.deployed}
+					reserveSpace={draftSync.hasBaseline}
 					getCurrent={() => draftSync.current}
 					onDiscard={() => draftSync.resetToDeployed(initialPath)}
 					disabled={!can_write}
@@ -508,6 +513,7 @@
 			<div class="flex flex-col gap-4">
 				<Label label="Path">
 					<Path
+						workspaceOverride={wsId}
 						bind:dirty={dirtyPath}
 						bind:error={pathError}
 						bind:path
@@ -524,6 +530,7 @@
 			{#if !hideTarget}
 				<Section label="Runnable">
 					<TriggerRunnablePicker
+						workspace={wsId}
 						{fixedScriptPath}
 						bind:itemKind
 						bind:scriptPath={script_path}
@@ -641,6 +648,7 @@
 						</Tabs>
 						<div class="mt-4">
 							<TriggerRetriesAndErrorHandler
+								workspace={wsId}
 								{optionTabSelected}
 								{itemKind}
 								{can_write}

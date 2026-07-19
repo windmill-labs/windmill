@@ -6,7 +6,10 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use windmill_api_auth::{require_devops_role, require_super_admin, ApiAuthed};
+use windmill_api_auth::{
+    build_scope_path_predicate, check_scopes, require_devops_role, require_is_writer,
+    require_super_admin, ApiAuthed,
+};
 use windmill_api_users::users::WorkspaceInvite;
 use windmill_common::email_oss::send_email_if_possible;
 use windmill_common::usernames::{get_instance_username_or_create_pending, VALID_USERNAME};
@@ -40,9 +43,10 @@ use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
-    check_user_against_rule, get_datatable_resource_from_db_unchecked, validate_fork_workspace_id,
-    DataTable, DataTableCatalogResourceType, DataTableForkBehavior, ProtectionRuleKind,
-    ProtectionRules, ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
+    check_deploy_rules, check_user_against_rule, get_datatable_resource_from_db_unchecked,
+    validate_dev_workspace_id, validate_fork_workspace_id, validate_workspace_name, DataTable,
+    DataTableCatalogResourceType, DataTableForkBehavior, ProtectionRuleKind, ProtectionRules,
+    ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings, DEV_WORKSPACE_LOCK_RULE_NAME,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
@@ -65,8 +69,9 @@ use windmill_types::s3::LargeFileStorage;
 
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{FromRow, Postgres, Row, Transaction};
 use windmill_common::oauth2::InstanceEvent;
+use windmill_common::secret_backend::{get_secret_backend, is_vault_backend_configured};
 use windmill_common::utils::not_found_if_none;
 
 lazy_static::lazy_static! {
@@ -128,6 +133,7 @@ pub fn workspaced_service() -> Router {
             get(get_datatable_table_schema),
         )
         .route("/edit_datatable_config", post(edit_datatable_config))
+        .merge(crate::datatable_migrations::routes())
         .route("/git_sync_enabled", get(get_git_sync_enabled))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
@@ -150,6 +156,9 @@ pub fn workspaced_service() -> Router {
         .route("/leave", post(leave_workspace))
         .route("/get_workspace_name", get(get_workspace_name))
         .route("/create_fork", post(create_workspace_fork))
+        .route("/attach_dev_workspace", post(attach_dev_workspace))
+        .route("/detach_dev_workspace", post(detach_dev_workspace))
+        .route("/get_dev_workspace", get(get_dev_workspace))
         .route("/change_workspace_name", post(change_workspace_name))
         .route("/change_workspace_color", post(change_workspace_color))
         .route(
@@ -177,6 +186,10 @@ pub fn workspaced_service() -> Router {
             post(crate::workspaces_extra::drop_forked_datatable_databases),
         )
         .route(
+            "/drop_forked_ducklake_namespaces",
+            post(crate::workspaces_extra::drop_forked_ducklake_namespaces),
+        )
+        .route(
             "/get_datatable_full_schema",
             post(get_datatable_full_schema),
         )
@@ -191,6 +204,7 @@ pub fn workspaced_service() -> Router {
         .route("/prune_versions", post(prune_versions))
         .route("/list_ws_specific", get(list_ws_specific))
         .route("/list_ws_specific_versions", get(list_ws_specific_versions))
+        .route("/set_ws_specific", post(set_ws_specific))
 }
 pub fn global_service() -> Router {
     Router::new()
@@ -417,6 +431,12 @@ pub struct DucklakeSettings {
 #[derive(Deserialize, Debug)]
 struct EditDataTableConfig {
     settings: DataTableSettings,
+    // Data table renames (old -> new) and deletions, tracked client-side by a
+    // stable id, so we can cascade or drop each data table's migrations.
+    #[serde(default)]
+    renames: Vec<crate::datatable_migrations::DatatableRename>,
+    #[serde(default)]
+    deleted_datatables: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -441,6 +461,29 @@ struct CreateWorkspaceFork {
     /// forked workspace's datatable config to point to the new database.
     #[serde(default)]
     forked_datatables: Vec<ForkedDatatableInfo>,
+    /// Lakes the user explicitly chose to SHARE with the parent (the fork then reads and
+    /// writes the parent's lake directly). Every lake not listed gets the default isolated
+    /// fork namespace + read-defer.
+    #[serde(default)]
+    shared_ducklakes: Vec<String>,
+    /// Create the fork as a persistent dev workspace: the id is not required to carry the
+    /// `wm-fork-` prefix, and at most one dev workspace may exist per parent.
+    #[serde(default)]
+    is_dev_workspace: bool,
+    /// When creating a dev workspace, lock the parent ("prod") against direct deployment and/or
+    /// ad-hoc forking, so edits are funneled through the dev workspace.
+    #[serde(default)]
+    lock_prod_deploy: bool,
+    #[serde(default)]
+    lock_prod_forking: bool,
+    /// Copy the parent's members (usr rows + group memberships) into the fork so
+    /// the team can work in it. Defaults off; the dev-workspace UI defaults it on.
+    #[serde(default)]
+    copy_members: bool,
+    /// Cosmetic display label for the dev workspace: 'dev' | 'staging'. Purely visual (badge text +
+    /// wording); ignored for non-dev forks. None defaults to 'dev'.
+    #[serde(default)]
+    dev_workspace_label: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -469,6 +512,12 @@ struct UserWorkspace {
     pub color: Option<String>,
     pub operator_settings: Option<Option<serde_json::Value>>,
     pub parent_workspace_id: Option<String>,
+    pub is_dev_workspace: bool,
+    pub dev_workspace_label: Option<String>,
+    /// Creator of the workspace (`workspace.owner`). On a fork it identifies the forker, who gets a
+    /// narrow membership grant over it even without being an admin — the UI keys the fork members
+    /// screen off this.
+    pub created_by: Option<String>,
     pub disabled: bool,
 }
 
@@ -606,11 +655,13 @@ async fn list_pending_invites(
 }
 
 async fn is_premium(
-    authed: ApiAuthed,
+    _authed: ApiAuthed,
     Extension(_db): Extension<DB>,
     Path(_w_id): Path<String>,
 ) -> JsonResult<bool> {
-    require_admin(authed.is_admin, &authed.username)?;
+    // Any workspace member (not just admins) may read whether the workspace is on a paid plan: it's a
+    // single boolean, and the frontend needs it to decide whether to surface premium-gated affordances
+    // (e.g. forking) to non-admin developers too. The `_authed` extractor still enforces membership.
     #[cfg(feature = "cloud")]
     let premium = windmill_common::workspaces::get_team_plan_status(&_db, &_w_id)
         .await?
@@ -637,6 +688,48 @@ async fn exists_workspace(
     Ok(Json(exists))
 }
 
+/// Whether this workspace already has an active canonical dev workspace. The create-fork UI can't
+/// rely on the caller's workspace list to decide this — a dev paired to this prod may exist that the
+/// caller isn't a member of — so it asks the server, which sees all children.
+#[derive(Serialize)]
+struct DevWorkspaceInfo {
+    id: String,
+    name: String,
+    dev_workspace_label: Option<String>,
+}
+
+/// Normalize/validate the cosmetic dev-workspace display label. None or 'dev' both render as "dev";
+/// 'staging' renders as "stg". Anything else is rejected. Stored explicitly ('dev'/'staging') so it
+/// round-trips, but a NULL column is treated as 'dev' on the read side too.
+fn normalize_dev_workspace_label(label: Option<String>) -> Result<Option<String>> {
+    match label.as_deref() {
+        None | Some("dev") => Ok(Some("dev".to_string())),
+        Some("staging") => Ok(Some("staging".to_string())),
+        Some(other) => Err(Error::BadRequest(format!(
+            "invalid dev workspace label '{other}' (expected 'dev' or 'staging')"
+        ))),
+    }
+}
+
+/// This workspace's active canonical dev workspace, if any. The create-fork UI and the dev-workspace
+/// settings tab can't rely on the caller's workspace list — a dev paired to this prod may exist that
+/// the caller isn't a member of — so they ask the server, which sees all children. Returns its id/name
+/// so a prod admin who isn't a dev member can still see the pairing and detach it.
+async fn get_dev_workspace(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Option<DevWorkspaceInfo>> {
+    let dev = sqlx::query_as!(
+        DevWorkspaceInfo,
+        "SELECT id, name, dev_workspace_label FROM workspace WHERE parent_workspace_id = $1 AND is_dev_workspace AND deleted = false",
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?;
+    Ok(Json(dev))
+}
+
 async fn list_workspaces(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -655,6 +748,178 @@ async fn list_workspaces(
     .await?;
     tx.commit().await?;
     Ok(Json(workspaces))
+}
+
+/// Strip the server-only webhook HMAC secret from a `git_sync` blob before it is
+/// returned to a client. The UI never needs it; it stays (encrypted) in the DB.
+fn redact_git_sync_webhook_secrets(git_sync: &mut serde_json::Value) {
+    if let Some(repos) = git_sync
+        .get_mut("repositories")
+        .and_then(|r| r.as_array_mut())
+    {
+        for repo in repos {
+            if let Some(auto_pull) = repo.get_mut("auto_pull").and_then(|a| a.as_object_mut()) {
+                auto_pull.remove("webhook_secret");
+            }
+        }
+    }
+}
+
+/// Zero the server-owned auto-pull fields (webhook id/secret/error, synced sha,
+/// last pull status) on a client-supplied `AutoPullSettings`. The client only
+/// controls `enabled` / `mode` / `poll_interval_s`; the rest is written by the
+/// server (webhook creation, poller) and must never be trusted from the request —
+/// otherwise a caller could inject a webhook id/secret or fake sync state.
+fn clear_client_supplied_auto_pull_state(
+    auto_pull: &mut windmill_common::workspaces::AutoPullSettings,
+) {
+    auto_pull.webhook_id = None;
+    auto_pull.webhook_secret = None;
+    auto_pull.webhook_error = None;
+    auto_pull.last_synced_sha = std::collections::HashMap::new();
+    auto_pull.last_pull_status = None;
+}
+
+/// A dev workspace deploys to a branch named after its environment label. If a
+/// git-sync repository's tracked branch carries that same name, dev deploys
+/// would write straight into the branch the workspace (or its prod) syncs
+/// from — the CLI refuses that push, so every deploy job would fail. Reject
+/// the label up front instead.
+async fn reject_dev_label_matching_tracked_branch(
+    db: &DB,
+    label: Option<&str>,
+    workspace_ids: &[&str],
+) -> Result<()> {
+    let label_branch = windmill_common::workspaces::dev_workspace_branch(label);
+    for w_id in workspace_ids {
+        let Some(settings) = sqlx::query_scalar!(
+            "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+            w_id
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten()
+        .and_then(|v| serde_json::from_value::<WorkspaceGitSyncSettings>(v).ok()) else {
+            continue;
+        };
+        for repo in &settings.repositories {
+            let path = repo.git_repo_resource_path.trim_start_matches("$res:");
+            let branch: Option<String> = sqlx::query_scalar!(
+                "SELECT value->>'branch' FROM resource WHERE workspace_id = $1 AND path = $2",
+                w_id,
+                path
+            )
+            .fetch_optional(db)
+            .await?
+            .flatten();
+            if branch.as_deref() == Some(label_branch.as_str()) {
+                return Err(Error::BadRequest(format!(
+                    "The environment label '{label_branch}' matches the tracked branch of git-sync \
+                     repository '{path}' in workspace '{w_id}': deploys from the dev workspace go \
+                     to the '{label_branch}' branch and would overwrite the branch that repository \
+                     syncs from. Use the other label or change the repository's tracked branch."
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Reject parent-only git-sync settings on a fork workspace. Auto-pull, fork
+/// PRs, and promotion mode are all configured at the parent: repo → fork sync is
+/// routed by the parent's webhook/poller (`sync_forks`), a fork-owned auto-pull
+/// would register a second webhook on the same GitHub repo per fork, and a
+/// fork's deploys always go to its `wm-fork/**` branch so a promotion repo could
+/// never take effect there.
+async fn reject_parent_only_git_sync_settings_on_fork<'a>(
+    db: &DB,
+    w_id: &str,
+    mut repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
+) -> Result<()> {
+    let offending = repos.find_map(|r| {
+        if r.auto_pull.as_ref().is_some_and(|a| a.enabled) {
+            Some("Auto-pull")
+        } else if r.use_individual_branch.unwrap_or(false) {
+            Some("Promotion mode")
+        } else if r.fork_open_prs {
+            Some("Opening PRs for fork deploys")
+        } else {
+            None
+        }
+    });
+    let Some(offending) = offending else {
+        return Ok(());
+    };
+    let parent = sqlx::query_scalar!(
+        "SELECT parent_workspace_id FROM workspace WHERE id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    if parent.is_some() || w_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX) {
+        return Err(Error::BadRequest(format!(
+            "{offending} cannot be configured on a fork workspace: it is managed from the parent workspace's git sync settings"
+        )));
+    }
+    Ok(())
+}
+
+/// Persist only the reconciled webhook fields (id/secret/error/mode) for `changed`
+/// repos, one targeted JSONB update per repo (same pattern as the EE auto-pull
+/// status writer). The webhook reconcile runs after the main save has committed,
+/// so a read-modify-write of the whole blob would clobber a poller status write
+/// or another settings save landing in the gap. `mode` is carried too: the
+/// reconcile normalizes webhook -> polling for repos that can't register hooks,
+/// and losing that would leave the poller skipping a webhook-mode repo that has
+/// no webhook. A repo whose `auto_pull` was concurrently removed is left alone.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn persist_reconciled_webhook_fields(
+    db: &DB,
+    w_id: &str,
+    changed: &[(String, windmill_common::workspaces::AutoPullSettings)],
+) -> Result<()> {
+    for (path, new_ap) in changed {
+        let mut patch = serde_json::Map::new();
+        patch.insert(
+            "mode".to_string(),
+            serde_json::to_value(&new_ap.mode).map_err(|e| Error::internal_err(e.to_string()))?,
+        );
+        if let Some(id) = new_ap.webhook_id {
+            patch.insert("webhook_id".to_string(), serde_json::json!(id));
+        }
+        if let Some(secret) = &new_ap.webhook_secret {
+            patch.insert("webhook_secret".to_string(), serde_json::json!(secret));
+        }
+        if let Some(err) = &new_ap.webhook_error {
+            patch.insert("webhook_error".to_string(), serde_json::json!(err));
+        }
+        let patch = serde_json::Value::Object(patch);
+        sqlx::query!(
+            r#"
+            UPDATE workspace_settings
+            SET git_sync = jsonb_set(
+                git_sync,
+                '{repositories}',
+                (SELECT jsonb_agg(
+                    CASE WHEN elem->>'git_repo_resource_path' = $2
+                          AND jsonb_typeof(elem->'auto_pull') = 'object'
+                        THEN jsonb_set(elem, '{auto_pull}',
+                             ((elem->'auto_pull') - 'webhook_id' - 'webhook_secret' - 'webhook_error') || $3)
+                        ELSE elem END)
+                 FROM jsonb_array_elements(git_sync->'repositories') AS elem)
+            )
+            WHERE workspace_id = $1
+              AND jsonb_typeof(git_sync->'repositories') = 'array'
+            "#,
+            w_id,
+            path,
+            patch,
+        )
+        .execute(db)
+        .await?;
+    }
+    Ok(())
 }
 
 async fn get_settings(
@@ -713,8 +978,12 @@ async fn get_settings(
     .await
     .map_err(|e| Error::internal_err(format!("getting settings: {e:#}")))?;
 
-    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
+    let mut settings = not_found_if_none(settings, "workspace settings", &w_id)?;
     tx.commit().await?;
+
+    if let Some(git_sync) = settings.git_sync.as_mut() {
+        redact_git_sync_webhook_secrets(git_sync);
+    }
 
     Ok(Json(settings))
 }
@@ -1839,6 +2108,38 @@ mod tests {
             format!("text={}...", "é".repeat(27))
         );
     }
+
+    // A real NUL can't live in Rust source, so build `{"k":"<n backslashes>u0000"}`
+    // by repeating backslashes: an ODD run before `u0000` is a genuine NUL escape,
+    // an EVEN run is an escaped backslash then the literal text "u0000".
+    fn nul_json(backslashes: usize) -> String {
+        format!(r#"{{"k":"{}u0000"}}"#, "\\".repeat(backslashes))
+    }
+
+    #[test]
+    fn nul_escape_detected_only_for_odd_backslash_runs() {
+        // 1 backslash: `\u0000` — a genuine NUL escape.
+        assert!(json_text_has_nul_escape(&nul_json(1)));
+        // 3 backslashes: escaped backslash + genuine NUL escape.
+        assert!(json_text_has_nul_escape(&nul_json(3)));
+        // 2 backslashes: escaped backslash then literal "u0000" (e.g. minified JS) — safe.
+        assert!(!json_text_has_nul_escape(&nul_json(2)));
+        // 0 backslashes: the bare token "u0000" — safe.
+        assert!(!json_text_has_nul_escape(&nul_json(0)));
+    }
+
+    #[test]
+    fn nul_escape_ignores_clean_values() {
+        assert!(!json_text_has_nul_escape(
+            r#"{"files":{"/index.tsx":"hello"}}"#
+        ));
+        assert!(!json_text_has_nul_escape(""));
+        // A later genuine NUL is still caught even after an earlier even (safe) run.
+        assert!(json_text_has_nul_escape(&format!(
+            r#"{{"a":"x{b}{b}u0000y","b":"z{b}u0000"}}"#,
+            b = "\\"
+        )));
+    }
 }
 
 /// Resolve a source string to PgDatabase credentials with user-scoped permission checks.
@@ -1891,8 +2192,8 @@ pub(crate) async fn resolve_pg_source_checked(
 }
 
 /// A temporary file for pg_dump output that is automatically deleted when dropped.
-struct DumpFile {
-    path: std::path::PathBuf,
+pub(crate) struct DumpFile {
+    pub(crate) path: std::path::PathBuf,
 }
 
 impl DumpFile {
@@ -1939,7 +2240,11 @@ impl Drop for DumpFile {
 
 /// Run pg_dump against a PgDatabase, writing output to a temp file on disk.
 /// Returns a DumpFile handle; the file is deleted when the handle is dropped.
-async fn pg_dump_database(pg_db: &PgDatabase, schema_only: bool) -> Result<DumpFile> {
+pub(crate) async fn pg_dump_database(
+    pg_db: &PgDatabase,
+    schema_only: bool,
+    exclude_tables: &[&str],
+) -> Result<DumpFile> {
     let dump_file = DumpFile::new()?;
 
     let host = &pg_db.host;
@@ -1951,6 +2256,9 @@ async fn pg_dump_database(pg_db: &PgDatabase, schema_only: bool) -> Result<DumpF
     cmd.arg("--format=plain").arg("--file").arg(&dump_file.path);
     if schema_only {
         cmd.arg("--schema-only");
+    }
+    for table in exclude_tables {
+        cmd.arg(format!("--exclude-table={table}"));
     }
     cmd.arg("--host")
         .arg(host)
@@ -2175,7 +2483,7 @@ async fn import_pg_database(
     }
     windmill_common::validate_dbname(&target_pg.dbname)?;
 
-    let dump_file = pg_dump_database(&source_pg, schema_only).await?;
+    let dump_file = pg_dump_database(&source_pg, schema_only, &[]).await?;
     pg_import_dump(&target_pg, &dump_file).await?;
 
     Ok(format!(
@@ -2197,7 +2505,7 @@ async fn export_pg_schema(
     Json(req): Json<ExportPgSchemaRequest>,
 ) -> Result<String> {
     let pg = resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
-    let dump_file = pg_dump_database(&pg, true).await?;
+    let dump_file = pg_dump_database(&pg, true, &[]).await?;
     tokio::fs::read_to_string(&dump_file.path)
         .await
         .map_err(|e| Error::internal_err(format!("Failed to read dump file: {}", e)))
@@ -2242,6 +2550,17 @@ async fn edit_ducklake_config(
     require_admin(is_admin, &username)?;
     let is_superadmin = require_super_admin(&db, &email).await.is_ok();
 
+    // Lake names end up interpolated in `ATTACH 'ducklake://<name>'`,
+    // generated maintenance SQL and the reserved maintenance schedule path
+    // (CHECK-constrained to [\w-]+ segments).
+    for name in new_config.settings.ducklakes.keys() {
+        if !windmill_common::workspaces::is_valid_ducklake_name(name) {
+            return Err(Error::BadRequest(format!(
+                "Invalid ducklake name '{name}': only letters, digits, '_' and '-' are allowed"
+            )));
+        }
+    }
+
     let mut tx = db.begin().await?;
 
     let args_for_audit = format!("{:?}", new_config.settings);
@@ -2256,21 +2575,22 @@ async fn edit_ducklake_config(
     )
     .await?;
 
+    let old_ducklakes = sqlx::query_scalar!(
+        r#"
+            SELECT ws.ducklake->'ducklakes' AS ducklake_name
+            FROM workspace_settings ws
+            WHERE ws.workspace_id = $1
+        "#,
+        &w_id
+    )
+    .fetch_one(&mut *tx)
+    .await?
+    .unwrap_or(serde_json::Value::Null);
+    let old_ducklakes: HashMap<String, Ducklake> =
+        serde_json::from_value(old_ducklakes).unwrap_or_default();
+
     // Check that non-superadmins are not abusing Instance databases
     if !is_superadmin {
-        let old_ducklakes = sqlx::query_scalar!(
-            r#"
-                SELECT ws.ducklake->'ducklakes' AS ducklake_name
-                FROM workspace_settings ws
-                WHERE ws.workspace_id = $1
-            "#,
-            &w_id
-        )
-        .fetch_one(&mut *tx)
-        .await?
-        .unwrap_or(serde_json::Value::Null);
-        let old_ducklakes: HashMap<String, Ducklake> =
-            serde_json::from_value(old_ducklakes).unwrap_or_default();
         for (name, dl) in new_config.settings.ducklakes.iter() {
             if dl.catalog.resource_type == DucklakeCatalogResourceType::Instance {
                 let old_dl = old_ducklakes.get(name);
@@ -2288,7 +2608,7 @@ async fn edit_ducklake_config(
         }
     }
 
-    let config: serde_json::Value = serde_json::to_value(new_config.settings)
+    let config: serde_json::Value = serde_json::to_value(&new_config.settings)
         .map_err(|err| Error::internal_err(err.to_string()))?;
 
     sqlx::query!(
@@ -2297,6 +2617,19 @@ async fn edit_ducklake_config(
         &w_id
     )
     .execute(&mut *tx)
+    .await?;
+
+    // Same tx as the settings update: a failed schedule sync/push must fail
+    // the whole save — nothing reconciles a half-applied state later.
+    let tx = windmill_queue::ducklake_maintenance::sync_ducklake_maintenance_schedules(
+        &db,
+        tx,
+        &w_id,
+        &new_config.settings.ducklakes,
+        &old_ducklakes,
+        &username,
+        &email,
+    )
     .await?;
 
     tx.commit().await?;
@@ -2309,12 +2642,56 @@ async fn edit_datatable_config(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     ApiAuthed { is_admin, username, email, .. }: ApiAuthed,
-    Json(new_config): Json<EditDataTableConfig>,
+    Json(mut new_config): Json<EditDataTableConfig>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
     let is_superadmin = require_super_admin(&db, &email).await.is_ok();
 
     let mut tx = db.begin().await?;
+
+    let old_datatables: HashMap<String, DataTable> = serde_json::from_value(
+        sqlx::query_scalar!(
+            "SELECT ws.datatable->'datatables' FROM workspace_settings ws WHERE ws.workspace_id = $1",
+            &w_id
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(serde_json::Value::Null),
+    )
+    .unwrap_or_default();
+
+    // Validate every persisted data table name and rename segment before
+    // touching anything, since they become directory segments in migration
+    // storage/export keys (`migrations/datatable/<name>/...`).
+    for name in new_config.settings.datatables.keys() {
+        crate::datatable_migrations::validate_datatable_path_segment(name)?;
+    }
+    for r in &new_config.renames {
+        crate::datatable_migrations::validate_datatable_path_segment(&r.from)?;
+        crate::datatable_migrations::validate_datatable_path_segment(&r.to)?;
+    }
+
+    // Map new name -> old name so a renamed data table inherits the previous
+    // flag instead of being treated as brand new.
+    let rename_src: HashMap<&str, &str> = new_config
+        .renames
+        .iter()
+        .map(|r| (r.to.as_str(), r.from.as_str()))
+        .collect();
+
+    // Migrations opt-in is owned by the enable/disable endpoints, not this config
+    // form: preserve each existing data table's flag, and default brand-new data
+    // tables to enabled.
+    for (name, dt) in new_config.settings.datatables.iter_mut() {
+        let lookup = rename_src
+            .get(name.as_str())
+            .copied()
+            .unwrap_or(name.as_str());
+        dt.migrations_enabled = match old_datatables.get(lookup) {
+            Some(old) => old.migrations_enabled,
+            None => Some(true),
+        };
+    }
 
     let args_for_audit = format!("{:?}", new_config.settings);
     audit_log(
@@ -2330,19 +2707,6 @@ async fn edit_datatable_config(
 
     // Check that non-superadmins are not abusing Instance databases
     if !is_superadmin {
-        let old_datatables = sqlx::query_scalar!(
-            r#"
-                SELECT ws.datatable->'datatables' AS datatable_name
-                FROM workspace_settings ws
-                WHERE ws.workspace_id = $1
-            "#,
-            &w_id
-        )
-        .fetch_one(&mut *tx)
-        .await?
-        .unwrap_or(serde_json::Value::Null);
-        let old_datatables: HashMap<String, DataTable> =
-            serde_json::from_value(old_datatables).unwrap_or_default();
         for (name, dt) in new_config.settings.datatables.iter() {
             if dt.database.resource_type == DataTableCatalogResourceType::Instance {
                 let old_dt = old_datatables.get(name);
@@ -2369,6 +2733,15 @@ async fn edit_datatable_config(
         &w_id
     )
     .execute(&mut *tx)
+    .await?;
+
+    crate::datatable_migrations::cascade_datatable_migration_renames_and_deletes(
+        &db,
+        &mut tx,
+        &w_id,
+        &new_config.renames,
+        &new_config.deleted_datatables,
+    )
     .await?;
 
     tx.commit().await?;
@@ -2467,6 +2840,40 @@ fn cleanup_legacy_git_sync_settings_in_memory(
 
 #[cfg(not(feature = "enterprise"))]
 const CE_GIT_SYNC_MAX_USERS: i64 = 2;
+
+/// Auto-pull is licensed per plan, not just per build: the poller only serves
+/// Enterprise plans at runtime, so the save path must reject the setting too —
+/// otherwise an EE binary without the plan could still register a webhook and
+/// receive webhook-driven pulls.
+#[cfg(feature = "enterprise")]
+async fn check_git_sync_ee_license(feature: &str) -> Result<()> {
+    if !matches!(
+        windmill_common::ee_oss::get_license_plan().await,
+        windmill_common::ee_oss::LicensePlan::Enterprise
+    ) {
+        return Err(Error::BadRequest(format!(
+            "{feature} requires an Enterprise license"
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "enterprise")]
+async fn check_auto_pull_license() -> Result<()> {
+    check_git_sync_ee_license("Automatic pull from git").await
+}
+
+/// In-app PR creation (promotion/fork deploy branches) drives GitHub API calls
+/// from the deploy completion hook; runtime-gate it like auto-pull.
+#[cfg(feature = "enterprise")]
+async fn check_open_prs_license<'a>(
+    mut repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
+) -> Result<()> {
+    if repos.any(|r| r.promotion_open_prs || r.fork_open_prs) {
+        check_git_sync_ee_license("Opening pull requests from Windmill").await?;
+    }
+    Ok(())
+}
 
 #[cfg(feature = "enterprise")]
 async fn check_git_sync_access(_db: &DB, _w_id: &str) -> Result<()> {
@@ -2568,11 +2975,113 @@ async fn edit_git_sync_config(
     )
     .await?;
 
+    // The whole-config save only writes the DB below; the managed GitHub webhooks
+    // are reconciled after the commit is durable (like the per-repository endpoint):
+    // `post_commit` carries the saved repos to reconcile + the hooks of repos this
+    // save removed, to delete.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    let post_commit: Option<(WorkspaceGitSyncSettings, Vec<(String, i64)>)>;
+
     if let Some(mut git_sync_settings) = new_config.git_sync_settings {
+        // Client-supplied server-owned auto-pull state is never trusted: strip it up
+        // front, then existing repos re-derive it from `existing` below and new repos
+        // stay clean.
+        for repo in git_sync_settings.repositories.iter_mut() {
+            if let Some(ap) = repo.auto_pull.as_mut() {
+                clear_client_supplied_auto_pull_state(ap);
+            }
+            repo.open_pr_error = None;
+        }
+        reject_parent_only_git_sync_settings_on_fork(
+            &db,
+            &w_id,
+            git_sync_settings.repositories.iter(),
+        )
+        .await?;
+        // Auto-pull is EE-only (see edit_git_sync_repository).
+        #[cfg(not(feature = "enterprise"))]
+        if git_sync_settings
+            .repositories
+            .iter()
+            .any(|r| r.auto_pull.as_ref().is_some_and(|a| a.enabled))
+        {
+            return Err(Error::BadRequest(
+                "Automatic pull from git is an Enterprise Edition feature".to_string(),
+            ));
+        }
+        #[cfg(feature = "enterprise")]
+        if git_sync_settings
+            .repositories
+            .iter()
+            .any(|r| r.auto_pull.as_ref().is_some_and(|a| a.enabled))
+        {
+            check_auto_pull_license().await?;
+        }
+        #[cfg(feature = "enterprise")]
+        check_open_prs_license(git_sync_settings.repositories.iter()).await?;
+        // Preserve server-owned auto-pull state (webhook id/secret, synced sha, last
+        // status) that the redacted GET response omits — otherwise a whole-config
+        // save from the UI would drop the webhook secret (breaking delivery) or
+        // clobber what the poller/webhook layer wrote.
+        let existing: Option<WorkspaceGitSyncSettings> = sqlx::query_scalar!(
+            "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+            &w_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten()
+        .and_then(|v| serde_json::from_value(v).ok());
+        // Repos present before but absent from this save: their webhooks won't be
+        // reconciled below (no longer listed), so capture them for deletion.
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        let removed_webhooks: Vec<(String, i64)> = existing
+            .as_ref()
+            .map(|e| {
+                e.repositories
+                    .iter()
+                    .filter_map(|old| {
+                        let hook = old.auto_pull.as_ref().and_then(|a| a.webhook_id)?;
+                        // The save carries the hook forward (reconciled below) only
+                        // when the repo is still present AND still has auto_pull — the
+                        // preservation loop copies webhook fields only onto a Some
+                        // auto_pull. Otherwise (repo dropped, or auto_pull cleared) the
+                        // hook would orphan, so delete it.
+                        let carried = git_sync_settings
+                            .repositories
+                            .iter()
+                            .find(|n| n.git_repo_resource_path == old.git_repo_resource_path)
+                            .map(|n| n.auto_pull.is_some())
+                            .unwrap_or(false);
+                        (!carried).then_some((old.git_repo_resource_path.clone(), hook))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if let Some(existing) = &existing {
+            for repo in git_sync_settings.repositories.iter_mut() {
+                let Some(old) = existing
+                    .repositories
+                    .iter()
+                    .find(|r| r.git_repo_resource_path == repo.git_repo_resource_path)
+                else {
+                    continue;
+                };
+                repo.open_pr_error = old.open_pr_error.clone();
+                if let (Some(new_ap), Some(old_ap)) =
+                    (repo.auto_pull.as_mut(), old.auto_pull.as_ref())
+                {
+                    new_ap.webhook_id = old_ap.webhook_id;
+                    new_ap.webhook_secret = old_ap.webhook_secret.clone();
+                    new_ap.last_synced_sha = old_ap.last_synced_sha.clone();
+                    new_ap.last_pull_status = old_ap.last_pull_status.clone();
+                }
+            }
+        }
+
         // Clean up legacy workspace-level settings if all repos are migrated
         cleanup_legacy_git_sync_settings_in_memory(&mut git_sync_settings, &w_id);
 
-        let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)
+        let serialized_config = serde_json::to_value(&git_sync_settings)
             .map_err(|err| Error::internal_err(err.to_string()))?;
 
         sqlx::query!(
@@ -2582,7 +3091,37 @@ async fn edit_git_sync_config(
         )
         .execute(&mut *tx)
         .await?;
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        {
+            post_commit = Some((git_sync_settings, removed_webhooks));
+        }
     } else {
+        // Clearing the whole config removes every repo — delete all their webhooks.
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        {
+            let existing: Option<WorkspaceGitSyncSettings> = sqlx::query_scalar!(
+                "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+                &w_id
+            )
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten()
+            .and_then(|v| serde_json::from_value(v).ok());
+            let removed_webhooks: Vec<(String, i64)> = existing
+                .map(|e| {
+                    e.repositories
+                        .iter()
+                        .filter_map(|old| {
+                            old.auto_pull
+                                .as_ref()
+                                .and_then(|a| a.webhook_id)
+                                .map(|h| (old.git_repo_resource_path.clone(), h))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            post_commit = Some((WorkspaceGitSyncSettings::default(), removed_webhooks));
+        }
         sqlx::query!(
             "UPDATE workspace_settings SET git_sync = NULL WHERE workspace_id = $1",
             &w_id,
@@ -2592,6 +3131,37 @@ async fn edit_git_sync_config(
     }
 
     tx.commit().await?;
+
+    // Post-commit: reconcile each saved repo's managed webhook to match the config
+    // and delete the webhooks of repos this save removed. Best-effort — a failure
+    // leaves polling on.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    if let Some((mut settings, removed_webhooks)) = post_commit {
+        let mut changed: Vec<(String, windmill_common::workspaces::AutoPullSettings)> = Vec::new();
+        for repo in settings.repositories.iter_mut() {
+            let before = serde_json::to_value(&repo.auto_pull).ok();
+            if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await
+            {
+                tracing::warn!("git auto-pull: webhook sync error: {}", e);
+            }
+            if serde_json::to_value(&repo.auto_pull).ok() != before {
+                if let Some(ap) = repo.auto_pull.as_ref() {
+                    changed.push((repo.git_repo_resource_path.clone(), ap.clone()));
+                }
+            }
+        }
+        if let Err(e) = persist_reconciled_webhook_fields(&db, &w_id, &changed).await {
+            tracing::warn!("git auto-pull: webhook field persist error: {}", e);
+        }
+        for (path, hook_id) in removed_webhooks {
+            if let Ok(url) = windmill_common::git_sync_ee::resolve_repo_url(&db, &w_id, &path).await
+            {
+                let _ =
+                    windmill_common::git_sync_ee::delete_repo_webhook(&db, &w_id, &url, hook_id)
+                        .await;
+            }
+        }
+    }
 
     // Trigger git sync for git sync settings changes
     handle_deployment_metadata(
@@ -2614,13 +3184,53 @@ async fn edit_git_sync_repository(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     ApiAuthed { is_admin, username, .. }: ApiAuthed,
-    Json(new_config): Json<EditGitSyncRepository>,
+    Json(mut new_config): Json<EditGitSyncRepository>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
     check_git_sync_access(&db, &w_id).await?;
 
     // Validate the resource path format
     validate_git_repo_resource_path(&new_config.git_repo_resource_path)?;
+
+    // Server-owned auto-pull state (webhook id/secret + sync status) is never
+    // accepted from the client — the webhook layer and poller own it. Strip it so an
+    // existing repo re-derives it from the DB (carried over below) and a new one
+    // starts clean.
+    if let Some(ap) = new_config.repository.auto_pull.as_mut() {
+        clear_client_supplied_auto_pull_state(ap);
+    }
+    new_config.repository.open_pr_error = None;
+    reject_parent_only_git_sync_settings_on_fork(
+        &db,
+        &w_id,
+        std::iter::once(&new_config.repository),
+    )
+    .await?;
+
+    // Auto-pull is EE-only: CE builds compile neither the poller nor the webhook
+    // reconciler, so accepting the setting would silently do nothing.
+    #[cfg(not(feature = "enterprise"))]
+    if new_config
+        .repository
+        .auto_pull
+        .as_ref()
+        .is_some_and(|a| a.enabled)
+    {
+        return Err(Error::BadRequest(
+            "Automatic pull from git is an Enterprise Edition feature".to_string(),
+        ));
+    }
+    #[cfg(feature = "enterprise")]
+    if new_config
+        .repository
+        .auto_pull
+        .as_ref()
+        .is_some_and(|a| a.enabled)
+    {
+        check_auto_pull_license().await?;
+    }
+    #[cfg(feature = "enterprise")]
+    check_open_prs_license(std::iter::once(&new_config.repository)).await?;
 
     // Promotion mode: EE only
     #[cfg(not(feature = "enterprise"))]
@@ -2699,8 +3309,32 @@ async fn edit_git_sync_repository(
         .find(|repo| repo.git_repo_resource_path == new_config.git_repo_resource_path);
 
     if let Some(existing_repo) = repo_found {
-        // Update existing repository
-        *existing_repo = new_config.repository;
+        // Update existing repository, but preserve server-owned auto-pull state
+        // (synced sha, last pull status, webhook id/secret) so a settings save
+        // from the UI cannot revert what the poller/webhook layer wrote.
+        let mut updated = new_config.repository;
+        updated.open_pr_error = existing_repo.open_pr_error.clone();
+        match (updated.auto_pull.as_mut(), existing_repo.auto_pull.as_ref()) {
+            (Some(new_ap), Some(old_ap)) => {
+                new_ap.last_synced_sha = old_ap.last_synced_sha.clone();
+                new_ap.last_pull_status = old_ap.last_pull_status.clone();
+                new_ap.webhook_id = old_ap.webhook_id;
+                new_ap.webhook_secret = old_ap.webhook_secret.clone();
+            }
+            // UI omitted auto_pull (e.g. older client): keep existing config.
+            (None, Some(_)) => {
+                updated.auto_pull = existing_repo.auto_pull.clone();
+            }
+            _ => {}
+        }
+        // The request-side license gate above only saw the submitted config; the
+        // preservation can resurrect an enabled auto_pull (None arm), so re-check
+        // the effective state before it gets written and reconciled.
+        #[cfg(feature = "enterprise")]
+        if updated.auto_pull.as_ref().is_some_and(|a| a.enabled) {
+            check_auto_pull_license().await?;
+        }
+        *existing_repo = updated;
     } else {
         // Repository doesn't exist, add it as a new repository
         git_sync_settings.repositories.push(new_config.repository);
@@ -2709,8 +3343,13 @@ async fn edit_git_sync_repository(
     // Clean up legacy workspace-level settings if all repos are migrated
     cleanup_legacy_git_sync_settings_in_memory(&mut git_sync_settings, &w_id);
 
-    // Save the updated configuration
-    let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)
+    // Save the updated configuration first, then reconcile the GitHub webhook to
+    // match it *after* the commit is durable (phase 2). Reconciling before the
+    // commit could leave the DB pointing at a hook that no longer matches if the
+    // save then failed (e.g. a delete on disable); post-commit reconciliation
+    // cannot. The pre-edit webhook id/secret are carried over above, so the
+    // committed row stays consistent until the reconcile persists any change.
+    let serialized_config = serde_json::to_value(&git_sync_settings)
         .map_err(|err| Error::internal_err(err.to_string()))?;
 
     sqlx::query!(
@@ -2720,8 +3359,33 @@ async fn edit_git_sync_repository(
     )
     .execute(&mut *tx)
     .await?;
-
     tx.commit().await?;
+
+    // Post-commit: create/remove the webhook to match the saved config and persist
+    // the resulting hook id/secret. Best-effort — a failure leaves polling on.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    {
+        let mut changed: Vec<(String, windmill_common::workspaces::AutoPullSettings)> = Vec::new();
+        if let Some(repo) = git_sync_settings
+            .repositories
+            .iter_mut()
+            .find(|r| r.git_repo_resource_path == new_config.git_repo_resource_path)
+        {
+            let before = serde_json::to_value(&repo.auto_pull).ok();
+            if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await
+            {
+                tracing::warn!("git auto-pull: webhook sync error: {}", e);
+            }
+            if serde_json::to_value(&repo.auto_pull).ok() != before {
+                if let Some(ap) = repo.auto_pull.as_ref() {
+                    changed.push((repo.git_repo_resource_path.clone(), ap.clone()));
+                }
+            }
+        }
+        if let Err(e) = persist_reconciled_webhook_fields(&db, &w_id, &changed).await {
+            tracing::warn!("git auto-pull: webhook field persist error: {}", e);
+        }
+    }
 
     // Trigger git sync for individual repository update/add
     handle_deployment_metadata(
@@ -2785,6 +3449,18 @@ async fn delete_git_sync_repository(
         WorkspaceGitSyncSettings::default()
     };
 
+    // Capture the repo's managed webhook id; the hook itself is deleted only after
+    // the DB removal commits (below), so a failed save can't leave the repo pointing
+    // at a hook that no longer exists. Deletion bypasses the sync_repo_webhook
+    // lifecycle, so GitHub would otherwise keep delivering to an orphaned hook.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    let webhook_to_delete: Option<i64> = git_sync_settings
+        .repositories
+        .iter()
+        .find(|r| r.git_repo_resource_path == request.git_repo_resource_path)
+        .and_then(|r| r.auto_pull.as_ref())
+        .and_then(|a| a.webhook_id);
+
     // Check if repository exists and remove it
     let original_count = git_sync_settings.repositories.len();
     git_sync_settings
@@ -2826,6 +3502,21 @@ async fn delete_git_sync_repository(
     .await?;
 
     tx.commit().await?;
+
+    // Removal is durable now — best-effort delete the GitHub webhook.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    if let Some(hook_id) = webhook_to_delete {
+        if let Ok(url) = windmill_common::git_sync_ee::resolve_repo_url(
+            &db,
+            &w_id,
+            &request.git_repo_resource_path,
+        )
+        .await
+        {
+            let _ =
+                windmill_common::git_sync_ee::delete_repo_webhook(&db, &w_id, &url, hook_id).await;
+        }
+    }
 
     // Trigger git sync for repository deletion
     handle_deployment_metadata(
@@ -3610,6 +4301,8 @@ async fn user_workspaces(
     let workspaces = sqlx::query_as!(
         UserWorkspace,
         "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color, workspace.parent_workspace_id,
+                workspace.is_dev_workspace, workspace.dev_workspace_label,
+                workspace.owner AS \"created_by?\",
                 CASE WHEN usr.operator THEN workspace_settings.operator_settings ELSE NULL END as operator_settings,
                 usr.disabled
          FROM workspace
@@ -3745,6 +4438,24 @@ lazy_static::lazy_static! {
         }
     };
 
+    // Cloud only: how many forks a premium workspace may have per paid (developer) seat.
+    pub static ref MAX_FORKS_PER_SEAT: i64 = std::env::var("MAX_FORKS_PER_SEAT")
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+        .filter(|v| *v >= 0)
+        .unwrap_or(5);
+
+    // How deep a fork chain may nest (root = depth 0, a direct fork = depth 1). A general guardrail
+    // for all builds, independent of the cloud per-seat cap: deep fork chains are a footgun and no
+    // real use case needs them. Clamped to [1, 20] so it's always a real limit and can never exceed
+    // the fork-walk recursion backstop (20) that billing/count resolution uses (a chain deeper than
+    // the backstop would truncate and mis-resolve its root).
+    pub static ref MAX_FORK_DEPTH: i64 = std::env::var("MAX_FORK_DEPTH")
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+        .map(|v| v.clamp(1, 20))
+        .unwrap_or(5);
+
 }
 
 async fn create_workspace_require_superadmin() -> String {
@@ -3760,6 +4471,21 @@ async fn _check_nb_of_workspaces(db: &DB) -> Result<()> {
     if nb_workspaces.unwrap_or(0) >= 2 {
         return Err(Error::BadRequest(
             "You have reached the maximum number of workspaces (2 outside of default workspace 'admins') without an enterprise license. Archive/delete another workspace to create a new one"
+                .to_string(),
+        ));
+    }
+    return Ok(());
+}
+
+async fn _check_nb_of_archived_workspaces(db: &DB) -> Result<()> {
+    let nb_archived = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM workspace WHERE id != 'admins' AND deleted = true",
+    )
+    .fetch_one(db)
+    .await?;
+    if nb_archived.unwrap_or(0) >= 1 {
+        return Err(Error::BadRequest(
+            "You have reached the maximum number of archived workspaces (1) without an enterprise license. Permanently delete or unarchive the existing archived workspace first"
                 .to_string(),
         ));
     }
@@ -3792,6 +4518,8 @@ async fn create_workspace(
             ));
         }
     }
+
+    validate_workspace_name(&nw.name)?;
 
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
@@ -3918,12 +4646,22 @@ async fn create_workspace(
 // their drafts would dangle as orphans.
 async fn clone_workspace_data(
     tx: &mut Transaction<'_, Postgres>,
+    db: &DB,
     source_workspace_id: &str,
     target_workspace_id: &str,
     authed_email: &str,
 ) -> Result<()> {
     // Clone workspace settings (merge with existing basic settings)
     update_workspace_settings(tx, source_workspace_id, target_workspace_id).await?;
+
+    // Clone data table migration definitions (the settings above carry the data
+    // table config; this carries their migration history).
+    crate::datatable_migrations::clone_datatable_migrations(
+        tx,
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .await?;
 
     // Clone workspace environment variables
     clone_workspace_env(tx, source_workspace_id, target_workspace_id).await?;
@@ -3940,14 +4678,16 @@ async fn clone_workspace_data(
     // Clone resources
     clone_resources(tx, source_workspace_id, target_workspace_id).await?;
 
-    // Clone variables with re-encryption
-    clone_variables(tx, source_workspace_id, target_workspace_id).await?;
+    // Clone variables (including external secret backend replication)
+    clone_variables(tx, db, source_workspace_id, target_workspace_id).await?;
 
     // Clone scripts with new hashes
     clone_scripts(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone CI test references
     clone_ci_test_references(tx, source_workspace_id, target_workspace_id).await?;
+    clone_macro_registry(tx, source_workspace_id, target_workspace_id).await?;
+    clone_asset_usages_and_triggers(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone flows with new versions
     clone_flows(tx, source_workspace_id, target_workspace_id).await?;
@@ -3989,6 +4729,9 @@ async fn clone_triggers_and_schedules(
     source_workspace_id: &str,
     target_workspace_id: &str,
 ) -> Result<()> {
+    // Managed ducklake-maintenance schedules are excluded: the fork starts
+    // with no ducklake config, so cloned rows could never resolve a lake and
+    // the schedule API refuses mutations under the reserved prefix.
     sqlx::query!(
         r#"INSERT INTO schedule (
             workspace_id, path, edited_by, edited_at, schedule, enabled, script_path,
@@ -4005,9 +4748,10 @@ async fn clone_triggers_and_schedules(
             on_recovery_times, on_recovery_extra_args, ws_error_handler_muted, retry,
             summary, no_flow_overlap, tag, paused_until, on_success, on_success_extra_args,
             cron_version, description, dynamic_skip, permissioned_as, labels
-        FROM schedule WHERE workspace_id = $2"#,
+        FROM schedule WHERE workspace_id = $2 AND NOT starts_with(path, $3)"#,
         target_workspace_id,
         source_workspace_id,
+        windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX,
     )
     .execute(&mut **tx)
     .await?;
@@ -4294,6 +5038,18 @@ async fn update_workspace_settings(
         .into_iter()
         .filter(|r| !r.use_individual_branch.unwrap_or(false))
         .take(1)
+        .map(|mut r| {
+            // Auto-pull and fork PRs are parent-owned and must not be inherited:
+            // the fork would otherwise carry the parent's webhook id (turning off
+            // auto-pull on the fork would delete the parent's webhook). A fork
+            // still inherits the push-direction config and the installation.
+            // Repo → fork sync is driven by the parent's webhook/poller
+            // (`sync_forks`), which routes the fork's `wm-fork/**` branch into it.
+            r.auto_pull = None;
+            r.fork_open_prs = false;
+            r.open_pr_error = None;
+            r
+        })
         .collect();
 
     let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)
@@ -4378,6 +5134,28 @@ async fn clone_groups(
     Ok(())
 }
 
+/// Copy the source workspace's members (the `usr` rows, carrying each member's role) into the
+/// target so a fork/dev can be a shared environment. Idempotent — skips members the target already
+/// has. Group memberships are not handled here: the sole caller is the create-fork path, where
+/// `clone_groups` already copies the source's full group structure (including `all` membership).
+async fn copy_workspace_members(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO usr (workspace_id, username, email, is_admin, created_at, operator, disabled, role, is_service_account, added_via)
+         SELECT $1, username, email, is_admin, created_at, operator, disabled, role, is_service_account, added_via
+         FROM usr WHERE workspace_id = $2
+         ON CONFLICT DO NOTHING",
+        target_workspace_id,
+        source_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 async fn clone_resource_types(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
@@ -4418,6 +5196,7 @@ async fn clone_resources(
 
 async fn clone_variables(
     tx: &mut Transaction<'_, Postgres>,
+    db: &DB,
     source_workspace_id: &str,
     target_workspace_id: &str,
 ) -> Result<()> {
@@ -4431,6 +5210,51 @@ async fn clone_variables(
     )
     .execute(&mut **tx)
     .await?;
+
+    // With an external backend the secret lives in the store under (workspace_id,
+    // path), so the row copy above leaves the fork pointing at keys that don't
+    // exist. Replicate every secret, not just marker-valued ones: migration writes
+    // to the store without rewriting `value` to a `$...:` marker.
+    if is_vault_backend_configured(db).await? {
+        let secret_variables = sqlx::query!(
+            "SELECT path FROM variable
+             WHERE workspace_id = $1 AND is_secret = true AND value != ''",
+            target_workspace_id,
+        )
+        .fetch_all(&mut **tx)
+        .await?;
+
+        let backend = get_secret_backend(db).await?;
+        for variable in secret_variables {
+            match backend
+                .get_secret(source_workspace_id, &variable.path)
+                .await
+            {
+                Ok(plain_value) => {
+                    backend
+                        .set_secret(target_workspace_id, &variable.path, &plain_value)
+                        .await
+                        .map_err(|e| {
+                            Error::internal_err(format!(
+                                "Failed to replicate secret variable {} to the external secret backend for the forked workspace: {e}",
+                                variable.path
+                            ))
+                        })?;
+                }
+                // The source secret is unreadable (e.g. deleted out-of-band from
+                // the external store), so the variable is equally broken in the
+                // source workspace — don't let it block forking.
+                Err(e) => {
+                    tracing::warn!(
+                        workspace_id = %source_workspace_id,
+                        path = %variable.path,
+                        error = %e,
+                        "Could not read secret variable from the external secret backend while forking; the forked variable will not resolve"
+                    );
+                }
+            }
+        }
+    }
 
     Ok(())
 }
@@ -4481,6 +5305,68 @@ async fn clone_ci_test_references(
         "INSERT INTO ci_test_reference (workspace_id, test_script_path, test_script_hash, tested_item_path, tested_item_kind)
          SELECT $2, test_script_path, test_script_hash, tested_item_path, tested_item_kind
          FROM ci_test_reference WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+// DuckDB macro registry + call-site edges are deploy-derived like
+// ci_test_reference: without cloning them, a forked consumer script fails at
+// run time until every macro library is manually redeployed in the fork.
+async fn clone_macro_registry(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO macro_definition (workspace_id, name, provider_path, params, body, is_table_macro)
+         SELECT $2, name, provider_path, params, body, is_table_macro
+         FROM macro_definition WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO macro_usage (workspace_id, consumer_path, macro_name)
+         SELECT $2, consumer_path, macro_name
+         FROM macro_usage WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+// Asset usage rows and `// on` subscriber triggers are deploy-derived like
+// ci_test_reference / the macro registry: without cloning them the fork's
+// pipeline graph has no asset nodes or lineage edges, and — worse — the asset
+// dispatch cascade never fires in the fork (it reads `script_trigger`), so
+// materializing an upstream node can't trigger its consumers until every
+// script is manually redeployed. `job`-kind usage rows (runtime-detected,
+// ephemeral) are skipped like the graph does.
+async fn clone_asset_usages_and_triggers(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind, columns)
+         SELECT $2, path, kind, usage_access_type, usage_path, usage_kind, columns
+         FROM asset WHERE workspace_id = $1 AND usage_kind IN ('script', 'flow')",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO script_trigger (workspace_id, runnable_kind, runnable_path, trigger_kind, trigger_ref, join_all, debounce_s, retry_count, retry_delay_s)
+         SELECT $2, runnable_kind, runnable_path, trigger_kind, trigger_ref, join_all, debounce_s, retry_count, retry_delay_s
+         FROM script_trigger WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,
     )
@@ -4593,9 +5479,18 @@ async fn clone_apps(
     .await?;
 
     let mut app_id_mapping: HashMap<i64, i64> = HashMap::new();
+    // Only a raw app's current (last) version has a bundle worth carrying into the fork: bundles exist
+    // only for raw apps, and older versions aren't viewable/runnable (the bundle secret is only ever
+    // minted for `versions.last()`). Copying a bundle for every version of every app is what makes
+    // forking a workspace with many app versions hang — a serial S3 round-trip per version, held inside
+    // the fork transaction. Collect each app's current version here; intersect with raw versions below.
+    let mut latest_version_ids: HashSet<i64> = HashSet::new();
 
     // Clone apps with new IDs
     for app in apps {
+        if let Some(&current_version) = app.versions.last() {
+            latest_version_ids.insert(current_version);
+        }
         let new_app_id = sqlx::query_scalar!(
             "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms, custom_path)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -4615,6 +5510,7 @@ async fn clone_apps(
     }
 
     let mut version_id_mapping: HashMap<i64, i64> = HashMap::new();
+    let mut raw_version_ids: HashSet<i64> = HashSet::new();
 
     {
         // Clone app versions
@@ -4630,6 +5526,9 @@ async fn clone_apps(
 
         for version in app_versions {
             if let Some(&new_app_id) = app_id_mapping.get(&version.app_id) {
+                if version.raw_app {
+                    raw_version_ids.insert(version.id);
+                }
                 let new_version_id = sqlx::query_scalar!(
                     "INSERT INTO app_version (app_id, value, created_by, created_at, raw_app)
                  VALUES ($1, $2, $3, $4, $5) RETURNING id",
@@ -4647,9 +5546,16 @@ async fn clone_apps(
         }
     }
 
-    // Clone app bundles for raw apps
-    if !version_id_mapping.is_empty() {
-        let old_ids: Vec<i64> = version_id_mapping.keys().copied().collect();
+    // The bundles worth cloning: each raw app's current version (latest ∩ raw). Everything else either
+    // has no bundle (low-code apps) or an unreachable one (older versions), so we don't touch S3 for it.
+    let bundle_version_ids: HashSet<i64> = latest_version_ids
+        .intersection(&raw_version_ids)
+        .copied()
+        .collect();
+
+    // Clone app bundles — only the current version of each raw app (see bundle_version_ids).
+    if !bundle_version_ids.is_empty() {
+        let old_ids: Vec<i64> = bundle_version_ids.iter().copied().collect();
         let bundles = sqlx::query!(
             "SELECT app_version_id, file_type, data FROM app_bundles
              WHERE app_version_id = ANY($1) AND w_id = $2",
@@ -4685,40 +5591,31 @@ async fn clone_apps(
             let object_store = windmill_object_store::get_object_store().await;
             if let Some(os) = object_store {
                 for (&old_version_id, &new_version_id) in &version_id_mapping {
+                    if !bundle_version_ids.contains(&old_version_id) {
+                        continue;
+                    }
                     for file_type in &["js", "css"] {
                         if cloned_from_db.contains(&(old_version_id, file_type.to_string())) {
                             continue;
                         }
-                        let src_path = format!(
-                            "/app_bundles/{}/{}.{}",
-                            source_workspace_id, old_version_id, file_type
-                        );
-                        let get_result = os
-                            .get(&windmill_object_store::object_store_reexports::Path::from(
-                                src_path,
-                            ))
-                            .await;
-                        match get_result {
-                            Ok(result) => {
-                                let data = result.bytes().await.map_err(
-                                    windmill_object_store::object_store_error_to_error,
-                                )?;
-                                let dst_path = format!(
-                                    "/app_bundles/{}/{}.{}",
-                                    target_workspace_id, new_version_id, file_type
-                                );
-                                os.put(
-                                    &windmill_object_store::object_store_reexports::Path::from(
-                                        dst_path.clone(),
-                                    ),
-                                    data.into(),
-                                )
-                                .await
-                                .map_err(
-                                    windmill_object_store::object_store_error_to_error,
-                                )?;
+                        // Prefer a server-side copy (no bytes through the backend). A missing source —
+                        // e.g. a raw app with a js bundle but no css — surfaces as NotFound and is
+                        // skipped. Not every object-store provider supports server-side copy, so fall
+                        // back to download+upload on any other error.
+                        let src_path =
+                            windmill_object_store::object_store_reexports::Path::from(format!(
+                                "/app_bundles/{}/{}.{}",
+                                source_workspace_id, old_version_id, file_type
+                            ));
+                        let dst_path =
+                            windmill_object_store::object_store_reexports::Path::from(format!(
+                                "/app_bundles/{}/{}.{}",
+                                target_workspace_id, new_version_id, file_type
+                            ));
+                        match os.copy(&src_path, &dst_path).await {
+                            Ok(()) => {
                                 tracing::info!(
-                                    "Cloned app bundle from S3: {}.{} -> {}.{}",
+                                    "Cloned app bundle in object store: {}.{} -> {}.{}",
                                     old_version_id,
                                     file_type,
                                     new_version_id,
@@ -4726,12 +5623,39 @@ async fn clone_apps(
                                 );
                             }
                             Err(windmill_object_store::object_store_reexports::ObjectStoreError::NotFound { .. }) => {
-                                // No bundle in S3 for this version/type, skip
+                                // No bundle in the object store for this version/type, skip
                             }
-                            Err(e) => {
-                                return Err(
-                                    windmill_object_store::object_store_error_to_error(e),
+                            Err(copy_err) => {
+                                // Provider may not support server-side copy — fall back to get+put.
+                                tracing::warn!(
+                                    "object store copy failed ({copy_err:#}), falling back to get+put for app bundle {}.{}",
+                                    old_version_id, file_type
                                 );
+                                match os.get(&src_path).await {
+                                    Ok(result) => {
+                                        let data = result.bytes().await.map_err(
+                                            windmill_object_store::object_store_error_to_error,
+                                        )?;
+                                        os.put(&dst_path, data.into()).await.map_err(
+                                            windmill_object_store::object_store_error_to_error,
+                                        )?;
+                                        tracing::info!(
+                                            "Cloned app bundle via get+put fallback: {}.{} -> {}.{}",
+                                            old_version_id,
+                                            file_type,
+                                            new_version_id,
+                                            file_type
+                                        );
+                                    }
+                                    Err(windmill_object_store::object_store_reexports::ObjectStoreError::NotFound { .. }) => {
+                                        // No bundle for this version/type, skip
+                                    }
+                                    Err(e) => {
+                                        return Err(
+                                            windmill_object_store::object_store_error_to_error(e),
+                                        );
+                                    }
+                                }
                             }
                         }
                     }
@@ -4905,10 +5829,12 @@ async fn create_workspace_fork_branch(
     Path(w_id): Path<String>,
     Json(nw): Json<CreateWorkspaceFork>,
 ) -> JsonResult<Vec<Uuid>> {
+    // Pre-check the fork guards before creating any git branch, so we don't leave orphaned branches
+    // behind when the follow-up create_workspace_fork would be rejected anyway.
+    enforce_fork_depth(&db, &w_id, 0).await?;
+    #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
-        return Err(Error::BadRequest(format!(
-            "Forking workspaces is not available on app.windmill.dev"
-        )));
+        enforce_cloud_fork_cap(&db, &w_id).await?;
     }
 
     if *DISABLE_WORKSPACE_FORK {
@@ -4927,7 +5853,30 @@ async fn create_workspace_fork_branch(
         return Err(Error::PermissionDenied(msg));
     }
 
-    validate_fork_workspace_id(&nw.id)?;
+    // Two-phase create for git-synced workspaces: this endpoint only creates the git branch(es) and
+    // validates up front; it does NOT create the workspace row. The caller follows up with
+    // `create_workspace_fork`, which inserts the row and applies the dev designation + prod lock +
+    // member copy. So the dev/lock/copy_members fields here are validated only — they are acted on by
+    // that second call. Validating early lets a bad request fail before any branch is created.
+    if nw.is_dev_workspace {
+        validate_dev_workspace_id(&nw.id)?;
+        // Reject a bad cosmetic label before any git branch is created (acted on in create_workspace_fork).
+        let label = normalize_dev_workspace_label(nw.dev_workspace_label.clone())?;
+        reject_dev_label_matching_tracked_branch(&db, label.as_deref(), &[&w_id]).await?;
+        ensure_dev_parent_is_root(&db, &w_id).await?;
+        // Reject before creating any git branch if the parent already has a dev workspace,
+        // otherwise the deferred branch-creation job leaves a dangling branch on the synced repos.
+        ensure_no_existing_dev_workspace(&db, &w_id).await?;
+        // Creating the canonical dev consumes the parent's one-dev-per-prod slot (and locking the
+        // parent mutates its protection rules), so require admin of the parent regardless of the lock
+        // flags — mirrors attach/detach, which are prod-admin gated. Without this a non-admin forker
+        // could claim the dev slot. Enforced in this first phase too so the request fails before any
+        // git branch is created rather than leaving dangling branches.
+        require_admin(authed.is_admin, &authed.username)?;
+    } else {
+        validate_fork_workspace_id(&nw.id)?;
+    }
+    validate_workspace_name(&nw.name)?;
 
     // Fail before creating any git branch so a name conflict doesn't leave a
     // dangling branch on the synced repos.
@@ -5060,24 +6009,229 @@ async fn apply_forked_datatable(
     Ok(())
 }
 
+/// Cloud: require the fork/dev's root (billing) workspace be premium; returns the resolved root id.
+#[cfg(feature = "cloud")]
+async fn require_cloud_fork_premium(db: &DB, parent_workspace_id: &str) -> Result<String> {
+    let root =
+        windmill_common::workspaces::get_billing_workspace_id(db, parent_workspace_id).await?;
+    if !windmill_common::workspaces::get_team_plan_status(db, &root)
+        .await?
+        .premium
+    {
+        return Err(Error::BadRequest(
+            "Creating a fork or dev workspace on the cloud requires a paid team plan. Upgrade the workspace first.".to_string(),
+        ));
+    }
+    Ok(root)
+}
+
+/// Cloud: reject if adding `incoming` fork/dev workspaces would push `root`'s family over its per-seat
+/// allotment. `incoming` is the number of workspaces the operation adds to the family — 1 for a plain
+/// create, but `1 + candidate_subtree` for an attach whose candidate already has child forks.
+#[cfg(feature = "cloud")]
+async fn enforce_cloud_fork_count(db: &DB, root: &str, incoming: i64) -> Result<()> {
+    let seats = windmill_common::workspaces::count_paid_seats(db, root).await?;
+    let per_seat = *MAX_FORKS_PER_SEAT;
+    // Any premium workspace has at least one paid seat, so floor the seat count at 1.
+    let allowed = seats.max(1) * per_seat;
+
+    let existing = windmill_common::workspaces::count_workspace_forks(db, root).await?;
+    let projected = existing + incoming;
+    if projected > allowed {
+        return Err(Error::BadRequest(format!(
+            "Fork limit reached: this would bring the workspace family to {projected} fork(s), over the cap of {allowed} ({seats} paid seat(s) × {per_seat} per seat). Delete a fork or add seats."
+        )));
+    }
+
+    Ok(())
+}
+
+/// Cloud-only guard for creating a fork/dev workspace. Forks piggyback on the parent's plan (a fork
+/// inherits the root's premium and meters its usage into the root's bill), so forking is limited to
+/// premium workspaces and capped at `MAX_FORKS_PER_SEAT` per paid (developer) seat of the root.
+#[cfg(feature = "cloud")]
+async fn enforce_cloud_fork_cap(db: &DB, parent_workspace_id: &str) -> Result<()> {
+    let root = require_cloud_fork_premium(db, parent_workspace_id).await?;
+    enforce_cloud_fork_count(db, &root, 1).await
+}
+
+/// General guardrail (all builds): reject creating a fork/dev under `parent` when it would nest deeper
+/// than `MAX_FORK_DEPTH`. `added_subtree_height` is the height of the subtree grafted below the new
+/// node — 0 for a plain fork, or the candidate's own subtree height for an attach.
+async fn enforce_fork_depth(
+    db: &DB,
+    parent_workspace_id: &str,
+    added_subtree_height: i64,
+) -> Result<()> {
+    let parent_depth =
+        windmill_common::workspaces::fork_chain_depth(db, parent_workspace_id).await?;
+    // The new node sits one level below the parent; its deepest descendant adds the grafted height.
+    let resulting_depth = parent_depth + 1 + added_subtree_height;
+    if resulting_depth > *MAX_FORK_DEPTH {
+        return Err(Error::BadRequest(format!(
+            "Fork depth limit reached: forks can be nested at most {} level(s) deep, but this would create a fork at depth {}. Fork from a workspace closer to the root instead.",
+            *MAX_FORK_DEPTH, resulting_depth
+        )));
+    }
+    Ok(())
+}
+
+/// True if `raw` (the text form of a `json` value) contains a genuine `\u0000`
+/// NUL escape: a `u0000` preceded by an ODD run of backslashes. Mirrors the
+/// parity rule in `strip_null_chars` (windmill-api `apps.rs`) — an even run
+/// (`\\u0000`) is an escaped backslash then the literal text "u0000" (common in
+/// minified JS) and is jsonb-safe. A genuine NUL is exactly what the
+/// `json`→`jsonb` re-encode in `clone_apps` / `clone_flows` rejects with
+/// SQLSTATE 22P05.
+fn json_text_has_nul_escape(raw: &str) -> bool {
+    let bytes = raw.as_bytes();
+    let mut search_from = 0;
+    while let Some(rel) = raw[search_from..].find("u0000") {
+        let at = search_from + rel;
+        let mut backslashes = 0;
+        let mut j = at;
+        while j > 0 && bytes[j - 1] == b'\\' {
+            backslashes += 1;
+            j -= 1;
+        }
+        if backslashes % 2 == 1 {
+            return true;
+        }
+        search_from = at + 5;
+    }
+    false
+}
+
+/// SQLSTATE 22P05 (`untranslatable_character`) is what Postgres raises for
+/// "unsupported Unicode escape sequence" when a `json` value carrying a genuine
+/// `\u0000` is re-encoded to `jsonb` — the exact failure the per-row `json`
+/// clones (`clone_apps`, `clone_flows`) hit when a source item holds a NUL.
+fn is_unsupported_unicode_escape(e: &Error) -> bool {
+    matches!(
+        e,
+        Error::SqlErr { error, .. }
+            if error.as_database_error().and_then(|d| d.code()).as_deref() == Some("22P05")
+    )
+}
+
+/// After a fork clone aborts on a NUL escape, locate the offending source items
+/// so the error can name them. Reads the committed source workspace on the pool
+/// (the clone transaction is already poisoned and unusable). Only the `json`
+/// columns re-encoded to `jsonb` during the clone can trigger the failure:
+/// `app_version.value` (clone_apps) and `flow_version.schema` (clone_flows).
+/// Best-effort — returns an empty list rather than erroring if a probe query
+/// fails, so the caller can still surface a generic message.
+async fn find_nul_escape_locations(db: &DB, workspace_id: &str) -> Vec<String> {
+    let mut apps: std::collections::BTreeSet<String> = Default::default();
+    if let Ok(rows) = sqlx::query(
+        "SELECT a.path AS path, av.value::text AS value
+         FROM app_version av JOIN app a ON a.id = av.app_id
+         WHERE a.workspace_id = $1 AND av.value IS NOT NULL",
+    )
+    .bind(workspace_id)
+    .fetch_all(db)
+    .await
+    {
+        for row in rows {
+            let value: String = row.get("value");
+            if json_text_has_nul_escape(&value) {
+                apps.insert(row.get::<String, _>("path"));
+            }
+        }
+    }
+
+    let mut flows: std::collections::BTreeSet<String> = Default::default();
+    if let Ok(rows) = sqlx::query(
+        "SELECT fv.path AS path, fv.schema::text AS schema
+         FROM flow_version fv
+         WHERE fv.workspace_id = $1 AND fv.schema IS NOT NULL",
+    )
+    .bind(workspace_id)
+    .fetch_all(db)
+    .await
+    {
+        for row in rows {
+            let schema: String = row.get("schema");
+            if json_text_has_nul_escape(&schema) {
+                flows.insert(row.get::<String, _>("path"));
+            }
+        }
+    }
+
+    apps.into_iter()
+        .map(|p| format!("app: {p}"))
+        .chain(flows.into_iter().map(|p| format!("flow: {p}")))
+        .collect()
+}
+
 async fn create_workspace_fork(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(parent_workspace_id): Path<String>,
     Json(nw): Json<CreateWorkspaceFork>,
 ) -> Result<String> {
+    enforce_fork_depth(&db, &parent_workspace_id, 0).await?;
+    #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
-        return Err(Error::BadRequest(format!(
-            "Forking workspaces is not available on app.windmill.dev"
-        )));
+        enforce_cloud_fork_cap(&db, &parent_workspace_id).await?;
     }
 
-    validate_fork_workspace_id(&nw.id)?;
+    if nw.is_dev_workspace {
+        validate_dev_workspace_id(&nw.id)?;
+    } else {
+        validate_fork_workspace_id(&nw.id)?;
+    }
+    validate_workspace_name(&nw.name)?;
+    // Cosmetic label only applies to dev workspaces; a non-dev fork stores NULL.
+    let dev_workspace_label = if nw.is_dev_workspace {
+        let label = normalize_dev_workspace_label(nw.dev_workspace_label.clone())?;
+        reject_dev_label_matching_tracked_branch(&db, label.as_deref(), &[&parent_workspace_id])
+            .await?;
+        label
+    } else {
+        None
+    };
     // Check the id conflict before the CE workspace-count limit so that
     // re-using a taken (possibly archived) fork id reports the actual
     // conflict instead of a misleading "maximum number of workspaces" error.
     check_fork_w_id_conflict(&db, &nw.id).await?;
     purge_stale_fork_diff_state(&db, &nw.id).await?;
+    // A previously deleted fork with this id may have left ducklake namespaces behind if its
+    // physical cleanup failed after the delete committed (registry rows are the durable
+    // ledger — no FK, they outlive the workspace). Retry that cleanup now, and refuse to
+    // proceed while any metadata schema still can't be dropped: creating the fork anyway
+    // would silently reattach the deterministic namespace and its stale tables. Data-file
+    // leftovers alone don't block — once the schema is gone they are inert (a deleted fork's
+    // `$res:` storage resource is gone forever, so they may never resolve again), and the
+    // surviving registry row has the next successful same-prefix cleanup sweep them.
+    // `$res:` fallback = the workspace being forked: the deleted fork's resource clones came
+    // from a parent, so the new parent is the natural donor for the retry's credentials.
+    let leftover_issues = crate::workspaces_extra::drop_forked_ducklake_namespaces_impl(
+        &db,
+        &nw.id,
+        Some(&parent_workspace_id),
+    )
+    .await?;
+    let blocking: Vec<&str> = leftover_issues
+        .iter()
+        .filter(|i| i.blocking)
+        .map(|i| i.msg.as_str())
+        .collect();
+    if !blocking.is_empty() {
+        return Err(Error::BadRequest(format!(
+            "a previously deleted workspace with id '{}' left ducklake namespaces that could \
+             not be cleaned up: {}; retry once the catalog is reachable again",
+            nw.id,
+            blocking.join("; ")
+        )));
+    }
+    for i in &leftover_issues {
+        tracing::warn!(
+            "creating fork {}: leftover ducklake cleanup: {}",
+            nw.id,
+            i.msg
+        );
+    }
 
     #[cfg(not(feature = "enterprise"))]
     _check_nb_of_workspaces(&db).await?;
@@ -5098,18 +6252,30 @@ async fn create_workspace_fork(
         return Err(Error::PermissionDenied(msg));
     }
 
+    if nw.is_dev_workspace {
+        ensure_dev_parent_is_root(&db, &parent_workspace_id).await?;
+        // Creating the canonical dev consumes the parent's one-dev-per-prod slot (and locking prod
+        // mutates its protection rules), so require admin of the parent regardless of the lock flags —
+        // mirrors attach/detach, which are prod-admin gated. Without this a non-admin forker could
+        // claim the dev slot (and, without member copy, prod admins might not even see it to detach).
+        require_admin(authed.is_admin, &authed.username)?;
+        ensure_no_existing_dev_workspace(&db, &parent_workspace_id).await?;
+    }
+
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
     let forked_id = nw.id;
 
     sqlx::query!(
         "INSERT INTO workspace
-            (id, name, owner, parent_workspace_id)
-            VALUES ($1, $2, $3, $4)",
+            (id, name, owner, parent_workspace_id, is_dev_workspace, dev_workspace_label)
+            VALUES ($1, $2, $3, $4, $5, $6)",
         forked_id,
         nw.name,
         authed.email,
         parent_workspace_id,
+        nw.is_dev_workspace,
+        dev_workspace_label,
     )
     .execute(&mut *tx)
     .await?;
@@ -5124,11 +6290,24 @@ async fn create_workspace_fork(
     .execute(&mut *tx)
     .await?;
 
+    // Optionally bring the parent's members into the fork (a shared dev env). Dev-only: it's part of the
+    // dev-workspace feature (and the frontend only offers it there), so the backend enforces it rather
+    // than trusting the client — copying the parent's whole team into an ordinary throwaway fork isn't
+    // intended. Dev creation is already admin-gated, so this is transitively admin-only too. Done before
+    // the explicit creator insert below so the creator (a parent member) is copied with full metadata
+    // (operator/role/is_service_account/added_via), not the bare row the insert alone would leave.
+    if nw.copy_members && nw.is_dev_workspace {
+        copy_workspace_members(&mut tx, &parent_workspace_id, &forked_id).await?;
+    }
+
+    // Ensure the creator is a member of the fork even without copy_members (or if they aren't a parent
+    // member). No-op when copy_members already brought their full row.
     sqlx::query!(
         "INSERT INTO usr
            (workspace_id, email, username, is_admin)
            SELECT $1, email, username, is_admin FROM usr
          WHERE workspace_id = $3 AND email = $2
+         ON CONFLICT DO NOTHING
         ",
         forked_id,
         authed.email,
@@ -5138,7 +6317,39 @@ async fn create_workspace_fork(
     .await?;
 
     // Clone all data from the parent workspace using Rust implementation
-    clone_workspace_data(&mut tx, &parent_workspace_id, &forked_id, &authed.email).await?;
+    if let Err(e) = clone_workspace_data(
+        &mut tx,
+        &db,
+        &parent_workspace_id,
+        &forked_id,
+        &authed.email,
+    )
+    .await
+    {
+        // A genuine `\u0000` in a source `json` value (`app_version.value` /
+        // `flow_version.schema`) aborts the clone when it is re-encoded to jsonb:
+        // Postgres raises 22P05 with only "unsupported Unicode escape sequence"
+        // and no hint at which item. Pinpoint the offenders so the user can fix
+        // them — re-saving strips the NUL, and the usual source is a binary file
+        // (e.g. `.DS_Store`) accidentally bundled into a raw app.
+        if is_unsupported_unicode_escape(&e) {
+            drop(tx); // release the poisoned connection before probing on the pool
+            let locations = find_nul_escape_locations(&db, &parent_workspace_id).await;
+            let where_clause = if locations.is_empty() {
+                "The offending item could not be pinpointed — check recently edited apps and flows."
+                    .to_string()
+            } else {
+                format!("Offending item(s):\n  - {}", locations.join("\n  - "))
+            };
+            return Err(Error::BadRequest(format!(
+                "Cannot fork workspace '{parent_workspace_id}': an item contains a NUL character \
+                 (\\u0000) that Postgres cannot store as jsonb. Re-save the item to remove it \
+                 (the editor strips NUL automatically), or delete the offending binary/character \
+                 from its source (often a file like .DS_Store bundled into a raw app). {where_clause}"
+            )));
+        }
+        return Err(e);
+    }
 
     // Clone triggers and schedules unconditionally, always with mode='disabled' /
     // enabled=false. Disabled rows have no side effects (no listener
@@ -5149,6 +6360,54 @@ async fn create_workspace_fork(
     // Update forked datatable settings to point to new databases
     for fdt in &nw.forked_datatables {
         apply_forked_datatable(&db, &mut tx, &parent_workspace_id, &forked_id, fdt).await?;
+    }
+
+    // The settings clone copies the source's ducklake config verbatim — including a parent
+    // fork's own `fork_behavior` stamps. Sharing is a per-fork-creation choice, never
+    // inherited: reset any cloned stamps first, then apply this fork's requested list.
+    sqlx::query!(
+        r#"UPDATE workspace_settings
+           SET ducklake = jsonb_set(ducklake, '{ducklakes}', (
+               SELECT COALESCE(jsonb_object_agg(key, value - 'fork_behavior'), '{}'::jsonb)
+               FROM jsonb_each(ducklake->'ducklakes')
+           ))
+           WHERE workspace_id = $1 AND jsonb_typeof(ducklake->'ducklakes') = 'object'"#,
+        &forked_id,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // Stamp the per-lake ducklake fork choice into the fork's own settings. Only the `shared`
+    // opt-out needs stamping — absent `fork_behavior` already means isolated (the default),
+    // so unlisted lakes and API callers that omit the field stay safe.
+    for lake in &nw.shared_ducklakes {
+        let stamped = sqlx::query_scalar!(
+            r#"UPDATE workspace_settings
+               SET ducklake = jsonb_set(ducklake, ARRAY['ducklakes', $2, 'fork_behavior'], '"shared"')
+               WHERE workspace_id = $1 AND ducklake->'ducklakes' ? $2
+               RETURNING 1 AS "one!""#,
+            &forked_id,
+            lake,
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if stamped.is_none() {
+            return Err(Error::BadRequest(format!(
+                "cannot mark ducklake `{lake}` as shared: no such lake in the workspace settings"
+            )));
+        }
+    }
+
+    // Lock the parent ("prod") so edits are funneled through this dev workspace.
+    let locked_prod = nw.is_dev_workspace && (nw.lock_prod_deploy || nw.lock_prod_forking);
+    if locked_prod {
+        lock_prod_workspace(
+            &mut tx,
+            &parent_workspace_id,
+            nw.lock_prod_deploy,
+            nw.lock_prod_forking,
+        )
+        .await?;
     }
 
     audit_log(
@@ -5163,7 +6422,358 @@ async fn create_workspace_fork(
     .await?;
     tx.commit().await?;
 
+    // A pre-creation lookup could have cached an EMPTY ancestor chain for this id, which
+    // would bypass ducklake fork isolation for the TTL.
+    windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&forked_id);
+
+    if locked_prod {
+        windmill_common::workspaces::invalidate_protection_rules_cache(&parent_workspace_id);
+    }
+
     Ok(format!("Created forked workspace {}", &forked_id))
+}
+
+#[derive(Deserialize)]
+struct AttachDevWorkspace {
+    dev_workspace_id: String,
+    #[serde(default)]
+    lock_prod_deploy: bool,
+    #[serde(default)]
+    lock_prod_forking: bool,
+    /// Cosmetic display label for the attached dev workspace: 'dev' | 'staging'. None defaults to 'dev'.
+    #[serde(default)]
+    dev_workspace_label: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct DetachDevWorkspace {
+    dev_workspace_id: String,
+}
+
+/// Pair an existing standalone workspace to this workspace ("prod") as its dev workspace, without
+/// cloning any data (both already exist). Sets the dev's parent + deploy_to to prod and, optionally,
+/// locks prod against direct deployment.
+async fn attach_dev_workspace(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(prod_w_id): Path<String>,
+    Json(req): Json<AttachDevWorkspace>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    // Attaching grafts the candidate (and its own fork subtree) under prod, so enforce the general
+    // depth limit on the deepest resulting node.
+    let candidate_height =
+        windmill_common::workspaces::fork_subtree_height(&db, &req.dev_workspace_id).await?;
+    enforce_fork_depth(&db, &prod_w_id, candidate_height).await?;
+
+    // Attaching reparents a workspace under prod (one dev per prod, admin-gated) and it then draws
+    // prod's plan, so hold it to the same premium requirement as creating a fork. Only enforce the
+    // per-seat count when the attach actually adds a new workspace to the family: re-designating a
+    // workspace already under this root as its dev doesn't increase the descendant count.
+    #[cfg(feature = "cloud")]
+    if *CLOUD_HOSTED {
+        let root = require_cloud_fork_premium(&db, &prod_w_id).await?;
+        // Only count against the cap when this attach adds workspaces to the family (candidate not
+        // already under this root). The candidate may itself have child forks, so reserve slots for its
+        // whole incoming subtree (the candidate + its descendants), not just one.
+        if windmill_common::workspaces::get_billing_workspace_id(&db, &req.dev_workspace_id).await?
+            != root
+        {
+            let incoming =
+                1 + windmill_common::workspaces::count_workspace_forks(&db, &req.dev_workspace_id)
+                    .await?;
+            enforce_cloud_fork_count(&db, &root, incoming).await?;
+        }
+    }
+
+    let dev_w_id = req.dev_workspace_id;
+    if dev_w_id == prod_w_id {
+        return Err(Error::BadRequest(
+            "A workspace cannot be its own dev workspace".to_string(),
+        ));
+    }
+
+    // The id is interpolated into a `wm-fork/<branch>/<id>` branch name like any fork.
+    validate_dev_workspace_id(&dev_w_id)?;
+    let dev_workspace_label = normalize_dev_workspace_label(req.dev_workspace_label.clone())?;
+    // The attached workspace keeps its own sync repos and prod keeps its config;
+    // the label branch must not collide with either side's tracked branch.
+    reject_dev_label_matching_tracked_branch(
+        &db,
+        dev_workspace_label.as_deref(),
+        &[&prod_w_id, &dev_w_id],
+    )
+    .await?;
+
+    let dev = sqlx::query!(
+        r#"SELECT parent_workspace_id, deleted FROM workspace WHERE id = $1"#,
+        &dev_w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Workspace {} not found", dev_w_id)))?;
+
+    if dev.deleted {
+        return Err(Error::BadRequest(format!(
+            "Workspace {} is archived",
+            dev_w_id
+        )));
+    }
+    // A candidate that already belongs to a DIFFERENT parent can't be attached. A candidate already
+    // parented to this prod is allowed: it's the recovery path after renaming a dev workspace (the
+    // rename keeps the parent but drops the dev flag), and re-designating an existing fork of this
+    // prod as its dev.
+    if dev
+        .parent_workspace_id
+        .as_deref()
+        .is_some_and(|p| p != prod_w_id)
+    {
+        return Err(Error::BadRequest(format!(
+            "Workspace {} is already a fork or dev workspace of another workspace",
+            dev_w_id
+        )));
+    }
+    // The candidate can't itself be a prod with its own dev workspace (no nested dev chains).
+    ensure_no_existing_dev_workspace(&db, &dev_w_id).await?;
+
+    // Prod must be a root workspace, otherwise attaching could form a parent<->child cycle (e.g.
+    // attaching A as the dev of B when B is already the dev of A), which breaks hierarchy traversal.
+    let prod_has_parent = sqlx::query_scalar!(
+        r#"SELECT (parent_workspace_id IS NOT NULL) AS "has_parent!" FROM workspace WHERE id = $1"#,
+        &prod_w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Workspace {} not found", prod_w_id)))?;
+    if prod_has_parent {
+        return Err(Error::BadRequest(format!(
+            "Workspace {} is itself a fork or dev workspace and cannot be a prod workspace",
+            prod_w_id
+        )));
+    }
+
+    // The caller must be admin of the dev workspace too (or a superadmin).
+    let is_admin_of_dev = sqlx::query_scalar!(
+        "SELECT is_admin FROM usr WHERE workspace_id = $1 AND email = $2",
+        &dev_w_id,
+        &authed.email
+    )
+    .fetch_optional(&db)
+    .await?
+    .unwrap_or(false);
+    if !is_admin_of_dev && !windmill_common::auth::is_super_admin_email(&db, &authed.email).await? {
+        return Err(Error::PermissionDenied(format!(
+            "Attaching workspace '{dev_w_id}' as a dev requires being an admin of it (or a superadmin)"
+        )));
+    }
+
+    ensure_no_existing_dev_workspace(&db, &prod_w_id).await?;
+
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "UPDATE workspace SET parent_workspace_id = $1, is_dev_workspace = true, dev_workspace_label = $3 WHERE id = $2",
+        &prod_w_id,
+        &dev_w_id,
+        dev_workspace_label,
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "UPDATE workspace_settings SET deploy_to = $1 WHERE workspace_id = $2",
+        &prod_w_id,
+        &dev_w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // The attached workspace is now parent-managed like any fork: its own
+    // auto-pull (and webhook), fork PRs, and promotion repos must not stay
+    // live — they'd keep pulling/pushing against its pre-attach tracked
+    // branch. Mirror the fork-creation copy: keep sync repos only, strip the
+    // parent-only fields, and delete any managed webhook after commit.
+    #[allow(unused_mut)]
+    let mut stripped_webhooks: Vec<(String, i64)> = Vec::new();
+    if let Some(git_sync) = sqlx::query_scalar!(
+        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+        &dev_w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten()
+    {
+        if let Ok(mut settings) = serde_json::from_value::<WorkspaceGitSyncSettings>(git_sync) {
+            settings
+                .repositories
+                .retain(|r| !r.use_individual_branch.unwrap_or(false));
+            for r in settings.repositories.iter_mut() {
+                if let Some(hook) = r.auto_pull.as_ref().and_then(|a| a.webhook_id) {
+                    stripped_webhooks.push((r.git_repo_resource_path.clone(), hook));
+                }
+                r.auto_pull = None;
+                r.fork_open_prs = false;
+                r.open_pr_error = None;
+            }
+            let serialized =
+                serde_json::to_value(&settings).map_err(|e| Error::internal_err(e.to_string()))?;
+            sqlx::query!(
+                "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
+                serialized,
+                &dev_w_id
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    if req.lock_prod_deploy || req.lock_prod_forking {
+        lock_prod_workspace(
+            &mut tx,
+            &prod_w_id,
+            req.lock_prod_deploy,
+            req.lock_prod_forking,
+        )
+        .await?;
+    }
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.attach_dev_workspace",
+        ActionKind::Update,
+        &prod_w_id,
+        Some(&dev_w_id),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    // The dev workspace's parent just changed (none -> prod); drop its cached fork->parent mapping
+    // so per-workspace job tags route to the prod family immediately rather than after the TTL.
+    windmill_queue::tags::invalidate_fork_parent_cache(&dev_w_id);
+    // Best-effort: the hooks captured before the strip above are unreachable now
+    // (their auto_pull is gone), so remove them from GitHub.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    for (path, hook_id) in stripped_webhooks {
+        if let Ok(url) = windmill_common::git_sync_ee::resolve_repo_url(&db, &dev_w_id, &path).await
+        {
+            let _ =
+                windmill_common::git_sync_ee::delete_repo_webhook(&db, &dev_w_id, &url, hook_id)
+                    .await;
+        }
+    }
+    // Drop the cached ancestor chains too — the workspace existed BEFORE the attach, so a
+    // cached empty chain reads as "not a fork" and its ducklake jobs would write the shared
+    // lake until the TTL. Descendants' chains also gained the new root.
+    windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&dev_w_id);
+    for id in windmill_common::workspaces::list_fork_descendants(&db, &dev_w_id).await? {
+        windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&id);
+    }
+    // Same reparent invalidates the billing-workspace mapping so its usage meters to prod at once. The
+    // candidate can bring its own fork subtree, whose descendants had resolved their (now-stale) root
+    // to the candidate's old family; invalidate them too so they meter to prod without waiting out the
+    // 60s TTL. Their immediate fork->parent links don't move, so the tag-routing cache needs no change.
+    #[cfg(feature = "cloud")]
+    {
+        windmill_common::workspaces::invalidate_billing_workspace_cache(&dev_w_id);
+        for id in windmill_common::workspaces::list_fork_descendants(&db, &dev_w_id).await? {
+            windmill_common::workspaces::invalidate_billing_workspace_cache(&id);
+        }
+    }
+
+    if req.lock_prod_deploy || req.lock_prod_forking {
+        windmill_common::workspaces::invalidate_protection_rules_cache(&prod_w_id);
+    }
+
+    Ok(format!(
+        "Attached {} as dev workspace of {}",
+        dev_w_id, prod_w_id
+    ))
+}
+
+/// Reverse [`attach_dev_workspace`] / clear the dev designation: unset the dev flag and remove the
+/// prod lock. The workspace keeps its `parent_workspace_id` (it remains an ordinary fork).
+async fn detach_dev_workspace(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(prod_w_id): Path<String>,
+    Json(req): Json<DetachDevWorkspace>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let dev_w_id = req.dev_workspace_id;
+    let is_dev_of_prod = sqlx::query_scalar!(
+        r#"SELECT EXISTS(
+            SELECT 1 FROM workspace
+            WHERE id = $1 AND parent_workspace_id = $2 AND is_dev_workspace
+        )"#,
+        &dev_w_id,
+        &prod_w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+    if !is_dev_of_prod {
+        return Err(Error::BadRequest(format!(
+            "{} is not the dev workspace of {}",
+            dev_w_id, prod_w_id
+        )));
+    }
+
+    let mut tx = db.begin().await?;
+    // A wm-fork- workspace re-designated as dev returns to being a plain fork
+    // (keeps its parent); a standalone workspace that was attached returns to
+    // being standalone — with the parent kept it would still classify as a
+    // fork and deploy to wm-fork/** branches forever.
+    sqlx::query!(
+        "UPDATE workspace SET is_dev_workspace = false,
+         parent_workspace_id = CASE WHEN id LIKE 'wm-fork-%' THEN parent_workspace_id ELSE NULL END
+         WHERE id = $1",
+        &dev_w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    // Only one dev per prod, so detaching it means prod no longer has a dev: drop the lock rule.
+    sqlx::query!(
+        "DELETE FROM workspace_protection_rule WHERE workspace_id = $1 AND name = $2",
+        &prod_w_id,
+        DEV_WORKSPACE_LOCK_RULE_NAME
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.detach_dev_workspace",
+        ActionKind::Update,
+        &prod_w_id,
+        Some(&dev_w_id),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    windmill_common::workspaces::invalidate_protection_rules_cache(&prod_w_id);
+    // The parent link may just have been cleared (standalone workspace that was
+    // attached): drop the caches that resolved it, mirroring attach.
+    windmill_queue::tags::invalidate_fork_parent_cache(&dev_w_id);
+    windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&dev_w_id);
+    for id in windmill_common::workspaces::list_fork_descendants(&db, &dev_w_id).await? {
+        windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&id);
+    }
+    #[cfg(feature = "cloud")]
+    {
+        windmill_common::workspaces::invalidate_billing_workspace_cache(&dev_w_id);
+        for id in windmill_common::workspaces::list_fork_descendants(&db, &dev_w_id).await? {
+            windmill_common::workspaces::invalidate_billing_workspace_cache(&id);
+        }
+    }
+
+    Ok(format!(
+        "Detached dev workspace {} from {}",
+        dev_w_id, prod_w_id
+    ))
 }
 
 async fn edit_workspace(
@@ -5205,6 +6815,10 @@ pub(crate) async fn archive_workspace_impl(
     db: &DB,
     w_id: &str,
     username: &str,
+    // When archiving a dev workspace, its parent prod. The pairing teardown (clear is_dev + drop the
+    // prod's lock) is folded into the same transaction as `deleted = true` so it's atomic with the
+    // archive — a later failure can't strand a half-archived dev that's still flagged/locked.
+    dev_lock_parent: Option<&str>,
 ) -> Result<(usize, usize, usize)> {
     // Step 1: Disable all schedules and clear their queued jobs
     let mut tx = db.begin().await?;
@@ -5245,6 +6859,30 @@ pub(crate) async fn archive_workspace_impl(
     sqlx::query!("UPDATE workspace SET deleted = true WHERE id = $1", w_id)
         .execute(&mut *tx)
         .await?;
+
+    if let Some(prod) = dev_lock_parent {
+        // Dissolve the dev pairing atomically with the archive: clear the canonical-dev flag (so the
+        // archived row no longer occupies the parent's one-dev slot), and drop the prod's lock unless a
+        // replacement dev already holds it (NOT EXISTS sees the just-cleared flag within this tx, so the
+        // row being archived doesn't count).
+        sqlx::query!(
+            "UPDATE workspace SET is_dev_workspace = false WHERE id = $1",
+            w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query!(
+            "DELETE FROM workspace_protection_rule WHERE workspace_id = $1 AND name = $2
+             AND NOT EXISTS (
+                 SELECT 1 FROM workspace
+                 WHERE parent_workspace_id = $1 AND is_dev_workspace AND deleted = false
+             )",
+            prod,
+            DEV_WORKSPACE_LOCK_RULE_NAME
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     tx.commit().await?;
 
@@ -5289,8 +6927,44 @@ async fn archive_workspace(
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
+    // CE caps the number of archived (soft-deleted) workspaces so archiving can't be used to
+    // stockpile hidden workspaces. Enforced here so a second archive is refused up front.
+    #[cfg(not(feature = "enterprise"))]
+    _check_nb_of_archived_workspaces(&db).await?;
+
+    // If this is an attached dev workspace, archiving it leaves the prod with no active dev (the
+    // unique index and user_workspaces both ignore deleted=true), so clear the prod's
+    // dev_workspace_lock too. Gate it on prod-admin since it removes prod's protection rule (mirrors
+    // detach/delete) — a dev-admin who isn't a prod-admin must not be able to unlock prod this way.
+    let dev_lock_parent: Option<String> = sqlx::query_scalar!(
+        "SELECT parent_workspace_id FROM workspace WHERE id = $1 AND is_dev_workspace",
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .flatten();
+    if let Some(ref prod) = dev_lock_parent {
+        let is_prod_admin = sqlx::query_scalar!(
+            "SELECT is_admin FROM usr WHERE workspace_id = $1 AND email = $2",
+            prod,
+            &authed.email
+        )
+        .fetch_optional(&db)
+        .await?
+        .unwrap_or(false);
+        if !is_prod_admin
+            && !windmill_common::auth::is_super_admin_email(&db, &authed.email).await?
+        {
+            return Err(Error::PermissionDenied(format!(
+                "Archiving dev workspace '{w_id}' requires being an admin of its parent prod workspace '{prod}' (or a superadmin)"
+            )));
+        }
+    }
+
+    // The dev pairing teardown (clear is_dev + drop the prod lock) runs inside archive_workspace_impl's
+    // transaction, atomically with `deleted = true`.
     let (schedules_count, canceled_count, deleted_tokens_count) =
-        archive_workspace_impl(&db, &w_id, &authed.username).await?;
+        archive_workspace_impl(&db, &w_id, &authed.username, dev_lock_parent.as_deref()).await?;
 
     // Audit log
     let mut tx = db.begin().await?;
@@ -5324,6 +6998,10 @@ async fn archive_workspace(
     )
     .await?;
     tx.commit().await?;
+
+    if let Some(prod) = dev_lock_parent {
+        windmill_common::workspaces::invalidate_protection_rules_cache(&prod);
+    }
 
     Ok(format!(
         "Archived workspace {}, disabled {} schedules, canceled {} jobs and deleted {} tokens",
@@ -5366,6 +7044,13 @@ async fn unarchive_workspace(
     authed: ApiAuthed,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+
+    // Unarchiving re-activates a soft-deleted workspace, so it must respect the
+    // same CE workspace-count cap as creating one. The archived workspace is
+    // deleted = true and thus excluded from the count until it is restored.
+    #[cfg(not(feature = "enterprise"))]
+    _check_nb_of_workspaces(&db).await?;
+
     let mut tx = db.begin().await?;
     sqlx::query!("UPDATE workspace SET deleted = false WHERE id = $1", &w_id)
         .execute(&mut *tx)
@@ -5494,6 +7179,72 @@ If you do not have an account on {}, login with SSO or ask an admin to create an
     ))
 }
 
+/// Non-admin path for `add_user`: the creator of a fork may bring collaborators into the fork they
+/// created, so a team can work on it without an admin of the fork having to step in. The grant is
+/// deliberately narrow, because a fork holds a full clone of its parent (secrets included) and the
+/// creator may be an ordinary developer:
+/// - only on a fork they created, never on a root workspace;
+/// - only as a developer, so it can never mint an admin (nor an operator, which would need the
+///   workspace's operator settings to be meaningful);
+/// - only for someone who is already a developer or admin of the parent, so pulling them into the
+///   fork cannot widen who can read the parent's data.
+///
+/// Anything outside those bounds stays an admin's call. Returns the username the new member must be
+/// given in the fork.
+async fn authorize_fork_owner_add_user(
+    db: &DB,
+    w_id: &str,
+    authed: &ApiAuthed,
+    nu: &NewWorkspaceUser,
+) -> Result<String> {
+    let parent = windmill_common::workspaces::fork_owned_by(db, w_id, &authed.email)
+        .await?
+        .ok_or_else(|| Error::RequireAdmin(authed.username.clone()))?;
+
+    if nu.is_admin || nu.operator {
+        return Err(Error::PermissionDenied(format!(
+            "as the creator of fork {w_id} you can only add members as developers; ask an admin of \
+             {w_id} for any other role"
+        )));
+    }
+
+    let parent_username = sqlx::query_scalar!(
+        "SELECT username FROM usr
+         WHERE workspace_id = $1 AND email = $2 AND NOT operator AND NOT disabled",
+        parent,
+        nu.email,
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let Some(parent_username) = parent_username else {
+        return Err(Error::PermissionDenied(format!(
+            "as the creator of fork {w_id} you can only add developers or admins of its parent \
+             workspace {parent}; {} is not one, so only an admin of {w_id} can add them",
+            nu.email
+        )));
+    };
+
+    // Ownership of a `u/<username>/` path is decided by the username alone, and the fork holds a
+    // clone of every such path from the parent. Seating the new member on a username other than
+    // their own would therefore hand them that parent user's cloned scripts, variables and secrets
+    // — so their parent username is the only one they may be given here, whatever the caller asked
+    // for (`add_user` otherwise lets the caller choose it when AUTOMATE_USERNAME_CREATION is off).
+    if nu
+        .username
+        .as_deref()
+        .is_some_and(|u| !u.is_empty() && u != parent_username)
+    {
+        return Err(Error::PermissionDenied(format!(
+            "as the creator of fork {w_id} you cannot choose the username of a member you add; {} \
+             joins as '{parent_username}', the username they already have in {parent}",
+            nu.email
+        )));
+    }
+
+    Ok(parent_username)
+}
+
 async fn add_user(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -5501,8 +7252,6 @@ async fn add_user(
     Path(w_id): Path<String>,
     Json(mut nu): Json<NewWorkspaceUser>,
 ) -> Result<(StatusCode, String)> {
-    require_admin(authed.is_admin, &authed.username)?;
-
     #[cfg(not(feature = "enterprise"))]
     if w_id == "admins" {
         return Err(Error::BadRequest(
@@ -5511,6 +7260,12 @@ async fn add_user(
     }
 
     nu.email = nu.email.to_lowercase();
+
+    let fork_owner_username = if !authed.is_admin {
+        Some(authorize_fork_owner_add_user(&db, &w_id, &authed, &nu).await?)
+    } else {
+        None
+    };
 
     #[cfg(feature = "enterprise")]
     if let Some(msg) =
@@ -5547,7 +7302,9 @@ async fn add_user(
     .flatten()
     .unwrap_or(true);
 
-    let username = if automate_username_creation {
+    let username = if let Some(username) = fork_owner_username {
+        username
+    } else if automate_username_creation {
         if nu.username.is_some() && nu.username.unwrap().len() > 0 {
             return Err(Error::BadRequest(
                 "username is not allowed when username creation is automated".to_string(),
@@ -5962,6 +7719,17 @@ async fn change_workspace_color(
 }
 
 async fn get_usage(Extension(db): Extension<DB>, Path(w_id): Path<String>) -> Result<String> {
+    // On cloud, a fork's executions meter against its billing root, so report the root's usage here too;
+    // otherwise the free-execs indicator would show the fork's own (often 0) count while enforcement
+    // applies the root's shared quota. Gated on `*CLOUD_HOSTED` (not just the `cloud` feature, which is
+    // compiled into all EE builds): self-hosted doesn't meter usage this way. Off-fork it resolves to
+    // `w_id` itself anyway.
+    #[cfg(feature = "cloud")]
+    let w_id = if *CLOUD_HOSTED {
+        windmill_common::workspaces::get_billing_workspace_id(&db, &w_id).await?
+    } else {
+        w_id
+    };
     let usage = sqlx::query_scalar!(
         "
     SELECT usage.usage FROM usage
@@ -6166,6 +7934,119 @@ async fn list_protection_rules(
     ))
 }
 
+/// Insert or replace a protection ruleset within an existing transaction. Unlike the
+/// `create_protection_rule` handler (which rejects an existing name), this upserts, so it is safe to
+/// call programmatically when designating a dev/prod pair. Callers MUST invalidate the
+/// protection-rules cache (`invalidate_protection_rules_cache`) after the transaction commits.
+async fn upsert_protection_rule(
+    tx: &mut Transaction<'_, Postgres>,
+    w_id: &str,
+    name: &str,
+    rules: ProtectionRules,
+    bypass_groups: &[String],
+    bypass_users: &[String],
+) -> Result<()> {
+    sqlx::query!(
+        r#"
+            INSERT INTO workspace_protection_rule (workspace_id, name, rules, bypass_groups, bypass_users)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (workspace_id, name)
+            DO UPDATE SET rules = EXCLUDED.rules,
+                          bypass_groups = EXCLUDED.bypass_groups,
+                          bypass_users = EXCLUDED.bypass_users
+        "#,
+        w_id,
+        name,
+        rules.bits(),
+        bypass_groups,
+        bypass_users,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Lock a prod workspace by applying the reserved dev-workspace lock rule with the selected
+/// restrictions (block direct deployment and/or ad-hoc forking). Non-admins are then funneled
+/// through the one dev workspace; admins bypass the rules (their existing escape hatch).
+async fn lock_prod_workspace(
+    tx: &mut Transaction<'_, Postgres>,
+    prod_w_id: &str,
+    block_deploy: bool,
+    block_forking: bool,
+) -> Result<()> {
+    let mut rules = Vec::new();
+    if block_deploy {
+        rules.push(ProtectionRuleKind::DisableDirectDeployment);
+    }
+    if block_forking {
+        rules.push(ProtectionRuleKind::DisableWorkspaceForking);
+    }
+    if rules.is_empty() {
+        return Ok(());
+    }
+    upsert_protection_rule(
+        tx,
+        prod_w_id,
+        DEV_WORKSPACE_LOCK_RULE_NAME,
+        ProtectionRules::from(&rules),
+        &[],
+        &[],
+    )
+    .await
+}
+
+/// Error out if `parent_w_id` already has an active (non-archived) dev workspace. Mirrors the
+/// partial unique index `workspace_canonical_dev_idx` with a friendly message.
+async fn ensure_no_existing_dev_workspace(db: &DB, parent_w_id: &str) -> Result<()> {
+    let existing = sqlx::query_scalar!(
+        "SELECT id FROM workspace WHERE parent_workspace_id = $1 AND is_dev_workspace AND deleted = false",
+        parent_w_id
+    )
+    .fetch_optional(db)
+    .await?;
+    if let Some(existing) = existing {
+        return Err(Error::BadRequest(format!(
+            "Workspace '{}' already has a dev workspace ('{}'). Detach it before creating another.",
+            parent_w_id, existing
+        )));
+    }
+    Ok(())
+}
+
+/// A dev workspace pairs with a root prod workspace; nesting dev workspaces (a dev of a dev) isn't
+/// supported and would muddle the prod<->dev relationship.
+async fn ensure_dev_parent_is_root(db: &DB, parent_w_id: &str) -> Result<()> {
+    let parent_is_fork = sqlx::query_scalar!(
+        r#"SELECT (parent_workspace_id IS NOT NULL) AS "is_fork!" FROM workspace WHERE id = $1"#,
+        parent_w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .unwrap_or(false);
+    if parent_is_fork {
+        return Err(Error::BadRequest(format!(
+            "Cannot create a dev workspace of '{}' because it is itself a fork or dev workspace.",
+            parent_w_id
+        )));
+    }
+    Ok(())
+}
+
+/// `dev_workspace_lock` is owned by the dev-workspace feature (attach/detach/archive/delete create and
+/// remove it by name). Reserve it from the public protection-rule API so a user-managed rule can't
+/// collide: otherwise the feature's name-based cleanup would clobber the user's rule, or a manual edit
+/// could weaken the feature's lock.
+fn reject_reserved_rule_name(name: &str) -> Result<()> {
+    if name == DEV_WORKSPACE_LOCK_RULE_NAME {
+        return Err(Error::BadRequest(format!(
+            "'{}' is a reserved protection-rule name managed by the dev workspace feature",
+            DEV_WORKSPACE_LOCK_RULE_NAME
+        )));
+    }
+    Ok(())
+}
+
 /// Create a new protection rule
 async fn create_protection_rule(
     authed: ApiAuthed,
@@ -6174,6 +8055,7 @@ async fn create_protection_rule(
     Json(req): Json<CreateProtectionRuleRequest>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+    reject_reserved_rule_name(&req.name)?;
 
     let mut tx = db.begin().await?;
 
@@ -6248,6 +8130,7 @@ async fn update_protection_rule(
     Json(req): Json<UpdateProtectionRuleRequest>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+    reject_reserved_rule_name(&rule_name)?;
 
     let mut tx = db.begin().await?;
 
@@ -6322,6 +8205,7 @@ async fn delete_protection_rule(
     Path((w_id, rule_name)): Path<(String, String)>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+    reject_reserved_rule_name(&rule_name)?;
 
     let mut tx = db.begin().await?;
 
@@ -6379,6 +8263,27 @@ pub struct WorkspaceComparison {
     pub skipped_comparison: bool,
     pub diffs: Vec<WorkspaceDiffRow>,
     pub summary: CompareSummary,
+    /// Items that exist in the diff but were dropped from `diffs` because they
+    /// are not visible to the caller (excluded from the partial deploy). Split
+    /// by direction: `hidden_ahead` lives in the fork, `hidden_behind` in the
+    /// parent. `by_kind`/`total` are always populated (aggregate, no names);
+    /// `items` (kind+path) is only filled for a caller who is admin of that side
+    /// — never leak the paths of items the ACL is hiding from a regular user.
+    pub hidden_ahead: HiddenItemsSummary,
+    pub hidden_behind: HiddenItemsSummary,
+}
+
+#[derive(Serialize, Default)]
+pub struct HiddenItemsSummary {
+    pub total: usize,
+    pub by_kind: std::collections::BTreeMap<String, usize>,
+    pub items: Vec<HiddenItem>,
+}
+
+#[derive(Serialize)]
+pub struct HiddenItem {
+    pub kind: String,
+    pub path: String,
 }
 
 #[derive(Serialize, Default)]
@@ -6395,6 +8300,7 @@ pub struct CompareSummary {
     pub folders_changed: usize,
     pub schedules_changed: usize,
     pub triggers_changed: usize,
+    pub datatable_migrations_changed: usize,
     pub conflicts: usize, // Items that are both ahead and behind
 }
 
@@ -6463,13 +8369,27 @@ async fn compare_workspaces(
             skipped_comparison,
             diffs: vec![],
             summary: Default::default(),
+            hidden_ahead: Default::default(),
+            hidden_behind: Default::default(),
         }));
     }
 
+    // Honor ws_specific at read time: a workspace-specific resource/variable keeps its own value per
+    // environment, so it must never appear in the normal diff (the per-item compare suppresses it,
+    // but a cached `has_changes=true` row is trusted without re-running that compare, so filter those
+    // here too). Seeding the initial copy onto a side that lacks it is a separate explicit action
+    // (the "Create in <other>" button on the Workspace-specific list), not part of the diff. The row
+    // is left intact, so unpinning resurfaces it without a re-tally.
     let diff_items = sqlx::query_as!(
         WorkspaceDiffRow,
         "SELECT path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork FROM workspace_diff
-        WHERE source_workspace_id = $1 AND fork_workspace_id = $2",
+        WHERE source_workspace_id = $1 AND fork_workspace_id = $2
+        AND NOT EXISTS (
+            SELECT 1 FROM ws_specific ws
+            WHERE ws.path = workspace_diff.path
+              AND ws.item_kind = workspace_diff.kind
+              AND ws.workspace_id IN (workspace_diff.source_workspace_id, workspace_diff.fork_workspace_id)
+        )",
         source_workspace_id,
         fork_workspace_id,
     )
@@ -6571,6 +8491,15 @@ async fn compare_workspaces(
             "folder" => Some(
                 compare_two_folders(&db, &source_workspace_id, &fork_workspace_id, &item.path)
                     .await?,
+            ),
+            "datatable_migration" => Some(
+                crate::datatable_migrations::compare_two_datatable_migration(
+                    &db,
+                    &source_workspace_id,
+                    &fork_workspace_id,
+                    &item.path,
+                )
+                .await?,
             ),
             // Triggers and schedules are diffed against a hardcoded ignore list
             // (mode/enabled/server_id/last_server_ping/edited_at/by/error/extra_perms/permissioned_as/email)
@@ -6694,6 +8623,10 @@ async fn compare_workspaces(
             .iter()
             .filter(|s| s.kind.ends_with("_trigger"))
             .count(),
+        datatable_migrations_changed: visible_diffs
+            .iter()
+            .filter(|s| s.kind == "datatable_migration")
+            .count(),
         conflicts: visible_diffs
             .iter()
             .filter(|s| s.ahead > 0 && s.behind > 0)
@@ -6711,12 +8644,72 @@ async fn compare_workspaces(
             .map(|s| s.behind)
             .fold(0, |acc, s| acc + s.try_into().unwrap_or(0));
 
+    // Blast-radius guard for the "changes not visible to your user" warning
+    // (which hides the deploy button). The flag is a pure visibility guarantee —
+    // the deploy re-authorizes each item against the target workspace's
+    // create/update endpoints — so it is safe to force true for a caller who sees
+    // every item on BOTH sides, for whom any diff the filter dropped is provably a
+    // stale/phantom row, never a permission gap.
+    //
+    // It must be BOTH sides, not per-side: `filter_visible_diffs` keeps a modified
+    // or conflict row (one that exists in the source AND the fork) only when the
+    // caller can see it on both sides, so an ahead/conflict diff can be dropped for
+    // a source-side visibility gap even when the caller is a fork admin. Gating the
+    // ahead flag on fork-admin alone would then wrongly report "all ahead visible"
+    // and let the UI deploy from an incomplete comparison. So require admin of the
+    // source AND the fork (superadmin satisfies both), which guarantees full
+    // visibility of every item on every side. `fork_authed.is_admin` already folds
+    // in superadmin; `authed.is_admin` (source side) does not, so OR it in.
+    let is_super_admin = windmill_common::auth::is_super_admin_email(&db, &authed.email).await?;
+    let sees_all_items = is_super_admin || (authed.is_admin && fork_authed.is_admin);
+    let all_ahead_items_visible = all_ahead_items_visible || sees_all_items;
+    let all_behind_items_visible = all_behind_items_visible || sees_all_items;
+
+    // Items dropped by the visibility filter (in confirmed_diffs but not in the
+    // returned visible_diffs). Surface what the partial deploy excludes: aggregate
+    // counts by kind for everyone, but kind+path only to a caller who `sees_all_items`
+    // (superadmin, or admin of the source AND the fork). For them a dropped item is
+    // provably a phantom/stale row, not an ACL-hidden secret, so no path leaks —
+    // fork-admin alone is not enough (a fork-deleted ahead item lives only in the
+    // parent, whose path a non-parent-admin must not see).
+    let visible_keys: HashSet<(&str, &str)> = visible_diffs
+        .iter()
+        .map(|d| (d.kind.as_str(), d.path.as_str()))
+        .collect();
+    let mut hidden_ahead = HiddenItemsSummary::default();
+    let mut hidden_behind = HiddenItemsSummary::default();
+    for d in &confirmed_diffs {
+        if visible_keys.contains(&(d.kind.as_str(), d.path.as_str())) {
+            continue;
+        }
+        if d.ahead > 0 {
+            hidden_ahead.total += 1;
+            *hidden_ahead.by_kind.entry(d.kind.clone()).or_default() += 1;
+            if sees_all_items {
+                hidden_ahead
+                    .items
+                    .push(HiddenItem { kind: d.kind.clone(), path: d.path.clone() });
+            }
+        }
+        if d.behind > 0 {
+            hidden_behind.total += 1;
+            *hidden_behind.by_kind.entry(d.kind.clone()).or_default() += 1;
+            if sees_all_items {
+                hidden_behind
+                    .items
+                    .push(HiddenItem { kind: d.kind.clone(), path: d.path.clone() });
+            }
+        }
+    }
+
     return Ok(Json(WorkspaceComparison {
         all_ahead_items_visible,
         all_behind_items_visible,
         skipped_comparison: false,
         diffs: visible_diffs,
         summary,
+        hidden_ahead,
+        hidden_behind,
     }));
 }
 
@@ -6939,6 +8932,45 @@ async fn query_visible_items<'c>(
                 .fetch_all(&mut **tx)
                 .await?
             }
+            "datatable_migration" => {
+                // Match by (datatable, timestamp), not the full path: a migration
+                // keeps its identity across a rename, so the candidate path's
+                // `name` segment can differ from the stored one. Parse each
+                // `<datatable>/<timestamp>_<name>` candidate, probe existence by
+                // (datatable, timestamp), and return the *original* candidate path
+                // so the visibility set stays keyed by the diff's path.
+                let parsed: Vec<(String, i64, String)> = paths_vec
+                    .iter()
+                    .filter_map(|p| {
+                        let (dt, rest) = p.split_once('/')?;
+                        let ts = rest.split_once('_')?.0.parse::<i64>().ok()?;
+                        Some((dt.to_string(), ts, p.clone()))
+                    })
+                    .collect();
+                if parsed.is_empty() {
+                    vec![]
+                } else {
+                    let dts: Vec<String> = parsed.iter().map(|(d, _, _)| d.clone()).collect();
+                    let tss: Vec<i64> = parsed.iter().map(|(_, t, _)| *t).collect();
+                    let existing: HashSet<(String, i64)> = sqlx::query!(
+                        "SELECT datatable, timestamp FROM datatable_migrations \
+                         WHERE workspace_id = $1 AND datatable = ANY($2) AND timestamp = ANY($3)",
+                        workspace_id,
+                        &dts,
+                        &tss,
+                    )
+                    .fetch_all(&mut **tx)
+                    .await?
+                    .into_iter()
+                    .map(|r| (r.datatable, r.timestamp))
+                    .collect();
+                    parsed
+                        .into_iter()
+                        .filter(|(d, t, _)| existing.contains(&(d.clone(), *t)))
+                        .map(|(_, _, p)| p)
+                        .collect()
+                }
+            }
             k if TRIGGER_OR_SCHEDULE_TABLES.contains(&k) => {
                 // SAFETY: `kind` comes from a hardcoded allowlist
                 // TRIGGER_OR_SCHEDULE_TABLES, not user input.
@@ -7006,10 +9038,10 @@ async fn existing_runnables(
 }
 
 #[derive(Debug)]
-struct ItemComparison {
-    has_changes: bool,
-    exists_in_source: bool,
-    exists_in_fork: bool,
+pub(crate) struct ItemComparison {
+    pub(crate) has_changes: bool,
+    pub(crate) exists_in_source: bool,
+    pub(crate) exists_in_fork: bool,
 }
 
 async fn compare_two_scripts(
@@ -7197,7 +9229,6 @@ async fn compare_two_resources(
     .fetch_optional(db)
     .await?;
 
-    // If either side is ws_specific, consider unchanged
     let source_ws_specific = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2)",
         source_workspace_id,
@@ -7216,6 +9247,9 @@ async fn compare_two_resources(
     .await?
     .unwrap_or(false);
 
+    // A workspace-specific resource keeps its own value per environment, so it never appears in the
+    // diff (in either direction). Seeding the initial copy onto a side that lacks it is a separate
+    // explicit action ("Create in <other>"), not a diff entry.
     if source_ws_specific || target_ws_specific {
         return Ok(ItemComparison {
             has_changes: false,
@@ -7272,7 +9306,8 @@ async fn compare_two_variables(
     .fetch_one(db)
     .await?;
 
-    // If either side is ws_specific, consider unchanged
+    // A workspace-specific variable keeps its own value per environment, so it never appears in the
+    // diff. Seeding the initial copy onto a side that lacks it is a separate explicit action.
     if presence.src_ws || presence.tgt_ws {
         return Ok(ItemComparison {
             has_changes: false,
@@ -7563,6 +9598,10 @@ struct CloudQuotas {
     apps: QuotaInfo,
     variables: QuotaInfo,
     resources: QuotaInfo,
+    /// Fork/dev workspaces under this workspace's billing root vs the per-seat cap. `limit` is 0 for a
+    /// non-premium root (forking is premium-only). Family-wide: resolves to the billing root, so it
+    /// reads the same whether viewed from the root or one of its forks.
+    forks: QuotaInfo,
 }
 
 async fn get_cloud_quotas(
@@ -7643,12 +9682,32 @@ async fn get_cloud_quotas(
     .await?
     .unwrap_or(0);
 
+    // Fork/dev workspaces vs the per-seat cap, resolved to the billing root. Non-premium roots can't
+    // fork, so their allowance is 0.
+    #[cfg(feature = "cloud")]
+    let forks = {
+        use windmill_common::workspaces::{
+            count_paid_seats, count_workspace_forks, get_billing_workspace_id, get_team_plan_status,
+        };
+        let root = get_billing_workspace_id(&db, &w_id).await?;
+        let used = count_workspace_forks(&db, &root).await?;
+        let limit = if get_team_plan_status(&db, &root).await?.premium {
+            count_paid_seats(&db, &root).await?.max(1) * *MAX_FORKS_PER_SEAT
+        } else {
+            0
+        };
+        QuotaInfo { used, limit, prunable: 0 }
+    };
+    #[cfg(not(feature = "cloud"))]
+    let forks = QuotaInfo { used: 0, limit: 0, prunable: 0 };
+
     Ok(Json(CloudQuotas {
         scripts: QuotaInfo { used: scripts_used, limit: 5000, prunable: scripts_prunable },
         flows: QuotaInfo { used: flows_used, limit: 1000, prunable: flows_prunable },
         apps: QuotaInfo { used: apps_used, limit: 1000, prunable: apps_prunable },
         variables: QuotaInfo { used: variables_used, limit: 10000, prunable: 0 },
         resources: QuotaInfo { used: resources_used, limit: 10000, prunable: 0 },
+        forks,
     }))
 }
 
@@ -7786,6 +9845,19 @@ async fn list_ws_specific(
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
+    // RLS gates membership/folder access, but a scoped API token must also be held to its read
+    // scopes — mirror the resource/variable list endpoints, which filter with these predicates so a
+    // token lacking `resources:read:*` / `variables:read:*` can't enumerate pinned paths it can't read.
+    let resource_allowed = build_scope_path_predicate(&authed, "resources", "read");
+    let variable_allowed = build_scope_path_predicate(&authed, "variables", "read");
+    let items = items
+        .into_iter()
+        .filter(|it| match it.item_kind.as_str() {
+            "resource" => resource_allowed(&it.path),
+            "variable" => variable_allowed(&it.path),
+            _ => false,
+        })
+        .collect::<Vec<_>>();
     Ok(Json(items))
 }
 
@@ -7808,6 +9880,17 @@ async fn list_ws_specific_versions(
         )));
     }
 
+    // A scoped API token must hold the read scope for this path, like the resource/variable read
+    // endpoints. Without the scope, report no versions rather than leaking the path's history.
+    let domain = if q.kind == "resource" {
+        "resources"
+    } else {
+        "variables"
+    };
+    if !build_scope_path_predicate(&authed, domain, "read")(&q.path) {
+        return Ok(Json(vec![]));
+    }
+
     let versions: Vec<String> = sqlx::query_scalar!(
         r#"SELECT ws AS "ws!" FROM list_ws_specific_versions($1, $2, $3, $4)"#,
         &w_id,
@@ -7819,4 +9902,156 @@ async fn list_ws_specific_versions(
     .await?;
 
     Ok(Json(versions))
+}
+
+#[derive(Deserialize)]
+struct SetWsSpecificBody {
+    item_kind: String,
+    path: String,
+    value: bool,
+}
+
+/// Mark (or unmark) a single resource/variable as workspace-specific. Pinning
+/// excludes it from the deploy diff so each environment keeps its own value
+/// (see `compare_two_resources`/`compare_two_variables`). Set per-workspace, so
+/// the compare page calls this once per side to flag both environments.
+async fn set_ws_specific(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(body): Json<SetWsSpecificBody>,
+) -> Result<String> {
+    if body.item_kind != "resource" && body.item_kind != "variable" {
+        return Err(Error::BadRequest(format!(
+            "Invalid kind '{}'. Must be 'resource' or 'variable'",
+            body.item_kind
+        )));
+    }
+
+    // Reject a malformed path with a 400 before the auth check, which indexes the leading segments and
+    // would otherwise panic (500) on a path like `u` with no segment. Accept all three shared path
+    // shapes Windmill uses — `u/<user>`, `f/<folder>`, `g/<group>` (e.g. seeded `g/all/...` resources).
+    let segs: Vec<&str> = body.path.split('/').collect();
+    if segs.len() < 2 || !matches!(segs[0], "u" | "f" | "g") || segs[1].is_empty() {
+        return Err(Error::BadRequest(format!(
+            "Invalid {} path: {}",
+            body.item_kind, body.path
+        )));
+    }
+
+    // Authorize like the resource/variable editors' own ws_specific toggle:
+    // actual write access to the item + token scope + the workspace deploy rules.
+    // `require_owner_of_path` is the real write gate (the resource editor uses it);
+    // `check_scopes` only constrains scoped tokens (it is a no-op for session/cookie
+    // logins). Together: a non-admin who can edit the item may pin it, while a
+    // read-only member is rejected and a locked workspace still blocks non-deployers.
+    // `require_is_writer` matches the resource/variable editors' write semantics (owner, folder
+    // writer, or item writer via extra_perms) — not owner-only.
+    let writer_query = if body.item_kind == "resource" {
+        "SELECT extra_perms FROM resource WHERE path = $1 AND workspace_id = $2"
+    } else {
+        "SELECT extra_perms FROM variable WHERE path = $1 AND workspace_id = $2"
+    };
+    require_is_writer(
+        &authed,
+        &body.path,
+        &w_id,
+        db.clone(),
+        writer_query,
+        &body.item_kind,
+    )
+    .await?;
+    check_scopes(&authed, || {
+        format!("{}s:write:{}", body.item_kind, body.path)
+    })?;
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
+        &w_id,
+        &authed.username,
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    if body.value {
+        // Existence guard keeps a dangling marker from being created for a
+        // path absent in this workspace.
+        if body.item_kind == "resource" {
+            sqlx::query!(
+                "INSERT INTO ws_specific (workspace_id, item_kind, path)
+                 SELECT $1::varchar, 'resource', $2::varchar
+                 WHERE EXISTS (SELECT 1 FROM resource WHERE workspace_id = $1::varchar AND path = $2::varchar)
+                 ON CONFLICT DO NOTHING",
+                w_id,
+                body.path,
+            )
+            .execute(&mut *tx)
+            .await?;
+            // A resource owns its `$var:` secrets, so pin those too.
+            windmill_store::resources::mark_linked_variables_ws_specific(
+                &mut tx, &authed, &w_id, &body.path,
+            )
+            .await?;
+        } else {
+            sqlx::query!(
+                "INSERT INTO ws_specific (workspace_id, item_kind, path)
+                 SELECT $1::varchar, 'variable', $2::varchar
+                 WHERE EXISTS (SELECT 1 FROM variable WHERE workspace_id = $1::varchar AND path = $2::varchar)
+                 ON CONFLICT DO NOTHING",
+                w_id,
+                body.path,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+    } else {
+        // Unmark only this item; linked variables stay flagged (they may be
+        // referenced by other resources) — mirrors the resource-form toggle.
+        sqlx::query!(
+            "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = $2 AND path = $3",
+            w_id,
+            body.item_kind,
+            body.path,
+        )
+        .execute(&mut *tx)
+        .await?;
+        // While pinned, the item's cached workspace_diff verdict was never recomputed (the compare
+        // read filter excludes it), so it may now be stale in either direction. Mark it NULL so the
+        // next compare re-evaluates from scratch — and the now-shared item reappears (or is dropped)
+        // correctly instead of being stuck on its pre-pin verdict.
+        sqlx::query!(
+            "UPDATE workspace_diff SET has_changes = NULL
+             WHERE path = $2 AND kind = $3
+               AND ($1 IN (source_workspace_id, fork_workspace_id))",
+            w_id,
+            body.path,
+            body.item_kind,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    let value_str = body.value.to_string();
+    audit_log(
+        &mut *tx,
+        &authed,
+        &format!("{}s.set_ws_specific", body.item_kind),
+        ActionKind::Update,
+        &w_id,
+        Some(&body.path),
+        Some([("value", value_str.as_str())].into()),
+    )
+    .await?;
+
+    tx.commit().await?;
+    Ok(format!(
+        "Set workspace-specific={} for {} {}",
+        body.value, body.item_kind, body.path
+    ))
 }

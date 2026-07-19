@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import {
 	cleanValueProperties,
+	computeSharableHash,
+	extractTagFromSharableHash,
+	findMatchingCustomTag,
+	interpolateTag,
+	isDynamicTag,
+	isTagTemplate,
 	getQueryStmtCountHeuristic,
 	parseDbInputFromAssetSyntax
 } from './utils'
@@ -388,5 +394,156 @@ describe('cleanValueProperties', () => {
 		const input: any = { summary: 'hi', created_at: '2024-01-01' }
 		cleanValueProperties(input)
 		expect(input).toHaveProperty('created_at')
+	})
+})
+
+describe('computeSharableHash / extractTagFromSharableHash', () => {
+	function roundTrip(hash: string) {
+		const params = new URLSearchParams(hash)
+		const tag = extractTagFromSharableHash(params)
+		const args = Object.fromEntries([...params.entries()].map(([k, v]) => [k, JSON.parse(v)]))
+		return { tag, args }
+	}
+
+	it('carries the tag under the reserved __tag key alongside JSON-encoded args', () => {
+		const hash = computeSharableHash({ name: 'world' }, 'my-custom-tag')
+		expect(roundTrip(hash)).toEqual({ tag: 'my-custom-tag', args: { name: 'world' } })
+	})
+
+	it('omits __tag when no tag is given', () => {
+		const hash = computeSharableHash({ name: 'world' })
+		expect(roundTrip(hash)).toEqual({ tag: undefined, args: { name: 'world' } })
+	})
+
+	it('preserves an arg named __tag instead of misreading it as a tag', () => {
+		const hash = computeSharableHash({ __tag: 'value', name: 'world' })
+		expect(roundTrip(hash)).toEqual({ tag: undefined, args: { __tag: 'value', name: 'world' } })
+	})
+
+	it('carries a tag alongside an arg named __tag, preserving both', () => {
+		const hash = computeSharableHash({ __tag: 'value', name: 'world' }, 'my-custom-tag')
+		expect(roundTrip(hash)).toEqual({
+			tag: 'my-custom-tag',
+			args: { __tag: 'value', name: 'world' }
+		})
+	})
+
+	it('carries JSON-parseable tags like 123 or true without corrupting args', () => {
+		expect(roundTrip(computeSharableHash({ name: 'world' }, '123'))).toEqual({
+			tag: '123',
+			args: { name: 'world' }
+		})
+		expect(roundTrip(computeSharableHash({}, 'true'))).toEqual({ tag: 'true', args: {} })
+	})
+
+	it('carries a tag that itself starts with the value prefix', () => {
+		expect(roundTrip(computeSharableHash({}, 't:odd'))).toEqual({ tag: 't:odd', args: {} })
+	})
+})
+
+describe('isDynamicTag', () => {
+	it('detects args interpolation placeholders', () => {
+		expect(isDynamicTag('worker-$args[env]')).toBe(true)
+	})
+
+	it('is false for plain tags, $workspace-only tags, and undefined', () => {
+		expect(isDynamicTag('gpu-heavy')).toBe(false)
+		// $workspace resolves identically on a re-run, so pinning the resolved value is fine
+		expect(isDynamicTag('$workspace-gpu')).toBe(false)
+		expect(isDynamicTag('')).toBe(false)
+		expect(isDynamicTag(undefined)).toBe(false)
+	})
+})
+
+describe('isTagTemplate', () => {
+	it('detects $workspace and $args placeholders', () => {
+		expect(isTagTemplate('deno-$workspace')).toBe(true)
+		expect(isTagTemplate('worker-$args[env]')).toBe(true)
+		expect(isTagTemplate('worker-$args[obj.env]')).toBe(true)
+	})
+
+	it('is false for plain tags, non-placeholder $ text, and undefined', () => {
+		expect(isTagTemplate('gpu-heavy')).toBe(false)
+		expect(isTagTemplate('price-$100')).toBe(false)
+		expect(isTagTemplate('$args[]')).toBe(false)
+		expect(isTagTemplate(undefined)).toBe(false)
+	})
+})
+
+describe('interpolateTag', () => {
+	it('replaces every $workspace occurrence', () => {
+		expect(interpolateTag('deno-$workspace-$workspace', 'staging', {})).toBe('deno-staging-staging')
+	})
+
+	it('resolves $args placeholders from string, number, and boolean args', () => {
+		const args = { env: 'prod', n: 3, ok: true }
+		expect(interpolateTag('w-$args[env]', 'ws', args)).toBe('w-prod')
+		expect(interpolateTag('w-$args[n]', 'ws', args)).toBe('w-3')
+		expect(interpolateTag('w-$args[ok]', 'ws', args)).toBe('w-true')
+	})
+
+	it('resolves dotted paths through nested objects', () => {
+		expect(interpolateTag('w-$args[conf.env]', 'ws', { conf: { env: 'prod' } })).toBe('w-prod')
+	})
+
+	it('resolves missing args and dead paths to the empty string', () => {
+		expect(interpolateTag('w-$args[gone]', 'ws', {})).toBe('w-')
+		expect(interpolateTag('w-$args[gone]', 'ws', undefined)).toBe('w-')
+		expect(interpolateTag('w-$args[conf.gone]', 'ws', { conf: 'not-an-object' })).toBe('w-')
+	})
+
+	it('combines $workspace and $args in one tag', () => {
+		expect(interpolateTag('$args[env]-$workspace', 'staging', { env: 'gpu' })).toBe('gpu-staging')
+	})
+})
+
+describe('findMatchingCustomTag', () => {
+	const workspace = 'staging'
+
+	it('returns an exact custom-tag match', () => {
+		expect(findMatchingCustomTag('gpu-heavy', ['gpu-heavy', 'other'], workspace, {})).toBe(
+			'gpu-heavy'
+		)
+	})
+
+	it('maps a resolved tag back to its raw $workspace template', () => {
+		expect(findMatchingCustomTag('deno-staging', ['deno-$workspace'], workspace, {})).toBe(
+			'deno-$workspace'
+		)
+	})
+
+	it('maps a resolved tag back to its raw $args template using the run args', () => {
+		expect(
+			findMatchingCustomTag('worker-gpu', ['worker-$args[env]'], workspace, { env: 'gpu' })
+		).toBe('worker-$args[env]')
+	})
+
+	it('prefers an exact entry over a template resolving to the same value', () => {
+		expect(
+			findMatchingCustomTag('worker-gpu', ['worker-$args[env]', 'worker-gpu'], workspace, {
+				env: 'gpu'
+			})
+		).toBe('worker-gpu')
+	})
+
+	it('returns undefined for backend-derived tags (default and workspaced defaults)', () => {
+		expect(findMatchingCustomTag('deno', [], workspace, {})).toBeUndefined()
+		expect(
+			findMatchingCustomTag('deno-staging', ['python3-production'], workspace, {})
+		).toBeUndefined()
+	})
+
+	it('does not match a template whose resolution differs from the stored tag', () => {
+		expect(
+			findMatchingCustomTag('worker-gpu', ['worker-$args[env]'], workspace, { env: 'cpu' })
+		).toBeUndefined()
+	})
+
+	it('does not falsely match a template against the truncated-args placeholder', () => {
+		expect(
+			findMatchingCustomTag('worker-gpu', ['worker-$args[env]'], workspace, {
+				reason: 'WINDMILL_TOO_BIG'
+			})
+		).toBeUndefined()
 	})
 })

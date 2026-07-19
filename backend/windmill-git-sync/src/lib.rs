@@ -14,7 +14,9 @@ pub mod git_sync_oss;
 
 #[cfg(feature = "private")]
 pub use git_sync_ee::{
-    handle_deployment_metadata, handle_deployment_metadata_batch, handle_fork_branch_creation,
+    enqueue_git_pull_dry_run, enqueue_git_pull_job, handle_deployment_metadata,
+    handle_deployment_metadata_batch, handle_fork_branch_creation, persist_auto_pull_state,
+    reconcile_and_enqueue_pull, reconcile_fork_branch_pull, record_auto_pull_failure,
 };
 
 #[cfg(not(feature = "private"))]
@@ -24,30 +26,102 @@ pub use git_sync_oss::{
 
 #[derive(Clone, Debug)]
 pub enum DeployedObject {
-    Script { hash: ScriptHash, path: String, parent_path: Option<String> },
-    Flow { path: String, parent_path: Option<String>, version: i64 },
-    App { path: String, version: i64, parent_path: Option<String> },
-    RawApp { path: String, version: i64, parent_path: Option<String> },
-    Folder { path: String },
-    Resource { path: String, parent_path: Option<String> },
-    Variable { path: String, parent_path: Option<String> },
-    Schedule { path: String },
-    ResourceType { path: String },
-    User { email: String },
-    Group { name: String },
-    HttpTrigger { path: String, parent_path: Option<String> },
-    WebsocketTrigger { path: String, parent_path: Option<String> },
-    KafkaTrigger { path: String, parent_path: Option<String> },
-    NatsTrigger { path: String, parent_path: Option<String> },
-    PostgresTrigger { path: String, parent_path: Option<String> },
-    MqttTrigger { path: String, parent_path: Option<String> },
-    SqsTrigger { path: String, parent_path: Option<String> },
-    GcpTrigger { path: String, parent_path: Option<String> },
-    AzureTrigger { path: String, parent_path: Option<String> },
-    EmailTrigger { path: String, parent_path: Option<String> },
-    Settings { setting_type: String },
-    Key { key_type: String },
-    WorkspaceDependencies { path: String },
+    Script {
+        hash: ScriptHash,
+        path: String,
+        parent_path: Option<String>,
+    },
+    Flow {
+        path: String,
+        parent_path: Option<String>,
+        version: i64,
+    },
+    App {
+        path: String,
+        version: i64,
+        parent_path: Option<String>,
+    },
+    RawApp {
+        path: String,
+        version: i64,
+        parent_path: Option<String>,
+    },
+    Folder {
+        path: String,
+    },
+    Resource {
+        path: String,
+        parent_path: Option<String>,
+    },
+    Variable {
+        path: String,
+        parent_path: Option<String>,
+    },
+    Schedule {
+        path: String,
+    },
+    ResourceType {
+        path: String,
+    },
+    User {
+        email: String,
+    },
+    Group {
+        name: String,
+    },
+    HttpTrigger {
+        path: String,
+        parent_path: Option<String>,
+    },
+    WebsocketTrigger {
+        path: String,
+        parent_path: Option<String>,
+    },
+    KafkaTrigger {
+        path: String,
+        parent_path: Option<String>,
+    },
+    NatsTrigger {
+        path: String,
+        parent_path: Option<String>,
+    },
+    PostgresTrigger {
+        path: String,
+        parent_path: Option<String>,
+    },
+    MqttTrigger {
+        path: String,
+        parent_path: Option<String>,
+    },
+    SqsTrigger {
+        path: String,
+        parent_path: Option<String>,
+    },
+    GcpTrigger {
+        path: String,
+        parent_path: Option<String>,
+    },
+    AzureTrigger {
+        path: String,
+        parent_path: Option<String>,
+    },
+    EmailTrigger {
+        path: String,
+        parent_path: Option<String>,
+    },
+    Settings {
+        setting_type: String,
+    },
+    Key {
+        key_type: String,
+    },
+    WorkspaceDependencies {
+        path: String,
+    },
+    /// A single data table migration, identified by `<datatable>/<timestamp>_<name>`.
+    DatatableMigration {
+        path: String,
+    },
 }
 
 impl DeployedObject {
@@ -77,6 +151,7 @@ impl DeployedObject {
             DeployedObject::Settings { .. } => "settings.yaml".to_string(),
             DeployedObject::Key { .. } => "encryption_key.yaml".to_string(),
             DeployedObject::WorkspaceDependencies { path, .. } => path.to_owned(),
+            DeployedObject::DatatableMigration { path } => path.to_owned(),
         }
     }
 
@@ -118,6 +193,7 @@ impl DeployedObject {
             DeployedObject::Settings { .. } => None,
             DeployedObject::Key { .. } => None,
             DeployedObject::WorkspaceDependencies { .. } => None,
+            DeployedObject::DatatableMigration { .. } => None,
         }
     }
 
@@ -147,6 +223,7 @@ impl DeployedObject {
             DeployedObject::Settings { .. } => "settings",
             DeployedObject::Key { .. } => "key",
             DeployedObject::WorkspaceDependencies { .. } => "workspace_dependencies",
+            DeployedObject::DatatableMigration { .. } => "datatable_migration",
         }
         .to_string()
     }

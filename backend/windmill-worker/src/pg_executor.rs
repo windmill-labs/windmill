@@ -615,6 +615,25 @@ pub async fn do_postgresql(
         return Err(Error::BadRequest("Missing database argument".to_string()));
     };
 
+    // Surface in the job logs (not just the worker logs) when a verify-ca/verify-full
+    // resource is connecting without actually verifying the server certificate, so the
+    // person running the query can see and fix the misconfiguration.
+    if database.verify_mode_skips_verification() {
+        windmill_queue::append_logs(
+            &job.id,
+            &job.workspace_id,
+            format!(
+                "warning: sslmode={} but the server's TLS certificate is not being verified \
+                 (accept_invalid_certs is enabled, or no root certificate is configured). Set \
+                 accept_invalid_certs to false or provide root_certificate_pem to verify the \
+                 server identity.\n",
+                database.sslmode.as_deref().unwrap_or("")
+            ),
+            conn,
+        )
+        .await;
+    }
+
     let annotations = windmill_common::worker::SqlAnnotations::parse(query);
     let collection_strategy = if annotations.raw_output || annotations.return_last_result {
         // raw_output emits a single envelope from the last statement, so the
@@ -629,10 +648,26 @@ pub async fn do_postgresql(
     // Include use_iam_auth in cache key to distinguish IAM vs non-IAM connections to the same host.
     // The cache key is static (doesn't include the token), which is correct because PostgreSQL
     // connections remain valid after initial auth — fresh tokens are generated on cache miss.
+    //
+    // to_uri() collapses require/verify-ca/verify-full to the same string, so the TLS verification
+    // inputs are folded into the key separately. Without this a connection established under a
+    // weaker sslmode (or a different root cert) could be reused for a stricter request, undoing
+    // the verification configured in PgDatabase::configure_pg_tls_verification.
+    let tls_disc = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        database.sslmode.hash(&mut h);
+        database.root_certificate_pem.hash(&mut h);
+        database.accept_invalid_certs.hash(&mut h);
+        h.finish()
+    };
+    // to_uri() already ends with `?sslmode=...`, so append further key segments
+    // with `&` to keep database_string a well-formed URI (it is only ever a cache
+    // key, but a malformed one would mislead anyone who later logs or parses it).
     let database_string = if use_iam_auth {
-        format!("{}?iam=true", database.to_uri())
+        format!("{}&iam=true&tls={tls_disc:x}", database.to_uri())
     } else {
-        database.to_uri()
+        format!("{}&tls={tls_disc:x}", database.to_uri())
     };
     let database_string_clone = database_string.clone();
 
@@ -733,7 +768,15 @@ pub async fn do_postgresql(
     // Materialize any `(s3object)` args into JSON text and rebind them as `jsonb` so
     // `otyp_to_pg_type` picks the right binding. Must run before the param map is
     // built below.
-    materialize_s3object_args(&mut sig.args, &mut pg_args, client, &job.workspace_id).await?;
+    materialize_s3object_args(
+        &mut sig.args,
+        &mut pg_args,
+        client,
+        conn,
+        job.id,
+        &job.workspace_id,
+    )
+    .await?;
 
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
@@ -947,6 +990,8 @@ async fn materialize_s3object_args(
     sig_args: &mut [Arg],
     args_map: &mut HashMap<String, Value>,
     client: &AuthedClient,
+    conn: &Connection,
+    job_id: Uuid,
     workspace_id: &str,
 ) -> error::Result<()> {
     for arg in sig_args.iter_mut() {
@@ -963,7 +1008,7 @@ async fn materialize_s3object_args(
         let s3_obj: S3Object = serde_json::from_value(raw).map_err(|e| {
             Error::ExecutionErr(format!("Invalid S3Object for arg `{}`: {e}", arg.name))
         })?;
-        let json_text = fetch_s3object_as_json_text(client, workspace_id, &s3_obj)
+        let json_text = fetch_s3object_as_json_text(client, conn, job_id, workspace_id, &s3_obj)
             .await
             .map_err(|e| {
                 Error::ExecutionErr(format!(

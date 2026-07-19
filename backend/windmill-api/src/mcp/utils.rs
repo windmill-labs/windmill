@@ -15,7 +15,7 @@ use windmill_common::scripts::{get_full_hub_script_by_path, Schema};
 use windmill_common::utils::{query_elems_from_hub, StripPath};
 use windmill_common::worker::to_raw_value;
 use windmill_common::{DB, HUB_BASE_URL};
-use windmill_mcp::server::{BackendResult, ErrorData};
+use windmill_mcp::server::{BackendResult, ErrorData, PathFilter};
 use windmill_mcp::{HubResponse, HubScriptInfo, ItemSchema, ResourceInfo, ResourceType};
 
 use crate::db::ApiAuthed;
@@ -23,6 +23,43 @@ use crate::HTTP_CLIENT;
 
 // items max limit
 const ITEMS_FETCH_MAX_LIMIT: usize = 100;
+
+/// Escape LIKE wildcards so a literal path is matched as a prefix, not a pattern.
+fn escape_like(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
+/// Build the SQL condition matching any MCP scope pattern, mirroring
+/// `is_resource_allowed`. Returns `None` when no filter should be applied (a `*`
+/// pattern grants everything); `Some("false")` when the list is empty (grants
+/// nothing); otherwise an OR of per-pattern `o.path` conditions.
+fn scope_patterns_condition(patterns: &[String]) -> Option<String> {
+    if patterns.iter().any(|p| p == "*") {
+        return None;
+    }
+    if patterns.is_empty() {
+        return Some("false".to_string());
+    }
+    let conds: Vec<String> = patterns
+        .iter()
+        .map(|p| {
+            if let Some(prefix) = p.strip_suffix("/*") {
+                // A subtree pattern matches the folder itself or anything under it.
+                let subtree = format!("{}/%", escape_like(prefix));
+                format!(
+                    "({} OR {})",
+                    "o.path = ?".bind(&prefix),
+                    "o.path LIKE ? ESCAPE '\\'".bind(&subtree),
+                )
+            } else {
+                "o.path = ?".bind(p)
+            }
+        })
+        .collect();
+    Some(format!("({})", conds.join(" OR ")))
+}
 
 // ============================================================================
 // Database utilities
@@ -135,7 +172,7 @@ pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Sen
     workspace_id: &str,
     scope_type: &str,
     item_type: &str,
-    path_prefix: Option<&str>,
+    path_filter: Option<PathFilter<'_>>,
 ) -> Result<Vec<T>, ErrorData> {
     let mut sqlb = SqlBuilder::select_from(&format!("{} as o", item_type));
     let fields = vec!["o.path", "o.summary", "o.description", "o.schema"];
@@ -149,15 +186,23 @@ pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Sen
         .and_where("o.archived = false");
 
     if item_type == "script" {
-        sqlb.and_where("o.auto_kind IS NULL");
+        // only exclude library scripts (no main function); pipeline, test, WAC,
+        // and any future `auto_kind` values remain callable. Mirrors the scripts
+        // list API deny-list.
+        sqlb.and_where("(o.auto_kind IS NULL OR o.auto_kind <> 'lib')");
     }
 
-    if let Some(prefix) = path_prefix {
-        let escaped = prefix
-            .replace('\\', "\\\\")
-            .replace('%', "\\%")
-            .replace('_', "\\_");
-        sqlb.and_where("o.path LIKE ? ESCAPE '\\'".bind(&format!("{}%", escaped)));
+    match path_filter {
+        None => {}
+        Some(PathFilter::Prefix(prefix)) => {
+            let escaped = format!("{}%", escape_like(prefix));
+            sqlb.and_where("o.path LIKE ? ESCAPE '\\'".bind(&escaped));
+        }
+        Some(PathFilter::Patterns(patterns)) => {
+            if let Some(cond) = scope_patterns_condition(patterns) {
+                sqlb.and_where(cond);
+            }
+        }
     }
 
     sqlb.order_by(
@@ -250,7 +295,7 @@ pub async fn get_hub_script_schema(path: &str, db: &DB) -> Result<Option<Schema>
 // ============================================================================
 
 /// Look up the original field name from a field_renames map.
-/// field_renames maps renamed_key -> original_key (e.g. {"path__path": "path"}).
+/// field_renames maps renamed_key -> original_key (e.g. {"path__body": "path"}).
 fn get_original_name(renamed_key: &str, field_renames: &Option<Value>) -> String {
     field_renames
         .as_ref()
@@ -328,20 +373,17 @@ pub fn substitute_path_params(
     workspace_id: &str,
     args_map: &serde_json::Map<String, Value>,
     path_schema: &Option<Value>,
-    path_field_renames: &Option<Value>,
 ) -> BackendResult<String> {
     let mut path_template = path.replace("{workspace}", workspace_id);
 
     if let Some(schema) = path_schema {
         if let Some(props) = schema.get("properties").and_then(|p| p.as_object()) {
             for (param_name, _) in props {
-                // param_name may be renamed (e.g. "path__path"), get original for URL placeholder
-                let original_name = get_original_name(param_name, path_field_renames);
-                let placeholder = format!("{{{}}}", original_name);
+                let placeholder = format!("{{{}}}", param_name);
                 match args_map.get(param_name) {
                     Some(param_value) => {
                         if let Some(str_val) = param_value.as_str() {
-                            validate_path_param_value(&original_name, str_val)?;
+                            validate_path_param_value(param_name, str_val)?;
                             path_template = path_template.replace(&placeholder, str_val);
                         }
                     }
@@ -382,12 +424,18 @@ pub fn build_query_string(
                 .map(|value| {
                     // Use the original name for the query parameter key
                     let original_name = get_original_name(param_name, query_field_renames);
-                    let value_str = value.to_string();
-                    let str_val = value_str.trim_matches('"');
+                    // For string values, use the raw content: to_string() would JSON-encode
+                    // it, and stripping the outer quotes leaves inner quotes backslash-escaped
+                    // (e.g. `{\"k\":\"v\"}`), which breaks downstream JSON parsing of params
+                    // like `args`/`result`. Non-string values keep their JSON serialization.
+                    let str_val = value
+                        .as_str()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| value.to_string());
                     format!(
                         "{}={}",
                         urlencoding::encode(&original_name),
-                        urlencoding::encode(str_val)
+                        urlencoding::encode(&str_val)
                     )
                 })
         })
@@ -406,12 +454,50 @@ pub fn build_request_body(
     args_map: &serde_json::Map<String, Value>,
     body_schema: &Option<Value>,
     body_field_renames: &Option<Value>,
+    path_params_schema: &Option<Value>,
+    query_params_schema: &Option<Value>,
 ) -> Option<Value> {
     if method == "GET" {
         return None;
     }
 
     let schema = body_schema.as_ref()?;
+
+    let has_declared_props = schema
+        .get("properties")
+        .and_then(|p| p.as_object())
+        .map(|o| !o.is_empty())
+        .unwrap_or(false);
+
+    // Pass-through body: the schema declares no explicit properties (e.g.
+    // runScriptByPath / runFlowByPath, whose body is `additionalProperties: true`
+    // and carries the script/flow arguments verbatim). Forward every argument
+    // that isn't already consumed by a path or query parameter — without this the
+    // request body would be empty and parameterized runs would lose their args.
+    if !has_declared_props {
+        if schema.get("type").and_then(|t| t.as_str()) != Some("object") {
+            return None;
+        }
+        let consumed: std::collections::HashSet<&str> = [path_params_schema, query_params_schema]
+            .into_iter()
+            .filter_map(|s| s.as_ref())
+            .filter_map(|s| s.get("properties").and_then(|p| p.as_object()))
+            .flat_map(|props| props.keys().map(|k| k.as_str()))
+            .collect();
+
+        let body_map: serde_json::Map<String, Value> = args_map
+            .iter()
+            .filter(|(k, v)| !consumed.contains(k.as_str()) && !v.is_null())
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+
+        return if body_map.is_empty() {
+            None
+        } else {
+            Some(Value::Object(body_map))
+        };
+    }
+
     let props = schema.get("properties")?.as_object()?;
 
     let body_map: serde_json::Map<String, Value> = props
@@ -430,6 +516,42 @@ pub fn build_request_body(
     } else {
         Some(Value::Object(body_map))
     }
+}
+
+/// Scopes to embed in the JWT minted for a proxied MCP endpoint request. The MCP
+/// runner already authorized *which* endpoint may be called; this bounds *what
+/// the resulting internal request can do*.
+///
+/// - Unscoped caller (cookie / full-privilege token): unscoped JWT.
+/// - Scope-restricted caller whose own scopes already authorize the route: keep
+///   those scopes verbatim, so the target handler's per-path `check_scopes` still
+///   enforces the caller's path caps (e.g. a `variables:read:u/admin/safe/*`
+///   token can't read `u/admin/secret` via the getVariable proxy).
+/// - Otherwise the caller has no route scope for this domain (the common
+///   `mcp:`-only token): mint a least-privilege scope for exactly this route,
+///   failing closed if the route can't be resolved.
+fn jwt_scopes_for_proxied_route(
+    caller_scopes: Option<&[String]>,
+    method: &str,
+    route_path: &str,
+) -> BackendResult<Option<Vec<String>>> {
+    let caller_restricted =
+        caller_scopes.is_some_and(|s| s.iter().any(|x| !x.starts_with("if_jobs:filter_tags:")));
+    if !caller_restricted {
+        return Ok(None);
+    }
+    if windmill_api_auth::scopes::check_scopes_for_route(caller_scopes, route_path, method).is_ok()
+    {
+        return Ok(caller_scopes.map(|s| s.to_vec()));
+    }
+    let scope =
+        windmill_api_auth::scopes::scope_for_route(method, route_path).ok_or_else(|| {
+            ErrorData::internal_error(
+                "Could not derive route scope for proxied MCP endpoint".to_string(),
+                None,
+            )
+        })?;
+    Ok(Some(vec![scope]))
 }
 
 /// Create HTTP request with authentication
@@ -455,31 +577,12 @@ pub async fn create_http_request(
         }
     };
 
-    // Bound the minted JWT to exactly this proxied route so a scope-restricted
-    // MCP token can't be widened into a full-privilege blank check. The
-    // endpoint-name gate (in the MCP runner) already authorized *which* endpoint
-    // may be called; this constrains what the resulting request can do. Unscoped
-    // callers (cookie / full-privilege tokens) keep an unscoped JWT to preserve
-    // existing behavior. A scope-restricted caller whose route can't be resolved
-    // fails closed.
-    let caller_restricted = api_authed
-        .scopes
-        .as_deref()
-        .is_some_and(|s| s.iter().any(|x| !x.starts_with("if_jobs:filter_tags:")));
-    let scopes = if caller_restricted {
-        let parsed = reqwest::Url::parse(url)
-            .map_err(|e| ErrorData::internal_error(format!("Invalid proxied URL: {}", e), None))?;
-        let scope =
-            windmill_api_auth::scopes::scope_for_route(method, parsed.path()).ok_or_else(|| {
-                ErrorData::internal_error(
-                    "Could not derive route scope for proxied MCP endpoint".to_string(),
-                    None,
-                )
-            })?;
-        Some(vec![scope])
-    } else {
-        None
-    };
+    // Scope the minted JWT to the proxied route so a scope-restricted MCP token
+    // can't be widened into a full-privilege blank check. See
+    // `jwt_scopes_for_proxied_route`.
+    let parsed = reqwest::Url::parse(url)
+        .map_err(|e| ErrorData::internal_error(format!("Invalid proxied URL: {}", e), None))?;
+    let scopes = jwt_scopes_for_proxied_route(api_authed.scopes.as_deref(), method, parsed.path())?;
 
     // Add authorization header
     let authed = Authed::from(api_authed.clone());
@@ -533,6 +636,172 @@ pub async fn parse_response_body(response: Response<Body>) -> BackendResult<Valu
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn scopes(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn proxy_jwt_unscoped_caller_keeps_none() {
+        // No scopes, or filter-tags-only, is treated as unscoped -> unscoped JWT.
+        assert_eq!(
+            jwt_scopes_for_proxied_route(None, "GET", "/api/w/ws/variables/get/u/a/b").unwrap(),
+            None
+        );
+        let ft = scopes(&["if_jobs:filter_tags:foo"]);
+        assert_eq!(
+            jwt_scopes_for_proxied_route(Some(&ft), "GET", "/api/w/ws/variables/get/u/a/b")
+                .unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn proxy_jwt_bare_mcp_token_falls_back_to_route_scope() {
+        // A token whose only authority is its mcp: scope has no variables route
+        // scope, so the JWT gets a least-privilege route scope for this request.
+        let s = scopes(&["mcp:endpoints:getVariable"]);
+        assert_eq!(
+            jwt_scopes_for_proxied_route(Some(&s), "GET", "/api/w/ws/variables/get/u/admin/secret")
+                .unwrap(),
+            Some(scopes(&["variables:read"]))
+        );
+    }
+
+    #[test]
+    fn proxy_jwt_mixed_token_passes_through_caller_route_scope() {
+        // The caller's route scope is preserved so the target handler's per-path
+        // check_scopes enforces the cap; the coarse route match here is path-blind.
+        let s = scopes(&["mcp:endpoints:getVariable", "variables:read:u/admin/safe/*"]);
+        assert_eq!(
+            jwt_scopes_for_proxied_route(Some(&s), "GET", "/api/w/ws/variables/get/u/admin/secret")
+                .unwrap(),
+            Some(s.clone())
+        );
+    }
+
+    #[test]
+    fn proxy_jwt_run_script_bare_mcp_falls_back_to_jobs_run_scripts() {
+        let s = scopes(&["mcp:scripts:f/team/*", "mcp:endpoints:*"]);
+        assert_eq!(
+            jwt_scopes_for_proxied_route(Some(&s), "POST", "/api/w/ws/jobs/run/p/f/team/deploy")
+                .unwrap(),
+            Some(scopes(&["jobs:run:scripts"]))
+        );
+    }
+
+    #[test]
+    fn build_request_body_passthrough_forwards_script_args_minus_path() {
+        // runScriptByPath-shaped body: additionalProperties, no declared props.
+        // `path` is a path param and must be excluded; the rest are the script's
+        // arguments and must be forwarded verbatim.
+        let body_schema = Some(json!({ "type": "object", "additionalProperties": true }));
+        let path_schema = Some(json!({
+            "type": "object",
+            "properties": { "path": { "type": "string" } },
+            "required": ["path"]
+        }));
+        let args: serde_json::Map<String, Value> = json!({
+            "path": "u/admin/my_script",
+            "name": "alice",
+            "count": 3
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+
+        let body = build_request_body("POST", &args, &body_schema, &None, &path_schema, &None)
+            .expect("passthrough body should be built");
+        let obj = body.as_object().unwrap();
+        assert_eq!(obj.get("name"), Some(&json!("alice")));
+        assert_eq!(obj.get("count"), Some(&json!(3)));
+        assert!(
+            !obj.contains_key("path"),
+            "path param must be excluded from body"
+        );
+    }
+
+    #[test]
+    fn build_request_body_declared_props_only_forwards_declared() {
+        // Endpoints with explicit properties keep the strict declared-only behavior.
+        let body_schema = Some(json!({
+            "type": "object",
+            "properties": { "value": { "type": "string" } },
+            "required": ["value"]
+        }));
+        let args: serde_json::Map<String, Value> = json!({ "value": "x", "sneaky": "y" })
+            .as_object()
+            .unwrap()
+            .clone();
+        let body = build_request_body("POST", &args, &body_schema, &None, &None, &None).unwrap();
+        let obj = body.as_object().unwrap();
+        assert_eq!(obj.get("value"), Some(&json!("x")));
+        assert!(
+            !obj.contains_key("sneaky"),
+            "undeclared args must be dropped"
+        );
+    }
+
+    // updateFlow-shaped: `path` is both a path parameter and a body field. The path
+    // parameter keeps the plain name; only the body side is mangled.
+    fn update_flow_schemas() -> (Option<Value>, Option<Value>, Option<Value>) {
+        (
+            Some(json!({
+                "type": "object",
+                "properties": { "path": { "type": "string" } },
+                "required": ["path"]
+            })),
+            Some(json!({
+                "type": "object",
+                "properties": {
+                    "summary": { "type": "string" },
+                    "value": { "type": "object" },
+                    "path__body": { "type": "string" }
+                },
+                "required": ["summary", "value"]
+            })),
+            Some(json!({ "path__body": "path" })),
+        )
+    }
+
+    #[test]
+    fn build_request_body_maps_body_path_alias_for_rename() {
+        // The mangled body field carries the *new* path when renaming; it must reach the
+        // API under its original name `path`. (An omitted `path__body` is intentionally
+        // absent from the body; the server defaults it from the URL path parameter.)
+        let (path_schema, body_schema, body_renames) = update_flow_schemas();
+        let args: serde_json::Map<String, Value> = json!({
+            "path": "f/team/my_flow",
+            "path__body": "f/team/renamed_flow",
+            "summary": "s",
+            "value": {}
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+
+        let body = build_request_body(
+            "POST",
+            &args,
+            &body_schema,
+            &body_renames,
+            &path_schema,
+            &None,
+        )
+        .expect("body should be built");
+        assert_eq!(
+            body.as_object().unwrap().get("path"),
+            Some(&json!("f/team/renamed_flow")),
+            "path__body must be sent as `path` so a rename takes effect"
+        );
+    }
+
+    #[test]
+    fn build_request_body_get_has_no_body() {
+        let body_schema = Some(json!({ "type": "object", "additionalProperties": true }));
+        let args: serde_json::Map<String, Value> = json!({ "a": 1 }).as_object().unwrap().clone();
+        assert!(build_request_body("GET", &args, &body_schema, &None, &None, &None).is_none());
+    }
 
     #[test]
     fn validate_path_param_value_accepts_legitimate_windmill_paths() {
@@ -597,7 +866,6 @@ mod tests {
             "dev",
             &args,
             &path_schema,
-            &None,
         );
         assert!(
             result.is_err(),
@@ -619,9 +887,115 @@ mod tests {
             "dev",
             &args,
             &path_schema,
-            &None,
         )
         .expect("legitimate path should substitute");
         assert_eq!(result, "/w/dev/scripts/get/p/u/alice/my_script");
+    }
+
+    fn single_query_schema(param: &str) -> Option<Value> {
+        Some(json!({
+            "type": "object",
+            "properties": { param: { "type": "string" } }
+        }))
+    }
+
+    #[test]
+    fn build_query_string_preserves_json_string_content() {
+        // A string param carrying JSON (e.g. the `args` filter on listJobs) must be
+        // emitted as its raw content so the backend can `serde_json::from_str` it.
+        let mut args = serde_json::Map::new();
+        args.insert("args".to_string(), json!("{\"key\":\"val\"}"));
+
+        let qs = build_query_string(&args, &single_query_schema("args"), &None);
+
+        // No backslash escaping: %5C must not appear; the encoded braces/quotes are exact.
+        assert_eq!(qs, "?args=%7B%22key%22%3A%22val%22%7D");
+        assert!(
+            !qs.contains("%5C"),
+            "must not contain backslash escapes: {qs}"
+        );
+    }
+
+    #[test]
+    fn build_query_string_keeps_non_string_serialization() {
+        let mut args = serde_json::Map::new();
+        args.insert("per_page".to_string(), json!(42));
+        assert_eq!(
+            build_query_string(&args, &single_query_schema("per_page"), &None),
+            "?per_page=42"
+        );
+
+        let mut args = serde_json::Map::new();
+        args.insert("running".to_string(), json!(true));
+        assert_eq!(
+            build_query_string(&args, &single_query_schema("running"), &None),
+            "?running=true"
+        );
+    }
+
+    #[test]
+    fn build_query_string_encodes_plain_string() {
+        let mut args = serde_json::Map::new();
+        args.insert("path".to_string(), json!("u/alice/my script"));
+        assert_eq!(
+            build_query_string(&args, &single_query_schema("path"), &None),
+            "?path=u%2Falice%2Fmy%20script"
+        );
+    }
+
+    fn strings(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn scope_patterns_condition_wildcard_disables_filter() {
+        // A `*` pattern grants everything, so no SQL condition should be added.
+        assert_eq!(scope_patterns_condition(&strings(&["*"])), None);
+        assert_eq!(scope_patterns_condition(&strings(&["f/team/*", "*"])), None);
+    }
+
+    #[test]
+    fn scope_patterns_condition_empty_matches_nothing() {
+        // An empty pattern list grants no items of this type.
+        assert_eq!(scope_patterns_condition(&[]), Some("false".to_string()));
+    }
+
+    #[test]
+    fn scope_patterns_condition_exact_path() {
+        assert_eq!(
+            scope_patterns_condition(&strings(&["u/admin/my_script"])),
+            Some("(o.path = 'u/admin/my_script')".to_string())
+        );
+    }
+
+    #[test]
+    fn scope_patterns_condition_subtree() {
+        // `f/team/*` matches the folder itself or anything beneath it, mirroring
+        // resource_matches_pattern. Underscores in the prefix are LIKE-escaped.
+        assert_eq!(
+            scope_patterns_condition(&strings(&["f/team/*"])),
+            Some("((o.path = 'f/team' OR o.path LIKE 'f/team/%' ESCAPE '\\'))".to_string())
+        );
+    }
+
+    #[test]
+    fn scope_patterns_condition_mixed_ored() {
+        assert_eq!(
+            scope_patterns_condition(&strings(&["u/admin/one", "f/team/*"])),
+            Some(
+                "(o.path = 'u/admin/one' OR (o.path = 'f/team' OR o.path LIKE 'f/team/%' ESCAPE '\\'))"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn scope_patterns_condition_escapes_like_wildcards() {
+        // A subtree prefix containing `%`/`_` must be escaped so it isn't treated
+        // as a LIKE pattern; the exact-match arm is quoted verbatim by bind.
+        assert_eq!(
+            scope_patterns_condition(&strings(&["f/a_b/*"])),
+            Some("((o.path = 'f/a_b' OR o.path LIKE 'f/a\\_b/%' ESCAPE '\\'))".to_string())
+        );
     }
 }

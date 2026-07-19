@@ -198,6 +198,10 @@ async fn execute_mcp_tool_call(
         arguments: arguments.clone(),
     });
 
+    if let Some(parent_job) = ctx.parent_job {
+        update_flow_status_module_with_actions(ctx.db, parent_job, actions).await?;
+    }
+
     match tool_result {
         Ok(result) => {
             let result_str =
@@ -225,6 +229,10 @@ async fn execute_mcp_tool_call(
                     success: true,
                 };
                 stream_event_processor.send(event, final_events_str).await?;
+            }
+
+            if let Some(parent_job) = ctx.parent_job {
+                update_flow_status_module_with_actions_success(ctx.db, parent_job, true).await?;
             }
 
             // Add tool message to conversation if chat_input_enabled
@@ -257,6 +265,10 @@ async fn execute_mcp_tool_call(
                     success: false,
                 };
                 stream_event_processor.send(event, final_events_str).await?;
+            }
+
+            if let Some(parent_job) = ctx.parent_job {
+                update_flow_status_module_with_actions_success(ctx.db, parent_job, false).await?;
             }
 
             // Add tool message to conversation if chat_input_enabled

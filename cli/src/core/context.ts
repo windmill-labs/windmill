@@ -326,12 +326,9 @@ export async function tryResolveBranchWorkspace(
     workspaceIdIfForked =
       getWorkspaceIdForWorkspaceForkFromBranchName(rawBranch);
 
+    // The "matched via fork branch" reason logged below already explains the
+    // base-branch lookup, so no extra message here.
     const branchToLookup = originalBranchIfForked ?? rawBranch;
-    if (originalBranchIfForked) {
-      log.infoStderr(
-        `Using original branch \`${originalBranchIfForked}\` for finding workspace from workspaces section in wmill.yaml`
-      );
-    }
 
     const match = findWorkspaceByGitBranch(config.workspaces, branchToLookup);
     if (match) {
@@ -370,9 +367,9 @@ export async function tryResolveBranchWorkspace(
     reason = `matched current git branch '${rawBranch}'`;
   }
 
-  log.infoStderr(
-    `Using workspace '${wsName}' (${reason}) → ${workspaceId} on ${baseUrl}`
-  );
+  // Printed as part of the single final targeting line on the happy paths;
+  // logged up front only when an interactive flow needs the context first.
+  const workspaceLine = `Using workspace '${wsName}' (${reason}) → ${workspaceId} on ${baseUrl}`;
 
   let normalizedBaseUrl: string;
   try {
@@ -390,27 +387,34 @@ export async function tryResolveBranchWorkspace(
     (w) => w.remote === normalizedBaseUrl && w.workspaceId === workspaceId
   );
 
+  // Every branch below must flow into the shared fork handling at the end —
+  // returning a profile directly would hand back the parent workspace profile
+  // on a fork branch.
+  let selectedProfile: Workspace;
+  let profileNote: string;
+  // Set when workspaceLine was already printed as context for the interactive
+  // profile-creation flow, so it isn't printed a second time at the end.
+  let workspaceLinePrinted = false;
+
   if (matchingProfiles.length === 0) {
     // No matching profile exists - prompt to create one
-    return await createWorkspaceProfileInteractively(
+    log.infoStderr(workspaceLine);
+    workspaceLinePrinted = true;
+    const created = await createWorkspaceProfileInteractively(
       normalizedBaseUrl,
       workspaceId,
       wsName,
       opts,
       { rawBranch: rawBranch ?? wsName, isForked: !!originalBranchIfForked }
     );
-  }
-
-  // Handle multiple profiles
-  let selectedProfile: Workspace;
-
-  if (matchingProfiles.length === 1) {
+    if (!created) {
+      return undefined;
+    }
+    selectedProfile = created;
+    profileNote = `profile '${selectedProfile.name}'`;
+  } else if (matchingProfiles.length === 1) {
     selectedProfile = matchingProfiles[0];
-    log.infoStderr(
-      colors.green(
-        `Using workspace profile '${selectedProfile.name}' for workspace '${wsName}' with workspace id \`${workspaceId}\``
-      )
-    );
+    profileNote = `profile '${selectedProfile.name}'`;
   } else {
     const lastUsedName = await getLastUsedProfile(
       wsName,
@@ -418,50 +422,45 @@ export async function tryResolveBranchWorkspace(
       workspaceId,
       opts.configDir
     );
+    const lastUsedProfile = lastUsedName
+      ? matchingProfiles.find((p) => p.name === lastUsedName)
+      : undefined;
 
-    if (lastUsedName) {
-      const lastUsedProfile = matchingProfiles.find(
-        (p) => p.name === lastUsedName
+    if (lastUsedProfile) {
+      selectedProfile = lastUsedProfile;
+      profileNote = `last used profile '${selectedProfile.name}'`;
+    } else {
+      // selectFromMultipleProfiles prints its own context header, and the
+      // final summary line below names the chosen profile.
+      selectedProfile = await selectFromMultipleProfiles(
+        matchingProfiles,
+        normalizedBaseUrl,
+        workspaceId,
+        `workspace '${wsName}'`,
+        opts.configDir
       );
-      if (lastUsedProfile) {
-        log.infoStderr(
-          colors.green(
-            `Using workspace profile '${lastUsedProfile.name}' for workspace '${wsName}' (last used)`
-          )
-        );
-        return lastUsedProfile;
-      }
+
+      await setLastUsedProfile(
+        wsName,
+        normalizedBaseUrl,
+        workspaceId,
+        selectedProfile.name,
+        opts.configDir
+      );
+      profileNote = `profile '${selectedProfile.name}'`;
     }
-
-    selectedProfile = await selectFromMultipleProfiles(
-      matchingProfiles,
-      normalizedBaseUrl,
-      workspaceId,
-      `workspace '${wsName}'`,
-      opts.configDir
-    );
-
-    await setLastUsedProfile(
-      wsName,
-      normalizedBaseUrl,
-      workspaceId,
-      selectedProfile.name,
-      opts.configDir
-    );
-
-    log.infoStderr(
-      colors.green(
-        `Using workspace profile '${selectedProfile.name}' for workspace '${wsName}'`
-      )
-    );
   }
 
   if (workspaceIdIfForked) {
     selectedProfile.name = `${selectedProfile.name}/${workspaceIdIfForked}`;
     selectedProfile.workspaceId = workspaceIdIfForked;
     log.infoStderr(
-      `Using fork workspace \`${workspaceIdIfForked}\` (parent: \`${workspaceId}\`) from branch \`${rawBranch}\``
+      colors.green(
+        `Automatically targeting fork workspace \`${workspaceIdIfForked}\` (fork of \`${workspaceId}\` on ${baseUrl}, ${profileNote}), resolved from git branch \`${rawBranch}\`. Use --workspace to override.`
+      )
     );
+  } else if (!workspaceLinePrinted) {
+    log.infoStderr(`${workspaceLine} (${profileNote})`);
   }
 
   return selectedProfile;
@@ -556,7 +555,7 @@ export async function resolveWorkspace(
       return workspace;
     } else {
       log.infoStderr(
-        `Found an active workspace \`${workspace.name}\` but the branch name indicates this is a forked workspace. Ignoring active workspace and trying to resolve the correct workspace from the branch name \`${branch}\`. Use --workspace to override.`
+        `You are on fork branch \`${branch}\`, which takes precedence over the active workspace profile \`${workspace.name}\`: resolving the fork workspace from the branch name instead. Use --workspace to override.`
       );
     }
   } else if (opts.workspace) {

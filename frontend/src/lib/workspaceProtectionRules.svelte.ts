@@ -1,6 +1,11 @@
 import { WorkspaceService, type ProtectionRuleset, type ProtectionRuleKind } from './gen'
 import type { UserExt } from './stores'
 
+// The slice of the user identity the bypass checks read — structural, so
+// callers can pass a whoami response (normalised groups) as well as the
+// UserExt store value.
+export type RuleBypassUser = Pick<UserExt, 'is_admin' | 'username' | 'groups'>
+
 /**
  * Internal reactive state using Svelte 5 $state rune
  */
@@ -94,7 +99,7 @@ export async function fetchProtectionRulesForWorkspace(
  * @param userInfo The user information
  * @returns true if user can bypass (is admin, in bypass_users, or has group in bypass_groups)
  */
-export function canUserBypassRule(ruleset: ProtectionRuleset, userInfo: UserExt): boolean {
+export function canUserBypassRule(ruleset: ProtectionRuleset, userInfo: RuleBypassUser): boolean {
 	// Admin always bypasses
 	if (userInfo.is_admin) {
 		return true
@@ -134,7 +139,7 @@ export function isRuleActive(ruleKind: ProtectionRuleKind): boolean {
  */
 export function canUserBypassRuleKind(
 	ruleKind: ProtectionRuleKind,
-	userInfo: UserExt | undefined
+	userInfo: RuleBypassUser | undefined
 ): boolean {
 	// If no user info, default to permissive
 	if (!userInfo) {
@@ -178,6 +183,23 @@ export function isRuleActiveInRulesets(
 }
 
 /**
+ * Whether a rule kind is enforced with no bypass users/groups in at least one ruleset, the only case
+ * that matches the empty-bypass reserved dev-workspace lock. A bypassable rule does not, since adding
+ * the unconditional lock would revoke those users' access; callers keep such a toggle editable.
+ */
+export function isRuleUnconditionallyActiveInRulesets(
+	rulesets: ProtectionRuleset[],
+	ruleKind: ProtectionRuleKind
+): boolean {
+	return rulesets.some(
+		(ruleset) =>
+			ruleset.rules.includes(ruleKind) &&
+			ruleset.bypass_users.length === 0 &&
+			ruleset.bypass_groups.length === 0
+	)
+}
+
+/**
  * Checks if user can bypass a rule kind in given rulesets (workspace-agnostic version)
  * @param rulesets Array of protection rulesets to check
  * @param ruleKind The rule type to check
@@ -187,7 +209,7 @@ export function isRuleActiveInRulesets(
 export function canUserBypassRuleKindInRulesets(
 	rulesets: ProtectionRuleset[],
 	ruleKind: ProtectionRuleKind,
-	userInfo: UserExt | undefined
+	userInfo: RuleBypassUser | undefined
 ): boolean {
 	// If no user info, default to not allowing bypass
 	if (!userInfo) {

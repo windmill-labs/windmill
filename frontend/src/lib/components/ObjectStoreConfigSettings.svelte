@@ -30,6 +30,7 @@
 		tenantId: string
 		clientId: string
 		accessKey: string
+		federatedTokenFile?: string
 		endpoint?: string
 	}
 
@@ -636,6 +637,26 @@
 				</label>
 				<label class="block pb-2">
 					<span class="text-xs font-semibold text-emphasis"
+						>Federated token file <span class="text-2xs text-primary">(optional)</span></span
+					>
+					<span class="text-primary text-2xs"
+						>Path to the projected service account token when using AKS Workload Identity with the
+						tenant ID and client ID above</span
+					>
+					<TextInput
+						inputProps={{ placeholder: '/var/run/secrets/azure/tokens/azure-identity-token' }}
+						bind:value={
+							() => (bucket_config as AzureConfig).federatedTokenFile,
+							(v) =>
+								(bucket_config = {
+									...(bucket_config as AzureConfig),
+									federatedTokenFile: v === '' ? undefined : v
+								})
+						}
+					/>
+				</label>
+				<label class="block pb-2">
+					<span class="text-xs font-semibold text-emphasis"
 						>Endpoint <span class="text-2xs text-primary">(optional)</span></span
 					>
 					<span class="text-primary text-2xs"
@@ -690,7 +711,10 @@
 					/>
 				</Label>
 				<Label label="Service Account Key">
-					<span class="text-primary text-2xs">JSON content of the service account key file</span>
+					<span class="text-primary text-2xs">
+						JSON content of the service account key file. Leave empty to use the instance's ambient
+						credentials (e.g. GKE Workload Identity / the GCP metadata server).
+					</span>
 					{#if hasServiceAccountKey && !showServiceAccountKey}
 						<div class="flex items-center gap-3 mt-1">
 							<span class="text-tertiary text-xs">

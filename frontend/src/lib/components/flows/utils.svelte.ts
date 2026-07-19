@@ -185,11 +185,14 @@ export async function runFlowPreview(
 	path: string,
 	restartedFrom: RestartedFrom | undefined,
 	conversationId?: string | undefined,
-	tempScriptRefs?: Record<string, string>
+	tempScriptRefs?: Record<string, string>,
+	// The session's acting workspace when previewing inside an AI-session flow
+	// editor; falls back to the navigation workspace for full-page previews.
+	workspace?: string
 ) {
 	const newFlow = flow
 	return await JobService.runFlowPreview({
-		workspace: get(workspaceStore) ?? '',
+		workspace: workspace ?? get(workspaceStore) ?? '',
 		requestBody: {
 			args,
 			value: newFlow.value,

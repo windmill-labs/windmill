@@ -47,7 +47,7 @@ use windmill_common::HUB_BASE_URL;
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error, JsonResult, Result},
-    flows::{Flow, FlowWithStarred, ListFlowQuery, ListableFlow, NewFlow},
+    flows::{EditFlow, Flow, FlowWithStarred, ListFlowQuery, ListableFlow, NewFlow},
     jobs::JobPayload,
     schedule::Schedule,
     utils::{http_get_from_hub, not_found_if_none, paginate, Pagination, RunnableKind, StripPath},
@@ -155,10 +155,11 @@ async fn list_flows(
             "o.labels",
             "draft.email IS NOT NULL as is_draft",
             // Per-path draft owners as a JSON array; see scripts.rs for the rationale
-            // (admins-workspace identity fallback, legacy NULL-email row).
-            "(SELECT json_agg(json_build_object('username', COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END)) ORDER BY COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END) NULLS LAST) \
+            // (non-member superadmin identity fallback via `password`, legacy NULL-email row).
+            "(SELECT json_agg(json_build_object('username', COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN d.email END)) ORDER BY COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN d.email END) NULLS LAST) \
               FROM draft d \
               LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
+              LEFT JOIN password p ON p.email = d.email AND p.super_admin = true \
               WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND d.typ = 'flow') as draft_users",
             "folder_labels(o.workspace_id, o.path) as inherited_labels"
         ])
@@ -1006,7 +1007,7 @@ async fn update_flow(
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
-    Json(nf): Json<NewFlow>,
+    Json(ef): Json<EditFlow>,
 ) -> Result<String> {
     if authed.is_operator {
         return Err(Error::NotAuthorized(
@@ -1014,6 +1015,8 @@ async fn update_flow(
         ));
     }
     let flow_path = flow_path.to_path();
+    // The URL identifies the flow being updated; the body path is only needed to rename.
+    let nf = ef.into_new_flow(flow_path);
     check_scopes(&authed, || format!("flows:write:{}", flow_path))?;
 
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(

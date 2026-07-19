@@ -14,11 +14,21 @@
 		canWrite,
 		truncateHash,
 		copyToClipboard,
-		urlParamsToObject
+		urlParamsToObject,
+		extractTagFromSharableHash,
+		interpolateTag,
+		isDynamicTag,
+		isTagTemplate
 	} from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		hubBaseUrlStore,
+		userStore,
+		userWorkspaces,
+		workspaceStore
+	} from '$lib/stores'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 	import AIFormAssistant from '$lib/components/copilot/AIFormAssistant.svelte'
 
@@ -89,8 +99,7 @@
 	import TriggersEditor from '$lib/components/triggers/TriggersEditor.svelte'
 	import { Triggers } from '$lib/components/triggers/triggers.svelte'
 	import { page } from '$app/state'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	import { isWorkflowAsCode } from '$lib/components/graph/wacToFlow'
 	import WacDiagram from '$lib/components/graph/WacDiagram.svelte'
@@ -112,6 +121,9 @@
 	let scheduledForStr: string | undefined = $state(undefined)
 	let invisible_to_owner: boolean | undefined = $state(undefined)
 	let overrideTag: string | undefined = $state(undefined)
+	let overrideTagNote: string | undefined = $state(undefined)
+	// Tag carried over from 'Run again', pending the dynamic-tag check in loadScript
+	let carriedTag: string | undefined = undefined
 	let inputSelected: 'saved' | 'history' | undefined = $state(undefined)
 	let jsonView = $state(false)
 
@@ -253,6 +265,22 @@
 				return
 			}
 		}
+		// A carried non-template value equal to the resolution of the script's own dynamic
+		// tag for these args is not an override but the previous run's pinned resolution:
+		// drop it so the backend re-resolves from the (possibly edited) args. A differing
+		// value is a genuine user override and a template re-resolves at push, so both stay.
+		if (
+			carriedTag &&
+			isDynamicTag(script.tag) &&
+			!isTagTemplate(carriedTag) &&
+			interpolateTag(script.tag ?? '', $workspaceStore!, args) === carriedTag
+		) {
+			if (overrideTag === carriedTag) {
+				overrideTag = undefined
+				overrideTagNote = `tag ${script.tag} is resolved at run time, so the previous run's tag ${carriedTag} was not applied`
+			}
+			carriedTag = undefined
+		}
 		can_write =
 			script.workspace_id == $workspaceStore &&
 			canWrite(script.path, script.extra_perms!, $userStore)
@@ -329,6 +357,8 @@
 	if (hash.length > 1) {
 		try {
 			let searchParams = new URLSearchParams(hash.slice(1))
+			carriedTag = extractTagFromSharableHash(searchParams)
+			overrideTag = carriedTag
 			let params = [...Object.entries(urlParamsToObject(searchParams))].map(([k, v]) => [
 				k,
 				JSON.parse(v)
@@ -369,10 +399,10 @@
 			script &&
 			!$userStore?.operator &&
 			!isCloudHosted() &&
-			!isRuleActive('DisableWorkspaceForking')
+			editInForkAllowed($workspaceStore, $userWorkspaces)
 		) {
 			buttons.push({
-				label: 'Edit in fork',
+				label: editInForkLabel($workspaceStore, $userWorkspaces),
 				buttonProps: {
 					href: buildForkEditUrl('script', script.path),
 					unifiedSize: 'md',
@@ -872,6 +902,7 @@
 								bind:scheduledForStr
 								bind:invisible_to_owner
 								bind:overrideTag
+								{overrideTagNote}
 								viewKeybinding
 								loading={runLoading}
 								autofocus

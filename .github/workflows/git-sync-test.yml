@@ -121,7 +121,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-workspaces: backend
-          toolchain: 1.93.0
+          toolchain: 1.97.0
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -180,6 +180,9 @@ jobs:
           DENO_PATH: deno
           BUN_PATH: bun
           NODE_BIN_PATH: node
+          # The auto-pull poller's SSRF guard rejects localhost git remotes;
+          # the tests' Gitea runs on localhost.
+          ALLOW_LOCAL_GIT_REMOTES: "true"
         run: |
           ./target/debug/windmill &
           echo "Waiting for Windmill to be ready..."

@@ -30,27 +30,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check-membership:
-    if: github.event_name == 'pull_request'
-    uses: ./.github/workflows/check-org-membership.yml
-    with:
-      commenter: ${{ github.event.pull_request.user.login }}
-    secrets:
-      access_token: ${{ secrets.ORG_ACCESS_TOKEN }}
-
   pi-review:
-    needs: check-membership
     runs-on: ubicloud-standard-2
     timeout-minutes: 30
+    # A non-fork PR (head.repo.fork == false) can only be opened by someone with push
+    # access to this repo, so fork==false already enforces write access. Do NOT re-add
+    # an author_association gate: the pull_request webhook payload reports private org
+    # members as CONTRIBUTOR/NONE (only public members show as MEMBER), which silently
+    # skips auto-review for every private member.
     if: |
-      always() &&
+      github.event_name == 'workflow_call' ||
       (
-        needs.check-membership.result == 'skipped' ||
-        (needs.check-membership.result == 'success' && needs.check-membership.outputs.is_member == 'true')
-      ) &&
-      (
-        github.event_name == 'workflow_call' ||
-        (github.event.pull_request.draft == false && github.event.pull_request.head.repo.fork == false)
+        github.event.pull_request.draft == false &&
+        github.event.pull_request.head.repo.fork == false
       )
     permissions:
       contents: read
@@ -83,6 +75,7 @@ jobs:
           EVENT_BODY: ${{ github.event.pull_request.body }}
           EVENT_FORK: ${{ github.event.pull_request.head.repo.fork }}
           EVENT_AUTHOR: ${{ github.event.pull_request.user.login }}
+          EVENT_ACTION: ${{ github.event.action }}
         run: |
           if [ -n "$INPUT_PR_NUMBER" ]; then
             PR_JSON=$(gh pr view "$INPUT_PR_NUMBER" --repo "${{ github.repository }}" \
@@ -105,24 +98,68 @@ jobs:
             IS_FORK="$EVENT_FORK"
             PR_AUTHOR="$EVENT_AUTHOR"
           fi
-          if [ "$IS_FORK" = "true" ]; then
-            echo "Skipping Pi review for fork PR."
+          # Fork PRs run untrusted code with secrets present, so the automatic
+          # pull_request trigger never reviews them. A non-empty INPUT_PR_NUMBER
+          # means we arrived via workflow_call (a maintainer /pi comment gated by
+          # check-write-access), so allow forks only on that path.
+          if [ "$IS_FORK" = "true" ] && [ -z "$INPUT_PR_NUMBER" ]; then
+            echo "Skipping Pi review for fork PR (automatic trigger)."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # An agent-driven PR flips to ready only after a clean /review round on
+          # a draft, marked by an author comment naming the head SHA (pr skill,
+          # "Review rounds"). Re-reviewing that same head on ready_for_review is
+          # redundant. The marker alone is author attestation, so also require
+          # reviewer evidence: a Codex review (posted by github-actions[bot], not
+          # forgeable by the author) that predates the marker and carries a
+          # non-blocking verdict. Comment-triggered and synchronize runs never
+          # skip. Keep the three copies of this check in sync (pr-ready-review /
+          # codex-pr-review / pi-pr-review); a shared local action would need the
+          # repo checked out before the check, which the fork paths here
+          # deliberately avoid.
+          if [ "$EVENT_ACTION" = "ready_for_review" ] && [ -z "$INPUT_PR_NUMBER" ]; then
+            # Fetch failures fail open (no skip): an API hiccup must run the
+            # review, never skip it or fail the job.
+            COMMENTS=$(gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/comments?per_page=100" --paginate | jq -s '[.[][]]') || COMMENTS='[]'
+            MARKER_TIME=$(jq -r --arg author "$PR_AUTHOR" --arg marker "✅ Review round clean @ $HEAD_SHA" \
+              '[.[] | select(.user.login == $author) | select(.body | contains($marker)) | .created_at] | min // empty' <<<"$COMMENTS")
+            CODEX_VERDICT=''
+            if [ -n "$MARKER_TIME" ]; then
+              # Only Codex evidence that predates the marker counts: the ready-
+              # triggered Codex run itself posts after the flip and must not
+              # vouch for a sibling reviewer's skip.
+              CODEX_VERDICT=$(jq -r --arg mt "$MARKER_TIME" \
+                '[.[] | select(.user.login == "github-actions[bot]") | select(.body | contains("## Codex Review")) | select(.created_at < $mt)] | last | .body // ""' <<<"$COMMENTS" \
+                | grep -m1 -oE '(Good to merge|Mergeable, but should ideally address nits|Should address issues before merging)' || true)
+            fi
+            if [ -n "$MARKER_TIME" ] && [ -n "$CODEX_VERDICT" ] && [ "$CODEX_VERDICT" != "Should address issues before merging" ]; then
+              echo "Clean review round marker found for $HEAD_SHA with pre-marker non-blocking Codex verdict; skipping redundant review."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          # PR title/body are attacker-controlled free text. Use an unguessable
+          # per-run delimiter so a fork can't embed a fixed heredoc terminator to
+          # inject extra outputs — e.g. is_fork=false (last-write-wins), which
+          # would re-enable the EE checkout and trusted-path settings for forks.
+          RAND=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
+          TITLE_EOF="TITLE_EOF_${RAND}"
+          BODY_EOF="BODY_EOF_${RAND}"
           {
             echo "skip=false"
+            echo "is_fork=$IS_FORK"
             echo "pr_number=$PR_NUMBER"
             echo "base_ref=$BASE_REF"
             echo "base_sha=$BASE_SHA"
             echo "head_sha=$HEAD_SHA"
             echo "pr_author=$PR_AUTHOR"
-            echo 'title<<PR_TITLE_EOF'
+            echo "title<<$TITLE_EOF"
             printf '%s\n' "$PR_TITLE"
-            echo 'PR_TITLE_EOF'
-            echo 'body<<PR_BODY_EOF'
+            echo "$TITLE_EOF"
+            echo "body<<$BODY_EOF"
             printf '%s\n' "$PR_BODY"
-            echo 'PR_BODY_EOF'
+            echo "$BODY_EOF"
           } >> "$GITHUB_OUTPUT"
 
       - name: Checkout repository
@@ -131,9 +168,17 @@ jobs:
         with:
           ref: refs/pull/${{ steps.pr.outputs.pr_number }}/merge
           fetch-depth: 1
+          # Don't persist github.token in .git/config: the review agent can read
+          # the checkout, and on the fork path that token (issue/PR write) would
+          # otherwise be exfiltratable. All later git ops target the public origin
+          # and need no auth; EE checkout and gh use their own explicit tokens.
+          persist-credentials: false
 
+      # Never expose the EE private-repo token to untrusted fork code. Skipping
+      # this step leaves steps.ee.outputs.available empty, so the EE checkout and
+      # substitution steps below are skipped too.
       - name: Check EE access
-        if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
+        if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true' && steps.pr.outputs.is_fork != 'true'
         id: ee
         env:
           EE_TOKEN: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
@@ -186,9 +231,12 @@ jobs:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
         run: |
+          # Write outside the checkout: on the fork path the merge tree is
+          # attacker-controlled, and a committed symlink at this path would
+          # redirect the write.
           gh api "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" \
             --jq '[.[] | {user: .user.login, created_at: .created_at, body: (.body | .[:4000])}] | sort_by(.created_at) | .[-20:]' \
-            > prior-comments.json || echo "[]" > prior-comments.json
+            > "$RUNNER_TEMP/prior-comments.json" || echo "[]" > "$RUNNER_TEMP/prior-comments.json"
 
       - name: Write Pi review context
         if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
@@ -202,9 +250,9 @@ jobs:
           PR_AUTHOR: ${{ steps.pr.outputs.pr_author }}
           EXTRA_PROMPT: ${{ inputs.extra_prompt }}
         run: |
-          mkdir -p .github/pi
           node <<'NODE'
           const fs = require('fs');
+          const tmp = process.env.RUNNER_TEMP;
           const lines = [
             `Repository: ${process.env.PR_REPOSITORY}`,
             `PR number: ${process.env.PR_NUMBER}`,
@@ -234,9 +282,9 @@ jobs:
           if (process.env.EXTRA_PROMPT && process.env.EXTRA_PROMPT.trim()) {
             lines.push('', 'Additional reviewer instructions:', process.env.EXTRA_PROMPT.trim());
           }
-          if (fs.existsSync('prior-comments.json')) {
+          if (fs.existsSync(`${tmp}/prior-comments.json`)) {
             try {
-              const comments = JSON.parse(fs.readFileSync('prior-comments.json', 'utf8'));
+              const comments = JSON.parse(fs.readFileSync(`${tmp}/prior-comments.json`, 'utf8'));
               if (Array.isArray(comments) && comments.length > 0) {
                 lines.push(
                   '',
@@ -251,7 +299,7 @@ jobs:
               }
             } catch (_) {}
           }
-          fs.writeFileSync('.github/pi/pr-review-context.md', `${lines.join('\n')}\n`);
+          fs.writeFileSync(`${tmp}/pr-review-context.md`, `${lines.join('\n')}\n`);
           NODE
 
       - name: Run Pi review
@@ -259,16 +307,69 @@ jobs:
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           PI_SKIP_VERSION_CHECK: '1'
+          PR_IS_FORK: ${{ steps.pr.outputs.is_fork }}
+          PR_BASE_REF: ${{ steps.pr.outputs.base_ref }}
+          PR_BASE_SHA: ${{ steps.pr.outputs.base_sha }}
+          PR_HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
         run: |
           set -o pipefail
-          cat REVIEW.md .github/pi/pr-review.prompt.md > /tmp/pi-prompt.md
+          PI_HARDEN_FLAGS=()
+          # Keep generated files (final message, events, context) outside the
+          # checkout: on the fork path a committed symlink at any of these paths
+          # would redirect our write and could overwrite an action's code that
+          # then runs with our credentials. RUNNER_TEMP is outside the checkout.
+          OUT_DIR="$RUNNER_TEMP"
+          CTX="$RUNNER_TEMP/pr-review-context.md"
+          if [ "$PR_IS_FORK" = "true" ]; then
+            # Fork code is untrusted. Read the review policy/prompt from the base
+            # ref (git show) rather than the attacker-controlled merge checkout,
+            # so a malicious fork can't rewrite the reviewer's own instructions,
+            # and drop the bash tool so the agent has no shell to exfiltrate with.
+            git show "origin/$PR_BASE_REF:REVIEW.md" > /tmp/pi-prompt.md
+            git show "origin/$PR_BASE_REF:.github/pi/pr-review.prompt.md" >> /tmp/pi-prompt.md
+            PI_TOOLS=read,grep,find,ls
+
+            # The agent has no shell, so pre-compute the diff (base...head SHAs are
+            # trusted) into the context file it reads. It may still read fork files
+            # by absolute path for extra context — reads are safe.
+            {
+              echo ""
+              echo "## Pre-computed review diff (base...head)"
+              echo "You have no shell. The full diff is below. The repository checkout"
+              echo "is at $GITHUB_WORKSPACE — you may read files there by absolute path."
+              echo '```diff'
+              git -C "$GITHUB_WORKSPACE" diff --unified=0 "$PR_BASE_SHA...$PR_HEAD_SHA"
+              echo '```'
+            } >> "$CTX"
+
+            # Pi resolves ALL project config from <cwd>/.pi (settings/packages,
+            # extensions, skills, themes, prompts, SYSTEM.md); inside the fork
+            # checkout a fork could inject any to run code or rewrite our system
+            # prompt. Discovery is cwd-based, so run from a fresh empty dir.
+            PI_WORKDIR=$(mktemp -d)
+            cd "$PI_WORKDIR"
+
+            # Belt-and-suspenders on top of the isolated cwd: refuse discovery of
+            # extensions/skills/templates/themes/context-files, and PI_OFFLINE=1 to
+            # block any startup network op or package install. PI_OFFLINE gates only
+            # startup network ops, not the provider inference call.
+            PI_HARDEN_FLAGS=(--no-extensions --no-skills --no-prompt-templates --no-themes --no-context-files)
+            export PI_OFFLINE=1
+          else
+            cat REVIEW.md .github/pi/pr-review.prompt.md > /tmp/pi-prompt.md
+            PI_TOOLS=read,grep,find,ls,bash
+          fi
+          # The context file lives in RUNNER_TEMP (outside the checkout); tell the
+          # agent its absolute path.
+          printf '\nReview context file (absolute path): %s\n' "$CTX" >> /tmp/pi-prompt.md
           pi -p \
             --provider deepseek \
             --model deepseek-v4-pro \
-            --tools read,grep,find,ls,bash \
+            --tools "$PI_TOOLS" \
+            "${PI_HARDEN_FLAGS[@]}" \
             --mode json \
             < /tmp/pi-prompt.md \
-            | tee pi-events.jsonl \
+            | tee "$OUT_DIR/pi-events.jsonl" \
             | jq -rc --unbuffered '
                 if .type == "agent_start" then "🤖 pi agent started"
                 elif .type == "turn_start" then "── turn ──"
@@ -296,25 +397,41 @@ jobs:
             | map(select(.role == "assistant"))
             | last
             | (.content[]? | select(.type == "text") | .text)
-          ' pi-events.jsonl > pi-final-message.md
+          ' "$OUT_DIR/pi-events.jsonl" > "$OUT_DIR/pi-final-message.md"
 
       - name: Post Pi review comment
         if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
         uses: actions/github-script@v7
         env:
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GH_JOB_TOKEN: ${{ github.token }}
         with:
           github-token: ${{ github.token }}
           script: |
             const fs = require('fs');
-            const path = `${process.env.GITHUB_WORKSPACE}/pi-final-message.md`;
+            const path = `${process.env.RUNNER_TEMP}/pi-final-message.md`;
             if (!fs.existsSync(path)) {
               core.info('Pi did not produce a final message; skipping PR comment.');
               return;
             }
-            const body = fs.readFileSync(path, 'utf8').trim();
+            let body = fs.readFileSync(path, 'utf8').trim();
             if (!body) {
               core.info('Pi final message was empty; skipping PR comment.');
+              return;
+            }
+            // Defense-in-depth for fork reviews: the model call needs the provider
+            // credential in the environment (readable via /proc/self/environ), and
+            // the posted comment is an exfiltration channel that bypasses GitHub
+            // Actions log masking. Strip the credential if it leaked into the text.
+            for (const s of [process.env.DEEPSEEK_API_KEY, process.env.GH_JOB_TOKEN]) {
+              if (typeof s === 'string' && s.length >= 8) {
+                body = body.split(s).join('[REDACTED]');
+              }
+            }
+            body = body.trim();
+            if (!body) {
+              core.info('Pi final message was empty after redaction; skipping PR comment.');
               return;
             }
             await github.rest.issues.createComment({

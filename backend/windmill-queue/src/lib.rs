@@ -14,6 +14,20 @@ pub mod cascade_oss;
 pub use cascade_ee as cascade;
 #[cfg(not(feature = "private"))]
 pub use cascade_oss as cascade;
+#[cfg(feature = "private")]
+pub mod ducklake_maintenance_ee;
+pub mod ducklake_maintenance_oss;
+#[cfg(feature = "private")]
+pub use ducklake_maintenance_ee as ducklake_maintenance;
+#[cfg(not(feature = "private"))]
+pub use ducklake_maintenance_oss as ducklake_maintenance;
+#[cfg(feature = "private")]
+pub mod freshness_watchdog_ee;
+pub mod freshness_watchdog_oss;
+#[cfg(feature = "private")]
+pub use freshness_watchdog_ee as freshness_watchdog;
+#[cfg(not(feature = "private"))]
+pub use freshness_watchdog_oss as freshness_watchdog;
 pub mod jobs;
 #[cfg(feature = "private")]
 pub mod jobs_ee;

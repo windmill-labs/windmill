@@ -160,7 +160,12 @@
 					data: {
 						tool: tool.name,
 						type: tool.type,
-						nameError: getToolNameError(tool.name, tool.type, siblingNames),
+						// agentActions are runtime tool calls: the same tool called multiple times
+						// yields duplicate names, which is expected and must not read as a Failure.
+						// Only validate names in the editor, where they define the static tool set.
+						nameError: agentActions
+							? undefined
+							: getToolNameError(tool.name, tool.type, siblingNames),
 						eventHandlers,
 						moduleId: tool.id,
 						insertable,

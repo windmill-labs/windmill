@@ -292,6 +292,10 @@ pub struct ProviderWithResource {
     pub kind: AIProvider,
     pub resource: ProviderResource,
     pub model: String,
+    /// Provider-native reasoning effort token (e.g. `low`, `high`, `none`).
+    /// Belongs to the model selection, so it rides on the provider config.
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
 }
 
 impl ProviderWithResource {
@@ -301,6 +305,12 @@ impl ProviderWithResource {
 
     pub fn get_model(&self) -> &str {
         &self.model
+    }
+
+    /// The reasoning effort to thread to the provider, treating an empty string
+    /// (e.g. a cleared flow input) as unset.
+    pub fn get_reasoning_effort(&self) -> Option<&str> {
+        self.reasoning_effort.as_deref().filter(|s| !s.is_empty())
     }
 
     pub async fn get_base_url(&self, db: &DB) -> Result<String, Error> {
@@ -454,6 +464,10 @@ pub struct AIAgentResult<'a> {
 pub enum StreamingEvent {
     /// Individual token from the AI response
     TokenDelta { content: String },
+    /// Individual token of the model's reasoning / thinking summary. Emitted
+    /// before the answer when reasoning is enabled; renderable as a "thinking"
+    /// affordance (thinking tokens bill regardless of whether they are shown).
+    ReasoningTokenDelta { content: String },
     /// Tool call has started
     ToolCall { call_id: String, function_name: String },
     /// Tool call arguments are complete

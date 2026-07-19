@@ -4,6 +4,7 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { Loader2 } from 'lucide-svelte'
@@ -106,6 +107,8 @@
 		onReset?: () => void
 		cloudDisabled?: boolean
 	} = $props()
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	let hasChanged = $derived(!deepEqual(getGcpConfig(), originalConfig ?? {}))
 	const gcpConfig = $derived.by(getGcpConfig)
@@ -113,7 +116,7 @@
 	const draftSync = useTriggerDraftSync({
 		itemKind: 'trigger_gcp',
 		path: () => initialPath,
-		workspace: () => $workspaceStore,
+		workspace: () => wsId,
 		drawerLoading: () => drawerLoading,
 		getCfg: () => gcpConfig,
 		applyCfg: loadTriggerConfig,
@@ -204,7 +207,7 @@
 		}
 		try {
 			const s = await GcpTriggerService.getGcpTrigger({
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				path: initialPath,
 				getDraft: true
 			})
@@ -256,7 +259,7 @@
 			initialPath,
 			cfg,
 			edit,
-			$workspaceStore!,
+			wsId!,
 			usedTriggerKinds
 		)
 		if (isSaved) {
@@ -318,7 +321,7 @@
 				(force) =>
 					GcpTriggerService.setGcpTriggerMode({
 						path: initialPath,
-						workspace: $workspaceStore ?? '',
+						workspace: wsId ?? '',
 						requestBody: { mode: newMode, force }
 					}),
 				'GCP Pub/Sub trigger'
@@ -367,6 +370,7 @@
 {#if useDrawer}
 	<Drawer size="800px" bind:this={drawer}>
 		<DrawerContent
+			bannerReserved={draftSync.hasBaseline}
 			title={edit
 				? can_write
 					? `Edit GCP Pub/Sub trigger ${initialPath}`
@@ -381,6 +385,7 @@
 				<LocalDraftBanner
 					show={draftSync.hasDraft}
 					getDeployed={() => draftSync.deployed}
+					reserveSpace={draftSync.hasBaseline}
 					getCurrent={() => draftSync.current}
 					onDiscard={() => draftSync.resetToDeployed(initialPath)}
 					disabled={!can_write}
@@ -460,6 +465,7 @@
 			<div class="flex flex-col gap-4">
 				<Label label="Path">
 					<Path
+						workspaceOverride={wsId}
 						bind:dirty={dirtyPath}
 						bind:error={pathError}
 						bind:path
@@ -476,6 +482,7 @@
 			{#if !hideTarget}
 				<Section label="Runnable">
 					<TriggerRunnablePicker
+						workspace={wsId}
 						{fixedScriptPath}
 						bind:itemKind
 						bind:scriptPath={script_path}
@@ -581,6 +588,7 @@
 								</div>
 							{:else}
 								<TriggerRetriesAndErrorHandler
+									workspace={wsId}
 									{optionTabSelected}
 									{itemKind}
 									{can_write}

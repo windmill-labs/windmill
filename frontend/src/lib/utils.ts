@@ -844,6 +844,21 @@ export function isMac(): boolean {
 	return navigator.userAgent.indexOf('Mac OS X') !== -1
 }
 
+/**
+ * True on Chromium-based browsers (Chrome, Edge, Brave, Opera, ...). Gates
+ * capabilities that are only faithful on Blink, e.g. DOM screenshot capture.
+ * userAgentData is itself Chromium-only; the UA fallback covers Chromium
+ * versions predating it ("Chrome/" never appears in Gecko or WebKit UAs).
+ */
+export function isChromiumBrowser(): boolean {
+	if (typeof navigator === 'undefined') return false
+	const brands = (navigator as any).userAgentData?.brands
+	if (Array.isArray(brands)) {
+		return brands.some((entry) => typeof entry?.brand === 'string' && /chromium/i.test(entry.brand))
+	}
+	return /chrome\//i.test(navigator.userAgent)
+}
+
 export function getModifierKey(): string {
 	return isMac() ? '⌘' : 'Ctrl+'
 }
@@ -1137,8 +1152,19 @@ export function extractCustomProperties(styleStr: string): string {
 	return customStyleStr
 }
 
-export function computeSharableHash(args: any) {
-	let nargs = {}
+// Value prefix marking the reserved `__tag` key as a carried tag: no JSON-encoded
+// arg value can start with `t:` (JSON strings start with `"`, numbers with a digit
+// or `-`, etc.), so it cannot be confused with a genuine arg named `__tag`
+const SHARABLE_HASH_TAG_PREFIX = 't:'
+
+// `tag` is carried as the reserved key `__tag` with a SHARABLE_HASH_TAG_PREFIX value;
+// entry pairs allow a duplicate `__tag` key so an arg with that name can coexist with
+// the carried tag (they are told apart by the value prefix)
+export function computeSharableHash(args: any, tag?: string) {
+	let entries: [string, string][] = []
+	if (tag) {
+		entries.push(['__tag', SHARABLE_HASH_TAG_PREFIX + tag])
+	}
 	for (let k in args) {
 		let v = args[k]
 		if (v !== undefined) {
@@ -1148,16 +1174,95 @@ export function computeSharableHash(args: any) {
 				console.error(`Value at key ${k} too big (${size}) to be shared`)
 				return ''
 			}
-			nargs[k] = JSON.stringify(v)
+			entries.push([k, JSON.stringify(v)])
 		}
 	}
 	try {
-		let r = new URLSearchParams(nargs).toString()
+		let r = new URLSearchParams(entries).toString()
 		return r.length > 1000000 ? '' : r
 	} catch (e) {
 		console.error('Error computing sharable hash', e)
 		return ''
 	}
+}
+
+// `$args[...]` tags are resolved by the backend at push time from the run's args; a
+// job's stored tag is the resolved value, so re-running with it would pin a value
+// that no longer matches edited args. `$workspace` is also interpolated but resolves
+// identically on a re-run (same workspace), so it does not make a tag dynamic here.
+export function isDynamicTag(tag: string | undefined): boolean {
+	return !!tag && tag.includes('$args[')
+}
+
+// Must mirror the backend's RE_ARG_TAG (windmill-queue/src/jobs.rs) so frontend
+// interpolation resolves exactly the same placeholders as push time.
+const RE_ARG_TAG = /\$args\[((?:\w+\.)*\w+)\]/
+
+// True when the tag contains placeholders that the backend resolves at push time.
+// A carried tag override that is itself a template re-resolves on every run, so
+// it never pins a stale resolved value.
+export function isTagTemplate(tag: string | undefined): boolean {
+	return !!tag && (tag.includes('$workspace') || RE_ARG_TAG.test(tag))
+}
+
+// Frontend mirror of the backend's `interpolate_args` (windmill-queue/src/jobs.rs):
+// `$workspace` first, then each `$args[name]` from the run's args — simple names use
+// the arg's JSON text with surrounding quotes trimmed, dotted names traverse nested
+// objects, anything missing resolves to the empty string.
+export function interpolateTag(
+	template: string,
+	workspaceId: string,
+	args: Record<string, any> | undefined
+): string {
+	const workspaced = template.replaceAll('$workspace', workspaceId)
+	return workspaced.replace(new RegExp(RE_ARG_TAG.source, 'g'), (_, name: string) => {
+		const parts = name.split('.')
+		let value: any = args?.[parts[0]]
+		for (const part of parts.slice(1)) {
+			value = value != null && typeof value === 'object' ? value[part] : undefined
+		}
+		if (value === undefined) {
+			return ''
+		}
+		return (JSON.stringify(value) ?? '').replace(/^"+|"+$/g, '')
+	})
+}
+
+// Maps a job's stored (resolved) tag back to the raw custom-tag entry it can only
+// have come from: an exact entry, or a templated entry that resolves to it with the
+// job's workspace and args. Custom tags are the only tags a user can pick as an
+// override and the only ones non-superadmins may pass explicitly, so a tag that maps
+// to no entry is backend-derived and must be re-derived on re-run, not carried.
+export function findMatchingCustomTag(
+	resolvedTag: string,
+	customTags: string[],
+	workspaceId: string,
+	args: Record<string, any> | undefined
+): string | undefined {
+	if (customTags.includes(resolvedTag)) {
+		return resolvedTag
+	}
+	return customTags.find(
+		(t) => isTagTemplate(t) && interpolateTag(t, workspaceId, args) === resolvedTag
+	)
+}
+
+// Counterpart of computeSharableHash's `tag`: extracts and removes the carried tag.
+// Only SHARABLE_HASH_TAG_PREFIX-prefixed `__tag` values are carried tags; any other
+// `__tag` value is a genuine arg with that name and is left in `params` for arg parsing.
+export function extractTagFromSharableHash(params: URLSearchParams): string | undefined {
+	const values = params.getAll('__tag')
+	const carried = values.find((v) => v.startsWith(SHARABLE_HASH_TAG_PREFIX))
+	if (carried == undefined) {
+		return undefined
+	}
+	params.delete('__tag')
+	for (const v of values) {
+		if (!v.startsWith(SHARABLE_HASH_TAG_PREFIX)) {
+			params.append('__tag', v)
+		}
+	}
+	return carried.slice(SHARABLE_HASH_TAG_PREFIX.length)
 }
 
 export function toCamel(s: string) {

@@ -16,8 +16,40 @@ import type { MessageStream } from '@anthropic-ai/sdk/lib/MessageStream'
 import type { AIProviderModel } from '$lib/gen'
 import { getProviderAndCompletionConfig, workspaceAIClients } from '../lib'
 import { applyReasoningToConfig } from '../reasoningRegistry'
-import { processToolCall, type Tool, type ToolCallbacks } from './shared'
+import { appendPendingToolImages, processToolCall, type Tool, type ToolCallbacks } from './shared'
 import { anthropicUsageToChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
+import { parseImageDataUrl } from './imageUtils'
+
+const ANTHROPIC_IMAGE_MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
+
+/**
+ * Convert an OpenAI user-message content array (text + image_url parts) to Anthropic
+ * content blocks. Returns a plain string when the content is a lone text part so
+ * simple messages stay unchanged. Non-image/text parts are dropped.
+ */
+function openAIUserContentToAnthropic(content: unknown): string | any[] {
+	if (typeof content === 'string') return content
+	if (!Array.isArray(content)) return JSON.stringify(content)
+	const blocks: any[] = []
+	for (const part of content) {
+		if (part?.type === 'text' && typeof part.text === 'string') {
+			blocks.push({ type: 'text', text: part.text })
+		} else if (part?.type === 'image_url' && part.image_url?.url) {
+			const { mediaType, base64 } = parseImageDataUrl(part.image_url.url)
+			if (!base64) continue
+			blocks.push({
+				type: 'image',
+				source: {
+					type: 'base64',
+					media_type: ANTHROPIC_IMAGE_MEDIA_TYPES.has(mediaType) ? mediaType : 'image/png',
+					data: base64
+				}
+			})
+		}
+	}
+	if (blocks.length === 1 && blocks[0].type === 'text') return blocks[0].text
+	return blocks
+}
 
 interface ParsedCompletionResult {
 	shouldContinue: boolean
@@ -143,7 +175,7 @@ export async function parseAnthropicCompletion(
 
 				callbacks.setToolStatus(toolId, {
 					isLoading: true,
-					content: `Calling ${toolName}...`,
+					content: tool?.streamingLabel ?? `Calling ${toolName}...`,
 					toolName,
 					isStreamingArguments: shouldStream,
 					showFade: tool?.showFade,
@@ -286,15 +318,15 @@ export async function parseAnthropicCompletion(
 			role: 'assistant',
 			tool_calls: toolCallsToProcess
 		}
-		// Preserve thinking blocks (with signatures) so the next request keeps the
-		// reasoning chain — Anthropic requires this when thinking is combined with tool
-		// use. They are re-injected by convertOpenAIToAnthropicMessages.
-		const thinkingBlocks = finalMessage.content.filter(
-			(b) => b.type === 'thinking' || b.type === 'redacted_thinking'
-		)
-		if (thinkingBlocks.length > 0) {
-			;(assistantWithTools as any)._anthropicThinkingBlocks = thinkingBlocks
-		}
+		// Preserve the assistant turn verbatim (thinking/redacted_thinking with their
+		// signatures, server_tool_use + web_search_tool_result, text and tool_use) in
+		// original order. Anthropic binds each thinking block's signature to the blocks
+		// that precede it in the latest assistant message, so when this turn is replayed
+		// to continue past its tool call it must be byte-identical: reordering thinking to
+		// the front or dropping the web-search blocks invalidates a later block's
+		// signature and the request 400s with "thinking blocks ... cannot be modified".
+		// convertOpenAIToAnthropicMessages replays this content as-is.
+		;(assistantWithTools as any)._anthropicContent = finalMessage.content
 		messages.push(assistantWithTools)
 		addedMessages.push(assistantWithTools)
 
@@ -310,6 +342,7 @@ export async function parseAnthropicCompletion(
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)
 		}
+		appendPendingToolImages(messages, addedMessages, callbacks)
 		return { shouldContinue: true, tokenUsage }
 	}
 
@@ -323,7 +356,33 @@ export function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessage
 	let system: TextBlockParam[] | undefined
 	const anthropicMessages: MessageParam[] = []
 
-	for (const message of messages) {
+	// A streamed assistant turn that ends in tool calls is persisted as one or more
+	// standalone text messages followed by the tool-call message carrying
+	// _anthropicContent. That text is already inside _anthropicContent (replayed verbatim
+	// below), so drop the standalone copies — otherwise the text is duplicated and
+	// emitted ahead of the turn's thinking blocks. The scan stops at the preceding
+	// user/tool message, so only the current turn's own text is skipped.
+	const skipStandaloneText = new Set<number>()
+	for (let i = 0; i < messages.length; i++) {
+		if (!(messages[i] as any)._anthropicContent) continue
+		for (let j = i - 1; j >= 0; j--) {
+			const m = messages[j]
+			if (
+				m.role === 'assistant' &&
+				typeof m.content === 'string' &&
+				!m.tool_calls &&
+				!(m as any)._anthropicContent
+			) {
+				skipStandaloneText.add(j)
+			} else {
+				break
+			}
+		}
+	}
+
+	for (let i = 0; i < messages.length; i++) {
+		const message = messages[i]
+		if (skipStandaloneText.has(i)) continue
 		if (message.role === 'system') {
 			const systemText =
 				typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
@@ -341,14 +400,22 @@ export function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessage
 		if (message.role === 'user') {
 			anthropicMessages.push({
 				role: 'user',
-				content:
-					typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+				content: openAIUserContentToAnthropic(message.content)
 			})
 		} else if (message.role === 'assistant') {
+			// Replay a captured assistant turn verbatim so its thinking-block signatures
+			// stay valid (see the _anthropicContent note where the streamed turn is stored).
+			const anthropicContent = (message as any)._anthropicContent
+			if (Array.isArray(anthropicContent) && anthropicContent.length > 0) {
+				anthropicMessages.push({ role: 'assistant', content: anthropicContent as any })
+				continue
+			}
+
 			const content: any[] = []
 
-			// Re-inject preserved thinking blocks first (Anthropic requires thinking to
-			// precede tool_use in the same assistant turn when thinking is enabled).
+			// Fallback for sessions persisted before _anthropicContent existed: re-inject
+			// the preserved thinking blocks first (Anthropic requires thinking to precede
+			// tool_use in the same assistant turn when thinking is enabled).
 			const thinkingBlocks = (message as any)._anthropicThinkingBlocks
 			if (Array.isArray(thinkingBlocks) && thinkingBlocks.length > 0) {
 				content.push(...thinkingBlocks)
@@ -404,26 +471,29 @@ export function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessage
 		}
 	}
 
-	// Add cache_control to the last message content blocks
+	// Cache the conversation prefix: put an ephemeral breakpoint on the last content
+	// block of the last message. Each continuation only appends a tool result plus the
+	// next turn, so everything up to here is read from cache — which is what keeps
+	// replaying assistant turns verbatim (web-search results included) affordable.
+	// cache_control is valid on text/tool_use/tool_result/image blocks, but a thinking
+	// or redacted_thinking block must never be modified, so skip the breakpoint there.
 	if (anthropicMessages.length > 0) {
 		const lastMessage = anthropicMessages[anthropicMessages.length - 1]
-		if (Array.isArray(lastMessage.content)) {
-			// Add cache_control to the last content block
-			if (lastMessage.content.length > 0) {
-				const lastBlock = lastMessage.content[lastMessage.content.length - 1]
-				if (lastBlock.type === 'text') {
-					lastBlock.cache_control = { type: 'ephemeral' }
-				}
-			}
-		} else if (typeof lastMessage.content === 'string') {
-			// Convert string content to array format with cache_control
+		if (typeof lastMessage.content === 'string') {
 			lastMessage.content = [
-				{
-					type: 'text',
-					text: lastMessage.content,
-					cache_control: { type: 'ephemeral' }
-				}
+				{ type: 'text', text: lastMessage.content, cache_control: { type: 'ephemeral' } }
 			]
+		} else if (Array.isArray(lastMessage.content) && lastMessage.content.length > 0) {
+			const lastIndex = lastMessage.content.length - 1
+			const lastBlock = lastMessage.content[lastIndex] as any
+			if (lastBlock.type !== 'thinking' && lastBlock.type !== 'redacted_thinking') {
+				// Clone the block instead of mutating in place: the array may be a verbatim
+				// _anthropicContent turn that must stay unaltered for later requests.
+				lastMessage.content = [
+					...lastMessage.content.slice(0, lastIndex),
+					{ ...lastBlock, cache_control: { type: 'ephemeral' } }
+				]
+			}
 		}
 	}
 

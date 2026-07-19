@@ -9,7 +9,8 @@
 	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import type {
 		RawAppRuntimeLogRequester,
-		RawAppRunsProvider
+		RawAppRunsProvider,
+		RawAppScreenshotRequester
 	} from '$lib/components/raw_apps/utils'
 
 	let {
@@ -17,7 +18,8 @@
 		path,
 		workspaceId,
 		onNavigate,
-		isActiveSession = true
+		isActiveSession = true,
+		active = true
 	}: {
 		runtime: SessionRuntime
 		path: string
@@ -26,13 +28,17 @@
 		/** Forwarded to SessionEditorTarget — only the visible session claims the
 		 * workspace's single live-editor slot. */
 		isActiveSession?: boolean
+		/** Whether this is the visible preview tab (forwarded as isActiveTab). */
+		active?: boolean
 	} = $props()
 
+	// This tab's own raw-app cell; each open app editor binds its own store.
+	const cell = $derived(runtime.rawAppCell(path))
 	let diffDrawer: DiffDrawer | undefined = $state()
 
 	// Path typed in the editor header, surfaced when it differs from the stored
 	// path. Mirror it into the runtime draft as `draft_path` so the rename
-	// mutates runtime.rawApp.val → the autosave sig changes → the draft is saved
+	// mutates this cell's store → the autosave sig changes → the draft is saved
 	// (and the home/review/Drafts lists show the friendly name). Mirrors the
 	// full-page /apps_raw/edit route.
 	let pendingDraftPath = $state<string | undefined>(undefined)
@@ -45,7 +51,7 @@
 	$effect(() => {
 		const dp = pendingDraftPath
 		untrack(() => {
-			const val = runtime.rawApp.val
+			const val = cell.store.val
 			if (!val) return
 			if (dp !== undefined) {
 				surfacedDraftPath = true
@@ -78,9 +84,24 @@
 	function registerRunsProvider(provider: RawAppRunsProvider | undefined) {
 		runtime.setAppRunsProvider(provider)
 	}
+
+	// The preview host keeps every opened tab mounted, so registering on mount would
+	// leave a background tab owning the runtime's single screenshot slot and
+	// take_screenshot would capture an app the user isn't looking at. Ownership
+	// follows the visible tab instead, and only the owner may release it.
+	let screenshotRequester = $state<RawAppScreenshotRequester | undefined>(undefined)
+	function registerScreenshotRequester(requester: RawAppScreenshotRequester | undefined) {
+		screenshotRequester = requester
+	}
+	$effect(() => {
+		const requester = screenshotRequester
+		if (!active || !requester) return
+		runtime.setScreenshotRequester(requester)
+		return () => runtime.clearScreenshotRequester(requester)
+	})
 </script>
 
-{#if runtime.savedRawApp.val}
+{#if cell.saved.val}
 	<DiffDrawer bind:this={diffDrawer} {restoreDeployed} />
 {/if}
 <SessionEditorTarget
@@ -90,29 +111,40 @@
 	{workspaceId}
 	{onNavigate}
 	{isActiveSession}
-	effectivePath={() => runtime.rawApp.val?.path ?? path}
+	isActiveTab={active}
+	effectivePath={() =>
+		// A raw app's typed rename lives in `draft_path` (`val.path` is the storage
+		// key), unlike scripts where `val.path` is the typed name — without it the
+		// live-draft registration hides a staged rename from lists and pickers.
+		(cell.store.val?.draft_path || cell.store.val?.path) ?? path}
 >
 	{#snippet editor()}
-		{#if runtime.rawApp.val}
+		{#if cell.store.val}
 			<!-- newApp: a draft-only app (no_deployed=true) has a truthy synthesized
 			     savedApp but no deployed row, so it must deploy via createApp — keying
 			     on !savedApp alone would updateApp a never-deployed path and 404
 			     "not found". -->
+			<!-- These bind: targets live on this tab's editor cell (cell.store.val /
+			     cell.saved.val), reactive state owned by the SessionRuntime class (via
+			     rawAppCell), not by a component ancestor — so Svelte's ownership check
+			     flags a false positive here. -->
+			<!-- svelte-ignore ownership_invalid_binding -->
 			<RawAppEditor
-				bind:files={runtime.rawApp.val.files}
-				bind:runnables={runtime.rawApp.val.runnables}
-				bind:data={runtime.rawApp.val.data}
-				bind:summary={runtime.rawApp.val.summary}
+				bind:files={cell.store.val.files}
+				bind:runnables={cell.store.val.runnables}
+				bind:data={cell.store.val.data}
+				bind:summary={cell.store.val.summary}
 				bind:pendingDraftPath
-				newPath={runtime.rawApp.val.draft_path ?? runtime.rawApp.val.path}
+				newPath={cell.store.val.draft_path ?? cell.store.val.path}
 				{path}
 				autosaveWorkspace={workspaceId}
 				autosavePath={path}
-				policy={runtime.rawApp.val.policy}
-				bind:savedApp={runtime.savedRawApp.val}
-				newApp={!runtime.savedRawApp.val || runtime.savedRawApp.val.no_deployed === true}
+				policy={cell.store.val.policy}
+				bind:savedApp={cell.saved.val}
+				newApp={!cell.saved.val || cell.saved.val.no_deployed === true}
 				{diffDrawer}
 				{onNavigate}
+				condensedHeader={true}
 				onResetToDeployed={reloadDeployed}
 				onDeploy={(e) => {
 					// Sync the preview to deployed (raw apps deploy only from this editor).
@@ -125,6 +157,7 @@
 				defaultSplitWithPreview={false}
 				onRuntimeLogRequester={registerRuntimeLogRequester}
 				onRunsProvider={registerRunsProvider}
+				onScreenshotRequester={registerScreenshotRequester}
 			/>
 		{/if}
 	{/snippet}

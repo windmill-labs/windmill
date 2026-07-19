@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.workspace_id, s.path\n         FROM schedule s JOIN workspace w ON w.id = s.workspace_id AND NOT w.deleted\n         WHERE s.enabled IS TRUE\n             AND NOT EXISTS (\n                 SELECT 1 FROM v2_job_queue q JOIN v2_job j USING (id)\n                 WHERE j.workspace_id = s.workspace_id\n                     AND j.trigger_kind = 'schedule'\n                     AND j.trigger = s.path\n                     AND j.runnable_path = s.script_path\n                     AND j.parent_job IS NULL\n             )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "2756fab586489be33a3031fabfdc87be642091a2f8a6973d001e59be892a984d"
+}

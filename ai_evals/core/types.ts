@@ -31,6 +31,8 @@ export interface EvalCaseRuntimeSpec {
   maxTurns?: number;
   backendPreview?: EvalCaseRuntimeBackendPreview;
   appContext?: EvalCaseRuntimeAppContextSpec;
+  // Global mode: run as a session chat (preview tools + session prompt) vs the standalone chat.
+  sessionChat?: boolean;
 }
 
 export interface FlowValidationSpec {
@@ -47,7 +49,7 @@ export interface FlowValidationSpec {
   }>;
   topLevelStepTypes?: Array<{
     id: string;
-    type: string;
+    type: string | string[];
   }>;
   moduleRules?: Array<{
     id: string;

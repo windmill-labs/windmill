@@ -10,7 +10,9 @@ mod schedule_push {
     use windmill_common::scripts::ScriptHash;
     use windmill_common::users::username_to_permissioned_as;
     use windmill_queue::jobs::{try_schedule_next_job, MiniCompletedJob};
-    use windmill_queue::schedule::push_scheduled_job;
+    use windmill_queue::schedule::{
+        find_unarmed_schedules, push_scheduled_job, rearm_schedule, RearmOutcome,
+    };
 
     fn make_schedule(overrides: impl FnOnce(&mut Schedule)) -> Schedule {
         let mut s = Schedule {
@@ -1427,169 +1429,290 @@ mod schedule_push {
         }
     }
 
-    // ===================================================================
-    // Zombie detection tests — verify that a flow left in queue after
-    // SchedulePushZombieError meets the restart criteria in monitor.rs
-    // ===================================================================
-
     // -----------------------------------------------------------------------
-    // When both schedule push AND post-retry disable fail, the flow job stays
-    // in v2_job_queue as a zombie. This test simulates that state and verifies:
-    //
-    // 1. The zombie detection query (from handle_zombie_flows) finds the flow
-    // 2. The flow meets restart criteria: first module is WaitingForPriorSteps
-    //    and same_worker is false
-    // 3. After the restart UPDATE, the flow is re-queued (running=false)
-    // 4. The schedule remains enabled for retry on next flow execution
+    // push_scheduled_job: reserved ducklake-maintenance prefix
     // -----------------------------------------------------------------------
 
+    // A schedule that pre-dates the reserved prefix (a user schedule under a
+    // real `ducklake_maintenance` folder) must fall through to normal script
+    // resolution when its path's lake has no enabled maintenance config —
+    // never be hijacked into the maintenance payload builder and auto-disabled.
     #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
-    async fn test_zombie_flow_after_schedule_push_failure_meets_restart_criteria(
+    async fn test_push_reserved_prefix_no_config_falls_through_to_script(
         db: Pool<Postgres>,
     ) -> anyhow::Result<()> {
-        use windmill_common::flow_status::{FlowStatus, FlowStatusModule};
+        let schedule = make_schedule(|s| {
+            s.path = "f/ducklake_maintenance/legacy".to_string();
+        });
+        let authed = make_authed();
 
-        let flow_job_id = uuid::Uuid::new_v4();
-        let now = Utc::now();
-        let stale_ping = now - chrono::Duration::minutes(5);
+        let tx = db.begin().await?;
+        let tx = push_scheduled_job(&db, tx, &schedule, Some(&authed), None).await?;
+        tx.commit().await?;
 
-        // Schedule still enabled — simulates both push and disable failing
+        assert_eq!(count_queued_jobs(&db).await, 1);
+        let (ws, path, trigger, _) = get_queued_job(&db).await.unwrap();
+        assert_eq!(ws, "test-workspace");
+        assert_eq!(
+            path.as_deref(),
+            Some("f/system/test_script"),
+            "must resolve the schedule's script_path, not the maintenance builder"
+        );
+        assert_eq!(trigger.as_deref(), Some("f/ducklake_maintenance/legacy"));
+        Ok(())
+    }
+
+    // With maintenance enabled for the path's lake, the occurrence is a
+    // raw-code duckdb job (kind preview, runnable_path = schedule path,
+    // duckdb tag pinned) — enterprise builds only.
+    #[cfg(feature = "private")]
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_push_reserved_prefix_with_config_builds_maintenance_job(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            r#"UPDATE workspace_settings SET ducklake = '{"ducklakes": {"legacy": {
+                "catalog": {"resource_type": "postgresql", "resource_path": "u/test/pg"},
+                "storage": {"path": "legacy"},
+                "maintenance": {"enabled": true, "retention_days": 3}
+            }}}'::jsonb WHERE workspace_id = 'test-workspace'"#,
+        )
+        .execute(&db)
+        .await?;
+
+        let schedule = make_schedule(|s| {
+            s.path = "f/ducklake_maintenance/legacy".to_string();
+            s.script_path = "f/ducklake_maintenance/legacy".to_string();
+            s.tag = Some("duckdb".to_string());
+        });
+        let authed = make_authed();
+
+        let tx = db.begin().await?;
+        let tx = push_scheduled_job(&db, tx, &schedule, Some(&authed), None).await?;
+        tx.commit().await?;
+
+        assert_eq!(count_queued_jobs(&db).await, 1);
+        let (kind, path, tag, raw_code) =
+            sqlx::query_as::<_, (String, Option<String>, String, Option<String>)>(
+                "SELECT j.kind::text, j.runnable_path, j.tag, j.raw_code
+             FROM v2_job j JOIN v2_job_queue q ON j.id = q.id LIMIT 1",
+            )
+            .fetch_one(&db)
+            .await?;
+        assert_eq!(kind, "preview");
+        assert_eq!(path.as_deref(), Some("f/ducklake_maintenance/legacy"));
+        assert_eq!(tag, "duckdb");
+        let raw_code = raw_code.expect("maintenance job must carry generated SQL");
+        assert!(raw_code.contains("ducklake_expire_snapshots"));
+        assert!(raw_code.contains("INTERVAL '3 days'"));
+        Ok(())
+    }
+
+    // Saving maintenance off must remove the managed row AND its queued
+    // occurrence in BOTH builds: the enterprise sync reconciles, and the
+    // public stub must not leave a job pushed under the enterprise edition
+    // to run after the admin disabled maintenance (EE-to-CE downgrade).
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_sync_disable_clears_managed_row_and_queued_occurrence(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        use std::collections::HashMap;
+        use windmill_common::workspaces::{
+            Ducklake, DucklakeCatalog, DucklakeCatalogResourceType, DucklakeMaintenance,
+            DucklakeStorage,
+        };
+        use windmill_queue::ducklake_maintenance::sync_ducklake_maintenance_schedules;
+
+        fn lake(maintenance_enabled: bool) -> Ducklake {
+            Ducklake {
+                catalog: DucklakeCatalog {
+                    resource_type: DucklakeCatalogResourceType::Postgresql,
+                    resource_path: "u/test/pg".to_string(),
+                },
+                storage: DucklakeStorage { storage: None, path: "legacy".to_string() },
+                extra_args: None,
+                fork_behavior: None,
+                maintenance: Some(DucklakeMaintenance {
+                    enabled: maintenance_enabled,
+                    schedule: None,
+                    retention_days: None,
+                    compaction: None,
+                    orphan_cleanup: None,
+                }),
+            }
+        }
+
+        // a managed row with a queued occurrence (queued via fall-through: no
+        // lake config exists yet, so the push resolves the script path)
+        let schedule = make_schedule(|s| {
+            s.path = "f/ducklake_maintenance/legacy".to_string();
+        });
+        sqlx::query(
+            "INSERT INTO schedule (workspace_id, path, schedule, timezone, edited_by, script_path,
+                is_flow, enabled, email, permissioned_as, cron_version)
+             VALUES ($1, $2, $3, 'UTC', $4, $5, false, true, $6, $7, 'v2')",
+        )
+        .bind(&schedule.workspace_id)
+        .bind(&schedule.path)
+        .bind(&schedule.schedule)
+        .bind(&schedule.edited_by)
+        .bind(&schedule.script_path)
+        .bind(&schedule.email)
+        .bind(&schedule.permissioned_as)
+        .execute(&db)
+        .await?;
+        let authed = make_authed();
+        let tx = db.begin().await?;
+        let tx = push_scheduled_job(&db, tx, &schedule, Some(&authed), None).await?;
+        tx.commit().await?;
+        assert_eq!(count_queued_jobs(&db).await, 1);
+
+        // maintenance saved off
+        let previous = HashMap::from([("legacy".to_string(), lake(true))]);
+        let current = HashMap::from([("legacy".to_string(), lake(false))]);
+        let tx = db.begin().await?;
+        let tx = sync_ducklake_maintenance_schedules(
+            &db,
+            tx,
+            &schedule.workspace_id,
+            &current,
+            &previous,
+            "test-user",
+            "test@windmill.dev",
+        )
+        .await?;
+        tx.commit().await?;
+
+        assert_eq!(
+            count_queued_jobs(&db).await,
+            0,
+            "queued occurrence must be cleared when maintenance is saved off"
+        );
+        let row_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM schedule WHERE workspace_id = $1 AND path = $2)",
+        )
+        .bind(&schedule.workspace_id)
+        .bind(&schedule.path)
+        .fetch_one(&db)
+        .await?;
+        assert!(!row_exists, "managed schedule row must be deleted");
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // find_unarmed_schedules / rearm_schedule: recovery for a schedule left
+    // enabled with no queued occurrence (a run that died on an abnormal path
+    // skipped its next-occurrence push). Without this the chain stays dead
+    // until the schedule is manually disabled and re-enabled.
+    // -----------------------------------------------------------------------
+
+    async fn insert_schedule(db: &Pool<Postgres>, path: &str, script_path: &str, enabled: bool) {
         sqlx::query(
             "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap, permissioned_as)
-             VALUES ('test-workspace', 'f/system/test_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/test_flow', true, 'test@windmill.dev', '{}', false, false, 'u/test-user')"
+             VALUES ('test-workspace', $1, 'test-user', now(), '0 0 */5 * * *', 'UTC', $3, $2, false, 'test@windmill.dev', '{}', false, true, 'u/test-user')",
         )
-        .execute(&db)
-        .await?;
+        .bind(path)
+        .bind(script_path)
+        .bind(enabled)
+        .execute(db)
+        .await
+        .unwrap();
+    }
 
-        // Flow job in v2_job (kind=flow, triggered by schedule, same_worker=false)
-        sqlx::query(
-            "INSERT INTO v2_job (id, workspace_id, created_at, created_by, permissioned_as, permissioned_as_email, kind, runnable_path, trigger, trigger_kind, same_worker, visible_to_owner, tag)
-             VALUES ($1, 'test-workspace', $2, 'test-user', 'u/test-user', 'test@windmill.dev', 'flow', 'f/system/test_flow', 'f/system/test_schedule', 'schedule', false, false, 'flow')"
-        )
-        .bind(flow_job_id)
-        .bind(now - chrono::Duration::minutes(5))
-        .execute(&db)
-        .await?;
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_find_unarmed_schedules(db: Pool<Postgres>) -> anyhow::Result<()> {
+        insert_schedule(&db, "f/system/test_schedule", "f/system/test_script", true).await;
+        insert_schedule(&db, "f/system/disabled", "f/system/test_script", false).await;
 
-        // Queue entry: running=true (worker caught SchedulePushZombieError and returned Ok)
-        sqlx::query(
-            "INSERT INTO v2_job_queue (id, workspace_id, created_at, scheduled_for, running, started_at, tag, suspend)
-             VALUES ($1, 'test-workspace', $2, $2, true, $3, 'flow', 0)"
-        )
-        .bind(flow_job_id)
-        .bind(now - chrono::Duration::minutes(5))
-        .bind(now - chrono::Duration::minutes(4))
-        .execute(&db)
-        .await?;
-
-        // Stale ping — older than the 60s zombie transition timeout
-        sqlx::query("INSERT INTO v2_job_runtime (id, ping) VALUES ($1, $2)")
-            .bind(flow_job_id)
-            .bind(stale_ping)
-            .execute(&db)
-            .await?;
-
-        // Flow status at step 0, first module = WaitingForPriorSteps
-        // This is the initial state of a flow that hasn't started any steps yet
-        let flow_status = serde_json::json!({
-            "step": 0,
-            "modules": [{"type": "WaitingForPriorSteps", "id": "a"}],
-            "failure_module": {"type": "WaitingForPriorSteps", "id": "failure"},
-            "retry": {"fail_count": 0, "failed_jobs": []},
-            "cleanup_module": {"flow_jobs_to_clean": []}
-        });
-
-        sqlx::query("INSERT INTO v2_job_status (id, flow_status) VALUES ($1, $2::jsonb)")
-            .bind(flow_job_id)
-            .bind(&flow_status)
-            .execute(&db)
-            .await?;
-
-        // Run the same zombie detection query from handle_zombie_flows (60s timeout)
-        let zombie_flows = sqlx::query_as::<_, (uuid::Uuid, String, Option<bool>, Option<String>)>(
-            r#"
-            SELECT
-                j.id, j.workspace_id, j.same_worker,
-                COALESCE(s.flow_status, s.workflow_as_code_status)::text AS flow_status
-            FROM v2_job_queue q
-            JOIN v2_job j USING (id)
-            LEFT JOIN v2_job_runtime r USING (id)
-            LEFT JOIN v2_job_status s USING (id)
-            WHERE q.running = true AND q.suspend = 0 AND q.suspend_until IS null
-                AND q.scheduled_for <= now()
-                AND (j.kind = 'flow' OR j.kind = 'flowpreview' OR j.kind = 'flownode' OR j.kind = 'singlestepflow')
-                AND r.ping IS NOT NULL
-                AND r.ping < NOW() - ('60' || ' seconds')::interval
-                AND q.canceled_by IS NULL
-            "#,
-        )
-        .fetch_all(&db)
-        .await?;
-
-        assert_eq!(zombie_flows.len(), 1, "zombie flow must be detected");
-        let (id, _ws, same_worker, flow_status_json) = &zombie_flows[0];
-        assert_eq!(*id, flow_job_id);
-
-        // Replicate the exact branching logic from handle_zombie_flows (monitor.rs:2711-2754).
-        // Only flows matching the restart condition get restarted; others are cancelled.
-        let status = flow_status_json
-            .as_deref()
-            .and_then(|x| serde_json::from_str::<FlowStatus>(x).ok());
-        let should_restart = !same_worker.unwrap_or(false)
-            && status.is_some_and(|s| {
-                s.modules
-                    .get(0)
-                    .is_some_and(|x| matches!(x, FlowStatusModule::WaitingForPriorSteps { .. }))
-            });
-
-        assert!(
-            should_restart,
-            "flow must match the restart branch (not the cancel branch) in handle_zombie_flows"
+        // No occurrence queued yet: the enabled schedule is unarmed, the disabled one is ignored.
+        assert_eq!(
+            find_unarmed_schedules(&db).await?,
+            vec![(
+                "test-workspace".to_string(),
+                "f/system/test_schedule".to_string()
+            )]
         );
 
-        // Apply the restart action — same UPDATE as handle_zombie_flows
-        sqlx::query(
-            "UPDATE v2_job_queue SET running = false, started_at = null
-             WHERE id = $1 AND canceled_by IS NULL",
-        )
-        .bind(flow_job_id)
-        .execute(&db)
-        .await?;
+        // Once an occurrence is queued it is armed and must not be reported —
+        // re-arming it would double-push the occurrence.
+        let tx = db.begin().await?;
+        let tx = push_scheduled_job(&db, tx, &make_schedule(|_| {}), None, None).await?;
+        tx.commit().await?;
+        assert_eq!(count_queued_jobs(&db).await, 1);
+        assert!(find_unarmed_schedules(&db).await?.is_empty());
+        Ok(())
+    }
 
-        // Flow is re-queued for processing
-        let (running, started_at): (bool, Option<chrono::DateTime<Utc>>) =
-            sqlx::query_as("SELECT running, started_at FROM v2_job_queue WHERE id = $1")
-                .bind(flow_job_id)
-                .fetch_one(&db)
-                .await?;
-        assert!(!running, "flow must not be running after zombie restart");
-        assert!(
-            started_at.is_none(),
-            "started_at must be null after zombie restart"
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_rearm_schedule_pushes_next_occurrence(db: Pool<Postgres>) -> anyhow::Result<()> {
+        insert_schedule(&db, "f/system/test_schedule", "f/system/test_script", true).await;
+
+        assert_eq!(
+            rearm_schedule(&db, "test-workspace", "f/system/test_schedule").await?,
+            RearmOutcome::Rearmed
         );
 
-        // Schedule still enabled — will be retried when flow re-executes
-        let enabled: bool = sqlx::query_scalar(
-            "SELECT enabled FROM schedule WHERE workspace_id = 'test-workspace' AND path = 'f/system/test_schedule'",
+        assert_eq!(count_queued_jobs(&db).await, 1);
+        assert!(find_unarmed_schedules(&db).await?.is_empty());
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_rearm_schedule_skips_disabled(db: Pool<Postgres>) -> anyhow::Result<()> {
+        // A disable that lands between the scan and the re-arm must win: pushing an
+        // occurrence for a disabled schedule would resurrect a schedule the user
+        // just turned off.
+        insert_schedule(&db, "f/system/test_schedule", "f/system/test_script", false).await;
+
+        assert_eq!(
+            rearm_schedule(&db, "test-workspace", "f/system/test_schedule").await?,
+            RearmOutcome::NoOp
+        );
+        assert_eq!(count_queued_jobs(&db).await, 0);
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_rearm_schedule_never_disables(db: Pool<Postgres>) -> anyhow::Result<()> {
+        insert_schedule(&db, "f/system/bad_schedule", "f/system/nonexistent", true).await;
+
+        // Reconciliation only ever starts a schedule. An unpushable occurrence is
+        // reported and left alone: this sweeps every enabled schedule in the
+        // instance, so disabling here would turn a wrong invariant into the exact
+        // silent stoppage the reconciler exists to undo.
+        assert_eq!(
+            rearm_schedule(&db, "test-workspace", "f/system/bad_schedule").await?,
+            RearmOutcome::NoOp
+        );
+
+        assert_eq!(count_queued_jobs(&db).await, 0);
+        let (enabled, error): (bool, Option<String>) = sqlx::query_as(
+            "SELECT enabled, error FROM schedule WHERE workspace_id = 'test-workspace' AND path = 'f/system/bad_schedule'",
         )
         .fetch_one(&db)
         .await?;
-        assert!(
-            enabled,
-            "schedule must remain enabled for retry after zombie restart"
-        );
+        assert!(enabled, "reconciliation must never disable a schedule");
+        assert!(error.is_none());
+        Ok(())
+    }
 
-        // Flow job is NOT in v2_job_completed (it was never completed with error)
-        let completed_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM v2_job_completed WHERE id = $1")
-                .bind(flow_job_id)
-                .fetch_one(&db)
-                .await?;
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_rearm_schedule_skips_already_armed(db: Pool<Postgres>) -> anyhow::Result<()> {
+        // An occurrence can be queued (a normal completion, an edit, a re-enable)
+        // between the unarmed scan and rearm_schedule acquiring the row lock. Re-arming
+        // then would double-push, since push_scheduled_job only dedups the exact
+        // computed scheduled_for.
+        insert_schedule(&db, "f/system/test_schedule", "f/system/test_script", true).await;
+        let tx = db.begin().await?;
+        let tx = push_scheduled_job(&db, tx, &make_schedule(|_| {}), None, None).await?;
+        tx.commit().await?;
+        assert_eq!(count_queued_jobs(&db).await, 1);
+
         assert_eq!(
-            completed_count, 0,
-            "flow must not be in completed_job — it's a zombie, not an error"
+            rearm_schedule(&db, "test-workspace", "f/system/test_schedule").await?,
+            RearmOutcome::NoOp
         );
-
+        assert_eq!(count_queued_jobs(&db).await, 1);
         Ok(())
     }
 }

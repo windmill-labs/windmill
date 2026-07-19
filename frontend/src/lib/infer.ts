@@ -68,6 +68,7 @@ import wasmUrlWac from 'windmill-parser-wasm-wac/windmill_parser_wasm_bg.wasm?ur
 import { workspaceStore } from './stores.js'
 import { argSigToJsonSchemaType } from 'windmill-utils-internal'
 import { type AssetWithAccessType } from './components/assets/lib.js'
+import { type ColumnLineage } from './components/assets/AssetGraph/parsePipelineAnnotations'
 
 const loadSchemaLastRun = writable<
 	| [
@@ -169,6 +170,10 @@ type InferAssetsResult =
 			assets: AssetWithAccessType[]
 			sql_queries?: InferAssetsSqlQueryDetails[]
 			columns?: Record<string, AssetUsageAccessType>
+			// Body-inferred column lineage (DuckDB SQL AST). Present once the
+			// `windmill-parser-wasm-asset` package is rebuilt with the inference;
+			// the spread below already forwards it from the parser output.
+			column_lineage?: ColumnLineage[]
 	  }
 	| {
 			status: 'error'
@@ -574,7 +579,12 @@ export async function inferArgs(
 	}
 }
 
-export async function loadSchemaFromPath(path: string, hash?: string): Promise<Schema> {
+export async function loadSchemaFromPath(
+	path: string,
+	hash?: string,
+	// The acting workspace when the flow editor runs in an AI session; else the nav workspace.
+	workspace?: string
+): Promise<Schema> {
 	if (path.startsWith('hub/')) {
 		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
 
@@ -587,14 +597,14 @@ export async function loadSchemaFromPath(path: string, hash?: string): Promise<S
 		}
 	} else if (hash) {
 		const script = await ScriptService.getScriptByHash({
-			workspace: get(workspaceStore)!,
+			workspace: workspace ?? get(workspaceStore)!,
 			hash
 		})
 
 		return inferSchemaIfNecessary(script)
 	} else {
 		const script = await ScriptService.getScriptByPath({
-			workspace: get(workspaceStore)!,
+			workspace: workspace ?? get(workspaceStore)!,
 			path: path ?? ''
 		})
 		return inferSchemaIfNecessary(script)

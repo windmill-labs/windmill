@@ -7,7 +7,13 @@
 	import { redo, undo } from '$lib/history.svelte'
 	import { discardDraftAfterDeploy } from '$lib/userDraftToast'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
-	import { enterpriseLicense, tutorialsToDo, userStore, workspaceStore } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		tutorialsToDo,
+		userStore,
+		userWorkspaces,
+		workspaceStore
+	} from '$lib/stores'
 	import { isMac, type Item, userPathPrefix } from '$lib/utils'
 	import { resetAllTodos, skipAllTodos } from '$lib/tutorialUtils'
 	import { getTutorialIndex } from '$lib/tutorials/config'
@@ -73,8 +79,7 @@
 	import AppEditorHeaderDeploy from './AppEditorHeaderDeploy.svelte'
 	import { computeSecretUrl } from './appDeploy.svelte'
 	import { updatePolicy } from './appPolicy'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
@@ -88,6 +93,7 @@
 					summary: string
 					policy: any
 					custom_path?: string
+					labels?: string[]
 			  }
 			| undefined
 		version?: number | undefined
@@ -96,6 +102,8 @@
 		bottomPanelHidden?: boolean
 		newApp: boolean
 		newPath?: string
+		/** Initial labels for the app, threaded from the loaded app data via AppEditor. */
+		labels?: string[]
 		/** URL path the draft is keyed under; empty on `/apps/add` (no draft yet). */
 		userDraftPath?: string
 		onSavedNewAppPath?: (path: string) => void
@@ -112,6 +120,10 @@
 		loadedFromDraft?: boolean
 		othersDraftsCount?: number
 		onOpenOthersDrafts?: () => void
+		// Restoring an older deployment from the history drawer. A callback prop
+		// (not `on:restore` forwarding): forwarding a `createEventDispatcher`
+		// event up through these runes-mode components silently drops it.
+		onRestore?: (restoredApp: any) => void
 	}
 
 	let {
@@ -125,6 +137,7 @@
 		bottomPanelHidden = false,
 		newApp,
 		newPath = '',
+		labels: initialLabels = undefined,
 		userDraftPath = '',
 		onSavedNewAppPath,
 		onShowLeftPanel,
@@ -137,7 +150,8 @@
 		onResetToDeployed,
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
-		onOpenOthersDrafts
+		onOpenOthersDrafts,
+		onRestore
 	}: Props = $props()
 
 	/** Mirror of the path the user is editing in the pen popover. Initialized
@@ -256,7 +270,8 @@
 					policy,
 					deployment_message: deploymentMsg,
 					custom_path: customPath,
-					preserve_on_behalf_of: preserveOnBehalfOf || undefined
+					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
+					labels
 				}
 			})
 			// New path now exists server-side — drop the autocomplete cache so
@@ -267,7 +282,8 @@
 				value: structuredClone($state.snapshot($app)),
 				path: path,
 				policy: policy,
-				custom_path: customPath
+				custom_path: customPath,
+				labels: $state.snapshot(labels)
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
@@ -310,7 +326,8 @@
 							value: $app,
 							path: newEditedPath || savedApp.path,
 							policy,
-							custom_path: customPath
+							custom_path: customPath,
+							labels
 						})
 					)
 			) {
@@ -361,7 +378,8 @@
 				// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
 				custom_path:
 					$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined,
-				preserve_on_behalf_of: preserveOnBehalfOf || undefined
+				preserve_on_behalf_of: preserveOnBehalfOf || undefined,
+				labels
 			}
 		})
 		invalidateWorkspacePaths($workspaceStore!)
@@ -370,7 +388,8 @@
 			value: structuredClone($state.snapshot($app)),
 			path: npath,
 			policy,
-			custom_path: customPath
+			custom_path: customPath,
+			labels: $state.snapshot(labels)
 		}
 		const appHistory = await AppService.getAppHistoryByPath({
 			workspace: $workspaceStore!,
@@ -624,7 +643,8 @@
 						value: $app,
 						path: newEditedPath || savedApp.path,
 						policy,
-						custom_path: customPath
+						custom_path: customPath,
+						labels
 					}
 				})
 			},
@@ -723,6 +743,7 @@
 	})
 
 	let customPath = $state(savedApp?.custom_path)
+	let labels = $state(untrack(() => initialLabels))
 
 	$effect(() => {
 		if ($openDebugRun == undefined) {
@@ -752,7 +773,8 @@
 		value: $app,
 		path: newEditedPath || savedApp?.path,
 		policy,
-		custom_path: customPath
+		custom_path: customPath,
+		labels
 	}}
 />
 
@@ -796,7 +818,8 @@
 								value: $app,
 								path: newEditedPath || savedApp.path,
 								policy,
-								custom_path: customPath
+								custom_path: customPath,
+								labels
 							},
 							button: {
 								text: 'Looks good, deploy',
@@ -849,6 +872,7 @@
 			bind:pathError
 			bind:newEditedPath
 			bind:preserveOnBehalfOf
+			bind:labels
 			hideSecretUrl={false}
 		/>
 	</DrawerContent>
@@ -862,7 +886,7 @@
 
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
 	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
-		<DeploymentHistory on:restore appPath={$appPath} />
+		<DeploymentHistory on:restore={(e) => onRestore?.(e.detail)} appPath={$appPath} />
 	</DrawerContent>
 </Drawer>
 
@@ -884,15 +908,22 @@
 	bind:clientWidth={topbarWidth}
 	class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto max-h-12 h-12 shrink-0"
 >
-	<div class="flex flex-row gap-2 items-center min-w-[200px]">
-		<EditorHeader
-			bind:summary={$summary}
-			bind:path={newEditedPath}
-			savedPath={$appPath || newPath || undefined}
-			kind="app"
-			onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
-		/>
-		<div class="flex gap-2 {compactTopbar ? 'hidden' : ''}">
+	<!-- Identity block shrinks/truncates first (min-w-0) so the cloud indicator
+	     and the pinned action groups (shrink-0 below) stay visible on narrow
+	     widths instead of the breadcrumb overflowing and hiding them. Kept at
+	     min-w-0 (not flex-1) so justify-between still positions the panel-hide
+	     buttons between the identity and the actions. -->
+	<div class="flex flex-row gap-2 items-center min-w-0">
+		<div class="min-w-0 overflow-hidden">
+			<EditorHeader
+				bind:summary={$summary}
+				bind:path={newEditedPath}
+				savedPath={$appPath || newPath || undefined}
+				kind="app"
+				onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
+			/>
+		</div>
+		<div class="flex gap-2 shrink-0 {compactTopbar ? 'hidden' : ''}">
 			{#if $app}
 				<ToggleButtonGroup
 					selected={$app.fullscreen ? 'true' : 'false'}
@@ -1009,7 +1040,7 @@
 	</div>
 
 	{#if $mode !== 'preview'}
-		<div class="flex gap-1">
+		<div class="flex gap-1 shrink-0">
 			<HideButton
 				direction="left"
 				hidden={leftPanelHidden}
@@ -1046,9 +1077,11 @@
 		</div>
 	{/if}
 	{#if $enterpriseLicense && $appPath != ''}
-		<Awareness />
+		<div class="shrink-0">
+			<Awareness />
+		</div>
 	{/if}
-	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
+	<div class="flex flex-row gap-2 justify-end items-center overflow-visible shrink-0">
 		<div class="relative">
 			<Dropdown items={moreItems} />
 			{#if $tutorialsToDo.includes(getTutorialIndex('backgroundrunnables')) || $tutorialsToDo.includes(getTutorialIndex('connection'))}
@@ -1113,10 +1146,10 @@
 								window.open(`/apps/add?template=${appPath}`)
 							}
 						},
-						...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
+						...(!isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces)
 							? [
 									{
-										label: 'Edit in workspace fork',
+										label: editInForkLabel($workspaceStore, $userWorkspaces),
 										onClick: () => {
 											window.open(buildForkEditUrl('app', $appPath))
 										}

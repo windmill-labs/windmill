@@ -711,7 +711,11 @@ def get_state_path() -> str
 # Parse resource syntax from string.
 def parse_resource_syntax(s: str) -> Optional[str]
 
-# Parse S3 object from string or S3Object format.
+# Parse S3 object from a `s3://<storage>/<key>` URI string (`s3:///<key>`
+# for the default storage) or S3Object format. Any other string raises
+# rather than falling back to an auto-generated key: an auto key is
+# requested by omitting the object, and a fallback would silently misplace
+# the upload on any typo.
 def parse_s3_object(s3_object: S3Object | str) -> S3Object
 
 # Parse variable syntax from string.

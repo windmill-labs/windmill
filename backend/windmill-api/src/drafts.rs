@@ -18,6 +18,7 @@ use windmill_common::{
     db::UserDB,
     error::{Error, Result},
     user_drafts::{DraftUserRef, UserDraftItemKind, ENCRYPTED_DRAFT_PREFIX},
+    users::resolve_username_to_email,
     variables::{build_crypt, encrypt},
 };
 
@@ -63,6 +64,11 @@ pub struct DraftListItem {
     /// so it defaults to `false` when read from the row.
     #[sqlx(default)]
     pub can_write: bool,
+    /// `true` when this draft is identical (jsonb-equal) to the parent's draft at
+    /// the same (path, kind, owner). `None` unless the request passed a valid
+    /// `compare_to_workspace`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unchanged_from_parent: Option<bool>,
     /// The listed row belongs to the authed user (own draft or the legacy
     /// no-owner row) and is therefore actionable by them. Always `true` in the
     /// default (own-drafts) listing; only meaningful with `all_users=true`,
@@ -76,6 +82,10 @@ pub struct ListDraftsQuery {
     /// List every draft in the workspace (all users), not just the authed
     /// user's own + legacy rows. Other users' rows come back with `mine=false`.
     pub all_users: Option<bool>,
+    /// A fork passes its parent workspace id here to have each row flagged with
+    /// `unchanged_from_parent`. Honored only when it is this workspace's actual
+    /// `parent_workspace_id` (enforced in `list_drafts`).
+    pub compare_to_workspace: Option<String>,
 }
 
 /// Every draft the authed user has in this workspace, across all kinds — the
@@ -96,9 +106,31 @@ async fn list_drafts(
         return Ok(Json(vec![]));
     }
     let all_users = query.all_users.unwrap_or(false);
+    // Only honor `compare_to_workspace` when it is genuinely this workspace's
+    // parent (a fork comparing against its source). Any other value is dropped
+    // so the value-equality subquery can't be used to probe an unrelated
+    // workspace's draft contents.
+    let compare_to_workspace = match &query.compare_to_workspace {
+        Some(candidate) => {
+            let parent: Option<String> = sqlx::query_scalar::<_, Option<String>>(
+                "SELECT parent_workspace_id FROM workspace WHERE id = $1",
+            )
+            .bind(&w_id)
+            .fetch_optional(&db)
+            .await?
+            .flatten();
+            if parent.as_deref() == Some(candidate.as_str()) {
+                Some(candidate.clone())
+            } else {
+                None
+            }
+        }
+        None => None,
+    };
     let rows = sqlx::query_as::<_, DraftListItem>(&list_drafts_query(all_users))
         .bind(&w_id)
         .bind(&authed.email)
+        .bind(&compare_to_workspace)
         .fetch_all(&db)
         .await?;
     // Per-row permission gating:
@@ -119,7 +151,11 @@ async fn list_drafts(
                     .await
                 {
                     Ok(()) => true,
-                    Err(Error::NotAuthorized(_)) => false,
+                    // A stored draft can sit at an unwritable path — unauthorized,
+                    // or malformed (`BadRequest`; the `draft` table has no path
+                    // constraint). Either way it's not writable, and one bad row
+                    // must not 400 the whole listing.
+                    Err(Error::NotAuthorized(_)) | Err(Error::BadRequest(_)) => false,
                     Err(e) => return Err(e),
                 };
             out.push(row);
@@ -144,8 +180,10 @@ async fn list_drafts(
 /// `deployed_table()` (shared single source — can't drift from the access
 /// check). Table names come from the closed enum, never user input. Kinds
 /// with no path-keyed table get no arm and fall to `ELSE true`.
-/// `$1` = workspace_id, `$2` = email. With `all_users` the owner filter is
-/// dropped so every workspace draft is listed (others' rows get `mine=false`).
+/// `$1` = workspace_id, `$2` = email, `$3` = the parent workspace to compare
+/// against (nullable; drives `unchanged_from_parent`). With `all_users` the
+/// owner filter is dropped so every workspace draft is listed (others' rows get
+/// `mine=false`).
 fn list_drafts_query(all_users: bool) -> String {
     let mut case = String::from("CASE d.typ::text\n");
     for kind in UserDraftItemKind::ALL {
@@ -171,11 +209,16 @@ fn list_drafts_query(all_users: bool) -> String {
     // draft author at this (path, kind), legacy NULL-email row surfaced as a
     // null username. Restricted to the shared full-page-editor kinds — drawer
     // kinds keep their drafts private, so we never reveal their authors.
+    // A superadmin authoring in a workspace they are not a member of has no `usr`
+    // row: fall back to their instance-derived username (`password.username`), or
+    // their email when derivation is disabled (`password.username` is NULL). This
+    // keeps the raw email out of the payload whenever a derived username exists.
     let draft_users = r#"CASE WHEN d.typ::text IN ('script', 'flow', 'app', 'raw_app') THEN (
-                      SELECT json_agg(json_build_object('username', COALESCE(u.username, CASE WHEN du.workspace_id = 'admins' THEN du.email END))
-                                      ORDER BY COALESCE(u.username, CASE WHEN du.workspace_id = 'admins' THEN du.email END) NULLS LAST)
+                      SELECT json_agg(json_build_object('username', COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN du.email END))
+                                      ORDER BY COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN du.email END) NULLS LAST)
                       FROM draft du
                       LEFT JOIN usr u ON u.workspace_id = du.workspace_id AND u.email = du.email
+                      LEFT JOIN password p ON p.email = du.email AND p.super_admin = true
                       WHERE du.workspace_id = d.workspace_id AND du.path = d.path AND du.typ = d.typ
                     ) ELSE NULL END"#;
     // Default lists the user's own drafts AND the legacy NULL-email rows; with
@@ -211,7 +254,18 @@ fn list_drafts_query(all_users: bool) -> String {
                   ) AS draft_path,
                   (d.email IS NULL) AS legacy_draft,
                   (d.email = $2 OR d.email IS NULL) AS mine,
-                  {case} AS draft_only
+                  {case} AS draft_only,
+                  -- value is a `json` column (no `=` operator), so compare as jsonb.
+                  CASE WHEN $3::text IS NULL THEN NULL::bool
+                       ELSE EXISTS(
+                         SELECT 1 FROM draft pd
+                         WHERE pd.workspace_id = $3
+                           AND pd.path = d.path
+                           AND pd.typ = d.typ
+                           AND pd.email IS NOT DISTINCT FROM d.email
+                           AND pd.value::jsonb = d.value::jsonb
+                       )
+                  END AS unchanged_from_parent
            FROM draft d
            WHERE d.workspace_id = $1{owner_filter}
            ORDER BY d.path, d.typ,
@@ -578,20 +632,12 @@ async fn get_draft_for_user(
 
     // Username -> email, scoped to the workspace. None signals "fetch the
     // legacy NULL-email row" (distinct from a username with no draft, which
-    // 404s below).
+    // 404s below). Resolution falls back to the instance `password` table so a
+    // superadmin's draft (they are not a `usr` member of the workspace, and
+    // their username is their instance-derived one) still resolves.
     let owner_email: Option<String> = if let Some(username) = &query.username {
-        let email = sqlx::query_scalar!(
-            r#"SELECT email FROM usr WHERE workspace_id = $1 AND username = $2"#,
-            &w_id,
-            username,
-        )
-        .fetch_optional(&db)
-        .await?;
-        match email {
+        match resolve_username_to_email(&w_id, username, &db).await? {
             Some(e) => Some(e),
-            // The `admins` workspace has no `usr` rows (username IS the email
-            // there), so accept it as the owner email directly.
-            None if w_id == "admins" => Some(username.clone()),
             None => {
                 return Err(Error::NotFound(format!(
                     "no user with username {username} in workspace"
@@ -747,8 +793,17 @@ async fn require_can_write_path(
             return Ok(());
         }
     }
+    // A path without a recognized namespace prefix (u/, f/, g/) can never be
+    // writable — no namespace rule and no deployed row can apply — so report it
+    // as malformed rather than as a plain permission denial.
+    if !(path.starts_with("u/") || path.starts_with("f/") || path.starts_with("g/")) {
+        return Err(Error::BadRequest(format!(
+            "Invalid path '{path}': a valid path starts with 'u/<user>/', 'f/<folder>/' or 'g/<group>/'"
+        )));
+    }
     Err(Error::NotAuthorized(format!(
-        "you don't have write permission on {path}"
+        "You don't have write permission on '{path}'. It must be in your own 'u/{}/' namespace, or in a folder ('f/<folder>/') or group ('g/<group>/') you can write to.",
+        authed.username
     )))
 }
 
@@ -805,7 +860,6 @@ async fn require_can_read_path(
     Err(Error::NotFound(format!("no draft visible at {path}")))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::strip_json_nul;
@@ -841,7 +895,9 @@ mod tests {
         // "a" carries a real NUL; "b" carries the literal text backslash-u0000.
         // The value walk strips the former and leaves the latter intact — the
         // pathological case that needed a fallback in SQL is trivial in Rust.
-        let v = parsed(strip_json_nul(r#"{"a":"x\u0000y","b":"p\\u0000q"}"#.to_string()));
+        let v = parsed(strip_json_nul(
+            r#"{"a":"x\u0000y","b":"p\\u0000q"}"#.to_string(),
+        ));
         assert_eq!(v["a"], "xy");
         assert_eq!(v["b"], "p\\u0000q");
     }

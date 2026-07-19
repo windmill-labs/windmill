@@ -13,6 +13,8 @@
 		currentInventories?: string
 		currentPlaybook?: string
 		gitSshIdentity?: string[]
+		/** Acting workspace (fork/session); falls back to the nav workspace. */
+		workspace?: string
 	}
 
 	let {
@@ -21,8 +23,11 @@
 		currentCommit = undefined,
 		currentInventories = undefined,
 		currentPlaybook = undefined,
-		gitSshIdentity = undefined
+		gitSshIdentity = undefined,
+		workspace: workspaceProp = undefined
 	}: Props = $props()
+
+	let ws = $derived(workspaceProp ?? $workspaceStore)
 
 	const dispatch = createEventDispatcher<{
 		selected: {
@@ -44,12 +49,12 @@
 	let loadingInventories = $state(false)
 
 	async function loadGitRepoResources() {
-		if (!$workspaceStore) return
+		if (!ws) return
 
 		loading = true
 		try {
 			const resources = await ResourceService.listResource({
-				workspace: $workspaceStore,
+				workspace: ws,
 				resourceType: 'git_repository'
 			})
 
@@ -66,7 +71,7 @@
 	}
 
 	$effect(() => {
-		if (open && $workspaceStore) {
+		if (open && ws) {
 			loadGitRepoResources()
 			// Set current resource as selected when opening
 			selectedResource = currentResource
@@ -95,12 +100,12 @@
 		inventoriesPath: string,
 		commitHash: string
 	): Promise<string[]> {
-		const rootPath = `gitrepos/${$workspaceStore}/${resourcePath}/${commitHash}/`
+		const rootPath = `gitrepos/${ws}/${resourcePath}/${commitHash}/`
 
 		if (inventoriesPath.startsWith('./')) inventoriesPath = inventoriesPath.slice(2)
 
 		let files = await HelpersService.listGitRepoFiles({
-			workspace: $workspaceStore!,
+			workspace: ws!,
 			maxKeys: 100,
 			marker: undefined,
 			prefix: `${rootPath}/${inventoriesPath}`
@@ -121,7 +126,7 @@
 			if (!commitHash) {
 				try {
 					const result = await ResourceService.getGitCommitHash({
-						workspace: $workspaceStore!,
+						workspace: ws!,
 						path: selectedResource,
 						gitSshIdentity: gitSshIdentity?.join(',')
 					})
