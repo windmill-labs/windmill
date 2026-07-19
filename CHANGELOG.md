@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.763.0](https://github.com/windmill-labs/windmill/compare/v1.762.2...v1.763.0) (2026-07-19)
+
+
+### Features
+
+* **ai:** gate data pipelines in sessions behind a dev flag ([#10178](https://github.com/windmill-labs/windmill/issues/10178)) ([42da20a](https://github.com/windmill-labs/windmill/commit/42da20ae9743eab2f86b8f9c261ee567f8bbb0c5))
+
+
+### Bug Fixes
+
+* **cli:** stop emitting has_on_behalf_of/has_permissioned_as: false on pull ([#10188](https://github.com/windmill-labs/windmill/issues/10188)) ([2d77e74](https://github.com/windmill-labs/windmill/commit/2d77e742077b71be192a04ed9e85d4a024dc7f91))
+
 ## [1.762.2](https://github.com/windmill-labs/windmill/compare/v1.762.1...v1.762.2) (2026-07-18)
 
 
