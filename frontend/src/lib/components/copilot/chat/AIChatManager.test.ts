@@ -578,6 +578,43 @@ describe('AIChatManager queued messages', () => {
 		expect(urls).toEqual(['data:image/png;base64,FULLRES'])
 	})
 
+	it('an edit resends the edited context, a bare retry the original', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		const cm = manager.contextManager
+		cm.setSelectedDomElement({ selector: 'div.a', appPath: 'f/app', tagName: 'div' })
+		const chipA = cm.getSelectedContext()[0]
+		cm.setSelectedDomElement({ selector: 'div.b', appPath: 'f/app', tagName: 'div' })
+		const chipB = cm.getSelectedContext()[0]
+		cm.clearSelectedDomElements()
+
+		const seed = () => {
+			manager.displayMessages = [
+				{ role: 'user', content: 'style it', index: 0, contextElements: [chipA] },
+				{ role: 'assistant', content: 'ok' }
+			]
+			manager.messages = [
+				{ role: 'user', content: 'style it' },
+				{ role: 'assistant', content: 'ok' }
+			]
+		}
+		const sentChipSelectors = () =>
+			(manager.displayMessages.find((m) => m.role === 'user')?.contextElements ?? [])
+				.filter((c) => c.type === 'app_dom_selector')
+				.map((c) => c.selector)
+
+		// Edit swapped the chip A → B in the edit box: the resend carries B, not A.
+		seed()
+		manager.restartGeneration(0, 'style it', undefined, undefined, [chipB])
+		await vi.waitFor(() => expect(sentChipSelectors()).toEqual(['div.b']))
+
+		// A bare retry passes no edited context and falls back to the original A.
+		seed()
+		manager.restartGeneration(0)
+		await vi.waitFor(() => expect(sentChipSelectors()).toEqual(['div.a']))
+	})
+
 	// The loop, not the send, owns the vision strip: it re-applies it per iteration
 	// for whatever model that iteration runs on, so a mid-loop switch in either
 	// direction sees the right view. A copy stripped at send time could never be

@@ -432,7 +432,16 @@
 			return
 		}
 		if (editingMessageIndex !== null) {
-			aiChatManager.restartGeneration(editingMessageIndex, instructions, pastes, images)
+			// In edit mode selectedContext is the edit box's own copy (seeded from the
+			// message's original chips), so send exactly what's shown — the user may
+			// have added or removed chips.
+			aiChatManager.restartGeneration(
+				editingMessageIndex,
+				instructions,
+				pastes,
+				images,
+				selectedContext
+			)
 			onEditEnd()
 		} else {
 			aiChatManager.sendRequest({ instructions, pastes, images })

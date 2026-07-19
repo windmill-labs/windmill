@@ -2910,7 +2910,8 @@ export class AIChatManager {
 		displayMessageIndex: number,
 		newContent?: string,
 		pastes?: PasteAttachment[],
-		images?: AttachedImage[]
+		images?: AttachedImage[],
+		editedContext?: ContextElement[]
 	) => {
 		const userMessage = this.displayMessages[displayMessageIndex]
 
@@ -2944,16 +2945,18 @@ export class AIChatManager {
 		// error, which rewinds through here.
 		this.contextUsage = undefined
 
-		// Resend the request with the same instructions AND the context the message
-		// was originally sent with. DOM selector chips (and other context) are
-		// one-shot — cleared from the live selection after the first send — so
-		// without this an edit/retry would read the current selection and lose (or
-		// swap) the element the message was about. `undefined` for modes that don't
-		// attach contextElements falls back to the live selection as before.
+		// Resend with the message's context, not the live selection. DOM selector
+		// chips (and other context) are one-shot — cleared from the live selection
+		// after the first send — so reading the current selection would lose or swap
+		// the element the message was about. An edit passes `editedContext` (the edit
+		// box was seeded from this message's chips and the user may have changed
+		// them); a bare Retry passes nothing and falls back to the original
+		// contextElements. `undefined` for modes that don't attach context leaves the
+		// live-selection behavior. An empty array is a deliberate "no context".
 		this.instructions = newContent ?? userMessage.content
 		this.sendRequest({
 			pastes: pastes ?? userMessage.pastes,
-			contextOverride: userMessage.contextElements,
+			contextOverride: editedContext ?? userMessage.contextElements,
 			images: images ?? sentImages
 		})
 	}

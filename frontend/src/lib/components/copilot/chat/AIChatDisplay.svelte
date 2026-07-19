@@ -650,7 +650,6 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							{message}
 							{messageIndex}
 							{availableContext}
-							bind:selectedContext
 							bind:editingMessageIndex
 							isLast={messageIndex === messages.length - 1}
 						/>
