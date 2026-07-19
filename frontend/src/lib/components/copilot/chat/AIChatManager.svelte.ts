@@ -2702,6 +2702,18 @@ export class AIChatManager {
 					!willAutoSendQueued,
 					sentImages
 				)
+				// restoreUnsentTurn hands the text/pastes/images back for a resend, but
+				// the DOM selector chips were already consumed from the live selection
+				// before the request went out. Re-add them so the restored prompt keeps
+				// its element scope. Skipped on a queued-message handoff (that message
+				// carries its own context and this prompt is dropped).
+				if (!willAutoSendQueued) {
+					for (const c of oldSelectedContext) {
+						if (c.type === 'app_dom_selector') {
+							this.contextManager?.addSelectedDomElement(c)
+						}
+					}
+				}
 				if (this.displayMessages.length === 0) {
 					// saveChat no-ops on an empty transcript; the chat persisted earlier
 					// this turn would linger in history and resurface the rolled-back

@@ -1196,6 +1196,30 @@ describe('AIChatManager queued messages', () => {
 		expect(input.restoreInstructions).not.toHaveBeenCalled()
 	})
 
+	it('restores consumed DOM selector chips when a turn is cancelled before output', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		manager.contextManager.setSelectedDomElement({
+			selector: 'div.card',
+			appPath: 'f/app',
+			tagName: 'div'
+		})
+		// Cancel before any usable output → the rollback (restoreUnsentTurn) path.
+		mocks.runChatLoop.mockImplementationOnce(async ({ abortController }: any) => {
+			abortController.abort('user_cancelled')
+			throw new Error('aborted')
+		})
+
+		await manager.sendRequest({ instructions: 'make it red' })
+
+		// The chip was consumed on send; the rollback must put it back so a resend
+		// keeps its element scope (otherwise the restored prompt loses its target).
+		const chips = manager.contextManager
+			.getSelectedContext()
+			.filter((c) => c.type === 'app_dom_selector')
+		expect(chips.map((c) => c.selector)).toEqual(['div.card'])
+	})
+
 	it('re-queues the message when its auto-send is rejected by beforeSend', async () => {
 		replyWith('done')
 		const input = createInputMock()
