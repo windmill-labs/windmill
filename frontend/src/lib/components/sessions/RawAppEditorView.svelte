@@ -163,8 +163,11 @@
 	function onInspectorDeselect(selector: string) {
 		runtime.manager.contextManager.removeSelectedDomElement(selector, path)
 	}
+	// Fired when this preview clears its inspector (toggle off, or a rebuild emits
+	// inspectorClear). Scope to this app: every mounted preview rebuilds
+	// independently, so an unscoped clear would wipe a selection made in another.
 	function onInspectorClearAll() {
-		runtime.manager.contextManager.clearSelectedDomElements()
+		runtime.manager.contextManager.clearSelectedDomElements(path)
 	}
 
 	// The inline mini-composer over a selected element sends a chat turn; the

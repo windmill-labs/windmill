@@ -2419,4 +2419,21 @@ describe('DOM selector chips scoped by app path', () => {
 		expect(remaining).toHaveLength(1)
 		expect(remaining[0].appPath).toBe('f/app/a')
 	})
+
+	it("a scoped clear (preview rebuild) drops only that app's chips", () => {
+		const manager = new AIChatManager()
+		const cm = manager.contextManager
+		cm.addSelectedDomElement({ selector: 'h1', appPath: 'f/app/a', tagName: 'h1' })
+		cm.addSelectedDomElement({ selector: 'button', appPath: 'f/app/b', tagName: 'button' })
+
+		// App A rebuilding must not wipe app B's active selection.
+		cm.clearSelectedDomElements('f/app/a')
+		const remaining = domChips(manager)
+		expect(remaining).toHaveLength(1)
+		expect(remaining[0].appPath).toBe('f/app/b')
+
+		// An unscoped clear (post-send / foreign reset) still drops everything.
+		cm.clearSelectedDomElements()
+		expect(domChips(manager)).toHaveLength(0)
+	})
 })

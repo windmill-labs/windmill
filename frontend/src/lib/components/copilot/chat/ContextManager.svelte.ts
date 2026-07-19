@@ -438,9 +438,13 @@ export default class ContextManager {
 		)
 	}
 
-	/** Drop DOM selector chips (one-shot per message — cleared after send). */
-	clearSelectedDomElements() {
-		this.selectedContext = this.selectedContext.filter((c) => c.type !== 'app_dom_selector')
+	/** Drop DOM selector chips (one-shot per message — cleared after send). Pass
+	 * appPath to drop only one app's chips: a preview rebuild clears its own app,
+	 * and must not wipe a selection the user made in another still-mounted app. */
+	clearSelectedDomElements(appPath?: string) {
+		this.selectedContext = this.selectedContext.filter(
+			(c) => c.type !== 'app_dom_selector' || (appPath !== undefined && c.appPath !== appPath)
+		)
 	}
 
 	setFixContext() {
