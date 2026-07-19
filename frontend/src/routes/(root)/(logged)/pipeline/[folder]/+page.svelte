@@ -1411,7 +1411,7 @@
 
 	// Recorder: when armed, the next cascade run captures the resolved graph, the
 	// per-node status timeline and each node's job stream into a downloadable
-	// recording that the /replay player can rerun offline (parity with the
+	// recording that the /pipeline_replay player can rerun offline (parity with the
 	// flow/script recorders). Job capture (`watchJob`) and status capture
 	// (`recordStatuses`) no-op unless the store is active, so the cascade run
 	// paths call them unconditionally.
@@ -1454,6 +1454,27 @@
 						// Mutates the same assetSamples object `rec.assetSamples` references.
 						pipelineRecording.recordAssetSample(sample)
 					})
+			)
+			// Capture each script step's source (by the exact hash that ran) so the
+			// player can show a node's code offline. Best-effort per node.
+			const codeByPath = new Map<string, string>()
+			for (const r of Object.values(rec.jobs)) {
+				const j = r.events.find((e) => e.data.completed)?.data.job as
+					| { job_kind?: string; script_path?: string; script_hash?: string }
+					| undefined
+				if (j?.job_kind === 'script' && j.script_path && j.script_hash) {
+					codeByPath.set(j.script_path, j.script_hash)
+				}
+			}
+			await Promise.all(
+				[...codeByPath].map(async ([path, hash]) => {
+					try {
+						const s = await ScriptService.getScriptByHash({ workspace: ws, hash })
+						pipelineRecording.recordCode(path, { content: s.content, language: s.language })
+					} catch {
+						// best-effort — a step we can't fetch just has no code in the player
+					}
+				})
 			)
 		}
 		return rec
@@ -2398,7 +2419,7 @@
 		<div class="flex flex-row items-center gap-2 flex-1 justify-end">
 			{#if !isOperator && allPipelineScripts.length > 0}
 				<!-- Recorder: arm to capture the next pipeline run into a
-				     downloadable recording the /replay player can rerun offline
+				     downloadable recording the /pipeline_replay player can rerun offline
 				     (parity with the flow/script recorders). -->
 				{#if lastPipelineRecording && !cascadeRunningRoot}
 					<Button

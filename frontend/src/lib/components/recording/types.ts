@@ -85,6 +85,16 @@ export type PipelineRecording = {
 	/** Per-asset data samples captured after the run, keyed by `${kind}:${path}`,
 	 * so asset nodes are inspectable offline in the player. */
 	assetSamples?: Record<string, PipelineAssetSample>
+	/** Source code of each runnable, keyed by script path, captured at record
+	 * time so the player can show a step's code offline. Absent for recordings
+	 * taken before code capture existed (the player degrades gracefully). */
+	codes?: Record<string, PipelineRecordedCode>
+}
+
+/** A pipeline step's captured source. */
+export type PipelineRecordedCode = {
+	content: string
+	language: string
 }
 
 /** Minimal interface that both flow and script recording stores implement */

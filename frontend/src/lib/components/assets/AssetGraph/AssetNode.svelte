@@ -74,6 +74,10 @@
 			// asset failed. Escalates the guard badge from "protected" to a
 			// failed-run outcome (rolled-back on EE, published-anyway on CE).
 			producerFailed?: boolean
+			// Monotonic nonce bumped by the replay player when this asset's
+			// producer just recomputed it. A change triggers a one-shot green
+			// fade so a freshly-written table stands out as the run progresses.
+			recomputePulse?: number
 		}
 		// SvelteFlow injects this on the node component when the user clicks
 		// the node. Combined with our own `hovered` state to drive the
@@ -170,6 +174,13 @@
 	onmouseleave={() => (hovered = false)}
 	role="presentation"
 >
+	{#if data.recomputePulse !== undefined}
+		{#key data.recomputePulse}
+			<!-- One-shot green wash when the replay player recomputes this asset.
+			     Keyed on the nonce so a repeat recompute replays the animation. -->
+			<div class="wm-recompute-flash pointer-events-none absolute inset-0 z-10 rounded-md"></div>
+		{/key}
+	{/if}
 	<!-- Mirrors the flow editor's asset pill: quiet surface + gray border at
 	     rest, accent reserved for the selected state. -->
 	<div
@@ -324,3 +335,20 @@
 
 <Handle type="target" position={Position.Top} isConnectable={false} />
 <Handle type="source" position={Position.Bottom} isConnectable={false} />
+
+<style>
+	.wm-recompute-flash {
+		animation: wm-recompute-flash 1.2s ease-out 1;
+	}
+	@keyframes wm-recompute-flash {
+		0% {
+			background-color: rgba(16, 185, 129, 0);
+		}
+		15% {
+			background-color: rgba(16, 185, 129, 0.45);
+		}
+		100% {
+			background-color: rgba(16, 185, 129, 0);
+		}
+	}
+</style>

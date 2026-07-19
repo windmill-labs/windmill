@@ -4,6 +4,7 @@ import { truncateUuids } from './flowRecording.svelte'
 import type {
 	ActiveReplayData,
 	PipelineAssetSample,
+	PipelineRecordedCode,
 	PipelineRecording,
 	PipelineTimelineFrame,
 	RecordedJob,
@@ -33,6 +34,7 @@ export function createPipelineRecording(): PipelineRecordingStore {
 	let timeline: PipelineTimelineFrame[] = []
 	let jobs: Record<string, RecordedJob> = {}
 	let assetSamples: Record<string, PipelineAssetSample> = {}
+	let codes: Record<string, PipelineRecordedCode> = {}
 	let watchedJobs = new Set<string>()
 	let jobSources: EventSource[] = []
 
@@ -56,6 +58,7 @@ export function createPipelineRecording(): PipelineRecordingStore {
 			timeline = []
 			jobs = {}
 			assetSamples = {}
+			codes = {}
 		},
 		/** Push a cascade status snapshot. Deep-cloned so a later mutation of the
 		 * orchestrator's map can't rewrite an already-captured frame. */
@@ -154,6 +157,12 @@ export function createPipelineRecording(): PipelineRecordingStore {
 		recordAssetSample(sample: PipelineAssetSample) {
 			assetSamples[`${sample.kind}:${sample.path}`] = sample
 		},
+		/** Attach a runnable's source (called during finalize, per script path).
+		 * Callable after stop() so late captures still attach to the returned
+		 * recording (which references the same `codes` object). */
+		recordCode(path: string, code: PipelineRecordedCode) {
+			codes[path] = code
+		},
 		stop(): PipelineRecording {
 			active = false
 			closeSources()
@@ -166,7 +175,8 @@ export function createPipelineRecording(): PipelineRecordingStore {
 				graph: graph ?? ({ assets: [], runnables: [], edges: [], triggers: [] } as any),
 				timeline,
 				jobs,
-				assetSamples
+				assetSamples,
+				codes
 			}
 		},
 		/** Convert to the ActiveReplayData shape JobLoader replay consumes. */
@@ -194,6 +204,7 @@ export type PipelineRecordingStore = {
 	watchJob(jobId: string, workspace: string): void
 	addCompletedJob(jobId: string, completedJob: Job): void
 	recordAssetSample(sample: PipelineAssetSample): void
+	recordCode(path: string, code: PipelineRecordedCode): void
 	stop(): PipelineRecording
 	toReplayData(recording: PipelineRecording): ActiveReplayData
 	download(recording: PipelineRecording): void

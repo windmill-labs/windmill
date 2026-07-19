@@ -9,6 +9,9 @@
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
+	import HighlightCode from '$lib/components/HighlightCode.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { Button } from '$lib/components/common'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import {
@@ -18,10 +21,12 @@
 		Loader2,
 		LogOut,
 		Play,
+		RotateCcw,
 		Square,
 		XCircle
 	} from 'lucide-svelte'
 	import { onDestroy, tick, untrack } from 'svelte'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
 	type ReplayState = 'loaded' | 'playing' | 'done'
 
@@ -39,7 +44,63 @@
 	let jobLoader: JobLoader | undefined = $state(undefined)
 	let timeouts: ReturnType<typeof setTimeout>[] = []
 
+	// Graph/detail split, mirroring PipelineGraphEditor: the graph keeps the full
+	// height and the detail pane only mounts on selection. Below `STACK_BELOW` the
+	// split flips to vertical, where the detail pane needs the larger share.
+	const STACK_BELOW = 680
+	let containerWidth = $state(0)
+	let stacked = $derived(containerWidth > 0 && containerWidth < STACK_BELOW)
+	let leftPaneSize = $state(100)
+	let rightPaneSize = $state(0)
+	// 0 = no user-chosen size yet, so the orientation-aware default applies.
+	let storedRightPaneSize = $state(0)
+	// Depend on the open/closed transition, not on `selection` itself — selecting
+	// another node must not throw away a size the user dragged.
+	let detailsOpen = $derived(selection != undefined)
+
+	// untrack the writes (and the rightPaneSize read) so the effect tracks only
+	// `detailsOpen`/`stacked` — a tracked `bind:size` read feeds back through Pane
+	// and pegs the main thread.
+	$effect(() => {
+		const fallback = stacked ? 55 : 40
+		if (detailsOpen) {
+			untrack(() => {
+				const size = storedRightPaneSize > 0 ? storedRightPaneSize : fallback
+				rightPaneSize = size
+				leftPaneSize = 100 - size
+			})
+		} else {
+			untrack(() => {
+				if (rightPaneSize > 0) storedRightPaneSize = rightPaneSize
+				rightPaneSize = 0
+				leftPaneSize = 100
+			})
+		}
+	})
+
 	let jobDone = $derived((job as any)?.type === 'CompletedJob')
+
+	// Runnable path -> the asset node ids (`asset:${kind}:${path}`) it writes,
+	// from the graph's write/rw edges. Lets a producer's success flash the green
+	// "recomputed" wash on exactly the tables it materialized.
+	let producerToAssets = $derived.by(() => {
+		const m = new Map<string, string[]>()
+		for (const e of recording.graph.edges ?? []) {
+			const access = e.access_type ?? 'r'
+			if (access !== 'w' && access !== 'rw') continue
+			const assetId = `asset:${e.asset_kind}:${e.asset_path}`
+			const list = m.get(e.runnable_path) ?? []
+			if (!list.includes(assetId)) list.push(assetId)
+			m.set(e.runnable_path, list)
+		}
+		return m
+	})
+
+	// asset node id -> a monotonic nonce, bumped each time the replay reaches the
+	// frame where the asset's producer turned successful. The canvas hands each
+	// asset node its nonce; a change replays the one-shot green fade.
+	let recomputePulses = $state<Record<string, number>>({})
+	let recomputedAssetIds = $derived(new Map(Object.entries(recomputePulses)))
 
 	// last-wins map path -> job id across all recorded frames, so any node that
 	// ran is clickable regardless of the current animation position.
@@ -120,16 +181,29 @@
 	export function startReplay() {
 		clearTimeouts()
 		currentStatuses = {}
+		recomputePulses = {}
 		selection = undefined
 		job = undefined
 		replayState = 'playing'
 		// Put JobLoader into replay mode (no network) even before a node is opened.
 		setActiveReplay({ jobs: {} })
 		const frames = recording.timeline
-		for (const frame of frames) {
+		let pulseCounter = 0
+		for (let i = 0; i < frames.length; i++) {
+			const frame = frames[i]
+			const prev = i > 0 ? frames[i - 1].statuses : {}
+			// Assets whose producer transitions into `success` at this frame — they
+			// were just (re)materialized, so pulse them green as the frame lands.
+			const pulsedAssets: string[] = []
+			for (const [path, st] of Object.entries(frame.statuses)) {
+				if (st.status === 'success' && prev[path]?.status !== 'success') {
+					for (const a of producerToAssets.get(path) ?? []) pulsedAssets.push(a)
+				}
+			}
 			timeouts.push(
 				setTimeout(() => {
 					currentStatuses = frame.statuses
+					for (const a of pulsedAssets) recomputePulses[a] = ++pulseCounter
 				}, frame.t)
 			)
 		}
@@ -146,6 +220,7 @@
 		setActiveReplay(undefined)
 		replayState = 'loaded'
 		currentStatuses = {}
+		recomputePulses = {}
 		selection = undefined
 		job = undefined
 	}
@@ -155,10 +230,14 @@
 		const rec = recording.jobs[jobId]
 		if (!rec) return
 		const cloned = JSON.parse(JSON.stringify(rec)) as RecordedJob
-		// Normalize event offsets so the node's stream plays from the moment it
-		// is opened (recorded `t` is relative to the whole-pipeline start).
+		// Only a node that is still running in the animation replays its stream
+		// live; a node the graph already shows as finished reveals its logs and
+		// result at once (collapse every event to t=0) rather than re-playing the
+		// whole execution as if it were computing now. Recorded `t` is relative to
+		// the whole-pipeline start, so rebase to the moment of open for the live case.
+		const streamLive = selectedStatus === 'running'
 		const base = cloned.events[0]?.t ?? 0
-		for (const e of cloned.events) e.t = Math.max(0, e.t - base)
+		for (const e of cloned.events) e.t = streamLive ? Math.max(0, e.t - base) : 0
 		rebaseJobTimestamps(cloned)
 		setActiveReplay({ jobs: { [jobId]: cloned } })
 		await tick()
@@ -182,6 +261,13 @@
 		return (shownStatuses[selection.path] ?? finalStatuses[selection.path])?.status
 	})
 
+	// Output (args/logs/result) vs the step's source code, for a runnable node.
+	let runnableTab = $state<'output' | 'code'>('output')
+	let selectedCode = $derived.by(() => {
+		if (selection?.kind !== 'runnable') return undefined
+		return recording.codes?.[selection.path]
+	})
+
 	// Recorded data-sample for a selected asset node (ducklake/datatable).
 	let selectedAssetSample = $derived.by(() => {
 		if (selection?.kind !== 'asset') return undefined
@@ -201,9 +287,9 @@
 	})
 </script>
 
-<div class="flex flex-col gap-4 h-full">
+<div class="flex flex-col gap-2 h-full min-h-0">
 	{#if !hideControls}
-		<div class="flex items-center justify-between">
+		<div class="flex items-center justify-between shrink-0">
 			<div class="flex items-center gap-2">
 				<h2 class="text-lg font-semibold text-emphasis">
 					{replayState === 'playing' ? 'Replaying: ' : ''}{recording.folder || 'Pipeline'}
@@ -222,7 +308,19 @@
 			{#if replayState === 'playing'}
 				<Button variant="border" size="xs" onclick={stop} startIcon={{ icon: Square }}>Stop</Button>
 			{:else if replayState === 'done'}
-				<Button variant="border" size="xs" onclick={stop} startIcon={{ icon: LogOut }}>Exit</Button>
+				<div class="flex items-center gap-2">
+					<Button variant="border" size="xs" onclick={stop} startIcon={{ icon: LogOut }}
+						>Exit</Button
+					>
+					<Button
+						variant="contained"
+						color="blue"
+						onclick={startReplay}
+						startIcon={{ icon: RotateCcw }}
+					>
+						Replay
+					</Button>
+				</div>
 			{:else}
 				<Button variant="contained" color="blue" onclick={startReplay} startIcon={{ icon: Play }}>
 					Play
@@ -235,132 +333,188 @@
 	     Play, and openNodeDetail drives this loader's `watchJob` in replay mode. -->
 	<JobLoader noCode={true} bind:this={jobLoader} bind:job />
 
-	<div class="rounded-md border bg-surface" style="height: 460px;">
-		<AssetGraphCanvas
-			graph={recording.graph}
-			{selection}
-			onselect={(s) => (selection = s)}
-			{activeRunnableIds}
-			{runStates}
-			viewportFitKey={recording.folder}
-		/>
+	<div
+		class="flex-1 min-h-0 rounded-md border bg-surface overflow-hidden"
+		bind:clientWidth={containerWidth}
+	>
+		<Splitpanes class="!h-full" horizontal={stacked}>
+			<Pane bind:size={leftPaneSize}>
+				<div class="relative h-full">
+					<AssetGraphCanvas
+						graph={recording.graph}
+						{selection}
+						onselect={(s) => (selection = s)}
+						{activeRunnableIds}
+						{runStates}
+						highlightActiveRun={replayState === 'playing'}
+						{recomputedAssetIds}
+						showMinimap={!stacked}
+						viewportFitKey={recording.folder}
+					/>
+					{#if !selection}
+						<p
+							class="absolute bottom-2 left-1/2 -translate-x-1/2 z-20 px-2 py-1 rounded-md bg-surface/95 backdrop-blur-sm border text-2xs text-tertiary shadow-sm"
+						>
+							{replayState === 'playing'
+								? 'Replaying the recorded run — click a node to inspect its logs, result or data sample.'
+								: 'Click a script node for its logs/result, or an asset node for its recorded data sample.'}
+						</p>
+					{/if}
+				</div>
+			</Pane>
+			{#if selection}
+				<Pane bind:size={rightPaneSize} minSize={25}>
+					<div class="h-full min-h-0">
+						{#if selection.kind === 'runnable'}
+							<div class="flex flex-col gap-2 p-3 h-full min-h-0">
+								<div class="flex items-center gap-2 shrink-0">
+									{#if selectedStatus === 'running'}
+										<Loader2 size={16} class="text-blue-500 animate-spin" />
+									{:else if selectedStatus === 'success'}
+										<CheckCircle2 size={16} class="text-green-600" />
+									{:else if selectedStatus === 'failure'}
+										<XCircle size={16} class="text-red-600" />
+									{/if}
+									<span class="text-xs font-mono text-emphasis break-all">{selection.path}</span>
+									<div class="ml-auto shrink-0">
+										<ToggleButtonGroup
+											selected={runnableTab}
+											on:selected={(e) => (runnableTab = e.detail)}
+										>
+											{#snippet children({ item })}
+												<ToggleButton size="xs" value="output" label="Output" {item} />
+												<ToggleButton size="xs" value="code" label="Code" {item} />
+											{/snippet}
+										</ToggleButtonGroup>
+									</div>
+								</div>
+
+								{#if runnableTab === 'code'}
+									<div class="flex-1 min-h-0 overflow-auto rounded-md border bg-surface-tertiary">
+										{#if selectedCode}
+											<HighlightCode
+												code={selectedCode.content}
+												language={selectedCode.language as any}
+											/>
+										{:else}
+											<p class="text-xs text-secondary p-3">
+												No code was captured for this step in the recording.
+											</p>
+										{/if}
+									</div>
+								{:else if selectedJobId && recording.jobs[selectedJobId]}
+									{#if job?.args && Object.keys(job.args).length > 0}
+										<div class="shrink-0">
+											<h3 class="text-2xs font-semibold text-tertiary mb-1">Arguments</h3>
+											<JobArgs args={job.args} />
+										</div>
+									{/if}
+									<!-- Logs and Result share the leftover height; Result gets the
+									     larger share (2:1) since a pipeline step's output is what you
+									     usually inspect, while both stay scrollable when squeezed. -->
+									<div class="flex flex-col flex-1 min-h-0">
+										<h3 class="text-2xs font-semibold text-tertiary mb-1">Logs</h3>
+										<div class="flex-1 min-h-0 overflow-auto rounded-md border bg-surface-tertiary">
+											<LogViewer
+												jobId={job?.id}
+												duration={job?.['duration_ms']}
+												mem={job?.['mem_peak']}
+												isLoading={!jobDone}
+												content={job?.logs}
+												tag={job?.tag}
+												download={false}
+											/>
+										</div>
+									</div>
+									<div class="flex flex-col flex-[2_1_0%] min-h-0">
+										<h3 class="text-2xs font-semibold text-tertiary mb-1">Result</h3>
+										<div
+											class="flex-1 min-h-0 overflow-auto rounded-md border bg-surface-tertiary p-3"
+										>
+											{#if job !== undefined && job.type === 'CompletedJob' && job.result !== undefined}
+												<DisplayResult result={job.result} language={job.language} />
+											{:else if jobDone}
+												<div class="text-secondary text-xs">No output available</div>
+											{:else}
+												<div class="text-secondary text-xs">Waiting for result…</div>
+											{/if}
+										</div>
+									</div>
+								{:else}
+									<p class="text-xs text-secondary"
+										>This node did not run in the recorded session.</p
+									>
+								{/if}
+							</div>
+						{:else if selection.kind === 'asset'}
+							<div class="flex flex-col gap-2 p-3 h-full min-h-0">
+								<div class="flex items-center gap-2">
+									<Database size={16} class="text-tertiary" />
+									<span class="text-xs font-mono text-emphasis break-all"
+										>{selectedAssetSample?.uri ??
+											`${selection.asset_kind}://${selection.path}`}</span
+									>
+									{#if selectedAssetSample && !selectedAssetSample.error}
+										<span class="text-2xs text-tertiary">
+											{selectedAssetSample.rowCount != undefined
+												? `${selectedAssetSample.rowCount} row${selectedAssetSample.rowCount === 1 ? '' : 's'}`
+												: `${selectedAssetSample.rows.length} sampled`}
+											· {selectedAssetSample.columns.length} column{selectedAssetSample.columns
+												.length === 1
+												? ''
+												: 's'}
+										</span>
+									{/if}
+								</div>
+
+								{#if !selectedAssetSample}
+									<p class="text-xs text-secondary">
+										No data sample was captured for this asset in the recorded session.
+									</p>
+								{:else if selectedAssetSample.error}
+									<p class="text-xs text-secondary">
+										Could not capture a sample of this table: {selectedAssetSample.error}
+									</p>
+								{:else if selectedAssetSample.rows.length === 0}
+									<p class="text-xs text-secondary"
+										>This table was empty when the recording was taken.</p
+									>
+								{:else}
+									<div class="flex-1 min-h-0 overflow-auto rounded-md border bg-surface-tertiary">
+										<table class="text-2xs w-full border-collapse">
+											<thead class="sticky top-0 bg-surface-secondary">
+												<tr>
+													{#each selectedAssetSample.columns as c}
+														<th
+															class="text-left px-2 py-1 font-semibold border-b whitespace-nowrap"
+														>
+															{c.field}
+															{#if c.datatype}<span class="text-tertiary font-normal"
+																	>· {c.datatype}</span
+																>{/if}
+														</th>
+													{/each}
+												</tr>
+											</thead>
+											<tbody>
+												{#each selectedAssetSample.rows as row}
+													<tr class="border-b last:border-b-0">
+														{#each selectedAssetSample.columns as c}
+															<td class="px-2 py-1 font-mono whitespace-nowrap max-w-xs truncate">
+																{fmtCell((row as any)?.[c.field])}
+															</td>
+														{/each}
+													</tr>
+												{/each}
+											</tbody>
+										</table>
+									</div>
+								{/if}
+							</div>
+						{/if}
+					</div>
+				</Pane>
+			{/if}
+		</Splitpanes>
 	</div>
-
-	{#if selection?.kind === 'runnable'}
-		<div class="flex flex-col gap-2 rounded-md border bg-surface p-3 min-h-0">
-			<div class="flex items-center gap-2">
-				{#if selectedStatus === 'running'}
-					<Loader2 size={16} class="text-blue-500 animate-spin" />
-				{:else if selectedStatus === 'success'}
-					<CheckCircle2 size={16} class="text-green-600" />
-				{:else if selectedStatus === 'failure'}
-					<XCircle size={16} class="text-red-600" />
-				{/if}
-				<span class="text-xs font-mono text-emphasis break-all">{selection.path}</span>
-			</div>
-
-			{#if selectedJobId && recording.jobs[selectedJobId]}
-				{#if job?.args && Object.keys(job.args).length > 0}
-					<div>
-						<h3 class="text-2xs font-semibold text-tertiary mb-1">Arguments</h3>
-						<JobArgs args={job.args} />
-					</div>
-				{/if}
-				<div class="grid grid-cols-2 gap-3">
-					<div class="flex flex-col min-h-0">
-						<h3 class="text-2xs font-semibold text-tertiary mb-1">Logs</h3>
-						<div class="h-64 overflow-auto rounded-md border bg-surface-tertiary">
-							<LogViewer
-								jobId={job?.id}
-								duration={job?.['duration_ms']}
-								mem={job?.['mem_peak']}
-								isLoading={!jobDone}
-								content={job?.logs}
-								tag={job?.tag}
-								download={false}
-							/>
-						</div>
-					</div>
-					<div class="flex flex-col min-h-0">
-						<h3 class="text-2xs font-semibold text-tertiary mb-1">Result</h3>
-						<div class="h-64 overflow-auto rounded-md border bg-surface-tertiary p-3">
-							{#if job !== undefined && job.type === 'CompletedJob' && job.result !== undefined}
-								<DisplayResult result={job.result} language={job.language} />
-							{:else if jobDone}
-								<div class="text-secondary text-xs">No output available</div>
-							{:else}
-								<div class="text-secondary text-xs">Waiting for result…</div>
-							{/if}
-						</div>
-					</div>
-				</div>
-			{:else}
-				<p class="text-xs text-secondary">This node did not run in the recorded session.</p>
-			{/if}
-		</div>
-	{:else if selection?.kind === 'asset'}
-		<div class="flex flex-col gap-2 rounded-md border bg-surface p-3 min-h-0">
-			<div class="flex items-center gap-2">
-				<Database size={16} class="text-tertiary" />
-				<span class="text-xs font-mono text-emphasis break-all"
-					>{selectedAssetSample?.uri ?? `${selection.asset_kind}://${selection.path}`}</span
-				>
-				{#if selectedAssetSample && !selectedAssetSample.error}
-					<span class="text-2xs text-tertiary">
-						{selectedAssetSample.rowCount != undefined
-							? `${selectedAssetSample.rowCount} row${selectedAssetSample.rowCount === 1 ? '' : 's'}`
-							: `${selectedAssetSample.rows.length} sampled`}
-						· {selectedAssetSample.columns.length} column{selectedAssetSample.columns.length === 1
-							? ''
-							: 's'}
-					</span>
-				{/if}
-			</div>
-
-			{#if !selectedAssetSample}
-				<p class="text-xs text-secondary">
-					No data sample was captured for this asset in the recorded session.
-				</p>
-			{:else if selectedAssetSample.error}
-				<p class="text-xs text-secondary">
-					Could not capture a sample of this table: {selectedAssetSample.error}
-				</p>
-			{:else if selectedAssetSample.rows.length === 0}
-				<p class="text-xs text-secondary">This table was empty when the recording was taken.</p>
-			{:else}
-				<div class="overflow-auto rounded-md border bg-surface-tertiary" style="max-height: 320px;">
-					<table class="text-2xs w-full border-collapse">
-						<thead class="sticky top-0 bg-surface-secondary">
-							<tr>
-								{#each selectedAssetSample.columns as c}
-									<th class="text-left px-2 py-1 font-semibold border-b whitespace-nowrap">
-										{c.field}
-										{#if c.datatype}<span class="text-tertiary font-normal">· {c.datatype}</span
-											>{/if}
-									</th>
-								{/each}
-							</tr>
-						</thead>
-						<tbody>
-							{#each selectedAssetSample.rows as row}
-								<tr class="border-b last:border-b-0">
-									{#each selectedAssetSample.columns as c}
-										<td class="px-2 py-1 font-mono whitespace-nowrap max-w-xs truncate">
-											{fmtCell((row as any)?.[c.field])}
-										</td>
-									{/each}
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-			{/if}
-		</div>
-	{:else}
-		<p class="text-2xs text-tertiary">
-			{replayState === 'playing'
-				? 'Replaying the recorded run — click a node to inspect its logs, result or data sample.'
-				: 'Click a script node for its logs/result, or an asset node for its recorded data sample.'}
-		</p>
-	{/if}
 </div>
