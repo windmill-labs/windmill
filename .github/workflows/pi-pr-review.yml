@@ -75,6 +75,7 @@ jobs:
           EVENT_BODY: ${{ github.event.pull_request.body }}
           EVENT_FORK: ${{ github.event.pull_request.head.repo.fork }}
           EVENT_AUTHOR: ${{ github.event.pull_request.user.login }}
+          EVENT_ACTION: ${{ github.event.action }}
         run: |
           if [ -n "$INPUT_PR_NUMBER" ]; then
             PR_JSON=$(gh pr view "$INPUT_PR_NUMBER" --repo "${{ github.repository }}" \
@@ -105,6 +106,38 @@ jobs:
             echo "Skipping Pi review for fork PR (automatic trigger)."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
+          fi
+          # An agent-driven PR flips to ready only after a clean /review round on
+          # a draft, marked by an author comment naming the head SHA (pr skill,
+          # "Review rounds"). Re-reviewing that same head on ready_for_review is
+          # redundant. The marker alone is author attestation, so also require
+          # reviewer evidence: a Codex review (posted by github-actions[bot], not
+          # forgeable by the author) that predates the marker and carries a
+          # non-blocking verdict. Comment-triggered and synchronize runs never
+          # skip. Keep the three copies of this check in sync (pr-ready-review /
+          # codex-pr-review / pi-pr-review); a shared local action would need the
+          # repo checked out before the check, which the fork paths here
+          # deliberately avoid.
+          if [ "$EVENT_ACTION" = "ready_for_review" ] && [ -z "$INPUT_PR_NUMBER" ]; then
+            # Fetch failures fail open (no skip): an API hiccup must run the
+            # review, never skip it or fail the job.
+            COMMENTS=$(gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/comments?per_page=100" --paginate | jq -s '[.[][]]') || COMMENTS='[]'
+            MARKER_TIME=$(jq -r --arg author "$PR_AUTHOR" --arg marker "✅ Review round clean @ $HEAD_SHA" \
+              '[.[] | select(.user.login == $author) | select(.body | contains($marker)) | .created_at] | min // empty' <<<"$COMMENTS")
+            CODEX_VERDICT=''
+            if [ -n "$MARKER_TIME" ]; then
+              # Only Codex evidence that predates the marker counts: the ready-
+              # triggered Codex run itself posts after the flip and must not
+              # vouch for a sibling reviewer's skip.
+              CODEX_VERDICT=$(jq -r --arg mt "$MARKER_TIME" \
+                '[.[] | select(.user.login == "github-actions[bot]") | select(.body | contains("## Codex Review")) | select(.created_at < $mt)] | last | .body // ""' <<<"$COMMENTS" \
+                | grep -m1 -oE '(Good to merge|Mergeable, but should ideally address nits|Should address issues before merging)' || true)
+            fi
+            if [ -n "$MARKER_TIME" ] && [ -n "$CODEX_VERDICT" ] && [ "$CODEX_VERDICT" != "Should address issues before merging" ]; then
+              echo "Clean review round marker found for $HEAD_SHA with pre-marker non-blocking Codex verdict; skipping redundant review."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
           # PR title/body are attacker-controlled free text. Use an unguessable
           # per-run delimiter so a fork can't embed a fixed heredoc terminator to

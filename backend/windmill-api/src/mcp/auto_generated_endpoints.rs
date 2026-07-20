@@ -26,7 +26,6 @@ pub fn all_tools() -> Vec<EndpointTool> {
         ]
 })),
         body_schema: None,
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -54,7 +53,6 @@ pub fn all_tools() -> Vec<EndpointTool> {
         ]
 })),
         body_schema: None,
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -124,7 +122,6 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "description"
         ]
 })),
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -147,7 +144,6 @@ pub fn all_tools() -> Vec<EndpointTool> {
 })),
         query_params_schema: None,
         body_schema: None,
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -160,13 +156,12 @@ pub fn all_tools() -> Vec<EndpointTool> {
         path_params_schema: Some(serde_json::json!({
         "type": "object",
         "properties": {
-                "path__path": {
-                        "type": "string",
-                        "description": "(path parameter)"
+                "path": {
+                        "type": "string"
                 }
         },
         "required": [
-                "path__path"
+                "path"
         ]
 })),
         query_params_schema: Some(serde_json::json!({
@@ -205,12 +200,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 },
                 "path__body": {
                         "type": "string",
-                        "description": "The path to the variable (body parameter)"
+                        "description": "The path to the variable (body parameter). Defaults to `path` when omitted; set it only to change the path."
                 }
         }
-})),
-        path_field_renames: Some(serde_json::json!({
-        "path__path": "path"
 })),
         query_field_renames: None,
         body_field_renames: Some(serde_json::json!({
@@ -253,7 +245,6 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "required": []
 })),
         body_schema: None,
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -307,7 +298,6 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "required": []
 })),
         body_schema: None,
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -362,7 +352,6 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "resource_type"
         ]
 })),
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -385,7 +374,6 @@ pub fn all_tools() -> Vec<EndpointTool> {
 })),
         query_params_schema: None,
         body_schema: None,
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -398,13 +386,12 @@ pub fn all_tools() -> Vec<EndpointTool> {
         path_params_schema: Some(serde_json::json!({
         "type": "object",
         "properties": {
-                "path__path": {
-                        "type": "string",
-                        "description": "(path parameter)"
+                "path": {
+                        "type": "string"
                 }
         },
         "required": [
-                "path__path"
+                "path"
         ]
 })),
         query_params_schema: None,
@@ -433,12 +420,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 },
                 "path__body": {
                         "type": "string",
-                        "description": "The path to the resource (body parameter)"
+                        "description": "The path to the resource (body parameter). Defaults to `path` when omitted; set it only to change the path."
                 }
         }
-})),
-        path_field_renames: Some(serde_json::json!({
-        "path__path": "path"
 })),
         query_field_renames: None,
         body_field_renames: Some(serde_json::json!({
@@ -473,7 +457,6 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "required": []
 })),
         body_schema: None,
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -535,7 +518,6 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "required": []
 })),
         body_schema: None,
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -548,7 +530,6 @@ pub fn all_tools() -> Vec<EndpointTool> {
         path_params_schema: None,
         query_params_schema: None,
         body_schema: None,
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -646,7 +627,6 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "required": []
 })),
         body_schema: None,
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -699,7 +679,6 @@ Creates a new version of an existing script when called with the same path and t
                 "language"
         ]
 })),
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -722,7 +701,6 @@ Creates a new version of an existing script when called with the same path and t
 })),
         query_params_schema: None,
         body_schema: None,
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -754,7 +732,6 @@ Creates a new version of an existing script when called with the same path and t
         "required": []
 })),
         body_schema: None,
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -789,7 +766,6 @@ Creates a new version of an existing script when called with the same path and t
         "required": []
 })),
         body_schema: None,
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -816,7 +792,6 @@ Creates a new version of an existing script when called with the same path and t
         "description": "The arguments to pass to the script or flow",
         "additionalProperties": true
 })),
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -886,7 +861,6 @@ Creates a new version of an existing script when called with the same path and t
         "required": []
 })),
         body_schema: None,
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -921,7 +895,6 @@ Creates a new version of an existing script when called with the same path and t
         "required": []
 })),
         body_schema: None,
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -967,7 +940,6 @@ Creates a new version of an existing script when called with the same path and t
         ],
         "description": "Top-level flow definition containing metadata, configuration, and the flow structure"
 })),
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -980,13 +952,12 @@ Creates a new version of an existing script when called with the same path and t
         path_params_schema: Some(serde_json::json!({
         "type": "object",
         "properties": {
-                "path__path": {
-                        "type": "string",
-                        "description": "(path parameter)"
+                "path": {
+                        "type": "string"
                 }
         },
         "required": [
-                "path__path"
+                "path"
         ]
 })),
         query_params_schema: None,
@@ -1015,18 +986,14 @@ Creates a new version of an existing script when called with the same path and t
                 },
                 "path__body": {
                         "type": "string",
-                        "description": "(body parameter)"
+                        "description": "(body parameter). Defaults to `path` when omitted; set it only to change the path."
                 }
         },
         "required": [
                 "summary",
-                "value",
-                "path__body"
+                "value"
         ],
         "description": "Top-level flow definition containing metadata, configuration, and the flow structure"
-})),
-        path_field_renames: Some(serde_json::json!({
-        "path__path": "path"
 })),
         query_field_renames: None,
         body_field_renames: Some(serde_json::json!({
@@ -1061,7 +1028,6 @@ Creates a new version of an existing script when called with the same path and t
         "required": []
 })),
         body_schema: None,
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -1099,7 +1065,6 @@ Creates a new version of an existing script when called with the same path and t
                 "policy"
         ]
 })),
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -1112,13 +1077,12 @@ Creates a new version of an existing script when called with the same path and t
         path_params_schema: Some(serde_json::json!({
         "type": "object",
         "properties": {
-                "path__path": {
-                        "type": "string",
-                        "description": "(path parameter)"
+                "path": {
+                        "type": "string"
                 }
         },
         "required": [
-                "path__path"
+                "path"
         ]
 })),
         query_params_schema: None,
@@ -1139,12 +1103,9 @@ Creates a new version of an existing script when called with the same path and t
                 },
                 "path__body": {
                         "type": "string",
-                        "description": "(body parameter)"
+                        "description": "(body parameter). Defaults to `path` when omitted; set it only to change the path."
                 }
         }
-})),
-        path_field_renames: Some(serde_json::json!({
-        "path__path": "path"
 })),
         query_field_renames: None,
         body_field_renames: Some(serde_json::json!({
@@ -1174,7 +1135,6 @@ Creates a new version of an existing script when called with the same path and t
         "description": "The arguments to pass to the script or flow",
         "additionalProperties": true
 })),
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -1269,7 +1229,6 @@ Creates a new version of an existing script when called with the same path and t
                 "language"
         ]
 })),
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -1390,7 +1349,6 @@ Creates a new version of an existing script when called with the same path and t
         "required": []
 })),
         body_schema: None,
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -1557,7 +1515,6 @@ Creates a new version of an existing script when called with the same path and t
         "required": []
 })),
         body_schema: None,
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -1596,7 +1553,6 @@ Creates a new version of an existing script when called with the same path and t
         "required": []
 })),
         body_schema: None,
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -1628,7 +1584,6 @@ Creates a new version of an existing script when called with the same path and t
         "required": []
 })),
         body_schema: None,
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -1841,7 +1796,6 @@ You should get the schema of the script or flow before creating the schedule to 
                 "args"
         ]
 })),
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -2047,7 +2001,6 @@ You should get the schema of the script or flow before updating the schedule to 
                 "args"
         ]
 })),
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -2070,7 +2023,6 @@ You should get the schema of the script or flow before updating the schedule to 
 })),
         query_params_schema: None,
         body_schema: None,
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -2102,7 +2054,6 @@ You should get the schema of the script or flow before updating the schedule to 
         "required": []
 })),
         body_schema: None,
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -2168,7 +2119,6 @@ You should get the schema of the script or flow before updating the schedule to 
         "required": []
 })),
         body_schema: None,
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     },
@@ -2198,7 +2148,6 @@ You should get the schema of the script or flow before updating the schedule to 
         "required": []
 })),
         body_schema: None,
-        path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
     }

@@ -53,11 +53,12 @@ use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule},
     global_settings::{
         AUDIT_LOG_RETENTION_DAYS_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
-        BUN_INSTALL_MIN_RELEASE_AGE_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
-        CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
-        CRITICAL_ERROR_CHANNELS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_PASSWORD_LOGIN, DISABLE_PASSWORD_LOGIN_SETTING,
-        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        BUN_INSTALL_MIN_RELEASE_AGE_SETTING, CONCURRENCY_KEY_MAX_QUEUED_SETTING,
+        CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
+        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
+        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
+        DISABLE_PASSWORD_LOGIN, DISABLE_PASSWORD_LOGIN_SETTING, EXPOSE_DEBUG_METRICS_SETTING,
+        EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
         FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HUB_API_SECRET_SETTING,
         HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
         JOB_ISOLATION_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
@@ -86,7 +87,8 @@ use windmill_common::{
         load_env_vars, load_init_bash_from_env, load_periodic_bash_script_from_env,
         load_periodic_bash_script_interval_from_env, load_whitelist_env_vars_from_env,
         load_worker_config, reload_custom_tags_setting, store_pull_query,
-        store_suspended_pull_query, Connection, WorkerConfig, DEFAULT_TAGS_PER_WORKSPACE,
+        store_suspended_pull_query, Connection, WorkerConfig, CLOUD_HOSTED,
+        CONCURRENCY_KEY_MAX_QUEUED, CONCURRENCY_KEY_MAX_QUEUED_DEFAULT, DEFAULT_TAGS_PER_WORKSPACE,
         DEFAULT_TAGS_WORKSPACES, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX, INDEXER_CONFIG,
         PREVIEW_TAGS_OVERRIDE, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, WINDMILL_DIR, WORKER_CONFIG,
         WORKER_GROUP, WORKSPACE_FAIRNESS_DURATION_SECS, WORKSPACE_FAIRNESS_ENABLED,
@@ -108,7 +110,11 @@ use windmill_common::{
 };
 #[cfg(feature = "parquet")]
 use windmill_object_store::reload_object_store_setting;
-use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
+use windmill_queue::{
+    cancel_job, get_queued_job_v2,
+    schedule::{find_unarmed_schedules, rearm_schedule, RearmOutcome},
+    SameWorkerPayload,
+};
 use windmill_worker::{
     result_processor::handle_job_error, JobCompletedSender, JobIsolationLevel,
     OtelTracingProxySettings, SameWorkerSender, WorkspaceRegistryMap, BUNFIG_INSTALL_SCOPES,
@@ -286,6 +292,13 @@ pub async fn initial_load(
         }
         if let Err(e) = load_workspace_fairness_enabled(db).await {
             tracing::error!("Error loading workspace fairness enabled: {e:#}");
+        }
+
+        // Only the cloud reads this cap, so don't spend a query loading it anywhere else.
+        if *CLOUD_HOSTED {
+            if let Err(e) = load_concurrency_key_max_queued(db).await {
+                tracing::error!("Error loading concurrency key max queued: {e:#}");
+            }
         }
     }
 
@@ -606,6 +619,10 @@ const WORKSPACE_FAIRNESS_MAX_PERCENT_DEFAULT: u32 = 50;
 const WORKSPACE_FAIRNESS_DURATION_SECS_DEFAULT: u32 = 10;
 const WORKSPACE_FAIRNESS_MIN_TOTAL_DEFAULT: u32 = 4;
 
+/// The cap is used as a SQL `LIMIT`, so it must survive the `u32 -> i64` widening without
+/// becoming absurd; `u32::MAX` is already far beyond any queue depth worth allowing.
+const CONCURRENCY_KEY_MAX_QUEUED_MAX: u64 = u32::MAX as u64;
+
 pub async fn load_workspace_fairness_enabled(db: &DB) -> error::Result<()> {
     // Match the convention used by `load_preview_tags_override` /
     // `load_fork_workspace_tag_append_fork_suffix`: on transient DB errors, leave the in-memory
@@ -688,6 +705,39 @@ pub async fn load_workspace_fairness_min_total(db: &DB) -> error::Result<()> {
         _ => {
             WORKSPACE_FAIRNESS_MIN_TOTAL
                 .store(WORKSPACE_FAIRNESS_MIN_TOTAL_DEFAULT, Ordering::Relaxed);
+        }
+    }
+    Ok(())
+}
+
+pub async fn load_concurrency_key_max_queued(db: &DB) -> error::Result<()> {
+    // See `load_workspace_fairness_max_percent` for the Err / None / invalid policy.
+    match load_value_from_global_settings(db, CONCURRENCY_KEY_MAX_QUEUED_SETTING).await? {
+        Some(serde_json::Value::Number(n)) => {
+            // `0` is a meaningful value here (disable the cap), so unlike the fairness knobs
+            // the lower bound is 0 rather than 1.
+            let v = n
+                .as_u64()
+                .map(|u| u.min(CONCURRENCY_KEY_MAX_QUEUED_MAX) as u32)
+                .unwrap_or_else(|| {
+                    // Warn rather than silently defaulting: `-1` and `"0"` are plausible
+                    // attempts to disable the cap, and both would otherwise land on 10000.
+                    tracing::warn!(
+                        "{CONCURRENCY_KEY_MAX_QUEUED_SETTING}={n} is not a non-negative integer, \
+                         falling back to {CONCURRENCY_KEY_MAX_QUEUED_DEFAULT}. Set 0 to disable."
+                    );
+                    CONCURRENCY_KEY_MAX_QUEUED_DEFAULT
+                });
+            CONCURRENCY_KEY_MAX_QUEUED.store(v, Ordering::Relaxed);
+        }
+        other => {
+            if let Some(v) = other {
+                tracing::warn!(
+                    "{CONCURRENCY_KEY_MAX_QUEUED_SETTING}={v} is not a number, falling back to \
+                     {CONCURRENCY_KEY_MAX_QUEUED_DEFAULT}. Set 0 to disable."
+                );
+            }
+            CONCURRENCY_KEY_MAX_QUEUED.store(CONCURRENCY_KEY_MAX_QUEUED_DEFAULT, Ordering::Relaxed);
         }
     }
     Ok(())
@@ -1061,12 +1111,16 @@ pub async fn reload_otel_tracing_proxy_setting(conn: &Connection) {
                 if current.enabled != new_settings.enabled
                     || current.enabled_languages != new_settings.enabled_languages
                     || current.no_proxy_hosts != new_settings.no_proxy_hosts
+                    || current.insecure_upstream_hosts != new_settings.insecure_upstream_hosts
+                    || current.upstream_ca_certs != new_settings.upstream_ca_certs
                 {
                     tracing::info!(
-                        "OTEL tracing proxy settings changed: enabled={}, languages={:?}, no_proxy_hosts={:?}",
+                        "OTEL tracing proxy settings changed: enabled={}, languages={:?}, no_proxy_hosts={:?}, insecure_upstream_hosts={:?}, upstream_ca_certs={}",
                         new_settings.enabled,
                         new_settings.enabled_languages,
                         new_settings.no_proxy_hosts,
+                        new_settings.insecure_upstream_hosts,
+                        if new_settings.upstream_ca_certs.as_deref().unwrap_or("").trim().is_empty() { "unset" } else { "set" },
                     );
                     *current = new_settings;
                 }
@@ -3282,6 +3336,26 @@ pub async fn monitor_db(
         }
     };
 
+    // run every 30 iterations (~5min at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
+    let reconcile_unarmed_schedules_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(30) {
+            if let Some(db) = conn.as_sql() {
+                reconcile_unarmed_schedules(&db).await;
+            }
+        }
+    };
+
+    // Poll git-sync repositories for new commits and pull them into the
+    // workspace (repo → Windmill auto-pull). Runs every 2 iterations.
+    let git_auto_pull_f = async {
+        #[cfg(feature = "private")]
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(2) {
+            if let Some(db) = conn.as_sql() {
+                poll_git_auto_pull(db).await;
+            }
+        }
+    };
+
     // run every 2 iterations (~20s at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
     // Enterprise feature: the active `// freshness` backstop lives in
     // windmill-queue's `freshness_watchdog` (`private`); OSS gets a no-op stub.
@@ -3332,8 +3406,565 @@ pub async fn monitor_db(
         manage_audit_partitions_f,
         export_audit_logs_to_object_store_f,
         cleanup_scheduled_job_deletions_f,
+        git_auto_pull_f,
         pipeline_freshness_watchdog_f,
+        reconcile_unarmed_schedules_f,
     );
+}
+
+/// Advisory lock id ensuring only one server replica reconciles schedules at a
+/// time (adjacent to GIT_AUTO_PULL_LOCK_ID).
+const SCHEDULE_RECONCILE_LOCK_ID: i64 = 737_483_922;
+
+/// Consecutive reconciliation passes an enabled schedule must be observed with no
+/// queued occurrence before it is re-armed. The next occurrence is pushed in the
+/// same transaction that completes the previous one (or, for flows, on entry to
+/// step 0), so an unarmed schedule is normally only ever a mid-flight push or a
+/// push being retried. Requiring two passes keeps the reconciler from racing
+/// those and double-pushing an occurrence.
+const SCHEDULE_RECONCILE_STRIKES: u8 = 2;
+
+/// Most schedules re-armed in one pass, so a large first-pass backlog is drained
+/// over several passes instead of enqueuing every occurrence at once.
+const SCHEDULE_RECONCILE_MAX_PER_PASS: usize = 50;
+
+/// Consecutive failed re-arm attempts after which a schedule's persistent failure
+/// is surfaced once (its `error` recorded + a critical alert). Most re-arm
+/// failures are a transient blip that clears on the next attempt; a schedule that
+/// keeps failing has a real cause (bad stored cron/timezone/args, lapsed license)
+/// and would otherwise be enabled-yet-silently-dead.
+const SCHEDULE_REARM_ALERT_THRESHOLD: u32 = 3;
+
+/// Cap on the exponential back-off (in reconcile passes) between re-arm retries of
+/// a schedule that keeps failing. Without a back-off a permanently-failing push
+/// retries every pass forever; the delay grows 2, 4, 8 and holds at this cap, and
+/// resets the moment the schedule re-arms. Kept small so a schedule fixed out of
+/// band (the UI/API re-arms immediately) still auto-recovers within a few passes.
+const SCHEDULE_REARM_MAX_BACKOFF_PASSES: u32 = 8;
+
+/// State for a schedule that keeps failing to re-arm: paces retries and drives the
+/// one-time visibility so the loop is neither hot nor silent.
+#[derive(Default)]
+struct RearmFailureState {
+    consecutive_failures: u32,
+    /// Reconcile passes still to skip before the next attempt (exponential back-off).
+    cooldown_passes: u32,
+    /// Whether the persistent failure has already been surfaced.
+    surfaced: bool,
+}
+
+lazy_static::lazy_static! {
+    /// `(workspace_id, path)` -> consecutive passes seen with no queued occurrence.
+    /// Bounded by the number of enabled schedules; entries drop as soon as a
+    /// schedule is seen armed again.
+    static ref UNARMED_SCHEDULES: Mutex<std::collections::HashMap<(String, String), u8>> =
+        Mutex::new(std::collections::HashMap::new());
+
+    /// `(workspace_id, path)` -> back-off/visibility state for schedules that keep
+    /// failing to re-arm. Entries drop as soon as a schedule re-arms or is no
+    /// longer unarmed (armed, disabled, deleted).
+    static ref SCHEDULE_REARM_FAILURES: Mutex<std::collections::HashMap<(String, String), RearmFailureState>> =
+        Mutex::new(std::collections::HashMap::new());
+}
+
+/// Re-arm enabled schedules that have no queued occurrence.
+///
+/// Every path that completes a scheduled job is supposed to push the next
+/// occurrence atomically, but a run that dies through an abnormal path (a flow
+/// whose status update fails and is later force-completed by zombie detection,
+/// say) can skip that push and leave the schedule enabled yet dead forever. This
+/// is the backstop: without it the only recovery is a manual disable/enable.
+///
+/// Replicas each run their own passes (staggered by `rd_shift`) and each keep
+/// their own strike tally, so the scan cost is per-replica. That is deliberate:
+/// scanning inside the advisory lock is what makes a double-push impossible —
+/// whoever holds it re-reads the unarmed set, so a schedule another replica just
+/// re-armed is seen armed and its tally dropped, rather than pushed twice.
+///
+/// Not an authorization boundary: it re-arms schedules across every workspace, so
+/// this is a system caller (the monitor loop) only.
+async fn reconcile_unarmed_schedules(db: &Pool<Postgres>) {
+    // Transaction-scoped advisory lock, not session-scoped: monitor_db runs under a
+    // 600s timeout, and if it fires the whole future is dropped mid-pass. A session
+    // lock taken on a pooled connection would then ride that connection back into the
+    // pool still held, wedging reconciliation on every replica until the process
+    // restarts. An xact lock is released when its transaction ends — including the
+    // rollback a dropped `Transaction` performs — so cancellation can't strand it.
+    // The tx is held open only to own the lock; the scan and re-arm run on separate
+    // pool connections.
+    let mut lock_tx = match db.begin().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            tracing::error!("schedule reconcile: failed to begin lock tx: {e:#}");
+            return;
+        }
+    };
+    let locked: bool = match sqlx::query_scalar("SELECT pg_try_advisory_xact_lock($1)")
+        .bind(SCHEDULE_RECONCILE_LOCK_ID)
+        .fetch_one(&mut *lock_tx)
+        .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("schedule reconcile: advisory lock failed: {e:#}");
+            return;
+        }
+    };
+    if !locked {
+        // Another replica is already reconciling this tick.
+        return;
+    }
+
+    if let Err(e) = reconcile_unarmed_schedules_inner(db).await {
+        tracing::error!("schedule reconcile: {e:#}");
+    }
+
+    // Ends the transaction and releases the xact lock; a plain drop would too.
+    if let Err(e) = lock_tx.rollback().await {
+        tracing::error!("schedule reconcile: releasing lock failed: {e:#}");
+    }
+}
+
+/// Record this pass's unarmed schedules against `seen` and return those that have
+/// now struck out. An armed observation drops the schedule's tally entirely, so
+/// the strikes a re-arm rests on are always consecutive.
+fn strike_unarmed(
+    seen: &mut std::collections::HashMap<(String, String), u8>,
+    current: std::collections::HashSet<(String, String)>,
+) -> Vec<(String, String)> {
+    seen.retain(|k, _| current.contains(k));
+    current
+        .into_iter()
+        .filter(|k| {
+            let strikes = seen.entry(k.clone()).or_insert(0);
+            *strikes = strikes.saturating_add(1);
+            *strikes >= SCHEDULE_RECONCILE_STRIKES
+        })
+        .collect()
+}
+
+async fn reconcile_unarmed_schedules_inner(db: &Pool<Postgres>) -> error::Result<()> {
+    let current: std::collections::HashSet<(String, String)> =
+        find_unarmed_schedules(db).await?.into_iter().collect();
+    let mut to_rearm = strike_unarmed(&mut UNARMED_SCHEDULES.lock().unwrap(), current.clone());
+
+    // Back off schedules that keep failing to re-arm (bad stored cron/timezone/args,
+    // lapsed license): skip those still cooling down, and forget state for any that
+    // are no longer unarmed. Without this a permanently-failing push is retried
+    // every pass forever.
+    {
+        let mut failures = SCHEDULE_REARM_FAILURES.lock().unwrap();
+        failures.retain(|k, _| current.contains(k));
+        to_rearm.retain(|k| match failures.get_mut(k) {
+            Some(state) if state.cooldown_passes > 0 => {
+                state.cooldown_passes -= 1;
+                false
+            }
+            _ => true,
+        });
+    }
+
+    // The first pass on an instance that has never been swept can find a large
+    // backlog; re-arming it all at once would enqueue that whole backlog in one
+    // go. The overflow keeps its tally and is picked up next pass.
+    if to_rearm.len() > SCHEDULE_RECONCILE_MAX_PER_PASS {
+        tracing::warn!(
+            "schedule reconcile: {} schedules have no queued occurrence, re-arming {} this pass and the rest on later passes",
+            to_rearm.len(),
+            SCHEDULE_RECONCILE_MAX_PER_PASS
+        );
+        to_rearm.truncate(SCHEDULE_RECONCILE_MAX_PER_PASS);
+    }
+
+    for (w_id, path) in to_rearm {
+        match rearm_schedule(db, &w_id, &path).await {
+            Ok(outcome) => {
+                if outcome == RearmOutcome::Rearmed {
+                    tracing::warn!(
+                        "schedule reconcile: re-armed enabled schedule {path} in {w_id}, which had no queued occurrence"
+                    );
+                }
+                UNARMED_SCHEDULES
+                    .lock()
+                    .unwrap()
+                    .remove(&(w_id.clone(), path.clone()));
+                // Clear the error we recorded once it re-arms, so a recovered
+                // schedule stops showing a stale failure.
+                let was_surfaced = SCHEDULE_REARM_FAILURES
+                    .lock()
+                    .unwrap()
+                    .remove(&(w_id.clone(), path.clone()))
+                    .is_some_and(|s| s.surfaced);
+                if was_surfaced {
+                    if let Err(e) = sqlx::query!(
+                        "UPDATE schedule SET error = NULL WHERE workspace_id = $1 AND path = $2 AND enabled IS TRUE",
+                        w_id,
+                        path
+                    )
+                    .execute(db)
+                    .await
+                    {
+                        tracing::error!(
+                            "schedule reconcile: could not clear error for {path} in {w_id}: {e:#}"
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!(
+                    "schedule reconcile: could not re-arm schedule {path} in {w_id}: {e:#}"
+                );
+                let should_surface = {
+                    let mut failures = SCHEDULE_REARM_FAILURES.lock().unwrap();
+                    let state = failures.entry((w_id.clone(), path.clone())).or_default();
+                    state.consecutive_failures += 1;
+                    state.cooldown_passes = (1u32 << state.consecutive_failures.min(5))
+                        .min(SCHEDULE_REARM_MAX_BACKOFF_PASSES);
+                    let surface = !state.surfaced
+                        && state.consecutive_failures >= SCHEDULE_REARM_ALERT_THRESHOLD;
+                    state.surfaced |= surface;
+                    surface
+                };
+                // Surface without disabling: record the error for the owner (schedule
+                // stays enabled) and raise a critical alert. rearm_schedule never
+                // disables, so this is the only signal a persistently-broken schedule
+                // gives beyond server logs.
+                if should_surface {
+                    if let Err(err) = sqlx::query!(
+                        "UPDATE schedule SET error = $1 WHERE workspace_id = $2 AND path = $3 AND enabled IS TRUE",
+                        e.to_string(),
+                        w_id,
+                        path
+                    )
+                    .execute(db)
+                    .await
+                    {
+                        tracing::error!(
+                            "schedule reconcile: could not record error for {path} in {w_id}: {err:#}"
+                        );
+                    }
+                    report_critical_error(
+                        format!(
+                            "Schedule {path} in workspace {w_id} is enabled but has repeatedly failed to re-arm and will not run until the cause is fixed: {e:#}"
+                        ),
+                        db.clone(),
+                        Some(&w_id),
+                        None,
+                    )
+                    .await;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Advisory lock id ensuring only one server replica runs the git auto-pull
+/// poll at a time (adjacent to RESTART_LOCK_ID used for restart coordination).
+#[cfg(feature = "private")]
+const GIT_AUTO_PULL_LOCK_ID: i64 = 737_483_921;
+
+/// Poll every git-sync repository with auto-pull enabled and enqueue a pull when
+/// the tracked branch has new commits (repo → Windmill direction).
+///
+/// Runs on a single replica at a time (advisory lock) and only on
+/// Enterprise-licensed instances. Detection is `git ls-remote`; GitHub-App
+/// repositories are skipped here and sync via webhooks instead (phase 2).
+#[cfg(feature = "private")]
+pub async fn poll_git_auto_pull(db: &Pool<Postgres>) {
+    use windmill_common::ee_oss::{get_license_plan, LicensePlan};
+
+    if !matches!(get_license_plan().await, LicensePlan::Enterprise) {
+        return;
+    }
+
+    let mut lock_conn = match db.acquire().await {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("git auto-pull: failed to acquire connection: {e:#}");
+            return;
+        }
+    };
+    let locked: bool = match sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
+        .bind(GIT_AUTO_PULL_LOCK_ID)
+        .fetch_one(&mut *lock_conn)
+        .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("git auto-pull: advisory lock failed: {e:#}");
+            return;
+        }
+    };
+    if !locked {
+        // Another replica is already polling this tick.
+        return;
+    }
+
+    if let Err(e) = poll_git_auto_pull_inner(db).await {
+        tracing::error!("git auto-pull: poll error: {e:#}");
+    }
+
+    if let Err(e) = sqlx::query("SELECT pg_advisory_unlock($1)")
+        .bind(GIT_AUTO_PULL_LOCK_ID)
+        .execute(&mut *lock_conn)
+        .await
+    {
+        tracing::error!("git auto-pull: advisory unlock failed: {e:#}");
+    }
+}
+
+#[cfg(feature = "private")]
+lazy_static::lazy_static! {
+    /// Last auto-pull poll time (unix secs) per `workspace|repo_path`, so each repo
+    /// is only probed once per its effective interval instead of every ~60s tick.
+    /// Bounded by the number of auto-pull repos; stale entries for removed repos are
+    /// harmless.
+    static ref AUTO_PULL_LAST_POLL: std::sync::Mutex<std::collections::HashMap<String, i64>> =
+        std::sync::Mutex::new(std::collections::HashMap::new());
+}
+
+/// Slack (seconds) subtracted from the effective interval so a repo whose interval
+/// equals the ~60s tick isn't skipped by tick jitter.
+#[cfg(feature = "private")]
+const AUTO_PULL_POLL_SLACK_S: i64 = 30;
+
+#[cfg(feature = "private")]
+async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
+    use windmill_common::workspaces::{AutoPullMode, WorkspaceGitSyncSettings};
+
+    // Join `workspace` and skip deleted/archived ones: their `workspace_settings`
+    // rows persist (archive is a soft delete, and change_workspace_id leaves the old
+    // id as an archived shell), so an auto-pull repo would otherwise keep polling and
+    // deploying into a dead workspace.
+    let rows = sqlx::query!(
+        r#"SELECT ws.workspace_id, ws.git_sync
+           FROM workspace_settings ws
+           JOIN workspace w ON w.id = ws.workspace_id
+           WHERE NOT w.deleted
+             AND ws.git_sync IS NOT NULL
+             AND ws.git_sync->'repositories' @> '[{"auto_pull": {"enabled": true}}]'::jsonb"#
+    )
+    .fetch_all(db)
+    .await?;
+
+    for row in rows {
+        let Some(git_sync) = row.git_sync else {
+            continue;
+        };
+        let settings: WorkspaceGitSyncSettings = match serde_json::from_value(git_sync) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(
+                    "git auto-pull: invalid git_sync settings for workspace {}: {e}",
+                    row.workspace_id
+                );
+                continue;
+            }
+        };
+
+        for repo in &settings.repositories {
+            let Some(auto_pull) = &repo.auto_pull else {
+                continue;
+            };
+            if !auto_pull.enabled || auto_pull.mode == AutoPullMode::Webhook {
+                continue;
+            }
+
+            // Honor the repo's effective poll interval (relaxed to ~10 min when a
+            // webhook is live) instead of probing every ~60s tick.
+            let interval_s = auto_pull.effective_poll_interval_s() as i64;
+            let poll_key = format!("{}|{}", row.workspace_id, repo.git_repo_resource_path);
+            let now = chrono::Utc::now().timestamp();
+            {
+                let mut last = AUTO_PULL_LAST_POLL.lock().unwrap();
+                if let Some(&t) = last.get(&poll_key) {
+                    if now - t < interval_s - AUTO_PULL_POLL_SLACK_S {
+                        continue;
+                    }
+                }
+                last.insert(poll_key, now);
+            }
+
+            let head = match windmill_store::resources::get_git_repo_head_for_autopull(
+                db,
+                &row.workspace_id,
+                &repo.git_repo_resource_path,
+            )
+            .await
+            {
+                Ok(Some(h)) => Ok(Some(h)),
+                // App-backed repos store a tokenless URL, so the ls-remote head
+                // check can't authenticate and returns None. Poll the head over
+                // the GitHub API with a minted installation token instead. This
+                // is the polling fallback/safety-net for auto- and polling-mode
+                // app repos whose webhook isn't live (unreachable instance,
+                // missing permission, or a dropped delivery). `webhook`-mode
+                // repos are skipped above and stay webhook-only.
+                Ok(None) => {
+                    #[cfg(feature = "enterprise")]
+                    {
+                        windmill_common::git_sync_ee::get_app_repo_head_for_autopull(
+                            db,
+                            &row.workspace_id,
+                            &repo.git_repo_resource_path,
+                        )
+                        .await
+                    }
+                    #[cfg(not(feature = "enterprise"))]
+                    {
+                        Ok(None)
+                    }
+                }
+                Err(e) => Err(e),
+            };
+
+            match head {
+                Ok(Some((git_ref, sha))) => {
+                    // Shared reconcile (also used by the webhook receiver):
+                    // checks should_pull, enqueues, and records status/failure.
+                    if let Err(e) = windmill_git_sync::reconcile_and_enqueue_pull(
+                        db,
+                        &row.workspace_id,
+                        repo,
+                        &git_ref,
+                        &sha,
+                        None,
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            "git auto-pull: reconcile failed for {}/{}: {e:#}",
+                            row.workspace_id,
+                            repo.git_repo_resource_path
+                        );
+                    }
+
+                    // Parent-managed fork sync: list the fork branches' heads in
+                    // the same poll tick (one extra ls-remote / API call) and
+                    // route each into its fork workspace. Needs the concrete
+                    // tracked branch name to scope `wm-fork/<branch>/*`; a
+                    // branch-less resource resolves its default branch via
+                    // `ls-remote --symref`, so "HEAD" only remains when that
+                    // resolution failed.
+                    if auto_pull.sync_forks && git_ref != "HEAD" {
+                        poll_git_fork_branches(
+                            db,
+                            &row.workspace_id,
+                            &repo.git_repo_resource_path,
+                            &git_ref,
+                        )
+                        .await;
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    windmill_git_sync::record_auto_pull_failure(
+                        db,
+                        &row.workspace_id,
+                        &repo.git_repo_resource_path,
+                        &auto_pull.last_synced_sha,
+                        format!("head check failed: {e}"),
+                    )
+                    .await;
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Poll-side half of parent-managed fork sync (`sync_forks`): list every
+/// `wm-fork/<base_branch>/*` head of the parent's repo and reconcile each into
+/// its fork workspace. Failures are logged, not recorded in the parent's pull
+/// status — the parent's own sync state is unaffected by a fork's.
+#[cfg(feature = "private")]
+async fn poll_git_fork_branches(
+    db: &Pool<Postgres>,
+    parent_w_id: &str,
+    repo_path: &str,
+    base_branch: &str,
+) {
+    // Dev-workspace children sync with their environment-label branch (`dev`/
+    // `staging`) rather than the `wm-fork/**` pattern, so their branches must be
+    // listed explicitly. A label equal to the tracked branch is excluded — the
+    // parent's own head check covers it.
+    let label_refs: Vec<String> = match sqlx::query_scalar!(
+        r#"SELECT DISTINCT COALESCE(dev_workspace_label, 'dev') as "label!"
+           FROM workspace
+           WHERE parent_workspace_id = $1 AND is_dev_workspace AND NOT deleted"#,
+        parent_w_id
+    )
+    .fetch_all(db)
+    .await
+    {
+        Ok(labels) => labels.into_iter().filter(|l| l != base_branch).collect(),
+        Err(e) => {
+            tracing::warn!(
+                "git fork sync: failed to list dev-workspace labels for {parent_w_id}: {e:#}"
+            );
+            Vec::new()
+        }
+    };
+
+    let fork_heads = match windmill_store::resources::get_git_repo_fork_heads_for_autopull(
+        db,
+        parent_w_id,
+        repo_path,
+        base_branch,
+        &label_refs,
+    )
+    .await
+    {
+        Ok(Some(heads)) => Ok(heads),
+        // App-backed repos list fork refs over the GitHub API, mirroring the
+        // parent head check's fallback.
+        Ok(None) => {
+            #[cfg(feature = "enterprise")]
+            {
+                windmill_common::git_sync_ee::get_app_repo_fork_heads_for_autopull(
+                    db,
+                    parent_w_id,
+                    repo_path,
+                    base_branch,
+                    &label_refs,
+                )
+                .await
+                .map(|heads| heads.unwrap_or_default())
+            }
+            #[cfg(not(feature = "enterprise"))]
+            {
+                Ok(Vec::new())
+            }
+        }
+        Err(e) => Err(e),
+    };
+    match fork_heads {
+        Ok(heads) => {
+            for (branch, sha) in heads {
+                if let Err(e) = windmill_git_sync::reconcile_fork_branch_pull(
+                    db,
+                    parent_w_id,
+                    repo_path,
+                    &branch,
+                    base_branch,
+                    &sha,
+                )
+                .await
+                {
+                    tracing::warn!(
+                        "git fork sync: reconcile failed for {parent_w_id}/{repo_path} branch {branch}: {e:#}"
+                    );
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!(
+                "git fork sync: fork branch listing failed for {parent_w_id}/{repo_path}: {e:#}"
+            );
+        }
+    }
 }
 
 async fn vacuuming_tables(db: &Pool<Postgres>) -> error::Result<()> {
@@ -5064,5 +5695,48 @@ mod retention_overrides_tests {
             .map(|i| (format!("ws_{i}"), json!(3600)))
             .collect();
         assert!(parse_retention_overrides(over_cap).is_err());
+    }
+}
+
+#[cfg(test)]
+mod strike_unarmed_tests {
+    use super::strike_unarmed;
+    use std::collections::{HashMap, HashSet};
+
+    fn key(path: &str) -> (String, String) {
+        ("ws".to_string(), path.to_string())
+    }
+
+    fn set(paths: &[&str]) -> HashSet<(String, String)> {
+        paths.iter().map(|p| key(p)).collect()
+    }
+
+    /// The strike threshold is the only thing keeping the reconciler from racing
+    /// an in-flight push: `push_scheduled_job`'s own `already_exists` guard keys
+    /// on the same columns as the scan, so it is false by construction whenever a
+    /// schedule is found unarmed.
+    #[test]
+    fn rearms_only_after_consecutive_unarmed_passes() {
+        let mut seen = HashMap::new();
+        assert!(strike_unarmed(&mut seen, set(&["a"])).is_empty());
+        assert_eq!(strike_unarmed(&mut seen, set(&["a"])), vec![key("a")]);
+    }
+
+    #[test]
+    fn armed_observation_resets_the_tally() {
+        let mut seen = HashMap::new();
+        assert!(strike_unarmed(&mut seen, set(&["a"])).is_empty());
+        // `a` is armed again on this pass, so its strike must not carry over.
+        assert!(strike_unarmed(&mut seen, set(&[])).is_empty());
+        assert!(strike_unarmed(&mut seen, set(&["a"])).is_empty());
+        assert_eq!(strike_unarmed(&mut seen, set(&["a"])), vec![key("a")]);
+    }
+
+    #[test]
+    fn tallies_are_per_schedule() {
+        let mut seen = HashMap::new();
+        assert!(strike_unarmed(&mut seen, set(&["a"])).is_empty());
+        assert_eq!(strike_unarmed(&mut seen, set(&["a", "b"])), vec![key("a")]);
+        assert_eq!(strike_unarmed(&mut seen, set(&["b"])), vec![key("b")]);
     }
 }

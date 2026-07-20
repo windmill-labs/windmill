@@ -14,7 +14,8 @@ vi.mock('../reasoningRegistry', () => ({
 }))
 
 vi.mock('./shared', () => ({
-	processToolCall: vi.fn()
+	processToolCall: vi.fn(),
+	appendPendingToolImages: vi.fn()
 }))
 
 describe('convertOpenAIToAnthropicMessages', () => {
@@ -137,6 +138,42 @@ describe('convertOpenAIToAnthropicMessages', () => {
 		expect(content.map((b) => b.type)).toEqual(['thinking', 'tool_use'])
 		expect(content[0]).toEqual(thinkingBlocks[0])
 		expect(content[1]).toMatchObject({ type: 'tool_use', id: 'tool_old', name: 'list_resources' })
+	})
+
+	it('converts a user message with an image_url part to an Anthropic base64 image block', () => {
+		const messages: ChatCompletionMessageParam[] = [
+			{
+				role: 'user',
+				content: [
+					{ type: 'text', text: 'what is this?' },
+					{ type: 'image_url', image_url: { url: 'data:image/png;base64,AAAABBBB' } }
+				]
+			} as any
+		]
+
+		const { messages: out } = convertOpenAIToAnthropicMessages(messages)
+
+		expect(out).toHaveLength(1)
+		expect(out[0].role).toBe('user')
+		const content = out[0].content as any[]
+		expect(content[0]).toMatchObject({ type: 'text', text: 'what is this?' })
+		expect(content[1]).toMatchObject({
+			type: 'image',
+			source: { type: 'base64', media_type: 'image/png', data: 'AAAABBBB' }
+		})
+		// The trailing block is the image — the ephemeral cache breakpoint may land on it
+		// (cache_control is valid on image blocks).
+		expect(content[1].cache_control).toEqual({ type: 'ephemeral' })
+	})
+
+	it('keeps a plain string user message unchanged (no array wrapping)', () => {
+		// Non-trailing so the last-block cache_control wrapping doesn't obscure it.
+		const messages: ChatCompletionMessageParam[] = [
+			{ role: 'user', content: 'just text' },
+			{ role: 'assistant', content: 'ok' }
+		]
+		const { messages: out } = convertOpenAIToAnthropicMessages(messages)
+		expect(out[0].content).toBe('just text')
 	})
 
 	it('caches a trailing tool result even when the prior turn used no captured content', () => {
