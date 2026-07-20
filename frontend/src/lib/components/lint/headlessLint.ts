@@ -1,4 +1,4 @@
-import { editor as meditor, MarkerSeverity, Uri } from 'monaco-editor'
+import { editor as meditor, Uri } from 'monaco-editor'
 import {
 	getJavaScriptWorker,
 	getTypeScriptWorker
@@ -12,18 +12,24 @@ import {
 	TS_DIAGNOSTIC_CODES_TO_IGNORE
 } from '../monacoLanguagesOptions'
 import { computeModelPath, computeModelUri } from './monacoUri'
+import { readModelMarkers } from './markers'
 import { ensureCustomWmillTypes, ensureResourceTypeNamespace } from './typescriptExtraLibs'
 import { createWindmillAta, genAtaRoot } from './typescriptAta'
+import { lintWithLsp } from './headlessLsp'
 
 // Lints code without a mounted editor, by driving the same Monaco model + global
 // typescriptDefaults an editor would. Diagnostics belong to the model, not the editor,
 // so results match what opening the editor on the same item would show — provided the
 // URI and the extra libs are derived through the shared helpers in this directory.
 
-const HEADLESS_LINT_LANGS = ['bun', 'bunnative', 'nativets', 'tsx', 'javascript', 'jsx']
+// Languages Monaco's bundled TypeScript worker analyses in-browser.
+const TS_WORKER_LANGS = ['bun', 'bunnative', 'nativets', 'tsx', 'javascript', 'jsx']
+// Languages analysed by a language server over a websocket.
+const LSP_LANGS = ['python3', 'go', 'deno', 'bash']
 
 export function canLintHeadless(scriptLang: string | undefined): boolean {
-	return HEADLESS_LINT_LANGS.includes(scriptLang ?? '')
+	const lang = scriptLang ?? ''
+	return TS_WORKER_LANGS.includes(lang) || LSP_LANGS.includes(lang)
 }
 
 export interface HeadlessLintRequest {
@@ -37,13 +43,8 @@ export interface HeadlessLintRequest {
 export interface HeadlessLintOutcome extends ScriptLintResult {
 	/** An editor already owns this model and its content differs from what was requested. */
 	contentMismatch: boolean
-}
-
-export function readModelMarkers(uri: Uri): ScriptLintResult {
-	const markers = meditor.getModelMarkers({ resource: uri })
-	const errors = markers.filter((m) => m.severity === MarkerSeverity.Error)
-	const warnings = markers.filter((m) => m.severity === MarkerSeverity.Warning)
-	return { errorCount: errors.length, warningCount: warnings.length, errors, warnings }
+	/** Language servers that could not be reached, so their diagnostics are missing. */
+	unavailableServers?: string[]
 }
 
 // Models we created ourselves, oldest first. An editor may later adopt one by URI, so
@@ -74,6 +75,21 @@ export async function lintCode(
 		throw new Error(`Headless linting is not supported for language ${req.scriptLang}`)
 	}
 	const editorLang = scriptLangToEditorLang(req.scriptLang as any)
+
+	if (LSP_LANGS.includes(req.scriptLang)) {
+		// Language servers analyse one document at a time and the editor gives these
+		// languages randomized paths, so there is no shared model to serialize on.
+		const result = await lintWithLsp({
+			content: req.content,
+			scriptLang: req.scriptLang,
+			editorLang,
+			workspace: req.workspace,
+			path: req.path,
+			timeoutMs: opts?.timeoutMs
+		})
+		return { ...result, contentMismatch: false }
+	}
+
 	const uriString = computeModelUri(
 		computeModelPath(req.path, req.scriptLang),
 		req.scriptLang,

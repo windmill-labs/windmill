@@ -935,7 +935,7 @@ Rules:
 - Use search_resource_types before write_resource.
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
 - A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.
-- After writing or editing TypeScript or JavaScript code — a script, an inline flow module, or a raw app backend runnable — call get_lint_errors on it and fix what it reports before moving on. It type-checks the draft without opening an editor, so it catches what the editor would flag. It does not support other languages.
+- After writing or editing code — a script, an inline flow module, or a raw app backend runnable — call get_lint_errors on it and fix what it reports before moving on. It checks the draft without opening an editor, so it catches what the editor would flag. It covers TypeScript, JavaScript, Python, Go, Deno and Bash; for other languages it says so and you should test-run instead.
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
@@ -2747,7 +2747,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			getLintErrorsSchema,
 			'get_lint_errors',
-			'Type-check a script, flow module, or raw app backend runnable and report its errors and warnings. TypeScript and JavaScript only.'
+			'Type-check a script, flow module, or raw app backend runnable and report its errors and warnings. Supports TypeScript, JavaScript, Python, Go, Deno and Bash.'
 		),
 		fn: async (ctx) => {
 			const parsed = getLintErrorsSchema.parse(ctx.args)
@@ -3811,7 +3811,7 @@ async function getLintErrors(args: LintTargetArgs, ctx: WriteDraftCtx): Promise<
 		toolCallbacks.setToolStatus(toolId, {
 			content: `Lint unavailable for ${target.language}`
 		})
-		return `Linting ${target.language} is not supported yet in this mode (TypeScript and JavaScript only for now). Do not retry; verify the code by test-running it instead.`
+		return `Linting ${target.language} is not supported. Do not retry; verify the code by test-running it instead.`
 	}
 
 	toolCallbacks.setToolStatus(toolId, { content: `Linting ${target.label}...` })
@@ -3831,6 +3831,9 @@ async function getLintErrors(args: LintTargetArgs, ctx: WriteDraftCtx): Promise<
 	toolCallbacks.setToolStatus(toolId, { content: `Linted ${target.label}: ${summary}` })
 
 	let response = formatScriptLintResult(result)
+	if (result.unavailableServers?.length) {
+		response += `\n\nNote: the ${result.unavailableServers.join(' and ')} language server${result.unavailableServers.length > 1 ? 's were' : ' was'} unavailable, so some problems may not be listed. This usually means an editor is already open on a ${target.language} item.`
+	}
 	if (result.contentMismatch) {
 		response += `\n\nNote: an editor is currently open on this code and its buffer differs from the draft. The results above are for what that editor shows.`
 	}

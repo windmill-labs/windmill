@@ -106,7 +106,7 @@
 		fetchCustomWmillTypesData
 	} from './lint/typescriptExtraLibs'
 	import { createWindmillAta, genAtaRoot } from './lint/typescriptAta'
-	import { readModelMarkers } from './lint/headlessLint'
+	import { readModelMarkers } from './lint/markers'
 	import { buildDenoImportMap, lspServersFor } from './lint/lspLanguageConfig'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { Selection } from 'monaco-editor'
