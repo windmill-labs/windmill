@@ -3,7 +3,11 @@
 	import ContextElementBadge from './ContextElementBadge.svelte'
 	import ContextTextarea from './ContextTextarea.svelte'
 	import autosize from '$lib/autosize'
-	import type { AppDomSelectorElement, ContextElement } from './context'
+	import {
+		createAttachedFileContextElement,
+		type AppDomSelectorElement,
+		type ContextElement
+	} from './context'
 	import { AIMode } from './AIChatManager.svelte'
 	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
 	import { formatMention } from './mention'
@@ -11,7 +15,7 @@
 	import { tick, untrack, type Snippet } from 'svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
-	import { ArrowUp, FileText, Loader2, Square, X } from 'lucide-svelte'
+	import { ArrowUp, Loader2, Square, X } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import { type PasteAttachment } from './pasteTokens'
@@ -28,6 +32,7 @@
 	import {
 		fileToAttachedTextFile,
 		MAX_ATTACHED_FILES,
+		MAX_CONVERSATION_FILE_BYTES,
 		MAX_TEXT_FILE_BYTES,
 		type AttachedTextFile
 	} from './textFileUtils'
@@ -249,13 +254,36 @@
 		}
 		const usable = candidates.filter((f) => f.size <= MAX_TEXT_FILE_BYTES)
 		if (usable.length === 0) return
-		const batch = usable.slice(0, remaining)
+		let batch = usable.slice(0, remaining)
 		if (batch.length < usable.length) {
 			sendUserToast(
 				`You can attach up to ${MAX_ATTACHED_FILES} files; ${usable.length - batch.length} were skipped.`,
 				true
 			)
 		}
+		// Conversation-level byte budget: transcript + queue + what's already in
+		// the composer. File content is persisted with every history save, so an
+		// unbounded total would grow the chat record without limit.
+		let budget =
+			MAX_CONVERSATION_FILE_BYTES -
+			aiChatManager.messageFileBytes -
+			files.reduce((sum, f) => sum + f.content.length, 0)
+		const withinBudget: File[] = []
+		for (const f of batch) {
+			if (f.size <= budget) {
+				withinBudget.push(f)
+				budget -= f.size
+			}
+		}
+		if (withinBudget.length < batch.length) {
+			const mb = Math.round(MAX_CONVERSATION_FILE_BYTES / 1_000_000)
+			sendUserToast(
+				`${batch.length - withinBudget.length} file(s) skipped — this conversation reached its ${mb}MB attachment budget. Link a folder to read larger sets on demand.`,
+				true
+			)
+		}
+		batch = withinBudget
+		if (batch.length === 0) return
 		pendingFiles += batch.length
 		try {
 			const added: AttachedTextFile[] = []
@@ -883,25 +911,15 @@
 				</div>
 			{/each}
 			{#each files as file, i (i)}
-				<div
-					class="relative group flex flex-row items-center gap-1 h-8 max-w-44 px-2 rounded border border-border-light bg-surface-secondary"
-					title={file.name}
-				>
-					<FileText size={12} class="shrink-0 text-tertiary" />
-					<span class="text-xs text-primary truncate">{file.name}</span>
-					<button
-						type="button"
-						title="Remove file"
-						class="absolute -top-1.5 -right-1.5 bg-surface-secondary border border-border-light rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-						onclick={() => removeFile(i)}
-					>
-						<X size={10} />
-					</button>
-				</div>
+				<ContextElementBadge
+					contextElement={createAttachedFileContextElement(file.name, file.content)}
+					deletable
+					onDelete={() => removeFile(i)}
+				/>
 			{/each}
 			{#each { length: pendingFiles } as _, i (i)}
 				<div
-					class="h-8 w-24 rounded border border-border-light bg-surface-secondary flex items-center justify-center"
+					class="h-6 w-24 rounded-md border bg-surface flex items-center justify-center"
 					title="Reading file..."
 				>
 					<Loader2 size={14} class="animate-spin text-tertiary" />

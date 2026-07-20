@@ -14,6 +14,7 @@
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import FlowModuleIcon from '$lib/components/flows/FlowModuleIcon.svelte'
 	import type { FlowModule } from '$lib/gen'
+	import { getFileIcon } from '$lib/components/icons/fileIcon'
 
 	interface Props {
 		contextElement: ContextElement
@@ -33,7 +34,8 @@
 		'app_dom_selector',
 		'workspace_app',
 		'workspace_script',
-		'workspace_flow'
+		'workspace_flow',
+		'attached_file'
 	])
 	const icon = ContextIconMap[untrack(() => contextElement).type]
 	let showDelete = $state(false)
@@ -65,6 +67,10 @@
 					<X size={iconSize} />
 				{:else if contextElement.type === 'flow_module' || contextElement.type === 'flow_module_code_piece'}
 					<FlowModuleIcon module={contextElement as FlowModule} size={iconSize} />
+				{:else if contextElement.type === 'attached_file'}
+					{@const fileIcon = getFileIcon(contextElement.title)}
+					{@const FileIconComponent = fileIcon.icon}
+					<FileIconComponent size={iconSize} class={fileIcon.className ?? ''} />
 				{:else}
 					{@const SvelteComponent = icon}
 					<SvelteComponent size={iconSize} />
@@ -160,6 +166,14 @@
 			<div class="p-2 max-w-96 text-xs overflow-auto">
 				<div class="text-tertiary mb-1">Selected preview element</div>
 				<div class="font-mono break-all">{contextElement.selector}</div>
+			</div>
+		{:else if contextElement.type === 'attached_file'}
+			<div class="p-2 max-w-96 max-h-[300px] text-xs overflow-auto">
+				<pre class="whitespace-pre-wrap break-words font-mono text-2xs"
+					>{contextElement.content.length > 5000
+						? contextElement.content.slice(0, 5000) + '\n…'
+						: contextElement.content}</pre
+				>
 			</div>
 		{/if}
 	{/snippet}

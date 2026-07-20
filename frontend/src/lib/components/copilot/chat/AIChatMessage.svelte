@@ -5,9 +5,9 @@
 	import AssistantMessage from './AssistantMessage.svelte'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { Button } from '$lib/components/common'
-	import { FileText, RefreshCwIcon, Undo2Icon } from 'lucide-svelte'
+	import { RefreshCwIcon, Undo2Icon } from 'lucide-svelte'
 	import AIChatInput from './AIChatInput.svelte'
-	import type { ContextElement } from './context'
+	import { createAttachedFileContextElement, type ContextElement } from './context'
 	import ToolExecutionDisplay from './ToolExecutionDisplay.svelte'
 	import CompactionBoundary from './CompactionBoundary.svelte'
 	import { messageDraft, segments } from './chatDraft'
@@ -24,16 +24,6 @@
 		const next = new Set(expandedPastes)
 		next.has(id) ? next.delete(id) : next.add(id)
 		expandedPastes = next
-	}
-
-	// Same, for attached-file chips (keyed by attachment index).
-	let expandedFiles = $state<Set<number>>(new Set())
-
-	function toggleFile(e: MouseEvent, index: number) {
-		e.stopPropagation() // don't trigger edit-message on the bubble
-		const next = new Set(expandedFiles)
-		next.has(index) ? next.delete(index) : next.add(index)
-		expandedFiles = next
 	}
 
 	interface Props {
@@ -131,27 +121,12 @@
 						</div>
 					{/if}
 					{#if message.role === 'user' && message.files && message.files.length > 0}
-						<div class="flex flex-col gap-1 mb-1 items-start">
-							<div class="flex flex-row flex-wrap gap-1.5">
-								{#each message.files as file, i (i)}
-									<button
-										type="button"
-										class="flex flex-row items-center gap-1 px-1.5 py-0.5 rounded border border-border-light bg-surface-secondary text-2xs text-secondary max-w-44"
-										title={expandedFiles.has(i) ? 'Click to collapse' : 'Click to expand'}
-										onclick={(e) => toggleFile(e, i)}
-									>
-										<FileText size={12} class="shrink-0" />
-										<span class="truncate">{file.name}</span>
-									</button>
-								{/each}
-							</div>
-							{#each message.files as file, i (i)}
-								{#if expandedFiles.has(i)}
-									<pre
-										class="w-full max-w-[min(32rem,100%)] max-h-60 overflow-auto text-2xs bg-surface-secondary rounded p-2 whitespace-pre-wrap break-words"
-										>{file.content}</pre
-									>
-								{/if}
+						<div class="flex flex-row flex-wrap gap-1 mb-1">
+							{#each message.files as file (file.name)}
+								<ContextElementBadge
+									contextElement={createAttachedFileContextElement(file.name, file.content)}
+									compact
+								/>
 							{/each}
 						</div>
 					{/if}
