@@ -293,14 +293,14 @@ const listWorkspaceItemsSchema = z.object({
 		.min(1)
 		.max(MAX_LIST_LIMIT)
 		.optional()
-		.describe('Maximum number of items to return. Defaults to 50 and is capped at 100.'),
+		.describe('Maximum items per item type per page. Defaults to 50 and is capped at 100.'),
 	page: z
 		.number()
 		.int()
 		.min(1)
 		.optional()
 		.describe(
-			'Page number, starting at 1. Request the next page when a listing returns a full page and the item you need is not in it. Drafts are merged into page 1 only.'
+			'Page number, starting at 1. Each item type pages independently: request the next page while any type still returns a full page. Drafts are merged into page 1 only.'
 		)
 })
 
@@ -2346,7 +2346,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			listWorkspaceItemsSchema,
 			'list_workspace_items',
-			'List workspace items and drafts, 100 per page. Returns metadata only; pass page to go past the first page.'
+			'List workspace items and drafts. Returns metadata only, up to limit items per item type per page (default 50); pass page to continue past a full page.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = listWorkspaceItemsSchema.parse(args)
@@ -2378,9 +2378,10 @@ export const globalTools: Tool<{}>[] = [
 				})
 			}
 
-			const results = Array.from(byKey.values())
-				.filter((item) => itemMatches(item, parsed.query))
-				.slice(0, limit)
+			// No cross-type truncation: each type is already capped at `limit` rows by
+			// its own list call, and slicing the concatenation would silently drop the
+			// later types' rows while their next page skips past them.
+			const results = Array.from(byKey.values()).filter((item) => itemMatches(item, parsed.query))
 
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Listed ${results.length} workspace item(s)`
