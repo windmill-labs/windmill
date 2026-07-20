@@ -2539,6 +2539,37 @@ describe('AIChatManager background job completion', () => {
 		expect(manager.pendingJobNotes).toHaveLength(1)
 		expect(manager.pendingJobNotes[0]).toContain('Background job job-1 for "run" succeeded')
 	})
+
+	it('persists on the inline terminal transition and on review', async () => {
+		const manager = new AIChatManager()
+		manager.registerJob({
+			jobId: 'job-1',
+			toolCallId: 'tc-1',
+			kind: 'script',
+			label: 'run',
+			workspace: 'ws'
+		})
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+
+		// Inline completion reports through updateJob without ever detaching; the
+		// terminal transition alone must write the tray or the job vanishes on reload.
+		manager.updateJob('job-1', { status: 'running' })
+		expect(saveChat).not.toHaveBeenCalled()
+		manager.updateJob('job-1', { status: 'success' })
+		await vi.waitFor(() => expect(saveChat).toHaveBeenCalledTimes(1))
+		expect(saveChat.mock.calls[0][4]).toEqual([
+			expect.objectContaining({ jobId: 'job-1', status: 'success' })
+		])
+
+		// Reviewing persists the flag; re-reviewing is a no-op (no extra write).
+		manager.markJobsReviewed(['job-1'])
+		await vi.waitFor(() => expect(saveChat).toHaveBeenCalledTimes(2))
+		expect(saveChat.mock.calls[1][4]).toEqual([
+			expect.objectContaining({ jobId: 'job-1', reviewed: true })
+		])
+		manager.markJobsReviewed(['job-1'])
+		expect(saveChat).toHaveBeenCalledTimes(2)
+	})
 })
 
 describe('DOM selector chips scoped by app path', () => {

@@ -899,6 +899,9 @@ export type ChatJob = {
 	detached: boolean
 	/** Notify-only: whether its completion has been surfaced to the model yet. */
 	reported: boolean
+	/** Whether the user saw its terminal status in the jobs popover. Reviewed
+	 * outcomes stop driving the segment chip's status readout. Persisted. */
+	reviewed?: boolean
 	/** Trimmed snapshot of the last fetched Job (heavy fields stripped, see
 	 * `trimJob`), fed to `<JobStatusIcon>` so the tray badge matches the runs page
 	 * exactly. Always written together with `status` from the SAME job so the two
