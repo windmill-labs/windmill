@@ -193,6 +193,30 @@ mod tests {
         );
     }
 
+    /// An empty concurrency key is a limiter bypass: `apply_concurrency_limit`
+    /// admits unconditionally instead of consulting the counter, so these jobs
+    /// are runnable and any backlog of them is genuine capacity starvation.
+    /// Classifying them off the counter alone would read the gate as full and
+    /// silence the alert during a real outage.
+    #[ignore = "requires database setup - run with --ignored flag"]
+    #[sqlx::test(migrations = "../migrations")]
+    async fn bypassed_empty_key_still_alerts(db: Pool<Postgres>) {
+        free_the_lock(&db).await;
+        configure_alert(&db, 100).await;
+        seed_gate(&db, "", 1, 1, 1).await;
+        queue_jobs(&db, 200, Some(("", 1))).await;
+
+        jobs_waiting_alerts(&db).await;
+
+        let messages = alert_messages(&db).await;
+        assert_eq!(
+            messages.len(),
+            1,
+            "jobs whose concurrency key is empty bypass the limiter and must still \
+             alert, got {messages:?}"
+        );
+    }
+
     /// The exclusion keys off the gate being *full*, not off the job merely
     /// carrying a concurrent_limit -- every such job gets a `concurrency_key`
     /// row at push time, so excluding on that row alone would stop this alert
