@@ -14,7 +14,6 @@
 #[cfg(all(feature = "private", feature = "enterprise"))]
 mod tests {
     use sqlx::{Pool, Postgres};
-    use uuid::Uuid;
     use windmill_common::ee::concurrency_gate_alerts;
 
     /// `key|limit|window` as the limiter stamps it: one job per 5s, so the gate
