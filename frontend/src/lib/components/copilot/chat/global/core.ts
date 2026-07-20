@@ -202,7 +202,8 @@ export type GlobalUserMessageOptions = {
 	activeEditor?: GlobalActiveEditorContext
 	/** Images attached to this message; delivered as image_url content parts. */
 	images?: AttachedImage[]
-	/** Text files attached to this message; their content is inlined below. */
+	/** Text files attached to this message; listed by reference below — the model
+	 * reads their content on demand via the file tools. */
 	files?: AttachedTextFile[]
 }
 

@@ -474,6 +474,44 @@ describe('AttachedFilesStore', () => {
 		expect(s.folders[0].files.map((f) => f.relPath)).toEqual(['proj/app.ts'])
 	})
 
+	it('registers a message file colliding with a session file under a new name', async () => {
+		await store.addFiles([file('notes.md', 'session content\n')])
+		await settle(store)
+
+		const res = await store.addFiles([file('notes.md', 'message content\n', 2)], {
+			messageScoped: true
+		})
+		await settle(store)
+
+		// Not swallowed by the session row; renamed so both stay addressable. The
+		// caller rewrites the message's reference to the returned name.
+		expect(res.added).toEqual(['notes (2).md'])
+		expect(store.get('notes.md')?.messageScoped).toBeFalsy()
+		expect(store.get('notes (2).md')?.messageScoped).toBe(true)
+
+		// A footer removal of the session file must not take the message row along.
+		store.removeFile('notes.md')
+		expect(store.get('notes (2).md')?.messageScoped).toBe(true)
+		expect(store.standalone).toEqual([])
+	})
+
+	it('syncMessageScoped reconciles rows to the transcript references', async () => {
+		await store.syncMessageScoped([
+			{ name: 'a.md', content: 'aaa\n' },
+			{ name: 'b.md', content: 'bbb\n' }
+		])
+		await settle(store)
+		expect(store.messageAttached.map((f) => f.name).sort()).toEqual(['a.md', 'b.md'])
+
+		// A message dropped from the transcript prunes its row; the survivor stays.
+		await store.syncMessageScoped([{ name: 'a.md', content: 'aaa\n' }])
+		await settle(store)
+		expect(store.messageAttached.map((f) => f.name)).toEqual(['a.md'])
+
+		await store.syncMessageScoped([])
+		expect(store.messageAttached).toEqual([])
+	})
+
 	it('keeps message-scoped files tool-readable but out of the footer roster', async () => {
 		await store.addFiles([file('notes.md', 'hello\n')], { messageScoped: true })
 		await settle(store)

@@ -1955,7 +1955,7 @@ export class AIChatManager {
 	// is false when a queued message is about to take over (a user cancel with
 	// something queued) — then the rolled-back prompt is dropped rather than
 	// shoved back into the input, so the handoff to the queued message is clean.
-	private restoreUnsentTurn = (
+	private restoreUnsentTurn = async (
 		displayLenAfterUser: number,
 		modelLenAfterUser: number,
 		instructions: string,
@@ -1963,12 +1963,34 @@ export class AIChatManager {
 		restoreToInput: boolean = true,
 		images: AttachedImage[] = [],
 		files: AttachedTextFile[] = []
-	): boolean => {
+	): Promise<boolean> => {
 		this.displayMessages = this.displayMessages.slice(0, displayLenAfterUser - 1)
 		this.messages = this.messages.slice(0, modelLenAfterUser - 1)
+		// The rolled-back turn's files must not stay registered: the message
+		// referencing them is gone, so leaving them would keep stale content
+		// readable by the tools on later turns.
+		await this.#syncMessageFiles()
 		if (!restoreToInput) return false
 		// An occupied composer declines the restore and keeps its own draft.
 		return this.aiChatInput?.restoreInstructions(instructions, pastes, images, files) === true
+	}
+
+	/** Reconcile the store's message-scoped file rows with what the transcript
+	 * references (last message wins on a shared name). Runs on chat load/clear and
+	 * after rollbacks/truncations, so a chip the user can see is always readable
+	 * and a dropped message's file never lingers in the tool surface. */
+	#syncMessageFiles = async (): Promise<void> => {
+		const wanted = new Map<string, AttachedTextFile>()
+		for (const m of this.displayMessages) {
+			if (m.role === 'user' && m.files) {
+				for (const f of m.files) wanted.set(f.name, f)
+			}
+		}
+		try {
+			await this.attachedFiles.syncMessageScoped([...wanted.values()])
+		} catch (e) {
+			console.error('Failed to sync message-attached files', e)
+		}
 	}
 
 	private notifyReasoningSummaryUnavailable = () => {
@@ -2321,8 +2343,8 @@ export class AIChatManager {
 		// repeated here, not just at attach time: the model can be switched to a
 		// text-only one after attaching, and sending the image then fails the turn.
 		const requestedImages = options.images ?? []
-		// Text files pass regardless of vision support — their content is inlined
-		// into the prompt text.
+		// Text files pass regardless of vision support — the prompt carries only
+		// references; content is read via the file tools.
 		const files = options.files ?? []
 		const sendModel = tryGetCurrentModel()
 		const modelIsBlind = !!sendModel && !modelSupportsVision(sendModel.provider, sendModel.model)
@@ -2515,7 +2537,9 @@ export class AIChatManager {
 			const sentInstructions = this.instructions
 			const sentPastes = pastes
 			const sentImages = images
-			const sentFiles = files
+			// Mutable copy: registration below may rewrite entries to their registered
+			// (collision-suffixed) names, and the caller's array must not be mutated.
+			const sentFiles = [...files]
 			// The LLM gets the full pasted content; the display message above keeps
 			// the compact tokens + registry so the bubble can render/expand chips.
 			const oldInstructions = expanded(chatDraft(this.instructions, pastes))
@@ -2545,9 +2569,23 @@ export class AIChatManager {
 			// as missing and the model reports it.
 			if (this.mode === AIMode.GLOBAL && sentFiles.length > 0) {
 				try {
-					await this.attachedFiles.addFiles(
-						sentFiles.map((f) => new File([f.content], f.name, { type: 'text/plain' })),
-						{ messageScoped: true }
+					// One at a time so each file's registered name is knowable: a collision
+					// with a session-linked file registers under a suffixed name, and the
+					// message must reference (and display) THAT name or the tools resolve
+					// the wrong file.
+					for (let i = 0; i < sentFiles.length; i++) {
+						const f = sentFiles[i]
+						const res = await this.attachedFiles.addFiles(
+							[new File([f.content], f.name, { type: 'text/plain' })],
+							{ messageScoped: true }
+						)
+						const registered = res.added[0]
+						if (registered && registered !== f.name) {
+							sentFiles[i] = { ...f, name: registered }
+						}
+					}
+					this.displayMessages = this.displayMessages.map((m, i) =>
+						i === optimisticIndex ? { ...m, files: [...sentFiles] } : m
 					)
 				} catch (e) {
 					console.error('Failed to register message-attached files', e)
@@ -2804,7 +2842,7 @@ export class AIChatManager {
 				// about to auto-send (see the flush below) — drop the rolled-back
 				// prompt instead of restoring it to the input so the handoff is clean.
 				const willAutoSendQueued = this.wasCancelledByUser() && this.#hasQueuedMessage()
-				const textRestored = this.restoreUnsentTurn(
+				const textRestored = await this.restoreUnsentTurn(
 					displayLenAfterUser,
 					modelLenAfterUser,
 					sentInstructions,
@@ -3018,7 +3056,7 @@ export class AIChatManager {
 		)
 	}
 
-	restartGeneration = (
+	restartGeneration = async (
 		displayMessageIndex: number,
 		newContent?: string,
 		pastes?: PasteAttachment[],
@@ -3067,14 +3105,17 @@ export class AIChatManager {
 		// contextElements. `undefined` for modes that don't attach context leaves the
 		// live-selection behavior. An empty array is a deliberate "no context".
 		this.instructions = newContent ?? userMessage.content
+		// Prune the truncated messages' file registrations BEFORE the resend
+		// re-registers its own — the other way around would delete the fresh rows.
+		await this.#syncMessageFiles()
 		this.sendRequest({
 			pastes: pastes ?? userMessage.pastes,
 			contextOverride: editedContext ?? userMessage.contextElements,
 			contextOverrideOrigin: 'replay',
 			images: images ?? sentImages,
-			// The bubble copy is authoritative for files: their content is inlined
-			// into the API message text, so no provider ever strips them the way
-			// image parts can be stripped.
+			// The bubble copy is authoritative for files: the API message carries
+			// only a reference (content lives in the store), so nothing ever strips
+			// it the way providers strip image parts from history.
 			files: files ?? userMessage.files
 		})
 	}
@@ -3131,6 +3172,8 @@ export class AIChatManager {
 		// session, so "New chat" must clear them — otherwise the next, unrelated conversation
 		// would still get the previous file roster and could read/search it.
 		if (!this.isSessionChat) this.attachedFiles.clear()
+		// Message-attached rows belong to the conversation just left in every case.
+		await this.#syncMessageFiles()
 		this.syncArtifactsSession()
 		this.onChatRotated?.(this.historyManager.getCurrentChatId())
 	}
@@ -3168,6 +3211,10 @@ export class AIChatManager {
 			}
 			if (this.backgroundJobs.length > 0) this.backgroundJobs = [...this.backgroundJobs]
 			this.#ensureJobPoller()
+			// Message-attached files live in the transcript, not in the store's
+			// persistence — rebuild their rows so the loaded chat's references are
+			// readable (and the previous chat's are pruned).
+			await this.#syncMessageFiles()
 			this.#automaticScroll = true
 			this.syncArtifactsSession()
 			this.onChatRotated?.(id)

@@ -474,7 +474,8 @@ export type UserDisplayMessage = BaseDisplayMessage & {
 	// thumbnails in the bubble. The LLM message carries them as image_url parts.
 	images?: AttachedImage[]
 	// Text files the user attached to this message, rendered as chips in the
-	// bubble. The LLM message carries their content inlined in the prompt text.
+	// bubble. The prompt lists them by reference; the content here is the durable
+	// copy, re-registered into the session file store on load for tool reads.
 	files?: AttachedTextFile[]
 }
 

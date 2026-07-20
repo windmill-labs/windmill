@@ -90,8 +90,14 @@ export class AttachedFilesStore {
 		return this.files
 	}
 	get(name: string): AttachedFile | undefined {
-		// Resolve to a real file — a folder-root placeholder may share the folder's name.
-		return this.files.find((f) => f.name === name && !f.isFolderRoot)
+		// Message attachments take lookup precedence: a prompt reference names the
+		// file attached to the message, not a same-named session link (sends rename
+		// collisions away; duplicates can only arrive via legacy/load edges).
+		// Folder-root placeholders may share a name with a real file — never resolve to one.
+		return (
+			this.files.find((f) => f.name === name && f.messageScoped) ??
+			this.files.find((f) => f.name === name && !f.isFolderRoot)
+		)
 	}
 	readyFiles(): AttachedFile[] {
 		// Folder-root placeholders aren't real files — never expose them to the read/search tools.
@@ -138,13 +144,41 @@ export class AttachedFilesStore {
 	}
 
 	removeFile(name: string): void {
+		// Session rows only: message-scoped rows are managed by syncMessageScoped, and
+		// a footer chip removal must never take a same-named message attachment with it.
 		// Target the real file only — never a folder-root placeholder that happens to share
 		// the name (those are managed via removeFolder), else removing a same-named standalone
 		// file would also drop the folder's placeholder.
-		const f = this.files.find((x) => x.name === name && !x.isFolderRoot)
+		const f = this.files.find((x) => x.name === name && !x.isFolderRoot && !x.messageScoped)
 		if (!f) return
-		this.files = this.files.filter((x) => !(x.name === name && !x.isFolderRoot))
+		this.files = this.files.filter((x) => x !== f)
 		void this.#deleteRecord(f.sourceId)
+	}
+
+	#removeMessageScopedRow(name: string): void {
+		const f = this.files.find((x) => x.messageScoped && x.name === name)
+		if (!f) return
+		this.files = this.files.filter((x) => x !== f)
+		void this.#deleteRecord(f.sourceId)
+	}
+
+	/**
+	 * Reconcile message-scoped rows to exactly `wanted` — the union of files the
+	 * current transcript references. The transcript is their durable home: rows are
+	 * rebuilt from it on chat load and pruned when a rollback or an edit/retry
+	 * truncation drops the message that carried them.
+	 */
+	async syncMessageScoped(wanted: { name: string; content: string }[]): Promise<void> {
+		const wantedNames = new Set(wanted.map((f) => f.name))
+		for (const f of this.files.filter((x) => x.messageScoped)) {
+			if (!wantedNames.has(f.name)) this.#removeMessageScopedRow(f.name)
+		}
+		if (wanted.length > 0) {
+			await this.addFiles(
+				wanted.map((f) => new File([f.content], f.name, { type: 'text/plain' })),
+				{ messageScoped: true }
+			)
+		}
 	}
 
 	/** Remove every file linked as part of the given folder (and its persisted record). */
@@ -180,23 +214,27 @@ export class AttachedFilesStore {
 			const folder = desired.includes('/') ? desired.split('/')[0] : undefined
 			if (folder && isIgnoredPath(desired)) continue // skip junk inside folders
 
-			// A message references its files by exact name, so a re-registration with new
-			// content (edited message, new attachment reusing a name) must replace the old
-			// row — renaming via #uniqueName would break the reference in the sent prompt.
-			// Compared by content, not #isDuplicate: registration recreates the File each
-			// send, so name/lastModified heuristics would misread an edit as a re-link.
+			// A message references its files by name, so a re-registration (edited
+			// message, retry) must land on the SAME row: identical content is kept,
+			// changed content replaces it. Compared by content, not #isDuplicate:
+			// registration recreates the File each send, so lastModified would
+			// misread an edit as a mere re-link.
 			if (messageScoped) {
 				const existing = this.files.find((f) => f.name === desired && f.messageScoped)
 				if (existing) {
 					const sameContent =
 						existing.size === file.size &&
 						(await (existing.file as Blob).text()) === (await file.text())
-					if (sameContent) continue // identical re-registration (retry) — keep as-is
-					this.removeFile(desired)
+					if (sameContent) {
+						// Still reported: the caller maps prompt references off `added`.
+						result.added.push(desired)
+						continue
+					}
+					this.#removeMessageScopedRow(desired)
 				}
 			}
 
-			if (this.#isDuplicate(desired, file)) continue // silent no-op on re-link
+			if (this.#isDuplicate(desired, file, messageScoped)) continue // silent no-op on re-link
 
 			const reason = await this.#preflight(file)
 			if (reason) {
@@ -204,25 +242,29 @@ export class AttachedFilesStore {
 				continue
 			}
 
-			const name = messageScoped ? desired : this.#uniqueName(desired)
+			const name = this.#uniqueName(desired)
 			const relPath = folder ? desired : undefined
 			const sourceId = createLongHash()
 
 			this.#pushIndexing({ name, file, folder, sourceId, relPath, messageScoped })
 			result.added.push(name)
-			void this.#persist({
-				id: sourceId,
-				sessionId: this.sessionId ?? '',
-				kind: 'snapshot',
-				name,
-				folder,
-				relPath,
-				blob: file,
-				size: file.size,
-				lastModified: file.lastModified,
-				addedAt: Date.now(),
-				messageScoped: messageScoped || undefined
-			})
+			// Message rows are NOT persisted here: their durable home is the chat
+			// transcript (DisplayMessage.files), from which syncMessageScoped rebuilds
+			// them on load — a second copy in IndexedDB would only drift.
+			if (!messageScoped) {
+				void this.#persist({
+					id: sourceId,
+					sessionId: this.sessionId ?? '',
+					kind: 'snapshot',
+					name,
+					folder,
+					relPath,
+					blob: file,
+					size: file.size,
+					lastModified: file.lastModified,
+					addedAt: Date.now()
+				})
+			}
 		}
 
 		return result
@@ -300,8 +342,7 @@ export class AttachedFilesStore {
 						file: item.blob,
 						folder: item.folder,
 						relPath: item.relPath,
-						sourceId: item.id,
-						messageScoped: item.messageScoped
+						sourceId: item.id
 					})
 				} else {
 					// dir-handle (folder)
@@ -399,13 +440,17 @@ export class AttachedFilesStore {
 
 	// ------------------------------------------------------------- internals
 
-	/** Identical re-link (same name, or same File identity) → silent no-op. */
-	#isDuplicate(desired: string, file: File): boolean {
+	/** Identical re-link (same name in the same scope, or same File identity) → silent no-op. */
+	#isDuplicate(desired: string, file: File, messageScoped = false): boolean {
 		return this.files.some(
 			(f) =>
 				// Folder-root placeholders aren't real files — they must not block attaching a
 				// standalone file that happens to share the folder's name.
 				!f.isFolderRoot &&
+				// Scoped: a session-scoped row must never swallow a message attachment that
+				// shares its name (or vice versa) — the model would then read the wrong
+				// file. Cross-scope collisions fall through to #uniqueName instead.
+				!!f.messageScoped === messageScoped &&
 				(f.name === desired ||
 					// Identical re-drop at the SAME relative path (its row name may have been
 					// auto-suffixed). Keyed on the path, NOT the basename — otherwise two distinct
