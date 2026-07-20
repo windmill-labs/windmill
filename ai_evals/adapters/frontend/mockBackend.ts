@@ -811,13 +811,21 @@ const BENCHMARK_WORKERS = [
 	}
 ]
 
+/** True when `handleBenchmarkApiFetch` has an answer for this `/api/...` url.
+ * Any other relative fetch must keep its normal (non-benchmark) behavior —
+ * intercepting it with a synthetic 404 sends the model into retry loops. */
+export function hasBenchmarkApiHandler(url: string): boolean {
+	const path = url.split('?')[0]
+	return path === '/api/workers/list' || /^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path)
+}
+
 /** Answer a relative `/api/...` fetch issued by the API catalog executor. */
 export function handleBenchmarkApiFetch(url: string): Response {
 	const path = url.split('?')[0]
 	if (path === '/api/workers/list') {
 		return Response.json(BENCHMARK_WORKERS)
 	}
-	if (path.match(/^\/api\/w\/[^/]+\/jobs\/queue\/list$/)) {
+	if (/^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path)) {
 		return Response.json([])
 	}
 	return Response.json({ error: `no benchmark handler for ${path}` }, { status: 404 })

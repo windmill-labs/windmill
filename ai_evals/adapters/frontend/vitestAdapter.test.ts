@@ -3,14 +3,16 @@ import { expect, it, vi } from 'vitest'
 import { mkdir, writeFile } from 'fs/promises'
 // @ts-ignore - Node.js path
 import { dirname, resolve } from 'path'
-import { handleBenchmarkApiFetch } from './mockBackend'
+import { handleBenchmarkApiFetch, hasBenchmarkApiHandler } from './mockBackend'
 
 // The API catalog executor issues relative fetch('/api/...') calls, which have
-// no meaning in the vitest environment — serve them from the benchmark handler.
+// no meaning in the vitest environment — serve the ones the benchmark handles.
+// Every other relative fetch keeps its normal behavior (it fails the same way
+// it does without this stub) so unrelated tools see an unchanged environment.
 const ORIGINAL_FETCH = globalThis.fetch
 globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
 	const url = typeof input === 'string' ? input : ((input as Request | URL | null)?.url ?? '')
-	if (typeof url === 'string' && url.startsWith('/api/')) {
+	if (typeof url === 'string' && hasBenchmarkApiHandler(url)) {
 		return handleBenchmarkApiFetch(url)
 	}
 	return ORIGINAL_FETCH(input as Parameters<typeof fetch>[0], init)
