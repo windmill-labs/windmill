@@ -151,6 +151,7 @@ ARG features=""
 # 2. Change LATEST_STABLE_PY in dockerfile
 # 3. Change #[default] annotation for PyVersion in backend
 ARG LATEST_STABLE_PY=3.12
+ARG PIP_VERSION=26.1.2
 ENV UV_PYTHON_INSTALL_DIR=/tmp/windmill/cache/py_runtime
 ENV UV_PYTHON_PREFERENCE=only-managed
 
@@ -243,6 +244,9 @@ RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releas
 # timestamps or Python's mtime-based .pyc invalidation discards these compiled files.
 RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install 3.11 --compile-bytecode
 RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $LATEST_STABLE_PY --compile-bytecode
+RUN for python in /tmp/build_cache/py_runtime/*/bin/python; do \
+    uv pip install --python "$python" --system --break-system-packages --upgrade "pip==$PIP_VERSION"; \
+    done
 
 
 RUN curl -sL https://deb.nodesource.com/setup_20.x | bash -

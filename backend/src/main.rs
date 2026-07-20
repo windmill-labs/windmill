@@ -19,6 +19,7 @@ use monitor::{
 use rand::Rng;
 use sqlx::{Pool, Postgres};
 use std::{
+    borrow::Cow,
     collections::HashMap,
     fs::{create_dir_all, DirBuilder},
     net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -335,7 +336,8 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
                         "Hub script {path} returned a malformed lockfile (does not start with a package.json object), skipping prebundling"
                     );
                 } else {
-                    let _ = windmill_worker::prepare_job_dir(&lock, &job_dir).await?;
+                    let install_lock = bun_cache_install_lock(&lock)?;
+                    let _ = windmill_worker::prepare_job_dir(&install_lock, &job_dir).await?;
                     let envs = windmill_worker::get_common_bun_proc_envs(None).await;
                     if let Err(e) = windmill_worker::install_bun_lockfile(
                         &mut 0,
@@ -383,6 +385,74 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+fn bun_cache_install_lock(lock: &str) -> anyhow::Result<Cow<'_, str>> {
+    const BUN_LOCK_MARKER: &str = "//bun.lock\n";
+    const FORM_DATA_OVERRIDE: &str = "4.0.6";
+
+    if !lock.contains("form-data@4.0.5\"") {
+        return Ok(Cow::Borrowed(lock));
+    }
+
+    let (package_json, bun_lock) = lock
+        .split_once(BUN_LOCK_MARKER)
+        .context("Bun Hub script lockfile is missing its lock marker")?;
+    let mut package: serde_json::Value = serde_json::from_str(package_json)
+        .context("Bun Hub script lockfile has an invalid package.json")?;
+    let package = package
+        .as_object_mut()
+        .context("Bun Hub script package.json must be an object")?;
+    let overrides = package
+        .entry("overrides")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .context("Bun Hub script package.json overrides must be an object")?;
+    overrides.insert(
+        "form-data".to_string(),
+        serde_json::Value::String(FORM_DATA_OVERRIDE.to_string()),
+    );
+
+    Ok(Cow::Owned(format!(
+        "{}\n{BUN_LOCK_MARKER}{bun_lock}",
+        serde_json::to_string_pretty(&package)?
+    )))
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::bun_cache_install_lock;
+    use std::borrow::Cow;
+
+    #[test]
+    fn bun_cache_install_lock_overrides_vulnerable_transitive_dependency() {
+        let lock = r#"{
+  "dependencies": {
+    "@slack/web-api": "latest"
+  }
+}
+//bun.lock
+{
+  "packages": {
+    "form-data": ["form-data@4.0.5"]
+  }
+}"#;
+
+        let updated = bun_cache_install_lock(lock).unwrap();
+
+        assert!(updated.contains(r#""form-data": "4.0.6""#));
+        assert!(updated.contains(r#""form-data": ["form-data@4.0.5"]"#));
+    }
+
+    #[test]
+    fn bun_cache_install_lock_leaves_unaffected_locks_unchanged() {
+        let lock = "{\"dependencies\":{}}\n//bun.lock\n{}";
+
+        let updated = bun_cache_install_lock(lock).unwrap();
+
+        assert!(matches!(updated, Cow::Borrowed(_)));
+        assert_eq!(updated, lock);
+    }
 }
 
 /// Raw resource type from hub API (schema is a JSON string)
