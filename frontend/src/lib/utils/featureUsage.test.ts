@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-vi.mock('$lib/gen', () => ({ WorkspaceService: { logFeatureUsage: vi.fn() } }))
+vi.mock('$lib/gen', () => ({ OpenAPI: { BASE: '/api' } }))
 vi.mock('$lib/stores', () => ({ workspaceStore: { subscribe: () => () => {} } }))
 
 import { createFeatureUsageBuffer, type FeatureUsageEventPayload } from './featureUsage'

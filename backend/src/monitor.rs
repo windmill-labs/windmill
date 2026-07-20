@@ -1316,6 +1316,16 @@ pub async fn delete_expired_items(db: &DB) -> () {
         tracing::error!("Error reaping stale join_pending_inputs slots: {:?}", e);
     }
 
+    // 60-day retention for anonymous feature-usage counters. Runs here (not only
+    // in the telemetry sender) so rows are pruned even when telemetry is disabled
+    // or the build has no stats scheduler.
+    if let Err(e) = sqlx::query!("DELETE FROM feature_usage WHERE day < CURRENT_DATE - 60")
+        .execute(db)
+        .await
+    {
+        tracing::error!("Error deleting old feature_usage rows: {e}");
+    }
+
     match sqlx::query_scalar!(
         "DELETE FROM agent_token_blacklist WHERE expires_at <= now() RETURNING token",
     )

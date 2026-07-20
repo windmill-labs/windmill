@@ -1,5 +1,5 @@
 import { get } from 'svelte/store'
-import { WorkspaceService } from '$lib/gen'
+import { OpenAPI } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
 
 // Anonymous product-usage counters (e.g. AI session activity), batched into the
@@ -96,17 +96,30 @@ export function createFeatureUsageBuffer(
 
 const buffer = createFeatureUsageBuffer(
 	async (workspace, events) => {
-		await WorkspaceService.logFeatureUsage({ workspace, requestBody: { events } })
+		// Raw fetch instead of the generated client: `keepalive` lets the request
+		// finish after tab close/navigation, which is when the final flush runs.
+		// Auth rides on the token cookie (WITH_CREDENTIALS app setup).
+		await fetch(`${OpenAPI.BASE}/w/${encodeURIComponent(workspace)}/workspaces/log_feature_usage`, {
+			method: 'POST',
+			credentials: 'include',
+			keepalive: true,
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ events })
+		})
 	},
 	() => get(workspaceStore) ?? undefined
 )
 
 if (typeof document !== 'undefined') {
-	// Flush what's buffered before the tab goes away (covers close/navigation).
+	// Flush what's buffered before the tab goes away. pagehide covers
+	// close/navigation paths where visibilitychange is not delivered.
 	document.addEventListener('visibilitychange', () => {
 		if (document.visibilityState === 'hidden') {
 			void buffer.flush()
 		}
+	})
+	window.addEventListener('pagehide', () => {
+		void buffer.flush()
 	})
 }
 

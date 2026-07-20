@@ -9603,12 +9603,16 @@ struct LogFeatureUsagePayload {
     events: Vec<FeatureUsageEvent>,
 }
 
-fn truncate_chars(s: String, max: usize) -> String {
-    if s.chars().count() <= max {
-        s
-    } else {
-        s.chars().take(max).collect()
+// Dimensions end up verbatim in the outbound anonymous telemetry payload, so
+// they must stay identifier-like: no spaces or slashes means no prompts, code,
+// paths, or free text can be smuggled into it.
+fn valid_feature_usage_dimension(s: &str, max_len: usize, required: bool) -> bool {
+    if s.is_empty() {
+        return !required;
     }
+    s.len() <= max_len
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | ':' | '.'))
 }
 
 async fn log_feature_usage(
@@ -9619,14 +9623,16 @@ async fn log_feature_usage(
     // single INSERT error out ("cannot affect row a second time").
     let mut agg: HashMap<(String, String, String, String), i64> = HashMap::new();
     for e in payload.events.into_iter().take(MAX_FEATURE_USAGE_EVENTS) {
+        if !valid_feature_usage_dimension(&e.feature, 50, true)
+            || !valid_feature_usage_dimension(&e.kind, 50, true)
+            || !valid_feature_usage_dimension(&e.key, 100, false)
+            || !valid_feature_usage_dimension(&e.entity_id, 50, false)
+        {
+            continue;
+        }
         let value = e.value.unwrap_or(1).clamp(1, 1_000_000);
-        let key = (
-            truncate_chars(e.feature, 50),
-            truncate_chars(e.kind, 50),
-            truncate_chars(e.key, 100),
-            truncate_chars(e.entity_id, 50),
-        );
-        *agg.entry(key).or_insert(0) += value;
+        *agg.entry((e.feature, e.kind, e.key, e.entity_id))
+            .or_insert(0) += value;
     }
     if agg.is_empty() {
         return Ok(StatusCode::NO_CONTENT);

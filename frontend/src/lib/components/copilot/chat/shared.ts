@@ -757,7 +757,11 @@ export async function processToolCall<T>({
 		}
 
 		let result = ''
-		logFeatureUsage('ai_chat', 'tool', { key: toolCall.function.name, workspace: workspaceId })
+		// Key by the resolved tool's declared name, not the model-provided string,
+		// so hallucinated tool names never enter telemetry.
+		if (tool) {
+			logFeatureUsage('ai_chat', 'tool', { key: tool.def.function.name, workspace: workspaceId })
+		}
 		try {
 			result = await callTool({
 				tools,
