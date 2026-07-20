@@ -20,50 +20,6 @@ export function getCurrentGitBranch(): string | null {
   }
 }
 
-/**
- * The push URL of the given git remote (default `origin`), or null if unset /
- * not a git repo. Uses `--push` since deploy-on-push is about where `git push`
- * lands (a remote may set a distinct pushurl). Argument-based (no shell) so a
- * caller-supplied remote name can't inject a command.
- */
-export function getGitRemoteUrl(remote = "origin"): string | null {
-  const r = spawnSync("git", ["remote", "get-url", "--push", remote], {
-    encoding: "utf8",
-    stdio: "pipe",
-  });
-  if (r.status !== 0) {
-    log.debug(`Failed to get Git remote url: ${r.stderr}`);
-    return null;
-  }
-  const url = r.stdout.trim();
-  return url || null;
-}
-
-/**
- * Remove any embedded `user:token@` credentials from a git remote URL. Sent to
- * the backend for matching, so the token must never leave the machine (it would
- * otherwise land in request-URI logs). scp-like `git@host:path` carries no token
- * (key auth) and is returned unchanged.
- */
-export function stripGitRemoteCredentials(url: string): string {
-  try {
-    const u = new URL(url);
-    u.username = "";
-    u.password = "";
-    return u.toString();
-  } catch {
-    return url;
-  }
-}
-
-/**
- * POSIX single-quote a string so it is safe to interpolate into a shell command
- * we recommend to a user or agent. Wraps in `'...'` and escapes embedded quotes.
- */
-export function shellQuote(s: string): string {
-  return `'${s.replace(/'/g, "'\\''")}'`;
-}
-
 /** Whether a local branch with this exact name exists. */
 export function gitBranchExists(branchName: string): boolean {
   const r = spawnSync(

@@ -5191,14 +5191,6 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: remote
-          in: query
-          required: false
-          description: >-
-            The caller's local git remote URL (`git remote get-url`). Matched
-            server-side against each auto-pull repository; never stored or echoed.
-          schema:
-            type: string
         - name: branch
           in: query
           required: false
@@ -5222,10 +5214,10 @@ paths:
                   deploy_on_push:
                     type: boolean
                     description: >-
-                      Pushing branch to remote deploys: a licensed auto-pull
-                      repository matches that exact remote and tracked branch.
-                      False (deploy via `wmill sync push`) when unlicensed,
-                      unmatched, or remote/branch absent.
+                      Pushing the branch deploys via auto-pull: exactly one
+                      licensed, deliverable auto-pull repository tracks it. False
+                      when unlicensed, no repo tracks the branch, or several do
+                      (ambiguous — ask the user / use `wmill sync push`).
 
   /w/{workspace}/workspaces/edit_git_sync_config:
     post:

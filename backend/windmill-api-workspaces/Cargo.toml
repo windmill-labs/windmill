@@ -49,6 +49,5 @@ sqlx.workspace = true
 tokio.workspace = true
 tokio-postgres.workspace = true
 tracing.workspace = true
-url.workspace = true
 uuid.workspace = true
 strum.workspace = true

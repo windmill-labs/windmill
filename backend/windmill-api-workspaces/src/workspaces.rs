@@ -1028,10 +1028,6 @@ async fn get_public_settings(
 
 #[derive(Deserialize)]
 pub struct GitSyncDeployModeQuery {
-    /// The caller's local git remote URL (`git remote get-url`). Matched
-    /// server-side against each auto-pull repository's URL; never stored or
-    /// echoed back. Omit outside a git checkout.
-    pub remote: Option<String>,
     /// The branch the caller would push.
     pub branch: Option<String>,
 }
@@ -1040,44 +1036,12 @@ pub struct GitSyncDeployModeQuery {
 pub struct GitSyncDeployMode {
     /// At least one git-sync repository is configured for this workspace.
     pub configured: bool,
-    /// Pushing `branch` to `remote` deploys: a licensed auto-pull repository
-    /// matches that exact remote and tracked branch. False (deploy via
-    /// `wmill sync push`) when unlicensed, unmatched, or `remote`/`branch` absent.
+    /// Pushing `branch` deploys via server-side auto-pull: exactly one licensed,
+    /// deliverable auto-pull repository tracks it. False (deploy via `git push`
+    /// through CI, or `wmill sync push`) when unlicensed, no repo tracks the
+    /// branch, or several do — with multiple synced repos we can't tell which the
+    /// local checkout is, so the caller asks the user instead.
     pub deploy_on_push: bool,
-}
-
-/// Normalize a git remote URL to `host/path` for identity comparison, dropping
-/// any embedded `user:token@` credentials, the scheme, `.git` suffix, and case.
-/// Building the result from parsed components (rather than scrubbing the string)
-/// guarantees no credential can survive. Returns None if it can't be parsed, so
-/// the caller treats it as "no match" rather than leaking or false-matching.
-fn normalize_git_remote(raw: &str) -> Option<String> {
-    let raw = raw.trim();
-    let (host, path) = if raw.contains("://") {
-        let url = url::Url::parse(raw).ok()?;
-        // Keep the port: distinct ports can be distinct git services.
-        let host = match url.port() {
-            Some(port) => format!("{}:{port}", url.host_str()?),
-            None => url.host_str()?.to_string(),
-        };
-        (host, url.path().to_string())
-    } else {
-        // scp-like syntax: [user@]host:path
-        let (host_part, path) = raw.split_once(':')?;
-        let host = host_part.rsplit('@').next()?;
-        (host.to_string(), path.to_string())
-    };
-    // Only the host is case-insensitive; repo paths are case-sensitive on many
-    // git servers, so lowercasing the path would conflate distinct repositories.
-    let host = host.to_ascii_lowercase();
-    let path = path
-        .trim_start_matches('/')
-        .trim_end_matches('/')
-        .trim_end_matches(".git");
-    if host.is_empty() {
-        return None;
-    }
-    Some(format!("{host}/{path}"))
 }
 
 /// Whether an enabled auto-pull repo actually has a delivery path that fires, so
@@ -1235,9 +1199,9 @@ async fn get_git_sync_deploy_mode(
     let configured = !settings.repositories.is_empty();
 
     // Auto-pull runs only on Enterprise-licensed instances (see poll_git_auto_pull);
-    // without a caller remote/branch there is nothing to match. Either way it stays
-    // false, so the caller falls back to `wmill sync push` (which always deploys).
-    let (Some(remote), Some(branch)) = (q.remote.as_deref(), q.branch.as_deref()) else {
+    // without a caller branch there is nothing to match. Either way deploy_on_push
+    // stays false and the caller falls back (git push via CI, or wmill sync push).
+    let Some(branch) = q.branch.as_deref() else {
         return Ok(Json(GitSyncDeployMode {
             configured,
             deploy_on_push: false,
@@ -1264,70 +1228,67 @@ async fn get_git_sync_deploy_mode(
         None
     };
 
-    let mut deploy_on_push = false;
+    // Count the auto-pull repos that would deploy this branch. We deliberately do
+    // not check the caller's remote URL: with exactly one such repo the local
+    // checkout is unambiguously it, and with several we can't tell which is the
+    // caller's, so we report false and let the CLI ask the user.
+    let mut matches = 0u32;
     if licensed {
-        if let Some(remote_norm) = normalize_git_remote(remote) {
-            for repo in &settings.repositories {
-                let Some(auto_pull) = repo.auto_pull.as_ref() else {
-                    continue;
-                };
-                if !auto_pull.enabled {
-                    continue;
-                }
-                if is_fork {
-                    // A fork deploys only through repos with sync_forks that it
-                    // actually inherited (mirrors reconcile_fork_branch_pull).
-                    if !auto_pull.sync_forks {
-                        continue;
-                    }
-                    let repo_path = repo.git_repo_resource_path.trim_start_matches("$res:");
-                    if !fork_inherited
-                        .as_ref()
-                        .is_some_and(|p| p.contains(repo_path))
-                    {
-                        continue;
-                    }
-                }
-                // Interpolates `$var:`/`$res:` and reads as a system context, the
-                // same resolver the auto-pull poller uses; only compared, never
-                // returned (and the URL is credential-stripped by normalization).
-                // allow_cache=false: an on-demand status must reflect the current
-                // repo config, not a value cached by an earlier poll.
-                let Some(value) = windmill_store::resources::resolve_git_repository_resource(
-                    &db,
-                    &root_id,
-                    &repo.git_repo_resource_path,
-                    false,
-                )
-                .await?
-                else {
-                    continue;
-                };
-                // `enabled` isn't enough: without a runnable delivery path (active
-                // webhook, or pollable non-app HTTPS repo) the push never deploys.
-                if !has_runnable_delivery(auto_pull, &value) {
+        for repo in &settings.repositories {
+            let Some(auto_pull) = repo.auto_pull.as_ref() else {
+                continue;
+            };
+            if !auto_pull.enabled {
+                continue;
+            }
+            if is_fork {
+                // A fork deploys only through repos with sync_forks that it
+                // actually inherited (mirrors reconcile_fork_branch_pull).
+                if !auto_pull.sync_forks {
                     continue;
                 }
-                let matches_remote = value
-                    .get("url")
-                    .and_then(|v| v.as_str())
-                    .and_then(normalize_git_remote)
-                    .is_some_and(|repo_norm| repo_norm == remote_norm);
-                let tracked_branch = value.get("branch").and_then(|v| v.as_str()).unwrap_or("");
-                if matches_remote && deploys_on_push_branch(is_fork, branch, tracked_branch) {
-                    deploy_on_push = true;
-                    break;
+                let repo_path = repo.git_repo_resource_path.trim_start_matches("$res:");
+                if !fork_inherited
+                    .as_ref()
+                    .is_some_and(|p| p.contains(repo_path))
+                {
+                    continue;
                 }
+            }
+            // Interpolates `$var:`/`$res:` as the auto-pull poller does.
+            // allow_cache=false: an on-demand status must reflect the current
+            // repo config, not a value cached by an earlier poll.
+            let Some(value) = windmill_store::resources::resolve_git_repository_resource(
+                &db,
+                &root_id,
+                &repo.git_repo_resource_path,
+                false,
+            )
+            .await?
+            else {
+                continue;
+            };
+            // `enabled` isn't enough: without a runnable delivery path (active
+            // webhook, or pollable non-app HTTPS repo) the push never deploys.
+            if !has_runnable_delivery(auto_pull, &value) {
+                continue;
+            }
+            let tracked_branch = value.get("branch").and_then(|v| v.as_str()).unwrap_or("");
+            if deploys_on_push_branch(is_fork, branch, tracked_branch) {
+                matches += 1;
             }
         }
     }
 
-    Ok(Json(GitSyncDeployMode { configured, deploy_on_push }))
+    Ok(Json(GitSyncDeployMode {
+        configured,
+        deploy_on_push: matches == 1,
+    }))
 }
 
 #[cfg(test)]
 mod git_sync_deploy_mode_tests {
-    use super::{deploys_on_push_branch, has_runnable_delivery, normalize_git_remote};
+    use super::{deploys_on_push_branch, has_runnable_delivery};
     use serde_json::json;
     use windmill_common::workspaces::{AutoPullMode, AutoPullSettings};
 
@@ -1394,54 +1355,6 @@ mod git_sync_deploy_mode_tests {
         assert!(!deploys_on_push_branch(true, "wm-fork/release/abc", "main"));
         assert!(!deploys_on_push_branch(true, "main", "main"));
         assert!(!deploys_on_push_branch(true, "wm-fork/main/abc", ""));
-    }
-
-    #[test]
-    fn strips_credentials_and_normalizes() {
-        let expected = Some("github.com/org/repo".to_string());
-        // Embedded PAT in userinfo must never survive normalization.
-        assert_eq!(
-            normalize_git_remote("https://user:ghp_secret@github.com/org/repo.git"),
-            expected
-        );
-        assert_eq!(
-            normalize_git_remote("https://x-access-token:ghp_secret@github.com/org/repo"),
-            expected
-        );
-        // Host case is folded; path case is preserved (case-sensitive on some hosts).
-        assert_eq!(
-            normalize_git_remote("https://GitHub.com/org/repo.git"),
-            expected
-        );
-        assert_eq!(
-            normalize_git_remote("https://github.com/Org/Repo.git"),
-            Some("github.com/Org/Repo".to_string())
-        );
-        assert_eq!(
-            normalize_git_remote("git@github.com:org/repo.git"),
-            expected
-        );
-        assert_eq!(
-            normalize_git_remote("ssh://git@github.com/org/repo.git"),
-            expected
-        );
-        assert_eq!(
-            normalize_git_remote("https://github.com/org/repo/"),
-            expected
-        );
-    }
-
-    #[test]
-    fn distinct_repos_do_not_match() {
-        assert_ne!(
-            normalize_git_remote("https://github.com/org/infra.git"),
-            normalize_git_remote("https://github.com/org/scripts.git")
-        );
-        // Different ports address potentially different services.
-        assert_ne!(
-            normalize_git_remote("https://git.example.com/org/repo"),
-            normalize_git_remote("https://git.example.com:8443/org/repo")
-        );
     }
 }
 

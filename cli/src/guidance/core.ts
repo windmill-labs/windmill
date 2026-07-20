@@ -139,10 +139,10 @@ There are two ways local changes reach the workspace. Pick based on how the repo
 
 A \`git push\` deploys when either mechanism is in place: **server-handled git sync** (the workspace auto-pulls the remote, so Windmill deploys what you push) or a **CI workflow that runs \`wmill sync push\` on push**. Check for either:
 
-- Run \`wmill gitsync-settings status\`. If it reports \`deploy_on_push\` (backend auto-pull is on), pushing to the git remote deploys — no CI needed.
+- Run \`wmill gitsync-settings status\`. If it reports \`deploy_on_push\`, pushing the current branch deploys via backend auto-pull — no CI needed.
 - Otherwise look for a \`.github/workflows/*.yml\` (or other CI config) that invokes \`wmill sync push\` or similar \`wmill\` deployment commands.
 
-If either is present → **use \`git push\`** (Option A). If neither → **use \`wmill sync push\`** directly (Option B).
+If either is present → **use \`git push\`** (Option A). If \`status\` reports no auto-pull and there is no CI wiring, **ask the user** how this repo deploys (a CI pipeline you didn't recognize → \`git push\`, or manual → \`wmill sync push\`) rather than assuming — then record the answer (below). Only use \`wmill sync push\` directly (Option B) once you've confirmed there is no deploy-on-push path.
 
 **Save the preference so you don't re-detect it every session.** Once you've determined which option this repo uses (or the user tells you), record it in the **project-specific instructions** section of \`AGENTS.md\` (user-owned — never overwritten by \`wmill refresh prompts\`), e.g. a line like \`Deploy mode: git push (backend auto-pull)\`, \`Deploy mode: git push (CI runs wmill sync push)\`, or \`Deploy mode: wmill sync push (no git-push deploy)\`. On later sessions, read that line first and skip the scan. Re-detect only if the wiring visibly changed.
 

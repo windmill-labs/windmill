@@ -14,55 +14,7 @@ import {
   deriveGitSyncDeployIncludes,
   gitSyncCommitMessage,
   isForkWorkspace,
-  stripGitRemoteCredentials,
-  shellQuote,
 } from "../src/utils/git.ts";
-
-describe("shellQuote", () => {
-  test("wraps plain values in single quotes", () => {
-    expect(shellQuote("main")).toBe("'main'");
-    expect(shellQuote("origin")).toBe("'origin'");
-  });
-
-  test("neutralizes shell metacharacters in branch names", () => {
-    expect(shellQuote("feat;echo hi")).toBe("'feat;echo hi'");
-    expect(shellQuote("release$(id)")).toBe("'release$(id)'");
-  });
-
-  test("escapes embedded single quotes", () => {
-    expect(shellQuote("a'b")).toBe("'a'\\''b'");
-  });
-});
-
-// =============================================================================
-// stripGitRemoteCredentials
-// =============================================================================
-
-describe("stripGitRemoteCredentials", () => {
-  test("removes embedded user:token before it leaves the machine", () => {
-    expect(
-      stripGitRemoteCredentials("https://user:ghp_secret@github.com/org/repo.git"),
-    ).toBe("https://github.com/org/repo.git");
-  });
-
-  test("removes a token-as-username", () => {
-    expect(
-      stripGitRemoteCredentials("https://ghp_secret@github.com/org/repo.git"),
-    ).toBe("https://github.com/org/repo.git");
-  });
-
-  test("leaves a credential-free URL unchanged", () => {
-    expect(stripGitRemoteCredentials("https://github.com/org/repo.git")).toBe(
-      "https://github.com/org/repo.git",
-    );
-  });
-
-  test("passes scp-like URLs through (no embedded token)", () => {
-    expect(stripGitRemoteCredentials("git@github.com:org/repo.git")).toBe(
-      "git@github.com:org/repo.git",
-    );
-  });
-});
 
 // =============================================================================
 // getOriginalBranchForWorkspaceForks
