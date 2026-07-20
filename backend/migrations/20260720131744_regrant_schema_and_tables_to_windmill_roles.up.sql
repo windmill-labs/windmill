@@ -1,8 +1,8 @@
 -- Re-runs the grants of 20250205131523. Everything in that migration sits in
 -- one DO block whose first statement is LOCK TABLE pg_catalog.pg_roles, which
 -- a non-superuser cannot take; on managed Postgres (RDS, Cloud SQL) it raises
--- and the block's EXCEPTION WHEN OTHERS handler downgrades the failure to a
--- NOTICE, so every GRANT after it is skipped.
+-- and the block's single EXCEPTION WHEN OTHERS handler downgrades the failure
+-- to a NOTICE, so every GRANT after it is skipped.
 --
 -- Most tables survive that anyway, because 20221105003256 grants them outside
 -- any such block. What is lost is the ALTER DEFAULT PRIVILEGES, which is what
@@ -15,37 +15,48 @@
 -- table by hand; re-establishing the default privileges under the current
 -- runner closes it for future tables instead.
 --
--- We grant per-object over only the tables and sequences the runner owns,
--- instead of GRANT ... ON ALL TABLES IN SCHEMA. The blanket form raises a hard
--- "permission denied for table X" -- aborting the whole upgrade, since there is
--- deliberately no catch-all handler -- the moment the schema holds one object
--- the runner does not own, e.g. a superuser-installed extension (PostGIS's
--- spatial_ref_sys) or a co-located application table. 20250205131523 tolerated
--- that only by swallowing every error. Owning the object is exactly the
--- condition under which the GRANT can succeed, so filtering to owned objects
--- skips what would fail (Windmill's own tables are all owned by the runner)
--- rather than hiding it. windmill_user and windmill_admin are guaranteed to
--- exist here: 20221105003256 grants to both outside any handler, so any
--- database that reached this migration already has them.
+-- This migration must never abort an upgrade, so every grant is guarded
+-- individually. That is the opposite of 20250205131523's single block-wide
+-- WHEN OTHERS, whose flaw was granularity, not the mere presence of a handler:
+-- one early failure there silently skipped every remaining grant. Here each
+-- grant that cannot be applied is isolated and re-raised as a named WARNING, so
+-- the rest still run and the reason is visible in the migration log. The known
+-- failure modes this absorbs:
+--   * an object the runner does not own -- a superuser-installed extension
+--     (PostGIS's spatial_ref_sys) or a co-located application table. The loops
+--     already filter to owned objects so these are skipped without even a
+--     warning; the guard is the backstop.
+--   * an object dropped by another session between the catalog scan and the
+--     GRANT (only possible when something outside the migration shares the DB).
+--   * USAGE on a schema the runner does not own (needed only where USAGE was
+--     revoked from PUBLIC, else the roles resolve no table and queries fail
+--     with "relation does not exist"); such a deployment needs
+--     init-db-as-superuser.sql run by a superuser.
+-- windmill_user and windmill_admin are guaranteed to exist: 20221105003256
+-- grants to both outside any handler, so any database that reached this
+-- migration already has them.
 DO
 $do$
 DECLARE
     target_schema TEXT := current_schema();
     obj TEXT;
 BEGIN
-    -- USAGE on the schema, needed only where it was revoked from PUBLIC. A
-    -- runner that does not own the schema cannot grant it, but Postgres reports
-    -- that as a "no privileges were granted" warning, not an error, so it
-    -- cannot abort the upgrade; that deployment needs init-db-as-superuser.sql
-    -- run by a superuser.
-    EXECUTE format('GRANT USAGE ON SCHEMA %I TO windmill_user, windmill_admin', target_schema);
+    BEGIN
+        EXECUTE format('GRANT USAGE ON SCHEMA %I TO windmill_user, windmill_admin', target_schema);
+    EXCEPTION WHEN OTHERS THEN
+        RAISE WARNING 'skipped GRANT USAGE on schema %: %', target_schema, SQLERRM;
+    END;
 
     FOR obj IN
         SELECT format('%I.%I', schemaname, tablename)
         FROM pg_tables
         WHERE schemaname = target_schema AND tableowner = current_user
     LOOP
-        EXECUTE format('GRANT ALL ON TABLE %s TO windmill_user, windmill_admin', obj);
+        BEGIN
+            EXECUTE format('GRANT ALL ON TABLE %s TO windmill_user, windmill_admin', obj);
+        EXCEPTION WHEN OTHERS THEN
+            RAISE WARNING 'skipped GRANT on table %: %', obj, SQLERRM;
+        END;
     END LOOP;
 
     FOR obj IN
@@ -53,12 +64,20 @@ BEGIN
         FROM pg_sequences
         WHERE schemaname = target_schema AND sequenceowner = current_user
     LOOP
-        EXECUTE format('GRANT ALL ON SEQUENCE %s TO windmill_user, windmill_admin', obj);
+        BEGIN
+            EXECUTE format('GRANT ALL ON SEQUENCE %s TO windmill_user, windmill_admin', obj);
+        EXCEPTION WHEN OTHERS THEN
+            RAISE WARNING 'skipped GRANT on sequence %: %', obj, SQLERRM;
+        END;
     END LOOP;
 
     -- Applies to future objects created by the runner (the FOR ROLE default),
     -- so it cannot conflict with objects owned by anyone else.
-    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT ALL ON TABLES TO windmill_user, windmill_admin', target_schema);
-    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT ALL ON SEQUENCES TO windmill_user, windmill_admin', target_schema);
+    BEGIN
+        EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT ALL ON TABLES TO windmill_user, windmill_admin', target_schema);
+        EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT ALL ON SEQUENCES TO windmill_user, windmill_admin', target_schema);
+    EXCEPTION WHEN OTHERS THEN
+        RAISE WARNING 'skipped ALTER DEFAULT PRIVILEGES in schema %: %', target_schema, SQLERRM;
+    END;
 END
 $do$;
