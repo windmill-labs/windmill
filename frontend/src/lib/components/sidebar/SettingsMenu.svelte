@@ -29,7 +29,7 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import DeleteForkedWorkspaceModal from './DeleteForkedWorkspaceModal.svelte'
-	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
+	import { workspaceIsFork, isForkOwner } from '$lib/utils/workspaceHierarchy'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import DiscordIcon from '../icons/brands/Discord.svelte'
 	import MenuLink from './MenuLink.svelte'
@@ -69,7 +69,9 @@
 	} = $props()
 
 	const currentWs = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
-	const canManageWorkspace = $derived($userStore?.is_admin || $superadmin)
+	const canManageWorkspace = $derived(
+		$userStore?.is_admin || $superadmin || isForkOwner(currentWs, $userStore?.email)
+	)
 	// Fork/dev workspaces are detected by their parent link, not the `wm-fork-` id prefix.
 	const currentWsIsFork = $derived(workspaceIsFork($workspaceStore, $userWorkspaces ?? []))
 
