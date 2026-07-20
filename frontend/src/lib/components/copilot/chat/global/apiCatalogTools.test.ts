@@ -70,6 +70,13 @@ const CATALOG = [
 		method: 'GET'
 	},
 	{
+		name: 'getScriptByPath',
+		description: 'Get script by path',
+		instructions: '',
+		path: '/w/{workspace}/scripts/get/p/{path}',
+		method: 'GET'
+	},
+	{
 		name: 'deleteScriptByHash',
 		description: 'Delete a script by hash',
 		instructions: '',
@@ -169,6 +176,22 @@ describe('call_api_get', () => {
 		expect(byHash.error).toContain('delete_workspace_item')
 		const search = await run('search_api_endpoints', { query: 'delete script' })
 		expect(search.matches.map((m: any) => m.name)).not.toContain('deleteScriptByHash')
+	})
+
+	it('refuses draft-blind item reads and lists, pointing at the draft-aware tools', async () => {
+		for (const name of ['getScriptByPath', 'getResource', 'getSchedule']) {
+			const result = await run('call_api_get', { name })
+			expect(result.success).toBe(false)
+			expect(result.error).toContain('read_workspace_item')
+		}
+		for (const name of ['listScripts', 'listFlows', 'listResource', 'listSchedules']) {
+			const result = await run('call_api_get', { name })
+			expect(result.success).toBe(false)
+			expect(result.error).toContain('list_workspace_items')
+		}
+
+		const search = await run('search_api_endpoints', { query: 'get script' })
+		expect(search.matches.map((m: any) => m.name)).not.toContain('getScriptByPath')
 	})
 
 	it('refuses variable reads so variable values never reach the model', async () => {

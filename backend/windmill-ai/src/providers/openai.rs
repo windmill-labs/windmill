@@ -518,9 +518,7 @@ impl QueryBuilder for OpenAIQueryBuilder {
         parser.parse_events(response).await?;
 
         // Convert OpenAI Responses usage to TokenUsage
-        let usage = parser
-            .usage
-            .map(|u| TokenUsage::new(u.input_tokens, u.output_tokens, u.total_tokens));
+        let usage = parser.usage.map(|u| u.to_token_usage());
 
         Ok(ParsedResponse::Text {
             content: if parser.accumulated_content.is_empty() {
