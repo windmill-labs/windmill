@@ -118,7 +118,11 @@ import {
 	workspaceStore
 } from '$lib/stores'
 import { get } from 'svelte/store'
-import { deployDraft as deployDraftToWorkspace, getDraftDiffValues } from '$lib/utils_draft_deploy'
+import {
+	canonicalDraftSideValue,
+	deployDraft as deployDraftToWorkspace,
+	getDraftDiffValues
+} from '$lib/utils_draft_deploy'
 import { draftDeployedPatch } from './draftDiff'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
@@ -151,11 +155,13 @@ import {
 	listGlobalDrafts,
 	persistGlobalDraft,
 	readGlobalDraftValue,
+	readLocalDraftCell,
 	saveGlobalAppDraft,
 	setEphemeralSecretVariableDraftValue,
 	type DraftPersistResult
 } from './userDraftAdapter'
 import {
+	computeDiffParts,
 	expireWorkspaceDiffList,
 	getForkComparisonStatus,
 	getForkDiffIndex,
@@ -5177,44 +5183,82 @@ async function diffWorkspaceItem(
 	const flushQuery = { workspace, itemKind, path: storagePath }
 	await UserDraftDbSyncer.flush(flushQuery, { honorAutosaveToggle: true })
 	expireWorkspaceDiffList(workspace)
-	const flushCaveat = UserDraftDbSyncer.getConflict(flushQuery).conflict
+	let flushCaveat = UserDraftDbSyncer.getConflict(flushQuery).conflict
 		? 'Warning: the draft has a conflicting newer version on the server; this diff shows the persisted draft, which may not include the latest editor edits.\n\n'
 		: ''
+
+	// When the latest edits never reached the server (auto-save off, or the
+	// save failed), the persisted state is stale: diff against the in-memory
+	// editor value instead — read-only, nothing gets persisted — and bypass
+	// the snapshot cache, which must only ever hold persisted state.
+	const flushSkipped =
+		UserDraftDbSyncer.hasUnsavedDisabledChanges(flushQuery) ||
+		UserDraftDbSyncer.getState(flushQuery).state === 'failed'
+	const localValue = flushSkipped
+		? readLocalDraftCell(workspace, type, path, triggerKind)
+		: undefined
 
 	let patch: string
 	let noDeployed: boolean
 	let files: Record<string, DiffFileView> | undefined
-	const entry = await readWorkspaceDiffEntry(workspace, itemKind, storagePath)
-	if (entry) {
-		if (entry.status === 'error') {
-			throw new Error(`Could not diff ${type} "${path}": ${entry.errorMessage}`)
-		}
-		patch = entry.patch ?? ''
-		noDeployed = entry.noDeployed === true
-		files = entry.files
-	} else {
-		// Not in the draft listing — either no draft at all (deployed is current),
-		// nothing at the path, or a listing/overlay disagreement; ask the overlay.
-		let values: Awaited<ReturnType<typeof getDraftDiffValues>>
+	if (localValue !== undefined) {
+		let deployedSide: unknown
 		try {
-			values = await getDraftDiffValues(itemKind, storagePath, workspace)
+			const values = await getDraftDiffValues(itemKind, storagePath, workspace)
+			noDeployed = values.noDeployed
+			deployedSide = noDeployed ? undefined : values.deployed
 		} catch (e) {
-			if ((e as { status?: number } | null | undefined)?.status === 404) {
-				throw new Error(
-					`No ${type} found at "${path}" — it has neither a deployed version nor a draft.`
-				)
+			if ((e as { status?: number } | null | undefined)?.status !== 404) throw e
+			// Editor-only draft that was never persisted at all.
+			noDeployed = true
+		}
+		const parts = computeDiffParts(
+			deployedSide,
+			canonicalDraftSideValue(itemKind, localValue),
+			'deployed',
+			'draft'
+		)
+		patch = parts.patch
+		files = parts.files
+		flushCaveat +=
+			'Note: this diff includes unsaved editor changes that are NOT saved to the server draft yet (auto-save is off or the last save failed).\n\n'
+	} else if (flushSkipped) {
+		throw new Error(
+			`The latest editor changes for ${type} "${path}" could not be saved and are not readable; retry once the editor saves.`
+		)
+	} else {
+		const entry = await readWorkspaceDiffEntry(workspace, itemKind, storagePath)
+		if (entry) {
+			if (entry.status === 'error') {
+				throw new Error(`Could not diff ${type} "${path}": ${entry.errorMessage}`)
 			}
-			throw e
+			patch = entry.patch ?? ''
+			noDeployed = entry.noDeployed === true
+			files = entry.files
+		} else {
+			// Not in the draft listing — either no draft at all (deployed is current),
+			// nothing at the path, or a listing/overlay disagreement; ask the overlay.
+			let values: Awaited<ReturnType<typeof getDraftDiffValues>>
+			try {
+				values = await getDraftDiffValues(itemKind, storagePath, workspace)
+			} catch (e) {
+				if ((e as { status?: number } | null | undefined)?.status === 404) {
+					throw new Error(
+						`No ${type} found at "${path}" — it has neither a deployed version nor a draft.`
+					)
+				}
+				throw e
+			}
+			const { deployed, draft, hasDraft, noDeployed: fetchedNoDeployed } = values
+			if (!fetchedNoDeployed && !hasDraft) {
+				const message = `No draft exists for ${type} "${path}" — the deployed version is current.`
+				toolCallbacks.setToolStatus(toolId, { content: message })
+				return message
+			}
+			// A never-deployed item diffs against nothing: the whole draft reads as added.
+			noDeployed = fetchedNoDeployed
+			patch = draftDeployedPatch(noDeployed ? undefined : deployed, draft)
 		}
-		const { deployed, draft, hasDraft, noDeployed: fetchedNoDeployed } = values
-		if (!fetchedNoDeployed && !hasDraft) {
-			const message = `No draft exists for ${type} "${path}" — the deployed version is current.`
-			toolCallbacks.setToolStatus(toolId, { content: message })
-			return message
-		}
-		// A never-deployed item diffs against nothing: the whole draft reads as added.
-		noDeployed = fetchedNoDeployed
-		patch = draftDeployedPatch(noDeployed ? undefined : deployed, draft)
 	}
 
 	const changedFileCount = files ? Object.keys(files).length : 0
@@ -5335,7 +5379,7 @@ async function diffWorkspaceIndex(
 	toolCallbacks.setToolStatus(toolId, { content: 'Computing workspace draft diff...' })
 	// Parked editor autosaves may not have a server row yet (a brand-new draft
 	// only appears in the listing after its first flush).
-	await flushGlobalDraftSaves(workspace)
+	const { unflushedPaths } = await flushGlobalDraftSaves(workspace)
 	expireWorkspaceDiffList(workspace)
 	const index = await getWorkspaceDiffIndex(workspace)
 	let entries = index.entries
@@ -5362,6 +5406,11 @@ async function diffWorkspaceIndex(
 	if (index.otherUsersDraftCount > 0) {
 		notes.push(
 			`${index.otherUsersDraftCount} draft(s) by other users exist in this workspace (not shown — drafts are per-user).`
+		)
+	}
+	if (unflushedPaths.length > 0) {
+		notes.push(
+			`Warning: unsaved editor changes on ${unflushedPaths.join(', ')} are NOT reflected here (auto-save is off or a save failed). Read the item with type+path to include them.`
 		)
 	}
 	const summaryLine =
@@ -5613,6 +5662,7 @@ async function diffSearch(
 	toolCallbacks.setToolStatus(toolId, { content: `Searching diffs for "${query}"...` })
 
 	const units: DiffSearchUnit[] = []
+	let unflushedNote = ''
 	if (args.against === 'parent_workspace') {
 		const parent = forkParentOrThrow(workspace)
 		const index = await getForkDiffIndex(workspace, parent, { materializeAll: true })
@@ -5623,8 +5673,11 @@ async function diffSearch(
 		}
 		collectDiffSearchUnits(index.entries, units)
 	} else {
-		await flushGlobalDraftSaves(workspace)
+		const { unflushedPaths } = await flushGlobalDraftSaves(workspace)
 		expireWorkspaceDiffList(workspace)
+		if (unflushedPaths.length > 0) {
+			unflushedNote = `\nWarning: unsaved editor changes on ${unflushedPaths.join(', ')} were not searched (auto-save is off or a save failed).`
+		}
 		const index = await getWorkspaceDiffIndex(workspace, { materializeAll: true })
 		collectDiffSearchUnits(index.entries, units)
 	}
@@ -5665,9 +5718,11 @@ async function diffSearch(
 
 	if (totalMatchCount === 0) {
 		toolCallbacks.setToolStatus(toolId, { content: `No diff matches for "${query}"` })
-		return `No changed lines match. Try a broader or differently-spelled term${
-			args.file_glob ? ', or drop the file_glob' : ''
-		}.`
+		return (
+			`No changed lines match. Try a broader or differently-spelled term${
+				args.file_glob ? ', or drop the file_glob' : ''
+			}.` + unflushedNote
+		)
 	}
 
 	const header = `${totalMatchCount} changed line${totalMatchCount === 1 ? '' : 's'} match in ${subjectCount} diff${
@@ -5705,7 +5760,7 @@ async function diffSearch(
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Found ${totalMatchCount} matching changed line${totalMatchCount === 1 ? '' : 's'}`
 	})
-	return out.join('\n')
+	return out.join('\n') + unflushedNote
 }
 
 // Flush a draft's pending editor autosave, then verify it actually landed before

@@ -169,6 +169,39 @@ function computeAppSplit(
 	}
 }
 
+export interface DiffParts {
+	/** Whole-value patch, or the config-only patch for a multi-file app. */
+	patch: string
+	files?: Record<string, DiffFileView>
+	lineCount: number
+	hasChanges: boolean
+}
+
+/** Patch parts for a before/after value pair: per-file text patches for
+ * multi-file apps, one whole-value YAML patch otherwise. */
+export function computeDiffParts(
+	before: unknown,
+	after: unknown,
+	beforeLabel: string,
+	afterLabel: string
+): DiffParts {
+	const split = computeAppSplit(before, after, beforeLabel, afterLabel)
+	if (split) {
+		return {
+			patch: split.configPatch,
+			files: split.files,
+			lineCount: split.totalLines,
+			hasChanges: split.hasChanges
+		}
+	}
+	const patch = yamlValuePatch(before, after, beforeLabel, afterLabel)
+	return {
+		patch,
+		lineCount: patch === '' ? 0 : patch.split('\n').length,
+		hasChanges: patch !== ''
+	}
+}
+
 interface CacheEntry {
 	row: DraftItem
 	type?: WorkspaceItemType
@@ -291,25 +324,14 @@ async function materialize(workspace: string, entry: CacheEntry, maxAgeMs: numbe
 				workspace
 			)
 			const before = noDeployed ? undefined : deployed
-			const split = computeAppSplit(before, draft, 'deployed', 'draft')
-			if (split) {
-				entry.materialized = {
-					status: noDeployed ? 'new' : split.hasChanges ? 'modified' : 'unchanged',
-					patch: split.configPatch,
-					lineCount: split.totalLines,
-					files: split.files,
-					noDeployed,
-					fetchedAt: Date.now()
-				}
-			} else {
-				const patch = yamlValuePatch(before, draft, 'deployed', 'draft')
-				entry.materialized = {
-					status: noDeployed ? 'new' : patch === '' ? 'unchanged' : 'modified',
-					patch,
-					lineCount: patch === '' ? 0 : patch.split('\n').length,
-					noDeployed,
-					fetchedAt: Date.now()
-				}
+			const parts = computeDiffParts(before, draft, 'deployed', 'draft')
+			entry.materialized = {
+				status: noDeployed ? 'new' : parts.hasChanges ? 'modified' : 'unchanged',
+				patch: parts.patch,
+				lineCount: parts.lineCount,
+				files: parts.files,
+				noDeployed,
+				fetchedAt: Date.now()
 			}
 		} catch (e) {
 			entry.materialized = {
@@ -729,25 +751,14 @@ async function materializeFork(
 				: !entry.existsInParent
 					? 'only_in_fork'
 					: undefined
-			const split = computeAppSplit(parentValue, forkValue, 'parent', 'fork')
-			if (split) {
-				entry.materialized = {
-					status: oneSidedStatus ?? (split.hasChanges ? 'modified' : 'unchanged'),
-					patch: split.configPatch,
-					lineCount: split.totalLines,
-					files: split.files,
-					secretMasked,
-					fetchedAt: Date.now()
-				}
-			} else {
-				const patch = yamlValuePatch(parentValue, forkValue, 'parent', 'fork')
-				entry.materialized = {
-					status: oneSidedStatus ?? (patch === '' ? 'unchanged' : 'modified'),
-					patch,
-					lineCount: patch === '' ? 0 : patch.split('\n').length,
-					secretMasked,
-					fetchedAt: Date.now()
-				}
+			const parts = computeDiffParts(parentValue, forkValue, 'parent', 'fork')
+			entry.materialized = {
+				status: oneSidedStatus ?? (parts.hasChanges ? 'modified' : 'unchanged'),
+				patch: parts.patch,
+				lineCount: parts.lineCount,
+				files: parts.files,
+				secretMasked,
+				fetchedAt: Date.now()
 			}
 		} catch (e) {
 			entry.materialized = {

@@ -158,6 +158,20 @@ function stripScriptRowRuntime(row: any): Record<string, unknown> {
 	return Object.fromEntries(Object.entries(row).filter(([k]) => !SCRIPT_ROW_RUNTIME_IGNORE.has(k)))
 }
 
+/** Canonicalize a raw draft value onto the same shape `getDraftDiffValues`
+ * yields for its draft side, so a value read from an in-memory editor cell
+ * diffs cleanly against a deployed side (and compares equal to its own
+ * persisted form instead of differing on stripped fields). */
+export function canonicalDraftSideValue(kind: DraftKind, value: unknown): unknown {
+	if (kind === 'script') return stripScriptRowRuntime(value)
+	if (kind === 'raw_app') return canonicalRawAppDiffValue((value ?? {}) as Record<string, any>)
+	if (kind === 'flow' && value !== null && typeof value === 'object') {
+		const { version_id: _v, ...rest } = value as Record<string, unknown>
+		return rest
+	}
+	return value
+}
+
 // Schedule & trigger rows drop the same runtime/server-managed fields as the
 // fork/compare path so the diff shows only config changes — reuse that set
 // (the authoritative mirror of the backend `TRIGGER_COMPARE_IGNORE`).

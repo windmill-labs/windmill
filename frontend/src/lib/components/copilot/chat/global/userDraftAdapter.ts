@@ -642,20 +642,50 @@ export async function deleteGlobalDraft(
 	invalidateWorkspaceDrafts(workspace)
 }
 
+/** Local in-memory draft value for an item (the open editor's cell), without
+ * any backend fallback. This is the freshest state when a save is parked
+ * (auto-save off) or failed — read-only callers use it instead of persisting. */
+export function readLocalDraftCell(
+	workspace: string,
+	type: WorkspaceItemType,
+	path: string,
+	triggerKind?: TriggerKind
+): unknown | undefined {
+	const itemKind = itemKindFor(type, triggerKind)
+	if (!itemKind) return undefined
+	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
+	return UserDraft.get(itemKind, storagePath, { workspace })
+}
+
 /** Flush every parked local draft autosave for the workspace so the server
  * listing reflects the latest edits — a brand-new editor draft has no server
  * row until its first flush. No-ops per key when nothing is pending.
  * Honors the auto-save toggle: with auto-save off, parked editor edits stay
- * parked — a read-only caller must not persist what the user chose not to. */
-export async function flushGlobalDraftSaves(workspace: string): Promise<void> {
+ * parked — a read-only caller must not persist what the user chose not to.
+ * `unflushedPaths` lists items whose latest edits did NOT reach the server
+ * (toggle-parked or failed save), so callers can say the listing excludes them. */
+export async function flushGlobalDraftSaves(
+	workspace: string
+): Promise<{ unflushedPaths: string[] }> {
+	const drafts = UserDraft.list({ workspace, itemKinds: [...GLOBAL_DRAFT_KINDS] })
 	await Promise.all(
-		UserDraft.list({ workspace, itemKinds: [...GLOBAL_DRAFT_KINDS] }).map((draft) =>
+		drafts.map((draft) =>
 			UserDraftDbSyncer.flush(
 				{ workspace, itemKind: draft.itemKind, path: draft.path },
 				{ honorAutosaveToggle: true }
 			)
 		)
 	)
+	const unflushedPaths = drafts
+		.filter((draft) => {
+			const query = { workspace, itemKind: draft.itemKind, path: draft.path }
+			return (
+				UserDraftDbSyncer.hasUnsavedDisabledChanges(query) ||
+				UserDraftDbSyncer.getState(query).state === 'failed'
+			)
+		})
+		.map((draft) => draft.path)
+	return { unflushedPaths }
 }
 
 export function clearGlobalDrafts(workspace: string): void {
