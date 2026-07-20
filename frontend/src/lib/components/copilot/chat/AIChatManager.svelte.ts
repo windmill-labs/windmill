@@ -2012,6 +2012,13 @@ export class AIChatManager {
 	// the full conversation budget and overflow the persisted transcript.
 	#composerStaged = new SvelteMap<string, { editingIndex: number | null; bytes: number }>()
 
+	// Reservation key held by an in-flight edit/retry resend. The edit box unmounts
+	// (dropping its stage) the moment the user submits, but restartGeneration then
+	// awaits registry sync + beforeSend before the optimistic message lands in the
+	// transcript. Reserving the resent files here bridges that gap so the bottom
+	// composer can't attach into the temporary headroom and overflow the cap.
+	static #RESEND_KEY = 'resend-reservation'
+
 	setComposerStaged(key: string, editingIndex: number | null, bytes: number) {
 		this.#composerStaged.set(key, { editingIndex, bytes })
 	}
@@ -2412,6 +2419,9 @@ export class AIChatManager {
 				'Switch back to the chat mode to send attachments. Your message was kept.',
 				true
 			)
+			// Abandoned before install; the files go back to the composer, which
+			// re-reserves them, so release any resend reservation held for this send.
+			this.clearComposerStaged(AIChatManager.#RESEND_KEY)
 			if (!options.queued) {
 				this.aiChatInput?.restoreInstructions(
 					this.instructions,
@@ -2468,6 +2478,10 @@ export class AIChatManager {
 				index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
 			}
 		]
+		// The bubble now carries the (possibly resent) files, so the transcript
+		// accounts them; release any resend reservation that bridged the gap. A
+		// beforeSend rollback below restores them to the composer, which re-reserves.
+		this.clearComposerStaged(AIChatManager.#RESEND_KEY)
 		// Undo the optimistic bubble + loading/label. Shared by the beforeSend-failure and
 		// pre-flight-cancel paths below; callers put the message back in the composer.
 		const rollbackOptimisticSend = () => {
@@ -3159,6 +3173,17 @@ export class AIChatManager {
 		// Read while both arrays are intact: storedImages pairs the API message with
 		// its transcript entry, and the truncations below drop them.
 		const sentImages = this.storedImages(displayMessageIndex)
+
+		// Reserve the resent files' bytes across the gap between the edit box
+		// unmounting and the optimistic message landing (sendRequest clears this
+		// key once it installs the bubble). Set before the slice below removes the
+		// message from the transcript, so those bytes are always accounted.
+		const resentFiles = files ?? userMessage.files ?? []
+		this.setComposerStaged(
+			AIChatManager.#RESEND_KEY,
+			null,
+			resentFiles.reduce((sum, f) => sum + textByteLength(f.content), 0)
+		)
 
 		// Remove all messages including and after the specified user message
 		this.displayMessages = this.displayMessages.slice(0, displayMessageIndex)

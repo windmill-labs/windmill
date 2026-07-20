@@ -1183,6 +1183,37 @@ describe('AIChatManager queued messages', () => {
 		expect(manager.attachmentBytesExcluding('main')).toBe(300 + 500)
 	})
 
+	// The edit box unmounts (dropping its stage) the instant the user submits, but
+	// restartGeneration then awaits registry sync + upkeep before the resent bubble
+	// lands in the transcript. During that gap the resent files must stay reserved,
+	// or the bottom composer could attach into the temporary headroom and overflow.
+	it('reserves resent files across the restartGeneration gap', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		const fileRow = { name: 'a.md', content: 'X'.repeat(3000) }
+		manager.displayMessages = [{ role: 'user', content: 'orig', files: [fileRow], index: 0 }] as any
+		manager.messages = [{ role: 'user', content: 'orig' }] as any
+
+		// refreshFolders runs inside sendRequest AFTER the edited message was sliced
+		// out but BEFORE the resent bubble is installed — the one moment the gap is
+		// open. The reservation must cover the resent bytes there.
+		let observed: number | undefined
+		vi.spyOn(manager.attachedFiles, 'refreshFolders').mockImplementation(async () => {
+			observed = manager.attachmentBytesExcluding('probe')
+		})
+
+		await manager.restartGeneration(0)
+		// Drain the resend turn fully (its runChatLoop resolves immediately) so no
+		// async work bleeds into a later test's shared-mock call counts.
+		for (let i = 0; i < 50; i++) await new Promise((r) => setTimeout(r, 0))
+
+		expect(observed).toBe(3000)
+		// Once the turn installs the bubble, the reservation is released — the
+		// transcript now accounts those bytes on its own.
+		expect(manager.attachmentBytesExcluding('probe')).toBe(3000)
+	})
+
 	// An edit is not committed until send, so cancelling it returns the message's
 	// persisted attachments. Charging only the (possibly emptied) edit stage would
 	// hand the bottom composer headroom that vanishes on cancel — remove the files
