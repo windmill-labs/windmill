@@ -201,10 +201,10 @@ export function buildAttachedFilesRoster(store: AttachedFilesStore): string {
 			lines.push(...folder.files.map(rosterLine))
 		}
 	}
+	// Message-attached files are deliberately NOT listed here: their reference
+	// lives inside the message that carried them (or the compaction summary),
+	// exactly like DOM picks — the roster only advertises session-wide links.
 	lines.push(...store.standalone.map(rosterLine))
-	// Files attached to individual messages are readable through the same tools;
-	// list them so the model knows they exist beyond the turn they arrived on.
-	lines.push(...store.messageAttached.map(rosterLine))
 	if (lines.length === 0) return ''
 	return [
 		'## Attached files',

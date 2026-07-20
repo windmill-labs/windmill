@@ -574,6 +574,9 @@ export type AssistantDisplayMessage = BaseDisplayMessage & {
 export type SummaryDisplayMessage = {
 	role: 'summary'
 	content: string
+	// Files attached to messages the summary folded away — carried forward so
+	// they stay tool-readable (and reload-safe) after compaction.
+	files?: AttachedTextFile[]
 }
 
 export type DisplayMessage =

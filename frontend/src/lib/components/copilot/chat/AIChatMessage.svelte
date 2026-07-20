@@ -59,7 +59,7 @@
 </script>
 
 {#if message.role === 'summary'}
-	<CompactionBoundary content={message.content} />
+	<CompactionBoundary content={message.content} files={message.files} />
 {:else}
 	<div
 		class={twMerge(

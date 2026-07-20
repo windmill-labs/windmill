@@ -1101,13 +1101,33 @@ export class AIChatManager {
 				return 'empty'
 			}
 
-			this.messages = [{ role: 'user', content: buildSummaryMessageContent(formatted) }, ...tail]
+			// Files attached to folded-away messages ride the summary: the transcript
+			// is their durable home, so dropping the referencing message without
+			// carrying them would lose the attachment entirely. Names are unique
+			// across a conversation (registration suffixes collisions).
+			const carriedFiles: AttachedTextFile[] = this.displayMessages
+				.slice(0, displayKeepFrom)
+				.flatMap((m) => (m.role === 'user' || m.role === 'summary' ? (m.files ?? []) : []))
+			const filesNote =
+				carriedFiles.length > 0
+					? '\n\nThe user attached these files earlier in this conversation; they are still readable via `read_file` / `search_files`:\n' +
+						carriedFiles.map((f) => `- ${f.name}`).join('\n')
+					: ''
+
+			this.messages = [
+				{ role: 'user', content: buildSummaryMessageContent(formatted) + filesNote },
+				...tail
+			]
 
 			// Replace the summarized display prefix with the boundary marker and
 			// re-base the surviving tail's restart indices (the summary occupies
 			// slot 0, so the tail now starts at slot 1).
 			this.displayMessages = [
-				{ role: 'summary', content: formatted },
+				{
+					role: 'summary',
+					content: formatted,
+					files: carriedFiles.length > 0 ? carriedFiles : undefined
+				},
 				...this.displayMessages
 					.slice(displayKeepFrom)
 					.map((m) => (m.role === 'user' ? { ...m, index: m.index - keepFrom + 1 } : m))
@@ -1263,8 +1283,8 @@ export class AIChatManager {
 			)
 			switch (result) {
 				case 'ok':
-					// The summary replaced the transcript — prune file registrations of
-					// the folded-away messages so they stop being tool-readable.
+					// Reconcile file registrations with the compacted transcript — the
+					// summary message carries the folded-away turns' files forward.
 					await this.#syncMessageFiles()
 					await this.historyManager.saveChat(
 						this.displayMessages,
@@ -1985,7 +2005,7 @@ export class AIChatManager {
 	get messageFileBytes(): number {
 		let total = 0
 		for (const m of this.displayMessages) {
-			if (m.role === 'user' && m.files) {
+			if ((m.role === 'user' || m.role === 'summary') && m.files) {
 				for (const f of m.files) total += f.content.length
 			}
 		}
@@ -2001,7 +2021,8 @@ export class AIChatManager {
 	#syncMessageFiles = async (): Promise<void> => {
 		const wanted = new Map<string, AttachedTextFile>()
 		for (const m of this.displayMessages) {
-			if (m.role === 'user' && m.files) {
+			// Summary messages carry the files of the turns they folded away.
+			if ((m.role === 'user' || m.role === 'summary') && m.files) {
 				for (const f of m.files) wanted.set(f.name, f)
 			}
 		}
@@ -2703,8 +2724,8 @@ export class AIChatManager {
 							this.contextUsage = Math.max(0, this.contextUsage - freed)
 						}
 					}
-					// Compaction dropped display messages — prune their file
-					// registrations so removed attachments stop being tool-readable.
+					// Reconcile file registrations with the compacted transcript — the
+					// summary message carries the folded-away turns' files forward.
 					await this.#syncMessageFiles()
 					await this.historyManager.saveChat(
 						this.displayMessages,

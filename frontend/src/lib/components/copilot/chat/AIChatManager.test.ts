@@ -1812,6 +1812,30 @@ describe('AIChatManager context compaction', () => {
 		expect(manager.contextUsage).toBeUndefined()
 	})
 
+	it('carries folded-away message files on the summary', async () => {
+		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.getNonStreamingCompletion.mockResolvedValue(
+			'<analysis>s</analysis><summary>SUM</summary>'
+		)
+		const manager = new AIChatManager()
+		seedForSummary(manager)
+		const file = { name: 'notes.md', content: 'hello' }
+		manager.displayMessages = manager.displayMessages.map((m, i) =>
+			i === 0 && m.role === 'user' ? { ...m, files: [file] } : m
+		)
+
+		await manager.sendRequest()
+
+		// The summary display message carries the folded-away file, the API summary
+		// references it as still-readable, and the registry keeps its row.
+		expect(manager.displayMessages[0]).toMatchObject({ role: 'summary', files: [file] })
+		const sent = mocks.runChatLoop.mock.calls[mocks.runChatLoop.mock.calls.length - 1][0].messages
+		expect(sent[0].content).toContain('notes.md')
+		expect(sent[0].content).toContain('read_file')
+		expect(manager.attachedFiles.messageAttached.map((f) => f.name)).toEqual(['notes.md'])
+	})
+
 	// A take_screenshot follow-up is a `user` message with no display counterpart
 	// (appendPendingToolImages injects it). It must never become the tail
 	// boundary: `messages` and `displayMessages` would then be sliced at

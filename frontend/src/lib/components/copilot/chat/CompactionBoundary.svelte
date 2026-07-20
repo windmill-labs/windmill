@@ -1,8 +1,11 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { ChevronDown, ChevronRight, History } from 'lucide-svelte'
+	import ContextElementBadge from './ContextElementBadge.svelte'
+	import { createAttachedFileContextElement } from './context'
+	import type { AttachedTextFile } from './textFileUtils'
 
-	let { content }: { content: string } = $props()
+	let { content, files }: { content: string; files?: AttachedTextFile[] } = $props()
 
 	let expanded = $state(false)
 </script>
@@ -23,6 +26,18 @@
 		</Button>
 		<div class="h-px flex-1 bg-surface-selected"></div>
 	</div>
+	{#if files && files.length > 0}
+		<!-- Attachments from the summarized turns, carried across the boundary —
+		     they stay readable, so keep them visible where their messages were. -->
+		<div class="mt-1.5 flex flex-row flex-wrap items-center gap-1 justify-center">
+			{#each files as file (file.name)}
+				<ContextElementBadge
+					contextElement={createAttachedFileContextElement(file.name, file.content)}
+					compact
+				/>
+			{/each}
+		</div>
+	{/if}
 	{#if expanded}
 		<div
 			class="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap rounded-md bg-surface-secondary p-3 text-xs text-secondary"
