@@ -5,6 +5,7 @@
 	} from '$lib/components/OnBehalfOfSelector.svelte'
 	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { AlertTriangle } from 'lucide-svelte'
 
 	interface Props {
@@ -21,6 +22,8 @@
 	}
 
 	let { permissionedAs, onPermissionedAsChange, path = undefined }: Props = $props()
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	const canPreserve = $derived(
 		$userStore?.is_admin || ($userStore?.groups ?? []).includes('wm_deployers')
@@ -28,7 +31,10 @@
 
 	const myPermissionedAs = $derived($userStore?.username ? `u/${$userStore.username}` : undefined)
 
-	const folderDefault = useFolderDefaultPermissionedAs(() => path)
+	const folderDefault = useFolderDefaultPermissionedAs(
+		() => path,
+		() => wsId
+	)
 
 	let onBehalfOfChoice = $state<OnBehalfOfChoice>(undefined)
 	let customPermissionedAs = $state<string | undefined>(undefined)
@@ -66,7 +72,7 @@
 			permissionedAs !== effectivePermissionedAs
 	)
 
-	const shouldRender = $derived(!!$workspaceStore && (permissionedAs !== undefined || canPreserve))
+	const shouldRender = $derived(!!wsId && (permissionedAs !== undefined || canPreserve))
 
 	// For non-admin users editing a trigger owned by someone else: signal that
 	// permissioned_as will change to the current user (backend ignores preserve for non-admins).
@@ -93,12 +99,12 @@
 	}
 </script>
 
-{#if shouldRender && $workspaceStore}
+{#if shouldRender && wsId}
 	<div class="flex items-center gap-1.5 text-2xs text-tertiary mb-4">
 		<span>Permissioned as</span>
 		{#if canPreserve}
 			<OnBehalfOfSelector
-				targetWorkspace={$workspaceStore}
+				targetWorkspace={wsId}
 				targetValue={permissionedAs}
 				selected={onBehalfOfChoice}
 				onSelect={handleSelect}

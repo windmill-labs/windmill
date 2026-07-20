@@ -3416,6 +3416,71 @@ describe('folder tools', () => {
 	})
 })
 
+describe('session pipeline gate', () => {
+	const FLAG = 'wm_dev_session_pipelines'
+	afterEach(() => {
+		localStorage.removeItem(FLAG)
+	})
+
+	it('replaces the session prompt pipeline guidance with the alpha notice by default', () => {
+		const content = prepareGlobalSystemMessage(undefined, { previewTools: true }).content as string
+		expect(content).toContain('Data pipelines are in alpha and NOT yet available in this chat')
+		expect(content).not.toContain('call get_instructions with subject "pipeline"')
+		expect(content).not.toContain('Building a data pipeline: call open_preview')
+	})
+
+	it('restores the session pipeline guidance when the dev flag is set', () => {
+		localStorage.setItem(FLAG, '1')
+		const content = prepareGlobalSystemMessage(undefined, { previewTools: true }).content as string
+		expect(content).toContain('call get_instructions with subject "pipeline"')
+		expect(content).toContain('Building a data pipeline: call open_preview')
+		expect(content).not.toContain('Data pipelines are in alpha and NOT yet available in this chat')
+	})
+
+	it('leaves the standalone (non-session) chat pipeline guidance ungated', () => {
+		const content = prepareGlobalSystemMessage(undefined, { previewTools: false }).content as string
+		expect(content).toContain('call get_instructions with subject "pipeline"')
+		expect(content).not.toContain('Data pipelines are in alpha and NOT yet available in this chat')
+	})
+
+	it('refuses get_instructions(pipeline) in a session but not outside one', async () => {
+		const inSession = await callGlobalTool('get_instructions', { subject: 'pipeline' }, undefined, {
+			isSessionChat: true,
+			sessionId: 'session-1'
+		})
+		expect(inSession).toContain('data pipelines are in alpha')
+
+		const outsideSession = await callGlobalTool('get_instructions', { subject: 'pipeline' })
+		expect(outsideSession).not.toContain('data pipelines are in alpha')
+
+		// The eval harness passes a sessionId to standalone (non-session) chats;
+		// only the explicit isSessionChat marker may engage the gate.
+		const standaloneWithSessionId = await callGlobalTool(
+			'get_instructions',
+			{ subject: 'pipeline' },
+			undefined,
+			{ sessionId: 'eval-session' }
+		)
+		expect(standaloneWithSessionId).not.toContain('data pipelines are in alpha')
+	})
+
+	it('refuses open_preview(kind=pipeline) while gated', async () => {
+		const handler = vi.fn(() => 'opened')
+		setOpenPreviewHandler(handler)
+		try {
+			const gated = await callGlobalTool('open_preview', { kind: 'pipeline', path: 'my_folder' })
+			expect(gated).toContain('data pipelines are in alpha')
+			expect(handler).not.toHaveBeenCalled()
+
+			localStorage.setItem(FLAG, '1')
+			const opened = await callGlobalTool('open_preview', { kind: 'pipeline', path: 'my_folder' })
+			expect(opened).toBe('opened')
+		} finally {
+			setOpenPreviewHandler(undefined)
+		}
+	})
+})
+
 describe('prepareGlobalSystemMessage', () => {
 	it('keeps global chat draft instructions concise and user-facing', () => {
 		const message = prepareGlobalSystemMessage()
@@ -3691,8 +3756,27 @@ describe('session-only preview tools gating', () => {
 		expect(names).toContain('get_preview_status')
 		expect(names).toContain('get_app_runtime_logs')
 		expect(names).toContain('list_app_runs')
-		// session set is the full globalTools
-		expect(names.length).toBe(globalTools.length)
+		// The session set is the full globalTools minus capability-gated tools:
+		// this environment is not Chromium, so take_screenshot is withheld (DOM
+		// capture is only faithful on Blink).
+		expect(names).not.toContain('take_screenshot')
+		expect(names.length).toBe(globalTools.length - 1)
+	})
+
+	it('offers take_screenshot inside a session only on Chromium', () => {
+		vi.stubGlobal('navigator', {
+			userAgentData: { brands: [{ brand: 'Chromium', version: '138' }] },
+			userAgent: 'stubbed'
+		})
+		try {
+			const names = toolNames(true)
+			expect(names).toContain('take_screenshot')
+			expect(names.length).toBe(globalTools.length)
+			// still session-only, even on Chromium
+			expect(toolNames(false)).not.toContain('take_screenshot')
+		} finally {
+			vi.unstubAllGlobals()
+		}
 	})
 
 	it('mentions open_preview / get_app_runtime_logs / list_app_runs in the system prompt only when preview tools are enabled', () => {

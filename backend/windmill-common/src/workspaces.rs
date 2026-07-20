@@ -167,12 +167,12 @@ pub enum ObjectType {
     DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28786/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28790/sync-script-to-git-repo-windmill";
 
 /// Hub script that applies a repository's state back into a workspace
 /// (the repo → Windmill / "pull" direction). Same script the UI runs from
 /// `PullWorkspaceModal` with `pull: true`; the slug's `:` is percent-encoded.
-pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28787/git-sync%3A-init-repository-windmill";
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28789/git-sync%3A-init-repository-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -650,6 +650,35 @@ pub async fn fork_subtree_height(db: &crate::DB, w_id: &str) -> Result<i64> {
     .await
     .map_err(|e| Error::internal_err(format!("computing fork subtree height for {w_id}: {e:#}")))?;
     Ok(height)
+}
+
+/// Parent id of `w_id` when `email` is the creator of that fork, `None` otherwise (including for a
+/// root workspace, which has no creator in this sense).
+///
+/// The creator is recorded as `workspace.owner`, but the `usr` row they get in the fork is copied
+/// from the parent — so a forker who is not an admin of the parent is not an admin of the fork they
+/// just created either, and cannot bring anyone in to work on it. Being the creator therefore grants
+/// a narrow membership right over the fork; the callers own the exact bounds of that grant (see
+/// `add_user` in `windmill-api-workspaces`).
+///
+/// Unauthenticated helper: reads workspace hierarchy for any `w_id`, so callers must already be
+/// authorized for that workspace (or run in trusted server-side code). Takes any executor so that a
+/// caller can run it inside the transaction whose writes the grant authorizes.
+pub async fn fork_owned_by<'e, E: sqlx::Executor<'e, Database = sqlx::Postgres>>(
+    db: E,
+    w_id: &str,
+    email: &str,
+) -> Result<Option<String>> {
+    let parent = sqlx::query_scalar!(
+        "SELECT parent_workspace_id FROM workspace
+         WHERE id = $1 AND owner = $2 AND parent_workspace_id IS NOT NULL AND NOT deleted",
+        w_id,
+        email
+    )
+    .fetch_optional(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("checking fork ownership of {w_id}: {e:#}")))?;
+    Ok(parent.flatten())
 }
 
 /// Ids of every fork/dev workspace anywhere under `w_id` (excludes `w_id` itself), including live
@@ -1388,6 +1417,21 @@ pub async fn fork_ancestor_chain(db: &crate::DB, w_id: &str) -> Result<Vec<Strin
     .await
     .map_err(|e| Error::internal_err(format!("resolving fork ancestors of {w_id}: {e:#}")))?;
     FORK_ANCESTOR_CHAIN_CACHE.insert(w_id.to_string(), (chain.clone(), now + 60));
+    Ok(chain)
+}
+
+/// `w_id` followed by its fork ancestors, nearest-first: the id sequence to match a
+/// workspace-scoped rule against when the rule can extend to a fork subtree.
+///
+/// Reads lineage for any `w_id` with no authorization check, like [`fork_ancestor_chain`], so the
+/// caller must already be authorized for `w_id`: routes that take it from the path get that from
+/// `ApiAuthed`, but a caller-supplied id must be membership-checked first. Otherwise even using
+/// the chain only for a scoping decision discloses whether an arbitrary workspace descends from
+/// one the rule names.
+pub async fn workspace_with_fork_ancestors(db: &crate::DB, w_id: &str) -> Result<Vec<String>> {
+    let mut chain = Vec::with_capacity(4);
+    chain.push(w_id.to_string());
+    chain.extend(fork_ancestor_chain(db, w_id).await?);
     Ok(chain)
 }
 

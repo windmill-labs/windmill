@@ -1,5 +1,59 @@
 # Changelog
 
+## [1.763.0](https://github.com/windmill-labs/windmill/compare/v1.762.2...v1.763.0) (2026-07-19)
+
+
+### Features
+
+* **ai:** gate data pipelines in sessions behind a dev flag ([#10178](https://github.com/windmill-labs/windmill/issues/10178)) ([42da20a](https://github.com/windmill-labs/windmill/commit/42da20ae9743eab2f86b8f9c261ee567f8bbb0c5))
+
+
+### Bug Fixes
+
+* **cli:** stop emitting has_on_behalf_of/has_permissioned_as: false on pull ([#10188](https://github.com/windmill-labs/windmill/issues/10188)) ([2d77e74](https://github.com/windmill-labs/windmill/commit/2d77e742077b71be192a04ed9e85d4a024dc7f91))
+
+## [1.762.2](https://github.com/windmill-labs/windmill/compare/v1.762.1...v1.762.2) (2026-07-18)
+
+
+### Bug Fixes
+
+* **scripts:** populate auto_kind from draft JSON for draft-only scripts ([#10183](https://github.com/windmill-labs/windmill/issues/10183)) ([cba5f0d](https://github.com/windmill-labs/windmill/commit/cba5f0d8a8c2261a190d0f10396a6ad6aed89366))
+
+## [1.762.1](https://github.com/windmill-labs/windmill/compare/v1.762.0...v1.762.1) (2026-07-17)
+
+
+### Bug Fixes
+
+* **schedules:** stop disabling schedules on transient push errors ([#10179](https://github.com/windmill-labs/windmill/issues/10179)) ([c82056c](https://github.com/windmill-labs/windmill/commit/c82056cfde93ab0e26cf82aa4f7650c060565542))
+* **worker:** gate ansible socket-dir name check to unix ([#10180](https://github.com/windmill-labs/windmill/issues/10180)) ([203f6c6](https://github.com/windmill-labs/windmill/commit/203f6c69dd24fc055a4bf604315aa757f35d0565))
+
+## [1.762.0](https://github.com/windmill-labs/windmill/compare/v1.761.0...v1.762.0) (2026-07-17)
+
+
+### Features
+
+* **ai-chat:** image attachments and agent raw-app screenshots ([#10130](https://github.com/windmill-labs/windmill/issues/10130)) ([7a139ab](https://github.com/windmill-labs/windmill/commit/7a139ab23e034321554d0c85540d54251e61cc72))
+* **forks:** let a fork's creator manage developers on it without being an admin ([#10166](https://github.com/windmill-labs/windmill/issues/10166)) ([97f4477](https://github.com/windmill-labs/windmill/commit/97f44770698eb3dd9e296012360b7d9a4492e28d))
+* **otel-tracing-proxy:** trust internal endpoints with untrusted CAs ([#10139](https://github.com/windmill-labs/windmill/issues/10139)) ([396fb1c](https://github.com/windmill-labs/windmill/commit/396fb1c4752b2b93ef0ec9d0c9c6be05aa403eef))
+* **worker-tags:** add `*` fork marker to workspace-scoped custom tags ([#10177](https://github.com/windmill-labs/windmill/issues/10177)) ([2ff5a91](https://github.com/windmill-labs/windmill/commit/2ff5a918d54074bc340b6e92222e9f5bb4369ba0))
+
+
+### Bug Fixes
+
+* **ai:** unbreak session chat compaction for Anthropic models ([#10171](https://github.com/windmill-labs/windmill/issues/10171)) ([a9fc9f7](https://github.com/windmill-labs/windmill/commit/a9fc9f74b2c5b280cc087f0bfbac50112081c5e8))
+* **ansible:** keep persistent-connection socket path under the AF_UNIX limit ([#10167](https://github.com/windmill-labs/windmill/issues/10167)) ([be57dd9](https://github.com/windmill-labs/windmill/commit/be57dd91e40551ff0d6fbbeccd97e2b98589c5b9))
+* **extra:** make the extra container runnable as a non-root UID ([#10173](https://github.com/windmill-labs/windmill/issues/10173)) ([dcb9e40](https://github.com/windmill-labs/windmill/commit/dcb9e40ea237c3744611ac6e83ff5ecc6528e697))
+* **flows:** make updateFlow body path optional so AI can update flows ([#10176](https://github.com/windmill-labs/windmill/issues/10176)) ([7d2c5ce](https://github.com/windmill-labs/windmill/commit/7d2c5ceb0fb8609aa58a1e28e61ae8ce86e48208))
+* **frontend:** scope session pipeline trigger editors to the session workspace ([#10032](https://github.com/windmill-labs/windmill/issues/10032)) ([8828341](https://github.com/windmill-labs/windmill/commit/8828341a2b0912cbf44d6c6d81b4f4e30c5fe631))
+* **mcp:** apply token scopes consistently across mcp endpoint tools ([#10162](https://github.com/windmill-labs/windmill/issues/10162)) ([ae3d9ce](https://github.com/windmill-labs/windmill/commit/ae3d9ce2c031beeafc4e8156e0c85f163647af0f))
+* parse all names in grouped go param declarations ([#10165](https://github.com/windmill-labs/windmill/issues/10165)) ([d0aa7dc](https://github.com/windmill-labs/windmill/commit/d0aa7dca13aedfec90b7e023954cc824dafa3d34))
+* **schedules:** re-arm enabled schedules left with no queued occurrence ([#10174](https://github.com/windmill-labs/windmill/issues/10174)) ([9762089](https://github.com/windmill-labs/windmill/commit/9762089fcbdb33dbf453d22342661e5857b2ad7e))
+
+
+### Performance Improvements
+
+* lazy-load session preview editor views for snappy AI sessions switch ([#10172](https://github.com/windmill-labs/windmill/issues/10172)) ([1edee8a](https://github.com/windmill-labs/windmill/commit/1edee8aa34503d2892c1ef7b1deabf99e4b528b4))
+
 ## [1.761.0](https://github.com/windmill-labs/windmill/compare/v1.760.1...v1.761.0) (2026-07-16)
 
 

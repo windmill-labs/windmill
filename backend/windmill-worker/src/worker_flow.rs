@@ -108,17 +108,6 @@ lazy_static::lazy_static! {
         quick_cache::sync::Cache::new(1024);
 }
 
-#[derive(Debug)]
-pub struct SchedulePushZombieError(pub String);
-
-impl std::fmt::Display for SchedulePushZombieError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl std::error::Error for SchedulePushZombieError {}
-
 /// Helper function to write itered data to separate table
 /// Returns None if data was written to separate table, Some(itered) if it should be stored in JSONB
 async fn write_itered_to_db(
@@ -2913,38 +2902,46 @@ pub async fn handle_flow(
             .sleep(tokio::time::sleep)
             .await;
 
-            // Non-retryable errors (QuotaExceeded, NotFound) are handled inside
-            // try_schedule_next_job (schedule disabled, returns None), so they never
-            // reach here. This handles only transient errors after retry exhaustion.
             if let Err(err) = schedule_push_result {
-                tracing::error!(
-                    "Could not push next scheduled job for {} after retries: {err}. Disabling schedule.",
-                    schedule.path
-                );
-                if let Err(disable_err) = sqlx::query!(
-                    "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
-                    err.to_string(),
-                    &flow_job.workspace_id,
-                    &schedule.path
-                )
-                .execute(db)
-                .await
-                {
+                if matches!(err, Error::QuotaExceeded(_) | Error::NotFound(_)) {
+                    // try_schedule_next_job disables on these, so reaching here means
+                    // its own disable write failed. Retry it: rearm_schedule turns
+                    // these into NoOp, so without disabling here the schedule would
+                    // stay enabled yet never run.
+                    if let Err(disable_err) = sqlx::query!(
+                        "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
+                        err.to_string(),
+                        &flow_job.workspace_id,
+                        &schedule.path
+                    )
+                    .execute(db)
+                    .await
+                    {
+                        report_error_to_workspace_handler_or_critical_side_channel(
+                            &mini_job,
+                            db,
+                            format!(
+                                "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
+                                schedule.path,
+                            ),
+                        )
+                        .await;
+                    }
+                } else {
+                    // Transient error (DB contention, timeout) after retry exhaustion:
+                    // not the schedule's fault. Report it but leave the schedule
+                    // enabled; the current occurrence runs to completion and the
+                    // unarmed-schedule reconciler re-arms the next one. Do not
+                    // fail/requeue: a same-worker zombie would be canceled, losing it.
                     report_error_to_workspace_handler_or_critical_side_channel(
                         &mini_job,
                         db,
                         format!(
-                            "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
+                            "Could not push next scheduled job for {} after retries: {err}. Leaving it enabled for the unarmed-schedule reconciler to re-arm.",
                             schedule.path,
                         ),
                     )
                     .await;
-                    return Err(SchedulePushZombieError(
-                        format!(
-                            "Could not push or disable schedule {} after retries",
-                            schedule.path
-                        ),
-                    ).into());
                 }
             }
         } else {

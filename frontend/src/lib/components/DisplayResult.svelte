@@ -4,6 +4,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
 	import { copyToClipboard, parseS3Object, roughSizeOfObject } from '$lib/utils'
+	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 	import { base } from '$lib/base'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { appendViewToken } from '$lib/viewToken'
@@ -827,7 +828,7 @@
 					</div>
 				{:else if !forceJson && resultKind === 'png'}
 					<div class="h-full">
-						<img
+						<ExpandableImage
 							alt="png rendered"
 							class="w-auto h-full"
 							src="data:image/png;base64,{contentOrRootString(result.png)}"
@@ -835,7 +836,7 @@
 					</div>
 				{:else if !forceJson && resultKind === 'jpeg'}
 					<div class="h-full">
-						<img
+						<ExpandableImage
 							alt="jpeg rendered"
 							class="w-auto h-full"
 							src="data:image/jpeg;base64,{contentOrRootString(result.jpeg)}"
@@ -864,7 +865,7 @@
 					</div>
 				{:else if !forceJson && resultKind === 'gif'}
 					<div class="h-full">
-						<img
+						<ExpandableImage
 							alt="gif rendered"
 							class="w-auto h-full"
 							src="data:image/gif;base64,{contentOrRootString(result.gif)}"
@@ -1080,7 +1081,12 @@
 								{/key}
 							{:else if s3object?.s3?.endsWith('.png') || s3object?.s3?.endsWith('.jpeg') || s3object?.s3?.endsWith('.jpg') || s3object?.s3?.endsWith('.webp')}
 								<div class="h-full mt-2">
-									<img alt="preview rendered" class="w-auto h-full" src={s3DisplayUrl(s3object)} />
+									<ExpandableImage
+										alt="preview rendered"
+										title={s3object?.s3}
+										class="w-auto h-full"
+										src={s3DisplayUrl(s3object)}
+									/>
 								</div>
 							{:else if s3object?.s3?.endsWith('.pdf')}
 								<div class="h-96 mt-2 border">
@@ -1145,8 +1151,9 @@
 								{:else if s3object?.s3?.endsWith('.png') || s3object?.s3?.endsWith('.jpeg') || s3object?.s3?.endsWith('.jpg') || s3object?.s3?.endsWith('.webp')}
 									{#if seeS3PreviewFileFromList == s3object?.s3}
 										<div class="h-full mt-2">
-											<img
+											<ExpandableImage
 												alt="preview rendered"
+												title={s3object?.s3}
 												class="w-auto h-full"
 												src={s3DisplayUrl(s3object)}
 											/>

@@ -108,7 +108,11 @@ use windmill_common::{
 };
 #[cfg(feature = "parquet")]
 use windmill_object_store::reload_object_store_setting;
-use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
+use windmill_queue::{
+    cancel_job, get_queued_job_v2,
+    schedule::{find_unarmed_schedules, rearm_schedule, RearmOutcome},
+    SameWorkerPayload,
+};
 use windmill_worker::{
     result_processor::handle_job_error, JobCompletedSender, JobIsolationLevel,
     OtelTracingProxySettings, SameWorkerSender, WorkspaceRegistryMap, BUNFIG_INSTALL_SCOPES,
@@ -1061,12 +1065,16 @@ pub async fn reload_otel_tracing_proxy_setting(conn: &Connection) {
                 if current.enabled != new_settings.enabled
                     || current.enabled_languages != new_settings.enabled_languages
                     || current.no_proxy_hosts != new_settings.no_proxy_hosts
+                    || current.insecure_upstream_hosts != new_settings.insecure_upstream_hosts
+                    || current.upstream_ca_certs != new_settings.upstream_ca_certs
                 {
                     tracing::info!(
-                        "OTEL tracing proxy settings changed: enabled={}, languages={:?}, no_proxy_hosts={:?}",
+                        "OTEL tracing proxy settings changed: enabled={}, languages={:?}, no_proxy_hosts={:?}, insecure_upstream_hosts={:?}, upstream_ca_certs={}",
                         new_settings.enabled,
                         new_settings.enabled_languages,
                         new_settings.no_proxy_hosts,
+                        new_settings.insecure_upstream_hosts,
+                        if new_settings.upstream_ca_certs.as_deref().unwrap_or("").trim().is_empty() { "unset" } else { "set" },
                     );
                     *current = new_settings;
                 }
@@ -3282,6 +3290,15 @@ pub async fn monitor_db(
         }
     };
 
+    // run every 30 iterations (~5min at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
+    let reconcile_unarmed_schedules_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(30) {
+            if let Some(db) = conn.as_sql() {
+                reconcile_unarmed_schedules(&db).await;
+            }
+        }
+    };
+
     // Poll git-sync repositories for new commits and pull them into the
     // workspace (repo → Windmill auto-pull). Runs every 2 iterations.
     let git_auto_pull_f = async {
@@ -3345,7 +3362,255 @@ pub async fn monitor_db(
         cleanup_scheduled_job_deletions_f,
         git_auto_pull_f,
         pipeline_freshness_watchdog_f,
+        reconcile_unarmed_schedules_f,
     );
+}
+
+/// Advisory lock id ensuring only one server replica reconciles schedules at a
+/// time (adjacent to GIT_AUTO_PULL_LOCK_ID).
+const SCHEDULE_RECONCILE_LOCK_ID: i64 = 737_483_922;
+
+/// Consecutive reconciliation passes an enabled schedule must be observed with no
+/// queued occurrence before it is re-armed. The next occurrence is pushed in the
+/// same transaction that completes the previous one (or, for flows, on entry to
+/// step 0), so an unarmed schedule is normally only ever a mid-flight push or a
+/// push being retried. Requiring two passes keeps the reconciler from racing
+/// those and double-pushing an occurrence.
+const SCHEDULE_RECONCILE_STRIKES: u8 = 2;
+
+/// Most schedules re-armed in one pass, so a large first-pass backlog is drained
+/// over several passes instead of enqueuing every occurrence at once.
+const SCHEDULE_RECONCILE_MAX_PER_PASS: usize = 50;
+
+/// Consecutive failed re-arm attempts after which a schedule's persistent failure
+/// is surfaced once (its `error` recorded + a critical alert). Most re-arm
+/// failures are a transient blip that clears on the next attempt; a schedule that
+/// keeps failing has a real cause (bad stored cron/timezone/args, lapsed license)
+/// and would otherwise be enabled-yet-silently-dead.
+const SCHEDULE_REARM_ALERT_THRESHOLD: u32 = 3;
+
+/// Cap on the exponential back-off (in reconcile passes) between re-arm retries of
+/// a schedule that keeps failing. Without a back-off a permanently-failing push
+/// retries every pass forever; the delay grows 2, 4, 8 and holds at this cap, and
+/// resets the moment the schedule re-arms. Kept small so a schedule fixed out of
+/// band (the UI/API re-arms immediately) still auto-recovers within a few passes.
+const SCHEDULE_REARM_MAX_BACKOFF_PASSES: u32 = 8;
+
+/// State for a schedule that keeps failing to re-arm: paces retries and drives the
+/// one-time visibility so the loop is neither hot nor silent.
+#[derive(Default)]
+struct RearmFailureState {
+    consecutive_failures: u32,
+    /// Reconcile passes still to skip before the next attempt (exponential back-off).
+    cooldown_passes: u32,
+    /// Whether the persistent failure has already been surfaced.
+    surfaced: bool,
+}
+
+lazy_static::lazy_static! {
+    /// `(workspace_id, path)` -> consecutive passes seen with no queued occurrence.
+    /// Bounded by the number of enabled schedules; entries drop as soon as a
+    /// schedule is seen armed again.
+    static ref UNARMED_SCHEDULES: Mutex<std::collections::HashMap<(String, String), u8>> =
+        Mutex::new(std::collections::HashMap::new());
+
+    /// `(workspace_id, path)` -> back-off/visibility state for schedules that keep
+    /// failing to re-arm. Entries drop as soon as a schedule re-arms or is no
+    /// longer unarmed (armed, disabled, deleted).
+    static ref SCHEDULE_REARM_FAILURES: Mutex<std::collections::HashMap<(String, String), RearmFailureState>> =
+        Mutex::new(std::collections::HashMap::new());
+}
+
+/// Re-arm enabled schedules that have no queued occurrence.
+///
+/// Every path that completes a scheduled job is supposed to push the next
+/// occurrence atomically, but a run that dies through an abnormal path (a flow
+/// whose status update fails and is later force-completed by zombie detection,
+/// say) can skip that push and leave the schedule enabled yet dead forever. This
+/// is the backstop: without it the only recovery is a manual disable/enable.
+///
+/// Replicas each run their own passes (staggered by `rd_shift`) and each keep
+/// their own strike tally, so the scan cost is per-replica. That is deliberate:
+/// scanning inside the advisory lock is what makes a double-push impossible —
+/// whoever holds it re-reads the unarmed set, so a schedule another replica just
+/// re-armed is seen armed and its tally dropped, rather than pushed twice.
+///
+/// Not an authorization boundary: it re-arms schedules across every workspace, so
+/// this is a system caller (the monitor loop) only.
+async fn reconcile_unarmed_schedules(db: &Pool<Postgres>) {
+    // Transaction-scoped advisory lock, not session-scoped: monitor_db runs under a
+    // 600s timeout, and if it fires the whole future is dropped mid-pass. A session
+    // lock taken on a pooled connection would then ride that connection back into the
+    // pool still held, wedging reconciliation on every replica until the process
+    // restarts. An xact lock is released when its transaction ends — including the
+    // rollback a dropped `Transaction` performs — so cancellation can't strand it.
+    // The tx is held open only to own the lock; the scan and re-arm run on separate
+    // pool connections.
+    let mut lock_tx = match db.begin().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            tracing::error!("schedule reconcile: failed to begin lock tx: {e:#}");
+            return;
+        }
+    };
+    let locked: bool = match sqlx::query_scalar("SELECT pg_try_advisory_xact_lock($1)")
+        .bind(SCHEDULE_RECONCILE_LOCK_ID)
+        .fetch_one(&mut *lock_tx)
+        .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("schedule reconcile: advisory lock failed: {e:#}");
+            return;
+        }
+    };
+    if !locked {
+        // Another replica is already reconciling this tick.
+        return;
+    }
+
+    if let Err(e) = reconcile_unarmed_schedules_inner(db).await {
+        tracing::error!("schedule reconcile: {e:#}");
+    }
+
+    // Ends the transaction and releases the xact lock; a plain drop would too.
+    if let Err(e) = lock_tx.rollback().await {
+        tracing::error!("schedule reconcile: releasing lock failed: {e:#}");
+    }
+}
+
+/// Record this pass's unarmed schedules against `seen` and return those that have
+/// now struck out. An armed observation drops the schedule's tally entirely, so
+/// the strikes a re-arm rests on are always consecutive.
+fn strike_unarmed(
+    seen: &mut std::collections::HashMap<(String, String), u8>,
+    current: std::collections::HashSet<(String, String)>,
+) -> Vec<(String, String)> {
+    seen.retain(|k, _| current.contains(k));
+    current
+        .into_iter()
+        .filter(|k| {
+            let strikes = seen.entry(k.clone()).or_insert(0);
+            *strikes = strikes.saturating_add(1);
+            *strikes >= SCHEDULE_RECONCILE_STRIKES
+        })
+        .collect()
+}
+
+async fn reconcile_unarmed_schedules_inner(db: &Pool<Postgres>) -> error::Result<()> {
+    let current: std::collections::HashSet<(String, String)> =
+        find_unarmed_schedules(db).await?.into_iter().collect();
+    let mut to_rearm = strike_unarmed(&mut UNARMED_SCHEDULES.lock().unwrap(), current.clone());
+
+    // Back off schedules that keep failing to re-arm (bad stored cron/timezone/args,
+    // lapsed license): skip those still cooling down, and forget state for any that
+    // are no longer unarmed. Without this a permanently-failing push is retried
+    // every pass forever.
+    {
+        let mut failures = SCHEDULE_REARM_FAILURES.lock().unwrap();
+        failures.retain(|k, _| current.contains(k));
+        to_rearm.retain(|k| match failures.get_mut(k) {
+            Some(state) if state.cooldown_passes > 0 => {
+                state.cooldown_passes -= 1;
+                false
+            }
+            _ => true,
+        });
+    }
+
+    // The first pass on an instance that has never been swept can find a large
+    // backlog; re-arming it all at once would enqueue that whole backlog in one
+    // go. The overflow keeps its tally and is picked up next pass.
+    if to_rearm.len() > SCHEDULE_RECONCILE_MAX_PER_PASS {
+        tracing::warn!(
+            "schedule reconcile: {} schedules have no queued occurrence, re-arming {} this pass and the rest on later passes",
+            to_rearm.len(),
+            SCHEDULE_RECONCILE_MAX_PER_PASS
+        );
+        to_rearm.truncate(SCHEDULE_RECONCILE_MAX_PER_PASS);
+    }
+
+    for (w_id, path) in to_rearm {
+        match rearm_schedule(db, &w_id, &path).await {
+            Ok(outcome) => {
+                if outcome == RearmOutcome::Rearmed {
+                    tracing::warn!(
+                        "schedule reconcile: re-armed enabled schedule {path} in {w_id}, which had no queued occurrence"
+                    );
+                }
+                UNARMED_SCHEDULES
+                    .lock()
+                    .unwrap()
+                    .remove(&(w_id.clone(), path.clone()));
+                // Clear the error we recorded once it re-arms, so a recovered
+                // schedule stops showing a stale failure.
+                let was_surfaced = SCHEDULE_REARM_FAILURES
+                    .lock()
+                    .unwrap()
+                    .remove(&(w_id.clone(), path.clone()))
+                    .is_some_and(|s| s.surfaced);
+                if was_surfaced {
+                    if let Err(e) = sqlx::query!(
+                        "UPDATE schedule SET error = NULL WHERE workspace_id = $1 AND path = $2 AND enabled IS TRUE",
+                        w_id,
+                        path
+                    )
+                    .execute(db)
+                    .await
+                    {
+                        tracing::error!(
+                            "schedule reconcile: could not clear error for {path} in {w_id}: {e:#}"
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!(
+                    "schedule reconcile: could not re-arm schedule {path} in {w_id}: {e:#}"
+                );
+                let should_surface = {
+                    let mut failures = SCHEDULE_REARM_FAILURES.lock().unwrap();
+                    let state = failures.entry((w_id.clone(), path.clone())).or_default();
+                    state.consecutive_failures += 1;
+                    state.cooldown_passes = (1u32 << state.consecutive_failures.min(5))
+                        .min(SCHEDULE_REARM_MAX_BACKOFF_PASSES);
+                    let surface = !state.surfaced
+                        && state.consecutive_failures >= SCHEDULE_REARM_ALERT_THRESHOLD;
+                    state.surfaced |= surface;
+                    surface
+                };
+                // Surface without disabling: record the error for the owner (schedule
+                // stays enabled) and raise a critical alert. rearm_schedule never
+                // disables, so this is the only signal a persistently-broken schedule
+                // gives beyond server logs.
+                if should_surface {
+                    if let Err(err) = sqlx::query!(
+                        "UPDATE schedule SET error = $1 WHERE workspace_id = $2 AND path = $3 AND enabled IS TRUE",
+                        e.to_string(),
+                        w_id,
+                        path
+                    )
+                    .execute(db)
+                    .await
+                    {
+                        tracing::error!(
+                            "schedule reconcile: could not record error for {path} in {w_id}: {err:#}"
+                        );
+                    }
+                    report_critical_error(
+                        format!(
+                            "Schedule {path} in workspace {w_id} is enabled but has repeatedly failed to re-arm and will not run until the cause is fixed: {e:#}"
+                        ),
+                        db.clone(),
+                        Some(&w_id),
+                        None,
+                    )
+                    .await;
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Advisory lock id ensuring only one server replica runs the git auto-pull
@@ -5384,5 +5649,48 @@ mod retention_overrides_tests {
             .map(|i| (format!("ws_{i}"), json!(3600)))
             .collect();
         assert!(parse_retention_overrides(over_cap).is_err());
+    }
+}
+
+#[cfg(test)]
+mod strike_unarmed_tests {
+    use super::strike_unarmed;
+    use std::collections::{HashMap, HashSet};
+
+    fn key(path: &str) -> (String, String) {
+        ("ws".to_string(), path.to_string())
+    }
+
+    fn set(paths: &[&str]) -> HashSet<(String, String)> {
+        paths.iter().map(|p| key(p)).collect()
+    }
+
+    /// The strike threshold is the only thing keeping the reconciler from racing
+    /// an in-flight push: `push_scheduled_job`'s own `already_exists` guard keys
+    /// on the same columns as the scan, so it is false by construction whenever a
+    /// schedule is found unarmed.
+    #[test]
+    fn rearms_only_after_consecutive_unarmed_passes() {
+        let mut seen = HashMap::new();
+        assert!(strike_unarmed(&mut seen, set(&["a"])).is_empty());
+        assert_eq!(strike_unarmed(&mut seen, set(&["a"])), vec![key("a")]);
+    }
+
+    #[test]
+    fn armed_observation_resets_the_tally() {
+        let mut seen = HashMap::new();
+        assert!(strike_unarmed(&mut seen, set(&["a"])).is_empty());
+        // `a` is armed again on this pass, so its strike must not carry over.
+        assert!(strike_unarmed(&mut seen, set(&[])).is_empty());
+        assert!(strike_unarmed(&mut seen, set(&["a"])).is_empty());
+        assert_eq!(strike_unarmed(&mut seen, set(&["a"])), vec![key("a")]);
+    }
+
+    #[test]
+    fn tallies_are_per_schedule() {
+        let mut seen = HashMap::new();
+        assert!(strike_unarmed(&mut seen, set(&["a"])).is_empty());
+        assert_eq!(strike_unarmed(&mut seen, set(&["a", "b"])), vec![key("a")]);
+        assert_eq!(strike_unarmed(&mut seen, set(&["b"])), vec![key("b")]);
     }
 }

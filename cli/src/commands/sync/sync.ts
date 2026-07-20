@@ -1008,7 +1008,11 @@ function ZipFSElement(
             }
 
             if (stripOnBehalfOf) {
-              (flow as any).has_on_behalf_of = !!(flow as any).on_behalf_of_email;
+              // Only emit the flag when set; a `false` here is the default and
+              // would produce a spurious diff for every ownerless flow.
+              if ((flow as any).on_behalf_of_email) {
+                (flow as any).has_on_behalf_of = true;
+              }
               delete (flow as any).on_behalf_of_email;
             }
 
@@ -1293,7 +1297,11 @@ function ZipFSElement(
               parsed["codebase"] = undefined;
             }
             if (stripOnBehalfOf) {
-              parsed["has_on_behalf_of"] = !!parsed["on_behalf_of_email"];
+              // Only emit the flag when set; a `false` here is the default and
+              // would produce a spurious diff for every ownerless script.
+              if (parsed["on_behalf_of_email"]) {
+                parsed["has_on_behalf_of"] = true;
+              }
               delete parsed["on_behalf_of_email"];
             }
             // Modules are stored as files in __mod/ folder, not in metadata
@@ -1340,13 +1348,19 @@ function ZipFSElement(
               if (stripOnBehalfOf) {
                 const isSchedule = p.endsWith(".schedule.json");
                 const isTrigger = p.endsWith("_trigger.json");
+                // Only emit the flag when set; a `false` here is the default and
+                // would produce a spurious diff for every ownerless schedule/trigger.
                 if (isSchedule) {
-                  parsed["has_permissioned_as"] = !!parsed["permissioned_as"];
+                  if (parsed["permissioned_as"]) {
+                    parsed["has_permissioned_as"] = true;
+                  }
                   delete parsed["permissioned_as"];
                   delete parsed["email"];
                   delete parsed["edited_by"];
                 } else if (isTrigger) {
-                  parsed["has_permissioned_as"] = !!parsed["permissioned_as"];
+                  if (parsed["permissioned_as"]) {
+                    parsed["has_permissioned_as"] = true;
+                  }
                   delete parsed["permissioned_as"];
                   delete parsed["edited_by"];
                 }

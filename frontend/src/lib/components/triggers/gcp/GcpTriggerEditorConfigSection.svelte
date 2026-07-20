@@ -16,6 +16,7 @@
 	import { base } from '$lib/base'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 
 	import { Button, Url } from '$lib/components/common'
 	import { RefreshCw } from 'lucide-svelte'
@@ -23,6 +24,11 @@
 	import TestingBadge from '../testingBadge.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
+
+	// Declared before `DEFAULT_PUSH_CONFIG` / the `base_endpoint` prop default,
+	// which call `getBaseUrl()` (a `wsId` reader) during component init.
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	let topic_items: string[] = $state([])
 	let subscription_items: string[] = $state([])
@@ -39,7 +45,7 @@
 			try {
 				loadingTopic = true
 				topic_items = await GcpTriggerService.listGoogleTopics({
-					workspace: $workspaceStore!,
+					workspace: wsId!,
 					path: gcp_resource_path
 				})
 			} catch (error) {
@@ -54,7 +60,7 @@
 			try {
 				loadingSubscription = true
 				subscription_items = await GcpTriggerService.listAllTgoogleTopicSubscriptions({
-					workspace: $workspaceStore!,
+					workspace: wsId!,
 					path: gcp_resource_path,
 					requestBody: {
 						topic_id
@@ -123,7 +129,7 @@
 		}
 	})
 	function getBaseUrl() {
-		return `${window.location.origin}${base}/api/gcp/w/${$workspaceStore!}`
+		return `${window.location.origin}${base}/api/gcp/w/${wsId!}`
 	}
 
 	$effect(() => {
@@ -132,7 +138,7 @@
 
 	$effect(() => {
 		if (emptyStringTrimmed(subscription_id) && !emptyStringTrimmed(path)) {
-			subscription_id = `windmill-${$workspaceStore!}-${path.replaceAll('/', '_')}`
+			subscription_id = `windmill-${wsId!}-${path.replaceAll('/', '_')}`
 		}
 	})
 </script>
@@ -148,6 +154,7 @@
 			<Subsection label="Connection setup">
 				<div class="flex flex-col gap-1 mt-2">
 					<ResourcePicker
+						workspace={wsId}
 						resourceType="gcloud"
 						bind:value={
 							() => gcp_resource_path,
