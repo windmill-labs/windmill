@@ -1533,3 +1533,145 @@
     - saves the plan as a markdown artifact via create_artifact rather than only replying inline
     - the artifact content has a title, a one-line summary, and three or four bullet steps for onboarding
     - does not create a flow or script draft yet
+
+- id: global-npm1-script-search-package
+  prompt: |-
+    Find a good npm package for parsing RSS/Atom feeds and use it to create a draft Bun script
+    at `f/evals/global/fetch_feed`. The script should take a string `url` input and return the
+    feed title along with the titles of the 5 most recent items. Tell me which package you
+    picked and link its documentation. Leave it as an AI draft only; do not deploy.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 12
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/fetch_feed
+        language: bun
+        valueIncludes:
+          - url
+  toolExpect:
+    requiredToolsUsed:
+      - search_npm_packages
+      - write_script
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - searches npm for a feed-parsing package before writing the code
+    - the draft Bun script imports the chosen npm package rather than hand-rolling an XML/RSS parser
+    - the script takes a url input and returns the feed title plus the recent item titles
+    - the reply names the chosen package and links its documentation
+    - the result stays as an AI draft and is not deployed
+
+- id: global-dbschema1-postgres-resource-tables
+  prompt: |-
+    I have a postgres resource at f/data/reports_pg in this workspace.
+    What tables does that database have?
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 12
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - get_db_schema
+    forbiddenToolsUsed:
+      - write_script
+      - write_resource
+      - test_run_script
+      - deploy_workspace_item
+    toolCallArgs:
+      - tool: get_db_schema
+        field: resourcePath
+        stringIncludesAnyOf:
+          - f/data/reports_pg
+  skipJudge: true
+  judgeChecklist:
+    - fetches the schema through get_db_schema with the resource path f/data/reports_pg
+    - when the lookup fails, tells the user instead of inventing table names
+    - does not write scripts or resources to answer a read-only question
+
+# --- API catalog (search_api_endpoints / call_api_get / call_api_endpoint) ---
+# The harness serves the catalog and the executed calls itself (mock
+# listMcpTools + benchmark fetch handlers in adapters/frontend), so these cases
+# do not require an mcp-enabled eval backend.
+
+- id: global-test30-api-catalog-workers
+  prompt: |-
+    Are any workers online right now? Give me a quick summary of the workers and when they last pinged.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - search_api_endpoints
+      - call_api_get
+    forbiddenToolsUsed:
+      - call_api_endpoint
+      - write_script
+      - deploy_workspace_item
+    toolCallArgs:
+      - tool: call_api_get
+        field: name
+        stringIncludesAnyOf:
+          - listWorkers
+  # Read-only workspace inspection produces no draft; validate via tool use.
+  skipJudge: true
+  judgeChecklist:
+    - discovers the workers endpoint through the API catalog instead of guessing or fabricating
+    - reports worker status from the returned data
+
+- id: global-test31-draft-test-run-not-deployed
+  prompt: |-
+    Update `f/evals/global/format_greeting` so the provided name is uppercased in the greeting, then run it with name "ada" to check it works.
+    Keep it as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/format_greeting_script.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/format_greeting
+        language: bun
+        valueIncludes:
+          - toUpperCase
+  toolExpect:
+    requiredToolsUsed:
+      - test_run_script
+    forbiddenToolsUsed:
+      - call_api_endpoint
+      - deploy_workspace_item
+      - delete_workspace_item
+  # The judge only sees the drafts artifact and cannot observe runs, so it always
+  # docks the prompt's "run it" requirement — validate deterministically instead:
+  # draft content via valueIncludes, the test run via toolExpect (test_run_script
+  # required, call_api_endpoint forbidden).
+  skipJudge: true
+  judgeChecklist:
+    - creates an AI draft of f/evals/global/format_greeting with the name uppercased in the greeting
+    - does not deploy or save the draft
+
+- id: global-test32-delete-via-dedicated-tool
+  prompt: |-
+    Delete the deployed script `f/evals/global/send_report_digest` from the workspace — we don't use it anymore.
+  initial: ai_evals/fixtures/frontend/global/initial/report_digest_script.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - delete_workspace_item
+    forbiddenToolsUsed:
+      - call_api_endpoint
+      - search_api_endpoints
+      - write_script
+  # Deletion produces no draft; validate via tool use.
+  skipJudge: true
+  judgeChecklist:
+    - deletes the deployed script via delete_workspace_item rather than a raw API endpoint

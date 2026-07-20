@@ -200,7 +200,7 @@ pub fn workspaced_service() -> Router {
             "/protection_rules/{rule_name}",
             post(update_protection_rule).delete(delete_protection_rule),
         )
-        .route("/log_chat", post(log_ai_chat))
+        .route("/log_feature_usage", post(log_feature_usage))
         .route("/cloud_quotas", get(get_cloud_quotas))
         .route("/prune_versions", post(prune_versions))
         .route("/list_ws_specific", get(list_ws_specific))
@@ -9814,25 +9814,96 @@ const TRIGGER_OR_SCHEDULE_TABLES: &[&str] = &[
     "email_trigger",
 ];
 
+const MAX_FEATURE_USAGE_EVENTS: usize = 50;
+
 #[derive(Deserialize)]
-struct LogAiChatPayload {
-    session_id: String,
-    provider: String,
-    model: String,
-    mode: String,
+struct FeatureUsageEvent {
+    feature: String,
+    kind: String,
+    #[serde(default)]
+    key: String,
+    #[serde(default)]
+    entity_id: String,
+    value: Option<i64>,
 }
 
-async fn log_ai_chat(
+#[derive(Deserialize)]
+struct LogFeatureUsagePayload {
+    events: Vec<FeatureUsageEvent>,
+}
+
+// Only registered (feature, kind) actions are accepted, so telemetry stays
+// limited to predefined feature actions. Keys are shape-checked (identifier-like,
+// no spaces) rather than pinned to value sets: they come from our own frontend
+// (modes, tab/draft kinds, tool names, provider:model) and pinning every value
+// server-side was not worth the maintenance.
+const FEATURE_USAGE_KINDS: &[(&str, &str)] = &[
+    ("ai_session", "created"),
+    ("ai_session", "message"),
+    ("ai_session", "autonomy"),
+    ("ai_session", "tab"),
+    ("ai_session", "tokens"),
+    ("ai_session", "deployed"),
+    ("ai_session", "archived"),
+    ("ai_session", "deleted"),
+    ("ai_chat", "message"),
+    ("ai_chat", "model"),
+    ("ai_chat", "tool"),
+];
+
+fn is_identifier_shaped(s: &str, max_len: usize) -> bool {
+    !s.is_empty()
+        && s.len() <= max_len
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | ':' | '.' | '/'))
+}
+
+fn valid_feature_usage_event(e: &FeatureUsageEvent) -> bool {
+    FEATURE_USAGE_KINDS.contains(&(e.feature.as_str(), e.kind.as_str()))
+        && (e.key.is_empty() || is_identifier_shaped(&e.key, 100))
+        && (e.entity_id.is_empty() || is_identifier_shaped(&e.entity_id, 50))
+}
+
+async fn log_feature_usage(
     Extension(db): Extension<DB>,
-    Json(payload): Json<LogAiChatPayload>,
+    Json(payload): Json<LogFeatureUsagePayload>,
 ) -> Result<StatusCode> {
+    // Pre-sum duplicate keys: two rows hitting the same conflict target in a
+    // single INSERT error out ("cannot affect row a second time").
+    let mut agg: HashMap<(String, String, String, String), i64> = HashMap::new();
+    for e in payload.events.into_iter().take(MAX_FEATURE_USAGE_EVENTS) {
+        if !valid_feature_usage_event(&e) {
+            continue;
+        }
+        let value = e.value.unwrap_or(1).clamp(1, 1_000_000);
+        *agg.entry((e.feature, e.kind, e.key, e.entity_id))
+            .or_insert(0) += value;
+    }
+    if agg.is_empty() {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+    let mut features = Vec::with_capacity(agg.len());
+    let mut kinds = Vec::with_capacity(agg.len());
+    let mut keys = Vec::with_capacity(agg.len());
+    let mut entity_ids = Vec::with_capacity(agg.len());
+    let mut values = Vec::with_capacity(agg.len());
+    for ((feature, kind, key, entity_id), value) in agg {
+        features.push(feature);
+        kinds.push(kind);
+        keys.push(key);
+        entity_ids.push(entity_id);
+        values.push(value);
+    }
     sqlx::query!(
-        "INSERT INTO ai_chat_usage (session_id, provider, model, mode) VALUES ($1, $2, $3, $4)
-         ON CONFLICT (session_id) DO UPDATE SET message_count = ai_chat_usage.message_count + 1",
-        &payload.session_id,
-        &payload.provider,
-        &payload.model,
-        &payload.mode
+        "INSERT INTO feature_usage (feature, kind, key, entity_id, value)
+         SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::text[], $5::bigint[])
+         ON CONFLICT (feature, kind, key, entity_id, day)
+         DO UPDATE SET value = feature_usage.value + EXCLUDED.value, updated_at = now()",
+        &features,
+        &kinds,
+        &keys,
+        &entity_ids,
+        &values
     )
     .execute(&db)
     .await?;
