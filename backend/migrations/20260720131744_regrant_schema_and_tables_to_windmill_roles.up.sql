@@ -47,15 +47,22 @@ BEGIN
         RAISE WARNING 'skipped GRANT USAGE on schema %: %', target_schema, SQLERRM;
     END;
 
+    -- pg_class over the relkinds GRANT ... ON ALL TABLES covers -- ordinary (r),
+    -- partitioned (p), views (v), materialized views (m), foreign (f). pg_tables
+    -- would miss views such as flow_workspace_runnables, which are read through
+    -- user_db transactions and so must be granted too.
     FOR obj IN
-        SELECT format('%I.%I', schemaname, tablename)
-        FROM pg_tables
-        WHERE schemaname = target_schema AND tableowner = current_user
+        SELECT format('%I.%I', n.nspname, c.relname)
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = target_schema
+          AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+          AND pg_get_userbyid(c.relowner) = current_user
     LOOP
         BEGIN
             EXECUTE format('GRANT ALL ON TABLE %s TO windmill_user, windmill_admin', obj);
         EXCEPTION WHEN OTHERS THEN
-            RAISE WARNING 'skipped GRANT on table %: %', obj, SQLERRM;
+            RAISE WARNING 'skipped GRANT on relation %: %', obj, SQLERRM;
         END;
     END LOOP;
 
