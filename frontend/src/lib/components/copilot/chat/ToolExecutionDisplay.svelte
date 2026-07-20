@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Loader2, ChevronRight, XCircle, Play } from 'lucide-svelte'
+	import { Loader2, ChevronRight, XCircle, Play, CircleDashed } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { getAiChatManager } from './aiChatManagerContext'
 
@@ -23,6 +23,7 @@
 
 	const isSuccessful = $derived(
 		!message.isLoading &&
+			!message.isQueued &&
 			!message.error &&
 			!message.needsConfirmation &&
 			!message.isStreamingArguments
@@ -66,6 +67,8 @@
 			<div class="flex items-center gap-2">
 				{#if message.isLoading && !message.needsConfirmation}
 					<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500" />
+				{:else if message.isQueued && !message.error}
+					<CircleDashed class="w-3.5 h-3.5 text-tertiary" />
 				{/if}
 				<span class="text-primary font-medium text-2xs">
 					{message.content}

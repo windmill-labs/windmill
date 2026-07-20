@@ -153,6 +153,17 @@ export async function parseAnthropicCompletion(
 			} else if (block.type === 'server_tool_use' && block.name === 'web_search') {
 				setAnthropicWebSearchStatus(callbacks, block.id, 'searching')
 			}
+		} else if (event.type === 'content_block_stop' && currentStreamingTool) {
+			// Args fully streamed: the call is queued, not executing — tool calls run
+			// sequentially after the message completes, and processToolCall flips each
+			// back to loading when its turn starts. Without this, every call in a
+			// multi-tool message spins while only the first is actually running.
+			callbacks.setToolStatus(currentStreamingTool.tempId, {
+				isLoading: false,
+				isQueued: true,
+				isStreamingArguments: false
+			})
+			currentStreamingTool = undefined
 		}
 	})
 
