@@ -127,9 +127,8 @@
 	if (appDraftHandle) UserDraft.stopSync('app', appDraftPath)
 	// Prefer a prior-session autosave over the prop (the route seeds an empty
 	// template on `new_draft=true`; it calls `UserDraft.remove` to force a reset).
-	// A draft is a stored value that can predate any schema migration, so it needs
-	// the same normalization as the prop above; only the prop was migrated, which
-	// let an unmigrated draft reach the grid while the deployed app rendered fine.
+	// A draft is a stored value that can predate any schema migration, so whichever
+	// value is adopted needs the same normalization as the prop above.
 	const stateApp = $state(
 		untrack(() => {
 			const adopted = appDraftHandle?.draft ?? app

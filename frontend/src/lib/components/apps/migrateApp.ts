@@ -23,9 +23,9 @@ export function migrateApp(app: App) {
 		}
 	})
 
-	// App values reaching the editor from outside the editor (YAML/JSON import, hub
-	// or template seeds, a raw-app value opened in the low-code editor) may have no
-	// `grid`. The grid components dereference it unguarded, so normalize it here,
+	// A stored app value can have no `grid` at all: a persisted draft row is the
+	// confirmed case, and the editor renders a draft in place of the deployed
+	// value. The grid components dereference it unguarded, so normalize it here,
 	// the one hook every load path runs through.
 	if (!Array.isArray(app.grid)) {
 		app.grid = []
