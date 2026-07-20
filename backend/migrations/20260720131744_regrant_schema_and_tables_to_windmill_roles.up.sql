@@ -15,6 +15,16 @@
 -- table by hand; re-establishing the default privileges under the current
 -- runner closes it for future tables instead.
 --
+-- Which relations to grant: only those owned by the migration runner or a role
+-- it is an explicit (recursive) member of. That membership set, owner_roles,
+-- comes from pg_auth_members, deliberately NOT pg_has_role -- Postgres treats a
+-- superuser as a member of every role, so pg_has_role would make a superuser
+-- runner grant the windmill roles access to every co-located object in the
+-- schema (another application's tables, an extension's tables). Explicit
+-- membership still covers the case that owner-name equality would miss: after a
+-- migration-credential rotation the objects stay owned by the previous runner
+-- while the new runner is a real member of it.
+--
 -- This migration must never abort an upgrade, so every grant is guarded
 -- individually. That is the opposite of 20250205131523's single block-wide
 -- WHEN OTHERS, whose flaw was granularity, not the mere presence of a handler:
@@ -22,11 +32,6 @@
 -- grant that cannot be applied is isolated and re-raised as a named WARNING, so
 -- the rest still run and the reason is visible in the migration log. The known
 -- failure modes this absorbs:
---   * an object the runner cannot grant on -- a superuser-installed extension
---     (PostGIS's spatial_ref_sys) or a co-located application table owned by an
---     unrelated role. The loops filter to relations the runner has authority to
---     grant, so these are skipped without even a warning; the guard is the
---     backstop.
 --   * an object dropped by another session between the catalog scan and the
 --     GRANT (only possible when something outside the migration shares the DB).
 --   * USAGE on a schema the runner does not own (needed only where USAGE was
@@ -41,7 +46,15 @@ $do$
 DECLARE
     target_schema TEXT := current_schema();
     obj TEXT;
+    owner_roles OID[];
 BEGIN
+    WITH RECURSIVE my_roles(oid) AS (
+        SELECT oid FROM pg_roles WHERE rolname = current_user
+        UNION
+        SELECT m.roleid FROM pg_auth_members m JOIN my_roles r ON m.member = r.oid
+    )
+    SELECT array_agg(oid) INTO owner_roles FROM my_roles;
+
     BEGIN
         EXECUTE format('GRANT USAGE ON SCHEMA %I TO windmill_user, windmill_admin', target_schema);
     EXCEPTION WHEN OTHERS THEN
@@ -51,19 +64,14 @@ BEGIN
     -- pg_class over the relkinds GRANT ... ON ALL TABLES covers -- ordinary (r),
     -- partitioned (p), views (v), materialized views (m), foreign (f). pg_tables
     -- would miss views such as flow_workspace_runnables, which are read through
-    -- user_db transactions and so must be granted too. pg_has_role(...,'USAGE')
-    -- selects the relations the runner can actually grant: ones it owns
-    -- directly, inherits ownership of (tables still owned by a previous
-    -- migration role after a credential rotation), or reaches as a superuser.
-    -- Owner-name equality would miss the inherited-owner case and leave those
-    -- relations' user_db access broken.
+    -- user_db transactions and so must be granted too.
     FOR obj IN
         SELECT format('%I.%I', n.nspname, c.relname)
         FROM pg_class c
         JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = target_schema
           AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
-          AND pg_has_role(current_user, c.relowner, 'USAGE')
+          AND c.relowner = ANY(owner_roles)
     LOOP
         BEGIN
             EXECUTE format('GRANT ALL ON TABLE %s TO windmill_user, windmill_admin', obj);
@@ -73,10 +81,12 @@ BEGIN
     END LOOP;
 
     FOR obj IN
-        SELECT format('%I.%I', schemaname, sequencename)
-        FROM pg_sequences
-        WHERE schemaname = target_schema
-          AND pg_has_role(current_user, sequenceowner, 'USAGE')
+        SELECT format('%I.%I', n.nspname, c.relname)
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = target_schema
+          AND c.relkind = 'S'
+          AND c.relowner = ANY(owner_roles)
     LOOP
         BEGIN
             EXECUTE format('GRANT ALL ON SEQUENCE %s TO windmill_user, windmill_admin', obj);
