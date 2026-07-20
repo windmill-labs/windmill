@@ -613,6 +613,20 @@ describe('AIChatManager queued messages', () => {
 		seed()
 		manager.restartGeneration(0)
 		await vi.waitFor(() => expect(sentChipSelectors()).toEqual(['div.a']))
+
+		// An edit/retry replays context that was consumed on its original send, so it
+		// must not touch the composer's own live selection — even when it holds the
+		// very same chip.
+		seed()
+		cm.setSelectedDomElement({ selector: 'div.a', appPath: 'f/app', tagName: 'div' })
+		manager.restartGeneration(0)
+		await vi.waitFor(() => expect(sentChipSelectors()).toEqual(['div.a']))
+		expect(
+			cm
+				.getSelectedContext()
+				.filter((c) => c.type === 'app_dom_selector')
+				.map((c) => c.selector)
+		).toEqual(['div.a'])
 	})
 
 	// The loop, not the send, owns the vision strip: it re-applies it per iteration

@@ -2166,6 +2166,12 @@ export class AIChatManager {
 			// contextManager. Set when flushing a queued message that captured its
 			// context at submit time; the live selection is left untouched.
 			contextOverride?: ContextElement[]
+			/** Where `contextOverride` came from. 'pinned' (default): the chips were
+			 * selected for THIS message, so they are consumed from the live selection
+			 * on send. 'replay': an edit/retry resending an older message's context —
+			 * those chips were consumed long ago, and removing them again would strip
+			 * an identical selection the user has since made in the composer. */
+			contextOverrideOrigin?: 'pinned' | 'replay'
 			/** Auto-send of a queued draft: on preflight failure the caller re-queues
 			 * it, so the composer restore must not also fire (the draft would exist
 			 * twice — queue chip and composer). */
@@ -2372,7 +2378,11 @@ export class AIChatManager {
 			// DOM selector chips are one-shot: they ride with this message (captured in
 			// oldSelectedContext) and render above it, but must not persist in the input
 			// for the next turn. Clearing here leaves oldSelectedContext untouched.
-			if (options.contextOverride) {
+			if (options.contextOverrideOrigin === 'replay') {
+				// Edit/retry: the override is a copy of an already-sent message's
+				// context, consumed on its original send. The live selection belongs to
+				// the composer's own draft — touching it here would strip it.
+			} else if (options.contextOverride) {
 				// Queued message: only the chips it carried are consumed. Drop just
 				// those from the live selection (still there if the user didn't
 				// re-select); a newer selection made since is left intact.
@@ -2973,6 +2983,7 @@ export class AIChatManager {
 		this.sendRequest({
 			pastes: pastes ?? userMessage.pastes,
 			contextOverride: editedContext ?? userMessage.contextElements,
+			contextOverrideOrigin: 'replay',
 			images: images ?? sentImages
 		})
 	}

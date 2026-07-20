@@ -132,6 +132,15 @@ function header(meta: { selector: string; tagName: string; matchCount: number })
 	return `Live DOM for ${scope}${multi}:`
 }
 
+/** Arguments a paginating read_dom call must repeat to stay on the same element. */
+function continuationArgs(query: RawAppDomReadQuery, resumeAt: string): string {
+	const args: string[] = []
+	if (query.appPath) args.push(`app_path="${query.appPath}"`)
+	if (query.selector) args.push(`selector="${query.selector}"`)
+	args.push(`start_line=${resumeAt}`)
+	return args.join(', ')
+}
+
 /**
  * Run a search/read query against an element's live `outerHTML`. Pure over its
  * inputs (the DOM read happens in the caller) so it is unit-testable without a DOM.
@@ -160,9 +169,16 @@ export async function runDomQueryOnHtml(
 	}
 
 	const res = await readFile(entry, { startLine: query.startLine, endLine: query.endLine })
-	// readFile's pagination note references the attached-file tool; this wrapper is
-	// exposed as read_dom, so rename the continuation instruction to match.
-	const note = res.note.replace(/\bread_file\b/g, 'read_dom')
+	// readFile's pagination note names read_file and carries start_line alone. read_dom
+	// is scoped: a continuation without app_path/selector re-reads the active app's whole
+	// body instead of the element, so the instruction must repeat the scope arguments.
+	const note = res.note
+		.replace(
+			/Call read_file again with start_line=(\d+) for more\./,
+			(_m: string, resumeAt: string) =>
+				`Call read_dom again with ${continuationArgs(query, resumeAt)} for more.`
+		)
+		.replace(/\bread_file\b/g, 'read_dom')
 	if (!res.text) return `${head}\n${note}`
 	return `${head}\n${note}\n\n${numberLines(res.text, res.startLine)}`
 }

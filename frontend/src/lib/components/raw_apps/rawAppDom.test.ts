@@ -71,6 +71,20 @@ describe('runDomQueryOnHtml', () => {
 		expect(text).not.toContain('read_file')
 	})
 
+	// Following a continuation note that omits the scope would silently re-read the
+	// active app's whole body instead of the element the read was paginating through.
+	it('repeats app_path and selector in the pagination note of a scoped read', async () => {
+		const items = Array.from({ length: 300 }, (_, i) => `<li>item ${i}</li>`).join('')
+		const text = await runDomQueryOnHtml(
+			`<ul>${items}</ul>`,
+			{ mode: 'read', appPath: 'f/app', selector: 'ul.list' },
+			META
+		)
+		expect(text).toMatch(
+			/Call read_dom again with app_path="f\/app", selector="ul.list", start_line=\d+/
+		)
+	})
+
 	it('notes when a selector matched multiple elements', async () => {
 		const text = await runDomQueryOnHtml(
 			'<button>a</button>',
