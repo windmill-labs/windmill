@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { ChevronDown, ChevronRight, History } from 'lucide-svelte'
-	import ContextElementBadge from './ContextElementBadge.svelte'
-	import { createAttachedFileContextElement } from './context'
 	import type { AttachedTextFile } from './textFileUtils'
 
 	let { content, files }: { content: string; files?: AttachedTextFile[] } = $props()
@@ -26,24 +24,18 @@
 		</Button>
 		<div class="h-px flex-1 bg-surface-selected"></div>
 	</div>
-	{#if files && files.length > 0}
-		<!-- Attachments from the summarized turns, carried across the boundary —
-		     they stay readable, so keep them visible where their messages were. -->
-		<div class="mt-1.5 flex flex-row flex-wrap items-center gap-1 justify-center">
-			<!-- Index in the key: same-named entries can survive in older transcripts. -->
-			{#each files as file, i (`${file.name}:${i}`)}
-				<ContextElementBadge
-					contextElement={createAttachedFileContextElement(file.name, file.content)}
-					compact
-				/>
-			{/each}
-		</div>
-	{/if}
 	{#if expanded}
 		<div
 			class="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap rounded-md bg-surface-secondary p-3 text-xs text-secondary"
 		>
 			{content}
+			{#if files && files.length > 0}
+				<!-- Attachments from the summarized turns, carried across the boundary
+				     (still tool-readable) — named here, not rendered as interactive chips. -->
+				<div class="mt-2 pt-2 border-t text-2xs text-tertiary">
+					Files added by the user: {files.map((f) => f.name).join(', ')}
+				</div>
+			{/if}
 		</div>
 	{/if}
 </div>
