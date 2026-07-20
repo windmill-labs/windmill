@@ -529,7 +529,9 @@ export async function searchExternalIntegrationResources(args: { query: string }
 			return JSON.stringify(packagesSearchCache.get(args.query))
 		}
 
-		const result = await fetch(`https://registry.npmjs.org/-/v1/search?text=${args.query}&size=2`)
+		const result = await fetch(
+			`https://registry.npmjs.org/-/v1/search?text=${encodeURIComponent(args.query)}&size=2`
+		)
 		const data = await result.json()
 		const filtered = data.objects.filter(
 			(r: PackageSearchQuery) => r.searchScore >= SCORE_THRESHOLD
