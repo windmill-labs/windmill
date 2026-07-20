@@ -6798,6 +6798,10 @@ async fn check_concurrency_key_queue_cap<'c>(
 
 /// Bounded count of a workspace's non-running queued jobs, capped at `limit` so the scan
 /// stops once the ceiling is reached rather than counting an entire runaway backlog.
+///
+/// Internal helper for `check_workspace_queue_cap`, `pub` only so the integration test can call
+/// it (like `concurrency_key_queue_depth`). Returns a count, not job contents; the caller is
+/// responsible for any authorization — it takes the workspace id as given.
 pub async fn workspace_queue_depth<'c>(
     db: impl PgExecutor<'c>,
     workspace_id: &str,
@@ -6829,6 +6833,11 @@ pub async fn workspace_queue_depth<'c>(
 /// concurrency-limited ones) because a workspace can flood the queue across many keys or with
 /// keyless jobs. It caps *new* pushes past the ceiling; jobs already queued still drain, so an
 /// in-flight flow only ever fails to push further work while the workspace is at the ceiling.
+///
+/// This is a soft ceiling, like the per-key cap: the count and the insert are not serialized, so
+/// a burst of concurrent pushes can land a handful over the limit. That is fine and intentional
+/// — the cap exists to stop an unbounded runaway, not to enforce an exact quota, and a
+/// per-workspace lock on every push would add hot-path contention for no practical gain.
 #[cfg(feature = "cloud")]
 async fn check_workspace_queue_cap<'c>(
     db: impl PgExecutor<'c>,
