@@ -1263,6 +1263,9 @@ export class AIChatManager {
 			)
 			switch (result) {
 				case 'ok':
+					// The summary replaced the transcript — prune file registrations of
+					// the folded-away messages so they stop being tool-readable.
+					await this.#syncMessageFiles()
 					await this.historyManager.saveChat(
 						this.displayMessages,
 						this.messages,
@@ -1975,10 +1978,26 @@ export class AIChatManager {
 		return this.aiChatInput?.restoreInstructions(instructions, pastes, images, files) === true
 	}
 
+	/** Sum of attached-file content sizes already committed to this conversation
+	 * (transcript + queue). The composer adds its own pending bytes on top when
+	 * enforcing MAX_CONVERSATION_FILE_BYTES at attach time. String length is a
+	 * close-enough byte proxy for a budget check. */
+	get messageFileBytes(): number {
+		let total = 0
+		for (const m of this.displayMessages) {
+			if (m.role === 'user' && m.files) {
+				for (const f of m.files) total += f.content.length
+			}
+		}
+		for (const f of this.queuedFiles) total += f.content.length
+		return total
+	}
+
 	/** Reconcile the store's message-scoped file rows with what the transcript
-	 * references (last message wins on a shared name). Runs on chat load/clear and
-	 * after rollbacks/truncations, so a chip the user can see is always readable
-	 * and a dropped message's file never lingers in the tool surface. */
+	 * references (registration keeps names unique across messages). Runs on chat
+	 * load/clear, after rollbacks/truncations, and after compaction, so a chip the
+	 * user can see is always readable and a dropped message's file never lingers
+	 * in the tool surface. */
 	#syncMessageFiles = async (): Promise<void> => {
 		const wanted = new Map<string, AttachedTextFile>()
 		for (const m of this.displayMessages) {
@@ -2684,6 +2703,9 @@ export class AIChatManager {
 							this.contextUsage = Math.max(0, this.contextUsage - freed)
 						}
 					}
+					// Compaction dropped display messages — prune their file
+					// registrations so removed attachments stop being tool-readable.
+					await this.#syncMessageFiles()
 					await this.historyManager.saveChat(
 						this.displayMessages,
 						this.messages,

@@ -169,9 +169,15 @@ export class AttachedFilesStore {
 	 * truncation drops the message that carried them.
 	 */
 	async syncMessageScoped(wanted: { name: string; content: string }[]): Promise<void> {
-		const wantedNames = new Set(wanted.map((f) => f.name))
+		const wantedByName = new Map(wanted.map((f) => [f.name, f]))
 		for (const f of this.files.filter((x) => x.messageScoped)) {
-			if (!wantedNames.has(f.name)) this.#removeMessageScopedRow(f.name)
+			const w = wantedByName.get(f.name)
+			// Also drop a row whose content diverged from the transcript's copy —
+			// keeping it would make the re-registration below suffix instead of
+			// landing back on the referenced name.
+			if (!w || (await (f.file as Blob).text()) !== w.content) {
+				this.#removeMessageScopedRow(f.name)
+			}
 		}
 		if (wanted.length > 0) {
 			await this.addFiles(
@@ -214,11 +220,15 @@ export class AttachedFilesStore {
 			const folder = desired.includes('/') ? desired.split('/')[0] : undefined
 			if (folder && isIgnoredPath(desired)) continue // skip junk inside folders
 
-			// A message references its files by name, so a re-registration (edited
-			// message, retry) must land on the SAME row: identical content is kept,
-			// changed content replaces it. Compared by content, not #isDuplicate:
+			// A message references its files by name. An identical re-registration
+			// (retry, sync rebuild) reuses the existing row; a same-name file with
+			// DIFFERENT content is another message's attachment and must register
+			// under a suffixed name — replacing would silently retarget the earlier
+			// message's reference at the new content. (An edited message never
+			// collides with its own old row: the edit truncation syncs it away
+			// before the resend registers.) Compared by content, not #isDuplicate:
 			// registration recreates the File each send, so lastModified would
-			// misread an edit as a mere re-link.
+			// misread a changed file as a mere re-link.
 			if (messageScoped) {
 				const existing = this.files.find((f) => f.name === desired && f.messageScoped)
 				if (existing) {
@@ -230,11 +240,10 @@ export class AttachedFilesStore {
 						result.added.push(desired)
 						continue
 					}
-					this.#removeMessageScopedRow(desired)
 				}
+			} else if (this.#isDuplicate(desired, file)) {
+				continue // silent no-op on re-link
 			}
-
-			if (this.#isDuplicate(desired, file, messageScoped)) continue // silent no-op on re-link
 
 			const reason = await this.#preflight(file)
 			if (reason) {
@@ -440,17 +449,17 @@ export class AttachedFilesStore {
 
 	// ------------------------------------------------------------- internals
 
-	/** Identical re-link (same name in the same scope, or same File identity) → silent no-op. */
-	#isDuplicate(desired: string, file: File, messageScoped = false): boolean {
+	/** Identical session-file re-link (same name, or same File identity) → silent no-op.
+	 * Session rows only — message rows dedupe by content in addFiles, and a row of
+	 * one scope must never swallow the other scope's same-named file (the model
+	 * would then read the wrong content; collisions suffix via #uniqueName). */
+	#isDuplicate(desired: string, file: File): boolean {
 		return this.files.some(
 			(f) =>
 				// Folder-root placeholders aren't real files — they must not block attaching a
 				// standalone file that happens to share the folder's name.
 				!f.isFolderRoot &&
-				// Scoped: a session-scoped row must never swallow a message attachment that
-				// shares its name (or vice versa) — the model would then read the wrong
-				// file. Cross-scope collisions fall through to #uniqueName instead.
-				!!f.messageScoped === messageScoped &&
+				!f.messageScoped &&
 				(f.name === desired ||
 					// Identical re-drop at the SAME relative path (its row name may have been
 					// auto-suffixed). Keyed on the path, NOT the basename — otherwise two distinct

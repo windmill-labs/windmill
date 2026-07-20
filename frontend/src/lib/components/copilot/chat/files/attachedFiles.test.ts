@@ -512,6 +512,18 @@ describe('AttachedFilesStore', () => {
 		expect(store.messageAttached).toEqual([])
 	})
 
+	it('syncMessageScoped replaces a stale row under the same name', async () => {
+		await store.syncMessageScoped([{ name: 'a.md', content: 'old\n' }])
+		await settle(store)
+
+		// The transcript's copy changed (edited message): the row must be replaced
+		// under the SAME name, not suffixed away from the reference.
+		await store.syncMessageScoped([{ name: 'a.md', content: 'new\n' }])
+		await settle(store)
+		expect(store.messageAttached.map((f) => f.name)).toEqual(['a.md'])
+		expect(await (store.get('a.md')!.file as Blob).text()).toBe('new\n')
+	})
+
 	it('keeps message-scoped files tool-readable but out of the footer roster', async () => {
 		await store.addFiles([file('notes.md', 'hello\n')], { messageScoped: true })
 		await settle(store)
@@ -521,11 +533,17 @@ describe('AttachedFilesStore', () => {
 		expect(store.messageAttached.map((f) => f.name)).toEqual(['notes.md'])
 		expect(store.get('notes.md')?.status).toBe('ready')
 
-		// Re-registering the same name with new content (edited message) replaces the
-		// row under the SAME name — a rename would break the sent prompt's reference.
-		await store.addFiles([file('notes.md', 'edited\n', 2)], { messageScoped: true })
-		await settle(store)
+		// Identical re-registration (retry / sync rebuild) reuses the row.
+		const retry = await store.addFiles([file('notes.md', 'hello\n', 2)], { messageScoped: true })
+		expect(retry.added).toEqual(['notes.md'])
 		expect(store.messageAttached.map((f) => f.name)).toEqual(['notes.md'])
-		expect(store.messageAttached[0].size).toBe(7)
+
+		// A same-named file with DIFFERENT content is another message's attachment:
+		// it registers under a suffixed name so the earlier message's reference
+		// keeps resolving to its own content.
+		const second = await store.addFiles([file('notes.md', 'other\n', 3)], { messageScoped: true })
+		await settle(store)
+		expect(second.added).toEqual(['notes (2).md'])
+		expect(store.messageAttached.map((f) => f.name).sort()).toEqual(['notes (2).md', 'notes.md'])
 	})
 })

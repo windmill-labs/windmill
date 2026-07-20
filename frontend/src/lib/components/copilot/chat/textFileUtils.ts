@@ -30,6 +30,15 @@ export const MAX_ATTACHED_FILES = 8
  */
 export const MAX_TEXT_FILE_BYTES = 1_000_000
 
+/**
+ * Cumulative cap across a conversation. Message-file content lives inside the
+ * transcript (DisplayMessage.files) and is rewritten with every history save,
+ * so without a conversation-level bound repeated attachments would grow the
+ * in-memory record and its IndexedDB copy without limit. Enforced at attach
+ * time against transcript + queue + composer bytes.
+ */
+export const MAX_CONVERSATION_FILE_BYTES = 5_000_000
+
 /** Read a file for message attachment. Returns null when the sniff says binary. */
 export async function fileToAttachedTextFile(file: File): Promise<AttachedTextFile | null> {
 	if (!(await isTextFile(file))) return null
