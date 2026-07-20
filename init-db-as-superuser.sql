@@ -3,9 +3,10 @@ CREATE ROLE windmill_user;
 CREATE ROLE windmill_admin WITH BYPASSRLS;
 GRANT windmill_user TO windmill_admin;
 
--- Since PostgreSQL 15, USAGE on public is no longer granted to PUBLIC. Without
--- it, SET LOCAL ROLE windmill_user/windmill_admin cannot resolve any table and
--- every query fails with "relation does not exist".
+-- USAGE is granted to PUBLIC on the public schema by default, so this is a
+-- no-op on a stock database. It matters on hardened ones that revoke it: the
+-- roles then cannot resolve any table and every query on a user_db transaction
+-- fails with "relation does not exist" rather than a permission error.
 GRANT USAGE ON SCHEMA public TO windmill_user, windmill_admin;
 
 GRANT ALL

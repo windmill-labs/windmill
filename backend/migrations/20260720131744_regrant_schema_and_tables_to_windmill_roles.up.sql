@@ -1,21 +1,28 @@
--- Re-runs the grants of 20250205131523. That migration wraps everything in a
--- single DO block that starts with LOCK TABLE pg_catalog.pg_roles, which
--- requires superuser; on managed Postgres (RDS, Cloud SQL) the migration user
--- is not one, the lock raises, and the block's EXCEPTION WHEN OTHERS handler
--- turns the failure into a NOTICE. Every GRANT after the lock is therefore
--- skipped, so core tables (workspace, script, ...) stay ungranted and any
--- statement on a user_db transaction (SET LOCAL ROLE windmill_user /
--- windmill_admin) fails with "permission denied for table" or, when the schema
--- itself was never granted, "relation does not exist". The per-table grants
--- added since (20260619091631, 20260701083047, 20260716151337) each patched one
--- table; this covers the rest.
+-- Re-runs the grants of 20250205131523. Everything in that migration sits in
+-- one DO block whose first statement is LOCK TABLE pg_catalog.pg_roles, which
+-- a non-superuser cannot take; on managed Postgres (RDS, Cloud SQL) it raises
+-- and the block's EXCEPTION WHEN OTHERS handler downgrades the failure to a
+-- NOTICE, so every GRANT after it is skipped.
 --
--- No LOCK TABLE and no catch-all handler here: the GRANTs are idempotent, and
--- the migration user owns the tables it created, so they succeed wherever
--- 20250205131523 was meant to. A migration user that does not own the schema
--- cannot grant USAGE on it, but Postgres reports that as a "no privileges were
--- granted" warning rather than an error, so it does not abort the upgrade --
--- that deployment needs init-db-as-superuser.sql run by a superuser.
+-- Most tables survive that anyway, because 20221105003256 grants them outside
+-- any such block. What is lost is the ALTER DEFAULT PRIVILEGES, which is what
+-- covers tables created by later migrations. Those default privileges only
+-- apply to objects created by the role that set them, so a deployment whose
+-- migration runner never successfully ran them ends up with newer tables
+-- ungranted and writes on a user_db transaction (SET LOCAL ROLE windmill_user /
+-- windmill_admin) failing with "permission denied for table". That gap is why
+-- 20260619091631, 20260701083047 and 20260716151337 each had to patch one
+-- table by hand; re-establishing the default privileges under the current
+-- runner closes it for future tables instead.
+--
+-- The schema grant matters only where USAGE was revoked from PUBLIC, in which
+-- case the roles resolve no table at all and queries fail with "relation does
+-- not exist". A runner that does not own the schema cannot grant it, but
+-- Postgres reports that as a "no privileges were granted" warning rather than
+-- an error, so it cannot abort an upgrade -- such a deployment needs
+-- init-db-as-superuser.sql run by a superuser. No LOCK TABLE and no catch-all
+-- handler here: every statement is idempotent and the runner owns the tables it
+-- created, so the grants succeed wherever 20250205131523 was meant to.
 DO
 $do$
 DECLARE
