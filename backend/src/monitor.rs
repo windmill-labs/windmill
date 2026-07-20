@@ -719,10 +719,24 @@ pub async fn load_concurrency_key_max_queued(db: &DB) -> error::Result<()> {
             let v = n
                 .as_u64()
                 .map(|u| u.min(CONCURRENCY_KEY_MAX_QUEUED_MAX) as u32)
-                .unwrap_or(CONCURRENCY_KEY_MAX_QUEUED_DEFAULT);
+                .unwrap_or_else(|| {
+                    // Warn rather than silently defaulting: `-1` and `"0"` are plausible
+                    // attempts to disable the cap, and both would otherwise land on 10000.
+                    tracing::warn!(
+                        "{CONCURRENCY_KEY_MAX_QUEUED_SETTING}={n} is not a non-negative integer, \
+                         falling back to {CONCURRENCY_KEY_MAX_QUEUED_DEFAULT}. Set 0 to disable."
+                    );
+                    CONCURRENCY_KEY_MAX_QUEUED_DEFAULT
+                });
             CONCURRENCY_KEY_MAX_QUEUED.store(v, Ordering::Relaxed);
         }
-        _ => {
+        other => {
+            if let Some(v) = other {
+                tracing::warn!(
+                    "{CONCURRENCY_KEY_MAX_QUEUED_SETTING}={v} is not a number, falling back to \
+                     {CONCURRENCY_KEY_MAX_QUEUED_DEFAULT}. Set 0 to disable."
+                );
+            }
             CONCURRENCY_KEY_MAX_QUEUED.store(CONCURRENCY_KEY_MAX_QUEUED_DEFAULT, Ordering::Relaxed);
         }
     }

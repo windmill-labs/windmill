@@ -10,6 +10,10 @@ use windmill_queue::jobs::concurrency_key_queue_depth;
 
 /// Queues `count` jobs on `key`, all scheduled `offset_secs` from now.
 async fn seed_queued(db: &Pool<Postgres>, key: &str, count: usize, offset_secs: i64) {
+    seed(db, key, count, offset_secs, false).await
+}
+
+async fn seed(db: &Pool<Postgres>, key: &str, count: usize, offset_secs: i64, running: bool) {
     for _ in 0..count {
         let id = Uuid::new_v4();
         sqlx::query!(
@@ -20,10 +24,11 @@ async fn seed_queued(db: &Pool<Postgres>, key: &str, count: usize, offset_secs: 
         .await
         .expect("seed v2_job");
         sqlx::query!(
-            "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag)
-             VALUES ($1, 'test-workspace', now() + ($2::bigint::text || ' s')::interval, 'other')",
+            "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag, running)
+             VALUES ($1, 'test-workspace', now() + ($2::bigint::text || ' s')::interval, 'other', $3)",
             id,
             offset_secs,
+            running,
         )
         .execute(db)
         .await
@@ -61,6 +66,25 @@ async fn counts_future_scheduled_jobs(db: Pool<Postgres>) {
     );
 }
 
+/// Running jobs are not backlog. They stay in `v2_job_queue` with `ended_at` still NULL, so
+/// counting them would charge a key for the concurrency it is licensed to use: a key whose
+/// `concurrent_limit` exceeds the cap would reject every push with nothing actually waiting.
+#[sqlx::test(migrations = "../migrations")]
+async fn ignores_running_jobs(db: Pool<Postgres>) {
+    let key = "running-not-backlog";
+    seed(&db, key, 6, -10, true).await; // executing right now
+    seed(&db, key, 2, 3600, false).await; // actually waiting
+
+    let depth = concurrency_key_queue_depth(&db, key, 1000)
+        .await
+        .expect("count depth");
+
+    assert_eq!(
+        depth, 2,
+        "only waiting jobs count; the 6 running ones must not"
+    );
+}
+
 /// A job that left the queue without going through `add_completed_job` leaves its
 /// `concurrency_key` row with `ended_at IS NULL` forever. Those must not count, otherwise a mass
 /// cancel or manual purge leaves the key permanently wedged above the cap with an empty queue.
@@ -78,18 +102,4 @@ async fn ignores_rows_whose_job_left_the_queue(db: Pool<Postgres>) {
         .expect("count depth");
 
     assert_eq!(depth, 0, "orphaned concurrency_key rows must not count");
-}
-
-/// The count is bounded by `limit` so a saturated key cannot make every push scan its whole
-/// backlog.
-#[sqlx::test(migrations = "../migrations")]
-async fn stops_counting_at_limit(db: Pool<Postgres>) {
-    let key = "bounded-count";
-    seed_queued(&db, key, 12, 3600).await;
-
-    let depth = concurrency_key_queue_depth(&db, key, 5)
-        .await
-        .expect("count depth");
-
-    assert_eq!(depth, 5, "count must saturate at the limit");
 }

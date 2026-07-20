@@ -6626,7 +6626,7 @@ async fn push_inner<'c, 'd>(
     Ok((job_id, tx))
 }
 
-pub fn resolve_concurrency_key<'d>(
+fn resolve_concurrency_key<'d>(
     workspace_id: &str,
     args: &PushArgs<'d>,
     script_path: &Option<String>,
@@ -6658,13 +6658,17 @@ pub fn resolve_concurrency_key<'d>(
         ))
 }
 
-pub async fn insert_concurrency_key<'d, 'c>(
+/// Resolves the concurrency key, applies the cloud-only queue-depth cap, then registers the key.
+///
+/// Takes a `Copy` executor because the cap runs a query before the insert on the same one. `push`
+/// cannot use this — it holds a `&mut Transaction` — so it performs the same three steps inline.
+pub async fn insert_concurrency_key_capped<'d, 'c, E: PgExecutor<'c> + Copy>(
     workspace_id: &str,
     args: &PushArgs<'d>,
     script_path: &Option<String>,
     job_kind: JobKind,
     custom_concurrency_key: Option<String>,
-    db: impl PgExecutor<'c>,
+    db: E,
     job_id: Uuid,
 ) -> Result<(), Error> {
     let concurrency_key = resolve_concurrency_key(
@@ -6674,10 +6678,14 @@ pub async fn insert_concurrency_key<'d, 'c>(
         job_kind,
         custom_concurrency_key,
     );
+    #[cfg(feature = "cloud")]
+    if *CLOUD_HOSTED {
+        check_concurrency_key_queue_cap(db, &concurrency_key).await?;
+    }
     insert_resolved_concurrency_key(&concurrency_key, db, job_id, script_path, workspace_id).await
 }
 
-pub async fn insert_resolved_concurrency_key<'c>(
+async fn insert_resolved_concurrency_key<'c>(
     concurrency_key: &str,
     db: impl PgExecutor<'c>,
     job_id: Uuid,
@@ -6701,7 +6709,17 @@ pub async fn insert_resolved_concurrency_key<'c>(
     Ok(())
 }
 
-/// Counts jobs still queued behind `concurrency_key`, stopping at `limit`.
+/// Counts jobs *waiting* behind `concurrency_key`, scanning at most `limit` rows.
+///
+/// Takes an already-resolved key and performs no authorization: it is an internal accounting
+/// helper for the push path, whose callers have already authorized the push. It is `pub` only so
+/// the integration test can pin the counting semantics below. Do not call it from a request
+/// handler with a caller-supplied key — that would leak queue depth across workspaces.
+///
+/// `running = false` is part of the definition, not an optimization. Jobs stay in `v2_job_queue`
+/// with `concurrency_key.ended_at` still NULL while they execute, so counting them would charge a
+/// key for the very concurrency it is licensed to use: with `concurrent_limit` above the cap, the
+/// running jobs alone would exceed it and every push would be rejected with an empty backlog.
 ///
 /// Counts jobs at *any* `scheduled_for`, including ones scheduled far in the future. This is
 /// load-bearing, not incidental: the concurrency limiter re-queues a blocked job by pushing its
@@ -6710,12 +6728,18 @@ pub async fn insert_resolved_concurrency_key<'c>(
 /// count track the trickle the limiter has released rather than the backlog behind it, and the
 /// cap would never fire on the runaway it exists to stop.
 ///
-/// The `LIMIT` bounds the work to `limit` index rows so a saturated key cannot make this scan
-/// an arbitrarily deep backlog on every push. The `EXISTS` against `v2_job_queue` is what makes
-/// the count reflect reality rather than `concurrency_key` bookkeeping: rows there are only
-/// cleared by `add_completed_job`, so a job removed from the queue by any other route (a mass
-/// cancel, a manual purge) leaves a row with `ended_at IS NULL` behind forever. Counting those
-/// would let a key stay permanently wedged above the cap with an empty queue.
+/// `concurrency_key` rows are only cleared by `add_completed_job`, so a job that left the queue
+/// by any other route (a mass cancel, a manual purge) leaves a row with `ended_at IS NULL`
+/// behind, and nothing reclaims it: the retention sweep deletes on `ended_at <= …`, which never
+/// matches NULL. The `EXISTS` against `v2_job_queue` excludes them, so such rows cannot wedge a
+/// key permanently above the cap with an empty queue.
+///
+/// The `LIMIT` sits on the bare index scan, *inside* the `EXISTS` filter rather than outside it,
+/// so the work is bounded by rows scanned rather than by rows that qualify. This runs on every
+/// push: with the filter outside, a key carrying N stale rows would pay N index probes on every
+/// push forever, since stale rows are scanned but never count toward the bound. The trade-off is
+/// that a key with `limit` stale rows ahead of its live ones under-counts and the cap stops
+/// firing — a backstop that degrades toward admitting is the right failure direction.
 pub async fn concurrency_key_queue_depth<'c>(
     db: impl PgExecutor<'c>,
     concurrency_key: &str,
@@ -6723,11 +6747,12 @@ pub async fn concurrency_key_queue_depth<'c>(
 ) -> Result<i64, Error> {
     sqlx::query_scalar!(
         "SELECT count(*) FROM (
-            SELECT 1 FROM concurrency_key ck
+            SELECT ck.job_id FROM concurrency_key ck
             WHERE ck.key = $1 AND ck.ended_at IS NULL
-                AND EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = ck.job_id)
             LIMIT $2
-        ) t",
+        ) s WHERE EXISTS (
+            SELECT 1 FROM v2_job_queue q WHERE q.id = s.job_id AND q.running = false
+        )",
         concurrency_key,
         limit,
     )
@@ -6747,8 +6772,13 @@ pub async fn concurrency_key_queue_depth<'c>(
 /// A concurrency-limited key drains at most `concurrent_limit` jobs per window regardless of how
 /// idle the fleet is, so a producer pushing faster than that grows a backlog no capacity can
 /// absorb. Caller must runtime-gate this on `*CLOUD_HOSTED`.
+///
+/// Must be called from every site that registers a concurrency key, not just `push`: a flow with
+/// a preprocessor is pushed with `concurrent_limit` cleared and only registers its key later,
+/// from `worker_flow`. Checking `push` alone would leave trigger-driven flows — the shape most
+/// likely to run away — uncapped.
 #[cfg(feature = "cloud")]
-async fn check_concurrency_key_queue_cap<'c>(
+pub async fn check_concurrency_key_queue_cap<'c>(
     db: impl PgExecutor<'c>,
     concurrency_key: &str,
 ) -> Result<(), Error> {
