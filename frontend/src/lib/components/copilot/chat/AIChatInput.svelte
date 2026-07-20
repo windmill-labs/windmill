@@ -2,8 +2,9 @@
 	import AppAvailableContextList from './AppAvailableContextList.svelte'
 	import ContextElementBadge from './ContextElementBadge.svelte'
 	import ContextTextarea from './ContextTextarea.svelte'
+	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
 	import autosize from '$lib/autosize'
-	import type { ContextElement } from './context'
+	import type { AppDomSelectorElement, ContextElement } from './context'
 	import { AIMode } from './AIChatManager.svelte'
 	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
 	import { formatMention } from './mention'
@@ -230,6 +231,25 @@
 			aiChatManager.mode === AIMode.GLOBAL
 	)
 
+	const domSelectorChips = $derived(
+		(selectedContext ?? []).filter((c): c is AppDomSelectorElement => c.type === 'app_dom_selector')
+	)
+
+	// DOM selector chips can share a display title (two `button.btn` from repeated
+	// elements), so identify them by (appPath, selector) — keying or removing by
+	// title would collide, giving repeated chips one Svelte key and deleting them
+	// together. Other context types stay identified by (type, title).
+	function contextKey(c: ContextElement): string {
+		return c.type === 'app_dom_selector' ? `dom:${c.appPath}:${c.selector}` : `${c.type}:${c.title}`
+	}
+	function isSameContextElement(a: ContextElement, b: ContextElement): boolean {
+		if (a.type !== b.type) return false
+		if (a.type === 'app_dom_selector' && b.type === 'app_dom_selector') {
+			return a.selector === b.selector && a.appPath === b.appPath
+		}
+		return a.title === b.title
+	}
+
 	/** Append `@title` to the textarea so the button-picker path stays in
 	 * sync with the inline `@<word>` mention path — both leave a visible
 	 * token tied to the selectedContext entry, which the textarea diffs on
@@ -277,16 +297,21 @@
 	// Restore composer contents after a rolled-back turn. No-op when the user
 	// already drafted something new — typed text or attached images (including
 	// ones still decoding) — restoring would clobber it.
+	/** Returns whether the restore was taken: an occupied composer keeps its own
+	 * draft and declines, and the caller must then leave that draft's context
+	 * alone too — restoring context for text that was dropped would retarget the
+	 * draft the user is still writing. */
 	export function restoreInstructions(
 		value: string,
 		restoredPastes: PasteAttachment[] = [],
 		restoredImages: AttachedImage[] = []
-	) {
-		if (instructions.trim() || images.length > 0 || pendingImages > 0) return
+	): boolean {
+		if (instructions.trim() || images.length > 0 || pendingImages > 0) return false
 		instructions = value
 		pastes = restoredPastes
 		images = restoredImages
 		focusInput()
+		return true
 	}
 
 	/** Put text back into the textarea (queued-message delete, or restore
@@ -294,7 +319,11 @@
 	 * the user typed is lost. Restored images join whatever is already
 	 * attached, up to the cap — dropping them would lose the attachment
 	 * silently, which is the whole reason the queue carries them. */
-	export function prependText(text: string, restoredImages: AttachedImage[] = []) {
+	export function prependText(text: string, restoredImages: AttachedImage[] = []): boolean {
+		// Whether the restored text landed on top of a draft the user was already
+		// writing: both instructions now share one composer, so the caller must keep
+		// both their contexts rather than replacing one with the other.
+		const mergedIntoDraft = !!text && !!instructions.trim()
 		// An image-only restore has empty text; prepending it would only add blank lines.
 		if (text) {
 			instructions = instructions.trim() ? `${text}\n\n${instructions}` : text
@@ -310,6 +339,7 @@
 			images = merged.slice(0, MAX_ATTACHED_IMAGES)
 		}
 		focusInput()
+		return mergedIntoDraft
 	}
 
 	/** Insert a plain @filename mention for an attached file (used by the @ menu Files category). */
@@ -427,7 +457,16 @@
 			return
 		}
 		if (editingMessageIndex !== null) {
-			aiChatManager.restartGeneration(editingMessageIndex, instructions, pastes, images)
+			// In edit mode selectedContext is the edit box's own copy (seeded from the
+			// message's original chips), so send exactly what's shown — the user may
+			// have added or removed chips.
+			aiChatManager.restartGeneration(
+				editingMessageIndex,
+				instructions,
+				pastes,
+				images,
+				selectedContext
+			)
 			onEditEnd()
 		} else {
 			aiChatManager.sendRequest({ instructions, pastes, images })
@@ -676,16 +715,32 @@
 
 {#snippet contextPickerRow()}
 	{#if selectedContext.length > 0}
-		<div class="flex flex-row flex-wrap items-center gap-1 mb-1">
-			{#each selectedContext as element (element.type + '-' + element.title)}
+		<div class="flex flex-row flex-wrap items-center gap-1 px-2.5 pt-2">
+			{#each selectedContext as element (contextKey(element))}
 				<ContextElementBadge
 					contextElement={element}
 					deletable
 					onDelete={() => {
-						selectedContext = selectedContext?.filter(
-							(c) => c.type !== element.type || c.title !== element.title
-						)
+						selectedContext = selectedContext?.filter((c) => !isSameContextElement(c, element))
 						removeMention(element.title)
+					}}
+				/>
+			{/each}
+		</div>
+	{/if}
+{/snippet}
+
+<!-- DOM selector chips (raw-app inspector picks) always show — even in GLOBAL/
+     session mode where the general context picker row is hidden (showContext=false). -->
+{#snippet domSelectorChipRow()}
+	{#if domSelectorChips.length > 0}
+		<div class="flex flex-row flex-wrap items-center gap-1 px-2.5 pt-2">
+			{#each domSelectorChips as element (contextKey(element))}
+				<ContextElementBadge
+					contextElement={element}
+					deletable
+					onDelete={() => {
+						selectedContext = selectedContext?.filter((c) => !isSameContextElement(c, element))
 					}}
 				/>
 			{/each}
@@ -741,10 +796,6 @@
 	}}
 >
 	{#if isContextEnabledMode}
-		{#if showContext}
-			{@render contextPickerRow()}
-		{/if}
-		{@render imageChipsRow()}
 		<div class="relative">
 			<ContextTextarea
 				bind:this={contextTextareaComponent}
@@ -758,9 +809,7 @@
 				placeholder={modePlaceholder}
 				onAddContext={(contextElement) => void addContextToSelection(contextElement)}
 				onRemoveContext={(element) => {
-					selectedContext = selectedContext?.filter(
-						(c) => c.type !== element.type || c.title !== element.title
-					)
+					selectedContext = selectedContext?.filter((c) => !isSameContextElement(c, element))
 				}}
 				onSendRequest={() => {
 					if (disabled) {
@@ -770,7 +819,21 @@
 				}}
 				{disabled}
 				{onKeyDown}
-			/>
+			>
+				{#snippet leading()}
+					{#if aiChatManager.mode === AIMode.GLOBAL}
+						<div class="px-2.5 empty:hidden">
+							<AttachedFilesBar />
+						</div>
+					{/if}
+					{#if showContext}
+						{@render contextPickerRow()}
+					{:else}
+						{@render domSelectorChipRow()}
+					{/if}
+					{@render imageChipsRow()}
+				{/snippet}
+			</ContextTextarea>
 			{#if !bottomRightSnippet}
 				<div class="absolute bottom-1 right-1">
 					{@render sendStopButton()}

@@ -1564,3 +1564,31 @@
     - the script takes a url input and returns the feed title plus the recent item titles
     - the reply names the chosen package and links its documentation
     - the result stays as an AI draft and is not deployed
+
+- id: global-dbschema1-postgres-resource-tables
+  prompt: |-
+    I have a postgres resource at f/data/reports_pg in this workspace.
+    What tables does that database have?
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 12
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - get_db_schema
+    forbiddenToolsUsed:
+      - write_script
+      - write_resource
+      - test_run_script
+      - deploy_workspace_item
+    toolCallArgs:
+      - tool: get_db_schema
+        field: resourcePath
+        stringIncludesAnyOf:
+          - f/data/reports_pg
+  skipJudge: true
+  judgeChecklist:
+    - fetches the schema through get_db_schema with the resource path f/data/reports_pg
+    - when the lookup fails, tells the user instead of inventing table names
+    - does not write scripts or resources to answer a read-only question

@@ -210,6 +210,9 @@ impl SpecificTagType {
 pub const DEFAULT_CLOUD_TIMEOUT: u64 = 900;
 pub const DEFAULT_SELFHOSTED_TIMEOUT: u64 = 604800; // 7 days
 pub const MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS: u64 = 60;
+/// Default for [`CONCURRENCY_KEY_MAX_QUEUED`]; also the value the setting loader restores when
+/// the setting is cleared or malformed.
+pub const CONCURRENCY_KEY_MAX_QUEUED_DEFAULT: u32 = 10_000;
 lazy_static::lazy_static! {
     pub static ref WORKER_GROUP: String = std::env::var("WORKER_GROUP").unwrap_or_else(|_| {
         #[cfg(not(feature = "enterprise"))]
@@ -336,6 +339,13 @@ lazy_static::lazy_static! {
     /// classifies an overloaded set — before that, no workspace is capped so
     /// `should_admit_capped` is moot and "admit all" is the correct no-op.
     pub static ref WORKSPACE_FAIRNESS_ADMISSION_PPM: AtomicU32 = AtomicU32::new(10_000);
+
+    /// Cloud-only ceiling on the number of jobs queued behind a single concurrency key.
+    /// A concurrency-limited key drains at most `concurrent_limit` jobs per window, so a
+    /// producer pushing faster than that grows an unbounded backlog that no amount of
+    /// spare worker capacity can absorb. `0` disables the cap.
+    pub static ref CONCURRENCY_KEY_MAX_QUEUED: AtomicU32 =
+        AtomicU32::new(CONCURRENCY_KEY_MAX_QUEUED_DEFAULT);
 
 
     pub static ref SMTP_CONFIG: arc_swap::ArcSwap<Option<Smtp>> = arc_swap::ArcSwap::from_pointee(None);
