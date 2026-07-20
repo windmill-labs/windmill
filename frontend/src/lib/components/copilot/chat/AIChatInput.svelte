@@ -235,6 +235,10 @@
 	let files = $state<AttachedTextFile[]>(untrack(() => initialFiles ?? []))
 	// Files being read right now — same send-hold/slot-reservation role as pendingImages.
 	let pendingFiles = $state(0)
+	// Bytes those in-flight reads have claimed against the conversation budget:
+	// two overlapping drops that both read the budget before either lands would
+	// otherwise each spend the same remaining allowance.
+	let pendingFileBytes = $state(0)
 
 	/** Attach dropped/picked text files (sniffed + bounded). GLOBAL mode only. */
 	export async function addTextFiles(candidates: File[]) {
@@ -270,7 +274,8 @@
 		let budget =
 			MAX_CONVERSATION_FILE_BYTES -
 			aiChatManager.messageFileBytes(editingMessageIndex) -
-			files.reduce((sum, f) => sum + textByteLength(f.content), 0)
+			files.reduce((sum, f) => sum + textByteLength(f.content), 0) -
+			pendingFileBytes
 		const withinBudget: File[] = []
 		for (const f of batch) {
 			if (f.size <= budget) {
@@ -288,6 +293,8 @@
 		batch = withinBudget
 		if (batch.length === 0) return
 		pendingFiles += batch.length
+		const reservedBytes = batch.reduce((sum, f) => sum + f.size, 0)
+		pendingFileBytes += reservedBytes
 		try {
 			const added: AttachedTextFile[] = []
 			let skipped = 0
@@ -313,6 +320,7 @@
 			if (skipped > 0) sendUserToast(`Skipped ${skipped} file(s) (non-text).`, true)
 		} finally {
 			pendingFiles -= batch.length
+			pendingFileBytes -= reservedBytes
 		}
 	}
 
