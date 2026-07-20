@@ -1496,16 +1496,27 @@ export class AIChatManager {
 		this.queuedContext = queued.context
 	}
 
-	/** Put a draft's pinned DOM selector chips back as the live selection,
-	 * replacing any chips selected since — so a restored draft and the selection
-	 * stay coherent (its instruction targets the element it was written for). No-op
-	 * when the draft pinned no DOM chips, so a plain-text draft leaves the live
-	 * selection untouched. */
-	#restoreDomContext(context: ContextElement[] | undefined) {
+	/** Put a draft's pinned DOM selector chips back as the live selection, so the
+	 * restored draft and the selection stay coherent (its instruction targets the
+	 * element it was written for). No-op when the draft pinned no DOM chips, so a
+	 * plain-text draft leaves the live selection untouched.
+	 *
+	 * `keepExisting` when the restored text was merged into a draft the user was
+	 * already writing: that draft's own chips must survive alongside, or its
+	 * instruction — still sitting in the composer — would be retargeted at this
+	 * draft's element. Otherwise the restore replaces, since any chip selected
+	 * since belongs to a draft that is being replaced too. */
+	#restoreDomContext(context: ContextElement[] | undefined, keepExisting = false) {
 		const domChips = (context ?? []).filter((c) => c.type === 'app_dom_selector')
 		if (domChips.length === 0) return
+		const existing = keepExisting
+			? (this.contextManager?.getSelectedContext().filter((c) => c.type === 'app_dom_selector') ??
+				[])
+			: []
 		this.contextManager?.clearSelectedDomElements()
-		for (const c of domChips) {
+		// addSelectedDomElement dedups on (selector, appPath), so a chip both drafts
+		// share collapses to one.
+		for (const c of [...domChips, ...existing]) {
 			this.contextManager?.addSelectedDomElement(c)
 		}
 	}
@@ -1516,23 +1527,24 @@ export class AIChatManager {
 			return
 		}
 		const queued = this.#takeQueue()
-		this.restoreToInput(queued.text, queued.images)
+		const mergedIntoDraft = this.restoreToInput(queued.text, queued.images)
 		// The queued draft pinned its own DOM context; restore it so sending from
 		// the composer targets the element the draft was written for, not whatever
-		// is selected now.
-		this.#restoreDomContext(queued.context)
+		// is selected now. If its text was prepended onto an existing draft, that
+		// draft's chips are kept too — both instructions now share one composer.
+		this.#restoreDomContext(queued.context, mergedIntoDraft)
 	}
 
 	/** Put what the user typed back where they can see it: into the input
 	 * when it's mounted, otherwise back into the queue so it reappears with
 	 * the chat panel instead of being silently dropped. */
-	private restoreToInput(text: string, images: AttachedImage[] = []) {
+	private restoreToInput(text: string, images: AttachedImage[] = []): boolean {
 		if (this.aiChatInput) {
-			this.aiChatInput.prependText(text, images)
-		} else {
-			this.queuedMessage = text
-			this.queuedImages = images
+			return this.aiChatInput.prependText(text, images) === true
 		}
+		this.queuedMessage = text
+		this.queuedImages = images
+		return false
 	}
 
 	focusInput() {
@@ -1920,12 +1932,12 @@ export class AIChatManager {
 		pastes: PasteAttachment[],
 		restoreToInput: boolean = true,
 		images: AttachedImage[] = []
-	) => {
+	): boolean => {
 		this.displayMessages = this.displayMessages.slice(0, displayLenAfterUser - 1)
 		this.messages = this.messages.slice(0, modelLenAfterUser - 1)
-		if (restoreToInput) {
-			this.aiChatInput?.restoreInstructions(instructions, pastes, images)
-		}
+		if (!restoreToInput) return false
+		// An occupied composer declines the restore and keeps its own draft.
+		return this.aiChatInput?.restoreInstructions(instructions, pastes, images) === true
 	}
 
 	private notifyReasoningSummaryUnavailable = () => {
@@ -2722,7 +2734,7 @@ export class AIChatManager {
 				// about to auto-send (see the flush below) — drop the rolled-back
 				// prompt instead of restoring it to the input so the handoff is clean.
 				const willAutoSendQueued = this.wasCancelledByUser() && this.#hasQueuedMessage()
-				this.restoreUnsentTurn(
+				const textRestored = this.restoreUnsentTurn(
 					displayLenAfterUser,
 					modelLenAfterUser,
 					sentInstructions,
@@ -2735,9 +2747,11 @@ export class AIChatManager {
 				// before the request went out. Restore this turn's own chips so the
 				// resend keeps its element scope — replacing (not merging) any chips
 				// selected during the stream, so the restored draft stays coherent.
-				// Skipped on a queued-message handoff (that message carries its own
-				// context and this prompt is dropped).
-				if (!willAutoSendQueued) {
+				// Only when the composer actually took the text back: on a queued-message
+				// handoff, or when a draft typed during the stream made the composer
+				// decline, this prompt is dropped — restoring its chips would then
+				// retarget whatever draft is sitting there.
+				if (textRestored) {
 					this.#restoreDomContext(oldSelectedContext)
 				}
 				if (this.displayMessages.length === 0) {

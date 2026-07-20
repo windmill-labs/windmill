@@ -297,16 +297,21 @@
 	// Restore composer contents after a rolled-back turn. No-op when the user
 	// already drafted something new — typed text or attached images (including
 	// ones still decoding) — restoring would clobber it.
+	/** Returns whether the restore was taken: an occupied composer keeps its own
+	 * draft and declines, and the caller must then leave that draft's context
+	 * alone too — restoring context for text that was dropped would retarget the
+	 * draft the user is still writing. */
 	export function restoreInstructions(
 		value: string,
 		restoredPastes: PasteAttachment[] = [],
 		restoredImages: AttachedImage[] = []
-	) {
-		if (instructions.trim() || images.length > 0 || pendingImages > 0) return
+	): boolean {
+		if (instructions.trim() || images.length > 0 || pendingImages > 0) return false
 		instructions = value
 		pastes = restoredPastes
 		images = restoredImages
 		focusInput()
+		return true
 	}
 
 	/** Put text back into the textarea (queued-message delete, or restore
@@ -314,7 +319,11 @@
 	 * the user typed is lost. Restored images join whatever is already
 	 * attached, up to the cap — dropping them would lose the attachment
 	 * silently, which is the whole reason the queue carries them. */
-	export function prependText(text: string, restoredImages: AttachedImage[] = []) {
+	export function prependText(text: string, restoredImages: AttachedImage[] = []): boolean {
+		// Whether the restored text landed on top of a draft the user was already
+		// writing: both instructions now share one composer, so the caller must keep
+		// both their contexts rather than replacing one with the other.
+		const mergedIntoDraft = !!text && !!instructions.trim()
 		// An image-only restore has empty text; prepending it would only add blank lines.
 		if (text) {
 			instructions = instructions.trim() ? `${text}\n\n${instructions}` : text
@@ -330,6 +339,7 @@
 			images = merged.slice(0, MAX_ATTACHED_IMAGES)
 		}
 		focusInput()
+		return mergedIntoDraft
 	}
 
 	/** Insert a plain @filename mention for an attached file (used by the @ menu Files category). */

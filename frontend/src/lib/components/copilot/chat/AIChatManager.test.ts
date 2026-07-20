@@ -455,10 +455,12 @@ describe('AIChatManager queued messages', () => {
 		mocks.tryGetCurrentModel.mockReturnValue(model)
 	})
 
+	// The real composer reports whether it took the restore (an occupied one declines);
+	// default to an empty composer, which always takes it.
 	function createInputMock() {
 		return {
-			prependText: vi.fn(),
-			restoreInstructions: vi.fn(),
+			prependText: vi.fn().mockReturnValue(false),
+			restoreInstructions: vi.fn().mockReturnValue(true),
 			focusInput: vi.fn()
 		}
 	}
@@ -1292,6 +1294,47 @@ describe('AIChatManager queued messages', () => {
 
 		const chips = cm.getSelectedContext().filter((c) => c.type === 'app_dom_selector')
 		expect(chips.map((c) => c.selector)).toEqual(['div.a'])
+	})
+
+	// Restoration is only coherent when the text it belongs to actually lands in the
+	// composer. Both cases below leave another draft sitting there, so replacing its
+	// chips would silently retarget an instruction the user is still writing.
+	it('leaves an occupied composer’s DOM context alone when it declines a cancelled prompt', async () => {
+		const input = createInputMock()
+		// The user typed a B-scoped draft during the stream, so the composer keeps it
+		// and declines the cancelled prompt's text.
+		input.restoreInstructions.mockReturnValue(false)
+		const manager = createManager(input)
+		manager.mode = AIMode.GLOBAL
+		const cm = manager.contextManager
+		cm.setSelectedDomElement({ selector: 'div.a', appPath: 'f/app', tagName: 'div' })
+		mocks.runChatLoop.mockImplementationOnce(async ({ abortController }: any) => {
+			cm.addSelectedDomElement({ selector: 'div.b', appPath: 'f/app', tagName: 'div' })
+			abortController.abort('user_cancelled')
+			throw new Error('aborted')
+		})
+
+		await manager.sendRequest({ instructions: 'style A' })
+
+		const chips = cm.getSelectedContext().filter((c) => c.type === 'app_dom_selector')
+		expect(chips.map((c) => c.selector)).toEqual(['div.b'])
+	})
+
+	it('keeps both drafts’ chips when a dequeued prompt is prepended onto an existing draft', () => {
+		const input = createInputMock()
+		// prependText merged the queued text on top of a draft already in the composer.
+		input.prependText.mockReturnValue(true)
+		const manager = createManager(input)
+		const cm = manager.contextManager
+		cm.setSelectedDomElement({ selector: 'div.a', appPath: 'f/app', tagName: 'div' })
+		manager.queueMessage('style A', [], [...cm.getSelectedContext()])
+		cm.setSelectedDomElement({ selector: 'div.b', appPath: 'f/app', tagName: 'div' })
+
+		manager.dequeueMessage()
+
+		// Both instructions now share one composer, so both elements stay in scope.
+		const chips = cm.getSelectedContext().filter((c) => c.type === 'app_dom_selector')
+		expect(chips.map((c) => c.selector).sort()).toEqual(['div.a', 'div.b'])
 	})
 
 	it('re-queues the message when its auto-send is rejected by beforeSend', async () => {
