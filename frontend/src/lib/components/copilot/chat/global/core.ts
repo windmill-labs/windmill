@@ -2716,9 +2716,11 @@ export const globalTools: Tool<{}>[] = [
 			)
 		}
 	},
-	createDbSchemaTool<{}>(
-		'Fetch the schema (tables and columns) of a database resource by its path. Supports postgresql, mysql, ms_sql_server, snowflake, bigquery and duckdb resources.'
-	),
+	createDbSchemaTool<{}>({
+		description:
+			'Fetch the schema (tables and columns) of a database resource by its path. Supports postgresql, mysql, ms_sql_server, snowflake and bigquery resources.',
+		updateEditorCache: false
+	}),
 	{
 		def: createToolDef(
 			readFlowModuleCodeSchema,
