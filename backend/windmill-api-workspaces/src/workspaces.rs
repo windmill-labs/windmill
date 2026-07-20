@@ -1111,55 +1111,6 @@ fn deploys_on_push_branch(
     }
 }
 
-/// Resolve a git-sync repo's `url` and `branch`, interpolating `$var:`/`$res:`
-/// references the same way the auto-pull poller does. Reads on the plain pool
-/// (bypassing resource RLS) so a non-admin member gets an accurate answer;
-/// interpolation runs only when a field is a reference, to avoid decrypting a
-/// secret token when the URL is a literal. Resolved values are only compared
-/// (the URL credential-stripped), never returned.
-async fn resolve_repo_url_branch(
-    db: &DB,
-    w_id: &str,
-    resource_path: &str,
-) -> Result<Option<(Option<String>, Option<String>)>> {
-    let path = resource_path.trim_start_matches("$res:");
-    let raw = sqlx::query!(
-        "SELECT value->>'url' as url, value->>'branch' as branch \
-         FROM resource WHERE workspace_id = $1 AND path = $2",
-        w_id,
-        path
-    )
-    .fetch_optional(db)
-    .await?;
-    let Some(raw) = raw else { return Ok(None) };
-
-    let needs_interp = raw.url.as_deref().is_some_and(|s| s.starts_with('$'))
-        || raw.branch.as_deref().is_some_and(|s| s.starts_with('$'));
-    if !needs_interp {
-        return Ok(Some((raw.url, raw.branch)));
-    }
-
-    let dba: windmill_common::db::DbWithOptAuthed<'_, ApiAuthed> =
-        windmill_common::db::DbWithOptAuthed::DB {
-            db: db.clone(),
-            audit_author: windmill_common::audit::AuditAuthor {
-                username: "git_sync_deploy_mode".to_string(),
-                email: windmill_common::users::SUPERADMIN_SYNC_EMAIL.to_string(),
-                username_override: None,
-                token_prefix: None,
-            },
-        };
-    let Some(value) = windmill_store::resources::get_resource_value_interpolated_internal(
-        &dba, w_id, path, None, None, true,
-    )
-    .await?
-    else {
-        return Ok(None);
-    };
-    let field = |k: &str| value.get(k).and_then(|v| v.as_str()).map(str::to_string);
-    Ok(Some((field("url"), field("branch"))))
-}
-
 /// Non-admin endpoint so the CLI/agent can pick the deploy path (git push vs
 /// `wmill sync push`) without reading the admin-only workspace settings. Matches
 /// the caller's remote+branch server-side and returns only booleans — no
@@ -1241,21 +1192,30 @@ async fn get_git_sync_deploy_mode(
                 if !enabled {
                     continue;
                 }
-                let Some((url, tracked_branch)) =
-                    resolve_repo_url_branch(&db, &root_id, &repo.git_repo_resource_path).await?
+                // Interpolates `$var:`/`$res:` and reads as a system context, the
+                // same resolver the auto-pull poller uses; only compared, never
+                // returned (and the URL is credential-stripped by normalization).
+                let Some(value) = windmill_store::resources::resolve_git_repository_resource(
+                    &db,
+                    &root_id,
+                    &repo.git_repo_resource_path,
+                )
+                .await?
                 else {
                     continue;
                 };
-                let matches_remote = url
-                    .as_deref()
+                let matches_remote = value
+                    .get("url")
+                    .and_then(|v| v.as_str())
                     .and_then(normalize_git_remote)
                     .is_some_and(|repo_norm| repo_norm == remote_norm);
+                let tracked_branch = value.get("branch").and_then(|v| v.as_str()).unwrap_or("");
                 if matches_remote
                     && deploys_on_push_branch(
                         is_fork,
                         &w_id,
                         branch,
-                        tracked_branch.as_deref().unwrap_or(""),
+                        tracked_branch,
                         enabled,
                         sync_forks,
                     )
