@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT COUNT(*) FILTER (WHERE overdue AND concurrency_gated_at IS NULL)\n                           AS ungated_count,\n                       COUNT(*) FILTER (WHERE overdue AND concurrency_gated_at IS NOT NULL)\n                           AS gated_count,\n                       MIN(scheduled_for) FILTER (WHERE overdue AND concurrency_gated_at IS NULL)\n                           AS oldest_ungated,\n                       MIN(scheduled_for) FILTER (WHERE overdue) AS oldest_overdue,\n                       MAX(concurrency_gated_at) AS newest_mark\n                FROM (\n                    SELECT scheduled_for, concurrency_gated_at,\n                           scheduled_for <= NOW() - $2::interval AS overdue\n                    FROM v2_job_queue\n                    WHERE tag = $1 AND running = false\n                ) t\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ungated_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "gated_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "oldest_ungated",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "oldest_overdue",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "newest_mark",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Interval"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "44ae7df82f205b11530de9911a5e1c46dfb34550ffb103ff722e1579b1b346ac"
+}

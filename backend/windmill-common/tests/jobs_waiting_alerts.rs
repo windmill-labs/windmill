@@ -53,16 +53,19 @@ mod tests {
         .expect("seed alert config");
     }
 
-    /// Queue `n` jobs on TAG that have been due for 5 minutes. `gated` mirrors
-    /// what the limiter writes when it re-queues a job it could not admit.
-    async fn queue_jobs(db: &Pool<Postgres>, n: usize, gated: bool) {
+    /// Queue `n` jobs on TAG that have been due for 5 minutes. `gated_secs_ago`
+    /// mirrors the stamp the limiter writes when it re-queues a job it could not
+    /// admit; `None` is a job no gate has parked.
+    async fn queue_jobs(db: &Pool<Postgres>, n: usize, gated_secs_ago: Option<i64>) {
         for _ in 0..n {
             sqlx::query!(
-                "INSERT INTO v2_job_queue (id, workspace_id, tag, running, scheduled_for, concurrency_gated)
-                 VALUES ($1, 'test-workspace', $2, false, NOW() - INTERVAL '5 minutes', $3)",
+                "INSERT INTO v2_job_queue (id, workspace_id, tag, running, scheduled_for, concurrency_gated_at)
+                 VALUES ($1, 'test-workspace', $2, false, NOW() - INTERVAL '5 minutes',
+                         CASE WHEN $3::bigint IS NULL THEN NULL
+                              ELSE NOW() - INTERVAL '1 second' * $3::bigint END)",
                 Uuid::new_v4(),
                 TAG,
-                gated.then_some(true),
+                gated_secs_ago,
             )
             .execute(db)
             .await
@@ -78,16 +81,15 @@ mod tests {
     }
 
     /// Jobs the limiter parked behind their own concurrency gate must not page
-    /// on-call: they are waiting by design, not for want of a worker, and no
-    /// operator action drains them. Their re-queue timestamps mature in bursts,
-    /// so counting them produces a stream of alerts whose count swings wildly
-    /// while the fleet sits idle.
+    /// on-call: they wait by design, not for want of a worker, and no operator
+    /// action drains them. Their re-queue timestamps mature in bursts, so
+    /// counting them alerts repeatedly while the fleet sits idle.
     #[ignore = "requires database setup - run with --ignored flag"]
     #[sqlx::test(migrations = "../migrations")]
     async fn concurrency_gated_backlog_does_not_alert(db: Pool<Postgres>) {
         free_the_lock(&db).await;
         configure_alert(&db, 100).await;
-        queue_jobs(&db, 200, true).await;
+        queue_jobs(&db, 200, Some(1)).await;
 
         jobs_waiting_alerts(&db).await;
 
@@ -105,8 +107,8 @@ mod tests {
     async fn jobs_waiting_on_capacity_still_alert(db: Pool<Postgres>) {
         free_the_lock(&db).await;
         configure_alert(&db, 100).await;
-        queue_jobs(&db, 150, false).await;
-        queue_jobs(&db, 200, true).await;
+        queue_jobs(&db, 150, None).await;
+        queue_jobs(&db, 200, Some(1)).await;
 
         jobs_waiting_alerts(&db).await;
 
@@ -124,6 +126,34 @@ mod tests {
         assert!(
             messages[0].contains("200"),
             "alert must report the gated jobs it excluded: {}",
+            messages[0]
+        );
+    }
+
+    /// A mark is only evidence while the limiter keeps refreshing it. Once a gate
+    /// frees, nothing clears the marks it left, so if workers then disappear the
+    /// backlog is genuinely starved while still carrying them. Marks that stopped
+    /// advancing must not be trusted, or the outage stays silent forever.
+    #[ignore = "requires database setup - run with --ignored flag"]
+    #[sqlx::test(migrations = "../migrations")]
+    async fn stale_gate_marks_do_not_suppress_the_alert(db: Pool<Postgres>) {
+        free_the_lock(&db).await;
+        configure_alert(&db, 100).await;
+        // Marked well beyond alert_time_threshold_seconds and never refreshed.
+        queue_jobs(&db, 200, Some(3600)).await;
+
+        jobs_waiting_alerts(&db).await;
+
+        let messages = alert_messages(&db).await;
+        assert_eq!(
+            messages.len(),
+            1,
+            "a backlog whose gate marks stopped advancing is waiting on workers and \
+             must alert, got {messages:?}"
+        );
+        assert!(
+            messages[0].contains("200"),
+            "every job must be counted once its marks go stale: {}",
             messages[0]
         );
     }
