@@ -8,6 +8,7 @@ import {
   getCurrentGitBranch,
   getGitRemoteUrl,
   isGitRepository,
+  shellQuote,
   stripGitRemoteCredentials,
 } from "../../utils/git.ts";
 
@@ -34,9 +35,11 @@ export async function gitSyncStatus(
   });
 
   // Recommend the exact remote+branch that was checked, so the pushed target
-  // can't diverge from the matched one (e.g. via remote.pushDefault).
+  // can't diverge from the matched one (e.g. via remote.pushDefault). Shell-quote
+  // both — this string is copy-pasted / executed by agents, and branch/remote
+  // names may legally contain shell metacharacters.
   const deployCommand = mode.deploy_on_push
-    ? `git push ${remoteName} ${branch}`
+    ? `git push ${shellQuote(remoteName)} ${shellQuote(branch ?? "")}`
     : "wmill sync push";
 
   if (opts.jsonOutput) {

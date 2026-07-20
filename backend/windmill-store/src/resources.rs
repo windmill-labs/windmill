@@ -2867,21 +2867,17 @@ async fn get_repo_latest_commit_hash(
     Ok(commit_hash)
 }
 
-/// Resolve a workspace git-sync repository and return its current head commit
-/// for the tracked branch, for background auto-pull polling (no authed user).
-///
-/// Returns `Ok(Some((ref_spec, sha)))` for a pollable repo, or `Ok(None)` for
-/// repos that cannot be polled in-process — currently GitHub-App-backed repos,
-/// which authenticate via an installation token at clone time and sync via
-/// webhooks instead. Credentials embedded in the resource URL (including
-/// `$var:` references) are resolved with the system identity, bypassing
-/// per-user ACLs, since the poller runs without an authenticated request.
 /// Load a git-sync repository resource's value with `$var:`/`$res:` references
 /// resolved. Shared by the auto-pull poller (`get_git_repo_head_for_autopull`)
-/// and deploy-mode detection so the interpolation happens in exactly one place.
-/// Uses a system (`SUPERADMIN_SYNC_EMAIL`) context so it works regardless of the
-/// caller's resource RLS, and `allow_cache=true` so a `$var:` secret in the URL
-/// is not re-decrypted (nor re-audited) on every call.
+/// and deploy-mode detection so the interpolation lives in exactly one place.
+///
+/// SECURITY: reads under the system identity (`SUPERADMIN_SYNC_EMAIL`), so it
+/// **bypasses resource RLS** and returns fully-interpolated JSON that **may
+/// contain credentials** (an embedded `$var:` token in the URL). Callers must
+/// have already authorized access to `w_id`, must use it only for git-sync
+/// `git_repository` resources, and must **not** return the resolved value to a
+/// client — derive and return only non-sensitive facts. `allow_cache=true`
+/// avoids re-decrypting (and re-auditing) a `$var:` secret on every call.
 pub async fn resolve_git_repository_resource(
     db: &DB,
     w_id: &str,
@@ -2906,6 +2902,10 @@ pub async fn resolve_git_repository_resource(
     get_resource_value_interpolated_internal(&dba, w_id, resource_path, None, None, true).await
 }
 
+/// Resolve a workspace git-sync repository and return its current head commit
+/// `(ref_spec, sha)` for the tracked branch, for background auto-pull polling.
+/// Returns `Ok(None)` for repos that cannot be polled in-process (GitHub-App
+/// repos, which sync via webhooks instead).
 pub async fn get_git_repo_head_for_autopull(
     db: &DB,
     w_id: &str,

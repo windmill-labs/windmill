@@ -1067,48 +1067,93 @@ fn normalize_git_remote(raw: &str) -> Option<String> {
         let host = host_part.rsplit('@').next()?;
         (host.to_string(), path.to_string())
     };
+    // Only the host is case-insensitive; repo paths are case-sensitive on many
+    // git servers, so lowercasing the path would conflate distinct repositories.
     let host = host.to_ascii_lowercase();
     let path = path
         .trim_start_matches('/')
         .trim_end_matches('/')
-        .trim_end_matches(".git")
-        .to_ascii_lowercase();
+        .trim_end_matches(".git");
     if host.is_empty() {
         return None;
     }
     Some(format!("{host}/{path}"))
 }
 
-/// Whether pushing `pushed_branch` deploys through a repo that tracks
-/// `tracked_branch`. A non-fork workspace deploys when the pushed branch matches
-/// directly; a fork's `wm-fork/<base>/<id>` branch deploys via the parent repo
-/// when it has `sync_forks` and its base equals the tracked branch. A blank
-/// tracked branch (repo default) is unresolvable without a network call, so it
-/// never matches and the caller falls back to `wmill sync push`.
-fn deploys_on_push_branch(
-    is_fork: bool,
-    w_id: &str,
-    pushed_branch: &str,
-    tracked_branch: &str,
-    enabled: bool,
-    sync_forks: bool,
-) -> bool {
-    if !enabled || tracked_branch.is_empty() {
+/// Whether pushing `pushed_branch` matches a repo tracking `tracked_branch`. A
+/// non-fork workspace matches when the pushed branch equals the tracked branch;
+/// a fork's `wm-fork/<base>/<id>` branch matches when its base equals the tracked
+/// branch (the `sync_forks`, inheritance and workspace-routing checks are done by
+/// the caller). A blank tracked branch (repo default) is unresolvable without a
+/// network call, so it never matches and the caller falls back to `wmill sync push`.
+fn deploys_on_push_branch(is_fork: bool, pushed_branch: &str, tracked_branch: &str) -> bool {
+    if tracked_branch.is_empty() {
         return false;
     }
     if is_fork {
-        let Some((base, suffix)) = windmill_common::workspaces::parse_fork_branch(pushed_branch)
-        else {
-            return false;
-        };
-        sync_forks
-            && base == tracked_branch
-            && windmill_common::workspaces::fork_branch_workspace_id_candidates(suffix)
-                .iter()
-                .any(|c| c == w_id)
+        windmill_common::workspaces::parse_fork_branch(pushed_branch)
+            .is_some_and(|(base, _)| base == tracked_branch)
     } else {
         pushed_branch == tracked_branch
     }
+}
+
+/// For a fork checkout, decide whether its `wm-fork/<base>/<id>` branch actually
+/// routes to this workspace and which repos it inherited — mirroring the fork
+/// reconciler, which (a) resolves the branch to the first existing of
+/// `[wm-fork-<suffix>, <suffix>]` and (b) only deploys through a repo present in
+/// the fork's *own* git-sync settings. Returns the inherited repo paths (deploy
+/// candidates) when the branch routes here, or `None` when it doesn't (so the
+/// caller reports no deploy-on-push). Dev-workspace label branches (`dev`,
+/// `staging`) aren't `wm-fork/*`, so they return `None` and safely fall back to
+/// `wmill sync push`.
+async fn fork_deploy_context(
+    db: &DB,
+    w_id: &str,
+    pushed_branch: &str,
+) -> Result<Option<std::collections::HashSet<String>>> {
+    let Some((_base, suffix)) = windmill_common::workspaces::parse_fork_branch(pushed_branch)
+    else {
+        return Ok(None);
+    };
+    // The branch deploys to the first existing candidate; if a higher-priority
+    // one exists, this push targets a different workspace than w_id.
+    let mut target = None;
+    for cand in windmill_common::workspaces::fork_branch_workspace_id_candidates(suffix) {
+        let exists =
+            sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM workspace WHERE id = $1)", cand)
+                .fetch_one(db)
+                .await?
+                .unwrap_or(false);
+        if exists {
+            target = Some(cand);
+            break;
+        }
+    }
+    if target.as_deref() != Some(w_id) {
+        return Ok(None);
+    }
+
+    let inherited = sqlx::query_scalar!(
+        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .and_then(|v| serde_json::from_value::<WorkspaceGitSyncSettings>(v).ok())
+    .map(|s| {
+        s.repositories
+            .into_iter()
+            .map(|r| {
+                r.git_repo_resource_path
+                    .trim_start_matches("$res:")
+                    .to_string()
+            })
+            .collect()
+    })
+    .unwrap_or_default();
+    Ok(Some(inherited))
 }
 
 /// Non-admin endpoint so the CLI/agent can pick the deploy path (git push vs
@@ -1182,15 +1227,43 @@ async fn get_git_sync_deploy_mode(
         windmill_common::ee_oss::LicensePlan::Enterprise
     );
 
+    // For a fork, resolve which repos its branch can actually deploy through
+    // (routes to this workspace + inherited). None means it deploys through none.
+    let fork_inherited = if is_fork {
+        match fork_deploy_context(&db, &w_id, branch).await? {
+            Some(paths) => Some(paths),
+            None => {
+                return Ok(Json(GitSyncDeployMode {
+                    configured,
+                    deploy_on_push: false,
+                }));
+            }
+        }
+    } else {
+        None
+    };
+
     let mut deploy_on_push = false;
     if licensed {
         if let Some(remote_norm) = normalize_git_remote(remote) {
             for repo in &settings.repositories {
                 let auto_pull = repo.auto_pull.as_ref();
-                let enabled = auto_pull.is_some_and(|a| a.enabled);
-                let sync_forks = auto_pull.is_some_and(|a| a.sync_forks);
-                if !enabled {
+                if !auto_pull.is_some_and(|a| a.enabled) {
                     continue;
+                }
+                if is_fork {
+                    // A fork deploys only through repos with sync_forks that it
+                    // actually inherited (mirrors reconcile_fork_branch_pull).
+                    if !auto_pull.is_some_and(|a| a.sync_forks) {
+                        continue;
+                    }
+                    let repo_path = repo.git_repo_resource_path.trim_start_matches("$res:");
+                    if !fork_inherited
+                        .as_ref()
+                        .is_some_and(|p| p.contains(repo_path))
+                    {
+                        continue;
+                    }
                 }
                 // Interpolates `$var:`/`$res:` and reads as a system context, the
                 // same resolver the auto-pull poller uses; only compared, never
@@ -1210,16 +1283,7 @@ async fn get_git_sync_deploy_mode(
                     .and_then(normalize_git_remote)
                     .is_some_and(|repo_norm| repo_norm == remote_norm);
                 let tracked_branch = value.get("branch").and_then(|v| v.as_str()).unwrap_or("");
-                if matches_remote
-                    && deploys_on_push_branch(
-                        is_fork,
-                        &w_id,
-                        branch,
-                        tracked_branch,
-                        enabled,
-                        sync_forks,
-                    )
-                {
+                if matches_remote && deploys_on_push_branch(is_fork, branch, tracked_branch) {
                     deploy_on_push = true;
                     break;
                 }
@@ -1236,75 +1300,20 @@ mod git_sync_deploy_mode_tests {
 
     #[test]
     fn non_fork_matches_tracked_branch_only() {
-        assert!(deploys_on_push_branch(
-            false, "ws", "main", "main", true, false
-        ));
-        assert!(!deploys_on_push_branch(
-            false, "ws", "dev", "main", true, false
-        ));
-        // Disabled auto-pull, or an unresolved default (blank) branch, never match.
-        assert!(!deploys_on_push_branch(
-            false, "ws", "main", "main", false, false
-        ));
-        assert!(!deploys_on_push_branch(
-            false, "ws", "main", "", true, false
-        ));
+        assert!(deploys_on_push_branch(false, "main", "main"));
+        assert!(!deploys_on_push_branch(false, "dev", "main"));
+        // An unresolved default (blank) tracked branch never matches.
+        assert!(!deploys_on_push_branch(false, "main", ""));
     }
 
     #[test]
-    fn fork_needs_sync_forks_base_and_matching_id() {
-        // Generated fork: id `wm-fork-abc`, branch `wm-fork/main/abc`.
-        assert!(deploys_on_push_branch(
-            true,
-            "wm-fork-abc",
-            "wm-fork/main/abc",
-            "main",
-            true,
-            true
-        ));
-        // Dev-workspace fork keeps a prefix-less id used verbatim in the suffix.
-        assert!(deploys_on_push_branch(
-            true,
-            "abc",
-            "wm-fork/main/abc",
-            "main",
-            true,
-            true
-        ));
-        // sync_forks off, base mismatch, or a suffix for a different workspace.
-        assert!(!deploys_on_push_branch(
-            true,
-            "wm-fork-abc",
-            "wm-fork/main/abc",
-            "main",
-            true,
-            false
-        ));
-        assert!(!deploys_on_push_branch(
-            true,
-            "wm-fork-abc",
-            "wm-fork/main/abc",
-            "release",
-            true,
-            true
-        ));
-        assert!(!deploys_on_push_branch(
-            true,
-            "wm-fork-other",
-            "wm-fork/main/abc",
-            "main",
-            true,
-            true
-        ));
-        // A non-fork-format branch on a fork workspace does not deploy.
-        assert!(!deploys_on_push_branch(
-            true,
-            "wm-fork-abc",
-            "main",
-            "main",
-            true,
-            true
-        ));
+    fn fork_branch_base_must_match_tracked() {
+        // A fork's wm-fork/<base>/<id> deploys when base == the tracked branch.
+        assert!(deploys_on_push_branch(true, "wm-fork/main/abc", "main"));
+        // Base mismatch, non-fork-format branch, or blank tracked branch do not.
+        assert!(!deploys_on_push_branch(true, "wm-fork/release/abc", "main"));
+        assert!(!deploys_on_push_branch(true, "main", "main"));
+        assert!(!deploys_on_push_branch(true, "wm-fork/main/abc", ""));
     }
 
     #[test]
@@ -1319,9 +1328,14 @@ mod git_sync_deploy_mode_tests {
             normalize_git_remote("https://x-access-token:ghp_secret@github.com/org/repo"),
             expected
         );
+        // Host case is folded; path case is preserved (case-sensitive on some hosts).
+        assert_eq!(
+            normalize_git_remote("https://GitHub.com/org/repo.git"),
+            expected
+        );
         assert_eq!(
             normalize_git_remote("https://github.com/Org/Repo.git"),
-            expected
+            Some("github.com/Org/Repo".to_string())
         );
         assert_eq!(
             normalize_git_remote("git@github.com:org/repo.git"),

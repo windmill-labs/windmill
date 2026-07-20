@@ -56,6 +56,14 @@ export function stripGitRemoteCredentials(url: string): string {
   }
 }
 
+/**
+ * POSIX single-quote a string so it is safe to interpolate into a shell command
+ * we recommend to a user or agent. Wraps in `'...'` and escapes embedded quotes.
+ */
+export function shellQuote(s: string): string {
+  return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
 /** Whether a local branch with this exact name exists. */
 export function gitBranchExists(branchName: string): boolean {
   const r = spawnSync(

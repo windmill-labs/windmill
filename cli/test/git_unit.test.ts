@@ -15,7 +15,24 @@ import {
   gitSyncCommitMessage,
   isForkWorkspace,
   stripGitRemoteCredentials,
+  shellQuote,
 } from "../src/utils/git.ts";
+
+describe("shellQuote", () => {
+  test("wraps plain values in single quotes", () => {
+    expect(shellQuote("main")).toBe("'main'");
+    expect(shellQuote("origin")).toBe("'origin'");
+  });
+
+  test("neutralizes shell metacharacters in branch names", () => {
+    expect(shellQuote("feat;echo hi")).toBe("'feat;echo hi'");
+    expect(shellQuote("release$(id)")).toBe("'release$(id)'");
+  });
+
+  test("escapes embedded single quotes", () => {
+    expect(shellQuote("a'b")).toBe("'a'\\''b'");
+  });
+});
 
 // =============================================================================
 // stripGitRemoteCredentials

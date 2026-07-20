@@ -457,7 +457,7 @@ async fn test_workspace_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         resp.status()
     );
 
-    // --- git_sync_deploy_mode (readable without admin; default when no git-sync) ---
+    // --- git_sync_deploy_mode (response shape + default when no git-sync configured) ---
     let resp = authed(client().get(format!("{base}/git_sync_deploy_mode")))
         .send()
         .await
