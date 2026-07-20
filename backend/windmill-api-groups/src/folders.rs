@@ -15,9 +15,7 @@ use axum::{
 };
 use lazy_static::lazy_static;
 use regex::Regex;
-use windmill_api_auth::{
-    build_scope_path_predicate, check_scopes, is_scope_restricted, ApiAuthed, AuthCache, Tokened,
-};
+use windmill_api_auth::{build_scope_path_predicate, check_scopes, ApiAuthed, AuthCache, Tokened};
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::DB;
@@ -102,11 +100,6 @@ pub struct Owner {
     pub write: Option<bool>,
 }
 
-/// Rows per round trip when a scoped token forces the list endpoints to filter
-/// before paginating. Large enough that a normal workspace is a single query,
-/// small enough that the fetch stays bounded on a big one.
-const SCOPE_SCAN_CHUNK: i64 = 500;
-
 async fn list_folders(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -116,58 +109,19 @@ async fn list_folders(
     let (per_page, offset) = paginate(pagination);
     let mut tx = user_db.begin(&authed).await?;
 
-    let rows = if is_scope_restricted(&authed) {
-        let allowed = build_scope_path_predicate(&authed, "folders", "read");
-        let mut page: Vec<Folder> = Vec::with_capacity(per_page);
-        let mut to_skip = offset;
-        let mut cursor: Option<String> = None;
-        // Scope narrowing has to precede pagination — filtering an already-paged
-        // window hands a scoped token short or empty pages whenever out-of-scope
-        // folders sort ahead of its own. Walk the table in bounded chunks instead
-        // of loading it, keeping only the requested page. The cursor rides the
-        // `(workspace_id, name)` primary key so chunks stay linear and a
-        // concurrent insert or delete cannot duplicate or skip a folder.
-        'scan: loop {
-            let chunk = sqlx::query_as!(
-                Folder,
-                "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as, labels FROM folder WHERE workspace_id = $1 AND ($2::text IS NULL OR name > $2::text) ORDER BY name asc LIMIT $3",
-                w_id,
-                cursor.as_deref(),
-                SCOPE_SCAN_CHUNK
-            )
-            .fetch_all(&mut *tx)
-            .await?;
-            let exhausted = (chunk.len() as i64) < SCOPE_SCAN_CHUNK;
-            cursor = chunk.last().map(|r| r.name.clone());
-            for folder in chunk
-                .into_iter()
-                .filter(|r| allowed(&format!("f/{}", r.name)))
-            {
-                if to_skip > 0 {
-                    to_skip -= 1;
-                } else {
-                    page.push(folder);
-                    if page.len() >= per_page {
-                        break 'scan;
-                    }
-                }
-            }
-            if exhausted {
-                break;
-            }
-        }
-        page
-    } else {
-        sqlx::query_as!(
-            Folder,
-            "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as, labels FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
-            w_id,
-            per_page as i64,
-            offset as i64
-        )
-        .fetch_all(&mut *tx)
-        .await?
-    };
+    let allowed = build_scope_path_predicate(&authed, "folders", "read");
+    let rows = sqlx::query_as!(
+        Folder,
+        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as, labels FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
+        w_id,
+        per_page as i64,
+        offset as i64
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .filter(|r| allowed(&format!("f/{}", r.name)))
+    .collect::<Vec<_>>();
     tx.commit().await?;
 
     Ok(Json(rows))
@@ -181,50 +135,18 @@ async fn list_foldernames(
     let (per_page, offset) = paginate(pagination);
     let mut tx = user_db.begin(&authed).await?;
 
-    let rows = if is_scope_restricted(&authed) {
-        let allowed = build_scope_path_predicate(&authed, "folders", "read");
-        let mut page: Vec<String> = Vec::with_capacity(per_page);
-        let mut to_skip = offset;
-        let mut cursor: Option<String> = None;
-        'scan: loop {
-            let chunk = sqlx::query_scalar!(
-                "SELECT name FROM folder WHERE workspace_id = $1 AND ($2::text IS NULL OR name > $2::text) ORDER BY name asc LIMIT $3",
-                w_id,
-                cursor.as_deref(),
-                SCOPE_SCAN_CHUNK
-            )
-            .fetch_all(&mut *tx)
-            .await?;
-            let exhausted = (chunk.len() as i64) < SCOPE_SCAN_CHUNK;
-            cursor = chunk.last().cloned();
-            for name in chunk
-                .into_iter()
-                .filter(|name| allowed(&format!("f/{}", name)))
-            {
-                if to_skip > 0 {
-                    to_skip -= 1;
-                } else {
-                    page.push(name);
-                    if page.len() >= per_page {
-                        break 'scan;
-                    }
-                }
-            }
-            if exhausted {
-                break;
-            }
-        }
-        page
-    } else {
-        sqlx::query_scalar!(
-            "SELECT name FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
-            w_id,
-            per_page as i64,
-            offset as i64
-        )
-        .fetch_all(&mut *tx)
-        .await?
-    };
+    let allowed = build_scope_path_predicate(&authed, "folders", "read");
+    let rows = sqlx::query_scalar!(
+        "SELECT name FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
+        w_id,
+        per_page as i64,
+        offset as i64
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .filter(|name| allowed(&format!("f/{}", name)))
+    .collect::<Vec<_>>();
 
     tx.commit().await?;
 

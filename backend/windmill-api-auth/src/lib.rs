@@ -458,20 +458,6 @@ fn resource_covers(caller: &str, requested: &str) -> bool {
             && requested_base.as_bytes().get(prefix.len()) == Some(&b'/'))
 }
 
-/// Mirrors `check_scopes` semantics: a token narrows what the underlying user
-/// may reach iff it carries at least one non-`if_jobs:filter_tags:` scope.
-///
-/// Callers that can serve unrestricted tokens on a cheaper path (e.g. keeping
-/// pagination in SQL, which scope filtering otherwise has to precede) branch on
-/// this; `build_scope_path_predicate` is always-true when it is false.
-pub fn is_scope_restricted(authed: &ApiAuthed) -> bool {
-    authed.scopes.as_ref().is_some_and(|scopes| {
-        scopes
-            .iter()
-            .any(|s| !s.starts_with("if_jobs:filter_tags:"))
-    })
-}
-
 /// Returns a predicate that checks whether `path` is within the token's
 /// scope for `{domain}:{action}:{path}`. For tokens without scope
 /// restrictions (no scopes at all, or only `if_jobs:filter_tags:*` scopes),
@@ -484,20 +470,22 @@ pub fn build_scope_path_predicate(
     domain: &str,
     action: &str,
 ) -> impl Fn(&str) -> bool {
-    let is_scoped_token = is_scope_restricted(authed);
-    // Unparseable scopes are dropped here but still count as restrictive above —
-    // they just match nothing.
-    let parsed: Vec<ScopeDefinition> = authed
-        .scopes
-        .as_ref()
-        .map(|scopes| {
-            scopes
+    // Mirror check_scopes semantics: a token is "scope-restricted" iff it has
+    // at least one non-`if_jobs:filter_tags:` scope. Unparseable scopes still
+    // count as restrictive — they just match nothing.
+    let (is_scoped_token, parsed): (bool, Vec<ScopeDefinition>) = match authed.scopes.as_ref() {
+        Some(scopes) => {
+            let mut is_scoped = false;
+            let parsed = scopes
                 .iter()
                 .filter(|s| !s.starts_with("if_jobs:filter_tags:"))
+                .inspect(|_| is_scoped = true)
                 .filter_map(|s| ScopeDefinition::from_scope_string(s).ok())
-                .collect()
-        })
-        .unwrap_or_default();
+                .collect();
+            (is_scoped, parsed)
+        }
+        None => (false, Vec::new()),
+    };
     let domain = domain.to_string();
     let action = action.to_string();
 
