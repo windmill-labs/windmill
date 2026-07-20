@@ -101,14 +101,30 @@ mod tests {
     /// `insert_concurrency_key` writes at push time for any runnable carrying a
     /// concurrent_limit, plus the settings handle that carries the limit.
     async fn queue_jobs(db: &Pool<Postgres>, n: usize, gate: Option<(&str, i64)>) {
+        queue_jobs_inner(db, n, gate, None).await
+    }
+
+    /// Soft-cancelled jobs stay queued until a worker picks them up, and the
+    /// pull path skips concurrency limiting for them entirely.
+    async fn queue_canceled_jobs(db: &Pool<Postgres>, n: usize, gate: Option<(&str, i64)>) {
+        queue_jobs_inner(db, n, gate, Some("canceller")).await
+    }
+
+    async fn queue_jobs_inner(
+        db: &Pool<Postgres>,
+        n: usize,
+        gate: Option<(&str, i64)>,
+        canceled_by: Option<&str>,
+    ) {
         for _ in 0..n {
             let id = Uuid::new_v4();
             sqlx::query!(
-                "INSERT INTO v2_job_queue (id, workspace_id, tag, running, scheduled_for, runnable_settings_handle)
-                 VALUES ($1, 'test-workspace', $2, false, NOW() - INTERVAL '5 minutes', $3)",
+                "INSERT INTO v2_job_queue (id, workspace_id, tag, running, scheduled_for, runnable_settings_handle, canceled_by)
+                 VALUES ($1, 'test-workspace', $2, false, NOW() - INTERVAL '5 minutes', $3, $4)",
                 id,
                 TAG,
                 gate.map(|(_, handle)| handle),
+                canceled_by,
             )
             .execute(db)
             .await
@@ -190,6 +206,29 @@ mod tests {
         assert!(
             alert_messages(&db).await.is_empty(),
             "a gate saturated by completions inside its time window must not raise a critical alert"
+        );
+    }
+
+    /// Cancellation is a limiter bypass too: the pull path hands a job with
+    /// `canceled_by` set straight to a worker without consulting the counter.
+    /// Such jobs stay queued until a worker processes them, so a worker outage
+    /// piles them up behind whatever key they carry -- and classifying them off
+    /// that key hides an unbounded cancelled backlog from the alert.
+    #[ignore = "requires database setup - run with --ignored flag"]
+    #[sqlx::test(migrations = "../migrations")]
+    async fn canceled_jobs_behind_saturated_gate_still_alert(db: Pool<Postgres>) {
+        free_the_lock(&db).await;
+        configure_alert(&db, 100).await;
+        seed_gate(&db, GATE_KEY, 1, 1, 1).await;
+        queue_canceled_jobs(&db, 200, Some((GATE_KEY, 1))).await;
+
+        jobs_waiting_alerts(&db).await;
+
+        let messages = alert_messages(&db).await;
+        assert_eq!(
+            messages.len(),
+            1,
+            "soft-cancelled jobs bypass the limiter and must still alert, got {messages:?}"
         );
     }
 

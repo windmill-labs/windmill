@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT COUNT(*) AS count,\n                       MIN(scheduled_for) AS oldest_job,\n                       COUNT(*) FILTER (WHERE canceled_by IS NOT NULL) AS canceled_count,\n                       MIN(scheduled_for) FILTER (WHERE canceled_by IS NOT NULL) AS canceled_oldest\n                FROM v2_job_queue\n                WHERE tag = $1\n                  AND scheduled_for <= NOW() - $2::interval\n                  AND running = false\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "oldest_job",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "canceled_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "canceled_oldest",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Interval"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "3f9dd35d19e6badc92397fdb476d39ffadf1ff97931a9506772f76c3f36bd2c7"
+}
