@@ -5201,6 +5201,7 @@ paths:
                 required:
                   - configured
                   - deploy_on_push
+                  - auto_pull_branches
                 properties:
                   configured:
                     type: boolean
@@ -5208,9 +5209,17 @@ paths:
                   deploy_on_push:
                     type: boolean
                     description: >-
-                      A configured repository has auto-pull enabled, so pushing
-                      to the git remote makes Windmill deploy the change. When
-                      false, deploy via `wmill sync push` (directly or via CI).
+                      Some repository has auto-pull enabled on a licensed
+                      instance, so pushing its tracked branch deploys. Match the
+                      pushed branch against auto_pull_branches; other branches
+                      deploy via `wmill sync push`.
+                  auto_pull_branches:
+                    type: array
+                    items:
+                      type: string
+                    description: >-
+                      Tracked branches of the auto-pull repositories. `git push`
+                      deploys the current checkout only when its branch is listed.
 
   /w/{workspace}/workspaces/edit_git_sync_config:
     post:

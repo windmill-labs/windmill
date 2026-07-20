@@ -457,6 +457,21 @@ async fn test_workspace_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         resp.status()
     );
 
+    // --- git_sync_deploy_mode (readable without admin; default when no git-sync) ---
+    let resp = authed(client().get(format!("{base}/git_sync_deploy_mode")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "git_sync_deploy_mode: unexpected status"
+    );
+    let mode = resp.json::<serde_json::Value>().await?;
+    assert_eq!(mode["configured"], json!(false));
+    assert_eq!(mode["deploy_on_push"], json!(false));
+    assert_eq!(mode["auto_pull_branches"], json!([]));
+
     // --- update_operator_settings ---
     let resp = authed(client().post(format!("{base}/operator_settings")))
         .json(&json!({}))

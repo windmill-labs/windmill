@@ -4,6 +4,7 @@ import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import * as wmill from "../../../gen/services.gen.ts";
+import { getCurrentGitBranch, isGitRepository } from "../../utils/git.ts";
 
 export async function gitSyncStatus(
   opts: GlobalOptions & { jsonOutput?: boolean },
@@ -15,13 +16,25 @@ export async function gitSyncStatus(
     workspace: workspace.workspaceId,
   });
 
-  // `deploy_on_push` means the backend auto-pulls the git remote, so `git push`
-  // deploys. Otherwise deploy directly with `wmill sync push`.
-  const deployCommand = mode.deploy_on_push ? "git push" : "wmill sync push";
+  const currentBranch = isGitRepository() ? getCurrentGitBranch() : null;
+
+  // Auto-pull deploys only the branches it tracks, so `git push` deploys the
+  // current checkout only when its branch is one of those.
+  const deploysCurrentBranch =
+    mode.deploy_on_push &&
+    currentBranch != null &&
+    mode.auto_pull_branches.includes(currentBranch);
+  const deployCommand = deploysCurrentBranch ? "git push" : "wmill sync push";
 
   if (opts.jsonOutput) {
     // console.log (not log.info, which wraps in ANSI color) so the output pipes cleanly to jq.
-    console.log(JSON.stringify({ ...mode, deploy_command: deployCommand }, null, 2));
+    console.log(
+      JSON.stringify(
+        { ...mode, current_branch: currentBranch, deploy_command: deployCommand },
+        null,
+        2,
+      ),
+    );
     return;
   }
 
@@ -31,16 +44,25 @@ export async function gitSyncStatus(
         "No git-sync repository is configured for this workspace on the backend.",
       ),
     );
-  } else if (mode.deploy_on_push) {
+  } else if (deploysCurrentBranch) {
     log.info(
       colors.green(
-        "Git-sync is set up with auto-pull: pushing to the git remote deploys to this workspace.",
+        `Git-sync auto-pull tracks '${currentBranch}': pushing this branch deploys to the workspace.`,
+      ),
+    );
+  } else if (mode.deploy_on_push) {
+    const branches = mode.auto_pull_branches.join(", ") || "(none resolved)";
+    log.info(
+      colors.yellow(
+        `Git-sync auto-pull is enabled for branches [${branches}], but not the current branch${
+          currentBranch ? ` '${currentBranch}'` : ""
+        }: deploy with \`wmill sync push\`.`,
       ),
     );
   } else {
     log.info(
       colors.green(
-        "Git-sync is configured, but without auto-pull: deploy with `wmill sync push`.",
+        "Git-sync is configured without deploy-on-push: deploy with `wmill sync push`.",
       ),
     );
   }

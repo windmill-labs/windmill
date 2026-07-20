@@ -1030,18 +1030,25 @@ async fn get_public_settings(
 pub struct GitSyncDeployMode {
     /// At least one git-sync repository is configured for this workspace.
     pub configured: bool,
-    /// A configured repository has auto-pull enabled, so pushing to the git
-    /// remote makes Windmill deploy the change (server-handled git sync). When
-    /// false, deploying requires `wmill sync push` (directly or via CI).
+    /// Some configured repository has auto-pull enabled on an Enterprise-licensed
+    /// instance, so Windmill deploys pushes to its tracked branch. Pushing any
+    /// other branch does not deploy — match the pushed branch against
+    /// `auto_pull_branches` before recommending `git push`.
     pub deploy_on_push: bool,
+    /// Tracked branches of the auto-pull repositories (deduplicated). Empty unless
+    /// the instance is licensed for auto-pull. `git push` deploys the current
+    /// checkout only when its branch is listed here.
+    pub auto_pull_branches: Vec<String>,
 }
 
 /// Non-admin endpoint so the CLI/agent can pick the deploy path (git push vs
 /// `wmill sync push`) without reading the admin-only workspace settings. Exposes
-/// only derived booleans — never repository paths, credentials, or webhook config.
+/// only whether auto-pull is active and which branches it tracks — never
+/// repository resource paths, credentials, or webhook config.
 async fn get_git_sync_deploy_mode(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<GitSyncDeployMode> {
     let mut tx = user_db.begin(&authed).await?;
@@ -1062,20 +1069,55 @@ async fn get_git_sync_deploy_mode(
             .ok()
     });
 
-    // Not enterprise-gated: CE members also need this to pick their deploy path.
-    // `auto_pull` is only wired on EE, so `deploy_on_push` stays false on CE
-    // unless a downgraded workspace still carries the flag.
-    let (configured, deploy_on_push) = match settings {
-        Some(s) => (
-            !s.repositories.is_empty(),
-            s.repositories
-                .iter()
-                .any(|r| r.auto_pull.as_ref().is_some_and(|a| a.enabled)),
-        ),
-        None => (false, false),
+    let Some(settings) = settings else {
+        return Ok(Json(GitSyncDeployMode {
+            configured: false,
+            deploy_on_push: false,
+            auto_pull_branches: vec![],
+        }));
     };
 
-    Ok(Json(GitSyncDeployMode { configured, deploy_on_push }))
+    // Auto-pull only runs on Enterprise-licensed instances (see poll_git_auto_pull),
+    // so a retained `enabled` flag on a CE build or downgraded workspace must not
+    // advertise deploy-on-push.
+    let licensed = matches!(
+        windmill_common::ee_oss::get_license_plan().await,
+        windmill_common::ee_oss::LicensePlan::Enterprise
+    );
+
+    let mut deploy_on_push = false;
+    let mut auto_pull_branches: Vec<String> = Vec::new();
+    if licensed {
+        for repo in &settings.repositories {
+            if !repo.auto_pull.as_ref().is_some_and(|a| a.enabled) {
+                continue;
+            }
+            deploy_on_push = true;
+            // Read only the tracked branch name (not the resource secret), on the
+            // plain pool so a non-admin member without resource RLS access still
+            // gets an accurate answer.
+            let path = repo.git_repo_resource_path.trim_start_matches("$res:");
+            let branch: Option<String> = sqlx::query_scalar!(
+                "SELECT value->>'branch' FROM resource WHERE workspace_id = $1 AND path = $2",
+                &w_id,
+                path
+            )
+            .fetch_optional(&db)
+            .await?
+            .flatten();
+            if let Some(branch) = branch {
+                if !auto_pull_branches.contains(&branch) {
+                    auto_pull_branches.push(branch);
+                }
+            }
+        }
+    }
+
+    Ok(Json(GitSyncDeployMode {
+        configured: !settings.repositories.is_empty(),
+        deploy_on_push,
+        auto_pull_branches,
+    }))
 }
 
 async fn get_copilot_settings_state(
