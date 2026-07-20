@@ -23,6 +23,11 @@ import { createToolDef, type Tool } from '../shared'
 const COVERED_ENDPOINTS: Record<string, string> = {
 	getVariable: 'read_workspace_item (variable values are never readable in chat)',
 	listVariable: 'list_workspace_items (variable values are never readable in chat)',
+	// The item reads return the deployed version only, blind to the user's draft;
+	// read_workspace_item prefers the draft and (for flows) returns the compact
+	// JSON that patch_flow_json matches against.
+	getScriptByPath: 'read_workspace_item (it reads your draft when one exists)',
+	getFlowByPath: 'read_workspace_item (it reads your draft when one exists)',
 	deleteScriptByPath: 'delete_workspace_item',
 	deleteScriptByHash: 'delete_workspace_item',
 	deleteFlowByPath: 'delete_workspace_item',

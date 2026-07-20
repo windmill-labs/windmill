@@ -1533,3 +1533,82 @@
     - saves the plan as a markdown artifact via create_artifact rather than only replying inline
     - the artifact content has a title, a one-line summary, and three or four bullet steps for onboarding
     - does not create a flow or script draft yet
+
+# --- API catalog (search_api_endpoints / call_api_get / call_api_endpoint) ---
+# These need the eval backend to be built with the `mcp` cargo feature (part of
+# ce/ee release builds); without it the catalog endpoint 404s and the tools error.
+
+- id: global-test30-api-catalog-workers
+  prompt: |-
+    Are any workers online right now? Give me a quick summary of the workers and when they last pinged.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - search_api_endpoints
+      - call_api_get
+    forbiddenToolsUsed:
+      - call_api_endpoint
+      - write_script
+      - deploy_workspace_item
+    toolCallArgs:
+      - tool: call_api_get
+        field: name
+        stringIncludesAnyOf:
+          - listWorkers
+  # Read-only workspace inspection produces no draft; validate via tool use.
+  skipJudge: true
+  judgeChecklist:
+    - discovers the workers endpoint through the API catalog instead of guessing or fabricating
+    - reports worker status from the returned data
+
+- id: global-test31-draft-test-run-not-deployed
+  prompt: |-
+    Update `f/evals/global/format_greeting` so the provided name is uppercased in the greeting, then run it with name "ada" to check it works.
+    Keep it as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/format_greeting_script.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/format_greeting
+        language: bun
+        valueIncludes:
+          - toUpperCase
+  toolExpect:
+    requiredToolsUsed:
+      - test_run_script
+    forbiddenToolsUsed:
+      - call_api_endpoint
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - creates an AI draft of f/evals/global/format_greeting with the name uppercased
+    - verifies the change with a test run of the draft (not by running the deployed version through the API catalog)
+    - reports the test result for the name "ada"
+    - does not deploy or save the draft
+
+- id: global-test32-delete-via-dedicated-tool
+  prompt: |-
+    Delete the deployed script `f/evals/global/send_report_digest` from the workspace — we don't use it anymore.
+  initial: ai_evals/fixtures/frontend/global/initial/report_digest_script.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - delete_workspace_item
+    forbiddenToolsUsed:
+      - call_api_endpoint
+      - search_api_endpoints
+      - write_script
+  # Deletion produces no draft; validate via tool use.
+  skipJudge: true
+  judgeChecklist:
+    - deletes the deployed script via delete_workspace_item rather than a raw API endpoint
