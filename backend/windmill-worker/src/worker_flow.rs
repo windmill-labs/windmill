@@ -1558,6 +1558,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         &flow_job.runnable_path,
                         JobKind::Flow,
                         Some(ck),
+                        concurrent_limit,
                         db,
                         flow,
                     )
@@ -1573,6 +1574,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     &flow_job.runnable_path,
                     JobKind::Flow,
                     concurrency_key,
+                    concurrent_limit,
                     db,
                     flow,
                 )

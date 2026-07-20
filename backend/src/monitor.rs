@@ -88,9 +88,10 @@ use windmill_common::{
         load_periodic_bash_script_interval_from_env, load_whitelist_env_vars_from_env,
         load_worker_config, reload_custom_tags_setting, store_pull_query,
         store_suspended_pull_query, Connection, WorkerConfig, CONCURRENCY_KEY_MAX_QUEUED,
-        DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX,
-        INDEXER_CONFIG, PREVIEW_TAGS_OVERRIDE, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, WINDMILL_DIR,
-        WORKER_CONFIG, WORKER_GROUP, WORKSPACE_FAIRNESS_DURATION_SECS, WORKSPACE_FAIRNESS_ENABLED,
+        CONCURRENCY_KEY_MAX_QUEUED_DEFAULT, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES,
+        FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX, INDEXER_CONFIG, PREVIEW_TAGS_OVERRIDE,
+        SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, WINDMILL_DIR, WORKER_CONFIG, WORKER_GROUP,
+        WORKSPACE_FAIRNESS_DURATION_SECS, WORKSPACE_FAIRNESS_ENABLED,
         WORKSPACE_FAIRNESS_MAX_PERCENT, WORKSPACE_FAIRNESS_MIN_TOTAL,
     },
     KillpillSender, AUDIT_LOG_RETENTION_DAYS, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE,
@@ -618,10 +619,6 @@ const WORKSPACE_FAIRNESS_MIN_TOTAL_DEFAULT: u32 = 4;
 /// The cap is used as a SQL `LIMIT`, so it must survive the `u32 -> i64` widening without
 /// becoming absurd; `u32::MAX` is already far beyond any queue depth worth allowing.
 const CONCURRENCY_KEY_MAX_QUEUED_MAX: u64 = u32::MAX as u64;
-/// Must stay in sync with the `AtomicU32::new(...)` initialiser in
-/// `windmill-common/src/worker.rs` so a process that has never seen the setting reads the
-/// same value as one that just saw it cleared.
-const CONCURRENCY_KEY_MAX_QUEUED_DEFAULT: u32 = 10_000;
 
 pub async fn load_workspace_fairness_enabled(db: &DB) -> error::Result<()> {
     // Match the convention used by `load_preview_tags_override` /

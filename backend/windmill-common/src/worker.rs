@@ -210,6 +210,9 @@ impl SpecificTagType {
 pub const DEFAULT_CLOUD_TIMEOUT: u64 = 900;
 pub const DEFAULT_SELFHOSTED_TIMEOUT: u64 = 604800; // 7 days
 pub const MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS: u64 = 60;
+/// Default for [`CONCURRENCY_KEY_MAX_QUEUED`]; also the value the setting loader restores when
+/// the setting is cleared or malformed.
+pub const CONCURRENCY_KEY_MAX_QUEUED_DEFAULT: u32 = 10_000;
 lazy_static::lazy_static! {
     pub static ref WORKER_GROUP: String = std::env::var("WORKER_GROUP").unwrap_or_else(|_| {
         #[cfg(not(feature = "enterprise"))]
@@ -341,8 +344,8 @@ lazy_static::lazy_static! {
     /// A concurrency-limited key drains at most `concurrent_limit` jobs per window, so a
     /// producer pushing faster than that grows an unbounded backlog that no amount of
     /// spare worker capacity can absorb. `0` disables the cap.
-    /// Must stay in sync with `CONCURRENCY_KEY_MAX_QUEUED_DEFAULT` in `src/monitor.rs`.
-    pub static ref CONCURRENCY_KEY_MAX_QUEUED: AtomicU32 = AtomicU32::new(10_000);
+    pub static ref CONCURRENCY_KEY_MAX_QUEUED: AtomicU32 =
+        AtomicU32::new(CONCURRENCY_KEY_MAX_QUEUED_DEFAULT);
 
 
     pub static ref SMTP_CONFIG: arc_swap::ArcSwap<Option<Smtp>> = arc_swap::ArcSwap::from_pointee(None);
