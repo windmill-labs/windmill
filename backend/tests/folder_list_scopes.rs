@@ -127,3 +127,50 @@ async fn test_folder_list_scope_filtering(db: Pool<Postgres>) -> anyhow::Result<
 
     Ok(())
 }
+
+/// The scoped path scans in `SCOPE_SCAN_CHUNK`-sized batches; a workspace larger
+/// than one chunk must still page correctly across the boundary.
+#[sqlx::test(fixtures("base"))]
+async fn test_folder_list_scope_filtering_across_chunks(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    // Zero-padded so lexicographic order matches numeric order.
+    sqlx::query(
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms)
+         SELECT 'test-workspace', 'f' || to_char(i, 'FM0000'), 'f' || to_char(i, 'FM0000'),
+                ARRAY[]::text[], '{}'::jsonb
+           FROM generate_series(0, 799) AS i",
+    )
+    .execute(&db)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // One match in the first chunk, one past the 500-row boundary.
+    let scoped = mint_scoped_token(port, vec!["folders:read:f/f0100,f/f0600"]).await?;
+
+    assert_eq!(
+        list_names(port, &scoped, "").await?,
+        vec!["f0100", "f0600"],
+        "both matches must survive the chunked scan"
+    );
+    assert_eq!(
+        list_names(port, &scoped, "per_page=1&page=1").await?,
+        vec!["f0100"]
+    );
+    assert_eq!(
+        list_names(port, &scoped, "per_page=1&page=2").await?,
+        vec!["f0600"],
+        "offset must be honored across the chunk boundary"
+    );
+    assert_eq!(
+        list_folder_names(port, &scoped, "per_page=1&page=2").await?,
+        vec!["f0600"]
+    );
+    assert!(list_names(port, &scoped, "per_page=1&page=3")
+        .await?
+        .is_empty());
+
+    Ok(())
+}
