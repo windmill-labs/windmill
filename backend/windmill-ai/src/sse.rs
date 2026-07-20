@@ -948,6 +948,33 @@ mod tests {
     }
 
     #[test]
+    fn openai_chat_usage_parses_cached_prompt_tokens() {
+        // Payload shape returned by OpenAI and Azure OpenAI Chat Completions.
+        // cached_tokens lives under prompt_tokens_details and is a subset of prompt_tokens.
+        let usage: OpenAIChatUsage = serde_json::from_str(
+            r#"{"prompt_tokens":4819,"completion_tokens":1,"total_tokens":4820,"prompt_tokens_details":{"cached_tokens":4736,"audio_tokens":0}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            usage.prompt_tokens_details.and_then(|d| d.cached_tokens),
+            Some(4736)
+        );
+    }
+
+    #[test]
+    fn openai_responses_usage_parses_cached_input_tokens() {
+        // Payload shape returned by the OpenAI Responses API.
+        let usage: OpenAIResponsesUsage = serde_json::from_str(
+            r#"{"input_tokens":4819,"input_tokens_details":{"cache_write_tokens":0,"cached_tokens":4736},"output_tokens":2,"total_tokens":4821}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            usage.input_tokens_details.and_then(|d| d.cached_tokens),
+            Some(4736)
+        );
+    }
+
+    #[test]
     fn openai_delta_parses_reasoning_content() {
         // DeepSeek and similar stream reasoning under `reasoning_content`.
         let delta: OpenAIChoiceDelta =
