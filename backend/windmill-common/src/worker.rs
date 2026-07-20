@@ -213,6 +213,10 @@ pub const MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS: u64 = 60;
 /// Default for [`CONCURRENCY_KEY_MAX_QUEUED`]; also the value the setting loader restores when
 /// the setting is cleared or malformed.
 pub const CONCURRENCY_KEY_MAX_QUEUED_DEFAULT: u32 = 10_000;
+/// Default for [`WORKSPACE_MAX_QUEUED_JOBS`]; also the value the setting loader restores when
+/// the setting is cleared or malformed. A workspace spans many keys, so this sits well above
+/// the per-key cap.
+pub const WORKSPACE_MAX_QUEUED_JOBS_DEFAULT: u32 = 20_000;
 lazy_static::lazy_static! {
     pub static ref WORKER_GROUP: String = std::env::var("WORKER_GROUP").unwrap_or_else(|_| {
         #[cfg(not(feature = "enterprise"))]
@@ -346,6 +350,12 @@ lazy_static::lazy_static! {
     /// spare worker capacity can absorb. `0` disables the cap.
     pub static ref CONCURRENCY_KEY_MAX_QUEUED: AtomicU32 =
         AtomicU32::new(CONCURRENCY_KEY_MAX_QUEUED_DEFAULT);
+
+    /// Cloud-only ceiling on the total number of jobs a workspace may have queued at once,
+    /// across every concurrency key and script. Guards against a workspace flooding the queue
+    /// generally (not just behind one key), including from parallel for-loops. `0` disables it.
+    pub static ref WORKSPACE_MAX_QUEUED_JOBS: AtomicU32 =
+        AtomicU32::new(WORKSPACE_MAX_QUEUED_JOBS_DEFAULT);
 
 
     pub static ref SMTP_CONFIG: arc_swap::ArcSwap<Option<Smtp>> = arc_swap::ArcSwap::from_pointee(None);

@@ -74,6 +74,7 @@ use windmill_common::{
         UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
         WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
         WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
+        WORKSPACE_MAX_QUEUED_JOBS_SETTING,
     },
     indexer::load_indexer_config,
     jobs::delete_jobs,
@@ -92,7 +93,8 @@ use windmill_common::{
         DEFAULT_TAGS_WORKSPACES, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX, INDEXER_CONFIG,
         PREVIEW_TAGS_OVERRIDE, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, WINDMILL_DIR, WORKER_CONFIG,
         WORKER_GROUP, WORKSPACE_FAIRNESS_DURATION_SECS, WORKSPACE_FAIRNESS_ENABLED,
-        WORKSPACE_FAIRNESS_MAX_PERCENT, WORKSPACE_FAIRNESS_MIN_TOTAL,
+        WORKSPACE_FAIRNESS_MAX_PERCENT, WORKSPACE_FAIRNESS_MIN_TOTAL, WORKSPACE_MAX_QUEUED_JOBS,
+        WORKSPACE_MAX_QUEUED_JOBS_DEFAULT,
     },
     KillpillSender, AUDIT_LOG_RETENTION_DAYS, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE,
     CRITICAL_ALERTS_ON_TOKEN_EXPIRY, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB,
@@ -298,6 +300,9 @@ pub async fn initial_load(
         if *CLOUD_HOSTED {
             if let Err(e) = load_concurrency_key_max_queued(db).await {
                 tracing::error!("Error loading concurrency key max queued: {e:#}");
+            }
+            if let Err(e) = load_workspace_max_queued_jobs(db).await {
+                tracing::error!("Error loading workspace max queued jobs: {e:#}");
             }
         }
     }
@@ -738,6 +743,39 @@ pub async fn load_concurrency_key_max_queued(db: &DB) -> error::Result<()> {
                 );
             }
             CONCURRENCY_KEY_MAX_QUEUED.store(CONCURRENCY_KEY_MAX_QUEUED_DEFAULT, Ordering::Relaxed);
+        }
+    }
+    Ok(())
+}
+
+pub async fn load_workspace_max_queued_jobs(db: &DB) -> error::Result<()> {
+    // Only the cloud enforces this cap, so never spend the query off-cloud, from any call site.
+    if !*CLOUD_HOSTED {
+        return Ok(());
+    }
+    // Same Err / None / invalid policy as load_concurrency_key_max_queued: 0 disables.
+    match load_value_from_global_settings(db, WORKSPACE_MAX_QUEUED_JOBS_SETTING).await? {
+        Some(serde_json::Value::Number(n)) => {
+            let v = n
+                .as_u64()
+                .map(|u| u.min(CONCURRENCY_KEY_MAX_QUEUED_MAX) as u32)
+                .unwrap_or_else(|| {
+                    tracing::warn!(
+                        "{WORKSPACE_MAX_QUEUED_JOBS_SETTING}={n} is not a non-negative integer, \
+                         falling back to {WORKSPACE_MAX_QUEUED_JOBS_DEFAULT}. Set 0 to disable."
+                    );
+                    WORKSPACE_MAX_QUEUED_JOBS_DEFAULT
+                });
+            WORKSPACE_MAX_QUEUED_JOBS.store(v, Ordering::Relaxed);
+        }
+        other => {
+            if let Some(v) = other {
+                tracing::warn!(
+                    "{WORKSPACE_MAX_QUEUED_JOBS_SETTING}={v} is not a number, falling back to \
+                     {WORKSPACE_MAX_QUEUED_JOBS_DEFAULT}. Set 0 to disable."
+                );
+            }
+            WORKSPACE_MAX_QUEUED_JOBS.store(WORKSPACE_MAX_QUEUED_JOBS_DEFAULT, Ordering::Relaxed);
         }
     }
     Ok(())

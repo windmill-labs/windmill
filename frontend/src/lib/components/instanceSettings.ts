@@ -438,6 +438,18 @@ export const settings: Record<string, Setting[]> = {
 			cloudonly: true,
 			ee_only: '',
 			hideInQuickSetup: true
+		},
+		{
+			label: 'Max jobs queued per workspace',
+			description:
+				'Rejects new jobs once a workspace has this many queued in total, across every concurrency key and script. Guards against a single workspace flooding the queue generally, including from parallel for-loops. Applies even to premium workspaces. Jobs already queued still drain; only new pushes past the ceiling are rejected. Set 0 to disable. Default 20000.',
+			key: 'workspace_max_queued_jobs',
+			fieldType: 'number',
+			placeholder: '20000',
+			storage: 'setting',
+			cloudonly: true,
+			ee_only: '',
+			hideInQuickSetup: true
 		}
 	],
 	'Object Storage': [

@@ -6280,6 +6280,11 @@ async fn push_inner<'c, 'd>(
         )
         .unzip();
 
+    #[cfg(feature = "cloud")]
+    if *CLOUD_HOSTED {
+        check_workspace_queue_cap(&mut *tx, workspace_id).await?;
+    }
+
     if concurrency_settings.concurrent_limit.is_some() {
         let concurrency_key = resolve_concurrency_key(
             workspace_id,
@@ -6786,6 +6791,61 @@ async fn check_concurrency_key_queue_cap<'c>(
              jobs are already waiting and the limit is {cap}. Jobs sharing a concurrency key run \
              at most `concurrent_limit` at a time, so this queue is growing faster than it can \
              drain. Cancel the backlog, slow down the caller, or raise the concurrency limit."
+        )));
+    }
+    Ok(())
+}
+
+/// Bounded count of a workspace's non-running queued jobs, capped at `limit` so the scan
+/// stops once the ceiling is reached rather than counting an entire runaway backlog.
+pub async fn workspace_queue_depth<'c>(
+    db: impl PgExecutor<'c>,
+    workspace_id: &str,
+    limit: i64,
+) -> Result<i64, Error> {
+    sqlx::query_scalar!(
+        "SELECT count(*) FROM (
+            SELECT 1 FROM v2_job_queue
+            WHERE workspace_id = $1 AND running = false
+            LIMIT $2
+        ) s",
+        workspace_id,
+        limit,
+    )
+    .fetch_one(db)
+    .warn_after_seconds(3)
+    .await
+    .map_err(|e| {
+        Error::internal_err(format!(
+            "Could not count queued jobs for workspace={workspace_id}: {e:#}"
+        ))
+    })
+    .map(|c| c.unwrap_or(0))
+}
+
+/// Rejects the push when the workspace already has `WORKSPACE_MAX_QUEUED_JOBS` jobs queued.
+///
+/// Caller must runtime-gate this on `*CLOUD_HOSTED`. It runs on every push (not only
+/// concurrency-limited ones) because a workspace can flood the queue across many keys or with
+/// keyless jobs. It caps *new* pushes past the ceiling; jobs already queued still drain, so an
+/// in-flight flow only ever fails to push further work while the workspace is at the ceiling.
+#[cfg(feature = "cloud")]
+async fn check_workspace_queue_cap<'c>(
+    db: impl PgExecutor<'c>,
+    workspace_id: &str,
+) -> Result<(), Error> {
+    let cap = windmill_common::worker::WORKSPACE_MAX_QUEUED_JOBS
+        .load(std::sync::atomic::Ordering::Relaxed);
+    if cap == 0 {
+        return Ok(());
+    }
+    let cap = cap as i64;
+    let depth = workspace_queue_depth(db, workspace_id, cap).await?;
+    if depth >= cap {
+        return Err(Error::QuotaExceeded(format!(
+            "Too many jobs queued in workspace '{workspace_id}': at least {depth} jobs are \
+             already waiting and the instance limit is {cap}. Cancel the backlog or slow down \
+             whatever is creating jobs before pushing more."
         )));
     }
     Ok(())
