@@ -301,7 +301,13 @@ const readWorkspaceItemSchema = z.object({
 	path: z.string().describe('Workspace path of the item to read.'),
 	trigger_kind: triggerKindSchema
 		.optional()
-		.describe('Required when type is trigger. Identifies which trigger service to call.')
+		.describe('Required when type is trigger. Identifies which trigger service to call.'),
+	version: z
+		.enum(['deployed'])
+		.optional()
+		.describe(
+			'Pass "deployed" to read the deployed workspace state even when a draft exists (e.g. to learn the deployed input schema before running the deployed version). Default reads your draft when one exists.'
+		)
 })
 
 const draftOverrideField = z
@@ -938,7 +944,7 @@ ${pipelineBullet}
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
 - For a Windmill operation no other tool covers (workers, queue state, a run's result or args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
-- runScriptByPath / runFlowByPath from the API catalog run the DEPLOYED version of an item. Use them only when the user explicitly asks to run the deployed version. To test something you are editing or just wrote, always use test_run_script, test_run_flow, or test_run_step — they run the draft.
+- runScriptByPath / runFlowByPath from the API catalog run the DEPLOYED version of an item. Use them only when the user explicitly asks to run the deployed version, and read the item with read_workspace_item version: "deployed" first so the arguments match the deployed input schema (a draft may have different inputs). To test something you are editing or just wrote, always use test_run_script, test_run_flow, or test_run_step — they run the draft.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
 - When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
 - Keep context targeted.${
@@ -1507,18 +1513,27 @@ async function readWorkspaceItem(
 	type: WorkspaceItemType,
 	path: string,
 	workspace: string,
-	triggerKind?: TriggerKind
+	triggerKind?: TriggerKind,
+	deployedOnly = false
 ): Promise<WorkspaceItem> {
 	switch (type) {
 		case 'script': {
-			// Prefer the DB draft (newer than the deployed version) when one exists.
-			const script = await ScriptService.getScriptByPath({ workspace, path, getDraft: true })
-			return scriptToItem((script.draft as Script | undefined) ?? script, true)
+			// Prefer the DB draft (newer than the deployed version) when one exists,
+			// unless the caller explicitly asked for the deployed state.
+			const script = await ScriptService.getScriptByPath({
+				workspace,
+				path,
+				getDraft: !deployedOnly
+			})
+			const draft = deployedOnly ? undefined : (script.draft as Script | undefined)
+			return scriptToItem(draft ?? script, true)
 		}
 		case 'flow': {
-			// Prefer the DB draft (newer than the deployed version) when one exists.
-			const flow = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
-			return flowToItem((flow.draft as Flow | undefined) ?? flow, true)
+			// Prefer the DB draft (newer than the deployed version) when one exists,
+			// unless the caller explicitly asked for the deployed state.
+			const flow = await FlowService.getFlowByPath({ workspace, path, getDraft: !deployedOnly })
+			const draft = deployedOnly ? undefined : (flow.draft as Flow | undefined)
+			return flowToItem(draft ?? flow, true)
 		}
 		case 'schedule':
 			return scheduleToItem(await ScheduleService.getSchedule({ workspace, path }), true)
@@ -2351,7 +2366,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			readWorkspaceItemSchema,
 			'read_workspace_item',
-			'Read one workspace item or draft.'
+			'Read one workspace item or draft. Prefers your draft when one exists; pass version: "deployed" to read the deployed state instead.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = readWorkspaceItemSchema.parse(args)
@@ -2360,7 +2375,10 @@ export const globalTools: Tool<{}>[] = [
 				toolCallbacks.setToolStatus(toolId, { content: message, error: message })
 				return JSON.stringify({ success: false, error: message })
 			}
-			const draft = await getGlobalDraft(workspace, parsed.type, parsed.path, parsed.trigger_kind)
+			const draft =
+				parsed.version === 'deployed'
+					? null
+					: await getGlobalDraft(workspace, parsed.type, parsed.path, parsed.trigger_kind)
 			if (draft) {
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Read draft ${parsed.type} "${parsed.path}"`
@@ -2371,7 +2389,13 @@ export const globalTools: Tool<{}>[] = [
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Reading ${parsed.type} "${parsed.path}"...`
 			})
-			const item = await readWorkspaceItem(parsed.type, parsed.path, workspace, parsed.trigger_kind)
+			const item = await readWorkspaceItem(
+				parsed.type,
+				parsed.path,
+				workspace,
+				parsed.trigger_kind,
+				parsed.version === 'deployed'
+			)
 			toolCallbacks.setToolStatus(toolId, { content: `Read ${parsed.type} "${parsed.path}"` })
 			return JSON.stringify(serializeWorkspaceItemForRead(item), null, 2)
 		}

@@ -491,6 +491,41 @@ describe('global AI tools', () => {
 		])
 	})
 
+	it('reads the deployed state, skipping chat and DB drafts, with version: deployed', async () => {
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/greet',
+			language: 'bun',
+			content: 'export async function main(renamed_input: string) {}'
+		})
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			hash: 1,
+			path: 'f/scripts/greet',
+			summary: 'Deployed greet',
+			content: 'export async function main(name: string) {}',
+			schema: { properties: { name: { type: 'string' } } },
+			language: 'bun',
+			kind: 'script',
+			draft: { content: 'export async function main(db_draft_input: string) {}' }
+		} as any)
+
+		const raw = await callGlobalTool('read_workspace_item', {
+			type: 'script',
+			path: 'f/scripts/greet',
+			version: 'deployed'
+		})
+		const item = JSON.parse(raw)
+
+		expect(ScriptService.getScriptByPath).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'f/scripts/greet',
+			getDraft: false
+		})
+		expect(item.isDraft).toBe(false)
+		expect(raw).toContain('main(name: string)')
+		expect(raw).not.toContain('renamed_input')
+		expect(raw).not.toContain('db_draft_input')
+	})
+
 	it('redacts variable draft values when reading workspace items', async () => {
 		await callGlobalTool('write_variable', {
 			path: 'f/secrets/api_key',

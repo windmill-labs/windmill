@@ -24,10 +24,10 @@ const COVERED_ENDPOINTS: Record<string, string> = {
 	// The item read/list endpoints return deployed state only, blind to the user's
 	// drafts; read_workspace_item / list_workspace_items merge drafts, and for
 	// flows return the compact JSON that patch_flow_json matches against.
-	getScriptByPath: 'read_workspace_item (it reads your draft when one exists)',
-	getFlowByPath: 'read_workspace_item (it reads your draft when one exists)',
-	getResource: 'read_workspace_item (it reads your draft when one exists)',
-	getSchedule: 'read_workspace_item (it reads your draft when one exists)',
+	getScriptByPath: 'read_workspace_item (reads your draft when one exists; pass version: "deployed" for the deployed state)',
+	getFlowByPath: 'read_workspace_item (reads your draft when one exists; pass version: "deployed" for the deployed state)',
+	getResource: 'read_workspace_item (reads your draft when one exists; pass version: "deployed" for the deployed state)',
+	getSchedule: 'read_workspace_item (reads your draft when one exists; pass version: "deployed" for the deployed state)',
 	listScripts: 'list_workspace_items (it includes your drafts)',
 	listFlows: 'list_workspace_items (it includes your drafts)',
 	listResource: 'list_workspace_items (it includes your drafts)',
