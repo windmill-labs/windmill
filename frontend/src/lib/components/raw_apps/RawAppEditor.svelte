@@ -26,6 +26,8 @@
 		type RawAppRunsProvider,
 		type RawAppScreenshotRequester
 	} from './utils'
+	import { runDomQueryOnHtml, type RawAppDomQuery, type RawAppDomRequester } from './rawAppDom'
+	import InlineElementPrompt from './InlineElementPrompt.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import RawAppSidebar from './RawAppSidebar.svelte'
 	import type { Modules } from './RawAppModules.svelte'
@@ -127,6 +129,20 @@
 		onOpenOthersDrafts?: () => void
 		onRuntimeLogRequester?: (requester: RawAppRuntimeLogRequester | undefined) => void
 		onRunsProvider?: (provider: RawAppRunsProvider | undefined) => void
+		// Session preview only: expose a live DOM query requester (search/read the
+		// rendered preview by CSS selector) and forward inspector element picks so
+		// they can be attached to the session chat as selector context chips.
+		onDomRequester?: (requester: RawAppDomRequester | undefined) => void
+		// `additive` (Shift held) adds to the selection; otherwise it replaces it.
+		onInspectorSelect?: (info: InspectorElementInfo, additive: boolean) => void
+		// Session preview only: the chat's current DOM-selector chips (source of
+		// truth). Pushed into the preview so it renders one highlight per selector.
+		selectedDomSelectors?: string[]
+		onInspectorDeselect?: (selector: string) => void
+		onInspectorClearAll?: () => void
+		// Session preview only: send a prompt scoped to a selected element (via the
+		// inline mini-composer anchored over it in the preview).
+		onInlinePrompt?: (selector: string, prompt: string) => void
 		onScreenshotRequester?: (requester: RawAppScreenshotRequester | undefined) => void
 		// Restoring an older deployment from the history drawer. A callback prop
 		// (not `on:restore` forwarding): forwarding a `createEventDispatcher`
@@ -169,6 +185,12 @@
 		onOpenOthersDrafts,
 		onRuntimeLogRequester = undefined,
 		onRunsProvider = undefined,
+		onDomRequester = undefined,
+		onInspectorSelect = undefined,
+		selectedDomSelectors = [],
+		onInspectorDeselect = undefined,
+		onInspectorClearAll = undefined,
+		onInlinePrompt = undefined,
 		onScreenshotRequester = undefined,
 		onRestore,
 		onSavedNewAppPath,
@@ -1151,11 +1173,24 @@
 		// Inspector events come exclusively from the preview iframe.
 		if (fromPreview && e.data.type === 'inspectorSelect') {
 			inspectorElement = e.data.element as InspectorElementInfo
-			inspectorEnabled = false
+			// Session preview: forward the pick so it can be attached to the chat as a
+			// selector context chip (the app-mode SelectedContext path is separate).
+			// App mode picks one element then exits; the session stays on to keep
+			// picking (the chip list, not the harness, holds the selection). Shift
+			// held → add to the selection; a plain click replaces it.
+			if (onInspectorSelect) onInspectorSelect(inspectorElement, !!e.data.additive)
+			else inspectorEnabled = false
+			return
+		}
+		if (fromPreview && e.data.type === 'inspectorDeselect') {
+			// User clicked × on a selected overlay in the preview — drop that chip.
+			if (typeof e.data.selector === 'string') onInspectorDeselect?.(e.data.selector)
 			return
 		}
 		if (fromPreview && e.data.type === 'inspectorClear') {
 			inspectorElement = undefined
+			// A rebuild invalidates the selection — clear all session chips.
+			onInspectorClearAll?.()
 			return
 		}
 
@@ -1338,6 +1373,172 @@
 		})
 	}
 
+	// Live DOM inspection for the session chat. Same-origin: the preview iframe is a
+	// same-origin document (see the load listener below that reads its contentWindow),
+	// so we read `contentDocument` directly — no postMessage, no ui_builder change. The
+	// element is re-read on every call, so the model always sees the current render.
+	const requestDomQuery: RawAppDomRequester = async (query: RawAppDomQuery) => {
+		const doc = previewIframe?.contentDocument
+		if (!doc || !previewIframeLoaded) return undefined
+		const selector = query.selector?.trim()
+		let el: Element | null
+		let matchCount: number
+		if (selector) {
+			let matches: NodeListOf<Element>
+			try {
+				matches = doc.querySelectorAll(selector)
+			} catch (e) {
+				return {
+					text: `Invalid CSS selector "${selector}": ${e instanceof Error ? e.message : String(e)}`
+				}
+			}
+			matchCount = matches.length
+			el = matches[0] ?? null
+		} else {
+			el = doc.body
+			matchCount = el ? 1 : 0
+		}
+		if (!el) {
+			return {
+				text: `No element matches selector "${selector}". It may not be rendered yet, or the selector is wrong. Try a broader selector or omit it to read the whole page.`
+			}
+		}
+		// A <script> is source the browser executes, not rendered output; an
+		// `.inspector-label` is chrome this inspector injects. The descendant strips
+		// below can't reach either when it IS the clone root (querySelectorAll skips
+		// the root), so reject such a root here — otherwise a `script` query would
+		// serialize the whole compiled bundle and an `.inspector-label` query would
+		// return inspector chrome.
+		if (el.tagName.toLowerCase() === 'script') {
+			return {
+				text: `The "${selector}" selector matches a <script> element — source code the browser executes, not rendered output. Omit the selector to read the whole page, or target a rendered element.`
+			}
+		}
+		if (el.classList.contains('inspector-label')) {
+			return {
+				text: `The "${selector}" selector matches an inspector label — UI chrome injected by the element picker, not part of the app. Target a rendered app element instead.`
+			}
+		}
+		// Strip the inspector's own artifacts so the model never sees them: the
+		// label pills it injects into <body>, and the outline classes it adds to
+		// app elements (highlights are element outlines, not overlay nodes).
+		const clone = el.cloneNode(true) as Element
+		// The preview harness appends the compiled app bundle as a <script> under
+		// <body>. It is source, not rendered output: serializing it would let
+		// search_dom match strings that exist only in source and pollute / truncate
+		// read_dom's line window with bundle JS. Drop every script from the clone.
+		clone.querySelectorAll('script').forEach((n) => n.remove())
+		clone.querySelectorAll('.inspector-label').forEach((n) => n.remove())
+		// The outline classes sit on the selected element itself (the clone root),
+		// not only its descendants — querySelectorAll skips the root, so strip it too.
+		clone.classList.remove('inspector-hover', 'inspector-picked')
+		clone
+			.querySelectorAll('.inspector-hover, .inspector-picked')
+			.forEach((n) => n.classList.remove('inspector-hover', 'inspector-picked'))
+		const text = await runDomQueryOnHtml(clone.outerHTML, query, {
+			selector: selector ?? 'body',
+			tagName: el.tagName.toLowerCase(),
+			matchCount
+		})
+		return { text }
+	}
+
+	// ---- Inline "prompt this element" mini-composer (session preview only) ----
+	// Anchored over the most-recently selected element in the live preview. It's a
+	// host overlay (position: fixed in the top document) computed from the element's
+	// rect inside the same-origin preview iframe, repositioned as the preview scrolls.
+	let inlinePromptDismissed = $state(false)
+	let inlinePromptPos = $state<{ x: number; y: number } | undefined>(undefined)
+	let inlinePromptLabel = $state('')
+	const inlinePromptSelector = $derived(
+		onInlinePrompt && selectedDomSelectors.length > 0
+			? selectedDomSelectors[selectedDomSelectors.length - 1]
+			: undefined
+	)
+
+	function shortElementLabel(el: Element): string {
+		const tag = el.tagName.toLowerCase()
+		const id = el.id ? `#${el.id}` : ''
+		const cls =
+			typeof el.className === 'string'
+				? el.className
+						.trim()
+						.split(/\s+/)
+						.filter((c) => c && !c.startsWith('inspector-'))[0]
+				: undefined
+		return `${tag}${id}${cls ? `.${cls}` : ''}`
+	}
+
+	function updateInlinePromptPos() {
+		const sel = inlinePromptSelector
+		const doc = previewIframe?.contentDocument
+		if (!sel || !doc || !previewIframeLoaded || inlinePromptDismissed) {
+			inlinePromptPos = undefined
+			return
+		}
+		let el: Element | null
+		try {
+			el = doc.querySelector(sel)
+		} catch (_) {
+			el = null
+		}
+		if (!el) {
+			inlinePromptPos = undefined
+			return
+		}
+		const r = el.getBoundingClientRect()
+		const ir = previewIframe!.getBoundingClientRect()
+		// Hide while the element is scrolled outside the preview's visible area.
+		if (r.bottom < 0 || r.top > ir.height || r.right < 0 || r.left > ir.width) {
+			inlinePromptPos = undefined
+			return
+		}
+		const inputW = 260
+		const inputH = 42
+		// The harness draws the element's name+size pill ~20px above its top edge;
+		// clear it so the input sits above the label rather than covering it.
+		const labelGutter = 16
+		let top = ir.top + r.top - inputH - labelGutter
+		// No room above → drop it just below the element's top edge instead (the
+		// label is above the element, so this still doesn't cover it).
+		if (top < ir.top + 4) top = ir.top + Math.max(r.top, 0) + 4
+		// Anchored to the element's top-left edge (aligned with the name+size pill),
+		// clamped to the viewport.
+		let left = ir.left + r.left
+		left = Math.max(4, Math.min(left, window.innerWidth - inputW - 4))
+		inlinePromptPos = { x: left, y: top }
+		inlinePromptLabel = shortElementLabel(el)
+	}
+
+	// Reset the dismissed flag whenever the anchored element changes.
+	$effect(() => {
+		inlinePromptSelector
+		untrack(() => {
+			inlinePromptDismissed = false
+		})
+	})
+
+	$effect(() => {
+		// Recompute on selection change, preview (re)load, or dismiss; and keep the
+		// overlay pinned as the preview (or the host) scrolls/resizes.
+		inlinePromptSelector
+		selectedDomSelectors
+		previewIframeLoaded
+		inlinePromptDismissed
+		updateInlinePromptPos()
+		if (!previewIframe || !previewIframeLoaded) return
+		const win = previewIframe.contentWindow
+		const onScroll = () => updateInlinePromptPos()
+		win?.addEventListener('scroll', onScroll, true)
+		window.addEventListener('scroll', onScroll, true)
+		window.addEventListener('resize', onScroll)
+		return () => {
+			win?.removeEventListener('scroll', onScroll, true)
+			window.removeEventListener('scroll', onScroll, true)
+			window.removeEventListener('resize', onScroll)
+		}
+	})
+
 	const getRuns: RawAppRunsProvider = () => {
 		const out: RawAppRunSummary[] = []
 		for (const id of jobs) {
@@ -1466,10 +1667,12 @@
 	onMount(() => {
 		onRuntimeLogRequester?.(requestRuntimeLogs)
 		onRunsProvider?.(getRuns)
+		onDomRequester?.(requestDomQuery)
 		onScreenshotRequester?.(captureScreenshot)
 		return () => {
 			onRuntimeLogRequester?.(undefined)
 			onRunsProvider?.(undefined)
+			onDomRequester?.(undefined)
 			onScreenshotRequester?.(undefined)
 			for (const requestId of Array.from(pendingRuntimeLogReqs.keys()))
 				resolvePendingRuntimeLogRequest(requestId, undefined)
@@ -1511,7 +1714,10 @@
 			previewIframe?.contentWindow?.addEventListener(
 				'keydown',
 				(e) => {
-					if (e.key === 'Escape' && (inspectorEnabled || inspectorElement)) {
+					if (
+						e.key === 'Escape' &&
+						(inspectorEnabled || inspectorElement || selectedDomSelectors.length > 0)
+					) {
 						disableInspector()
 					}
 				},
@@ -1534,6 +1740,18 @@
 		// Match VS Code's editor font size to Windmill's text-xs.
 		if (iframe && iframeLoaded) {
 			iframe.contentWindow?.postMessage({ type: 'setFontSize', px: editorFontSize }, '*')
+		}
+	})
+	$effect(() => {
+		// Push the chat's DOM-selector chips into the preview (source of truth):
+		// the harness renders one highlight per selector. Re-posts on every
+		// selection change and on preview (re)load.
+		const selectors = selectedDomSelectors
+		if (previewIframe && previewIframeLoaded) {
+			previewIframe.contentWindow?.postMessage(
+				{ type: 'inspectorSetSelection', selectors: [...selectors] },
+				'*'
+			)
 		}
 	})
 	$effect(() => {
@@ -1693,8 +1911,11 @@
 	function disableInspector() {
 		// Picking an element auto-clears `inspectorEnabled`, so Escape after a
 		// pick gets here with hover already off but the green selection still
-		// up. Bail only when there is genuinely nothing to dismiss.
-		if (!inspectorEnabled && !inspectorElement) return
+		// up. In a session the chat's DOM chips are the source of truth for the
+		// selection (highlights + the inline prompt), so a chip-only selection
+		// (picking already toggled off) must still be dismissable. Bail only
+		// when there is genuinely nothing to dismiss.
+		if (!inspectorEnabled && !inspectorElement && selectedDomSelectors.length === 0) return
 		inspectorEnabled = false
 		// `inspectorDisable` only stops hover/click; the green "selected"
 		// overlay from a prior pick persists until we explicitly clear it.
@@ -1702,6 +1923,12 @@
 		previewIframe?.contentWindow?.postMessage({ type: 'inspectorDisable' }, '*')
 		previewIframe?.contentWindow?.postMessage({ type: 'inspectorClear' }, '*')
 		inspectorElement = undefined
+		// Session mode: clear the chips too. Emptying the selection hides the
+		// inline prompt (it's driven by the chips) and drops the highlights (the
+		// push effect re-posts the now-empty set) — otherwise the overlays clear
+		// but the chips + inline prompt stay stranded.
+		onInspectorClearAll?.()
+		inlinePromptDismissed = true
 	}
 
 	// Escape exits inspect mode. We listen in the capture phase because a global
@@ -1709,7 +1936,10 @@
 	// iframe (separate document) is covered by its own listener on load.
 	$effect(() => {
 		const onEscapeCapture = (e: KeyboardEvent) => {
-			if (e.key === 'Escape' && (inspectorEnabled || inspectorElement)) {
+			if (
+				e.key === 'Escape' &&
+				(inspectorEnabled || inspectorElement || selectedDomSelectors.length > 0)
+			) {
 				disableInspector()
 				e.stopImmediatePropagation()
 				e.preventDefault()
@@ -2037,13 +2267,17 @@
 													: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
 												aria-label="Toggle element inspector"
 												onclick={() => {
-													inspectorEnabled = !inspectorEnabled
-													previewIframe?.contentWindow?.postMessage(
-														{
-															type: inspectorEnabled ? 'inspectorEnable' : 'inspectorDisable'
-														},
-														'*'
-													)
+													if (inspectorEnabled) {
+														// Turning off is a full exit: stop picking and clear the
+														// selection + inline prompt (mirrors Escape).
+														disableInspector()
+													} else {
+														inspectorEnabled = true
+														previewIframe?.contentWindow?.postMessage(
+															{ type: 'inspectorEnable' },
+															'*'
+														)
+													}
 												}}
 											>
 												<MousePointerSquareDashed size={14} />
@@ -2166,6 +2400,24 @@
 		</Splitpanes>
 	</div>
 </div>
+
+{#if inlinePromptPos && inlinePromptSelector && onInlinePrompt}
+	<!-- Key on the selector so selecting a different element remounts the input
+	     (fresh value + autofocus); repositioning on scroll keeps the same key so
+	     it never steals focus mid-scroll. -->
+	{#key inlinePromptSelector}
+		<InlineElementPrompt
+			x={inlinePromptPos.x}
+			y={inlinePromptPos.y}
+			label={inlinePromptLabel}
+			onSend={(prompt) => {
+				onInlinePrompt?.(inlinePromptSelector!, prompt)
+				inlinePromptDismissed = true
+			}}
+			onClose={() => (inlinePromptDismissed = true)}
+		/>
+	{/key}
+{/if}
 
 <style>
 	/* Remove the splitter from the inner content-area Splitpanes when we're

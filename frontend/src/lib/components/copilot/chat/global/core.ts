@@ -46,6 +46,7 @@ import {
 } from '$lib/components/raw_apps/templates'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
+import type { RawAppDomQuery } from '$lib/components/raw_apps/rawAppDom'
 import { dataUrlToImagePart, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
 import { modelSupportsVision } from '../../modelConfig'
 import { tryGetCurrentModel } from '$lib/aiStore'
@@ -813,6 +814,42 @@ const listAppRunsSchema = z.object({
 		.describe('How many of the most recent backend runs to return, newest first. Defaults to 20.')
 })
 
+const domSelectorField = z
+	.string()
+	.optional()
+	.describe(
+		'CSS selector for the element to inspect in the live raw app preview. Omit to target the whole page (<body>). Prefer a selector from a DOM element chip the user attached. If it matches several elements, the first is used.'
+	)
+
+const domAppPathField = z
+	.string()
+	.optional()
+	.describe(
+		"Raw-app path of the element, from its `app_path` in the SELECTED DOM ELEMENTS block. Pass it so the RIGHT app's preview is read even if another preview tab is now visible; omit to use the currently active preview. If that app's preview has been closed, the tool says so."
+	)
+
+const searchDomSchema = z.object({
+	app_path: domAppPathField,
+	selector: domSelectorField,
+	pattern: z.string().describe('JavaScript regular expression to search the rendered HTML for.'),
+	ignore_case: z.boolean().optional().describe('Case-insensitive matching. Defaults to false.')
+})
+
+const readDomSchema = z.object({
+	app_path: domAppPathField,
+	selector: domSelectorField,
+	start_line: z
+		.number()
+		.int()
+		.optional()
+		.describe('1-based first line of the pretty-printed HTML to read. Defaults to 1.'),
+	end_line: z
+		.number()
+		.int()
+		.optional()
+		.describe('1-based last line to read. The window is capped at 200 lines.')
+})
+
 const takeScreenshotSchema = z.object({})
 
 const FRAMEWORK_KEYS = [
@@ -950,6 +987,7 @@ ${pipelineBullet}
 - Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty or not-yet-created folder is fine (create_folder first if needed, then open it). Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.`
 				}
 - When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
+- To inspect what actually rendered in a running raw app (verify an edit landed on screen, diagnose a blank/empty or wrong view, answer "what's showing"), use search_dom (regex over the live HTML) and read_dom (a line-numbered window). Pass a \`selector\` to scope to an element — prefer the selector from a DOM element chip the user attached — or omit it for the whole page. When a chip lists an \`app_path\`, pass it too so the RIGHT app is read (several previews can be open; a query without \`app_path\` hits the visible one). The DOM is read live and is never in context; no match means the element isn't rendered. Both need the raw app preview open.
 - get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.
 ${
 	isChromiumBrowser()
@@ -2947,6 +2985,60 @@ export const globalTools: Tool<{}>[] = [
 	},
 	{
 		def: createToolDef(
+			searchDomSchema,
+			'search_dom',
+			'Search the live rendered HTML of the raw app preview open in this AI session with a regex, returning matching lines with their line numbers. Use it to check what actually rendered (verify an edit landed, diagnose a blank/empty view). Scope to an element with `selector`, or omit it for the whole page. The DOM is read live, so it reflects the current state.'
+		),
+		showDetails: true,
+		fn: async (ctx) => {
+			const parsed = searchDomSchema.parse(ctx.args)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Searching app DOM...' })
+			const result = await getSessionDom(
+				{
+					mode: 'search',
+					appPath: parsed.app_path,
+					selector: parsed.selector,
+					pattern: parsed.pattern,
+					ignoreCase: parsed.ignore_case
+				},
+				sessionIdFromCtx(ctx)
+			)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+				content: result.uiMessage,
+				result: result.toolResult
+			})
+			return result.aiResult
+		}
+	},
+	{
+		def: createToolDef(
+			readDomSchema,
+			'read_dom',
+			'Read a bounded window of the live rendered HTML of the raw app preview open in this AI session, pretty-printed and line-numbered. Scope to an element with `selector`, or omit it for the whole page. Use search_dom first to locate content, then read_dom to see a specific region. The DOM is read live.'
+		),
+		showDetails: true,
+		fn: async (ctx) => {
+			const parsed = readDomSchema.parse(ctx.args)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Reading app DOM...' })
+			const result = await getSessionDom(
+				{
+					mode: 'read',
+					appPath: parsed.app_path,
+					selector: parsed.selector,
+					startLine: parsed.start_line,
+					endLine: parsed.end_line
+				},
+				sessionIdFromCtx(ctx)
+			)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+				content: result.uiMessage,
+				result: result.toolResult
+			})
+			return result.aiResult
+		}
+	},
+	{
+		def: createToolDef(
 			takeScreenshotSchema,
 			'take_screenshot',
 			// Keep this short: every global session iteration re-sends it. How to read
@@ -3011,6 +3103,8 @@ export const SESSION_PREVIEW_TOOL_NAMES = new Set([
 	'close_page',
 	'get_app_runtime_logs',
 	'list_app_runs',
+	'search_dom',
+	'read_dom',
 	'take_screenshot',
 	'create_artifact',
 	'update_artifact',
@@ -3255,6 +3349,32 @@ function getSessionAppRuns(
 		})
 	}
 	return Promise.resolve(listAppRunsHandler({ sessionId, limit }))
+}
+
+export type GetDomHandler = (req: {
+	sessionId: string | undefined
+	query: RawAppDomQuery
+}) => Promise<SessionToolResult>
+
+let getDomHandler: GetDomHandler | undefined
+
+export function setGetDomHandler(handler: GetDomHandler | undefined): void {
+	getDomHandler = handler
+}
+
+function getSessionDom(
+	query: RawAppDomQuery,
+	sessionId: string | undefined
+): Promise<SessionToolResult> {
+	if (!getDomHandler) {
+		return Promise.resolve({
+			aiResult:
+				'Error: search_dom and read_dom are only available inside an AI session. Tell the user the rendered DOM can only be read from a session preview, or switch to a session and open the raw app preview.',
+			uiMessage: 'DOM unavailable',
+			toolResult: 'DOM unavailable'
+		})
+	}
+	return getDomHandler({ sessionId, query })
 }
 
 export type SessionScreenshotResult = { dataUrl?: string; error?: string; uiMessage?: string }
@@ -5388,6 +5508,17 @@ export function prepareGlobalUserMessage(
 						? 'flow'
 						: 'raw_app'
 			content += `- type: ${itemType}, path: ${context.path}\n`
+		}
+		content += '\n'
+	}
+
+	const domSelectors = selectedContext.filter((c) => c.type === 'app_dom_selector')
+	if (domSelectors.length > 0) {
+		content += '## SELECTED DOM ELEMENTS\n'
+		content +=
+			"The user pointed at these elements in the live raw app preview. Their HTML is not included here — inspect it live with search_dom / read_dom, passing the element's `app_path` and `selector` so the right app's preview is read.\n"
+		for (const el of domSelectors) {
+			content += `- ${el.title} — app_path: ${el.appPath}, selector: ${el.selector}\n`
 		}
 		content += '\n'
 	}
