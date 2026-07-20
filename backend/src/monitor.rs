@@ -54,11 +54,11 @@ use windmill_common::{
     global_settings::{
         AUDIT_LOG_RETENTION_DAYS_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
         BUN_INSTALL_MIN_RELEASE_AGE_SETTING, CONCURRENCY_KEY_MAX_QUEUED_SETTING,
-        CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
-        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
-        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
-        DISABLE_PASSWORD_LOGIN, DISABLE_PASSWORD_LOGIN_SETTING, EXPOSE_DEBUG_METRICS_SETTING,
-        EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_OVERSUBSCRIBED_GATES_SETTING,
+        CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
+        CRITICAL_ERROR_CHANNELS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_PASSWORD_LOGIN, DISABLE_PASSWORD_LOGIN_SETTING,
+        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
         FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HUB_API_SECRET_SETTING,
         HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
         JOB_ISOLATION_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
@@ -95,8 +95,9 @@ use windmill_common::{
         WORKSPACE_FAIRNESS_MAX_PERCENT, WORKSPACE_FAIRNESS_MIN_TOTAL,
     },
     KillpillSender, AUDIT_LOG_RETENTION_DAYS, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE,
-    CRITICAL_ALERTS_ON_TOKEN_EXPIRY, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB,
-    DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS, JOB_RETENTION_SECS_OVERRIDES,
+    CRITICAL_ALERTS_ON_OVERSUBSCRIBED_GATES, CRITICAL_ALERTS_ON_TOKEN_EXPIRY,
+    CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL,
+    HUB_BASE_URL, JOB_RETENTION_SECS, JOB_RETENTION_SECS_OVERRIDES,
     JOB_RETENTION_SECS_OVERRIDES_LOADED, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
     MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED,
     SERVICE_LOG_RETENTION_SECS, STORE_AUDIT_LOGS_S3,
@@ -253,6 +254,10 @@ pub async fn initial_load(
 
     if let Err(e) = reload_critical_alerts_on_token_expiry_setting(conn).await {
         tracing::error!("Error loading critical alerts on token expiry setting: {e:#}");
+    }
+
+    if let Err(e) = reload_critical_alerts_on_oversubscribed_gates_setting(conn).await {
+        tracing::error!("Error loading critical alerts on oversubscribed gates setting: {e:#}");
     }
 
     if let Some(db) = conn.as_sql() {
@@ -777,6 +782,21 @@ pub async fn reload_critical_alerts_on_token_expiry_setting(
     .await
     {
         CRITICAL_ALERTS_ON_TOKEN_EXPIRY.store(t, Ordering::Relaxed);
+    }
+    Ok(())
+}
+
+pub async fn reload_critical_alerts_on_oversubscribed_gates_setting(
+    conn: &Connection,
+) -> error::Result<()> {
+    if let Ok(Some(serde_json::Value::Bool(t))) = load_value_from_global_settings_with_conn(
+        conn,
+        CRITICAL_ALERTS_ON_OVERSUBSCRIBED_GATES_SETTING,
+        true,
+    )
+    .await
+    {
+        CRITICAL_ALERTS_ON_OVERSUBSCRIBED_GATES.store(t, Ordering::Relaxed);
     }
     Ok(())
 }
@@ -3188,7 +3208,7 @@ pub async fn monitor_db(
 
     let concurrency_gate_alerts_f = async {
         #[cfg(feature = "enterprise")]
-        if server_mode {
+        if server_mode && CRITICAL_ALERTS_ON_OVERSUBSCRIBED_GATES.load(Ordering::Relaxed) {
             if let Some(db) = conn.as_sql() {
                 concurrency_gate_alerts(&db).await;
             }

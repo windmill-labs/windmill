@@ -250,6 +250,9 @@ lazy_static::lazy_static! {
 
     pub static ref CRITICAL_ALERT_MUTE_UI_ENABLED: AtomicBool = AtomicBool::new(false);
     pub static ref CRITICAL_ALERTS_ON_TOKEN_EXPIRY: AtomicBool = AtomicBool::new(false);
+    /// On by default: an oversubscribed gate is otherwise invisible, and the
+    /// queue-depth alert deliberately excludes the jobs it parks.
+    pub static ref CRITICAL_ALERTS_ON_OVERSUBSCRIBED_GATES: AtomicBool = AtomicBool::new(true);
 
     pub static ref BASE_URL: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee("".to_string());
     pub static ref IS_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);

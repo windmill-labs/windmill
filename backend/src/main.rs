@@ -41,6 +41,7 @@ use windmill_common::{
         AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUDIT_LOG_RETENTION_DAYS_SETTING,
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, BUN_INSTALL_MIN_RELEASE_AGE_SETTING,
         CONCURRENCY_KEY_MAX_QUEUED_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
+        CRITICAL_ALERTS_ON_OVERSUBSCRIBED_GATES_SETTING,
         CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
         CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
         DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_PASSWORD_LOGIN_SETTING, EMAIL_DOMAIN_SETTING,
@@ -131,6 +132,7 @@ use crate::monitor::{
     reload_app_workspaced_route_setting, reload_audit_log_retention_days_setting,
     reload_base_url_setting, reload_bun_install_min_release_age_setting,
     reload_bunfig_install_scopes_setting, reload_critical_alert_mute_ui_setting,
+    reload_critical_alerts_on_oversubscribed_gates_setting,
     reload_critical_alerts_on_token_expiry_setting, reload_critical_error_channels_setting,
     reload_extra_pip_index_url_setting, reload_http_route_workspaced_route_setting,
     reload_hub_api_secret_setting, reload_hub_base_url_setting,
@@ -2059,6 +2061,13 @@ async fn process_notify_event(
                 CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING => {
                     if let Err(e) = reload_critical_alerts_on_token_expiry_setting(conn).await {
                         tracing::error!(error = %e, "Could not reload critical alerts on token expiry setting");
+                    }
+                }
+                CRITICAL_ALERTS_ON_OVERSUBSCRIBED_GATES_SETTING => {
+                    if let Err(e) =
+                        reload_critical_alerts_on_oversubscribed_gates_setting(conn).await
+                    {
+                        tracing::error!(error = %e, "Could not reload critical alerts on oversubscribed gates setting");
                     }
                 }
                 INSTANCE_EVENTS_WEBHOOK_SETTING => {

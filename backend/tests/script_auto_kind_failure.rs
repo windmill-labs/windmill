@@ -85,9 +85,7 @@ async fn failure_kind_script_without_main_is_not_marked_lib(
 /// (so it stays hidden from the regular script picker). Guards against an
 /// over-broad sanitizer accidentally clearing the value for plain scripts.
 #[sqlx::test(fixtures("base"))]
-async fn regular_script_without_main_is_still_marked_lib(
-    db: Pool<Postgres>,
-) -> anyhow::Result<()> {
+async fn regular_script_without_main_is_still_marked_lib(db: Pool<Postgres>) -> anyhow::Result<()> {
     let (client, _port, _s) = init_client(db.clone()).await;
 
     client
