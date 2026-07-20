@@ -1079,31 +1079,130 @@ fn normalize_git_remote(raw: &str) -> Option<String> {
     Some(format!("{host}/{path}"))
 }
 
+/// Whether pushing `pushed_branch` deploys through a repo that tracks
+/// `tracked_branch`. A non-fork workspace deploys when the pushed branch matches
+/// directly; a fork's `wm-fork/<base>/<id>` branch deploys via the parent repo
+/// when it has `sync_forks` and its base equals the tracked branch. A blank
+/// tracked branch (repo default) is unresolvable without a network call, so it
+/// never matches and the caller falls back to `wmill sync push`.
+fn deploys_on_push_branch(
+    is_fork: bool,
+    w_id: &str,
+    pushed_branch: &str,
+    tracked_branch: &str,
+    enabled: bool,
+    sync_forks: bool,
+) -> bool {
+    if !enabled || tracked_branch.is_empty() {
+        return false;
+    }
+    if is_fork {
+        let Some((base, suffix)) = windmill_common::workspaces::parse_fork_branch(pushed_branch)
+        else {
+            return false;
+        };
+        sync_forks
+            && base == tracked_branch
+            && windmill_common::workspaces::fork_branch_workspace_id_candidates(suffix)
+                .iter()
+                .any(|c| c == w_id)
+    } else {
+        pushed_branch == tracked_branch
+    }
+}
+
+/// Resolve a git-sync repo's `url` and `branch`, interpolating `$var:`/`$res:`
+/// references the same way the auto-pull poller does. Reads on the plain pool
+/// (bypassing resource RLS) so a non-admin member gets an accurate answer;
+/// interpolation runs only when a field is a reference, to avoid decrypting a
+/// secret token when the URL is a literal. Resolved values are only compared
+/// (the URL credential-stripped), never returned.
+async fn resolve_repo_url_branch(
+    db: &DB,
+    w_id: &str,
+    resource_path: &str,
+) -> Result<Option<(Option<String>, Option<String>)>> {
+    let path = resource_path.trim_start_matches("$res:");
+    let raw = sqlx::query!(
+        "SELECT value->>'url' as url, value->>'branch' as branch \
+         FROM resource WHERE workspace_id = $1 AND path = $2",
+        w_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+    let Some(raw) = raw else { return Ok(None) };
+
+    let needs_interp = raw.url.as_deref().is_some_and(|s| s.starts_with('$'))
+        || raw.branch.as_deref().is_some_and(|s| s.starts_with('$'));
+    if !needs_interp {
+        return Ok(Some((raw.url, raw.branch)));
+    }
+
+    let dba: windmill_common::db::DbWithOptAuthed<'_, ApiAuthed> =
+        windmill_common::db::DbWithOptAuthed::DB {
+            db: db.clone(),
+            audit_author: windmill_common::audit::AuditAuthor {
+                username: "git_sync_deploy_mode".to_string(),
+                email: windmill_common::users::SUPERADMIN_SYNC_EMAIL.to_string(),
+                username_override: None,
+                token_prefix: None,
+            },
+        };
+    let Some(value) = windmill_store::resources::get_resource_value_interpolated_internal(
+        &dba, w_id, path, None, None, true,
+    )
+    .await?
+    else {
+        return Ok(None);
+    };
+    let field = |k: &str| value.get(k).and_then(|v| v.as_str()).map(str::to_string);
+    Ok(Some((field("url"), field("branch"))))
+}
+
 /// Non-admin endpoint so the CLI/agent can pick the deploy path (git push vs
 /// `wmill sync push`) without reading the admin-only workspace settings. Matches
 /// the caller's remote+branch server-side and returns only booleans — no
 /// repository URLs, credentials, or webhook config ever leave the backend.
 async fn get_git_sync_deploy_mode(
-    authed: ApiAuthed,
+    _authed: ApiAuthed,
     Path(w_id): Path<String>,
     Query(q): Query<GitSyncDeployModeQuery>,
     Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<GitSyncDeployMode> {
-    let mut tx = user_db.begin(&authed).await?;
-    let git_sync = sqlx::query_scalar!(
-        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+    // A fork clears its own auto-pull; its pushes deploy through the root
+    // ancestor's repo (which owns `sync_forks`), so evaluate the root's settings.
+    let root_id = sqlx::query_scalar!(
+        r#"WITH RECURSIVE up AS (
+             SELECT id, parent_workspace_id FROM workspace WHERE id = $1
+             UNION ALL
+             SELECT w.id, w.parent_workspace_id
+             FROM workspace w JOIN up ON w.id = up.parent_workspace_id
+           )
+           SELECT id AS "id!" FROM up WHERE parent_workspace_id IS NULL LIMIT 1"#,
         &w_id
     )
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&db)
+    .await?
+    .unwrap_or_else(|| w_id.clone());
+    let is_fork = root_id != w_id;
+
+    // Read on the plain pool: a fork member may not be a member of the root
+    // workspace, and only derived booleans are returned (never the settings).
+    let git_sync = sqlx::query_scalar!(
+        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+        &root_id
+    )
+    .fetch_optional(&db)
     .await
     .map_err(|e| Error::internal_err(format!("getting git_sync settings: {e:#}")))?;
-    tx.commit().await?;
 
     let settings = git_sync.flatten().and_then(|v| {
         serde_json::from_value::<WorkspaceGitSyncSettings>(v)
             .map_err(|e| {
-                tracing::warn!("git_sync deploy mode: settings deserialize failed for {w_id}: {e}")
+                tracing::warn!(
+                    "git_sync deploy mode: settings deserialize failed for {root_id}: {e}"
+                )
             })
             .ok()
     });
@@ -1118,10 +1217,9 @@ async fn get_git_sync_deploy_mode(
 
     let configured = !settings.repositories.is_empty();
 
-    // Deploy-on-push needs all three to line up: auto-pull runs only on
-    // Enterprise-licensed instances (see poll_git_auto_pull), and only pushes to
-    // the matching repo's tracked branch deploy. Without a caller remote/branch
-    // there is nothing to match, so it stays false (safe: `wmill sync push`).
+    // Auto-pull runs only on Enterprise-licensed instances (see poll_git_auto_pull);
+    // without a caller remote/branch there is nothing to match. Either way it stays
+    // false, so the caller falls back to `wmill sync push` (which always deploys).
     let (Some(remote), Some(branch)) = (q.remote.as_deref(), q.branch.as_deref()) else {
         return Ok(Json(GitSyncDeployMode {
             configured,
@@ -1137,31 +1235,31 @@ async fn get_git_sync_deploy_mode(
     if licensed {
         if let Some(remote_norm) = normalize_git_remote(remote) {
             for repo in &settings.repositories {
-                if !repo.auto_pull.as_ref().is_some_and(|a| a.enabled) {
+                let auto_pull = repo.auto_pull.as_ref();
+                let enabled = auto_pull.is_some_and(|a| a.enabled);
+                let sync_forks = auto_pull.is_some_and(|a| a.sync_forks);
+                if !enabled {
                     continue;
                 }
-                // Read the repo URL + tracked branch on the plain pool (bypassing
-                // resource RLS) so a non-admin member still gets an accurate
-                // answer; the URL is only compared, never returned.
-                let path = repo.git_repo_resource_path.trim_start_matches("$res:");
-                let row = sqlx::query!(
-                    "SELECT value->>'url' as url, value->>'branch' as branch \
-                     FROM resource WHERE workspace_id = $1 AND path = $2",
-                    &w_id,
-                    path
-                )
-                .fetch_optional(&db)
-                .await?;
-                let Some(row) = row else { continue };
-                let matches_remote = row
-                    .url
+                let Some((url, tracked_branch)) =
+                    resolve_repo_url_branch(&db, &root_id, &repo.git_repo_resource_path).await?
+                else {
+                    continue;
+                };
+                let matches_remote = url
                     .as_deref()
                     .and_then(normalize_git_remote)
                     .is_some_and(|repo_norm| repo_norm == remote_norm);
-                // A blank/absent tracked branch means the repo default branch,
-                // which we can't resolve here without a network call — leave
-                // deploy_on_push false so it falls back to `wmill sync push`.
-                if matches_remote && row.branch.as_deref() == Some(branch) {
+                if matches_remote
+                    && deploys_on_push_branch(
+                        is_fork,
+                        &w_id,
+                        branch,
+                        tracked_branch.as_deref().unwrap_or(""),
+                        enabled,
+                        sync_forks,
+                    )
+                {
                     deploy_on_push = true;
                     break;
                 }
@@ -1174,7 +1272,80 @@ async fn get_git_sync_deploy_mode(
 
 #[cfg(test)]
 mod git_sync_deploy_mode_tests {
-    use super::normalize_git_remote;
+    use super::{deploys_on_push_branch, normalize_git_remote};
+
+    #[test]
+    fn non_fork_matches_tracked_branch_only() {
+        assert!(deploys_on_push_branch(
+            false, "ws", "main", "main", true, false
+        ));
+        assert!(!deploys_on_push_branch(
+            false, "ws", "dev", "main", true, false
+        ));
+        // Disabled auto-pull, or an unresolved default (blank) branch, never match.
+        assert!(!deploys_on_push_branch(
+            false, "ws", "main", "main", false, false
+        ));
+        assert!(!deploys_on_push_branch(
+            false, "ws", "main", "", true, false
+        ));
+    }
+
+    #[test]
+    fn fork_needs_sync_forks_base_and_matching_id() {
+        // Generated fork: id `wm-fork-abc`, branch `wm-fork/main/abc`.
+        assert!(deploys_on_push_branch(
+            true,
+            "wm-fork-abc",
+            "wm-fork/main/abc",
+            "main",
+            true,
+            true
+        ));
+        // Dev-workspace fork keeps a prefix-less id used verbatim in the suffix.
+        assert!(deploys_on_push_branch(
+            true,
+            "abc",
+            "wm-fork/main/abc",
+            "main",
+            true,
+            true
+        ));
+        // sync_forks off, base mismatch, or a suffix for a different workspace.
+        assert!(!deploys_on_push_branch(
+            true,
+            "wm-fork-abc",
+            "wm-fork/main/abc",
+            "main",
+            true,
+            false
+        ));
+        assert!(!deploys_on_push_branch(
+            true,
+            "wm-fork-abc",
+            "wm-fork/main/abc",
+            "release",
+            true,
+            true
+        ));
+        assert!(!deploys_on_push_branch(
+            true,
+            "wm-fork-other",
+            "wm-fork/main/abc",
+            "main",
+            true,
+            true
+        ));
+        // A non-fork-format branch on a fork workspace does not deploy.
+        assert!(!deploys_on_push_branch(
+            true,
+            "wm-fork-abc",
+            "main",
+            "main",
+            true,
+            true
+        ));
+    }
 
     #[test]
     fn strips_credentials_and_normalizes() {
