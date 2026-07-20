@@ -1040,7 +1040,9 @@ function scriptToItem(script: Script | NewScript, includeValue: boolean): Worksp
 		language: script.language,
 		value: includeValue ? script.content : undefined,
 		schema: includeValue ? (script as Script).schema : undefined,
-		isDraft: false
+		// Listings with includeDraftOnly synthesize rows for editor drafts that
+		// have no deployed counterpart — label those honestly.
+		isDraft: (script as Script).draft_only ?? false
 	}
 }
 
@@ -1052,7 +1054,7 @@ function flowToItem(flow: Flow, includeValue: boolean): WorkspaceItem {
 		value: includeValue
 			? { value: flow.value, schema: flow.schema, groups: flow.value.groups ?? null }
 			: undefined,
-		isDraft: false
+		isDraft: (flow as Flow & { draft_only?: boolean }).draft_only ?? false
 	}
 }
 
