@@ -591,7 +591,8 @@ const SEARCH_NPM_PACKAGES_TOOL: ChatCompletionFunctionTool = {
 	}
 }
 
-export const searchNpmPackagesTool: Tool<ScriptChatHelpers> = {
+// Helpers-agnostic so both script mode and global mode can offer it.
+export const searchNpmPackagesTool: Tool<{}> = {
 	def: SEARCH_NPM_PACKAGES_TOOL,
 	fn: async ({ args, toolId, toolCallbacks }) => {
 		toolCallbacks.setToolStatus(toolId, { content: 'Searching for relevant packages...' })
