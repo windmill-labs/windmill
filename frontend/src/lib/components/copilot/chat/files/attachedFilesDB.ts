@@ -32,6 +32,8 @@ export interface PersistedAttachedItem {
 	size?: number
 	lastModified?: number
 	addedAt: number
+	/** Attached to a chat message (readable via tools, hidden from the session footer bar). */
+	messageScoped?: boolean
 }
 
 interface AttachedFilesSchema extends IDBSchema {

@@ -48,6 +48,7 @@ import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/d
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
 import type { RawAppDomQuery } from '$lib/components/raw_apps/rawAppDom'
 import { dataUrlToImagePart, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
+import type { AttachedTextFile } from '../textFileUtils'
 import { modelSupportsVision } from '../../modelConfig'
 import { tryGetCurrentModel } from '$lib/aiStore'
 import { isChromiumBrowser } from '$lib/utils'
@@ -201,6 +202,8 @@ export type GlobalUserMessageOptions = {
 	activeEditor?: GlobalActiveEditorContext
 	/** Images attached to this message; delivered as image_url content parts. */
 	images?: AttachedImage[]
+	/** Text files attached to this message; their content is inlined below. */
+	files?: AttachedTextFile[]
 }
 
 const itemTypeSchema = z.enum(ITEM_TYPES)
@@ -5519,6 +5522,18 @@ export function prepareGlobalUserMessage(
 			"The user pointed at these elements in the live raw app preview. Their HTML is not included here — inspect it live with search_dom / read_dom, passing the element's `app_path` and `selector` so the right app's preview is read.\n"
 		for (const el of domSelectors) {
 			content += `- ${el.title} — app_path: ${el.appPath}, selector: ${el.selector}\n`
+		}
+		content += '\n'
+	}
+
+	const files = options.files ?? []
+	if (files.length > 0) {
+		content += '## ATTACHED FILES\n'
+		content +=
+			'The user attached these files to this message. Their content is NOT included here — read it with `read_file` (or scan it with `search_files`) before answering questions about it.\n'
+		for (const f of files) {
+			const lines = f.content.split('\n').length
+			content += `- ${f.name} — ${lines} lines, ${f.content.length} chars\n`
 		}
 		content += '\n'
 	}

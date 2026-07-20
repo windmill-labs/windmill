@@ -473,4 +473,21 @@ describe('AttachedFilesStore', () => {
 		await settle(s)
 		expect(s.folders[0].files.map((f) => f.relPath)).toEqual(['proj/app.ts'])
 	})
+
+	it('keeps message-scoped files tool-readable but out of the footer roster', async () => {
+		await store.addFiles([file('notes.md', 'hello\n')], { messageScoped: true })
+		await settle(store)
+
+		// Hidden from the session bar, listed for the tools, readable by name.
+		expect(store.standalone).toEqual([])
+		expect(store.messageAttached.map((f) => f.name)).toEqual(['notes.md'])
+		expect(store.get('notes.md')?.status).toBe('ready')
+
+		// Re-registering the same name with new content (edited message) replaces the
+		// row under the SAME name — a rename would break the sent prompt's reference.
+		await store.addFiles([file('notes.md', 'edited\n', 2)], { messageScoped: true })
+		await settle(store)
+		expect(store.messageAttached.map((f) => f.name)).toEqual(['notes.md'])
+		expect(store.messageAttached[0].size).toBe(7)
+	})
 })

@@ -66,6 +66,7 @@ import {
 	stripImagePartsFromMessages
 } from './imageUtils'
 import { chatDraft, expanded } from './chatDraft'
+import { MAX_ATTACHED_FILES, type AttachedTextFile } from './textFileUtils'
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
@@ -320,9 +321,14 @@ function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean)
 	return appendWebSearchErrorHint(message, webSearchUnavailable)
 }
 
-/** A message queued while a turn streams: text, images and the pinned context
- * snapshot always move together so a flush can't drop one. */
-type QueuedEntry = { text: string; images: AttachedImage[]; context: ContextElement[] | undefined }
+/** A message queued while a turn streams: text, attachments and the pinned
+ * context snapshot always move together so a flush can't drop one. */
+type QueuedEntry = {
+	text: string
+	images: AttachedImage[]
+	files: AttachedTextFile[]
+	context: ContextElement[] | undefined
+}
 
 export class AIChatManager {
 	contextManager = new ContextManager()
@@ -356,6 +362,8 @@ export class AIChatManager {
 	// move the two together — #takeQueue/#clearQueue/#restoreQueue exist so no
 	// call site can drop one and auto-send a message the user never wrote.
 	queuedImages = $state<AttachedImage[]>([])
+	// Text files attached to that message — same contract as queuedImages.
+	queuedFiles = $state<AttachedTextFile[]>([])
 	// Jobs the chat started that detached into the background (global/sessions
 	// chat only). Rendered in the jobs tray, persisted with the chat, and advanced
 	// by a single background poller. See registerJob / #pollBackgroundJobs.
@@ -1284,6 +1292,7 @@ export class AIChatManager {
 			const accepted = await this.sendRequest({
 				instructions: next.text,
 				images: next.images,
+				files: next.files,
 				contextOverride: next.context,
 				queued: true
 			})
@@ -1424,10 +1433,15 @@ export class AIChatManager {
 	 * one queued message; pressing Enter again appends the new text as another
 	 * line so it all goes out as a single message, and its images accumulate
 	 * alongside it. */
-	queueMessage(text: string, images: AttachedImage[] = [], context?: ContextElement[]) {
+	queueMessage(
+		text: string,
+		images: AttachedImage[] = [],
+		context?: ContextElement[],
+		files: AttachedTextFile[] = []
+	) {
 		const trimmed = text.trim()
-		// An image with no text is still a message; only a fully empty send is ignored.
-		if (!trimmed && images.length === 0) {
+		// An attachment with no text is still a message; only a fully empty send is ignored.
+		if (!trimmed && images.length === 0 && files.length === 0) {
 			return
 		}
 		if (trimmed) {
@@ -1439,6 +1453,13 @@ export class AIChatManager {
 				sendUserToast(`Only the first ${MAX_ATTACHED_IMAGES} images are kept.`, true)
 			}
 			this.queuedImages = merged.slice(0, MAX_ATTACHED_IMAGES)
+		}
+		if (files.length > 0) {
+			const merged = [...this.queuedFiles, ...files]
+			if (merged.length > MAX_ATTACHED_FILES) {
+				sendUserToast(`Only the first ${MAX_ATTACHED_FILES} files are kept.`, true)
+			}
+			this.queuedFiles = merged.slice(0, MAX_ATTACHED_FILES)
 		}
 		// Pin the context snapshot to the queued message. The queued text accumulates
 		// (several inline prompts can queue during one stream), so union the DOM
@@ -1467,16 +1488,17 @@ export class AIChatManager {
 		}
 	}
 
-	/** Whether anything is waiting in the queue — an image-only message has empty text. */
+	/** Whether anything is waiting in the queue — an attachment-only message has empty text. */
 	#hasQueuedMessage(): boolean {
-		return this.queuedMessage !== '' || this.queuedImages.length > 0
+		return this.queuedMessage !== '' || this.queuedImages.length > 0 || this.queuedFiles.length > 0
 	}
 
-	/** Detach the queue for sending. Text, images and context always leave together. */
+	/** Detach the queue for sending. Text, attachments and context always leave together. */
 	#takeQueue(): QueuedEntry {
 		const taken = {
 			text: this.queuedMessage,
 			images: this.queuedImages,
+			files: this.queuedFiles,
 			context: this.queuedContext
 		}
 		this.#clearQueue()
@@ -1486,6 +1508,7 @@ export class AIChatManager {
 	#clearQueue() {
 		this.queuedMessage = ''
 		this.queuedImages = []
+		this.queuedFiles = []
 		this.queuedContext = undefined
 	}
 
@@ -1493,6 +1516,7 @@ export class AIChatManager {
 	#restoreQueue(queued: QueuedEntry) {
 		this.queuedMessage = queued.text
 		this.queuedImages = queued.images
+		this.queuedFiles = queued.files
 		this.queuedContext = queued.context
 	}
 
@@ -1527,7 +1551,7 @@ export class AIChatManager {
 			return
 		}
 		const queued = this.#takeQueue()
-		const mergedIntoDraft = this.restoreToInput(queued.text, queued.images)
+		const mergedIntoDraft = this.restoreToInput(queued.text, queued.images, queued.files)
 		// The queued draft pinned its own DOM context; restore it so sending from
 		// the composer targets the element the draft was written for, not whatever
 		// is selected now. If its text was prepended onto an existing draft, that
@@ -1538,12 +1562,17 @@ export class AIChatManager {
 	/** Put what the user typed back where they can see it: into the input
 	 * when it's mounted, otherwise back into the queue so it reappears with
 	 * the chat panel instead of being silently dropped. */
-	private restoreToInput(text: string, images: AttachedImage[] = []): boolean {
+	private restoreToInput(
+		text: string,
+		images: AttachedImage[] = [],
+		files: AttachedTextFile[] = []
+	): boolean {
 		if (this.aiChatInput) {
-			return this.aiChatInput.prependText(text, images) === true
+			return this.aiChatInput.prependText(text, images, files) === true
 		}
 		this.queuedMessage = text
 		this.queuedImages = images
+		this.queuedFiles = files
 		return false
 	}
 
@@ -1932,13 +1961,14 @@ export class AIChatManager {
 		instructions: string,
 		pastes: PasteAttachment[],
 		restoreToInput: boolean = true,
-		images: AttachedImage[] = []
+		images: AttachedImage[] = [],
+		files: AttachedTextFile[] = []
 	): boolean => {
 		this.displayMessages = this.displayMessages.slice(0, displayLenAfterUser - 1)
 		this.messages = this.messages.slice(0, modelLenAfterUser - 1)
 		if (!restoreToInput) return false
 		// An occupied composer declines the restore and keeps its own draft.
-		return this.aiChatInput?.restoreInstructions(instructions, pastes, images) === true
+		return this.aiChatInput?.restoreInstructions(instructions, pastes, images, files) === true
 	}
 
 	private notifyReasoningSummaryUnavailable = () => {
@@ -2172,6 +2202,7 @@ export class AIChatManager {
 			instructions?: string
 			pastes?: PasteAttachment[]
 			images?: AttachedImage[]
+			files?: AttachedTextFile[]
 			mode?: AIMode
 			lang?: ScriptLang | 'bunnative'
 			isPreprocessor?: boolean
@@ -2210,11 +2241,15 @@ export class AIChatManager {
 		if (options.instructions !== undefined) {
 			this.instructions = options.instructions
 		}
-		// Only a truly empty draft is dropped here. An image with no text is a
-		// valid GLOBAL-mode message; outside GLOBAL an image-bearing draft must
-		// still get past this guard to reach the refusal below, which puts it
-		// back in the composer instead of silently losing it.
-		if (!this.instructions.trim() && (options.images?.length ?? 0) === 0) {
+		// Only a truly empty draft is dropped here. An attachment with no text is
+		// a valid GLOBAL-mode message; outside GLOBAL an attachment-bearing draft
+		// must still get past this guard to reach the refusal below, which puts
+		// it back in the composer instead of silently losing it.
+		if (
+			!this.instructions.trim() &&
+			(options.images?.length ?? 0) === 0 &&
+			(options.files?.length ?? 0) === 0
+		) {
 			return false
 		}
 		// Built-in session commands run locally instead of becoming a chat turn.
@@ -2257,17 +2292,28 @@ export class AIChatManager {
 		// Context elements and the snapshot are attached after beforeSend (see below).
 		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
 		const pastes = options.pastes ?? []
-		// Images ride only on GLOBAL turns, but the composer stays mounted across
-		// a mode switch, so chips attached in GLOBAL can arrive with a send in any
-		// mode. Refuse and restore rather than silently dropping attachments the
-		// user can see. This sits past the awaits above on purpose: the composer
-		// clears itself synchronously right after calling sendRequest, so an
-		// earlier restore would be wiped. Queued drafts are the caller's to
-		// restore (it re-queues on false).
-		if ((options.images?.length ?? 0) > 0 && this.mode !== AIMode.GLOBAL) {
-			sendUserToast('Switch back to the chat mode to send images. Your message was kept.', true)
+		// Attachments (images, text files) ride only on GLOBAL turns, but the
+		// composer stays mounted across a mode switch, so chips attached in GLOBAL
+		// can arrive with a send in any mode. Refuse and restore rather than
+		// silently dropping attachments the user can see. This sits past the
+		// awaits above on purpose: the composer clears itself synchronously right
+		// after calling sendRequest, so an earlier restore would be wiped. Queued
+		// drafts are the caller's to restore (it re-queues on false).
+		if (
+			((options.images?.length ?? 0) > 0 || (options.files?.length ?? 0) > 0) &&
+			this.mode !== AIMode.GLOBAL
+		) {
+			sendUserToast(
+				'Switch back to the chat mode to send attachments. Your message was kept.',
+				true
+			)
 			if (!options.queued) {
-				this.aiChatInput?.restoreInstructions(this.instructions, pastes, options.images ?? [])
+				this.aiChatInput?.restoreInstructions(
+					this.instructions,
+					pastes,
+					options.images ?? [],
+					options.files ?? []
+				)
 			}
 			return false
 		}
@@ -2275,6 +2321,9 @@ export class AIChatManager {
 		// repeated here, not just at attach time: the model can be switched to a
 		// text-only one after attaching, and sending the image then fails the turn.
 		const requestedImages = options.images ?? []
+		// Text files pass regardless of vision support — their content is inlined
+		// into the prompt text.
+		const files = options.files ?? []
 		const sendModel = tryGetCurrentModel()
 		const modelIsBlind = !!sendModel && !modelSupportsVision(sendModel.provider, sendModel.model)
 		if (requestedImages.length > 0 && modelIsBlind) {
@@ -2282,7 +2331,7 @@ export class AIChatManager {
 			// put them back in the composer instead of silently discarding them
 			// (the input already cleared itself optimistically on send). Queued
 			// drafts are the caller's to restore (it re-queues on false).
-			if (!this.instructions.trim()) {
+			if (!this.instructions.trim() && files.length === 0) {
 				sendUserToast(`${sendModel.model} can't read images. Switch to a vision model first.`, true)
 				if (!options.queued) this.restoreToInput('', requestedImages)
 				return false
@@ -2310,6 +2359,7 @@ export class AIChatManager {
 				// Same objects as the API message's parts: sharing the exact data URL
 				// lets the history's blob store persist one copy for both.
 				images: images.length > 0 ? images : undefined,
+				files: files.length > 0 ? files : undefined,
 				index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
 			}
 		]
@@ -2332,7 +2382,7 @@ export class AIChatManager {
 				console.error('AIChatManager beforeSend hook failed', e)
 				rollbackOptimisticSend()
 				if (!options.queued) {
-					this.aiChatInput?.restoreInstructions(this.instructions, pastes, images)
+					this.aiChatInput?.restoreInstructions(this.instructions, pastes, images, files)
 				}
 				sendUserToast(
 					`Could not prepare the session before sending: ${
@@ -2360,12 +2410,13 @@ export class AIChatManager {
 				const accepted = await this.sendRequest({
 					instructions: next.text,
 					images: next.images,
+					files: next.files,
 					contextOverride: next.context,
 					queued: true
 				})
 				if (accepted === false) this.#restoreQueue(next)
 			} else {
-				this.aiChatInput?.restoreInstructions(this.instructions, pastes, images)
+				this.aiChatInput?.restoreInstructions(this.instructions, pastes, images, files)
 			}
 			return true
 		}
@@ -2464,6 +2515,7 @@ export class AIChatManager {
 			const sentInstructions = this.instructions
 			const sentPastes = pastes
 			const sentImages = images
+			const sentFiles = files
 			// The LLM gets the full pasted content; the display message above keeps
 			// the compact tokens + registry so the bubble can render/expand chips.
 			const oldInstructions = expanded(chatDraft(this.instructions, pastes))
@@ -2484,6 +2536,22 @@ export class AIChatManager {
 
 			if (this.mode === AIMode.SCRIPT && !this.scriptEditorOptions && !options.lang) {
 				throw new Error('No script options passed')
+			}
+
+			// Message-attached files travel as references: the prompt lists them and the
+			// model reads their content via the file tools. Register them in the store
+			// before the request goes out so this turn's reads can already see them.
+			// Registration failure must not block the send — the reference just reads
+			// as missing and the model reports it.
+			if (this.mode === AIMode.GLOBAL && sentFiles.length > 0) {
+				try {
+					await this.attachedFiles.addFiles(
+						sentFiles.map((f) => new File([f.content], f.name, { type: 'text/plain' })),
+						{ messageScoped: true }
+					)
+				} catch (e) {
+					console.error('Failed to register message-attached files', e)
+				}
 			}
 
 			let userMessage: ChatCompletionMessageParam = {
@@ -2514,7 +2582,8 @@ export class AIChatManager {
 				case AIMode.GLOBAL:
 					userMessage = prepareGlobalUserMessage(modelInstructions, oldSelectedContext, {
 						workspace: this.operatingWorkspace,
-						images: sentImages
+						images: sentImages,
+						files: sentFiles
 					})
 					break
 				case AIMode.APP:
@@ -2741,7 +2810,8 @@ export class AIChatManager {
 					sentInstructions,
 					sentPastes,
 					!willAutoSendQueued,
-					sentImages
+					sentImages,
+					sentFiles
 				)
 				// restoreUnsentTurn hands the text/pastes/images back for a resend, but
 				// the DOM selector chips were already consumed from the live selection
@@ -2877,6 +2947,7 @@ export class AIChatManager {
 			const accepted = await this.sendRequest({
 				instructions: next.text,
 				images: next.images,
+				files: next.files,
 				contextOverride: next.context,
 				queued: true
 			})
@@ -2952,7 +3023,8 @@ export class AIChatManager {
 		newContent?: string,
 		pastes?: PasteAttachment[],
 		images?: AttachedImage[],
-		editedContext?: ContextElement[]
+		editedContext?: ContextElement[],
+		files?: AttachedTextFile[]
 	) => {
 		const userMessage = this.displayMessages[displayMessageIndex]
 
@@ -2999,7 +3071,11 @@ export class AIChatManager {
 			pastes: pastes ?? userMessage.pastes,
 			contextOverride: editedContext ?? userMessage.contextElements,
 			contextOverrideOrigin: 'replay',
-			images: images ?? sentImages
+			images: images ?? sentImages,
+			// The bubble copy is authoritative for files: their content is inlined
+			// into the API message text, so no provider ever strips them the way
+			// image parts can be stripped.
+			files: files ?? userMessage.files
 		})
 	}
 

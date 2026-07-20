@@ -39,6 +39,7 @@
 	import { getAiChatManager } from './aiChatManagerContext'
 	import ChatTypingIndicator from './ChatTypingIndicator.svelte'
 	import AIChatInput from './AIChatInput.svelte'
+	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
 	import QueuedMessageChip from './QueuedMessageChip.svelte'
 	import JobsSegment from './JobsSegment.svelte'
 	import { getModifierKey } from '$lib/utils'
@@ -381,9 +382,9 @@
 				handles.length === 0
 					? flatFiles
 					: await Promise.all(handles.filter(isFileHandle).map((h) => h.getFile()))
-			// Files are always snapshotted (handle discarded).
+			// Loose text files attach to the message, like images.
 			const textFiles = looseFiles.filter((f) => !isImageFile(f))
-			if (textFiles.length > 0) await handleAddFiles(textFiles)
+			if (textFiles.length > 0) await aiChatInput?.addTextFiles(textFiles)
 			// Folders link as a live handle.
 			for (const h of handles.filter(isDirectoryHandle)) {
 				await addDirHandle(h)
@@ -395,17 +396,24 @@
 			// (no entry API), fall back to the flat dt.files.
 			const entries = await readDroppedEntries(Array.from(dt.items ?? []))
 			const source: FileToAttach[] = entries.length > 0 ? entries : flatFiles
-			// Only top-level images attach to the message, and those were already
-			// reserved from dt.files before the walk — drop them here so they aren't
-			// re-reported as skipped non-text. Folder-nested images are deliberately
-			// NOT attached (the FSA path never extracts folder contents either); they
-			// ride the text ingestion and are summarized as skipped.
-			const textEntries = source.filter((entry) => {
+			// Top-level files attach to the message (images were already reserved
+			// from dt.files before the walk). Folder children keep riding the
+			// session store as a snapshot — including nested images, which are
+			// deliberately NOT attached (the FSA path never extracts folder
+			// contents either); they are summarized as skipped there.
+			const topLevelText: File[] = []
+			const folderEntries: FileToAttach[] = []
+			for (const entry of source) {
 				const file = entry instanceof File ? entry : entry.file
-				const nested = !(entry instanceof File) && entry.path?.includes('/')
-				return !isImageFile(file) || !!nested
-			})
-			if (textEntries.length > 0) await handleAddFiles(textEntries)
+				const nested = !(entry instanceof File) && !!entry.path?.includes('/')
+				if (nested) {
+					folderEntries.push(entry)
+				} else if (!isImageFile(file)) {
+					topLevelText.push(file)
+				}
+			}
+			if (folderEntries.length > 0) await handleAddFiles(folderEntries)
+			if (topLevelText.length > 0) await aiChatInput?.addTextFiles(topLevelText)
 		}
 		await Promise.all(imageWork)
 	}
@@ -418,7 +426,7 @@
 			const textFiles = picked.filter((f) => !isImageFile(f))
 			// Reserved before the text work is awaited — see onPanelDrop.
 			const imageWork = imageFiles.length > 0 ? aiChatInput?.addImages(imageFiles) : undefined
-			if (textFiles.length > 0) await handleAddFiles(textFiles)
+			if (textFiles.length > 0) await aiChatInput?.addTextFiles(textFiles)
 			await imageWork
 		}
 		input.value = '' // allow re-selecting the same file
@@ -754,10 +762,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					<JobsSegment standalone />
 				</div>
 			{/if}
-			<!-- Context chips (attached files + selected-context / DOM-selector) render
+			<!-- Message-scoped chips (selected-context / DOM-selector / images) render
 			     inside the input box via AIChatInput → ContextTextarea's `leading` snippet;
 			     selected context also appears as @mentions in the input (deleting the
-			     mention deselects). Hence showContext={false} below. -->
+			     mention deselects). Hence showContext={false} below. Session-scoped
+			     assets (attached files/folders) render in the footer row instead. -->
 			{#if inputPreface}
 				{@render inputPreface()}
 			{/if}
@@ -863,12 +872,12 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 											<div class="max-w-64 text-xs">
 												<p class="font-semibold">Attach files or link a folder</p>
 												<p class="mt-1">
-													Text files stay in your browser, and a folder is linked live from disk.
-													The assistant lists, searches, and reads them on demand, so their contents
-													are sent only when it reads one.
+													Files and images attach to your next message. Images are seen directly;
+													file contents stay in your browser and are read on demand.
 												</p>
 												<p class="mt-1">
-													Images are sent with your next message, so the assistant can see them.
+													A linked folder is a session-wide resource: the assistant lists, searches,
+													and reads its files whenever it needs them.
 												</p>
 											</div>
 										{/snippet}
@@ -968,6 +977,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					</div>
 				{:else}
 					<div class="flex flex-row gap-x-1.5 min-w-0 flex-wrap items-center">
+						{#if aiChatManager.mode === AIMode.GLOBAL}
+							<AttachedFilesBar />
+						{/if}
 						{#if !hideModeSelector}
 							<ChatMode />
 						{/if}

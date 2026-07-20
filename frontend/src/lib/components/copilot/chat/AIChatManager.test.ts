@@ -496,7 +496,7 @@ describe('AIChatManager queued messages', () => {
 		manager.dequeueMessage()
 
 		expect(manager.queuedMessage).toBe('')
-		expect(input.prependText).toHaveBeenCalledWith('line one\nline two', [])
+		expect(input.prependText).toHaveBeenCalledWith('line one\nline two', [], [])
 	})
 
 	const img = (n: string): AttachedImage => ({
@@ -940,7 +940,7 @@ describe('AIChatManager queued messages', () => {
 		await manager.sendRequest({ instructions: '', images: [img('a')] })
 
 		expect(mocks.runChatLoop).not.toHaveBeenCalled()
-		expect(input.prependText).toHaveBeenCalledWith('', [img('a')])
+		expect(input.prependText).toHaveBeenCalledWith('', [img('a')], [])
 		mocks.tryGetCurrentModel.mockReturnValue(model)
 	})
 
@@ -1032,7 +1032,7 @@ describe('AIChatManager queued messages', () => {
 
 		expect(accepted).toBe(false)
 		expect(mocks.runChatLoop).not.toHaveBeenCalled()
-		expect(input.restoreInstructions).toHaveBeenCalledWith('find it', [], [img('a')])
+		expect(input.restoreInstructions).toHaveBeenCalledWith('find it', [], [img('a')], [])
 	})
 
 	// A refused queued draft is the caller's to restore (it re-queues on false) —
@@ -1140,7 +1140,22 @@ describe('AIChatManager queued messages', () => {
 		manager.dequeueMessage()
 
 		expect(manager.queuedImages).toEqual([])
-		expect(input.prependText).toHaveBeenCalledWith('', [img('a')])
+		expect(input.prependText).toHaveBeenCalledWith('', [img('a')], [])
+	})
+
+	it('queues a file-only message and restores it on dequeue', () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		const file = { name: 'notes.md', content: 'hello' }
+		manager.queueMessage('', [], undefined, [file])
+
+		expect(manager.queuedMessage).toBe('')
+		expect(manager.queuedFiles).toEqual([file])
+
+		manager.dequeueMessage()
+
+		expect(manager.queuedFiles).toEqual([])
+		expect(input.prependText).toHaveBeenCalledWith('', [], [file])
 	})
 
 	it('drops queued images when the conversation is switched away', async () => {
@@ -1368,7 +1383,7 @@ describe('AIChatManager queued messages', () => {
 
 		expect(accepted).toBe(false)
 		expect(mocks.runChatLoop).not.toHaveBeenCalled()
-		expect(input.restoreInstructions).toHaveBeenCalledWith('look', [], [img('a')])
+		expect(input.restoreInstructions).toHaveBeenCalledWith('look', [], [img('a')], [])
 		// the optimistic bubble is rolled back
 		expect(manager.displayMessages).toHaveLength(0)
 	})
@@ -2201,7 +2216,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 		expect(manager.displayMessages.some((m) => m.role === 'user')).toBe(false)
 		expect(manager.messages.some((m) => m.role === 'user')).toBe(false)
 		// ...and its text is handed back to the composer.
-		expect(restoreInstructions).toHaveBeenCalledWith('do a thing', [], [])
+		expect(restoreInstructions).toHaveBeenCalledWith('do a thing', [], [], [])
 		expect(manager.loading).toBe(false)
 	})
 
@@ -2230,7 +2245,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 
 		expect(manager.displayMessages).toHaveLength(0)
 		expect(manager.messages.some((m) => m.role === 'user')).toBe(false)
-		expect(restoreInstructions).toHaveBeenCalledWith('do a thing', [], [])
+		expect(restoreInstructions).toHaveBeenCalledWith('do a thing', [], [], [])
 		expect(manager.loading).toBe(false)
 	})
 
@@ -2332,7 +2347,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 		expect(manager.messages.some((m) => m.role === 'assistant')).toBe(false)
 		expect(manager.displayMessages.some((m) => m.role === 'assistant')).toBe(false)
 		expect(manager.displayMessages.some((m) => m.role === 'user')).toBe(false)
-		expect(restoreInstructions).toHaveBeenCalledWith('think hard', [], [])
+		expect(restoreInstructions).toHaveBeenCalledWith('think hard', [], [], [])
 		expect(manager.loading).toBe(false)
 	})
 

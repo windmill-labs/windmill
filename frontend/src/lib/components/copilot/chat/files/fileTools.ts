@@ -202,6 +202,9 @@ export function buildAttachedFilesRoster(store: AttachedFilesStore): string {
 		}
 	}
 	lines.push(...store.standalone.map(rosterLine))
+	// Files attached to individual messages are readable through the same tools;
+	// list them so the model knows they exist beyond the turn they arrived on.
+	lines.push(...store.messageAttached.map(rosterLine))
 	if (lines.length === 0) return ''
 	return [
 		'## Attached files',

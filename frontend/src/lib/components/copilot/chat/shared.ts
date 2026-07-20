@@ -19,6 +19,7 @@ export const SPECIAL_MODULE_IDS = {
 import { get } from 'svelte/store'
 import type { PasteAttachment } from './pasteTokens'
 import { dataUrlToImagePart, type AttachedImage } from './imageUtils'
+import type { AttachedTextFile } from './textFileUtils'
 import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
 import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
@@ -472,6 +473,9 @@ export type UserDisplayMessage = BaseDisplayMessage & {
 	// Images the user attached to this message (drag/drop/paste), rendered as
 	// thumbnails in the bubble. The LLM message carries them as image_url parts.
 	images?: AttachedImage[]
+	// Text files the user attached to this message, rendered as chips in the
+	// bubble. The LLM message carries their content inlined in the prompt text.
+	files?: AttachedTextFile[]
 }
 
 export type CreatedResourceTriggerKind =

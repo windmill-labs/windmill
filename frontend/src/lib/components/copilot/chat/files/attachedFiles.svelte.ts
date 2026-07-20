@@ -45,6 +45,9 @@ export interface AttachedFile extends FileEntry {
 	 * (locked/unavailable). Consumers should read `store.folders` instead of testing this.
 	 */
 	isFolderRoot?: boolean
+	/** Attached to a chat message: readable via the file tools like any other row,
+	 * but hidden from the session footer bar (its chip lives on the message). */
+	messageScoped?: boolean
 }
 
 /** A linked folder as a first-class object — consumers read this instead of re-grouping rows. */
@@ -114,8 +117,15 @@ export class AttachedFilesStore {
 		}))
 	})
 
-	/** Files linked on their own (not as part of a folder). */
-	standalone: AttachedFile[] = $derived.by(() => this.files.filter((f) => !f.folder))
+	/** Files linked on their own (not as part of a folder or a message). */
+	standalone: AttachedFile[] = $derived.by(() =>
+		this.files.filter((f) => !f.folder && !f.messageScoped)
+	)
+
+	/** Files attached to chat messages — tool-readable, not shown in the footer bar. */
+	messageAttached: AttachedFile[] = $derived.by(() =>
+		this.files.filter((f) => !f.folder && f.messageScoped)
+	)
 
 	/** Number of locked folders needing a re-grant. */
 	get lockedCount(): number {
@@ -152,8 +162,12 @@ export class AttachedFilesStore {
 	 * have their junk paths (node_modules/.git/dotfiles) skipped; a loose single file is
 	 * kept as-is (so an explicitly attached `.env` isn't filtered out).
 	 */
-	async addFiles(input: FileList | FileToAttach[]): Promise<AddFilesResult> {
+	async addFiles(
+		input: FileList | FileToAttach[],
+		opts?: { messageScoped?: boolean }
+	): Promise<AddFilesResult> {
 		const result: AddFilesResult = { added: [], rejected: [] }
+		const messageScoped = opts?.messageScoped ?? false
 
 		for (const item of Array.from(input as ArrayLike<FileToAttach>)) {
 			const file = item instanceof File ? item : item.file
@@ -166,6 +180,22 @@ export class AttachedFilesStore {
 			const folder = desired.includes('/') ? desired.split('/')[0] : undefined
 			if (folder && isIgnoredPath(desired)) continue // skip junk inside folders
 
+			// A message references its files by exact name, so a re-registration with new
+			// content (edited message, new attachment reusing a name) must replace the old
+			// row — renaming via #uniqueName would break the reference in the sent prompt.
+			// Compared by content, not #isDuplicate: registration recreates the File each
+			// send, so name/lastModified heuristics would misread an edit as a re-link.
+			if (messageScoped) {
+				const existing = this.files.find((f) => f.name === desired && f.messageScoped)
+				if (existing) {
+					const sameContent =
+						existing.size === file.size &&
+						(await (existing.file as Blob).text()) === (await file.text())
+					if (sameContent) continue // identical re-registration (retry) — keep as-is
+					this.removeFile(desired)
+				}
+			}
+
 			if (this.#isDuplicate(desired, file)) continue // silent no-op on re-link
 
 			const reason = await this.#preflight(file)
@@ -174,11 +204,11 @@ export class AttachedFilesStore {
 				continue
 			}
 
-			const name = this.#uniqueName(desired)
+			const name = messageScoped ? desired : this.#uniqueName(desired)
 			const relPath = folder ? desired : undefined
 			const sourceId = createLongHash()
 
-			this.#pushIndexing({ name, file, folder, sourceId, relPath })
+			this.#pushIndexing({ name, file, folder, sourceId, relPath, messageScoped })
 			result.added.push(name)
 			void this.#persist({
 				id: sourceId,
@@ -190,7 +220,8 @@ export class AttachedFilesStore {
 				blob: file,
 				size: file.size,
 				lastModified: file.lastModified,
-				addedAt: Date.now()
+				addedAt: Date.now(),
+				messageScoped: messageScoped || undefined
 			})
 		}
 
@@ -269,7 +300,8 @@ export class AttachedFilesStore {
 						file: item.blob,
 						folder: item.folder,
 						relPath: item.relPath,
-						sourceId: item.id
+						sourceId: item.id,
+						messageScoped: item.messageScoped
 					})
 				} else {
 					// dir-handle (folder)
@@ -407,6 +439,7 @@ export class AttachedFilesStore {
 		sourceId: string
 		handle?: FileSystemDirectoryHandle
 		relPath?: string
+		messageScoped?: boolean
 	}): void {
 		this.files = [
 			...this.files,
@@ -420,7 +453,8 @@ export class AttachedFilesStore {
 				folder: p.folder,
 				sourceId: p.sourceId,
 				handle: p.handle,
-				relPath: p.relPath
+				relPath: p.relPath,
+				messageScoped: p.messageScoped
 			}
 		]
 		void this.#indexFile(p.name, p.file)

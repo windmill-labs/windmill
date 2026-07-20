@@ -2,7 +2,6 @@
 	import AppAvailableContextList from './AppAvailableContextList.svelte'
 	import ContextElementBadge from './ContextElementBadge.svelte'
 	import ContextTextarea from './ContextTextarea.svelte'
-	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
 	import autosize from '$lib/autosize'
 	import type { AppDomSelectorElement, ContextElement } from './context'
 	import { AIMode } from './AIChatManager.svelte'
@@ -12,7 +11,7 @@
 	import { tick, untrack, type Snippet } from 'svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
-	import { ArrowUp, Loader2, Square, X } from 'lucide-svelte'
+	import { ArrowUp, FileText, Loader2, Square, X } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import { type PasteAttachment } from './pasteTokens'
@@ -26,6 +25,12 @@
 	} from './imageUtils'
 	import { modelSupportsVision } from '../modelConfig'
 	import { tryGetCurrentModel } from '$lib/aiStore'
+	import {
+		fileToAttachedTextFile,
+		MAX_ATTACHED_FILES,
+		MAX_TEXT_FILE_BYTES,
+		type AttachedTextFile
+	} from './textFileUtils'
 	import ExpandableImage, {
 		isImageViewerOpen
 	} from '$lib/components/common/image/ExpandableImage.svelte'
@@ -41,6 +46,7 @@
 		initialInstructions?: string
 		initialPastes?: PasteAttachment[]
 		initialImages?: AttachedImage[]
+		initialFiles?: AttachedTextFile[]
 		editingMessageIndex?: number | null
 		onEditEnd?: () => void
 		className?: string
@@ -71,6 +77,7 @@
 		initialInstructions = '',
 		initialPastes = undefined,
 		initialImages = undefined,
+		initialFiles = undefined,
 		editingMessageIndex = null,
 		onEditEnd = () => {},
 		className = '',
@@ -216,6 +223,63 @@
 		images = images.filter((_, i) => i !== index)
 	}
 
+	// Per-message text-file attachments, GLOBAL mode only. One-shot like images:
+	// they attach to the next send and clear. Linked folders stay in the
+	// session-scoped attached-files store instead.
+	let files = $state<AttachedTextFile[]>(untrack(() => initialFiles ?? []))
+	// Files being read right now — same send-hold/slot-reservation role as pendingImages.
+	let pendingFiles = $state(0)
+
+	/** Attach dropped/picked text files (sniffed + bounded). GLOBAL mode only. */
+	export async function addTextFiles(candidates: File[]) {
+		if (aiChatManager.mode !== AIMode.GLOBAL) return
+		if (candidates.length === 0) return
+		const remaining = MAX_ATTACHED_FILES - files.length - pendingFiles
+		if (remaining <= 0) {
+			sendUserToast(`You can attach up to ${MAX_ATTACHED_FILES} files.`, true)
+			return
+		}
+		const oversized = candidates.filter((f) => f.size > MAX_TEXT_FILE_BYTES)
+		if (oversized.length > 0) {
+			const mb = Math.round(MAX_TEXT_FILE_BYTES / 1_000_000)
+			sendUserToast(
+				`${oversized.length} file(s) over ${mb}MB were skipped — link their folder to read them on demand.`,
+				true
+			)
+		}
+		const usable = candidates.filter((f) => f.size <= MAX_TEXT_FILE_BYTES)
+		if (usable.length === 0) return
+		const batch = usable.slice(0, remaining)
+		if (batch.length < usable.length) {
+			sendUserToast(
+				`You can attach up to ${MAX_ATTACHED_FILES} files; ${usable.length - batch.length} were skipped.`,
+				true
+			)
+		}
+		pendingFiles += batch.length
+		try {
+			const added: AttachedTextFile[] = []
+			let skipped = 0
+			for (const file of batch) {
+				try {
+					const attached = await fileToAttachedTextFile(file)
+					if (attached) added.push(attached)
+					else skipped++
+				} catch {
+					skipped++
+				}
+			}
+			if (added.length > 0) files = [...files, ...added]
+			if (skipped > 0) sendUserToast(`Skipped ${skipped} file(s) (non-text).`, true)
+		} finally {
+			pendingFiles -= batch.length
+		}
+	}
+
+	function removeFile(index: number) {
+		files = files.filter((_, i) => i !== index)
+	}
+
 	// App mode @ mention state
 	let showAppContextTooltip = $state(false)
 	let appContextTooltipWord = $state('')
@@ -304,12 +368,22 @@
 	export function restoreInstructions(
 		value: string,
 		restoredPastes: PasteAttachment[] = [],
-		restoredImages: AttachedImage[] = []
+		restoredImages: AttachedImage[] = [],
+		restoredFiles: AttachedTextFile[] = []
 	): boolean {
-		if (instructions.trim() || images.length > 0 || pendingImages > 0) return false
+		if (
+			instructions.trim() ||
+			images.length > 0 ||
+			pendingImages > 0 ||
+			files.length > 0 ||
+			pendingFiles > 0
+		) {
+			return false
+		}
 		instructions = value
 		pastes = restoredPastes
 		images = restoredImages
+		files = restoredFiles
 		focusInput()
 		return true
 	}
@@ -319,12 +393,16 @@
 	 * the user typed is lost. Restored images join whatever is already
 	 * attached, up to the cap — dropping them would lose the attachment
 	 * silently, which is the whole reason the queue carries them. */
-	export function prependText(text: string, restoredImages: AttachedImage[] = []): boolean {
+	export function prependText(
+		text: string,
+		restoredImages: AttachedImage[] = [],
+		restoredFiles: AttachedTextFile[] = []
+	): boolean {
 		// Whether the restored text landed on top of a draft the user was already
 		// writing: both instructions now share one composer, so the caller must keep
 		// both their contexts rather than replacing one with the other.
 		const mergedIntoDraft = !!text && !!instructions.trim()
-		// An image-only restore has empty text; prepending it would only add blank lines.
+		// An attachment-only restore has empty text; prepending it would only add blank lines.
 		if (text) {
 			instructions = instructions.trim() ? `${text}\n\n${instructions}` : text
 		}
@@ -337,6 +415,16 @@
 				)
 			}
 			images = merged.slice(0, MAX_ATTACHED_IMAGES)
+		}
+		if (restoredFiles.length > 0) {
+			const merged = [...files, ...restoredFiles]
+			if (merged.length > MAX_ATTACHED_FILES) {
+				sendUserToast(
+					`You can attach up to ${MAX_ATTACHED_FILES} files; ${merged.length - MAX_ATTACHED_FILES} restored file(s) were dropped.`,
+					true
+				)
+			}
+			files = merged.slice(0, MAX_ATTACHED_FILES)
 		}
 		focusInput()
 		return mergedIntoDraft
@@ -437,8 +525,8 @@
 
 	function sendRequest() {
 		// The send button is disabled while decoding, but Enter reaches here directly.
-		// Sending now would drop the in-flight images onto the following message.
-		if (pendingImages > 0) {
+		// Sending now would drop the in-flight attachments onto the following message.
+		if (pendingImages > 0 || pendingFiles > 0) {
 			return
 		}
 		if (aiChatManager.loading) {
@@ -447,12 +535,21 @@
 			// Editing-while-loading keeps the old discard behavior. Paste
 			// tokens are expanded into the queued text (the queue is plain
 			// strings), so the full content survives the auto-send.
-			if (editingMessageIndex === null && (instructions.trim() || images.length > 0)) {
-				aiChatManager.queueMessage(expanded(chatDraft(instructions, pastes)), images)
+			if (
+				editingMessageIndex === null &&
+				(instructions.trim() || images.length > 0 || files.length > 0)
+			) {
+				aiChatManager.queueMessage(
+					expanded(chatDraft(instructions, pastes)),
+					images,
+					undefined,
+					files
+				)
 				contextTextareaComponent?.clearForSend()
 				instructions = ''
 				pastes = []
 				images = []
+				files = []
 			}
 			return
 		}
@@ -465,11 +562,12 @@
 				instructions,
 				pastes,
 				images,
-				selectedContext
+				selectedContext,
+				files
 			)
 			onEditEnd()
 		} else {
-			aiChatManager.sendRequest({ instructions, pastes, images })
+			aiChatManager.sendRequest({ instructions, pastes, images, files })
 			// clearForSend() pre-zaps the textarea's mention-sync so the wipe
 			// doesn't drop `selectedContext` before `AIChatManager.beforeSend`
 			// snapshots it. Only mounted in SCRIPT/FLOW/GLOBAL — APP and the
@@ -479,6 +577,7 @@
 			instructions = ''
 			pastes = []
 			images = []
+			files = []
 		}
 	}
 
@@ -695,7 +794,10 @@
 {#snippet sendStopButton()}
 	{@const isLoading = loading ?? aiChatManager.loading}
 	{@const sendDisabled =
-		disabled || (instructions.trim().length === 0 && images.length === 0) || pendingImages > 0}
+		disabled ||
+		(instructions.trim().length === 0 && images.length === 0 && files.length === 0) ||
+		pendingImages > 0 ||
+		pendingFiles > 0}
 	<Button
 		variant="subtle"
 		unifiedSize="md"
@@ -748,9 +850,9 @@
 	{/if}
 {/snippet}
 
-{#snippet imageChipsRow()}
-	{#if images.length > 0 || pendingImages > 0}
-		<div class="flex flex-row flex-wrap items-center gap-1.5 mb-1">
+{#snippet attachmentChipsRow()}
+	{#if images.length > 0 || pendingImages > 0 || files.length > 0 || pendingFiles > 0}
+		<div class="flex flex-row flex-wrap items-center gap-1.5 px-2.5 pt-2">
 			{#each images as image, i (i)}
 				<div class="relative group">
 					<!-- The chip is a 48px object-cover crop, so the expanded view is the only
@@ -780,6 +882,31 @@
 					<Loader2 size={14} class="animate-spin text-tertiary" />
 				</div>
 			{/each}
+			{#each files as file, i (i)}
+				<div
+					class="relative group flex flex-row items-center gap-1 h-8 max-w-44 px-2 rounded border border-border-light bg-surface-secondary"
+					title={file.name}
+				>
+					<FileText size={12} class="shrink-0 text-tertiary" />
+					<span class="text-xs text-primary truncate">{file.name}</span>
+					<button
+						type="button"
+						title="Remove file"
+						class="absolute -top-1.5 -right-1.5 bg-surface-secondary border border-border-light rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+						onclick={() => removeFile(i)}
+					>
+						<X size={10} />
+					</button>
+				</div>
+			{/each}
+			{#each { length: pendingFiles } as _, i (i)}
+				<div
+					class="h-8 w-24 rounded border border-border-light bg-surface-secondary flex items-center justify-center"
+					title="Reading file..."
+				>
+					<Loader2 size={14} class="animate-spin text-tertiary" />
+				</div>
+			{/each}
 		</div>
 	{/if}
 {/snippet}
@@ -802,7 +929,10 @@
 				bind:value={instructions}
 				bind:pastes
 				onImageFiles={aiChatManager.mode === AIMode.GLOBAL
-					? (files) => void addImages(files)
+					? (pasted) => void addImages(pasted)
+					: undefined}
+				onTextFiles={aiChatManager.mode === AIMode.GLOBAL
+					? (pasted) => void addTextFiles(pasted)
 					: undefined}
 				{availableContext}
 				{selectedContext}
@@ -821,17 +951,12 @@
 				{onKeyDown}
 			>
 				{#snippet leading()}
-					{#if aiChatManager.mode === AIMode.GLOBAL}
-						<div class="px-2.5 empty:hidden">
-							<AttachedFilesBar />
-						</div>
-					{/if}
 					{#if showContext}
 						{@render contextPickerRow()}
 					{:else}
 						{@render domSelectorChipRow()}
 					{/if}
-					{@render imageChipsRow()}
+					{@render attachmentChipsRow()}
 				{/snippet}
 			</ContextTextarea>
 			{#if !bottomRightSnippet}
