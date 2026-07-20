@@ -93,8 +93,17 @@
 	// Draft count drives the "Deployed ↔ draft" toggle badge. Reads the shared
 	// Workspace Drafts resource — count ≡ the draft list, and it refreshes itself
 	// when a deploy/discard invalidates the workspace.
-	const drafts = useWorkspaceDrafts(() => currentWorkspaceId)
-	const draftCount = $derived(drafts.count)
+	const drafts = useWorkspaceDrafts(
+		() => currentWorkspaceId,
+		() => false,
+		() => (isFork ? (parentWorkspaceId ?? undefined) : undefined)
+	)
+	// On a fork, match the badge to the default deploy-draft view, which hides
+	// drafts unchanged from the parent (else a fresh fork shows a count over an
+	// empty list).
+	const draftCount = $derived(
+		isFork ? drafts.items.filter((d) => d.unchanged_from_parent !== true).length : drafts.count
+	)
 
 	// Keys (`kind:path`) of fork items that are deployed *and* carry a pending
 	// draft (has_draft, i.e. not draft_only). CompareWorkspaces uses this to flag

@@ -50,13 +50,22 @@ export interface DraftItem {
 	/** Server timestamp of the draft row, bumped on every draft update — a
 	 * reliable per-row change marker for caches keyed on draft content. */
 	created_at: string
+	/** Only set when listed with a `compareToWorkspace` (a fork comparing against
+	 * its parent): true when this draft is identical to the parent's — cloned in
+	 * on fork and never edited here. Undefined when no comparison was requested. */
+	unchanged_from_parent?: boolean
 }
 
 export async function getDraftItems(
 	workspace: string,
-	allUsers: boolean = false
+	allUsers: boolean = false,
+	compareToWorkspace?: string
 ): Promise<DraftItem[]> {
-	const rows = await DraftService.listDrafts({ workspace, allUsers: allUsers || undefined })
+	const rows = await DraftService.listDrafts({
+		workspace,
+		allUsers: allUsers || undefined,
+		compareToWorkspace
+	})
 	return rows.map((r) => ({
 		kind: r.kind,
 		path: r.path,
@@ -68,7 +77,8 @@ export async function getDraftItems(
 		can_write: r.can_write ?? true,
 		draft_users: r.draft_users,
 		mine: r.mine ?? true,
-		created_at: r.created_at
+		created_at: r.created_at,
+		unchanged_from_parent: r.unchanged_from_parent
 	}))
 }
 
@@ -103,14 +113,15 @@ export interface WorkspaceDraftsHandle {
  */
 export function useWorkspaceDrafts(
 	workspace: () => string | undefined,
-	allUsers: () => boolean = () => false
+	allUsers: () => boolean = () => false,
+	compareToWorkspace: () => string | undefined = () => undefined
 ): WorkspaceDraftsHandle {
 	const res = resource(
 		() => {
 			const ws = workspace()
-			return { ws, all: allUsers(), v: ws ? (versions[ws] ?? 0) : 0 }
+			return { ws, all: allUsers(), compare: compareToWorkspace(), v: ws ? (versions[ws] ?? 0) : 0 }
 		},
-		async ({ ws, all }) => (ws ? getDraftItems(ws, all) : [])
+		async ({ ws, all, compare }) => (ws ? getDraftItems(ws, all, compare) : [])
 	)
 	return {
 		get items() {

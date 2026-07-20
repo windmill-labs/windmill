@@ -3,6 +3,7 @@ import type { SupportedLanguage } from '$lib/common'
 export type FlowBuilderWhitelabelCustomUi = {
 	topBar?: {
 		path?: boolean
+		editablePath?: boolean
 		export?: boolean
 		history?: boolean
 		aiBuilder?: boolean
