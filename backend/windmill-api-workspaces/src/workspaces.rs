@@ -200,6 +200,7 @@ pub fn workspaced_service() -> Router {
             post(update_protection_rule).delete(delete_protection_rule),
         )
         .route("/log_chat", post(log_ai_chat))
+        .route("/log_feature_usage", post(log_feature_usage))
         .route("/cloud_quotas", get(get_cloud_quotas))
         .route("/prune_versions", post(prune_versions))
         .route("/list_ws_specific", get(list_ws_specific))
@@ -9578,6 +9579,80 @@ async fn log_ai_chat(
         &payload.provider,
         &payload.model,
         &payload.mode
+    )
+    .execute(&db)
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+const MAX_FEATURE_USAGE_EVENTS: usize = 50;
+
+#[derive(Deserialize)]
+struct FeatureUsageEvent {
+    feature: String,
+    kind: String,
+    #[serde(default)]
+    key: String,
+    #[serde(default)]
+    entity_id: String,
+    value: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct LogFeatureUsagePayload {
+    events: Vec<FeatureUsageEvent>,
+}
+
+fn truncate_chars(s: String, max: usize) -> String {
+    if s.chars().count() <= max {
+        s
+    } else {
+        s.chars().take(max).collect()
+    }
+}
+
+async fn log_feature_usage(
+    Extension(db): Extension<DB>,
+    Json(payload): Json<LogFeatureUsagePayload>,
+) -> Result<StatusCode> {
+    // Pre-sum duplicate keys: two rows hitting the same conflict target in a
+    // single INSERT error out ("cannot affect row a second time").
+    let mut agg: HashMap<(String, String, String, String), i64> = HashMap::new();
+    for e in payload.events.into_iter().take(MAX_FEATURE_USAGE_EVENTS) {
+        let value = e.value.unwrap_or(1).clamp(1, 1_000_000);
+        let key = (
+            truncate_chars(e.feature, 50),
+            truncate_chars(e.kind, 50),
+            truncate_chars(e.key, 100),
+            truncate_chars(e.entity_id, 50),
+        );
+        *agg.entry(key).or_insert(0) += value;
+    }
+    if agg.is_empty() {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+    let mut features = Vec::with_capacity(agg.len());
+    let mut kinds = Vec::with_capacity(agg.len());
+    let mut keys = Vec::with_capacity(agg.len());
+    let mut entity_ids = Vec::with_capacity(agg.len());
+    let mut values = Vec::with_capacity(agg.len());
+    for ((feature, kind, key, entity_id), value) in agg {
+        features.push(feature);
+        kinds.push(kind);
+        keys.push(key);
+        entity_ids.push(entity_id);
+        values.push(value);
+    }
+    sqlx::query!(
+        "INSERT INTO feature_usage (feature, kind, key, entity_id, value)
+         SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::text[], $5::bigint[])
+         ON CONFLICT (feature, kind, key, entity_id, day)
+         DO UPDATE SET value = feature_usage.value + EXCLUDED.value, updated_at = now()",
+        &features,
+        &kinds,
+        &keys,
+        &entity_ids,
+        &values
     )
     .execute(&db)
     .await?;

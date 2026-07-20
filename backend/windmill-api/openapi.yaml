@@ -6537,6 +6537,45 @@ paths:
         "204":
           description: logged
 
+  /w/{workspace}/workspaces/log_feature_usage:
+    post:
+      summary: log anonymous feature usage telemetry events
+      operationId: logFeatureUsage
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - events
+              properties:
+                events:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - feature
+                      - kind
+                    properties:
+                      feature:
+                        type: string
+                      kind:
+                        type: string
+                      key:
+                        type: string
+                      entity_id:
+                        type: string
+                      value:
+                        type: integer
+      responses:
+        "204":
+          description: logged
+
   /w/{workspace}/workspaces/cloud_quotas:
     get:
       summary: get cloud quota usage and limits for workspace
