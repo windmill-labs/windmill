@@ -1080,17 +1080,11 @@ fn normalize_git_remote(raw: &str) -> Option<String> {
     Some(format!("{host}/{path}"))
 }
 
-/// Whether pushing `pushed_branch` matches a repo tracking `tracked_branch`. A
-/// non-fork workspace matches when the pushed branch equals the tracked branch;
-/// a fork's `wm-fork/<base>/<id>` branch matches when its base equals the tracked
-/// branch (the `sync_forks`, inheritance and workspace-routing checks are done by
-/// the caller). A blank tracked branch (repo default) is unresolvable without a
-/// network call, so it never matches and the caller falls back to `wmill sync push`.
 /// Whether an enabled auto-pull repo actually has a delivery path that fires, so
-/// a push really deploys — mirroring the poller/webhook. Polling needs a non-app
-/// HTTPS URL (`git ls-remote`; SSH is rejected in the background); webhook-only
-/// mode needs an active hook; `auto` needs either. With neither, `enabled` alone
-/// never deploys (e.g. a webhook that failed to register).
+/// a push really deploys — mirroring the poller/webhook. Polling needs an HTTP(S)
+/// URL (SSH is rejected in the background); webhook-only mode needs an active
+/// hook; `auto` needs either. With neither, `enabled` alone never deploys (e.g. a
+/// webhook that failed to register).
 fn has_runnable_delivery(
     auto_pull: &windmill_common::workspaces::AutoPullSettings,
     resource: &serde_json::Value,
@@ -1108,6 +1102,9 @@ fn has_runnable_delivery(
             u.starts_with("https://") || u.starts_with("http://")
         })
         .unwrap_or(false);
+    // App repos also have a GitHub-API poll fallback, but require an active
+    // webhook here — conservative (errs toward `wmill sync push`) rather than
+    // asserting the app installation can mint a token.
     let can_poll = !is_app && is_http_url;
     match auto_pull.mode {
         windmill_common::workspaces::AutoPullMode::Webhook => webhook_active,
@@ -1116,6 +1113,12 @@ fn has_runnable_delivery(
     }
 }
 
+/// Whether pushing `pushed_branch` matches a repo tracking `tracked_branch`. A
+/// non-fork workspace matches when the pushed branch equals the tracked branch;
+/// a fork's `wm-fork/<base>/<id>` branch matches when its base equals the tracked
+/// branch (the `sync_forks`, inheritance and workspace-routing checks are done by
+/// the caller). A blank tracked branch (repo default) is unresolvable without a
+/// network call, so it never matches and the caller falls back to `wmill sync push`.
 fn deploys_on_push_branch(is_fork: bool, pushed_branch: &str, tracked_branch: &str) -> bool {
     if tracked_branch.is_empty() {
         return false;
@@ -1375,7 +1378,8 @@ mod git_sync_deploy_mode_tests {
             &auto_pull(AutoPullMode::Webhook, Some(1)),
             &https
         ));
-        // App repos can't be polled; they deliver via the managed webhook.
+        // App repos are gated on an active webhook here (conservative): their
+        // API poll-fallback may still deploy, so this is a safe under-report.
         assert!(!has_runnable_delivery(
             &auto_pull(AutoPullMode::Auto, None),
             &app

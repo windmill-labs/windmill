@@ -34,13 +34,14 @@ export async function gitSyncStatus(
     branch: branch ?? undefined,
   });
 
-  // Recommend the exact remote+branch that was checked, so the pushed target
-  // can't diverge from the matched one (e.g. via remote.pushDefault). Shell-quote
-  // both — this string is copy-pasted / executed by agents, and branch/remote
-  // names may legally contain shell metacharacters.
+  // Only recommend a command when the backend definitively deploys on push:
+  // git push the exact remote+branch checked (shell-quoted — this string is
+  // agent-executed and names may contain metacharacters). When auto-pull doesn't
+  // match, a CI workflow may still deploy on push, so don't assume `wmill sync
+  // push`; defer to the Deploying guidance instead.
   const deployCommand = mode.deploy_on_push
     ? `git push ${shellQuote(remoteName)} ${shellQuote(branch ?? "")}`
-    : "wmill sync push";
+    : null;
 
   if (opts.jsonOutput) {
     // console.log (not log.info, which wraps in ANSI color) so the output pipes cleanly to jq.
@@ -60,18 +61,17 @@ export async function gitSyncStatus(
         `Git-sync auto-pull tracks this branch and remote: pushing '${branch}' to ${remoteName} deploys to the workspace.`,
       ),
     );
-  } else if (!mode.configured) {
-    log.info(
-      colors.yellow(
-        "No git-sync repository is configured for this workspace on the backend.",
-      ),
-    );
+    log.info(`Recommended deploy command: ${colors.bold(deployCommand!)}`);
   } else {
     log.info(
       colors.yellow(
-        "Pushing the current checkout does not deploy (no auto-pull match): deploy with `wmill sync push`.",
+        mode.configured
+          ? "Backend auto-pull does not deploy this checkout (branch, remote, or delivery path not matched)."
+          : "No git-sync repository is configured for this workspace on the backend.",
       ),
     );
+    log.info(
+      "A `git push` won't be deployed by the backend here. If a CI workflow deploys on push, use `git push`; otherwise use `wmill sync push`. Record the choice as a `Deploy mode:` line in AGENTS.md so later sessions skip the check (see the Deploying section).",
+    );
   }
-  log.info(`Recommended deploy command: ${colors.bold(deployCommand)}`);
 }
