@@ -246,10 +246,11 @@ async fn get_args_from_history_or_saved_input(
     let result_o = if let Some(input) = g.input {
         if input {
             sqlx::query_scalar!(
-                "SELECT CASE WHEN pg_column_size(args) < 40000 OR $3 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args FROM input WHERE id = $1 AND workspace_id = $2",
+                "SELECT CASE WHEN pg_column_size(args) < 40000 OR $3 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args FROM input WHERE id = $1 AND workspace_id = $2 AND (is_public IS true OR created_by = $4)",
                 job_or_input_id,
                 w_id,
-                g.allow_large.unwrap_or(true)
+                g.allow_large.unwrap_or(true),
+                authed.username
             )
             .fetch_optional(&mut *tx)
             .await?
@@ -267,10 +268,11 @@ async fn get_args_from_history_or_saved_input(
         sqlx::query_scalar!(
             "SELECT CASE WHEN pg_column_size(args) < 40000 OR $3 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args FROM v2_job WHERE id = $1 AND workspace_id = $2
             UNION ALL
-            SELECT CASE WHEN pg_column_size(args) < 40000 OR $3 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args FROM input WHERE id = $1 AND workspace_id = $2",
+            SELECT CASE WHEN pg_column_size(args) < 40000 OR $3 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args FROM input WHERE id = $1 AND workspace_id = $2 AND (is_public IS true OR created_by = $4)",
             job_or_input_id,
             w_id,
-            g.allow_large.unwrap_or(true)
+            g.allow_large.unwrap_or(true),
+            authed.username
         )
         .fetch_optional(&mut *tx)
         .await?
