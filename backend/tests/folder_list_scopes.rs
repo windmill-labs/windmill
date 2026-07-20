@@ -3,7 +3,8 @@
 //! `folders/list` and `folders/listnames` must narrow their results to the
 //! paths a scoped token may read, and must do so *before* pagination — an
 //! out-of-scope folder sorting ahead of an in-scope one must not consume the
-//! caller's page.
+//! caller's page. Unrestricted tokens take the SQL-paginated path and must keep
+//! their existing page boundaries.
 
 use serde_json::json;
 use sqlx::{Pool, Postgres};
@@ -101,13 +102,26 @@ async fn test_folder_list_scope_filtering(db: Pool<Postgres>) -> anyhow::Result<
         vec!["zeta"]
     );
 
+    // A token whose scopes cover every folder is still scope-restricted, so it
+    // takes the filtered path — it must see the same listing as an unscoped one.
+    let broad = mint_scoped_token(port, vec!["folders:read:*"]).await?;
+    assert_eq!(list_names(port, &broad, "").await?, vec!["alpha", "zeta"]);
+
     // An unscoped token keeps the full listing and the usual page boundaries.
     assert_eq!(
         list_names(port, "SECRET_TOKEN", "").await?,
         vec!["alpha", "zeta"]
     );
     assert_eq!(
+        list_names(port, "SECRET_TOKEN", "per_page=1&page=1").await?,
+        vec!["alpha"]
+    );
+    assert_eq!(
         list_names(port, "SECRET_TOKEN", "per_page=1&page=2").await?,
+        vec!["zeta"]
+    );
+    assert_eq!(
+        list_folder_names(port, "SECRET_TOKEN", "per_page=1&page=2").await?,
         vec!["zeta"]
     );
 

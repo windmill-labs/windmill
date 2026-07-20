@@ -15,7 +15,9 @@ use axum::{
 };
 use lazy_static::lazy_static;
 use regex::Regex;
-use windmill_api_auth::{build_scope_path_predicate, check_scopes, ApiAuthed, AuthCache, Tokened};
+use windmill_api_auth::{
+    build_scope_path_predicate, check_scopes, is_scope_restricted, ApiAuthed, AuthCache, Tokened,
+};
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::DB;
@@ -109,22 +111,36 @@ async fn list_folders(
     let (per_page, offset) = paginate(pagination);
     let mut tx = user_db.begin(&authed).await?;
 
-    // Token scope narrowing has to happen before pagination, otherwise a scoped
-    // token gets short or empty pages whenever out-of-scope folders sort ahead of
-    // its own, and clients that stop at the first short page never see them.
-    let allowed = build_scope_path_predicate(&authed, "folders", "read");
-    let rows = sqlx::query_as!(
-        Folder,
-        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as, labels FROM folder WHERE workspace_id = $1 ORDER BY name asc",
-        w_id,
-    )
-    .fetch_all(&mut *tx)
-    .await?
-    .into_iter()
-    .filter(|r| allowed(&format!("f/{}", r.name)))
-    .skip(offset)
-    .take(per_page)
-    .collect::<Vec<_>>();
+    // Scope narrowing has to precede pagination, otherwise a scoped token gets
+    // short or empty pages whenever out-of-scope folders sort ahead of its own and
+    // clients that stop at the first short page never reach them. That costs an
+    // unbounded fetch, so only scoped tokens pay it — everyone else keeps SQL
+    // pagination.
+    let rows = if is_scope_restricted(&authed) {
+        let allowed = build_scope_path_predicate(&authed, "folders", "read");
+        sqlx::query_as!(
+            Folder,
+            "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as, labels FROM folder WHERE workspace_id = $1 ORDER BY name asc",
+            w_id,
+        )
+        .fetch_all(&mut *tx)
+        .await?
+        .into_iter()
+        .filter(|r| allowed(&format!("f/{}", r.name)))
+        .skip(offset)
+        .take(per_page)
+        .collect::<Vec<_>>()
+    } else {
+        sqlx::query_as!(
+            Folder,
+            "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as, labels FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
+            w_id,
+            per_page as i64,
+            offset as i64
+        )
+        .fetch_all(&mut *tx)
+        .await?
+    };
     tx.commit().await?;
 
     Ok(Json(rows))
@@ -138,19 +154,30 @@ async fn list_foldernames(
     let (per_page, offset) = paginate(pagination);
     let mut tx = user_db.begin(&authed).await?;
 
-    // Scope filtering precedes pagination for the same reason as in `list_folders`.
-    let allowed = build_scope_path_predicate(&authed, "folders", "read");
-    let rows = sqlx::query_scalar!(
-        "SELECT name FROM folder WHERE workspace_id = $1 ORDER BY name asc",
-        w_id,
-    )
-    .fetch_all(&mut *tx)
-    .await?
-    .into_iter()
-    .filter(|name| allowed(&format!("f/{}", name)))
-    .skip(offset)
-    .take(per_page)
-    .collect::<Vec<_>>();
+    // Same filter-then-paginate split as `list_folders`.
+    let rows = if is_scope_restricted(&authed) {
+        let allowed = build_scope_path_predicate(&authed, "folders", "read");
+        sqlx::query_scalar!(
+            "SELECT name FROM folder WHERE workspace_id = $1 ORDER BY name asc",
+            w_id,
+        )
+        .fetch_all(&mut *tx)
+        .await?
+        .into_iter()
+        .filter(|name| allowed(&format!("f/{}", name)))
+        .skip(offset)
+        .take(per_page)
+        .collect::<Vec<_>>()
+    } else {
+        sqlx::query_scalar!(
+            "SELECT name FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
+            w_id,
+            per_page as i64,
+            offset as i64
+        )
+        .fetch_all(&mut *tx)
+        .await?
+    };
 
     tx.commit().await?;
 
