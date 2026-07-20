@@ -20,6 +20,7 @@ mod tests {
     /// `key|limit|window` as the limiter stamps it: one job per 5s, so the gate
     /// admits 17280/day.
     const SLOW_GATE: &str = "test-workspace/u/user/sync|1|5";
+    const STALE_GATE: &str = "test-workspace/u/user/stale|1|5";
 
     async fn free_the_lock(db: &Pool<Postgres>) {
         sqlx::query!(
@@ -31,22 +32,40 @@ mod tests {
         .expect("seed stale lock");
     }
 
-    /// Queue `n` jobs parked under `gate`, created `created_hours_ago` ago.
-    async fn queue_gated(db: &Pool<Postgres>, n: usize, gate: &str, created_hours_ago: i64) {
-        for _ in 0..n {
-            sqlx::query!(
-                "INSERT INTO v2_job_queue (id, workspace_id, tag, running, scheduled_for,
-                                           created_at, concurrency_gated_at, concurrency_gate_id)
-                 VALUES ($1, 'test-workspace', 'python3', false, NOW(),
-                         NOW() - INTERVAL '1 hour' * $2::bigint, NOW(), $3)",
-                Uuid::new_v4(),
-                created_hours_ago,
-                gate,
-            )
-            .execute(db)
-            .await
-            .expect("queue gated job");
-        }
+    /// Queue `n` jobs parked under `gate`, created `created_hours_ago` ago, with
+    /// the gate mark written `mark_mins_ago` ago. Inserted as one set-returning
+    /// statement: these fixtures run to tens of thousands of rows.
+    async fn queue_gated_full(
+        db: &Pool<Postgres>,
+        n: i64,
+        gate: &str,
+        created_hours_ago: i64,
+        mark_mins_ago: i64,
+        canceled: bool,
+    ) {
+        sqlx::query!(
+            "INSERT INTO v2_job_queue (id, workspace_id, tag, running, scheduled_for,
+                                       created_at, concurrency_gated_at, concurrency_gate_id,
+                                       canceled_by)
+             SELECT gen_random_uuid(), 'test-workspace', 'python3', false, NOW(),
+                    NOW() - INTERVAL '1 hour' * $2::bigint,
+                    NOW() - INTERVAL '1 minute' * $3::bigint,
+                    $4,
+                    CASE WHEN $5 THEN 'canceller' ELSE NULL END
+             FROM generate_series(1, $1::bigint)",
+            n,
+            created_hours_ago,
+            mark_mins_ago,
+            gate,
+            canceled,
+        )
+        .execute(db)
+        .await
+        .expect("queue gated jobs");
+    }
+
+    async fn queue_gated(db: &Pool<Postgres>, n: i64, gate: &str, created_hours_ago: i64) {
+        queue_gated_full(db, n, gate, created_hours_ago, 1, false).await
     }
 
     async fn alert_messages(db: &Pool<Postgres>) -> Vec<String> {
@@ -97,5 +116,70 @@ mod tests {
             alert_messages(&db).await.is_empty(),
             "a backlog that has stopped growing is draining and must not alert"
         );
+    }
+
+    /// Arrivals must outrun the gate, not merely exist. A backlog draining at the
+    /// ceiling still leaves recent survivors queued, and treating any of them as
+    /// growth reports a shrinking queue as unbounded.
+    #[ignore = "requires database setup - run with --ignored flag"]
+    #[sqlx::test(migrations = "../migrations")]
+    async fn shrinking_backlog_does_not_alert(db: Pool<Postgres>) {
+        free_the_lock(&db).await;
+        queue_gated(&db, 40_000, SLOW_GATE, 48).await;
+        // One arrival a day against a 17280/day ceiling: the queue is draining.
+        queue_gated(&db, 1, SLOW_GATE, 0).await;
+
+        concurrency_gate_alerts(&db).await;
+
+        assert!(
+            alert_messages(&db).await.is_empty(),
+            "a backlog shrinking at the gate ceiling must not alert"
+        );
+    }
+
+    /// Cancelled jobs bypass the limiter and stale marks outlive the gate that
+    /// wrote them, so neither is held by the gate they still name.
+    #[ignore = "requires database setup - run with --ignored flag"]
+    #[sqlx::test(migrations = "../migrations")]
+    async fn cancelled_and_stale_marks_are_not_counted(db: Pool<Postgres>) {
+        free_the_lock(&db).await;
+        queue_gated_full(&db, 40_000, SLOW_GATE, 0, 1, true).await;
+        queue_gated_full(&db, 40_000, STALE_GATE, 0, 600, false).await;
+
+        concurrency_gate_alerts(&db).await;
+
+        assert!(
+            alert_messages(&db).await.is_empty(),
+            "cancelled jobs and marks from a gate that stopped refreshing must not alert"
+        );
+    }
+
+    /// A gate that drains completely vanishes from the aggregation, so recovery
+    /// has to be swept rather than keyed off the gates still present -- otherwise
+    /// its alert stays open forever.
+    #[ignore = "requires database setup - run with --ignored flag"]
+    #[sqlx::test(migrations = "../migrations")]
+    async fn a_drained_gate_recovers(db: Pool<Postgres>) {
+        free_the_lock(&db).await;
+        queue_gated(&db, 40_000, SLOW_GATE, 0).await;
+        concurrency_gate_alerts(&db).await;
+        assert_eq!(alert_messages(&db).await.len(), 1, "expected the initial alert");
+
+        sqlx::query!("DELETE FROM v2_job_queue")
+            .execute(&db)
+            .await
+            .expect("drain the gate");
+        free_the_lock(&db).await;
+        concurrency_gate_alerts(&db).await;
+
+        let unresolved: i64 = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM healthchecks
+             WHERE check_type LIKE 'concurrency_gate_alert_%' AND healthy = false"
+        )
+        .fetch_one(&db)
+        .await
+        .expect("read healthchecks")
+        .unwrap_or(0);
+        assert_eq!(unresolved, 0, "a fully drained gate must have its alert recovered");
     }
 }

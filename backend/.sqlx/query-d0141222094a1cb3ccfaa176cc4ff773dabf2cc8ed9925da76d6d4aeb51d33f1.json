@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT check_type FROM healthchecks\n         WHERE check_type LIKE 'concurrency_gate_alert_%' AND healthy = false",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "check_type",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d0141222094a1cb3ccfaa176cc4ff773dabf2cc8ed9925da76d6d4aeb51d33f1"
+}
