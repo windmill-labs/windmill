@@ -413,7 +413,22 @@
 			// loadingSave = false // del
 			// return
 
-			if (newFlow) {
+			// `newFlow` comes from the embedder, and updating a path that has no
+			// deployed flow 404s. Confirm with the server before taking the update
+			// branch so a first deploy still lands.
+			let isNewFlow = newFlow
+			if (!isNewFlow) {
+				try {
+					isNewFlow =
+						initialPath === '' ||
+						!(await FlowService.existsFlowByPath({ workspace: opWorkspace!, path: initialPath }))
+				} catch (err) {
+					// Unreachable check: keep the caller's intent rather than failing the deploy.
+					console.error('Could not check flow existence', err)
+				}
+			}
+
+			if (isNewFlow) {
 				await FlowService.createFlow({
 					workspace: opWorkspace!,
 					requestBody: {
