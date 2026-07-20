@@ -460,10 +460,15 @@ export const resourceTypeTool: Tool<ScriptChatHelpers> = {
 	}
 }
 
-// Generic DB schema tool factory that can be used by both script and flow modes
-export function createDbSchemaTool<T>(): Tool<T> {
+// Generic DB schema tool factory shared by the script, flow and global modes
+export function createDbSchemaTool<T>(description?: string): Tool<T> {
 	return {
-		def: DB_SCHEMA_FUNCTION_DEF,
+		def: description
+			? {
+					...DB_SCHEMA_FUNCTION_DEF,
+					function: { ...DB_SCHEMA_FUNCTION_DEF.function, description }
+				}
+			: DB_SCHEMA_FUNCTION_DEF,
 		fn: async ({ args, workspace, toolCallbacks, toolId }) => {
 			if (!args.resourcePath) {
 				throw new Error('Database path not provided')
