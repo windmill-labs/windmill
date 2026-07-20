@@ -2022,25 +2022,36 @@ export class AIChatManager {
 
 	/** Attached-file bytes counted against MAX_CONVERSATION_FILE_BYTES by
 	 * everything other than the composer identified by `selfKey`: transcript +
-	 * queue, then every other live composer's staged bytes. A message an open
-	 * composer is editing is skipped from the transcript sum — that composer's
-	 * stage stands in for it, so counting both would double-count. The caller
-	 * adds its own committed + pending bytes on top. */
+	 * queue, then every other live composer's staged bytes. The caller adds its
+	 * own committed + pending bytes on top.
+	 *
+	 * `selfKey`'s own edited message is dropped from the transcript sum — the
+	 * caller's stage replaces it. But a message another composer is editing is
+	 * charged at the LARGER of its persisted size and that editor's current
+	 * stage: an edit is not committed until send, so cancelling it returns the
+	 * persisted attachments. Substituting a smaller in-progress stage would hand
+	 * this composer headroom that evaporates on cancel and overflow the cap. */
 	attachmentBytesExcluding(selfKey: string): number {
-		const editing = new Set<number>()
-		for (const [, v] of this.#composerStaged) {
-			if (v.editingIndex !== null) editing.add(v.editingIndex)
+		const selfEditing = this.#composerStaged.get(selfKey)?.editingIndex ?? null
+		const otherEdits = new Map<number, number>()
+		for (const [k, v] of this.#composerStaged) {
+			if (k !== selfKey && v.editingIndex !== null) otherEdits.set(v.editingIndex, v.bytes)
 		}
 		let total = 0
 		for (const [i, m] of this.displayMessages.entries()) {
-			if (editing.has(i)) continue
+			if (i === selfEditing) continue
+			let persisted = 0
 			if ((m.role === 'user' || m.role === 'summary') && m.files) {
-				for (const f of m.files) total += textByteLength(f.content)
+				for (const f of m.files) persisted += textByteLength(f.content)
 			}
+			const editorStage = otherEdits.get(i)
+			total += editorStage !== undefined ? Math.max(persisted, editorStage) : persisted
 		}
 		for (const f of this.queuedFiles) total += textByteLength(f.content)
+		// Composers not tied to an edited message stage genuinely new bytes;
+		// editing composers were already accounted via the per-message max above.
 		for (const [k, v] of this.#composerStaged) {
-			if (k !== selfKey) total += v.bytes
+			if (k !== selfKey && v.editingIndex === null) total += v.bytes
 		}
 		return total
 	}

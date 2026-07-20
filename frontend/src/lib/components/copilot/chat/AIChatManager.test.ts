@@ -1183,6 +1183,26 @@ describe('AIChatManager queued messages', () => {
 		expect(manager.attachmentBytesExcluding('main')).toBe(300 + 500)
 	})
 
+	// An edit is not committed until send, so cancelling it returns the message's
+	// persisted attachments. Charging only the (possibly emptied) edit stage would
+	// hand the bottom composer headroom that vanishes on cancel — remove the files
+	// in the editor, fill the bottom draft, cancel, and the transcript overflows.
+	it('charges an edited message at its persisted size until the edit commits', () => {
+		const manager = new AIChatManager()
+		manager.displayMessages = [
+			{ role: 'user', content: 'big', files: [{ name: 'a.md', content: 'X'.repeat(4000) }] }
+		] as any
+
+		// Edit box mounted on message 0 with its attachment removed (stage 0):
+		// the bottom composer must still see the 4000 persisted bytes.
+		manager.setComposerStaged('edit', 0, 0)
+		expect(manager.attachmentBytesExcluding('main')).toBe(4000)
+
+		// Once the editor stages more than the original, the larger figure wins.
+		manager.setComposerStaged('edit', 0, 9000)
+		expect(manager.attachmentBytesExcluding('main')).toBe(9000)
+	})
+
 	it('drops queued images when the conversation is switched away', async () => {
 		const manager = createManager(createInputMock())
 		manager.queueMessage('stale', [img('a')])
