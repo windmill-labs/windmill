@@ -31,6 +31,7 @@ import {
 	type WorkspaceItemDiff
 } from '$lib/gen'
 import { getDraftDiffValues } from '$lib/utils_draft_deploy'
+import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { getItemValue } from '$lib/utils_workspace_deploy'
 import type { Kind as DeployKind } from '$lib/utils_deployable'
 import { userWorkspaces } from '$lib/stores'
@@ -235,6 +236,29 @@ export function expireWorkspaceDiffList(workspace: string): void {
 	const cache = caches.get(workspace)
 	if (cache) cache.listFetchedAt = 0
 }
+
+/** Mark one item's cached patch stale and expire the listing throttle, so the
+ * next access refetches both — regardless of the reuse windows. Driven by the
+ * syncer's save hook: the moment a draft write lands (an editor autosave, a
+ * chat write, a delete), the pre-write patch must never be served again. */
+export function markWorkspaceDiffEntryStale(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	path: string
+): void {
+	const cache = caches.get(workspace)
+	if (!cache) return
+	cache.listFetchedAt = 0
+	const entry = cache.entries.get(entryKey(itemKind, path))
+	if (entry) entry.materialized = undefined
+}
+
+// One app-lifetime subscription: every persisted draft write invalidates its
+// item eagerly instead of waiting out the listing throttle / read-reuse
+// windows. Fork caches are untouched — they compare deployed sides only.
+UserDraftDbSyncer.onAnySaved(({ workspace, itemKind, path }) => {
+	markWorkspaceDiffEntryStale(workspace, itemKind, path)
+})
 
 export function invalidateWorkspaceDiffCache(workspace?: string): void {
 	if (workspace === undefined) {

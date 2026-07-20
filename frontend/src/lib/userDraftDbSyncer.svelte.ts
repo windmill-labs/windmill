@@ -238,6 +238,15 @@ const flushes = new SvelteMap<string, number>()
 const saveListeners = new Map<string, Set<() => void>>()
 
 /**
+ * Global listeners fired whenever ANY draft write lands on the server —
+ * upserts and deletes alike. This is the invalidation hook for caches keyed
+ * on persisted draft state (the chat diff snapshot): the moment a save
+ * commits, the affected item can be marked stale without polling.
+ */
+type DraftSavedEvent = { workspace: string; itemKind: UserDraftItemKind; path: string }
+const anySavedListeners = new Set<(event: DraftSavedEvent) => void>()
+
+/**
  * Best-effort error → readable string. The generated client wraps HTTP
  * failures as `ApiError` (`body` / `statusText`); raw fetch errors are a
  * plain `Error`. Falls back to `String(e)` to avoid `[object Object]`.
@@ -309,6 +318,11 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 		if (opts.value !== null) {
 			const listeners = saveListeners.get(key)
 			if (listeners) for (const l of [...listeners]) l()
+		}
+		// Global subscribers hear deletes too — a removed row invalidates
+		// cached state the same way an upsert does.
+		for (const l of [...anySavedListeners]) {
+			l({ workspace: opts.workspace, itemKind: opts.itemKind, path: opts.path })
 		}
 	} catch (e) {
 		console.error('UserDraftDbSyncer.save failed', e)
@@ -552,6 +566,18 @@ export const UserDraftDbSyncer = {
 			if (!s) return
 			s.delete(listener)
 			if (s.size === 0) saveListeners.delete(key)
+		}
+	},
+
+	/**
+	 * Fires when any draft write lands on the server — upserts AND deletes,
+	 * every workspace and key. For caches over persisted draft state that
+	 * must invalidate the affected item the moment a write commits.
+	 */
+	onAnySaved(listener: (event: DraftSavedEvent) => void): () => void {
+		anySavedListeners.add(listener)
+		return () => {
+			anySavedListeners.delete(listener)
 		}
 	},
 

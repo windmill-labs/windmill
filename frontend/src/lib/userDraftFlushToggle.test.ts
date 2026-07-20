@@ -40,3 +40,21 @@ describe('UserDraftDbSyncer toggle-honoring flush', () => {
 		expect(UserDraftDbSyncer.hasUnsavedDisabledChanges(q)).toBe(false)
 	})
 })
+
+/** The diff snapshot cache invalidates through this hook — it must fire for
+ * upserts AND deletes, the moment the write lands. */
+describe('UserDraftDbSyncer.onAnySaved', () => {
+	it('fires for landed upserts and deletes, and unsubscribes cleanly', async () => {
+		const q = { workspace: 'w', itemKind: 'script' as const, path: 'u/me/hooked' }
+		const events: string[] = []
+		const off = UserDraftDbSyncer.onAnySaved((e) => events.push(`${e.itemKind}:${e.path}`))
+
+		await UserDraftDbSyncer.save({ ...q, value: { content: 'x' }, immediate: true })
+		await UserDraftDbSyncer.save({ ...q, value: null, immediate: true })
+		expect(events).toEqual(['script:u/me/hooked', 'script:u/me/hooked'])
+
+		off()
+		await UserDraftDbSyncer.save({ ...q, value: { content: 'y' }, immediate: true })
+		expect(events).toHaveLength(2)
+	})
+})

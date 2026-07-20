@@ -46,6 +46,7 @@ import {
 	getForkParentWorkspaceId,
 	getWorkspaceDiffIndex,
 	invalidateWorkspaceDiffCache,
+	markWorkspaceDiffEntryStale,
 	readForkDiffEntry,
 	readWorkspaceDiffEntry
 } from './diffSnapshot'
@@ -119,6 +120,25 @@ describe('getWorkspaceDiffIndex', () => {
 		expireWorkspaceDiffList(WS)
 		await getWorkspaceDiffIndex(WS)
 		expect(getDraftItems).toHaveBeenCalledTimes(2)
+	})
+
+	it('refetches a stale-marked entry immediately, despite every reuse window', async () => {
+		vi.mocked(getDraftItems).mockResolvedValue([row()] as any)
+		mockDiffValues({ content: 'a' }, { content: 'b' })
+		await readWorkspaceDiffEntry(WS, 'script', 'f/a/b')
+		expect(getDraftDiffValues).toHaveBeenCalledTimes(1)
+
+		// Within both the list throttle and the read-reuse window the patch is
+		// served from cache...
+		await readWorkspaceDiffEntry(WS, 'script', 'f/a/b')
+		expect(getDraftDiffValues).toHaveBeenCalledTimes(1)
+
+		// ...but a landed save (the syncer hook) forces content + listing fresh.
+		markWorkspaceDiffEntryStale(WS, 'script', 'f/a/b')
+		mockDiffValues({ content: 'a' }, { content: 'c' })
+		const entry = await readWorkspaceDiffEntry(WS, 'script', 'f/a/b')
+		expect(getDraftDiffValues).toHaveBeenCalledTimes(2)
+		expect(entry?.patch).toContain('+content: c')
 	})
 
 	it('refetches an entry when its draft row created_at changes', async () => {
