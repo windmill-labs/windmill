@@ -19,6 +19,8 @@ mod tests {
     use windmill_common::ee::jobs_waiting_alerts;
 
     const TAG: &str = "python3";
+    const BUSY_GATE: &str = "test-workspace/u/user/busy";
+    const FREED_GATE: &str = "test-workspace/u/user/freed";
 
     /// `jobs_waiting_alerts` bails out unless it can take the shared lock, and a
     /// freshly inserted lock row is never old enough to be claimed on the first
@@ -53,19 +55,23 @@ mod tests {
         .expect("seed alert config");
     }
 
-    /// Queue `n` jobs on TAG that have been due for 5 minutes. `gated_secs_ago`
-    /// mirrors the stamp the limiter writes when it re-queues a job it could not
-    /// admit; `None` is a job no gate has parked.
-    async fn queue_jobs(db: &Pool<Postgres>, n: usize, gated_secs_ago: Option<i64>) {
+    /// Queue `n` jobs on TAG that have been due for 5 minutes. `gate` mirrors
+    /// the stamp the limiter writes when it re-queues a job it could not admit:
+    /// the key it was parked under and how long ago. `None` is a job no gate has
+    /// parked.
+    async fn queue_jobs(db: &Pool<Postgres>, n: usize, gate: Option<(&str, i64)>) {
         for _ in 0..n {
             sqlx::query!(
-                "INSERT INTO v2_job_queue (id, workspace_id, tag, running, scheduled_for, concurrency_gated_at)
+                "INSERT INTO v2_job_queue (id, workspace_id, tag, running, scheduled_for,
+                                           concurrency_gated_at, concurrency_gated_key)
                  VALUES ($1, 'test-workspace', $2, false, NOW() - INTERVAL '5 minutes',
                          CASE WHEN $3::bigint IS NULL THEN NULL
-                              ELSE NOW() - INTERVAL '1 second' * $3::bigint END)",
+                              ELSE NOW() - INTERVAL '1 second' * $3::bigint END,
+                         $4)",
                 Uuid::new_v4(),
                 TAG,
-                gated_secs_ago,
+                gate.map(|(_, secs)| secs),
+                gate.map(|(key, _)| key),
             )
             .execute(db)
             .await
@@ -89,7 +95,7 @@ mod tests {
     async fn concurrency_gated_backlog_does_not_alert(db: Pool<Postgres>) {
         free_the_lock(&db).await;
         configure_alert(&db, 100).await;
-        queue_jobs(&db, 200, Some(1)).await;
+        queue_jobs(&db, 200, Some((BUSY_GATE, 1))).await;
 
         jobs_waiting_alerts(&db).await;
 
@@ -108,7 +114,7 @@ mod tests {
         free_the_lock(&db).await;
         configure_alert(&db, 100).await;
         queue_jobs(&db, 150, None).await;
-        queue_jobs(&db, 200, Some(1)).await;
+        queue_jobs(&db, 200, Some((BUSY_GATE, 1))).await;
 
         jobs_waiting_alerts(&db).await;
 
@@ -140,7 +146,7 @@ mod tests {
         free_the_lock(&db).await;
         configure_alert(&db, 100).await;
         // Marked well beyond alert_time_threshold_seconds and never refreshed.
-        queue_jobs(&db, 200, Some(3600)).await;
+        queue_jobs(&db, 200, Some((FREED_GATE, 3600))).await;
 
         jobs_waiting_alerts(&db).await;
 
@@ -154,6 +160,33 @@ mod tests {
         assert!(
             messages[0].contains("200"),
             "every job must be counted once its marks go stale: {}",
+            messages[0]
+        );
+    }
+
+    /// Gates on a tag free independently, so freshness cannot be judged tag-wide:
+    /// one key still being refreshed would vouch for stale marks left by another
+    /// that has since freed. The freed key's backlog is unpulled and starving
+    /// while the busy key keeps producing fresh marks beside it.
+    #[ignore = "requires database setup - run with --ignored flag"]
+    #[sqlx::test(migrations = "../migrations")]
+    async fn a_live_gate_does_not_vouch_for_another_gates_stale_marks(db: Pool<Postgres>) {
+        free_the_lock(&db).await;
+        configure_alert(&db, 100).await;
+        queue_jobs(&db, 200, Some((BUSY_GATE, 1))).await;
+        queue_jobs(&db, 150, Some((FREED_GATE, 3600))).await;
+
+        jobs_waiting_alerts(&db).await;
+
+        let messages = alert_messages(&db).await;
+        assert_eq!(
+            messages.len(),
+            1,
+            "the freed gate's backlog is waiting on workers and must alert, got {messages:?}"
+        );
+        assert!(
+            messages[0].contains("150"),
+            "only the freed gate's jobs count; the live gate still holds its own: {}",
             messages[0]
         );
     }
