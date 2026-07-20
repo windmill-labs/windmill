@@ -107,10 +107,12 @@ export interface GitSyncDeployItem {
   commit_msg?: string;
 }
 
-// A fork or dev workspace syncs to its own wm-fork/<branch>/<id> branch. The hub
-// script force-disables use_individual_branch / group_by_folder for these (that
-// disabling also changes the include/promotion derivation — so callers must apply
-// it BEFORE deriving includes, not just for branch naming).
+// A throwaway fork syncs to its own wm-fork/<branch>/<id> branch. The hub script
+// force-disables use_individual_branch / group_by_folder for these (that disabling
+// also changes the include/promotion derivation — so callers must apply it BEFORE
+// deriving includes, not just for branch naming). A dev workspace is the exception:
+// with promotion on it keeps use_individual_branch / group_by_folder and gets
+// per-item wm_deploy/** branches like a root workspace.
 //
 // Fork-ness is "has a parent workspace" OR the "wm-fork-" id prefix. Regular forks
 // get an auto-generated `wm-fork-<slug>` id, but dev workspaces keep a custom id
@@ -165,7 +167,15 @@ export function computeGitSyncDeployBranch(params: {
     clonedBranchName,
   } = params;
 
-  if (isForkWorkspace(workspaceId, parentWorkspaceId)) {
+  // A dev workspace in promotion mode falls through to the wm_deploy/** formula
+  // below (per-item/-folder PRs that promote into its parent). Throwaway forks,
+  // and dev workspaces with promotion off, sync to their own wm-fork/<branch>/<id>
+  // (or env-label) branch.
+  const isDevWorkspace = !!devWorkspaceLabel;
+  if (
+    isForkWorkspace(workspaceId, parentWorkspaceId) &&
+    !(isDevWorkspace && useIndividualBranch)
+  ) {
     return forkBranchName(workspaceId, clonedBranchName, devWorkspaceLabel);
   }
 

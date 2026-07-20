@@ -117,6 +117,33 @@ describe("computeGitSyncDeployBranch", () => {
     ).toBe("staging");
   });
 
+  test("dev workspace in promotion mode -> per-item wm_deploy branch, not the label branch", () => {
+    expect(
+      computeGitSyncDeployBranch({
+        ...base,
+        workspaceId: "staging-ws",
+        parentWorkspaceId: "prod",
+        devWorkspaceLabel: "staging",
+        useIndividualBranch: true,
+        items: [{ path_type: "script", path: "f/foo/bar" }],
+      })
+    ).toBe("wm_deploy/staging-ws/script/f__foo__bar");
+  });
+
+  test("dev workspace in promotion mode honors group_by_folder", () => {
+    expect(
+      computeGitSyncDeployBranch({
+        ...base,
+        workspaceId: "staging-ws",
+        parentWorkspaceId: "prod",
+        devWorkspaceLabel: "staging",
+        useIndividualBranch: true,
+        groupByFolder: true,
+        items: [{ path_type: "script", path: "f/foo/bar" }],
+      })
+    ).toBe("wm_deploy/staging-ws/f__foo");
+  });
+
   test("use_individual_branch=false -> null (stay on base/main, workspace-wide mode)", () => {
     expect(
       computeGitSyncDeployBranch({

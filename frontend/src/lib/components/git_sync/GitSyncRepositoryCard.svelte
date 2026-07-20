@@ -78,6 +78,9 @@
 		($workspaceStore?.startsWith('wm-fork-') ?? false) ||
 			!!currentWorkspaceData?.parent_workspace_id
 	)
+	// A dev workspace is a fork that DOES run promotion mode (per-item
+	// wm_deploy/** branches into its parent), unlike a throwaway fork.
+	const isDevWorkspace = $derived(!!currentWorkspaceData?.is_dev_workspace)
 	function setSyncForks(v: boolean) {
 		if (repo?.auto_pull) repo.auto_pull = { ...repo.auto_pull, sync_forks: v }
 	}
@@ -580,7 +583,7 @@
 									<div class="text-sm font-semibold text-emphasis mb-1">
 										Push to Git on deploy (Windmill → Git)
 									</div>
-									{#if !isFork}
+									{#if !isFork || (isDevWorkspace && repoMode === 'promotion')}
 										<GitSyncModeDisplay mode={repoMode} {targetBranch} repository={repo} active />
 									{/if}
 								</div>
@@ -749,22 +752,22 @@
 								{#if !isGithubApp && !loadingResourceInfo}
 									<div class="mt-2">
 										<Alert type="info" title="Instant pull recommended" size="xs">
-											Pull for this repository checks the tracked branch about every minute;
-											longer gaps make drift and merge conflicts more likely. For instant pull,
-											connect the repository through the
+											Pull for this repository checks the tracked branch about every minute; longer
+											gaps make drift and merge conflicts more likely. For instant pull, connect the
+											repository through the
 											<a
 												href="https://www.windmill.dev/docs/integrations/git_repository#github-app"
 												target="_blank"
 												class="text-blue-500 hover:underline">GitHub App</a
 											>
-											(which also lets Windmill manage pull requests), or push changes into
-											Windmill with the
+											(which also lets Windmill manage pull requests), or push changes into Windmill
+											with the
 											<a
 												href="https://www.windmill.dev/docs/advanced/git_sync#github-actions"
 												target="_blank"
 												class="text-blue-500 hover:underline">sync GitHub workflow</a
-											>. If you already push changes with a GitHub Action, keep either the
-											Action or automatic pull, not both, so they don't fight over deploys.
+											>. If you already push changes with a GitHub Action, keep either the Action or
+											automatic pull, not both, so they don't fight over deploys.
 										</Alert>
 									</div>
 								{/if}

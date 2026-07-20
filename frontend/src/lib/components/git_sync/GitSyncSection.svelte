@@ -42,13 +42,17 @@
 
 	const gitSyncAllowed = $derived(gitSyncStatus.enabled)
 	const isFreeTier = $derived(gitSyncAllowed && !$enterpriseLicense)
-	// Fork/dev workspaces never run promotion mode: their deploys always go to
-	// the fork's own wm-fork/** branch, so a promotion repo could never take
-	// effect (the backend rejects it too). Mirrors the backend/CLI fork rule.
+	// Throwaway forks never run promotion mode: their deploys always go to the
+	// fork's own wm-fork/** branch, so a promotion repo could never take effect
+	// (the backend rejects it too). A dev workspace is the exception — it deploys
+	// per-item wm_deploy/** branches that promote into its parent. Mirrors the
+	// backend/CLI rule.
+	const currentWorkspace = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
 	const isFork = $derived(
-		($workspaceStore?.startsWith('wm-fork-') ?? false) ||
-			!!$userWorkspaces?.find((w) => w.id === $workspaceStore)?.parent_workspace_id
+		($workspaceStore?.startsWith('wm-fork-') ?? false) || !!currentWorkspace?.parent_workspace_id
 	)
+	const isDevWorkspace = $derived(!!currentWorkspace?.is_dev_workspace)
+	const showPromotion = $derived(!isFork || isDevWorkspace)
 	const hasConfiguredRepos = $derived(
 		gitSyncContext?.repositories?.some((r) => r.git_repo_resource_path) ?? false
 	)
@@ -211,8 +215,8 @@
 					{/if}
 				{/if}
 
-				<!-- Primary Promotion Repository (EE only; not on forks) -->
-				{#if !isFork}
+				<!-- Primary Promotion Repository (EE only; dev workspaces, not throwaway forks) -->
+				{#if showPromotion}
 					<div class="mt-6">
 						<GitSyncRepositoryCard
 							variant="primary-promotion"
