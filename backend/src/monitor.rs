@@ -87,11 +87,11 @@ use windmill_common::{
         load_env_vars, load_init_bash_from_env, load_periodic_bash_script_from_env,
         load_periodic_bash_script_interval_from_env, load_whitelist_env_vars_from_env,
         load_worker_config, reload_custom_tags_setting, store_pull_query,
-        store_suspended_pull_query, Connection, WorkerConfig, CONCURRENCY_KEY_MAX_QUEUED,
-        CONCURRENCY_KEY_MAX_QUEUED_DEFAULT, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES,
-        FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX, INDEXER_CONFIG, PREVIEW_TAGS_OVERRIDE,
-        SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, WINDMILL_DIR, WORKER_CONFIG, WORKER_GROUP,
-        WORKSPACE_FAIRNESS_DURATION_SECS, WORKSPACE_FAIRNESS_ENABLED,
+        store_suspended_pull_query, Connection, WorkerConfig, CLOUD_HOSTED,
+        CONCURRENCY_KEY_MAX_QUEUED, CONCURRENCY_KEY_MAX_QUEUED_DEFAULT, DEFAULT_TAGS_PER_WORKSPACE,
+        DEFAULT_TAGS_WORKSPACES, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX, INDEXER_CONFIG,
+        PREVIEW_TAGS_OVERRIDE, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, WINDMILL_DIR, WORKER_CONFIG,
+        WORKER_GROUP, WORKSPACE_FAIRNESS_DURATION_SECS, WORKSPACE_FAIRNESS_ENABLED,
         WORKSPACE_FAIRNESS_MAX_PERCENT, WORKSPACE_FAIRNESS_MIN_TOTAL,
     },
     KillpillSender, AUDIT_LOG_RETENTION_DAYS, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE,
@@ -294,8 +294,11 @@ pub async fn initial_load(
             tracing::error!("Error loading workspace fairness enabled: {e:#}");
         }
 
-        if let Err(e) = load_concurrency_key_max_queued(db).await {
-            tracing::error!("Error loading concurrency key max queued: {e:#}");
+        // Only the cloud reads this cap, so don't spend a query loading it anywhere else.
+        if *CLOUD_HOSTED {
+            if let Err(e) = load_concurrency_key_max_queued(db).await {
+                tracing::error!("Error loading concurrency key max queued: {e:#}");
+            }
         }
     }
 
