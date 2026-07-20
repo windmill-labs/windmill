@@ -52,11 +52,13 @@
 	// to send the user back to the parent. Returns true when it handled the situation
 	// so the caller skips normal loading.
 	async function tryRecoverFromDeletedWorkspace(workspaceId: string): Promise<boolean> {
-		// A remembered parent is both what makes a workspace recoverable and the marker
-		// that it is a fork — including dev workspaces, whose ids carry no `wm-fork-`
-		// prefix.
+		// Only forks are recoverable, identified two ways: the `wm-fork-` id prefix, or
+		// a remembered parent. Neither alone is sufficient — dev-workspace forks carry
+		// no prefix (only a remembered parent), while a non-member superadmin's fork has
+		// the prefix but no remembered parent (the recorder only sees the user's own
+		// membership-gated list). A workspace that is neither is left to normal loading.
 		const parentId = getRememberedForkParent(workspaceId)
-		if (parentId == undefined) return false
+		if (parentId == undefined && !workspaceId.startsWith('wm-fork-')) return false
 
 		// `exists` is not membership-gated, so it settles "is this workspace gone?"
 		// identically for members, non-members and superadmins, and it requires a valid
@@ -72,21 +74,24 @@
 		if (exists) return false
 
 		forgetForkParent(workspaceId)
-		switchWorkspace(parentId)
 
-		const parentUser = await getUserExt(parentId)
-		if (parentUser) {
-			$userStore = parentUser
-			sendUserToast(
-				`Workspace ${workspaceId} not found, switched to parent workspace ${parentId}.`,
-				'warning'
-			)
-			await goto('/')
-			return true
+		// Send the user to the remembered parent when we have one; otherwise (unknown or
+		// inaccessible parent) fall back to the picker rather than the forced-logout path
+		// this recovery exists to avoid.
+		if (parentId != undefined) {
+			switchWorkspace(parentId)
+			const parentUser = await getUserExt(parentId)
+			if (parentUser) {
+				$userStore = parentUser
+				sendUserToast(
+					`Workspace ${workspaceId} not found, switched to parent workspace ${parentId}.`,
+					'warning'
+				)
+				await goto('/')
+				return true
+			}
 		}
 
-		// Parent also gone or not accessible — let the user pick, rather than risk the
-		// forced-logout path this recovery exists to avoid.
 		clearWorkspaceFromStorage()
 		workspaceStore.set(undefined)
 		sendUserToast(
