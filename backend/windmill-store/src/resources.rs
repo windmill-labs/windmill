@@ -2876,12 +2876,14 @@ async fn get_repo_latest_commit_hash(
 /// contain credentials** (an embedded `$var:` token in the URL). Callers must
 /// have already authorized access to `w_id`, must use it only for git-sync
 /// `git_repository` resources, and must **not** return the resolved value to a
-/// client — derive and return only non-sensitive facts. `allow_cache=true`
-/// avoids re-decrypting (and re-auditing) a `$var:` secret on every call.
+/// client — derive and return only non-sensitive facts. Pass `allow_cache=true`
+/// for the poller (avoids re-decrypting/re-auditing a `$var:` secret every tick);
+/// pass `false` for on-demand reads that must reflect the current resource.
 pub async fn resolve_git_repository_resource(
     db: &DB,
     w_id: &str,
     git_repo_resource_path: &str,
+    allow_cache: bool,
 ) -> Result<Option<serde_json::Value>> {
     use windmill_common::db::DbWithOptAuthed;
 
@@ -2899,7 +2901,8 @@ pub async fn resolve_git_repository_resource(
         },
     };
 
-    get_resource_value_interpolated_internal(&dba, w_id, resource_path, None, None, true).await
+    get_resource_value_interpolated_internal(&dba, w_id, resource_path, None, None, allow_cache)
+        .await
 }
 
 /// Resolve a workspace git-sync repository and return its current head commit
@@ -2911,7 +2914,7 @@ pub async fn get_git_repo_head_for_autopull(
     w_id: &str,
     git_repo_resource_path: &str,
 ) -> Result<Option<(String, String)>> {
-    let value = resolve_git_repository_resource(db, w_id, git_repo_resource_path)
+    let value = resolve_git_repository_resource(db, w_id, git_repo_resource_path, true)
         .await?
         .ok_or_else(|| {
             Error::BadRequest(format!(

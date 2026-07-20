@@ -1300,10 +1300,13 @@ async fn get_git_sync_deploy_mode(
                 // Interpolates `$var:`/`$res:` and reads as a system context, the
                 // same resolver the auto-pull poller uses; only compared, never
                 // returned (and the URL is credential-stripped by normalization).
+                // allow_cache=false: an on-demand status must reflect the current
+                // repo config, not a value cached by an earlier poll.
                 let Some(value) = windmill_store::resources::resolve_git_repository_resource(
                     &db,
                     &root_id,
                     &repo.git_repo_resource_path,
+                    false,
                 )
                 .await?
                 else {
