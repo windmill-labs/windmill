@@ -495,6 +495,25 @@ describe('AttachedFilesStore', () => {
 		expect(store.standalone).toEqual([])
 	})
 
+	it('syncMessageScoped keeps a message file on its exact name despite a session clash', async () => {
+		// Session asset loaded first (as on restore), then a past chat carrying a
+		// same-named message attachment is opened: the rebuild must reclaim the
+		// exact transcript reference, not suffix it, or get() would read the wrong
+		// (session) content.
+		await store.addFiles([file('notes.md', 'session content\n')])
+		await settle(store)
+
+		await store.syncMessageScoped([{ name: 'notes.md', content: 'message content\n' }])
+		await settle(store)
+
+		// The prompt reference `notes.md` resolves to the message content; the
+		// session row is renamed aside but stays addressable under the suffix.
+		expect(store.get('notes.md')?.messageScoped).toBe(true)
+		expect(await (store.get('notes.md')!.file as Blob).text()).toBe('message content\n')
+		expect(store.get('notes (2).md')?.messageScoped).toBeFalsy()
+		expect(await (store.get('notes (2).md')!.file as Blob).text()).toBe('session content\n')
+	})
+
 	it('syncMessageScoped reconciles rows to the transcript references', async () => {
 		await store.syncMessageScoped([
 			{ name: 'a.md', content: 'aaa\n' },

@@ -162,6 +162,18 @@ export class AttachedFilesStore {
 		void this.#deleteRecord(f.sourceId)
 	}
 
+	/** Rename any session row currently holding `name` to a suffixed name, freeing
+	 * it for a message-scoped rebuild that must land on its exact (immutable)
+	 * transcript reference. In-memory only: the rename is deterministic and
+	 * re-applied on every load (session items load, then syncMessageScoped runs),
+	 * so it stays consistent without a persisted-record update. */
+	#freeNameForMessageRow(name: string): void {
+		const clash = this.files.find((f) => f.name === name && !f.messageScoped && !f.isFolderRoot)
+		if (!clash) return
+		const renamed = this.#uniqueName(name)
+		this.files = this.files.map((f) => (f === clash ? { ...f, name: renamed } : f))
+	}
+
 	#syncSeq = 0
 	#syncChain: Promise<void> = Promise.resolve()
 
@@ -192,6 +204,14 @@ export class AttachedFilesStore {
 				}
 			}
 			if (wanted.length > 0) {
+				// A transcript reference name is immutable (baked into the persisted
+				// prompt). Session rows load first (on restore), so one holding a
+				// wanted name would push the rebuilt message row to a "(2)" suffix and
+				// orphan the reference — get() would then resolve the prompt's name to
+				// the session asset and read the wrong content. Rename the session row
+				// aside so the message row reclaims its exact name; the session roster
+				// is regenerated live each send, so it stays addressable under the suffix.
+				for (const w of wanted) this.#freeNameForMessageRow(w.name)
 				await this.addFiles(
 					wanted.map((f) => new File([f.content], f.name, { type: 'text/plain' })),
 					{ messageScoped: true }
