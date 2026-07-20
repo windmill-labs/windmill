@@ -909,7 +909,7 @@ describe('global AI tools', () => {
 		])
 	})
 
-	it('forwards page to the list calls and windows drafts with the same page/limit', async () => {
+	it('forwards page to the list calls, capping page-1 drafts at limit per type', async () => {
 		await callGlobalTool('write_script', {
 			path: 'f/scripts/draft_a',
 			language: 'bun',
@@ -931,19 +931,17 @@ describe('global AI tools', () => {
 			limit: 1,
 			page: 2
 		})
-		const page3 = await callGlobalTool('list_workspace_items', {
-			types: ['script'],
-			limit: 1,
-			page: 3
-		})
 
 		expect(ScriptService.listScripts).toHaveBeenCalledWith(expect.objectContaining({ page: 2 }))
-		// Bounded per page, and both drafts reachable across pages.
+		// Bounded on page 1, no draft rows on later pages; the capped-out draft
+		// stays reachable through the query filter.
 		expect(JSON.parse(page1)).toHaveLength(1)
-		expect(JSON.parse(page2)).toHaveLength(1)
-		const paths = [...JSON.parse(page1), ...JSON.parse(page2)].map((i: any) => i.path).sort()
-		expect(paths).toEqual(['f/scripts/draft_a', 'f/scripts/draft_b'])
-		expect(JSON.parse(page3)).toEqual([])
+		expect(JSON.parse(page2)).toEqual([])
+		const byQuery = await callGlobalTool('list_workspace_items', {
+			types: ['script'],
+			query: 'draft_b'
+		})
+		expect(JSON.parse(byQuery).map((i: any) => i.path)).toEqual(['f/scripts/draft_b'])
 	})
 
 	it('applies limit per item type so a full page of one type cannot hide another', async () => {

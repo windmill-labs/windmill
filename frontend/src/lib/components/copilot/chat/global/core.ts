@@ -293,14 +293,16 @@ const listWorkspaceItemsSchema = z.object({
 		.min(1)
 		.max(MAX_LIST_LIMIT)
 		.optional()
-		.describe('Maximum items per item type per page. Defaults to 50 and is capped at 100.'),
+		.describe(
+			'Maximum items per item type per page (for triggers, per trigger kind). Defaults to 50 and is capped at 100.'
+		),
 	page: z
 		.number()
 		.int()
 		.min(1)
 		.optional()
 		.describe(
-			'Page number, starting at 1. Each item type pages independently: request the next page while any type still returns a full page. Drafts page with the same window.'
+			'Page number, starting at 1. Each item type pages independently: request the next page while any type still returns a full page. Drafts appear on page 1 only, capped at limit per type.'
 		)
 })
 
@@ -2366,20 +2368,19 @@ export const globalTools: Tool<{}>[] = [
 				byKey.set(getWorkspaceItemKey(item.type, item.path, item.triggerKind), item)
 			}
 
-			// Drafts are not paginated server-side; window them client-side with the
-			// same per-type page/limit so results stay bounded while every draft
-			// remains reachable by paging.
-			const pageIndex = (parsed.page ?? 1) - 1
-			const draftsByType = new Map<string, WorkspaceItem[]>()
-			for (const draft of await listGlobalDrafts(workspace)) {
-				if (!types.includes(draft.type)) continue
-				if (parsed.path_prefix && !draft.path.startsWith(parsed.path_prefix)) continue
-				const group = draftsByType.get(draft.type) ?? []
-				group.push(draft)
-				draftsByType.set(draft.type, group)
-			}
-			for (const group of draftsByType.values()) {
-				for (const draft of group.slice(pageIndex * limit, (pageIndex + 1) * limit)) {
+			// Drafts are not paginated server-side; overlay them on page 1 only,
+			// capped at `limit` per type, so results stay bounded and later pages
+			// never repeat a page-1 item as its draft twin. Chat draft counts are
+			// small — past the cap, a narrower path_prefix still finds any draft
+			// (it filters before the cap; query filters after).
+			if ((parsed.page ?? 1) === 1) {
+				const draftCountByType = new Map<string, number>()
+				for (const draft of await listGlobalDrafts(workspace)) {
+					if (!types.includes(draft.type)) continue
+					if (parsed.path_prefix && !draft.path.startsWith(parsed.path_prefix)) continue
+					const count = draftCountByType.get(draft.type) ?? 0
+					if (count >= limit) continue
+					draftCountByType.set(draft.type, count + 1)
 					byKey.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), {
 						...draft,
 						value: undefined
