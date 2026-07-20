@@ -29,6 +29,7 @@
 	} from './imageUtils'
 	import { modelSupportsVision } from '../modelConfig'
 	import { tryGetCurrentModel } from '$lib/aiStore'
+	import { createLongHash } from '$lib/editorLangUtils'
 	import {
 		fileToAttachedTextFile,
 		MAX_ATTACHED_FILES,
@@ -240,6 +241,19 @@
 	// otherwise each spend the same remaining allowance.
 	let pendingFileBytes = $state(0)
 
+	// Publish this composer's staged bytes (committed attachments + in-flight
+	// reads) to the manager so a concurrently-mounted composer — the edit box
+	// while editing an earlier message — sees them in its own budget check and
+	// the two can't each spend the whole conversation allowance.
+	const composerKey = untrack(() => createLongHash())
+	let stagedBytes = $derived(
+		files.reduce((sum, f) => sum + textByteLength(f.content), 0) + pendingFileBytes
+	)
+	$effect(() => {
+		aiChatManager.setComposerStaged(composerKey, editingMessageIndex, stagedBytes)
+	})
+	$effect(() => () => aiChatManager.clearComposerStaged(composerKey))
+
 	/** Attach dropped/picked text files (sniffed + bounded). GLOBAL mode only. */
 	export async function addTextFiles(candidates: File[]) {
 		if (aiChatManager.mode !== AIMode.GLOBAL) return
@@ -266,14 +280,15 @@
 				true
 			)
 		}
-		// Conversation-level byte budget: transcript + queue + what's already in
-		// the composer. File content is persisted with every history save, so an
-		// unbounded total would grow the chat record without limit. In edit mode
-		// the edited message's files live in the composer copy — the transcript
-		// count excludes them or they'd be charged twice.
+		// Conversation-level byte budget: transcript + queue + every live
+		// composer's stage (this one and, mid-edit, the other) + this composer's
+		// own pending reads. File content is persisted with every history save, so
+		// an unbounded total would grow the chat record without limit. The
+		// transcript sum skips any message a composer is editing — that composer's
+		// stage stands in for it, so counting both would charge those bytes twice.
 		let budget =
 			MAX_CONVERSATION_FILE_BYTES -
-			aiChatManager.messageFileBytes(editingMessageIndex) -
+			aiChatManager.attachmentBytesExcluding(composerKey) -
 			files.reduce((sum, f) => sum + textByteLength(f.content), 0) -
 			pendingFileBytes
 		const withinBudget: File[] = []

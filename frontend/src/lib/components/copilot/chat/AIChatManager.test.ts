@@ -1158,6 +1158,31 @@ describe('AIChatManager queued messages', () => {
 		expect(input.prependText).toHaveBeenCalledWith('', [], [file])
 	})
 
+	// While editing an earlier message the bottom composer and the edit box are
+	// both mounted. Each enforces MAX_CONVERSATION_FILE_BYTES at attach time, so
+	// each must see the other's stage or two attaches could each spend the full
+	// budget and overflow the persisted transcript.
+	it('counts every other live composer stage in the attachment budget', () => {
+		const manager = new AIChatManager()
+		manager.displayMessages = [
+			{ role: 'user', content: 'edited', files: [{ name: 'a.md', content: 'X'.repeat(300) }] },
+			{ role: 'user', content: 'kept', files: [{ name: 'b.md', content: 'Y'.repeat(500) }] }
+		] as any
+
+		// Bottom composer staged 4MB; edit box (editing message 0) staged 900KB.
+		manager.setComposerStaged('main', null, 4_000_000)
+		manager.setComposerStaged('edit', 0, 900_000)
+
+		// From the bottom composer: message 0 is skipped (its editor's stage stands
+		// in for it), message 1 counts, and the edit box's 900KB is visible.
+		expect(manager.attachmentBytesExcluding('main')).toBe(500 + 900_000)
+		// From the edit box: message 0 skipped, message 1 counts, bottom's 4MB visible.
+		expect(manager.attachmentBytesExcluding('edit')).toBe(500 + 4_000_000)
+
+		manager.clearComposerStaged('edit')
+		expect(manager.attachmentBytesExcluding('main')).toBe(300 + 500)
+	})
+
 	it('drops queued images when the conversation is switched away', async () => {
 		const manager = createManager(createInputMock())
 		manager.queueMessage('stale', [img('a')])

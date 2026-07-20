@@ -53,7 +53,7 @@ import {
 	buildSummaryMessageContent
 } from './compactionPrompt'
 import { dfs } from '$lib/components/flows/previousResults'
-import { SvelteSet } from 'svelte/reactivity'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import type { UserDraftItemKind } from '$lib/gen'
 import { maskKey } from '$lib/components/sessions/modifiedItemsMask'
 import { getStringError } from './utils'
@@ -2005,20 +2005,43 @@ export class AIChatManager {
 		return this.aiChatInput?.restoreInstructions(instructions, pastes, images, files) === true
 	}
 
-	/** Sum of attached-file content bytes already committed to this conversation
-	 * (transcript + queue). The composer adds its own pending bytes on top when
-	 * enforcing MAX_CONVERSATION_FILE_BYTES at attach time. `excludeMessageIndex`
-	 * discounts the message being edited — its files are seeded into the composer
-	 * and counted there, so including them here would double-count. */
-	messageFileBytes(excludeMessageIndex: number | null = null): number {
+	// Bytes each live composer has staged toward its next send (committed
+	// attachments + in-flight reads), keyed per composer instance. While a
+	// message is being edited the bottom composer and the edit box are both
+	// mounted; each must see the other's stage or two attaches could each spend
+	// the full conversation budget and overflow the persisted transcript.
+	#composerStaged = new SvelteMap<string, { editingIndex: number | null; bytes: number }>()
+
+	setComposerStaged(key: string, editingIndex: number | null, bytes: number) {
+		this.#composerStaged.set(key, { editingIndex, bytes })
+	}
+
+	clearComposerStaged(key: string) {
+		this.#composerStaged.delete(key)
+	}
+
+	/** Attached-file bytes counted against MAX_CONVERSATION_FILE_BYTES by
+	 * everything other than the composer identified by `selfKey`: transcript +
+	 * queue, then every other live composer's staged bytes. A message an open
+	 * composer is editing is skipped from the transcript sum — that composer's
+	 * stage stands in for it, so counting both would double-count. The caller
+	 * adds its own committed + pending bytes on top. */
+	attachmentBytesExcluding(selfKey: string): number {
+		const editing = new Set<number>()
+		for (const [, v] of this.#composerStaged) {
+			if (v.editingIndex !== null) editing.add(v.editingIndex)
+		}
 		let total = 0
 		for (const [i, m] of this.displayMessages.entries()) {
-			if (i === excludeMessageIndex) continue
+			if (editing.has(i)) continue
 			if ((m.role === 'user' || m.role === 'summary') && m.files) {
 				for (const f of m.files) total += textByteLength(f.content)
 			}
 		}
 		for (const f of this.queuedFiles) total += textByteLength(f.content)
+		for (const [k, v] of this.#composerStaged) {
+			if (k !== selfKey) total += v.bytes
+		}
 		return total
 	}
 
