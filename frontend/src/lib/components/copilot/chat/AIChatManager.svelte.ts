@@ -1105,9 +1105,16 @@ export class AIChatManager {
 			// is their durable home, so dropping the referencing message without
 			// carrying them would lose the attachment entirely. Names are unique
 			// across a conversation (registration suffixes collisions).
-			const carriedFiles: AttachedTextFile[] = this.displayMessages
-				.slice(0, displayKeepFrom)
-				.flatMap((m) => (m.role === 'user' || m.role === 'summary' ? (m.files ?? []) : []))
+			// Deduped by name: several folded turns can carry the identical file
+			// (registration reuses one name for identical content), and the summary
+			// must list/keep it once.
+			const carriedByName = new Map<string, AttachedTextFile>()
+			for (const m of this.displayMessages.slice(0, displayKeepFrom)) {
+				if ((m.role === 'user' || m.role === 'summary') && m.files) {
+					for (const f of m.files) carriedByName.set(f.name, f)
+				}
+			}
+			const carriedFiles = [...carriedByName.values()]
 			const filesNote =
 				carriedFiles.length > 0
 					? '\n\nThe user attached these files earlier in this conversation; they are still readable via `read_file` / `search_files`:\n' +

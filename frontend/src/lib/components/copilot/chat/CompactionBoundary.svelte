@@ -30,7 +30,8 @@
 		<!-- Attachments from the summarized turns, carried across the boundary —
 		     they stay readable, so keep them visible where their messages were. -->
 		<div class="mt-1.5 flex flex-row flex-wrap items-center gap-1 justify-center">
-			{#each files as file (file.name)}
+			<!-- Index in the key: same-named entries can survive in older transcripts. -->
+			{#each files as file, i (`${file.name}:${i}`)}
 				<ContextElementBadge
 					contextElement={createAttachedFileContextElement(file.name, file.content)}
 					compact

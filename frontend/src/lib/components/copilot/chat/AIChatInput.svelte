@@ -291,8 +291,17 @@
 			for (const file of batch) {
 				try {
 					const attached = await fileToAttachedTextFile(file)
-					if (attached) added.push(attached)
-					else skipped++
+					if (!attached) {
+						skipped++
+					} else if (
+						// A double-drop of the identical file is a no-op — a duplicate
+						// entry would ship the content twice and collide in keyed lists.
+						![...files, ...added].some(
+							(f) => f.name === attached.name && f.content === attached.content
+						)
+					) {
+						added.push(attached)
+					}
 				} catch {
 					skipped++
 				}
