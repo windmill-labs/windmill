@@ -589,8 +589,9 @@ wmill resource-type list --schema
 # Get specific resource type schema
 wmill resource-type get postgresql
 
-# Push resources to Windmill — deploys to the workspace and can be destructive to
-# remote state, so only run it when the user explicitly asks to deploy/publish/push
+# Deploy resources to the workspace — destructive to remote state, so only run when
+# the user explicitly asks to deploy/publish/push. If the repo deploys on git push
+# (backend auto-pull or CI — check \`wmill gitsync-settings status\`), use \`git push\` instead.
 wmill sync push
 \`\`\`
 `;
@@ -2969,6 +2970,8 @@ Manage git-sync settings between local wmill.yaml and Windmill backend
   - \`--with-backend-settings <json:string>\` - Use provided JSON settings instead of querying backend (for testing)
   - \`--yes\` - Skip interactive prompts and use default behavior
   - \`--promotion <branch:string>\` - Use promotionOverrides from the specified branch instead of regular overrides
+- \`gitsync-settings status\` - Report how local changes deploy to the workspace (git push vs wmill sync push)
+  - \`--json-output\` - Output in JSON format
 
 ### group
 

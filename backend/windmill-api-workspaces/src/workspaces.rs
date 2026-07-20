@@ -135,6 +135,7 @@ pub fn workspaced_service() -> Router {
         .route("/edit_datatable_config", post(edit_datatable_config))
         .merge(crate::datatable_migrations::routes())
         .route("/git_sync_enabled", get(get_git_sync_enabled))
+        .route("/git_sync_deploy_mode", get(get_git_sync_deploy_mode))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
         .route(
@@ -1023,6 +1024,50 @@ async fn get_public_settings(
     tx.commit().await?;
 
     Ok(Json(settings))
+}
+
+#[derive(Serialize, Debug)]
+pub struct GitSyncDeployMode {
+    /// At least one git-sync repository is configured for this workspace.
+    pub configured: bool,
+    /// A configured repository has auto-pull enabled, so pushing to the git
+    /// remote makes Windmill deploy the change (server-handled git sync). When
+    /// false, deploying requires `wmill sync push` (directly or via CI).
+    pub deploy_on_push: bool,
+}
+
+/// Non-admin endpoint so the CLI/agent can pick the deploy path (git push vs
+/// `wmill sync push`) without reading the admin-only workspace settings. Exposes
+/// only derived booleans — never repository paths, credentials, or webhook config.
+async fn get_git_sync_deploy_mode(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<GitSyncDeployMode> {
+    let mut tx = user_db.begin(&authed).await?;
+    let git_sync = sqlx::query_scalar!(
+        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| Error::internal_err(format!("getting git_sync settings: {e:#}")))?;
+    tx.commit().await?;
+
+    let settings = not_found_if_none(git_sync, "workspace settings", &w_id)?
+        .and_then(|v| serde_json::from_value::<WorkspaceGitSyncSettings>(v).ok());
+
+    let (configured, deploy_on_push) = match settings {
+        Some(s) => (
+            !s.repositories.is_empty(),
+            s.repositories
+                .iter()
+                .any(|r| r.auto_pull.as_ref().is_some_and(|a| a.enabled)),
+        ),
+        None => (false, false),
+    };
+
+    Ok(Json(GitSyncDeployMode { configured, deploy_on_push }))
 }
 
 async fn get_copilot_settings_state(

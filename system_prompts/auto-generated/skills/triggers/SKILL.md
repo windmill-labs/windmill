@@ -61,7 +61,7 @@ Text/HTML/inline parts are placed inline in `body` as strings.
 
 ## CLI Commands
 
-`wmill sync push` deploys local changes to the workspace and can be destructive to remote state — only suggest/run it when the user explicitly asks to deploy/publish/push, not when they say "run", "try", or "test". `sync pull` is safe to run yourself — it never mutates remote state, though it does overwrite local files to match the remote (use `sync pull --dry-run` to only preview).
+Deploying local changes to the workspace can be destructive to remote state — only suggest/run a deploy when the user explicitly asks to deploy/publish/push, not when they say "run", "try", or "test". If the repo deploys on git push (backend auto-pull or CI — check `wmill gitsync-settings status`), deploy with `git push`; otherwise use `wmill sync push`. `sync pull` is safe to run yourself — it never mutates remote state, though it does overwrite local files to match the remote (use `sync pull --dry-run` to only preview).
 
 ```bash
 # Push trigger configuration — only when the user explicitly asks to deploy
