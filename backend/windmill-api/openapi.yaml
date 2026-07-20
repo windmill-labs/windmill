@@ -5183,6 +5183,45 @@ paths:
                     type: integer
                     nullable: true
 
+  /w/{workspace}/workspaces/git_sync_deploy_mode:
+    get:
+      summary: Get how local changes deploy to this workspace via git sync
+      operationId: getGitSyncDeployMode
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: branch
+          in: query
+          required: false
+          description: The branch the caller would push.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Git sync deploy mode
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - configured
+                  - deploy_on_push
+                properties:
+                  configured:
+                    type: boolean
+                    description: At least one git-sync repository is configured.
+                  deploy_on_push:
+                    type: boolean
+                    description: >-
+                      True means a `git push` is confirmed to deploy via
+                      auto-pull: exactly one licensed, deliverable repository
+                      tracks the branch. False is *not confirmed* rather than a
+                      definite no — it also covers unlicensed, ambiguous
+                      (several repos track it), and conservative false-negatives;
+                      determine the deploy path another way (CI `git push`, or
+                      `wmill sync push`).
+
   /w/{workspace}/workspaces/edit_git_sync_config:
     post:
       summary: edit workspace git sync settings

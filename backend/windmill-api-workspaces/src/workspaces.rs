@@ -135,6 +135,7 @@ pub fn workspaced_service() -> Router {
         .route("/edit_datatable_config", post(edit_datatable_config))
         .merge(crate::datatable_migrations::routes())
         .route("/git_sync_enabled", get(get_git_sync_enabled))
+        .route("/git_sync_deploy_mode", get(get_git_sync_deploy_mode))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
         .route(
@@ -1023,6 +1024,260 @@ async fn get_public_settings(
     tx.commit().await?;
 
     Ok(Json(settings))
+}
+
+#[derive(Deserialize)]
+pub struct GitSyncDeployModeQuery {
+    /// The branch the caller would push.
+    pub branch: Option<String>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct GitSyncDeployMode {
+    /// At least one git-sync repository is configured for this workspace.
+    pub configured: bool,
+    /// Pushing `branch` deploys via server-side auto-pull: exactly one licensed,
+    /// deliverable auto-pull repository tracks it. False (deploy via `git push`
+    /// through CI, or `wmill sync push`) when unlicensed, no repo tracks the
+    /// branch, or several do — with multiple synced repos we can't tell which the
+    /// local checkout is, so the caller asks the user instead.
+    pub deploy_on_push: bool,
+}
+
+/// Whether an enabled auto-pull repo actually has a delivery path that fires, so
+/// a push really deploys — mirroring the poller/webhook. Polling needs an HTTP(S)
+/// URL (SSH is rejected in the background); webhook-only mode needs an active
+/// hook; `auto` needs either. With neither, `enabled` alone never deploys (e.g. a
+/// webhook that failed to register).
+fn has_runnable_delivery(
+    auto_pull: &windmill_common::workspaces::AutoPullSettings,
+    resource: &serde_json::Value,
+) -> bool {
+    let webhook_active = auto_pull.webhook_id.is_some();
+    let is_app = resource
+        .get("is_github_app")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let is_http_url = resource
+        .get("url")
+        .and_then(|v| v.as_str())
+        .map(|u| {
+            let u = u.trim_start();
+            u.starts_with("https://") || u.starts_with("http://")
+        })
+        .unwrap_or(false);
+    // App repos also have a GitHub-API poll fallback, but require an active
+    // webhook here — conservative (errs toward `wmill sync push`) rather than
+    // asserting the app installation can mint a token.
+    let can_poll = !is_app && is_http_url;
+    match auto_pull.mode {
+        windmill_common::workspaces::AutoPullMode::Webhook => webhook_active,
+        windmill_common::workspaces::AutoPullMode::Polling => can_poll,
+        windmill_common::workspaces::AutoPullMode::Auto => webhook_active || can_poll,
+    }
+}
+
+/// Whether pushing `pushed_branch` matches a repo directly tracking
+/// `tracked_branch` (the non-fork case). A blank tracked branch (repo default) is
+/// unresolvable without a network call, so it never matches and the caller falls
+/// back to `wmill sync push`. Fork/dev routing goes through
+/// `windmill_common::workspaces::resolve_fork_branch_target` instead.
+fn deploys_on_push_branch(pushed_branch: &str, tracked_branch: &str) -> bool {
+    !tracked_branch.is_empty() && pushed_branch == tracked_branch
+}
+
+/// Non-admin endpoint so the CLI/agent can pick the deploy path (git push vs
+/// `wmill sync push`) without reading the admin-only workspace settings. Takes
+/// only the branch and returns booleans — no repository URLs, credentials, or
+/// webhook config ever leave the backend.
+async fn get_git_sync_deploy_mode(
+    _authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Query(q): Query<GitSyncDeployModeQuery>,
+    Extension(db): Extension<DB>,
+) -> JsonResult<GitSyncDeployMode> {
+    // A fork clears its own auto-pull; its pushes deploy through the root
+    // ancestor's repo (which owns `sync_forks`), so evaluate the root's settings.
+    let ancestors = windmill_common::workspaces::fork_ancestor_chain(&db, &w_id).await?;
+    let is_fork = !ancestors.is_empty();
+    let root_id = ancestors.last().cloned().unwrap_or_else(|| w_id.clone());
+
+    // Polling and webhook delivery both exclude deleted roots, so an archived
+    // root (or anything beneath one) can't deploy on push — treat a missing row
+    // as archived too.
+    let root_deleted = sqlx::query_scalar!("SELECT deleted FROM workspace WHERE id = $1", &root_id)
+        .fetch_optional(&db)
+        .await?
+        .unwrap_or(true);
+
+    // Read on the plain pool: a fork member may not be a member of the root
+    // workspace, and only derived booleans are returned (never the settings).
+    let git_sync = sqlx::query_scalar!(
+        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+        &root_id
+    )
+    .fetch_optional(&db)
+    .await
+    .map_err(|e| Error::internal_err(format!("getting git_sync settings: {e:#}")))?;
+
+    let settings = git_sync.flatten().and_then(|v| {
+        serde_json::from_value::<WorkspaceGitSyncSettings>(v)
+            .map_err(|e| {
+                tracing::warn!(
+                    "git_sync deploy mode: settings deserialize failed for {root_id}: {e}"
+                )
+            })
+            .ok()
+    });
+
+    // Missing settings row / null git_sync means nothing is configured, not a 404.
+    let Some(settings) = settings else {
+        return Ok(Json(GitSyncDeployMode {
+            configured: false,
+            deploy_on_push: false,
+        }));
+    };
+
+    let configured = !settings.repositories.is_empty();
+
+    // Auto-pull runs only on Enterprise-licensed instances (see poll_git_auto_pull);
+    // without a caller branch there is nothing to match. Either way deploy_on_push
+    // stays false and the caller falls back (git push via CI, or wmill sync push).
+    let Some(branch) = q.branch.as_deref() else {
+        return Ok(Json(GitSyncDeployMode {
+            configured,
+            deploy_on_push: false,
+        }));
+    };
+    let licensed = matches!(
+        windmill_common::ee_oss::get_license_plan().await,
+        windmill_common::ee_oss::LicensePlan::Enterprise
+    );
+
+    // Count the auto-pull repos that would deploy this branch. We deliberately do
+    // not check the caller's remote URL: with exactly one such repo the local
+    // checkout is unambiguously it, and with several we can't tell which is the
+    // caller's, so we report false and let the CLI ask the user.
+    let mut matches = 0u32;
+    if licensed && !root_deleted {
+        for repo in &settings.repositories {
+            let Some(auto_pull) = repo.auto_pull.as_ref() else {
+                continue;
+            };
+            if !auto_pull.enabled {
+                continue;
+            }
+            // A fork deploys only through the root's sync_forks repos.
+            if is_fork && !auto_pull.sync_forks {
+                continue;
+            }
+            // Interpolates `$var:`/`$res:` as the auto-pull poller does.
+            // allow_cache=false: an on-demand status must reflect the current
+            // repo config, not a value cached by an earlier poll.
+            let Some(value) = windmill_store::resources::resolve_git_repository_resource(
+                &db,
+                &root_id,
+                &repo.git_repo_resource_path,
+                false,
+            )
+            .await?
+            else {
+                continue;
+            };
+            // `enabled` isn't enough: without a runnable delivery path (active
+            // webhook, or pollable non-app HTTPS repo) the push never deploys.
+            if !has_runnable_delivery(auto_pull, &value) {
+                continue;
+            }
+            let tracked_branch = value.get("branch").and_then(|v| v.as_str()).unwrap_or("");
+            let deploys = if is_fork {
+                // Fork/dev routing (wm-fork/* or an env-label branch) resolved by
+                // the same logic the auto-pull reconciler uses; this repo counts
+                // only if the branch routes to *this* workspace.
+                windmill_common::workspaces::resolve_fork_branch_target(
+                    &db,
+                    &root_id,
+                    &repo.git_repo_resource_path,
+                    branch,
+                    tracked_branch,
+                )
+                .await?
+                .is_some_and(|(fork_id, _)| fork_id == w_id)
+            } else {
+                deploys_on_push_branch(branch, tracked_branch)
+            };
+            if deploys {
+                matches += 1;
+            }
+        }
+    }
+
+    Ok(Json(GitSyncDeployMode {
+        configured,
+        deploy_on_push: matches == 1,
+    }))
+}
+
+#[cfg(test)]
+mod git_sync_deploy_mode_tests {
+    use super::{deploys_on_push_branch, has_runnable_delivery};
+    use serde_json::json;
+    use windmill_common::workspaces::{AutoPullMode, AutoPullSettings};
+
+    fn auto_pull(mode: AutoPullMode, webhook_id: Option<i64>) -> AutoPullSettings {
+        AutoPullSettings { enabled: true, mode, webhook_id, ..Default::default() }
+    }
+
+    #[test]
+    fn runnable_delivery_requires_a_firing_path() {
+        let https = json!({ "url": "https://github.com/o/r.git" });
+        let ssh = json!({ "url": "git@github.com:o/r.git" });
+        let app = json!({ "url": "https://github.com/o/r.git", "is_github_app": true });
+        // Polling serves only non-app HTTPS repos (SSH is rejected in background).
+        assert!(has_runnable_delivery(
+            &auto_pull(AutoPullMode::Auto, None),
+            &https
+        ));
+        assert!(has_runnable_delivery(
+            &auto_pull(AutoPullMode::Polling, None),
+            &https
+        ));
+        assert!(!has_runnable_delivery(
+            &auto_pull(AutoPullMode::Polling, None),
+            &ssh
+        ));
+        assert!(!has_runnable_delivery(
+            &auto_pull(AutoPullMode::Auto, None),
+            &ssh
+        ));
+        // Webhook-only mode needs an active hook.
+        assert!(!has_runnable_delivery(
+            &auto_pull(AutoPullMode::Webhook, None),
+            &https
+        ));
+        assert!(has_runnable_delivery(
+            &auto_pull(AutoPullMode::Webhook, Some(1)),
+            &https
+        ));
+        // App repos are gated on an active webhook here (conservative): their
+        // API poll-fallback may still deploy, so this is a safe under-report.
+        assert!(!has_runnable_delivery(
+            &auto_pull(AutoPullMode::Auto, None),
+            &app
+        ));
+        assert!(has_runnable_delivery(
+            &auto_pull(AutoPullMode::Auto, Some(1)),
+            &app
+        ));
+    }
+
+    #[test]
+    fn non_fork_matches_tracked_branch_only() {
+        assert!(deploys_on_push_branch("main", "main"));
+        assert!(!deploys_on_push_branch("dev", "main"));
+        // An unresolved default (blank) tracked branch never matches.
+        assert!(!deploys_on_push_branch("main", ""));
+    }
 }
 
 async fn get_copilot_settings_state(
