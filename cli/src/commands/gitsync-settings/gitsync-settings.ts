@@ -61,6 +61,10 @@ const command = new Command()
     "Report how local changes deploy to the workspace (git push vs wmill sync push)",
   )
   .option("--json-output", "Output in JSON format")
+  .option(
+    "--remote <remote:string>",
+    "Git remote to check (default: origin)",
+  )
   .action(gitSyncStatus as any);
 
 export { pullGitSyncSettings, pushGitSyncSettings, gitSyncStatus };

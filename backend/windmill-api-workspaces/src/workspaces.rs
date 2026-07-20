@@ -1026,28 +1026,62 @@ async fn get_public_settings(
     Ok(Json(settings))
 }
 
+#[derive(Deserialize)]
+pub struct GitSyncDeployModeQuery {
+    /// The caller's local git remote URL (`git remote get-url`). Matched
+    /// server-side against each auto-pull repository's URL; never stored or
+    /// echoed back. Omit outside a git checkout.
+    pub remote: Option<String>,
+    /// The branch the caller would push.
+    pub branch: Option<String>,
+}
+
 #[derive(Serialize, Debug)]
 pub struct GitSyncDeployMode {
     /// At least one git-sync repository is configured for this workspace.
     pub configured: bool,
-    /// Some configured repository has auto-pull enabled on an Enterprise-licensed
-    /// instance, so Windmill deploys pushes to its tracked branch. Pushing any
-    /// other branch does not deploy — match the pushed branch against
-    /// `auto_pull_branches` before recommending `git push`.
+    /// Pushing `branch` to `remote` deploys: a licensed auto-pull repository
+    /// matches that exact remote and tracked branch. False (deploy via
+    /// `wmill sync push`) when unlicensed, unmatched, or `remote`/`branch` absent.
     pub deploy_on_push: bool,
-    /// Tracked branches of the auto-pull repositories (deduplicated). Empty unless
-    /// the instance is licensed for auto-pull. `git push` deploys the current
-    /// checkout only when its branch is listed here.
-    pub auto_pull_branches: Vec<String>,
+}
+
+/// Normalize a git remote URL to `host/path` for identity comparison, dropping
+/// any embedded `user:token@` credentials, the scheme, `.git` suffix, and case.
+/// Building the result from parsed components (rather than scrubbing the string)
+/// guarantees no credential can survive. Returns None if it can't be parsed, so
+/// the caller treats it as "no match" rather than leaking or false-matching.
+fn normalize_git_remote(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    let (host, path) = if raw.contains("://") {
+        let url = url::Url::parse(raw).ok()?;
+        (url.host_str()?.to_string(), url.path().to_string())
+    } else {
+        // scp-like syntax: [user@]host:path
+        let (host_part, path) = raw.split_once(':')?;
+        let host = host_part.rsplit('@').next()?;
+        (host.to_string(), path.to_string())
+    };
+    let host = host.to_ascii_lowercase();
+    let path = path
+        .trim_start_matches('/')
+        .trim_end_matches('/')
+        .trim_end_matches(".git")
+        .to_ascii_lowercase();
+    if host.is_empty() {
+        return None;
+    }
+    Some(format!("{host}/{path}"))
 }
 
 /// Non-admin endpoint so the CLI/agent can pick the deploy path (git push vs
-/// `wmill sync push`) without reading the admin-only workspace settings. Exposes
-/// only whether auto-pull is active and which branches it tracks — never
-/// repository resource paths, credentials, or webhook config.
+/// `wmill sync push`) without reading the admin-only workspace settings. Matches
+/// the caller's remote+branch server-side and returns only booleans — no
+/// repository URLs, credentials, or webhook config ever leave the backend.
 async fn get_git_sync_deploy_mode(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
+    Query(q): Query<GitSyncDeployModeQuery>,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<GitSyncDeployMode> {
@@ -1061,7 +1095,7 @@ async fn get_git_sync_deploy_mode(
     .map_err(|e| Error::internal_err(format!("getting git_sync settings: {e:#}")))?;
     tx.commit().await?;
 
-    let settings = not_found_if_none(git_sync, "workspace settings", &w_id)?.and_then(|v| {
+    let settings = git_sync.flatten().and_then(|v| {
         serde_json::from_value::<WorkspaceGitSyncSettings>(v)
             .map_err(|e| {
                 tracing::warn!("git_sync deploy mode: settings deserialize failed for {w_id}: {e}")
@@ -1069,55 +1103,111 @@ async fn get_git_sync_deploy_mode(
             .ok()
     });
 
+    // Missing settings row / null git_sync means nothing is configured, not a 404.
     let Some(settings) = settings else {
         return Ok(Json(GitSyncDeployMode {
             configured: false,
             deploy_on_push: false,
-            auto_pull_branches: vec![],
         }));
     };
 
-    // Auto-pull only runs on Enterprise-licensed instances (see poll_git_auto_pull),
-    // so a retained `enabled` flag on a CE build or downgraded workspace must not
-    // advertise deploy-on-push.
+    let configured = !settings.repositories.is_empty();
+
+    // Deploy-on-push needs all three to line up: auto-pull runs only on
+    // Enterprise-licensed instances (see poll_git_auto_pull), and only pushes to
+    // the matching repo's tracked branch deploy. Without a caller remote/branch
+    // there is nothing to match, so it stays false (safe: `wmill sync push`).
+    let (Some(remote), Some(branch)) = (q.remote.as_deref(), q.branch.as_deref()) else {
+        return Ok(Json(GitSyncDeployMode {
+            configured,
+            deploy_on_push: false,
+        }));
+    };
     let licensed = matches!(
         windmill_common::ee_oss::get_license_plan().await,
         windmill_common::ee_oss::LicensePlan::Enterprise
     );
 
     let mut deploy_on_push = false;
-    let mut auto_pull_branches: Vec<String> = Vec::new();
     if licensed {
-        for repo in &settings.repositories {
-            if !repo.auto_pull.as_ref().is_some_and(|a| a.enabled) {
-                continue;
-            }
-            deploy_on_push = true;
-            // Read only the tracked branch name (not the resource secret), on the
-            // plain pool so a non-admin member without resource RLS access still
-            // gets an accurate answer.
-            let path = repo.git_repo_resource_path.trim_start_matches("$res:");
-            let branch: Option<String> = sqlx::query_scalar!(
-                "SELECT value->>'branch' FROM resource WHERE workspace_id = $1 AND path = $2",
-                &w_id,
-                path
-            )
-            .fetch_optional(&db)
-            .await?
-            .flatten();
-            if let Some(branch) = branch {
-                if !auto_pull_branches.contains(&branch) {
-                    auto_pull_branches.push(branch);
+        if let Some(remote_norm) = normalize_git_remote(remote) {
+            for repo in &settings.repositories {
+                if !repo.auto_pull.as_ref().is_some_and(|a| a.enabled) {
+                    continue;
+                }
+                // Read the repo URL + tracked branch on the plain pool (bypassing
+                // resource RLS) so a non-admin member still gets an accurate
+                // answer; the URL is only compared, never returned.
+                let path = repo.git_repo_resource_path.trim_start_matches("$res:");
+                let row = sqlx::query!(
+                    "SELECT value->>'url' as url, value->>'branch' as branch \
+                     FROM resource WHERE workspace_id = $1 AND path = $2",
+                    &w_id,
+                    path
+                )
+                .fetch_optional(&db)
+                .await?;
+                let Some(row) = row else { continue };
+                let matches_remote = row
+                    .url
+                    .as_deref()
+                    .and_then(normalize_git_remote)
+                    .is_some_and(|repo_norm| repo_norm == remote_norm);
+                // A blank/absent tracked branch means the repo default branch,
+                // which we can't resolve here without a network call — leave
+                // deploy_on_push false so it falls back to `wmill sync push`.
+                if matches_remote && row.branch.as_deref() == Some(branch) {
+                    deploy_on_push = true;
+                    break;
                 }
             }
         }
     }
 
-    Ok(Json(GitSyncDeployMode {
-        configured: !settings.repositories.is_empty(),
-        deploy_on_push,
-        auto_pull_branches,
-    }))
+    Ok(Json(GitSyncDeployMode { configured, deploy_on_push }))
+}
+
+#[cfg(test)]
+mod git_sync_deploy_mode_tests {
+    use super::normalize_git_remote;
+
+    #[test]
+    fn strips_credentials_and_normalizes() {
+        let expected = Some("github.com/org/repo".to_string());
+        // Embedded PAT in userinfo must never survive normalization.
+        assert_eq!(
+            normalize_git_remote("https://user:ghp_secret@github.com/org/repo.git"),
+            expected
+        );
+        assert_eq!(
+            normalize_git_remote("https://x-access-token:ghp_secret@github.com/org/repo"),
+            expected
+        );
+        assert_eq!(
+            normalize_git_remote("https://github.com/Org/Repo.git"),
+            expected
+        );
+        assert_eq!(
+            normalize_git_remote("git@github.com:org/repo.git"),
+            expected
+        );
+        assert_eq!(
+            normalize_git_remote("ssh://git@github.com/org/repo.git"),
+            expected
+        );
+        assert_eq!(
+            normalize_git_remote("https://github.com/org/repo/"),
+            expected
+        );
+    }
+
+    #[test]
+    fn distinct_repos_do_not_match() {
+        assert_ne!(
+            normalize_git_remote("https://github.com/org/infra.git"),
+            normalize_git_remote("https://github.com/org/scripts.git")
+        );
+    }
 }
 
 async fn get_copilot_settings_state(

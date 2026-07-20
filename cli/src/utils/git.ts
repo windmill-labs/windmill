@@ -20,6 +20,21 @@ export function getCurrentGitBranch(): string | null {
   }
 }
 
+/** The URL of the given git remote (default `origin`), or null if unset / not a git repo. */
+export function getGitRemoteUrl(remote = "origin"): string | null {
+  try {
+    const result = execSync(`git remote get-url ${remote}`, {
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    const url = result.trim();
+    return url || null;
+  } catch (error) {
+    log.debug(`Failed to get Git remote url: ${error}`);
+    return null;
+  }
+}
+
 /** Whether a local branch with this exact name exists. */
 export function gitBranchExists(branchName: string): boolean {
   const r = spawnSync(

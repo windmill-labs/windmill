@@ -5191,6 +5191,20 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: remote
+          in: query
+          required: false
+          description: >-
+            The caller's local git remote URL (`git remote get-url`). Matched
+            server-side against each auto-pull repository; never stored or echoed.
+          schema:
+            type: string
+        - name: branch
+          in: query
+          required: false
+          description: The branch the caller would push.
+          schema:
+            type: string
       responses:
         "200":
           description: Git sync deploy mode
@@ -5201,7 +5215,6 @@ paths:
                 required:
                   - configured
                   - deploy_on_push
-                  - auto_pull_branches
                 properties:
                   configured:
                     type: boolean
@@ -5209,17 +5222,10 @@ paths:
                   deploy_on_push:
                     type: boolean
                     description: >-
-                      Some repository has auto-pull enabled on a licensed
-                      instance, so pushing its tracked branch deploys. Match the
-                      pushed branch against auto_pull_branches; other branches
-                      deploy via `wmill sync push`.
-                  auto_pull_branches:
-                    type: array
-                    items:
-                      type: string
-                    description: >-
-                      Tracked branches of the auto-pull repositories. `git push`
-                      deploys the current checkout only when its branch is listed.
+                      Pushing branch to remote deploys: a licensed auto-pull
+                      repository matches that exact remote and tracked branch.
+                      False (deploy via `wmill sync push`) when unlicensed,
+                      unmatched, or remote/branch absent.
 
   /w/{workspace}/workspaces/edit_git_sync_config:
     post:
