@@ -21,7 +21,6 @@ use windmill_audit::ActionKind;
 use windmill_common::worker::CLOUD_HOSTED;
 
 use windmill_common::{
-    auth::is_super_admin_email,
     db::UserDB,
     error::{Error, Result},
     utils::require_admin,
@@ -43,14 +42,14 @@ pub(crate) async fn change_workspace_id(
     Extension(db): Extension<DB>,
     Json(rw): Json<ChangeWorkspaceId>,
 ) -> Result<String> {
-    if *CLOUD_HOSTED && !is_super_admin_email(&db, &authed.email).await? {
+    if *CLOUD_HOSTED && !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
         return Err(Error::BadRequest(
             "This feature is not available on the cloud".to_string(),
         ));
     }
 
     if *CREATE_WORKSPACE_REQUIRE_SUPERADMIN {
-        require_super_admin(&db, &authed.email).await?;
+        require_super_admin(&db, &authed).await?;
     } else {
         require_admin(authed.is_admin, &authed.username)?;
     }
@@ -871,7 +870,7 @@ pub(crate) async fn delete_workspace(
 
     let mut tx = db.begin().await?;
     if !(is_fork && is_workspace_owner(&authed, &w_id, &mut tx).await?)
-        && !is_super_admin_email(&db, &authed.email).await?
+        && !windmill_api_auth::is_super_admin_authed(&db, &authed).await?
     {
         return Err(Error::PermissionDenied(
             "Deleting this workspace requires being the fork's owner or a superadmin".to_string(),
@@ -1217,7 +1216,7 @@ pub async fn drop_forked_datatable_databases(
     let is_fork = workspace_is_fork(&db, &w_id).await?;
     let mut tx = db.begin().await?;
     if !(is_fork && is_workspace_owner(&authed, &w_id, &mut tx).await?)
-        && !is_super_admin_email(&db, &authed.email).await?
+        && !windmill_api_auth::is_super_admin_authed(&db, &authed).await?
     {
         return Err(Error::PermissionDenied(
             "Dropping forked datatable databases requires being the fork's owner or a superadmin"
@@ -1374,7 +1373,7 @@ pub async fn drop_forked_ducklake_namespaces(
     let is_fork = workspace_is_fork(&db, &w_id).await?;
     let mut tx = db.begin().await?;
     if !(is_fork && is_workspace_owner(&authed, &w_id, &mut tx).await?)
-        && !is_super_admin_email(&db, &authed.email).await?
+        && !windmill_api_auth::is_super_admin_authed(&db, &authed).await?
     {
         return Err(Error::PermissionDenied(
             "Dropping forked ducklake namespaces requires being the fork's owner or a superadmin"
@@ -1879,7 +1878,7 @@ async fn require_prod_admin_for_dev_workspace(
         .fetch_optional(db)
         .await?
         .unwrap_or(false);
-        if !is_prod_admin && !is_super_admin_email(db, &authed.email).await? {
+        if !is_prod_admin && !windmill_api_auth::is_super_admin_authed(db, &authed).await? {
             return Err(Error::PermissionDenied(format!(
                 "Destroying dev workspace '{w_id}' or its data requires being an admin of its parent prod workspace '{prod}' (or a superadmin)"
             )));

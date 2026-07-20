@@ -204,3 +204,293 @@ async fn test_wm_token_cannot_manage_superadmin_users(db: Pool<Postgres>) -> any
 
     Ok(())
 }
+
+/// A WM_TOKEN running as a superadmin must be rejected by *any* `require_super_admin`
+/// route, not just the handful that call `forbid_superadmin_job_token`. `GET
+/// /api/settings/list_global` is gated solely by `require_super_admin`, so it
+/// exercises the token-layer guard (GHSA-hfh4-cx4h-3fcr).
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_wm_token_rejected_by_require_super_admin(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    set_jwt_secret().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api");
+
+    // The exact token a deployer obtains via an app on_behalf_of pointed at a superadmin.
+    let sa_wm = wm_token("test@windmill.dev", true).await;
+    let resp = authed(client().get(format!("{base}/settings/list_global")), &sa_wm)
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "superadmin WM_TOKEN must not reach a require_super_admin route: {}",
+        resp.text().await?
+    );
+
+    // No false positive: a real superadmin API token (no job_id) still reaches it.
+    let resp = authed(
+        client().get(format!("{base}/settings/list_global")),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "a real superadmin token must still reach the route: {}",
+        resp.text().await?
+    );
+
+    Ok(())
+}
+
+/// Direct `is_super_admin_email` authorization gates (not routed through
+/// `require_super_admin`) must also reject a superadmin `WM_TOKEN`. Covers the two
+/// bypass classes the CI review flagged: destructive `delete_workspace`, and the
+/// `CUSTOM_INSTANCE_DB` credential lookup whose guard must read the *authenticated*
+/// `job_id`, not the caller-supplied `?job_id` query param (GHSA-hfh4-cx4h-3fcr).
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_wm_token_rejected_by_direct_super_admin_gates(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    set_jwt_secret().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api");
+
+    let sa_wm = wm_token("test@windmill.dev", true).await;
+
+    // 1. Global workspace deletion (destructive) — must be forbidden.
+    let resp = authed(
+        client().delete(format!("{base}/workspaces/delete/test-workspace")),
+        &sa_wm,
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "superadmin WM_TOKEN must not delete a workspace: {}",
+        resp.text().await?
+    );
+    // The workspace must still exist.
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workspace WHERE id = 'test-workspace')")
+            .fetch_one(&db)
+            .await?;
+    assert!(
+        exists,
+        "rejected delete must not have removed the workspace"
+    );
+
+    // 2. CUSTOM_INSTANCE_DB credential lookup, WITHOUT the ?job_id query param —
+    //    the guard must reject based on the authenticated token's job_id.
+    let resp = authed(
+        client().get(format!(
+            "{base}/w/test-workspace/resources/get_value_interpolated/CUSTOM_INSTANCE_DB/anydb"
+        )),
+        &sa_wm,
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "superadmin WM_TOKEN must not resolve CUSTOM_INSTANCE_DB (no creds leak): {}",
+        resp.text().await?
+    );
+
+    Ok(())
+}
+
+/// The instance-level `devops` role must be capped like superadmin.
+/// `is_devops_email` returns true for superadmin emails, so every
+/// `require_devops_role` route (worker management, instance config, service logs)
+/// is reachable by exactly the same superadmin `WM_TOKEN` unless it is capped too
+/// (GHSA-hfh4-cx4h-3fcr).
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_wm_token_rejected_by_require_devops_role(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    set_jwt_secret().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api");
+
+    let sa_wm = wm_token("test@windmill.dev", true).await;
+    let resp = authed(client().get(format!("{base}/service_logs/list_files")), &sa_wm)
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "superadmin WM_TOKEN must not reach a require_devops_role route: {}",
+        resp.text().await?
+    );
+
+    // No false positive: a real superadmin API token (no job_id) still reaches it.
+    let resp = authed(
+        client().get(format!("{base}/service_logs/list_files")),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "a real superadmin token must still reach the devops route: {}",
+        resp.text().await?
+    );
+
+    // The advisory's own PoC route: the full user directory, gated solely by
+    // `require_super_admin` with no per-route job-token denylist.
+    let resp = authed(
+        client().get(format!("{base}/users/list_as_super_admin")),
+        &sa_wm,
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "superadmin WM_TOKEN must not list all users: {}",
+        resp.text().await?
+    );
+
+    Ok(())
+}
+
+/// A job token must not clear an *admin-or-devops* gate via the devops branch.
+/// `require_admin_or_devops` (the EE critical-alerts endpoints) grants when the
+/// caller is a workspace admin OR an instance `devops`; since `is_devops_email`
+/// is true for superadmins, a WM_TOKEN running on-behalf of a superadmin who is
+/// NOT a member of the target workspace would otherwise gain workspace-scoped
+/// devops access to a workspace it has no admin rights in (GHSA-hfh4-cx4h-3fcr).
+/// The workspace-admin branch stays allowed — that is the cap ceiling.
+#[cfg(feature = "enterprise")]
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_wm_token_rejected_by_admin_or_devops_gate(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    set_jwt_secret().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/workspaces");
+
+    // superadmin-external is a superadmin but not a member of test-workspace, so
+    // its workspace-level is_admin is false — the exact exploit precondition.
+    let sa_wm = wm_token("superadmin-external@windmill.dev", false).await;
+    let resp = authed(client().get(format!("{base}/critical_alerts")), &sa_wm)
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "superadmin WM_TOKEN must not clear the admin-or-devops gate on a workspace it isn't admin of: {}",
+        resp.text().await?
+    );
+
+    // No false positive: the same superadmin's real API token (not a job token)
+    // still clears the gate via the devops branch.
+    let resp = authed(
+        client().get(format!("{base}/critical_alerts")),
+        "EXTERNAL_SUPERADMIN_TOKEN",
+    )
+    .send()
+    .await?;
+    assert_ne!(
+        resp.status(),
+        403,
+        "a real superadmin token must still clear the admin-or-devops gate: {}",
+        resp.text().await?
+    );
+
+    Ok(())
+}
+
+/// Instance-global routes with no workspace binding that gate on the caller's own
+/// `is_admin` claim must reject a WM_TOKEN — `is_admin` is a workspace-admin claim
+/// (also true for superadmins), and a job token is capped at workspace admin, so it
+/// must not wield that claim as instance authorization (GHSA-hfh4-cx4h-3fcr).
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_wm_token_rejected_by_instance_admin_gates(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    set_jwt_secret().await;
+
+    // A worker-group config carrying a static env value that must stay masked.
+    sqlx::query(
+        "INSERT INTO config (name, config) VALUES ('worker__wm2082grp', $1)",
+    )
+    .bind(json!({ "env_vars_static": { "LEAKY": "supersecretvalue" } }))
+    .execute(&db)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api");
+
+    // The exact token a deployer obtains via an app on_behalf_of pointed at a
+    // superadmin: is_admin=true, but carrying a job_id.
+    let sa_wm = wm_token("test@windmill.dev", true).await;
+
+    // 1. Arbitrary workspace unarchive (mutation on any workspace by id).
+    let resp = authed(
+        client().post(format!("{base}/workspaces/unarchive/test-workspace")),
+        &sa_wm,
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "superadmin WM_TOKEN must not unarchive an arbitrary workspace: {}",
+        resp.text().await?
+    );
+
+    // 2. Global concurrency-group pruning.
+    let resp = authed(
+        client().delete(format!("{base}/concurrency_groups/prune/anykey")),
+        &sa_wm,
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "superadmin WM_TOKEN must not prune a global concurrency group: {}",
+        resp.text().await?
+    );
+
+    // 3. Worker-group config: the static env value must be masked for a job token.
+    let body = authed(client().get(format!("{base}/configs/list_worker_groups")), &sa_wm)
+        .send()
+        .await?
+        .text()
+        .await?;
+    assert!(
+        !body.contains("supersecretvalue"),
+        "superadmin WM_TOKEN must get the obfuscated worker-group view: {body}"
+    );
+
+    // No false positive: a real superadmin API token (no job_id) still sees the
+    // unobfuscated value — the cap keys off the job token, not the identity.
+    let body = authed(
+        client().get(format!("{base}/configs/list_worker_groups")),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?
+    .text()
+    .await?;
+    assert!(
+        body.contains("supersecretvalue"),
+        "a real superadmin token must still see the unobfuscated worker-group config: {body}"
+    );
+
+    Ok(())
+}

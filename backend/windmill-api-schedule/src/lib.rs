@@ -308,6 +308,13 @@ async fn create_schedule(
     )
     .await?;
 
+    // Reject a forged superadmin run identity in a preserved permissioned_as
+    // (the sentinel guard; the email is derived from it so it always belongs).
+    windmill_common::auth::validate_on_behalf_of(
+        Some(&resolved_permissioned_as),
+        Some(&resolved_email),
+    )?;
+
     let schedule = sqlx::query_as!(
         Schedule,
         r#"
@@ -519,6 +526,13 @@ async fn edit_schedule(
     } else {
         authed.email.clone()
     };
+
+    // Reject a forged superadmin run identity in a preserved permissioned_as
+    // (the sentinel guard; the email is derived from it so it always belongs).
+    windmill_common::auth::validate_on_behalf_of(
+        Some(&resolved_permissioned_as),
+        Some(&resolved_email),
+    )?;
 
     let schedule = sqlx::query_as!(
         Schedule,
@@ -1318,7 +1332,7 @@ async fn set_default_error_handler(
     Path(w_id): Path<String>,
     Json(payload): Json<ErrorOrRecoveryHandler>,
 ) -> Result<()> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     let (key, value) = match payload.handler_type {
         HandlerType::Error => {
             let key = format!("default_error_handler_{}", w_id);

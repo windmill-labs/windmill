@@ -1,4 +1,4 @@
-use windmill_api_auth::{check_scopes, ApiAuthed};
+use windmill_api_auth::{check_scopes, is_instance_admin, ApiAuthed};
 use windmill_common::{
     db::{UserDB, DB},
     error::Error::PermissionDenied,
@@ -66,7 +66,9 @@ async fn prune_concurrency_group(
     Extension(db): Extension<DB>,
     Path(concurrency_key): Path<String>,
 ) -> JsonResult<()> {
-    if !authed.is_admin {
+    // Global concurrency-group pruning gated on the caller's own is_admin claim,
+    // so a job token (capped at workspace admin) must not pass.
+    if !is_instance_admin(&authed) {
         return Err(PermissionDenied(
             "Only administrators can delete concurrency groups".to_string(),
         ));

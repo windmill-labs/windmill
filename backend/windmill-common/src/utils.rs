@@ -246,10 +246,16 @@ pub async fn require_admin_or_devops(
     is_admin: bool,
     username: &str,
     email: &str,
+    // True when the caller is a job token (`$WM_TOKEN`). `devops` is instance-level
+    // and `is_devops_email` is true for superadmins, so a job token whose on_behalf_of
+    // a `wm_deployers` member pointed at a superadmin would otherwise clear the devops
+    // branch on a workspace it isn't admin of (GHSA-hfh4-cx4h-3fcr). Workspace admin
+    // (`is_admin`) stays allowed — that is the cap ceiling.
+    is_job_token: bool,
     db: &DB,
 ) -> Result<()> {
     if !is_admin {
-        if !is_devops_email(db, email).await? {
+        if is_job_token || !is_devops_email(db, email).await? {
             return Err(Error::RequireAdmin(username.to_string()));
         }
     }

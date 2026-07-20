@@ -680,7 +680,7 @@ async fn datatable_migrations_status(
 /// Only workspace admins and super admins may opt a data table in or out of
 /// migrations.
 async fn require_datatable_migrations_manager(db: &DB, authed: &ApiAuthed) -> Result<()> {
-    if authed.is_admin || require_super_admin(db, &authed.email).await.is_ok() {
+    if authed.is_admin || require_super_admin(db, &authed).await.is_ok() {
         Ok(())
     } else {
         Err(Error::BadRequest(

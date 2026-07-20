@@ -5434,25 +5434,25 @@ async fn test_fork_marker_tag_admission_through_lineage(db: Pool<Postgres>) -> a
         "bare(test-workspace)".to_string(),
     ])));
 
-    // test2 is not a superadmin, who would bypass the scope check entirely.
-    let email = "test2@windmill.dev";
+    // A non-superadmin caller (a superadmin would bypass the scope check entirely).
+    let is_super_admin = false;
 
     for (w_id, tag) in [("test-workspace", "bare"), ("test-workspace", "forky")] {
         assert!(
-            check_tag_available_for_workspace_internal(&db, w_id, tag, email, None)
+            check_tag_available_for_workspace_internal(&db, w_id, tag, is_super_admin, None)
                 .await
                 .is_ok(),
             "{tag} should be available in the workspace it names"
         );
     }
     assert!(
-        check_tag_available_for_workspace_internal(&db, fork, "forky", email, None)
+        check_tag_available_for_workspace_internal(&db, fork, "forky", is_super_admin, None)
             .await
             .is_ok(),
         "a `*` tag must be granted to a fork through its parent lineage"
     );
     assert!(
-        check_tag_available_for_workspace_internal(&db, fork, "bare", email, None)
+        check_tag_available_for_workspace_internal(&db, fork, "bare", is_super_admin, None)
             .await
             .is_err(),
         "an unmarked tag must not reach a fork of the workspace it names"

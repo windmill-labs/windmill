@@ -115,7 +115,7 @@ async fn list_ext_jwt_tokens(
     Extension(db): Extension<DB>,
     Query(query): Query<ListExtJwtTokensQuery>,
 ) -> Result<Json<Vec<ExternalJwtToken>>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
 
     let (per_page, offset) = windmill_common::utils::paginate(windmill_common::utils::Pagination {
         page: query.page,
@@ -159,7 +159,7 @@ async fn set_password_of_user(
     OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(ep): Json<EditPassword>,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     crate::users_oss::set_password(db, argon2, authed, &email, ep).await
 }
@@ -176,7 +176,7 @@ async fn rename_user(
     Extension(db): Extension<DB>,
     Json(ru): Json<RenameUser>,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
 
     let mut tx = db.begin().await?;
