@@ -1029,6 +1029,7 @@ function scriptToItem(script: Script | NewScript, includeValue: boolean): Worksp
 		summary: script.summary,
 		language: script.language,
 		value: includeValue ? script.content : undefined,
+		schema: includeValue ? (script as Script).schema : undefined,
 		isDraft: false
 	}
 }

@@ -521,6 +521,7 @@ describe('global AI tools', () => {
 			getDraft: false
 		})
 		expect(item.isDraft).toBe(false)
+		expect(item.schema).toEqual({ properties: { name: { type: 'string' } } })
 		expect(raw).toContain('main(name: string)')
 		expect(raw).not.toContain('renamed_input')
 		expect(raw).not.toContain('db_draft_input')
