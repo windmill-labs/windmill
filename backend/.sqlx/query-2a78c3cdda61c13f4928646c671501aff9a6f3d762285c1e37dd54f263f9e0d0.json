@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO v2_job_queue (id, workspace_id, tag, running, scheduled_for,\n                                           concurrency_gated_at, concurrency_gate_id, canceled_by)\n                 VALUES ($1, 'test-workspace', $2, false, NOW() - INTERVAL '5 minutes',\n                         CASE WHEN $3::bigint IS NULL THEN NULL\n                              ELSE NOW() - INTERVAL '1 second' * $3::bigint END,\n                         $4,\n                         CASE WHEN $5 THEN 'canceller' ELSE NULL END)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Int8",
+        "Varchar",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2a78c3cdda61c13f4928646c671501aff9a6f3d762285c1e37dd54f263f9e0d0"
+}

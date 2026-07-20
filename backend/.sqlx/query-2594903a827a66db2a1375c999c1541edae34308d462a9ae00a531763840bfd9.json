@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO concurrency_locks (id, last_locked_at) VALUES ('concurrency_gate_alerts_lock', NOW() - INTERVAL '1 hour')\n             ON CONFLICT (id) DO UPDATE SET last_locked_at = EXCLUDED.last_locked_at",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "2594903a827a66db2a1375c999c1541edae34308d462a9ae00a531763840bfd9"
+}

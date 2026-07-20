@@ -45,6 +45,7 @@ export interface Setting {
 		| 'object_store_config'
 		| 'critical_error_channels'
 		| 'critical_alerts_on_db_oversize'
+		| 'critical_alerts_on_oversubscribed_gates'
 		| 'slack_connect'
 		| 'smtp_connect'
 		| 'indexer_rates'
@@ -830,6 +831,16 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'boolean',
 			storage: 'setting',
 			ee_only: ''
+		},
+		{
+			label: 'Alert on oversubscribed concurrency limits',
+			description:
+				'Send critical alerts when a concurrency limit takes in jobs faster than it can run them, so its backlog can never drain and those jobs will never execute. The alert names the workspace, the concurrency key and the rate being exceeded. Turn this off to stop these alerts entirely; it takes effect immediately, no restart needed.',
+			key: 'critical_alerts_on_oversubscribed_gates',
+			fieldType: 'boolean',
+			storage: 'setting',
+			defaultValue: () => true,
+			ee_only: 'Critical alerts are only available in the EE version'
 		},
 		{
 			label: 'Slack',

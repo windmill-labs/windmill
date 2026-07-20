@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO global_settings (name, value) VALUES ('alert_job_queue_waiting', $1)\n             ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "60fd41168e43e3d283ec8d3f7f6702368037d470924bd5b221d53884926bbd10"
+}

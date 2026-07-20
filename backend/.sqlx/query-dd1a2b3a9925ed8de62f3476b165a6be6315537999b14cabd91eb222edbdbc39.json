@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) FROM healthchecks\n             WHERE check_type LIKE 'concurrency_gate_alert_%' AND healthy = false",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "dd1a2b3a9925ed8de62f3476b165a6be6315537999b14cabd91eb222edbdbc39"
+}

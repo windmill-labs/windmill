@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO v2_job_queue (id, workspace_id, tag, running, scheduled_for,\n                                       created_at, concurrency_gated_at, concurrency_first_gated_at,\n                                       concurrency_gate_id, canceled_by)\n             SELECT gen_random_uuid(), 'test-workspace', 'python3', false, NOW(),\n                    NOW() - INTERVAL '1 hour' * $2::bigint,\n                    NOW() - INTERVAL '1 minute' * $4::bigint,\n                    NOW() - INTERVAL '1 hour' * $3::bigint,\n                    $5,\n                    CASE WHEN $6 THEN 'canceller' ELSE NULL END\n             FROM generate_series(1, $1::bigint)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Varchar",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "626892db91f48ffd3c1a480f2a500ee297c48f7d6a2c632df927de6280023a2b"
+}

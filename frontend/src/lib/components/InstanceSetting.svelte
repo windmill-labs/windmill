@@ -839,7 +839,10 @@
 				{:else if setting.fieldType == 'boolean'}
 					<Toggle
 						disabled={setting.ee_only != undefined && !$enterpriseLicense}
-						bind:checked={$values[setting.key]}
+						bind:checked={
+							() => $values[setting.key] ?? setting.defaultValue?.() ?? false,
+							(v) => ($values[setting.key] = v)
+						}
 						id={setting.key}
 					/>
 				{:else if setting.fieldType == 'seconds'}
