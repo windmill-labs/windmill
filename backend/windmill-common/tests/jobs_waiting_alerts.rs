@@ -154,39 +154,20 @@ mod tests {
     }
 
     /// The exclusion keys off the gate being *full*, not off the job merely
-    /// carrying a concurrent_limit. A rate-limited runnable whose gate has free
-    /// slots and still is not being picked up is starving for workers like any
-    /// other job, and must page.
+    /// carrying a concurrent_limit -- every such job gets a `concurrency_key`
+    /// row at push time, so excluding on that row alone would stop this alert
+    /// from ever firing for a rate-limited runnable. Half the backlog here sits
+    /// under a gate with free slots: it is starving for workers like the plain
+    /// jobs beside it and must be counted. Excluding it drops the count under
+    /// the threshold and the alert goes silent.
     #[ignore = "requires database setup - run with --ignored flag"]
     #[sqlx::test(migrations = "../migrations")]
-    async fn unsaturated_gate_still_alerts(db: Pool<Postgres>) {
+    async fn jobs_waiting_on_capacity_still_alert(db: Pool<Postgres>) {
         free_the_lock(&db).await;
-        configure_alert(&db, 100).await;
+        configure_alert(&db, 150).await;
         seed_gate(&db, GATE_KEY, 1, 10, 2).await;
-        queue_jobs(&db, 200, Some((GATE_KEY, 1))).await;
-
-        jobs_waiting_alerts(&db).await;
-
-        let messages = alert_messages(&db).await;
-        assert_eq!(
-            messages.len(),
-            1,
-            "jobs under a concurrency limit that is not saturated are waiting on capacity \
-             and must still alert, got {messages:?}"
-        );
-    }
-
-    /// The complement: a backlog of jobs that really are waiting on capacity
-    /// must still page, and the body must carry the gated count so on-call can
-    /// reconcile the alert against the much larger queue depth on the dashboard.
-    #[ignore = "requires database setup - run with --ignored flag"]
-    #[sqlx::test(migrations = "../migrations")]
-    async fn ungated_backlog_still_alerts(db: Pool<Postgres>) {
-        free_the_lock(&db).await;
-        configure_alert(&db, 100).await;
-        seed_gate(&db, GATE_KEY, 1, 1, 1).await;
-        queue_jobs(&db, 150, None).await;
-        queue_jobs(&db, 200, Some((GATE_KEY, 1))).await;
+        queue_jobs(&db, 100, None).await;
+        queue_jobs(&db, 100, Some((GATE_KEY, 1))).await;
 
         jobs_waiting_alerts(&db).await;
 
@@ -197,13 +178,8 @@ mod tests {
             "expected exactly one critical alert, got {messages:?}"
         );
         assert!(
-            messages[0].contains("150"),
-            "alert must count only the jobs actually waiting on capacity: {}",
-            messages[0]
-        );
-        assert!(
             messages[0].contains("200"),
-            "alert must report the concurrency-gated jobs it excluded: {}",
+            "every job waiting on capacity must be counted, gated or not: {}",
             messages[0]
         );
     }
