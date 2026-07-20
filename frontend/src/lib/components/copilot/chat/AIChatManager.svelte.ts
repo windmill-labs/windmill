@@ -627,8 +627,26 @@ export class AIChatManager {
 	updateJob = (jobId: string, update: Partial<ChatJob>) => {
 		const idx = this.backgroundJobs.findIndex((j) => j.jobId === jobId)
 		if (idx === -1) return
+		const wasTerminal = !this.isJobNonTerminal(this.backgroundJobs[idx].status)
 		this.backgroundJobs[idx] = { ...this.backgroundJobs[idx], ...update }
 		this.backgroundJobs = [...this.backgroundJobs]
+		// Persist on the transition to terminal: a job that completes inside the
+		// inline wait never hits the detach/poller persist paths, and would
+		// otherwise vanish from the tray on reload.
+		if (!wasTerminal && !this.isJobNonTerminal(this.backgroundJobs[idx].status)) {
+			void this.#persistBackgroundJobs()
+		}
+	}
+
+	/** Mark finished jobs as reviewed (their terminal status was shown in the
+	 * jobs popover) and persist, so the chip stays relaxed across reloads. */
+	markJobsReviewed = (jobIds: string[]) => {
+		const ids = new Set(jobIds)
+		if (!this.backgroundJobs.some((j) => ids.has(j.jobId) && !j.reviewed)) return
+		this.backgroundJobs = this.backgroundJobs.map((j) =>
+			ids.has(j.jobId) && !j.reviewed ? { ...j, reviewed: true } : j
+		)
+		void this.#persistBackgroundJobs()
 	}
 
 	/** A job left the inline wait — hand it to the background poller. */
