@@ -1435,6 +1435,93 @@ pub async fn workspace_with_fork_ancestors(db: &crate::DB, w_id: &str) -> Result
     Ok(chain)
 }
 
+/// Resolve which live descendant workspace (and its inherited repo entry) a git
+/// branch pushed to `parent_repo_path` — a git-sync repo on `parent_w_id`
+/// tracking `expected_base` — deploys to via parent-managed fork sync, or `None`
+/// if it routes to no fork. Shared by the auto-pull reconciler and deploy-mode
+/// detection so both agree on fork/dev routing.
+///
+/// Reads lineage/settings for arbitrary ids with no authz check (like
+/// [`fork_ancestor_chain`]); the caller must already be authorized for the
+/// workspace whose deploy path it is resolving.
+pub async fn resolve_fork_branch_target(
+    db: &DB,
+    parent_w_id: &str,
+    parent_repo_path: &str,
+    branch: &str,
+    expected_base: &str,
+) -> Result<Option<(String, GitRepositorySettings)>> {
+    // Only a live descendant of parent_w_id may receive the pull — a crafted
+    // branch name must not route into an unrelated workspace. Descendants (not
+    // just direct children) because a fork of a dev workspace also syncs through
+    // the root's webhook/poller: only the root can hold auto-pull config.
+    let fork_id: Option<String> = if let Some((base, suffix)) = parse_fork_branch(branch) {
+        // Throwaway-fork form derives from the tracked branch
+        // (`wm-fork/<tracked>/<id>`); a different base is not this repo's.
+        if base != expected_base {
+            return Ok(None);
+        }
+        let [generated_id, dev_id] = fork_branch_workspace_id_candidates(suffix);
+        sqlx::query_scalar!(
+            r#"WITH RECURSIVE descendants AS (
+                   SELECT id, 0 AS depth FROM workspace
+                   WHERE parent_workspace_id = $1 AND NOT deleted
+                   UNION ALL
+                   SELECT w.id, d.depth + 1 FROM workspace w
+                   JOIN descendants d ON w.parent_workspace_id = d.id
+                   WHERE NOT w.deleted AND d.depth < 10
+               )
+               SELECT id as "id!" FROM descendants WHERE (id = $2 OR id = $3)
+               ORDER BY (id = $2) DESC LIMIT 1"#,
+            parent_w_id,
+            generated_id,
+            dev_id,
+        )
+        .fetch_optional(db)
+        .await?
+    } else if branch != expected_base {
+        // Environment-label branch (`dev`/`staging`) of a dev-workspace child.
+        // Dev workspaces only exist directly under a root, so no recursion here.
+        // The tracked-branch guard keeps a label that collides with the tracked
+        // branch from double-routing (the parent's own pull already covers it).
+        sqlx::query_scalar!(
+            "SELECT id FROM workspace \
+             WHERE parent_workspace_id = $1 AND NOT deleted AND is_dev_workspace \
+               AND COALESCE(dev_workspace_label, 'dev') = $2",
+            parent_w_id,
+            branch,
+        )
+        .fetch_optional(db)
+        .await?
+    } else {
+        return Ok(None);
+    };
+    let Some(fork_id) = fork_id else {
+        return Ok(None);
+    };
+
+    // The fork inherited the repo entry at fork time; use its own copy.
+    let fork_repo = sqlx::query_scalar!(
+        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+        &fork_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .and_then(|v| serde_json::from_value::<WorkspaceGitSyncSettings>(v).ok())
+    .and_then(|s| {
+        s.repositories
+            .into_iter()
+            .find(|r| r.git_repo_resource_path == parent_repo_path)
+    });
+    if fork_repo.is_none() {
+        tracing::warn!(
+            "git fork sync: fork {fork_id} has no git-sync repo {parent_repo_path}, not routing {branch}"
+        );
+    }
+    Ok(fork_repo.map(|r| (fork_id, r)))
+}
+
 pub async fn get_ducklake_from_db_unchecked(
     name: &str,
     w_id: &str,

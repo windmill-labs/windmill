@@ -1077,74 +1077,19 @@ fn has_runnable_delivery(
     }
 }
 
-/// Whether pushing `pushed_branch` matches a repo tracking `tracked_branch`. A
-/// non-fork workspace matches when the pushed branch equals the tracked branch;
-/// a fork's `wm-fork/<base>/<id>` branch matches when its base equals the tracked
-/// branch (the `sync_forks`, inheritance and workspace-routing checks are done by
-/// the caller). A blank tracked branch (repo default) is unresolvable without a
-/// network call, so it never matches and the caller falls back to `wmill sync push`.
-fn deploys_on_push_branch(is_fork: bool, pushed_branch: &str, tracked_branch: &str) -> bool {
-    if tracked_branch.is_empty() {
-        return false;
-    }
-    if is_fork {
-        windmill_common::workspaces::parse_fork_branch(pushed_branch)
-            .is_some_and(|(base, _)| base == tracked_branch)
-    } else {
-        pushed_branch == tracked_branch
-    }
-}
-
-/// For a fork checkout, decide whether its `wm-fork/<base>/<id>` branch belongs
-/// to this workspace and which repos it inherited — the fork reconciler only
-/// deploys through a repo present in the fork's *own* git-sync settings. Returns
-/// the inherited repo paths (deploy candidates) when the branch is this fork's,
-/// or `None` otherwise (so the caller reports no deploy-on-push). Dev-workspace
-/// label branches (`dev`, `staging`) aren't `wm-fork/*`, so they return `None`
-/// and safely fall back to `wmill sync push`.
-async fn fork_deploy_context(
-    db: &DB,
-    w_id: &str,
-    pushed_branch: &str,
-) -> Result<Option<std::collections::HashSet<String>>> {
-    let Some((_base, suffix)) = windmill_common::workspaces::parse_fork_branch(pushed_branch)
-    else {
-        return Ok(None);
-    };
-    // The branch suffix must belong to this workspace's fork family.
-    if !windmill_common::workspaces::fork_branch_workspace_id_candidates(suffix)
-        .iter()
-        .any(|c| c == w_id)
-    {
-        return Ok(None);
-    }
-
-    let inherited = sqlx::query_scalar!(
-        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
-        w_id
-    )
-    .fetch_optional(db)
-    .await?
-    .flatten()
-    .and_then(|v| serde_json::from_value::<WorkspaceGitSyncSettings>(v).ok())
-    .map(|s| {
-        s.repositories
-            .into_iter()
-            .map(|r| {
-                r.git_repo_resource_path
-                    .trim_start_matches("$res:")
-                    .to_string()
-            })
-            .collect()
-    })
-    .unwrap_or_default();
-    Ok(Some(inherited))
+/// Whether pushing `pushed_branch` matches a repo directly tracking
+/// `tracked_branch` (the non-fork case). A blank tracked branch (repo default) is
+/// unresolvable without a network call, so it never matches and the caller falls
+/// back to `wmill sync push`. Fork/dev routing goes through
+/// `windmill_common::workspaces::resolve_fork_branch_target` instead.
+fn deploys_on_push_branch(pushed_branch: &str, tracked_branch: &str) -> bool {
+    !tracked_branch.is_empty() && pushed_branch == tracked_branch
 }
 
 /// Non-admin endpoint so the CLI/agent can pick the deploy path (git push vs
-/// `wmill sync push`) without reading the admin-only workspace settings. Matches
-/// the caller's remote+branch server-side and returns only booleans — no
-/// repository URLs, credentials, or webhook config ever leave the backend.
+/// `wmill sync push`) without reading the admin-only workspace settings. Takes
+/// only the branch and returns booleans — no repository URLs, credentials, or
+/// webhook config ever leave the backend.
 async fn get_git_sync_deploy_mode(
     _authed: ApiAuthed,
     Path(w_id): Path<String>,
@@ -1153,20 +1098,9 @@ async fn get_git_sync_deploy_mode(
 ) -> JsonResult<GitSyncDeployMode> {
     // A fork clears its own auto-pull; its pushes deploy through the root
     // ancestor's repo (which owns `sync_forks`), so evaluate the root's settings.
-    let root_id = sqlx::query_scalar!(
-        r#"WITH RECURSIVE up AS (
-             SELECT id, parent_workspace_id FROM workspace WHERE id = $1
-             UNION ALL
-             SELECT w.id, w.parent_workspace_id
-             FROM workspace w JOIN up ON w.id = up.parent_workspace_id
-           )
-           SELECT id AS "id!" FROM up WHERE parent_workspace_id IS NULL LIMIT 1"#,
-        &w_id
-    )
-    .fetch_optional(&db)
-    .await?
-    .unwrap_or_else(|| w_id.clone());
-    let is_fork = root_id != w_id;
+    let ancestors = windmill_common::workspaces::fork_ancestor_chain(&db, &w_id).await?;
+    let is_fork = !ancestors.is_empty();
+    let root_id = ancestors.last().cloned().unwrap_or_else(|| w_id.clone());
 
     // Read on the plain pool: a fork member may not be a member of the root
     // workspace, and only derived booleans are returned (never the settings).
@@ -1212,22 +1146,6 @@ async fn get_git_sync_deploy_mode(
         windmill_common::ee_oss::LicensePlan::Enterprise
     );
 
-    // For a fork, resolve which repos its branch can actually deploy through
-    // (routes to this workspace + inherited). None means it deploys through none.
-    let fork_inherited = if is_fork {
-        match fork_deploy_context(&db, &w_id, branch).await? {
-            Some(paths) => Some(paths),
-            None => {
-                return Ok(Json(GitSyncDeployMode {
-                    configured,
-                    deploy_on_push: false,
-                }));
-            }
-        }
-    } else {
-        None
-    };
-
     // Count the auto-pull repos that would deploy this branch. We deliberately do
     // not check the caller's remote URL: with exactly one such repo the local
     // checkout is unambiguously it, and with several we can't tell which is the
@@ -1241,19 +1159,9 @@ async fn get_git_sync_deploy_mode(
             if !auto_pull.enabled {
                 continue;
             }
-            if is_fork {
-                // A fork deploys only through repos with sync_forks that it
-                // actually inherited (mirrors reconcile_fork_branch_pull).
-                if !auto_pull.sync_forks {
-                    continue;
-                }
-                let repo_path = repo.git_repo_resource_path.trim_start_matches("$res:");
-                if !fork_inherited
-                    .as_ref()
-                    .is_some_and(|p| p.contains(repo_path))
-                {
-                    continue;
-                }
+            // A fork deploys only through the root's sync_forks repos.
+            if is_fork && !auto_pull.sync_forks {
+                continue;
             }
             // Interpolates `$var:`/`$res:` as the auto-pull poller does.
             // allow_cache=false: an on-demand status must reflect the current
@@ -1274,7 +1182,23 @@ async fn get_git_sync_deploy_mode(
                 continue;
             }
             let tracked_branch = value.get("branch").and_then(|v| v.as_str()).unwrap_or("");
-            if deploys_on_push_branch(is_fork, branch, tracked_branch) {
+            let deploys = if is_fork {
+                // Fork/dev routing (wm-fork/* or an env-label branch) resolved by
+                // the same logic the auto-pull reconciler uses; this repo counts
+                // only if the branch routes to *this* workspace.
+                windmill_common::workspaces::resolve_fork_branch_target(
+                    &db,
+                    &root_id,
+                    &repo.git_repo_resource_path,
+                    branch,
+                    tracked_branch,
+                )
+                .await?
+                .is_some_and(|(fork_id, _)| fork_id == w_id)
+            } else {
+                deploys_on_push_branch(branch, tracked_branch)
+            };
+            if deploys {
                 matches += 1;
             }
         }
@@ -1341,20 +1265,10 @@ mod git_sync_deploy_mode_tests {
 
     #[test]
     fn non_fork_matches_tracked_branch_only() {
-        assert!(deploys_on_push_branch(false, "main", "main"));
-        assert!(!deploys_on_push_branch(false, "dev", "main"));
+        assert!(deploys_on_push_branch("main", "main"));
+        assert!(!deploys_on_push_branch("dev", "main"));
         // An unresolved default (blank) tracked branch never matches.
-        assert!(!deploys_on_push_branch(false, "main", ""));
-    }
-
-    #[test]
-    fn fork_branch_base_must_match_tracked() {
-        // A fork's wm-fork/<base>/<id> deploys when base == the tracked branch.
-        assert!(deploys_on_push_branch(true, "wm-fork/main/abc", "main"));
-        // Base mismatch, non-fork-format branch, or blank tracked branch do not.
-        assert!(!deploys_on_push_branch(true, "wm-fork/release/abc", "main"));
-        assert!(!deploys_on_push_branch(true, "main", "main"));
-        assert!(!deploys_on_push_branch(true, "wm-fork/main/abc", ""));
+        assert!(!deploys_on_push_branch("main", ""));
     }
 }
 
