@@ -1131,15 +1131,13 @@ fn deploys_on_push_branch(is_fork: bool, pushed_branch: &str, tracked_branch: &s
     }
 }
 
-/// For a fork checkout, decide whether its `wm-fork/<base>/<id>` branch actually
-/// routes to this workspace and which repos it inherited — mirroring the fork
-/// reconciler, which (a) resolves the branch to the first existing of
-/// `[wm-fork-<suffix>, <suffix>]` and (b) only deploys through a repo present in
-/// the fork's *own* git-sync settings. Returns the inherited repo paths (deploy
-/// candidates) when the branch routes here, or `None` when it doesn't (so the
-/// caller reports no deploy-on-push). Dev-workspace label branches (`dev`,
-/// `staging`) aren't `wm-fork/*`, so they return `None` and safely fall back to
-/// `wmill sync push`.
+/// For a fork checkout, decide whether its `wm-fork/<base>/<id>` branch belongs
+/// to this workspace and which repos it inherited — the fork reconciler only
+/// deploys through a repo present in the fork's *own* git-sync settings. Returns
+/// the inherited repo paths (deploy candidates) when the branch is this fork's,
+/// or `None` otherwise (so the caller reports no deploy-on-push). Dev-workspace
+/// label branches (`dev`, `staging`) aren't `wm-fork/*`, so they return `None`
+/// and safely fall back to `wmill sync push`.
 async fn fork_deploy_context(
     db: &DB,
     w_id: &str,
@@ -1149,21 +1147,11 @@ async fn fork_deploy_context(
     else {
         return Ok(None);
     };
-    // The branch deploys to the first existing candidate; if a higher-priority
-    // one exists, this push targets a different workspace than w_id.
-    let mut target = None;
-    for cand in windmill_common::workspaces::fork_branch_workspace_id_candidates(suffix) {
-        let exists =
-            sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM workspace WHERE id = $1)", cand)
-                .fetch_one(db)
-                .await?
-                .unwrap_or(false);
-        if exists {
-            target = Some(cand);
-            break;
-        }
-    }
-    if target.as_deref() != Some(w_id) {
+    // The branch suffix must belong to this workspace's fork family.
+    if !windmill_common::workspaces::fork_branch_workspace_id_candidates(suffix)
+        .iter()
+        .any(|c| c == w_id)
+    {
         return Ok(None);
     }
 
