@@ -3806,30 +3806,61 @@ async function resolveLintTarget(
 }
 
 /**
- * A raw app's frontend is a bundle, not a single document, so there is no per-file
- * language service to query: the compiler either builds it or reports where it broke.
+ * Two passes, because neither alone is enough: the bundler resolves the whole import
+ * graph but strips types without checking them, and the type checker catches what that
+ * misses but does not link the app together.
  */
 async function checkAppFrontend(path: string, ctx: WriteDraftCtx): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
-	toolCallbacks.setToolStatus(toolId, { content: `Compiling frontend of app "${path}"...` })
+	toolCallbacks.setToolStatus(toolId, { content: `Checking frontend of app "${path}"...` })
 	const value = await loadAppValueForRead(path, workspace)
-	try {
-		await bundleRawAppDraft({ workspace, files: value.files })
-		const response = '✅ The app frontend compiles with no errors.'
-		toolCallbacks.setToolStatus(toolId, {
-			content: `Frontend of app "${path}" compiles`,
-			result: response
+
+	const { lintAppFrontend } = await import('$lib/components/lint/headlessLint')
+	const [buildError, fileResults] = await Promise.all([
+		bundleRawAppDraft({ workspace, files: value.files }).then(
+			() => undefined,
+			(e) => (e instanceof Error ? e.message : String(e))
+		),
+		lintAppFrontend({ appPath: path, files: value.files, workspace }).catch((e) => {
+			console.error('get_lint_errors: app frontend type check failed', e)
+			return undefined
 		})
-		return response
-	} catch (e) {
-		const message = e instanceof Error ? e.message : String(e)
-		const response = `❌ The app frontend failed to compile:\n\n${message}`
-		toolCallbacks.setToolStatus(toolId, {
-			content: `Frontend of app "${path}" failed to compile`,
-			result: response
-		})
-		return response
+	])
+
+	const sections: string[] = []
+	if (buildError) {
+		sections.push(`❌ The app frontend failed to build:\n\n${buildError}`)
 	}
+	if (fileResults === undefined) {
+		sections.push('⚠️ The frontend could not be type-checked, so type errors may be missing.')
+	} else if (fileResults.length > 0) {
+		const total = fileResults.reduce((n, f) => n + f.result.errorCount + f.result.warningCount, 0)
+		sections.push(
+			`❌ **${total} problem(s)** found by the type checker:\n` +
+				fileResults
+					.map(
+						(f) =>
+							`\n**${f.filePath}**\n` +
+							[...f.result.errors, ...f.result.warnings]
+								.map((m) => `- Line ${m.startLineNumber}: ${m.message}`)
+								.join('\n')
+					)
+					.join('\n')
+		)
+	}
+	if (sections.length === 0) {
+		sections.push('✅ The app frontend builds and type-checks with no errors.')
+	}
+
+	const failed = buildError !== undefined || (fileResults?.length ?? 0) > 0
+	const response = sections.join('\n\n')
+	toolCallbacks.setToolStatus(toolId, {
+		content: failed
+			? `Frontend of app "${path}" has problems`
+			: `Frontend of app "${path}" is clean`,
+		result: response
+	})
+	return response
 }
 
 async function getLintErrors(args: LintTargetArgs, ctx: WriteDraftCtx): Promise<string> {

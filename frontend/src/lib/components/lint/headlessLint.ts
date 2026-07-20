@@ -258,3 +258,97 @@ async function waitForMarkersToSettle(uri: Uri, editorLang: string, timeoutMs: n
 		await new Promise((r) => setTimeout(r, 50))
 	}
 }
+
+const APP_LINTABLE_FILE = /\.(tsx?|jsx?)$/
+const APP_DECLARATION_FILE = /\.d\.ts$/
+
+export interface AppFileLintResult {
+	filePath: string
+	result: ScriptLintResult
+}
+
+/**
+ * Type-checks a raw app's frontend files. Bundling only reports syntax and unresolved
+ * imports — esbuild strips types without checking them — so a type error or an undefined
+ * variable would otherwise reach the browser unreported.
+ *
+ * Every file is checked, including ones the entry point never imports: they are still the
+ * user's source and show the same problems in the app editor, even though they never ship.
+ */
+export async function lintAppFrontend(req: {
+	appPath: string
+	files: Record<string, string>
+	workspace: string
+	timeoutMs?: number
+}): Promise<AppFileLintResult[]> {
+	setMonacoTypescriptOptions()
+	await initializeVscode('headlessLint')
+	keepModelAroundToAvoidDisposalOfWorkers()
+
+	const base = `file:///${req.appPath.replace(/^\//, '')}`
+	// Models for every file, so imports between them resolve the way they do at build time.
+	const created: string[] = []
+	const reportable: { filePath: string; uriString: string }[] = []
+	for (const [filePath, content] of Object.entries(req.files)) {
+		if (typeof content !== 'string' || !APP_LINTABLE_FILE.test(filePath)) continue
+		const uriString = `${base}${filePath.startsWith('/') ? filePath : `/${filePath}`}`
+		const uri = Uri.parse(uriString)
+		const existing = meditor.getModel(uri)
+		if (existing) {
+			if (existing.getValue() !== content) existing.setValue(content)
+		} else {
+			meditor.createModel(content, 'typescript', uri)
+			created.push(uriString)
+		}
+		// Generated declaration files are not the user's to fix.
+		if (!APP_DECLARATION_FILE.test(filePath)) reportable.push({ filePath, uriString })
+	}
+
+	const timeoutMs = req.timeoutMs ?? 5000
+	try {
+		await withDeadline(
+			acquireAppTypes(req.workspace, req.appPath, base, req.files).catch((e) =>
+				console.error('headlessLint: app type acquisition failed', e)
+			),
+			timeoutMs
+		)
+
+		const out: AppFileLintResult[] = []
+		for (const { filePath, uriString } of reportable) {
+			const uri = Uri.parse(uriString)
+			await waitForMarkersToSettle(uri, 'typescript', timeoutMs)
+			const result = readModelMarkers(uri)
+			if (result.errorCount > 0 || result.warningCount > 0) out.push({ filePath, result })
+		}
+		return out
+	} finally {
+		for (const uriString of created) {
+			const model = meditor.getModel(Uri.parse(uriString))
+			if (model && !model.isAttachedToEditor()) model.dispose()
+		}
+	}
+}
+
+async function acquireAppTypes(
+	workspace: string,
+	appPath: string,
+	base: string,
+	files: Record<string, string>
+): Promise<void> {
+	const key = `app:${workspace}:${appPath}`
+	let ata = ataByKey.get(key)
+	if (!ata) {
+		ata = await createWindmillAta({
+			root: await genAtaRoot(workspace),
+			scriptPath: appPath,
+			modelUri: `${base}/index.tsx`,
+			absolutePathExtraLibs
+		})
+		ataByKey.set(key, ata)
+	}
+	const sources = Object.entries(files)
+		.filter(([p, c]) => typeof c === 'string' && APP_LINTABLE_FILE.test(p))
+		.map(([, c]) => c)
+		.join('\n')
+	await ata(sources)
+}

@@ -104,7 +104,11 @@ export function setMonacoTypescriptOptions() {
 		allowImportingTsExtensions: true,
 		allowSyntheticDefaultImports: true,
 		moduleResolution: ModuleResolutionKind.NodeJs,
-		jsx: JsxEmit.React
+		jsx: JsxEmit.React,
+		// React's types declare it as a UMD global. Without this, every JSX line in a file
+		// that doesn't import React is reported as an error, which is how raw app files and
+		// anything using the automatic JSX runtime are written.
+		allowUmdGlobalAccess: true
 	})
 }
 
