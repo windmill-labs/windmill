@@ -20,18 +20,39 @@ export function getCurrentGitBranch(): string | null {
   }
 }
 
-/** The URL of the given git remote (default `origin`), or null if unset / not a git repo. */
+/**
+ * The push URL of the given git remote (default `origin`), or null if unset /
+ * not a git repo. Uses `--push` since deploy-on-push is about where `git push`
+ * lands (a remote may set a distinct pushurl). Argument-based (no shell) so a
+ * caller-supplied remote name can't inject a command.
+ */
 export function getGitRemoteUrl(remote = "origin"): string | null {
-  try {
-    const result = execSync(`git remote get-url ${remote}`, {
-      encoding: "utf8",
-      stdio: "pipe",
-    });
-    const url = result.trim();
-    return url || null;
-  } catch (error) {
-    log.debug(`Failed to get Git remote url: ${error}`);
+  const r = spawnSync("git", ["remote", "get-url", "--push", remote], {
+    encoding: "utf8",
+    stdio: "pipe",
+  });
+  if (r.status !== 0) {
+    log.debug(`Failed to get Git remote url: ${r.stderr}`);
     return null;
+  }
+  const url = r.stdout.trim();
+  return url || null;
+}
+
+/**
+ * Remove any embedded `user:token@` credentials from a git remote URL. Sent to
+ * the backend for matching, so the token must never leave the machine (it would
+ * otherwise land in request-URI logs). scp-like `git@host:path` carries no token
+ * (key auth) and is returned unchanged.
+ */
+export function stripGitRemoteCredentials(url: string): string {
+  try {
+    const u = new URL(url);
+    u.username = "";
+    u.password = "";
+    return u.toString();
+  } catch {
+    return url;
   }
 }
 

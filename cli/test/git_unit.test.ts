@@ -14,7 +14,38 @@ import {
   deriveGitSyncDeployIncludes,
   gitSyncCommitMessage,
   isForkWorkspace,
+  stripGitRemoteCredentials,
 } from "../src/utils/git.ts";
+
+// =============================================================================
+// stripGitRemoteCredentials
+// =============================================================================
+
+describe("stripGitRemoteCredentials", () => {
+  test("removes embedded user:token before it leaves the machine", () => {
+    expect(
+      stripGitRemoteCredentials("https://user:ghp_secret@github.com/org/repo.git"),
+    ).toBe("https://github.com/org/repo.git");
+  });
+
+  test("removes a token-as-username", () => {
+    expect(
+      stripGitRemoteCredentials("https://ghp_secret@github.com/org/repo.git"),
+    ).toBe("https://github.com/org/repo.git");
+  });
+
+  test("leaves a credential-free URL unchanged", () => {
+    expect(stripGitRemoteCredentials("https://github.com/org/repo.git")).toBe(
+      "https://github.com/org/repo.git",
+    );
+  });
+
+  test("passes scp-like URLs through (no embedded token)", () => {
+    expect(stripGitRemoteCredentials("git@github.com:org/repo.git")).toBe(
+      "git@github.com:org/repo.git",
+    );
+  });
+});
 
 // =============================================================================
 // getOriginalBranchForWorkspaceForks

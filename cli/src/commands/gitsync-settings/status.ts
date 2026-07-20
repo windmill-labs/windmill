@@ -8,6 +8,7 @@ import {
   getCurrentGitBranch,
   getGitRemoteUrl,
   isGitRepository,
+  stripGitRemoteCredentials,
 } from "../../utils/git.ts";
 
 export async function gitSyncStatus(
@@ -16,9 +17,13 @@ export async function gitSyncStatus(
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
+  const remoteName = opts.remote ?? "origin";
   const inGitRepo = isGitRepository();
   const branch = inGitRepo ? getCurrentGitBranch() : null;
-  const remote = inGitRepo ? getGitRemoteUrl(opts.remote) : null;
+  const rawRemote = inGitRepo ? getGitRemoteUrl(remoteName) : null;
+  // Strip credentials before the URL leaves the machine — it is sent as a query
+  // param and would otherwise reach the server's request-URI logs.
+  const remote = rawRemote ? stripGitRemoteCredentials(rawRemote) : null;
 
   // The backend matches this remote+branch against its auto-pull repos and
   // returns whether pushing here deploys — no repo URLs leave the backend.
@@ -28,7 +33,11 @@ export async function gitSyncStatus(
     branch: branch ?? undefined,
   });
 
-  const deployCommand = mode.deploy_on_push ? "git push" : "wmill sync push";
+  // Recommend the exact remote+branch that was checked, so the pushed target
+  // can't diverge from the matched one (e.g. via remote.pushDefault).
+  const deployCommand = mode.deploy_on_push
+    ? `git push ${remoteName} ${branch}`
+    : "wmill sync push";
 
   if (opts.jsonOutput) {
     // console.log (not log.info, which wraps in ANSI color) so the output pipes cleanly to jq.
@@ -45,7 +54,7 @@ export async function gitSyncStatus(
   if (mode.deploy_on_push) {
     log.info(
       colors.green(
-        `Git-sync auto-pull tracks this branch and remote: pushing '${branch}' deploys to the workspace.`,
+        `Git-sync auto-pull tracks this branch and remote: pushing '${branch}' to ${remoteName} deploys to the workspace.`,
       ),
     );
   } else if (!mode.configured) {

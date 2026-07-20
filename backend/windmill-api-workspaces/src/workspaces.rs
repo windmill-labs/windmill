@@ -1055,7 +1055,12 @@ fn normalize_git_remote(raw: &str) -> Option<String> {
     let raw = raw.trim();
     let (host, path) = if raw.contains("://") {
         let url = url::Url::parse(raw).ok()?;
-        (url.host_str()?.to_string(), url.path().to_string())
+        // Keep the port: distinct ports can be distinct git services.
+        let host = match url.port() {
+            Some(port) => format!("{}:{port}", url.host_str()?),
+            None => url.host_str()?.to_string(),
+        };
+        (host, url.path().to_string())
     } else {
         // scp-like syntax: [user@]host:path
         let (host_part, path) = raw.split_once(':')?;
@@ -1206,6 +1211,11 @@ mod git_sync_deploy_mode_tests {
         assert_ne!(
             normalize_git_remote("https://github.com/org/infra.git"),
             normalize_git_remote("https://github.com/org/scripts.git")
+        );
+        // Different ports address potentially different services.
+        assert_ne!(
+            normalize_git_remote("https://git.example.com/org/repo"),
+            normalize_git_remote("https://git.example.com:8443/org/repo")
         );
     }
 }
