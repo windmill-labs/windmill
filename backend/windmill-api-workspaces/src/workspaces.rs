@@ -9606,12 +9606,107 @@ struct LogFeatureUsagePayload {
 enum FeatureUsageKeyRule {
     // Key must be one of a fixed set of values.
     OneOf(&'static [&'static str]),
-    // Key is identifier-shaped but the value set lives in frontend code and
-    // evolves too fast to pin here (e.g. AI chat tool names).
-    Identifier,
     // Key must be empty.
     Empty,
 }
+
+// AI chat tool names (declared in frontend/src/lib/components/copilot/chat).
+// A tool absent from this list is silently dropped from telemetry until
+// registered here — keep it in sync when adding chat tools.
+const AI_CHAT_TOOL_NAMES: &[&str] = &[
+    "askUserQuestion",
+    "build_pipeline_node",
+    "cancel_job",
+    "change_mode",
+    "close_page",
+    "create_artifact",
+    "create_folder",
+    "create_schedule",
+    "create_trigger",
+    "delete_app_file",
+    "delete_app_runnable",
+    "delete_backend_runnable",
+    "delete_frontend_file",
+    "delete_workspace_item",
+    "deploy_workspace_item",
+    "discard_local_draft",
+    "edit_code",
+    "edit_pipeline_node",
+    "edit_script",
+    "exec_datatable_sql",
+    "get_app_runtime_logs",
+    "get_available_resources",
+    "get_backend_runnable",
+    "get_current_page_name",
+    "get_datatable_table_schema",
+    "get_db_schema",
+    "get_frontend_file",
+    "get_instructions",
+    "get_instructions_for_code_generation",
+    "get_job_logs",
+    "get_lint_errors",
+    "get_pipeline_graph",
+    "get_preview_status",
+    "get_runnable_details",
+    "get_triggerable_components",
+    "init_app",
+    "inspect_inline_script",
+    "lint",
+    "list_app_runs",
+    "list_artifacts",
+    "list_datatables",
+    "list_files",
+    "list_resources",
+    "list_runs",
+    "list_workspace_items",
+    "open_page",
+    "open_preview",
+    "patch_app_file",
+    "patch_file",
+    "patch_flow_json",
+    "read_app_file",
+    "read_artifact",
+    "read_docs_page",
+    "read_file",
+    "read_flow_module_code",
+    "read_pipeline_node",
+    "read_skill",
+    "read_workspace_item",
+    "rebase_draft",
+    "remove_pipeline_node",
+    "resource_type",
+    "run_script",
+    "search_app",
+    "search_docs",
+    "search_files",
+    "search_hub_scripts",
+    "search_npm_packages",
+    "search_resource_types",
+    "search_workspace",
+    "set_backend_runnable",
+    "set_failure_module",
+    "set_flow_json",
+    "set_flow_module_code",
+    "set_frontend_file",
+    "set_module_code",
+    "set_preprocessor_module",
+    "take_screenshot",
+    "test_pipeline_node",
+    "test_run_flow",
+    "test_run_script",
+    "test_run_step",
+    "trigger_component",
+    "update_artifact",
+    "update_user_instructions",
+    "write_app_file",
+    "write_app_runnable",
+    "write_flow",
+    "write_resource",
+    "write_schedule",
+    "write_script",
+    "write_trigger",
+    "write_variable",
+];
 
 // Approved telemetry dimensions. Grouped (feature, kind, key) strings end up
 // verbatim in the outbound anonymous telemetry payload, so only combinations
@@ -9675,7 +9770,11 @@ const FEATURE_USAGE_DIMENSIONS: &[(&str, &str, FeatureUsageKeyRule)] = &[
     ),
     ("ai_session", "archived", FeatureUsageKeyRule::Empty),
     ("ai_session", "deleted", FeatureUsageKeyRule::Empty),
-    ("ai_chat", "tool", FeatureUsageKeyRule::Identifier),
+    (
+        "ai_chat",
+        "tool",
+        FeatureUsageKeyRule::OneOf(AI_CHAT_TOOL_NAMES),
+    ),
 ];
 
 fn is_identifier_shaped(s: &str, max_len: usize) -> bool {
@@ -9696,7 +9795,6 @@ fn valid_feature_usage_event(e: &FeatureUsageEvent) -> bool {
         .find(|(feature, kind, _)| *feature == e.feature && *kind == e.kind)
         .is_some_and(|(_, _, rule)| match rule {
             FeatureUsageKeyRule::OneOf(allowed) => allowed.contains(&e.key.as_str()),
-            FeatureUsageKeyRule::Identifier => is_identifier_shaped(&e.key, 100),
             FeatureUsageKeyRule::Empty => e.key.is_empty(),
         })
 }
