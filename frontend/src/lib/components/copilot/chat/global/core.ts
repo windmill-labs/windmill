@@ -72,11 +72,13 @@ import {
 	executeFlowStepTestRun,
 	executeTestRun,
 	findAndReplace,
+	formatScriptLintResult,
 	type CreatedResourceTriggerKind,
 	type Tool,
 	type ToolCallbacks,
 	type ToolDisplayAction
 } from '../shared'
+import { findModuleInFlow } from '$lib/components/flows/flowTree'
 import { searchDocsTool, readDocsPageTool } from '../docs/core'
 import type { ContextElement } from '../context'
 import { getDatatableTools } from '../datatableTools'
@@ -286,6 +288,21 @@ const listWorkspaceItemsSchema = z.object({
 		.max(MAX_LIST_LIMIT)
 		.optional()
 		.describe('Maximum number of items to return. Defaults to 50 and is capped at 100.')
+})
+
+const getLintErrorsSchema = z.object({
+	kind: z
+		.enum(['script', 'flow', 'raw_app'])
+		.describe('What holds the code: a script, a flow module, or a raw app backend runnable.'),
+	path: z.string().describe('Workspace path of the script, flow, or raw app.'),
+	module_id: z
+		.string()
+		.optional()
+		.describe('Required when kind is flow. Id of the inline rawscript module to lint.'),
+	runnable_key: z
+		.string()
+		.optional()
+		.describe('Required when kind is raw_app. Key of the inline backend runnable to lint.')
 })
 
 const readWorkspaceItemSchema = z.object({
@@ -918,6 +935,7 @@ Rules:
 - Use search_resource_types before write_resource.
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
 - A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.
+- After writing or editing TypeScript or JavaScript code — a script, an inline flow module, or a raw app backend runnable — call get_lint_errors on it and fix what it reports before moving on. It type-checks the draft without opening an editor, so it catches what the editor would flag. It does not support other languages.
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
@@ -2727,6 +2745,17 @@ export const globalTools: Tool<{}>[] = [
 	},
 	{
 		def: createToolDef(
+			getLintErrorsSchema,
+			'get_lint_errors',
+			'Type-check a script, flow module, or raw app backend runnable and report its errors and warnings. TypeScript and JavaScript only.'
+		),
+		fn: async (ctx) => {
+			const parsed = getLintErrorsSchema.parse(ctx.args)
+			return getLintErrors(parsed, ctx)
+		}
+	},
+	{
+		def: createToolDef(
 			setFlowModuleCodeSchema,
 			'set_flow_module_code',
 			'Overwrite inline script code in one flow module and save a draft.'
@@ -3701,6 +3730,111 @@ async function readFlowModuleCode(
 		content: `Read inline script for "${args.module_id}"`
 	})
 	return content
+}
+
+type LintTargetArgs = {
+	kind: 'script' | 'flow' | 'raw_app'
+	path: string
+	module_id?: string
+	runnable_key?: string
+}
+
+async function resolveLintTarget(
+	args: LintTargetArgs,
+	workspace: string
+): Promise<{ content: string; language: string; lintPath: string; label: string }> {
+	if (args.kind === 'script') {
+		const script = await loadScriptForEdit(args.path, workspace).catch(() => {
+			throw new Error(`No draft or deployed script found at "${args.path}".`)
+		})
+		return {
+			content: script.content,
+			language: script.language,
+			lintPath: args.path,
+			label: `script "${args.path}"`
+		}
+	}
+
+	if (args.kind === 'flow') {
+		if (!args.module_id) {
+			throw new Error('module_id is required when kind is flow.')
+		}
+		const { flow } = await loadFlowDraftValue(args.path, workspace)
+		const module = findModuleInFlow(flow.value, args.module_id)
+		if (!module) {
+			throw new Error(`Module "${args.module_id}" not found in flow "${args.path}".`)
+		}
+		if (module.value.type !== 'rawscript') {
+			throw new Error(
+				`Module "${args.module_id}" in flow "${args.path}" is not an inline rawscript, so it has no code to lint.`
+			)
+		}
+		return {
+			content: module.value.content,
+			language: module.value.language,
+			// The editor mounts flow modules at "<flow path>/<module id>"; lint the same URI.
+			lintPath: `${args.path}/${args.module_id}`,
+			label: `module "${args.module_id}" of flow "${args.path}"`
+		}
+	}
+
+	if (!args.runnable_key) {
+		throw new Error('runnable_key is required when kind is raw_app.')
+	}
+	const value = await loadAppValueForRead(args.path, workspace)
+	const runnable = value.runnables[args.runnable_key] as PersistedRunnable | undefined
+	if (!runnable) {
+		throw new Error(`Backend runnable "${args.runnable_key}" not found in app "${args.path}".`)
+	}
+	if (!runnable.inlineScript) {
+		throw new Error(
+			`Runnable "${args.runnable_key}" in app "${args.path}" has no inline script, so it has no code to lint.`
+		)
+	}
+	return {
+		content: runnable.inlineScript.content ?? '',
+		language: runnable.inlineScript.language,
+		lintPath: `${args.path}/${args.runnable_key}`,
+		label: `runnable "${args.runnable_key}" of app "${args.path}"`
+	}
+}
+
+async function getLintErrors(args: LintTargetArgs, ctx: WriteDraftCtx): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const target = await resolveLintTarget(args, workspace)
+
+	// Loaded on demand: it pulls in Monaco, which must stay out of this module's
+	// import graph so the chat tools remain importable outside a browser.
+	const { canLintHeadless, lintCode } = await import('$lib/components/lint/headlessLint')
+
+	if (!canLintHeadless(target.language)) {
+		toolCallbacks.setToolStatus(toolId, {
+			content: `Lint unavailable for ${target.language}`
+		})
+		return `Linting ${target.language} is not supported yet in this mode (TypeScript and JavaScript only for now). Do not retry; verify the code by test-running it instead.`
+	}
+
+	toolCallbacks.setToolStatus(toolId, { content: `Linting ${target.label}...` })
+	const result = await lintCode({
+		content: target.content,
+		scriptLang: target.language,
+		path: target.lintPath,
+		workspace
+	})
+
+	const summary =
+		result.errorCount > 0
+			? `${result.errorCount} error(s)`
+			: result.warningCount > 0
+				? `${result.warningCount} warning(s)`
+				: 'no issues'
+	toolCallbacks.setToolStatus(toolId, { content: `Linted ${target.label}: ${summary}` })
+
+	let response = formatScriptLintResult(result)
+	if (result.contentMismatch) {
+		response += `\n\nNote: an editor is currently open on this code and its buffer differs from the draft. The results above are for what that editor shows.`
+	}
+	return response
 }
 
 async function setFlowModuleCode(
