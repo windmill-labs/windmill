@@ -1086,6 +1086,36 @@ fn normalize_git_remote(raw: &str) -> Option<String> {
 /// branch (the `sync_forks`, inheritance and workspace-routing checks are done by
 /// the caller). A blank tracked branch (repo default) is unresolvable without a
 /// network call, so it never matches and the caller falls back to `wmill sync push`.
+/// Whether an enabled auto-pull repo actually has a delivery path that fires, so
+/// a push really deploys — mirroring the poller/webhook. Polling needs a non-app
+/// HTTPS URL (`git ls-remote`; SSH is rejected in the background); webhook-only
+/// mode needs an active hook; `auto` needs either. With neither, `enabled` alone
+/// never deploys (e.g. a webhook that failed to register).
+fn has_runnable_delivery(
+    auto_pull: &windmill_common::workspaces::AutoPullSettings,
+    resource: &serde_json::Value,
+) -> bool {
+    let webhook_active = auto_pull.webhook_id.is_some();
+    let is_app = resource
+        .get("is_github_app")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let is_http_url = resource
+        .get("url")
+        .and_then(|v| v.as_str())
+        .map(|u| {
+            let u = u.trim_start();
+            u.starts_with("https://") || u.starts_with("http://")
+        })
+        .unwrap_or(false);
+    let can_poll = !is_app && is_http_url;
+    match auto_pull.mode {
+        windmill_common::workspaces::AutoPullMode::Webhook => webhook_active,
+        windmill_common::workspaces::AutoPullMode::Polling => can_poll,
+        windmill_common::workspaces::AutoPullMode::Auto => webhook_active || can_poll,
+    }
+}
+
 fn deploys_on_push_branch(is_fork: bool, pushed_branch: &str, tracked_branch: &str) -> bool {
     if tracked_branch.is_empty() {
         return false;
@@ -1247,14 +1277,16 @@ async fn get_git_sync_deploy_mode(
     if licensed {
         if let Some(remote_norm) = normalize_git_remote(remote) {
             for repo in &settings.repositories {
-                let auto_pull = repo.auto_pull.as_ref();
-                if !auto_pull.is_some_and(|a| a.enabled) {
+                let Some(auto_pull) = repo.auto_pull.as_ref() else {
+                    continue;
+                };
+                if !auto_pull.enabled {
                     continue;
                 }
                 if is_fork {
                     // A fork deploys only through repos with sync_forks that it
                     // actually inherited (mirrors reconcile_fork_branch_pull).
-                    if !auto_pull.is_some_and(|a| a.sync_forks) {
+                    if !auto_pull.sync_forks {
                         continue;
                     }
                     let repo_path = repo.git_repo_resource_path.trim_start_matches("$res:");
@@ -1277,6 +1309,11 @@ async fn get_git_sync_deploy_mode(
                 else {
                     continue;
                 };
+                // `enabled` isn't enough: without a runnable delivery path (active
+                // webhook, or pollable non-app HTTPS repo) the push never deploys.
+                if !has_runnable_delivery(auto_pull, &value) {
+                    continue;
+                }
                 let matches_remote = value
                     .get("url")
                     .and_then(|v| v.as_str())
@@ -1296,7 +1333,55 @@ async fn get_git_sync_deploy_mode(
 
 #[cfg(test)]
 mod git_sync_deploy_mode_tests {
-    use super::{deploys_on_push_branch, normalize_git_remote};
+    use super::{deploys_on_push_branch, has_runnable_delivery, normalize_git_remote};
+    use serde_json::json;
+    use windmill_common::workspaces::{AutoPullMode, AutoPullSettings};
+
+    fn auto_pull(mode: AutoPullMode, webhook_id: Option<i64>) -> AutoPullSettings {
+        AutoPullSettings { enabled: true, mode, webhook_id, ..Default::default() }
+    }
+
+    #[test]
+    fn runnable_delivery_requires_a_firing_path() {
+        let https = json!({ "url": "https://github.com/o/r.git" });
+        let ssh = json!({ "url": "git@github.com:o/r.git" });
+        let app = json!({ "url": "https://github.com/o/r.git", "is_github_app": true });
+        // Polling serves only non-app HTTPS repos (SSH is rejected in background).
+        assert!(has_runnable_delivery(
+            &auto_pull(AutoPullMode::Auto, None),
+            &https
+        ));
+        assert!(has_runnable_delivery(
+            &auto_pull(AutoPullMode::Polling, None),
+            &https
+        ));
+        assert!(!has_runnable_delivery(
+            &auto_pull(AutoPullMode::Polling, None),
+            &ssh
+        ));
+        assert!(!has_runnable_delivery(
+            &auto_pull(AutoPullMode::Auto, None),
+            &ssh
+        ));
+        // Webhook-only mode needs an active hook.
+        assert!(!has_runnable_delivery(
+            &auto_pull(AutoPullMode::Webhook, None),
+            &https
+        ));
+        assert!(has_runnable_delivery(
+            &auto_pull(AutoPullMode::Webhook, Some(1)),
+            &https
+        ));
+        // App repos can't be polled; they deliver via the managed webhook.
+        assert!(!has_runnable_delivery(
+            &auto_pull(AutoPullMode::Auto, None),
+            &app
+        ));
+        assert!(has_runnable_delivery(
+            &auto_pull(AutoPullMode::Auto, Some(1)),
+            &app
+        ));
+    }
 
     #[test]
     fn non_fork_matches_tracked_branch_only() {
