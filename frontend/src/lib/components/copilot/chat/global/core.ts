@@ -302,7 +302,9 @@ const getLintErrorsSchema = z.object({
 	runnable_key: z
 		.string()
 		.optional()
-		.describe('Required when kind is raw_app. Key of the inline backend runnable to lint.')
+		.describe(
+			'Used when kind is raw_app: key of the inline backend runnable to lint. Omit it to instead check that the app frontend compiles.'
+		)
 })
 
 const readWorkspaceItemSchema = z.object({
@@ -935,7 +937,7 @@ Rules:
 - Use search_resource_types before write_resource.
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
 - A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.
-- After writing or editing code — a script, an inline flow module, or a raw app backend runnable — call get_lint_errors on it and fix what it reports before moving on. It checks the draft without opening an editor, so it catches what the editor would flag. It covers TypeScript, JavaScript, Python, Go, Deno and Bash; for other languages it says so and you should test-run instead.
+- After writing or editing code — a script, an inline flow module, or a raw app backend runnable — call get_lint_errors on it and fix what it reports before moving on. It checks the draft without opening an editor, so it catches what the editor would flag. It covers TypeScript, JavaScript, Python, Go, Deno and Bash; for other languages it says so and you should test-run instead. For a raw app, call it with the runnable key to check one backend runnable, or without one to check that the frontend still compiles after editing app files.
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
@@ -3778,29 +3780,54 @@ async function resolveLintTarget(
 		}
 	}
 
-	if (!args.runnable_key) {
+	const runnableKey = args.runnable_key
+	if (!runnableKey) {
 		throw new Error('runnable_key is required when kind is raw_app.')
 	}
 	const value = await loadAppValueForRead(args.path, workspace)
-	const runnable = value.runnables[args.runnable_key] as PersistedRunnable | undefined
+	const runnable = value.runnables[runnableKey] as PersistedRunnable | undefined
 	if (!runnable) {
-		throw new Error(`Backend runnable "${args.runnable_key}" not found in app "${args.path}".`)
+		throw new Error(`Backend runnable "${runnableKey}" not found in app "${args.path}".`)
 	}
 	if (!runnable.inlineScript) {
 		throw new Error(
-			`Runnable "${args.runnable_key}" in app "${args.path}" has no inline script, so it has no code to lint.`
+			`Runnable "${runnableKey}" in app "${args.path}" has no inline script, so it has no code to lint.`
 		)
 	}
 	return {
 		content: runnable.inlineScript.content ?? '',
 		language: runnable.inlineScript.language,
-		lintPath: `${args.path}/${args.runnable_key}`,
-		label: `runnable "${args.runnable_key}" of app "${args.path}"`
+		lintPath: `${args.path}/${runnableKey}`,
+		label: `runnable "${runnableKey}" of app "${args.path}"`
+	}
+}
+
+/**
+ * A raw app's frontend is a bundle, not a single document, so there is no per-file
+ * language service to query: the compiler either builds it or reports where it broke.
+ */
+async function checkAppFrontend(path: string, ctx: WriteDraftCtx): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	toolCallbacks.setToolStatus(toolId, { content: `Compiling frontend of app "${path}"...` })
+	const value = await loadAppValueForRead(path, workspace)
+	try {
+		await bundleRawAppDraft({ workspace, files: value.files })
+		toolCallbacks.setToolStatus(toolId, { content: `Frontend of app "${path}" compiles` })
+		return '✅ The app frontend compiles with no errors.'
+	} catch (e) {
+		const message = e instanceof Error ? e.message : String(e)
+		toolCallbacks.setToolStatus(toolId, { content: `Frontend of app "${path}" failed to compile` })
+		return `❌ The app frontend failed to compile:\n\n${message}`
 	}
 }
 
 async function getLintErrors(args: LintTargetArgs, ctx: WriteDraftCtx): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
+
+	if (args.kind === 'raw_app' && !args.runnable_key) {
+		return checkAppFrontend(args.path, ctx)
+	}
+
 	const target = await resolveLintTarget(args, workspace)
 
 	// Loaded on demand: it pulls in Monaco, which must stay out of this module's
