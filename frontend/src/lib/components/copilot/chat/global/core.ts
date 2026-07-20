@@ -3832,7 +3832,7 @@ async function getLintErrors(args: LintTargetArgs, ctx: WriteDraftCtx): Promise<
 
 	let response = formatScriptLintResult(result)
 	if (result.unavailableServers?.length) {
-		response += `\n\nNote: the ${result.unavailableServers.join(' and ')} language server${result.unavailableServers.length > 1 ? 's were' : ' was'} unavailable, so some problems may not be listed. This usually means an editor is already open on a ${target.language} item.`
+		response += `\n\nNote: the ${result.unavailableServers.join(' and ')} language server${result.unavailableServers.length > 1 ? 's did' : ' did'} not respond, so some problems may not be listed. Treat a clean result as inconclusive.`
 	}
 	if (result.contentMismatch) {
 		response += `\n\nNote: an editor is currently open on this code and its buffer differs from the draft. The results above are for what that editor shows.`

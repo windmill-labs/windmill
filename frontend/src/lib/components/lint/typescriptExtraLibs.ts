@@ -59,6 +59,6 @@ export function applyCustomWmillTypes(data: CustomWmillTypesData): () => void {
 	}
 }
 
-export async function ensureCustomWmillTypes(workspace: string): Promise<() => void> {
-	return applyCustomWmillTypes(await fetchCustomWmillTypesData(workspace))
+export async function ensureCustomWmillTypes(workspace: string): Promise<void> {
+	applyCustomWmillTypes(await fetchCustomWmillTypesData(workspace))
 }

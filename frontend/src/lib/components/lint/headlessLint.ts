@@ -47,8 +47,7 @@ export interface HeadlessLintOutcome extends ScriptLintResult {
 	unavailableServers?: string[]
 }
 
-// Models we created ourselves, oldest first. An editor may later adopt one by URI, so
-// eviction must never dispose a model that is attached to an editor.
+// Models we created ourselves, least recently used first.
 const ownedModels: string[] = []
 const MAX_OWNED_MODELS = 4
 
@@ -56,11 +55,29 @@ const absolutePathExtraLibs = new Map<string, { dispose: () => void }>()
 const ataByKey = new Map<string, (source: string) => Promise<void>>()
 const pendingByUri = new Map<string, Promise<HeadlessLintOutcome>>()
 
+function withDeadline(promise: Promise<unknown>, ms: number): Promise<unknown> {
+	return Promise.race([promise, new Promise((resolve) => setTimeout(resolve, ms))])
+}
+
+function touchOwnedModel(uriString: string) {
+	const at = ownedModels.indexOf(uriString)
+	if (at >= 0) ownedModels.splice(at, 1)
+	ownedModels.push(uriString)
+}
+
 function evictOwnedModels(keepUri: string) {
 	while (ownedModels.length > MAX_OWNED_MODELS) {
 		const candidate = ownedModels.shift()
-		if (!candidate || candidate === keepUri) continue
+		if (!candidate) continue
+		if (candidate === keepUri) {
+			// Still in use: keep tracking it, or a later lint would mistake it for a model
+			// owned by an editor and refuse to update its content.
+			ownedModels.push(candidate)
+			continue
+		}
 		const model = meditor.getModel(Uri.parse(candidate))
+		// An editor may have adopted it in the meantime; disposing it would close the
+		// user's buffer.
 		if (model && !model.isAttachedToEditor()) {
 			model.dispose()
 		}
@@ -127,32 +144,41 @@ async function lintOne(
 	let model = meditor.getModel(uri)
 	let contentMismatch = false
 	if (model) {
-		const isOurs = ownedModels.includes(uriString)
-		if (isOurs) {
-			if (model.getValue() !== req.content) model.setValue(req.content)
-		} else {
-			// An editor owns this model: its content is what the user sees and what they would
-			// see the markers for. Lint it as-is rather than overwriting their buffer.
+		// Attachment decides, not who created it: an editor can adopt a model we made, and
+		// its buffer is what the user sees and would save. Never write to it.
+		if (model.isAttachedToEditor() || !ownedModels.includes(uriString)) {
 			contentMismatch = model.getValue() !== req.content
+		} else if (model.getValue() !== req.content) {
+			model.setValue(req.content)
+			// Markers from the previous content survive until revalidation finishes, and a
+			// matching marker count would let the wait below settle on them.
+			meditor.setModelMarkers(model, editorLang, [])
+			touchOwnedModel(uriString)
 		}
 	} else {
 		model = meditor.createModel(req.content, editorLang, uri)
-		ownedModels.push(uriString)
+		touchOwnedModel(uriString)
 		evictOwnedModels(uriString)
 	}
 
+	// Bounded: these fetch over the network, and lints of one URI are serialized behind
+	// each other, so one hung request would wedge the tool for that item indefinitely.
 	if (editorLang === 'typescript') {
-		await Promise.all([
-			ensureResourceTypeNamespace(req.workspace, req.scriptLang).catch((e) =>
-				console.error('headlessLint: resource types unavailable', e)
-			),
-			ensureCustomWmillTypes(req.workspace).catch(() => undefined)
-		])
+		await withDeadline(
+			Promise.all([
+				ensureResourceTypeNamespace(req.workspace, req.scriptLang),
+				ensureCustomWmillTypes(req.workspace)
+			]).catch((e) => console.error('headlessLint: extra libs unavailable', e)),
+			timeoutMs
+		)
 	}
 
 	if (req.scriptLang === 'bun' || req.scriptLang === 'bunnative') {
-		await acquireTypes(req, uriString).catch((e) =>
-			console.error('headlessLint: type acquisition failed', e)
+		await withDeadline(
+			acquireTypes(req, uriString).catch((e) =>
+				console.error('headlessLint: type acquisition failed', e)
+			),
+			timeoutMs
 		)
 	}
 
@@ -164,6 +190,11 @@ async function acquireTypes(req: HeadlessLintRequest, uriString: string): Promis
 	const key = `${req.workspace}:${uriString}`
 	let ata = ataByKey.get(key)
 	if (!ata) {
+		while (ataByKey.size >= MAX_OWNED_MODELS) {
+			const oldest = ataByKey.keys().next().value
+			if (oldest === undefined) break
+			ataByKey.delete(oldest)
+		}
 		ata = await createWindmillAta({
 			root: await genAtaRoot(req.workspace),
 			scriptPath: req.path,
@@ -214,15 +245,16 @@ async function countExpectedMarkers(uri: Uri, editorLang: string): Promise<numbe
 	}
 }
 
-// The editor's own lint paths sleep a fixed delay and hope. Instead, ask the worker how
-// many diagnostics it has and wait for that many markers to be published — which also
-// terminates promptly for clean code, where no marker-change event ever fires.
+// Ask the worker how many diagnostics it has and wait for that many markers to be
+// published. Clean code never fires a marker-change event, so there is no event to wait
+// on and a count is the only signal that validation has actually run.
 async function waitForMarkersToSettle(uri: Uri, editorLang: string, timeoutMs: number) {
 	const expected = await countExpectedMarkers(uri, editorLang)
+	if (expected === undefined) return
 	const deadline = Date.now() + timeoutMs
 	while (Date.now() < deadline) {
 		const published = meditor.getModelMarkers({ resource: uri, owner: editorLang }).length
-		if (expected !== undefined && published === expected) return
+		if (published === expected) return
 		await new Promise((r) => setTimeout(r, 50))
 	}
 }

@@ -107,7 +107,7 @@
 	} from './lint/typescriptExtraLibs'
 	import { createWindmillAta, genAtaRoot } from './lint/typescriptAta'
 	import { readModelMarkers } from './lint/markers'
-	import { buildDenoImportMap, lspServersFor } from './lint/lspLanguageConfig'
+	import { buildDenoImportMap, hasLanguageServers, lspServersFor } from './lint/lspLanguageConfig'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { Selection } from 'monaco-editor'
 	import { canHavePreprocessor, getPreprocessorModuleCode } from '$lib/script_helpers'
@@ -980,15 +980,7 @@
 	export async function reloadWebsocket() {
 		await closeWebsockets()
 
-		if (
-			!useWebsockets ||
-			!(
-				(lang == 'typescript' && scriptLang === 'deno') ||
-				lang == 'python' ||
-				lang == 'go' ||
-				lang == 'shell'
-			)
-		) {
+		if (!useWebsockets || !hasLanguageServers(lang, scriptLang)) {
 			return
 		}
 		console.log('reloadWebsocket')
@@ -1146,11 +1138,7 @@
 				denoImportMap = buildDenoImportMap(await genAtaRoot($workspaceStore ?? ''), filePath)
 			}
 
-			const servers = lspServersFor({ editorLang: lang, scriptLang, denoImportMap })
-			if (servers.length === 0) {
-				closeWebsockets()
-			}
-			for (const server of servers) {
+			for (const server of lspServersFor({ editorLang: lang, scriptLang, denoImportMap })) {
 				await connectToLanguageServer(
 					server.url,
 					server.name,
@@ -1358,6 +1346,12 @@
 			const nmodel = meditor.getModel(mUri.parse(uri))
 			if (!nmodel) {
 				throw err
+			}
+			// Headless linting creates models at this same canonical URI, so the existing
+			// one can hold whatever content was last linted. Show what this editor was
+			// given, not that.
+			if (nmodel.getValue() !== (code ?? '')) {
+				nmodel.setValue(code ?? '')
 			}
 			model = nmodel
 		}
@@ -1620,8 +1614,8 @@
 				modelUri: uri,
 				absolutePathExtraLibs,
 				isCancelled: () => destroyed,
+				registerLocalModels: () => editor != undefined,
 				onLocalFileRegistered: () => {
-					if (!editor) return
 					try {
 						model?.setValue(model.getValue())
 					} catch (e) {

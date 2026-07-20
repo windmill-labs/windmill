@@ -57,12 +57,20 @@ function startClient(
 	return new Promise((resolve) => {
 		let settled = false
 		let webSocket: WebSocket
+		let client: MonacoLanguageClient | undefined
 
 		const finish = (v: StartedClient | undefined) => {
-			if (settled) return
+			if (settled) {
+				// The deadline already gave up on this client. Stop it, or it keeps holding
+				// the global command names it registered and every later lint of this
+				// language reports the server as unavailable.
+				if (v) void stopClient(v)
+				return
+			}
 			settled = true
 			clearTimeout(timer)
 			if (!v) {
+				if (client) void stopClient({ server, client, webSocket, pushedDiagnostics: Promise.resolve() })
 				try {
 					webSocket?.close()
 				} catch {}
@@ -93,7 +101,7 @@ function startClient(
 			let resolvePushed: () => void = () => {}
 			const pushedDiagnostics = new Promise<void>((r) => (resolvePushed = r))
 
-			const client = new MonacoLanguageClient({
+			client = new MonacoLanguageClient({
 				name: `headless-${server.name}`,
 				messageTransports: { reader, writer },
 				clientOptions: {
@@ -226,17 +234,16 @@ export async function lintWithLsp(req: {
 }): Promise<LspLintResult> {
 	await initializeVscode('headlessLsp')
 
-	const uriString = computeModelUri(
-		computeModelPath(undefined, req.scriptLang),
-		req.scriptLang,
-		req.editorLang
-	)
+	const modelPath = computeModelPath(undefined, req.scriptLang)
+	const uriString = computeModelUri(modelPath, req.scriptLang, req.editorLang)
 	const uri = Uri.parse(uriString)
 	const model = meditor.createModel(req.content, req.editorLang, uri)
 
+	// Built from where the document actually lives, not the workspace path: the map's
+	// relative entries are derived from the document's own depth.
 	const denoImportMap =
 		req.scriptLang === 'deno'
-			? buildDenoImportMap(await genAtaRoot(req.workspace), req.path)
+			? buildDenoImportMap(await genAtaRoot(req.workspace), modelPath)
 			: undefined
 	const servers = lspServersFor({
 		editorLang: req.editorLang,
@@ -257,29 +264,40 @@ export async function lintWithLsp(req: {
 			)
 		}
 
-		// A server is done when it has answered the diagnostic request. If it answers with
-		// nothing it may be a publisher instead, so give its push a bounded chance rather
-		// than concluding the document is clean.
-		const pulled = await withDeadline(
-			Promise.all(
-				started.map(async (s) => {
-					const items = await pullDiagnostics(s, uri)
-					if (items.length === 0) {
-						await withDeadline(s.pushedDiagnostics, PUSH_FALLBACK_MS, undefined)
-					}
-					return items
-				})
-			).then((r) => r.flat()),
-			timeoutMs,
-			[] as meditor.IMarker[]
+		// Each server is awaited on its own deadline: one that stalls must not discard
+		// what the others already reported, and must be named rather than counted as
+		// having found nothing.
+		const stalled: string[] = []
+		const perServer = await Promise.all(
+			started.map(async (s) => {
+				const items = await withDeadline(
+					(async () => {
+						const pulled = await pullDiagnostics(s, uri)
+						// A server that answers with nothing may be a publisher instead, so give
+						// its push a bounded chance before concluding the document is clean.
+						if (pulled.length === 0) {
+							await withDeadline(s.pushedDiagnostics, PUSH_FALLBACK_MS, undefined)
+						}
+						return pulled
+					})(),
+					timeoutMs,
+					undefined
+				)
+				if (items === undefined) {
+					stalled.push(s.server.name)
+					return []
+				}
+				return items
+			})
 		)
 
 		// Pushed diagnostics have already been turned into markers on the model.
 		const pushedMarkers = meditor.getModelMarkers({ resource: uri })
-		const unavailableServers = servers
-			.filter((s) => !started.some((st) => st.server.name === s.name))
-			.map((s) => s.name)
-		return { ...dedupe([...pushedMarkers, ...pulled]), unavailableServers }
+		const unavailableServers = [
+			...servers.filter((s) => !started.some((st) => st.server.name === s.name)).map((s) => s.name),
+			...stalled
+		]
+		return { ...dedupe([...pushedMarkers, ...perServer.flat()]), unavailableServers }
 	} finally {
 		await Promise.all(started.map(stopClient))
 		model.dispose()

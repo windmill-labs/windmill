@@ -11,7 +11,7 @@ export interface LspServerConfig {
 	middleware?: (params: any, token: any, next: any) => any
 }
 
-export function lspLanguagesFor(editorLang: string, scriptLang: string | undefined): boolean {
+export function hasLanguageServers(editorLang: string, scriptLang: string | undefined): boolean {
 	return (
 		(editorLang === 'typescript' && scriptLang === 'deno') ||
 		editorLang === 'python' ||

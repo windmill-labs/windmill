@@ -36,6 +36,8 @@ export interface WindmillAtaOptions {
 	modelUri: string
 	absolutePathExtraLibs: Map<string, { dispose: () => void }>
 	isCancelled?: () => boolean
+	/** Whether relative-import files should be materialized as Monaco models. */
+	registerLocalModels?: () => boolean
 	/** Called after a relative-import model is registered, to nudge revalidation. */
 	onLocalFileRegistered?: () => void
 }
@@ -67,13 +69,15 @@ export async function createWindmillAta(
 			opts.absolutePathExtraLibs.get(_path)?.dispose()
 			opts.absolutePathExtraLibs.set(_path, typescriptDefaults.addExtraLib(code, _path))
 		}
-		const localModel = meditor.getModel(nuri)
-		if (localModel) {
-			localModel.setValue(code)
-		} else {
-			meditor.createModel(code, 'typescript', nuri)
+		if (opts.registerLocalModels?.() ?? true) {
+			const localModel = meditor.getModel(nuri)
+			if (localModel) {
+				localModel.setValue(code)
+			} else {
+				meditor.createModel(code, 'typescript', nuri)
+			}
+			opts.onLocalFileRegistered?.()
 		}
-		opts.onLocalFileRegistered?.()
 	}
 
 	await initWasmTs()
