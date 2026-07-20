@@ -44,6 +44,14 @@ pub struct OpenAIChoice {
     pub delta: Option<OpenAIChoiceDelta>,
 }
 
+/// Nested prompt token details returned by the Chat Completions API.
+/// `cached_tokens` is the portion of `prompt_tokens` served from cache (a subset, not additive).
+#[derive(Deserialize, Debug, Clone, Default)]
+pub struct OpenAIPromptTokensDetails {
+    #[serde(default)]
+    pub cached_tokens: Option<i32>,
+}
+
 /// OpenAI Chat Completions API usage information (from final chunk with stream_options.include_usage)
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct OpenAIChatUsage {
@@ -53,6 +61,8 @@ pub struct OpenAIChatUsage {
     pub completion_tokens: Option<i32>,
     #[serde(default)]
     pub total_tokens: Option<i32>,
+    #[serde(default)]
+    pub prompt_tokens_details: Option<OpenAIPromptTokensDetails>,
 }
 
 #[derive(Deserialize)]
@@ -684,6 +694,14 @@ pub struct OpenAIUrlCitationEvent {
     pub title: Option<String>,
 }
 
+/// Nested input token details returned by the Responses API.
+/// `cached_tokens` is the portion of `input_tokens` served from cache (a subset, not additive).
+#[derive(Deserialize, Debug, Clone, Default)]
+pub struct OpenAIInputTokensDetails {
+    #[serde(default)]
+    pub cached_tokens: Option<i32>,
+}
+
 /// OpenAI Responses API usage information
 #[derive(Deserialize, Debug, Clone)]
 pub struct OpenAIResponsesUsage {
@@ -693,6 +711,8 @@ pub struct OpenAIResponsesUsage {
     pub output_tokens: Option<i32>,
     #[serde(default)]
     pub total_tokens: Option<i32>,
+    #[serde(default)]
+    pub input_tokens_details: Option<OpenAIInputTokensDetails>,
 }
 
 /// OpenAI Responses API response object (from response.completed event)
