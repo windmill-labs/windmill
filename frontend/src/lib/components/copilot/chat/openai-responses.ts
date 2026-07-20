@@ -68,9 +68,22 @@ function setOpenAIWebSearchStatus(
 // The pinned SDK types the action shapes (ResponseFunctionWebSearch.Search)
 // but its ResponseFunctionWebSearch interface predates the `action` property
 // itself, so the field must be read untyped and shape-checked.
-function openAIWebSearchDetails(item: any): { query?: string; sources?: WebSearchSource[] } {
+export function openAIWebSearchDetails(item: any): {
+	query?: string
+	sources?: WebSearchSource[]
+} {
 	const action = item?.action
-	const query = typeof action?.query === 'string' && action.query ? action.query : undefined
+	// The current schema sends a `queries` array and may omit the deprecated
+	// singular `query`; support both so the label never falls back to the bare
+	// "Searched the web".
+	const queries: string[] = Array.isArray(action?.queries)
+		? action.queries.filter((q: any) => typeof q === 'string' && q)
+		: []
+	const query = queries.length
+		? queries.join(', ')
+		: typeof action?.query === 'string' && action.query
+			? action.query
+			: undefined
 	const sources = Array.isArray(action?.sources)
 		? action.sources
 				.filter((s: any) => typeof s?.url === 'string')
