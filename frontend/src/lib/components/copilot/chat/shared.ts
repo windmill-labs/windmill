@@ -39,6 +39,7 @@ import {
 } from '$lib/gen'
 import uFuzzy from '@leeoniya/ufuzzy'
 import { emptyString } from '$lib/utils'
+import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { forLater } from '$lib/forLater'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getCurrentModel } from '$lib/aiStore'
@@ -756,6 +757,7 @@ export async function processToolCall<T>({
 		}
 
 		let result = ''
+		logFeatureUsage('ai_chat', 'tool', { key: toolCall.function.name, workspace: workspaceId })
 		try {
 			result = await callTool({
 				tools,

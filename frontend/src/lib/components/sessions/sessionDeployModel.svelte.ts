@@ -23,6 +23,8 @@ import {
 	type DeployPlanEntry
 } from './sessionDeployModel'
 import { maskKey } from './modifiedItemsMask'
+import { sessionState } from './sessionState.svelte'
+import { logFeatureUsage } from '$lib/utils/featureUsage'
 
 export type DeploymentStatus = { status: 'loading' | 'failed'; error?: string }
 
@@ -280,6 +282,11 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 						.add(item.key)
 						.add(maskKey(item.draftKind, item.displayPath))
 					getArgs().onItemDeployed?.(item)
+					logFeatureUsage('ai_session', 'deployed', {
+						key: item.draftKind,
+						entityId: sessionState.currentSessionId,
+						workspace: getArgs().workspaceId
+					})
 				}
 			}
 			return res.success
