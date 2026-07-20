@@ -43,13 +43,7 @@
 	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import DdlMigrationGuard from './DdlMigrationGuard.svelte'
-	import {
-		type Preview,
-		ResourceService,
-		type ScriptLang,
-		UserService,
-		WorkspaceService
-	} from '$lib/gen'
+	import { type Preview, type ScriptLang, UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
 	import {
 		initializeVscode,
@@ -104,12 +98,16 @@
 	import GlobalReviewButtons from './copilot/chat/GlobalReviewButtons.svelte'
 	import AIChatInlineWidget from './copilot/chat/AIChatInlineWidget.svelte'
 	import { writable } from 'svelte/store'
-	import { formatResourceTypes } from './copilot/chat/script/core'
 	import type { ScriptLintResult } from './copilot/chat/shared'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { editorPositionMap } from '$lib/utils'
 	import { extToLang } from '$lib/editorLangUtils'
 	import { computeModelPath, computeModelUri } from './lint/monacoUri'
+	import {
+		applyCustomWmillTypes,
+		ensureResourceTypeNamespace,
+		fetchCustomWmillTypesData
+	} from './lint/typescriptExtraLibs'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { Selection } from 'monaco-editor'
 	import { canHavePreprocessor, getPreprocessorModuleCode } from '$lib/script_helpers'
@@ -1733,61 +1731,16 @@
 
 	let customTsTypesData = resource([() => lang], async () => {
 		if (lang !== 'typescript') return undefined
-		let datatables = (
-			await WorkspaceService.listDataTables({ workspace: $workspaceStore ?? '' })
-		).map((d) => d.name)
-		let ducklakes = await WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? '' })
-		return { datatables, ducklakes }
+		return await fetchCustomWmillTypesData($workspaceStore ?? '')
 	})
 	function setTypescriptCustomTypes() {
 		if (!customTsTypesData.current) return
 		if (lang !== 'typescript') return
-
-		const ducklakeNames = customTsTypesData.current.ducklakes
-		const datatableNames = customTsTypesData.current.datatables
-
-		const ducklakeNameType = ducklakeNames.length
-			? ducklakeNames.map((name) => JSON.stringify(name)).join(' | ')
-			: 'string'
-		const datatableNameType = datatableNames.length
-			? datatableNames.map((name) => JSON.stringify(name)).join(' | ')
-			: 'string'
-		const isDucklakeOptional = ducklakeNames.includes('main')
-		const isDataTableOptional = datatableNames.includes('main')
-
-		let disposeTs = typescriptDefaults.addExtraLib(
-			`export {};
-			declare module 'windmill-client' {
-				import { type DatatableSqlTemplateFunction, type SqlTemplateFunction } from 'windmill-client';
-				export function ducklake(name${isDucklakeOptional ? '?' : ''}: ${ducklakeNameType}): SqlTemplateFunction;
-				export function datatable(name${isDataTableOptional ? '?' : ''}: ${datatableNameType}): DatatableSqlTemplateFunction;
-			}`,
-			'file:///custom_wmill_types.d.ts'
-		)
-		return () => {
-			disposeTs.dispose()
-		}
+		return applyCustomWmillTypes(customTsTypesData.current)
 	}
 
 	async function setTypescriptRTNamespace() {
-		if (
-			scriptLang &&
-			(scriptLang === 'bun' ||
-				scriptLang === 'deno' ||
-				scriptLang === 'bunnative' ||
-				scriptLang === 'nativets')
-		) {
-			const resourceTypes = await ResourceService.listResourceType({
-				workspace: $workspaceStore ?? ''
-			})
-
-			const namespace = formatResourceTypes(
-				resourceTypes,
-				scriptLang === 'bunnative' ? 'bun' : scriptLang
-			)
-
-			typescriptDefaults.addExtraLib(namespace, 'rt.d.ts')
-		}
+		await ensureResourceTypeNamespace($workspaceStore ?? '', scriptLang)
 	}
 
 	async function setTypescriptExtraLibs() {
