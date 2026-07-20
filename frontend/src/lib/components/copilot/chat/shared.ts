@@ -18,6 +18,7 @@ export const SPECIAL_MODULE_IDS = {
 } as const
 import { get } from 'svelte/store'
 import type { PasteAttachment } from './pasteTokens'
+import { dataUrlToImagePart, type AttachedImage } from './imageUtils'
 import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
 import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
@@ -468,6 +469,9 @@ export type UserDisplayMessage = BaseDisplayMessage & {
 	// Collapsed big-paste blobs referenced by tokens in `content`. Lets the
 	// bubble render/expand chips; the LLM message stores the expanded text.
 	pastes?: PasteAttachment[]
+	// Images the user attached to this message (drag/drop/paste), rendered as
+	// thumbnails in the bubble. The LLM message carries them as image_url parts.
+	images?: AttachedImage[]
 }
 
 export type CreatedResourceTriggerKind =
@@ -539,6 +543,8 @@ export type ToolDisplayMessage = {
 	showFade?: boolean
 	actions?: ToolDisplayAction[]
 	userQuestion?: UserQuestionDisplay
+	/** Data URL of an image the tool produced (e.g. take_screenshot), shown on the card. */
+	imageUrl?: string
 }
 
 export type AssistantDisplayMessage = BaseDisplayMessage & {
@@ -796,6 +802,32 @@ export async function processToolCall<T>({
 	}
 }
 
+/**
+ * Flush images buffered by tools during a batch (via toolCallbacks.attachToolImage)
+ * as ONE follow-up user message, appended to both `messages` (sent on later
+ * iterations) and `addedMessages` (committed to history). Call this once per
+ * completion, right after the whole tool loop — never mid-batch, so every tool_call
+ * id is already answered by its tool result before this non-tool message. The image
+ * parts ride the same `image_url` carrier that the provider converters translate.
+ */
+export function appendPendingToolImages(
+	messages: ChatCompletionMessageParam[],
+	addedMessages: ChatCompletionMessageParam[],
+	toolCallbacks: ToolCallbacks
+): void {
+	const images = toolCallbacks.takePendingToolImages?.() ?? []
+	if (images.length === 0) return
+	const message: ChatCompletionMessageParam = {
+		role: 'user',
+		content: [
+			{ type: 'text', text: 'Screenshot(s) of the app preview:' },
+			...images.map((img) => dataUrlToImagePart(img.dataUrl))
+		]
+	}
+	messages.push(message)
+	addedMessages.push(message)
+}
+
 export interface Tool<T> {
 	def: ChatCompletionFunctionTool
 	fn: (p: {
@@ -939,6 +971,16 @@ export interface ToolCallbacks {
 	onItemDeployed?: (itemKind: UserDraftItemKind, storagePath: string, deployedPath: string) => void
 	/** A tool discarded a draft: the chat's touch on the item is undone. */
 	onItemDiscarded?: (itemKind: UserDraftItemKind, storagePath: string) => void
+	/**
+	 * Buffer an image a tool produced (e.g. take_screenshot). Tool results are
+	 * string-only and OpenAI forbids images in tool messages, so buffered images are
+	 * flushed as a follow-up user message once the whole tool batch is answered (see
+	 * appendPendingToolImages) — appending mid-batch would leave sibling tool_call ids
+	 * unanswered before a non-tool message.
+	 */
+	attachToolImage?: (toolId: string, image: AttachedImage) => void
+	/** Drain every image buffered this batch (insertion order), clearing the buffer. */
+	takePendingToolImages?: () => AttachedImage[]
 }
 
 export function createToolDef(

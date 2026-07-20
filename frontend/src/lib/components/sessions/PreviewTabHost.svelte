@@ -8,12 +8,9 @@
 		type SessionPreviewTab
 	} from './sessionState.svelte'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
+	import { Loader2 } from 'lucide-svelte'
 	import { resolvePreviewTab, parsePreviewItemRoute } from './previewRouter'
 	import { withMenuHidden } from './sessionMode.svelte'
-	import ScriptEditorView from './ScriptEditorView.svelte'
-	import FlowEditorView from './FlowEditorView.svelte'
-	import RawAppEditorView from './RawAppEditorView.svelte'
-	import PipelineEditorView from './PipelineEditorView.svelte'
 	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
 
 	let {
@@ -130,38 +127,64 @@
 	$effect(() => () => clearTimeout(flashTimer))
 </script>
 
+{#snippet editorLoading()}
+	<div class="flex-1 flex items-center justify-center text-tertiary">
+		<Loader2 class="animate-spin" />
+	</div>
+{/snippet}
+
 {#if slot.kind === 'editor' && mounted && runtime}
 	<div class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}" aria-hidden={!active}>
+		<!-- Dynamic imports: the live editors pull in the heaviest module graphs in
+		     the app (FlowBuilder, ScriptBuilder/Monaco, the raw-app editor, the
+		     pipeline graph). Loading them only when an editor tab first mounts keeps
+		     the /sessions route chunk thin, so entering session mode stays snappy. -->
 		{#if slot.editorKind === 'flow'}
-			<FlowEditorView
-				{runtime}
-				path={slot.path}
-				{workspaceId}
-				{onNavigate}
-				{isActiveSession}
-				{active}
-			/>
+			{#await import('./FlowEditorView.svelte')}
+				{@render editorLoading()}
+			{:then Module}
+				<Module.default
+					{runtime}
+					path={slot.path}
+					{workspaceId}
+					{onNavigate}
+					{isActiveSession}
+					{active}
+				/>
+			{/await}
 		{:else if slot.editorKind === 'script'}
-			<ScriptEditorView
-				{runtime}
-				path={slot.path}
-				{workspaceId}
-				{onNavigate}
-				{isActiveSession}
-				{active}
-				{fullscreen}
-			/>
+			{#await import('./ScriptEditorView.svelte')}
+				{@render editorLoading()}
+			{:then Module}
+				<Module.default
+					{runtime}
+					path={slot.path}
+					{workspaceId}
+					{onNavigate}
+					{isActiveSession}
+					{active}
+					{fullscreen}
+				/>
+			{/await}
 		{:else if slot.editorKind === 'pipeline'}
-			<PipelineEditorView {runtime} path={slot.path} {workspaceId} {isActiveSession} {active} />
+			{#await import('./PipelineEditorView.svelte')}
+				{@render editorLoading()}
+			{:then Module}
+				<Module.default {runtime} path={slot.path} {workspaceId} {isActiveSession} {active} />
+			{/await}
 		{:else}
-			<RawAppEditorView
-				{runtime}
-				path={slot.path}
-				{workspaceId}
-				{onNavigate}
-				{isActiveSession}
-				{active}
-			/>
+			{#await import('./RawAppEditorView.svelte')}
+				{@render editorLoading()}
+			{:then Module}
+				<Module.default
+					{runtime}
+					path={slot.path}
+					{workspaceId}
+					{onNavigate}
+					{isActiveSession}
+					{active}
+				/>
+			{/await}
 		{/if}
 	</div>
 {:else if slot.kind === 'artifact' && mounted}

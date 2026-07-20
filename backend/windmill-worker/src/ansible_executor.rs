@@ -55,6 +55,191 @@ const WINDMILL_ANSIBLE_PASSWORD_FILENAME: &str = ".windmill.ansible_vault_passwo
 
 const DELEGATE_GIT_REPO_TARGET: &str = "delegate_git_repository";
 
+/// Usable bytes in `sockaddr_un.sun_path` (108 minus the NUL). An ABI constant, not a
+/// filesystem limit — which is why only the socket breaks while every regular file in the
+/// same job dir is fine.
+const AF_UNIX_PATH_LIMIT: usize = 107;
+
+/// Root for the per-job dir in which ansible's persistent-connection plugins
+/// (`network_cli`, `httpapi`, `netconf`) bind their unix socket, named after a digest of the
+/// connection. `sockaddr_un.sun_path` caps the whole socket path at [`AF_UNIX_PATH_LIMIT`],
+/// which the job dir alone already exhausts, so the socket dir must stay short and cannot
+/// live under `ANSIBLE_HOME` (which Windmill pins into the job dir).
+///
+/// Fixed, and directly under `/tmp`, for two reasons that are easy to undo by accident:
+/// `/tmp`'s sticky bit is what stops another uid renaming our root away, the one property
+/// [`prepare_socket_root`] needs from a parent; and every component of a fixed path is one
+/// nobody can point elsewhere, so trusting the root does not mean trusting an ancestor
+/// chain. Notably NOT under `WINDMILL_DIR`: the shipped image chmods that tree to a
+/// non-sticky 0777 so any UID can write it (`Dockerfile`, "Make directories
+/// world-accessible for any UID"), which is exactly the parent an attacker can swap entries
+/// in.
+const PERSISTENT_CONTROL_PATH_ROOT: &str = "/tmp/wm-pc";
+
+/// Ansible's env var for `[persistent_connection] control_path_dir`.
+const ANSIBLE_CONTROL_PATH_DIR_ENV: &str = "ANSIBLE_PERSISTENT_CONTROL_PATH_DIR";
+
+/// The budget this whole change exists to protect: root + `/` + a 32-char job uuid + `/` +
+/// a socket name, allowing a full 40-char sha1 (ansible truncates it far shorter today, but
+/// a custom control path may not).
+const _: () = assert!(PERSISTENT_CONTROL_PATH_ROOT.len() + 1 + 32 + 1 + 40 <= AF_UNIX_PATH_LIMIT);
+
+/// Cleared when the root cannot be trusted (see [`prepare_socket_root`]), which makes jobs
+/// stop naming it and fall back to ansible's own `{ANSIBLE_HOME}/pc` default — inside the
+/// job dir, so worker-owned. Network playbooks then fail on the path length as they did
+/// before this dir existed, which beats handing an attacker the socket a device session
+/// runs over. Defaults to trusted: the check runs at worker start, before any job.
+static SOCKET_ROOT_TRUSTED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(true);
+
+/// Socket dir for `job_id`, or `None` when the root is untrusted. Per-job on purpose:
+/// socket names hash host+credentials, so concurrent jobs sharing a dir would reuse each
+/// other's connection daemon.
+fn persistent_control_path_dir(job_id: &Uuid) -> Option<String> {
+    SOCKET_ROOT_TRUSTED
+        .load(std::sync::atomic::Ordering::Relaxed)
+        .then(|| format!("{PERSISTENT_CONTROL_PATH_ROOT}/{}", job_id.simple()))
+}
+
+/// Whether `name` is one this module could have created, i.e. `Uuid::simple` (32 hex, no
+/// hyphens). Belt to the root check's braces: nothing else should ever be in there.
+#[cfg(unix)]
+fn is_persistent_control_path_dir_name(name: &str) -> bool {
+    name.len() == 32 && Uuid::try_parse(name).is_ok()
+}
+
+/// Removes the job's socket dir on the way out. It lives outside `job_dir`, so the
+/// worker's job-dir sweep does not cover it.
+struct PersistentControlPathGuard(String);
+
+impl Drop for PersistentControlPathGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Claim the socket-dir root at worker start, then reap dirs left behind by workers that
+/// died before their guard could run.
+#[cfg(unix)]
+pub async fn prepare_persistent_control_path_root() {
+    // A play holds its socket dir for as long as it runs, touching the mtime only when
+    // connections open, so anything younger than the longest permitted job may still be
+    // live — including on another worker sharing this host.
+    let stale_after = std::time::Duration::from_secs(
+        windmill_common::worker::MAX_TIMEOUT.saturating_add(24 * 60 * 60),
+    );
+    prepare_socket_root(PERSISTENT_CONTROL_PATH_ROOT, stale_after).await
+}
+
+/// Reject a root that another local user could control, and mark it untrusted so jobs stop
+/// naming it. Returns without sweeping in that case.
+///
+/// SECURITY: the root sits in a world-writable `/tmp`, so a local user who wins the race to
+/// create it owns the parent of every job's socket dir —
+/// enough to hand ansible a socket of their choosing (a device session, credentials and
+/// all, runs over it), or to swap in a symlink and redirect the sweep's path-based
+/// `remove_dir_all` onto a target of their choosing, as the worker's uid. Three things must
+/// hold: the root is a real directory (`symlink_metadata` reports the link's own type
+/// without following it, so `is_dir()` cannot be satisfied by a symlink), we own it and
+/// nobody else can write it, and its parent cannot be used to replace it — which needs the
+/// parent either not writable by others, or sticky, since the sticky bit is exactly what
+/// stops a non-owner renaming an entry out of a shared dir. The root is validated after the
+/// create attempt, never before: anything else races whoever creates it first.
+#[cfg(unix)]
+async fn prepare_socket_root(root: &str, stale_after: std::time::Duration) {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let untrusted = |reason: String| {
+        tracing::error!(
+            "Refusing to use the ansible persistent-connection socket root at {root}: {reason}. \
+             Ansible network playbooks on this host will keep failing with `AF_UNIX path too \
+             long` until this is resolved."
+        );
+        SOCKET_ROOT_TRUSTED.store(false, std::sync::atomic::Ordering::Relaxed);
+    };
+
+    if let Some(parent) = std::path::Path::new(root).parent() {
+        // Resolved, not `symlink_metadata`: what matters is the mode of the directory the
+        // entries actually live in, and a symlinked parent is normal (macOS `/tmp`).
+        match tokio::fs::metadata(parent).await {
+            Ok(meta) => {
+                let mode = meta.permissions().mode();
+                if mode & 0o022 != 0 && mode & 0o1000 == 0 {
+                    return untrusted(format!(
+                        "its parent {} is writable by other users and not sticky (mode={:o}), \
+                         so they could replace the root",
+                        parent.display(),
+                        mode & 0o7777
+                    ));
+                }
+            }
+            Err(e) => return untrusted(format!("cannot stat its parent: {e}")),
+        }
+    }
+
+    // Non-recursive on purpose: `recursive` reports success for a path that already
+    // exists, which under a sticky parent (where others may still *create* the
+    // not-yet-existing `pc`, only not rename ours away) would hand us whatever another uid
+    // raced into place. Create-or-EEXIST, then validate whatever is actually there.
+    match tokio::fs::DirBuilder::new().mode(0o700).create(root).await {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(e) => return untrusted(format!("it could not be created: {e}")),
+    }
+
+    match tokio::fs::symlink_metadata(root).await {
+        Ok(meta) if meta.is_dir() => {
+            let mode = meta.permissions().mode();
+            // Trusted means usable as well as safe: without owner rwx ansible cannot create
+            // its per-job dir, and a trusted-but-unusable root would hand every network
+            // playbook a permission error instead of the working fallback.
+            if meta.uid() != nix::unistd::Uid::effective().as_raw()
+                || mode & 0o022 != 0
+                || mode & 0o700 != 0o700
+            {
+                return untrusted(format!(
+                    "it is not owned by this worker, is writable by others, or is not \
+                     writable by us (uid={}, mode={:o})",
+                    meta.uid(),
+                    mode & 0o7777
+                ));
+            }
+        }
+        Ok(_) => {
+            return untrusted(
+                "it is not a directory (possibly a symlink planted by another local user)"
+                    .to_string(),
+            )
+        }
+        Err(e) => return untrusted(format!("it could not be stat'd: {e}")),
+    }
+
+    let Ok(mut entries) = tokio::fs::read_dir(root).await else {
+        return;
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        // Only reap what we could have created. Nothing else should ever be in a root we
+        // made 0700 ourselves, but this is a recursive delete running as the worker's uid:
+        // cheap to bound by name, expensive to get wrong.
+        if !entry
+            .file_name()
+            .to_str()
+            .is_some_and(is_persistent_control_path_dir_name)
+        {
+            continue;
+        }
+        // `DirEntry::metadata` does not traverse symlinks, so a planted link is never
+        // followed here either.
+        let stale = match entry.metadata().await.and_then(|m| m.modified()) {
+            Ok(modified) => modified.elapsed().is_ok_and(|e| e > stale_after),
+            Err(_) => false,
+        };
+        if stale {
+            let _ = tokio::fs::remove_dir_all(entry.path()).await;
+        }
+    }
+}
+
 lazy_static::lazy_static! {
     static ref TEMPLATE_RE: regex::Regex = regex::Regex::new(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}").unwrap();
 }
@@ -903,6 +1088,7 @@ pub fn create_ansible_cfg(
     reqs: Option<&AnsibleRequirements>,
     job_dir: &str,
     vault_password_file_exists: bool,
+    job_id: &Uuid,
 ) -> error::Result<()> {
     let mut passwords_cfg = String::new();
     if vault_password_file_exists {
@@ -922,6 +1108,9 @@ pub fn create_ansible_cfg(
             passwords_cfg.push_str(&format!("vault_identity_list = {password_files}\n"));
         }
     }
+    let persistent_cfg = persistent_control_path_dir(job_id)
+        .map(|dir| format!("[persistent_connection]\ncontrol_path_dir = {dir}\n"))
+        .unwrap_or_default();
     let ansible_cfg_content = format!(
         r#"
 [defaults]
@@ -931,12 +1120,21 @@ home={job_dir}/.ansible
 local_tmp={job_dir}/.ansible/tmp
 remote_tmp={job_dir}/.ansible/tmp
 {passwords_cfg}
-"#
+{persistent_cfg}"#
     );
 
     write_file(job_dir, "ansible.cfg", &ansible_cfg_content)?;
 
     Ok(())
+}
+
+/// The section a header line opens, if it is one. Mirrors configparser's `SECTCRE`
+/// (`\[(?P<header>.+)\]`, matched not fullmatched, `.+` greedy): the name runs to the
+/// *last* `]`, and anything after it — an inline comment, say — is ignored.
+fn parse_ansible_cfg_section_header(trimmed: &str) -> Option<&str> {
+    let rest = trimmed.strip_prefix('[')?;
+    let end = rest.rfind(']')?;
+    Some(rest[..end].trim())
 }
 
 /// Read a colon-separated path list (e.g. `roles_path`, `collections_path`) from
@@ -949,10 +1147,8 @@ fn parse_ansible_cfg_path_list(content: &str, key: &str) -> Option<Vec<String>> 
     let mut in_defaults = false;
     for line in content.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with('[') && trimmed.ends_with(']') {
-            in_defaults = trimmed[1..trimmed.len() - 1]
-                .trim()
-                .eq_ignore_ascii_case("defaults");
+        if let Some(section) = parse_ansible_cfg_section_header(trimmed) {
+            in_defaults = section.eq_ignore_ascii_case("defaults");
             continue;
         }
         if !in_defaults || trimmed.starts_with('#') || trimmed.starts_with(';') {
@@ -976,6 +1172,29 @@ fn parse_ansible_cfg_path_list(content: &str, key: &str) -> Option<Vec<String>> 
         }
     }
     None
+}
+
+/// Whether `section` declares `key` in an ansible.cfg. Same deliberately minimal
+/// parsing as [`parse_ansible_cfg_path_list`], for a scalar key in a named section.
+fn ansible_cfg_declares(content: &str, section: &str, key: &str) -> bool {
+    let mut in_section = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(header) = parse_ansible_cfg_section_header(trimmed) {
+            in_section = header.eq_ignore_ascii_case(section);
+            continue;
+        }
+        if !in_section || trimmed.starts_with('#') || trimmed.starts_with(';') {
+            continue;
+        }
+        let sep = trimmed.find('=').into_iter().chain(trimmed.find(':')).min();
+        if let Some(sep) = sep {
+            if trimmed[..sep].trim().eq_ignore_ascii_case(key) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Prepend Windmill's dependency install dir to the repo cfg's declared path list.
@@ -1006,6 +1225,8 @@ async fn build_ansible_cfg_override_envs(
     job_dir: &str,
     vault_password_file_exists: bool,
     reqs: Option<&AnsibleRequirements>,
+    job_id: &Uuid,
+    job_envs: &HashMap<String, String>,
 ) -> error::Result<Vec<(String, String)>> {
     let mut envs = vec![
         ("ANSIBLE_CONFIG".to_string(), cfg_path.to_string()),
@@ -1052,6 +1273,18 @@ async fn build_ansible_cfg_override_envs(
             "Failed to read delegated ansible.cfg at `{cfg_path}`: {e}"
         ))
     })?;
+
+    // Persistent-connection socket dir: only a default. Unlike ANSIBLE_HOME this value is
+    // not runtime-bound, so a repo that picks its own dir keeps it — and so does a job that
+    // sets the env var itself, which these overrides are applied after and would otherwise
+    // silently outrank.
+    if !ansible_cfg_declares(&cfg_content, "persistent_connection", "control_path_dir")
+        && !job_envs.contains_key(ANSIBLE_CONTROL_PATH_DIR_ENV)
+    {
+        if let Some(dir) = persistent_control_path_dir(job_id) {
+            envs.push((ANSIBLE_CONTROL_PATH_DIR_ENV.to_string(), dir));
+        }
+    }
 
     envs.push((
         "ANSIBLE_ROLES_PATH".to_string(),
@@ -1606,7 +1839,8 @@ pub async fn handle_ansible_job(
         None => false,
     };
 
-    create_ansible_cfg(reqs.as_ref(), job_dir, vault_password_file_exists)?;
+    create_ansible_cfg(reqs.as_ref(), job_dir, vault_password_file_exists, &job.id)?;
+    let _control_path_guard = persistent_control_path_dir(&job.id).map(PersistentControlPathGuard);
 
     // When the run delegates to a git repo that ships its own ansible.cfg, that
     // file becomes the effective config (ansible loads exactly one config file and
@@ -1628,6 +1862,8 @@ pub async fn handle_ansible_job(
                 job_dir,
                 vault_password_file_exists,
                 reqs.as_ref(),
+                &job.id,
+                &envs,
             )
             .await?
         }
@@ -1941,6 +2177,10 @@ async fn get_resource_or_variable_content(
 mod tests {
     use super::*;
 
+    fn no_job_envs() -> HashMap<String, String> {
+        HashMap::new()
+    }
+
     fn args_from_json(v: serde_json::Value) -> HashMap<String, Box<RawValue>> {
         let serde_json::Value::Object(map) = v else {
             panic!("expected object");
@@ -2027,10 +2267,38 @@ mod tests {
             vault_id: vec!["dev@vault_pass.txt".to_string()],
             ..Default::default()
         };
-        create_ansible_cfg(Some(&reqs), job_dir, false).unwrap();
+        create_ansible_cfg(Some(&reqs), job_dir, false, &Uuid::new_v4()).unwrap();
         let cfg = std::fs::read_to_string(dir.path().join("ansible.cfg")).unwrap();
         assert!(cfg.contains("vault_identity_list = dev@vault_pass.txt"));
         assert!(!cfg.contains("library"));
+    }
+
+    /// The socket ansible binds under `control_path_dir` must fit `sun_path` (107
+    /// usable bytes), which the job dir alone blows past — hence a short dir outside
+    /// `ANSIBLE_HOME`.
+    #[test]
+    fn test_create_ansible_cfg_control_path_dir_fits_af_unix_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let job_dir = dir.path().to_str().unwrap();
+        let job_id = Uuid::new_v4();
+        let flag = TrustFlag::lock();
+        flag.set(true);
+        create_ansible_cfg(None, job_dir, false, &job_id).unwrap();
+
+        let cfg = std::fs::read_to_string(dir.path().join("ansible.cfg")).unwrap();
+        let control_path_dir = persistent_control_path_dir(&job_id).unwrap();
+        assert!(cfg.contains("[persistent_connection]"));
+        assert!(cfg.contains(&format!("control_path_dir = {control_path_dir}")));
+        // The whole point: the socket dir must escape the job dir, whose length is what
+        // blows the budget.
+        assert!(!control_path_dir.starts_with(job_dir));
+
+        // dir + `/` + socket name, budgeted at a full 40-char sha1 (ansible truncates
+        // it far shorter today, but a custom control path may not).
+        assert!(
+            control_path_dir.len() + 1 + 40 <= AF_UNIX_PATH_LIMIT,
+            "socket path would exceed sun_path: {control_path_dir}"
+        );
     }
 
     #[test]
@@ -2042,7 +2310,7 @@ mod tests {
             ..Default::default()
         };
         // Defense-in-depth boundary: a poisoned entry must error before any config is written.
-        assert!(create_ansible_cfg(Some(&reqs), job_dir, false).is_err());
+        assert!(create_ansible_cfg(Some(&reqs), job_dir, false, &Uuid::new_v4()).is_err());
         assert!(!dir.path().join("ansible.cfg").exists());
     }
 
@@ -2161,7 +2429,7 @@ collections_path : a/col:b/col
         std::fs::write(repo.join("play.yml"), play).unwrap();
 
         // Windmill's own generated cfg (the negative-control config that exists today).
-        create_ansible_cfg(None, job_dir, false).unwrap();
+        create_ansible_cfg(None, job_dir, false, &Uuid::new_v4()).unwrap();
 
         let playbook = format!("{DELEGATE_GIT_REPO_TARGET}/play.yml");
         let run = |envs: Vec<(String, String)>| {
@@ -2185,10 +2453,16 @@ collections_path : a/col:b/col
 
         // With the override: ANSIBLE_CONFIG points at the repo cfg and roles_path
         // is honored, so the role runs.
-        let envs =
-            build_ansible_cfg_override_envs(cfg_path.to_str().unwrap(), job_dir, false, None)
-                .await
-                .unwrap();
+        let envs = build_ansible_cfg_override_envs(
+            cfg_path.to_str().unwrap(),
+            job_dir,
+            false,
+            None,
+            &Uuid::new_v4(),
+            &no_job_envs(),
+        )
+        .await
+        .unwrap();
         let after = run(envs);
         let stdout = String::from_utf8_lossy(&after.stdout);
         assert!(
@@ -2213,14 +2487,29 @@ collections_path : a/col:b/col
             vault_id: vec!["dev@vault_pass.txt".to_string()],
             ..Default::default()
         };
-        let envs = build_ansible_cfg_override_envs(cfg_path, job_dir, true, Some(&reqs))
-            .await
-            .unwrap();
+        let job_id = Uuid::new_v4();
+        let flag = TrustFlag::lock();
+        flag.set(true);
+        let envs = build_ansible_cfg_override_envs(
+            cfg_path,
+            job_dir,
+            true,
+            Some(&reqs),
+            &job_id,
+            &no_job_envs(),
+        )
+        .await
+        .unwrap();
         let map: std::collections::HashMap<_, _> = envs.into_iter().collect();
 
         assert_eq!(
             map.get("ANSIBLE_CONFIG").map(|s| s.as_str()),
             Some(cfg_path)
+        );
+        // The repo cfg declares no control_path_dir, so Windmill's short default applies.
+        assert_eq!(
+            map.get("ANSIBLE_PERSISTENT_CONTROL_PATH_DIR"),
+            persistent_control_path_dir(&job_id).as_ref()
         );
         assert_eq!(
             map.get("ANSIBLE_HOME"),
@@ -2261,14 +2550,424 @@ collections_path : a/col:b/col
         // are not silently dropped when the env override replaces the cfg value.
         std::fs::write(&cfg_path, "[defaults]\ncollections_paths = my_cols\n").unwrap();
 
-        let envs =
-            build_ansible_cfg_override_envs(cfg_path.to_str().unwrap(), job_dir, false, None)
-                .await
-                .unwrap();
+        let envs = build_ansible_cfg_override_envs(
+            cfg_path.to_str().unwrap(),
+            job_dir,
+            false,
+            None,
+            &Uuid::new_v4(),
+            &no_job_envs(),
+        )
+        .await
+        .unwrap();
         let map: std::collections::HashMap<_, _> = envs.into_iter().collect();
         assert_eq!(
             map.get("ANSIBLE_COLLECTIONS_PATH"),
             Some(&format!("{job_dir}:{}/my_cols", repo_dir.to_str().unwrap()))
         );
+    }
+
+    /// These overrides are applied after the job's own env, so a default that ignores what
+    /// the job set would silently outrank it. Not runtime-bound, so the job wins.
+    #[tokio::test]
+    async fn test_build_ansible_cfg_override_envs_keeps_job_env_control_path_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let job_dir = dir.path().to_str().unwrap();
+        let repo_dir = dir.path().join(DELEGATE_GIT_REPO_TARGET);
+        std::fs::create_dir_all(&repo_dir).unwrap();
+        let cfg_path = repo_dir.join("ansible.cfg");
+        // Cfg is silent on control_path_dir; the job env is not.
+        std::fs::write(&cfg_path, "[defaults]\nroles_path = my_roles\n").unwrap();
+
+        let job_envs = HashMap::from([(
+            ANSIBLE_CONTROL_PATH_DIR_ENV.to_string(),
+            "/tmp/job-picked".to_string(),
+        )]);
+
+        let flag = TrustFlag::lock();
+        flag.set(true);
+        let envs = build_ansible_cfg_override_envs(
+            cfg_path.to_str().unwrap(),
+            job_dir,
+            false,
+            None,
+            &Uuid::new_v4(),
+            &job_envs,
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            !envs.iter().any(|(k, _)| k == ANSIBLE_CONTROL_PATH_DIR_ENV),
+            "must not override a control_path_dir the job set itself"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_build_ansible_cfg_override_envs_keeps_user_control_path_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let job_dir = dir.path().to_str().unwrap();
+        let repo_dir = dir.path().join(DELEGATE_GIT_REPO_TARGET);
+        std::fs::create_dir_all(&repo_dir).unwrap();
+        let cfg_path = repo_dir.join("ansible.cfg");
+        std::fs::write(
+            &cfg_path,
+            "[defaults]\nroles_path = my_roles\n\n[persistent_connection]\ncontrol_path_dir = /tmp/my_pc\n",
+        )
+        .unwrap();
+
+        let envs = build_ansible_cfg_override_envs(
+            cfg_path.to_str().unwrap(),
+            job_dir,
+            false,
+            None,
+            &Uuid::new_v4(),
+            &no_job_envs(),
+        )
+        .await
+        .unwrap();
+        let map: std::collections::HashMap<_, _> = envs.into_iter().collect();
+        assert_eq!(map.get("ANSIBLE_PERSISTENT_CONTROL_PATH_DIR"), None);
+    }
+
+    /// `SOCKET_ROOT_TRUSTED` is process-global and cargo runs tests in parallel: hold this
+    /// while reading or flipping it, and the default is restored on the way out.
+    struct TrustFlag(#[allow(dead_code)] std::sync::MutexGuard<'static, ()>);
+
+    impl TrustFlag {
+        fn lock() -> Self {
+            static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+            Self(LOCK.lock().unwrap_or_else(|e| e.into_inner()))
+        }
+        fn set(&self, trusted: bool) {
+            SOCKET_ROOT_TRUSTED.store(trusted, std::sync::atomic::Ordering::Relaxed);
+        }
+        fn get(&self) -> bool {
+            SOCKET_ROOT_TRUSTED.load(std::sync::atomic::Ordering::Relaxed)
+        }
+    }
+
+    impl Drop for TrustFlag {
+        fn drop(&mut self) {
+            SOCKET_ROOT_TRUSTED.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    #[cfg(unix)]
+    fn backdate(path: &std::path::Path, age: std::time::Duration) {
+        let times = std::fs::FileTimes::new().set_modified(std::time::SystemTime::now() - age);
+        std::fs::File::open(path).unwrap().set_times(times).unwrap();
+    }
+
+    /// The sweep only reaps what no live job can own: a play may hold its socket dir for
+    /// the whole of MAX_TIMEOUT without touching the mtime again. And it only ever touches
+    /// names it could have created itself.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_prepare_socket_root_sweeps_only_stale_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("wm-pc");
+        std::fs::create_dir(&root).unwrap();
+
+        let stale = root.join(Uuid::new_v4().simple().to_string());
+        let live = root.join(Uuid::new_v4().simple().to_string());
+        let foreign = root.join("someone-elses-data");
+        for p in [&stale, &live, &foreign] {
+            std::fs::create_dir(p).unwrap();
+        }
+        backdate(&stale, std::time::Duration::from_secs(48 * 60 * 60));
+        backdate(&live, std::time::Duration::from_secs(12 * 60 * 60));
+        backdate(&foreign, std::time::Duration::from_secs(48 * 60 * 60));
+
+        let _flag = TrustFlag::lock();
+        prepare_socket_root(
+            root.to_str().unwrap(),
+            std::time::Duration::from_secs(24 * 60 * 60),
+        )
+        .await;
+
+        assert!(!stale.exists(), "dir older than the cutoff must be reaped");
+        assert!(live.exists(), "a dir a live job may still own must be kept");
+        assert!(
+            foreign.exists(),
+            "a stale dir we never created must be left alone"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_is_persistent_control_path_dir_name() {
+        assert!(is_persistent_control_path_dir_name(
+            &Uuid::new_v4().simple().to_string()
+        ));
+        // Hyphenated form is not what we create, so it is not ours to delete.
+        assert!(!is_persistent_control_path_dir_name(
+            &Uuid::new_v4().to_string()
+        ));
+        assert!(!is_persistent_control_path_dir_name("someone-elses-data"));
+        assert!(!is_persistent_control_path_dir_name(""));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_prepare_socket_root_creates_root_private() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("wm-pc");
+        let flag = TrustFlag::lock();
+        flag.set(true);
+        prepare_socket_root(root.to_str().unwrap(), std::time::Duration::from_secs(1)).await;
+
+        let meta = std::fs::metadata(&root).unwrap();
+        assert!(meta.is_dir());
+        // Owning the root 0700 is what stops another local user replacing it later.
+        assert_eq!(meta.permissions().mode() & 0o777, 0o700);
+        assert!(flag.get(), "a root we created ourselves is trusted");
+    }
+
+    /// The root must be validated *after* the create attempt, not before: under a sticky
+    /// parent another uid may still win the race to create the not-yet-existing `pc`
+    /// (sticky stops them renaming ours away, not creating it first), and a create that
+    /// tolerates `AlreadyExists` would otherwise hand us their directory unchecked.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_prepare_socket_root_validates_raced_creation() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let parent = dir.path().join("windmill");
+        std::fs::create_dir(&parent).unwrap();
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o1777)).unwrap();
+
+        // Stand in for the racer's dir: present before we look, and not exclusively ours.
+        let root = parent.join("pc");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o777)).unwrap();
+
+        let flag = TrustFlag::lock();
+        flag.set(true);
+        prepare_socket_root(root.to_str().unwrap(), std::time::Duration::from_secs(1)).await;
+
+        assert!(
+            !flag.get(),
+            "a root raced into place under a sticky parent must not be trusted"
+        );
+    }
+
+    /// Safe but unusable is still not trusted: ansible cannot create its per-job dir under
+    /// a root we cannot write, and naming it anyway would swap the working fallback for a
+    /// permission error on every network playbook.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_prepare_socket_root_refuses_unwritable_root() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("wm-pc");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o500)).unwrap();
+
+        let flag = TrustFlag::lock();
+        flag.set(true);
+        prepare_socket_root(root.to_str().unwrap(), std::time::Duration::from_secs(1)).await;
+
+        assert!(!flag.get(), "a root we cannot write must not be trusted");
+        // Let the tempdir clean itself up.
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+
+    /// A root we do not exclusively own may have been pre-planted by another local user,
+    /// who then controls the parent of every job's socket dir — and could swap a symlink
+    /// in after this check, redirecting the sweep's path-based `remove_dir_all`.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_prepare_socket_root_refuses_world_writable_root() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("wm-pc");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o777)).unwrap();
+
+        // UUID-named, so survival proves the trust check stopped the sweep rather than the
+        // name filter.
+        let stale = root.join(Uuid::new_v4().simple().to_string());
+        std::fs::create_dir(&stale).unwrap();
+        backdate(&stale, std::time::Duration::from_secs(48 * 60 * 60));
+
+        let _flag = TrustFlag::lock();
+        prepare_socket_root(
+            root.to_str().unwrap(),
+            std::time::Duration::from_secs(24 * 60 * 60),
+        )
+        .await;
+
+        assert!(
+            stale.exists(),
+            "must not sweep a root that others can write to"
+        );
+    }
+
+    /// The root must hang off `/tmp`, whose sticky bit is what protects it. The trap this
+    /// guards: the shipped image chmods the whole `WINDMILL_DIR` tree to a non-sticky 0777
+    /// so any UID can write it, so parenting the root there would make it untrusted and
+    /// silently disable this fix in the standard image while every local test still passed.
+    #[test]
+    fn test_control_path_root_hangs_off_tmp() {
+        assert_eq!(
+            std::path::Path::new(PERSISTENT_CONTROL_PATH_ROOT).parent(),
+            Some(std::path::Path::new("/tmp"))
+        );
+    }
+
+    /// A parent that others can write (and that is not sticky) lets them rename the root
+    /// away and drop a symlink in its place after the checks — so the root cannot be
+    /// trusted no matter how it currently looks.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_prepare_socket_root_refuses_writable_parent() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let parent = dir.path().join("windmill");
+        let root = parent.join("pc");
+        std::fs::create_dir_all(&root).unwrap();
+        // UUID-named, so survival proves the trust check stopped the sweep rather than the
+        // name filter.
+        let stale = root.join(Uuid::new_v4().simple().to_string());
+        std::fs::create_dir(&stale).unwrap();
+        backdate(&stale, std::time::Duration::from_secs(48 * 60 * 60));
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o777)).unwrap();
+
+        let flag = TrustFlag::lock();
+        flag.set(true);
+        prepare_socket_root(
+            root.to_str().unwrap(),
+            std::time::Duration::from_secs(24 * 60 * 60),
+        )
+        .await;
+
+        assert!(stale.exists(), "must not sweep under a replaceable parent");
+        assert!(
+            !flag.get(),
+            "an untrusted root must be marked so jobs stop naming it"
+        );
+    }
+
+    /// A sticky parent (like /tmp itself) is fine: the sticky bit is what stops a
+    /// non-owner renaming our root out of it.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_prepare_socket_root_accepts_sticky_world_writable_parent() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let parent = dir.path().join("windmill");
+        let root = parent.join("pc");
+        std::fs::create_dir_all(&parent).unwrap();
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o1777)).unwrap();
+
+        let flag = TrustFlag::lock();
+        flag.set(true);
+        prepare_socket_root(
+            root.to_str().unwrap(),
+            std::time::Duration::from_secs(24 * 60 * 60),
+        )
+        .await;
+
+        assert!(root.is_dir(), "root must be created under a sticky parent");
+        assert!(flag.get());
+    }
+
+    /// Fail closed: when the root is untrusted the cfg must not name it, so ansible falls
+    /// back to its own `{ANSIBLE_HOME}/pc` default inside the worker-owned job dir.
+    #[test]
+    fn test_create_ansible_cfg_omits_untrusted_control_path_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let job_dir = dir.path().to_str().unwrap();
+
+        let flag = TrustFlag::lock();
+        flag.set(false);
+        create_ansible_cfg(None, job_dir, false, &Uuid::new_v4()).unwrap();
+
+        let cfg = std::fs::read_to_string(dir.path().join("ansible.cfg")).unwrap();
+        assert!(!cfg.contains("control_path_dir"));
+        assert!(!cfg.contains("[persistent_connection]"));
+    }
+
+    /// A symlinked root must never be swept: `remove_dir_all` through it would delete
+    /// whatever the link points at, as the worker's uid.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_prepare_socket_root_refuses_symlinked_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let victim = dir.path().join("victim");
+        // UUID-named, so survival proves the symlink was not followed rather than the name
+        // filter sparing it.
+        let victim_child = victim.join(Uuid::new_v4().simple().to_string());
+        std::fs::create_dir_all(&victim_child).unwrap();
+        backdate(&victim_child, std::time::Duration::from_secs(48 * 60 * 60));
+
+        let root = dir.path().join("wm-pc");
+        std::os::unix::fs::symlink(&victim, &root).unwrap();
+
+        let _flag = TrustFlag::lock();
+        prepare_socket_root(
+            root.to_str().unwrap(),
+            std::time::Duration::from_secs(24 * 60 * 60),
+        )
+        .await;
+
+        assert!(
+            victim_child.exists(),
+            "sweep must not follow a symlinked root"
+        );
+    }
+
+    /// configparser matches `\[(?P<header>.+)\]` without anchoring the end of the line, so
+    /// a header with anything trailing it is still that section — and missing it here
+    /// would silently override the user's own control_path_dir.
+    #[test]
+    fn test_ansible_cfg_section_header_with_trailing_text() {
+        assert_eq!(
+            parse_ansible_cfg_section_header("[persistent_connection] ; note"),
+            Some("persistent_connection")
+        );
+        assert_eq!(parse_ansible_cfg_section_header("not a header"), None);
+        // Greedy `.+` runs to the last `]`.
+        assert_eq!(parse_ansible_cfg_section_header("[a]b]"), Some("a]b"));
+
+        assert!(ansible_cfg_declares(
+            "[persistent_connection] ; note\ncontrol_path_dir = /tmp/mine\n",
+            "persistent_connection",
+            "control_path_dir"
+        ));
+        assert_eq!(
+            parse_ansible_cfg_path_list("[defaults] # note\nroles_path = my_roles\n", "roles_path"),
+            Some(vec!["my_roles".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_ansible_cfg_declares_scoped_to_section() {
+        let cfg = "\
+[defaults]
+control_path_dir = /wrong/section
+
+[persistent_connection]
+# control_path_dir = /commented
+connect_timeout = 30
+";
+        assert!(!ansible_cfg_declares(
+            cfg,
+            "persistent_connection",
+            "control_path_dir"
+        ));
+        assert!(ansible_cfg_declares(
+            cfg,
+            "persistent_connection",
+            "connect_timeout"
+        ));
     }
 }

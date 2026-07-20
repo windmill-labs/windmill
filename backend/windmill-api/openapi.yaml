@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.760.1
+  version: 1.763.0
   title: Windmill API
 
   contact:
@@ -847,7 +847,7 @@ paths:
 
   /w/{workspace}/users/delete/{username}:
     delete:
-      summary: delete user (require admin privilege)
+      summary: delete user (require admin privilege, except for the creator of a fork removing a non-admin member of the fork)
       operationId: deleteUser
       tags:
         - user
@@ -1273,32 +1273,6 @@ paths:
                 required:
                   - id
                   - name
-
-  /w/{workspace}/workspaces/set_dev_workspace_label:
-    post:
-      summary: set the cosmetic display label (dev/staging) of this dev workspace
-      operationId: setDevWorkspaceLabel
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                dev_workspace_label:
-                  type: string
-                  enum: [dev, staging]
-      responses:
-        "200":
-          description: dev workspace label updated
-          content:
-            text/plain:
-              schema:
-                type: string
 
   /workspaces/exists:
     post:
@@ -3052,7 +3026,7 @@ paths:
 
   /w/{workspace}/workspaces/add_user:
     post:
-      summary: add user to workspace
+      summary: add user to workspace (require admin privilege, except for the creator of a fork adding a developer/admin of its parent workspace as a developer of the fork)
       operationId: addUser
       tags:
         - workspace
@@ -8598,6 +8572,11 @@ paths:
           description: List every draft in the workspace (all users), not just the current user's own + legacy rows. Other users' rows come back with `mine=false` (view-only).
           schema:
             type: boolean
+        - name: compare_to_workspace
+          in: query
+          description: A fork passes its parent workspace id here to have each row flagged with `unchanged_from_parent`. Ignored unless it is exactly this workspace's parent.
+          schema:
+            type: string
       responses:
         "200":
           description: the user's drafts
@@ -8633,6 +8612,9 @@ paths:
                     mine:
                       type: boolean
                       description: The row belongs to the current user (own draft or the legacy no-owner row) and is therefore actionable. Always true in the default listing; with `all_users=true`, other users' rows are false (view-only).
+                    unchanged_from_parent:
+                      type: boolean
+                      description: Only present when `compare_to_workspace` was passed. True when this draft is identical to the parent's draft at the same path/kind/owner (cloned in on fork and never edited here).
                     draft_users:
                       description: |
                         Draft authors at this (path, kind) — the legacy NULL-email row surfaced as a null username.
@@ -10793,7 +10775,7 @@ paths:
           application/json:
             schema:
               allOf:
-                - $ref: "#/components/schemas/OpenFlowWPath"
+                - $ref: "#/components/schemas/EditFlow"
                 - type: object
                   properties:
                     deployment_message:
@@ -29115,6 +29097,37 @@ components:
                 type: string
           required:
             - path
+    # Like OpenFlowWPath but `path` is optional: on update the flow is identified by
+    # the URL, so the body path is only needed to rename it. Kept as a separate schema
+    # (rather than making OpenFlowWPath.path optional) so createFlow still requires path.
+    EditFlow:
+      allOf:
+        - $ref: "../../openflow.openapi.yaml#/components/schemas/OpenFlow"
+        - type: object
+          properties:
+            path:
+              type: string
+            tag:
+              type: string
+            ws_error_handler_muted:
+              type: boolean
+            priority:
+              type: integer
+            dedicated_worker:
+              type: boolean
+            timeout:
+              type: number
+            visible_to_runner_only:
+              type: boolean
+            on_behalf_of_email:
+              type: string
+            preserve_on_behalf_of:
+              type: boolean
+              description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email value instead of overwriting it."
+            labels:
+              type: array
+              items:
+                type: string
 
     FlowPreview:
       type: object
@@ -29933,8 +29946,70 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/GitSyncObjectType"
+        auto_pull:
+          $ref: "#/components/schemas/AutoPullSettings"
+        promotion_open_prs:
+          type: boolean
+        fork_open_prs:
+          type: boolean
+        open_pr_error:
+          type: string
+          description: server-owned, last failure opening a PR for a deploy branch of this repo
       required:
         - git_repo_resource_path
+
+    AutoPullMode:
+      type: string
+      enum:
+        - auto
+        - webhook
+        - polling
+
+    AutoPullStatus:
+      type: object
+      properties:
+        synced_sha:
+          type: string
+        at:
+          type: integer
+          format: int64
+        job_id:
+          type: string
+          format: uuid
+        success:
+          type: boolean
+        error:
+          type: string
+      required:
+        - at
+        - success
+
+    AutoPullSettings:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        mode:
+          $ref: "#/components/schemas/AutoPullMode"
+        poll_interval_s:
+          type: integer
+        sync_forks:
+          type: boolean
+        webhook_id:
+          type: integer
+          format: int64
+        webhook_secret:
+          type: string
+        webhook_error:
+          type: string
+        last_synced_sha:
+          type: object
+          additionalProperties:
+            type: string
+        last_pull_status:
+          $ref: "#/components/schemas/AutoPullStatus"
+      required:
+        - enabled
 
     MetricMetadata:
       type: object

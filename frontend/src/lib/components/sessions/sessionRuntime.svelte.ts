@@ -59,7 +59,9 @@ import {
 	setClosePreviewTabsHandler,
 	setGetPreviewStatusHandler,
 	setGetRuntimeLogsHandler,
+	setGetDomHandler,
 	setListAppRunsHandler,
+	setScreenshotHandler,
 	setOpenPagePreviewHandler,
 	setOpenPreviewHandler
 } from '$lib/components/copilot/chat/global/core'
@@ -69,8 +71,14 @@ import {
 	type RawAppRuntimeLogEntry,
 	type RawAppRuntimeLogRequester,
 	type RawAppRunSummary,
-	type RawAppRunsProvider
+	type RawAppRunsProvider,
+	type RawAppScreenshotRequester
 } from '$lib/components/raw_apps/utils'
+import type {
+	RawAppDomQuery,
+	RawAppDomRequester,
+	RawAppDomResult
+} from '$lib/components/raw_apps/rawAppDom'
 import { getNonStreamingMetadataCompletion } from '$lib/components/copilot/lib'
 import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
@@ -172,8 +180,21 @@ export interface SessionRuntime {
 	): Promise<void>
 	setRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined): void
 	requestRuntimeLogs(limit: number): Promise<RawAppRuntimeLogEntry[] | undefined>
+	/** Register a mounted raw-app preview's DOM requester, keyed by app path.
+	 * ALL mounted preview tabs register (hidden ones stay mounted), so a
+	 * DOM-scoped turn can read its own app even when another tab is visible. */
+	registerDomRequester(appPath: string, requester: RawAppDomRequester): void
+	unregisterDomRequester(appPath: string, requester: RawAppDomRequester): void
+	/** The visible preview — the default target for a query with no app path. */
+	setActiveDomApp(appPath: string, owner: unknown): void
+	releaseActiveDomApp(owner: unknown): void
+	requestDom(query: RawAppDomQuery): Promise<RawAppDomResult | undefined>
 	setAppRunsProvider(provider: RawAppRunsProvider | undefined): void
 	getAppRuns(): RawAppRunSummary[] | undefined
+	setScreenshotRequester(requester: RawAppScreenshotRequester | undefined): void
+	/** Release the slot only if `requester` still owns it. */
+	clearScreenshotRequester(requester: RawAppScreenshotRequester): void
+	requestScreenshot(): Promise<string | undefined>
 	// Discard the local draft + force-reload the editor, so the preview matches
 	// the deployed version. Used by editor onDeploy + the chat deploy handler.
 	syncPreviewWithDeployed(
@@ -445,7 +466,12 @@ function createRuntime(session: Session): SessionRuntime {
 	const pipelineEditorState = new PipelineEditorState()
 
 	let runtimeLogRequester: RawAppRuntimeLogRequester | undefined = undefined
+	// appPath → requester, one entry per mounted raw-app preview tab.
+	const domRequesters = new Map<string, RawAppDomRequester>()
+	let activeDomAppPath: string | undefined = undefined
+	let activeDomOwner: unknown = undefined
 	let appRunsProvider: RawAppRunsProvider | undefined = undefined
+	let screenshotRequester: RawAppScreenshotRequester | undefined = undefined
 
 	return {
 		sessionId: session.id,
@@ -770,11 +796,61 @@ function createRuntime(session: Session): SessionRuntime {
 		async requestRuntimeLogs(limit) {
 			return runtimeLogRequester ? runtimeLogRequester(limit) : undefined
 		},
+		registerDomRequester(appPath, requester) {
+			domRequesters.set(appPath, requester)
+		},
+		unregisterDomRequester(appPath, requester) {
+			// Identity-guarded: a remount may already have replaced this entry.
+			if (domRequesters.get(appPath) === requester) domRequesters.delete(appPath)
+		},
+		setActiveDomApp(appPath, owner) {
+			activeDomAppPath = appPath
+			activeDomOwner = owner
+		},
+		releaseActiveDomApp(owner) {
+			// Owner-guarded so a set/release race between two tabs can't blank the
+			// new active app regardless of effect order.
+			if (activeDomOwner === owner) {
+				activeDomAppPath = undefined
+				activeDomOwner = undefined
+			}
+		},
+		async requestDom(query) {
+			if (domRequesters.size === 0) return undefined
+			// Route to the query's own app when specified (a DOM-scoped turn reads
+			// its element's app even when another tab is now visible), else the
+			// active preview, else the only one open.
+			const path =
+				query.appPath ??
+				activeDomAppPath ??
+				(domRequesters.size === 1 ? [...domRequesters.keys()][0] : undefined)
+			if (path === undefined) return undefined
+			const requester = domRequesters.get(path)
+			if (!requester) {
+				return {
+					text: `The preview for "${path}" is no longer open, so its DOM can't be read. Re-open that raw app in the session to inspect it.`
+				}
+			}
+			return requester(query)
+		},
 		setAppRunsProvider(provider) {
 			appRunsProvider = provider
 		},
 		getAppRuns() {
 			return appRunsProvider ? appRunsProvider() : undefined
+		},
+		setScreenshotRequester(requester) {
+			screenshotRequester = requester
+		},
+		clearScreenshotRequester(requester) {
+			// Tabs unmount in any order and several stay mounted at once, so a
+			// departing tab must not unregister whichever one now owns the slot.
+			if (screenshotRequester === requester) {
+				screenshotRequester = undefined
+			}
+		},
+		async requestScreenshot() {
+			return screenshotRequester ? screenshotRequester() : undefined
 		}
 	}
 }
@@ -1012,6 +1088,33 @@ setGetRuntimeLogsHandler(async ({ sessionId: callerSessionId, limit }) => {
 	}
 })
 
+setGetDomHandler(async ({ sessionId: callerSessionId, query }) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
+	const runtime = sessionId ? runtimes.get(sessionId) : undefined
+	if (!runtime) {
+		return {
+			aiResult:
+				'Error: search_dom and read_dom are only available inside an AI session. Tell the user the rendered DOM can only be read from a session preview, or switch to a session and open the raw app preview.',
+			uiMessage: 'DOM unavailable',
+			toolResult: 'DOM unavailable'
+		}
+	}
+	const result = await runtime.requestDom(query)
+	if (result === undefined) {
+		return {
+			aiResult:
+				'No raw app preview is running for this session, so the DOM cannot be read. Next step: call open_preview with kind="raw_app" and the app path, wait for it to load, then call search_dom or read_dom again. The DOM is read live from the running preview.',
+			uiMessage: 'DOM unavailable',
+			toolResult: 'DOM unavailable'
+		}
+	}
+	return {
+		aiResult: result.text,
+		uiMessage: query.mode === 'search' ? 'Searched app DOM' : 'Read app DOM',
+		toolResult: result.text
+	}
+})
+
 setListAppRunsHandler(({ sessionId: callerSessionId, limit }) => {
 	const sessionId = callerSessionId ?? sessionState.currentSessionId
 	const runtime = sessionId ? runtimes.get(sessionId) : undefined
@@ -1044,6 +1147,34 @@ setListAppRunsHandler(({ sessionId: callerSessionId, limit }) => {
 		aiResult: formatAppRunsForChat(limited),
 		uiMessage: `Fetched app runs`,
 		toolResult: formatAppRunsForChat(limited)
+	}
+})
+
+setScreenshotHandler(async ({ sessionId: callerSessionId }) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
+	const runtime = sessionId ? runtimes.get(sessionId) : undefined
+	if (!runtime) {
+		return {
+			error:
+				'Error: take_screenshot is only available inside an AI session. Tell the user screenshots can only be captured from a session preview.',
+			uiMessage: 'Screenshot unavailable'
+		}
+	}
+	try {
+		const dataUrl = await runtime.requestScreenshot()
+		if (dataUrl === undefined) {
+			return {
+				error:
+					'No raw app preview is open for this session, so there is nothing to screenshot. Next step: call open_preview with kind="raw_app" and the app path, wait for it to load, then call take_screenshot again.',
+				uiMessage: 'Screenshot unavailable'
+			}
+		}
+		return { dataUrl }
+	} catch (e) {
+		return {
+			error: `Could not capture the app preview: ${e instanceof Error ? e.message : String(e)}`,
+			uiMessage: 'Screenshot failed'
+		}
 	}
 })
 

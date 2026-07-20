@@ -12,7 +12,8 @@ import {
 	type ReasoningProviderModel
 } from '../reasoningRegistry'
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
-import { usesAnthropicMessagesApi } from '../modelConfig'
+import { modelSupportsVision, usesAnthropicMessagesApi } from '../modelConfig'
+import { boundImagePartBytes, stripImagePartsFromMessages } from './imageUtils'
 import { getOpenAIResponsesCompletion, parseOpenAIResponsesCompletion } from './openai-responses'
 import type { Tool, ToolCallbacks } from './shared'
 import { sanitizeToolCallArguments } from './toolCallArguments'
@@ -65,8 +66,13 @@ export interface ChatLoopConfig {
 	 * lets the caller recover partial output if the loop throws or is aborted.
 	 */
 	addedMessages?: ChatCompletionMessageParam[]
-	/** Called before each iteration (e.g. to refresh tool schemas). */
-	onBeforeIteration?: (tools: Tool<any>[], helpers: any) => Promise<void>
+	/** Called before each iteration (e.g. to refresh tool schemas, or to record
+	 * which model the iteration is about to use). */
+	onBeforeIteration?: (
+		tools: Tool<any>[],
+		helpers: any,
+		modelProvider: ReasoningProviderModel
+	) => Promise<void>
 }
 
 export interface ChatLoopResult {
@@ -315,7 +321,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			!unsupportedWebSearchCache.has(webSearchCacheKey)
 
 		if (onBeforeIteration) {
-			await onBeforeIteration(tools, helpers)
+			await onBeforeIteration(tools, helpers, modelProvider)
 		}
 
 		const pendingUserMessage = getPendingUserMessage?.()
@@ -329,9 +335,17 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		// so background paths (metadata/autocomplete) never inherit it.
 		const reasoningEffort = resolveRequestReasoning(modelProvider)
 
+		// Checked per iteration, like the model itself: the selector stays enabled
+		// while the loop runs, and a switch to a known text-only model mid-turn
+		// would otherwise send it the history's image parts and fail the turn.
+		// The byte bound is also per iteration because screenshots taken by tools
+		// grow the history mid-loop (see MAX_TOTAL_IMAGE_BYTES).
+		const visibleMessages = modelSupportsVision(modelProvider.provider, modelProvider.model)
+			? boundImagePartBytes(messages)
+			: stripImagePartsFromMessages(messages)
 		const messageParams = [
 			systemMessage,
-			...sanitizeToolCallArguments(messages),
+			...sanitizeToolCallArguments(visibleMessages),
 			...(pendingUserMessage ? [pendingUserMessage] : [])
 		]
 		const toolDefs = tools.map((t) => t.def)
