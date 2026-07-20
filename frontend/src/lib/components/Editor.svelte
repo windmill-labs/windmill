@@ -33,7 +33,6 @@
 		dbSchemas,
 		type DBSchema,
 		codeCompletionSessionEnabled,
-		lspTokenStore,
 		formatOnSave,
 		vimMode,
 		relativeLineNumbers
@@ -43,7 +42,7 @@
 	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import DdlMigrationGuard from './DdlMigrationGuard.svelte'
-	import { type Preview, type ScriptLang, UserService } from '$lib/gen'
+	import { type Preview, type ScriptLang } from '$lib/gen'
 	import type { Text } from 'yjs'
 	import {
 		initializeVscode,
@@ -74,11 +73,10 @@
 		POSTGRES_TYPES,
 		SNOWFLAKE_TYPES
 	} from '$lib/consts'
-	import { setupTypeAcquisition, type DepsToGet } from '$lib/ata/index'
-	import { initWasmTs, type InferAssetsSqlQueryDetails } from '$lib/infer'
+	import { type DepsToGet } from '$lib/ata/index'
+	import { type InferAssetsSqlQueryDetails } from '$lib/infer'
 	import { initVim } from './monaco_keybindings'
 	import { updateSqlQueriesInWorker, waitForWorkerInitialization } from './sqlTypeService'
-	import { parseTypescriptDeps } from '$lib/relative_imports'
 
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import {
@@ -108,6 +106,7 @@
 		ensureResourceTypeNamespace,
 		fetchCustomWmillTypesData
 	} from './lint/typescriptExtraLibs'
+	import { createWindmillAta, genAtaRoot } from './lint/typescriptAta'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { Selection } from 'monaco-editor'
 	import { canHavePreprocessor, getPreprocessorModuleCode } from '$lib/script_helpers'
@@ -1149,14 +1148,12 @@
 			}
 		}
 
-		const hostname = getHostname()
-
 		let encodedImportMap = ''
 
 		if (useWebsockets) {
 			if (lang == 'typescript' && scriptLang === 'deno') {
 				ata = undefined
-				let root = await genRoot(hostname)
+				let root = await genAtaRoot($workspaceStore ?? '')
 				const importMap = {
 					imports: {
 						'file:///': root + '/'
@@ -1333,10 +1330,6 @@
 	let pathTimeout: number | undefined = undefined
 
 	let yPadding = MONACO_Y_PADDING
-
-	function getHostname() {
-		return BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'
-	}
 
 	function handlePathChange() {
 		console.log('path changed, reloading language server', initialPath, path)
@@ -1756,70 +1749,19 @@
 		) {
 			absolutePathExtraLibs.forEach((d) => d.dispose())
 			absolutePathExtraLibs.clear()
-			const hostname = getHostname()
 
-			const addLibraryToRuntime = async (code: string, _path: string) => {
-				const path = 'file://' + _path
-				let uri = mUri.parse(path)
-				console.log('adding library to runtime', path)
-				typescriptDefaults.addExtraLib(code, path)
-				try {
-					await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code))
-				} catch (e) {
-					console.log('error writing file', e)
-				}
-			}
-
-			const addLocalFile = async (code: string, _path: string) => {
-				if (destroyed) return
-				let p = new URL(_path, uri).href
-				let nuri = mUri.parse(p)
-				console.log('adding local file', _path, nuri.toString())
-				// Monaco's TS service resolves relative imports against the importer's URI (finding the
-				// model), but absolute paths like "/u/admin/foo" are looked up as raw paths and miss the
-				// `file://` model. Register them as extra libs so TS can resolve them.
-				if (_path.startsWith('/')) {
-					absolutePathExtraLibs.get(_path)?.dispose()
-					absolutePathExtraLibs.set(_path, typescriptDefaults.addExtraLib(code, _path))
-				}
-				if (editor) {
-					let localModel = meditor.getModel(nuri)
-					if (localModel) {
-						localModel.setValue(code)
-					} else {
-						meditor.createModel(code, 'typescript', nuri)
-					}
+			ata = await createWindmillAta({
+				root: await genAtaRoot($workspaceStore ?? ''),
+				scriptPath: path,
+				modelUri: uri,
+				absolutePathExtraLibs,
+				isCancelled: () => destroyed,
+				onLocalFileRegistered: () => {
+					if (!editor) return
 					try {
-						if (model) {
-							model?.setValue(model.getValue())
-						}
+						model?.setValue(model.getValue())
 					} catch (e) {
 						console.log('error resetting model', e)
-					}
-				}
-			}
-			await initWasmTs()
-			const root = await genRoot(hostname)
-			console.log('SETUP TYPE ACQUISITION', { root, path })
-			ata = setupTypeAcquisition({
-				projectName: 'Windmill',
-				depsParser: (c) => {
-					return parseTypescriptDeps(c)
-				},
-				root,
-				scriptPath: path,
-				logger: console,
-				delegate: {
-					receivedFile: addLibraryToRuntime,
-					localFile: addLocalFile,
-					progress: (downloaded: number, total: number) => {
-						// console.log({ dl, ttl })
-					},
-					started: () => {
-						console.log('ATA start')
-					},
-					finished: (f) => {
-						console.log('ATA done')
 					}
 				}
 			})
@@ -1914,21 +1856,6 @@
 		absolutePathExtraLibs.forEach((d) => d.dispose())
 		absolutePathExtraLibs.clear()
 	})
-
-	async function genRoot(hostname: string) {
-		let token = $lspTokenStore
-		if (!token) {
-			let expiration = new Date()
-			expiration.setHours(expiration.getHours() + 72)
-			const newToken = await UserService.createToken({
-				requestBody: { label: 'Ephemeral lsp token', expiration: expiration.toISOString() }
-			})
-			$lspTokenStore = newToken
-			token = newToken
-		}
-		let root = hostname + '/api/scripts_u/tokened_raw/' + $workspaceStore + '/' + token
-		return root
-	}
 
 	function acceptCodeChanges() {
 		const mode = aiChatEditorHandler?.getReviewMode?.()
