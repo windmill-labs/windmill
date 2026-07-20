@@ -15,16 +15,19 @@
 		type AIAgentConfig,
 		type AgentTool
 	} from '../agentResourceUtils'
+	import AgentToolBindings from './AgentToolBindings.svelte'
 	import { resource } from 'runed'
 
 	let {
 		agent = $bindable(),
 		inputTransforms = $bindable(),
-		tools = $bindable()
+		tools = $bindable(),
+		toolInputs = $bindable()
 	}: {
 		agent: string | undefined
 		inputTransforms: Record<string, InputTransform>
 		tools: AgentTool[]
+		toolInputs: Record<string, Record<string, InputTransform>>
 	} = $props()
 
 	let saveDrawer: Drawer | undefined = $state()
@@ -83,6 +86,7 @@
 		if (pickerValue && pickerValue !== agent) {
 			agent = pickerValue
 			tools = []
+			toolInputs = {}
 		}
 	})
 
@@ -190,7 +194,17 @@
 			}
 		}
 		inputTransforms = { ...brain, ...local }
-		tools = cfg.tools ?? []
+		// The forked step owns the tools directly, with the host bindings folded into each tool's
+		// input_transforms, so the linked-only override map no longer applies.
+		const forkedTools = cfg.tools ?? []
+		for (const tool of forkedTools) {
+			const overrides = toolInputs?.[tool.id]
+			if (overrides && tool.value?.input_transforms) {
+				tool.value.input_transforms = { ...tool.value.input_transforms, ...overrides }
+			}
+		}
+		tools = forkedTools
+		toolInputs = {}
 		agent = undefined
 		pickerValue = undefined
 		return path
@@ -276,6 +290,7 @@
 				</dl>
 			</div>
 		{/if}
+		<AgentToolBindings tools={inheritedTools} bind:toolInputs />
 		{#if !providerOk}
 			<div
 				class="mt-1 flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-2xs text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-300"

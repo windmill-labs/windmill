@@ -1100,6 +1100,17 @@ components:
             config (provider/model/system prompt/etc.) and tool set are resolved at runtime from
             that resource; the module's input_transforms then only carry the flow-local inputs
             (user_message/user_attachments).
+        tool_inputs:
+          type: object
+          description: |
+            Host-local wiring for a linked agent's tool inputs, keyed by tool id then input key.
+            Binds the referenced agent's tools to this flow's context (flow_input/results) without
+            mutating the shared resource; overlaid onto the resource's tool input_transforms at
+            runtime. Empty/absent for non-linked steps.
+          additionalProperties:
+            type: object
+            additionalProperties:
+              $ref: '#/components/schemas/InputTransform'
         parallel:
           type: boolean
           description: If true, the agent can execute multiple tool calls in parallel

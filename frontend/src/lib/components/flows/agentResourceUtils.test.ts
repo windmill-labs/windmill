@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { summarizeAgentBrain } from './agentResourceUtils'
+import { hostBoundToolInputs, summarizeAgentBrain } from './agentResourceUtils'
 
 describe('summarizeAgentBrain', () => {
 	it('returns only set fields, in brain-key order, formatted', () => {
@@ -34,5 +34,40 @@ describe('summarizeAgentBrain', () => {
 			{ label: 'Memory', value: 'auto' },
 			{ label: 'Output schema', value: 'configured' }
 		])
+	})
+})
+
+describe('hostBoundToolInputs', () => {
+	it('surfaces only javascript-wired inputs of FlowModule tools', () => {
+		const tools = [
+			{
+				id: 'search',
+				summary: 'search_db',
+				value: {
+					tool_type: 'flowmodule',
+					type: 'script',
+					input_transforms: {
+						tenant: { type: 'javascript', expr: 'flow_input.tenant' },
+						query: { type: 'ai' },
+						limit: { type: 'static', value: 10 }
+					}
+				}
+			},
+			// MCP tool: no input_transforms, must be skipped entirely.
+			{ id: 'mcp', value: { tool_type: 'mcp', resource_path: 'u/x/mcp' } }
+		]
+		expect(hostBoundToolInputs(tools as any)).toEqual([
+			{
+				toolId: 'search',
+				label: 'search_db',
+				keys: [{ key: 'tenant', resourceExpr: 'flow_input.tenant' }]
+			}
+		])
+	})
+
+	it('omits tools with no host-bound inputs and handles empty input', () => {
+		const tools = [{ id: 't', summary: 's', value: { input_transforms: { a: { type: 'ai' } } } }]
+		expect(hostBoundToolInputs(tools as any)).toEqual([])
+		expect(hostBoundToolInputs(undefined)).toEqual([])
 	})
 })

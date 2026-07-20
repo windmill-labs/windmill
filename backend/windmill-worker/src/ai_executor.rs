@@ -35,7 +35,7 @@ use windmill_common::{
     error::{self, Error},
     flow_conversations::MessageType,
     flow_status::AgentAction,
-    flows::{AgentTool, FlowModule, FlowModuleValue, ToolValue},
+    flows::{AgentTool, FlowModule, FlowModuleValue, InputTransform, ToolValue},
     get_latest_hash_for_path,
     jobs::JobKind,
     scripts::get_full_hub_script_by_path,
@@ -172,6 +172,36 @@ async fn fetch_script_description(db: &DB, w_id: &str, hash: i64) -> Option<Stri
     .filter(|d| !d.is_empty())
 }
 
+/// Overlay a linked step's host-local tool wiring onto the agent resource's tools. For each tool
+/// id present in `tool_inputs`, merge its per-input transforms into that tool's `input_transforms`
+/// (step wins). Only `FlowModule` tools carry input transforms; MCP/websearch tools are skipped.
+fn overlay_tool_inputs(
+    tools: &mut [AgentTool],
+    tool_inputs: &HashMap<String, HashMap<String, InputTransform>>,
+) {
+    if tool_inputs.is_empty() {
+        return;
+    }
+    for tool in tools.iter_mut() {
+        let Some(overrides) = tool_inputs.get(&tool.id) else {
+            continue;
+        };
+        let ToolValue::FlowModule(fmv) = &mut tool.value else {
+            continue;
+        };
+        let input_transforms = match fmv {
+            FlowModuleValue::Script { input_transforms, .. }
+            | FlowModuleValue::RawScript { input_transforms, .. }
+            | FlowModuleValue::FlowScript { input_transforms, .. }
+            | FlowModuleValue::AIAgent { input_transforms, .. } => input_transforms,
+            _ => continue,
+        };
+        for (key, transform) in overrides {
+            input_transforms.insert(key.clone(), transform.clone());
+        }
+    }
+}
+
 pub async fn handle_ai_agent_job(
     // connection
     conn: &Connection,
@@ -293,7 +323,11 @@ pub async fn handle_ai_agent_job(
     let summary = module.summary.clone();
 
     let FlowModuleValue::AIAgent {
-        tools: module_tools, omit_output_from_conversation, agent, ..
+        tools: module_tools,
+        omit_output_from_conversation,
+        agent,
+        tool_inputs,
+        ..
     } = module.get_value()?
     else {
         return Err(Error::internal_err(
@@ -305,8 +339,10 @@ pub async fn handle_ai_agent_job(
     // (provider/model/system prompt/etc.) and the tool set come from that resource; only the
     // flow-local inputs (user_message/user_attachments) come from the step. When not linked, the
     // brain is the step's resolved input_transforms and the tools are the module's own.
-    // v1 boundary: a linked agent's tools come wholly from the resource; per-tool flow-context
-    // wiring is a fast-follow.
+    // A linked agent's brain and tool set stay rigid (edit the resource to change them), but the
+    // step may bind those tools' inputs to *this* flow's context via `tool_inputs` — overlaid
+    // onto the resource tools below so the referenced agent is reusable across flows with
+    // different step graphs.
     let (args, tools): (AIAgentArgs, Vec<AgentTool>) = if let Some(agent_ref) = agent.as_deref() {
         let agent_path = agent_ref
             .trim_start_matches("$res:")
@@ -339,9 +375,7 @@ pub async fn handle_ai_agent_job(
                 );
             }
         }
-        // A linked agent is rigid: brain and tools come wholly from the resource. To diverge, the
-        // step must be unlinked (forked), at which point the config is copied into the step.
-        let tools = match config.remove("tools") {
+        let mut tools = match config.remove("tools") {
             Some(t) => serde_json::from_value::<Vec<AgentTool>>(t).map_err(|e| {
                 Error::internal_err(format!(
                     "invalid tools in ai_agent resource {agent_path}: {e}"
@@ -349,6 +383,10 @@ pub async fn handle_ai_agent_job(
             })?,
             None => Vec::new(),
         };
+        // Bind the resource's tools to this flow's context. Only the step's transforms are
+        // applied; the resource keeps whatever the agent author saved (which references the
+        // authoring flow and is meaningless here). Unmatched tool ids / input keys are ignored.
+        overlay_tool_inputs(&mut tools, &tool_inputs);
         let args = serde_json::from_value::<AIAgentArgs>(serde_json::Value::Object(config))
             .map_err(|e| {
                 Error::internal_err(format!(
@@ -1499,6 +1537,85 @@ mod tests {
             content: Some(OpenAIContent::Text(content.to_string())),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn overlay_tool_inputs_binds_matching_flowmodule_tool_only() {
+        fn js(expr: &str) -> InputTransform {
+            InputTransform::Javascript { expr: expr.to_string() }
+        }
+        fn script_tool(id: &str, key: &str, expr: &str) -> AgentTool {
+            let mut its = HashMap::new();
+            its.insert(key.to_string(), js(expr));
+            AgentTool {
+                id: id.to_string(),
+                summary: None,
+                description: None,
+                value: ToolValue::FlowModule(FlowModuleValue::Script {
+                    input_transforms: its,
+                    path: "u/test/tool".to_string(),
+                    hash: None,
+                    tag_override: None,
+                    is_trigger: None,
+                    pass_flow_input_directly: None,
+                }),
+            }
+        }
+        fn script_its(tool: &AgentTool) -> &HashMap<String, InputTransform> {
+            let ToolValue::FlowModule(FlowModuleValue::Script { input_transforms, .. }) =
+                &tool.value
+            else {
+                panic!("expected script tool")
+            };
+            input_transforms
+        }
+
+        // "a" gets rebound, "b" is left alone, the MCP tool is skipped even though it has an override.
+        let mut tools = vec![
+            script_tool("a", "x", "authoring_flow_expr"),
+            script_tool("b", "y", "keep_me"),
+            AgentTool {
+                id: "m".to_string(),
+                summary: None,
+                description: None,
+                value: ToolValue::Mcp(windmill_common::flows::McpToolValue {
+                    resource_path: "u/test/mcp".to_string(),
+                    include_tools: vec![],
+                    exclude_tools: vec![],
+                }),
+            },
+        ];
+
+        let mut tool_inputs: HashMap<String, HashMap<String, InputTransform>> = HashMap::new();
+        tool_inputs.insert(
+            "a".to_string(),
+            HashMap::from([
+                ("x".to_string(), js("flow_input.tenant")),
+                ("z".to_string(), js("results.step1")),
+            ]),
+        );
+        tool_inputs.insert(
+            "m".to_string(),
+            HashMap::from([("q".to_string(), js("ignored"))]),
+        );
+
+        overlay_tool_inputs(&mut tools, &tool_inputs);
+
+        // "a": existing key replaced, new key added.
+        let a = script_its(&tools[0]);
+        assert!(
+            matches!(a.get("x"), Some(InputTransform::Javascript { expr }) if expr == "flow_input.tenant")
+        );
+        assert!(
+            matches!(a.get("z"), Some(InputTransform::Javascript { expr }) if expr == "results.step1")
+        );
+        // "b": no override for it, untouched.
+        let b = script_its(&tools[1]);
+        assert!(
+            matches!(b.get("y"), Some(InputTransform::Javascript { expr }) if expr == "keep_me")
+        );
+        // MCP tool: not a FlowModule, left as-is.
+        assert!(matches!(&tools[2].value, ToolValue::Mcp(_)));
     }
 
     #[test]

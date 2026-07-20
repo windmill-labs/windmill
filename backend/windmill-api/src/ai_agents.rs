@@ -63,8 +63,7 @@ async fn run_agent(
 ) -> error::Result<Json<Box<RawValue>>> {
     check_scopes(&authed, || format!("jobs:run"))?;
     let flow = build_linked_agent_flow(&req.agent, &req.input);
-    let (output, success, _ms) =
-        run_preview(&db, &user_db, &authed, &w_id, flow).await?;
+    let (output, success, _ms) = run_preview(&db, &user_db, &authed, &w_id, flow).await?;
     if !success {
         return Err(Error::ExecutionErr(format!(
             "agent run failed: {}",
@@ -135,15 +134,21 @@ async fn eval_case(
             Some(p) => p,
             None => agent_provider(&db, &w_id, &req.agent).await?,
         };
-        match run_judge(&db, &user_db, &authed, &w_id, provider, &output, &case.judge_checklist)
-            .await
+        match run_judge(
+            &db,
+            &user_db,
+            &authed,
+            &w_id,
+            provider,
+            &output,
+            &case.judge_checklist,
+        )
+        .await
         {
             Ok(j) => Some(j),
-            Err(e) => Some(JudgeResult {
-                score: 0,
-                pass: false,
-                summary: format!("judge failed: {e}"),
-            }),
+            Err(e) => {
+                Some(JudgeResult { score: 0, pass: false, summary: format!("judge failed: {e}") })
+            }
         }
     };
 
@@ -195,6 +200,7 @@ fn build_linked_agent_flow(agent_path: &str, input: &EvalInput) -> FlowValue {
         tag: None,
         omit_output_from_conversation: false,
         agent: Some(agent_path.to_string()),
+        tool_inputs: HashMap::new(),
     })
 }
 
@@ -236,11 +242,20 @@ async fn run_judge(
     });
 
     let mut it = HashMap::new();
-    it.insert("provider".to_string(), InputTransform::new_static_value(provider));
-    it.insert("system_prompt".to_string(), static_transform(&JUDGE_SYSTEM_PROMPT));
+    it.insert(
+        "provider".to_string(),
+        InputTransform::new_static_value(provider),
+    );
+    it.insert(
+        "system_prompt".to_string(),
+        static_transform(&JUDGE_SYSTEM_PROMPT),
+    );
     it.insert("user_message".to_string(), static_transform(&user_message));
     it.insert("output_type".to_string(), static_transform(&"text"));
-    it.insert("output_schema".to_string(), static_transform(&output_schema));
+    it.insert(
+        "output_schema".to_string(),
+        static_transform(&output_schema),
+    );
     it.insert("max_iterations".to_string(), static_transform(&1));
 
     let flow = single_module_flow(FlowModuleValue::AIAgent {
@@ -249,6 +264,7 @@ async fn run_judge(
         tag: None,
         omit_output_from_conversation: false,
         agent: None,
+        tool_inputs: HashMap::new(),
     });
 
     let (result, success, _) = run_preview(db, user_db, authed, w_id, flow).await?;
@@ -291,14 +307,11 @@ async fn agent_provider(db: &DB, w_id: &str, path: &str) -> error::Result<Box<Ra
     .flatten()
     .ok_or_else(|| Error::NotFound(format!("ai_agent resource {path} not found")))?;
 
-    value
-        .get("provider")
-        .map(to_raw_value)
-        .ok_or_else(|| {
-            Error::BadRequest(format!(
-                "ai_agent resource {path} has no provider; pass judge_provider explicitly"
-            ))
-        })
+    value.get("provider").map(to_raw_value).ok_or_else(|| {
+        Error::BadRequest(format!(
+            "ai_agent resource {path} has no provider; pass judge_provider explicitly"
+        ))
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -321,7 +334,11 @@ async fn run_preview(
         db,
         tx,
         w_id,
-        JobPayload::RawFlow { value: flow, path: Some("ai_agent/eval".to_string()), restarted_from: None },
+        JobPayload::RawFlow {
+            value: flow,
+            path: Some("ai_agent/eval".to_string()),
+            restarted_from: None,
+        },
         PushArgs::from(&args),
         authed.display_username(),
         &authed.email,
@@ -452,12 +469,16 @@ mod tests {
     #[test]
     fn not_contains_and_regex_and_schema_assertions() {
         let out = raw("\"order 123 shipped\"");
-        assert!(evaluate_assertion(
-            &Assertion::NotContains { value: "refund".into(), case_sensitive: false },
-            &out
-        )
-        .passed);
-        assert!(evaluate_assertion(&Assertion::Regex { pattern: r"order \d+".into() }, &out).passed);
+        assert!(
+            evaluate_assertion(
+                &Assertion::NotContains { value: "refund".into(), case_sensitive: false },
+                &out
+            )
+            .passed
+        );
+        assert!(
+            evaluate_assertion(&Assertion::Regex { pattern: r"order \d+".into() }, &out).passed
+        );
         assert!(!evaluate_assertion(&Assertion::Regex { pattern: "(".into() }, &out).passed);
         assert!(evaluate_assertion(&Assertion::OutputSchemaValid, &raw("{\"a\":1}")).passed);
         assert!(!evaluate_assertion(&Assertion::OutputSchemaValid, &raw("null")).passed);
@@ -474,23 +495,29 @@ mod tests {
     #[test]
     fn json_path_equals_assertion() {
         let out = raw("{\"status\":\"ok\",\"count\":3}");
-        assert!(evaluate_assertion(
-            &Assertion::JsonPathEquals { path: "status".into(), value: json!("ok") },
-            &out
-        )
-        .passed);
-        assert!(!evaluate_assertion(
-            &Assertion::JsonPathEquals { path: "count".into(), value: json!(5) },
-            &out
-        )
-        .passed);
+        assert!(
+            evaluate_assertion(
+                &Assertion::JsonPathEquals { path: "status".into(), value: json!("ok") },
+                &out
+            )
+            .passed
+        );
+        assert!(
+            !evaluate_assertion(
+                &Assertion::JsonPathEquals { path: "count".into(), value: json!(5) },
+                &out
+            )
+            .passed
+        );
     }
 
     #[test]
     fn parse_judge_result_is_lenient() {
         // Float score is rounded and clamped; pass/summary parsed.
-        let j = parse_judge_result(&raw("{\"score\": 87.6, \"pass\": true, \"summary\": \"good\"}"))
-            .unwrap();
+        let j = parse_judge_result(&raw(
+            "{\"score\": 87.6, \"pass\": true, \"summary\": \"good\"}",
+        ))
+        .unwrap();
         assert_eq!(j.score, 88);
         assert!(j.pass);
         assert_eq!(j.summary, "good");

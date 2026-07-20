@@ -1072,6 +1072,14 @@
 															}
 														}
 													}
+													bind:toolInputs={
+														() => (flowModule.value as any).tool_inputs ?? {},
+														(v) => {
+															if (flowModule.value.type === 'aiagent') {
+																;(flowModule.value as any).tool_inputs = v
+															}
+														}
+													}
 												/>
 											{/if}
 											<PropPickerWrapper

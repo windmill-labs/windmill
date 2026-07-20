@@ -1062,6 +1062,12 @@ pub enum FlowModuleValue {
         /// `input_transforms` then only carry the flow-local inputs (user_message/user_attachments).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         agent: Option<String>,
+        /// Host-local wiring for a linked agent's tool inputs, keyed by tool id then input key.
+        /// A linked step binds the referenced agent's tools to *this* flow's context
+        /// (`flow_input`/`results`) here, without mutating the shared resource. Overlaid onto the
+        /// resource's tool `input_transforms` at runtime. Empty / absent for non-linked steps.
+        #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+        tool_inputs: HashMap<String, HashMap<String, InputTransform>>,
     },
 }
 
@@ -1098,6 +1104,7 @@ struct UntaggedFlowModuleValue {
     tools: Option<Vec<AgentTool>>,
     omit_output_from_conversation: Option<bool>,
     agent: Option<String>,
+    tool_inputs: Option<HashMap<String, HashMap<String, InputTransform>>>,
     pass_flow_input_directly: Option<bool>,
     squash: Option<bool>,
     #[serde(flatten)]
@@ -1204,6 +1211,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                     .omit_output_from_conversation
                     .unwrap_or(false),
                 agent: untagged.agent,
+                tool_inputs: untagged.tool_inputs.unwrap_or_default(),
             }),
             other => Err(serde::de::Error::unknown_variant(
                 other,
