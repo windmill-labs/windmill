@@ -130,6 +130,23 @@ describe("computeGitSyncDeployBranch", () => {
     ).toBe("wm_deploy/staging-ws/script/f__foo__bar");
   });
 
+  test("dev promotion user/group objects go to the env-label branch, never the base", () => {
+    // Non-branchable objects must not fall through to null (= the parent's
+    // tracked branch) on a dev workspace — that would push dev content to prod.
+    for (const path_type of ["user", "group"]) {
+      expect(
+        computeGitSyncDeployBranch({
+          ...base,
+          workspaceId: "staging-ws",
+          parentWorkspaceId: "prod",
+          devWorkspaceLabel: "staging",
+          useIndividualBranch: true,
+          items: [{ path_type, path: "u/alice", parent_path: null }],
+        })
+      ).toBe("staging");
+    }
+  });
+
   test("dev workspace in promotion mode honors group_by_folder", () => {
     expect(
       computeGitSyncDeployBranch({

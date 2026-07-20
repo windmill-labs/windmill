@@ -179,7 +179,16 @@ export function computeGitSyncDeployBranch(params: {
     return forkBranchName(workspaceId, clonedBranchName, devWorkspaceLabel);
   }
 
-  if (items.length === 0) return null;
+  // A dev workspace's deploys must never fall through to the base branch — that
+  // is its parent's tracked branch, so a null here would push dev content
+  // straight to prod. Anything without its own wm_deploy/** branch (user/group
+  // objects, an unresolvable ref) goes to the dev's env-label branch instead.
+  // A root workspace has no such isolation, so its fallback stays null (base).
+  const fallback = isDevWorkspace
+    ? forkBranchName(workspaceId, clonedBranchName, devWorkspaceLabel)
+    : null;
+
+  if (items.length === 0) return fallback;
   const first = items[0];
 
   // `use_individual_branch` disables debouncing, so items is length 1 here.
@@ -188,7 +197,7 @@ export function computeGitSyncDeployBranch(params: {
     first.path_type === "user" ||
     first.path_type === "group"
   ) {
-    return null;
+    return fallback;
   }
 
   // `||` not `??`: the backend serializes a path that no longer matches the repo
@@ -197,7 +206,7 @@ export function computeGitSyncDeployBranch(params: {
   // `!item_path.is_empty()` derivation. `??` would keep "", return null, and skip
   // the branch checkout, letting the removal land on the tracked base branch.
   const ref = first.path || first.parent_path;
-  if (!ref) return null;
+  if (!ref) return fallback;
 
   return groupByFolder
     ? `wm_deploy/${workspaceId}/${ref.split("/").slice(0, 2).join("__")}`

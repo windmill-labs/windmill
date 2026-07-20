@@ -2277,4 +2277,27 @@ mod git_sync_pr_tests {
             Some("dev".to_string())
         );
     }
+
+    #[test]
+    fn dev_promotion_user_group_items_open_no_pr() {
+        // User/group objects get no wm_deploy branch even on a dev workspace; the
+        // CLI isolates them to the env-label branch, so the backend opens no PR
+        // (never a PR from the env-label branch into the parent for these).
+        for path_type in ["user", "group"] {
+            assert_eq!(
+                git_sync_deploy_pr_head_branch(
+                    "dev",
+                    Some("prod"),
+                    Some("dev"),
+                    "main",
+                    true,
+                    false,
+                    "u/alice",
+                    "",
+                    path_type
+                ),
+                None
+            );
+        }
+    }
 }
