@@ -59,7 +59,9 @@ function setOpenAIWebSearchStatus(
 }
 
 // Pull query + consulted URLs out of a completed web_search_call item.
-// `action.sources` postdates the pinned SDK types; shape-check at runtime.
+// The pinned SDK types the action shapes (ResponseFunctionWebSearch.Search)
+// but its ResponseFunctionWebSearch interface predates the `action` property
+// itself, so the field must be read untyped and shape-checked.
 function openAIWebSearchDetails(item: any): { query?: string; sources?: WebSearchSource[] } {
 	const action = item?.action
 	const query = typeof action?.query === 'string' && action.query ? action.query : undefined
@@ -391,9 +393,13 @@ export async function parseOpenAIResponsesCompletion(
 	// The completed event above only carries item_id; the full item (with
 	// action.query and the requested action.sources) lands in output_item.done,
 	// mid-stream — surface the source list there rather than at end of turn.
+	// Track surfaced ids so the final-response sweep doesn't re-emit the status
+	// and re-expand a card the user collapsed in the meantime.
+	const surfacedWebSearchCalls = new Set<string>()
 	runner.on('response.output_item.done', (event) => {
 		const item = event.item as any
 		if (item?.type === 'web_search_call' && item.id) {
+			surfacedWebSearchCalls.add(item.id)
 			setOpenAIWebSearchStatus(
 				callbacks,
 				item.id,
@@ -478,7 +484,8 @@ export async function parseOpenAIResponsesCompletion(
 	const tokenUsage = openAIResponsesUsageToChatTokenUsage(finalResponse.usage)
 
 	for (const item of finalResponse.output ?? []) {
-		if (item.type === 'web_search_call') {
+		if (item.type === 'web_search_call' && !surfacedWebSearchCalls.has(item.id)) {
+			// Fallback for a call whose output_item.done event was missed.
 			setOpenAIWebSearchStatus(callbacks, item.id, item.status, openAIWebSearchDetails(item))
 		}
 	}

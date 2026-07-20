@@ -9,8 +9,24 @@
 
 	let { sources }: Props = $props()
 
-	// Providers can surface the same page several times in one search.
-	const uniqueSources = $derived(Array.from(new Map(sources.map((s) => [s.url, s])).values()))
+	// The URLs come from the provider's response: only render absolute http(s)
+	// ones — anything else (javascript:, data:, relative) must not become an
+	// href. Also dedupes; providers can surface the same page several times.
+	const uniqueSources = $derived(
+		Array.from(
+			new Map(
+				sources
+					.filter((s) => {
+						try {
+							return ['http:', 'https:'].includes(new URL(s.url).protocol)
+						} catch {
+							return false
+						}
+					})
+					.map((s) => [s.url, s])
+			).values()
+		)
+	)
 
 	function hostnameOf(url: string): string {
 		try {
@@ -22,10 +38,13 @@
 
 	const failedFavicons = new SvelteSet<string>()
 
-	// Hit gstatic directly rather than www.google.com/s2/favicons: the app is
-	// served with COEP require-corp, and the s2 redirect hop carries no
-	// Cross-Origin-Resource-Policy header, so the browser blocks the image.
-	// The gstatic endpoint itself responds with CORP: cross-origin.
+	// Favicons come from Google's public favicon service, which discloses each
+	// consulted hostname to a third party from the user's browser — an accepted
+	// tradeoff for now (blocked/air-gapped environments degrade to the Globe
+	// icon via onerror). Hit gstatic directly rather than www.google.com/s2/
+	// favicons: the app is served with COEP require-corp, and the s2 redirect
+	// hop carries no Cross-Origin-Resource-Policy header, so the browser blocks
+	// the image. The gstatic endpoint itself responds with CORP: cross-origin.
 	function faviconUrl(hostname: string): string {
 		return `https://t3.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${encodeURIComponent(hostname)}&size=64`
 	}

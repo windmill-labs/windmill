@@ -64,7 +64,7 @@ function setAnthropicWebSearchStatus(
 // The query streams as partial JSON ({"query": "..."} cut mid-string), so
 // JSON.parse fails until the block completes; regex out the string prefix to
 // label the card while the model is still typing the query.
-function partialWebSearchQuery(partialJson: string): string | undefined {
+export function partialWebSearchQuery(partialJson: string): string | undefined {
 	const m = partialJson.match(/"query"\s*:\s*"((?:[^"\\]|\\.)*)/)
 	if (!m || !m[1]) return undefined
 	try {
@@ -167,6 +167,10 @@ export async function parseAnthropicCompletion(
 	// server_tool_use id → query, filled while the query streams; the paired
 	// web_search_tool_result block only carries tool_use_id.
 	const webSearchQueries = new Map<string, string>()
+	// Result blocks already surfaced from stream events: the end-of-turn message
+	// handler must not re-emit these — re-setting the status would re-expand a
+	// card the user collapsed in the meantime.
+	const surfacedWebSearchResults = new Set<string>()
 
 	completion.on('streamEvent', (event: RawMessageStreamEvent) => {
 		if (event.type === 'content_block_start') {
@@ -206,6 +210,7 @@ export async function parseAnthropicCompletion(
 				// Server tool results arrive complete in content_block_start; surface
 				// the source list now, while the model is still streaming the rest of
 				// its turn, instead of waiting for the end-of-turn message event.
+				surfacedWebSearchResults.add(block.tool_use_id)
 				const { errorCode, sources } = anthropicWebSearchSources(block.content)
 				setAnthropicWebSearchStatus(
 					callbacks,
@@ -288,10 +293,11 @@ export async function parseAnthropicCompletion(
 				messages.push(assistantMessage)
 				addedMessages.push(assistantMessage)
 				callbacks.onMessageEnd()
-			} else if (block.type === 'web_search_tool_result') {
-				// Re-emitted here (already surfaced from content_block_start) so the
-				// card is correct even if a stream event was missed; same status, so
-				// the merge is a no-op in the normal path.
+			} else if (
+				block.type === 'web_search_tool_result' &&
+				!surfacedWebSearchResults.has(block.tool_use_id)
+			) {
+				// Fallback for a result whose content_block_start was missed.
 				const { errorCode, sources } = anthropicWebSearchSources(block.content)
 				setAnthropicWebSearchStatus(
 					callbacks,
