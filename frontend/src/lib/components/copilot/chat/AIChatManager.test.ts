@@ -1214,6 +1214,40 @@ describe('AIChatManager queued messages', () => {
 		expect(manager.attachmentBytesExcluding('probe')).toBe(3000)
 	})
 
+	// A local command (/clear, /compact) consumes the send and returns before a
+	// bubble installs, so an edit resolved to one must not strand its reservation.
+	it('releases the resend reservation when an edit resolves to a local command', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		vi.spyOn(manager, 'compactManually').mockResolvedValue()
+		const fileRow = { name: 'a.md', content: 'X'.repeat(2000) }
+		manager.displayMessages = [{ role: 'user', content: 'orig', files: [fileRow], index: 0 }] as any
+		manager.messages = [{ role: 'user', content: 'orig' }] as any
+
+		await manager.restartGeneration(0, '/compact')
+		for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 0))
+
+		// No stranded reservation: the abandoned resend charges nothing.
+		expect(manager.attachmentBytesExcluding('probe')).toBe(0)
+	})
+
+	// Drop-oldest compaction (summary fallback) removes API messages without a
+	// summary, so a folded message's `## ATTACHED FILES` reference no longer reaches
+	// the model. Its file (index < 0) must be advertised through the roster instead.
+	it('flags message files whose referencing message was dropped by compaction', () => {
+		const manager = new AIChatManager()
+		manager.displayMessages = [
+			{ role: 'user', content: 'a', index: -1, files: [{ name: 'dropped.md', content: 'x' }] },
+			{ role: 'user', content: 'b', index: 0, files: [{ name: 'live.md', content: 'y' }] },
+			// Referenced by BOTH a dropped and a surviving message → still visible, not orphaned.
+			{ role: 'user', content: 'c', index: -1, files: [{ name: 'shared.md', content: 'z' }] },
+			{ role: 'user', content: 'd', index: 1, files: [{ name: 'shared.md', content: 'z' }] }
+		] as any
+
+		expect([...manager.orphanedMessageFileNames()]).toEqual(['dropped.md'])
+	})
+
 	// An edit is not committed until send, so cancelling it returns the message's
 	// persisted attachments. Charging only the (possibly emptied) edit stage would
 	// hand the bottom composer headroom that vanishes on cancel — remove the files

@@ -2027,6 +2027,14 @@ export class AIChatManager {
 		this.#composerStaged.delete(key)
 	}
 
+	/** Drop any in-flight resend reservation. Called once when sendRequest installs
+	 * the bubble (the transcript then accounts the files) and on every sendRequest
+	 * path that exits before install — abandoning the send leaves the files in the
+	 * composer, which reserves them, so a stranded reservation would double-charge. */
+	#releaseResendReservation() {
+		this.clearComposerStaged(AIChatManager.#RESEND_KEY)
+	}
+
 	/** Attached-file bytes counted against MAX_CONVERSATION_FILE_BYTES by
 	 * everything other than the composer identified by `selfKey`: transcript +
 	 * queue, then every other live composer's staged bytes. The caller adds its
@@ -2083,6 +2091,25 @@ export class AIChatManager {
 		}
 	}
 
+	/** Names of message-scoped files whose only referencing user messages were
+	 * dropped from the API history by drop-oldest compaction (a negative `index`
+	 * marks a message whose API counterpart is gone). Their `## ATTACHED FILES`
+	 * reference no longer reaches the model — unlike summary compaction, which
+	 * carries the reference on the summary — so the roster must advertise them.
+	 * A file still referenced by a surviving message is not orphaned. */
+	orphanedMessageFileNames(): Set<string> {
+		const live = new Set<string>()
+		const dropped = new Set<string>()
+		for (const m of this.displayMessages) {
+			if ((m.role === 'user' || m.role === 'summary') && m.files) {
+				const gone = m.role === 'user' && m.index < 0
+				for (const f of m.files) (gone ? dropped : live).add(f.name)
+			}
+		}
+		for (const n of live) dropped.delete(n)
+		return dropped
+	}
+
 	private notifyReasoningSummaryUnavailable = () => {
 		const provider = getCurrentModel().provider
 		const key = this.reasoningSummaryKey(provider)
@@ -2132,7 +2159,11 @@ export class AIChatManager {
 					// Inject the attached-files roster at request time (re-read each iteration)
 					// so it always reflects the live file list without reactive bookkeeping.
 					if (self.mode === AIMode.GLOBAL && self.attachedFiles.count > 0) {
-						return appendAttachedFilesRoster(base, self.attachedFiles)
+						return appendAttachedFilesRoster(
+							base,
+							self.attachedFiles,
+							self.orphanedMessageFileNames()
+						)
 					}
 					return base
 				},
@@ -2341,6 +2372,7 @@ export class AIChatManager {
 		// command isn't re-queued and re-fired into the next conversation.
 		const requestedMode = options.mode ?? this.mode
 		if (!isAIModeVisible(requestedMode)) {
+			this.#releaseResendReservation()
 			return false
 		}
 		this.changeMode(requestedMode, undefined, {
@@ -2362,6 +2394,7 @@ export class AIChatManager {
 			(options.images?.length ?? 0) === 0 &&
 			(options.files?.length ?? 0) === 0
 		) {
+			this.#releaseResendReservation()
 			return false
 		}
 		// Built-in session commands run locally instead of becoming a chat turn.
@@ -2372,6 +2405,11 @@ export class AIChatManager {
 		// conversation.
 		if (this.isSessionChat && this.mode === AIMode.GLOBAL) {
 			const trimmed = this.instructions.trim()
+			// A local command consumes the send without installing a bubble; an edit
+			// resolved to `/clear` or `/compact` must not strand its resend reservation.
+			if (COMPACT_COMMAND_RE.test(trimmed) || CLEAR_COMMAND_RE.test(trimmed)) {
+				this.#releaseResendReservation()
+			}
 			// `/compact`: summarize the conversation locally to free up context.
 			if (COMPACT_COMMAND_RE.test(trimmed)) {
 				this.instructions = ''
@@ -2421,7 +2459,7 @@ export class AIChatManager {
 			)
 			// Abandoned before install; the files go back to the composer, which
 			// re-reserves them, so release any resend reservation held for this send.
-			this.clearComposerStaged(AIChatManager.#RESEND_KEY)
+			this.#releaseResendReservation()
 			if (!options.queued) {
 				this.aiChatInput?.restoreInstructions(
 					this.instructions,
@@ -2481,7 +2519,7 @@ export class AIChatManager {
 		// The bubble now carries the (possibly resent) files, so the transcript
 		// accounts them; release any resend reservation that bridged the gap. A
 		// beforeSend rollback below restores them to the composer, which re-reserves.
-		this.clearComposerStaged(AIChatManager.#RESEND_KEY)
+		this.#releaseResendReservation()
 		// Undo the optimistic bubble + loading/label. Shared by the beforeSend-failure and
 		// pre-flight-cancel paths below; callers put the message back in the composer.
 		const rollbackOptimisticSend = () => {

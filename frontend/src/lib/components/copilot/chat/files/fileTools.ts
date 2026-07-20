@@ -189,7 +189,10 @@ function rosterLine(f: AttachedFile): string {
 }
 
 /** Build the `## Attached files` system-prompt section (metadata only, never content). */
-export function buildAttachedFilesRoster(store: AttachedFilesStore): string {
+export function buildAttachedFilesRoster(
+	store: AttachedFilesStore,
+	orphanedMessageFileNames?: Set<string>
+): string {
 	const lines: string[] = []
 	for (const folder of store.folders) {
 		// A locked/unavailable folder has no readable children — one line for the whole folder.
@@ -205,6 +208,14 @@ export function buildAttachedFilesRoster(store: AttachedFilesStore): string {
 	// lives inside the message that carried them (or the compaction summary),
 	// exactly like DOM picks — the roster only advertises session-wide links.
 	lines.push(...store.standalone.map(rosterLine))
+	// Exception: a message whose API counterpart was dropped by drop-oldest
+	// compaction takes its in-message reference with it, so those attachments must
+	// be advertised here or the model can no longer see they exist.
+	if (orphanedMessageFileNames?.size) {
+		lines.push(
+			...store.messageAttached.filter((f) => orphanedMessageFileNames.has(f.name)).map(rosterLine)
+		)
+	}
 	if (lines.length === 0) return ''
 	return [
 		'## Attached files',
@@ -221,9 +232,10 @@ export function buildAttachedFilesRoster(store: AttachedFilesStore): string {
  */
 export function appendAttachedFilesRoster(
 	base: ChatCompletionSystemMessageParam,
-	store: AttachedFilesStore
+	store: AttachedFilesStore,
+	orphanedMessageFileNames?: Set<string>
 ): ChatCompletionSystemMessageParam {
-	const roster = buildAttachedFilesRoster(store)
+	const roster = buildAttachedFilesRoster(store, orphanedMessageFileNames)
 	if (!roster || typeof base.content !== 'string') return base
 	return { ...base, content: `${base.content}\n\n${roster}` }
 }
