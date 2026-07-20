@@ -300,7 +300,7 @@ const listWorkspaceItemsSchema = z.object({
 		.min(1)
 		.optional()
 		.describe(
-			'Page number, starting at 1. Each item type pages independently: request the next page while any type still returns a full page. Drafts are merged into page 1 only.'
+			'Page number, starting at 1. Each item type pages independently: request the next page while any type still returns a full page. Drafts page with the same window.'
 		)
 })
 
@@ -2366,16 +2366,25 @@ export const globalTools: Tool<{}>[] = [
 				byKey.set(getWorkspaceItemKey(item.type, item.path, item.triggerKind), item)
 			}
 
-			// Drafts are not paginated server-side; merge them into page 1 only so
-			// later pages stay clean deployed listings without repeated draft rows.
-			const drafts = (parsed.page ?? 1) === 1 ? await listGlobalDrafts(workspace) : []
-			for (const draft of drafts) {
+			// Drafts are not paginated server-side; window them client-side with the
+			// same per-type page/limit so results stay bounded while every draft
+			// remains reachable by paging.
+			const pageIndex = (parsed.page ?? 1) - 1
+			const draftsByType = new Map<string, WorkspaceItem[]>()
+			for (const draft of await listGlobalDrafts(workspace)) {
 				if (!types.includes(draft.type)) continue
 				if (parsed.path_prefix && !draft.path.startsWith(parsed.path_prefix)) continue
-				byKey.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), {
-					...draft,
-					value: undefined
-				})
+				const group = draftsByType.get(draft.type) ?? []
+				group.push(draft)
+				draftsByType.set(draft.type, group)
+			}
+			for (const group of draftsByType.values()) {
+				for (const draft of group.slice(pageIndex * limit, (pageIndex + 1) * limit)) {
+					byKey.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), {
+						...draft,
+						value: undefined
+					})
+				}
 			}
 
 			// No cross-type truncation: each type is already capped at `limit` rows by
