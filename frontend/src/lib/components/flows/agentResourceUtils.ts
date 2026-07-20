@@ -140,35 +140,6 @@ export function summarizeAgentBrain(
 	return rows
 }
 
-export interface HostBoundTool {
-	toolId: string
-	label: string
-	/** Inputs the agent author wired to context (javascript transforms); these dangle when the
-	 * agent is linked into another flow and must be rebound to the host flow. */
-	keys: { key: string; resourceExpr: string }[]
-}
-
-/**
- * From a linked agent's inherited tools, the per-tool inputs that need host-flow rebinding: those
- * whose saved transform is a `javascript` expr (it references the authoring flow's context, which
- * is meaningless in a different flow). Static/AI inputs are left as-is. Only FlowModule tools carry
- * input transforms; MCP/websearch tools have none.
- */
-export function hostBoundToolInputs(tools: AgentTool[] | undefined): HostBoundTool[] {
-	const out: HostBoundTool[] = []
-	for (const tool of tools ?? []) {
-		const its = tool?.value?.input_transforms as Record<string, any> | undefined
-		if (!its) continue
-		const keys = Object.entries(its)
-			.filter(([, t]) => t?.type === 'javascript')
-			.map(([key, t]) => ({ key, resourceExpr: (t as any)?.expr ?? '' }))
-		if (keys.length > 0) {
-			out.push({ toolId: tool.id, label: tool.summary || tool.id, keys })
-		}
-	}
-	return out
-}
-
 /** Inverse: wrap brain config values as static input_transforms (used when unlinking a step). */
 export function agentConfigToInputTransforms(
 	config: AIAgentConfig

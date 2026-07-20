@@ -15,19 +15,22 @@
 		type AIAgentConfig,
 		type AgentTool
 	} from '../agentResourceUtils'
-	import AgentToolBindings from './AgentToolBindings.svelte'
+	import { setLinkedAgentTools, clearLinkedAgentTools } from '../linkedAgentToolsStore.svelte'
+	import type { AgentTool as AgentToolStrict } from '../agentToolUtils'
 	import { resource } from 'runed'
 
 	let {
 		agent = $bindable(),
 		inputTransforms = $bindable(),
 		tools = $bindable(),
-		toolInputs = $bindable()
+		toolInputs = $bindable(),
+		moduleId
 	}: {
 		agent: string | undefined
 		inputTransforms: Record<string, InputTransform>
 		tools: AgentTool[]
 		toolInputs: Record<string, Record<string, InputTransform>>
+		moduleId: string
 	} = $props()
 
 	let saveDrawer: Drawer | undefined = $state()
@@ -79,6 +82,23 @@
 	let brainParams = $derived(summarizeAgentBrain(linkedResource.current?.config))
 	let providerPath = $derived(linkedResource.current?.providerPath)
 	let providerOk = $derived(linkedResource.current?.providerOk ?? true)
+
+	// Keep the graph's linked-tool store current for this step. flowState resolves every linked step
+	// at load; here we refresh the one being edited when its link changes (or clear it on unlink), so
+	// its tool nodes update without reloading the flow.
+	$effect(() => {
+		if (!agent) {
+			clearLinkedAgentTools(moduleId)
+			return
+		}
+		// Publish only once the resource has loaded — don't clobber the load-time tools with [] while
+		// the fetch is in flight, which would flicker the tool nodes out of the graph on selection.
+		const loaded = linkedResource.current
+		if (loaded) {
+			// linkedResource types tools loosely; they are the same resource tools the store holds.
+			setLinkedAgentTools(moduleId, loaded.tools as AgentToolStrict[])
+		}
+	})
 
 	// Link the step as soon as a saved agent is picked. Linking is rigid, so the step keeps no tools
 	// of its own — they come from the resource.
@@ -290,7 +310,6 @@
 				</dl>
 			</div>
 		{/if}
-		<AgentToolBindings tools={inheritedTools} bind:toolInputs />
 		{#if !providerOk}
 			<div
 				class="mt-1 flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-2xs text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-300"

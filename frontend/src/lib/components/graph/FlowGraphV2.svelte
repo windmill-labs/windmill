@@ -57,6 +57,7 @@
 	import AssetsOverflowedNode from './renderers/nodes/AssetsOverflowedNode.svelte'
 	import type { FlowGraphAssetContext } from '../flows/types'
 	import AiToolNode, { computeAIToolNodes } from './renderers/nodes/AIToolNode.svelte'
+	import { linkedAgentTools } from '$lib/components/flows/linkedAgentToolsStore.svelte'
 	import NewAiToolNode from './renderers/nodes/NewAIToolNode.svelte'
 	import NoteNode from './renderers/nodes/NoteNode.svelte'
 	import CollapsedGroupNode from './renderers/nodes/CollapsedGroupNode.svelte'
@@ -698,7 +699,13 @@
 			: undefined
 
 		// Compute AI tool visual nodes (no position remapping)
-		let aiToolNodesResult = computeAIToolNodes(newNodes, eventHandler, insertable, flowModuleStates)
+		let aiToolNodesResult = computeAIToolNodes(
+			newNodes,
+			eventHandler,
+			insertable,
+			flowModuleStates,
+			linkedAgentTools()
+		)
 
 		let finalNodes: (Node & NodeLayout)[] = [
 			...newNodes,

@@ -316,6 +316,9 @@ export type AiToolN = {
 		eventHandlers: GraphEventHandlers
 		moduleId: string
 		insertable: boolean
+		// Tool of a linked agent: its inputs are editable but its structure comes from the resource,
+		// so it can't be deleted here.
+		readOnly?: boolean
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 	}
 }

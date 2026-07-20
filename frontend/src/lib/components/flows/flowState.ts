@@ -1,6 +1,10 @@
 import type { Schema } from '$lib/common'
 import type { Flow, FlowModule } from '$lib/gen'
-import { isFlowModuleTool, agentToolToFlowModule } from './agentToolUtils'
+import { ResourceService } from '$lib/gen'
+import { get } from 'svelte/store'
+import { workspaceStore } from '$lib/stores'
+import { isFlowModuleTool, agentToolToFlowModule, type AgentTool } from './agentToolUtils'
+import { setLinkedAgentTools } from './linkedAgentToolsStore.svelte'
 import { loadFlowModuleState } from './flowStateUtils.svelte'
 import { emptyFlowModuleState } from './utils.svelte'
 import type { StateStore } from '$lib/utils'
@@ -65,9 +69,18 @@ async function mapFlowModule(flowModule: FlowModule, modulesState: FlowState, wo
 		)
 	}
 
-	if (value.type === 'aiagent' && value.tools) {
+	if (value.type === 'aiagent') {
+		// A linked step's tools come from the resource (its own `tools` is empty); resolve them so
+		// the graph can render tool nodes and their input schemas load like any other tool.
+		const agentRef = (value as { agent?: string }).agent
+		const tools = agentRef
+			? await resolveLinkedAgentTools(agentRef, workspace)
+			: (value.tools ?? [])
+		if (agentRef) {
+			setLinkedAgentTools(flowModule.id, tools)
+		}
 		await Promise.all(
-			value.tools.filter(isFlowModuleTool).map(async (tool) => {
+			tools.filter(isFlowModuleTool).map(async (tool) => {
 				modulesState[tool.id] = await loadFlowModuleState(agentToolToFlowModule(tool), workspace)
 			})
 		)
@@ -78,6 +91,20 @@ async function mapFlowModule(flowModule: FlowModule, modulesState: FlowState, wo
 	} else {
 		const flowModuleState = await loadFlowModuleState(flowModule, workspace)
 		modulesState[flowModule.id] = flowModuleState
+	}
+}
+
+// Fetch a linked agent's tool set from its `ai_agent` resource. Degrades to no tools when the
+// resource is missing or inaccessible so a broken link never stalls the flow load.
+async function resolveLinkedAgentTools(agentRef: string, workspace?: string): Promise<AgentTool[]> {
+	const ws = workspace ?? get(workspaceStore)
+	if (!ws) return []
+	const path = agentRef.replace(/^\$res:/, '').replace(/^res:\/\//, '')
+	try {
+		const res = await ResourceService.getResource({ workspace: ws, path })
+		return ((res.value as { tools?: AgentTool[] } | undefined)?.tools ?? []) as AgentTool[]
+	} catch {
+		return []
 	}
 }
 

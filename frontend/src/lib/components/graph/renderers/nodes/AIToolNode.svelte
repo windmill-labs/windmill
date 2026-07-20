@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { forbiddenIds } from '$lib/components/flows/idUtils'
+	import type { AgentTool } from '$lib/components/flows/agentToolUtils'
 
 	export function getToolNameError(
 		name: string,
@@ -43,6 +44,7 @@
 		| {
 				nodes: (Node & NodeLayout)[]
 				hasFlowModuleStates: boolean
+				linkedAgentTools: Record<string, AgentTool[]> | undefined
 				ret: ReturnType<typeof computeAIToolNodes>
 		  }
 		| undefined
@@ -71,7 +73,10 @@
 		nodes: (Node & NodeLayout)[],
 		eventHandlers: GraphEventHandlers,
 		insertable: boolean,
-		flowModuleStates: Record<string, GraphModuleState> | undefined
+		flowModuleStates: Record<string, GraphModuleState> | undefined,
+		// Tools resolved from linked agents' resources, keyed by agent module id. Linked steps carry
+		// no tools of their own, so their tool nodes come from here.
+		linkedAgentTools?: Record<string, AgentTool[]>
 	): {
 		toolNodes: (Node & NodeLayout)[]
 		toolEdges: Edge[]
@@ -79,7 +84,8 @@
 		if (
 			computeAIToolNodesCache &&
 			!!flowModuleStates === computeAIToolNodesCache.hasFlowModuleStates &&
-			deepEqual(nodes.map(getComparableNode), computeAIToolNodesCache.nodes)
+			deepEqual(nodes.map(getComparableNode), computeAIToolNodesCache.nodes) &&
+			deepEqual(linkedAgentTools, computeAIToolNodesCache.linkedAgentTools)
 		) {
 			return computeAIToolNodesCache.ret
 		}
@@ -92,12 +98,18 @@
 			// by default we assume we will show tools above
 			let baseOffset = -AI_TOOL_BASE_OFFSET
 			let rowOffset = -AI_TOOL_ROW_OFFSET
+			// A linked step's tools come from its resource (resolved into linkedAgentTools), not the
+			// module, whose own `tools` is empty.
+			const isLinkedAgent = !!(node.data.module.value as { agent?: string }).agent
+			const sourceTools = isLinkedAgent
+				? (linkedAgentTools?.[node.data.module.id] ?? [])
+				: node.data.module.value.tools
 			let tools: {
 				id: string
 				name: string
 				type?: string
 				stateType?: GraphModuleState['type']
-			}[] = node.data.module.value.tools.map((t, idx) => {
+			}[] = sourceTools.map((t, idx) => {
 				// Handle FlowModule, MCP, and Websearch tools
 				const toolType =
 					t.value.tool_type === 'mcp'
@@ -169,6 +181,7 @@
 						eventHandlers,
 						moduleId: tool.id,
 						insertable,
+						readOnly: isLinkedAgent,
 						flowModuleStates
 					},
 					id: `${node.id}-tool-${tool.id}`,
@@ -207,7 +220,6 @@
 
 			// A linked agent is rigid: its tools come from the resource and can't be edited here, so
 			// don't offer the "add tool" node (unlink/fork the step to change tools).
-			const isLinkedAgent = !!(node.data.module.value as { agent?: string }).agent
 			if (insertable && !isLinkedAgent) {
 				allToolNodes.push({
 					type: 'newAiTool',
@@ -232,6 +244,7 @@
 		computeAIToolNodesCache = {
 			nodes: nodes.map(getComparableNode),
 			hasFlowModuleStates: !!flowModuleStates,
+			linkedAgentTools: $state.snapshot(linkedAgentTools),
 			ret
 		}
 		return ret
@@ -310,7 +323,7 @@
 					{data.tool || 'Missing name'}
 				</span>
 			</button>
-			{#if data.insertable}
+			{#if data.insertable && !data.readOnly}
 				<button
 					class={twMerge(
 						'absolute -top-[8px] -right-[8px] rounded-full h-[16px] w-[16px] center-center text-secondary outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-red-400 hover:text-white !hidden',

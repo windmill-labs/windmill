@@ -1048,6 +1048,7 @@
 										<div class="flex-1 overflow-auto" id="flow-editor-step-input">
 											{#if flowModule.value.type === 'aiagent'}
 												<AgentResourceBar
+													moduleId={flowModule.id}
 													bind:agent={
 														() => (flowModule.value as any).agent,
 														(v) => {
