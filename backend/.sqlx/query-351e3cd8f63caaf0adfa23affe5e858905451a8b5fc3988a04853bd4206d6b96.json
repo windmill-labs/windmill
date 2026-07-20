@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT concurrency_gate_id AS \"gate_id!\",\n               COUNT(*) AS \"backlog!\",\n               MIN(workspace_id) AS \"workspace_id!\",\n               COUNT(*) FILTER (WHERE concurrency_first_gated_at >= NOW() - INTERVAL '1 hour' * $1)\n                   AS \"arrivals!\"\n        FROM v2_job_queue\n        WHERE running = false\n          AND concurrency_gate_id IS NOT NULL\n          AND canceled_by IS NULL\n        GROUP BY concurrency_gate_id\n        HAVING MAX(concurrency_gated_at) >= NOW() - INTERVAL '1 hour'\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "gate_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "backlog!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "workspace_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "arrivals!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Float8"
+      ]
+    },
+    "nullable": [
+      true,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "351e3cd8f63caaf0adfa23affe5e858905451a8b5fc3988a04853bd4206d6b96"
+}

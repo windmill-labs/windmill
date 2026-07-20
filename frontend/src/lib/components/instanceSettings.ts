@@ -839,6 +839,7 @@ export const settings: Record<string, Setting[]> = {
 			key: 'critical_alerts_on_oversubscribed_gates',
 			fieldType: 'boolean',
 			storage: 'setting',
+			defaultValue: () => true,
 			ee_only: 'Critical alerts are only available in the EE version'
 		},
 		{

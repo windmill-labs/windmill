@@ -42,18 +42,37 @@ mod tests {
         mark_mins_ago: i64,
         canceled: bool,
     ) {
+        // A non-delayed job reaches the gate when it is created, so first_gated
+        // tracks created_at here. The delayed-arrival case sets them apart via
+        // queue_gated_delayed.
+        queue_gated_full_delayed(db, n, gate, created_hours_ago, created_hours_ago, mark_mins_ago, canceled)
+            .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn queue_gated_full_delayed(
+        db: &Pool<Postgres>,
+        n: i64,
+        gate: &str,
+        created_hours_ago: i64,
+        first_gated_hours_ago: i64,
+        mark_mins_ago: i64,
+        canceled: bool,
+    ) {
         sqlx::query!(
             "INSERT INTO v2_job_queue (id, workspace_id, tag, running, scheduled_for,
-                                       created_at, concurrency_gated_at, concurrency_gate_id,
-                                       canceled_by)
+                                       created_at, concurrency_gated_at, concurrency_first_gated_at,
+                                       concurrency_gate_id, canceled_by)
              SELECT gen_random_uuid(), 'test-workspace', 'python3', false, NOW(),
                     NOW() - INTERVAL '1 hour' * $2::bigint,
-                    NOW() - INTERVAL '1 minute' * $3::bigint,
-                    $4,
-                    CASE WHEN $5 THEN 'canceller' ELSE NULL END
+                    NOW() - INTERVAL '1 minute' * $4::bigint,
+                    NOW() - INTERVAL '1 hour' * $3::bigint,
+                    $5,
+                    CASE WHEN $6 THEN 'canceller' ELSE NULL END
              FROM generate_series(1, $1::bigint)",
             n,
             created_hours_ago,
+            first_gated_hours_ago,
             mark_mins_ago,
             gate,
             canceled,
@@ -213,6 +232,28 @@ mod tests {
         assert!(
             alert_messages(&db).await.is_empty(),
             "arrivals below the gate ceiling for the window must not alert"
+        );
+    }
+
+    /// A job can be pushed with a future scheduled_for and only reach the gate
+    /// long after it was created. Its arrival must be measured from when the
+    /// limiter first parked it, not its creation time -- otherwise a burst of
+    /// long-scheduled jobs coming due looks like no arrivals at all and the alert
+    /// stays silent through a real backlog.
+    #[ignore = "requires database setup - run with --ignored flag"]
+    #[sqlx::test(migrations = "../migrations")]
+    async fn jobs_delayed_before_reaching_the_gate_still_alert(db: Pool<Postgres>) {
+        free_the_lock(&db).await;
+        // Created 3 days ago, but only reached the gate within the last hour and
+        // still arriving faster than the 720/hour ceiling.
+        queue_gated_full_delayed(&db, 40_000, SLOW_GATE, 72, 0, 1, false).await;
+
+        concurrency_gate_alerts(&db).await;
+
+        assert_eq!(
+            alert_messages(&db).await.len(),
+            1,
+            "arrivals gauged from creation would miss long-delayed jobs reaching the gate"
         );
     }
 }
