@@ -178,10 +178,17 @@ describe('call_api_get', () => {
 		expect(search.matches.map((m: any) => m.name)).not.toContain('deleteScriptByHash')
 	})
 
-	it('refuses draft-blind item reads and points at read_workspace_item', async () => {
-		const result = await run('call_api_get', { name: 'getScriptByPath' })
-		expect(result.success).toBe(false)
-		expect(result.error).toContain('read_workspace_item')
+	it('refuses draft-blind item reads and lists, pointing at the draft-aware tools', async () => {
+		for (const name of ['getScriptByPath', 'getResource', 'getSchedule']) {
+			const result = await run('call_api_get', { name })
+			expect(result.success).toBe(false)
+			expect(result.error).toContain('read_workspace_item')
+		}
+		for (const name of ['listScripts', 'listFlows', 'listResource', 'listSchedules']) {
+			const result = await run('call_api_get', { name })
+			expect(result.success).toBe(false)
+			expect(result.error).toContain('list_workspace_items')
+		}
 
 		const search = await run('search_api_endpoints', { query: 'get script' })
 		expect(search.matches.map((m: any) => m.name)).not.toContain('getScriptByPath')
