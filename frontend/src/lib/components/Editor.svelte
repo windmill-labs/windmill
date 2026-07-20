@@ -1347,10 +1347,11 @@
 			if (!nmodel) {
 				throw err
 			}
-			// Headless linting creates models at this same canonical URI, so the existing
-			// one can hold whatever content was last linted. Show what this editor was
-			// given, not that.
-			if (nmodel.getValue() !== (code ?? '')) {
+			// Headless linting creates models at this same canonical URI, so an unattached
+			// one holds whatever was last linted rather than this editor's content. Only
+			// adopt-and-overwrite in that case: a model another editor is showing may hold
+			// edits the user has not saved.
+			if (!nmodel.isAttachedToEditor() && nmodel.getValue() !== (code ?? '')) {
 				nmodel.setValue(code ?? '')
 			}
 			model = nmodel
