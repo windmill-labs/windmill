@@ -11,3 +11,7 @@ CREATE TABLE feature_usage (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (feature, kind, key, entity_id, day)
 );
+
+-- The periodic retention delete filters on day alone; without this it would
+-- full-scan the table (the PK only reaches day through four other columns).
+CREATE INDEX idx_feature_usage_day ON feature_usage (day);

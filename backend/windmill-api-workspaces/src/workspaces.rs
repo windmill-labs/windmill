@@ -9603,16 +9603,102 @@ struct LogFeatureUsagePayload {
     events: Vec<FeatureUsageEvent>,
 }
 
-// Dimensions end up verbatim in the outbound anonymous telemetry payload, so
-// they must stay identifier-like: no spaces or slashes means no prompts, code,
-// paths, or free text can be smuggled into it.
-fn valid_feature_usage_dimension(s: &str, max_len: usize, required: bool) -> bool {
-    if s.is_empty() {
-        return !required;
-    }
-    s.len() <= max_len
+enum FeatureUsageKeyRule {
+    // Key must be one of a fixed set of values.
+    OneOf(&'static [&'static str]),
+    // Key is identifier-shaped but the value set lives in frontend code and
+    // evolves too fast to pin here (e.g. AI chat tool names).
+    Identifier,
+    // Key must be empty.
+    Empty,
+}
+
+// Approved telemetry dimensions. Grouped (feature, kind, key) strings end up
+// verbatim in the outbound anonymous telemetry payload, so only combinations
+// registered here are accepted; everything else is dropped. Frontend and
+// backend ship together: instrumenting a new feature includes adding its
+// dimensions to this table.
+const FEATURE_USAGE_DIMENSIONS: &[(&str, &str, FeatureUsageKeyRule)] = &[
+    (
+        "ai_session",
+        "created",
+        FeatureUsageKeyRule::OneOf(&["fork", "root"]),
+    ),
+    (
+        "ai_session",
+        "message",
+        FeatureUsageKeyRule::OneOf(&["script", "flow", "app", "navigator", "API", "global", "ask"]),
+    ),
+    (
+        "ai_session",
+        "autonomy",
+        FeatureUsageKeyRule::OneOf(&["default", "acceptedit", "yolo"]),
+    ),
+    (
+        "ai_session",
+        "tab",
+        FeatureUsageKeyRule::OneOf(&["script", "flow", "raw_app", "pipeline", "artifact", "page"]),
+    ),
+    ("ai_session", "tokens", FeatureUsageKeyRule::Empty),
+    (
+        "ai_session",
+        "deployed",
+        // UserDraftItemKind values (openapi.yaml); an unlisted new kind is
+        // silently dropped until registered here.
+        FeatureUsageKeyRule::OneOf(&[
+            "script",
+            "flow",
+            "app",
+            "raw_app",
+            "resource",
+            "variable",
+            "trigger_schedule",
+            "trigger_webhook",
+            "trigger_default_email",
+            "trigger_email",
+            "trigger_http",
+            "trigger_websocket",
+            "trigger_postgres",
+            "trigger_kafka",
+            "trigger_nats",
+            "trigger_mqtt",
+            "trigger_sqs",
+            "trigger_gcp",
+            "trigger_azure",
+            "trigger_poll",
+            "trigger_cli",
+            "trigger_nextcloud",
+            "trigger_google",
+            "trigger_github",
+            "data_pipeline",
+        ]),
+    ),
+    ("ai_session", "archived", FeatureUsageKeyRule::Empty),
+    ("ai_session", "deleted", FeatureUsageKeyRule::Empty),
+    ("ai_chat", "tool", FeatureUsageKeyRule::Identifier),
+];
+
+fn is_identifier_shaped(s: &str, max_len: usize) -> bool {
+    !s.is_empty()
+        && s.len() <= max_len
         && s.chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | ':' | '.'))
+}
+
+fn valid_feature_usage_event(e: &FeatureUsageEvent) -> bool {
+    // entity_id never leaves the instance (aggregation only exports counts per
+    // group), so identifier shape is enough for it.
+    if !(e.entity_id.is_empty() || is_identifier_shaped(&e.entity_id, 50)) {
+        return false;
+    }
+    FEATURE_USAGE_DIMENSIONS
+        .iter()
+        .find(|(feature, kind, _)| *feature == e.feature && *kind == e.kind)
+        .is_some_and(|(_, _, rule)| match rule {
+            FeatureUsageKeyRule::OneOf(allowed) => allowed.contains(&e.key.as_str()),
+            FeatureUsageKeyRule::Identifier => is_identifier_shaped(&e.key, 100),
+            FeatureUsageKeyRule::Empty => e.key.is_empty(),
+        })
 }
 
 async fn log_feature_usage(
@@ -9623,11 +9709,7 @@ async fn log_feature_usage(
     // single INSERT error out ("cannot affect row a second time").
     let mut agg: HashMap<(String, String, String, String), i64> = HashMap::new();
     for e in payload.events.into_iter().take(MAX_FEATURE_USAGE_EVENTS) {
-        if !valid_feature_usage_dimension(&e.feature, 50, true)
-            || !valid_feature_usage_dimension(&e.kind, 50, true)
-            || !valid_feature_usage_dimension(&e.key, 100, false)
-            || !valid_feature_usage_dimension(&e.entity_id, 50, false)
-        {
+        if !valid_feature_usage_event(&e) {
             continue;
         }
         let value = e.value.unwrap_or(1).clamp(1, 1_000_000);

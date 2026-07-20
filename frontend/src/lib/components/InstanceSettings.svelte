@@ -1064,10 +1064,9 @@
 							>AI chat usage (provider, model, mode, session count, message count — last 30 days)</li
 						>
 						<li
-							>aggregated feature usage counts (last 30 days), e.g. AI session activity: sessions
-							created and workspace or fork choice, message and token counts per session, opened
-							preview tab types, AI tool invocations, items deployed from sessions, autonomy mode.
-							No code, prompts, paths, or personal data.</li
+							>aggregated feature usage counts over the last 30 days (feature, action, counts and
+							per-entity usage distributions, for example AI session activity). Only counts of
+							predefined feature actions are collected: no code, prompts, paths, or personal data.</li
 						>
 						<li
 							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
@@ -1116,10 +1115,9 @@
 							>AI chat usage (provider, model, mode, session count, message count — last 30 days)</li
 						>
 						<li
-							>aggregated feature usage counts (last 30 days), e.g. AI session activity: sessions
-							created and workspace or fork choice, message and token counts per session, opened
-							preview tab types, AI tool invocations, items deployed from sessions, autonomy mode.
-							No code, prompts, paths, or personal data.</li
+							>aggregated feature usage counts over the last 30 days (feature, action, counts and
+							per-entity usage distributions, for example AI session activity). Only counts of
+							predefined feature actions are collected: no code, prompts, paths, or personal data.</li
 						>
 						<li
 							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
