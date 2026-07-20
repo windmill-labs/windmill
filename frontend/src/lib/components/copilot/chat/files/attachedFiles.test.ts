@@ -401,6 +401,30 @@ describe('AttachedFilesStore', () => {
 		}
 	})
 
+	it('keeps a session row indexable when sync renames it mid-index', async () => {
+		buildMode = 'manual'
+		try {
+			const S = file('notes.md', 'session\n')
+			await store.addFiles([S]) // session row 'notes.md' (file S) → index pending
+
+			// A same-named message attachment rebuilds while S is still indexing — the
+			// rename to 'notes (2).md' must re-target the in-flight index, not strand it.
+			await store.syncMessageScoped([{ name: 'notes.md', content: 'message\n' }])
+
+			for (const d of [...buildDeferreds]) d.resolve({ lineIndex: [0], lineCount: 1 })
+			await settle(store)
+
+			// Both rows ready and readable under their own names.
+			expect(store.get('notes (2).md')?.messageScoped).toBeFalsy()
+			expect(store.get('notes (2).md')?.status).toBe('ready')
+			expect(store.get('notes.md')?.messageScoped).toBe(true)
+			expect(store.get('notes.md')?.status).toBe('ready')
+		} finally {
+			buildMode = 'real'
+			buildDeferreds.length = 0
+		}
+	})
+
 	it('removeFolder deletes the live folder record from storage (persisted session)', async () => {
 		const { deleteItem } = await import('./attachedFilesDB')
 		const s = new AttachedFilesStore()

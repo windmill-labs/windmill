@@ -172,6 +172,11 @@ export class AttachedFilesStore {
 		if (!clash) return
 		const renamed = this.#uniqueName(name)
 		this.files = this.files.map((f) => (f === clash ? { ...f, name: renamed } : f))
+		// #indexFile (started at restore under the old name) stamps the row via
+		// #patchFile(oldName, file) — after this rename that no longer matches, so an
+		// in-flight index would leave the row stuck 'indexing'. Re-target it to the
+		// new name; the stale completion then no-ops (its name is gone).
+		if (clash.status === 'indexing') void this.#indexFile(renamed, clash.file)
 	}
 
 	#syncSeq = 0
