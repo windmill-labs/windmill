@@ -1,6 +1,6 @@
 -- When the concurrency limiter last re-queued this job for want of a free slot,
--- and under which key. Records that a gate parked the job rather than a worker
--- being unavailable. The key is carried here so freshness can be judged per
--- gate: gates on one tag free independently of each other.
+-- and the gate it was rejected by. The gate identity is the whole admission
+-- policy (key, limit, window), not just the key: one key may carry several
+-- policies, and only jobs under the same one share a gate.
 ALTER TABLE v2_job_queue ADD COLUMN IF NOT EXISTS concurrency_gated_at TIMESTAMPTZ;
-ALTER TABLE v2_job_queue ADD COLUMN IF NOT EXISTS concurrency_gated_key VARCHAR(255);
+ALTER TABLE v2_job_queue ADD COLUMN IF NOT EXISTS concurrency_gate_id VARCHAR(320);

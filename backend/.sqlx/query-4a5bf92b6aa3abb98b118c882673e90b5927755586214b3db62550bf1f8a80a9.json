@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH ping AS (\n                UPDATE v2_job_runtime SET ping = null WHERE id = $2\n            )\n            UPDATE v2_job_queue SET\n                running = false,\n                started_at = null,\n                scheduled_for = $1,\n                concurrency_gated_at = now(),\n                concurrency_gate_id = $3\n            WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Uuid",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4a5bf92b6aa3abb98b118c882673e90b5927755586214b3db62550bf1f8a80a9"
+}

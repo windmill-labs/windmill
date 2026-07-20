@@ -19,8 +19,8 @@ mod tests {
     use windmill_common::ee::jobs_waiting_alerts;
 
     const TAG: &str = "python3";
-    const BUSY_GATE: &str = "test-workspace/u/user/busy";
-    const FREED_GATE: &str = "test-workspace/u/user/freed";
+    const BUSY_GATE: &str = "test-workspace/u/user/busy|1|5";
+    const FREED_GATE: &str = "test-workspace/u/user/freed|1|5";
 
     /// `jobs_waiting_alerts` bails out unless it can take the shared lock, and a
     /// freshly inserted lock row is never old enough to be claimed on the first
@@ -57,19 +57,28 @@ mod tests {
 
     /// Queue `n` jobs on TAG that have been due for 5 minutes. `gate` mirrors
     /// the stamp the limiter writes when it re-queues a job it could not admit:
-    /// the key it was parked under and how long ago. `None` is a job no gate has
-    /// parked.
+    /// the gate identity it was rejected by and how long ago. `None` is a job no
+    /// gate has parked.
     async fn queue_jobs(db: &Pool<Postgres>, n: usize, gate: Option<(&str, i64)>) {
+        queue_jobs_on_tag(db, TAG, n, gate).await
+    }
+
+    async fn queue_jobs_on_tag(
+        db: &Pool<Postgres>,
+        tag: &str,
+        n: usize,
+        gate: Option<(&str, i64)>,
+    ) {
         for _ in 0..n {
             sqlx::query!(
                 "INSERT INTO v2_job_queue (id, workspace_id, tag, running, scheduled_for,
-                                           concurrency_gated_at, concurrency_gated_key)
+                                           concurrency_gated_at, concurrency_gate_id)
                  VALUES ($1, 'test-workspace', $2, false, NOW() - INTERVAL '5 minutes',
                          CASE WHEN $3::bigint IS NULL THEN NULL
                               ELSE NOW() - INTERVAL '1 second' * $3::bigint END,
                          $4)",
                 Uuid::new_v4(),
-                TAG,
+                tag,
                 gate.map(|(_, secs)| secs),
                 gate.map(|(key, _)| key),
             )
@@ -188,6 +197,27 @@ mod tests {
             messages[0].contains("150"),
             "only the freed gate's jobs count; the live gate still holds its own: {}",
             messages[0]
+        );
+    }
+
+    /// A custom key can group jobs routed to different tags, so a gate refreshed
+    /// only on another tag is still live and still holds this tag's backlog.
+    /// Scoping the freshness lookup to the monitored tag would expire those marks
+    /// and page for jobs no worker can pull.
+    #[ignore = "requires database setup - run with --ignored flag"]
+    #[sqlx::test(migrations = "../migrations")]
+    async fn a_gate_refreshed_on_another_tag_still_holds(db: Pool<Postgres>) {
+        free_the_lock(&db).await;
+        configure_alert(&db, 100).await;
+        // This tag's own marks are old; the shared gate is kept alive elsewhere.
+        queue_jobs(&db, 200, Some((BUSY_GATE, 3600))).await;
+        queue_jobs_on_tag(&db, "deno", 1, Some((BUSY_GATE, 1))).await;
+
+        jobs_waiting_alerts(&db).await;
+
+        assert!(
+            alert_messages(&db).await.is_empty(),
+            "a gate still being refreshed on another tag must keep holding this tag's jobs"
         );
     }
 }
