@@ -6,7 +6,7 @@ import { workspaceStore } from '$lib/stores'
 // backend `feature_usage` accumulator. Only aggregated counts ever leave the
 // instance, and only when telemetry is enabled and not in minimal mode — never
 // log paths, prompts, code, or user identifiers here (entity ids must be
-// random UUIDs).
+// opaque random ids).
 
 export interface FeatureUsageOpts {
 	key?: string
@@ -80,15 +80,20 @@ export function createFeatureUsageBuffer(
 			events.push(event)
 		}
 		pending.clear()
+		// Start every chunk request synchronously before awaiting: the pagehide
+		// flush only protects requests that were already issued (keepalive can't
+		// help a fetch that never started).
+		const inflight: Promise<void>[] = []
 		for (const [workspace, events] of byWorkspace) {
 			for (let i = 0; i < events.length; i += MAX_EVENTS_PER_REQUEST) {
-				try {
-					await send(workspace, events.slice(i, i + MAX_EVENTS_PER_REQUEST))
-				} catch {
-					// Telemetry is best-effort: drop the batch rather than retry.
-				}
+				inflight.push(
+					send(workspace, events.slice(i, i + MAX_EVENTS_PER_REQUEST)).catch(() => {
+						// Telemetry is best-effort: drop the batch rather than retry.
+					})
+				)
 			}
 		}
+		await Promise.all(inflight)
 	}
 
 	return { log, flush }

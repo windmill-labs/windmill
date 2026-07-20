@@ -47,6 +47,22 @@ describe('createFeatureUsageBuffer', () => {
 		expect(workspaces).toEqual(['ws1', 'ws2'])
 	})
 
+	it('starts every chunk request before any send resolves (pagehide flush)', async () => {
+		const send = vi.fn().mockReturnValue(new Promise<void>(() => {}))
+		const buffer = createFeatureUsageBuffer(send, () => 'ws1')
+
+		for (let i = 0; i < 60; i++) {
+			buffer.log('ai_session', 'tool', { key: `tool_${i}` })
+		}
+		buffer.log('ai_session', 'message', { workspace: 'ws2' })
+		void buffer.flush()
+		await Promise.resolve()
+
+		// keepalive only protects requests that were issued; a sequential flush
+		// would have started just the first chunk here.
+		expect(send).toHaveBeenCalledTimes(3)
+	})
+
 	it('chunks flushes above the per-request cap and survives send failures', async () => {
 		const send = vi.fn().mockRejectedValueOnce(new Error('network')).mockResolvedValue(undefined)
 		const buffer = createFeatureUsageBuffer(send, () => 'ws1')
