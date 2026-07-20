@@ -512,6 +512,16 @@ describe('AttachedFilesStore', () => {
 		expect(store.messageAttached).toEqual([])
 	})
 
+	it('overlapping reconciliations commit only the latest set', async () => {
+		// Rapid chat switching fires syncs without awaiting the previous one; a
+		// stale pass finishing last must not leak its conversation's files.
+		const stale = store.syncMessageScoped([{ name: 'old.md', content: 'OLD sentinel\n' }])
+		const latest = store.syncMessageScoped([{ name: 'new.md', content: 'NEW sentinel\n' }])
+		await Promise.all([stale, latest])
+		await settle(store)
+		expect(store.messageAttached.map((f) => f.name)).toEqual(['new.md'])
+	})
+
 	it('syncMessageScoped replaces a stale row under the same name', async () => {
 		await store.syncMessageScoped([{ name: 'a.md', content: 'old\n' }])
 		await settle(store)

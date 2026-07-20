@@ -162,29 +162,47 @@ export class AttachedFilesStore {
 		void this.#deleteRecord(f.sourceId)
 	}
 
+	#syncSeq = 0
+	#syncChain: Promise<void> = Promise.resolve()
+
 	/**
 	 * Reconcile message-scoped rows to exactly `wanted` — the union of files the
 	 * current transcript references. The transcript is their durable home: rows are
 	 * rebuilt from it on chat load and pruned when a rollback or an edit/retry
 	 * truncation drops the message that carried them.
+	 *
+	 * Serialized with supersession: the body awaits mid-mutation, and rapid chat
+	 * switching fires overlapping reconciliations — interleaved, a stale pass
+	 * could resume after a newer load and append another conversation's files.
+	 * Passes run one at a time and a superseded pass no-ops, so only the latest
+	 * transcript's set ever commits.
 	 */
-	async syncMessageScoped(wanted: { name: string; content: string }[]): Promise<void> {
-		const wantedByName = new Map(wanted.map((f) => [f.name, f]))
-		for (const f of this.files.filter((x) => x.messageScoped)) {
-			const w = wantedByName.get(f.name)
-			// Also drop a row whose content diverged from the transcript's copy —
-			// keeping it would make the re-registration below suffix instead of
-			// landing back on the referenced name.
-			if (!w || (await (f.file as Blob).text()) !== w.content) {
-				this.#removeMessageScopedRow(f.name)
+	syncMessageScoped(wanted: { name: string; content: string }[]): Promise<void> {
+		const seq = ++this.#syncSeq
+		const run = async () => {
+			if (seq !== this.#syncSeq) return
+			const wantedByName = new Map(wanted.map((f) => [f.name, f]))
+			for (const f of this.files.filter((x) => x.messageScoped)) {
+				const w = wantedByName.get(f.name)
+				// Also drop a row whose content diverged from the transcript's copy —
+				// keeping it would make the re-registration below suffix instead of
+				// landing back on the referenced name.
+				if (!w || (await (f.file as Blob).text()) !== w.content) {
+					this.#removeMessageScopedRow(f.name)
+				}
+			}
+			if (wanted.length > 0) {
+				await this.addFiles(
+					wanted.map((f) => new File([f.content], f.name, { type: 'text/plain' })),
+					{ messageScoped: true }
+				)
 			}
 		}
-		if (wanted.length > 0) {
-			await this.addFiles(
-				wanted.map((f) => new File([f.content], f.name, { type: 'text/plain' })),
-				{ messageScoped: true }
-			)
-		}
+		// Run after the predecessor regardless of its outcome; keep the stored
+		// chain rejection-free so one failed pass can't wedge every later one.
+		const pass = this.#syncChain.then(run, run)
+		this.#syncChain = pass.catch(() => {})
+		return pass
 	}
 
 	/** Remove every file linked as part of the given folder (and its persisted record). */

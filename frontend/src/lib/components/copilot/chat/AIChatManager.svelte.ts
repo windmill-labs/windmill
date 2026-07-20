@@ -66,7 +66,7 @@ import {
 	stripImagePartsFromMessages
 } from './imageUtils'
 import { chatDraft, expanded } from './chatDraft'
-import { MAX_ATTACHED_FILES, type AttachedTextFile } from './textFileUtils'
+import { MAX_ATTACHED_FILES, textByteLength, type AttachedTextFile } from './textFileUtils'
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
@@ -2005,18 +2005,20 @@ export class AIChatManager {
 		return this.aiChatInput?.restoreInstructions(instructions, pastes, images, files) === true
 	}
 
-	/** Sum of attached-file content sizes already committed to this conversation
+	/** Sum of attached-file content bytes already committed to this conversation
 	 * (transcript + queue). The composer adds its own pending bytes on top when
-	 * enforcing MAX_CONVERSATION_FILE_BYTES at attach time. String length is a
-	 * close-enough byte proxy for a budget check. */
-	get messageFileBytes(): number {
+	 * enforcing MAX_CONVERSATION_FILE_BYTES at attach time. `excludeMessageIndex`
+	 * discounts the message being edited — its files are seeded into the composer
+	 * and counted there, so including them here would double-count. */
+	messageFileBytes(excludeMessageIndex: number | null = null): number {
 		let total = 0
-		for (const m of this.displayMessages) {
+		for (const [i, m] of this.displayMessages.entries()) {
+			if (i === excludeMessageIndex) continue
 			if ((m.role === 'user' || m.role === 'summary') && m.files) {
-				for (const f of m.files) total += f.content.length
+				for (const f of m.files) total += textByteLength(f.content)
 			}
 		}
-		for (const f of this.queuedFiles) total += f.content.length
+		for (const f of this.queuedFiles) total += textByteLength(f.content)
 		return total
 	}
 

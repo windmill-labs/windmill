@@ -44,3 +44,9 @@ export async function fileToAttachedTextFile(file: File): Promise<AttachedTextFi
 	if (!(await isTextFile(file))) return null
 	return { name: file.name, content: await file.text() }
 }
+
+/** UTF-8 byte length of attachment content — budget math must match the byte
+ * caps, and string length undercounts multibyte text. */
+export function textByteLength(content: string): number {
+	return new TextEncoder().encode(content).length
+}

@@ -34,6 +34,7 @@
 		MAX_ATTACHED_FILES,
 		MAX_CONVERSATION_FILE_BYTES,
 		MAX_TEXT_FILE_BYTES,
+		textByteLength,
 		type AttachedTextFile
 	} from './textFileUtils'
 	import ExpandableImage, {
@@ -263,11 +264,13 @@
 		}
 		// Conversation-level byte budget: transcript + queue + what's already in
 		// the composer. File content is persisted with every history save, so an
-		// unbounded total would grow the chat record without limit.
+		// unbounded total would grow the chat record without limit. In edit mode
+		// the edited message's files live in the composer copy — the transcript
+		// count excludes them or they'd be charged twice.
 		let budget =
 			MAX_CONVERSATION_FILE_BYTES -
-			aiChatManager.messageFileBytes -
-			files.reduce((sum, f) => sum + f.content.length, 0)
+			aiChatManager.messageFileBytes(editingMessageIndex) -
+			files.reduce((sum, f) => sum + textByteLength(f.content), 0)
 		const withinBudget: File[] = []
 		for (const f of batch) {
 			if (f.size <= budget) {
