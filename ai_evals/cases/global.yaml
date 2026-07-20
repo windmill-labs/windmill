@@ -1533,3 +1533,34 @@
     - saves the plan as a markdown artifact via create_artifact rather than only replying inline
     - the artifact content has a title, a one-line summary, and three or four bullet steps for onboarding
     - does not create a flow or script draft yet
+
+- id: global-npm1-script-search-package
+  prompt: |-
+    Find a good npm package for parsing RSS/Atom feeds and use it to create a draft Bun script
+    at `f/evals/global/fetch_feed`. The script should take a string `url` input and return the
+    feed title along with the titles of the 5 most recent items. Tell me which package you
+    picked and link its documentation. Leave it as an AI draft only; do not deploy.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 12
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/fetch_feed
+        language: bun
+        valueIncludes:
+          - url
+  toolExpect:
+    requiredToolsUsed:
+      - search_npm_packages
+      - write_script
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - searches npm for a feed-parsing package before writing the code
+    - the draft Bun script imports the chosen npm package rather than hand-rolling an XML/RSS parser
+    - the script takes a url input and returns the feed title plus the recent item titles
+    - the reply names the chosen package and links its documentation
+    - the result stays as an AI draft and is not deployed
