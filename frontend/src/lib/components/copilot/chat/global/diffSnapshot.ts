@@ -1,0 +1,843 @@
+/**
+ * Materialized draft-vs-deployed diff cache for the chat `diff` tool.
+ *
+ * The backend has no diff endpoint — it serves item sides, the frontend
+ * computes patches. This module fetches each changed item's sides once,
+ * computes the stable-YAML patch once, and answers every subsequent query
+ * (workspace index, item read, later: search) from memory.
+ *
+ * Freshness model, cheapest signal first:
+ * - `drafts/list` is refetched per access (throttled) — one indexed query that
+ *   yields the authoritative row set. The server bumps a draft row's
+ *   `created_at` on every update, so an unchanged (path, created_at) pair
+ *   proves the draft side of a cached patch is current.
+ * - `getWorkspaceDraftsVersion` bumps on every in-app deploy/discard/draft
+ *   write; a bump drops cached patches because the deployed side may have
+ *   changed without touching any draft row.
+ * - Deploys from OTHER clients are invisible to both signals, so index
+ *   accesses also refresh patches older than `INDEX_ENTRY_STALE_MS`.
+ */
+import { get } from 'svelte/store'
+import {
+	getDraftItems,
+	getWorkspaceDraftsVersion,
+	type DraftItem
+} from '$lib/workspaceDrafts.svelte'
+import {
+	ResourceService,
+	ScriptService,
+	VariableService,
+	type UserDraftItemKind,
+	type WorkspaceItemDiff
+} from '$lib/gen'
+import { getDraftDiffValues } from '$lib/utils_draft_deploy'
+import { getItemValue } from '$lib/utils_workspace_deploy'
+import type { Kind as DeployKind } from '$lib/utils_deployable'
+import { userWorkspaces } from '$lib/stores'
+import { fetchWorkspaceComparison } from '$lib/workspaceComparison'
+import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
+import { textFilePatch, yamlValuePatch } from './draftDiff'
+import { itemTypeForKind } from './userDraftAdapter'
+import { TRIGGER_KINDS, type TriggerKind, type WorkspaceItemType } from './workspaceItems'
+
+const LIST_REUSE_MS = 5_000
+const INDEX_ENTRY_STALE_MS = 60_000
+const READ_ENTRY_REUSE_MS = 15_000
+/** Max patches computed per index access, so a workspace with hundreds of
+ * drafts still answers its first index quickly; the rest report `pending`
+ * and materialize on item read. */
+const EAGER_MATERIALIZE_CAP = 50
+const FETCH_CONCURRENCY = 6
+
+export type WorkspaceDiffStatus =
+	| 'new'
+	| 'modified'
+	| 'unchanged'
+	| 'pending'
+	| 'error'
+	| 'not_diffable'
+
+/** One changed file inside a multi-file (raw) app. */
+export interface DiffFileView {
+	status: 'added' | 'deleted' | 'modified'
+	patch: string
+	lineCount: number
+}
+
+export interface WorkspaceDiffEntryView {
+	kind: UserDraftItemKind
+	/** Chat-facing addressing; undefined when the chat cannot address the kind. */
+	type?: WorkspaceItemType
+	triggerKind?: TriggerKind
+	/** Friendly path the model should use (draft_path when present). */
+	path: string
+	storagePath: string
+	summary?: string
+	status: WorkspaceDiffStatus
+	/** Unified patch; present once materialized ('' when unchanged). For a
+	 * multi-file app this is the config-only patch — file contents live in
+	 * `files`. */
+	patch?: string
+	patchLineCount?: number
+	/** Per-file patches for multi-file apps (changed files only). */
+	files?: Record<string, DiffFileView>
+	/** True when the item has never been deployed — the whole draft is new. */
+	noDeployed?: boolean
+	errorMessage?: string
+}
+
+export interface WorkspaceDiffIndexView {
+	entries: WorkspaceDiffEntryView[]
+	otherUsersDraftCount: number
+}
+
+interface Materialized {
+	status: 'new' | 'modified' | 'unchanged' | 'error'
+	patch: string
+	lineCount: number
+	files?: Record<string, DiffFileView>
+	noDeployed: boolean
+	errorMessage?: string
+	fetchedAt: number
+}
+
+/** `files` maps of string contents mark a multi-file app value; anything else
+ * (classic apps, other kinds) diffs as one document. */
+function extractAppFiles(value: unknown): Record<string, string> | undefined {
+	const files = (value as { files?: unknown } | null | undefined)?.files
+	if (files == null || typeof files !== 'object' || Array.isArray(files)) return undefined
+	const entries = Object.entries(files as Record<string, unknown>)
+	if (entries.length === 0 || !entries.every(([, v]) => typeof v === 'string')) return undefined
+	return files as Record<string, string>
+}
+
+interface AppSplit {
+	files: Record<string, DiffFileView>
+	configPatch: string
+	totalLines: number
+	hasChanges: boolean
+}
+
+/** Split a multi-file app diff into per-file text patches plus a config-only
+ * YAML patch, so code diffs read file-by-file and file addressing works.
+ * Returns undefined when neither side carries a file map. */
+function computeAppSplit(
+	before: unknown,
+	after: unknown,
+	beforeLabel: string,
+	afterLabel: string
+): AppSplit | undefined {
+	const beforeFiles = extractAppFiles(before)
+	const afterFiles = extractAppFiles(after)
+	if (!beforeFiles && !afterFiles) return undefined
+	const files: Record<string, DiffFileView> = {}
+	let totalLines = 0
+	const names = [
+		...new Set([...Object.keys(beforeFiles ?? {}), ...Object.keys(afterFiles ?? {})])
+	].sort()
+	for (const name of names) {
+		const beforeContent = beforeFiles?.[name]
+		const afterContent = afterFiles?.[name]
+		const patch = textFilePatch(beforeContent, afterContent, beforeLabel, afterLabel)
+		if (!patch) continue
+		const lineCount = patch.split('\n').length
+		totalLines += lineCount
+		files[name] = {
+			status:
+				beforeContent === undefined ? 'added' : afterContent === undefined ? 'deleted' : 'modified',
+			patch,
+			lineCount
+		}
+	}
+	const withoutFiles = (value: unknown) => {
+		if (value == null || typeof value !== 'object') return value
+		const { files: _files, ...rest } = value as Record<string, unknown>
+		return rest
+	}
+	const configPatch = yamlValuePatch(
+		withoutFiles(before),
+		withoutFiles(after),
+		beforeLabel,
+		afterLabel
+	)
+	totalLines += configPatch === '' ? 0 : configPatch.split('\n').length
+	return {
+		files,
+		configPatch,
+		totalLines,
+		hasChanges: Object.keys(files).length > 0 || configPatch !== ''
+	}
+}
+
+interface CacheEntry {
+	row: DraftItem
+	type?: WorkspaceItemType
+	triggerKind?: TriggerKind
+	displayPath: string
+	materialized?: Materialized
+	materializing?: Promise<void>
+}
+
+interface WorkspaceCache {
+	version: number
+	listFetchedAt: number
+	entries: Map<string, CacheEntry>
+	otherUsersDraftCount: number
+}
+
+const caches = new Map<string, WorkspaceCache>()
+const reconciling = new Map<string, Promise<WorkspaceCache>>()
+
+function entryKey(kind: UserDraftItemKind, storagePath: string): string {
+	return `${kind}:${storagePath}`
+}
+
+/** Expire the throttled drafts listing for a workspace so the next access
+ * refetches it. Called after a flush persists edits: a flush bumps neither the
+ * drafts version nor a row's cached `created_at`, so within `LIST_REUSE_MS`
+ * the diff would otherwise be computed from the pre-flush listing. Cached
+ * patches survive — reconciliation drops exactly the rows whose `created_at`
+ * moved. */
+export function expireWorkspaceDiffList(workspace: string): void {
+	const cache = caches.get(workspace)
+	if (cache) cache.listFetchedAt = 0
+}
+
+export function invalidateWorkspaceDiffCache(workspace?: string): void {
+	if (workspace === undefined) {
+		caches.clear()
+		reconciling.clear()
+		forkCaches.clear()
+		forkReconciling.clear()
+	} else {
+		caches.delete(workspace)
+		reconciling.delete(workspace)
+		forkCaches.delete(workspace)
+		forkReconciling.delete(workspace)
+	}
+}
+
+async function mapPool<T>(
+	items: T[],
+	limit: number,
+	fn: (item: T) => Promise<void>
+): Promise<void> {
+	const queue = [...items]
+	const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
+		for (let item = queue.shift(); item !== undefined; item = queue.shift()) {
+			await fn(item)
+		}
+	})
+	await Promise.all(workers)
+}
+
+/** Refetch the workspace draft rows and rebuild the entry map, carrying over
+ * each cached patch whose draft row is provably unchanged. */
+async function reconcile(workspace: string): Promise<WorkspaceCache> {
+	const prev = caches.get(workspace)
+	const version = getWorkspaceDraftsVersion(workspace)
+	if (prev && prev.version === version && Date.now() - prev.listFetchedAt < LIST_REUSE_MS) {
+		return prev
+	}
+	const inflight = reconciling.get(workspace)
+	if (inflight) return inflight
+	const run = (async () => {
+		const rows = await getDraftItems(workspace, true)
+		const mine = rows.filter((r) => r.mine)
+		const entries = new Map<string, CacheEntry>()
+		for (const row of mine) {
+			const key = entryKey(row.kind, row.path)
+			const old = prev?.entries.get(key)
+			const reusable =
+				old && prev!.version === version && old.row.created_at === row.created_at
+					? old.materialized
+					: undefined
+			const addressing = itemTypeForKind(row.kind)
+			entries.set(key, {
+				row,
+				type: addressing?.type,
+				triggerKind: addressing?.triggerKind,
+				displayPath: row.draft_path || row.path,
+				materialized: reusable
+			})
+		}
+		const cache: WorkspaceCache = {
+			version,
+			listFetchedAt: Date.now(),
+			entries,
+			otherUsersDraftCount: rows.length - mine.length
+		}
+		caches.set(workspace, cache)
+		return cache
+	})()
+	reconciling.set(workspace, run)
+	try {
+		return await run
+	} finally {
+		reconciling.delete(workspace)
+	}
+}
+
+/** Fetch one entry's sides and compute its patch, deduping concurrent calls.
+ * Reuses the cached patch when younger than `maxAgeMs`. */
+async function materialize(workspace: string, entry: CacheEntry, maxAgeMs: number): Promise<void> {
+	if (entry.materialized && Date.now() - entry.materialized.fetchedAt < maxAgeMs) return
+	if (entry.materializing) return entry.materializing
+	const run = (async () => {
+		try {
+			const { deployed, draft, noDeployed } = await getDraftDiffValues(
+				entry.row.kind,
+				entry.row.path,
+				workspace
+			)
+			const before = noDeployed ? undefined : deployed
+			const split = computeAppSplit(before, draft, 'deployed', 'draft')
+			if (split) {
+				entry.materialized = {
+					status: noDeployed ? 'new' : split.hasChanges ? 'modified' : 'unchanged',
+					patch: split.configPatch,
+					lineCount: split.totalLines,
+					files: split.files,
+					noDeployed,
+					fetchedAt: Date.now()
+				}
+			} else {
+				const patch = yamlValuePatch(before, draft, 'deployed', 'draft')
+				entry.materialized = {
+					status: noDeployed ? 'new' : patch === '' ? 'unchanged' : 'modified',
+					patch,
+					lineCount: patch === '' ? 0 : patch.split('\n').length,
+					noDeployed,
+					fetchedAt: Date.now()
+				}
+			}
+		} catch (e) {
+			entry.materialized = {
+				status: 'error',
+				patch: '',
+				lineCount: 0,
+				noDeployed: false,
+				errorMessage:
+					(e as { status?: number } | null | undefined)?.status === 404
+						? 'item not found (the draft may reference a deleted item)'
+						: ((e as Error | null | undefined)?.message ?? 'failed to compute diff'),
+				fetchedAt: Date.now()
+			}
+		}
+	})()
+	entry.materializing = run
+	try {
+		await run
+	} finally {
+		entry.materializing = undefined
+	}
+}
+
+function toView(entry: CacheEntry): WorkspaceDiffEntryView {
+	const m = entry.materialized
+	return {
+		kind: entry.row.kind,
+		type: entry.type,
+		triggerKind: entry.triggerKind,
+		path: entry.displayPath,
+		storagePath: entry.row.path,
+		summary: entry.row.summary,
+		status: m ? m.status : entry.type === undefined ? 'not_diffable' : 'pending',
+		patch: m?.patch,
+		patchLineCount: m?.lineCount,
+		files: m?.files,
+		noDeployed: m?.noDeployed,
+		errorMessage: m?.errorMessage
+	}
+}
+
+/** Workspace index: every draft of the current user with its change status,
+ * materializing missing/stale patches up to the eager cap (`materializeAll`
+ * lifts the cap — search needs every patch). */
+export async function getWorkspaceDiffIndex(
+	workspace: string,
+	opts: { materializeAll?: boolean } = {}
+): Promise<WorkspaceDiffIndexView> {
+	const cache = await reconcile(workspace)
+	const addressable = [...cache.entries.values()].filter((e) => e.type !== undefined)
+	let toMaterialize = addressable.filter(
+		(e) => !e.materialized || Date.now() - e.materialized.fetchedAt >= INDEX_ENTRY_STALE_MS
+	)
+	if (!opts.materializeAll) {
+		toMaterialize = toMaterialize.slice(0, EAGER_MATERIALIZE_CAP)
+	}
+	await mapPool(toMaterialize, FETCH_CONCURRENCY, (e) =>
+		materialize(workspace, e, INDEX_ENTRY_STALE_MS)
+	)
+	return {
+		entries: [...cache.entries.values()].map(toView),
+		otherUsersDraftCount: cache.otherUsersDraftCount
+	}
+}
+
+/** One item's diff entry, addressed by storage path or friendly draft path.
+ * Returns undefined when the current user has no draft there. */
+export async function readWorkspaceDiffEntry(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	path: string
+): Promise<WorkspaceDiffEntryView | undefined> {
+	const cache = await reconcile(workspace)
+	let entry = cache.entries.get(entryKey(itemKind, path))
+	if (!entry) {
+		// Friendly-path addressing (draft-only items park at u/{user}/draft_{uuid})
+		// and the classic-app/raw-app kind pair, which share the chat type 'app'.
+		const kinds: UserDraftItemKind[] =
+			itemKind === 'raw_app' || itemKind === 'app' ? ['raw_app', 'app'] : [itemKind]
+		entry = [...cache.entries.values()].find(
+			(e) => kinds.includes(e.row.kind) && (e.displayPath === path || e.row.path === path)
+		)
+	}
+	if (!entry) return undefined
+	await materialize(workspace, entry, READ_ENTRY_REUSE_MS)
+	return toView(entry)
+}
+
+// ---------------------------------------------------------------------------
+// Fork mode: deployed fork vs deployed parent, mirroring the compare page.
+// The index comes from the shared `compareWorkspaces` fetch (same tally the
+// fork banner shows); per-item content is fetched with the same
+// `getItemValue` canonicalization the compare page's diff drawer uses, so the
+// patches match what merge-to-parent would actually ship. Local drafts are
+// NOT part of the comparison — they are only flagged on the entries.
+// ---------------------------------------------------------------------------
+
+/** How long a fetched comparison keeps serving fork index/read calls before a
+ * fresh tally is requested. In-app deploys bump the drafts version and force a
+ * refetch regardless. */
+const FORK_COMPARISON_REUSE_MS = 30_000
+
+export type ForkDiffStatus =
+	| 'modified'
+	| 'only_in_fork'
+	| 'deleted_in_fork'
+	| 'unchanged'
+	| 'pending'
+	| 'error'
+
+export interface ForkDiffEntryView {
+	/** Comparison kind (per-kind trigger names, plus folder / resource_type). */
+	kind: string
+	/** Chat-facing addressing; undefined when the chat cannot read the kind. */
+	type?: WorkspaceItemType
+	triggerKind?: TriggerKind
+	path: string
+	ahead: number
+	behind: number
+	/** The current user also has a local draft on this item — not part of the
+	 * deployed-vs-deployed comparison. */
+	hasLocalDraft: boolean
+	status: ForkDiffStatus
+	patch?: string
+	patchLineCount?: number
+	/** Per-file patches for multi-file apps (changed files only). */
+	files?: Record<string, DiffFileView>
+	/** A secret's content was placeholder-masked — content-only changes on
+	 * this item cannot appear in the patch. */
+	secretMasked?: boolean
+	errorMessage?: string
+}
+
+export interface ForkDiffIndexView {
+	parentWorkspaceId: string
+	skippedComparison: boolean
+	entries: ForkDiffEntryView[]
+	hiddenAheadCount: number
+	hiddenBehindCount: number
+}
+
+interface ForkMaterialized {
+	status: 'modified' | 'only_in_fork' | 'deleted_in_fork' | 'unchanged' | 'error'
+	patch: string
+	lineCount: number
+	files?: Record<string, DiffFileView>
+	secretMasked?: boolean
+	errorMessage?: string
+	fetchedAt: number
+}
+
+interface ForkEntry {
+	kind: string
+	path: string
+	ahead: number
+	behind: number
+	existsInParent: boolean
+	existsInFork: boolean
+	type?: WorkspaceItemType
+	triggerKind?: TriggerKind
+	hasLocalDraft: boolean
+	materialized?: ForkMaterialized
+	materializing?: Promise<void>
+}
+
+interface ForkCache {
+	parentWorkspaceId: string
+	draftsVersion: number
+	fetchedAt: number
+	skippedComparison: boolean
+	entries: Map<string, ForkEntry>
+	hiddenAheadCount: number
+	hiddenBehindCount: number
+}
+
+const forkCaches = new Map<string, ForkCache>()
+const forkReconciling = new Map<string, Promise<ForkCache>>()
+
+/** Parent workspace id when `workspace` is a fork/dev workspace, else undefined. */
+export function getForkParentWorkspaceId(workspace: string): string | undefined {
+	return get(userWorkspaces).find((w) => w.id === workspace)?.parent_workspace_id ?? undefined
+}
+
+const CHAT_TRIGGER_KINDS = new Set<string>(TRIGGER_KINDS)
+
+function forkKindAddressing(
+	kind: string
+): { type: WorkspaceItemType; triggerKind?: TriggerKind } | undefined {
+	switch (kind) {
+		case 'script':
+		case 'flow':
+		case 'resource':
+		case 'variable':
+		case 'schedule':
+			return { type: kind as WorkspaceItemType }
+		case 'app':
+		case 'raw_app':
+			return { type: 'app' }
+		default: {
+			const triggerKind = kind.endsWith('_trigger') ? kind.slice(0, -'_trigger'.length) : undefined
+			return triggerKind && CHAT_TRIGGER_KINDS.has(triggerKind)
+				? { type: 'trigger', triggerKind: triggerKind as TriggerKind }
+				: undefined
+		}
+	}
+}
+
+/** Draft kind holding local drafts for a comparison kind (for the flag join). */
+function draftKindForForkKind(kind: string): UserDraftItemKind | undefined {
+	if (kind === 'schedule') return 'trigger_schedule'
+	if (kind.endsWith('_trigger')) {
+		const t = kind.slice(0, -'_trigger'.length)
+		return `trigger_${t}` as UserDraftItemKind
+	}
+	if (kind === 'resource_type' || kind === 'folder') return undefined
+	return kind as UserDraftItemKind
+}
+
+async function reconcileFork(workspace: string, parentWorkspaceId: string): Promise<ForkCache> {
+	const prev = forkCaches.get(workspace)
+	const version = getWorkspaceDraftsVersion(workspace)
+	if (
+		prev &&
+		prev.parentWorkspaceId === parentWorkspaceId &&
+		prev.draftsVersion === version &&
+		Date.now() - prev.fetchedAt < FORK_COMPARISON_REUSE_MS
+	) {
+		return prev
+	}
+	const inflight = forkReconciling.get(workspace)
+	if (inflight) return inflight
+	const run = (async () => {
+		// A drafts-version bump means something deployed in-app: demand a fresh
+		// tally. Otherwise piggyback on a recent fetch (e.g. the fork banner's).
+		const comparisonMaxAge = prev && prev.draftsVersion !== version ? 0 : FORK_COMPARISON_REUSE_MS
+		const [comparison, draftsCache] = await Promise.all([
+			fetchWorkspaceComparison(parentWorkspaceId, workspace, { maxAgeMs: comparisonMaxAge }),
+			reconcile(workspace)
+		])
+		const localDraftKeys = new Set(
+			[...draftsCache.entries.values()].map((e) => entryKey(e.row.kind, e.row.path))
+		)
+		const entries = new Map<string, ForkEntry>()
+		for (const diff of comparison.diffs as WorkspaceItemDiff[]) {
+			const key = `${diff.kind}:${diff.path}`
+			const old = prev?.entries.get(key)
+			const reusable =
+				old &&
+				prev!.draftsVersion === version &&
+				old.ahead === diff.ahead &&
+				old.behind === diff.behind &&
+				old.existsInParent === diff.exists_in_source &&
+				old.existsInFork === diff.exists_in_fork
+					? old.materialized
+					: undefined
+			const addressing = forkKindAddressing(diff.kind)
+			const draftKind = draftKindForForkKind(diff.kind)
+			entries.set(key, {
+				kind: diff.kind,
+				path: diff.path,
+				ahead: diff.ahead,
+				behind: diff.behind,
+				existsInParent: diff.exists_in_source,
+				existsInFork: diff.exists_in_fork,
+				type: addressing?.type,
+				triggerKind: addressing?.triggerKind,
+				hasLocalDraft: draftKind ? localDraftKeys.has(entryKey(draftKind, diff.path)) : false,
+				materialized: reusable
+			})
+		}
+		const cache: ForkCache = {
+			parentWorkspaceId,
+			draftsVersion: version,
+			fetchedAt: Date.now(),
+			skippedComparison: comparison.skipped_comparison,
+			entries,
+			hiddenAheadCount: comparison.hidden_ahead?.total ?? 0,
+			hiddenBehindCount: comparison.hidden_behind?.total ?? 0
+		}
+		forkCaches.set(workspace, cache)
+		return cache
+	})()
+	forkReconciling.set(workspace, run)
+	try {
+		return await run
+	} finally {
+		forkReconciling.delete(workspace)
+	}
+}
+
+const SECRET_VALUE_PLACEHOLDER = '<secret value — content not comparable>'
+
+// App-row fields that differ between workspaces without being part of what a
+// merge deploys (ids, version history, audit fields) — plus bundle_secret,
+// which must never reach a tool result.
+const APP_ROW_CROSS_WORKSPACE_IGNORE = new Set([
+	'id',
+	'workspace_id',
+	'versions',
+	'created_by',
+	'created_at',
+	'extra_perms',
+	'bundle_secret'
+])
+
+interface ForkSideValue {
+	value: unknown
+	/** A secret's content was replaced by the placeholder — content-only
+	 * changes on this item are invisible in the patch. */
+	secretMasked: boolean
+}
+
+async function fetchForkSideValue(
+	kind: string,
+	path: string,
+	workspace: string
+): Promise<ForkSideValue> {
+	// Secret variables must never be decrypted into a tool result; fetch the
+	// metadata only and substitute a stable placeholder (identical on both
+	// sides, so a secret's content change is invisible — by design; the
+	// `secretMasked` flag lets callers say so instead of claiming "unchanged").
+	if (kind === 'variable') {
+		const variable = await VariableService.getVariable({
+			workspace,
+			path,
+			decryptSecret: false
+		})
+		return {
+			value: {
+				description: variable.description,
+				is_secret: variable.is_secret,
+				value: variable.is_secret ? SECRET_VALUE_PLACEHOLDER : variable.value
+			},
+			secretMasked: variable.is_secret === true
+		}
+	}
+	// The shared getItemValue projection drops fields the backend comparison
+	// DOES consider (script/resource description, resource_type) — a diff of
+	// those fields alone would then falsely read "content matches parent".
+	// Project those kinds directly with the metadata included.
+	if (kind === 'script') {
+		const script = await ScriptService.getScriptByPath({ workspace, path })
+		return {
+			value: {
+				content: script.content,
+				lock: script.lock,
+				schema: script.schema,
+				summary: script.summary,
+				description: script.description,
+				language: script.language
+			},
+			secretMasked: false
+		}
+	}
+	if (kind === 'resource') {
+		const resource = await ResourceService.getResource({ workspace, path })
+		return {
+			value: {
+				value: resource.value,
+				description: resource.description,
+				resource_type: resource.resource_type
+			},
+			secretMasked: false
+		}
+	}
+	const value = await getItemValue(kind as DeployKind, path, workspace)
+	if ((kind === 'app' || kind === 'raw_app') && value !== null && typeof value === 'object') {
+		const row = value as Record<string, unknown>
+		// Raw apps: project onto the flat files/runnables draft shape so per-file
+		// splitting works and the sides match the draft-mode canonicalization.
+		// parent_version is a per-workspace version counter — never comparable
+		// across workspaces. Inline-script locks are server-recomputed noise.
+		if (kind === 'raw_app' || row.raw_app === true) {
+			const canonical = appSourceToDraftValue(row) as Record<string, unknown>
+			delete canonical.parent_version
+			const runnables = canonical.runnables as Record<string, any> | undefined
+			if (runnables) {
+				for (const k of Object.keys(runnables)) {
+					if (runnables[k]?.inlineScript?.lock != undefined) {
+						runnables[k].inlineScript.lock = undefined
+					}
+				}
+			}
+			return { value: canonical, secretMasked: false }
+		}
+		return {
+			value: Object.fromEntries(
+				Object.entries(row).filter(([k]) => !APP_ROW_CROSS_WORKSPACE_IGNORE.has(k))
+			),
+			secretMasked: false
+		}
+	}
+	return { value, secretMasked: false }
+}
+
+async function materializeFork(
+	workspace: string,
+	parentWorkspaceId: string,
+	entry: ForkEntry,
+	maxAgeMs: number
+): Promise<void> {
+	if (entry.materialized && Date.now() - entry.materialized.fetchedAt < maxAgeMs) return
+	if (entry.materializing) return entry.materializing
+	const run = (async () => {
+		try {
+			const [parentSide, forkSide] = await Promise.all([
+				entry.existsInParent
+					? fetchForkSideValue(entry.kind, entry.path, parentWorkspaceId)
+					: undefined,
+				entry.existsInFork ? fetchForkSideValue(entry.kind, entry.path, workspace) : undefined
+			])
+			const parentValue = parentSide?.value
+			const forkValue = forkSide?.value
+			const secretMasked = parentSide?.secretMasked === true || forkSide?.secretMasked === true
+			const oneSidedStatus = !entry.existsInFork
+				? 'deleted_in_fork'
+				: !entry.existsInParent
+					? 'only_in_fork'
+					: undefined
+			const split = computeAppSplit(parentValue, forkValue, 'parent', 'fork')
+			if (split) {
+				entry.materialized = {
+					status: oneSidedStatus ?? (split.hasChanges ? 'modified' : 'unchanged'),
+					patch: split.configPatch,
+					lineCount: split.totalLines,
+					files: split.files,
+					secretMasked,
+					fetchedAt: Date.now()
+				}
+			} else {
+				const patch = yamlValuePatch(parentValue, forkValue, 'parent', 'fork')
+				entry.materialized = {
+					status: oneSidedStatus ?? (patch === '' ? 'unchanged' : 'modified'),
+					patch,
+					lineCount: patch === '' ? 0 : patch.split('\n').length,
+					secretMasked,
+					fetchedAt: Date.now()
+				}
+			}
+		} catch (e) {
+			entry.materialized = {
+				status: 'error',
+				patch: '',
+				lineCount: 0,
+				errorMessage: (e as Error | null | undefined)?.message ?? 'failed to compute diff',
+				fetchedAt: Date.now()
+			}
+		}
+	})()
+	entry.materializing = run
+	try {
+		await run
+	} finally {
+		entry.materializing = undefined
+	}
+}
+
+function toForkView(entry: ForkEntry): ForkDiffEntryView {
+	const m = entry.materialized
+	return {
+		kind: entry.kind,
+		type: entry.type,
+		triggerKind: entry.triggerKind,
+		path: entry.path,
+		ahead: entry.ahead,
+		behind: entry.behind,
+		hasLocalDraft: entry.hasLocalDraft,
+		status: m?.status ?? 'pending',
+		patch: m?.patch,
+		patchLineCount: m?.lineCount,
+		files: m?.files,
+		secretMasked: m?.secretMasked,
+		errorMessage: m?.errorMessage
+	}
+}
+
+/** Cheap comparison metadata (no patch materialization) — lets item/search
+ * modes distinguish "no differences" from "comparison unavailable". */
+export async function getForkComparisonStatus(
+	workspace: string,
+	parentWorkspaceId: string
+): Promise<{ skippedComparison: boolean }> {
+	const cache = await reconcileFork(workspace, parentWorkspaceId)
+	return { skippedComparison: cache.skippedComparison }
+}
+
+/** Fork index: every item that differs between the fork and its parent
+ * (`materializeAll` lifts the eager cap — search needs every patch). */
+export async function getForkDiffIndex(
+	workspace: string,
+	parentWorkspaceId: string,
+	opts: { materializeAll?: boolean } = {}
+): Promise<ForkDiffIndexView> {
+	const cache = await reconcileFork(workspace, parentWorkspaceId)
+	let toMaterialize = [...cache.entries.values()].filter(
+		(e) => !e.materialized || Date.now() - e.materialized.fetchedAt >= INDEX_ENTRY_STALE_MS
+	)
+	if (!opts.materializeAll) {
+		toMaterialize = toMaterialize.slice(0, EAGER_MATERIALIZE_CAP)
+	}
+	await mapPool(toMaterialize, FETCH_CONCURRENCY, (e) =>
+		materializeFork(workspace, parentWorkspaceId, e, INDEX_ENTRY_STALE_MS)
+	)
+	return {
+		parentWorkspaceId: cache.parentWorkspaceId,
+		skippedComparison: cache.skippedComparison,
+		entries: [...cache.entries.values()].map(toForkView),
+		hiddenAheadCount: cache.hiddenAheadCount,
+		hiddenBehindCount: cache.hiddenBehindCount
+	}
+}
+
+/** One item's fork-vs-parent entry. `kinds` lists the comparison kinds the
+ * chat type maps to (e.g. type 'app' → ['app', 'raw_app']). Returns undefined
+ * when the item does not differ (or is unknown to the comparison). */
+export async function readForkDiffEntry(
+	workspace: string,
+	parentWorkspaceId: string,
+	kinds: string[],
+	path: string
+): Promise<ForkDiffEntryView | undefined> {
+	const cache = await reconcileFork(workspace, parentWorkspaceId)
+	let entry: ForkEntry | undefined
+	for (const kind of kinds) {
+		entry = cache.entries.get(`${kind}:${path}`)
+		if (entry) break
+	}
+	if (!entry) return undefined
+	await materializeFork(workspace, parentWorkspaceId, entry, READ_ENTRY_REUSE_MS)
+	return toForkView(entry)
+}

@@ -3,6 +3,7 @@ import { DraftService } from '$lib/gen'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { UserDraft, type UserDraftEntry, type UserDraftItemKind } from '$lib/userDraft.svelte'
+import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import {
 	getWorkspaceItemKey,
 	type AppDraftValue,
@@ -130,6 +131,29 @@ export function itemKindFor(
 
 export function triggerKindToUserDraftKind(kind: TriggerKind): UserDraftItemKind {
 	return TRIGGER_DRAFT_KIND_BY_TRIGGER_KIND[kind]
+}
+
+/** Inverse of `itemKindFor`: the chat-facing type (+ trigger kind) for a draft
+ * kind. `undefined` for kinds the chat cannot address (classic apps, webhook /
+ * poll / cli trigger drafts, data pipelines). */
+export function itemTypeForKind(
+	kind: UserDraftItemKind
+): { type: WorkspaceItemType; triggerKind?: TriggerKind } | undefined {
+	switch (kind) {
+		case 'script':
+		case 'flow':
+		case 'resource':
+		case 'variable':
+			return { type: kind }
+		case 'raw_app':
+			return { type: 'app' }
+		case 'trigger_schedule':
+			return { type: 'schedule' }
+		default: {
+			const triggerKind = TRIGGER_KIND_BY_DRAFT_KIND[kind]
+			return triggerKind ? { type: 'trigger', triggerKind } : undefined
+		}
+	}
 }
 
 function scriptDraftToWorkspaceItem(path: string, draft: NewScript): WorkspaceItem {
@@ -454,9 +478,17 @@ export async function persistGlobalDraft(
 	const conflict = opts.force
 		? undefined
 		: UserDraftDbSyncer.getConflict({ workspace, itemKind, path: storagePath }).conflict
-	return conflict
-		? { status: 'conflict', item, itemKind, storagePath, serverTimestamp: conflict.serverTimestamp }
-		: { status: 'saved', item, itemKind, storagePath }
+	if (conflict) {
+		return {
+			status: 'conflict',
+			item,
+			itemKind,
+			storagePath,
+			serverTimestamp: conflict.serverTimestamp
+		}
+	}
+	invalidateWorkspaceDrafts(workspace)
+	return { status: 'saved', item, itemKind, storagePath }
 }
 
 export async function getGlobalDraft(
@@ -607,6 +639,23 @@ export async function deleteGlobalDraft(
 		)
 	}
 	if (type === 'variable') clearEphemeralSecretVariableDraftValue(workspace, storagePath)
+	invalidateWorkspaceDrafts(workspace)
+}
+
+/** Flush every parked local draft autosave for the workspace so the server
+ * listing reflects the latest edits — a brand-new editor draft has no server
+ * row until its first flush. No-ops per key when nothing is pending.
+ * Honors the auto-save toggle: with auto-save off, parked editor edits stay
+ * parked — a read-only caller must not persist what the user chose not to. */
+export async function flushGlobalDraftSaves(workspace: string): Promise<void> {
+	await Promise.all(
+		UserDraft.list({ workspace, itemKinds: [...GLOBAL_DRAFT_KINDS] }).map((draft) =>
+			UserDraftDbSyncer.flush(
+				{ workspace, itemKind: draft.itemKind, path: draft.path },
+				{ honorAutosaveToggle: true }
+			)
+		)
+	)
 }
 
 export function clearGlobalDrafts(workspace: string): void {

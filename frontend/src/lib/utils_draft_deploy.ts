@@ -90,21 +90,35 @@ const OVERLAY_GETTERS: Partial<
 }
 
 /** Strip the per-user draft-overlay metadata, returning `{deployed, draft}`. */
-function splitOverlay(r: any): { deployed: any; draft: any } {
+function splitOverlay(r: any): {
+	deployed: any
+	draft: any
+	hasDraft: boolean
+	noDeployed: boolean
+} {
 	const {
 		draft,
 		is_draft: _i,
 		draft_saved_at: _c,
-		no_deployed: _n,
+		no_deployed,
 		other_drafts_users: _o,
 		...deployed
 	} = r
-	return { deployed, draft: draft ?? deployed }
+	return {
+		deployed,
+		draft: draft ?? deployed,
+		hasDraft: draft != null,
+		noDeployed: no_deployed === true
+	}
 }
 
 export interface DraftDiffValues {
 	deployed: unknown
 	draft: unknown
+	/** False when the overlay carried no draft row (the item's own value was used as the draft side). */
+	hasDraft: boolean
+	/** True when the item has never been deployed (`draft_only` overlay). */
+	noDeployed: boolean
 }
 
 // Empty-but-valid "deployed" shapes for draft_only items. A bare `{}` breaks
@@ -114,6 +128,34 @@ const EMPTY_DEPLOYED: Partial<Record<DraftKind, (draft: any) => unknown>> = {
 	script: (draft) => ({ content: '', language: draft?.language, schema: {} }),
 	flow: () => ({ summary: '', value: { modules: [] }, schema: {} }),
 	app: () => ({ summary: '', value: {}, policy: {} })
+}
+
+// Server-managed script-row fields, stripped from BOTH sides of a draft diff:
+// never user-edited, they are either identical noise (created_at, workspace_id)
+// or spuriously different (lock is recomputed at deploy). The draft-side
+// pinned-base `parent_hash` is stripped separately, like the flow `version_id`.
+const SCRIPT_ROW_RUNTIME_IGNORE = new Set([
+	'workspace_id',
+	'hash',
+	'parent_hash',
+	'parent_hashes',
+	'created_at',
+	'created_by',
+	'archived',
+	'deleted',
+	'extra_perms',
+	'lock',
+	'lock_error_logs',
+	'starred',
+	'has_draft',
+	'draft_only',
+	'assets',
+	'marked'
+])
+
+function stripScriptRowRuntime(row: any): Record<string, unknown> {
+	if (!row || typeof row !== 'object') return {}
+	return Object.fromEntries(Object.entries(row).filter(([k]) => !SCRIPT_ROW_RUNTIME_IGNORE.has(k)))
 }
 
 // Schedule & trigger rows drop the same runtime/server-managed fields as the
@@ -189,15 +231,17 @@ export async function getDraftDiffValues(
 			draft,
 			is_draft: _i,
 			draft_saved_at: _c,
-			no_deployed: _n,
+			no_deployed,
 			other_drafts_users: _o,
 			hash: _h,
 			...deployed
 		} = r
-		const draftValue = draft ?? deployed
+		const draftValue = stripScriptRowRuntime(draft ?? deployed)
 		return {
-			deployed: draftOnly ? EMPTY_DEPLOYED.script!(draftValue) : deployed,
-			draft: draftValue
+			deployed: draftOnly ? EMPTY_DEPLOYED.script!(draftValue) : stripScriptRowRuntime(deployed),
+			draft: draftValue,
+			hasDraft: draft != null,
+			noDeployed: no_deployed === true
 		}
 	} else if (kind === 'flow') {
 		const r = (await FlowService.getFlowByPath({ workspace, path, getDraft: true })) as any
@@ -205,7 +249,7 @@ export async function getDraftDiffValues(
 			draft,
 			is_draft: _i,
 			draft_saved_at: _c,
-			no_deployed: _n,
+			no_deployed,
 			other_drafts_users: _o,
 			version_id: _v,
 			...deployed
@@ -213,7 +257,12 @@ export async function getDraftDiffValues(
 		// Strip the draft's pinned base `version_id` (which differs from the deployed
 		// head for a stale draft) so it never renders as a spurious diff line.
 		const { version_id: _dv, ...draftValue } = (draft ?? deployed) as any
-		return { deployed: draftOnly ? EMPTY_DEPLOYED.flow!(draftValue) : deployed, draft: draftValue }
+		return {
+			deployed: draftOnly ? EMPTY_DEPLOYED.flow!(draftValue) : deployed,
+			draft: draftValue,
+			hasDraft: draft != null,
+			noDeployed: no_deployed === true
+		}
 	} else if (kind === 'app' || kind === 'raw_app') {
 		// A never-deployed raw app has no `app` row; the backend resolves the
 		// draft kind from `rawApp`, so it MUST be set or the lookup 404s.
@@ -230,7 +279,9 @@ export async function getDraftDiffValues(
 			// post-deploy noise stripped — the same module the editor's Diff button uses.
 			return {
 				deployed: draftOnly ? canonicalRawAppDiffValue({}) : canonicalRawAppDiffValue(r),
-				draft: canonicalRawAppDiffValue(r.draft ?? r)
+				draft: canonicalRawAppDiffValue(r.draft ?? r),
+				hasDraft: r.draft != null,
+				noDeployed: r.no_deployed === true
 			}
 		}
 		const deployed = {
@@ -243,7 +294,12 @@ export async function getDraftDiffValues(
 		// Strip the draft's pinned fork-base `parent_version` (the deployed allowlist
 		// above already omits it) so it never renders as a spurious diff line.
 		const { parent_version: _pv, ...draftValue } = (r.draft ?? deployed) as any
-		return { deployed: draftOnly ? EMPTY_DEPLOYED.app!(draftValue) : deployed, draft: draftValue }
+		return {
+			deployed: draftOnly ? EMPTY_DEPLOYED.app!(draftValue) : deployed,
+			draft: draftValue,
+			hasDraft: r.draft != null,
+			noDeployed: r.no_deployed === true
+		}
 	} else {
 		// Variables / resources / schedules / triggers: one overlay GET yields
 		// both sides, but the draft side is the editor's state shape while the
@@ -254,10 +310,12 @@ export async function getDraftDiffValues(
 		if (!getter) {
 			throw new Error(`Draft diff not supported for kind ${kind}`)
 		}
-		const { deployed, draft } = splitOverlay(await getter(workspace, path))
+		const { deployed, draft, hasDraft, noDeployed } = splitOverlay(await getter(workspace, path))
 		return {
 			deployed: draftOnly ? {} : canonicalizeDraftDiffValue(kind, deployed, false),
-			draft: canonicalizeDraftDiffValue(kind, draft, true)
+			draft: canonicalizeDraftDiffValue(kind, draft, true),
+			hasDraft,
+			noDeployed
 		}
 	}
 }

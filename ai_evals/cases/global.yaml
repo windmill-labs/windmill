@@ -1533,3 +1533,31 @@
     - saves the plan as a markdown artifact via create_artifact rather than only replying inline
     - the artifact content has a title, a one-line summary, and three or four bullet steps for onboarding
     - does not create a flow or script draft yet
+
+- id: global-draft-diff-report
+  prompt: |-
+    Update the existing workspace script at `f/evals/global/format_greeting` so the returned message ends with an exclamation mark, keeping everything else the same.
+    Then show me exactly what your draft changes compared to the deployed version.
+    Leave the result as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/format_greeting_script.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/format_greeting
+        language: bun
+        valueIncludes:
+          - "!"
+  toolExpect:
+    requiredToolsUsed:
+      - diff
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - creates an AI draft for the existing f/evals/global/format_greeting script with the exclamation-mark change
+    - uses the diff tool and reports the actual code change (the greeting now ends with "!")
+    - does not claim unrelated or server-managed fields changed
+    - does not deploy or save the draft to the workspace
