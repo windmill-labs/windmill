@@ -1061,8 +1061,8 @@
 						<li>job usage (language, total duration, count)</li>
 						<li>git sync repo count (sync vs promotion mode)</li>
 						<li
-							>feature usage telemetry: aggregated counts of predefined feature actions, currently
-							for AI chat and AI sessions (last 30 days)</li
+							>feature usage telemetry: aggregated AI chat and AI session usage counts, including AI
+							provider and model identifiers (last 30 days)</li
 						>
 						<li
 							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
@@ -1108,8 +1108,8 @@
 						<li>user usage (author count, operator count)</li>
 						<li>development instance status</li>
 						<li
-							>feature usage telemetry: aggregated counts of predefined feature actions, currently
-							for AI chat and AI sessions (last 30 days)</li
+							>feature usage telemetry: aggregated AI chat and AI session usage counts, including AI
+							provider and model identifiers (last 30 days)</li
 						>
 						<li
 							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
