@@ -41,7 +41,6 @@
 
 	import { editorConfig, registerWebviewPaste, updateOptions } from '$lib/editorUtils'
 	import { editorFontSize } from '$lib/editorFontSize.svelte'
-	import { createHash as randomHash } from '$lib/editorLangUtils'
 	import { workspaceStore } from '$lib/stores'
 	import DdlMigrationGuard from './DdlMigrationGuard.svelte'
 	import {
@@ -109,7 +108,8 @@
 	import type { ScriptLintResult } from './copilot/chat/shared'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { editorPositionMap } from '$lib/utils'
-	import { extToLang, langToExt } from '$lib/editorLangUtils'
+	import { extToLang } from '$lib/editorLangUtils'
+	import { computeModelPath, computeModelUri } from './lint/monacoUri'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { Selection } from 'monaco-editor'
 	import { canHavePreprocessor, getPreprocessorModuleCode } from '$lib/script_helpers'
@@ -252,7 +252,12 @@
 		cmdEnterAction?.()
 	}
 
-	let filePath = $state(computePath(untrack(() => path)))
+	let filePath = $state(
+		computeModelPath(
+			untrack(() => path),
+			untrack(() => scriptLang)
+		)
+	)
 
 	let initialPath: string | undefined = $state(untrack(() => path))
 
@@ -269,40 +274,13 @@
 	let dbSchema: DBSchema | undefined = $state(undefined)
 
 	let destroyed = false
-	const uri = computeUri(
+	const uri = computeModelUri(
 		untrack(() => filePath),
-		untrack(() => scriptLang)
+		untrack(() => scriptLang),
+		untrack(() => lang)
 	)
 
 	console.log('uri', uri)
-
-	function computeUri(filePath: string, scriptLang: string | undefined) {
-		let file
-		if (filePath.includes('.')) {
-			file = filePath
-		} else {
-			file = `${filePath}.${scriptLang == 'tsx' ? 'tsx' : langToExt(lang)}`
-		}
-		if (file.startsWith('/')) {
-			file = file.slice(1)
-		}
-		return !['deno', 'go', 'python3'].includes(scriptLang ?? '')
-			? `file:///${file}`
-			: `file:///tmp/monaco/${file}`
-	}
-
-	function computePath(path: string | undefined): string {
-		if (
-			['deno', 'go', 'python3'].includes(scriptLang ?? '') ||
-			path == '' ||
-			path == undefined //||path.startsWith('/')
-		) {
-			return randomHash()
-		} else {
-			// console.log('path', path)
-			return path as string
-		}
-	}
 
 	export function switchToFile(path: string, value: string, lang: string) {
 		if (editor) {
@@ -2035,7 +2013,7 @@
 	})
 
 	$effect(() => {
-		filePath = computePath(path)
+		filePath = computeModelPath(path, scriptLang)
 	})
 	$effect(() => {
 		path != initialPath &&
