@@ -6760,10 +6760,14 @@ pub async fn concurrency_key_queue_depth<'c>(
 
 /// Rejects the push when `concurrency_key` already has `CONCURRENCY_KEY_MAX_QUEUED` jobs queued.
 ///
-/// Caller must runtime-gate this on `*CLOUD_HOSTED`, and must call it from *every* site that
-/// registers a concurrency key: a flow with a preprocessor is pushed with `concurrent_limit`
+/// Caller must runtime-gate this on `*CLOUD_HOSTED`, and must call it from *every push path*
+/// that registers a concurrency key: a flow with a preprocessor is pushed with `concurrent_limit`
 /// cleared and only registers its key later from `worker_flow`, so gating `push` alone leaves
 /// trigger-driven flows uncapped.
+///
+/// `add_batch_jobs` writes keys directly and is deliberately exempt: it is superadmin-only, and a
+/// superadmin can set the cap to `0` anyway. `import_queued_jobs` is likewise exempt because it
+/// is rejected outright on cloud.
 #[cfg(feature = "cloud")]
 async fn check_concurrency_key_queue_cap<'c>(
     db: impl PgExecutor<'c>,
