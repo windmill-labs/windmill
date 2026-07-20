@@ -7,7 +7,6 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 
-	import { buildWsUrl } from '$lib/wsUrl'
 	import { sendUserToast } from '$lib/toast'
 
 	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
@@ -108,6 +107,7 @@
 	} from './lint/typescriptExtraLibs'
 	import { createWindmillAta, genAtaRoot } from './lint/typescriptAta'
 	import { readModelMarkers } from './lint/headlessLint'
+	import { buildDenoImportMap, lspServersFor } from './lint/lspLanguageConfig'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { Selection } from 'monaco-editor'
 	import { canHavePreprocessor, getPreprocessorModuleCode } from '$lib/script_helpers'
@@ -1139,151 +1139,24 @@
 			}
 		}
 
-		let encodedImportMap = ''
-
 		if (useWebsockets) {
+			let denoImportMap: string | undefined = undefined
 			if (lang == 'typescript' && scriptLang === 'deno') {
 				ata = undefined
-				let root = await genAtaRoot($workspaceStore ?? '')
-				const importMap = {
-					imports: {
-						'file:///': root + '/'
-					}
-				}
-				if (filePath && filePath.split('/').length > 2) {
-					let path_splitted = filePath.split('/')
-					for (let c = 0; c < path_splitted.length; c++) {
-						let key = 'file://./'
-						for (let i = 0; i < c; i++) {
-							key += '../'
-						}
-						let url = path_splitted.slice(0, -c - 1).join('/')
-						let ending = c == path_splitted.length - 1 ? '' : '/'
-						importMap['imports'][key] = `${root}/${url}${ending}`
-					}
-				}
-				encodedImportMap = 'data:text/plain;base64,' + btoa(JSON.stringify(importMap))
-				await connectToLanguageServer(
-					buildWsUrl('/ws/deno'),
-					'deno',
-					{
-						certificateStores: null,
-						enablePaths: [],
-						config: null,
-						importMap: encodedImportMap,
-						internalDebug: false,
-						lint: false,
-						path: null,
-						tlsCertificate: null,
-						unsafelyIgnoreCertificateErrors: null,
-						unstable: true,
-						enable: true,
-						codeLens: {
-							implementations: true,
-							references: true,
-							referencesAllFunction: false
-						},
-						suggest: {
-							autoImports: true,
-							completeFunctionCalls: false,
-							names: true,
-							paths: true,
-							imports: {
-								autoDiscover: true,
-								hosts: {
-									'https://deno.land': true
-								}
-							}
-						}
-					},
-					() => {
-						return [
-							{
-								enable: true
-							}
-						]
-					}
-				)
-			} else if (lang === 'python') {
-				await connectToLanguageServer(
-					buildWsUrl('/ws/pyright'),
-					'pyright',
-					{},
-					(params, token, next) => {
-						if (params.items.find((x) => x.section === 'python')) {
-							return [
-								{
-									analysis: {
-										useLibraryCodeForTypes: true,
-										autoImportCompletions: true,
-										diagnosticSeverityOverrides: { reportMissingImports: 'none' },
-										typeCheckingMode: 'basic'
-									}
-								}
-							]
-						}
-						if (params.items.find((x) => x.section === 'python.analysis')) {
-							return [
-								{
-									useLibraryCodeForTypes: true,
-									autoImportCompletions: true,
-									diagnosticSeverityOverrides: { reportMissingImports: 'none' },
-									typeCheckingMode: 'basic'
-								}
-							]
-						}
-						return next(params, token)
-					}
-				)
+				denoImportMap = buildDenoImportMap(await genAtaRoot($workspaceStore ?? ''), filePath)
+			}
 
-				connectToLanguageServer(buildWsUrl('/ws/ruff'), 'ruff', {}, undefined)
-			} else if (lang === 'go') {
-				connectToLanguageServer(
-					buildWsUrl('/ws/go'),
-					'go',
-					{
-						'build.allowImplicitNetworkAccess': true
-					},
-					undefined
-				)
-			} else if (lang === 'shell') {
-				connectToLanguageServer(
-					buildWsUrl('/ws/diagnostic'),
-					'shellcheck',
-					{
-						linters: {
-							shellcheck: {
-								command: 'shellcheck',
-								debounce: 100,
-								args: ['--format=gcc', '-'],
-								offsetLine: 0,
-								offsetColumn: 0,
-								sourceName: 'shellcheck',
-								formatLines: 1,
-								formatPattern: [
-									'^[^:]+:(\\d+):(\\d+):\\s+([^:]+):\\s+(.*)$',
-									{
-										line: 1,
-										column: 2,
-										message: 4,
-										security: 3
-									}
-								],
-								securities: {
-									error: 'error',
-									warning: 'warning',
-									note: 'info'
-								}
-							}
-						},
-						filetypes: {
-							shell: 'shellcheck'
-						}
-					},
-					undefined
-				)
-			} else {
+			const servers = lspServersFor({ editorLang: lang, scriptLang, denoImportMap })
+			if (servers.length === 0) {
 				closeWebsockets()
+			}
+			for (const server of servers) {
+				await connectToLanguageServer(
+					server.url,
+					server.name,
+					server.initOptions,
+					server.middleware
+				)
 			}
 
 			websocketInterval && clearInterval(websocketInterval)
