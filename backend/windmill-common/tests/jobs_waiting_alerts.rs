@@ -63,6 +63,20 @@ mod tests {
         queue_jobs_on_tag(db, TAG, n, gate).await
     }
 
+    /// Soft-cancelled jobs keep whatever mark they carried, but the pull path
+    /// skips the limiter for them, so they are waiting for a worker.
+    async fn queue_canceled_jobs(db: &Pool<Postgres>, n: usize, gate: Option<(&str, i64)>) {
+        queue_jobs_on_tag(db, TAG, n, gate).await;
+        sqlx::query!(
+            "UPDATE v2_job_queue SET canceled_by = 'canceller'
+             WHERE tag = $1 AND canceled_by IS NULL",
+            TAG,
+        )
+        .execute(db)
+        .await
+        .expect("cancel jobs");
+    }
+
     async fn queue_jobs_on_tag(
         db: &Pool<Postgres>,
         tag: &str,
@@ -218,6 +232,27 @@ mod tests {
         assert!(
             alert_messages(&db).await.is_empty(),
             "a gate still being refreshed on another tag must keep holding this tag's jobs"
+        );
+    }
+
+    /// Cancellation makes the limiter inapplicable, so a mark left from before it
+    /// was cancelled no longer describes anything. If its gate happens to stay
+    /// live elsewhere, keying off the mark alone excludes a job that is squarely
+    /// waiting for a worker.
+    #[ignore = "requires database setup - run with --ignored flag"]
+    #[sqlx::test(migrations = "../migrations")]
+    async fn canceled_jobs_are_not_held_by_a_live_gate(db: Pool<Postgres>) {
+        free_the_lock(&db).await;
+        configure_alert(&db, 100).await;
+        queue_canceled_jobs(&db, 200, Some((BUSY_GATE, 1))).await;
+
+        jobs_waiting_alerts(&db).await;
+
+        let messages = alert_messages(&db).await;
+        assert_eq!(
+            messages.len(),
+            1,
+            "cancelled jobs bypass the limiter and must still alert, got {messages:?}"
         );
     }
 }

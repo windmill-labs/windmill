@@ -93,6 +93,9 @@ lazy_static::lazy_static! {
                     (20260710073406, include_str!(
                         "../../migrations/20260710073406_index_v2_job_parent_job.up.sql"
                     ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY")),
+                    (20260720055519, include_str!(
+                        "../../migrations/20260720055519_concurrency_gated_flag.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY")),
                     ].into_iter().collect();
 }
 
