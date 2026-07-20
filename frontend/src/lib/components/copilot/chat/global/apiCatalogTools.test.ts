@@ -61,6 +61,29 @@ const CATALOG = [
 		instructions: '',
 		path: '/w/{workspace}/flows/create',
 		method: 'POST'
+	},
+	{
+		name: 'getVariable',
+		description: 'Get variable',
+		instructions: '',
+		path: '/w/{workspace}/variables/get/{path}',
+		method: 'GET'
+	},
+	{
+		name: 'runFlowByPath',
+		description: 'Run flow by path',
+		instructions: 'Trigger a run of a deployed flow',
+		path: '/w/{workspace}/jobs/run/f/{path}',
+		method: 'POST',
+		path_params_schema: {
+			type: 'object',
+			properties: { workspace: { type: 'string' }, path: { type: 'string' } },
+			required: ['workspace', 'path']
+		},
+		body_schema: {
+			type: 'object',
+			properties: { args: { type: 'object' } }
+		}
 	}
 ]
 
@@ -100,17 +123,19 @@ describe('search_api_endpoints', () => {
 		const result = await run('search_api_endpoints', { query: 'worker' })
 		expect(result.matches.map((m: any) => m.name)).toEqual(['listWorkers'])
 		expect(result.matches[0].endpoint).toBe('GET /workers/list')
+		expect(result.matches[0].params).toEqual(['page', 'per_page'])
+		expect(result.matches[0].instructions).toContain('ping status')
 
 		const flows = await run('search_api_endpoints', { query: 'create flow' })
 		expect(flows.matches.map((m: any) => m.name)).not.toContain('createFlow')
-		expect(flows.covered_by_dedicated_tools).toEqual(['createFlow → use write_flow'])
+		expect(flows.covered_by_dedicated_tools).toContain('createFlow → use write_flow')
 	})
 
 	it('returns endpoint categories when nothing matches', async () => {
 		const result = await run('search_api_endpoints', { query: 'kubernetes' })
 		expect(result.matches).toEqual([])
 		expect(result.hint).toContain('workers')
-		expect(result.hint).toContain('schedules')
+		expect(result.hint).toContain('jobs')
 	})
 })
 
@@ -122,8 +147,20 @@ describe('call_api_get', () => {
 		const unknown = await run('call_api_get', { name: 'nope' })
 		expect(unknown.error).toContain('search_api_endpoints')
 
-		const mutating = await run('call_api_get', { name: 'deleteSchedule' })
+		const mutating = await run('call_api_get', { name: 'runFlowByPath' })
 		expect(mutating.error).toContain('call_api_endpoint')
+
+		const deleting = await run('call_api_endpoint', { name: 'deleteSchedule' })
+		expect(deleting.error).toContain('delete_workspace_item')
+	})
+
+	it('refuses variable reads so variable values never reach the model', async () => {
+		const result = await run('call_api_get', { name: 'getVariable' })
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('never readable')
+
+		const search = await run('search_api_endpoints', { query: 'variable' })
+		expect(search.matches.map((m: any) => m.name)).not.toContain('getVariable')
 	})
 
 	it('returns the endpoint schema when a required path param is missing', async () => {
@@ -147,22 +184,25 @@ describe('call_api_get', () => {
 })
 
 describe('call_api_endpoint', () => {
-	it('requires confirmation and executes mutating endpoints', async () => {
+	it('requires confirmation and executes mutating endpoints with a body', async () => {
 		expect(getTool('call_api_endpoint').requiresConfirmation).toBe(true)
 		const fetchMock = vi.fn().mockResolvedValue({
 			ok: true,
 			headers: new Headers({ 'content-type': 'text/plain' }),
-			text: async () => 'deleted'
+			text: async () => 'job-id-1'
 		})
 		vi.stubGlobal('fetch', fetchMock)
 		const result = await run('call_api_endpoint', {
-			name: 'deleteSchedule',
-			params: { path: 'u/me/sched' }
+			name: 'runFlowByPath',
+			params: { path: 'u/me/myflow' },
+			body: { args: { n: 1 } }
 		})
-		expect(fetchMock).toHaveBeenCalledWith('/api/w/test-ws/schedules/delete/u%2Fme%2Fsched', {
-			method: 'DELETE'
+		expect(fetchMock).toHaveBeenCalledWith('/api/w/test-ws/jobs/run/f/u%2Fme%2Fmyflow', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ args: { n: 1 } })
 		})
-		expect(result).toEqual({ success: true, data: 'deleted' })
+		expect(result).toEqual({ success: true, data: 'job-id-1' })
 	})
 
 	it('redirects GET endpoints to call_api_get', async () => {

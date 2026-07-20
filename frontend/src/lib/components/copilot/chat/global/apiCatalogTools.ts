@@ -5,16 +5,27 @@ import { createToolDef, type Tool } from '../shared'
 /**
  * Generic access to the backend's MCP endpoint catalog (the endpoints marked
  * `x-mcp-tool` in openapi.yaml) as three small static tools — search, GET
- * call, mutating call — instead of one registered tool per endpoint. Endpoint
- * schemas enter the model's context only when an endpoint is searched for or a
- * call fails validation, keeping the per-iteration tool-schema cost constant.
+ * call, mutating call — instead of one registered tool per endpoint. Search
+ * results carry parameter names and usage instructions; full parameter schemas
+ * enter the model's context only when a call fails validation. This keeps the
+ * per-iteration tool-schema cost constant.
  */
 
-// Endpoints whose job a dedicated global tool already does. Hidden from search
-// and refused at call time: the authoring ones would bypass the draft lifecycle
-// (conflict detection, explicit deploy), the others are exact duplicates that
-// would fragment behavior across two code paths.
+// Endpoints whose job a dedicated global tool already does, plus the variable
+// read endpoints. Hidden from search and refused at call time: the authoring
+// and delete ones would bypass the draft lifecycle (conflict detection,
+// explicit deploy, draft cleanup on delete), the variable reads would expose
+// variable values to the model (getVariable even decrypts secrets by default),
+// and the rest are exact duplicates that would fragment behavior across two
+// code paths.
 const COVERED_ENDPOINTS: Record<string, string> = {
+	getVariable: 'read_workspace_item (variable values are never readable in chat)',
+	listVariable: 'list_workspace_items (variable values are never readable in chat)',
+	deleteScriptByPath: 'delete_workspace_item',
+	deleteFlowByPath: 'delete_workspace_item',
+	deleteSchedule: 'delete_workspace_item',
+	deleteVariable: 'delete_workspace_item',
+	deleteResource: 'delete_workspace_item',
 	createScript: 'write_script',
 	createFlow: 'write_flow',
 	updateFlow: 'patch_flow_json or write_flow',
@@ -35,6 +46,7 @@ const COVERED_ENDPOINTS: Record<string, string> = {
 
 const MAX_SEARCH_RESULTS = 10
 const MAX_DESCRIPTION_CHARS = 200
+const MAX_INSTRUCTIONS_CHARS = 400
 const MAX_RESULT_CHARS = 20_000
 
 let catalogCache: { workspace: string; endpoints: EndpointTool[] } | undefined
@@ -81,15 +93,30 @@ function scoreEndpoint(endpoint: EndpointTool, queryTokens: string[]): number {
 	return score
 }
 
+function schemaPropertyNames(schema: unknown): string[] {
+	const properties = (schema as { properties?: Record<string, unknown> } | null | undefined)
+		?.properties
+	return properties ? Object.keys(properties).filter((k) => k !== 'workspace') : []
+}
+
+function truncate(text: string, max: number): string {
+	return text.length > max ? text.slice(0, max) + '…' : text
+}
+
 function summarizeEndpoint(endpoint: EndpointTool) {
-	const description =
-		endpoint.description.length > MAX_DESCRIPTION_CHARS
-			? endpoint.description.slice(0, MAX_DESCRIPTION_CHARS) + '…'
-			: endpoint.description
+	const params = [
+		...schemaPropertyNames(endpoint.path_params_schema),
+		...schemaPropertyNames(endpoint.query_params_schema)
+	]
+	const bodyParams = schemaPropertyNames(endpoint.body_schema)
+	const instructions = endpoint.instructions.trim()
 	return {
 		name: endpoint.name,
 		endpoint: `${endpoint.method.toUpperCase()} ${endpoint.path}`,
-		description
+		description: truncate(endpoint.description, MAX_DESCRIPTION_CHARS),
+		...(instructions ? { instructions: truncate(instructions, MAX_INSTRUCTIONS_CHARS) } : {}),
+		...(params.length > 0 ? { params } : {}),
+		...(bodyParams.length > 0 ? { body_params: bodyParams } : {})
 	}
 }
 
