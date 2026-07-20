@@ -69,17 +69,23 @@
 	} = $props()
 
 	const currentWs = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
-	const canManageWorkspace = $derived(
-		$userStore?.is_admin || $superadmin || isForkOwner(currentWs, $userStore?.email)
-	)
-	// Fork/dev workspaces are detected by their parent link, not the `wm-fork-` id prefix.
-	const currentWsIsFork = $derived(workspaceIsFork($workspaceStore, $userWorkspaces ?? []))
 
 	const settingsTargetWs = $derived(
 		workspaceSettingsTarget
 			? $userWorkspaces?.find((w) => w.id === workspaceSettingsTarget)
 			: undefined
 	)
+
+	// The fork-owner grant must be checked against the workspace the settings entry
+	// actually points at — the session target when in session mode, else the active
+	// workspace — otherwise ownership of the wrong workspace could hide the entry or
+	// expose a dead link to a fork the user doesn't own.
+	const settingsWs = $derived(workspaceSettingsTarget ? settingsTargetWs : currentWs)
+	const canManageWorkspace = $derived(
+		$userStore?.is_admin || $superadmin || isForkOwner(settingsWs, $userStore?.email)
+	)
+	// Fork/dev workspaces are detected by their parent link, not the `wm-fork-` id prefix.
+	const currentWsIsFork = $derived(workspaceIsFork($workspaceStore, $userWorkspaces ?? []))
 
 	let leaveWorkspaceModal = $state(false)
 	let deleteForkModal = $state<DeleteForkedWorkspaceModal>()
