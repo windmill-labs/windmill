@@ -57,8 +57,10 @@ mod tests {
     /// A concurrency gate as the push path lays it out: the limit hangs off
     /// `runnable_settings_handle` -> `concurrency_settings`, and the live
     /// admission count is the number of job uuids in `concurrency_counter`.
-    /// `running` is how many slots are currently taken, so `running == limit`
-    /// is a saturated gate.
+    /// `running` is how many slots are currently taken.
+    ///
+    /// The window is wide so a completion seeded by `seed_recent_completions`
+    /// stays inside it for the length of the test.
     async fn seed_gate(db: &Pool<Postgres>, key: &str, handle: i64, limit: i32, running: usize) {
         let job_uuids: serde_json::Value = (0..running)
             .map(|_| (Uuid::new_v4().hyphenated().to_string(), json!({})))
@@ -67,7 +69,7 @@ mod tests {
 
         sqlx::query!(
             "INSERT INTO concurrency_settings (hash, concurrency_key, concurrent_limit, concurrency_time_window_s)
-             VALUES ($1, $2, $3, 5)",
+             VALUES ($1, $2, $3, 600)",
             handle,
             key,
             limit,
@@ -125,6 +127,22 @@ mod tests {
         }
     }
 
+    /// Jobs that already finished inside the gate's time window. The limiter
+    /// counts these toward the limit, so they hold the gate shut even though
+    /// they are gone from `concurrency_counter`.
+    async fn seed_recent_completions(db: &Pool<Postgres>, key: &str, n: usize) {
+        for _ in 0..n {
+            sqlx::query!(
+                "INSERT INTO concurrency_key (job_id, key, ended_at) VALUES ($1, $2, NOW())",
+                Uuid::new_v4(),
+                key,
+            )
+            .execute(db)
+            .await
+            .expect("seed completion");
+        }
+    }
+
     async fn alert_messages(db: &Pool<Postgres>) -> Vec<String> {
         sqlx::query_scalar!("SELECT message FROM alerts WHERE alert_type = 'critical_error'")
             .fetch_all(db)
@@ -150,6 +168,28 @@ mod tests {
         assert!(
             alert_messages(&db).await.is_empty(),
             "a backlog held entirely behind a saturated concurrency gate must not raise a critical alert"
+        );
+    }
+
+    /// A gate can be shut with nothing running: the limiter admits on running
+    /// jobs *plus* those that ended inside concurrency_time_window_s, and a
+    /// completion clears the job from `concurrency_counter` while still holding
+    /// the window. Reading the counter alone reports the gate free, and the
+    /// backlog behind it pages -- the same false alert, one completion later.
+    #[ignore = "requires database setup - run with --ignored flag"]
+    #[sqlx::test(migrations = "../migrations")]
+    async fn time_window_saturated_gate_does_not_alert(db: Pool<Postgres>) {
+        free_the_lock(&db).await;
+        configure_alert(&db, 100).await;
+        seed_gate(&db, GATE_KEY, 1, 1, 0).await;
+        seed_recent_completions(&db, GATE_KEY, 1).await;
+        queue_jobs(&db, 200, Some((GATE_KEY, 1))).await;
+
+        jobs_waiting_alerts(&db).await;
+
+        assert!(
+            alert_messages(&db).await.is_empty(),
+            "a gate saturated by completions inside its time window must not raise a critical alert"
         );
     }
 

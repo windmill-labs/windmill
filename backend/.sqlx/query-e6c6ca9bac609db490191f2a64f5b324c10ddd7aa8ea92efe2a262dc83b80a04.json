@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                WITH waiting AS (\n                    SELECT ck.key AS concurrency_key, cs.concurrent_limit,\n                           cs.concurrency_time_window_s,\n                           COUNT(*) AS waiting_count, MIN(q.scheduled_for) AS oldest_job\n                    FROM v2_job_queue q\n                    LEFT JOIN concurrency_key ck ON ck.job_id = q.id\n                    LEFT JOIN runnable_settings rs ON rs.hash = q.runnable_settings_handle\n                    LEFT JOIN concurrency_settings cs ON cs.hash = rs.concurrency_settings\n                    WHERE q.tag = $1\n                      AND q.scheduled_for <= NOW() - $2::interval\n                      AND q.running = false\n                    GROUP BY ck.key, cs.concurrent_limit, cs.concurrency_time_window_s\n                ),\n                classified AS MATERIALIZED (\n                    SELECT w.waiting_count, w.oldest_job,\n                           w.concurrent_limit > 0 AND (\n                               (SELECT COUNT(*) FROM jsonb_object_keys(cc.job_uuids))\n                               + (SELECT COUNT(*) FROM concurrency_key done\n                                   WHERE done.key = w.concurrency_key\n                                     AND done.ended_at >= NOW() - INTERVAL '1 second'\n                                         * COALESCE(w.concurrency_time_window_s, 0))\n                           ) >= w.concurrent_limit AS gated\n                    FROM waiting w\n                    LEFT JOIN concurrency_counter cc ON cc.concurrency_id = w.concurrency_key\n                )\n                SELECT COALESCE(SUM(waiting_count) FILTER (WHERE gated IS NOT TRUE), 0)::bigint AS count,\n                       COALESCE(SUM(waiting_count) FILTER (WHERE gated), 0)::bigint AS gated_count,\n                       MIN(oldest_job) FILTER (WHERE gated IS NOT TRUE) AS oldest_job\n                FROM classified\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "gated_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "oldest_job",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Interval"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "e6c6ca9bac609db490191f2a64f5b324c10ddd7aa8ea92efe2a262dc83b80a04"
+}
