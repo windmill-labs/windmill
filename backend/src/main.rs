@@ -289,11 +289,18 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     create_dir_all(&*HUB_CACHE_DIR)?;
     create_dir_all(&*BUN_BUNDLE_CACHE_DIR)?;
 
-    // Ensure the latest git sync script is always cached, regardless of hubPaths.json contents
+    // Ensure the backend-hardcoded git sync scripts are always cached, regardless of
+    // hubPaths.json contents. These are run by backend-driven sync (not necessarily listed
+    // in hubPaths.json), so airgapped workers would otherwise miss them on a cache lookup.
     let mut all_paths: Vec<String> = paths.into_values().collect();
-    let latest_git_sync = windmill_common::workspaces::LATEST_GIT_SYNC_SCRIPT_PATH.to_string();
-    if !all_paths.contains(&latest_git_sync) {
-        all_paths.push(latest_git_sync);
+    for git_sync_path in [
+        windmill_common::workspaces::LATEST_GIT_SYNC_SCRIPT_PATH,
+        windmill_common::workspaces::GIT_SYNC_PULL_SCRIPT_PATH,
+    ] {
+        let git_sync_path = git_sync_path.to_string();
+        if !all_paths.contains(&git_sync_path) {
+            all_paths.push(git_sync_path);
+        }
     }
 
     for path in &all_paths {
