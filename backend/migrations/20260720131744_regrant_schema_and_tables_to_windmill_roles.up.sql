@@ -22,10 +22,11 @@
 -- grant that cannot be applied is isolated and re-raised as a named WARNING, so
 -- the rest still run and the reason is visible in the migration log. The known
 -- failure modes this absorbs:
---   * an object the runner does not own -- a superuser-installed extension
---     (PostGIS's spatial_ref_sys) or a co-located application table. The loops
---     already filter to owned objects so these are skipped without even a
---     warning; the guard is the backstop.
+--   * an object the runner cannot grant on -- a superuser-installed extension
+--     (PostGIS's spatial_ref_sys) or a co-located application table owned by an
+--     unrelated role. The loops filter to relations the runner has authority to
+--     grant, so these are skipped without even a warning; the guard is the
+--     backstop.
 --   * an object dropped by another session between the catalog scan and the
 --     GRANT (only possible when something outside the migration shares the DB).
 --   * USAGE on a schema the runner does not own (needed only where USAGE was
@@ -50,14 +51,19 @@ BEGIN
     -- pg_class over the relkinds GRANT ... ON ALL TABLES covers -- ordinary (r),
     -- partitioned (p), views (v), materialized views (m), foreign (f). pg_tables
     -- would miss views such as flow_workspace_runnables, which are read through
-    -- user_db transactions and so must be granted too.
+    -- user_db transactions and so must be granted too. pg_has_role(...,'USAGE')
+    -- selects the relations the runner can actually grant: ones it owns
+    -- directly, inherits ownership of (tables still owned by a previous
+    -- migration role after a credential rotation), or reaches as a superuser.
+    -- Owner-name equality would miss the inherited-owner case and leave those
+    -- relations' user_db access broken.
     FOR obj IN
         SELECT format('%I.%I', n.nspname, c.relname)
         FROM pg_class c
         JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = target_schema
           AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
-          AND pg_get_userbyid(c.relowner) = current_user
+          AND pg_has_role(current_user, c.relowner, 'USAGE')
     LOOP
         BEGIN
             EXECUTE format('GRANT ALL ON TABLE %s TO windmill_user, windmill_admin', obj);
@@ -69,7 +75,8 @@ BEGIN
     FOR obj IN
         SELECT format('%I.%I', schemaname, sequencename)
         FROM pg_sequences
-        WHERE schemaname = target_schema AND sequenceowner = current_user
+        WHERE schemaname = target_schema
+          AND pg_has_role(current_user, sequenceowner, 'USAGE')
     LOOP
         BEGIN
             EXECUTE format('GRANT ALL ON SEQUENCE %s TO windmill_user, windmill_admin', obj);
