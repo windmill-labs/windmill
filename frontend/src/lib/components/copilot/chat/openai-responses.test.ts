@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { toResponsesContent } from './openai-responses'
+import { openAIWebSearchDetails, toResponsesContent } from './openai-responses'
 
 // openai-responses.ts pulls in the chat client/registry layer at import time; the
 // helper under test is pure, so stub those side-effecting modules away.
@@ -35,5 +35,25 @@ describe('toResponsesContent', () => {
 			{ type: 'input_text', text: 'describe this' },
 			{ type: 'input_image', image_url: 'data:image/png;base64,ZZZZ' }
 		])
+	})
+})
+
+describe('openAIWebSearchDetails', () => {
+	it('prefers the queries array over the deprecated singular query', () => {
+		expect(
+			openAIWebSearchDetails({ action: { type: 'search', queries: ['a', 'b'], query: 'old' } })
+		).toEqual({ query: 'a, b', sources: undefined })
+	})
+
+	it('falls back to the singular query when queries is absent', () => {
+		expect(openAIWebSearchDetails({ action: { type: 'search', query: 'solo' } }).query).toBe('solo')
+	})
+
+	it('keeps only url-shaped sources and returns undefined query when neither field is usable', () => {
+		expect(
+			openAIWebSearchDetails({
+				action: { type: 'search', queries: [], sources: [{ url: 'https://a.dev' }, { nope: 1 }] }
+			})
+		).toEqual({ query: undefined, sources: [{ url: 'https://a.dev' }] })
 	})
 })

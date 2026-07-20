@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
-import { convertOpenAIToAnthropicMessages } from './anthropic'
+import { convertOpenAIToAnthropicMessages, partialWebSearchQuery } from './anthropic'
 
 // anthropic.ts pulls in the chat client/registry layer at import time; the
 // converter under test is pure, so stub those side-effecting modules away.
@@ -197,5 +197,23 @@ describe('convertOpenAIToAnthropicMessages', () => {
 			tool_use_id: 't1',
 			cache_control: { type: 'ephemeral' }
 		})
+	})
+})
+
+describe('partialWebSearchQuery', () => {
+	it('extracts the query prefix from JSON cut mid-string', () => {
+		expect(partialWebSearchQuery('{"query": "latest stable Post')).toBe('latest stable Post')
+	})
+
+	it('decodes escapes and never includes a trailing half-escape', () => {
+		expect(partialWebSearchQuery('{"query": "say \\"hi\\" to')).toBe('say "hi" to')
+		// Cut right after the backslash: the escape pair is incomplete, so the
+		// extracted prefix must stop before it rather than corrupt the label.
+		expect(partialWebSearchQuery('{"query": "say \\')).toBe('say ')
+	})
+
+	it('returns undefined when no query string has started', () => {
+		expect(partialWebSearchQuery('{"que')).toBeUndefined()
+		expect(partialWebSearchQuery('{"query": ')).toBeUndefined()
 	})
 })

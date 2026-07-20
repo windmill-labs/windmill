@@ -527,6 +527,12 @@ export function answeredChoices(q: UserQuestionDisplay): string[] | undefined {
 	return q.selectedChoices ?? (q.selectedChoice ? [q.selectedChoice] : undefined)
 }
 
+/** One page hit from a provider-side web search (OpenAI sources carry no title). */
+export type WebSearchSource = {
+	url: string
+	title?: string
+}
+
 export type ToolDisplayMessage = {
 	role: 'tool'
 	tool_call_id: string
@@ -544,6 +550,7 @@ export type ToolDisplayMessage = {
 	showFade?: boolean
 	actions?: ToolDisplayAction[]
 	userQuestion?: UserQuestionDisplay
+	webSearchSources?: WebSearchSource[]
 	/** Data URL of an image the tool produced (e.g. take_screenshot), shown on the card. */
 	imageUrl?: string
 }
@@ -898,6 +905,9 @@ export type ChatJob = {
 	detached: boolean
 	/** Notify-only: whether its completion has been surfaced to the model yet. */
 	reported: boolean
+	/** Whether the user saw its terminal status in the jobs popover. Reviewed
+	 * outcomes stop driving the segment chip's status readout. Persisted. */
+	reviewed?: boolean
 	/** Trimmed snapshot of the last fetched Job (heavy fields stripped, see
 	 * `trimJob`), fed to `<JobStatusIcon>` so the tray badge matches the runs page
 	 * exactly. Always written together with `status` from the SAME job so the two
