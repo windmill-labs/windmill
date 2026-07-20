@@ -517,12 +517,8 @@ impl QueryBuilder for OpenAIQueryBuilder {
         let mut parser = OpenAIResponsesSSEParser::new(stream_event_sink);
         parser.parse_events(response).await?;
 
-        // Convert OpenAI Responses usage to TokenUsage.
-        // cached_tokens is a subset of input_tokens, so total/prompt already account for it.
-        let usage = parser.usage.map(|u| {
-            TokenUsage::new(u.input_tokens, u.output_tokens, u.total_tokens)
-                .with_cache(u.input_tokens_details.and_then(|d| d.cached_tokens), None)
-        });
+        // Convert OpenAI Responses usage to TokenUsage
+        let usage = parser.usage.map(|u| u.to_token_usage());
 
         Ok(ParsedResponse::Text {
             content: if parser.accumulated_content.is_empty() {

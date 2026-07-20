@@ -268,12 +268,8 @@ impl QueryBuilder for OtherQueryBuilder {
             stream_event_processor.send(event, &mut events_str).await?;
         }
 
-        // Convert OpenAI Chat Completions usage to TokenUsage.
-        // cached_tokens is a subset of prompt_tokens, so total/prompt already account for it.
-        let usage = openai_usage.map(|u| {
-            TokenUsage::new(u.prompt_tokens, u.completion_tokens, u.total_tokens)
-                .with_cache(u.prompt_tokens_details.and_then(|d| d.cached_tokens), None)
-        });
+        // Convert OpenAI Chat Completions usage to TokenUsage
+        let usage = openai_usage.map(|u| u.to_token_usage());
 
         Ok(ParsedResponse::Text {
             content: if accumulated_content.is_empty() {
