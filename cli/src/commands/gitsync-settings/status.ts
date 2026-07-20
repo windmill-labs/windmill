@@ -46,12 +46,12 @@ export async function gitSyncStatus(opts: GlobalOptions & { jsonOutput?: boolean
     log.info(
       colors.yellow(
         mode.configured
-          ? "Backend auto-pull does not deploy this checkout (no single repo tracks this branch)."
+          ? "Couldn't confirm a backend auto-pull deploy for this checkout (no single repo unambiguously tracks this branch)."
           : "No git-sync repository is configured for this workspace on the backend.",
       ),
     );
     log.info(
-      "The backend won't deploy a `git push` here. Ask the user how this repo deploys: `git push` (a CI workflow deploys on push) or `wmill sync push`. Record the answer as a `Deploy mode:` line in AGENTS.md so later sessions skip the question (see the Deploying section).",
+      "This is not confirmed deploy-on-push, not a definite no. Ask the user how this repo deploys: `git push` (a CI workflow, or a git-sync repo that couldn't be disambiguated) or `wmill sync push`. Record the answer as a `Deploy mode:` line in AGENTS.md so later sessions skip the question (see the Deploying section).",
     );
   }
 }

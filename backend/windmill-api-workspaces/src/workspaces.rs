@@ -1102,6 +1102,14 @@ async fn get_git_sync_deploy_mode(
     let is_fork = !ancestors.is_empty();
     let root_id = ancestors.last().cloned().unwrap_or_else(|| w_id.clone());
 
+    // Polling and webhook delivery both exclude deleted roots, so an archived
+    // root (or anything beneath one) can't deploy on push — treat a missing row
+    // as archived too.
+    let root_deleted = sqlx::query_scalar!("SELECT deleted FROM workspace WHERE id = $1", &root_id)
+        .fetch_optional(&db)
+        .await?
+        .unwrap_or(true);
+
     // Read on the plain pool: a fork member may not be a member of the root
     // workspace, and only derived booleans are returned (never the settings).
     let git_sync = sqlx::query_scalar!(
@@ -1151,7 +1159,7 @@ async fn get_git_sync_deploy_mode(
     // checkout is unambiguously it, and with several we can't tell which is the
     // caller's, so we report false and let the CLI ask the user.
     let mut matches = 0u32;
-    if licensed {
+    if licensed && !root_deleted {
         for repo in &settings.repositories {
             let Some(auto_pull) = repo.auto_pull.as_ref() else {
                 continue;

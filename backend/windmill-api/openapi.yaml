@@ -5214,10 +5214,13 @@ paths:
                   deploy_on_push:
                     type: boolean
                     description: >-
-                      Pushing the branch deploys via auto-pull: exactly one
-                      licensed, deliverable auto-pull repository tracks it. False
-                      when unlicensed, no repo tracks the branch, or several do
-                      (ambiguous — ask the user / use `wmill sync push`).
+                      True means a `git push` is confirmed to deploy via
+                      auto-pull: exactly one licensed, deliverable repository
+                      tracks the branch. False is *not confirmed* rather than a
+                      definite no — it also covers unlicensed, ambiguous
+                      (several repos track it), and conservative false-negatives;
+                      determine the deploy path another way (CI `git push`, or
+                      `wmill sync push`).
 
   /w/{workspace}/workspaces/edit_git_sync_config:
     post:
