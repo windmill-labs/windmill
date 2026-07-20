@@ -3,6 +3,18 @@ import { expect, it, vi } from 'vitest'
 import { mkdir, writeFile } from 'fs/promises'
 // @ts-ignore - Node.js path
 import { dirname, resolve } from 'path'
+import { handleBenchmarkApiFetch } from './mockBackend'
+
+// The API catalog executor issues relative fetch('/api/...') calls, which have
+// no meaning in the vitest environment — serve them from the benchmark handler.
+const ORIGINAL_FETCH = globalThis.fetch
+globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+	const url = typeof input === 'string' ? input : ((input as Request | URL | null)?.url ?? '')
+	if (typeof url === 'string' && url.startsWith('/api/')) {
+		return handleBenchmarkApiFetch(url)
+	}
+	return ORIGINAL_FETCH(input as Parameters<typeof fetch>[0], init)
+}) as typeof fetch
 
 vi.mock('monaco-editor', () => ({
 	editor: {},
@@ -57,7 +69,8 @@ vi.mock('$lib/gen', async () => {
 		runBenchmarkDatatableSql,
 		runBenchmarkFlowByPath,
 		runBenchmarkScriptPreview,
-		updateBenchmarkDraft
+		updateBenchmarkDraft,
+		listBenchmarkMcpTools
 	} = await import('./mockBackend')
 
 	function wrapService<T extends object>(target: T, overrides: Record<string, unknown>): T {
@@ -298,6 +311,12 @@ vi.mock('$lib/gen', async () => {
 			},
 			queryResourceTypes: async (data: { workspace: string }) =>
 				hasBenchmarkWorkspace(data.workspace) ? [] : actual.ResourceService.queryResourceTypes(data)
+		}),
+		McpService: wrapService(actual.McpService, {
+			listMcpTools: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? listBenchmarkMcpTools()
+					: actual.McpService.listMcpTools(data)
 		}),
 		VariableService: wrapService(actual.VariableService, {
 			existsVariable: async (data: { workspace: string; path: string }) =>

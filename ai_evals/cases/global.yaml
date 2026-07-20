@@ -1587,10 +1587,13 @@
       - call_api_endpoint
       - deploy_workspace_item
       - delete_workspace_item
+  # The judge only sees the drafts artifact and cannot observe runs, so it always
+  # docks the prompt's "run it" requirement — validate deterministically instead:
+  # draft content via valueIncludes, the test run via toolExpect (test_run_script
+  # required, call_api_endpoint forbidden).
+  skipJudge: true
   judgeChecklist:
-    - creates an AI draft of f/evals/global/format_greeting with the name uppercased
-    - verifies the change with a test run of the draft (not by running the deployed version through the API catalog)
-    - reports the test result for the name "ada"
+    - creates an AI draft of f/evals/global/format_greeting with the name uppercased in the greeting
     - does not deploy or save the draft
 
 - id: global-test32-delete-via-dedicated-tool

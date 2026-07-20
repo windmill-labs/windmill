@@ -10,6 +10,7 @@ import type {
 import type {
 	DataTableTables,
 	DataTableTableSchema,
+	EndpointTool,
 	GetDraftForUserResponse,
 	GetOwnDraftResponse,
 	ListDraftsResponse,
@@ -693,4 +694,131 @@ function buildBenchmarkApp(app: BenchmarkWorkspaceApp): AppWithLastVersion {
 		custom_path: app.value.custom_path as string | undefined,
 		raw_app: true
 	}
+}
+
+// ============= API endpoint catalog (McpService.listMcpTools + raw fetch) =============
+// The global chat's API catalog tools list endpoints via McpService and execute
+// them with a plain relative fetch('/api/...'), which has no meaning in the
+// vitest environment. A representative slice of the real catalog is served here,
+// and `handleBenchmarkApiFetch` answers the executed calls.
+
+const BENCHMARK_MCP_TOOLS: EndpointTool[] = [
+	{
+		name: 'listWorkers',
+		description: 'List workers',
+		instructions: 'List all workers with their last ping and job counts.',
+		path: '/workers/list',
+		method: 'GET',
+		query_params_schema: {
+			type: 'object',
+			properties: { page: { type: 'integer' }, per_page: { type: 'integer' } }
+		}
+	},
+	{
+		name: 'listQueue',
+		description: 'List queued jobs',
+		instructions: '',
+		path: '/w/{workspace}/jobs/queue/list',
+		method: 'GET',
+		path_params_schema: {
+			type: 'object',
+			properties: { workspace: { type: 'string' } },
+			required: ['workspace']
+		}
+	},
+	{
+		name: 'runScriptByPath',
+		description: 'Run the deployed version of a script by path',
+		instructions: '',
+		path: '/w/{workspace}/jobs/run/p/{path}',
+		method: 'POST',
+		path_params_schema: {
+			type: 'object',
+			properties: { workspace: { type: 'string' }, path: { type: 'string' } },
+			required: ['workspace', 'path']
+		},
+		body_schema: { type: 'object', properties: {} }
+	},
+	{
+		name: 'runFlowByPath',
+		description: 'Run the deployed version of a flow by path',
+		instructions: '',
+		path: '/w/{workspace}/jobs/run/f/{path}',
+		method: 'POST',
+		path_params_schema: {
+			type: 'object',
+			properties: { workspace: { type: 'string' }, path: { type: 'string' } },
+			required: ['workspace', 'path']
+		},
+		body_schema: { type: 'object', properties: {} }
+	},
+	// Draft-covered endpoints, present so steering cases exercise the guard the
+	// way production does (hidden from search, refused at call time).
+	{
+		name: 'getScriptByPath',
+		description: 'Get a script by path',
+		instructions: '',
+		path: '/w/{workspace}/scripts/get/p/{path}',
+		method: 'GET'
+	},
+	{
+		name: 'createFlow',
+		description: 'Create a flow',
+		instructions: '',
+		path: '/w/{workspace}/flows/create',
+		method: 'POST'
+	},
+	{
+		name: 'deleteSchedule',
+		description: 'Delete a schedule',
+		instructions: '',
+		path: '/w/{workspace}/schedules/delete/{path}',
+		method: 'DELETE'
+	},
+	{
+		name: 'getVariable',
+		description: 'Get a variable',
+		instructions: '',
+		path: '/w/{workspace}/variables/get/{path}',
+		method: 'GET'
+	}
+]
+
+export function listBenchmarkMcpTools(): EndpointTool[] {
+	return BENCHMARK_MCP_TOOLS
+}
+
+const BENCHMARK_WORKERS = [
+	{
+		worker: 'wk-benchmark-1',
+		worker_instance: 'benchmark-host',
+		last_ping: 2,
+		started_at: BENCHMARK_TIMESTAMP,
+		jobs_executed: 42,
+		custom_tags: null,
+		worker_group: 'default',
+		wm_version: 'benchmark'
+	},
+	{
+		worker: 'wk-benchmark-2',
+		worker_instance: 'benchmark-host',
+		last_ping: 5,
+		started_at: BENCHMARK_TIMESTAMP,
+		jobs_executed: 17,
+		custom_tags: null,
+		worker_group: 'default',
+		wm_version: 'benchmark'
+	}
+]
+
+/** Answer a relative `/api/...` fetch issued by the API catalog executor. */
+export function handleBenchmarkApiFetch(url: string): Response {
+	const path = url.split('?')[0]
+	if (path === '/api/workers/list') {
+		return Response.json(BENCHMARK_WORKERS)
+	}
+	if (path.match(/^\/api\/w\/[^/]+\/jobs\/queue\/list$/)) {
+		return Response.json([])
+	}
+	return Response.json({ error: `no benchmark handler for ${path}` }, { status: 404 })
 }
