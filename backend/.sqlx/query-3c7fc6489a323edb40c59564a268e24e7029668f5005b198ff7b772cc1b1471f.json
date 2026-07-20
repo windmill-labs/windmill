@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT concurrency_gate_id AS \"id!\"\n                FROM v2_job_queue\n                WHERE running = false AND concurrency_gate_id IS NOT NULL\n                  AND canceled_by IS NULL\n                GROUP BY concurrency_gate_id\n                HAVING MAX(concurrency_gated_at) >= NOW() - $1::interval\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Interval"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "3c7fc6489a323edb40c59564a268e24e7029668f5005b198ff7b772cc1b1471f"
+}

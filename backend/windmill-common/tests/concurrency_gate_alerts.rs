@@ -172,6 +172,20 @@ mod tests {
         free_the_lock(&db).await;
         concurrency_gate_alerts(&db).await;
 
+        let recovery_workspace: Option<String> = sqlx::query_scalar!(
+            "SELECT workspace_id FROM alerts
+             WHERE alert_type = 'recovered_critical_error' ORDER BY created_at DESC LIMIT 1"
+        )
+        .fetch_optional(&db)
+        .await
+        .expect("read recovery alert")
+        .flatten();
+        assert_eq!(
+            recovery_workspace.as_deref(),
+            Some("test-workspace"),
+            "recovery must stay scoped to the workspace the alert was raised for"
+        );
+
         let unresolved: i64 = sqlx::query_scalar!(
             "SELECT COUNT(*) FROM healthchecks
              WHERE check_type LIKE 'concurrency_gate_alert_%' AND healthy = false"

@@ -66,15 +66,7 @@ mod tests {
     /// Soft-cancelled jobs keep whatever mark they carried, but the pull path
     /// skips the limiter for them, so they are waiting for a worker.
     async fn queue_canceled_jobs(db: &Pool<Postgres>, n: usize, gate: Option<(&str, i64)>) {
-        queue_jobs_on_tag(db, TAG, n, gate).await;
-        sqlx::query!(
-            "UPDATE v2_job_queue SET canceled_by = 'canceller'
-             WHERE tag = $1 AND canceled_by IS NULL",
-            TAG,
-        )
-        .execute(db)
-        .await
-        .expect("cancel jobs");
+        queue_jobs_inner(db, TAG, n, gate, true).await
     }
 
     async fn queue_jobs_on_tag(
@@ -83,18 +75,30 @@ mod tests {
         n: usize,
         gate: Option<(&str, i64)>,
     ) {
+        queue_jobs_inner(db, tag, n, gate, false).await
+    }
+
+    async fn queue_jobs_inner(
+        db: &Pool<Postgres>,
+        tag: &str,
+        n: usize,
+        gate: Option<(&str, i64)>,
+        canceled: bool,
+    ) {
         for _ in 0..n {
             sqlx::query!(
                 "INSERT INTO v2_job_queue (id, workspace_id, tag, running, scheduled_for,
-                                           concurrency_gated_at, concurrency_gate_id)
+                                           concurrency_gated_at, concurrency_gate_id, canceled_by)
                  VALUES ($1, 'test-workspace', $2, false, NOW() - INTERVAL '5 minutes',
                          CASE WHEN $3::bigint IS NULL THEN NULL
                               ELSE NOW() - INTERVAL '1 second' * $3::bigint END,
-                         $4)",
+                         $4,
+                         CASE WHEN $5 THEN 'canceller' ELSE NULL END)",
                 Uuid::new_v4(),
                 tag,
                 gate.map(|(_, secs)| secs),
                 gate.map(|(key, _)| key),
+                canceled,
             )
             .execute(db)
             .await
@@ -253,6 +257,30 @@ mod tests {
             messages.len(),
             1,
             "cancelled jobs bypass the limiter and must still alert, got {messages:?}"
+        );
+    }
+
+    /// Gate liveness is an aggregate, so it has to exclude cancelled rows for the
+    /// same reason the per-job classifier does. Otherwise one freshly cancelled
+    /// job -- which no gate is holding -- vouches for a whole stale backlog on
+    /// that gate and buries it.
+    #[ignore = "requires database setup - run with --ignored flag"]
+    #[sqlx::test(migrations = "../migrations")]
+    async fn a_cancelled_job_does_not_keep_its_gate_live(db: Pool<Postgres>) {
+        free_the_lock(&db).await;
+        configure_alert(&db, 100).await;
+        // A stale backlog nothing is refreshing any more...
+        queue_jobs(&db, 200, Some((BUSY_GATE, 3600))).await;
+        // ...beside one cancelled job carrying a fresh mark for the same gate.
+        queue_canceled_jobs(&db, 1, Some((BUSY_GATE, 1))).await;
+
+        jobs_waiting_alerts(&db).await;
+
+        let messages = alert_messages(&db).await;
+        assert_eq!(
+            messages.len(),
+            1,
+            "a cancelled job must not vouch for its gate, got {messages:?}"
         );
     }
 }
