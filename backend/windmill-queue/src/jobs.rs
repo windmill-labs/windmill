@@ -6281,14 +6281,23 @@ async fn push_inner<'c, 'd>(
         .unzip();
 
     if concurrency_settings.concurrent_limit.is_some() {
-        insert_concurrency_key(
+        let concurrency_key = resolve_concurrency_key(
             workspace_id,
             &args,
             &runnable_path,
             job_kind,
             concurrency_settings.concurrency_key.clone(),
+        );
+        #[cfg(feature = "cloud")]
+        if *CLOUD_HOSTED {
+            check_concurrency_key_queue_cap(&mut *tx, &concurrency_key).await?;
+        }
+        insert_resolved_concurrency_key(
+            &concurrency_key,
             &mut *tx,
             job_id,
+            &runnable_path,
+            workspace_id,
         )
         .await?;
     }
@@ -6617,16 +6626,14 @@ async fn push_inner<'c, 'd>(
     Ok((job_id, tx))
 }
 
-pub async fn insert_concurrency_key<'d, 'c>(
+pub fn resolve_concurrency_key<'d>(
     workspace_id: &str,
     args: &PushArgs<'d>,
     script_path: &Option<String>,
     job_kind: JobKind,
     custom_concurrency_key: Option<String>,
-    db: impl PgExecutor<'c>,
-    job_id: Uuid,
-) -> Result<(), Error> {
-    let concurrency_key = custom_concurrency_key
+) -> String {
+    custom_concurrency_key
         .map(|x| {
             let interpolated = interpolate_args(x.clone(), args, workspace_id);
             // In cloud mode, enforce workspace isolation by prefixing with workspace
@@ -6648,7 +6655,35 @@ pub async fn insert_concurrency_key<'d, 'c>(
             workspace_id,
             script_path.as_ref(),
             &job_kind,
-        ));
+        ))
+}
+
+pub async fn insert_concurrency_key<'d, 'c>(
+    workspace_id: &str,
+    args: &PushArgs<'d>,
+    script_path: &Option<String>,
+    job_kind: JobKind,
+    custom_concurrency_key: Option<String>,
+    db: impl PgExecutor<'c>,
+    job_id: Uuid,
+) -> Result<(), Error> {
+    let concurrency_key = resolve_concurrency_key(
+        workspace_id,
+        args,
+        script_path,
+        job_kind,
+        custom_concurrency_key,
+    );
+    insert_resolved_concurrency_key(&concurrency_key, db, job_id, script_path, workspace_id).await
+}
+
+pub async fn insert_resolved_concurrency_key<'c>(
+    concurrency_key: &str,
+    db: impl PgExecutor<'c>,
+    job_id: Uuid,
+    script_path: &Option<String>,
+    workspace_id: &str,
+) -> Result<(), Error> {
     sqlx::query!(
         "WITH inserted_concurrency_counter AS (
                 INSERT INTO concurrency_counter (concurrency_id, job_uuids)
@@ -6663,6 +6698,75 @@ pub async fn insert_concurrency_key<'d, 'c>(
     .warn_after_seconds(3)
     .await
     .map_err(|e| Error::internal_err(format!("Could not insert concurrency_key={concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e:#}")))?;
+    Ok(())
+}
+
+/// Counts jobs still queued behind `concurrency_key`, stopping at `limit`.
+///
+/// Counts jobs at *any* `scheduled_for`, including ones scheduled far in the future. This is
+/// load-bearing, not incidental: the concurrency limiter re-queues a blocked job by pushing its
+/// `scheduled_for` forward one full window at a time, so a backlog gated by a concurrency limit
+/// is almost entirely future-dated. Restricting this to `scheduled_for <= now()` would make the
+/// count track the trickle the limiter has released rather than the backlog behind it, and the
+/// cap would never fire on the runaway it exists to stop.
+///
+/// The `LIMIT` bounds the work to `limit` index rows so a saturated key cannot make this scan
+/// an arbitrarily deep backlog on every push. The `EXISTS` against `v2_job_queue` is what makes
+/// the count reflect reality rather than `concurrency_key` bookkeeping: rows there are only
+/// cleared by `add_completed_job`, so a job removed from the queue by any other route (a mass
+/// cancel, a manual purge) leaves a row with `ended_at IS NULL` behind forever. Counting those
+/// would let a key stay permanently wedged above the cap with an empty queue.
+pub async fn concurrency_key_queue_depth<'c>(
+    db: impl PgExecutor<'c>,
+    concurrency_key: &str,
+    limit: i64,
+) -> Result<i64, Error> {
+    sqlx::query_scalar!(
+        "SELECT count(*) FROM (
+            SELECT 1 FROM concurrency_key ck
+            WHERE ck.key = $1 AND ck.ended_at IS NULL
+                AND EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = ck.job_id)
+            LIMIT $2
+        ) t",
+        concurrency_key,
+        limit,
+    )
+    .fetch_one(db)
+    .warn_after_seconds(3)
+    .await
+    .map_err(|e| {
+        Error::internal_err(format!(
+            "Could not count queued jobs for concurrency_key={concurrency_key}: {e:#}"
+        ))
+    })
+    .map(|c| c.unwrap_or(0))
+}
+
+/// Rejects the push when `concurrency_key` already has `CONCURRENCY_KEY_MAX_QUEUED` jobs queued.
+///
+/// A concurrency-limited key drains at most `concurrent_limit` jobs per window regardless of how
+/// idle the fleet is, so a producer pushing faster than that grows a backlog no capacity can
+/// absorb. Caller must runtime-gate this on `*CLOUD_HOSTED`.
+#[cfg(feature = "cloud")]
+async fn check_concurrency_key_queue_cap<'c>(
+    db: impl PgExecutor<'c>,
+    concurrency_key: &str,
+) -> Result<(), Error> {
+    let cap = windmill_common::worker::CONCURRENCY_KEY_MAX_QUEUED
+        .load(std::sync::atomic::Ordering::Relaxed);
+    if cap == 0 {
+        return Ok(());
+    }
+    let cap = cap as i64;
+    let depth = concurrency_key_queue_depth(db, concurrency_key, cap).await?;
+    if depth >= cap {
+        return Err(Error::QuotaExceeded(format!(
+            "Too many jobs queued behind concurrency key '{concurrency_key}': at least {depth} \
+             jobs are already waiting and the limit is {cap}. Jobs sharing a concurrency key run \
+             at most `concurrent_limit` at a time, so this queue is growing faster than it can \
+             drain. Cancel the backlog, slow down the caller, or raise the concurrency limit."
+        )));
+    }
     Ok(())
 }
 

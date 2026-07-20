@@ -53,11 +53,12 @@ use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule},
     global_settings::{
         AUDIT_LOG_RETENTION_DAYS_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
-        BUN_INSTALL_MIN_RELEASE_AGE_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
-        CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
-        CRITICAL_ERROR_CHANNELS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_PASSWORD_LOGIN, DISABLE_PASSWORD_LOGIN_SETTING,
-        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        BUN_INSTALL_MIN_RELEASE_AGE_SETTING, CONCURRENCY_KEY_MAX_QUEUED_SETTING,
+        CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
+        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
+        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
+        DISABLE_PASSWORD_LOGIN, DISABLE_PASSWORD_LOGIN_SETTING, EXPOSE_DEBUG_METRICS_SETTING,
+        EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
         FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HUB_API_SECRET_SETTING,
         HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
         JOB_ISOLATION_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
@@ -86,10 +87,10 @@ use windmill_common::{
         load_env_vars, load_init_bash_from_env, load_periodic_bash_script_from_env,
         load_periodic_bash_script_interval_from_env, load_whitelist_env_vars_from_env,
         load_worker_config, reload_custom_tags_setting, store_pull_query,
-        store_suspended_pull_query, Connection, WorkerConfig, DEFAULT_TAGS_PER_WORKSPACE,
-        DEFAULT_TAGS_WORKSPACES, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX, INDEXER_CONFIG,
-        PREVIEW_TAGS_OVERRIDE, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, WINDMILL_DIR, WORKER_CONFIG,
-        WORKER_GROUP, WORKSPACE_FAIRNESS_DURATION_SECS, WORKSPACE_FAIRNESS_ENABLED,
+        store_suspended_pull_query, Connection, WorkerConfig, CONCURRENCY_KEY_MAX_QUEUED,
+        DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX,
+        INDEXER_CONFIG, PREVIEW_TAGS_OVERRIDE, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, WINDMILL_DIR,
+        WORKER_CONFIG, WORKER_GROUP, WORKSPACE_FAIRNESS_DURATION_SECS, WORKSPACE_FAIRNESS_ENABLED,
         WORKSPACE_FAIRNESS_MAX_PERCENT, WORKSPACE_FAIRNESS_MIN_TOTAL,
     },
     KillpillSender, AUDIT_LOG_RETENTION_DAYS, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE,
@@ -290,6 +291,10 @@ pub async fn initial_load(
         }
         if let Err(e) = load_workspace_fairness_enabled(db).await {
             tracing::error!("Error loading workspace fairness enabled: {e:#}");
+        }
+
+        if let Err(e) = load_concurrency_key_max_queued(db).await {
+            tracing::error!("Error loading concurrency key max queued: {e:#}");
         }
     }
 
@@ -610,6 +615,14 @@ const WORKSPACE_FAIRNESS_MAX_PERCENT_DEFAULT: u32 = 50;
 const WORKSPACE_FAIRNESS_DURATION_SECS_DEFAULT: u32 = 10;
 const WORKSPACE_FAIRNESS_MIN_TOTAL_DEFAULT: u32 = 4;
 
+/// The cap is used as a SQL `LIMIT`, so it must survive the `u32 -> i64` widening without
+/// becoming absurd; `u32::MAX` is already far beyond any queue depth worth allowing.
+const CONCURRENCY_KEY_MAX_QUEUED_MAX: u64 = u32::MAX as u64;
+/// Must stay in sync with the `AtomicU32::new(...)` initialiser in
+/// `windmill-common/src/worker.rs` so a process that has never seen the setting reads the
+/// same value as one that just saw it cleared.
+const CONCURRENCY_KEY_MAX_QUEUED_DEFAULT: u32 = 10_000;
+
 pub async fn load_workspace_fairness_enabled(db: &DB) -> error::Result<()> {
     // Match the convention used by `load_preview_tags_override` /
     // `load_fork_workspace_tag_append_fork_suffix`: on transient DB errors, leave the in-memory
@@ -692,6 +705,25 @@ pub async fn load_workspace_fairness_min_total(db: &DB) -> error::Result<()> {
         _ => {
             WORKSPACE_FAIRNESS_MIN_TOTAL
                 .store(WORKSPACE_FAIRNESS_MIN_TOTAL_DEFAULT, Ordering::Relaxed);
+        }
+    }
+    Ok(())
+}
+
+pub async fn load_concurrency_key_max_queued(db: &DB) -> error::Result<()> {
+    // See `load_workspace_fairness_max_percent` for the Err / None / invalid policy.
+    match load_value_from_global_settings(db, CONCURRENCY_KEY_MAX_QUEUED_SETTING).await? {
+        Some(serde_json::Value::Number(n)) => {
+            // `0` is a meaningful value here (disable the cap), so unlike the fairness knobs
+            // the lower bound is 0 rather than 1.
+            let v = n
+                .as_u64()
+                .map(|u| u.min(CONCURRENCY_KEY_MAX_QUEUED_MAX) as u32)
+                .unwrap_or(CONCURRENCY_KEY_MAX_QUEUED_DEFAULT);
+            CONCURRENCY_KEY_MAX_QUEUED.store(v, Ordering::Relaxed);
+        }
+        _ => {
+            CONCURRENCY_KEY_MAX_QUEUED.store(CONCURRENCY_KEY_MAX_QUEUED_DEFAULT, Ordering::Relaxed);
         }
     }
     Ok(())

@@ -337,6 +337,13 @@ lazy_static::lazy_static! {
     /// `should_admit_capped` is moot and "admit all" is the correct no-op.
     pub static ref WORKSPACE_FAIRNESS_ADMISSION_PPM: AtomicU32 = AtomicU32::new(10_000);
 
+    /// Cloud-only ceiling on the number of jobs queued behind a single concurrency key.
+    /// A concurrency-limited key drains at most `concurrent_limit` jobs per window, so a
+    /// producer pushing faster than that grows an unbounded backlog that no amount of
+    /// spare worker capacity can absorb. `0` disables the cap.
+    /// Must stay in sync with `CONCURRENCY_KEY_MAX_QUEUED_DEFAULT` in `src/monitor.rs`.
+    pub static ref CONCURRENCY_KEY_MAX_QUEUED: AtomicU32 = AtomicU32::new(10_000);
+
 
     pub static ref SMTP_CONFIG: arc_swap::ArcSwap<Option<Smtp>> = arc_swap::ArcSwap::from_pointee(None);
     pub static ref INDEXER_CONFIG: arc_swap::ArcSwap<TantivyIndexerSettings> = arc_swap::ArcSwap::from_pointee(TantivyIndexerSettings::default());
