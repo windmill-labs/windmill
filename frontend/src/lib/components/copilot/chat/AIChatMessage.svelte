@@ -74,10 +74,18 @@
 		onclick={() => editMessage()}
 		onkeydown={() => {}}
 	>
-		{#if message.role === 'user' && message.contextElements && editingMessageIndex !== messageIndex}
-			<div class="flex flex-row gap-1 mb-1 overflow-scroll no-scrollbar px-2">
-				{#each message.contextElements as element}
+		<!-- One wrapping row for every badge on the message: selected context / DOM
+		     picks and attached files, side by side. -->
+		{#if message.role === 'user' && editingMessageIndex !== messageIndex && ((message.contextElements?.length ?? 0) > 0 || (message.files?.length ?? 0) > 0)}
+			<div class="flex flex-row flex-wrap gap-1 mb-1 px-2">
+				{#each message.contextElements ?? [] as element}
 					<ContextElementBadge contextElement={element} compact />
+				{/each}
+				{#each message.files ?? [] as file (file.name)}
+					<ContextElementBadge
+						contextElement={createAttachedFileContextElement(file.name, file.content)}
+						compact
+					/>
 				{/each}
 			</div>
 		{/if}
@@ -116,16 +124,6 @@
 									src={image.dataUrl}
 									alt={image.name ?? 'attached image'}
 									class="max-h-40 max-w-[min(20rem,100%)] rounded-lg border border-border-light"
-								/>
-							{/each}
-						</div>
-					{/if}
-					{#if message.role === 'user' && message.files && message.files.length > 0}
-						<div class="flex flex-row flex-wrap gap-1 mb-1">
-							{#each message.files as file (file.name)}
-								<ContextElementBadge
-									contextElement={createAttachedFileContextElement(file.name, file.content)}
-									compact
 								/>
 							{/each}
 						</div>

@@ -843,43 +843,45 @@
 	/>
 {/snippet}
 
-{#snippet contextPickerRow()}
-	{#if selectedContext.length > 0}
+<!-- One wrapping row for every badge-shaped chip: selected context (or, when the
+     picker row is hidden — showContext=false in GLOBAL/session mode — the raw-app
+     inspector's DOM picks, which always show), then message files. Only image
+     thumbnails get their own row (different height). -->
+{#snippet badgeRow()}
+	{@const contextChips = showContext ? selectedContext : domSelectorChips}
+	{#if contextChips.length > 0 || files.length > 0 || pendingFiles > 0}
 		<div class="flex flex-row flex-wrap items-center gap-1 px-2.5 pt-2">
-			{#each selectedContext as element (contextKey(element))}
+			{#each contextChips as element (contextKey(element))}
 				<ContextElementBadge
 					contextElement={element}
 					deletable
 					onDelete={() => {
 						selectedContext = selectedContext?.filter((c) => !isSameContextElement(c, element))
-						removeMention(element.title)
+						if (showContext) removeMention(element.title)
 					}}
 				/>
 			{/each}
-		</div>
-	{/if}
-{/snippet}
-
-<!-- DOM selector chips (raw-app inspector picks) always show — even in GLOBAL/
-     session mode where the general context picker row is hidden (showContext=false). -->
-{#snippet domSelectorChipRow()}
-	{#if domSelectorChips.length > 0}
-		<div class="flex flex-row flex-wrap items-center gap-1 px-2.5 pt-2">
-			{#each domSelectorChips as element (contextKey(element))}
+			{#each files as file, i (i)}
 				<ContextElementBadge
-					contextElement={element}
+					contextElement={createAttachedFileContextElement(file.name, file.content)}
 					deletable
-					onDelete={() => {
-						selectedContext = selectedContext?.filter((c) => !isSameContextElement(c, element))
-					}}
+					onDelete={() => removeFile(i)}
 				/>
+			{/each}
+			{#each { length: pendingFiles } as _, i (i)}
+				<div
+					class="h-6 w-24 rounded-md border bg-surface flex items-center justify-center"
+					title="Reading file..."
+				>
+					<Loader2 size={14} class="animate-spin text-tertiary" />
+				</div>
 			{/each}
 		</div>
 	{/if}
 {/snippet}
 
-{#snippet attachmentChipsRow()}
-	{#if images.length > 0 || pendingImages > 0 || files.length > 0 || pendingFiles > 0}
+{#snippet imageChipsRow()}
+	{#if images.length > 0 || pendingImages > 0}
 		<div class="flex flex-row flex-wrap items-center gap-1.5 px-2.5 pt-2">
 			{#each images as image, i (i)}
 				<div class="relative group">
@@ -906,21 +908,6 @@
 				<div
 					class="h-12 w-12 rounded border border-border-light bg-surface-secondary flex items-center justify-center"
 					title="Preparing image..."
-				>
-					<Loader2 size={14} class="animate-spin text-tertiary" />
-				</div>
-			{/each}
-			{#each files as file, i (i)}
-				<ContextElementBadge
-					contextElement={createAttachedFileContextElement(file.name, file.content)}
-					deletable
-					onDelete={() => removeFile(i)}
-				/>
-			{/each}
-			{#each { length: pendingFiles } as _, i (i)}
-				<div
-					class="h-6 w-24 rounded-md border bg-surface flex items-center justify-center"
-					title="Reading file..."
 				>
 					<Loader2 size={14} class="animate-spin text-tertiary" />
 				</div>
@@ -969,12 +956,8 @@
 				{onKeyDown}
 			>
 				{#snippet leading()}
-					{#if showContext}
-						{@render contextPickerRow()}
-					{:else}
-						{@render domSelectorChipRow()}
-					{/if}
-					{@render attachmentChipsRow()}
+					{@render badgeRow()}
+					{@render imageChipsRow()}
 				{/snippet}
 			</ContextTextarea>
 			{#if !bottomRightSnippet}
@@ -985,7 +968,7 @@
 		</div>
 	{:else if aiChatManager.mode === AIMode.APP}
 		{#if showContext}
-			{@render contextPickerRow()}
+			{@render badgeRow()}
 		{/if}
 		<div class={twMerge('relative w-full scroll-pb-2', className)}>
 			<textarea
