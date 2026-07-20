@@ -9577,241 +9577,36 @@ struct LogFeatureUsagePayload {
     events: Vec<FeatureUsageEvent>,
 }
 
-enum FeatureUsageKeyRule {
-    // Key must be one of a fixed set of values.
-    OneOf(&'static [&'static str]),
-    // Key must be `<provider>:<model>` with a known AI provider prefix; the
-    // model part is admin-configured (workspace AI settings), not free user
-    // input, and may contain slashes (e.g. OpenRouter model paths).
-    ProviderModel,
-    // Key must be empty.
-    Empty,
-}
-
-// Serde names of windmill_ai::ai_providers::AIProvider.
-const AI_PROVIDER_NAMES: &[&str] = &[
-    "openai",
-    "azure_openai",
-    "azure_foundry",
-    "anthropic",
-    "mistral",
-    "deepseek",
-    "googleai",
-    "groq",
-    "openrouter",
-    "togetherai",
-    "customai",
-    "aws_bedrock",
+// Only registered (feature, kind) actions are accepted, so telemetry stays
+// limited to predefined feature actions. Keys are shape-checked (identifier-like,
+// no spaces) rather than pinned to value sets: they come from our own frontend
+// (modes, tab/draft kinds, tool names, provider:model) and pinning every value
+// server-side was not worth the maintenance.
+const FEATURE_USAGE_KINDS: &[(&str, &str)] = &[
+    ("ai_session", "created"),
+    ("ai_session", "message"),
+    ("ai_session", "autonomy"),
+    ("ai_session", "tab"),
+    ("ai_session", "tokens"),
+    ("ai_session", "deployed"),
+    ("ai_session", "archived"),
+    ("ai_session", "deleted"),
+    ("ai_chat", "message"),
+    ("ai_chat", "model"),
+    ("ai_chat", "tool"),
 ];
-
-const AI_MODE_NAMES: &[&str] = &["script", "flow", "app", "navigator", "API", "global", "ask"];
-
-// AI chat tool names (declared in frontend/src/lib/components/copilot/chat).
-// A tool absent from this list is silently dropped from telemetry until
-// registered here — keep it in sync when adding chat tools.
-const AI_CHAT_TOOL_NAMES: &[&str] = &[
-    "askUserQuestion",
-    "build_pipeline_node",
-    "cancel_job",
-    "change_mode",
-    "close_page",
-    "create_artifact",
-    "create_folder",
-    "create_schedule",
-    "create_trigger",
-    "delete_app_file",
-    "delete_app_runnable",
-    "delete_backend_runnable",
-    "delete_frontend_file",
-    "delete_workspace_item",
-    "deploy_workspace_item",
-    "discard_local_draft",
-    "edit_code",
-    "edit_pipeline_node",
-    "edit_script",
-    "exec_datatable_sql",
-    "get_app_runtime_logs",
-    "get_available_resources",
-    "get_backend_runnable",
-    "get_current_page_name",
-    "get_datatable_table_schema",
-    "get_db_schema",
-    "get_frontend_file",
-    "get_instructions",
-    "get_instructions_for_code_generation",
-    "get_job_logs",
-    "get_lint_errors",
-    "get_pipeline_graph",
-    "get_preview_status",
-    "get_runnable_details",
-    "get_triggerable_components",
-    "init_app",
-    "inspect_inline_script",
-    "lint",
-    "list_app_runs",
-    "list_artifacts",
-    "list_datatables",
-    "list_files",
-    "list_resources",
-    "list_runs",
-    "list_workspace_items",
-    "open_page",
-    "open_preview",
-    "patch_app_file",
-    "patch_file",
-    "patch_flow_json",
-    "read_app_file",
-    "read_artifact",
-    "read_docs_page",
-    "read_file",
-    "read_flow_module_code",
-    "read_pipeline_node",
-    "read_skill",
-    "read_workspace_item",
-    "rebase_draft",
-    "remove_pipeline_node",
-    "resource_type",
-    "run_script",
-    "search_app",
-    "search_docs",
-    "search_files",
-    "search_hub_scripts",
-    "search_npm_packages",
-    "search_resource_types",
-    "search_workspace",
-    "set_backend_runnable",
-    "set_failure_module",
-    "set_flow_json",
-    "set_flow_module_code",
-    "set_frontend_file",
-    "set_module_code",
-    "set_preprocessor_module",
-    "take_screenshot",
-    "test_pipeline_node",
-    "test_run_flow",
-    "test_run_script",
-    "test_run_step",
-    "trigger_component",
-    "update_artifact",
-    "update_user_instructions",
-    "write_app_file",
-    "write_app_runnable",
-    "write_flow",
-    "write_resource",
-    "write_schedule",
-    "write_script",
-    "write_trigger",
-    "write_variable",
-];
-
-// Approved telemetry dimensions. Grouped (feature, kind, key) strings end up
-// verbatim in the outbound anonymous telemetry payload, so only combinations
-// registered here are accepted; everything else is dropped. Frontend and
-// backend ship together: instrumenting a new feature includes adding its
-// dimensions to this table.
-const FEATURE_USAGE_DIMENSIONS: &[(&str, &str, FeatureUsageKeyRule)] = &[
-    (
-        "ai_session",
-        "created",
-        FeatureUsageKeyRule::OneOf(&["fork", "root"]),
-    ),
-    (
-        "ai_session",
-        "message",
-        FeatureUsageKeyRule::OneOf(AI_MODE_NAMES),
-    ),
-    (
-        "ai_session",
-        "autonomy",
-        FeatureUsageKeyRule::OneOf(&["default", "acceptedit", "yolo"]),
-    ),
-    (
-        "ai_session",
-        "tab",
-        FeatureUsageKeyRule::OneOf(&["script", "flow", "raw_app", "pipeline", "artifact", "page"]),
-    ),
-    ("ai_session", "tokens", FeatureUsageKeyRule::Empty),
-    (
-        "ai_session",
-        "deployed",
-        // UserDraftItemKind values (openapi.yaml); an unlisted new kind is
-        // silently dropped until registered here.
-        FeatureUsageKeyRule::OneOf(&[
-            "script",
-            "flow",
-            "app",
-            "raw_app",
-            "resource",
-            "variable",
-            "trigger_schedule",
-            "trigger_webhook",
-            "trigger_default_email",
-            "trigger_email",
-            "trigger_http",
-            "trigger_websocket",
-            "trigger_postgres",
-            "trigger_kafka",
-            "trigger_nats",
-            "trigger_mqtt",
-            "trigger_sqs",
-            "trigger_gcp",
-            "trigger_azure",
-            "trigger_poll",
-            "trigger_cli",
-            "trigger_nextcloud",
-            "trigger_google",
-            "trigger_github",
-            "data_pipeline",
-        ]),
-    ),
-    ("ai_session", "archived", FeatureUsageKeyRule::Empty),
-    ("ai_session", "deleted", FeatureUsageKeyRule::Empty),
-    (
-        "ai_chat",
-        "tool",
-        FeatureUsageKeyRule::OneOf(AI_CHAT_TOOL_NAMES),
-    ),
-    (
-        "ai_chat",
-        "message",
-        FeatureUsageKeyRule::OneOf(AI_MODE_NAMES),
-    ),
-    ("ai_chat", "model", FeatureUsageKeyRule::ProviderModel),
-];
-
-fn valid_provider_model_key(key: &str) -> bool {
-    let Some((provider, model)) = key.split_once(':') else {
-        return false;
-    };
-    AI_PROVIDER_NAMES.contains(&provider)
-        && !model.is_empty()
-        && model.len() <= 100
-        && model
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | ':' | '.' | '/'))
-}
 
 fn is_identifier_shaped(s: &str, max_len: usize) -> bool {
     !s.is_empty()
         && s.len() <= max_len
         && s.chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | ':' | '.'))
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | ':' | '.' | '/'))
 }
 
 fn valid_feature_usage_event(e: &FeatureUsageEvent) -> bool {
-    // entity_id never leaves the instance (aggregation only exports counts per
-    // group), so identifier shape is enough for it.
-    if !(e.entity_id.is_empty() || is_identifier_shaped(&e.entity_id, 50)) {
-        return false;
-    }
-    FEATURE_USAGE_DIMENSIONS
-        .iter()
-        .find(|(feature, kind, _)| *feature == e.feature && *kind == e.kind)
-        .is_some_and(|(_, _, rule)| match rule {
-            FeatureUsageKeyRule::OneOf(allowed) => allowed.contains(&e.key.as_str()),
-            FeatureUsageKeyRule::ProviderModel => valid_provider_model_key(&e.key),
-            FeatureUsageKeyRule::Empty => e.key.is_empty(),
-        })
+    FEATURE_USAGE_KINDS.contains(&(e.feature.as_str(), e.kind.as_str()))
+        && (e.key.is_empty() || is_identifier_shaped(&e.key, 100))
+        && (e.entity_id.is_empty() || is_identifier_shaped(&e.entity_id, 50))
 }
 
 async fn log_feature_usage(
