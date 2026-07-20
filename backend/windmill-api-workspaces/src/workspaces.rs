@@ -199,7 +199,6 @@ pub fn workspaced_service() -> Router {
             "/protection_rules/{rule_name}",
             post(update_protection_rule).delete(delete_protection_rule),
         )
-        .route("/log_chat", post(log_ai_chat))
         .route("/log_feature_usage", post(log_feature_usage))
         .route("/cloud_quotas", get(get_cloud_quotas))
         .route("/prune_versions", post(prune_versions))
@@ -9560,31 +9559,6 @@ const TRIGGER_OR_SCHEDULE_TABLES: &[&str] = &[
     "email_trigger",
 ];
 
-#[derive(Deserialize)]
-struct LogAiChatPayload {
-    session_id: String,
-    provider: String,
-    model: String,
-    mode: String,
-}
-
-async fn log_ai_chat(
-    Extension(db): Extension<DB>,
-    Json(payload): Json<LogAiChatPayload>,
-) -> Result<StatusCode> {
-    sqlx::query!(
-        "INSERT INTO ai_chat_usage (session_id, provider, model, mode) VALUES ($1, $2, $3, $4)
-         ON CONFLICT (session_id) DO UPDATE SET message_count = ai_chat_usage.message_count + 1",
-        &payload.session_id,
-        &payload.provider,
-        &payload.model,
-        &payload.mode
-    )
-    .execute(&db)
-    .await?;
-    Ok(StatusCode::NO_CONTENT)
-}
-
 const MAX_FEATURE_USAGE_EVENTS: usize = 50;
 
 #[derive(Deserialize)]
@@ -9606,9 +9580,31 @@ struct LogFeatureUsagePayload {
 enum FeatureUsageKeyRule {
     // Key must be one of a fixed set of values.
     OneOf(&'static [&'static str]),
+    // Key must be `<provider>:<model>` with a known AI provider prefix; the
+    // model part is admin-configured (workspace AI settings), not free user
+    // input, and may contain slashes (e.g. OpenRouter model paths).
+    ProviderModel,
     // Key must be empty.
     Empty,
 }
+
+// Serde names of windmill_ai::ai_providers::AIProvider.
+const AI_PROVIDER_NAMES: &[&str] = &[
+    "openai",
+    "azure_openai",
+    "azure_foundry",
+    "anthropic",
+    "mistral",
+    "deepseek",
+    "googleai",
+    "groq",
+    "openrouter",
+    "togetherai",
+    "customai",
+    "aws_bedrock",
+];
+
+const AI_MODE_NAMES: &[&str] = &["script", "flow", "app", "navigator", "API", "global", "ask"];
 
 // AI chat tool names (declared in frontend/src/lib/components/copilot/chat).
 // A tool absent from this list is silently dropped from telemetry until
@@ -9722,7 +9718,7 @@ const FEATURE_USAGE_DIMENSIONS: &[(&str, &str, FeatureUsageKeyRule)] = &[
     (
         "ai_session",
         "message",
-        FeatureUsageKeyRule::OneOf(&["script", "flow", "app", "navigator", "API", "global", "ask"]),
+        FeatureUsageKeyRule::OneOf(AI_MODE_NAMES),
     ),
     (
         "ai_session",
@@ -9775,7 +9771,25 @@ const FEATURE_USAGE_DIMENSIONS: &[(&str, &str, FeatureUsageKeyRule)] = &[
         "tool",
         FeatureUsageKeyRule::OneOf(AI_CHAT_TOOL_NAMES),
     ),
+    (
+        "ai_chat",
+        "message",
+        FeatureUsageKeyRule::OneOf(AI_MODE_NAMES),
+    ),
+    ("ai_chat", "model", FeatureUsageKeyRule::ProviderModel),
 ];
+
+fn valid_provider_model_key(key: &str) -> bool {
+    let Some((provider, model)) = key.split_once(':') else {
+        return false;
+    };
+    AI_PROVIDER_NAMES.contains(&provider)
+        && !model.is_empty()
+        && model.len() <= 100
+        && model
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | ':' | '.' | '/'))
+}
 
 fn is_identifier_shaped(s: &str, max_len: usize) -> bool {
     !s.is_empty()
@@ -9795,6 +9809,7 @@ fn valid_feature_usage_event(e: &FeatureUsageEvent) -> bool {
         .find(|(feature, kind, _)| *feature == e.feature && *kind == e.kind)
         .is_some_and(|(_, _, rule)| match rule {
             FeatureUsageKeyRule::OneOf(allowed) => allowed.contains(&e.key.as_str()),
+            FeatureUsageKeyRule::ProviderModel => valid_provider_model_key(&e.key),
             FeatureUsageKeyRule::Empty => e.key.is_empty(),
         })
 }

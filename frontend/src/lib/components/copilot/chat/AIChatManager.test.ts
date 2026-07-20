@@ -23,7 +23,6 @@ const mocks = vi.hoisted(() => ({
 	getCurrentModel: vi.fn(),
 	tryGetCurrentModel: vi.fn(),
 	isWebSearchEnabledForProvider: vi.fn(),
-	logAiChat: vi.fn(),
 	sendUserToast: vi.fn(),
 	getOpenaiClient: vi.fn(),
 	getAnthropicClient: vi.fn(),
@@ -38,9 +37,10 @@ vi.mock('monaco-editor', () => ({
 	Selection: class Selection {}
 }))
 
+vi.mock('$lib/utils/featureUsage', () => ({ logFeatureUsage: vi.fn() }))
+
 vi.mock('$lib/gen', () => ({
 	WorkspaceService: {
-		logAiChat: mocks.logAiChat,
 		listAiSkills: mocks.listAiSkills
 	},
 	ScriptService: {},
@@ -129,7 +129,6 @@ beforeEach(() => {
 	mocks.getCurrentModel.mockReturnValue(undefined)
 	mocks.tryGetCurrentModel.mockReturnValue(undefined)
 	mocks.isWebSearchEnabledForProvider.mockReturnValue(true)
-	mocks.logAiChat.mockResolvedValue(undefined)
 	mocks.getOpenaiClient.mockReturnValue({})
 	mocks.getAnthropicClient.mockReturnValue({})
 	mocks.listAiSkills.mockResolvedValue([])

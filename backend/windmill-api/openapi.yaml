@@ -6505,38 +6505,6 @@ paths:
         "400":
           description: invalid input or request closed
 
-  /w/{workspace}/workspaces/log_chat:
-    post:
-      summary: log AI chat message
-      operationId: logAiChat
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - session_id
-                - provider
-                - model
-                - mode
-              properties:
-                session_id:
-                  type: string
-                provider:
-                  type: string
-                model:
-                  type: string
-                mode:
-                  type: string
-      responses:
-        "204":
-          description: logged
-
   /w/{workspace}/workspaces/log_feature_usage:
     post:
       summary: log anonymous feature usage telemetry events
