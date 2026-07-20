@@ -492,6 +492,42 @@ describe('global AI tools', () => {
 		])
 	})
 
+	it('reads the deployed state, skipping chat and DB drafts, with version: deployed', async () => {
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/greet',
+			language: 'bun',
+			content: 'export async function main(renamed_input: string) {}'
+		})
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			hash: 1,
+			path: 'f/scripts/greet',
+			summary: 'Deployed greet',
+			content: 'export async function main(name: string) {}',
+			schema: { properties: { name: { type: 'string' } } },
+			language: 'bun',
+			kind: 'script',
+			draft: { content: 'export async function main(db_draft_input: string) {}' }
+		} as any)
+
+		const raw = await callGlobalTool('read_workspace_item', {
+			type: 'script',
+			path: 'f/scripts/greet',
+			version: 'deployed'
+		})
+		const item = JSON.parse(raw)
+
+		expect(ScriptService.getScriptByPath).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'f/scripts/greet',
+			getDraft: false
+		})
+		expect(item.isDraft).toBe(false)
+		expect(item.schema).toEqual({ properties: { name: { type: 'string' } } })
+		expect(raw).toContain('main(name: string)')
+		expect(raw).not.toContain('renamed_input')
+		expect(raw).not.toContain('db_draft_input')
+	})
+
 	it('redacts variable draft values when reading workspace items', async () => {
 		await callGlobalTool('write_variable', {
 			path: 'f/secrets/api_key',
@@ -872,6 +908,59 @@ describe('global AI tools', () => {
 				isDraft: true
 			})
 		])
+	})
+
+	it('forwards page to the list calls, capping page-1 drafts at limit per type', async () => {
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/draft_a',
+			language: 'bun',
+			content: 'export async function main() {}'
+		})
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/draft_b',
+			language: 'bun',
+			content: 'export async function main() {}'
+		})
+
+		const page1 = await callGlobalTool('list_workspace_items', {
+			types: ['script'],
+			limit: 1,
+			page: 1
+		})
+		const page2 = await callGlobalTool('list_workspace_items', {
+			types: ['script'],
+			limit: 1,
+			page: 2
+		})
+
+		expect(ScriptService.listScripts).toHaveBeenCalledWith(expect.objectContaining({ page: 2 }))
+		// Bounded on page 1, no draft rows on later pages; the capped-out draft
+		// stays reachable through the query filter.
+		expect(JSON.parse(page1)).toHaveLength(1)
+		expect(JSON.parse(page2)).toEqual([])
+		const byQuery = await callGlobalTool('list_workspace_items', {
+			types: ['script'],
+			query: 'draft_b'
+		})
+		expect(JSON.parse(byQuery).map((i: any) => i.path)).toEqual(['f/scripts/draft_b'])
+	})
+
+	it('applies limit per item type so a full page of one type cannot hide another', async () => {
+		vi.mocked(ScriptService.listScripts).mockResolvedValueOnce([
+			{ path: 'f/scripts/s1', language: 'bun' },
+			{ path: 'f/scripts/s2', language: 'bun', draft_only: true }
+		] as any)
+		vi.mocked(FlowService.listFlows).mockResolvedValueOnce([{ path: 'f/flows/f1' }] as any)
+
+		const raw = await callGlobalTool('list_workspace_items', {
+			types: ['script', 'flow'],
+			limit: 2
+		})
+
+		const items = JSON.parse(raw)
+		expect(items.map((i: any) => i.path)).toEqual(['f/scripts/s1', 'f/scripts/s2', 'f/flows/f1'])
+		// Server-synthesized draft-only rows must read as drafts, not deployed items.
+		expect(items.map((i: any) => i.isDraft)).toEqual([false, true, false])
 	})
 
 	it('lists and edits the live script editor draft through its effective path', async () => {
