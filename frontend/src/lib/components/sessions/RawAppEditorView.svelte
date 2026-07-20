@@ -182,10 +182,14 @@
 		// anchored element: the inline prompt sits over ONE element, so with several
 		// selected, drop the others (a multi-select would otherwise send every
 		// selector and the model couldn't tell which one the prompt is about).
+		// Match appPath too — selectors are generated per app and collide across
+		// them, and a restored draft can legitimately hold chips from several apps.
 		// Non-DOM context is kept.
 		const snapshot = runtime.manager.contextManager
 			.getSelectedContext()
-			.filter((c) => c.type !== 'app_dom_selector' || c.selector === selector)
+			.filter(
+				(c) => c.type !== 'app_dom_selector' || (c.selector === selector && c.appPath === path)
+			)
 		if (runtime.manager.loading) {
 			runtime.manager.queueMessage(prompt, [], snapshot)
 		} else {
