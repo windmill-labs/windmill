@@ -54,6 +54,7 @@ import {
 } from './compactionPrompt'
 import { dfs } from '$lib/components/flows/previousResults'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
+import { createLongHash } from '$lib/editorLangUtils'
 import type { UserDraftItemKind } from '$lib/gen'
 import { maskKey } from '$lib/components/sessions/modifiedItemsMask'
 import { getStringError } from './utils'
@@ -2012,13 +2013,6 @@ export class AIChatManager {
 	// the full conversation budget and overflow the persisted transcript.
 	#composerStaged = new SvelteMap<string, { editingIndex: number | null; bytes: number }>()
 
-	// Reservation key held by an in-flight edit/retry resend. The edit box unmounts
-	// (dropping its stage) the moment the user submits, but restartGeneration then
-	// awaits registry sync + beforeSend before the optimistic message lands in the
-	// transcript. Reserving the resent files here bridges that gap so the bottom
-	// composer can't attach into the temporary headroom and overflow the cap.
-	static #RESEND_KEY = 'resend-reservation'
-
 	setComposerStaged(key: string, editingIndex: number | null, bytes: number) {
 		this.#composerStaged.set(key, { editingIndex, bytes })
 	}
@@ -2027,12 +2021,14 @@ export class AIChatManager {
 		this.#composerStaged.delete(key)
 	}
 
-	/** Drop any in-flight resend reservation. Called once when sendRequest installs
-	 * the bubble (the transcript then accounts the files) and on every sendRequest
-	 * path that exits before install — abandoning the send leaves the files in the
-	 * composer, which reserves them, so a stranded reservation would double-charge. */
-	#releaseResendReservation() {
-		this.clearComposerStaged(AIChatManager.#RESEND_KEY)
+	/** Release the resend reservation identified by `key` (a per-resend token, see
+	 * restartGeneration). Called once when sendRequest installs the bubble (the
+	 * transcript then accounts the files) and on every sendRequest path that exits
+	 * before install — abandoning the send leaves the files in the composer, which
+	 * reserves them, so a stranded reservation would double-charge. Keyed per resend
+	 * so a normal or concurrent send never releases a reservation it doesn't own. */
+	#releaseResendReservation(key: string | undefined) {
+		if (key) this.clearComposerStaged(key)
 	}
 
 	/** Attached-file bytes counted against MAX_CONVERSATION_FILE_BYTES by
@@ -2363,6 +2359,10 @@ export class AIChatManager {
 			 * it, so the composer restore must not also fire (the draft would exist
 			 * twice — queue chip and composer). */
 			queued?: boolean
+			/** Per-resend reservation token (see restartGeneration): the bytes staged
+			 * under it are released once this send installs its bubble or exits before
+			 * install. Absent on normal sends, so they never touch a resend's reservation. */
+			resendReservationKey?: string
 		} = {}
 	) => {
 		// Returns whether the input was consumed: true when it was sent as a chat
@@ -2372,7 +2372,7 @@ export class AIChatManager {
 		// command isn't re-queued and re-fired into the next conversation.
 		const requestedMode = options.mode ?? this.mode
 		if (!isAIModeVisible(requestedMode)) {
-			this.#releaseResendReservation()
+			this.#releaseResendReservation(options.resendReservationKey)
 			return false
 		}
 		this.changeMode(requestedMode, undefined, {
@@ -2394,7 +2394,7 @@ export class AIChatManager {
 			(options.images?.length ?? 0) === 0 &&
 			(options.files?.length ?? 0) === 0
 		) {
-			this.#releaseResendReservation()
+			this.#releaseResendReservation(options.resendReservationKey)
 			return false
 		}
 		// Built-in session commands run locally instead of becoming a chat turn.
@@ -2408,7 +2408,7 @@ export class AIChatManager {
 			// A local command consumes the send without installing a bubble; an edit
 			// resolved to `/clear` or `/compact` must not strand its resend reservation.
 			if (COMPACT_COMMAND_RE.test(trimmed) || CLEAR_COMMAND_RE.test(trimmed)) {
-				this.#releaseResendReservation()
+				this.#releaseResendReservation(options.resendReservationKey)
 			}
 			// `/compact`: summarize the conversation locally to free up context.
 			if (COMPACT_COMMAND_RE.test(trimmed)) {
@@ -2459,7 +2459,7 @@ export class AIChatManager {
 			)
 			// Abandoned before install; the files go back to the composer, which
 			// re-reserves them, so release any resend reservation held for this send.
-			this.#releaseResendReservation()
+			this.#releaseResendReservation(options.resendReservationKey)
 			if (!options.queued) {
 				this.aiChatInput?.restoreInstructions(
 					this.instructions,
@@ -2519,7 +2519,7 @@ export class AIChatManager {
 		// The bubble now carries the (possibly resent) files, so the transcript
 		// accounts them; release any resend reservation that bridged the gap. A
 		// beforeSend rollback below restores them to the composer, which re-reserves.
-		this.#releaseResendReservation()
+		this.#releaseResendReservation(options.resendReservationKey)
 		// Undo the optimistic bubble + loading/label. Shared by the beforeSend-failure and
 		// pre-flight-cancel paths below; callers put the message back in the composer.
 		const rollbackOptimisticSend = () => {
@@ -3213,12 +3213,14 @@ export class AIChatManager {
 		const sentImages = this.storedImages(displayMessageIndex)
 
 		// Reserve the resent files' bytes across the gap between the edit box
-		// unmounting and the optimistic message landing (sendRequest clears this
-		// key once it installs the bubble). Set before the slice below removes the
+		// unmounting and the optimistic message landing. A per-resend token owns the
+		// reservation (sendRequest releases only this key) so an unrelated or
+		// concurrent send never clears it. Set before the slice below removes the
 		// message from the transcript, so those bytes are always accounted.
+		const resendReservationKey = `resend:${createLongHash()}`
 		const resentFiles = files ?? userMessage.files ?? []
 		this.setComposerStaged(
-			AIChatManager.#RESEND_KEY,
+			resendReservationKey,
 			null,
 			resentFiles.reduce((sum, f) => sum + textByteLength(f.content), 0)
 		)
@@ -3265,7 +3267,8 @@ export class AIChatManager {
 			// The bubble copy is authoritative for files: the API message carries
 			// only a reference (content lives in the store), so nothing ever strips
 			// it the way providers strip image parts from history.
-			files: files ?? userMessage.files
+			files: files ?? userMessage.files,
+			resendReservationKey
 		})
 	}
 

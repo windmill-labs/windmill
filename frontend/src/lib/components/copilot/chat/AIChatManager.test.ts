@@ -1232,6 +1232,20 @@ describe('AIChatManager queued messages', () => {
 		expect(manager.attachmentBytesExcluding('probe')).toBe(0)
 	})
 
+	// The reservation is keyed per resend, so a normal (or concurrent) send that
+	// carries no token must never release a resend reservation it doesn't own.
+	it('a normal send does not release another send resend reservation', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		// An in-flight resend owns this reservation.
+		manager.setComposerStaged('resend:other', null, 4000)
+
+		// A normal send that bails early (empty draft) carries no reservation key.
+		await manager.sendRequest({ instructions: '   ' })
+
+		expect(manager.attachmentBytesExcluding('probe')).toBe(4000)
+	})
+
 	// Drop-oldest compaction (summary fallback) removes API messages without a
 	// summary, so a folded message's `## ATTACHED FILES` reference no longer reaches
 	// the model. Its file (index < 0) must be advertised through the roster instead.
