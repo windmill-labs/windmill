@@ -175,6 +175,21 @@ describe("computeGitSyncDeployBranch", () => {
     ).toBe("wm_deploy/prod/flow/f__x__y");
   });
 
+  test("falls back to parent_path when the backend serializes path as \"\" (rename out of filter)", () => {
+    // The backend emits "" (not null) for a path that no longer matches the repo
+    // filter; it must still get its own branch, not fall through to the base.
+    expect(
+      computeGitSyncDeployBranch({
+        ...base,
+        workspaceId: "staging-ws",
+        parentWorkspaceId: "prod",
+        devWorkspaceLabel: "staging",
+        useIndividualBranch: true,
+        items: [{ path_type: "resource", path: "", parent_path: "f/folder/old" }],
+      })
+    ).toBe("wm_deploy/staging-ws/resource/f__folder__old");
+  });
+
   test("user/group objects never get a dedicated branch", () => {
     expect(
       computeGitSyncDeployBranch({

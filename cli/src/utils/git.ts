@@ -191,7 +191,12 @@ export function computeGitSyncDeployBranch(params: {
     return null;
   }
 
-  const ref = first.path ?? first.parent_path;
+  // `||` not `??`: the backend serializes a path that no longer matches the repo
+  // filter (a rename out of the included set) as "" with the old path in
+  // parent_path. That "" must fall back to parent_path — mirroring the backend's
+  // `!item_path.is_empty()` derivation. `??` would keep "", return null, and skip
+  // the branch checkout, letting the removal land on the tracked base branch.
+  const ref = first.path || first.parent_path;
   if (!ref) return null;
 
   return groupByFolder
