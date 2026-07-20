@@ -70,6 +70,18 @@ const CATALOG = [
 		method: 'GET'
 	},
 	{
+		name: 'deleteScriptByHash',
+		description: 'Delete a script by hash',
+		instructions: '',
+		path: '/w/{workspace}/scripts/delete/h/{hash}',
+		method: 'POST',
+		path_params_schema: {
+			type: 'object',
+			properties: { workspace: { type: 'string' }, hash: { type: 'string' } },
+			required: ['workspace', 'hash']
+		}
+	},
+	{
 		name: 'runFlowByPath',
 		description: 'Run flow by path',
 		instructions: 'Trigger a run of a deployed flow',
@@ -152,6 +164,11 @@ describe('call_api_get', () => {
 
 		const deleting = await run('call_api_endpoint', { name: 'deleteSchedule' })
 		expect(deleting.error).toContain('delete_workspace_item')
+
+		const byHash = await run('call_api_endpoint', { name: 'deleteScriptByHash' })
+		expect(byHash.error).toContain('delete_workspace_item')
+		const search = await run('search_api_endpoints', { query: 'delete script' })
+		expect(search.matches.map((m: any) => m.name)).not.toContain('deleteScriptByHash')
 	})
 
 	it('refuses variable reads so variable values never reach the model', async () => {

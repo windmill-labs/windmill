@@ -17,11 +17,14 @@ import { createToolDef, type Tool } from '../shared'
 // explicit deploy, draft cleanup on delete), the variable reads would expose
 // variable values to the model (getVariable even decrypts secrets by default),
 // and the rest are exact duplicates that would fragment behavior across two
-// code paths.
+// code paths. getResource stays available: resource values are readable in
+// this chat by design (read_workspace_item returns them too) — secrets belong
+// in variables referenced as "$var:path", which a plain get leaves unresolved.
 const COVERED_ENDPOINTS: Record<string, string> = {
 	getVariable: 'read_workspace_item (variable values are never readable in chat)',
 	listVariable: 'list_workspace_items (variable values are never readable in chat)',
 	deleteScriptByPath: 'delete_workspace_item',
+	deleteScriptByHash: 'delete_workspace_item',
 	deleteFlowByPath: 'delete_workspace_item',
 	deleteSchedule: 'delete_workspace_item',
 	deleteVariable: 'delete_workspace_item',
