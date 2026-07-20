@@ -94,8 +94,9 @@ mod tests {
             "a gate that cannot drain its backlog must alert, got {messages:?}"
         );
         assert!(
-            messages[0].contains("17280") && messages[0].contains("40000"),
-            "alert must name the backlog and the ceiling it exceeds: {}",
+            messages[0].contains("17280") && messages[0].contains("40000")
+                && messages[0].contains("720"),
+            "alert must name the backlog and both ceilings it exceeds: {}",
             messages[0]
         );
     }
@@ -194,5 +195,24 @@ mod tests {
         .expect("read healthchecks")
         .unwrap_or(0);
         assert_eq!(unresolved, 0, "a fully drained gate must have its alert recovered");
+    }
+
+    /// The window governs how soon the alert fires, so a gate taking on less than
+    /// it admits over that window is keeping up and must stay silent even though
+    /// a long backlog sits in front of it.
+    #[ignore = "requires database setup - run with --ignored flag"]
+    #[sqlx::test(migrations = "../migrations")]
+    async fn arrivals_under_the_window_ceiling_do_not_alert(db: Pool<Postgres>) {
+        free_the_lock(&db).await;
+        queue_gated(&db, 40_000, SLOW_GATE, 48).await;
+        // 700 in the last hour against a 720/hour ceiling: still keeping up.
+        queue_gated(&db, 700, SLOW_GATE, 0).await;
+
+        concurrency_gate_alerts(&db).await;
+
+        assert!(
+            alert_messages(&db).await.is_empty(),
+            "arrivals below the gate ceiling for the window must not alert"
+        );
     }
 }
