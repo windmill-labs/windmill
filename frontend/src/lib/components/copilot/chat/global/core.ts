@@ -2751,6 +2751,9 @@ export const globalTools: Tool<{}>[] = [
 			'get_lint_errors',
 			'Type-check a script, flow module, or raw app backend runnable and report its errors and warnings. Supports TypeScript, JavaScript, Python, Go, Deno and Bash.'
 		),
+		// The header carries the counts; the individual problems are worth a look but not
+		// worth the vertical space by default.
+		showDetails: true,
 		fn: async (ctx) => {
 			const parsed = getLintErrorsSchema.parse(ctx.args)
 			return getLintErrors(parsed, ctx)
@@ -3812,12 +3815,20 @@ async function checkAppFrontend(path: string, ctx: WriteDraftCtx): Promise<strin
 	const value = await loadAppValueForRead(path, workspace)
 	try {
 		await bundleRawAppDraft({ workspace, files: value.files })
-		toolCallbacks.setToolStatus(toolId, { content: `Frontend of app "${path}" compiles` })
-		return '✅ The app frontend compiles with no errors.'
+		const response = '✅ The app frontend compiles with no errors.'
+		toolCallbacks.setToolStatus(toolId, {
+			content: `Frontend of app "${path}" compiles`,
+			result: response
+		})
+		return response
 	} catch (e) {
 		const message = e instanceof Error ? e.message : String(e)
-		toolCallbacks.setToolStatus(toolId, { content: `Frontend of app "${path}" failed to compile` })
-		return `❌ The app frontend failed to compile:\n\n${message}`
+		const response = `❌ The app frontend failed to compile:\n\n${message}`
+		toolCallbacks.setToolStatus(toolId, {
+			content: `Frontend of app "${path}" failed to compile`,
+			result: response
+		})
+		return response
 	}
 }
 
@@ -3835,10 +3846,12 @@ async function getLintErrors(args: LintTargetArgs, ctx: WriteDraftCtx): Promise<
 	const { canLintHeadless, lintCode } = await import('$lib/components/lint/headlessLint')
 
 	if (!canLintHeadless(target.language)) {
+		const response = `Linting ${target.language} is not supported. Do not retry; verify the code by test-running it instead.`
 		toolCallbacks.setToolStatus(toolId, {
-			content: `Lint unavailable for ${target.language}`
+			content: `Lint unavailable for ${target.language}`,
+			result: response
 		})
-		return `Linting ${target.language} is not supported. Do not retry; verify the code by test-running it instead.`
+		return response
 	}
 
 	toolCallbacks.setToolStatus(toolId, { content: `Linting ${target.label}...` })
@@ -3855,8 +3868,6 @@ async function getLintErrors(args: LintTargetArgs, ctx: WriteDraftCtx): Promise<
 			: result.warningCount > 0
 				? `${result.warningCount} warning(s)`
 				: 'no issues'
-	toolCallbacks.setToolStatus(toolId, { content: `Linted ${target.label}: ${summary}` })
-
 	let response = formatScriptLintResult(result)
 	if (result.unavailableServers?.length) {
 		response += `\n\nNote: the ${result.unavailableServers.join(' and ')} language server${result.unavailableServers.length > 1 ? 's did' : ' did'} not respond, so some problems may not be listed. Treat a clean result as inconclusive.`
@@ -3864,6 +3875,11 @@ async function getLintErrors(args: LintTargetArgs, ctx: WriteDraftCtx): Promise<
 	if (result.contentMismatch) {
 		response += `\n\nNote: an editor is currently open on this code and its buffer differs from the draft. The results above are for what that editor shows.`
 	}
+	// The result has to reach the tool display, or its details panel reads "No result yet".
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Linted ${target.label}: ${summary}`,
+		result: response
+	})
 	return response
 }
 

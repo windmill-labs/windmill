@@ -245,6 +245,19 @@ vi.mock('./rawAppBundlerBridge', () => ({
 	}))
 }))
 
+// Monaco cannot load in the node test environment, and core.ts imports the lint
+// service lazily precisely to keep it out of this import graph.
+vi.mock('$lib/components/lint/headlessLint', () => ({
+	canLintHeadless: (lang: string) => lang === 'bun',
+	lintCode: vi.fn(async () => ({
+		errorCount: 1,
+		warningCount: 0,
+		errors: [{ startLineNumber: 2, message: "Type 'string' is not assignable to type 'number'." }],
+		warnings: [],
+		contentMismatch: false
+	}))
+}))
+
 vi.mock('$lib/infer', async () => ({
 	...(await vi.importActual<any>('$lib/infer')),
 	// Avoid the wasm parser in unit tests: the script deploy path infers the arg
@@ -429,6 +442,26 @@ describe('global AI tools', () => {
 		// panel shows "No result yet" even though the call succeeded.
 		expect(toolCallbacks.setToolStatus).toHaveBeenCalledWith(
 			'test-list_runs',
+			expect.objectContaining({ result })
+		)
+	})
+
+	it('surfaces lint output as the tool result so the details panel can show it', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'u/admin/probe',
+			content: 'const a: number = "x"',
+			language: 'bun',
+			summary: ''
+		} as any)
+
+		const result = await callGlobalTool('get_lint_errors', {
+			kind: 'script',
+			path: 'u/admin/probe'
+		})
+
+		expect(result).toContain("Type 'string' is not assignable to type 'number'.")
+		expect(toolCallbacks.setToolStatus).toHaveBeenCalledWith(
+			'test-get_lint_errors',
 			expect.objectContaining({ result })
 		)
 	})
