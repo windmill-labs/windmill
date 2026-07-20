@@ -1,5 +1,5 @@
 import type { ScriptLang } from '$lib/gen/types.gen'
-import { WorkspaceService, JobService, type CompletedJob } from '$lib/gen'
+import { JobService, type CompletedJob } from '$lib/gen'
 import type { FlowOptions, ScriptOptions } from './ContextManager.svelte'
 import {
 	flowTools,
@@ -45,6 +45,7 @@ import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
 import { workspaceAIClients, getNonStreamingCompletion } from '../lib'
+import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { modelSupportsVision } from '../modelConfig'
 import { getKnownModelContextWindow } from '../modelConfig'
 import {
@@ -2078,6 +2079,13 @@ export class AIChatManager {
 					}
 				}
 			})
+			if (this.isSessionChat && this.sessionId && result.tokenUsage.total > 0) {
+				logFeatureUsage('ai_session', 'tokens', {
+					entityId: this.sessionId,
+					value: result.tokenUsage.total,
+					workspace: this.operatingWorkspace
+				})
+			}
 			return result
 		} catch (err) {
 			console.log('chatRequest error', err)
@@ -2435,15 +2443,29 @@ export class AIChatManager {
 
 			const model = tryGetCurrentModel()
 			if (model) {
-				WorkspaceService.logAiChat({
-					workspace: this.operatingWorkspace ?? '',
-					requestBody: {
-						session_id: this.historyManager.getCurrentChatId(),
-						provider: model.provider,
-						model: model.model,
-						mode: this.mode
-					}
-				}).catch(() => {})
+				const chatId = this.historyManager.getCurrentChatId()
+				logFeatureUsage('ai_chat', 'message', {
+					key: this.mode,
+					entityId: chatId,
+					workspace: this.operatingWorkspace
+				})
+				logFeatureUsage('ai_chat', 'model', {
+					key: `${model.provider}:${model.model}`,
+					entityId: chatId,
+					workspace: this.operatingWorkspace
+				})
+			}
+			if (this.isSessionChat && this.sessionId) {
+				logFeatureUsage('ai_session', 'message', {
+					key: this.mode,
+					entityId: this.sessionId,
+					workspace: this.operatingWorkspace
+				})
+				logFeatureUsage('ai_session', 'autonomy', {
+					key: this.autonomyMode,
+					entityId: this.sessionId,
+					workspace: this.operatingWorkspace
+				})
 			}
 
 			if (this.mode === AIMode.FLOW && !this.flowAiChatHelpers) {

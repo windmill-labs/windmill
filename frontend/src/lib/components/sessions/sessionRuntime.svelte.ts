@@ -49,7 +49,13 @@ import {
 	previewTargetForSessionTarget,
 	selectPreviewTabsToClose
 } from './sessionPreviewTabs.svelte'
-import { matchPreviewPage, parsePreviewItemRoute, previewLocationLabel } from './previewRouter'
+import {
+	matchPreviewPage,
+	parsePreviewItemRoute,
+	previewLocationLabel,
+	resolvePreviewTab
+} from './previewRouter'
+import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { armRestartOnFirstInteraction } from '$lib/userDraftToast'
@@ -432,7 +438,16 @@ function createRuntime(session: Session): SessionRuntime {
 			// Only persist a real width; undefined means "never resized" (defaults to 50).
 			if (snap.previewSize != null) setSessionPreviewSize(session.id, snap.previewSize)
 		},
-		onTabsChanged: pruneEditorCells
+		onTabsChanged: pruneEditorCells,
+		onTabOpened: (url) => {
+			const slot = resolvePreviewTab(url)
+			logFeatureUsage('ai_session', 'tab', {
+				key:
+					slot.kind === 'editor' ? slot.editorKind : slot.kind === 'artifact' ? 'artifact' : 'page',
+				entityId: session.id,
+				workspace: getEffectiveWorkspaceId(session)
+			})
+		}
 	})
 
 	// Let the jobs tray open a run in this session's preview panel (as an iframe
