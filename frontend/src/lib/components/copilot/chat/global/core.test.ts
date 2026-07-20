@@ -909,6 +909,19 @@ describe('global AI tools', () => {
 		])
 	})
 
+	it('forwards page to the list calls and merges drafts into page 1 only', async () => {
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/draft_only',
+			language: 'bun',
+			content: 'export async function main() {}'
+		})
+
+		const raw = await callGlobalTool('list_workspace_items', { types: ['script'], page: 2 })
+
+		expect(ScriptService.listScripts).toHaveBeenCalledWith(expect.objectContaining({ page: 2 }))
+		expect(JSON.parse(raw)).toEqual([])
+	})
+
 	it('lists and edits the live script editor draft through its effective path', async () => {
 		seedBackendDraft(
 			'script',

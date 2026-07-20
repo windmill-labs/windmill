@@ -293,7 +293,15 @@ const listWorkspaceItemsSchema = z.object({
 		.min(1)
 		.max(MAX_LIST_LIMIT)
 		.optional()
-		.describe('Maximum number of items to return. Defaults to 50 and is capped at 100.')
+		.describe('Maximum number of items to return. Defaults to 50 and is capped at 100.'),
+	page: z
+		.number()
+		.int()
+		.min(1)
+		.optional()
+		.describe(
+			'Page number, starting at 1. Request the next page when a listing returns a full page and the item you need is not in it. Drafts are merged into page 1 only.'
+		)
 })
 
 const readWorkspaceItemSchema = z.object({
@@ -1429,7 +1437,12 @@ function triggerToItem(
 type TriggerService = {
 	exists(args: { workspace: string; path: string }): Promise<boolean>
 	get(args: { workspace: string; path: string }): Promise<TriggerLike>
-	list(args: { workspace: string; pathStart?: string; perPage?: number }): Promise<TriggerLike[]>
+	list(args: {
+		workspace: string
+		pathStart?: string
+		perPage?: number
+		page?: number
+	}): Promise<TriggerLike[]>
 	create(args: { workspace: string; requestBody: any }): Promise<string>
 	update(args: { workspace: string; path: string; requestBody: any }): Promise<string>
 	delete(args: { workspace: string; path: string }): Promise<string>
@@ -1575,7 +1588,8 @@ async function listWorkspaceItems(
 	types: WorkspaceItemType[],
 	workspace: string,
 	pathPrefix: string | undefined,
-	perPage: number
+	perPage: number,
+	page?: number
 ): Promise<WorkspaceItem[]> {
 	const items: WorkspaceItem[] = []
 
@@ -1584,6 +1598,7 @@ async function listWorkspaceItems(
 			workspace,
 			pathStart: pathPrefix,
 			perPage,
+			page,
 			includeDraftOnly: true,
 			withoutDescription: true
 		})
@@ -1595,6 +1610,7 @@ async function listWorkspaceItems(
 			workspace,
 			pathStart: pathPrefix,
 			perPage,
+			page,
 			includeDraftOnly: true,
 			withoutDescription: true
 		})
@@ -1605,7 +1621,8 @@ async function listWorkspaceItems(
 		const schedules = await ScheduleService.listSchedules({
 			workspace,
 			pathStart: pathPrefix,
-			perPage
+			perPage,
+			page
 		})
 		for (const schedule of schedules) items.push(scheduleToItem(schedule, false))
 	}
@@ -1615,7 +1632,8 @@ async function listWorkspaceItems(
 			const triggers = await triggerServices[kind].list({
 				workspace,
 				pathStart: pathPrefix,
-				perPage
+				perPage,
+				page
 			})
 			for (const trigger of triggers) items.push(triggerToItem(kind, trigger, false))
 		}
@@ -1625,7 +1643,8 @@ async function listWorkspaceItems(
 		const resources = await ResourceService.listResource({
 			workspace,
 			pathStart: pathPrefix,
-			perPage
+			perPage,
+			page
 		})
 		for (const resource of resources) items.push(resourceToItem(resource, false))
 	}
@@ -1634,7 +1653,8 @@ async function listWorkspaceItems(
 		const variables = await VariableService.listVariable({
 			workspace,
 			pathStart: pathPrefix,
-			perPage
+			perPage,
+			page
 		})
 		for (const variable of variables) items.push(variableToItem(variable))
 	}
@@ -1643,7 +1663,8 @@ async function listWorkspaceItems(
 		const apps = await AppService.listApps({
 			workspace,
 			pathStart: pathPrefix,
-			perPage
+			perPage,
+			page
 		})
 		for (const app of apps) items.push(appToItem(app, false))
 	}
@@ -2325,7 +2346,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			listWorkspaceItemsSchema,
 			'list_workspace_items',
-			'List workspace items and drafts. Returns metadata only.'
+			'List workspace items and drafts, 100 per page. Returns metadata only; pass page to go past the first page.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = listWorkspaceItemsSchema.parse(args)
@@ -2338,13 +2359,17 @@ export const globalTools: Tool<{}>[] = [
 				types,
 				workspace,
 				parsed.path_prefix,
-				Math.min(limit, MAX_LIST_LIMIT)
+				Math.min(limit, MAX_LIST_LIMIT),
+				parsed.page
 			)
 			for (const item of workspaceItems) {
 				byKey.set(getWorkspaceItemKey(item.type, item.path, item.triggerKind), item)
 			}
 
-			for (const draft of await listGlobalDrafts(workspace)) {
+			// Drafts are not paginated server-side; merge them into page 1 only so
+			// later pages stay clean deployed listings without repeated draft rows.
+			const drafts = (parsed.page ?? 1) === 1 ? await listGlobalDrafts(workspace) : []
+			for (const draft of drafts) {
 				if (!types.includes(draft.type)) continue
 				if (parsed.path_prefix && !draft.path.startsWith(parsed.path_prefix)) continue
 				byKey.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), {
