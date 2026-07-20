@@ -1535,8 +1535,9 @@
     - does not create a flow or script draft yet
 
 # --- API catalog (search_api_endpoints / call_api_get / call_api_endpoint) ---
-# These need the eval backend to be built with the `mcp` cargo feature (part of
-# ce/ee release builds); without it the catalog endpoint 404s and the tools error.
+# The harness serves the catalog and the executed calls itself (mock
+# listMcpTools + benchmark fetch handlers in adapters/frontend), so these cases
+# do not require an mcp-enabled eval backend.
 
 - id: global-test30-api-catalog-workers
   prompt: |-

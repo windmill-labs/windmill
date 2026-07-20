@@ -947,7 +947,7 @@ describe('global AI tools', () => {
 	it('applies limit per item type so a full page of one type cannot hide another', async () => {
 		vi.mocked(ScriptService.listScripts).mockResolvedValueOnce([
 			{ path: 'f/scripts/s1', language: 'bun' },
-			{ path: 'f/scripts/s2', language: 'bun' }
+			{ path: 'f/scripts/s2', language: 'bun', draft_only: true }
 		] as any)
 		vi.mocked(FlowService.listFlows).mockResolvedValueOnce([{ path: 'f/flows/f1' }] as any)
 
@@ -956,11 +956,10 @@ describe('global AI tools', () => {
 			limit: 2
 		})
 
-		expect(JSON.parse(raw).map((i: any) => i.path)).toEqual([
-			'f/scripts/s1',
-			'f/scripts/s2',
-			'f/flows/f1'
-		])
+		const items = JSON.parse(raw)
+		expect(items.map((i: any) => i.path)).toEqual(['f/scripts/s1', 'f/scripts/s2', 'f/flows/f1'])
+		// Server-synthesized draft-only rows must read as drafts, not deployed items.
+		expect(items.map((i: any) => i.isDraft)).toEqual([false, true, false])
 	})
 
 	it('lists and edits the live script editor draft through its effective path', async () => {
