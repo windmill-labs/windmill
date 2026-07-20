@@ -336,7 +336,12 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
                         "Hub script {path} returned a malformed lockfile (does not start with a package.json object), skipping prebundling"
                     );
                 } else {
-                    let install_lock = bun_cache_install_lock(&lock)?;
+                    let install_lock = bun_cache_install_lock(&lock).unwrap_or_else(|e| {
+                        tracing::warn!(
+                            "Failed to apply dependency overrides for Hub script {path}, using the original lockfile: {e:#}"
+                        );
+                        Cow::Borrowed(lock.as_str())
+                    });
                     let _ = windmill_worker::prepare_job_dir(&install_lock, &job_dir).await?;
                     let envs = windmill_worker::get_common_bun_proc_envs(None).await;
                     if let Err(e) = windmill_worker::install_bun_lockfile(
