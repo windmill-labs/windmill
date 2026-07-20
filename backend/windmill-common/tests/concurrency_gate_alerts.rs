@@ -45,8 +45,16 @@ mod tests {
         // A non-delayed job reaches the gate when it is created, so first_gated
         // tracks created_at here. The delayed-arrival case sets them apart via
         // queue_gated_delayed.
-        queue_gated_full_delayed(db, n, gate, created_hours_ago, created_hours_ago, mark_mins_ago, canceled)
-            .await
+        queue_gated_full_delayed(
+            db,
+            n,
+            gate,
+            created_hours_ago,
+            created_hours_ago,
+            mark_mins_ago,
+            canceled,
+        )
+        .await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -113,7 +121,8 @@ mod tests {
             "a gate that cannot drain its backlog must alert, got {messages:?}"
         );
         assert!(
-            messages[0].contains("17280") && messages[0].contains("40000")
+            messages[0].contains("17280")
+                && messages[0].contains("40000")
                 && messages[0].contains("720"),
             "alert must name the backlog and both ceilings it exceeds: {}",
             messages[0]
@@ -182,7 +191,11 @@ mod tests {
         free_the_lock(&db).await;
         queue_gated(&db, 40_000, SLOW_GATE, 0).await;
         concurrency_gate_alerts(&db).await;
-        assert_eq!(alert_messages(&db).await.len(), 1, "expected the initial alert");
+        assert_eq!(
+            alert_messages(&db).await.len(),
+            1,
+            "expected the initial alert"
+        );
 
         sqlx::query!("DELETE FROM v2_job_queue")
             .execute(&db)
@@ -213,7 +226,10 @@ mod tests {
         .await
         .expect("read healthchecks")
         .unwrap_or(0);
-        assert_eq!(unresolved, 0, "a fully drained gate must have its alert recovered");
+        assert_eq!(
+            unresolved, 0,
+            "a fully drained gate must have its alert recovered"
+        );
     }
 
     /// The window governs how soon the alert fires, so a gate taking on less than

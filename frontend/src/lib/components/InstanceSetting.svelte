@@ -771,10 +771,10 @@
 								/>
 								<p class="text-xs text-tertiary">
 									Comma-separated host/IP patterns the proxy still traces but for which it skips
-									upstream TLS certificate verification. Use for internal endpoints with self-signed
-									or otherwise untrusted certificates — unlike NO_PROXY above, these requests stay
-									traced. Same matching as NO_PROXY (<code>example.com</code> matches subdomains;
-									<code>.example.com</code> matches subdomains only).
+									upstream TLS certificate verification. Use for internal endpoints with
+									self-signed or otherwise untrusted certificates — unlike NO_PROXY above, these
+									requests stay traced. Same matching as NO_PROXY (<code>example.com</code> matches
+									subdomains; <code>.example.com</code> matches subdomains only).
 								</p>
 							</div>
 							<div class="flex flex-col gap-1">
