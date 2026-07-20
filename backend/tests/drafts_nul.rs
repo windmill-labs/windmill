@@ -28,16 +28,18 @@ async fn test_draft_write_strips_nul(db: Pool<Postgres>) -> anyhow::Result<()> {
     let base = format!("http://localhost:{port}/api/w/dnul-ws");
 
     // Save a draft whose summary and content carry a real NUL.
-    let resp = authed(client().post(format!("{base}/drafts/update/script/u/dnul-admin/poison")))
-        .json(&json!({
-            "value": {
-                "summary": "hi\u{0}there",
-                "path": "u/dnul-admin/poison",
-                "content": "x\u{0}y"
-            }
-        }))
-        .send()
-        .await?;
+    let resp = authed(client().post(format!(
+        "{base}/drafts/update/script/u/dnul-admin/poison"
+    )))
+    .json(&json!({
+        "value": {
+            "summary": "hi\u{0}there",
+            "path": "u/dnul-admin/poison",
+            "content": "x\u{0}y"
+        }
+    }))
+    .send()
+    .await?;
     assert_eq!(
         resp.status(),
         200,
@@ -46,12 +48,13 @@ async fn test_draft_write_strips_nul(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     // The stored value must be NUL-free (sanitized on write).
-    let stored: Value =
-        authed(client().get(format!("{base}/drafts/get_own/script/u/dnul-admin/poison")))
-            .send()
-            .await?
-            .json()
-            .await?;
+    let stored: Value = authed(client().get(format!(
+        "{base}/drafts/get_own/script/u/dnul-admin/poison"
+    )))
+    .send()
+    .await?
+    .json()
+    .await?;
     let value = stored.get("value").expect("draft should exist");
     assert_eq!(value["summary"], "hithere");
     assert_eq!(value["content"], "xy");
