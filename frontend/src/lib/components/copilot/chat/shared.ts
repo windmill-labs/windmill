@@ -567,13 +567,17 @@ export type AssistantDisplayMessage = BaseDisplayMessage & {
 
 /**
  * Compaction boundary: replaces the summarized prefix in BOTH displayMessages
- * and the API messages (where it is a plain user message). It carries no index
- * because it is never a restart target — only the surviving tail's user
- * messages are rewound to.
+ * and the API messages (where it is a plain user message). It is never a restart
+ * target — only the surviving tail's user messages are rewound to.
  */
 export type SummaryDisplayMessage = {
 	role: 'summary'
 	content: string
+	// Index of the summary's API message, tracked ONLY so orphan detection can tell
+	// when a later drop-oldest compaction drops it (index goes negative) and its
+	// carried files must move to the roster. Not a restart target. Absent on
+	// summaries loaded from pre-existing history.
+	index?: number
 	// Files attached to messages the summary folded away — carried forward so
 	// they stay tool-readable (and reload-safe) after compaction.
 	files?: AttachedTextFile[]

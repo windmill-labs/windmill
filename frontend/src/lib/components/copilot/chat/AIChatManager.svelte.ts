@@ -1055,8 +1055,12 @@ export class AIChatManager {
 		// "counterpart gone": storedImages finds nothing there, and restart maps
 		// it to an empty history (everything before it was dropped too, since
 		// compaction only removes prefixes).
+		// A summary row also carries its API index (for orphan detection) — re-base it
+		// too so it reads "counterpart gone" once drop-oldest removes the summary.
 		this.displayMessages = this.displayMessages.map((m) =>
-			m.role === 'user' ? { ...m, index: m.index - drop } : m
+			m.role === 'user' || (m.role === 'summary' && m.index !== undefined)
+				? { ...m, index: m.index! - drop }
+				: m
 		)
 		return freed
 	}
@@ -1134,6 +1138,9 @@ export class AIChatManager {
 				{
 					role: 'summary',
 					content: formatted,
+					// The summary API message sits at slot 0 of the rewritten history; track
+					// it so a later drop-oldest that removes it can orphan the carried files.
+					index: 0,
 					files: carriedFiles.length > 0 ? carriedFiles : undefined
 				},
 				...this.displayMessages
@@ -2098,7 +2105,9 @@ export class AIChatManager {
 		const dropped = new Set<string>()
 		for (const m of this.displayMessages) {
 			if ((m.role === 'user' || m.role === 'summary') && m.files) {
-				const gone = m.role === 'user' && m.index < 0
+				// A summary carries its files' reference in its own API message; that too
+				// can be dropped by a later drop-oldest (negative index), orphaning them.
+				const gone = m.index !== undefined && m.index < 0
 				for (const f of m.files) (gone ? dropped : live).add(f.name)
 			}
 		}

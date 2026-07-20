@@ -1262,6 +1262,29 @@ describe('AIChatManager queued messages', () => {
 		expect([...manager.orphanedMessageFileNames()]).toEqual(['dropped.md'])
 	})
 
+	// A summary carries its folded files' reference on its own API message; if a
+	// later drop-oldest (summary fallback) removes that message, the reference is
+	// gone and the files must move to the roster like any other orphan.
+	it('orphans summary-carried files when drop-oldest removes the summary', () => {
+		const manager = new AIChatManager()
+		manager.messages = [
+			{ role: 'user', content: 'summary api message' },
+			{ role: 'user', content: 'tail' }
+		] as any
+		manager.displayMessages = [
+			{ role: 'summary', content: 's', index: 0, files: [{ name: 'folded.md', content: 'x' }] },
+			{ role: 'user', content: 'tail', index: 1 }
+		] as any
+
+		// Summary API message present → its files are still referenced.
+		expect([...manager.orphanedMessageFileNames()]).toEqual([])
+
+		// Drop-oldest removes the summary's API message and re-bases indices.
+		manager.compactOldestMessages(1)
+
+		expect([...manager.orphanedMessageFileNames()]).toEqual(['folded.md'])
+	})
+
 	// An edit is not committed until send, so cancelling it returns the message's
 	// persisted attachments. Charging only the (possibly emptied) edit stage would
 	// hand the bottom composer headroom that vanishes on cancel — remove the files
