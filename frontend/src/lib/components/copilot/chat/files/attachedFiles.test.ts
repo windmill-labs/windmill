@@ -538,6 +538,29 @@ describe('AttachedFilesStore', () => {
 		expect(await (store.get('notes (2).md')!.file as Blob).text()).toBe('session content\n')
 	})
 
+	it('reclaims every colliding transcript name across a multi-name rebuild', async () => {
+		// Session asset owns notes.md; the transcript references BOTH notes (2).md
+		// and notes.md (a same-name attachment suffixed at send). Freeing notes.md
+		// must skip notes (2).md (also wanted), or that message row would cascade to
+		// notes (3).md while its persisted reference stays notes (2).md.
+		await store.addFiles([file('notes.md', 'session\n')])
+		await settle(store)
+
+		await store.syncMessageScoped([
+			{ name: 'notes (2).md', content: 'first\n' },
+			{ name: 'notes.md', content: 'second\n' }
+		])
+		await settle(store)
+
+		expect(store.get('notes.md')?.messageScoped).toBe(true)
+		expect(await (store.get('notes.md')!.file as Blob).text()).toBe('second\n')
+		expect(store.get('notes (2).md')?.messageScoped).toBe(true)
+		expect(await (store.get('notes (2).md')!.file as Blob).text()).toBe('first\n')
+		// The session asset is pushed clear of both wanted names, still readable.
+		expect(store.get('notes (3).md')?.messageScoped).toBeFalsy()
+		expect(await (store.get('notes (3).md')!.file as Blob).text()).toBe('session\n')
+	})
+
 	it('syncMessageScoped reconciles rows to the transcript references', async () => {
 		await store.syncMessageScoped([
 			{ name: 'a.md', content: 'aaa\n' },

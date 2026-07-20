@@ -167,10 +167,14 @@ export class AttachedFilesStore {
 	 * transcript reference. In-memory only: the rename is deterministic and
 	 * re-applied on every load (session items load, then syncMessageScoped runs),
 	 * so it stays consistent without a persisted-record update. */
-	#freeNameForMessageRow(name: string): void {
+	#freeNameForMessageRow(name: string, wantedNames: ReadonlySet<string>): void {
 		const clash = this.files.find((f) => f.name === name && !f.messageScoped && !f.isFolderRoot)
 		if (!clash) return
-		const renamed = this.#uniqueName(name)
+		// Suffix the session row clear of the WHOLE wanted set, not just current
+		// rows: renaming it onto another wanted name (e.g. freeing `notes.md` onto
+		// `notes (2).md` when both are transcript references) would push that second
+		// message row to a further suffix and orphan its persisted reference.
+		const renamed = this.#uniqueName(name, wantedNames)
 		this.files = this.files.map((f) => (f === clash ? { ...f, name: renamed } : f))
 		// #indexFile (started at restore under the old name) stamps the row via
 		// #patchFile(oldName, file) — after this rename that no longer matches, so an
@@ -216,7 +220,8 @@ export class AttachedFilesStore {
 				// the session asset and read the wrong content. Rename the session row
 				// aside so the message row reclaims its exact name; the session roster
 				// is regenerated live each send, so it stays addressable under the suffix.
-				for (const w of wanted) this.#freeNameForMessageRow(w.name)
+				const wantedNames = new Set(wanted.map((f) => f.name))
+				for (const name of wantedNames) this.#freeNameForMessageRow(name, wantedNames)
 				await this.addFiles(
 					wanted.map((f) => new File([f.content], f.name, { type: 'text/plain' })),
 					{ messageScoped: true }
@@ -714,10 +719,12 @@ export class AttachedFilesStore {
 		this.files = this.files.map((f) => (f.sourceId === sourceId ? { ...f, ...changes } : f))
 	}
 
-	#uniqueName(original: string): string {
+	#uniqueName(original: string, reserved?: ReadonlySet<string>): string {
 		// Uniqueness is only among real files — folder-root placeholders may share a name
-		// with a standalone file and must not push it to a "(2)" suffix.
-		const taken = (n: string) => this.files.some((f) => f.name === n && !f.isFolderRoot)
+		// with a standalone file and must not push it to a "(2)" suffix. `reserved`
+		// blocks extra names the caller must keep free (e.g. other transcript references).
+		const taken = (n: string) =>
+			(reserved?.has(n) ?? false) || this.files.some((f) => f.name === n && !f.isFolderRoot)
 		if (!taken(original)) return original
 		const dot = original.lastIndexOf('.')
 		const base = dot > 0 ? original.slice(0, dot) : original
