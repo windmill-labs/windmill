@@ -34,7 +34,7 @@ Windmill uses 6-field cron expressions (includes seconds):
 
 ## CLI Commands
 
-Deploying local changes to the workspace can be destructive to remote state — only suggest/run a deploy when the user explicitly asks to deploy/publish/push, not when they say "run", "try", or "test". If the repo deploys on git push (backend auto-pull or CI — check `wmill gitsync-settings status`), deploy with `git push`; otherwise use `wmill sync push`. The commands below never mutate remote state, so they're safe to run yourself — note that `sync pull` does overwrite local files to match the remote (use `sync pull --dry-run` to only preview), while `schedule` just lists.
+Deploying local changes to the workspace can be destructive to remote state — only suggest/run a deploy when the user explicitly asks to deploy/publish/push, not when they say "run", "try", or "test". Deploy via `git push` or `wmill sync push` depending on how the repo is wired (see the **Deploying** section in `AGENTS.wmill.md`). The commands below never mutate remote state, so they're safe to run yourself — note that `sync pull` does overwrite local files to match the remote (use `sync pull --dry-run` to only preview), while `schedule` just lists.
 
 ```bash
 # Push schedules to Windmill — only when the user explicitly asks to deploy

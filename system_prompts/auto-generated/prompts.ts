@@ -590,8 +590,8 @@ wmill resource-type list --schema
 wmill resource-type get postgresql
 
 # Deploy resources to the workspace — destructive to remote state, so only run when
-# the user explicitly asks to deploy/publish/push. If the repo deploys on git push
-# (backend auto-pull or CI — check \`wmill gitsync-settings status\`), use \`git push\` instead.
+# the user explicitly asks to deploy/publish/push. Depending on how the repo is wired,
+# deploy via \`git push\` or \`wmill sync push\` (see the Deploying section in AGENTS.wmill.md).
 wmill sync push
 \`\`\`
 `;
