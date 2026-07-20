@@ -1054,9 +1054,17 @@ async fn get_git_sync_deploy_mode(
     .map_err(|e| Error::internal_err(format!("getting git_sync settings: {e:#}")))?;
     tx.commit().await?;
 
-    let settings = not_found_if_none(git_sync, "workspace settings", &w_id)?
-        .and_then(|v| serde_json::from_value::<WorkspaceGitSyncSettings>(v).ok());
+    let settings = not_found_if_none(git_sync, "workspace settings", &w_id)?.and_then(|v| {
+        serde_json::from_value::<WorkspaceGitSyncSettings>(v)
+            .map_err(|e| {
+                tracing::warn!("git_sync deploy mode: settings deserialize failed for {w_id}: {e}")
+            })
+            .ok()
+    });
 
+    // Not enterprise-gated: CE members also need this to pick their deploy path.
+    // `auto_pull` is only wired on EE, so `deploy_on_push` stays false on CE
+    // unless a downgraded workspace still carries the flag.
     let (configured, deploy_on_push) = match settings {
         Some(s) => (
             !s.repositories.is_empty(),

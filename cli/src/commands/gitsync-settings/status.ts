@@ -20,7 +20,8 @@ export async function gitSyncStatus(
   const deployCommand = mode.deploy_on_push ? "git push" : "wmill sync push";
 
   if (opts.jsonOutput) {
-    log.info(JSON.stringify({ ...mode, deploy_command: deployCommand }, null, 2));
+    // console.log (not log.info, which wraps in ANSI color) so the output pipes cleanly to jq.
+    console.log(JSON.stringify({ ...mode, deploy_command: deployCommand }, null, 2));
     return;
   }
 
