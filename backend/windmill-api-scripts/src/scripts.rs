@@ -1347,6 +1347,18 @@ async fn create_script_internal<'c>(
             malformed_data_tests
         );
     }
+    let (malformed_measures, malformed_dimensions) =
+        windmill_parser::asset_parser::count_malformed_metric_annotations(&ns.content);
+    if malformed_measures > 0 || malformed_dimensions > 0 {
+        tracing::warn!(
+            "script {}: {} `// measure` and {} `// dimension` line(s) are malformed and were \
+             dropped. Fix the syntax (`measure <name> = <agg> [where <pred>]`, \
+             `dimension <name> = <expr>`).",
+            ns.path,
+            malformed_measures,
+            malformed_dimensions
+        );
+    }
     // `// macros` — this script is a workspace macro library: its body is
     // CREATE [OR REPLACE] MACRO statements plus plain setup, registered into
     // `macro_definition` and injected as TEMP macros into consumer jobs.
@@ -1676,6 +1688,19 @@ async fn create_script_internal<'c>(
             .await?;
         }
     }
+
+    // Metric catalog: replace this path's declared measures/dimensions wholesale,
+    // so the catalog always describes the deployed state. Runs for every language,
+    // not just DuckDB: a script that drops its declarations (or changes language,
+    // or is replaced at the same path) must clear its old rows.
+    windmill_common::data_metrics::sync_metric_catalog(
+        &mut *tx,
+        &w_id,
+        &ns.path,
+        old_path,
+        &ns.content,
+    )
+    .await?;
 
     if ns.language == ScriptLang::DuckDb {
         // Record this script's macro-call edges for the asset graph (the
@@ -4111,6 +4136,8 @@ async fn check_schema_contracts(
         &ann.column_lineage,
         &ann.data_tests,
         ann.materialize.as_ref(),
+        &ann.measures,
+        &ann.dimensions,
     )
     .await?;
     tx.commit().await?;
