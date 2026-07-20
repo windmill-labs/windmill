@@ -107,6 +107,7 @@
 		fetchCustomWmillTypesData
 	} from './lint/typescriptExtraLibs'
 	import { createWindmillAta, genAtaRoot } from './lint/typescriptAta'
+	import { readModelMarkers } from './lint/headlessLint'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { Selection } from 'monaco-editor'
 	import { canHavePreprocessor, getPreprocessorModuleCode } from '$lib/script_helpers'
@@ -536,17 +537,7 @@
 		if (!model) {
 			return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
 		}
-
-		const markers = meditor.getModelMarkers({ resource: model.uri })
-		const errors = markers.filter((m) => m.severity === MarkerSeverity.Error)
-		const warnings = markers.filter((m) => m.severity === MarkerSeverity.Warning)
-
-		return {
-			errorCount: errors.length,
-			warningCount: warnings.length,
-			errors,
-			warnings
-		}
+		return readModelMarkers(model.uri)
 	}
 
 	let command: IDisposable | undefined = undefined
