@@ -1214,6 +1214,31 @@ describe('AIChatManager queued messages', () => {
 		expect(manager.attachmentBytesExcluding('probe')).toBe(3000)
 	})
 
+	// A normal send clears the composer's files immediately, but sendRequest awaits
+	// attachment upkeep (regrant/refresh) before installing the bubble. The outgoing
+	// bytes must stay reserved across that gap or a fresh drop could overflow the cap.
+	it('reserves a normal send outgoing files across the preflight gap', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+
+		let observed: number | undefined
+		vi.spyOn(manager.attachedFiles, 'refreshFolders').mockImplementation(async () => {
+			observed = manager.attachmentBytesExcluding('probe')
+		})
+
+		await manager.sendRequest({
+			instructions: 'hi',
+			files: [{ name: 'a.md', content: 'X'.repeat(2500) }]
+		})
+		for (let i = 0; i < 50; i++) await new Promise((r) => setTimeout(r, 0))
+
+		// Reserved during upkeep (before the bubble lands), then accounted by the
+		// installed transcript once the reservation is released.
+		expect(observed).toBe(2500)
+		expect(manager.attachmentBytesExcluding('probe')).toBe(2500)
+	})
+
 	// A local command (/clear, /compact) consumes the send and returns before a
 	// bubble installs, so an edit resolved to one must not strand its reservation.
 	it('releases the resend reservation when an edit resolves to a local command', async () => {

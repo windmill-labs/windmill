@@ -2028,13 +2028,13 @@ export class AIChatManager {
 		this.#composerStaged.delete(key)
 	}
 
-	/** Release the resend reservation identified by `key` (a per-resend token, see
-	 * restartGeneration). Called once when sendRequest installs the bubble (the
-	 * transcript then accounts the files) and on every sendRequest path that exits
-	 * before install — abandoning the send leaves the files in the composer, which
-	 * reserves them, so a stranded reservation would double-charge. Keyed per resend
-	 * so a normal or concurrent send never releases a reservation it doesn't own. */
-	#releaseResendReservation(key: string | undefined) {
+	/** Release the outgoing-files reservation identified by `key` (a per-send token).
+	 * Called once when sendRequest installs the bubble (the transcript then accounts
+	 * the files) and on every sendRequest path that exits before install — abandoning
+	 * the send leaves the files in the composer/queue, which reserves them, so a
+	 * stranded reservation would double-charge. Keyed per send so one send never
+	 * releases a reservation another owns. */
+	#releaseOutgoingReservation(key: string | undefined) {
 		if (key) this.clearComposerStaged(key)
 	}
 
@@ -2379,9 +2379,17 @@ export class AIChatManager {
 		// without being acted on (mode hidden, empty, beforeSend failed). The
 		// queue flush restores the queued message only on false, so a consumed
 		// command isn't re-queued and re-fired into the next conversation.
+		//
+		// Reservation token for this send's outgoing files. A resend arrives with one
+		// already set by restartGeneration (it must reserve earlier, before its own
+		// pre-send slice); a normal/queued send mints one below, just before the
+		// attachment-upkeep awaits open a gap. Released once the bubble installs or the
+		// send exits before install. Kept in a mutable local so every exit path
+		// releases the right key.
+		let reservationKey = options.resendReservationKey
 		const requestedMode = options.mode ?? this.mode
 		if (!isAIModeVisible(requestedMode)) {
-			this.#releaseResendReservation(options.resendReservationKey)
+			this.#releaseOutgoingReservation(reservationKey)
 			return false
 		}
 		this.changeMode(requestedMode, undefined, {
@@ -2403,7 +2411,7 @@ export class AIChatManager {
 			(options.images?.length ?? 0) === 0 &&
 			(options.files?.length ?? 0) === 0
 		) {
-			this.#releaseResendReservation(options.resendReservationKey)
+			this.#releaseOutgoingReservation(reservationKey)
 			return false
 		}
 		// Built-in session commands run locally instead of becoming a chat turn.
@@ -2417,7 +2425,7 @@ export class AIChatManager {
 			// A local command consumes the send without installing a bubble; an edit
 			// resolved to `/clear` or `/compact` must not strand its resend reservation.
 			if (COMPACT_COMMAND_RE.test(trimmed) || CLEAR_COMMAND_RE.test(trimmed)) {
-				this.#releaseResendReservation(options.resendReservationKey)
+				this.#releaseOutgoingReservation(reservationKey)
 			}
 			// `/compact`: summarize the conversation locally to free up context.
 			if (COMPACT_COMMAND_RE.test(trimmed)) {
@@ -2431,6 +2439,19 @@ export class AIChatManager {
 				await this.saveAndClear()
 				return true
 			}
+		}
+		// Reserve the outgoing files' bytes now, before the upkeep awaits below: the
+		// composer (or queue) already cleared them, so without this reservation they
+		// are unaccounted during the gap and a fresh drop could spend the same
+		// headroom, overflowing the cap once this bubble lands. A resend already holds
+		// its own reservation (reused via reservationKey), so only mint for others.
+		if (!reservationKey && (options.files?.length ?? 0) > 0) {
+			reservationKey = `send:${createLongHash()}`
+			this.setComposerStaged(
+				reservationKey,
+				null,
+				options.files!.reduce((sum, f) => sum + textByteLength(f.content), 0)
+			)
 		}
 		// Re-grant any locked File System Access handles within this send gesture, so the
 		// file tools can read the live files. requestPermission() needs a user gesture, and
@@ -2467,8 +2488,8 @@ export class AIChatManager {
 				true
 			)
 			// Abandoned before install; the files go back to the composer, which
-			// re-reserves them, so release any resend reservation held for this send.
-			this.#releaseResendReservation(options.resendReservationKey)
+			// re-reserves them, so release this send's outgoing-files reservation.
+			this.#releaseOutgoingReservation(reservationKey)
 			if (!options.queued) {
 				this.aiChatInput?.restoreInstructions(
 					this.instructions,
@@ -2525,10 +2546,10 @@ export class AIChatManager {
 				index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
 			}
 		]
-		// The bubble now carries the (possibly resent) files, so the transcript
-		// accounts them; release any resend reservation that bridged the gap. A
-		// beforeSend rollback below restores them to the composer, which re-reserves.
-		this.#releaseResendReservation(options.resendReservationKey)
+		// The bubble now carries the outgoing files, so the transcript accounts them;
+		// release the reservation that bridged the preflight gap. A beforeSend
+		// rollback below restores them to the composer, which re-reserves.
+		this.#releaseOutgoingReservation(reservationKey)
 		// Undo the optimistic bubble + loading/label. Shared by the beforeSend-failure and
 		// pre-flight-cancel paths below; callers put the message back in the composer.
 		const rollbackOptimisticSend = () => {
