@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT COUNT(*) FILTER (WHERE concurrency_gated IS NOT TRUE) AS count,\n                       COUNT(*) FILTER (WHERE concurrency_gated) AS gated_count,\n                       MIN(scheduled_for) FILTER (WHERE concurrency_gated IS NOT TRUE)\n                           AS oldest_job,\n                       MIN(scheduled_for) AS oldest_any\n                FROM v2_job_queue\n                WHERE tag = $1\n                  AND scheduled_for <= NOW() - $2::interval\n                  AND running = false\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "gated_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "oldest_job",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "oldest_any",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Interval"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "23dee86f414303a6a9332d7c49b1e1eb6d25dc58bb892d7dc1f07d8ab22cf6a5"
+}

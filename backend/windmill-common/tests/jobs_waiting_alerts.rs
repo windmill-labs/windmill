@@ -19,7 +19,6 @@ mod tests {
     use windmill_common::ee::jobs_waiting_alerts;
 
     const TAG: &str = "python3";
-    const GATE_KEY: &str = "test-workspace/u/user/gated_script";
 
     /// `jobs_waiting_alerts` bails out unless it can take the shared lock, and a
     /// freshly inserted lock row is never old enough to be claimed on the first
@@ -54,108 +53,20 @@ mod tests {
         .expect("seed alert config");
     }
 
-    /// A concurrency gate as the push path lays it out: the limit hangs off
-    /// `runnable_settings_handle` -> `concurrency_settings`, and the live
-    /// admission count is the number of job uuids in `concurrency_counter`.
-    /// `running` is how many slots are currently taken.
-    ///
-    /// The window is wide so a completion seeded by `seed_recent_completions`
-    /// stays inside it for the length of the test.
-    async fn seed_gate(db: &Pool<Postgres>, key: &str, handle: i64, limit: i32, running: usize) {
-        let job_uuids: serde_json::Value = (0..running)
-            .map(|_| (Uuid::new_v4().hyphenated().to_string(), json!({})))
-            .collect::<serde_json::Map<_, _>>()
-            .into();
-
-        sqlx::query!(
-            "INSERT INTO concurrency_settings (hash, concurrency_key, concurrent_limit, concurrency_time_window_s)
-             VALUES ($1, $2, $3, 600)",
-            handle,
-            key,
-            limit,
-        )
-        .execute(db)
-        .await
-        .expect("seed concurrency settings");
-
-        sqlx::query!(
-            "INSERT INTO runnable_settings (hash, concurrency_settings) VALUES ($1, $1)",
-            handle,
-        )
-        .execute(db)
-        .await
-        .expect("seed runnable settings");
-
-        sqlx::query!(
-            "INSERT INTO concurrency_counter (concurrency_id, job_uuids) VALUES ($1, $2)",
-            key,
-            job_uuids,
-        )
-        .execute(db)
-        .await
-        .expect("seed concurrency counter");
-    }
-
-    /// Queue `n` jobs on TAG that have been due for 5 minutes. When `gate` is
-    /// set, each job also gets the `concurrency_key` row that
-    /// `insert_concurrency_key` writes at push time for any runnable carrying a
-    /// concurrent_limit, plus the settings handle that carries the limit.
-    async fn queue_jobs(db: &Pool<Postgres>, n: usize, gate: Option<(&str, i64)>) {
-        queue_jobs_inner(db, n, gate, None).await
-    }
-
-    /// Soft-cancelled jobs stay queued until a worker picks them up, and the
-    /// pull path skips concurrency limiting for them entirely.
-    async fn queue_canceled_jobs(db: &Pool<Postgres>, n: usize, gate: Option<(&str, i64)>) {
-        queue_jobs_inner(db, n, gate, Some("canceller")).await
-    }
-
-    async fn queue_jobs_inner(
-        db: &Pool<Postgres>,
-        n: usize,
-        gate: Option<(&str, i64)>,
-        canceled_by: Option<&str>,
-    ) {
+    /// Queue `n` jobs on TAG that have been due for 5 minutes. `gated` mirrors
+    /// what the limiter writes when it re-queues a job it could not admit.
+    async fn queue_jobs(db: &Pool<Postgres>, n: usize, gated: bool) {
         for _ in 0..n {
-            let id = Uuid::new_v4();
             sqlx::query!(
-                "INSERT INTO v2_job_queue (id, workspace_id, tag, running, scheduled_for, runnable_settings_handle, canceled_by)
-                 VALUES ($1, 'test-workspace', $2, false, NOW() - INTERVAL '5 minutes', $3, $4)",
-                id,
+                "INSERT INTO v2_job_queue (id, workspace_id, tag, running, scheduled_for, concurrency_gated)
+                 VALUES ($1, 'test-workspace', $2, false, NOW() - INTERVAL '5 minutes', $3)",
+                Uuid::new_v4(),
                 TAG,
-                gate.map(|(_, handle)| handle),
-                canceled_by,
+                gated.then_some(true),
             )
             .execute(db)
             .await
             .expect("queue job");
-
-            if let Some((key, _)) = gate {
-                sqlx::query!(
-                    "INSERT INTO concurrency_key (job_id, key) VALUES ($1, $2)",
-                    id,
-                    key,
-                )
-                .execute(db)
-                .await
-                .expect("gate job");
-            }
-        }
-    }
-
-    /// Jobs that already finished inside the gate's time window. The limiter
-    /// counts these toward the limit, so they hold the gate shut even though
-    /// they are gone from `concurrency_counter`.
-    async fn seed_recent_completions(db: &Pool<Postgres>, key: &str, n: usize) {
-        for _ in 0..n {
-            sqlx::query!(
-                "INSERT INTO concurrency_key (job_id, key, ended_at) VALUES ($1, $2, NOW())",
-                Uuid::new_v4(),
-                key,
-            )
-            .execute(db)
-            .await
-            .expect("seed completion");
         }
     }
 
@@ -166,7 +77,7 @@ mod tests {
             .expect("read alerts")
     }
 
-    /// Jobs parked by their own workspace's concurrency gate must not page
+    /// Jobs the limiter parked behind their own concurrency gate must not page
     /// on-call: they are waiting by design, not for want of a worker, and no
     /// operator action drains them. Their re-queue timestamps mature in bursts,
     /// so counting them produces a stream of alerts whose count swings wildly
@@ -176,101 +87,26 @@ mod tests {
     async fn concurrency_gated_backlog_does_not_alert(db: Pool<Postgres>) {
         free_the_lock(&db).await;
         configure_alert(&db, 100).await;
-        seed_gate(&db, GATE_KEY, 1, 1, 1).await;
-        queue_jobs(&db, 200, Some((GATE_KEY, 1))).await;
+        queue_jobs(&db, 200, true).await;
 
         jobs_waiting_alerts(&db).await;
 
         assert!(
             alert_messages(&db).await.is_empty(),
-            "a backlog held entirely behind a saturated concurrency gate must not raise a critical alert"
+            "a backlog the limiter parked behind a concurrency gate must not raise a critical alert"
         );
     }
 
-    /// A gate can be shut with nothing running: the limiter admits on running
-    /// jobs *plus* those that ended inside concurrency_time_window_s, and a
-    /// completion clears the job from `concurrency_counter` while still holding
-    /// the window. Reading the counter alone reports the gate free, and the
-    /// backlog behind it pages -- the same false alert, one completion later.
-    #[ignore = "requires database setup - run with --ignored flag"]
-    #[sqlx::test(migrations = "../migrations")]
-    async fn time_window_saturated_gate_does_not_alert(db: Pool<Postgres>) {
-        free_the_lock(&db).await;
-        configure_alert(&db, 100).await;
-        seed_gate(&db, GATE_KEY, 1, 1, 0).await;
-        seed_recent_completions(&db, GATE_KEY, 1).await;
-        queue_jobs(&db, 200, Some((GATE_KEY, 1))).await;
-
-        jobs_waiting_alerts(&db).await;
-
-        assert!(
-            alert_messages(&db).await.is_empty(),
-            "a gate saturated by completions inside its time window must not raise a critical alert"
-        );
-    }
-
-    /// Cancellation is a limiter bypass too: the pull path hands a job with
-    /// `canceled_by` set straight to a worker without consulting the counter.
-    /// Such jobs stay queued until a worker processes them, so a worker outage
-    /// piles them up behind whatever key they carry -- and classifying them off
-    /// that key hides an unbounded cancelled backlog from the alert.
-    #[ignore = "requires database setup - run with --ignored flag"]
-    #[sqlx::test(migrations = "../migrations")]
-    async fn canceled_jobs_behind_saturated_gate_still_alert(db: Pool<Postgres>) {
-        free_the_lock(&db).await;
-        configure_alert(&db, 100).await;
-        seed_gate(&db, GATE_KEY, 1, 1, 1).await;
-        queue_canceled_jobs(&db, 200, Some((GATE_KEY, 1))).await;
-
-        jobs_waiting_alerts(&db).await;
-
-        let messages = alert_messages(&db).await;
-        assert_eq!(
-            messages.len(),
-            1,
-            "soft-cancelled jobs bypass the limiter and must still alert, got {messages:?}"
-        );
-    }
-
-    /// An empty concurrency key is a limiter bypass: `apply_concurrency_limit`
-    /// admits unconditionally instead of consulting the counter, so these jobs
-    /// are runnable and any backlog of them is genuine capacity starvation.
-    /// Classifying them off the counter alone would read the gate as full and
-    /// silence the alert during a real outage.
-    #[ignore = "requires database setup - run with --ignored flag"]
-    #[sqlx::test(migrations = "../migrations")]
-    async fn bypassed_empty_key_still_alerts(db: Pool<Postgres>) {
-        free_the_lock(&db).await;
-        configure_alert(&db, 100).await;
-        seed_gate(&db, "", 1, 1, 1).await;
-        queue_jobs(&db, 200, Some(("", 1))).await;
-
-        jobs_waiting_alerts(&db).await;
-
-        let messages = alert_messages(&db).await;
-        assert_eq!(
-            messages.len(),
-            1,
-            "jobs whose concurrency key is empty bypass the limiter and must still \
-             alert, got {messages:?}"
-        );
-    }
-
-    /// The exclusion keys off the gate being *full*, not off the job merely
-    /// carrying a concurrent_limit -- every such job gets a `concurrency_key`
-    /// row at push time, so excluding on that row alone would stop this alert
-    /// from ever firing for a rate-limited runnable. Half the backlog here sits
-    /// under a gate with free slots: it is starving for workers like the plain
-    /// jobs beside it and must be counted. Excluding it drops the count under
-    /// the threshold and the alert goes silent.
+    /// The complement: jobs no gate is holding are waiting on capacity and must
+    /// page, counted apart from the gated ones so the number can be reconciled
+    /// against the much larger raw queue depth.
     #[ignore = "requires database setup - run with --ignored flag"]
     #[sqlx::test(migrations = "../migrations")]
     async fn jobs_waiting_on_capacity_still_alert(db: Pool<Postgres>) {
         free_the_lock(&db).await;
-        configure_alert(&db, 150).await;
-        seed_gate(&db, GATE_KEY, 1, 10, 2).await;
-        queue_jobs(&db, 100, None).await;
-        queue_jobs(&db, 100, Some((GATE_KEY, 1))).await;
+        configure_alert(&db, 100).await;
+        queue_jobs(&db, 150, false).await;
+        queue_jobs(&db, 200, true).await;
 
         jobs_waiting_alerts(&db).await;
 
@@ -281,8 +117,13 @@ mod tests {
             "expected exactly one critical alert, got {messages:?}"
         );
         assert!(
+            messages[0].contains("150"),
+            "alert must count only the jobs actually waiting on capacity: {}",
+            messages[0]
+        );
+        assert!(
             messages[0].contains("200"),
-            "every job waiting on capacity must be counted, gated or not: {}",
+            "alert must report the gated jobs it excluded: {}",
             messages[0]
         );
     }
