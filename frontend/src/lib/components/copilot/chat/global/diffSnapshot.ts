@@ -270,6 +270,8 @@ function ensureCacheOwner(): void {
 	}
 	caches.clear()
 	forkCaches.clear()
+	reconciling.clear()
+	forkReconciling.clear()
 }
 
 function entryKey(kind: UserDraftItemKind, storagePath: string): string {
@@ -682,6 +684,10 @@ interface ForkCache {
 	parentWorkspaceId: string
 	draftsVersion: number
 	parentDraftsVersion: number
+	/** Mutation epoch the producer started under — joiners and the reuse gate
+	 * compare it against the current epoch, so a bump that landed before they
+	 * arrived (not just mid-await) is still detected. */
+	epoch: number
 	/** When the underlying comparison request STARTED (from its meta), not
 	 * when this snapshot adopted it — aging from adoption time would let a
 	 * near-expiry comparison live a whole extra reuse window here. */
@@ -755,6 +761,7 @@ async function reconcileFork(workspace: string, parentWorkspaceId: string): Prom
 		if (
 			prev &&
 			isCurrent(prev) &&
+			prev.epoch === epoch &&
 			prev.draftsVersion === version &&
 			Date.now() - prev.fetchedAt < FORK_COMPARISON_REUSE_MS &&
 			isComparisonCurrent(parentWorkspaceId, workspace, prev.comparisonGeneration)
@@ -764,7 +771,9 @@ async function reconcileFork(workspace: string, parentWorkspaceId: string): Prom
 		const inflight = forkReconciling.get(workspace)
 		if (inflight) {
 			const joined = await inflight
-			if ((isCurrent(joined) && epoch === mutationEpoch(workspace)) || attempt >= 4) return joined
+			if ((isCurrent(joined) && joined.epoch === mutationEpoch(workspace)) || attempt >= 4) {
+				return joined
+			}
 			continue
 		}
 		const run = (async () => {
@@ -814,6 +823,7 @@ async function reconcileFork(workspace: string, parentWorkspaceId: string): Prom
 				parentWorkspaceId,
 				draftsVersion: version,
 				parentDraftsVersion: parentVersion,
+				epoch,
 				fetchedAt: comparisonMeta.fetchedAt,
 				comparisonGeneration: comparisonMeta.generation,
 				skippedComparison: comparison.skipped_comparison,

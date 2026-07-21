@@ -495,6 +495,36 @@ describe('fork mode', () => {
 		expect(fetchWorkspaceComparisonMeta).toHaveBeenCalledTimes(2)
 	})
 
+	it('never joins a fork reconciliation started under a previous account', async () => {
+		usersWorkspaceStore.set({ email: 'fork-a@x.dev' } as any)
+		mockComparison([comparisonDiff({ path: 'f/a/fresh' })])
+		let resolveStale!: (v: unknown) => void
+		vi.mocked(fetchWorkspaceComparisonMeta).mockReturnValueOnce(
+			new Promise((res) => (resolveStale = res)) as any
+		)
+		vi.mocked(getItemValue).mockResolvedValue({ content: 'x' })
+		const staleRead = getForkDiffIndex(FORK, PARENT)
+		usersWorkspaceStore.set({ email: 'fork-b@x.dev' } as any)
+		const after = await getForkDiffIndex(FORK, PARENT)
+		expect(after.entries.map((e) => e.path)).toEqual(['f/a/fresh'])
+		resolveStale({
+			comparison: {
+				skipped_comparison: false,
+				diffs: [comparisonDiff({ path: 'f/a/stale' })],
+				summary: { total_diffs: 1 },
+				hidden_ahead: { total: 0 },
+				hidden_behind: { total: 0 }
+			},
+			fetchedAt: Date.now(),
+			generation: ++comparisonGen
+		})
+		// The old account's read resolves too — it must also get the fresh
+		// snapshot, never its own late (pre-switch) tally.
+		expect((await staleRead).entries.map((e) => e.path)).toEqual(['f/a/fresh'])
+		const reread = await getForkDiffIndex(FORK, PARENT)
+		expect(reread.entries.map((e) => e.path)).toEqual(['f/a/fresh'])
+	})
+
 	it('reuses patches while the item ahead/behind marker is unchanged, refetches when it moves', async () => {
 		mockComparison([comparisonDiff()])
 		vi.mocked(getItemValue).mockResolvedValue({ content: 'x' })
