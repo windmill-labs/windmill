@@ -91,6 +91,16 @@ describe('nonStaticBrainKeys', () => {
 			} as any)
 		).toEqual(['system_prompt', 'temperature'])
 	})
+
+	it('flags a non-static provider (the save-blocking case) but not a static one', () => {
+		// provider is required on the resource; a non-static one gets dropped and must block saving
+		expect(nonStaticBrainKeys({ provider: { type: 'javascript', expr: 'x' } } as any)).toContain(
+			'provider'
+		)
+		expect(nonStaticBrainKeys({ provider: { type: 'static', value: {} } } as any)).not.toContain(
+			'provider'
+		)
+	})
 })
 
 describe('flowLocalInputs', () => {

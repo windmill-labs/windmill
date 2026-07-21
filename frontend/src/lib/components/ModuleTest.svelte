@@ -3,7 +3,6 @@
 		ScriptService,
 		type AiAgent,
 		type FlowModule,
-		type InputTransform,
 		type JavascriptTransform,
 		type Job
 	} from '$lib/gen'
@@ -138,10 +137,7 @@
 				])
 			)
 
-			const agentVal = val as AiAgent & {
-				agent?: string
-				tool_inputs?: Record<string, Record<string, InputTransform>>
-			}
+			const agentVal = val
 
 			await jobLoader?.runFlowPreview(
 				args,

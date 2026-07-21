@@ -100,7 +100,7 @@
 			let rowOffset = -AI_TOOL_ROW_OFFSET
 			// A linked step's tools come from its resource (resolved into linkedAgentTools), not the
 			// module, whose own `tools` is empty.
-			const isLinkedAgent = !!(node.data.module.value as { agent?: string }).agent
+			const isLinkedAgent = !!node.data.module.value.agent
 			const sourceTools = isLinkedAgent
 				? (linkedAgentTools?.[node.data.module.id] ?? [])
 				: node.data.module.value.tools
@@ -162,7 +162,7 @@
 			// Clicking it selects the agent module (id = node.id).
 			const linkedPlaceholder = isLinkedAgent && !agentActions && tools.length === 0
 			if (linkedPlaceholder) {
-				const agentPath = (node.data.module.value as { agent?: string }).agent ?? ''
+				const agentPath = node.data.module.value.agent ?? ''
 				tools = [
 					{ id: node.id, name: agentPath.split('/').pop() || 'linked agent', type: 'linked' }
 				]

@@ -170,9 +170,7 @@
 			flowModule.value.type === 'aiagent'
 	)
 	let visibleSelected = $derived(selected === 'chat' && !canShowChatTab ? 'inputs' : selected)
-	let agentLinked = $derived(
-		flowModule.value.type === 'aiagent' && Boolean((flowModule.value as any).agent)
-	)
+	let agentLinked = $derived(flowModule.value.type === 'aiagent' && Boolean(flowModule.value.agent))
 	let advancedSelected = $state('retries')
 	let advancedRuntimeSelected = $state('concurrency')
 	let s3Kind = $state('s3_client')
@@ -1045,11 +1043,15 @@
 											{#if flowModule.value.type === 'aiagent'}
 												<AgentResourceBar
 													moduleId={flowModule.id}
+													opWorkspace={opWs}
 													bind:agent={
-														() => (flowModule.value as any).agent,
+														() =>
+															flowModule.value.type === 'aiagent'
+																? flowModule.value.agent
+																: undefined,
 														(v) => {
 															if (flowModule.value.type === 'aiagent') {
-																;(flowModule.value as any).agent = v
+																flowModule.value.agent = v
 															}
 														}
 													}
@@ -1062,18 +1064,24 @@
 														}
 													}
 													bind:tools={
-														() => (flowModule.value as any).tools ?? [],
+														() =>
+															flowModule.value.type === 'aiagent'
+																? (flowModule.value.tools ?? [])
+																: [],
 														(v) => {
 															if (flowModule.value.type === 'aiagent') {
-																;(flowModule.value as any).tools = v
+																flowModule.value.tools = v
 															}
 														}
 													}
 													bind:toolInputs={
-														() => (flowModule.value as any).tool_inputs ?? {},
+														() =>
+															flowModule.value.type === 'aiagent'
+																? (flowModule.value.tool_inputs ?? {})
+																: {},
 														(v) => {
 															if (flowModule.value.type === 'aiagent') {
-																;(flowModule.value as any).tool_inputs = v
+																flowModule.value.tool_inputs = v
 															}
 														}
 													}

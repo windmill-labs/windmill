@@ -26,14 +26,20 @@
 		inputTransforms = $bindable(),
 		tools = $bindable(),
 		toolInputs = $bindable(),
-		moduleId
+		moduleId,
+		opWorkspace = undefined
 	}: {
 		agent: string | undefined
 		inputTransforms: Record<string, InputTransform>
 		tools: AgentTool[]
 		toolInputs: Record<string, Record<string, InputTransform>>
 		moduleId: string
+		// The workspace the flow editor operates on (differs from the nav workspace in session/fork
+		// editors). All resource reads/writes must target it, not $workspaceStore.
+		opWorkspace?: string
 	} = $props()
+
+	let ws = $derived(opWorkspace ?? $workspaceStore)
 
 	let saveDrawer: Drawer | undefined = $state()
 	let newPath = $state('')
@@ -56,7 +62,7 @@
 	// load them here for display, and probe the provider resource so we can warn when it isn't
 	// accessible in this workspace (the user then needs to unlink/fork or gain access).
 	let linkedResource = resource(
-		() => ({ ws: $workspaceStore, path: agent }),
+		() => ({ ws, path: agent }),
 		async ({ ws, path }): Promise<LinkedInfo> => {
 			if (!ws || !path) {
 				return { config: {}, tools: [], providerOk: true }
@@ -84,6 +90,26 @@
 	let brainParams = $derived(summarizeAgentBrain(linkedResource.current?.config))
 	let providerPath = $derived(linkedResource.current?.providerPath)
 	let providerOk = $derived(linkedResource.current?.providerOk ?? true)
+
+	// A linked tool's inputs come from the resource, where they reference the *authoring* flow. Any
+	// dynamic (computed/connected) input the user hasn't rebound in this step still points at the
+	// source flow and silently evaluates wrong here — count them so we can warn to rebind.
+	let unboundToolInputs = $derived.by(() => {
+		let count = 0
+		for (const tool of inheritedTools) {
+			const value = tool.value as
+				| { tool_type?: string; input_transforms?: Record<string, InputTransform> }
+				| undefined
+			if (value?.tool_type !== 'flowmodule') continue
+			const overrides = toolInputs?.[tool.id] ?? {}
+			for (const [key, t] of Object.entries(value.input_transforms ?? {})) {
+				if ((t as { type?: string })?.type !== 'static' && !(key in overrides)) {
+					count++
+				}
+			}
+		}
+		return count
+	})
 
 	// Keep the graph's linked-tool store current for this step. flowState resolves every linked step
 	// at load; here we refresh the one being edited when its link changes (or clear it on unlink), so
@@ -125,10 +151,20 @@
 		saveDrawer?.openDrawer()
 	}
 
+	// The provider is required by the backend (AIAgentArgs.provider is non-optional). Only static
+	// transforms are captured into the resource, so a computed/connected provider would be dropped,
+	// producing an agent that fails to deserialize on every run — block saving in that case.
+	let providerNotStatic = $derived(nonStaticBrainKeys(inputTransforms).includes('provider'))
+
 	// Create or update the `ai_agent` resource at `path` from the step's current brain + tools, then
 	// link the step to it.
 	async function persist(path: string, description?: string) {
 		const dropped = nonStaticBrainKeys(inputTransforms)
+		if (providerNotStatic) {
+			throw new Error(
+				'The provider uses a computed/connected value. Set a static provider before saving — a linked agent needs a provider stored on the resource.'
+			)
+		}
 		if (dropped.length > 0) {
 			sendUserToast(
 				`Note: ${dropped.join(', ')} use a computed/connected value and won't be saved into the agent`,
@@ -136,16 +172,16 @@
 			)
 		}
 		const value = inputTransformsToAgentConfig(inputTransforms, tools)
-		const exists = await ResourceService.existsResource({ workspace: $workspaceStore!, path })
+		const exists = await ResourceService.existsResource({ workspace: ws!, path })
 		if (exists) {
 			await ResourceService.updateResourceValue({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path,
 				requestBody: { value }
 			})
 		} else {
 			await ResourceService.createResource({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				requestBody: {
 					path,
 					value,
@@ -162,7 +198,7 @@
 	}
 
 	async function saveAsAgent() {
-		if (!$workspaceStore || pathError || !newPath) {
+		if (!ws || pathError || !newPath) {
 			return
 		}
 		saving = true
@@ -180,7 +216,7 @@
 
 	// Save the forked-for-edit step back to the agent it came from, updating it in place.
 	async function saveChanges() {
-		if (!$workspaceStore || !editingPath) {
+		if (!ws || !editingPath) {
 			return
 		}
 		saving = true
@@ -198,11 +234,11 @@
 	// Copy the linked resource's brain + tools into the step, turning it back into a standalone
 	// editable agent. Shared by Unlink (diverge here) and Edit (edit the saved agent itself).
 	async function forkFromResource(): Promise<string | undefined> {
-		if (!$workspaceStore || !agent) {
+		if (!ws || !agent) {
 			return undefined
 		}
 		const path = agent
-		const res = await ResourceService.getResource({ workspace: $workspaceStore, path })
+		const res = await ResourceService.getResource({ workspace: ws, path })
 		const cfg = (res.value ?? {}) as AIAgentConfig
 		const brain = agentConfigToInputTransforms(cfg)
 		// Preserve the flow-local inputs already wired in the step.
@@ -309,6 +345,18 @@
 				</dl>
 			{/if}
 		</div>
+		{#if unboundToolInputs > 0}
+			<div
+				class="mt-1 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-2xs text-amber-800 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+			>
+				<TriangleAlert size={14} class="mt-0.5 shrink-0" />
+				<span>
+					{unboundToolInputs} tool input{unboundToolInputs > 1 ? 's' : ''}
+					{unboundToolInputs > 1 ? 'still reference' : 'still references'} the source flow. Click each
+					tool node in the graph to rebind them to this flow before running.
+				</span>
+			</div>
+		{/if}
 		{#if !providerOk}
 			<div
 				class="mt-1 flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-2xs text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-300"
@@ -334,7 +382,7 @@
 					size="xs2"
 					variant="accent"
 					startIcon={{ icon: Save }}
-					disabled={saving}
+					disabled={saving || providerNotStatic}
 					onclick={saveChanges}
 				>
 					Save changes
@@ -349,10 +397,20 @@
 			propagates to every flow that links to it. Cancel keeps your edits here as a standalone step
 			instead.
 		</p>
+		{#if providerNotStatic}
+			<p class="text-2xs text-red-600 dark:text-red-400 mt-1">
+				Set a static provider before saving — a linked agent needs a provider stored on the
+				resource.
+			</p>
+		{/if}
 	{:else}
 		<div class="flex items-center gap-2">
 			<div class="grow min-w-0">
-				<LightweightResourcePicker bind:value={pickerValue} resourceType="ai_agent" />
+				<LightweightResourcePicker
+					bind:value={pickerValue}
+					resourceType="ai_agent"
+					workspace={ws}
+				/>
 			</div>
 			<span class="text-2xs text-tertiary">or</span>
 			<Button size="xs2" variant="default" startIcon={{ icon: Save }} onclick={openSave}>
@@ -380,12 +438,18 @@
 				<span class="text-secondary">Description</span>
 				<input class="text-xs" bind:value={description} placeholder="What this agent does" />
 			</label>
+			{#if providerNotStatic}
+				<p class="text-xs text-red-600 dark:text-red-400">
+					Set a static provider before saving — a linked agent needs a provider stored on the
+					resource, so a computed/connected provider can't be saved.
+				</p>
+			{/if}
 		</div>
 		{#snippet actions()}
 			<Button
 				variant="accent"
 				startIcon={{ icon: Save }}
-				disabled={!newPath || !!pathError || saving}
+				disabled={!newPath || !!pathError || saving || providerNotStatic}
 				onclick={saveAsAgent}
 			>
 				Save agent
