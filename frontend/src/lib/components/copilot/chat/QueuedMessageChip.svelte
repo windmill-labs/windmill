@@ -2,6 +2,7 @@
 	import { Button } from '$lib/components/common'
 	import { X } from 'lucide-svelte'
 	import ContextElementBadge from './ContextElementBadge.svelte'
+	import { contextElementKey } from './context'
 	import { getAiChatManager } from './aiChatManagerContext'
 
 	// The single message typed while a turn was streaming, waiting to be
@@ -40,7 +41,7 @@
 				</p>
 			{:else if aiChatManager.queuedImages.length === 0 && aiChatManager.queuedContext?.length}
 				<div class="flex flex-row flex-wrap gap-1">
-					{#each aiChatManager.queuedContext as element (element.type + '-' + element.title)}
+					{#each aiChatManager.queuedContext as element (contextElementKey(element))}
 						<ContextElementBadge contextElement={element} compact />
 					{/each}
 				</div>

@@ -955,11 +955,15 @@ describe('AIChatManager queued messages', () => {
 	it('queues a context-only draft while streaming', () => {
 		const manager = createManager(createInputMock())
 		manager.mode = AIMode.GLOBAL
-		const ctx = [{ type: 'code' as const, content: 'x', title: 'snippet', lang: 'bun' as const }]
+		const a = { type: 'code' as const, content: 'x', title: 'snippet', lang: 'bun' as const }
+		const b = { type: 'code' as const, content: 'y', title: 'other', lang: 'bun' as const }
 
-		manager.queueMessage('', [], ctx)
+		manager.queueMessage('', [], [a])
+		// A second queued prompt pins its own selection; the union must keep the
+		// earlier prompt's chip and not duplicate re-selected ones.
+		manager.queueMessage('', [], [b, a])
 
-		expect(manager.queuedContext).toEqual(ctx)
+		expect(manager.queuedContext).toEqual([a, b])
 		// A fully empty queue attempt still leaves nothing behind.
 		manager.dequeueMessage()
 		manager.queueMessage('', [], [])

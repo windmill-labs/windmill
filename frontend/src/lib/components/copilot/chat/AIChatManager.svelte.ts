@@ -80,6 +80,7 @@ import {
 	createAppBackendRunnableContextElement,
 	createAppFrontendFileContextElement,
 	flattenDatatablesToAppContextElements,
+	isSameContextElement,
 	type ContextElement,
 	type AppDatatableElement
 } from './context'
@@ -1459,30 +1460,18 @@ export class AIChatManager {
 			}
 			this.queuedImages = merged.slice(0, MAX_ATTACHED_IMAGES)
 		}
-		// Pin the context snapshot to the queued message. The queued text accumulates
-		// (several inline prompts can queue during one stream), so union the DOM
-		// selector chips too — replacing would drop an earlier prompt's element and
-		// misapply its instruction. Non-DOM context comes from the latest snapshot.
+		// Pin the context snapshot to the queued message. Several prompts can
+		// queue during one stream and each pinned the selection at its press —
+		// union by identity so a later press doesn't drop an earlier prompt's
+		// chips (all pinned entries ride the single flushed turn together).
 		if (context && context.length > 0) {
-			if (!this.queuedContext) {
-				this.queuedContext = context
-			} else {
-				const merged = [...context]
-				for (const c of this.queuedContext) {
-					if (
-						c.type === 'app_dom_selector' &&
-						!merged.some(
-							(m) =>
-								m.type === 'app_dom_selector' &&
-								m.selector === c.selector &&
-								m.appPath === c.appPath
-						)
-					) {
-						merged.push(c)
-					}
+			const merged = [...(this.queuedContext ?? [])]
+			for (const c of context) {
+				if (!merged.some((m) => isSameContextElement(m, c))) {
+					merged.push(c)
 				}
-				this.queuedContext = merged
 			}
+			this.queuedContext = merged
 		}
 	}
 

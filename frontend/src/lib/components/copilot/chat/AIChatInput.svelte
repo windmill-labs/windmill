@@ -4,7 +4,12 @@
 	import ContextTextarea from './ContextTextarea.svelte'
 	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
 	import autosize from '$lib/autosize'
-	import type { AppDomSelectorElement, ContextElement } from './context'
+	import {
+		contextElementKey,
+		isSameContextElement,
+		type AppDomSelectorElement,
+		type ContextElement
+	} from './context'
 	import { AIMode } from './AIChatManager.svelte'
 	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
 	import { formatMention } from './mention'
@@ -235,20 +240,7 @@
 		(selectedContext ?? []).filter((c): c is AppDomSelectorElement => c.type === 'app_dom_selector')
 	)
 
-	// DOM selector chips can share a display title (two `button.btn` from repeated
-	// elements), so identify them by (appPath, selector) — keying or removing by
-	// title would collide, giving repeated chips one Svelte key and deleting them
-	// together. Other context types stay identified by (type, title).
-	function contextKey(c: ContextElement): string {
-		return c.type === 'app_dom_selector' ? `dom:${c.appPath}:${c.selector}` : `${c.type}:${c.title}`
-	}
-	function isSameContextElement(a: ContextElement, b: ContextElement): boolean {
-		if (a.type !== b.type) return false
-		if (a.type === 'app_dom_selector' && b.type === 'app_dom_selector') {
-			return a.selector === b.selector && a.appPath === b.appPath
-		}
-		return a.title === b.title
-	}
+	const contextKey = contextElementKey
 
 	/** Append `@title` to the textarea so the button-picker path stays in
 	 * sync with the inline `@<word>` mention path — both leave a visible
