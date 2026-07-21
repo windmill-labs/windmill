@@ -31,6 +31,7 @@
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { deepEqual } from 'fast-equals'
@@ -113,6 +114,13 @@
 	// prefetch is surfaced as a plain toggle-backed number in the Advanced tab.
 	let enablePrefetch = $state(false)
 
+	// Backend prefetch_count is a u16; block save on out-of-range/non-integer input.
+	const prefetchInvalid = $derived.by(() => {
+		if (!enablePrefetch) return false
+		const p = options?.prefetch_count
+		return p == undefined || !Number.isInteger(p) || p < 1 || p > 65535
+	})
+
 	let hasChanged = $derived(!deepEqual(getSaveCfg(), originalConfig ?? {}))
 	const amqpConfig = $derived.by(getSaveCfg)
 
@@ -127,7 +135,12 @@
 	})
 	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 	const saveDisabled = $derived(
-		pathError != '' || emptyString(script_path) || !can_write || !isValid || !hasChanged
+		pathError != '' ||
+			emptyString(script_path) ||
+			!can_write ||
+			!isValid ||
+			prefetchInvalid ||
+			!hasChanged
 	)
 
 	$effect(() => {
@@ -565,12 +578,17 @@
 											class="py-1"
 										/>
 										{#if enablePrefetch && options}
-											<input
-												type="number"
+											<TextInput
 												bind:value={options.prefetch_count}
-												disabled={!can_write}
-												placeholder="Prefetch count"
-												autocomplete="off"
+												inputProps={{
+													type: 'number',
+													min: 1,
+													max: 65535,
+													step: 1,
+													placeholder: 'Prefetch count (1-65535)',
+													disabled: !can_write,
+													autocomplete: 'off'
+												}}
 											/>
 										{/if}
 									</div>
