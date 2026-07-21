@@ -3,6 +3,7 @@
 
 	import { editor as meditor, KeyMod, KeyCode } from 'monaco-editor'
 	import { editorFontSize } from '$lib/editorFontSize.svelte'
+	import { preventHorizontalNavigationSwipe } from '$lib/editorUtils'
 
 	import { onDestroy, onMount } from 'svelte'
 
@@ -57,4 +58,4 @@
 	})
 </script>
 
-<div bind:this={divEl} class="{className} editor"></div>
+<div bind:this={divEl} use:preventHorizontalNavigationSwipe class="{className} editor"></div>

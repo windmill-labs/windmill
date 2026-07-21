@@ -45,6 +45,22 @@ export function editorConfig(
 
 export const updateOptions = { tabSize: 2, insertSpaces: true }
 
+// On macOS Chromium, horizontal wheel overscroll triggers history back/forward
+// navigation. Editors keep `alwaysConsumeMouseWheel: false` so vertical
+// scrolling can chain to the page, but that also lets horizontal swipe deltas
+// escape the editor and navigate away. preventDefault() on horizontal-dominant
+// wheel events blocks the gesture without affecting Monaco's own scrolling,
+// which processes the event through its own listener.
+export function preventHorizontalNavigationSwipe(el: HTMLElement) {
+	const onWheel = (e: WheelEvent) => {
+		if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) e.preventDefault()
+	}
+	el.addEventListener('wheel', onWheel, { passive: false })
+	return {
+		destroy: () => el.removeEventListener('wheel', onWheel)
+	}
+}
+
 export function convertKind(kind: string): any {
 	switch (kind) {
 		case Kind.primitiveType:
