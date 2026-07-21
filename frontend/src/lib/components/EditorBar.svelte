@@ -673,7 +673,14 @@
 			}
 			editor.insertAtCursor(`v, _ := wmill.GetVariable("${path}")`)
 		} else if (lang == 'bash') {
-			editor.insertAtCursor(`wmill variable get ${path} --json | jq -r .value`)
+			const code = editor.getCode()
+			if (code.includes('# sandbox') || code.includes('# docker')) {
+				editor.insertAtCursor(
+					`curl -s -H "Authorization: Bearer $WM_TOKEN" "$BASE_INTERNAL_URL/api/w/$WM_WORKSPACE/variables/get_value/${path}"`
+				)
+			} else {
+				editor.insertAtCursor(`wmill variable get ${path} --json | jq -r .value`)
+			}
 		} else if (lang == 'powershell') {
 			editor.insertAtCursor(`$Headers = @{\n"Authorization" = "Bearer $Env:WM_TOKEN"`)
 			editor.arrowDown()
@@ -751,7 +758,14 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 			}
 			editor.insertAtCursor(`r, _ := wmill.GetResource("${path}")`)
 		} else if (lang == 'bash') {
-			editor.insertAtCursor(`wmill resource get ${path} --json | jq .value`)
+			const code = editor.getCode()
+			if (code.includes('# sandbox') || code.includes('# docker')) {
+				editor.insertAtCursor(
+					`curl -s -H "Authorization: Bearer $WM_TOKEN" "$BASE_INTERNAL_URL/api/w/$WM_WORKSPACE/resources/get_value_interpolated/${path}"`
+				)
+			} else {
+				editor.insertAtCursor(`wmill resource get ${path} --json | jq .value`)
+			}
 		} else if (lang == 'powershell') {
 			editor.insertAtCursor(`$Headers = @{\n"Authorization" = "Bearer $Env:WM_TOKEN"`)
 			editor.arrowDown()
@@ -962,7 +976,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			// after an unterminated one produces invalid SQL. The separator starts on
 			// its own line so the `;` cannot land inside a trailing line comment.
 			const existing = editor?.getCode() ?? ''
-			const sep = existing.trim() === '' ? '' : endsWithUnterminatedStatement(existing) ? '\n;\n\n' : '\n\n'
+			const sep =
+				existing.trim() === '' ? '' : endsWithUnterminatedStatement(existing) ? '\n;\n\n' : '\n\n'
 			editor?.append(sep + sql + '\n')
 		}}
 	/>
