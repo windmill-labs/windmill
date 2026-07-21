@@ -20,6 +20,9 @@ export type FlowModuleState = {
 
 export type FlowState = Record<string, FlowModuleState>
 
+// Latest linked-tool fetch per (scope, agent module); see the publish guard below.
+const linkedToolFetchGen = new Map<string, number>()
+
 /**
  * flowStateStore represents the local state of each module indexed by its id.
  * It contains data loaded that are not contained in a Flow object i.e. schemas.
@@ -63,7 +66,7 @@ async function mapFlowModule(
 	scope: string = ''
 ) {
 	const value = flowModule.value
-	if (value.type === 'forloopflow') {
+	if (value.type === 'forloopflow' || value.type === 'whileloopflow') {
 		await mapFlowModules(value.modules, modulesState, workspace, scope)
 	}
 
@@ -87,7 +90,15 @@ async function mapFlowModule(
 			// the graph can render its tool nodes. They are display-only (their inputs are edited in
 			// the step panel, which infers schemas itself), so no per-tool module state is loaded —
 			// resource tool ids are not flow-unique and must not key into the flow state.
-			setLinkedAgentTools(scope, flowModule.id, await resolveLinkedAgentTools(agentRef, workspace))
+			const genKey = `${scope}:${flowModule.id}`
+			const gen = (linkedToolFetchGen.get(genKey) ?? 0) + 1
+			linkedToolFetchGen.set(genKey, gen)
+			const tools = await resolveLinkedAgentTools(agentRef, workspace)
+			// Un-awaited re-inits (session-draft sync) race these fetches; only the latest may
+			// publish, else a superseded link's tools overwrite the newer one.
+			if (linkedToolFetchGen.get(genKey) === gen) {
+				setLinkedAgentTools(scope, flowModule.id, tools)
+			}
 		} else {
 			await Promise.all(
 				(value.tools ?? []).filter(isFlowModuleTool).map(async (tool) => {
