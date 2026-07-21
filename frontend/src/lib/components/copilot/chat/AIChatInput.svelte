@@ -4,7 +4,12 @@
 	import ContextTextarea from './ContextTextarea.svelte'
 	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
 	import autosize from '$lib/autosize'
-	import type { AppDomSelectorElement, ContextElement } from './context'
+	import {
+		contextElementKey,
+		isSameContextElement,
+		type AppDomSelectorElement,
+		type ContextElement
+	} from './context'
 	import { AIMode } from './AIChatManager.svelte'
 	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
 	import { formatMention } from './mention'
@@ -235,20 +240,7 @@
 		(selectedContext ?? []).filter((c): c is AppDomSelectorElement => c.type === 'app_dom_selector')
 	)
 
-	// DOM selector chips can share a display title (two `button.btn` from repeated
-	// elements), so identify them by (appPath, selector) — keying or removing by
-	// title would collide, giving repeated chips one Svelte key and deleting them
-	// together. Other context types stay identified by (type, title).
-	function contextKey(c: ContextElement): string {
-		return c.type === 'app_dom_selector' ? `dom:${c.appPath}:${c.selector}` : `${c.type}:${c.title}`
-	}
-	function isSameContextElement(a: ContextElement, b: ContextElement): boolean {
-		if (a.type !== b.type) return false
-		if (a.type === 'app_dom_selector' && b.type === 'app_dom_selector') {
-			return a.selector === b.selector && a.appPath === b.appPath
-		}
-		return a.title === b.title
-	}
+	const contextKey = contextElementKey
 
 	/** Append `@title` to the textarea so the button-picker path stays in
 	 * sync with the inline `@<word>` mention path — both leave a visible
@@ -446,9 +438,19 @@
 			// auto-sent when the streaming turn completes successfully.
 			// Editing-while-loading keeps the old discard behavior. Paste
 			// tokens are expanded into the queued text (the queue is plain
-			// strings), so the full content survives the auto-send.
-			if (editingMessageIndex === null && (instructions.trim() || images.length > 0)) {
-				aiChatManager.queueMessage(expanded(chatDraft(instructions, pastes)), images)
+			// strings), so the full content survives the auto-send. A GLOBAL
+			// context-only draft counts too (mirrors the idle send guard), and
+			// the selection is pinned to the queued entry so the flush sends the
+			// chips picked at press time.
+			if (
+				editingMessageIndex === null &&
+				(instructions.trim() ||
+					images.length > 0 ||
+					(aiChatManager.mode === AIMode.GLOBAL && selectedContext.length > 0))
+			) {
+				aiChatManager.queueMessage(expanded(chatDraft(instructions, pastes)), images, [
+					...selectedContext
+				])
 				contextTextareaComponent?.clearForSend()
 				instructions = ''
 				pastes = []
@@ -694,8 +696,18 @@
 
 {#snippet sendStopButton()}
 	{@const isLoading = loading ?? aiChatManager.loading}
+	{@const emptyDraft = instructions.trim().length === 0 && images.length === 0}
+	<!-- A text-free GLOBAL draft with context chips is a valid turn (Enter
+	     already sends it), so the button stays enabled there for pointer/touch
+	     parity — mirrors the sendRequest guard. Custom onSendRequest consumers
+	     (inline ⌘K) and editor copilots need content. -->
 	{@const sendDisabled =
-		disabled || (instructions.trim().length === 0 && images.length === 0) || pendingImages > 0}
+		disabled ||
+		pendingImages > 0 ||
+		(emptyDraft &&
+			(onSendRequest !== undefined ||
+				aiChatManager.mode !== AIMode.GLOBAL ||
+				selectedContext.length === 0))}
 	<Button
 		variant="subtle"
 		unifiedSize="md"

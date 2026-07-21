@@ -135,8 +135,13 @@ import {
 	buildFoldersUrl,
 	buildGroupsUrl,
 	buildTriggersUrl,
+	buildCompareUrl,
 	WORKSPACE_SETTINGS_TABS
 } from './pageNavigation'
+import {
+	COMPARE_ITEMS_PARAM,
+	parseItemsMaskParam
+} from '$lib/components/sessions/modifiedItemsMask'
 import {
 	pageHref,
 	TRIGGER_PAGES,
@@ -996,6 +1001,11 @@ ${pipelineBullet}
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
+- When the user is happy with the changes and wants to review or deploy them, use open_page with page "compare" — it opens the Compare & Deploy review page.${
+		previewTools
+			? ' By default it preselects the items this chat modified; pass items ("<kind>:<path>" entries) to control the selection'
+			: ' Pass items ("<kind>:<path>" entries naming the items you changed) so the review is scoped to them — omitting items preselects every pending change in the workspace'
+	}, or mode ("draft" or "fork") to force which comparison is shown. Prefer offering this review page over calling deploy_workspace_item directly when several items changed.
 - For a Windmill operation no other tool covers (workers, queue state, a run's result or args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
 - runScriptByPath / runFlowByPath from the API catalog run the DEPLOYED version of an item. Use them only when the user explicitly asks to run the deployed version, and read the item with read_workspace_item version: "deployed" first so the arguments match the deployed input schema (a draft may have different inputs). To test something you are editing or just wrote, always use test_run_script, test_run_flow, or test_run_step — they run the draft.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
@@ -1862,6 +1872,71 @@ function getInstructions(subject: InstructionSubject, language?: ScriptLang): st
 
 export type AiSkillListItem = { name: string; description: string }
 
+/** Live session facts appended to the GLOBAL system prompt for session chats.
+ * Provided by the session runtime as a resolver (copilot must not import the
+ * sessions modules) and re-read on every system-message rebuild — the fork
+ * commits at first send, and the user can re-point the session's workspace. */
+export type SessionPromptContext = {
+	/** Operating workspace (undefined while the session is an unsent draft with
+	 * no pick). Only slug-validated workspace IDs belong here — free-form
+	 * metadata like display names is user-controlled text that must not be
+	 * interpolated into the system prompt. */
+	workspaceId?: string
+	/** Set when the operating workspace is a fork of this workspace (staged
+	 * session fork or persistent dev workspace — `isDevWorkspace` splits them). */
+	parentWorkspaceId?: string
+	/** The operating workspace is a persistent dev workspace, not an ephemeral
+	 * staged fork. Same promote-to-parent deploy flow; different lifecycle. */
+	isDevWorkspace?: boolean
+	/** Committed workspace missing from the user's workspace list (access lost /
+	 * stale store): still a fork per `isForkSession`, but the parent is unknown —
+	 * must not be presented as the live workspace. */
+	forkParentUnknown?: boolean
+	/** Pre-send intent: a staged fork of this workspace is created at first send. */
+	pendingForkOf?: string
+}
+
+/** Session-state guidance appended to the global system prompt so the model
+ * knows where its work lands (staged fork vs the live workspace). */
+export function getSessionContextPromptSection(ctx: SessionPromptContext): string {
+	const lines = [
+		'',
+		'',
+		'Session state:',
+		'- This chat is a Windmill AI session with its own operating workspace: every tool call (reads, drafts, test runs, deploys) targets that workspace.'
+	]
+	if (ctx.pendingForkOf) {
+		lines.push(
+			`- No workspace is committed yet: a staged fork of workspace "${ctx.pendingForkOf}" is created automatically when the first message is sent, and all work lands in that fork.`
+		)
+	} else if (ctx.parentWorkspaceId && ctx.isDevWorkspace) {
+		lines.push(
+			`- Operating workspace: "${ctx.workspaceId}" — the user's persistent DEV WORKSPACE, forked from workspace "${ctx.parentWorkspaceId}". deploy_workspace_item publishes into the dev workspace only; the user reviews & promotes changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
+		)
+	} else if (ctx.parentWorkspaceId) {
+		lines.push(
+			`- Operating workspace: "${ctx.workspaceId}" — an ephemeral STAGED FORK of workspace "${ctx.parentWorkspaceId}", created for session work. deploy_workspace_item publishes into the fork only, and the user reviews & promotes fork changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
+		)
+	} else if (ctx.forkParentUnknown) {
+		lines.push(
+			`- Operating workspace: "${ctx.workspaceId}" — a fork whose parent workspace is not currently visible to this user. deploy_workspace_item publishes into the fork only; the user promotes changes from the session's deploy panel. Never present a change as live in any other workspace.`
+		)
+	} else if (ctx.workspaceId) {
+		lines.push(
+			`- Operating workspace: "${ctx.workspaceId}" — the live workspace itself, not a fork. deploy_workspace_item publishes directly to everyone in it.`
+		)
+	} else {
+		lines.push(
+			'- No operating workspace is set yet; the user picks one (or a new staged fork) before the first message is sent.'
+		)
+	}
+	return lines.join('\n')
+}
+
+/** `/` picker entry: a workspace skill or a built-in session action. The kind
+ * drives the picker's category grouping; entries without one are ungrouped. */
+export type ChatCommandItem = AiSkillListItem & { kind?: 'action' | 'skill' }
+
 /** Fetch the workspace's AI skills (name + description) for the global system prompt. */
 export async function loadWorkspaceSkills(workspace: string): Promise<AiSkillListItem[]> {
 	if (!workspace) return []
@@ -1913,7 +1988,8 @@ const OPEN_PAGE_NAMES = [
 	'folders',
 	'groups',
 	'triggers',
-	'workspace_settings'
+	'workspace_settings',
+	'compare'
 ] as const
 type OpenPageName = (typeof OPEN_PAGE_NAMES)[number]
 
@@ -1927,7 +2003,8 @@ const OPEN_PAGE_LABELS: Record<OpenPageName, string> = {
 	folders: 'Folders',
 	groups: 'Groups',
 	triggers: 'Triggers',
-	workspace_settings: 'Workspace settings'
+	workspace_settings: 'Workspace settings',
+	compare: 'Compare & Deploy'
 }
 
 // Trigger kinds available given the workspace's license — the EE-gated kinds
@@ -1964,11 +2041,23 @@ function allowedOpenPages(workspaceId: string | undefined = get(workspaceStore))
 		'audit_logs',
 		'folders',
 		'groups',
-		'triggers'
+		'triggers',
+		'compare'
 	])
 	if (isAdmin) allowed.add('workspace_settings')
 	return OPEN_PAGE_NAMES.filter((p) => allowed.has(p))
 }
+
+// The advertised `items` description must match this chat's surface: only chats that
+// track their modified items (AI sessions) can honor "omitted = this chat's edits" —
+// on an untracked chat (the global side panel) an omitted mask falls through to the
+// page's select-all default, so the model is told to pass the items explicitly there.
+const COMPARE_ITEMS_DESCRIPTIONS = {
+	tracked:
+		"Compare: preselect exactly these changed items, each as '<kind>:<path>' where kind is script, flow, raw_app, app, resource, variable, or a trigger kind like trigger_schedule / trigger_http (e.g. 'script:f/foo/bar'). Omit to preselect the items modified in this chat (everything when this chat modified nothing).",
+	untracked:
+		"Compare: preselect exactly these changed items, each as '<kind>:<path>' where kind is script, flow, raw_app, app, resource, variable, or a trigger kind like trigger_schedule / trigger_http (e.g. 'script:f/foo/bar'). If omitted, the page preselects EVERY pending change in the workspace, not just this chat's — when you changed specific items, pass them so the review is scoped to them."
+} as const
 
 // One flat object (not a discriminated union): `page` selects the target and the
 // per-page fields are optional. Top-level `type: object` is what Anthropic's
@@ -1977,20 +2066,7 @@ function allowedOpenPages(workspaceId: string | undefined = get(workspaceStore))
 // apply to the chosen page is harmless. This full schema is used to PARSE tool args; the
 // advertised schema (what the model sees) is narrowed per-user in `setSchema`.
 const openPageFullSchema = z.object({
-	page: z
-		.enum([
-			'runs',
-			'schedules',
-			'variables',
-			'resources',
-			'assets',
-			'audit_logs',
-			'folders',
-			'groups',
-			'triggers',
-			'workspace_settings'
-		])
-		.describe('Which page to open'),
+	page: z.enum(OPEN_PAGE_NAMES).describe('Which page to open'),
 	path: z
 		.string()
 		.optional()
@@ -2041,6 +2117,13 @@ const openPageFullSchema = z.object({
 		.enum([...WORKSPACE_SETTINGS_TABS] as [string, ...string[]])
 		.optional()
 		.describe('Workspace settings: which settings tab to open'),
+	mode: z
+		.enum(['draft', 'fork'])
+		.optional()
+		.describe(
+			"Compare: which comparison to show — 'draft' (deployed items vs their pending drafts) or 'fork' (this forked workspace vs its parent). Omit to auto-pick: the view containing the preselected items (draft whenever any of them is a pending draft); with nothing preselected, fork on a forked workspace and draft otherwise."
+		),
+	items: z.array(z.string()).min(1).optional().describe(COMPARE_ITEMS_DESCRIPTIONS.tracked),
 	new_tab: z
 		.boolean()
 		.optional()
@@ -2067,7 +2150,9 @@ const OPEN_PAGE_FIELD_PAGES: Record<string, OpenPageName[]> = {
 	username: ['audit_logs'],
 	operation: ['audit_logs'],
 	resource: ['audit_logs'],
-	tab: ['workspace_settings']
+	tab: ['workspace_settings'],
+	mode: ['compare'],
+	items: ['compare']
 }
 
 // The model-facing schema for the given allowed pages: the `page` enum plus only the
@@ -2075,7 +2160,8 @@ const OPEN_PAGE_FIELD_PAGES: Record<string, OpenPageName[]> = {
 // `trigger_kind` enum is narrowed to the license-available kinds.
 function buildOpenPageDefSchema(
 	pages: readonly OpenPageName[],
-	triggerKinds: readonly PageTriggerKind[]
+	triggerKinds: readonly PageTriggerKind[],
+	chatEditsTracked: boolean
 ): z.ZodTypeAny {
 	const full = openPageFullSchema.shape as Record<string, z.ZodTypeAny>
 	// z.enum() rejects an empty list, and a user with no reachable pages (e.g. an operator
@@ -2094,16 +2180,27 @@ function buildOpenPageDefSchema(
 						.enum([...triggerKinds] as [string, ...string[]])
 						.optional()
 						.describe('Triggers: which trigger kind page to open')
-				: full[field]
+				: field === 'items'
+					? z
+							.array(z.string())
+							.min(1)
+							.optional()
+							.describe(COMPARE_ITEMS_DESCRIPTIONS[chatEditsTracked ? 'tracked' : 'untracked'])
+					: full[field]
 	}
 	shape.new_tab = full.new_tab
 	return z.object(shape)
 }
 
 const OPEN_PAGE_DESCRIPTION =
-	'Open a Windmill page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, Folders, Groups, Triggers (by kind), or Workspace settings (on a specific tab). Inside an AI session it opens as a tab in the side-panel preview next to the chat; elsewhere it offers a clickable link. Use after surfacing something the user likely wants to inspect (e.g. "show me the failed runs of X", "open the schedule for Y", "open the git sync settings", "open the kafka triggers"). This is the only way to show one of these pages in the session preview — open_preview only handles editable items (scripts, flows, raw apps, pipelines). Only pages listed for this user are available; do not offer others.'
+	'Open a Windmill page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, Folders, Groups, Triggers (by kind), Workspace settings (on a specific tab), or the Compare & Deploy review page. Inside an AI session it opens as a tab in the side-panel preview next to the chat; elsewhere it offers a clickable link. Use after surfacing something the user likely wants to inspect (e.g. "show me the failed runs of X", "open the schedule for Y", "open the git sync settings", "open the kafka triggers"), and use page "compare" when the user wants to review and deploy pending changes (the items field controls which changes are preselected). This is the only way to show one of these pages in the session preview — open_preview only handles editable items (scripts, flows, raw apps, pipelines). Only pages listed for this user are available; do not offer others.'
 
-function buildOpenPageUrl(page: OpenPageName, a: OpenPageArgs): string {
+// Non-arg inputs the URL builder needs: the chat's operating workspace (the compare
+// page cannot fall back to its own store default inside a session preview) and the
+// live modified-items mask backing the compare page's default preselection.
+type OpenPageUrlCtx = { workspaceId: string; chatItems?: readonly string[] }
+
+export function buildOpenPageUrl(page: OpenPageName, a: OpenPageArgs, ctx: OpenPageUrlCtx): string {
 	switch (page) {
 		case 'runs':
 			return buildRunsUrl({
@@ -2142,6 +2239,15 @@ function buildOpenPageUrl(page: OpenPageName, a: OpenPageArgs): string {
 			})
 		case 'workspace_settings':
 			return buildWorkspaceSettingsUrl({ tab: a.tab })
+		case 'compare':
+			// Explicit `items` wins; otherwise preselect this chat's modified items. An
+			// empty mask (chat modified nothing) passes no items so the page keeps its
+			// select-all default instead of preselecting nothing.
+			return buildCompareUrl({
+				workspace_id: ctx.workspaceId,
+				mode: a.mode,
+				items: a.items ?? (ctx.chatItems?.length ? ctx.chatItems : undefined)
+			})
 	}
 }
 
@@ -2149,6 +2255,19 @@ function buildOpenPageUrl(page: OpenPageName, a: OpenPageArgs): string {
 // hash target), or "all <page>" when unfiltered.
 function summarizeOpenPage(url: string, page: OpenPageName): string {
 	const u = new URL(url, 'http://x')
+	if (page === 'compare') {
+		// The raw params (workspace_id + a possibly long items list) are noise here —
+		// summarize the selection instead.
+		const parts: string[] = []
+		const mode = u.searchParams.get('mode')
+		if (mode) parts.push(`mode=${mode}`)
+		const items = u.searchParams.get(COMPARE_ITEMS_PARAM)
+		if (items) {
+			const n = parseItemsMaskParam(items).size
+			parts.push(`${n} item${n === 1 ? '' : 's'} preselected`)
+		}
+		return parts.length ? parts.join(', ') : 'all pending changes'
+	}
 	const parts: string[] = []
 	u.searchParams.forEach((v, k) => parts.push(`${k}=${v}`))
 	if (u.hash) parts.push(u.hash.slice(1))
@@ -2156,8 +2275,10 @@ function summarizeOpenPage(url: string, page: OpenPageName): string {
 }
 
 export const openPageTool: Tool<{}> = {
+	// The initial def assumes an untracked chat; setSchema below rebuilds it with the
+	// caller's real surface before each iteration.
 	def: createToolDef(
-		buildOpenPageDefSchema(allowedOpenPages(), allowedTriggerKinds()),
+		buildOpenPageDefSchema(allowedOpenPages(), allowedTriggerKinds(), false),
 		'open_page',
 		OPEN_PAGE_DESCRIPTION
 	),
@@ -2172,7 +2293,8 @@ export const openPageTool: Tool<{}> = {
 		this.def = createToolDef(
 			buildOpenPageDefSchema(
 				allowedOpenPages(operatingWorkspaceFromHelpers(helpers)),
-				allowedTriggerKinds()
+				allowedTriggerKinds(),
+				(helpers as GlobalToolHelpers | undefined)?.getModifiedItems?.() !== undefined
 			),
 			'open_page',
 			OPEN_PAGE_DESCRIPTION
@@ -2195,7 +2317,14 @@ export const openPageTool: Tool<{}> = {
 		if (page === 'triggers' && triggerKind && !allowedTriggerKinds().includes(triggerKind)) {
 			return `${TRIGGER_PAGES[triggerKind].label} aren't available on this instance.`
 		}
-		const url = buildOpenPageUrl(page, parsed)
+		const urlWorkspace = workspaceId ?? get(workspaceStore)
+		if (!urlWorkspace) {
+			return 'Error: no workspace is selected, so no page can be opened.'
+		}
+		const url = buildOpenPageUrl(page, parsed, {
+			workspaceId: urlWorkspace,
+			chatItems: (ctx.helpers as GlobalToolHelpers | undefined)?.getModifiedItems?.()
+		})
 		const pageLabel = OPEN_PAGE_LABELS[page]
 		const summary = summarizeOpenPage(url, page)
 
@@ -3251,6 +3380,10 @@ export type GlobalToolHelpers = SessionToolHelpers & {
 	// Wired only for session chats (see AIChatManager): the artifact tools are session-gated.
 	artifacts?: SessionArtifactsStore
 	getChatId?: () => string | undefined
+	// Live snapshot of the items this chat modified (`kind:path` mask keys, see
+	// modifiedItemsMask.ts); undefined when the chat doesn't track them (the global
+	// side-panel chat). Backs open_page's compare-page default preselection.
+	getModifiedItems?: () => string[] | undefined
 	openArtifact?: (artifactId: string, name: string) => void
 	// Explicit "this chat is an AI session" marker for session-scoped gating
 	// (the pipeline gate). Do NOT infer it from `sessionId`: the eval harness

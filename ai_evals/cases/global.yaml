@@ -1050,6 +1050,38 @@
     - opens the Kafka triggers page
     - does not write, deploy, or delete anything
 
+- id: global-openpage7-compare-review
+  prompt: |-
+    Create a TypeScript script draft at f/evals/global/compare_review_demo that returns the string "ok" (no need to test it), then open the review page so I can look over the pending change and deploy it myself.
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+      - open_page
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: open_page
+        field: page
+        stringIncludesAnyOf:
+          - compare
+      # The eval chat is untracked (no modified-items mask), so the model must scope
+      # the review by passing the item it changed explicitly — an omitted mask would
+      # preselect every pending change in the workspace.
+      - tool: open_page
+        field: items
+        stringIncludesAnyOf:
+          - f/evals/global/compare_review_demo
+  skipJudge: true
+  judgeChecklist:
+    - creates the script draft, then opens the Compare & Deploy review page instead of deploying itself
+    - preselects only the created script on the review page
+    - does not deploy or delete anything
+
 - id: global-closepage1-close-runs-tab
   prompt: |-
     You just opened the runs page for me in the side panel. Close that tab, I'm done looking at it.

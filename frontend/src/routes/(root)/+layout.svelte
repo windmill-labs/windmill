@@ -3,9 +3,16 @@
 	import { page } from '$app/state'
 	import { UserService, WorkspaceService } from '$lib/gen'
 	import { logoutWithRedirect } from '$lib/logoutKit'
-	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import {
+		clearWorkspaceFromStorage,
+		userStore,
+		usersWorkspaceStore,
+		workspaceStore
+	} from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import { sendUserToast } from '$lib/toast'
+	import { switchWorkspace } from '$lib/storeUtils'
+	import { forgetForkParent, getRememberedForkParent } from '$lib/forkParentMemory'
 	import { onDestroy, onMount } from 'svelte'
 
 	import { refreshSuperadmin } from '$lib/refreshUser'
@@ -33,7 +40,70 @@
 	]
 
 	async function setUserWorkspaceStore() {
-		$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
+		const list = await WorkspaceService.listUserWorkspaces()
+		$usersWorkspaceStore = list
+		return list
+	}
+
+	// A fork deleted remotely while the tab was open leaves the client pointing at a
+	// dead workspace id: every request 404s and members get logged out. The fork's
+	// parent linkage lived only in its own (now deleted) row, so we mirror it to
+	// localStorage while the fork is reachable (see forkParentMemory) and use it here
+	// to send the user back to the parent. Returns true when it handled the situation
+	// so the caller skips normal loading.
+	async function tryRecoverFromDeletedWorkspace(workspaceId: string): Promise<boolean> {
+		// Only forks are recoverable, identified two ways: the `wm-fork-` id prefix, or
+		// a remembered parent. Neither alone is sufficient — dev-workspace forks carry
+		// no prefix (only a remembered parent), while a non-member superadmin's fork has
+		// the prefix but no remembered parent (the recorder only sees the user's own
+		// membership-gated list). A workspace that is neither is left to normal loading.
+		const parentId = getRememberedForkParent(workspaceId)
+		if (parentId == undefined && !workspaceId.startsWith('wm-fork-')) return false
+
+		// `exists` is not membership-gated, so it settles "is this workspace gone?"
+		// identically for members, non-members and superadmins, and it requires a valid
+		// session. Only a conclusive `false` means deleted: any rejection (expired
+		// session, transient failure) is inconclusive and must leave the normal loading
+		// path — including its genuine auth handling — untouched.
+		let exists: boolean
+		try {
+			exists = await WorkspaceService.existsWorkspace({ requestBody: { id: workspaceId } })
+		} catch {
+			return false
+		}
+		if (exists) return false
+
+		forgetForkParent(workspaceId)
+
+		// Send the user to the remembered parent when we have one; otherwise (unknown or
+		// inaccessible parent) fall back to the picker rather than the forced-logout path
+		// this recovery exists to avoid.
+		if (parentId != undefined) {
+			switchWorkspace(parentId)
+			const parentUser = await getUserExt(parentId)
+			if (parentUser) {
+				$userStore = parentUser
+				sendUserToast(
+					`Workspace ${workspaceId} not found, switched to parent workspace ${parentId}.`,
+					'warning'
+				)
+				await goto('/')
+				return true
+			}
+		}
+
+		try {
+			clearWorkspaceFromStorage()
+		} catch (e) {
+			console.error('Could not clear workspace storage during deleted-workspace recovery', e)
+		}
+		workspaceStore.set(undefined)
+		sendUserToast(
+			`Workspace ${workspaceId} is no longer available, please pick a workspace.`,
+			'warning'
+		)
+		await goto('/user/workspaces')
+		return true
 	}
 
 	async function loadUser() {
@@ -41,6 +111,9 @@
 			await refreshSuperadmin()
 
 			if ($workspaceStore) {
+				if (await tryRecoverFromDeletedWorkspace($workspaceStore)) {
+					return
+				}
 				if ($userStore) {
 					console.log(`Welcome back ${$userStore.username} to ${$workspaceStore}`)
 				} else {
@@ -131,7 +204,7 @@
 		computeDrift()
 
 		if (page.url.pathname != '/user/login') {
-			setUserWorkspaceStore()
+			setUserWorkspaceStore().catch((e) => console.error('could not load workspace list', e))
 			loadUser()
 			UserService.refreshUserToken({ ifExpiringInLessThanS: 30 * 60 })
 		}
