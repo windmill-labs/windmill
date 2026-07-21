@@ -7,7 +7,7 @@
 		type?: string,
 		siblingNames?: string[]
 	): string | undefined {
-		if (type === 'websearch' || type === 'linked') return undefined
+		if (type === 'websearch') return undefined
 		if (type === 'mcp') {
 			return name.length > 0 ? undefined : 'Tool name must not be empty'
 		}
@@ -156,25 +156,11 @@
 				})
 			}
 
-			// A linked agent whose tools aren't resolved (the read-only flow viewer doesn't fetch the
-			// resource) would otherwise render as a toolless agent. Show a single marker pointing at the
-			// linked resource instead, so it reads as intentionally linked rather than half-rendered.
-			// Clicking it selects the agent module (via selectTarget below).
-			const linkedPlaceholder = isLinkedAgent && !agentActions && tools.length === 0
-			if (linkedPlaceholder) {
-				const agentPath = node.data.module.value.agent ?? ''
-				tools = [
-					{
-						id: `${node.id}-linked`,
-						name: agentPath.split('/').pop() || 'linked agent',
-						type: 'linked'
-					}
-				]
-			}
-
 			// A linked agent shows no "add tool" node, so its rows must not reserve one; otherwise the
 			// tools float up by a row, leaving a gap above the agent where the add node would have been.
-			const showAddToolNode = insertable && !isLinkedAgent && !linkedPlaceholder
+			// When its tools aren't resolved (e.g. viewers that don't fetch the resource), it simply
+			// shows none — the node label already carries the linked resource path.
+			const showAddToolNode = insertable && !isLinkedAgent
 			const totalRows = Math.ceil(tools.length / MAX_TOOLS_PER_ROW) + (showAddToolNode ? 1 : 0)
 
 			const siblingNames = tools.map((t) => t.name)
@@ -283,7 +269,7 @@
 		NewAiToolN,
 		NodeLayout
 	} from '../../graphBuilder.svelte'
-	import { Bot, Globe, Link, MessageCircle, Play, Plug, Wrench, X } from 'lucide-svelte'
+	import { Bot, Globe, MessageCircle, Play, Plug, Wrench, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { Edge, Node } from '@xyflow/svelte'
 
@@ -350,8 +336,6 @@
 					<Plug size={16} class="ml-1 shrink-0" />
 				{:else if data.type === 'aiagent'}
 					<Bot size={16} class="ml-1 shrink-0" />
-				{:else if data.type === 'linked'}
-					<Link size={16} class="ml-1 shrink-0" />
 				{:else}
 					<Wrench size={16} class="ml-1 shrink-0" />
 				{/if}
