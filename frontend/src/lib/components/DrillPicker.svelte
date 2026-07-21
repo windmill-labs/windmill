@@ -553,7 +553,9 @@ leaves and ignores the current scope.
 			{:else}
 				{#each searchResultsByGroup as { key, label, items } (key)}
 					{#if label}
-						<div class="px-3 pt-3 pb-1 text-3xs uppercase tracking-wide text-hint font-medium">
+						<div
+							class="px-3 pt-3 pb-1 mt-2 first:mt-0 text-3xs uppercase tracking-wide text-hint font-medium"
+						>
 							{label}
 						</div>
 					{/if}
@@ -575,7 +577,9 @@ leaves and ignores the current scope.
 				{#each entryRows as { entry, header } (entry.key)}
 					{@const isHl = entry.key === highlightedKey}
 					{#if header}
-						<div class="px-3 pt-2 pb-1 text-3xs uppercase tracking-wide text-hint font-medium">
+						<div
+							class="px-3 pt-2 pb-1 mt-2 first:mt-0 text-3xs uppercase tracking-wide text-hint font-medium"
+						>
 							{header}
 						</div>
 					{/if}
