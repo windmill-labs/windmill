@@ -31,11 +31,13 @@
 	import { tryGetCurrentModel } from '$lib/aiStore'
 	import { createLongHash } from '$lib/editorLangUtils'
 	import {
+		attachedTextFileId,
 		fileToAttachedTextFile,
 		MAX_ATTACHED_FILES,
 		MAX_CONVERSATION_FILE_BYTES,
 		MAX_TEXT_FILE_BYTES,
 		textByteLength,
+		uniqueDraftFileName,
 		type AttachedTextFile
 	} from './textFileUtils'
 	import ExpandableImage, {
@@ -318,15 +320,25 @@
 					const attached = await fileToAttachedTextFile(file)
 					if (!attached) {
 						skipped++
-					} else if (
-						// A double-drop of the identical file is a no-op — a duplicate
-						// entry would ship the content twice and collide in keyed lists.
-						![...files, ...added].some(
-							(f) => f.name === attached.name && f.content === attached.content
-						)
-					) {
-						added.push(attached)
+						continue
 					}
+					const draft = [...files, ...added]
+					// A double-drop of the identical file is a no-op — a duplicate
+					// entry would ship the content twice.
+					if (draft.some((f) => f.name === attached.name && f.content === attached.content)) {
+						continue
+					}
+					// Courtesy rename on a same-name clash within this draft, BEFORE
+					// minting the id — the id hashes the final display name.
+					const name = uniqueDraftFileName(
+						attached.name,
+						draft.map((f) => f.name)
+					)
+					added.push({
+						name,
+						content: attached.content,
+						id: attachedTextFileId(name, attached.content)
+					})
 				} catch {
 					skipped++
 				}

@@ -34,7 +34,7 @@ function storeFrom(helpers: unknown): AttachedFilesStore | undefined {
  * same accurate status instead of search_files claiming a non-ready file isn't attached.
  */
 function notReadyMessage(store: AttachedFilesStore, file: string): string | undefined {
-	const entry = store.get(file)
+	const entry = store.resolve(file)
 	if (entry?.status === 'ready') return undefined
 	if (entry?.status === 'indexing')
 		return `File "${file}" is still being indexed. Try again shortly.`
@@ -46,9 +46,9 @@ function notReadyMessage(store: AttachedFilesStore, file: string): string | unde
 		return `File "${file}" failed to load: ${entry.error ?? 'unknown error'}.`
 	const names = store
 		.list()
-		.map((f) => f.name)
+		.map((f) => (f.id ? `${f.name} (file id: ${f.id})` : f.name))
 		.join(', ')
-	return `No attached file named "${file}". Attached files: ${names || '(none)'}.`
+	return `No attached file matching "${file}". Attached files: ${names || '(none)'}.`
 }
 
 /**
@@ -80,7 +80,7 @@ const searchFilesSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			'Optional exact filename (as listed under "Attached files") to restrict the search to. Omit to search across all attached files.'
+			'Optional file to restrict the search to: its file id when one is listed, otherwise its exact filename. Omit to search across all attached files.'
 		),
 	ignore_case: z.boolean().optional().describe('Case-insensitive matching. Defaults to false.')
 })
@@ -105,6 +105,8 @@ export const searchFilesTool: Tool<{}> = {
 			const notReady = notReadyMessage(store, parsed.file)
 			if (notReady) return notReady
 		}
+		// The worker filters by entry name — map an id reference to its row's name.
+		const fileFilter = parsed.file ? (store.resolve(parsed.file)?.name ?? parsed.file) : undefined
 		const ready = store.readyFiles()
 		if (ready.length === 0) {
 			return noReadyFilesMessage(store)
@@ -116,12 +118,12 @@ export const searchFilesTool: Tool<{}> = {
 		// Run in a Worker so a pathological model-supplied regex can't freeze the tab.
 		const result = await searchFilesInWorker(ready, parsed.pattern, {
 			flags: parsed.ignore_case ? 'i' : '',
-			pathFilter: parsed.file
+			pathFilter: fileFilter
 		})
 		if (result.error) {
 			return `Error: ${result.error}`
 		}
-		const scope = parsed.file ? `"${parsed.file}"` : `${ready.length} file(s)`
+		const scope = fileFilter ? `"${fileFilter}"` : `${ready.length} file(s)`
 		if (result.hits.length === 0) {
 			return `No matches for /${parsed.pattern}/ in ${scope}.`
 		}
@@ -135,7 +137,9 @@ export const searchFilesTool: Tool<{}> = {
 }
 
 const readFileSchema = z.object({
-	file: z.string().describe('Exact filename to read, as listed under "Attached files".'),
+	file: z
+		.string()
+		.describe('File to read: its file id when one is listed, otherwise its exact filename.'),
 	start_line: z.number().int().optional().describe('1-based first line to read. Defaults to 1.'),
 	end_line: z
 		.number()
@@ -160,8 +164,8 @@ export const readFileTool: Tool<{}> = {
 		const parsed = readFileSchema.parse(args)
 		const notReady = notReadyMessage(store, parsed.file)
 		if (notReady) return notReady
-		const entry = store.get(parsed.file)!
-		toolCallbacks.setToolStatus(toolId, { content: `Reading "${parsed.file}"...` })
+		const entry = store.resolve(parsed.file)!
+		toolCallbacks.setToolStatus(toolId, { content: `Reading "${entry.name}"...` })
 
 		try {
 			const res = await readFile(entry, {
@@ -181,17 +185,20 @@ export const readFileTool: Tool<{}> = {
 export const fileTools: Tool<{}>[] = [searchFilesTool, readFileTool]
 
 function rosterLine(f: AttachedFile): string {
-	if (f.status === 'indexing') return `- ${f.name} (indexing…)`
-	if (f.status === 'locked') return `- ${f.name} (locked — needs the user to restore access)`
-	if (f.status === 'unavailable') return `- ${f.name} (unavailable)`
-	if (f.status === 'error') return `- ${f.name} (failed to load)`
-	return `- ${f.name} — ${f.lineCount} lines, ${humanSize(f.size)}`
+	// Message rows are addressed by their stable id (names may collide); session
+	// rows by name.
+	const ref = f.id ? `${f.name} (file id: ${f.id})` : f.name
+	if (f.status === 'indexing') return `- ${ref} (indexing…)`
+	if (f.status === 'locked') return `- ${ref} (locked — needs the user to restore access)`
+	if (f.status === 'unavailable') return `- ${ref} (unavailable)`
+	if (f.status === 'error') return `- ${ref} (failed to load)`
+	return `- ${ref} — ${f.lineCount} lines, ${humanSize(f.size)}`
 }
 
 /** Build the `## Attached files` system-prompt section (metadata only, never content). */
 export function buildAttachedFilesRoster(
 	store: AttachedFilesStore,
-	orphanedMessageFileNames?: Set<string>
+	orphanedMessageFileIds?: Set<string>
 ): string {
 	const lines: string[] = []
 	for (const folder of store.folders) {
@@ -211,9 +218,11 @@ export function buildAttachedFilesRoster(
 	// Exception: a message whose API counterpart was dropped by drop-oldest
 	// compaction takes its in-message reference with it, so those attachments must
 	// be advertised here or the model can no longer see they exist.
-	if (orphanedMessageFileNames?.size) {
+	if (orphanedMessageFileIds?.size) {
 		lines.push(
-			...store.messageAttached.filter((f) => orphanedMessageFileNames.has(f.name)).map(rosterLine)
+			...store.messageAttached
+				.filter((f) => f.id && orphanedMessageFileIds.has(f.id))
+				.map(rosterLine)
 		)
 	}
 	if (lines.length === 0) return ''
@@ -221,6 +230,7 @@ export function buildAttachedFilesRoster(
 		'## Attached files',
 		'The user has attached the following files to this conversation. Their contents are NOT included here.',
 		'Use the `search_files` tool to find content with a regex, and `read_file` to read a bounded window of lines.',
+		'Reference a file by its file id when one is shown, otherwise by its filename.',
 		'',
 		lines.join('\n')
 	].join('\n')
@@ -233,9 +243,9 @@ export function buildAttachedFilesRoster(
 export function appendAttachedFilesRoster(
 	base: ChatCompletionSystemMessageParam,
 	store: AttachedFilesStore,
-	orphanedMessageFileNames?: Set<string>
+	orphanedMessageFileIds?: Set<string>
 ): ChatCompletionSystemMessageParam {
-	const roster = buildAttachedFilesRoster(store, orphanedMessageFileNames)
+	const roster = buildAttachedFilesRoster(store, orphanedMessageFileIds)
 	if (!roster || typeof base.content !== 'string') return base
 	return { ...base, content: `${base.content}\n\n${roster}` }
 }

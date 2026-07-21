@@ -5531,10 +5531,13 @@ export function prepareGlobalUserMessage(
 	if (files.length > 0) {
 		content += '## ATTACHED FILES\n'
 		content +=
-			'The user attached these files to this message. Their content is NOT included here — read it with `read_file` (or scan it with `search_files`) before answering questions about it.\n'
+			'The user attached these files to this message. Their content is NOT included here — read it with `read_file` (or scan it with `search_files`), passing the file id, before answering questions about it.\n'
 		for (const f of files) {
 			const lines = f.content.split('\n').length
-			content += `- ${f.name} — ${lines} lines, ${f.content.length} chars\n`
+			// The id is the durable reference (names may repeat across messages);
+			// absent only on legacy pre-id transcripts, where the name resolves.
+			const ref = f.id ? `${f.name} (file id: ${f.id})` : f.name
+			content += `- ${ref} — ${lines} lines, ${f.content.length} chars\n`
 		}
 		content += '\n'
 	}

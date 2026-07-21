@@ -48,6 +48,10 @@ export interface AttachedFile extends FileEntry {
 	/** Attached to a chat message: readable via the file tools like any other row,
 	 * but hidden from the session footer bar (its chip lives on the message). */
 	messageScoped?: boolean
+	/** Stable content-hash id (message-scoped rows only) — the reference the
+	 * transcript and prompt carry. Names are display-only and may collide;
+	 * lookups join on this. See attachedTextFileId. */
+	id?: string
 }
 
 /** A linked folder as a first-class object — consumers read this instead of re-grouping rows. */
@@ -90,14 +94,20 @@ export class AttachedFilesStore {
 		return this.files
 	}
 	get(name: string): AttachedFile | undefined {
-		// Message attachments take lookup precedence: a prompt reference names the
-		// file attached to the message, not a same-named session link (sends rename
-		// collisions away; duplicates can only arrive via legacy/load edges).
+		// Name lookup: session links (advertised by name in the roster) and legacy
+		// transcripts (persisted before ids existed) resolve here. Message rows take
+		// precedence — a legacy prompt reference names the file attached to the
+		// message, not a same-named session link added later.
 		// Folder-root placeholders may share a name with a real file — never resolve to one.
 		return (
 			this.files.find((f) => f.name === name && f.messageScoped) ??
 			this.files.find((f) => f.name === name && !f.isFolderRoot)
 		)
+	}
+	/** Resolve a tool-supplied file reference: stable id first (how message
+	 * attachments are addressed), then name (session links + legacy prompts). */
+	resolve(ref: string): AttachedFile | undefined {
+		return this.files.find((f) => f.id === ref) ?? this.get(ref)
 	}
 	readyFiles(): AttachedFile[] {
 		// Folder-root placeholders aren't real files — never expose them to the read/search tools.
@@ -155,84 +165,44 @@ export class AttachedFilesStore {
 		void this.#deleteRecord(f.sourceId)
 	}
 
-	#removeMessageScopedRow(name: string): void {
-		const f = this.files.find((x) => x.messageScoped && x.name === name)
-		if (!f) return
-		this.files = this.files.filter((x) => x !== f)
-		void this.#deleteRecord(f.sourceId)
-	}
-
-	/** Rename any session row currently holding `name` to a suffixed name, freeing
-	 * it for a message-scoped rebuild that must land on its exact (immutable)
-	 * transcript reference. In-memory only: the rename is deterministic and
-	 * re-applied on every load (session items load, then syncMessageScoped runs),
-	 * so it stays consistent without a persisted-record update. */
-	#freeNameForMessageRow(name: string, wantedNames: ReadonlySet<string>): void {
-		const clash = this.files.find((f) => f.name === name && !f.messageScoped && !f.isFolderRoot)
-		if (!clash) return
-		// Suffix the session row clear of the WHOLE wanted set, not just current
-		// rows: renaming it onto another wanted name (e.g. freeing `notes.md` onto
-		// `notes (2).md` when both are transcript references) would push that second
-		// message row to a further suffix and orphan its persisted reference.
-		const renamed = this.#uniqueName(name, wantedNames)
-		this.files = this.files.map((f) => (f === clash ? { ...f, name: renamed } : f))
-		// #indexFile (started at restore under the old name) stamps the row via
-		// #patchFile(oldName, file) — after this rename that no longer matches, so an
-		// in-flight index would leave the row stuck 'indexing'. Re-target it to the
-		// new name; the stale completion then no-ops (its name is gone).
-		if (clash.status === 'indexing') void this.#indexFile(renamed, clash.file)
-	}
-
-	#syncSeq = 0
-	#syncChain: Promise<void> = Promise.resolve()
-
 	/**
 	 * Reconcile message-scoped rows to exactly `wanted` — the union of files the
-	 * current transcript references. The transcript is their durable home: rows are
-	 * rebuilt from it on chat load and pruned when a rollback or an edit/retry
-	 * truncation drops the message that carried them.
-	 *
-	 * Serialized with supersession: the body awaits mid-mutation, and rapid chat
-	 * switching fires overlapping reconciliations — interleaved, a stale pass
-	 * could resume after a newer load and append another conversation's files.
-	 * Passes run one at a time and a superseded pass no-ops, so only the latest
-	 * transcript's set ever commits.
+	 * current transcript references, joined on the stable id. The transcript is
+	 * their durable home: rows are rebuilt from it on chat load and pruned when a
+	 * rollback or an edit/retry truncation drops the message that carried them.
+	 * Synchronous — decisions compare ids, never content — so rapid chat
+	 * switching cannot interleave two reconciliations.
 	 */
-	syncMessageScoped(wanted: { name: string; content: string }[]): Promise<void> {
-		const seq = ++this.#syncSeq
-		const run = async () => {
-			if (seq !== this.#syncSeq) return
-			const wantedByName = new Map(wanted.map((f) => [f.name, f]))
-			for (const f of this.files.filter((x) => x.messageScoped)) {
-				const w = wantedByName.get(f.name)
-				// Also drop a row whose content diverged from the transcript's copy —
-				// keeping it would make the re-registration below suffix instead of
-				// landing back on the referenced name.
-				if (!w || (await (f.file as Blob).text()) !== w.content) {
-					this.#removeMessageScopedRow(f.name)
-				}
-			}
-			if (wanted.length > 0) {
-				// A transcript reference name is immutable (baked into the persisted
-				// prompt). Session rows load first (on restore), so one holding a
-				// wanted name would push the rebuilt message row to a "(2)" suffix and
-				// orphan the reference — get() would then resolve the prompt's name to
-				// the session asset and read the wrong content. Rename the session row
-				// aside so the message row reclaims its exact name; the session roster
-				// is regenerated live each send, so it stays addressable under the suffix.
-				const wantedNames = new Set(wanted.map((f) => f.name))
-				for (const name of wantedNames) this.#freeNameForMessageRow(name, wantedNames)
-				await this.addFiles(
-					wanted.map((f) => new File([f.content], f.name, { type: 'text/plain' })),
-					{ messageScoped: true }
-				)
+	syncMessageScoped(wanted: { name: string; content: string; id: string }[]): void {
+		const wantedIds = new Set(wanted.map((f) => f.id))
+		for (const f of this.files.filter((x) => x.messageScoped)) {
+			if (!f.id || !wantedIds.has(f.id)) {
+				this.files = this.files.filter((x) => x !== f)
+				void this.#deleteRecord(f.sourceId)
 			}
 		}
-		// Run after the predecessor regardless of its outcome; keep the stored
-		// chain rejection-free so one failed pass can't wedge every later one.
-		const pass = this.#syncChain.then(run, run)
-		this.#syncChain = pass.catch(() => {})
-		return pass
+		this.registerMessageFiles(wanted)
+	}
+
+	/**
+	 * Register a message's attachments as tool-readable rows. Identity is the
+	 * content-hash id: a row already holding the id is reused (retry, sync
+	 * rebuild), and distinct files register independently even under one display
+	 * name. Rows are NOT persisted here — their durable home is the chat
+	 * transcript (DisplayMessage.files), from which syncMessageScoped rebuilds
+	 * them on load; a second copy in IndexedDB would only drift.
+	 */
+	registerMessageFiles(files: { name: string; content: string; id: string }[]): void {
+		for (const f of files) {
+			if (this.files.some((x) => x.messageScoped && x.id === f.id)) continue
+			this.#pushIndexing({
+				name: f.name,
+				file: new File([f.content], f.name, { type: 'text/plain' }),
+				sourceId: f.id,
+				messageScoped: true,
+				id: f.id
+			})
+		}
 	}
 
 	/** Remove every file linked as part of the given folder (and its persisted record). */
@@ -250,12 +220,8 @@ export class AttachedFilesStore {
 	 * have their junk paths (node_modules/.git/dotfiles) skipped; a loose single file is
 	 * kept as-is (so an explicitly attached `.env` isn't filtered out).
 	 */
-	async addFiles(
-		input: FileList | FileToAttach[],
-		opts?: { messageScoped?: boolean }
-	): Promise<AddFilesResult> {
+	async addFiles(input: FileList | FileToAttach[]): Promise<AddFilesResult> {
 		const result: AddFilesResult = { added: [], rejected: [] }
-		const messageScoped = opts?.messageScoped ?? false
 
 		for (const item of Array.from(input as ArrayLike<FileToAttach>)) {
 			const file = item instanceof File ? item : item.file
@@ -268,28 +234,7 @@ export class AttachedFilesStore {
 			const folder = desired.includes('/') ? desired.split('/')[0] : undefined
 			if (folder && isIgnoredPath(desired)) continue // skip junk inside folders
 
-			// A message references its files by name. An identical re-registration
-			// (retry, sync rebuild) reuses the existing row; a same-name file with
-			// DIFFERENT content is another message's attachment and must register
-			// under a suffixed name — replacing would silently retarget the earlier
-			// message's reference at the new content. (An edited message never
-			// collides with its own old row: the edit truncation syncs it away
-			// before the resend registers.) Compared by content, not #isDuplicate:
-			// registration recreates the File each send, so lastModified would
-			// misread a changed file as a mere re-link.
-			if (messageScoped) {
-				const existing = this.files.find((f) => f.name === desired && f.messageScoped)
-				if (existing) {
-					const sameContent =
-						existing.size === file.size &&
-						(await (existing.file as Blob).text()) === (await file.text())
-					if (sameContent) {
-						// Still reported: the caller maps prompt references off `added`.
-						result.added.push(desired)
-						continue
-					}
-				}
-			} else if (this.#isDuplicate(desired, file)) {
+			if (this.#isDuplicate(desired, file)) {
 				continue // silent no-op on re-link
 			}
 
@@ -303,25 +248,20 @@ export class AttachedFilesStore {
 			const relPath = folder ? desired : undefined
 			const sourceId = createLongHash()
 
-			this.#pushIndexing({ name, file, folder, sourceId, relPath, messageScoped })
+			this.#pushIndexing({ name, file, folder, sourceId, relPath })
 			result.added.push(name)
-			// Message rows are NOT persisted here: their durable home is the chat
-			// transcript (DisplayMessage.files), from which syncMessageScoped rebuilds
-			// them on load — a second copy in IndexedDB would only drift.
-			if (!messageScoped) {
-				void this.#persist({
-					id: sourceId,
-					sessionId: this.sessionId ?? '',
-					kind: 'snapshot',
-					name,
-					folder,
-					relPath,
-					blob: file,
-					size: file.size,
-					lastModified: file.lastModified,
-					addedAt: Date.now()
-				})
-			}
+			void this.#persist({
+				id: sourceId,
+				sessionId: this.sessionId ?? '',
+				kind: 'snapshot',
+				name,
+				folder,
+				relPath,
+				blob: file,
+				size: file.size,
+				lastModified: file.lastModified,
+				addedAt: Date.now()
+			})
 		}
 
 		return result
@@ -498,9 +438,9 @@ export class AttachedFilesStore {
 	// ------------------------------------------------------------- internals
 
 	/** Identical session-file re-link (same name, or same File identity) → silent no-op.
-	 * Session rows only — message rows dedupe by content in addFiles, and a row of
-	 * one scope must never swallow the other scope's same-named file (the model
-	 * would then read the wrong content; collisions suffix via #uniqueName). */
+	 * Session rows only — message rows dedupe by their content-hash id in
+	 * registerMessageFiles, and a same-named row of the other scope is a
+	 * different file, not a duplicate. */
 	#isDuplicate(desired: string, file: File): boolean {
 		return this.files.some(
 			(f) =>
@@ -542,6 +482,7 @@ export class AttachedFilesStore {
 		handle?: FileSystemDirectoryHandle
 		relPath?: string
 		messageScoped?: boolean
+		id?: string
 	}): void {
 		this.files = [
 			...this.files,
@@ -556,7 +497,8 @@ export class AttachedFilesStore {
 				sourceId: p.sourceId,
 				handle: p.handle,
 				relPath: p.relPath,
-				messageScoped: p.messageScoped
+				messageScoped: p.messageScoped,
+				id: p.id
 			}
 		]
 		void this.#indexFile(p.name, p.file)
@@ -642,17 +584,20 @@ export class AttachedFilesStore {
 			} else {
 				const curMod = cur.file instanceof File ? cur.file.lastModified : undefined
 				if (file.size !== cur.size || file.lastModified !== curMod) {
-					// content changed → re-read + re-index
-					this.#patch(cur.name, { file, size: file.size, status: 'indexing' })
+					// content changed → re-read + re-index. Patch by row identity — a
+					// message attachment may share the display name.
+					this.files = this.files.map((f) =>
+						f === cur ? { ...f, file, size: file.size, status: 'indexing' } : f
+					)
 					void this.#indexFile(cur.name, file)
 				}
 			}
 		}
-		// removed/renamed-away on disk → drop from memory
-		const removed = [...existing.values()].filter((f) => f.relPath && !seen.has(f.relPath))
-		if (removed.length > 0) {
-			const names = new Set(removed.map((f) => f.name))
-			this.files = this.files.filter((f) => !names.has(f.name))
+		// removed/renamed-away on disk → drop from memory (by row identity — a
+		// message attachment may share the display name and must survive)
+		const removed = new Set([...existing.values()].filter((f) => f.relPath && !seen.has(f.relPath)))
+		if (removed.size > 0) {
+			this.files = this.files.filter((f) => !removed.has(f))
 		}
 		this.#ensureFolderRow(sourceId, folder, handle)
 	}
@@ -699,9 +644,6 @@ export class AttachedFilesStore {
 		}
 	}
 
-	#patch(name: string, changes: Partial<AttachedFile>): void {
-		this.files = this.files.map((f) => (f.name === name ? { ...f, ...changes } : f))
-	}
 	/**
 	 * Patch the row for `name` ONLY while it still holds the exact `file` we indexed.
 	 * `buildLineIndex` is async and unawaited; between its start and finish the row's
@@ -719,12 +661,12 @@ export class AttachedFilesStore {
 		this.files = this.files.map((f) => (f.sourceId === sourceId ? { ...f, ...changes } : f))
 	}
 
-	#uniqueName(original: string, reserved?: ReadonlySet<string>): string {
-		// Uniqueness is only among real files — folder-root placeholders may share a name
-		// with a standalone file and must not push it to a "(2)" suffix. `reserved`
-		// blocks extra names the caller must keep free (e.g. other transcript references).
+	#uniqueName(original: string): string {
+		// Uniqueness is only among session rows: folder-root placeholders aren't real
+		// files, and message rows are addressed by id — their display names neither
+		// block a session link nor need protecting from one.
 		const taken = (n: string) =>
-			(reserved?.has(n) ?? false) || this.files.some((f) => f.name === n && !f.isFolderRoot)
+			this.files.some((f) => f.name === n && !f.isFolderRoot && !f.messageScoped)
 		if (!taken(original)) return original
 		const dot = original.lastIndexOf('.')
 		const base = dot > 0 ? original.slice(0, dot) : original

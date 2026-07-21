@@ -34,9 +34,15 @@ vi.mock('./fileEngine', async (importOriginal) => {
 })
 
 import { AttachedFilesStore } from './attachedFiles.svelte'
+import { attachedTextFileId } from '../textFileUtils'
 
 function file(name: string, content: string, lastModified = 1): File {
 	return new File([content], name, { type: 'text/plain', lastModified })
+}
+
+/** A message attachment as the transcript carries it: name + content + stable id. */
+function mf(name: string, content: string): { name: string; content: string; id: string } {
+	return { name, content, id: attachedTextFileId(name, content) }
 }
 
 const dir = { kind: 'directory', name: 'proj' } as unknown as FileSystemDirectoryHandle
@@ -401,24 +407,25 @@ describe('AttachedFilesStore', () => {
 		}
 	})
 
-	it('keeps a session row indexable when sync renames it mid-index', async () => {
+	it('keeps a session row indexable when a same-named message file registers mid-index', async () => {
 		buildMode = 'manual'
 		try {
 			const S = file('notes.md', 'session\n')
 			await store.addFiles([S]) // session row 'notes.md' (file S) → index pending
 
-			// A same-named message attachment rebuilds while S is still indexing — the
-			// rename to 'notes (2).md' must re-target the in-flight index, not strand it.
-			await store.syncMessageScoped([{ name: 'notes.md', content: 'message\n' }])
+			// A same-named message attachment rebuilds while S is still indexing —
+			// neither row is renamed, and neither index is stranded.
+			store.syncMessageScoped([mf('notes.md', 'message\n')])
 
 			for (const d of [...buildDeferreds]) d.resolve({ lineIndex: [0], lineCount: 1 })
 			await settle(store)
 
-			// Both rows ready and readable under their own names.
-			expect(store.get('notes (2).md')?.messageScoped).toBeFalsy()
-			expect(store.get('notes (2).md')?.status).toBe('ready')
-			expect(store.get('notes.md')?.messageScoped).toBe(true)
-			expect(store.get('notes.md')?.status).toBe('ready')
+			// Both rows ready: the message row via its id, the session row via name.
+			const messageRow = store.resolve(attachedTextFileId('notes.md', 'message\n'))
+			expect(messageRow?.messageScoped).toBe(true)
+			expect(messageRow?.status).toBe('ready')
+			const sessionRow = store.files.find((f) => f.name === 'notes.md' && !f.messageScoped)
+			expect(sessionRow?.status).toBe('ready')
 		} finally {
 			buildMode = 'real'
 			buildDeferreds.length = 0
@@ -498,128 +505,93 @@ describe('AttachedFilesStore', () => {
 		expect(s.folders[0].files.map((f) => f.relPath)).toEqual(['proj/app.ts'])
 	})
 
-	it('registers a message file colliding with a session file under a new name', async () => {
+	it('a session link and a message attachment share a name independently', async () => {
 		await store.addFiles([file('notes.md', 'session content\n')])
 		await settle(store)
 
-		const res = await store.addFiles([file('notes.md', 'message content\n', 2)], {
-			messageScoped: true
-		})
+		store.registerMessageFiles([mf('notes.md', 'message content\n')])
 		await settle(store)
 
-		// Not swallowed by the session row; renamed so both stay addressable. The
-		// caller rewrites the message's reference to the returned name.
-		expect(res.added).toEqual(['notes (2).md'])
-		expect(store.get('notes.md')?.messageScoped).toBeFalsy()
-		expect(store.get('notes (2).md')?.messageScoped).toBe(true)
+		// Two rows, one display name, independently addressable: the message row by
+		// its id, the session row by name (its roster handle).
+		const messageRow = store.resolve(attachedTextFileId('notes.md', 'message content\n'))
+		expect(messageRow?.messageScoped).toBe(true)
+		expect(await (messageRow!.file as Blob).text()).toBe('message content\n')
+		const sessionRow = store.files.find((f) => f.name === 'notes.md' && !f.messageScoped)
+		expect(await (sessionRow!.file as Blob).text()).toBe('session content\n')
 
 		// A footer removal of the session file must not take the message row along.
 		store.removeFile('notes.md')
-		expect(store.get('notes (2).md')?.messageScoped).toBe(true)
+		expect(store.resolve(messageRow!.id!)?.messageScoped).toBe(true)
 		expect(store.standalone).toEqual([])
 	})
 
-	it('syncMessageScoped keeps a message file on its exact name despite a session clash', async () => {
-		// Session asset loaded first (as on restore), then a past chat carrying a
-		// same-named message attachment is opened: the rebuild must reclaim the
-		// exact transcript reference, not suffix it, or get() would read the wrong
-		// (session) content.
-		await store.addFiles([file('notes.md', 'session content\n')])
+	it('resolve falls back to a name lookup for legacy references', async () => {
+		// Chats persisted before ids existed reference message files by bare name.
+		store.registerMessageFiles([mf('notes.md', 'message content\n')])
 		await settle(store)
-
-		await store.syncMessageScoped([{ name: 'notes.md', content: 'message content\n' }])
-		await settle(store)
-
-		// The prompt reference `notes.md` resolves to the message content; the
-		// session row is renamed aside but stays addressable under the suffix.
-		expect(store.get('notes.md')?.messageScoped).toBe(true)
-		expect(await (store.get('notes.md')!.file as Blob).text()).toBe('message content\n')
-		expect(store.get('notes (2).md')?.messageScoped).toBeFalsy()
-		expect(await (store.get('notes (2).md')!.file as Blob).text()).toBe('session content\n')
-	})
-
-	it('reclaims every colliding transcript name across a multi-name rebuild', async () => {
-		// Session asset owns notes.md; the transcript references BOTH notes (2).md
-		// and notes.md (a same-name attachment suffixed at send). Freeing notes.md
-		// must skip notes (2).md (also wanted), or that message row would cascade to
-		// notes (3).md while its persisted reference stays notes (2).md.
-		await store.addFiles([file('notes.md', 'session\n')])
-		await settle(store)
-
-		await store.syncMessageScoped([
-			{ name: 'notes (2).md', content: 'first\n' },
-			{ name: 'notes.md', content: 'second\n' }
-		])
-		await settle(store)
-
-		expect(store.get('notes.md')?.messageScoped).toBe(true)
-		expect(await (store.get('notes.md')!.file as Blob).text()).toBe('second\n')
-		expect(store.get('notes (2).md')?.messageScoped).toBe(true)
-		expect(await (store.get('notes (2).md')!.file as Blob).text()).toBe('first\n')
-		// The session asset is pushed clear of both wanted names, still readable.
-		expect(store.get('notes (3).md')?.messageScoped).toBeFalsy()
-		expect(await (store.get('notes (3).md')!.file as Blob).text()).toBe('session\n')
+		expect(store.resolve('notes.md')?.messageScoped).toBe(true)
+		expect(await (store.resolve('notes.md')!.file as Blob).text()).toBe('message content\n')
 	})
 
 	it('syncMessageScoped reconciles rows to the transcript references', async () => {
-		await store.syncMessageScoped([
-			{ name: 'a.md', content: 'aaa\n' },
-			{ name: 'b.md', content: 'bbb\n' }
-		])
+		store.syncMessageScoped([mf('a.md', 'aaa\n'), mf('b.md', 'bbb\n')])
 		await settle(store)
 		expect(store.messageAttached.map((f) => f.name).sort()).toEqual(['a.md', 'b.md'])
 
 		// A message dropped from the transcript prunes its row; the survivor stays.
-		await store.syncMessageScoped([{ name: 'a.md', content: 'aaa\n' }])
+		store.syncMessageScoped([mf('a.md', 'aaa\n')])
 		await settle(store)
 		expect(store.messageAttached.map((f) => f.name)).toEqual(['a.md'])
 
-		await store.syncMessageScoped([])
+		store.syncMessageScoped([])
 		expect(store.messageAttached).toEqual([])
 	})
 
-	it('overlapping reconciliations commit only the latest set', async () => {
-		// Rapid chat switching fires syncs without awaiting the previous one; a
-		// stale pass finishing last must not leak its conversation's files.
-		const stale = store.syncMessageScoped([{ name: 'old.md', content: 'OLD sentinel\n' }])
-		const latest = store.syncMessageScoped([{ name: 'new.md', content: 'NEW sentinel\n' }])
-		await Promise.all([stale, latest])
+	it('back-to-back reconciliations commit only the latest set', async () => {
+		// Rapid chat switching fires syncs in quick succession; reconciliation is
+		// synchronous, so the last call's set simply wins.
+		store.syncMessageScoped([mf('old.md', 'OLD sentinel\n')])
+		store.syncMessageScoped([mf('new.md', 'NEW sentinel\n')])
 		await settle(store)
 		expect(store.messageAttached.map((f) => f.name)).toEqual(['new.md'])
 	})
 
 	it('syncMessageScoped replaces a stale row under the same name', async () => {
-		await store.syncMessageScoped([{ name: 'a.md', content: 'old\n' }])
+		store.syncMessageScoped([mf('a.md', 'old\n')])
 		await settle(store)
 
-		// The transcript's copy changed (edited message): the row must be replaced
-		// under the SAME name, not suffixed away from the reference.
-		await store.syncMessageScoped([{ name: 'a.md', content: 'new\n' }])
+		// The transcript's copy changed (edited message): different content means a
+		// different id, so the stale row is pruned and the new one registered.
+		store.syncMessageScoped([mf('a.md', 'new\n')])
 		await settle(store)
 		expect(store.messageAttached.map((f) => f.name)).toEqual(['a.md'])
 		expect(await (store.get('a.md')!.file as Blob).text()).toBe('new\n')
 	})
 
 	it('keeps message-scoped files tool-readable but out of the footer roster', async () => {
-		await store.addFiles([file('notes.md', 'hello\n')], { messageScoped: true })
+		store.registerMessageFiles([mf('notes.md', 'hello\n')])
 		await settle(store)
 
-		// Hidden from the session bar, listed for the tools, readable by name.
+		// Hidden from the session bar, listed for the tools, readable by id.
 		expect(store.standalone).toEqual([])
 		expect(store.messageAttached.map((f) => f.name)).toEqual(['notes.md'])
-		expect(store.get('notes.md')?.status).toBe('ready')
+		expect(store.resolve(attachedTextFileId('notes.md', 'hello\n'))?.status).toBe('ready')
 
-		// Identical re-registration (retry / sync rebuild) reuses the row.
-		const retry = await store.addFiles([file('notes.md', 'hello\n', 2)], { messageScoped: true })
-		expect(retry.added).toEqual(['notes.md'])
+		// Identical re-registration (retry / sync rebuild) reuses the row — same id.
+		store.registerMessageFiles([mf('notes.md', 'hello\n')])
 		expect(store.messageAttached.map((f) => f.name)).toEqual(['notes.md'])
 
 		// A same-named file with DIFFERENT content is another message's attachment:
-		// it registers under a suffixed name so the earlier message's reference
-		// keeps resolving to its own content.
-		const second = await store.addFiles([file('notes.md', 'other\n', 3)], { messageScoped: true })
+		// distinct id, its own row, both independently readable under one label.
+		store.registerMessageFiles([mf('notes.md', 'other\n')])
 		await settle(store)
-		expect(second.added).toEqual(['notes (2).md'])
-		expect(store.messageAttached.map((f) => f.name).sort()).toEqual(['notes (2).md', 'notes.md'])
+		expect(store.messageAttached.map((f) => f.name)).toEqual(['notes.md', 'notes.md'])
+		expect(
+			await (store.resolve(attachedTextFileId('notes.md', 'other\n'))!.file as Blob).text()
+		).toBe('other\n')
+		expect(
+			await (store.resolve(attachedTextFileId('notes.md', 'hello\n'))!.file as Blob).text()
+		).toBe('hello\n')
 	})
 })

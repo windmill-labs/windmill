@@ -82,7 +82,7 @@
 					<ContextElementBadge contextElement={element} compact />
 				{/each}
 				<!-- Index in the key: same-named entries can survive in older transcripts. -->
-				{#each message.files ?? [] as file, i (`${file.name}:${i}`)}
+				{#each message.files ?? [] as file, i (`${file.id ?? file.name}:${i}`)}
 					<ContextElementBadge
 						contextElement={createAttachedFileContextElement(file.name, file.content)}
 						compact

@@ -4076,17 +4076,26 @@ describe('prepareGlobalUserMessage', () => {
 		expect(message.content).not.toContain('Dashboard raw app')
 	})
 
-	it('lists attached files as references without their content', () => {
+	it('lists attached files as id references without their content', () => {
 		const message = prepareGlobalUserMessage('Summarize', [], {
-			files: [{ name: 'notes.md', content: 'the secret fruit is banana\nsecond line' }]
+			files: [
+				{ name: 'notes.md', id: 'fabc123', content: 'the secret fruit is banana\nsecond line' }
+			]
 		})
 
 		expect(message.content).toContain('## ATTACHED FILES')
-		expect(message.content).toContain('- notes.md — 2 lines, 38 chars')
+		expect(message.content).toContain('- notes.md (file id: fabc123) — 2 lines, 38 chars')
 		expect(message.content).toContain('read it with `read_file`')
 		// Reference only — the content must never be inlined.
 		expect(message.content).not.toContain('banana')
 		expect(message.content).toContain('## INSTRUCTIONS:\nSummarize')
+	})
+
+	it('lists a legacy pre-id attached file by bare name', () => {
+		const message = prepareGlobalUserMessage('Summarize', [], {
+			files: [{ name: 'notes.md', content: 'one line' }]
+		})
+		expect(message.content).toContain('- notes.md — 1 lines, 8 chars')
 	})
 
 	it('omits selected context section when no workspace item is selected', () => {

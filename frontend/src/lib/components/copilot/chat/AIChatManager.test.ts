@@ -1284,7 +1284,7 @@ describe('AIChatManager queued messages', () => {
 			{ role: 'user', content: 'd', index: 1, files: [{ name: 'shared.md', content: 'z' }] }
 		] as any
 
-		expect([...manager.orphanedMessageFileNames()]).toEqual(['dropped.md'])
+		expect([...manager.orphanedMessageFileIds()]).toEqual(['dropped.md'])
 	})
 
 	// A summary carries its folded files' reference on its own API message; if a
@@ -1302,12 +1302,12 @@ describe('AIChatManager queued messages', () => {
 		] as any
 
 		// Summary API message present → its files are still referenced.
-		expect([...manager.orphanedMessageFileNames()]).toEqual([])
+		expect([...manager.orphanedMessageFileIds()]).toEqual([])
 
 		// Drop-oldest removes the summary's API message and re-bases indices.
 		manager.compactOldestMessages(1)
 
-		expect([...manager.orphanedMessageFileNames()]).toEqual(['folded.md'])
+		expect([...manager.orphanedMessageFileIds()]).toEqual(['folded.md'])
 	})
 
 	// An edit is not committed until send, so cancelling it returns the message's

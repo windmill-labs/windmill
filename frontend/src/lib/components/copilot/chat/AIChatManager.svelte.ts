@@ -67,7 +67,12 @@ import {
 	stripImagePartsFromMessages
 } from './imageUtils'
 import { chatDraft, expanded } from './chatDraft'
-import { MAX_ATTACHED_FILES, textByteLength, type AttachedTextFile } from './textFileUtils'
+import {
+	MAX_ATTACHED_FILES,
+	textByteLength,
+	withAttachedTextFileIds,
+	type AttachedTextFile
+} from './textFileUtils'
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
@@ -1108,22 +1113,20 @@ export class AIChatManager {
 
 			// Files attached to folded-away messages ride the summary: the transcript
 			// is their durable home, so dropping the referencing message without
-			// carrying them would lose the attachment entirely. Names are unique
-			// across a conversation (registration suffixes collisions).
-			// Deduped by name: several folded turns can carry the identical file
-			// (registration reuses one name for identical content), and the summary
-			// must list/keep it once.
-			const carriedByName = new Map<string, AttachedTextFile>()
+			// carrying them would lose the attachment entirely. Deduped by stable id:
+			// several folded turns can carry the identical file, and the summary must
+			// list/keep it once.
+			const carriedById = new Map<string, AttachedTextFile>()
 			for (const m of this.displayMessages.slice(0, displayKeepFrom)) {
 				if ((m.role === 'user' || m.role === 'summary') && m.files) {
-					for (const f of m.files) carriedByName.set(f.name, f)
+					for (const f of withAttachedTextFileIds(m.files)) carriedById.set(f.id!, f)
 				}
 			}
-			const carriedFiles = [...carriedByName.values()]
+			const carriedFiles = [...carriedById.values()]
 			const filesNote =
 				carriedFiles.length > 0
-					? '\n\nThe user attached these files earlier in this conversation; they are still readable via `read_file` / `search_files`:\n' +
-						carriedFiles.map((f) => `- ${f.name}`).join('\n')
+					? '\n\nThe user attached these files earlier in this conversation; they are still readable via `read_file` / `search_files` (pass the file id):\n' +
+						carriedFiles.map((f) => `- ${f.name} (file id: ${f.id})`).join('\n')
 					: ''
 
 			this.messages = [
@@ -1300,7 +1303,7 @@ export class AIChatManager {
 				case 'ok':
 					// Reconcile file registrations with the compacted transcript — the
 					// summary message carries the folded-away turns' files forward.
-					await this.#syncMessageFiles()
+					this.#syncMessageFiles()
 					await this.historyManager.saveChat(
 						this.displayMessages,
 						this.messages,
@@ -2007,7 +2010,7 @@ export class AIChatManager {
 		// The rolled-back turn's files must not stay registered: the message
 		// referencing them is gone, so leaving them would keep stale content
 		// readable by the tools on later turns.
-		await this.#syncMessageFiles()
+		this.#syncMessageFiles()
 		if (!restoreToInput) return false
 		// An occupied composer declines the restore and keeps its own draft.
 		return this.aiChatInput?.restoreInstructions(instructions, pastes, images, files) === true
@@ -2075,32 +2078,43 @@ export class AIChatManager {
 	}
 
 	/** Reconcile the store's message-scoped file rows with what the transcript
-	 * references (registration keeps names unique across messages). Runs on chat
-	 * load/clear, after rollbacks/truncations, and after compaction, so a chip the
-	 * user can see is always readable and a dropped message's file never lingers
-	 * in the tool surface. */
-	#syncMessageFiles = async (): Promise<void> => {
-		const wanted = new Map<string, AttachedTextFile>()
+	 * references, joined on the stable file id. Runs on chat load/clear, after
+	 * rollbacks/truncations, and after compaction, so a chip the user can see is
+	 * always readable and a dropped message's file never lingers in the tool
+	 * surface. Also the single hydration point for transcripts persisted before
+	 * ids existed: the id is a deterministic content hash, so legacy rows gain
+	 * their permanent id here with no migration state. */
+	#syncMessageFiles = (): void => {
+		let hydrated = false
+		const withIds = this.displayMessages.map((m) => {
+			if ((m.role === 'user' || m.role === 'summary') && m.files?.some((f) => !f.id)) {
+				hydrated = true
+				return { ...m, files: withAttachedTextFileIds(m.files) }
+			}
+			return m
+		})
+		if (hydrated) this.displayMessages = withIds
+		const wanted = new Map<string, AttachedTextFile & { id: string }>()
 		for (const m of this.displayMessages) {
 			// Summary messages carry the files of the turns they folded away.
 			if ((m.role === 'user' || m.role === 'summary') && m.files) {
-				for (const f of m.files) wanted.set(f.name, f)
+				for (const f of m.files) wanted.set(f.id!, f as AttachedTextFile & { id: string })
 			}
 		}
 		try {
-			await this.attachedFiles.syncMessageScoped([...wanted.values()])
+			this.attachedFiles.syncMessageScoped([...wanted.values()])
 		} catch (e) {
 			console.error('Failed to sync message-attached files', e)
 		}
 	}
 
-	/** Names of message-scoped files whose only referencing user messages were
+	/** Ids of message-scoped files whose only referencing user messages were
 	 * dropped from the API history by drop-oldest compaction (a negative `index`
 	 * marks a message whose API counterpart is gone). Their `## ATTACHED FILES`
 	 * reference no longer reaches the model — unlike summary compaction, which
 	 * carries the reference on the summary — so the roster must advertise them.
 	 * A file still referenced by a surviving message is not orphaned. */
-	orphanedMessageFileNames(): Set<string> {
+	orphanedMessageFileIds(): Set<string> {
 		const live = new Set<string>()
 		const dropped = new Set<string>()
 		for (const m of this.displayMessages) {
@@ -2108,7 +2122,7 @@ export class AIChatManager {
 				// A summary carries its files' reference in its own API message; that too
 				// can be dropped by a later drop-oldest (negative index), orphaning them.
 				const gone = m.index !== undefined && m.index < 0
-				for (const f of m.files) (gone ? dropped : live).add(f.name)
+				for (const f of m.files) (gone ? dropped : live).add(f.id ?? f.name)
 			}
 		}
 		for (const n of live) dropped.delete(n)
@@ -2167,7 +2181,7 @@ export class AIChatManager {
 						return appendAttachedFilesRoster(
 							base,
 							self.attachedFiles,
-							self.orphanedMessageFileNames()
+							self.orphanedMessageFileIds()
 						)
 					}
 					return base
@@ -2505,8 +2519,11 @@ export class AIChatManager {
 		// text-only one after attaching, and sending the image then fails the turn.
 		const requestedImages = options.images ?? []
 		// Text files pass regardless of vision support — the prompt carries only
-		// references; content is read via the file tools.
-		const files = options.files ?? []
+		// references; content is read via the file tools. Hydrated so every copy of
+		// this turn (bubble, prompt, registration, restore) carries the stable id —
+		// only edit/retry of a pre-id transcript can arrive without one, and the
+		// hash is deterministic, so hydration reproduces the original id.
+		const files = withAttachedTextFileIds(options.files ?? [])
 		const sendModel = tryGetCurrentModel()
 		const modelIsBlind = !!sendModel && !modelSupportsVision(sendModel.provider, sendModel.model)
 		if (requestedImages.length > 0 && modelIsBlind) {
@@ -2702,9 +2719,6 @@ export class AIChatManager {
 			const sentInstructions = this.instructions
 			const sentPastes = pastes
 			const sentImages = images
-			// Mutable copy: registration below may rewrite entries to their registered
-			// (collision-suffixed) names, and the caller's array must not be mutated.
-			const sentFiles = [...files]
 			// The LLM gets the full pasted content; the display message above keeps
 			// the compact tokens + registry so the bubble can render/expand chips.
 			const oldInstructions = expanded(chatDraft(this.instructions, pastes))
@@ -2727,31 +2741,14 @@ export class AIChatManager {
 				throw new Error('No script options passed')
 			}
 
-			// Message-attached files travel as references: the prompt lists them and the
-			// model reads their content via the file tools. Register them in the store
-			// before the request goes out so this turn's reads can already see them.
-			// Registration failure must not block the send — the reference just reads
-			// as missing and the model reports it.
-			if (this.mode === AIMode.GLOBAL && sentFiles.length > 0) {
+			// Message-attached files travel as references: the prompt lists them by id
+			// and the model reads their content via the file tools. Register them in
+			// the store before the request goes out so this turn's reads can already
+			// see them. Registration failure must not block the send — the reference
+			// just reads as missing and the model reports it.
+			if (this.mode === AIMode.GLOBAL && files.length > 0) {
 				try {
-					// One at a time so each file's registered name is knowable: a collision
-					// with a session-linked file registers under a suffixed name, and the
-					// message must reference (and display) THAT name or the tools resolve
-					// the wrong file.
-					for (let i = 0; i < sentFiles.length; i++) {
-						const f = sentFiles[i]
-						const res = await this.attachedFiles.addFiles(
-							[new File([f.content], f.name, { type: 'text/plain' })],
-							{ messageScoped: true }
-						)
-						const registered = res.added[0]
-						if (registered && registered !== f.name) {
-							sentFiles[i] = { ...f, name: registered }
-						}
-					}
-					this.displayMessages = this.displayMessages.map((m, i) =>
-						i === optimisticIndex ? { ...m, files: [...sentFiles] } : m
-					)
+					this.attachedFiles.registerMessageFiles(files as (AttachedTextFile & { id: string })[])
 				} catch (e) {
 					console.error('Failed to register message-attached files', e)
 				}
@@ -2786,7 +2783,7 @@ export class AIChatManager {
 					userMessage = prepareGlobalUserMessage(modelInstructions, oldSelectedContext, {
 						workspace: this.operatingWorkspace,
 						images: sentImages,
-						files: sentFiles
+						files: files
 					})
 					break
 				case AIMode.APP:
@@ -2851,7 +2848,7 @@ export class AIChatManager {
 					}
 					// Reconcile file registrations with the compacted transcript — the
 					// summary message carries the folded-away turns' files forward.
-					await this.#syncMessageFiles()
+					this.#syncMessageFiles()
 					await this.historyManager.saveChat(
 						this.displayMessages,
 						this.messages,
@@ -3017,7 +3014,7 @@ export class AIChatManager {
 					sentPastes,
 					!willAutoSendQueued,
 					sentImages,
-					sentFiles
+					files
 				)
 				// restoreUnsentTurn hands the text/pastes/images back for a resend, but
 				// the DOM selector chips were already consumed from the live selection
@@ -3288,7 +3285,7 @@ export class AIChatManager {
 		this.instructions = newContent ?? userMessage.content
 		// Prune the truncated messages' file registrations BEFORE the resend
 		// re-registers its own — the other way around would delete the fresh rows.
-		await this.#syncMessageFiles()
+		this.#syncMessageFiles()
 		this.sendRequest({
 			pastes: pastes ?? userMessage.pastes,
 			contextOverride: editedContext ?? userMessage.contextElements,
@@ -3355,7 +3352,7 @@ export class AIChatManager {
 		// would still get the previous file roster and could read/search it.
 		if (!this.isSessionChat) this.attachedFiles.clear()
 		// Message-attached rows belong to the conversation just left in every case.
-		await this.#syncMessageFiles()
+		this.#syncMessageFiles()
 		this.syncArtifactsSession()
 		this.onChatRotated?.(this.historyManager.getCurrentChatId())
 	}
@@ -3396,7 +3393,7 @@ export class AIChatManager {
 			// Message-attached files live in the transcript, not in the store's
 			// persistence — rebuild their rows so the loaded chat's references are
 			// readable (and the previous chat's are pruned).
-			await this.#syncMessageFiles()
+			this.#syncMessageFiles()
 			this.#automaticScroll = true
 			this.syncArtifactsSession()
 			this.onChatRotated?.(id)
