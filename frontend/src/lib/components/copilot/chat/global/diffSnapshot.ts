@@ -140,8 +140,11 @@ function computeAppSplit(
 		const beforeContent = beforeFiles?.[name]
 		const afterContent = afterFiles?.[name]
 		const patch = textFilePatch(beforeContent, afterContent, beforeLabel, afterLabel)
-		if (!patch) continue
-		const lineCount = patch.split('\n').length
+		// An EMPTY file appearing or disappearing yields no text patch, but file
+		// presence is a change in its own right (imports/bundling see it).
+		const presenceChanged = (beforeContent === undefined) !== (afterContent === undefined)
+		if (!patch && !presenceChanged) continue
+		const lineCount = patch === '' ? 0 : patch.split('\n').length
 		totalLines += lineCount
 		files[name] = {
 			status:

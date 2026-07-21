@@ -5381,16 +5381,17 @@ function renderEntryFiles(
 			const changed = names.join(', ') || '(none)'
 			throw new Error(`No changes in file "${requested}". Changed files: ${changed}.`)
 		}
-		return windowPatch(
-			files[resolved].patch,
-			args.offset ?? 0,
-			args.limit ?? DIFF_READ_DEFAULT_LINES
-		)
+		const fileDiff = files[resolved]
+		if (fileDiff.patch === '') {
+			// Empty file added/deleted: the presence change IS the whole diff.
+			return `File "${resolved}" was ${fileDiff.status} with empty content.`
+		}
+		return windowPatch(fileDiff.patch, args.offset ?? 0, args.limit ?? DIFF_READ_DEFAULT_LINES)
 	}
 	const sections: string[] = []
 	const fileLines = Object.entries(files).map(
 		([name, fileDiff]) =>
-			`- ${name} — ${fileDiff.status}${fileDiff.status === 'deleted' ? '' : ` (${fileDiff.lineCount} diff lines)`}`
+			`- ${name} — ${fileDiff.status}${fileDiff.status === 'deleted' ? '' : fileDiff.lineCount === 0 ? ' (empty file)' : ` (${fileDiff.lineCount} diff lines)`}`
 	)
 	sections.push(
 		fileLines.length > 0
@@ -5415,7 +5416,11 @@ function fileChildrenLines(e: { files?: Record<string, DiffFileView>; patch?: st
 	const lines = names.slice(0, DIFF_INDEX_MAX_FILE_CHILDREN).map((name) => {
 		const fileDiff = e.files![name]
 		return `    · ${name} — ${fileDiff.status}${
-			fileDiff.status === 'deleted' ? '' : ` (${fileDiff.lineCount} lines)`
+			fileDiff.status === 'deleted'
+				? ''
+				: fileDiff.lineCount === 0
+					? ' (empty file)'
+					: ` (${fileDiff.lineCount} lines)`
 		}`
 	})
 	if (names.length > DIFF_INDEX_MAX_FILE_CHILDREN) {

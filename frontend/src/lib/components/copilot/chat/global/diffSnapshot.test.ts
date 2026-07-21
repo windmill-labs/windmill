@@ -232,6 +232,23 @@ describe('raw-app file splitting (draft mode)', () => {
 		expect(entry?.patch).not.toContain('src/App.tsx')
 	})
 
+	it('reports empty-file additions and deletions as changes despite the empty patch', async () => {
+		vi.mocked(getDraftItems).mockResolvedValue([
+			row({ kind: 'raw_app', path: 'f/dash/main' })
+		] as any)
+		vi.mocked(getDraftDiffValues).mockResolvedValue({
+			deployed: { summary: 'Dash', files: { 'gone.css': '', 'kept.ts': 'same\n' }, runnables: {} },
+			draft: { summary: 'Dash', files: { 'added.ts': '', 'kept.ts': 'same\n' }, runnables: {} },
+			hasDraft: true,
+			noDeployed: false
+		} as any)
+		const entry = await readWorkspaceDiffEntry(WS, 'raw_app', 'f/dash/main')
+		expect(entry?.status).toBe('modified')
+		expect(entry?.files?.['added.ts']).toEqual({ status: 'added', patch: '', lineCount: 0 })
+		expect(entry?.files?.['gone.css']).toEqual({ status: 'deleted', patch: '', lineCount: 0 })
+		expect(entry?.files?.['kept.ts']).toBeUndefined()
+	})
+
 	it('reports unchanged when neither files nor config differ', async () => {
 		const value = { summary: 'Dash', files: { 'a.ts': 'same\n' }, runnables: {} }
 		vi.mocked(getDraftItems).mockResolvedValue([
