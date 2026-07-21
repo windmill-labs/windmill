@@ -1,10 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { classicAppDraftValue } from './appDiffSides'
+import { classicAppDraftParts } from './appDiffSides'
 
-describe('classicAppDraftValue', () => {
-	it('keeps a bare grid draft as-is (minus parent_version)', () => {
-		const grid = { grid: [{ id: 'a' }], fullscreen: false, parent_version: 7 }
-		expect(classicAppDraftValue(grid)).toEqual({ grid: [{ id: 'a' }], fullscreen: false })
+describe('classicAppDraftParts', () => {
+	it('extracts the mirrored summary and strips draft-only markers from the grid', () => {
+		const draft = {
+			grid: [{ id: 'a' }],
+			fullscreen: false,
+			summary: 'My app',
+			draft_path: 'f/nice/name',
+			parent_version: 7
+		}
+		expect(classicAppDraftParts(draft)).toEqual({
+			value: { grid: [{ id: 'a' }], fullscreen: false },
+			summary: 'My app'
+		})
 	})
 
 	it('unwraps a legacy wrapped draft so it compares against the deployed value', () => {
@@ -13,11 +22,14 @@ describe('classicAppDraftValue', () => {
 			policy: {},
 			value: { grid: [{ id: 'a' }] }
 		}
-		expect(classicAppDraftValue(wrapped)).toEqual({ grid: [{ id: 'a' }] })
+		expect(classicAppDraftParts(wrapped)).toEqual({
+			value: { grid: [{ id: 'a' }] },
+			summary: 'My app'
+		})
 	})
 
 	it('does not mistake a grid whose component is named value for a wrapper', () => {
 		const grid = { grid: [], value: { some: 'component-state' } }
-		expect(classicAppDraftValue(grid)).toEqual(grid)
+		expect(classicAppDraftParts(grid)).toEqual({ value: grid, summary: undefined })
 	})
 })

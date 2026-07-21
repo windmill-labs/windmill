@@ -85,6 +85,9 @@ export interface WorkspaceDiffEntryView {
 	/** Variable content was placeholder-masked (values never reach the chat);
 	 * the patch marks a value change without revealing it. */
 	valueMasked?: boolean
+	/** Secret variable: neither side's real value is readable, so "no visible
+	 * changes" cannot prove the value is unchanged. */
+	valueUncomparable?: boolean
 	/** True when the item has never been deployed — the whole draft is new. */
 	noDeployed?: boolean
 	errorMessage?: string
@@ -101,6 +104,7 @@ interface Materialized {
 	lineCount: number
 	files?: Record<string, DiffFileView>
 	valueMasked?: boolean
+	valueUncomparable?: boolean
 	noDeployed: boolean
 	errorMessage?: string
 	fetchedAt: number
@@ -351,12 +355,19 @@ const VARIABLE_VALUE_CHANGED_PLACEHOLDER = '<variable value — never shown in c
 export function maskVariableDiffSides(
 	before: unknown,
 	after: unknown
-): { before: unknown; after: unknown } {
+): { before: unknown; after: unknown; valueUncomparable: boolean } {
 	const beforeObj =
 		before !== null && typeof before === 'object' ? (before as Record<string, unknown>) : undefined
 	const afterObj =
 		after !== null && typeof after === 'object' ? (after as Record<string, unknown>) : undefined
+	// A secret's sides are already masked upstream (draft rows store '' and the
+	// deployed value is never decrypted), so equality between them proves
+	// nothing — the value may have changed invisibly. Only non-secret sides
+	// carry real content worth comparing.
+	const secret = beforeObj?.is_secret === true || afterObj?.is_secret === true
+	const valueUncomparable = secret && beforeObj !== undefined && afterObj !== undefined
 	const valueChanged =
+		!secret &&
 		beforeObj !== undefined &&
 		afterObj !== undefined &&
 		JSON.stringify(beforeObj.value) !== JSON.stringify(afterObj.value)
@@ -367,7 +378,8 @@ export function maskVariableDiffSides(
 					...afterObj,
 					value: valueChanged ? VARIABLE_VALUE_CHANGED_PLACEHOLDER : VARIABLE_VALUE_PLACEHOLDER
 				}
-			: after
+			: after,
+		valueUncomparable
 	}
 }
 
@@ -386,8 +398,9 @@ async function materialize(workspace: string, entry: CacheEntry, maxAgeMs: numbe
 			let before = noDeployed ? undefined : deployed
 			let after: unknown = draft
 			const valueMasked = entry.row.kind === 'variable'
+			let valueUncomparable = false
 			if (valueMasked) {
-				;({ before, after } = maskVariableDiffSides(before, after))
+				;({ before, after, valueUncomparable } = maskVariableDiffSides(before, after))
 			}
 			const parts = computeDiffParts(before, after, 'deployed', 'draft')
 			entry.materialized = {
@@ -396,6 +409,7 @@ async function materialize(workspace: string, entry: CacheEntry, maxAgeMs: numbe
 				lineCount: parts.lineCount,
 				files: parts.files,
 				valueMasked,
+				valueUncomparable,
 				noDeployed,
 				fetchedAt: Date.now()
 			}
@@ -435,6 +449,7 @@ function toView(entry: CacheEntry): WorkspaceDiffEntryView {
 		patchLineCount: m?.lineCount,
 		files: m?.files,
 		valueMasked: m?.valueMasked,
+		valueUncomparable: m?.valueUncomparable,
 		noDeployed: m?.noDeployed,
 		errorMessage: m?.errorMessage
 	}

@@ -5277,6 +5277,7 @@ async function diffWorkspaceItem(
 	let patch: string
 	let noDeployed: boolean
 	let files: Record<string, DiffFileView> | undefined
+	let valueUncomparable = false
 	if (localValue !== undefined) {
 		let deployedSide: unknown
 		try {
@@ -5291,7 +5292,11 @@ async function diffWorkspaceItem(
 		let beforeSide = deployedSide
 		let afterSide = canonicalDraftSideValue(itemKind, localValue)
 		if (itemKind === 'variable') {
-			;({ before: beforeSide, after: afterSide } = maskVariableDiffSides(beforeSide, afterSide))
+			;({
+				before: beforeSide,
+				after: afterSide,
+				valueUncomparable
+			} = maskVariableDiffSides(beforeSide, afterSide))
 			flushCaveat += VARIABLE_MASKED_NOTE
 		}
 		const parts = computeDiffParts(beforeSide, afterSide, 'deployed', 'draft')
@@ -5312,6 +5317,7 @@ async function diffWorkspaceItem(
 			patch = entry.patch ?? ''
 			noDeployed = entry.noDeployed === true
 			files = entry.files
+			valueUncomparable = entry.valueUncomparable === true
 			if (entry.valueMasked) flushCaveat += VARIABLE_MASKED_NOTE
 		} else {
 			// Not in the draft listing — either no draft at all (deployed is current),
@@ -5338,7 +5344,11 @@ async function diffWorkspaceItem(
 			let beforeSide: unknown = noDeployed ? undefined : deployed
 			let afterSide: unknown = draft
 			if (itemKind === 'variable') {
-				;({ before: beforeSide, after: afterSide } = maskVariableDiffSides(beforeSide, afterSide))
+				;({
+					before: beforeSide,
+					after: afterSide,
+					valueUncomparable
+				} = maskVariableDiffSides(beforeSide, afterSide))
 				flushCaveat += VARIABLE_MASKED_NOTE
 			}
 			patch = draftDeployedPatch(beforeSide, afterSide)
@@ -5347,7 +5357,11 @@ async function diffWorkspaceItem(
 
 	const changedFileCount = files ? Object.keys(files).length : 0
 	if (!patch && changedFileCount === 0) {
-		const message = `Draft matches the deployed version of ${type} "${path}" — no changes.`
+		// A secret's sides are masked on both ends — an empty patch cannot prove
+		// the value is unchanged.
+		const message = valueUncomparable
+			? `No visible changes for ${type} "${path}" — but a secret's value cannot be compared and may have been updated in the draft.`
+			: `Draft matches the deployed version of ${type} "${path}" — no changes.`
 		toolCallbacks.setToolStatus(toolId, { content: message, result: message })
 		return flushCaveat + message
 	}
@@ -5453,7 +5467,9 @@ function formatDiffIndexEntry(e: WorkspaceDiffEntryView): string {
 		case 'modified':
 			return `- ${name} — modified (${e.patchLineCount} diff lines)`
 		case 'unchanged':
-			return `- ${name} — draft matches deployed`
+			return e.valueUncomparable
+				? `- ${name} — no visible changes (secret value cannot be compared; may differ)`
+				: `- ${name} — draft matches deployed`
 		case 'pending':
 			return `- ${name} — draft present (diff not computed yet; read it with type+path)`
 		case 'error':
@@ -5723,7 +5739,9 @@ function collectDiffSearchUnits(
 	for (const e of entries) {
 		if (e.files) {
 			for (const [name, fileDiff] of Object.entries(e.files)) {
-				out.push({ subject: `${e.path}/${name}`, patch: fileDiff.patch })
+				// App file keys lead with '/'; a raw join would yield `f/x//file`,
+				// which slash-anchored globs like `f/x/*.tsx` can never match.
+				out.push({ subject: `${e.path}/${name.replace(/^\/+/, '')}`, patch: fileDiff.patch })
 			}
 			if (e.patch) out.push({ subject: e.path, patch: e.patch })
 		} else if (e.patch) {

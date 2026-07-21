@@ -38,7 +38,7 @@ import type { DeployResult } from '$lib/utils_workspace_deploy'
 import { TRIGGER_RUNTIME_IGNORE } from '$lib/utils_deployable'
 import { deployRawAppDraft } from '$lib/rawAppDeploy'
 import { canonicalRawAppDiffValue } from '$lib/components/raw_apps/utils'
-import { classicAppDraftValue } from '$lib/appDiffSides'
+import { classicAppDraftParts } from '$lib/appDiffSides'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 import { userStore } from '$lib/stores'
@@ -128,7 +128,7 @@ export interface DraftDiffValues {
 const EMPTY_DEPLOYED: Partial<Record<DraftKind, (draft: any) => unknown>> = {
 	script: (draft) => ({ content: '', language: draft?.language, schema: {} }),
 	flow: () => ({ summary: '', value: { modules: [] }, schema: {} }),
-	app: () => ({ value: {} })
+	app: () => ({ summary: '', value: {} })
 }
 
 // Server-managed script-row fields, stripped from BOTH sides of a draft diff:
@@ -166,7 +166,10 @@ function stripScriptRowRuntime(row: any): Record<string, unknown> {
 export function canonicalDraftSideValue(kind: DraftKind, value: unknown): unknown {
 	if (kind === 'script') return stripScriptRowRuntime(value)
 	if (kind === 'raw_app') return canonicalRawAppDiffValue((value ?? {}) as Record<string, any>)
-	if (kind === 'app') return { value: classicAppDraftValue(value) }
+	if (kind === 'app') {
+		const parts = classicAppDraftParts(value)
+		return { summary: parts.summary ?? '', value: parts.value }
+	}
 	if (kind === 'flow' && value !== null && typeof value === 'object') {
 		const { version_id: _v, ...rest } = value as Record<string, unknown>
 		return rest
@@ -303,13 +306,20 @@ export async function getDraftDiffValues(
 				noDeployed: r.no_deployed === true
 			}
 		}
-		// Classic app: the editor drafts the bare grid `value` while the row nests
-		// it beside summary/policy — both sides reduce to `{ value }` (wrapper
-		// metadata cannot change through a classic draft).
-		const draftValue = r.draft != null ? classicAppDraftValue(r.draft) : r.value
+		// Classic app: the editor drafts the bare grid with summary/draft_path
+		// mirrored into it, while the row keeps summary as a column beside
+		// `value`. Both sides reduce to `{ summary, value }` with the metadata
+		// extracted from the grid, so a summary edit diffs as a summary edit and
+		// the grid never diffs against draft-only markers.
+		const deployedParts = classicAppDraftParts(r.value)
+		const draftParts = r.draft != null ? classicAppDraftParts(r.draft) : deployedParts
+		const deployed = { summary: r.summary ?? '', value: deployedParts.value }
 		return {
-			deployed: draftOnly ? EMPTY_DEPLOYED.app!(draftValue) : { value: r.value },
-			draft: { value: draftValue },
+			deployed: draftOnly ? EMPTY_DEPLOYED.app!(undefined) : deployed,
+			draft: {
+				summary: draftParts.summary ?? r.summary ?? '',
+				value: draftParts.value
+			},
 			hasDraft: r.draft != null,
 			noDeployed: r.no_deployed === true
 		}

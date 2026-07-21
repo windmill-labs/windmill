@@ -209,6 +209,23 @@ describe('getWorkspaceDiffIndex', () => {
 		expect(entry?.patch).toContain('(changed)')
 	})
 
+	it('flags a secret-only draft as uncomparable instead of claiming unchanged', async () => {
+		vi.mocked(getDraftItems).mockResolvedValue([
+			row({ kind: 'variable', path: 'f/a/secret' })
+		] as any)
+		// The shared canonicalizer already masked both sides to the same
+		// sentinel — equality between them proves nothing.
+		vi.mocked(getDraftDiffValues).mockResolvedValue({
+			deployed: { value: '<secret>', is_secret: true, description: 'd' },
+			draft: { value: '<secret>', is_secret: true, description: 'd' },
+			hasDraft: true,
+			noDeployed: false
+		} as any)
+		const entry = await readWorkspaceDiffEntry(WS, 'variable', 'f/a/secret')
+		expect(entry?.status).toBe('unchanged')
+		expect(entry?.valueUncomparable).toBe(true)
+	})
+
 	it('materializes classic-app drafts under the chat app type', async () => {
 		vi.mocked(getDraftItems).mockResolvedValue([row({ kind: 'app', path: 'f/a/classic' })] as any)
 		mockDiffValues({ summary: 'v1' }, { summary: 'v2' })
