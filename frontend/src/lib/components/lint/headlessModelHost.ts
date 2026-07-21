@@ -121,3 +121,12 @@ export function acquireOwnedModel(ownedUri: string, content: string, editorLang:
 export function releaseOwnedModel(ownedUri: string) {
 	inFlight.delete(ownedUri)
 }
+
+/** Dispose an owned model outright — used for a batch (an app's files) after its lint. */
+export function disposeOwnedModel(ownedUri: string) {
+	inFlight.delete(ownedUri)
+	const at = ownedModels.indexOf(ownedUri)
+	if (at >= 0) ownedModels.splice(at, 1)
+	const model = meditor.getModel(Uri.parse(ownedUri))
+	if (model && !model.isAttachedToEditor()) model.dispose()
+}

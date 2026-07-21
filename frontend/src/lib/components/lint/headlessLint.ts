@@ -13,7 +13,12 @@ import {
 } from '../monacoLanguagesOptions'
 import { computeModelUri, computeOwnedUri } from './monacoUri'
 import { readModelMarkers } from './markers'
-import { acquireOwnedModel, readThrough, releaseOwnedModel } from './headlessModelHost'
+import {
+	acquireOwnedModel,
+	disposeOwnedModel,
+	readThrough,
+	releaseOwnedModel
+} from './headlessModelHost'
 import { ensureCustomWmillTypes, ensureResourceTypeNamespace } from './typescriptExtraLibs'
 import { createWindmillAta, genAtaRoot } from './typescriptAta'
 import { lintWithLsp } from './headlessLsp'
@@ -281,33 +286,26 @@ export async function lintAppFrontend(req: {
 	await initializeVscode('headlessLint')
 	keepModelAroundToAvoidDisposalOfWorkers()
 
-	const base = `file:///${req.appPath.replace(/^\//, '')}`
-	// Models for every file, so imports between them resolve the way they do at build time.
-	const created: string[] = []
-	const reportable: { filePath: string; uriString: string }[] = []
+	const cell = { workspace: req.workspace, itemKind: 'app', storagePath: req.appPath }
+	// One owned model per app file, all in the app's namespace so imports between them
+	// resolve the way they do at build time. The in-flight guard keeps them from evicting
+	// each other even when the app has more files than the LRU cap.
+	const owned: string[] = []
+	const reportable: { filePath: string; ownedUri: string }[] = []
 	for (const [filePath, content] of Object.entries(req.files)) {
 		if (typeof content !== 'string' || !APP_LINTABLE_FILE.test(filePath)) continue
-		const uriString = `${base}${filePath.startsWith('/') ? filePath : `/${filePath}`}`
-		const uri = Uri.parse(uriString)
-		const existing = meditor.getModel(uri)
-		if (existing) {
-			// An attached model is a buffer some editor is showing; never overwrite it, the
-			// same rule lintOne follows.
-			if (!existing.isAttachedToEditor() && existing.getValue() !== content) {
-				existing.setValue(content)
-			}
-		} else {
-			meditor.createModel(content, 'typescript', uri)
-			created.push(uriString)
-		}
+		const ownedUri = computeOwnedUri(cell, filePath.replace(/^\//, ''), undefined, 'typescript')
+		acquireOwnedModel(ownedUri, content, 'typescript')
+		owned.push(ownedUri)
 		// Generated declaration files are not the user's to fix.
-		if (!APP_DECLARATION_FILE.test(filePath)) reportable.push({ filePath, uriString })
+		if (!APP_DECLARATION_FILE.test(filePath)) reportable.push({ filePath, ownedUri })
 	}
 
 	const timeoutMs = req.timeoutMs ?? 5000
 	try {
+		const indexUri = computeOwnedUri(cell, 'index.tsx', undefined, 'typescript')
 		await withDeadline(
-			acquireAppTypes(req.workspace, req.appPath, base, req.files).catch((e) =>
+			acquireAppTypes(req.workspace, req.appPath, indexUri, req.files).catch((e) =>
 				console.error('headlessLint: app type acquisition failed', e)
 			),
 			timeoutMs
@@ -315,8 +313,8 @@ export async function lintAppFrontend(req: {
 
 		const out: AppFileLintResult[] = []
 		let incomplete = false
-		for (const { filePath, uriString } of reportable) {
-			const uri = Uri.parse(uriString)
+		for (const { filePath, ownedUri } of reportable) {
+			const uri = Uri.parse(ownedUri)
 			const settled = await waitForMarkersToSettle(uri, 'typescript', timeoutMs)
 			if (!settled) incomplete = true
 			const result = readModelMarkers(uri)
@@ -324,17 +322,14 @@ export async function lintAppFrontend(req: {
 		}
 		return { files: out, status: incomplete ? 'incomplete' : 'complete' }
 	} finally {
-		for (const uriString of created) {
-			const model = meditor.getModel(Uri.parse(uriString))
-			if (model && !model.isAttachedToEditor()) model.dispose()
-		}
+		for (const ownedUri of owned) disposeOwnedModel(ownedUri)
 	}
 }
 
 async function acquireAppTypes(
 	workspace: string,
 	appPath: string,
-	base: string,
+	indexUri: string,
 	files: Record<string, string>
 ): Promise<void> {
 	const key = `app:${workspace}:${appPath}`
@@ -343,8 +338,12 @@ async function acquireAppTypes(
 		ata = await createWindmillAta({
 			root: await genAtaRoot(workspace),
 			scriptPath: appPath,
-			modelUri: `${base}/index.tsx`,
-			absolutePathExtraLibs
+			modelUri: indexUri,
+			absolutePathExtraLibs,
+			// The app's own files are already owned models; a relative import like "./foo"
+			// resolves to one of them. Never let ATA overwrite an app file with a fetched
+			// sibling workspace script of the same name — only create genuinely-missing ones.
+			overwriteLocalModels: () => false
 		})
 		ataByKey.set(key, ata)
 	}

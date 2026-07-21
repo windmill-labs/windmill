@@ -38,6 +38,12 @@ export interface WindmillAtaOptions {
 	isCancelled?: () => boolean
 	/** Whether relative-import files should be materialized as Monaco models. */
 	registerLocalModels?: () => boolean
+	/**
+	 * Whether a fetched relative-import file may overwrite an existing model. Default true
+	 * (the editor keeps import models in sync). Pass false when the caller already owns those
+	 * models — e.g. a raw app's own files — so a fetched sibling can't replace one.
+	 */
+	overwriteLocalModels?: () => boolean
 	/** Called after a relative-import model is registered, to nudge revalidation. */
 	onLocalFileRegistered?: () => void
 }
@@ -72,7 +78,7 @@ export async function createWindmillAta(
 		if (opts.registerLocalModels?.() ?? true) {
 			const localModel = meditor.getModel(nuri)
 			if (localModel) {
-				localModel.setValue(code)
+				if (opts.overwriteLocalModels?.() ?? true) localModel.setValue(code)
 			} else {
 				meditor.createModel(code, 'typescript', nuri)
 			}
