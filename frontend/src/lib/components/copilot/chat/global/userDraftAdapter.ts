@@ -21,6 +21,7 @@ const TRIGGER_DRAFT_KIND_BY_TRIGGER_KIND = {
 	nats: 'trigger_nats',
 	postgres: 'trigger_postgres',
 	mqtt: 'trigger_mqtt',
+	amqp: 'trigger_amqp',
 	sqs: 'trigger_sqs',
 	gcp: 'trigger_gcp',
 	azure: 'trigger_azure'
@@ -44,6 +45,7 @@ const GLOBAL_DRAFT_KINDS = [
 	'trigger_nats',
 	'trigger_postgres',
 	'trigger_mqtt',
+	'trigger_amqp',
 	'trigger_sqs',
 	'trigger_gcp',
 	'trigger_azure',

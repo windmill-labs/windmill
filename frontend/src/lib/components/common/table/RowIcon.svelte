@@ -3,6 +3,7 @@
 	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
 	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 	import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
+	import AmqpIcon from '$lib/components/icons/AmqpIcon.svelte'
 	import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
 	import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
 	import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
@@ -41,6 +42,7 @@
 			| 'kafka'
 			| 'nats'
 			| 'mqtt'
+			| 'amqp'
 			| 'sqs'
 			| 'gcp'
 			| 'emails'
@@ -50,6 +52,7 @@
 			| 'nats_trigger'
 			| 'postgres_trigger'
 			| 'mqtt_trigger'
+			| 'amqp_trigger'
 			| 'sqs_trigger'
 			| 'gcp_trigger'
 			| 'azure_trigger'
@@ -75,6 +78,7 @@
 		nats_trigger: 'nats',
 		postgres_trigger: 'postgres',
 		mqtt_trigger: 'mqtt',
+		amqp_trigger: 'amqp',
 		sqs_trigger: 'sqs',
 		gcp_trigger: 'gcp',
 		azure_trigger: 'azure',
@@ -117,6 +121,8 @@
 		<NatsIcon {size} class="text-gray-400" />
 	{:else if effectiveKind === 'mqtt'}
 		<MqttIcon {size} class="text-gray-400" />
+	{:else if effectiveKind === 'amqp'}
+		<AmqpIcon {size} class="text-gray-400" />
 	{:else if effectiveKind === 'sqs'}
 		<AwsIcon {size} class="text-gray-400" />
 	{:else if effectiveKind === 'gcp'}

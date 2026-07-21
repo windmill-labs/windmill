@@ -27,6 +27,7 @@ import {
 	KafkaTriggerService,
 	NatsTriggerService,
 	MqttTriggerService,
+	AmqpTriggerService,
 	SqsTriggerService,
 	GcpTriggerService,
 	AzureTriggerService,
@@ -49,6 +50,7 @@ import { savePostgresTriggerFromCfg } from '$lib/components/triggers/postgres/ut
 import { saveKafkaTriggerFromCfg } from '$lib/components/triggers/kafka/utils'
 import { saveNatsTriggerFromCfg } from '$lib/components/triggers/nats/utils'
 import { saveMqttTriggerFromCfg } from '$lib/components/triggers/mqtt/utils'
+import { saveAmqpTriggerFromCfg } from '$lib/components/triggers/amqp/utils'
 import { saveSqsTriggerFromCfg } from '$lib/components/triggers/sqs/utils'
 import { saveGcpTriggerFromCfg } from '$lib/components/triggers/gcp/utils'
 import { saveAzureTriggerFromCfg } from '$lib/components/triggers/azure/utils'
@@ -79,6 +81,8 @@ const OVERLAY_GETTERS: Partial<
 		NatsTriggerService.getNatsTrigger({ workspace, path, getDraft: true }),
 	trigger_mqtt: (workspace, path) =>
 		MqttTriggerService.getMqttTrigger({ workspace, path, getDraft: true }),
+	trigger_amqp: (workspace, path) =>
+		AmqpTriggerService.getAmqpTrigger({ workspace, path, getDraft: true }),
 	trigger_sqs: (workspace, path) =>
 		SqsTriggerService.getSqsTrigger({ workspace, path, getDraft: true }),
 	trigger_gcp: (workspace, path) =>
@@ -589,6 +593,8 @@ const TRIGGER_SAVERS: Partial<
 		saveNatsTriggerFromCfg(p, cfg, edit, ws, writable<string[]>([])),
 	trigger_mqtt: (p, cfg, edit, ws) =>
 		saveMqttTriggerFromCfg(p, cfg, edit, ws, writable<string[]>([])),
+	trigger_amqp: (p, cfg, edit, ws) =>
+		saveAmqpTriggerFromCfg(p, cfg, edit, ws, writable<string[]>([])),
 	trigger_sqs: (p, cfg, edit, ws) =>
 		saveSqsTriggerFromCfg(p, cfg, edit, ws, writable<string[]>([])),
 	trigger_gcp: (p, cfg, edit, ws) =>

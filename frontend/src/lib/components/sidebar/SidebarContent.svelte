@@ -58,6 +58,7 @@
 	import KafkaIcon from '../icons/KafkaIcon.svelte'
 	import NatsIcon from '../icons/NatsIcon.svelte'
 	import MqttIcon from '../icons/MqttIcon.svelte'
+	import AmqpIcon from '../icons/AmqpIcon.svelte'
 	import AwsIcon from '../icons/AwsIcon.svelte'
 	import {
 		getAvailableNativeTriggerServices,
@@ -358,6 +359,15 @@
 			kind: 'mqtt',
 			aiId: 'sidebar-menu-link-mqtt',
 			aiDescription: 'Button to navigate to MQTT triggers'
+		},
+		{
+			label: 'AMQP',
+			href: '/amqp_triggers',
+			icon: AmqpIcon,
+			disabled: $userStore?.operator,
+			kind: 'amqp',
+			aiId: 'sidebar-menu-link-amqp',
+			aiDescription: 'Button to navigate to AMQP triggers'
 		},
 		{
 			label: 'Email',

@@ -333,6 +333,9 @@ describe("gitSyncIncludePattern", () => {
     expect(gitSyncIncludePattern("gcptrigger", "f/t")).toBe(
       "f/t.gcp_trigger.*"
     );
+    expect(gitSyncIncludePattern("amqptrigger", "f/t")).toBe(
+      "f/t.amqp_trigger.*"
+    );
   });
 });
 

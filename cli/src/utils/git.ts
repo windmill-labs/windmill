@@ -309,6 +309,8 @@ export function gitSyncIncludePattern(
       return `${path}.postgres_trigger.*`;
     case "mqtttrigger":
       return `${path}.mqtt_trigger.*`;
+    case "amqptrigger":
+      return `${path}.amqp_trigger.*`;
     case "sqstrigger":
       return `${path}.sqs_trigger.*`;
     case "gcptrigger":

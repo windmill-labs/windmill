@@ -3,6 +3,7 @@
 		CancelablePromise,
 		KafkaTriggerService,
 		MqttTriggerService,
+		AmqpTriggerService,
 		NatsTriggerService,
 		SqsTriggerService,
 		PostgresTriggerService,
@@ -15,18 +16,13 @@
 	import Button from '../common/button/Button.svelte'
 
 	interface Props {
-		kind: 'websocket' | 'nats' | 'kafka' | 'postgres' | 'sqs' | 'mqtt' | 'gcp';
-		args: Record<string, any>;
-		noButton?: boolean;
-		testLoading?: boolean;
+		kind: 'websocket' | 'nats' | 'kafka' | 'postgres' | 'sqs' | 'mqtt' | 'amqp' | 'gcp'
+		args: Record<string, any>
+		noButton?: boolean
+		testLoading?: boolean
 	}
 
-	let {
-		kind,
-		args,
-		noButton = false,
-		testLoading = $bindable(false)
-	}: Props = $props();
+	let { kind, args, noButton = false, testLoading = $bindable(false) }: Props = $props()
 	const triggerWs = getTriggerWorkspace()
 	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
@@ -37,6 +33,7 @@
 		sqs: 'SQS',
 		postgres: 'Postgres',
 		mqtt: 'MQTT broker',
+		amqp: 'AMQP broker',
 		gcp: 'Google Cloud Pub/Sub'
 	}
 
@@ -66,6 +63,11 @@
 				})
 			} else if (kind === 'mqtt') {
 				promise = MqttTriggerService.testMqttConnection({
+					workspace: wsId!,
+					requestBody: args as any
+				})
+			} else if (kind === 'amqp') {
+				promise = AmqpTriggerService.testAmqpConnection({
 					workspace: wsId!,
 					requestBody: args as any
 				})

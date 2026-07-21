@@ -1001,6 +1001,7 @@
 		nats_trigger: 'NATS trigger',
 		postgres_trigger: 'Postgres trigger',
 		mqtt_trigger: 'MQTT trigger',
+		amqp_trigger: 'AMQP trigger',
 		sqs_trigger: 'SQS trigger',
 		gcp_trigger: 'GCP trigger',
 		azure_trigger: 'Azure trigger',
