@@ -258,6 +258,11 @@
 		}
 		const path = agent
 		const res = await ResourceService.getResource({ workspace: ws, path })
+		// The module may have been replaced while the fetch was in flight (undo, session drafts);
+		// applying a stale fork would overwrite the restored state and recreate the Editing target.
+		if (agent !== path) {
+			return undefined
+		}
 		const cfg = (res.value ?? {}) as AIAgentConfig
 		const brain = agentConfigToInputTransforms(cfg)
 		// Preserve the flow-local inputs already wired in the step.

@@ -10,7 +10,7 @@
 		type Job
 	} from '$lib/gen'
 	import { initHistory, redo, undo } from '$lib/history.svelte'
-	import { clearAgentEditingForFlow } from './flows/agentEditStore.svelte'
+	import { clearAgentEditingForFlow, migrateAgentEditingFlow } from './flows/agentEditStore.svelte'
 	import {
 		enterpriseLicense,
 		userStore,
@@ -523,6 +523,19 @@
 	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
 	const history = initHistory(untrack(() => flowStore).val)
 	const pathStore = writable<string>(untrack(() => pathStoreInit) ?? initialPath)
+
+	// Agent edit state is keyed by (workspace, flow path, module id); re-key on in-place renames so
+	// a pending "Editing" fork isn't stranded under the old path (banner gone, fork left behind).
+	let lastAgentEditPath = untrack(() => $pathStore)
+	$effect(() => {
+		const p = $pathStore
+		untrack(() => {
+			if (p !== lastAgentEditPath) {
+				migrateAgentEditingFlow(opWorkspace, lastAgentEditPath, p)
+				lastAgentEditPath = p
+			}
+		})
+	})
 
 	// "Open in AI session" target: the URL draft path the editor loads/saves by
 	// (which for a new flow differs from the live-edited friendly `$pathStore`),

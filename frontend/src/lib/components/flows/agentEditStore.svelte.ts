@@ -40,3 +40,23 @@ export function clearAgentEditingForFlow(workspace: string | undefined, flowPath
 		}
 	}
 }
+
+/**
+ * Re-key pending edit modes when the flow is renamed in place, so an in-progress "Editing" fork
+ * keeps its banner (and Save/Cancel) instead of being stranded under the old path.
+ */
+export function migrateAgentEditingFlow(
+	workspace: string | undefined,
+	oldPath: string,
+	newPath: string
+) {
+	if (oldPath === newPath) return
+	const oldPrefix = `${workspace ?? ''}:${oldPath}:`
+	const newPrefix = `${workspace ?? ''}:${newPath}:`
+	for (const k of Object.keys(editingByStep)) {
+		if (k.startsWith(oldPrefix)) {
+			editingByStep[newPrefix + k.slice(oldPrefix.length)] = editingByStep[k]
+			delete editingByStep[k]
+		}
+	}
+}
