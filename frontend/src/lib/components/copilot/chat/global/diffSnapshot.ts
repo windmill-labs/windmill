@@ -979,19 +979,27 @@ export async function getForkDiffIndex(
 }
 
 /** One item's fork-vs-parent entry. `kinds` lists the comparison kinds the
- * chat type maps to (e.g. type 'app' → ['app', 'raw_app']). Returns undefined
- * when the item does not differ (or is unknown to the comparison). */
+ * chat type maps to (e.g. type 'app' → ['app', 'raw_app']); an EMPTY list is
+ * a path-only wildcard, which is how kinds the chat type enum cannot name
+ * (folder, resource_type, …) stay readable. Returns undefined when the item
+ * does not differ, or the ambiguous kinds when a wildcard matches several. */
 export async function readForkDiffEntry(
 	workspace: string,
 	parentWorkspaceId: string,
 	kinds: string[],
 	path: string
-): Promise<ForkDiffEntryView | undefined> {
+): Promise<ForkDiffEntryView | { ambiguousKinds: string[] } | undefined> {
 	const cache = await reconcileFork(workspace, parentWorkspaceId)
 	let entry: ForkEntry | undefined
-	for (const kind of kinds) {
-		entry = cache.entries.get(`${kind}:${path}`)
-		if (entry) break
+	if (kinds.length === 0) {
+		const matches = [...cache.entries.values()].filter((e) => e.path === path)
+		if (matches.length > 1) return { ambiguousKinds: matches.map((e) => e.kind) }
+		entry = matches[0]
+	} else {
+		for (const kind of kinds) {
+			entry = cache.entries.get(`${kind}:${path}`)
+			if (entry) break
+		}
 	}
 	if (!entry) return undefined
 	await materializeFork(workspace, parentWorkspaceId, entry, READ_ENTRY_REUSE_MS)

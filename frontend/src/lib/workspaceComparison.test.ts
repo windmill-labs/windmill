@@ -34,6 +34,30 @@ describe('fetchWorkspaceComparison', () => {
 		expect((await tolerant).summary.total_diffs).toBe(0)
 	})
 
+	it('a superseded older request never overwrites a newer result, even same-millisecond', async () => {
+		vi.useFakeTimers()
+		try {
+			const older = deferred<unknown>()
+			compareWorkspaces.mockImplementationOnce(() => older.promise)
+			compareWorkspaces.mockResolvedValueOnce({ summary: { total_diffs: 7 } })
+
+			// Same frozen Date.now() for both requests.
+			const tolerant = fetchWorkspaceComparison('p', 'f-race', { maxAgeMs: 30_000 })
+			const forced = fetchWorkspaceComparison('p', 'f-race', { maxAgeMs: 0 })
+			// Newer (forced) resolves FIRST; older resolves after with stale data.
+			expect((await forced).summary.total_diffs).toBe(7)
+			older.resolve({ summary: { total_diffs: 0 } })
+			await tolerant
+
+			// A tolerant read must see the newer result, not the late stale write.
+			const reread = await fetchWorkspaceComparison('p', 'f-race', { maxAgeMs: 30_000 })
+			expect(reread.summary.total_diffs).toBe(7)
+			expect(compareWorkspaces).toHaveBeenCalledTimes(2)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
 	it('tolerant callers join a recent in-flight request', async () => {
 		const first = deferred<unknown>()
 		compareWorkspaces.mockImplementationOnce(() => first.promise)

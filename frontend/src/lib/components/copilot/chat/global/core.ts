@@ -5612,7 +5612,9 @@ function formatForkIndexEntry(e: ForkDiffEntryView): string {
 				? `- ${name} — value never shown in chat; may differ (${aheadBehind})${draftFlag}`
 				: `- ${name} — content matches parent (version history differs: ${aheadBehind})${draftFlag}`
 		case 'pending':
-			return `- ${name} — differs (${aheadBehind}; diff not computed yet, read it with type+path)${draftFlag}`
+			return e.type !== undefined
+				? `- ${name} — differs (${aheadBehind}; diff not computed yet, read it with type+path)${draftFlag}`
+				: `- ${name} — differs (${aheadBehind}; diff not computed yet, read it by path alone)${draftFlag}`
 		case 'error':
 			return `- ${name} — diff failed: ${e.errorMessage}${draftFlag}`
 	}
@@ -5700,12 +5702,14 @@ async function diffForkItem(
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
 	const { type, path, trigger_kind: triggerKind } = args
-	if (!type || !path) {
-		throw new Error('type is required when path is provided.')
+	if (!path) {
+		throw new Error('path is required.')
 	}
 	const parent = forkParentOrThrow(workspace)
-	const kinds = forkKindsFor(type, triggerKind)
-	if (kinds.length === 0) {
+	// No type = path-only wildcard: comparison kinds outside the chat type enum
+	// (folder, resource_type, …) are only reachable this way.
+	const kinds = type ? forkKindsFor(type, triggerKind) : []
+	if (type === 'trigger' && kinds.length === 0) {
 		throw new Error('trigger_kind is required when type is trigger.')
 	}
 	toolCallbacks.setToolStatus(toolId, {
@@ -5716,14 +5720,23 @@ async function diffForkItem(
 		toolCallbacks.setToolStatus(toolId, { content: message })
 		return message
 	}
-	const entry = await readForkDiffEntry(workspace, parent, kinds, path)
+	const resolved = await readForkDiffEntry(workspace, parent, kinds, path)
+	if (resolved && 'ambiguousKinds' in resolved) {
+		throw new Error(
+			`Several kinds differ at "${path}" (${resolved.ambiguousKinds.join(', ')}) — pass type to pick one.`
+		)
+	}
+	const entry = resolved
+	const label = type ?? 'item'
 	if (!entry) {
-		const message = `${type} "${path}" does not differ between this fork and its parent "${parent}" (or does not exist in either).`
+		const message = `${label} "${path}" does not differ between this fork and its parent "${parent}" (or does not exist in either).`
 		toolCallbacks.setToolStatus(toolId, { content: message })
 		return message
 	}
 	if (entry.status === 'error') {
-		throw new Error(`Could not diff ${type} "${path}" against the parent: ${entry.errorMessage}`)
+		throw new Error(
+			`Could not diff ${entry.kind} "${path}" against the parent: ${entry.errorMessage}`
+		)
 	}
 	const draftCaveat = entry.hasLocalDraft
 		? 'Note: you also have an undeployed local draft on this item — it is NOT part of this deployed-vs-deployed comparison; use diff without against to see it.\n\n'
@@ -5733,22 +5746,22 @@ async function diffForkItem(
 		// A masked value can differ in content without producing a patch —
 		// never report that as "same content".
 		const message = entry.valueMasked
-			? `${type} "${path}": no visible config differences vs parent "${parent}", but variable values are never shown in chat, so a value change cannot be displayed. The workspace comparison reports it as ${entry.ahead > 0 || entry.behind > 0 ? `differing (ahead ${entry.ahead}, behind ${entry.behind})` : 'in sync'}.`
+			? `${entry.kind} "${path}": no visible config differences vs parent "${parent}", but variable values are never shown in chat, so a value change cannot be displayed. The workspace comparison reports it as ${entry.ahead > 0 || entry.behind > 0 ? `differing (ahead ${entry.ahead}, behind ${entry.behind})` : 'in sync'}.`
 			: entry.kind === 'folder'
 				? `folder "${path}": no comparable differences vs parent "${parent}" — the folder display name is not exposed by the API and may be what differs (comparison reports ahead ${entry.ahead}, behind ${entry.behind}).`
-				: `${type} "${path}" has the same content in the fork and its parent "${parent}" (only version history differs).`
+				: `${entry.kind} "${path}" has the same content in the fork and its parent "${parent}" (only version history differs).`
 		toolCallbacks.setToolStatus(toolId, { content: message, result: message })
 		return draftCaveat + message
 	}
 	const header =
 		entry.status === 'only_in_fork'
-			? `${type} "${path}" exists only in the fork — not in parent "${parent}". Full content:\n\n`
+			? `${entry.kind} "${path}" exists only in the fork — not in parent "${parent}". Full content:\n\n`
 			: entry.status === 'deleted_in_fork'
-				? `${type} "${path}" was deleted in the fork but still exists in parent "${parent}". Removed content:\n\n`
-				: `Fork changes vs parent "${parent}" for ${type} "${path}":\n\n`
+				? `${entry.kind} "${path}" was deleted in the fork but still exists in parent "${parent}". Removed content:\n\n`
+				: `Fork changes vs parent "${parent}" for ${entry.kind} "${path}":\n\n`
 	if (args.file !== undefined && !entry.files) {
 		throw new Error(
-			`file only applies to multi-file apps; ${type} "${path}" diffs as a single document — call again without file.`
+			`file only applies to multi-file apps; ${entry.kind} "${path}" diffs as a single document — call again without file.`
 		)
 	}
 	const body = entry.files

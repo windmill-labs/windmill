@@ -497,6 +497,27 @@ describe('fork mode', () => {
 		expect(entry?.patch).not.toContain('parent_version')
 	})
 
+	it('reads fork-only kinds by path alone and reports wildcard ambiguity', async () => {
+		mockComparison([
+			comparisonDiff({ kind: 'folder', path: 'f/team' }),
+			comparisonDiff({ kind: 'resource_type', path: 'shared_name' }),
+			comparisonDiff({ kind: 'folder', path: 'shared_name' })
+		])
+		vi.mocked(getItemValue).mockImplementation(async (_k, path, ws) => ({
+			name: path,
+			summary: `${ws}`
+		}))
+		const folder = await readForkDiffEntry(FORK, PARENT, [], 'f/team')
+		expect(folder && 'kind' in folder && folder.kind).toBe('folder')
+		expect(folder && 'status' in folder && folder.status).toBe('modified')
+
+		const ambiguous = await readForkDiffEntry(FORK, PARENT, [], 'shared_name')
+		expect(ambiguous && 'ambiguousKinds' in ambiguous && ambiguous.ambiguousKinds.sort()).toEqual([
+			'folder',
+			'resource_type'
+		])
+	})
+
 	it('flags entries that also carry a local draft', async () => {
 		mockComparison([comparisonDiff(), comparisonDiff({ path: 'f/a/other' })])
 		vi.mocked(getDraftItems).mockResolvedValue([

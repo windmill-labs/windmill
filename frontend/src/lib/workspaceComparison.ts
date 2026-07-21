@@ -10,6 +10,7 @@ import { WorkspaceService, type WorkspaceComparison } from '$lib/gen'
 
 interface CacheEntry {
 	fetchedAt: number
+	generation: number
 	comparison: WorkspaceComparison
 }
 
@@ -20,6 +21,9 @@ interface InflightEntry {
 
 const cache = new Map<string, CacheEntry>()
 const inflight = new Map<string, InflightEntry>()
+// Millisecond timestamps collide under concurrency — ordering between
+// requests rides on this monotonic generation instead.
+let requestGeneration = 0
 
 function key(parentWorkspaceId: string, forkWorkspaceId: string): string {
 	return `${parentWorkspaceId}:${forkWorkspaceId}`
@@ -49,15 +53,16 @@ export async function fetchWorkspaceComparison(
 		return pending.promise
 	}
 	const startedAt = Date.now()
+	const generation = ++requestGeneration
 	const run = (async () => {
 		const comparison = await WorkspaceService.compareWorkspaces({
 			workspace: parentWorkspaceId,
 			targetWorkspaceId: forkWorkspaceId
 		})
-		// A superseded (older) request must not clobber a newer result.
+		// A superseded (older-generation) request must not clobber a newer result.
 		const existing = cache.get(k)
-		if (!existing || existing.fetchedAt <= startedAt) {
-			cache.set(k, { fetchedAt: startedAt, comparison })
+		if (!existing || existing.generation < generation) {
+			cache.set(k, { fetchedAt: startedAt, generation, comparison })
 		}
 		return comparison
 	})()
