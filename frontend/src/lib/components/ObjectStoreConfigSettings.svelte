@@ -304,7 +304,7 @@
 				args={bucket_config}
 				resourceType="s3_bucket"
 				workspaceOverride="admins"
-				buttonTextOverride="Test via a worker job"
+				buttonTextOverride="Test from a worker"
 			/>
 		</div>
 
