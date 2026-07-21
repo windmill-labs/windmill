@@ -547,6 +547,10 @@ export type ToolDisplayMessage = {
 	result?: any
 	logs?: string
 	isLoading?: boolean
+	/** Arguments fully streamed but execution not started — tool calls in one
+	 * assistant message run sequentially, so later ones wait their turn. Only
+	 * the executing tool shows a spinner; queued ones show a pending icon. */
+	isQueued?: boolean
 	error?: string
 	needsConfirmation?: boolean
 	showDetails?: boolean
@@ -715,6 +719,7 @@ export async function processToolCall<T>({
 				content: validationError,
 				parameters: args,
 				isLoading: false,
+				isQueued: false,
 				isStreamingArguments: false,
 				error: validationError,
 				needsConfirmation: false,
@@ -745,6 +750,7 @@ export async function processToolCall<T>({
 				: {}),
 			parameters: args,
 			isLoading: true,
+			isQueued: false,
 			needsConfirmation: needsConfirmation,
 			showDetails: tool?.showDetails,
 			autoCollapseDetails: tool?.autoCollapseDetails
@@ -817,6 +823,7 @@ export async function processToolCall<T>({
 		const errorMessage = formatToolError(err)
 		toolCallbacks.setToolStatus(toolCall.id, {
 			isLoading: false,
+			isQueued: false,
 			isStreamingArguments: false,
 			error: errorMessage
 		})

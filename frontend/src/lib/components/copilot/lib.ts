@@ -1075,6 +1075,10 @@ export async function parseOpenAICompletion(
 	options?: { workspace?: string; provider?: string }
 ): Promise<{ shouldContinue: boolean; tokenUsage: ChatTokenUsage }> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
+	// The tool call currently receiving argument deltas. When the stream moves on
+	// to the next call, the previous one is demoted from loading to queued — it
+	// won't execute until its turn in the sequential processing below.
+	let streamingToolCallId: string | undefined = undefined
 	let malformedFunctionCallError = false
 	let tokenUsage = emptyChatTokenUsage()
 
@@ -1165,6 +1169,14 @@ export async function parseOpenAICompletion(
 					id: toolCallId
 				} = finalToolCall
 				if (funcName && toolCallId) {
+					if (streamingToolCallId !== undefined && streamingToolCallId !== toolCallId) {
+						callbacks.setToolStatus(streamingToolCallId, {
+							isLoading: false,
+							isQueued: true,
+							isStreamingArguments: false
+						})
+					}
+					streamingToolCallId = toolCallId
 					const tool = tools.find((t) => t.def.function.name === funcName)
 					if (tool && tool.preAction) {
 						tool.preAction({ toolCallbacks: callbacks, toolId: toolCallId })
@@ -1209,10 +1221,15 @@ export async function parseOpenAICompletion(
 
 	callbacks.onMessageEnd()
 
-	// Clear streaming state for all tool calls
+	// Stream over: every parsed call is queued until processToolCall picks it up
+	// and flips it back to loading — only the executing tool should spin.
 	for (const toolCall of Object.values(finalToolCalls)) {
 		if (toolCall.id) {
-			callbacks.setToolStatus(toolCall.id, { isStreamingArguments: false })
+			callbacks.setToolStatus(toolCall.id, {
+				isLoading: false,
+				isQueued: true,
+				isStreamingArguments: false
+			})
 		}
 	}
 
@@ -1242,6 +1259,7 @@ export async function parseOpenAICompletion(
 			if (invalidToolCallIds.has(toolCall.id)) {
 				callbacks.setToolStatus(toolCall.id, {
 					isLoading: false,
+					isQueued: false,
 					isStreamingArguments: false,
 					error: 'Tool call arguments were invalid or truncated'
 				})

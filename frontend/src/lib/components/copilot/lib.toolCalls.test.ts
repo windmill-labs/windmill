@@ -134,6 +134,50 @@ describe('parseOpenAICompletion tool call arguments', () => {
 		expect(addedMessages).toEqual(messages)
 	})
 
+	it('marks only the executing tool call as loading when one message has several', async () => {
+		const { parseOpenAICompletion } = await import('./lib')
+		const statuses: Record<string, any> = {}
+		const callbacks = createCallbacks()
+		callbacks.setToolStatus.mockImplementation((id: string, patch: any) => {
+			statuses[id] = { ...statuses[id], ...patch }
+		})
+		// Snapshot both cards' statuses at each execution start: tools run
+		// sequentially, so the not-yet-started call must read as queued, not loading.
+		const seen: any[] = []
+		const fn = vi.fn().mockImplementation(async () => {
+			seen.push({ call_1: { ...statuses['call_1'] }, call_2: { ...statuses['call_2'] } })
+			return 'tool ok'
+		})
+
+		await parseOpenAICompletion(
+			streamOf([
+				toolCallChunk({
+					index: 0,
+					id: 'call_1',
+					function: { name: 'patch_app_file', arguments: '{}' }
+				}),
+				toolCallChunk({
+					index: 1,
+					id: 'call_2',
+					function: { name: 'patch_app_file', arguments: '{}' }
+				})
+			]),
+			callbacks,
+			[],
+			[],
+			[createTool(fn)] as any,
+			{},
+			undefined,
+			{ workspace: 'test' }
+		)
+
+		expect(seen).toHaveLength(2)
+		expect(seen[0].call_1).toMatchObject({ isLoading: true, isQueued: false })
+		expect(seen[0].call_2).toMatchObject({ isLoading: false, isQueued: true })
+		expect(seen[1].call_1).toMatchObject({ isLoading: false })
+		expect(seen[1].call_2).toMatchObject({ isLoading: true, isQueued: false })
+	})
+
 	it('executes a tool call with valid streamed arguments and keeps them verbatim', async () => {
 		const { parseOpenAICompletion } = await import('./lib')
 		const fn = vi.fn().mockResolvedValue('tool ok')

@@ -3772,10 +3772,11 @@ export class AIChatManager {
 
 	cancelLoadingTools = (messageText: 'Canceled' | 'Error' = 'Canceled') => {
 		this.displayMessages = this.displayMessages.map((message) => {
-			if (message.role === 'tool' && message.isLoading) {
+			if (message.role === 'tool' && (message.isLoading || message.isQueued)) {
 				return {
 					...message,
 					isLoading: false,
+					isQueued: false,
 					// A question's card disappears once canceled, so keep the question
 					// itself readable in the collapsed header.
 					content: message.userQuestion
