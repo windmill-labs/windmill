@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.753.0"
+version = "1.764.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -87,7 +87,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.753.0"
+version = "1.764.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -250,6 +250,7 @@ windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-object-store.workspace = true
 windmill-git-sync.workspace = true
+windmill-store.workspace = true
 windmill-api = { workspace = true, default-features = false }
 windmill-api-agent-workers = { workspace = true, optional = true }
 windmill-api-scripts.workspace = true
@@ -326,6 +327,8 @@ async-nats.workspace = true
 aws-sdk-sqs.workspace = true
 aws-config.workspace = true
 aws-credential-types.workspace = true
+hmac.workspace = true
+hex.workspace = true
 
 
 [workspace.dependencies]
@@ -490,6 +493,10 @@ deno_console = "0.209.0"
 deno_url = "0.209.0"
 deno_webidl = "0.209.0"
 deno_web = "0.240.0"
+# Sibling release of the pinned deno_core 0.352 / deno_web 0.240 stack
+# (its deps are deno_core ^0.352, deno_web ^0.240, deno_error =0.6.1). A newer
+# deno_crypto would force bumping the whole deno stack.
+deno_crypto = "0.223.0"
 deno_io = "0.119.0"
 deno_fs = "0.119.0"
 deno_net = "0.201.0"
@@ -674,5 +681,8 @@ rumqttc = { version = "0.24.0", features = ["use-native-tls"]}
 strum = { version = "0.27", features = ["derive"] }
 strum_macros = "0.27"
 hudsucker = { version = "0.22", features = ["rcgen-ca", "native-tls-client"] }
-hyper-http-proxy = { version = "1", default-features = false, features = ["native-tls"] }
+hyper-http-proxy = { version = "1", default-features = false, features = ["rustls-tls-native-roots"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "ring", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls-native-certs = "0.8"
 rcgen = "0.13"

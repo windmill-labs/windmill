@@ -53,6 +53,7 @@ export interface Setting {
 		| 'secret_backend'
 		| 'github_enterprise_app'
 		| 'ws_connectivity'
+		| 'retention_overrides'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -224,6 +225,27 @@ export const settings: Record<string, Setting[]> = {
 	],
 	Jobs: [
 		{
+			label: 'Retention period in secs',
+			key: 'retention_period_secs',
+			description:
+				'How long to keep the jobs data in the database (max 30 days on CE). <a href="https://www.windmill.dev/docs/advanced/instance_settings#retention-period-in-secs">Learn more</a>',
+			fieldType: 'seconds',
+			placeholder: '30',
+			storage: 'setting',
+			ee_only: 'You can only adjust this setting to above 30 days in the EE version',
+			cloudonly: false
+		},
+		{
+			label: 'Per-workspace retention overrides',
+			key: 'retention_period_secs_overrides',
+			description:
+				'Override the job retention period for specific workspaces, independently of the instance-wide value above (longer or shorter). Jobs in a workspace without an override follow the instance-wide setting.',
+			fieldType: 'retention_overrides',
+			storage: 'setting',
+			ee_only: 'Per-workspace retention overrides are only available in the EE version',
+			cloudonly: false
+		},
+		{
 			label: 'Job isolation',
 			key: 'job_isolation',
 			fieldType: 'select',
@@ -358,17 +380,6 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
-			label: 'Retention period in secs',
-			key: 'retention_period_secs',
-			description:
-				'How long to keep the jobs data in the database (max 30 days on CE). <a href="https://www.windmill.dev/docs/advanced/instance_settings#retention-period-in-secs">Learn more</a>',
-			fieldType: 'seconds',
-			placeholder: '30',
-			storage: 'setting',
-			ee_only: 'You can only adjust this setting to above 30 days in the EE version',
-			cloudonly: false
-		},
-		{
 			label: 'Workspace fairness — enabled',
 			description:
 				'Multi-tenant safeguard against a single workspace dominating the shared worker pool. <strong>Only relevant on instances where multiple workspaces share one worker group</strong> — single-tenant deployments do not need this. When a workspace accounts for at least <em>Workspace fairness — max percent</em> of cluster activity over the last <em>Workspace fairness — duration</em> seconds, each worker pull stochastically excludes that workspace so its share converges to the cap without on/off oscillation. Idle workers always fall back to running its jobs, so capping never starves the queue.',
@@ -414,6 +425,30 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			cloudonly: false,
 			ee_only: 'Workspace fairness is an Enterprise feature.',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Max jobs queued per concurrency key',
+			description:
+				'Rejects new jobs once this many are already queued behind one concurrency key. Jobs sharing a key run at most <em>concurrent limit</em> at a time regardless of spare worker capacity, so a caller pushing faster than the key drains grows a backlog no capacity can absorb. Scoped per key, so a runaway producer cannot block the rest of the workspace. Set 0 to disable. Default 10000.',
+			key: 'concurrency_key_max_queued_jobs',
+			fieldType: 'number',
+			placeholder: '10000',
+			storage: 'setting',
+			cloudonly: true,
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Max jobs queued per workspace',
+			description:
+				'Rejects new jobs once a workspace has this many queued in total, across every concurrency key and script. Guards against a single workspace flooding the queue generally, including from parallel for-loops. Applies even to premium workspaces. Jobs already queued still drain; only new pushes past the ceiling are rejected. Set 0 to disable. Default 20000.',
+			key: 'workspace_max_queued_jobs',
+			fieldType: 'number',
+			placeholder: '20000',
+			storage: 'setting',
+			cloudonly: true,
+			ee_only: '',
 			hideInQuickSetup: true
 		}
 	],

@@ -4,6 +4,7 @@
 	import { goto } from '$lib/navigation'
 	import { workspaceStore } from '$lib/stores'
 	import { resource } from 'runed'
+	import { canSkipRetryChainQuery } from './scriptRetryChain'
 
 	let { job }: { job: Job } = $props()
 
@@ -65,6 +66,11 @@
 			// first attempt (the chain root, itself a script). Flow steps also carry
 			// `parent_job`, but their parent is a flow — a non-script root means flow step.
 			if (job.job_kind !== 'script') return { retries: [], handlers: [] }
+
+			// Skip the child-job query when it provably has nothing to show (see
+			// canSkipRetryChainQuery) — this runs on every script run view.
+			if (canSkipRetryChainQuery(job)) return { retries: [], handlers: [] }
+
 			const root = job.parent_job ?? job.id
 			const rootJob = job.id === root ? job : await JobService.getJob({ workspace: ws, id: root })
 			if (rootJob?.job_kind !== 'script') return { retries: [], handlers: [] }

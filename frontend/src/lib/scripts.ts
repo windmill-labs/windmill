@@ -116,9 +116,13 @@ export async function loadScriptSchedule(
 	}
 }
 
-export async function loadSchemaFlow(path: string): Promise<Schema> {
+export async function loadSchemaFlow(
+	path: string,
+	// The acting workspace when the flow editor runs in an AI session; else the nav workspace.
+	workspace?: string
+): Promise<Schema> {
 	const flow = await FlowService.getFlowByPath({
-		workspace: get(workspaceStore)!,
+		workspace: workspace ?? get(workspaceStore)!,
 		path: path ?? ''
 	})
 	return flow.schema as any

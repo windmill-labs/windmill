@@ -23,6 +23,26 @@ pub struct McpScopeConfig {
 }
 
 impl McpScopeConfig {
+    /// Whether the token grants access to *any* concrete resource of this type by
+    /// path. Used to decide whether to advertise the run-by-path tools in
+    /// multi-workspace mode (a `mcp:scripts:*`-only token should see
+    /// `runScriptByPath` even without an endpoint scope). `mcp:all` grants
+    /// everything; `mcp:favorites` does NOT — favorites are an enumerated set the
+    /// caller can only reach through the per-item tools, not by naming an
+    /// arbitrary path, so it grants nothing here (mirrors `is_allowed`, which
+    /// returns false for a favorites token).
+    pub fn has_any(&self, resource_type: &str) -> bool {
+        if self.all {
+            return true;
+        }
+        match resource_type {
+            "script" => !self.scripts.is_empty(),
+            "flow" => !self.flows.is_empty(),
+            "endpoint" => !self.endpoints.is_empty(),
+            _ => false,
+        }
+    }
+
     /// Check if a resource is allowed based on its type and path
     pub fn is_allowed(&self, resource_type: &str, path: &str) -> bool {
         if self.all {
@@ -322,6 +342,29 @@ mod tests {
 
     fn cfg(scopes: &[&str]) -> McpScopeConfig {
         parse_mcp_scopes(&scopes.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap()
+    }
+
+    #[test]
+    fn test_has_any() {
+        // mcp:all grants everything by path.
+        assert!(cfg(&["mcp:all"]).has_any("script"));
+
+        // mcp:favorites grants NO arbitrary-path access (favorites are reached
+        // via per-item tools, not by naming a path) — matches is_allowed.
+        let fav = cfg(&["mcp:favorites"]);
+        assert!(!fav.has_any("script"));
+        assert!(!fav.has_any("flow"));
+        assert!(!fav.is_allowed("script", "f/anything/x"));
+
+        // Granular: only the resource types with at least one pattern.
+        let scripts_only = cfg(&["mcp:scripts:f/team/*"]);
+        assert!(scripts_only.has_any("script"));
+        assert!(!scripts_only.has_any("flow"));
+        assert!(!scripts_only.has_any("endpoint"));
+
+        let endpoints_only = cfg(&["mcp:endpoints:runScriptByPath"]);
+        assert!(!endpoints_only.has_any("script"));
+        assert!(endpoints_only.has_any("endpoint"));
     }
 
     #[test]
