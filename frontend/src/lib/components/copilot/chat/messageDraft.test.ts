@@ -30,18 +30,41 @@ describe('MessageDraft', () => {
 		expect(d.text).toBe('restored')
 	})
 
-	it('prepend puts restored text above the current draft and folds files in', () => {
+	it('prepend puts the restored draft first and folds the newer files against it', () => {
 		const d = new MessageDraft({ text: 'typing', files: [{ name: 'a.md', content: 'a' }] })
 		const res = d.prepend({
 			text: 'restored',
 			files: [
-				{ name: 'a.md', content: 'a' }, // identical → dedupes
-				{ name: 'a.md', content: 'b' } // clash → courtesy rename
+				{ name: 'a.md', content: 'a' }, // identical to the newer draft's copy → it dedupes
+				{ name: 'a (2).md', content: 'b', sourceName: 'a.md' }
 			]
 		})
 		expect(res.mergedIntoDraft).toBe(true)
 		expect(d.text).toBe('restored\n\ntyping')
 		expect(d.files.map((f) => f.name)).toEqual(['a.md', 'a (2).md'])
+	})
+
+	it('prepend gives the restored draft chronological priority at the caps', () => {
+		// The restored draft was written first — the cap must drop the NEWEST
+		// additions, never the restored attachments.
+		const d = new MessageDraft({
+			files: Array.from({ length: 6 }, (_, i) => ({ name: `new${i}.md`, content: `${i}` }))
+		})
+		const res = d.prepend({
+			text: '',
+			files: Array.from({ length: 3 }, (_, i) => ({ name: `old${i}.md`, content: `o${i}` }))
+		})
+		expect(res.droppedFiles).toBe(1)
+		expect(d.files.map((f) => f.name)).toEqual([
+			'old0.md',
+			'old1.md',
+			'old2.md',
+			'new0.md',
+			'new1.md',
+			'new2.md',
+			'new3.md',
+			'new4.md'
+		])
 	})
 
 	it('addFiles reports drops at the slot cap and the byte budget', () => {

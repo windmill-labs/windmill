@@ -1586,14 +1586,23 @@ export class AIChatManager {
 	/** Put a taken queue back after an auto-send bailed before becoming a turn.
 	 * Merged, not replaced: the user may have queued a follow-up while the
 	 * auto-send was in preflight, and clobbering it would silently lose it — the
-	 * taken entry's text lands above the follow-up (it was written first). */
+	 * taken entry's lanes land ahead of the follow-up's (they were written
+	 * first) and both entries' pinned contexts are unioned. */
 	#restoreQueue(queued: QueuedEntry) {
 		this.#queuedDraft.prepend({
 			text: queued.draft.text,
 			images: queued.draft.images,
 			files: queued.draft.files
 		})
-		this.queuedContext = this.queuedContext ?? queued.context
+		if (queued.context?.length) {
+			const merged = [...queued.context]
+			for (const c of this.queuedContext ?? []) {
+				if (!merged.some((m) => isSameContextElement(m, c))) {
+					merged.push(c)
+				}
+			}
+			this.queuedContext = merged
+		}
 	}
 
 	/** Put a draft's pinned DOM selector chips back as the live selection, so the

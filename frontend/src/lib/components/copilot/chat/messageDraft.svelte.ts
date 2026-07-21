@@ -81,10 +81,11 @@ export class MessageDraft {
 
 	/**
 	 * Merge a restored draft on top of this one (queued-message delete, restore
-	 * after a cancelled/errored turn): restored text lands above any text the
-	 * user typed meanwhile so nothing is lost, and attachments fold in under the
-	 * caps. Returns whether text merged onto a non-empty draft (the caller must
-	 * then keep both drafts' context), plus dropped counts for toasts.
+	 * after a cancelled/errored turn): the restored draft was written FIRST, so
+	 * its text lands above and its attachments ahead of the newer ones — at the
+	 * caps it is the newest additions that drop, never the restored draft.
+	 * Returns whether text merged onto a non-empty draft (the caller must then
+	 * keep both drafts' context), plus dropped counts for toasts.
 	 */
 	prepend(restored: { text: string; images?: AttachedImage[]; files?: AttachedTextFile[] }): {
 		mergedIntoDraft: boolean
@@ -96,8 +97,20 @@ export class MessageDraft {
 		if (restored.text) {
 			this.text = this.text.trim() ? `${restored.text}\n\n${this.text}` : restored.text
 		}
-		const droppedImages = restored.images?.length ? this.addImages(restored.images) : 0
-		const droppedFiles = restored.files?.length ? this.addFiles(restored.files).droppedAtCap : 0
+		let droppedImages = 0
+		if (restored.images?.length) {
+			const merged = [...restored.images, ...this.images]
+			droppedImages = Math.max(0, merged.length - MAX_ATTACHED_IMAGES)
+			this.images = merged.slice(0, MAX_ATTACHED_IMAGES)
+		}
+		let droppedFiles = 0
+		if (restored.files?.length) {
+			// The restored entries were already a normalized draft; the current
+			// (newer) files fold against them so dedupe/rename still apply.
+			const merged = [...restored.files, ...foldIntoDraft(restored.files, this.files)]
+			droppedFiles = Math.max(0, merged.length - MAX_ATTACHED_FILES)
+			this.files = merged.slice(0, MAX_ATTACHED_FILES)
+		}
 		return { mergedIntoDraft, droppedImages, droppedFiles }
 	}
 

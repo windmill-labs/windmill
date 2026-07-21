@@ -545,6 +545,16 @@ describe('AttachedFilesStore', () => {
 		expect(store.resolve(`notes.md (file id: ${f.id})`)?.id).toBe(f.id)
 	})
 
+	it('stores control-char filenames sanitized so the advertised name resolves', async () => {
+		// The roster prints sanitized names; the stored name must BE that name or
+		// the reference shown to the model would not resolve.
+		await store.addFiles([file('a\nb.md', 'controlled\n')])
+		await settle(store)
+		expect(store.get('a b.md')?.status).toBe('ready')
+		expect(store.resolve('a b.md')).toBeDefined()
+		expect(store.list().some((f) => f.name.includes('\n'))).toBe(false)
+	})
+
 	it('resolve prefers a literal filename over label interpretation', async () => {
 		// A file literally named like a printed label must stay addressable by its
 		// exact name — label parsing must not strip it down to the base name.

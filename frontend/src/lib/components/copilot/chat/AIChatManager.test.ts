@@ -1622,20 +1622,24 @@ describe('AIChatManager queued messages', () => {
 	it('merges a follow-up queued during a failed auto-send instead of clobbering it', async () => {
 		replyWith('done')
 		const manager = createManager(createInputMock())
+		const chipA = { type: 'app_dom_selector', selector: '#a', appPath: 'p' } as any
+		const chipB = { type: 'app_dom_selector', selector: '#b', appPath: 'p' } as any
 		manager.beforeSend = vi
 			.fn()
 			.mockResolvedValueOnce(undefined)
 			.mockImplementationOnce(async () => {
 				// A follow-up arrives while the queued auto-send is in preflight; the
 				// failed send's restore must merge on top of it, not replace it.
-				manager.queueMessage('typed during preflight', [])
+				manager.queueMessage('typed during preflight', [], [chipB])
 				throw new Error('workspace commit failed')
 			})
 
-		manager.queuedMessage = 'first queued'
+		manager.queueMessage('first queued', [], [chipA])
 		await manager.sendRequest({ instructions: 'first' })
 
 		expect(manager.queuedMessage).toBe('first queued\n\ntyped during preflight')
+		// Both entries' pinned contexts survive the restore, older first.
+		expect(manager.queuedContext?.map((c: any) => c.selector)).toEqual(['#a', '#b'])
 	})
 
 	it('re-queues the message when its auto-send is rejected by beforeSend', async () => {

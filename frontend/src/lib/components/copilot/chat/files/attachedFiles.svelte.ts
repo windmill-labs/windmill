@@ -24,6 +24,7 @@ import {
 	ensurePersistentStorage,
 	type PersistedAttachedItem
 } from './attachedFilesDB'
+import { sanitizeAttachmentName } from '../textFileUtils'
 import { enumerateDir, isIgnoredPath, queryReadPermission, requestReadPermission } from './fsAccess'
 
 export type AttachedFileStatus = 'indexing' | 'ready' | 'error' | 'locked' | 'unavailable'
@@ -255,7 +256,7 @@ export class AttachedFilesStore {
 				continue
 			}
 
-			const name = this.#uniqueName(desired)
+			const name = this.#uniqueName(sanitizeAttachmentName(desired))
 			const relPath = folder ? desired : undefined
 			const sourceId = createLongHash()
 
@@ -308,7 +309,7 @@ export class AttachedFilesStore {
 				result.rejected.push({ name: path, reason: 'Not a text file' })
 				continue
 			}
-			const name = this.#uniqueName(path)
+			const name = this.#uniqueName(sanitizeAttachmentName(path))
 			this.#pushIndexing({ name, file, folder, sourceId, handle: dirHandle, relPath: path })
 			result.added.push(name)
 		}
@@ -346,7 +347,9 @@ export class AttachedFilesStore {
 						continue
 					}
 					this.#pushIndexing({
-						name: item.name,
+						// Sanitized on read: rows persisted before name sanitization existed
+						// must come back with a clean (advertisable, resolvable) name.
+						name: sanitizeAttachmentName(item.name),
 						file: item.blob,
 						folder: item.folder,
 						relPath: item.relPath,
@@ -523,7 +526,7 @@ export class AttachedFilesStore {
 		this.files = [
 			...this.files,
 			{
-				name: item.name,
+				name: sanitizeAttachmentName(item.name),
 				file: EMPTY,
 				size: item.size ?? 0,
 				lineIndex: [],
@@ -542,7 +545,7 @@ export class AttachedFilesStore {
 		const children = await enumerateDir(dirHandle)
 		for (const { file, path } of children) {
 			if (!(await this.#sniffText(file))) continue
-			const name = this.#uniqueName(path)
+			const name = this.#uniqueName(sanitizeAttachmentName(path))
 			this.#pushIndexing({ name, file, folder, sourceId, handle: dirHandle, relPath: path })
 		}
 		this.#ensureFolderRow(sourceId, folder, dirHandle)
@@ -590,7 +593,7 @@ export class AttachedFilesStore {
 			if (!cur) {
 				// newly added on disk
 				if (!(await this.#sniffText(file))) continue
-				const name = this.#uniqueName(path)
+				const name = this.#uniqueName(sanitizeAttachmentName(path))
 				this.#pushIndexing({ name, file, folder, sourceId, handle, relPath: path })
 			} else {
 				const curMod = cur.file instanceof File ? cur.file.lastModified : undefined
