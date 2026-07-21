@@ -949,6 +949,23 @@ describe('AIChatManager queued messages', () => {
 		expect(mocks.runChatLoop).not.toHaveBeenCalled()
 	})
 
+	// A context-only draft queued mid-stream must be retained — the queue guard
+	// previously dropped anything with no text and no images, silently eating
+	// the draft the idle path would have sent.
+	it('queues a context-only draft while streaming', () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		const ctx = [{ type: 'code' as const, content: 'x', title: 'snippet', lang: 'bun' as const }]
+
+		manager.queueMessage('', [], ctx)
+
+		expect(manager.queuedContext).toEqual(ctx)
+		// A fully empty queue attempt still leaves nothing behind.
+		manager.dequeueMessage()
+		manager.queueMessage('', [], [])
+		expect(manager.queuedContext).toBeUndefined()
+	})
+
 	it('still ignores an empty send outside GLOBAL mode', async () => {
 		replyWith('done')
 		const manager = createManager(createInputMock())

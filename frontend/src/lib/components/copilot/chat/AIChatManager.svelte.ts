@@ -1444,8 +1444,9 @@ export class AIChatManager {
 	 * alongside it. */
 	queueMessage(text: string, images: AttachedImage[] = [], context?: ContextElement[]) {
 		const trimmed = text.trim()
-		// An image with no text is still a message; only a fully empty send is ignored.
-		if (!trimmed && images.length === 0) {
+		// An image-only or context-only draft is still a message; only a fully
+		// empty send is ignored (mirrors the idle empty-send guard).
+		if (!trimmed && images.length === 0 && (context?.length ?? 0) === 0) {
 			return
 		}
 		if (trimmed) {
@@ -1485,9 +1486,14 @@ export class AIChatManager {
 		}
 	}
 
-	/** Whether anything is waiting in the queue — an image-only message has empty text. */
+	/** Whether anything is waiting in the queue — an image-only or context-only
+	 * message has empty text. */
 	#hasQueuedMessage(): boolean {
-		return this.queuedMessage !== '' || this.queuedImages.length > 0
+		return (
+			this.queuedMessage !== '' ||
+			this.queuedImages.length > 0 ||
+			(this.queuedContext?.length ?? 0) > 0
+		)
 	}
 
 	/** Detach the queue for sending. Text, images and context always leave together. */

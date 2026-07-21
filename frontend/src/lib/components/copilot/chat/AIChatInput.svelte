@@ -446,9 +446,19 @@
 			// auto-sent when the streaming turn completes successfully.
 			// Editing-while-loading keeps the old discard behavior. Paste
 			// tokens are expanded into the queued text (the queue is plain
-			// strings), so the full content survives the auto-send.
-			if (editingMessageIndex === null && (instructions.trim() || images.length > 0)) {
-				aiChatManager.queueMessage(expanded(chatDraft(instructions, pastes)), images)
+			// strings), so the full content survives the auto-send. A GLOBAL
+			// context-only draft counts too (mirrors the idle send guard), and
+			// the selection is pinned to the queued entry so the flush sends the
+			// chips picked at press time.
+			if (
+				editingMessageIndex === null &&
+				(instructions.trim() ||
+					images.length > 0 ||
+					(aiChatManager.mode === AIMode.GLOBAL && selectedContext.length > 0))
+			) {
+				aiChatManager.queueMessage(expanded(chatDraft(instructions, pastes)), images, [
+					...selectedContext
+				])
 				contextTextareaComponent?.clearForSend()
 				instructions = ''
 				pastes = []
