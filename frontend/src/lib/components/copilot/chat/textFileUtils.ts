@@ -49,6 +49,14 @@ export const MAX_TEXT_FILE_BYTES = 1_000_000
  */
 export const MAX_CONVERSATION_FILE_BYTES = 5_000_000
 
+/** Display names are rendered into model-facing prompt blocks, and OS
+ * filenames may legally contain control characters (even newlines on POSIX) —
+ * a crafted name must not be able to inject prompt structure. Applied at
+ * attach and again wherever a (possibly legacy) name is printed for the model. */
+export function sanitizeAttachmentName(name: string): string {
+	return name.replace(/[\u0000-\u001f\u007f]+/g, " ").trim() || "file"
+}
+
 /** Read a file for message attachment. Returns null when the sniff says binary
  * or the content exceeds MAX_TEXT_FILE_BYTES — the cap is enforced here at the
  * reader, not only at callers' pre-checks, so no ingestion path can persist an
@@ -61,7 +69,7 @@ export async function fileToAttachedTextFile(file: File): Promise<AttachedTextFi
 	if (!(await isTextFile(file))) return null
 	const content = await file.text()
 	if (textByteLength(content) > MAX_TEXT_FILE_BYTES) return null
-	return { name: file.name, content }
+	return { name: sanitizeAttachmentName(file.name), content }
 }
 
 /** Line count as the file tools report it (fileEngine.buildLineIndex): an empty

@@ -70,6 +70,7 @@ import { chatDraft, expanded } from './chatDraft'
 import { MessageDraft, type DraftSnapshot } from './messageDraft.svelte'
 import {
 	MAX_ATTACHED_FILES,
+	sanitizeAttachmentName,
 	textByteLength,
 	withAttachedTextFileIds,
 	type AttachedTextFile
@@ -1132,7 +1133,9 @@ export class AIChatManager {
 			const filesNote =
 				carriedFiles.length > 0
 					? '\n\nThe user attached these files earlier in this conversation; they are still readable via `read_file` / `search_files` (pass the file id):\n' +
-						carriedFiles.map((f) => `- ${f.name} (file id: ${f.id})`).join('\n')
+						carriedFiles
+							.map((f) => `- ${sanitizeAttachmentName(f.name)} (file id: ${f.id})`)
+							.join('\n')
 					: ''
 
 			this.messages = [
@@ -1552,10 +1555,17 @@ export class AIChatManager {
 		this.queuedContext = undefined
 	}
 
-	/** Put a taken queue back after an auto-send bailed before becoming a turn. */
+	/** Put a taken queue back after an auto-send bailed before becoming a turn.
+	 * Merged, not replaced: the user may have queued a follow-up while the
+	 * auto-send was in preflight, and clobbering it would silently lose it — the
+	 * taken entry's text lands above the follow-up (it was written first). */
 	#restoreQueue(queued: QueuedEntry) {
-		this.#queuedDraft.replace(queued.draft)
-		this.queuedContext = queued.context
+		this.#queuedDraft.prepend({
+			text: queued.draft.text,
+			images: queued.draft.images,
+			files: queued.draft.files
+		})
+		this.queuedContext = this.queuedContext ?? queued.context
 	}
 
 	/** Put a draft's pinned DOM selector chips back as the live selection, so the
@@ -1612,7 +1622,9 @@ export class AIChatManager {
 		if (this.aiChatInput) {
 			return this.aiChatInput.prependText(text, images, files) === true
 		}
-		this.#queuedDraft.replace({ text, images, files })
+		// Merge onto anything already queued (see #restoreQueue) — replacing would
+		// silently drop a message queued while this one was in flight.
+		this.#queuedDraft.prepend({ text, images, files })
 		return false
 	}
 
@@ -3227,6 +3239,18 @@ export class AIChatManager {
 			throw new Error('No user message found at the specified index')
 		}
 
+		// Resolve the API restart point BEFORE reserving bytes or truncating: a
+		// stale index must fail while nothing has been mutated, or the transcript
+		// would be left truncated with the reservation leaked. A negative index
+		// marks a message whose API counterpart was removed by drop-oldest
+		// compaction — everything before it went too, so restarting from it
+		// restarts from an empty history.
+		const actualMessageIndex =
+			userMessage.index < 0 ? 0 : userMessage.index < this.messages.length ? userMessage.index : -1
+		if (actualMessageIndex === -1) {
+			throw new Error('No actual user message found to restart from')
+		}
+
 		// Read while both arrays are intact: storedImages pairs the API message with
 		// its transcript entry, and the truncations below drop them.
 		const sentImages = this.storedImages(displayMessageIndex)
@@ -3246,18 +3270,6 @@ export class AIChatManager {
 
 		// Remove all messages including and after the specified user message
 		this.displayMessages = this.displayMessages.slice(0, displayMessageIndex)
-
-		// Find corresponding message in actual messages and remove it and everything
-		// after it. A negative index marks a message whose API counterpart was
-		// removed by drop-oldest compaction — everything before it went too, so
-		// restarting from it restarts from an empty history.
-		let actualMessageIndex =
-			userMessage.index < 0 ? 0 : this.messages.findIndex((_, i) => i === userMessage.index)
-
-		if (actualMessageIndex === -1) {
-			throw new Error('No actual user message found to restart from')
-		}
-
 		this.messages = this.messages.slice(0, actualMessageIndex)
 
 		// The last report described the pre-rewind history; clear it. Readers

@@ -1328,6 +1328,29 @@ describe('AIChatManager queued messages', () => {
 		expect([...manager.orphanedMessageFileIds()]).toEqual(['folded.md'])
 	})
 
+	it('a stale restart index fails before touching the transcript or the budget', async () => {
+		const manager = new AIChatManager()
+		manager.displayMessages = [
+			{
+				role: 'user',
+				content: 'old',
+				index: 5,
+				files: [{ name: 'a.md', content: 'X'.repeat(100) }]
+			},
+			{ role: 'assistant', content: 'reply' }
+		] as any
+		manager.messages = [{ role: 'user', content: 'old' }] as any // index 5 is stale
+
+		await expect(manager.restartGeneration(0)).rejects.toThrow(
+			'No actual user message found to restart from'
+		)
+		// Nothing was mutated and no resend reservation lingers: the budget still
+		// counts only the transcript's 100 bytes.
+		expect(manager.displayMessages).toHaveLength(2)
+		expect(manager.messages).toHaveLength(1)
+		expect(manager.attachmentBytesExcluding('probe')).toBe(100)
+	})
+
 	// An edit is not committed until send, so cancelling it returns the message's
 	// persisted attachments. Charging only the (possibly emptied) edit stage would
 	// hand the bottom composer headroom that vanishes on cancel — remove the files
@@ -1540,6 +1563,25 @@ describe('AIChatManager queued messages', () => {
 		// Both instructions now share one composer, so both elements stay in scope.
 		const chips = cm.getSelectedContext().filter((c) => c.type === 'app_dom_selector')
 		expect(chips.map((c) => c.selector).sort()).toEqual(['div.a', 'div.b'])
+	})
+
+	it('merges a follow-up queued during a failed auto-send instead of clobbering it', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		manager.beforeSend = vi
+			.fn()
+			.mockResolvedValueOnce(undefined)
+			.mockImplementationOnce(async () => {
+				// A follow-up arrives while the queued auto-send is in preflight; the
+				// failed send's restore must merge on top of it, not replace it.
+				manager.queueMessage('typed during preflight', [])
+				throw new Error('workspace commit failed')
+			})
+
+		manager.queuedMessage = 'first queued'
+		await manager.sendRequest({ instructions: 'first' })
+
+		expect(manager.queuedMessage).toBe('first queued\n\ntyped during preflight')
 	})
 
 	it('re-queues the message when its auto-send is rejected by beforeSend', async () => {

@@ -17,6 +17,7 @@ import {
 	type SearchHit
 } from './fileEngine'
 import type { AttachedFile, AttachedFilesStore } from './attachedFiles.svelte'
+import { sanitizeAttachmentName } from '../textFileUtils'
 
 /** Slice of the GLOBAL tool helpers that exposes the attached-files store. */
 export interface AttachedFilesHelper {
@@ -191,8 +192,11 @@ export const fileTools: Tool<{}>[] = [searchFilesTool, readFileTool]
 
 function rosterLine(f: AttachedFile): string {
 	// Message rows are addressed by their stable id (names may collide); session
-	// rows by name.
-	const ref = f.id ? `${f.name} (file id: ${f.id})` : f.name
+	// rows by name. Names are sanitized at render: this block is model-facing
+	// prompt text and stored names (legacy, folder children) may carry controls.
+	const ref = f.id
+		? `${sanitizeAttachmentName(f.name)} (file id: ${f.id})`
+		: sanitizeAttachmentName(f.name)
 	if (f.status === 'indexing') return `- ${ref} (indexing…)`
 	if (f.status === 'locked') return `- ${ref} (locked — needs the user to restore access)`
 	if (f.status === 'unavailable') return `- ${ref} (unavailable)`

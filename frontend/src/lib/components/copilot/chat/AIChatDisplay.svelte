@@ -373,6 +373,19 @@
 		if (topLevelImages.length > 0) {
 			imageWork.push(aiChatInput?.addImages(topLevelImages) ?? Promise.resolve())
 		}
+		// Text-file routing must await handle/entry resolution before it can call
+		// addTextFiles — hold sending across that window (taken BEFORE the first
+		// await) or a send mid-resolution would land the drop on the next message.
+		const releaseSendHold = aiChatInput?.holdSendForIngestion()
+		try {
+			await routeDroppedTextAndFolders(dt, flatFiles)
+		} finally {
+			releaseSendHold?.()
+		}
+		await Promise.all(imageWork)
+	}
+
+	async function routeDroppedTextAndFolders(dt: DataTransfer, flatFiles: File[]) {
 		if (canUseFsAccess) {
 			// getAsFileSystemHandle calls are kicked off synchronously inside this call.
 			const handles = await handlesFromDataTransfer(dt)
@@ -416,7 +429,6 @@
 			if (folderEntries.length > 0) await handleAddFiles(folderEntries)
 			if (topLevelText.length > 0) await aiChatInput?.addTextFiles(topLevelText)
 		}
-		await Promise.all(imageWork)
 	}
 
 	async function onFileInputChange(e: Event) {

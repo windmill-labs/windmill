@@ -239,6 +239,21 @@
 
 	// Files being read right now — same send-hold/slot-reservation role as pendingImages.
 	let pendingFiles = $state(0)
+	// Drop routing resolves file-system handles/entries asynchronously before it
+	// can call addTextFiles/addImages; a send during that window would land the
+	// dropped files on the NEXT message. Holds block sending (no slot or chip
+	// impact) until the drop handler finishes routing.
+	let ingestionHolds = $state(0)
+	export function holdSendForIngestion(): () => void {
+		ingestionHolds += 1
+		let released = false
+		return () => {
+			if (!released) {
+				released = true
+				ingestionHolds -= 1
+			}
+		}
+	}
 	// Bytes those in-flight reads have claimed against the conversation budget:
 	// two overlapping drops that both read the budget before either lands would
 	// otherwise each spend the same remaining allowance.
@@ -446,9 +461,10 @@
 		restoredImages: AttachedImage[] = [],
 		restoredFiles: AttachedTextFile[] = []
 	): boolean {
-		// Attachments still decoding/reading count as occupancy too — they belong
-		// to a draft the user started even though their lane is still empty.
-		if (pendingImages > 0 || pendingFiles > 0) return false
+		// Attachments still decoding/reading (or mid-drop-routing) count as
+		// occupancy too — they belong to a draft the user started even though
+		// their lane is still empty.
+		if (pendingImages > 0 || pendingFiles > 0 || ingestionHolds > 0) return false
 		if (
 			!draft.replaceIfEmpty({
 				text: value,
@@ -593,7 +609,7 @@
 	function sendRequest() {
 		// The send button is disabled while decoding, but Enter reaches here directly.
 		// Sending now would drop the in-flight attachments onto the following message.
-		if (pendingImages > 0 || pendingFiles > 0) {
+		if (pendingImages > 0 || pendingFiles > 0 || ingestionHolds > 0) {
 			return
 		}
 		if (aiChatManager.loading) {
@@ -861,7 +877,8 @@
 		disabled ||
 		(draft.text.trim().length === 0 && draft.images.length === 0 && draft.files.length === 0) ||
 		pendingImages > 0 ||
-		pendingFiles > 0}
+		pendingFiles > 0 ||
+		ingestionHolds > 0}
 	<Button
 		variant="subtle"
 		unifiedSize="md"

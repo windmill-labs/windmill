@@ -48,7 +48,7 @@ import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/d
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
 import type { RawAppDomQuery } from '$lib/components/raw_apps/rawAppDom'
 import { dataUrlToImagePart, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
-import { textLineCount, type AttachedTextFile } from '../textFileUtils'
+import { sanitizeAttachmentName, textLineCount, type AttachedTextFile } from '../textFileUtils'
 import { modelSupportsVision } from '../../modelConfig'
 import { tryGetCurrentModel } from '$lib/aiStore'
 import { isChromiumBrowser } from '$lib/utils'
@@ -5538,7 +5538,9 @@ export function prepareGlobalUserMessage(
 			const lines = textLineCount(f.content)
 			// The id is the durable reference (names may repeat across messages);
 			// absent only on legacy pre-id transcripts, where the name resolves.
-			const ref = f.id ? `${f.name} (file id: ${f.id})` : f.name
+			// Sanitized again here: legacy names predate attach-time sanitization.
+			const name = sanitizeAttachmentName(f.name)
+			const ref = f.id ? `${name} (file id: ${f.id})` : name
 			content += `- ${ref} — ${lines} lines, ${f.content.length} chars\n`
 		}
 		content += '\n'
