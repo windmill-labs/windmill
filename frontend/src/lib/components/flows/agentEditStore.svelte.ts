@@ -26,3 +26,17 @@ export function setAgentEditingPath(
 ) {
 	editingByStep[key(workspace, flowPath, moduleId)] = path
 }
+
+/**
+ * Invalidate all pending edit modes for a flow. Called when the flow's state is replaced wholesale
+ * (undo/redo, session-draft updates, re-init): a stale "Editing" target no longer corresponds to
+ * the restored modules, and saving it would overwrite the shared agent with unrelated config.
+ */
+export function clearAgentEditingForFlow(workspace: string | undefined, flowPath: string) {
+	const prefix = `${workspace ?? ''}:${flowPath}:`
+	for (const k of Object.keys(editingByStep)) {
+		if (k.startsWith(prefix)) {
+			delete editingByStep[k]
+		}
+	}
+}

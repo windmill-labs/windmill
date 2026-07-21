@@ -122,10 +122,12 @@
 	})
 
 	// Link the step as soon as a saved agent is picked. Linking is rigid, so the step keeps no tools
-	// of its own — they come from the resource.
+	// of its own — they come from the resource. The picked value is consumed immediately: a stale
+	// pickerValue must not re-link over an external change to `agent` (undo, session drafts).
 	$effect(() => {
 		if (pickerValue && pickerValue !== agent) {
 			agent = pickerValue
+			pickerValue = undefined
 			tools = []
 			toolInputs = {}
 			// Drop the step's brain transforms; a linked step keeps only the flow-local inputs.

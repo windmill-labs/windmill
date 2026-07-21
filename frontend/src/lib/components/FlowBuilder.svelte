@@ -10,6 +10,7 @@
 		type Job
 	} from '$lib/gen'
 	import { initHistory, redo, undo } from '$lib/history.svelte'
+	import { clearAgentEditingForFlow } from './flows/agentEditStore.svelte'
 	import {
 		enterpriseLicense,
 		userStore,
@@ -664,11 +665,15 @@
 				}
 			}
 		}
+		// The restored state may not correspond to a pending agent Edit fork; a stale "Editing"
+		// target could save unrelated config into the shared agent.
+		clearAgentEditingForFlow(opWorkspace, $pathStore)
 		selectionManager.selectId('Input')
 	}
 
 	function handleRedo() {
 		flowStore.val = redo(history)
+		clearAgentEditingForFlow(opWorkspace, $pathStore)
 	}
 
 	let flowBuilderRoot: HTMLDivElement | undefined = $state()

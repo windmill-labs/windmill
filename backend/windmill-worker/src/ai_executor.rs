@@ -437,6 +437,24 @@ pub async fn handle_ai_agent_job(
         (args, module_tools)
     };
 
+    // Nesting is capped at flow → agent → nested agent. When this job is itself a nested tool,
+    // a linked resource's tool set may still contain AIAgent tools (the editor can't constrain a
+    // shared resource); don't advertise them — invoking one would only fail the depth check as a
+    // third-level agent.
+    let tools = if direct_parent_job_kind == JobKind::AIAgent {
+        tools
+            .into_iter()
+            .filter(|t| {
+                !matches!(
+                    &t.value,
+                    ToolValue::FlowModule(FlowModuleValue::AIAgent { .. })
+                )
+            })
+            .collect()
+    } else {
+        tools
+    };
+
     // Separate Windmill tools from MCP tools, websearch, and extract MCP resource configs
     let mut windmill_modules: Vec<FlowModule> = Vec::new();
     // Explicit per-tool descriptions keyed by tool id. When set, these override the
