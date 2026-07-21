@@ -234,6 +234,97 @@ export function rewriteRawAppContent(content: string, map: Map<string, string>):
 	return JSON.stringify(rewriteAppValue(parsed, map))
 }
 
+// ---------------------------------------------------------------------------
+// Hub project export format (what /projects/{slug}/export returns) and its
+// retargeting into a destination folder. Kept here, next to the rewriters,
+// so the bundle format is defined in one module for both publish and install.
+// ---------------------------------------------------------------------------
+
+export type ExportItem = Record<string, any>
+export interface ProjectMigration {
+	datatable_name: string
+	sql: string
+	sql_down?: string
+	enabled: boolean
+}
+export interface ProjectExport {
+	project: { slug: string; name: string; summary: string; readme: string | null }
+	scripts: ExportItem[]
+	flows: ExportItem[]
+	apps: ExportItem[]
+	resources: ExportItem[]
+	triggers: ExportItem[]
+	migrations?: ProjectMigration[]
+}
+
+// Map bundled paths `f/<fromSlug>/...` -> `f/<folder>/...`. Only enumerated
+// paths go in, so rewriters touch real refs, never incidental text.
+export function buildRetargetMap(
+	bundle: ProjectExport,
+	fromSlug: string,
+	folder: string
+): Map<string, string> {
+	const map = new Map<string, string>()
+	const prefix = `f/${fromSlug}/`
+	const add = (p: unknown) => {
+		if (typeof p === 'string' && p.startsWith(prefix)) {
+			map.set(p, `f/${folder}/${p.slice(prefix.length)}`)
+		}
+	}
+	for (const s of bundle.scripts) add(s.path)
+	for (const f of bundle.flows) add(f.path)
+	for (const a of bundle.apps) add(a.path)
+	for (const r of bundle.resources) add(r.path)
+	for (const t of bundle.triggers) {
+		add(t.path)
+		add(t.runnable_path)
+	}
+	return map
+}
+
+// Structural retarget: rewrite each item's path and its internal refs,
+// leaving Hub refs and arbitrary content untouched.
+export function retargetProjectExport(
+	bundle: ProjectExport,
+	fromSlug: string,
+	folder: string
+): ProjectExport {
+	if (folder === fromSlug) return bundle
+	const map = buildRetargetMap(bundle, fromSlug, folder)
+	const remap = (p: unknown) => (typeof p === 'string' ? (map.get(p) ?? p) : p)
+	return {
+		...bundle,
+		scripts: bundle.scripts.map((s) => ({
+			...s,
+			path: remap(s.path),
+			content: rewriteContent(s.content ?? '', map)
+		})),
+		flows: bundle.flows.map((f) => ({
+			...f,
+			path: remap(f.path),
+			value: rewriteFlowValue(f.value, map)
+		})),
+		apps: bundle.apps.map((a) => ({
+			...a,
+			path: remap(a.path),
+			// Raw apps keep their structure in the `value.raw` JSON string.
+			value:
+				a.app_type === 'raw'
+					? { ...a.value, raw: rewriteRawAppContent(a.value?.raw ?? '', map) }
+					: rewriteAppValue(a.value, map)
+		})),
+		resources: bundle.resources.map((r) => ({ ...r, path: remap(r.path) })),
+		triggers: bundle.triggers.map((t) => ({
+			...t,
+			path: remap(t.path),
+			runnable_path: remap(t.runnable_path),
+			// Configs hold both `$res:` tokens and plain resource paths
+			// (kafka_resource_path etc.) — rewrite both.
+			config: t.config ? rewriteTriggerConfig(t.config, map) : t.config
+		}))
+	}
+}
+
 export type ItemKind = 'script' | 'flow' | 'app' | 'raw_app'
 
 export interface ItemRef {

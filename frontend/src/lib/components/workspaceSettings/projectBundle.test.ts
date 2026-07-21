@@ -12,6 +12,8 @@ import {
 	extractRawAppRefs,
 	rewriteRawAppContent,
 	buildProjectBundle,
+	retargetProjectExport,
+	type ProjectExport,
 	type FetchedItem,
 	type ItemRef
 } from './projectBundle'
@@ -435,5 +437,83 @@ describe('buildProjectBundle', () => {
 		expect(bundle.items.map((i) => i.path)).toEqual(['u/admin/hub_flow'])
 		expect(bundle.items[0].value.modules[0].value.path).toBe('hub/1/x/y')
 		expect(bundle.unresolved).toEqual([])
+	})
+})
+
+describe('retargetProjectExport', () => {
+	const baseExport = (): ProjectExport => ({
+		project: { slug: 'proj', name: 'Proj', summary: '', readme: null },
+		scripts: [
+			{
+				path: 'f/proj/hello',
+				content: 'const r = "$res:f/proj/db"',
+				summary: 'hello'
+			}
+		],
+		flows: [
+			{
+				path: 'f/proj/main_flow',
+				value: {
+					modules: [
+						{ id: 'a', value: { type: 'script', path: 'f/proj/hello', input_transforms: {} } }
+					]
+				}
+			}
+		],
+		apps: [
+			{
+				path: 'f/proj/dashboard',
+				value: { grid: [{ data: { componentInput: { runnable: {} } } }] }
+			},
+			{
+				path: 'f/proj/rawapp',
+				app_type: 'raw',
+				value: { raw: JSON.stringify({ files: {}, runnables: {} }) }
+			}
+		],
+		resources: [{ path: 'f/proj/db', resource_type: 'postgresql' }],
+		triggers: [
+			{
+				path: 'f/proj/every_day',
+				kind: 'schedule',
+				runnable_path: 'f/proj/hello',
+				runnable_kind: 'script',
+				config: { schedule: '0 0 12 * * *' }
+			},
+			{
+				path: 'f/proj/kafka_in',
+				kind: 'kafka',
+				runnable_path: 'f/proj/hello',
+				runnable_kind: 'script',
+				config: { kafka_resource_path: 'f/proj/db' }
+			}
+		]
+	})
+
+	it('returns the bundle unchanged when the folder matches the slug', () => {
+		const bundle = baseExport()
+		expect(retargetProjectExport(bundle, 'proj', 'proj')).toBe(bundle)
+	})
+
+	it('relocates every item path and internal reference into the target folder', () => {
+		const out = retargetProjectExport(baseExport(), 'proj', 'dest')
+		expect(out.scripts[0].path).toBe('f/dest/hello')
+		expect(out.scripts[0].content).toContain('$res:f/dest/db')
+		expect(out.flows[0].path).toBe('f/dest/main_flow')
+		expect(out.flows[0].value.modules[0].value.path).toBe('f/dest/hello')
+		expect(out.apps.map((a) => a.path)).toEqual(['f/dest/dashboard', 'f/dest/rawapp'])
+		expect(out.resources[0].path).toBe('f/dest/db')
+		expect(out.triggers[0].path).toBe('f/dest/every_day')
+		expect(out.triggers[0].runnable_path).toBe('f/dest/hello')
+		// Plain-string resource path in a trigger config is remapped too.
+		expect(out.triggers[1].config.kafka_resource_path).toBe('f/dest/db')
+	})
+
+	it('leaves external and hub paths untouched', () => {
+		const bundle = baseExport()
+		bundle.scripts[0].content = 'const a = "$res:u/admin/db"; const b = "$res:hub/1/x"'
+		const out = retargetProjectExport(bundle, 'proj', 'dest')
+		expect(out.scripts[0].content).toContain('$res:u/admin/db')
+		expect(out.scripts[0].content).toContain('$res:hub/1/x')
 	})
 })

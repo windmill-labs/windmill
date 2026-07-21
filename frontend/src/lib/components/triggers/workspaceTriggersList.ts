@@ -40,7 +40,9 @@ export interface WorkspaceTrigger {
  * handle every trigger kind (Hub publish/install, exports): display badge, the
  * workspace list route, an optional post-import caveat, the config field
  * holding the kind's resource path, whether the kind requires an EE license
- * (its list endpoint 404s on CE), and the list call itself.
+ * (its endpoints 404 on CE), and the list/create calls. Schedules have no
+ * `create` entry: they disable via `enabled` (not `mode`) and use a dedicated
+ * body shape, handled in `createWorkspaceTriggerDisabled`.
  */
 export const TRIGGER_KINDS: Record<
 	WorkspaceTriggerKind,
@@ -51,6 +53,7 @@ export const TRIGGER_KINDS: Record<
 		resourceField?: string
 		eeOnly?: boolean
 		list: (workspace: string) => Promise<Array<Record<string, any>>>
+		create?: (workspace: string, requestBody: any) => Promise<unknown>
 	}
 > = {
 	http: {
@@ -58,13 +61,17 @@ export const TRIGGER_KINDS: Record<
 		route: 'routes',
 		note: 'Webhook URL regenerates on import — re-register with the external service.',
 		resourceField: 'authentication_resource_path',
-		list: (workspace) => HttpTriggerService.listHttpTriggers({ workspace })
+		list: (workspace) => HttpTriggerService.listHttpTriggers({ workspace }),
+		create: (workspace, requestBody) =>
+			HttpTriggerService.createHttpTrigger({ workspace, requestBody })
 	},
 	websocket: {
 		badge: 'WebSocket',
 		route: 'websocket_triggers',
 		note: 'Reconnect WebSocket auth after import if external service requires it.',
-		list: (workspace) => WebsocketTriggerService.listWebsocketTriggers({ workspace })
+		list: (workspace) => WebsocketTriggerService.listWebsocketTriggers({ workspace }),
+		create: (workspace, requestBody) =>
+			WebsocketTriggerService.createWebsocketTrigger({ workspace, requestBody })
 	},
 	schedule: {
 		badge: 'Schedule',
@@ -77,7 +84,9 @@ export const TRIGGER_KINDS: Record<
 		note: 'Verify Kafka broker access from the importing instance.',
 		resourceField: 'kafka_resource_path',
 		eeOnly: true,
-		list: (workspace) => KafkaTriggerService.listKafkaTriggers({ workspace })
+		list: (workspace) => KafkaTriggerService.listKafkaTriggers({ workspace }),
+		create: (workspace, requestBody) =>
+			KafkaTriggerService.createKafkaTrigger({ workspace, requestBody })
 	},
 	nats: {
 		badge: 'NATS',
@@ -85,20 +94,26 @@ export const TRIGGER_KINDS: Record<
 		note: 'Verify NATS connection from the importing instance.',
 		resourceField: 'nats_resource_path',
 		eeOnly: true,
-		list: (workspace) => NatsTriggerService.listNatsTriggers({ workspace })
+		list: (workspace) => NatsTriggerService.listNatsTriggers({ workspace }),
+		create: (workspace, requestBody) =>
+			NatsTriggerService.createNatsTrigger({ workspace, requestBody })
 	},
 	sqs: {
 		badge: 'SQS',
 		route: 'sqs_triggers',
 		resourceField: 'aws_resource_path',
 		eeOnly: true,
-		list: (workspace) => SqsTriggerService.listSqsTriggers({ workspace })
+		list: (workspace) => SqsTriggerService.listSqsTriggers({ workspace }),
+		create: (workspace, requestBody) =>
+			SqsTriggerService.createSqsTrigger({ workspace, requestBody })
 	},
 	mqtt: {
 		badge: 'MQTT',
 		route: 'mqtt_triggers',
 		resourceField: 'mqtt_resource_path',
-		list: (workspace) => MqttTriggerService.listMqttTriggers({ workspace })
+		list: (workspace) => MqttTriggerService.listMqttTriggers({ workspace }),
+		create: (workspace, requestBody) =>
+			MqttTriggerService.createMqttTrigger({ workspace, requestBody })
 	},
 	gcp: {
 		badge: 'GCP Pub/Sub',
@@ -106,7 +121,9 @@ export const TRIGGER_KINDS: Record<
 		note: 'Re-link GCP Pub/Sub subscription after import.',
 		resourceField: 'gcp_resource_path',
 		eeOnly: true,
-		list: (workspace) => GcpTriggerService.listGcpTriggers({ workspace })
+		list: (workspace) => GcpTriggerService.listGcpTriggers({ workspace }),
+		create: (workspace, requestBody) =>
+			GcpTriggerService.createGcpTrigger({ workspace, requestBody })
 	},
 	azure: {
 		badge: 'Azure',
@@ -114,19 +131,25 @@ export const TRIGGER_KINDS: Record<
 		note: 'Re-link Azure Event Grid subscription after import.',
 		resourceField: 'azure_resource_path',
 		eeOnly: true,
-		list: (workspace) => AzureTriggerService.listAzureTriggers({ workspace })
+		list: (workspace) => AzureTriggerService.listAzureTriggers({ workspace }),
+		create: (workspace, requestBody) =>
+			AzureTriggerService.createAzureTrigger({ workspace, requestBody })
 	},
 	postgres: {
 		badge: 'Postgres',
 		route: 'postgres_triggers',
 		resourceField: 'postgres_resource_path',
-		list: (workspace) => PostgresTriggerService.listPostgresTriggers({ workspace })
+		list: (workspace) => PostgresTriggerService.listPostgresTriggers({ workspace }),
+		create: (workspace, requestBody) =>
+			PostgresTriggerService.createPostgresTrigger({ workspace, requestBody })
 	},
 	email: {
 		badge: 'Email',
 		route: 'email_triggers',
 		note: 'Email address regenerates on import.',
-		list: (workspace) => EmailTriggerService.listEmailTriggers({ workspace })
+		list: (workspace) => EmailTriggerService.listEmailTriggers({ workspace }),
+		create: (workspace, requestBody) =>
+			EmailTriggerService.createEmailTrigger({ workspace, requestBody })
 	}
 }
 
@@ -164,6 +187,54 @@ export async function listAllWorkspaceTriggers(
 		})
 	)
 	return perKind.flat()
+}
+
+/**
+ * Create a trigger in its disabled state — the semantics differ per kind
+ * (schedules use `enabled: false`, every other kind uses `mode: 'disabled'`)
+ * and are encoded here once so importers can't get them wrong.
+ */
+export async function createWorkspaceTriggerDisabled(
+	workspace: string,
+	trigger: {
+		kind: string
+		path: string
+		script_path: string
+		is_flow: boolean
+		summary?: string | null
+		config?: Record<string, any> | null
+	},
+	opts: { hasEeLicense: boolean }
+): Promise<unknown> {
+	const def = TRIGGER_KINDS[trigger.kind as WorkspaceTriggerKind]
+	if (!def) throw new Error(`trigger kind '${trigger.kind}' not supported yet`)
+	if (def.eeOnly && !opts.hasEeLicense) {
+		throw new Error(`trigger kind '${trigger.kind}' requires Enterprise`)
+	}
+	if (trigger.kind === 'schedule') {
+		return ScheduleService.createSchedule({
+			workspace,
+			requestBody: {
+				path: trigger.path,
+				schedule: trigger.config?.schedule ?? '0 0 * * * *',
+				timezone: trigger.config?.timezone ?? 'UTC',
+				script_path: trigger.script_path,
+				is_flow: trigger.is_flow,
+				enabled: false,
+				args: trigger.config?.args ?? {},
+				summary: trigger.summary ?? null
+			}
+		})
+	}
+	// `config` holds only kind-specific fields; explicit fields win.
+	return def.create!(workspace, {
+		...(trigger.config ?? {}),
+		path: trigger.path,
+		script_path: trigger.script_path,
+		is_flow: trigger.is_flow,
+		summary: trigger.summary ?? null,
+		mode: 'disabled'
+	})
 }
 
 /** The resource path a trigger's config points at, if its kind has one. */

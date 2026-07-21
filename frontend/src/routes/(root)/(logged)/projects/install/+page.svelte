@@ -5,59 +5,21 @@
 	import { sendUserToast } from '$lib/toast'
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import {
-		ScriptService,
-		FlowService,
-		AppService,
-		ResourceService,
-		ScheduleService,
-		FolderService,
-		WorkspaceService,
-		HttpTriggerService,
-		WebsocketTriggerService,
-		KafkaTriggerService,
-		NatsTriggerService,
-		MqttTriggerService,
-		SqsTriggerService,
-		GcpTriggerService,
-		AzureTriggerService,
-		PostgresTriggerService,
-		EmailTriggerService
-	} from '$lib/gen'
+	import { WorkspaceService } from '$lib/gen'
 	import FolderPicker from '$lib/components/FolderPicker.svelte'
-	import {
-		rewriteAppValue,
-		rewriteContent,
-		rewriteFlowValue,
-		rewriteRawAppContent,
-		rewriteTriggerConfig
+	import type {
+		ProjectExport,
+		ProjectMigration
 	} from '$lib/components/workspaceSettings/projectBundle'
-	import { updatePolicy } from '$lib/components/apps/editor/appPolicy'
-	import { updateRawAppPolicy } from '$lib/sharedUtils'
-	import type { App } from '$lib/components/apps/types'
+	import {
+		installProject,
+		type InstallResult
+	} from '$lib/components/workspaceSettings/projectInstall'
 	import MigrationSqlEditor from '$lib/components/workspaceSettings/MigrationSqlEditor.svelte'
-	import { runScriptAndPollResult } from '$lib/components/jobs/utils'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '$lib/components/common/confirmationModal/asyncConfirmationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { Cloud, Download, Loader2 } from 'lucide-svelte'
-
-	type ExportItem = Record<string, any>
-	interface ProjectMigration {
-		datatable_name: string
-		sql: string
-		sql_down?: string
-		enabled: boolean
-	}
-	interface ProjectExport {
-		project: { slug: string; name: string; summary: string; readme: string | null }
-		scripts: ExportItem[]
-		flows: ExportItem[]
-		apps: ExportItem[]
-		resources: ExportItem[]
-		triggers: ExportItem[]
-		migrations?: ProjectMigration[]
-	}
 
 	let slug = $derived($page.url.searchParams.get('hub') ?? '')
 	let workspace = $derived($workspaceStore)
@@ -69,7 +31,7 @@
 	// True while the migration review/missing-datatable modals are open, before the
 	// import spinner starts — keeps the Import button from launching a second import.
 	let planningMigrations = $state(false)
-	let results = $state<{ path: string; ok: boolean; error?: string }[]>([])
+	let results = $state<InstallResult[]>([])
 	let done = $state(false)
 	let folderName = $state('')
 
@@ -159,137 +121,6 @@
 			: undefined
 	)
 
-	// Surface the backend's explanation: API errors carry the real message in
-	// `.body` (plain text for Windmill 4xx), while `.message` is the generic
-	// status text ("Bad Request"). Prefer the body so e.g. a path/route_path
-	// collision reads as the actual reason, not just "Bad Request".
-	function errorMessage(e: any): string {
-		const body = e?.body
-		if (typeof body === 'string' && body.trim() !== '') return body
-		if (body && typeof body === 'object')
-			return body.error?.message ?? body.message ?? JSON.stringify(body)
-		return e?.message ?? String(e)
-	}
-
-	function record(path: string, p: Promise<unknown>): Promise<void> {
-		return p.then(
-			() => {
-				results = [...results, { path, ok: true }]
-			},
-			(e: any) => {
-				results = [...results, { path, ok: false, error: errorMessage(e) }]
-			}
-		)
-	}
-
-	// Recompute an app's execution policy from its (retargeted) value, mirroring
-	// what the editor does on deploy. `triggerables_v2` is keyed by
-	// `<component>:rawscript/<sha256(inline content)>`; retargeting rewrites that
-	// content, so a copied or empty policy would leave every inline runnable
-	// "forbidden by policy" at runtime. Default to publisher (auth required).
-	async function computeAppPolicy(value: any): Promise<any> {
-		const policy = (await updatePolicy(value as App, undefined)) as any
-		if (!policy.execution_mode) policy.execution_mode = 'publisher'
-		return policy
-	}
-	async function computeRawAppPolicy(runnables: Record<string, any>): Promise<any> {
-		const policy = (await updateRawAppPolicy(runnables, undefined)) as any
-		if (!policy.execution_mode) policy.execution_mode = 'publisher'
-		return policy
-	}
-
-	// EE-only kinds; the rest (http, websocket, postgres, mqtt, email) work on CE.
-	const EE_TRIGGER_KINDS = new Set(['kafka', 'nats', 'sqs', 'gcp', 'azure'])
-
-	// Non-schedule trigger creators, keyed by kind (schedule has its own body shape).
-	const TRIGGER_CREATE: Record<string, (workspace: string, requestBody: any) => Promise<unknown>> =
-		{
-			http: (workspace, requestBody) =>
-				HttpTriggerService.createHttpTrigger({ workspace, requestBody }),
-			websocket: (workspace, requestBody) =>
-				WebsocketTriggerService.createWebsocketTrigger({ workspace, requestBody }),
-			kafka: (workspace, requestBody) =>
-				KafkaTriggerService.createKafkaTrigger({ workspace, requestBody }),
-			nats: (workspace, requestBody) =>
-				NatsTriggerService.createNatsTrigger({ workspace, requestBody }),
-			mqtt: (workspace, requestBody) =>
-				MqttTriggerService.createMqttTrigger({ workspace, requestBody }),
-			sqs: (workspace, requestBody) =>
-				SqsTriggerService.createSqsTrigger({ workspace, requestBody }),
-			gcp: (workspace, requestBody) =>
-				GcpTriggerService.createGcpTrigger({ workspace, requestBody }),
-			azure: (workspace, requestBody) =>
-				AzureTriggerService.createAzureTrigger({ workspace, requestBody }),
-			postgres: (workspace, requestBody) =>
-				PostgresTriggerService.createPostgresTrigger({ workspace, requestBody }),
-			email: (workspace, requestBody) =>
-				EmailTriggerService.createEmailTrigger({ workspace, requestBody })
-		}
-
-	// Map bundled paths `f/<fromSlug>/...` -> `f/<folder>/...`. Only enumerated
-	// paths go in, so rewriters touch real refs, never incidental text.
-	function buildRetargetMap(
-		bundle: ProjectExport,
-		fromSlug: string,
-		folder: string
-	): Map<string, string> {
-		const map = new Map<string, string>()
-		const prefix = `f/${fromSlug}/`
-		const add = (p: unknown) => {
-			if (typeof p === 'string' && p.startsWith(prefix)) {
-				map.set(p, `f/${folder}/${p.slice(prefix.length)}`)
-			}
-		}
-		for (const s of bundle.scripts) add(s.path)
-		for (const f of bundle.flows) add(f.path)
-		for (const a of bundle.apps) add(a.path)
-		for (const r of bundle.resources) add(r.path)
-		for (const t of bundle.triggers) {
-			add(t.path)
-			add(t.runnable_path)
-		}
-		return map
-	}
-
-	// Structural retarget: rewrite each item's path and its internal refs,
-	// leaving Hub refs and arbitrary content untouched.
-	function retarget(bundle: ProjectExport, fromSlug: string, folder: string): ProjectExport {
-		if (folder === fromSlug) return bundle
-		const map = buildRetargetMap(bundle, fromSlug, folder)
-		const remap = (p: unknown) => (typeof p === 'string' ? (map.get(p) ?? p) : p)
-		return {
-			...bundle,
-			scripts: bundle.scripts.map((s) => ({
-				...s,
-				path: remap(s.path),
-				content: rewriteContent(s.content ?? '', map)
-			})),
-			flows: bundle.flows.map((f) => ({
-				...f,
-				path: remap(f.path),
-				value: rewriteFlowValue(f.value, map)
-			})),
-			apps: bundle.apps.map((a) => ({
-				...a,
-				path: remap(a.path),
-				// Raw apps keep their structure in the `value.raw` JSON string.
-				value:
-					a.app_type === 'raw'
-						? { ...a.value, raw: rewriteRawAppContent(a.value?.raw ?? '', map) }
-						: rewriteAppValue(a.value, map)
-			})),
-			resources: bundle.resources.map((r) => ({ ...r, path: remap(r.path) })),
-			triggers: bundle.triggers.map((t) => ({
-				...t,
-				path: remap(t.path),
-				runnable_path: remap(t.runnable_path),
-				// Configs hold both `$res:` tokens and plain resource paths
-				// (kafka_resource_path etc.) — rewrite both.
-				config: t.config ? rewriteTriggerConfig(t.config, map) : t.config
-			}))
-		}
-	}
-
 	// Decide which data table migrations to run. Migrations are keyed by data table
 	// name and applied only to a target data table of the same name. Returns the
 	// migrations to run (with any edits the user made), an empty array when there's
@@ -346,49 +177,6 @@
 		return toRun
 	}
 
-	// Apply one migration to the target data table. If the data table opted into
-	// migrations, record it (datatable_migrations + _wm_migrations, run only this
-	// version); otherwise run the SQL once as a preview job (unrecorded).
-	async function applyOneMigration(workspace: string, m: ProjectMigration): Promise<void> {
-		let recorded = false
-		try {
-			const status = await WorkspaceService.getDatatableMigrationsStatus({
-				workspace,
-				datatableName: m.datatable_name
-			})
-			recorded = !!status.enabled
-		} catch {}
-
-		if (recorded) {
-			// Record the shipped down migration (DROP the created tables) so it can be
-			// rolled back.
-			const codeDown = (m.sql_down ?? '').trim()
-			const created = await WorkspaceService.createDatatableMigration({
-				workspace,
-				datatableName: m.datatable_name,
-				requestBody: {
-					name: `hub_import_${data?.project.slug ?? 'project'}`,
-					code_up: m.sql,
-					code_down: codeDown || undefined
-				}
-			})
-			await WorkspaceService.runDatatableMigrations({
-				workspace,
-				datatableName: m.datatable_name,
-				only: created.timestamp
-			})
-		} else {
-			await runScriptAndPollResult({
-				workspace,
-				requestBody: {
-					language: 'postgresql',
-					content: m.sql,
-					args: { database: `datatable://${m.datatable_name}` }
-				}
-			})
-		}
-	}
-
 	async function install() {
 		// Snapshot reactive state up-front: `workspace` ($derived) and `data`
 		// ($state, replaced by load()) can both change mid-import on a workspace
@@ -418,164 +206,16 @@
 		results = []
 		done = false
 		try {
-			try {
-				await FolderService.createFolder({ workspace, requestBody: { name: folder } })
-			} catch {}
-
-			const proj = retarget(exportData, exportData.project.slug, folder)
-			for (const s of proj.scripts) {
-				await record(
-					s.path,
-					ScriptService.createScript({
-						workspace,
-						requestBody: {
-							path: s.path,
-							summary: s.summary ?? '',
-							description: s.description ?? '',
-							content: s.content ?? '',
-							language: s.language,
-							schema: s.schema ?? undefined,
-							kind: s.kind ?? 'script',
-							lock: s.lockfile ?? undefined
-						}
-					})
-				)
-			}
-			for (const f of proj.flows) {
-				await record(
-					f.path,
-					FlowService.createFlow({
-						workspace,
-						requestBody: {
-							path: f.path,
-							summary: f.summary ?? '',
-							description: f.description ?? '',
-							value: f.value,
-							schema: f.schema ?? undefined
-						}
-					})
-				)
-			}
-			for (const r of proj.resources) {
-				await record(
-					r.path,
-					ResourceService.createResource({
-						workspace,
-						updateIfExists: false,
-						requestBody: {
-							path: r.path,
-							resource_type: r.resource_type,
-							value: {},
-							description: 'Imported stub — fill in the value.'
-						}
-					})
-				)
-			}
-			for (const a of proj.apps) {
-				if (a.app_type === 'raw') {
-					await record(
-						a.path,
-						(async () => {
-							let parsed: any
-							try {
-								parsed = JSON.parse(a.value?.raw ?? '{}')
-							} catch (e: any) {
-								throw new Error(`invalid raw app bundle: ${e?.message ?? String(e)}`)
-							}
-							const files = { ...(parsed.files ?? {}) }
-							const js = files['/bundle.js'] ?? ''
-							const css = files['/bundle.css'] ?? ''
-							delete files['/bundle.js']
-							delete files['/bundle.css']
-							const runnables = parsed.runnables ?? {}
-							return AppService.createAppRaw({
-								workspace,
-								formData: {
-									app: {
-										path: a.path,
-										summary: a.summary ?? '',
-										value: {
-											files,
-											runnables,
-											// Keep the full-code app's explicit data table declaration.
-											...(parsed.data !== undefined ? { data: parsed.data } : {}),
-											...(parsed.datatables !== undefined ? { datatables: parsed.datatables } : {})
-										},
-										policy: await computeRawAppPolicy(runnables)
-									},
-									js,
-									css
-								}
-							})
-						})()
-					)
-				} else {
-					await record(
-						a.path,
-						(async () =>
-							AppService.createApp({
-								workspace,
-								requestBody: {
-									path: a.path,
-									summary: a.summary ?? '',
-									value: a.value,
-									policy: await computeAppPolicy(a.value)
-								}
-							}))()
-					)
+			await installProject({
+				workspace,
+				exportData,
+				folder,
+				migrations: migrationsToRun,
+				hasEeLicense: !!$enterpriseLicense,
+				onResult: (r) => {
+					results = [...results, r]
 				}
-			}
-			for (const t of proj.triggers) {
-				if (t.kind === 'schedule') {
-					await record(
-						t.path,
-						ScheduleService.createSchedule({
-							workspace,
-							requestBody: {
-								path: t.path,
-								schedule: t.config?.schedule ?? '0 0 * * * *',
-								timezone: t.config?.timezone ?? 'UTC',
-								script_path: t.runnable_path,
-								is_flow: t.runnable_kind === 'flow',
-								enabled: false,
-								args: t.config?.args ?? {},
-								summary: t.summary ?? null
-							}
-						})
-					)
-				} else {
-					const create = TRIGGER_CREATE[t.kind]
-					if (!create) {
-						await record(
-							t.path,
-							Promise.reject(new Error(`trigger kind '${t.kind}' not supported yet`))
-						)
-					} else if (EE_TRIGGER_KINDS.has(t.kind) && !$enterpriseLicense) {
-						await record(
-							t.path,
-							Promise.reject(new Error(`trigger kind '${t.kind}' requires Enterprise`))
-						)
-					} else {
-						// `config` holds only kind-specific fields; explicit fields win.
-						// `mode: 'disabled'` imports it disabled (non-schedule uses `mode`).
-						const requestBody = {
-							...(t.config ?? {}),
-							path: t.path,
-							script_path: t.runnable_path,
-							is_flow: t.runnable_kind === 'flow',
-							summary: t.summary ?? null,
-							mode: 'disabled'
-						}
-						await record(t.path, create(workspace, requestBody))
-					}
-				}
-			}
-
-			// Apply the reviewed data table migrations after items exist. Each is
-			// recorded (or run as a preview job) per applyOneMigration.
-			for (const m of migrationsToRun) {
-				await record(`data table: ${m.datatable_name}`, applyOneMigration(workspace, m))
-			}
+			})
 
 			done = true
 			const failed = results.filter((r) => !r.ok).length
