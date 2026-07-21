@@ -15,7 +15,6 @@
 		flowLocalInputs,
 		inputTransformsToAgentConfig,
 		nonStaticBrainKeys,
-		portableAgentTools,
 		summarizeAgentBrain,
 		type AIAgentConfig,
 		type AgentTool
@@ -160,7 +159,9 @@
 				true
 			)
 		}
-		const value = inputTransformsToAgentConfig(inputTransforms, portableAgentTools(tools))
+		// Tool inputs are saved verbatim: the agent carries its tools' default bindings (static, AI or
+		// flow expressions) as authored. Host flows override per-step via tool_inputs, never here.
+		const value = inputTransformsToAgentConfig(inputTransforms, tools)
 		const exists = await ResourceService.existsResource({ workspace: ws!, path })
 		if (exists) {
 			await ResourceService.updateResourceValue({

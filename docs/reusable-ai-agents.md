@@ -18,10 +18,11 @@ every workspace via the standard cached-resource-type sync, like other built-in 
   provider `$res:` credentials resolve automatically).
 - The step keeps only the flow-local inputs (`user_message`, `user_attachments`) in its own
   `input_transforms`; the brain and tools stay in the resource (read-only in the step).
-- Saving an agent strips flow-context tool inputs (`flow_input`/`results` expressions become
-  AI-filled), so the resource never carries references to its authoring flow. Each host flow
-  rebinds what it needs: `tool_inputs` stores per-tool overrides (a diff from the resource
-  tool's own transforms) that overlay onto the matching tools at runtime.
+- The agent carries its tools' default input bindings verbatim as authored (static, AI-filled,
+  or flow expressions), so saving round-trips losslessly. Each host flow overrides what it
+  needs: `tool_inputs` stores per-tool overrides (a diff from the resource tool's own
+  transforms) that overlay onto the matching tools at runtime. Editing on a linked step edits
+  the flow's use of the agent; editing under the "Editing" banner edits the agent itself.
 
 In the flow editor, the AI agent step's **Step Input** tab shows a single read-only card
 (*linked to <path>*, with the inherited brain + tools and an explanatory tooltip) plus

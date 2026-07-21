@@ -66,28 +66,6 @@ export function toolInputOverrides(
 	return overrides
 }
 
-/**
- * Make an agent's tools portable for saving as a reusable resource: a tool input wired to the
- * authoring flow (a `javascript` transform referencing `flow_input`/`results`) is meaningless once
- * the agent is reused elsewhere, so drop it to AI-filled. Static values and AI-filled inputs are
- * portable and kept. Each host flow rebinds what it needs via the step's tool_inputs.
- */
-export function portableAgentTools(tools: AgentTool[] | undefined): AgentTool[] {
-	return (tools ?? []).map((tool) => {
-		const value = tool?.value as
-			| { tool_type?: string; input_transforms?: Record<string, { type?: string }> }
-			| undefined
-		if (value?.tool_type !== 'flowmodule' || !value.input_transforms) {
-			return tool
-		}
-		const input_transforms: Record<string, unknown> = {}
-		for (const [key, t] of Object.entries(value.input_transforms)) {
-			input_transforms[key] = t?.type === 'javascript' ? { type: 'ai' } : t
-		}
-		return { ...tool, value: { ...value, input_transforms } }
-	})
-}
-
 export interface AIAgentConfig {
 	provider?: unknown
 	output_type?: string
