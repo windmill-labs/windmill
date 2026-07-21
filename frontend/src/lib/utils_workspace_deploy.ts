@@ -8,6 +8,7 @@ import {
 	HttpTriggerService,
 	KafkaTriggerService,
 	MqttTriggerService,
+	AmqpTriggerService,
 	NatsTriggerService,
 	PostgresTriggerService,
 	ResourceService,
@@ -106,6 +107,14 @@ function triggerServiceFor(kind: TriggerDeployKind) {
 				update: MqttTriggerService.updateMqttTrigger,
 				delete: MqttTriggerService.deleteMqttTrigger
 			}
+		case 'amqp_trigger':
+			return {
+				exists: AmqpTriggerService.existsAmqpTrigger,
+				get: AmqpTriggerService.getAmqpTrigger,
+				create: AmqpTriggerService.createAmqpTrigger,
+				update: AmqpTriggerService.updateAmqpTrigger,
+				delete: AmqpTriggerService.deleteAmqpTrigger
+			}
 		case 'sqs_trigger':
 			return {
 				exists: SqsTriggerService.existsSqsTrigger,
@@ -159,6 +168,7 @@ function legacyTriggerKind(kind: TriggerDeployKind) {
 		nats_trigger: 'nats',
 		postgres_trigger: 'postgres',
 		mqtt_trigger: 'mqtt',
+		amqp_trigger: 'amqp',
 		sqs_trigger: 'sqs',
 		gcp_trigger: 'gcp',
 		azure_trigger: 'azure',

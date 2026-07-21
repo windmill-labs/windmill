@@ -518,6 +518,7 @@
 			nats_used,
 			sqs_used,
 			mqtt_used,
+			amqp_used,
 			gcp_used,
 			azure_used,
 			email_used,
@@ -544,6 +545,9 @@
 		}
 		if (mqtt_used) {
 			usedKinds.push('mqtt')
+		}
+		if (amqp_used) {
+			usedKinds.push('amqp')
 		}
 		if (sqs_used) {
 			usedKinds.push('sqs')

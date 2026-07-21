@@ -13,6 +13,7 @@ import {
 import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
 import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
+import AmqpIcon from '$lib/components/icons/AmqpIcon.svelte'
 import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
 import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
 import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
@@ -35,6 +36,7 @@ import { saveKafkaTriggerFromCfg } from './kafka/utils'
 import { saveSqsTriggerFromCfg } from './sqs/utils'
 import { saveNatsTriggerFromCfg } from './nats/utils'
 import { saveMqttTriggerFromCfg } from './mqtt/utils'
+import { saveAmqpTriggerFromCfg } from './amqp/utils'
 import { saveGcpTriggerFromCfg } from './gcp/utils'
 import { saveAzureTriggerFromCfg } from './azure/utils'
 import type { Triggers } from './triggers.svelte'
@@ -67,6 +69,7 @@ export type TriggerType =
 	| 'kafka'
 	| 'nats'
 	| 'mqtt'
+	| 'amqp'
 	| 'sqs'
 	| 'gcp'
 	| 'azure'
@@ -123,6 +126,7 @@ export const triggerIconMap = {
 	kafka: KafkaIcon,
 	nats: NatsIcon,
 	mqtt: MqttIcon,
+	amqp: AmqpIcon,
 	sqs: AwsIcon,
 	gcp: GoogleCloudIcon,
 	azure: AzureIcon,
@@ -149,6 +153,7 @@ export const triggerDisplayNamesMap = {
 	kafka: 'Kafka',
 	nats: 'NATS',
 	mqtt: 'MQTT',
+	amqp: 'AMQP',
 	sqs: 'SQS',
 	gcp: 'GCP Pub/Sub',
 	azure: 'Azure Event Grid',
@@ -215,6 +220,7 @@ export function updateTriggersCount(
 		kafka: 'kafka_count',
 		nats: 'nats_count',
 		mqtt: 'mqtt_count',
+		amqp: 'amqp_count',
 		sqs: 'sqs_count',
 		gcp: 'gcp_count',
 		azure: 'azure_count',
@@ -375,6 +381,14 @@ export async function deployTriggers(
 			),
 		mqtt: (trigger: Trigger) =>
 			saveMqttTriggerFromCfg(
+				trigger.path ?? trigger.draftConfig?.path ?? '',
+				trigger.draftConfig ?? {},
+				!trigger.isDraft,
+				workspaceId,
+				usedTriggerKinds
+			),
+		amqp: (trigger: Trigger) =>
+			saveAmqpTriggerFromCfg(
 				trigger.path ?? trigger.draftConfig?.path ?? '',
 				trigger.draftConfig ?? {},
 				!trigger.isDraft,

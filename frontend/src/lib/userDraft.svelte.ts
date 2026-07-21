@@ -27,6 +27,7 @@ export const USER_DRAFT_ITEM_KINDS = [
 	'trigger_kafka',
 	'trigger_nats',
 	'trigger_mqtt',
+	'trigger_amqp',
 	'trigger_sqs',
 	'trigger_gcp',
 	'trigger_azure',

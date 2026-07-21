@@ -4444,6 +4444,7 @@ struct UsedTriggers {
     pub nats_used: bool,
     pub postgres_used: bool,
     pub mqtt_used: bool,
+    pub amqp_used: bool,
     pub sqs_used: bool,
     pub gcp_used: bool,
     pub azure_used: bool,
@@ -4469,6 +4470,7 @@ async fn get_used_triggers(
             EXISTS(SELECT 1 FROM nats_trigger WHERE workspace_id = $1) as "nats_used!",
             EXISTS(SELECT 1 FROM postgres_trigger WHERE workspace_id = $1) AS "postgres_used!",
             EXISTS(SELECT 1 FROM mqtt_trigger WHERE workspace_id = $1) AS "mqtt_used!",
+            EXISTS(SELECT 1 FROM amqp_trigger WHERE workspace_id = $1) AS "amqp_used!",
             EXISTS(SELECT 1 FROM sqs_trigger WHERE workspace_id = $1) AS "sqs_used!",
             EXISTS(SELECT 1 FROM gcp_trigger WHERE workspace_id = $1) AS "gcp_used!",
             EXISTS(SELECT 1 FROM azure_trigger WHERE workspace_id = $1) AS "azure_used!",
@@ -5140,6 +5142,23 @@ async fn clone_triggers_and_schedules(
             extra_perms, NULL, NULL, NULL, error_handler_path,
             error_handler_args, retry, 'disabled'::TRIGGER_MODE, permissioned_as, labels
         FROM mqtt_trigger WHERE workspace_id = $2"#,
+        target_workspace_id,
+        source_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"INSERT INTO amqp_trigger (
+            amqp_resource_path, queue_name, exchange, options, path, script_path, is_flow,
+            workspace_id, edited_by, edited_at, extra_perms, server_id, last_server_ping,
+            error, error_handler_path, error_handler_args, retry, mode, permissioned_as, labels
+        )
+        SELECT
+            amqp_resource_path, queue_name, exchange, options, path, script_path, is_flow,
+            $1, edited_by, edited_at, extra_perms, NULL, NULL,
+            NULL, error_handler_path, error_handler_args, retry, 'disabled'::TRIGGER_MODE, permissioned_as, labels
+        FROM amqp_trigger WHERE workspace_id = $2"#,
         target_workspace_id,
         source_workspace_id,
     )
@@ -9829,6 +9848,7 @@ const TRIGGER_OR_SCHEDULE_TABLES: &[&str] = &[
     "nats_trigger",
     "postgres_trigger",
     "mqtt_trigger",
+    "amqp_trigger",
     "sqs_trigger",
     "gcp_trigger",
     "azure_trigger",

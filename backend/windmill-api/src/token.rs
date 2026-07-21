@@ -24,6 +24,7 @@ fn build_trigger_scope_domains() -> Vec<ScopeDomain> {
         ("kafka_triggers", "Kafka"),
         ("nats_triggers", "NATS"),
         ("mqtt_triggers", "MQTT"),
+        ("amqp_triggers", "AMQP"),
         ("sqs_triggers", "AWS SQS"),
         ("gcp_triggers", "GCP Pub/Sub"),
         ("azure_triggers", "Azure Event Grid"),
