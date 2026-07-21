@@ -53,7 +53,7 @@ After writing, tell the user which command fits what they want to do:
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
-- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- Deploy local changes to the workspace — via \`git push\` or \`wmill sync push\` depending on how the repo is wired (see the **Deploying** section in \`AGENTS.wmill.md\`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -83,7 +83,7 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Deploying to the workspace (\`git push\` or \`wmill sync push\` depending on how the repo is wired — see the **Deploying** section) is the only step that mutates remote state — do it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -193,7 +193,7 @@ After writing, tell the user which command fits what they want to do:
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
-- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- Deploy local changes to the workspace — via \`git push\` or \`wmill sync push\` depending on how the repo is wired (see the **Deploying** section in \`AGENTS.wmill.md\`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -223,7 +223,7 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Deploying to the workspace (\`git push\` or \`wmill sync push\` depending on how the repo is wired — see the **Deploying** section) is the only step that mutates remote state — do it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -293,7 +293,7 @@ After writing, tell the user which command fits what they want to do:
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
-- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- Deploy local changes to the workspace — via \`git push\` or \`wmill sync push\` depending on how the repo is wired (see the **Deploying** section in \`AGENTS.wmill.md\`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -323,7 +323,7 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Deploying to the workspace (\`git push\` or \`wmill sync push\` depending on how the repo is wired — see the **Deploying** section) is the only step that mutates remote state — do it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -386,7 +386,7 @@ After writing, tell the user which command fits what they want to do:
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
-- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- Deploy local changes to the workspace — via \`git push\` or \`wmill sync push\` depending on how the repo is wired (see the **Deploying** section in \`AGENTS.wmill.md\`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -416,7 +416,7 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Deploying to the workspace (\`git push\` or \`wmill sync push\` depending on how the repo is wired — see the **Deploying** section) is the only step that mutates remote state — do it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -1150,7 +1150,7 @@ After writing, tell the user which command fits what they want to do:
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
-- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- Deploy local changes to the workspace — via \`git push\` or \`wmill sync push\` depending on how the repo is wired (see the **Deploying** section in \`AGENTS.wmill.md\`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -1180,7 +1180,7 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Deploying to the workspace (\`git push\` or \`wmill sync push\` depending on how the repo is wired — see the **Deploying** section) is the only step that mutates remote state — do it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -1914,7 +1914,7 @@ After writing, tell the user which command fits what they want to do:
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
-- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- Deploy local changes to the workspace — via \`git push\` or \`wmill sync push\` depending on how the repo is wired (see the **Deploying** section in \`AGENTS.wmill.md\`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -1944,7 +1944,7 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Deploying to the workspace (\`git push\` or \`wmill sync push\` depending on how the repo is wired — see the **Deploying** section) is the only step that mutates remote state — do it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -2006,7 +2006,7 @@ After writing, tell the user which command fits what they want to do:
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
-- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- Deploy local changes to the workspace — via \`git push\` or \`wmill sync push\` depending on how the repo is wired (see the **Deploying** section in \`AGENTS.wmill.md\`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -2036,7 +2036,7 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Deploying to the workspace (\`git push\` or \`wmill sync push\` depending on how the repo is wired — see the **Deploying** section) is the only step that mutates remote state — do it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -2770,7 +2770,7 @@ After writing, tell the user which command fits what they want to do:
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
-- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- Deploy local changes to the workspace — via \`git push\` or \`wmill sync push\` depending on how the repo is wired (see the **Deploying** section in \`AGENTS.wmill.md\`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -2800,7 +2800,7 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Deploying to the workspace (\`git push\` or \`wmill sync push\` depending on how the repo is wired — see the **Deploying** section) is the only step that mutates remote state — do it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -2896,7 +2896,7 @@ After writing, tell the user which command fits what they want to do:
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
-- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- Deploy local changes to the workspace — via \`git push\` or \`wmill sync push\` depending on how the repo is wired (see the **Deploying** section in \`AGENTS.wmill.md\`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -2926,7 +2926,7 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Deploying to the workspace (\`git push\` or \`wmill sync push\` depending on how the repo is wired — see the **Deploying** section) is the only step that mutates remote state — do it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -3005,7 +3005,7 @@ After writing, tell the user which command fits what they want to do:
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
-- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- Deploy local changes to the workspace — via \`git push\` or \`wmill sync push\` depending on how the repo is wired (see the **Deploying** section in \`AGENTS.wmill.md\`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -3035,7 +3035,7 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Deploying to the workspace (\`git push\` or \`wmill sync push\` depending on how the repo is wired — see the **Deploying** section) is the only step that mutates remote state — do it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -3101,7 +3101,7 @@ After writing, tell the user which command fits what they want to do:
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
-- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- Deploy local changes to the workspace — via \`git push\` or \`wmill sync push\` depending on how the repo is wired (see the **Deploying** section in \`AGENTS.wmill.md\`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -3131,7 +3131,7 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Deploying to the workspace (\`git push\` or \`wmill sync push\` depending on how the repo is wired — see the **Deploying** section) is the only step that mutates remote state — do it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -3190,7 +3190,7 @@ After writing, tell the user which command fits what they want to do:
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
-- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- Deploy local changes to the workspace — via \`git push\` or \`wmill sync push\` depending on how the repo is wired (see the **Deploying** section in \`AGENTS.wmill.md\`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -3220,7 +3220,7 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Deploying to the workspace (\`git push\` or \`wmill sync push\` depending on how the repo is wired — see the **Deploying** section) is the only step that mutates remote state — do it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -3282,7 +3282,7 @@ After writing, tell the user which command fits what they want to do:
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
-- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- Deploy local changes to the workspace — via \`git push\` or \`wmill sync push\` depending on how the repo is wired (see the **Deploying** section in \`AGENTS.wmill.md\`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -3312,7 +3312,7 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Deploying to the workspace (\`git push\` or \`wmill sync push\` depending on how the repo is wired — see the **Deploying** section) is the only step that mutates remote state — do it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -3375,7 +3375,7 @@ After writing, tell the user which command fits what they want to do:
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
-- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- Deploy local changes to the workspace — via \`git push\` or \`wmill sync push\` depending on how the repo is wired (see the **Deploying** section in \`AGENTS.wmill.md\`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -3405,7 +3405,7 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Deploying to the workspace (\`git push\` or \`wmill sync push\` depending on how the repo is wired — see the **Deploying** section) is the only step that mutates remote state — do it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -3483,7 +3483,7 @@ After writing, tell the user which command fits what they want to do:
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
-- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- Deploy local changes to the workspace — via \`git push\` or \`wmill sync push\` depending on how the repo is wired (see the **Deploying** section in \`AGENTS.wmill.md\`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -3513,7 +3513,7 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Deploying to the workspace (\`git push\` or \`wmill sync push\` depending on how the repo is wired — see the **Deploying** section) is the only step that mutates remote state — do it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -3574,7 +3574,7 @@ After writing, tell the user which command fits what they want to do:
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
-- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- Deploy local changes to the workspace — via \`git push\` or \`wmill sync push\` depending on how the repo is wired (see the **Deploying** section in \`AGENTS.wmill.md\`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -3604,7 +3604,7 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Deploying to the workspace (\`git push\` or \`wmill sync push\` depending on how the repo is wired — see the **Deploying** section) is the only step that mutates remote state — do it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -3680,7 +3680,7 @@ After writing, tell the user which command fits what they want to do:
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
-- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- Deploy local changes to the workspace — via \`git push\` or \`wmill sync push\` depending on how the repo is wired (see the **Deploying** section in \`AGENTS.wmill.md\`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -3710,7 +3710,7 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Deploying to the workspace (\`git push\` or \`wmill sync push\` depending on how the repo is wired — see the **Deploying** section) is the only step that mutates remote state — do it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -4583,7 +4583,7 @@ After writing, tell the user which command fits what they want to do:
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
-- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- Deploy local changes to the workspace — via \`git push\` or \`wmill sync push\` depending on how the repo is wired (see the **Deploying** section in \`AGENTS.wmill.md\`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -4613,7 +4613,7 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Deploying to the workspace (\`git push\` or \`wmill sync push\` depending on how the repo is wired — see the **Deploying** section) is the only step that mutates remote state — do it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -4719,7 +4719,7 @@ After writing, tell the user which command fits what they want to do:
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
-- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- Deploy local changes to the workspace — via \`git push\` or \`wmill sync push\` depending on how the repo is wired (see the **Deploying** section in \`AGENTS.wmill.md\`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -4749,7 +4749,7 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Deploying to the workspace (\`git push\` or \`wmill sync push\` depending on how the repo is wired — see the **Deploying** section) is the only step that mutates remote state — do it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -4845,7 +4845,7 @@ After writing, tell the user which command fits what they want to do:
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
-- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- Deploy local changes to the workspace — via \`git push\` or \`wmill sync push\` depending on how the repo is wired (see the **Deploying** section in \`AGENTS.wmill.md\`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -4875,7 +4875,7 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Deploying to the workspace (\`git push\` or \`wmill sync push\` depending on how the repo is wired — see the **Deploying** section) is the only step that mutates remote state — do it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -4975,7 +4975,7 @@ After writing, act on the user's intent instead of just listing commands. Run \`
 - \`wmill flow preview <flow_path>\` — **default when iterating on a local flow.** Runs the local \`flow.yaml\` against local inline scripts without deploying. Add \`--remote\` to use deployed workspace scripts for PathScript steps instead of local files. Add \`--step <step_id>\` to run only one module in isolation (see "Single-step vs whole-flow preview" below).
 - \`wmill flow run <path>\` — runs the flow **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - \`wmill generate-metadata\` — regenerate stale local \`.lock\` files for the flow and its inline scripts and refresh their content hashes in \`wmill-lock.yaml\`. Writes local files only (not a deploy). Run it after editing inline scripts whose imports or arguments changed, so \`wmill-lock.yaml\` doesn't drift and add noise to git-sync/CI. By default it scans **scripts, flows, and apps** across the workspace but only regenerates stale ones; pass the flow's folder as an argument (or run from that subdirectory) to limit the scope to the flow you edited. Note a flow (or script) that imports a changed shared script is pulled in too — run \`wmill generate-metadata --dry-run\` to see exactly what is stale and why (\`content changed\` vs \`depends on <path>\`) before applying.
-- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- Deploy local changes to the workspace — via \`git push\` or \`wmill sync push\` depending on how the repo is wired (see the **Deploying** section in \`AGENTS.wmill.md\`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -5786,7 +5786,7 @@ Text/HTML/inline parts are placed inline in \`body\` as strings.
 
 ## CLI Commands
 
-\`wmill sync push\` deploys local changes to the workspace and can be destructive to remote state — only suggest/run it when the user explicitly asks to deploy/publish/push, not when they say "run", "try", or "test". \`sync pull\` is safe to run yourself — it never mutates remote state, though it does overwrite local files to match the remote (use \`sync pull --dry-run\` to only preview).
+Deploying local changes to the workspace can be destructive to remote state — only suggest/run a deploy when the user explicitly asks to deploy/publish/push, not when they say "run", "try", or "test". Deploy via \`git push\` or \`wmill sync push\` depending on how the repo is wired (see the **Deploying** section in \`AGENTS.wmill.md\`). \`sync pull\` is safe to run yourself — it never mutates remote state, though it does overwrite local files to match the remote (use \`sync pull --dry-run\` to only preview).
 
 \`\`\`bash
 # Push trigger configuration — only when the user explicitly asks to deploy
@@ -5837,7 +5837,7 @@ Windmill uses 6-field cron expressions (includes seconds):
 
 ## CLI Commands
 
-\`wmill sync push\` deploys local changes to the workspace and can be destructive to remote state — only suggest/run it when the user explicitly asks to deploy/publish/push, not when they say "run", "try", or "test". The commands below never mutate remote state, so they're safe to run yourself — note that \`sync pull\` does overwrite local files to match the remote (use \`sync pull --dry-run\` to only preview), while \`schedule\` just lists.
+Deploying local changes to the workspace can be destructive to remote state — only suggest/run a deploy when the user explicitly asks to deploy/publish/push, not when they say "run", "try", or "test". Deploy via \`git push\` or \`wmill sync push\` depending on how the repo is wired (see the **Deploying** section in \`AGENTS.wmill.md\`). The commands below never mutate remote state, so they're safe to run yourself — note that \`sync pull\` does overwrite local files to match the remote (use \`sync pull --dry-run\` to only preview), while \`schedule\` just lists.
 
 \`\`\`bash
 # Push schedules to Windmill — only when the user explicitly asks to deploy
@@ -6094,8 +6094,9 @@ wmill resource-type list --schema
 # Get specific resource type schema
 wmill resource-type get postgresql
 
-# Push resources to Windmill — deploys to the workspace and can be destructive to
-# remote state, so only run it when the user explicitly asks to deploy/publish/push
+# Deploy resources to the workspace — destructive to remote state, so only run when
+# the user explicitly asks to deploy/publish/push. Depending on how the repo is wired,
+# deploy via \`git push\` or \`wmill sync push\` (see the Deploying section in AGENTS.wmill.md).
 wmill sync push
 \`\`\`
 `,
@@ -6113,7 +6114,7 @@ After writing, tell the user which command fits what they want to do:
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
-- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- Deploy local changes to the workspace — via \`git push\` or \`wmill sync push\` depending on how the repo is wired (see the **Deploying** section in \`AGENTS.wmill.md\`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -6143,7 +6144,7 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Deploying to the workspace (\`git push\` or \`wmill sync push\` depending on how the repo is wired — see the **Deploying** section) is the only step that mutates remote state — do it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -6807,6 +6808,8 @@ Manage git-sync settings between local wmill.yaml and Windmill backend
   - \`--with-backend-settings <json:string>\` - Use provided JSON settings instead of querying backend (for testing)
   - \`--yes\` - Skip interactive prompts and use default behavior
   - \`--promotion <branch:string>\` - Use promotionOverrides from the specified branch instead of regular overrides
+- \`gitsync-settings status\` - Report how local changes deploy to the workspace (git push vs wmill sync push)
+  - \`--json-output\` - Output in JSON format
 
 ### group
 

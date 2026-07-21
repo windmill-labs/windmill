@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.763.0
+  version: 1.764.0
   title: Windmill API
 
   contact:
@@ -4465,6 +4465,94 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/data_metrics/list:
+    get:
+      summary: list declared measures and dimensions on DuckLake tables
+      description: >
+        Call this before writing any aggregate query over a DuckLake table. A
+        declared measure is the canonical definition of that number, and
+        reproducing it yourself will silently disagree with it (a `revenue`
+        measure typically excludes refunds or test rows). Filter by `table` for
+        one table's declarations, or by `path_prefix` (e.g. `f/analytics`) for
+        everything declared under a folder; omit both to browse the whole
+        catalog. Results are keyset-paged: a full page may mean more remain, so
+        continue with the `cursor_*` params rather than assuming a measure does not exist. Use each returned `expr` verbatim, and when a measure has a
+        `filter` write it as
+        `expr FILTER (WHERE filter)` so measures with different predicates can
+        share one GROUP BY. If a number you need has no declared measure, write
+        your own aggregate as usual. Results are limited to declarations whose
+        producing script the caller can read.
+      operationId: listDataMetrics
+      x-mcp-tool: true
+      tags:
+        - data_metric
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: table
+          in: query
+          description: DuckLake table path, with or without the `ducklake://` scheme
+          schema:
+            type: string
+        - name: path_prefix
+          in: query
+          description: Producing script path prefix, e.g. `f/analytics`
+          schema:
+            type: string
+        - name: per_page
+          in: query
+          description: Results per page, capped at 1000 (default 1000)
+          schema:
+            type: integer
+        - name: cursor_table
+          in: query
+          description: >
+            Keyset cursor. To page, pass the previous response's `next_cursor` fields
+            back as `cursor_*`; all four move together, and are omitted for the first
+            page. Continue whenever `next_cursor` is present. Every returned row is one
+            the caller may read, so the cursor never names a hidden row.
+          schema:
+            type: string
+        - name: cursor_kind
+          in: query
+          schema:
+            type: string
+        - name: cursor_name
+          in: query
+          schema:
+            type: string
+        - name: cursor_script
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: declared measures and dimensions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [metrics]
+                properties:
+                  metrics:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DataMetric"
+                  next_cursor:
+                    description: >
+                      Present when more rows may follow: pass its fields back as the
+                      `cursor_*` params. Absent means the catalog is exhausted.
+                    type: object
+                    required: [table_path, kind, name, script_path]
+                    properties:
+                      table_path:
+                        type: string
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                      script_path:
+                        type: string
+
   /w/{workspace}/workspaces/list_datatables:
     get:
       summary: list Datatables
@@ -5182,6 +5270,45 @@ paths:
                   max_users:
                     type: integer
                     nullable: true
+
+  /w/{workspace}/workspaces/git_sync_deploy_mode:
+    get:
+      summary: Get how local changes deploy to this workspace via git sync
+      operationId: getGitSyncDeployMode
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: branch
+          in: query
+          required: false
+          description: The branch the caller would push.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Git sync deploy mode
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - configured
+                  - deploy_on_push
+                properties:
+                  configured:
+                    type: boolean
+                    description: At least one git-sync repository is configured.
+                  deploy_on_push:
+                    type: boolean
+                    description: >-
+                      True means a `git push` is confirmed to deploy via
+                      auto-pull: exactly one licensed, deliverable repository
+                      tracks the branch. False is *not confirmed* rather than a
+                      definite no — it also covers unlicensed, ambiguous
+                      (several repos track it), and conservative false-negatives;
+                      determine the deploy path another way (CI `git push`, or
+                      `wmill sync push`).
 
   /w/{workspace}/workspaces/edit_git_sync_config:
     post:
@@ -6505,10 +6632,10 @@ paths:
         "400":
           description: invalid input or request closed
 
-  /w/{workspace}/workspaces/log_chat:
+  /w/{workspace}/workspaces/log_feature_usage:
     post:
-      summary: log AI chat message
-      operationId: logAiChat
+      summary: log anonymous feature usage telemetry events
+      operationId: logFeatureUsage
       tags:
         - workspace
       parameters:
@@ -6520,19 +6647,26 @@ paths:
             schema:
               type: object
               required:
-                - session_id
-                - provider
-                - model
-                - mode
+                - events
               properties:
-                session_id:
-                  type: string
-                provider:
-                  type: string
-                model:
-                  type: string
-                mode:
-                  type: string
+                events:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - feature
+                      - kind
+                    properties:
+                      feature:
+                        type: string
+                      kind:
+                        type: string
+                      key:
+                        type: string
+                      entity_id:
+                        type: string
+                      value:
+                        type: integer
       responses:
         "204":
           description: logged
@@ -30773,6 +30907,33 @@ components:
         kind:
           $ref: "#/components/schemas/AssetKind"
       required: [path, kind]
+    DataMetric:
+      description: |
+        One `// measure` or `// dimension` declaration, as catalogued from the
+        script that materializes the table. `expr` and `filter` are the author's
+        own SQL: a reader renders a measure as `expr` plus, when `filter` is set,
+        a trailing `FILTER (WHERE filter)`.
+      type: object
+      required: [script_path, table_path, kind, name, expr]
+      properties:
+        script_path:
+          type: string
+          description: The declaring script, and the path reads are authorized against
+        table_path:
+          type: string
+          description: Canonical scheme-less DuckLake path, `<lake>/<schema>.<table>` (schema defaults to `main`)
+        kind:
+          type: string
+          enum:
+            - measure
+            - dimension
+        name:
+          type: string
+        expr:
+          type: string
+        filter:
+          type: string
+          description: Row predicate from a measure's trailing `where`
     ContractWarning:
       description: |
         One save-time schema-contract warning: a consumer reference that does
@@ -30789,6 +30950,9 @@ components:
             - missing_lineage_source
             - missing_relationship_column
             - relationship_type_mismatch
+            - missing_measure_column
+            - missing_dimension_column
+            - non_aggregate_measure
             - suppressed
         asset_path:
           type: string

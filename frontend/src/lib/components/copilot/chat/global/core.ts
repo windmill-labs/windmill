@@ -58,6 +58,7 @@ import {
 	validateEditableFlowJson
 } from '../flow/editableFlowJson'
 import { createInlineScriptSession } from '../flow/inlineScriptsUtils'
+import { searchNpmPackagesTool } from '../script/core'
 import {
 	getDatatableSdkReference,
 	getFlowPrompt,
@@ -300,7 +301,17 @@ const listWorkspaceItemsSchema = z.object({
 		.min(1)
 		.max(MAX_LIST_LIMIT)
 		.optional()
-		.describe('Maximum number of items to return. Defaults to 50 and is capped at 100.')
+		.describe(
+			'Maximum items per item type per page (for triggers, per trigger kind). Defaults to 50 and is capped at 100.'
+		),
+	page: z
+		.number()
+		.int()
+		.min(1)
+		.optional()
+		.describe(
+			'Page number, starting at 1. Each item type pages independently: request the next page while any type still returns a full page. Drafts appear on page 1 only, capped at limit per type.'
+		)
 })
 
 const readWorkspaceItemSchema = z.object({
@@ -308,7 +319,13 @@ const readWorkspaceItemSchema = z.object({
 	path: z.string().describe('Workspace path of the item to read.'),
 	trigger_kind: triggerKindSchema
 		.optional()
-		.describe('Required when type is trigger. Identifies which trigger service to call.')
+		.describe('Required when type is trigger. Identifies which trigger service to call.'),
+	version: z
+		.enum(['deployed'])
+		.optional()
+		.describe(
+			'Pass "deployed" to read the deployed workspace state even when a draft exists (e.g. to learn the deployed input schema before running the deployed version). Default reads your draft when one exists.'
+		)
 })
 
 const draftOverrideField = z
@@ -975,6 +992,7 @@ Rules:
 - Use discard_local_draft to remove a draft, including the matching open editor draft. Use delete_workspace_item only to delete a deployed workspace item.
 - Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
 - Use search_resource_types before write_resource.
+- When script or raw app code needs an external npm package you are not fully familiar with, use search_npm_packages to find it and get its documentation and type definitions. Link the package documentation in your answer when you rely on it.
 - Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
 ${pipelineBullet}
@@ -986,7 +1004,8 @@ ${pipelineBullet}
 			? ' By default it preselects the items this chat modified; pass items ("<kind>:<path>" entries) to control the selection'
 			: ' Pass items ("<kind>:<path>" entries naming the items you changed) so the review is scoped to them — omitting items preselects every pending change in the workspace'
 	}, or mode ("draft" or "fork") to force which comparison is shown. Prefer offering this review page over calling deploy_workspace_item directly when several items changed.
-- For a Windmill operation no other tool covers (workers, queue state, a run's result or args, running deployed items, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
+- For a Windmill operation no other tool covers (workers, queue state, a run's result or args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
+- runScriptByPath / runFlowByPath from the API catalog run the DEPLOYED version of an item. Use them only when the user explicitly asks to run the deployed version, and read the item with read_workspace_item version: "deployed" first so the arguments match the deployed input schema (a draft may have different inputs). To test something you are editing or just wrote, always use test_run_script, test_run_flow, or test_run_step — they run the draft.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
 - When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
 - Keep context targeted.${
@@ -1072,7 +1091,10 @@ function scriptToItem(script: Script | NewScript, includeValue: boolean): Worksp
 		summary: script.summary,
 		language: script.language,
 		value: includeValue ? script.content : undefined,
-		isDraft: false
+		schema: includeValue ? (script as Script).schema : undefined,
+		// Listings with includeDraftOnly synthesize rows for editor drafts that
+		// have no deployed counterpart — label those honestly.
+		isDraft: (script as Script).draft_only ?? false
 	}
 }
 
@@ -1084,7 +1106,7 @@ function flowToItem(flow: Flow, includeValue: boolean): WorkspaceItem {
 		value: includeValue
 			? { value: flow.value, schema: flow.schema, groups: flow.value.groups ?? null }
 			: undefined,
-		isDraft: false
+		isDraft: (flow as Flow & { draft_only?: boolean }).draft_only ?? false
 	}
 }
 
@@ -1471,7 +1493,12 @@ function triggerToItem(
 type TriggerService = {
 	exists(args: { workspace: string; path: string }): Promise<boolean>
 	get(args: { workspace: string; path: string }): Promise<TriggerLike>
-	list(args: { workspace: string; pathStart?: string; perPage?: number }): Promise<TriggerLike[]>
+	list(args: {
+		workspace: string
+		pathStart?: string
+		perPage?: number
+		page?: number
+	}): Promise<TriggerLike[]>
 	create(args: { workspace: string; requestBody: any }): Promise<string>
 	update(args: { workspace: string; path: string; requestBody: any }): Promise<string>
 	delete(args: { workspace: string; path: string }): Promise<string>
@@ -1556,18 +1583,27 @@ async function readWorkspaceItem(
 	type: WorkspaceItemType,
 	path: string,
 	workspace: string,
-	triggerKind?: TriggerKind
+	triggerKind?: TriggerKind,
+	deployedOnly = false
 ): Promise<WorkspaceItem> {
 	switch (type) {
 		case 'script': {
-			// Prefer the DB draft (newer than the deployed version) when one exists.
-			const script = await ScriptService.getScriptByPath({ workspace, path, getDraft: true })
-			return scriptToItem((script.draft as Script | undefined) ?? script, true)
+			// Prefer the DB draft (newer than the deployed version) when one exists,
+			// unless the caller explicitly asked for the deployed state.
+			const script = await ScriptService.getScriptByPath({
+				workspace,
+				path,
+				getDraft: !deployedOnly
+			})
+			const draft = deployedOnly ? undefined : (script.draft as Script | undefined)
+			return scriptToItem(draft ?? script, true)
 		}
 		case 'flow': {
-			// Prefer the DB draft (newer than the deployed version) when one exists.
-			const flow = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
-			return flowToItem((flow.draft as Flow | undefined) ?? flow, true)
+			// Prefer the DB draft (newer than the deployed version) when one exists,
+			// unless the caller explicitly asked for the deployed state.
+			const flow = await FlowService.getFlowByPath({ workspace, path, getDraft: !deployedOnly })
+			const draft = deployedOnly ? undefined : (flow.draft as Flow | undefined)
+			return flowToItem(draft ?? flow, true)
 		}
 		case 'schedule':
 			return scheduleToItem(await ScheduleService.getSchedule({ workspace, path }), true)
@@ -1608,7 +1644,8 @@ async function listWorkspaceItems(
 	types: WorkspaceItemType[],
 	workspace: string,
 	pathPrefix: string | undefined,
-	perPage: number
+	perPage: number,
+	page?: number
 ): Promise<WorkspaceItem[]> {
 	const items: WorkspaceItem[] = []
 
@@ -1617,6 +1654,7 @@ async function listWorkspaceItems(
 			workspace,
 			pathStart: pathPrefix,
 			perPage,
+			page,
 			includeDraftOnly: true,
 			withoutDescription: true
 		})
@@ -1628,6 +1666,7 @@ async function listWorkspaceItems(
 			workspace,
 			pathStart: pathPrefix,
 			perPage,
+			page,
 			includeDraftOnly: true,
 			withoutDescription: true
 		})
@@ -1638,7 +1677,8 @@ async function listWorkspaceItems(
 		const schedules = await ScheduleService.listSchedules({
 			workspace,
 			pathStart: pathPrefix,
-			perPage
+			perPage,
+			page
 		})
 		for (const schedule of schedules) items.push(scheduleToItem(schedule, false))
 	}
@@ -1648,7 +1688,8 @@ async function listWorkspaceItems(
 			const triggers = await triggerServices[kind].list({
 				workspace,
 				pathStart: pathPrefix,
-				perPage
+				perPage,
+				page
 			})
 			for (const trigger of triggers) items.push(triggerToItem(kind, trigger, false))
 		}
@@ -1658,7 +1699,8 @@ async function listWorkspaceItems(
 		const resources = await ResourceService.listResource({
 			workspace,
 			pathStart: pathPrefix,
-			perPage
+			perPage,
+			page
 		})
 		for (const resource of resources) items.push(resourceToItem(resource, false))
 	}
@@ -1667,7 +1709,8 @@ async function listWorkspaceItems(
 		const variables = await VariableService.listVariable({
 			workspace,
 			pathStart: pathPrefix,
-			perPage
+			perPage,
+			page
 		})
 		for (const variable of variables) items.push(variableToItem(variable))
 	}
@@ -1676,7 +1719,8 @@ async function listWorkspaceItems(
 		const apps = await AppService.listApps({
 			workspace,
 			pathStart: pathPrefix,
-			perPage
+			perPage,
+			page
 		})
 		for (const app of apps) items.push(appToItem(app, false))
 	}
@@ -2266,6 +2310,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	createSearchHubScriptsTool(false),
+	searchNpmPackagesTool,
 	searchDocsTool,
 	readDocsPageTool,
 	{
@@ -2412,7 +2457,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			listWorkspaceItemsSchema,
 			'list_workspace_items',
-			'List workspace items and drafts. Returns metadata only.'
+			'List workspace items and drafts. Returns metadata only, up to limit items per item type per page (default 50); pass page to continue past a full page.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = listWorkspaceItemsSchema.parse(args)
@@ -2425,24 +2470,37 @@ export const globalTools: Tool<{}>[] = [
 				types,
 				workspace,
 				parsed.path_prefix,
-				Math.min(limit, MAX_LIST_LIMIT)
+				Math.min(limit, MAX_LIST_LIMIT),
+				parsed.page
 			)
 			for (const item of workspaceItems) {
 				byKey.set(getWorkspaceItemKey(item.type, item.path, item.triggerKind), item)
 			}
 
-			for (const draft of await listGlobalDrafts(workspace)) {
-				if (!types.includes(draft.type)) continue
-				if (parsed.path_prefix && !draft.path.startsWith(parsed.path_prefix)) continue
-				byKey.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), {
-					...draft,
-					value: undefined
-				})
+			// Drafts are not paginated server-side; overlay them on page 1 only,
+			// capped at `limit` per type, so results stay bounded and later pages
+			// never repeat a page-1 item as its draft twin. Chat draft counts are
+			// small — past the cap, a narrower path_prefix still finds any draft
+			// (it filters before the cap; query filters after).
+			if ((parsed.page ?? 1) === 1) {
+				const draftCountByType = new Map<string, number>()
+				for (const draft of await listGlobalDrafts(workspace)) {
+					if (!types.includes(draft.type)) continue
+					if (parsed.path_prefix && !draft.path.startsWith(parsed.path_prefix)) continue
+					const count = draftCountByType.get(draft.type) ?? 0
+					if (count >= limit) continue
+					draftCountByType.set(draft.type, count + 1)
+					byKey.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), {
+						...draft,
+						value: undefined
+					})
+				}
 			}
 
-			const results = Array.from(byKey.values())
-				.filter((item) => itemMatches(item, parsed.query))
-				.slice(0, limit)
+			// No cross-type truncation: each type is already capped at `limit` rows by
+			// its own list call, and slicing the concatenation would silently drop the
+			// later types' rows while their next page skips past them.
+			const results = Array.from(byKey.values()).filter((item) => itemMatches(item, parsed.query))
 
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Listed ${results.length} workspace item(s)`
@@ -2454,7 +2512,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			readWorkspaceItemSchema,
 			'read_workspace_item',
-			'Read one workspace item or draft.'
+			'Read one workspace item or draft. Prefers your draft when one exists; pass version: "deployed" to read the deployed state instead.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = readWorkspaceItemSchema.parse(args)
@@ -2463,7 +2521,10 @@ export const globalTools: Tool<{}>[] = [
 				toolCallbacks.setToolStatus(toolId, { content: message, error: message })
 				return JSON.stringify({ success: false, error: message })
 			}
-			const draft = await getGlobalDraft(workspace, parsed.type, parsed.path, parsed.trigger_kind)
+			const draft =
+				parsed.version === 'deployed'
+					? null
+					: await getGlobalDraft(workspace, parsed.type, parsed.path, parsed.trigger_kind)
 			if (draft) {
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Read draft ${parsed.type} "${parsed.path}"`
@@ -2474,7 +2535,13 @@ export const globalTools: Tool<{}>[] = [
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Reading ${parsed.type} "${parsed.path}"...`
 			})
-			const item = await readWorkspaceItem(parsed.type, parsed.path, workspace, parsed.trigger_kind)
+			const item = await readWorkspaceItem(
+				parsed.type,
+				parsed.path,
+				workspace,
+				parsed.trigger_kind,
+				parsed.version === 'deployed'
+			)
 			toolCallbacks.setToolStatus(toolId, { content: `Read ${parsed.type} "${parsed.path}"` })
 			return JSON.stringify(serializeWorkspaceItemForRead(item), null, 2)
 		}

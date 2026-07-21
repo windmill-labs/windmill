@@ -537,7 +537,9 @@ export async function searchExternalIntegrationResources(args: { query: string }
 			return JSON.stringify(packagesSearchCache.get(args.query))
 		}
 
-		const result = await fetch(`https://registry.npmjs.org/-/v1/search?text=${args.query}&size=2`)
+		const result = await fetch(
+			`https://registry.npmjs.org/-/v1/search?text=${encodeURIComponent(args.query)}&size=2`
+		)
 		const data = await result.json()
 		const filtered = data.objects.filter(
 			(r: PackageSearchQuery) => r.searchScore >= SCORE_THRESHOLD
@@ -599,7 +601,8 @@ const SEARCH_NPM_PACKAGES_TOOL: ChatCompletionFunctionTool = {
 	}
 }
 
-export const searchNpmPackagesTool: Tool<ScriptChatHelpers> = {
+// Helpers-agnostic so both script mode and global mode can offer it.
+export const searchNpmPackagesTool: Tool<{}> = {
 	def: SEARCH_NPM_PACKAGES_TOOL,
 	fn: async ({ args, toolId, toolCallbacks }) => {
 		toolCallbacks.setToolStatus(toolId, { content: 'Searching for relevant packages...' })

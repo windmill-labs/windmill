@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.764.0](https://github.com/windmill-labs/windmill/compare/v1.763.0...v1.764.0) (2026-07-20)
+
+
+### Features
+
+* **ai:** add npm package search tool to global chat ([#10204](https://github.com/windmill-labs/windmill/issues/10204)) ([0593ff7](https://github.com/windmill-labs/windmill/commit/0593ff7d7d598af0b9f52d08bb22147e3a83e6e9))
+* **ai:** expose get_db_schema tool in global chat ([#10207](https://github.com/windmill-labs/windmill/issues/10207)) ([f4308cf](https://github.com/windmill-labs/windmill/commit/f4308cf033b75e9a69c1e21041ff97f3bfa1787c))
+* **ai:** extract prompt cache token usage from OpenAI and Azure providers ([#10214](https://github.com/windmill-labs/windmill/issues/10214)) ([2b58df5](https://github.com/windmill-labs/windmill/commit/2b58df57fc5bae08155ffd7198643ed739e6a463))
+* **ai:** live web-search source list on chat tool cards ([#10210](https://github.com/windmill-labs/windmill/issues/10210)) ([542a484](https://github.com/windmill-labs/windmill/commit/542a4842a317a6607de973b4567bdb27dc088664))
+* cap queued jobs per concurrency key on cloud ([#10197](https://github.com/windmill-labs/windmill/issues/10197)) ([71f2d47](https://github.com/windmill-labs/windmill/commit/71f2d47cb4ff331cbcc7843bf0704ddb63cb77db))
+* detect server-handled git-sync so CLI picks git push vs wmill sync push ([#10201](https://github.com/windmill-labs/windmill/issues/10201)) ([b070f56](https://github.com/windmill-labs/windmill/commit/b070f56c5e6109c219a53cbb9628e28be4397fb7))
+* expose windmill api endpoint catalog to global ai chat ([#10199](https://github.com/windmill-labs/windmill/issues/10199)) ([83a354f](https://github.com/windmill-labs/windmill/commit/83a354f831cbc1821f2316e6d4e1c7f7a2cd7cdb))
+* **jobs:** cap total queued jobs per workspace on cloud ([#10218](https://github.com/windmill-labs/windmill/issues/10218)) ([ddec2ab](https://github.com/windmill-labs/windmill/commit/ddec2abbb3f56fc44d4c75fde60f00fb1c6373bb))
+* **sessions:** live DOM access for the raw-app preview in AI sessions ([#10129](https://github.com/windmill-labs/windmill/issues/10129)) ([b448af1](https://github.com/windmill-labs/windmill/commit/b448af1da7f6a351973724721e52682259212292))
+* **telemetry:** generic feature-usage telemetry with AI session metrics ([#10200](https://github.com/windmill-labs/windmill/issues/10200)) ([11fda89](https://github.com/windmill-labs/windmill/commit/11fda89b520cc8d1ce30cdba36bd10355cf025cc))
+
+
+### Bug Fixes
+
+* **db:** grant schema usage and re-run windmill role grants ([#10212](https://github.com/windmill-labs/windmill/issues/10212)) ([38ceae1](https://github.com/windmill-labs/windmill/commit/38ceae1a098ae165c75f43aa9049b5afafdd3bac))
+* **forks:** show workspace settings link in sidebar for fork creators ([#10216](https://github.com/windmill-labs/windmill/issues/10216)) ([11bb37d](https://github.com/windmill-labs/windmill/commit/11bb37d7ca7fbd50cc66905f41851226a48e57fb))
+* **git-sync:** avoid percent-encoded colon in git-sync hub script path ([#10213](https://github.com/windmill-labs/windmill/issues/10213)) ([87be041](https://github.com/windmill-labs/windmill/commit/87be041c091dd7fdd8c6be907a9b2894779f9ac0))
+* **inputs:** add ownership check to saved-input args read endpoint ([#10194](https://github.com/windmill-labs/windmill/issues/10194)) ([f32d770](https://github.com/windmill-labs/windmill/commit/f32d7702bcb592a70f5cf7e01f9e830047645240))
+* **schedules:** apply scope-path filtering to schedule list endpoints ([#10192](https://github.com/windmill-labs/windmill/issues/10192)) ([70359e3](https://github.com/windmill-labs/windmill/commit/70359e3a76d2e1fa5994acce4909753410c80664))
+* **security:** enforce token scope filtering on folder list endpoints ([#10193](https://github.com/windmill-labs/windmill/issues/10193)) ([b5e69ff](https://github.com/windmill-labs/windmill/commit/b5e69ffba6afd49d147e9b5e88e2d7020c09142f))
+* **sessions:** session bar badge readouts, job persistence, refresh bounce ([#10217](https://github.com/windmill-labs/windmill/issues/10217)) ([c8870d3](https://github.com/windmill-labs/windmill/commit/c8870d36aed2283bfa14419cd0bb346083f27b9c))
+* steer ai chat away from draft-blind api catalog reads and runs ([#10202](https://github.com/windmill-labs/windmill/issues/10202)) ([0e04bc6](https://github.com/windmill-labs/windmill/commit/0e04bc6991486b2b2b05b13feed5b083e403ac80))
+
 ## [1.763.0](https://github.com/windmill-labs/windmill/compare/v1.762.2...v1.763.0) (2026-07-19)
 
 

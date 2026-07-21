@@ -39,6 +39,7 @@ import {
 } from '$lib/gen'
 import uFuzzy from '@leeoniya/ufuzzy'
 import { emptyString } from '$lib/utils'
+import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { forLater } from '$lib/forLater'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getCurrentModel } from '$lib/aiStore'
@@ -763,6 +764,11 @@ export async function processToolCall<T>({
 		}
 
 		let result = ''
+		// Key by the resolved tool's declared name, not the model-provided string,
+		// so hallucinated tool names never enter telemetry.
+		if (tool) {
+			logFeatureUsage('ai_chat', 'tool', { key: tool.def.function.name, workspace: workspaceId })
+		}
 		try {
 			result = await callTool({
 				tools,
@@ -899,6 +905,9 @@ export type ChatJob = {
 	detached: boolean
 	/** Notify-only: whether its completion has been surfaced to the model yet. */
 	reported: boolean
+	/** Whether the user saw its terminal status in the jobs popover. Reviewed
+	 * outcomes stop driving the segment chip's status readout. Persisted. */
+	reviewed?: boolean
 	/** Trimmed snapshot of the last fetched Job (heavy fields stripped, see
 	 * `trimJob`), fed to `<JobStatusIcon>` so the tray badge matches the runs page
 	 * exactly. Always written together with `status` from the SAME job so the two

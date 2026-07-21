@@ -1,5 +1,5 @@
 import type { ScriptLang } from '$lib/gen/types.gen'
-import { WorkspaceService, JobService, type CompletedJob } from '$lib/gen'
+import { JobService, type CompletedJob } from '$lib/gen'
 import type { FlowOptions, ScriptOptions } from './ContextManager.svelte'
 import {
 	flowTools,
@@ -45,6 +45,7 @@ import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
 import { workspaceAIClients, getNonStreamingCompletion } from '../lib'
+import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { modelSupportsVision } from '../modelConfig'
 import { getKnownModelContextWindow } from '../modelConfig'
 import {
@@ -627,8 +628,26 @@ export class AIChatManager {
 	updateJob = (jobId: string, update: Partial<ChatJob>) => {
 		const idx = this.backgroundJobs.findIndex((j) => j.jobId === jobId)
 		if (idx === -1) return
+		const wasTerminal = !this.isJobNonTerminal(this.backgroundJobs[idx].status)
 		this.backgroundJobs[idx] = { ...this.backgroundJobs[idx], ...update }
 		this.backgroundJobs = [...this.backgroundJobs]
+		// Persist on the transition to terminal: a job that completes inside the
+		// inline wait never hits the detach/poller persist paths, and would
+		// otherwise vanish from the tray on reload.
+		if (!wasTerminal && !this.isJobNonTerminal(this.backgroundJobs[idx].status)) {
+			void this.#persistBackgroundJobs()
+		}
+	}
+
+	/** Mark finished jobs as reviewed (their terminal status was shown in the
+	 * jobs popover) and persist, so the chip stays relaxed across reloads. */
+	markJobsReviewed = (jobIds: string[]) => {
+		const ids = new Set(jobIds)
+		if (!this.backgroundJobs.some((j) => ids.has(j.jobId) && !j.reviewed)) return
+		this.backgroundJobs = this.backgroundJobs.map((j) =>
+			ids.has(j.jobId) && !j.reviewed ? { ...j, reviewed: true } : j
+		)
+		void this.#persistBackgroundJobs()
 	}
 
 	/** A job left the inline wait — hand it to the background poller. */
@@ -2061,6 +2080,13 @@ export class AIChatManager {
 					}
 				}
 			})
+			if (this.isSessionChat && this.sessionId && result.tokenUsage.total > 0) {
+				logFeatureUsage('ai_session', 'tokens', {
+					entityId: this.sessionId,
+					value: result.tokenUsage.total,
+					workspace: this.operatingWorkspace
+				})
+			}
 			return result
 		} catch (err) {
 			console.log('chatRequest error', err)
@@ -2418,15 +2444,29 @@ export class AIChatManager {
 
 			const model = tryGetCurrentModel()
 			if (model) {
-				WorkspaceService.logAiChat({
-					workspace: this.operatingWorkspace ?? '',
-					requestBody: {
-						session_id: this.historyManager.getCurrentChatId(),
-						provider: model.provider,
-						model: model.model,
-						mode: this.mode
-					}
-				}).catch(() => {})
+				const chatId = this.historyManager.getCurrentChatId()
+				logFeatureUsage('ai_chat', 'message', {
+					key: this.mode,
+					entityId: chatId,
+					workspace: this.operatingWorkspace
+				})
+				logFeatureUsage('ai_chat', 'model', {
+					key: `${model.provider}:${model.model}`,
+					entityId: chatId,
+					workspace: this.operatingWorkspace
+				})
+			}
+			if (this.isSessionChat && this.sessionId) {
+				logFeatureUsage('ai_session', 'message', {
+					key: this.mode,
+					entityId: this.sessionId,
+					workspace: this.operatingWorkspace
+				})
+				logFeatureUsage('ai_session', 'autonomy', {
+					key: this.autonomyMode,
+					entityId: this.sessionId,
+					workspace: this.operatingWorkspace
+				})
 			}
 
 			if (this.mode === AIMode.FLOW && !this.flowAiChatHelpers) {
