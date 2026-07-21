@@ -62,6 +62,12 @@ describe('diffInMask', () => {
 		expect(diffInMask(diff('script', 'u/me/s'), mask)).toBe(true)
 	})
 
+	it('matches a legacy app diff under both its identity and bridged mask keys', () => {
+		expect(diffInMask(diff('app', 'u/me/legacy'), new Set(['app:u/me/legacy']))).toBe(true)
+		expect(diffInMask(diff('app', 'u/me/legacy'), new Set(['raw_app:u/me/legacy']))).toBe(true)
+		expect(diffInMask(diff('app', 'u/me/legacy'), new Set(['app:u/me/other']))).toBe(false)
+	})
+
 	it('does not match when path or kind differ, or kind has no equivalent', () => {
 		const mask = new Set(['trigger_http:f/foo/route'])
 		expect(diffInMask(diff('http_trigger', 'f/other/route'), mask)).toBe(false)

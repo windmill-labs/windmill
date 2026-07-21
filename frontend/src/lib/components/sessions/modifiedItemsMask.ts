@@ -48,7 +48,12 @@ export function forkDiffKindToUserDraftKind(kind: ForkDiffKind): UserDraftItemKi
 // True when a fork-comparison diff names an item present in the chat-modified mask.
 export function diffInMask(diff: WorkspaceItemDiff, mask: Set<string>): boolean {
 	const kind = forkDiffKindToUserDraftKind(diff.kind)
-	return kind !== undefined && mask.has(maskKey(kind, diff.path))
+	if (kind !== undefined && mask.has(maskKey(kind, diff.path))) return true
+	// Legacy drag-and-drop apps tally fork diffs under `app`, and an explicit
+	// `?items=` mask names them `app:<path>` (the same kind the drafts list uses).
+	// The bridged lookup above reads them as `raw_app` (kept for chat masks, which
+	// only ever record raw apps), so accept the identity key too.
+	return diff.kind === 'app' && mask.has(maskKey('app', diff.path))
 }
 
 // `?items=` on the compare page: an explicit preselection mask passed in the URL
