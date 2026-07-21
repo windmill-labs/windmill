@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { scriptLangToEditorLang } from '$lib/scripts'
-import { computeModelPath, computeModelUri } from './monacoUri'
+import { computeModelPath, computeModelUri, computeOwnedUri, OWNED_ROOT } from './monacoUri'
 
 // Mirrors what Editor.svelte does: path -> filePath -> uri.
 function uriFor(path: string | undefined, scriptLang: string) {
@@ -39,5 +39,70 @@ describe('computeModelUri', () => {
 	it('falls back to a random path when none is given', () => {
 		expect(computeModelPath(undefined, 'bun')).not.toBe('')
 		expect(computeModelPath('', 'bun')).not.toBe('')
+	})
+})
+
+describe('computeOwnedUri', () => {
+	const cell = (
+		over: Partial<{ workspace: string; itemKind: string; storagePath: string }> = {}
+	) => ({
+		workspace: 'guilhem',
+		itemKind: 'script',
+		storagePath: 'u/admin/foo',
+		...over
+	})
+
+	it.each([
+		[cell(), undefined, 'bun', 'file:///__wmlint__/guilhem/script/u/admin/foo.ts'],
+		// a flow module / app runnable is a sub-path within the cell
+		[
+			cell({ itemKind: 'flow', storagePath: 'u/admin/flow' }),
+			'a',
+			'bun',
+			'file:///__wmlint__/guilhem/flow/u/admin/flow/a.ts'
+		],
+		[
+			cell({ itemKind: 'app', storagePath: 'u/admin/app' }),
+			'runnable_1',
+			'bun',
+			'file:///__wmlint__/guilhem/app/u/admin/app/runnable_1.ts'
+		],
+		// an app frontend file keeps its extension
+		[
+			cell({ itemKind: 'app', storagePath: 'u/admin/app' }),
+			'index.tsx',
+			'tsx',
+			'file:///__wmlint__/guilhem/app/u/admin/app/index.tsx'
+		],
+		// a fork is a different cell → a different owned URI
+		[
+			cell({ workspace: 'wm-fork-x' }),
+			undefined,
+			'bun',
+			'file:///__wmlint__/wm-fork-x/script/u/admin/foo.ts'
+		]
+	])('%o + %s (%s) -> %s', (c, subPath, scriptLang, expected) => {
+		expect(computeOwnedUri(c, subPath, scriptLang, scriptLangToEditorLang(scriptLang as any))).toBe(
+			expected
+		)
+	})
+
+	// The load-bearing invariant: an owned URI can never equal the editor URI for the same
+	// code, so a headless model can never occupy a model an editor owns.
+	it('is always disjoint from the editor URI', () => {
+		for (const scriptLang of ['bun', 'bunnative', 'nativets', 'tsx', 'jsx', 'javascript']) {
+			const editorLang = scriptLangToEditorLang(scriptLang as any)
+			const owned = computeOwnedUri(cell(), undefined, scriptLang, editorLang)
+			const editor = computeModelUri('u/admin/foo', scriptLang, editorLang)
+			expect(owned).not.toBe(editor)
+			expect(owned.startsWith(`file:///${OWNED_ROOT}/`)).toBe(true)
+			expect(editor.startsWith(`file:///${OWNED_ROOT}/`)).toBe(false)
+		}
+	})
+
+	it('separates the same path across workspaces (no cross-workspace collision)', () => {
+		const a = computeOwnedUri(cell({ workspace: 'guilhem' }), undefined, 'bun', 'typescript')
+		const b = computeOwnedUri(cell({ workspace: 'wm-fork-x' }), undefined, 'bun', 'typescript')
+		expect(a).not.toBe(b)
 	})
 })
