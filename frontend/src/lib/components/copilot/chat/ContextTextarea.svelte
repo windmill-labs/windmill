@@ -37,6 +37,8 @@
 		onRemoveContext?: (contextElement: ContextElement) => void
 		/** Called with image files found in a paste, so the host can attach them. */
 		onImageFiles?: (files: File[]) => void
+		/** Called with non-image files found in a paste, so the host can attach them. */
+		onTextFiles?: (files: File[]) => void
 		className?: string
 		onKeyDown?: (e: KeyboardEvent) => void
 		/** Rendered inside the input box, above the textarea (e.g. context chips). */
@@ -54,6 +56,7 @@
 		onAddContext,
 		onRemoveContext,
 		onImageFiles,
+		onTextFiles,
 		className = '',
 		onKeyDown = undefined,
 		leading
@@ -312,13 +315,14 @@
 		// a picture of them. An OS screenshot carries the image alone, so it still lands
 		// here. `onImageFiles` is unset outside GLOBAL, where attaching is unsupported —
 		// the paste must then fall through to text rather than be swallowed.
-		if (!text.trim() && onImageFiles) {
-			const imageFiles = Array.from(e.clipboardData?.files ?? []).filter((f) =>
-				f.type.startsWith('image/')
-			)
-			if (imageFiles.length > 0) {
+		if (!text.trim() && (onImageFiles || onTextFiles)) {
+			const pastedFiles = Array.from(e.clipboardData?.files ?? [])
+			const imageFiles = pastedFiles.filter((f) => f.type.startsWith('image/'))
+			const otherFiles = pastedFiles.filter((f) => !f.type.startsWith('image/'))
+			if ((imageFiles.length > 0 && onImageFiles) || (otherFiles.length > 0 && onTextFiles)) {
 				e.preventDefault()
-				onImageFiles(imageFiles)
+				if (imageFiles.length > 0) onImageFiles?.(imageFiles)
+				if (otherFiles.length > 0) onTextFiles?.(otherFiles)
 				return
 			}
 		}

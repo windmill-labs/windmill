@@ -49,6 +49,7 @@ import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/d
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
 import type { RawAppDomQuery } from '$lib/components/raw_apps/rawAppDom'
 import { dataUrlToImagePart, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
+import { sanitizeAttachmentName, textLineCount, type AttachedTextFile } from '../textFileUtils'
 import { modelSupportsVision } from '../../modelConfig'
 import { tryGetCurrentModel } from '$lib/aiStore'
 import { isChromiumBrowser } from '$lib/utils'
@@ -209,6 +210,9 @@ export type GlobalUserMessageOptions = {
 	activeEditor?: GlobalActiveEditorContext
 	/** Images attached to this message; delivered as image_url content parts. */
 	images?: AttachedImage[]
+	/** Text files attached to this message; listed by reference below — the model
+	 * reads their content on demand via the file tools. */
+	files?: AttachedTextFile[]
 }
 
 const itemTypeSchema = z.enum(ITEM_TYPES)
@@ -5737,6 +5741,25 @@ export function prepareGlobalUserMessage(
 			"The user pointed at these elements in the live raw app preview. Their HTML is not included here — inspect it live with search_dom / read_dom, passing the element's `app_path` and `selector` so the right app's preview is read.\n"
 		for (const el of domSelectors) {
 			content += `- ${el.title} — app_path: ${el.appPath}, selector: ${el.selector}\n`
+		}
+		content += '\n'
+	}
+
+	const files = options.files ?? []
+	if (files.length > 0) {
+		content += '## ATTACHED FILES\n'
+		content +=
+			'The user attached these files to this message. Their content is NOT included here — read it with `read_file` (or scan it with `search_files`), passing the file id, before answering questions about it.\n'
+		for (const f of files) {
+			// textLineCount matches read_file's numbering — a mismatch would make the
+			// model request line ranges past the end.
+			const lines = textLineCount(f.content)
+			// The id is the durable reference (names may repeat across messages);
+			// absent only on legacy pre-id transcripts, where the name resolves.
+			// Sanitized again here: legacy names predate attach-time sanitization.
+			const name = sanitizeAttachmentName(f.name)
+			const ref = f.id ? `${name} (file id: ${f.id})` : name
+			content += `- ${ref} — ${lines} lines, ${f.content.length} chars\n`
 		}
 		content += '\n'
 	}
