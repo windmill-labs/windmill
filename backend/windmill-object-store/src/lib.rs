@@ -821,16 +821,24 @@ lazy_static::lazy_static! {
 
 #[cfg(feature = "parquet")]
 async fn ambient_aws_credentials_provider(region: &str) -> Arc<AmbientAwsCredentials> {
-    if let Some(provider) = AMBIENT_AWS_CREDS_PROVIDERS.get(region) {
-        return provider;
+    // Single-flight: concurrent cold misses for the same region must share one provider,
+    // otherwise each gets its own instance and their per-instance refresh locks can't serialize
+    // the initial credential resolution — every caller would hit the metadata service.
+    match AMBIENT_AWS_CREDS_PROVIDERS
+        .get_value_or_guard_async(region)
+        .await
+    {
+        Ok(provider) => provider,
+        Err(guard) => {
+            let chain = DefaultCredentialsChain::builder()
+                .region(Region::new(region.to_string()))
+                .build()
+                .await;
+            let provider = Arc::new(AmbientAwsCredentials { chain, cached: RwLock::new(None) });
+            let _ = guard.insert(provider.clone());
+            provider
+        }
     }
-    let chain = DefaultCredentialsChain::builder()
-        .region(Region::new(region.to_string()))
-        .build()
-        .await;
-    let provider = Arc::new(AmbientAwsCredentials { chain, cached: RwLock::new(None) });
-    AMBIENT_AWS_CREDS_PROVIDERS.insert(region.to_string(), provider.clone());
-    provider
 }
 
 #[cfg(feature = "parquet")]
