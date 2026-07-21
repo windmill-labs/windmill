@@ -1149,7 +1149,9 @@
 											bind:this={modulePreview}
 											mod={flowModule}
 											{noEditor}
-											schema={flowStateStore.val[selectedId]?.schema ?? {}}
+											schema={agentLinked
+												? flowLocalAgentSchema(flowStateStore.val[selectedId]?.schema ?? {})
+												: (flowStateStore.val[selectedId]?.schema ?? {})}
 											bind:testJob
 											bind:testIsLoading
 											bind:scriptProgress
