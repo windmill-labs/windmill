@@ -45,54 +45,6 @@ export function editorConfig(
 
 export const updateOptions = { tabSize: 2, insertSpaces: true }
 
-let hoveredSwipeGuards = 0
-
-function updateRootOverscroll() {
-	const value = hoveredSwipeGuards > 0 ? 'none' : ''
-	document.documentElement.style.overscrollBehaviorX = value
-	document.body.style.overscrollBehaviorX = value
-}
-
-// On macOS Chromium, horizontal wheel overscroll triggers history back/forward
-// navigation, so a sideways swipe over an editor navigates away. Cancelling
-// wheel events is not reliable: only the first event of a trackpad gesture
-// stream is cancelable, and Monaco stops propagation of events it consumes.
-// Chromium instead consults `overscroll-behavior-x` on the ROOT element for
-// this gesture (the editor container is not a native scroller, so setting it
-// there has no effect) — toggle it while the pointer is over an editor.
-export function preventHorizontalNavigationSwipe(el: HTMLElement) {
-	let over = false
-	const enter = () => {
-		if (!over) {
-			over = true
-			hoveredSwipeGuards++
-			updateRootOverscroll()
-		}
-	}
-	const leave = () => {
-		if (over) {
-			over = false
-			hoveredSwipeGuards--
-			updateRootOverscroll()
-		}
-	}
-	el.addEventListener('pointerenter', enter)
-	el.addEventListener('pointerleave', leave)
-	// A wheel event implies the pointer is over the editor even when
-	// pointerenter never fired (editor mounted underneath a stationary cursor).
-	el.addEventListener('wheel', enter, { passive: true })
-	return {
-		destroy: () => {
-			el.removeEventListener('pointerenter', enter)
-			el.removeEventListener('pointerleave', leave)
-			el.removeEventListener('wheel', enter)
-			// The action can be destroyed while hovered (editor inside a closing
-			// drawer) — pointerleave never fires then, so release here.
-			leave()
-		}
-	}
-}
-
 export function convertKind(kind: string): any {
 	switch (kind) {
 		case Kind.primitiveType:

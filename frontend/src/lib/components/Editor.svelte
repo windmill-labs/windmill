@@ -39,12 +39,7 @@
 		relativeLineNumbers
 	} from '$lib/stores'
 
-	import {
-		editorConfig,
-		preventHorizontalNavigationSwipe,
-		registerWebviewPaste,
-		updateOptions
-	} from '$lib/editorUtils'
+	import { editorConfig, registerWebviewPaste, updateOptions } from '$lib/editorUtils'
 	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { createHash as randomHash } from '$lib/editorLangUtils'
 	import { workspaceStore } from '$lib/stores'
@@ -2257,11 +2252,7 @@
 		<FakeMonacoPlaceHolder {code} lineNumbersWidth={51} />
 	</div>
 {/if}
-<div
-	bind:this={divEl}
-	use:preventHorizontalNavigationSwipe
-	class="{clazz} editor {disabled ? 'disabled' : ''}"
-></div>
+<div bind:this={divEl} class="{clazz} editor {disabled ? 'disabled' : ''}"></div>
 {#if $vimMode}
 	<div class="fixed bottom-0 z-30" bind:this={statusDiv}></div>
 {/if}

@@ -13,7 +13,6 @@
 		createDocumentationString,
 		displayPartsToString,
 		editorConfig,
-		preventHorizontalNavigationSwipe,
 		registerWebviewPaste,
 		updateOptions
 	} from '$lib/editorUtils'
@@ -711,7 +710,6 @@
 	{/if}
 	<div
 		bind:this={divEl}
-		use:preventHorizontalNavigationSwipe
 		style="height: 18px;"
 		class="template nonmain-editor rounded-md overflow-clip {!editor ? 'hidden' : ''}"
 	></div>

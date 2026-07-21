@@ -13,7 +13,7 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 
-	import { editorConfig, preventHorizontalNavigationSwipe, updateOptions } from '$lib/editorUtils'
+	import { editorConfig, updateOptions } from '$lib/editorUtils'
 	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { createHash } from '$lib/editorLangUtils'
 
@@ -690,7 +690,6 @@
 {/if}
 <div
 	bind:this={divEl}
-	use:preventHorizontalNavigationSwipe
 	class={twMerge(
 		'relative editor simple-editor',
 		className,

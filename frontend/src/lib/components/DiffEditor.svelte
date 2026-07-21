@@ -9,7 +9,7 @@
 
 	import { initializeVscode } from './vscode'
 	import { editorFontSize } from '$lib/editorFontSize.svelte'
-	import { preventHorizontalNavigationSwipe, registerWebviewPaste } from '$lib/editorUtils'
+	import { registerWebviewPaste } from '$lib/editorUtils'
 	import EditorTheme from './EditorTheme.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -250,7 +250,6 @@
 	<EditorTheme />
 	<div
 		bind:this={diffDivEl}
-		use:preventHorizontalNavigationSwipe
 		class={twMerge('editor nonmain-editor', className)}
 		bind:clientWidth={editorWidth}
 	></div>
