@@ -82,6 +82,9 @@ export interface WorkspaceDiffEntryView {
 	patchLineCount?: number
 	/** Per-file patches for multi-file apps (changed files only). */
 	files?: Record<string, DiffFileView>
+	/** Variable content was placeholder-masked (values never reach the chat);
+	 * the patch marks a value change without revealing it. */
+	valueMasked?: boolean
 	/** True when the item has never been deployed — the whole draft is new. */
 	noDeployed?: boolean
 	errorMessage?: string
@@ -97,6 +100,7 @@ interface Materialized {
 	patch: string
 	lineCount: number
 	files?: Record<string, DiffFileView>
+	valueMasked?: boolean
 	noDeployed: boolean
 	errorMessage?: string
 	fetchedAt: number
@@ -338,6 +342,35 @@ async function reconcile(workspace: string): Promise<WorkspaceCache> {
 	}
 }
 
+const VARIABLE_VALUE_PLACEHOLDER = '<variable value — never shown in chat>'
+const VARIABLE_VALUE_CHANGED_PLACEHOLDER = '<variable value — never shown in chat (changed)>'
+
+/** Chat-side redaction: variable VALUES never reach a tool result — the same
+ * invariant read_workspace_item enforces, and not limited to secrets. The
+ * placeholder pair still shows WHETHER the value changed, never its content. */
+export function maskVariableDiffSides(
+	before: unknown,
+	after: unknown
+): { before: unknown; after: unknown } {
+	const beforeObj =
+		before !== null && typeof before === 'object' ? (before as Record<string, unknown>) : undefined
+	const afterObj =
+		after !== null && typeof after === 'object' ? (after as Record<string, unknown>) : undefined
+	const valueChanged =
+		beforeObj !== undefined &&
+		afterObj !== undefined &&
+		JSON.stringify(beforeObj.value) !== JSON.stringify(afterObj.value)
+	return {
+		before: beforeObj ? { ...beforeObj, value: VARIABLE_VALUE_PLACEHOLDER } : before,
+		after: afterObj
+			? {
+					...afterObj,
+					value: valueChanged ? VARIABLE_VALUE_CHANGED_PLACEHOLDER : VARIABLE_VALUE_PLACEHOLDER
+				}
+			: after
+	}
+}
+
 /** Fetch one entry's sides and compute its patch, deduping concurrent calls.
  * Reuses the cached patch when younger than `maxAgeMs`. */
 async function materialize(workspace: string, entry: CacheEntry, maxAgeMs: number): Promise<void> {
@@ -350,13 +383,19 @@ async function materialize(workspace: string, entry: CacheEntry, maxAgeMs: numbe
 				entry.row.path,
 				workspace
 			)
-			const before = noDeployed ? undefined : deployed
-			const parts = computeDiffParts(before, draft, 'deployed', 'draft')
+			let before = noDeployed ? undefined : deployed
+			let after: unknown = draft
+			const valueMasked = entry.row.kind === 'variable'
+			if (valueMasked) {
+				;({ before, after } = maskVariableDiffSides(before, after))
+			}
+			const parts = computeDiffParts(before, after, 'deployed', 'draft')
 			entry.materialized = {
 				status: noDeployed ? 'new' : parts.hasChanges ? 'modified' : 'unchanged',
 				patch: parts.patch,
 				lineCount: parts.lineCount,
 				files: parts.files,
+				valueMasked,
 				noDeployed,
 				fetchedAt: Date.now()
 			}
@@ -395,6 +434,7 @@ function toView(entry: CacheEntry): WorkspaceDiffEntryView {
 		patch: m?.patch,
 		patchLineCount: m?.lineCount,
 		files: m?.files,
+		valueMasked: m?.valueMasked,
 		noDeployed: m?.noDeployed,
 		errorMessage: m?.errorMessage
 	}
@@ -488,7 +528,7 @@ export interface ForkDiffEntryView {
 	files?: Record<string, DiffFileView>
 	/** A secret's content was placeholder-masked — content-only changes on
 	 * this item cannot appear in the patch. */
-	secretMasked?: boolean
+	valueMasked?: boolean
 	errorMessage?: string
 }
 
@@ -505,7 +545,7 @@ interface ForkMaterialized {
 	patch: string
 	lineCount: number
 	files?: Record<string, DiffFileView>
-	secretMasked?: boolean
+	valueMasked?: boolean
 	errorMessage?: string
 	fetchedAt: number
 }
@@ -649,8 +689,6 @@ async function reconcileFork(workspace: string, parentWorkspaceId: string): Prom
 	}
 }
 
-const SECRET_VALUE_PLACEHOLDER = '<secret value — content not comparable>'
-
 // App-row fields that differ between workspaces without being part of what a
 // merge deploys (ids, version history, audit fields) — plus bundle_secret,
 // which must never reach a tool result.
@@ -666,9 +704,9 @@ const APP_ROW_CROSS_WORKSPACE_IGNORE = new Set([
 
 interface ForkSideValue {
 	value: unknown
-	/** A secret's content was replaced by the placeholder — content-only
+	/** The variable's content was replaced by the placeholder — content-only
 	 * changes on this item are invisible in the patch. */
-	secretMasked: boolean
+	valueMasked: boolean
 }
 
 async function fetchForkSideValue(
@@ -676,10 +714,11 @@ async function fetchForkSideValue(
 	path: string,
 	workspace: string
 ): Promise<ForkSideValue> {
-	// Secret variables must never be decrypted into a tool result; fetch the
-	// metadata only and substitute a stable placeholder (identical on both
-	// sides, so a secret's content change is invisible — by design; the
-	// `secretMasked` flag lets callers say so instead of claiming "unchanged").
+	// Variable VALUES never reach a tool result — the chat-wide invariant, not
+	// just for secrets (and secrets are additionally never decrypted). The
+	// placeholder is identical on both sides, so a value-only change is
+	// invisible here; the `valueMasked` flag lets callers say so instead of
+	// claiming "unchanged".
 	if (kind === 'variable') {
 		const variable = await VariableService.getVariable({
 			workspace,
@@ -690,9 +729,9 @@ async function fetchForkSideValue(
 			value: {
 				description: variable.description,
 				is_secret: variable.is_secret,
-				value: variable.is_secret ? SECRET_VALUE_PLACEHOLDER : variable.value
+				value: VARIABLE_VALUE_PLACEHOLDER
 			},
-			secretMasked: variable.is_secret === true
+			valueMasked: true
 		}
 	}
 	// The shared getItemValue projection drops fields the backend comparison
@@ -710,7 +749,7 @@ async function fetchForkSideValue(
 				description: script.description,
 				language: script.language
 			},
-			secretMasked: false
+			valueMasked: false
 		}
 	}
 	if (kind === 'resource') {
@@ -721,7 +760,7 @@ async function fetchForkSideValue(
 				description: resource.description,
 				resource_type: resource.resource_type
 			},
-			secretMasked: false
+			valueMasked: false
 		}
 	}
 	const value = await getItemValue(kind as DeployKind, path, workspace)
@@ -742,16 +781,16 @@ async function fetchForkSideValue(
 					}
 				}
 			}
-			return { value: canonical, secretMasked: false }
+			return { value: canonical, valueMasked: false }
 		}
 		return {
 			value: Object.fromEntries(
 				Object.entries(row).filter(([k]) => !APP_ROW_CROSS_WORKSPACE_IGNORE.has(k))
 			),
-			secretMasked: false
+			valueMasked: false
 		}
 	}
-	return { value, secretMasked: false }
+	return { value, valueMasked: false }
 }
 
 async function materializeFork(
@@ -772,7 +811,7 @@ async function materializeFork(
 			])
 			const parentValue = parentSide?.value
 			const forkValue = forkSide?.value
-			const secretMasked = parentSide?.secretMasked === true || forkSide?.secretMasked === true
+			const valueMasked = parentSide?.valueMasked === true || forkSide?.valueMasked === true
 			const oneSidedStatus = !entry.existsInFork
 				? 'deleted_in_fork'
 				: !entry.existsInParent
@@ -784,7 +823,7 @@ async function materializeFork(
 				patch: parts.patch,
 				lineCount: parts.lineCount,
 				files: parts.files,
-				secretMasked,
+				valueMasked,
 				fetchedAt: Date.now()
 			}
 		} catch (e) {
@@ -819,7 +858,7 @@ function toForkView(entry: ForkEntry): ForkDiffEntryView {
 		patch: m?.patch,
 		patchLineCount: m?.lineCount,
 		files: m?.files,
-		secretMasked: m?.secretMasked,
+		valueMasked: m?.valueMasked,
 		errorMessage: m?.errorMessage
 	}
 }

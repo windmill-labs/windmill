@@ -168,12 +168,16 @@ import {
 	getForkDiffIndex,
 	getForkParentWorkspaceId,
 	getWorkspaceDiffIndex,
+	maskVariableDiffSides,
 	readForkDiffEntry,
 	readWorkspaceDiffEntry,
 	type DiffFileView,
 	type ForkDiffEntryView,
 	type WorkspaceDiffEntryView
 } from './diffSnapshot'
+
+const VARIABLE_MASKED_NOTE =
+	'Note: variable values are never shown in chat — the diff marks whether the value changed without revealing it.\n\n'
 import { apiCatalogTools } from './apiCatalogTools'
 import { isSessionPipelinesEnabled, SESSION_PIPELINES_GATED_MESSAGE } from './pipelineGate'
 
@@ -5284,12 +5288,13 @@ async function diffWorkspaceItem(
 			// Editor-only draft that was never persisted at all.
 			noDeployed = true
 		}
-		const parts = computeDiffParts(
-			deployedSide,
-			canonicalDraftSideValue(itemKind, localValue),
-			'deployed',
-			'draft'
-		)
+		let beforeSide = deployedSide
+		let afterSide = canonicalDraftSideValue(itemKind, localValue)
+		if (itemKind === 'variable') {
+			;({ before: beforeSide, after: afterSide } = maskVariableDiffSides(beforeSide, afterSide))
+			flushCaveat += VARIABLE_MASKED_NOTE
+		}
+		const parts = computeDiffParts(beforeSide, afterSide, 'deployed', 'draft')
 		patch = parts.patch
 		files = parts.files
 		flushCaveat +=
@@ -5307,6 +5312,7 @@ async function diffWorkspaceItem(
 			patch = entry.patch ?? ''
 			noDeployed = entry.noDeployed === true
 			files = entry.files
+			if (entry.valueMasked) flushCaveat += VARIABLE_MASKED_NOTE
 		} else {
 			// Not in the draft listing — either no draft at all (deployed is current),
 			// nothing at the path, or a listing/overlay disagreement; ask the overlay.
@@ -5329,7 +5335,13 @@ async function diffWorkspaceItem(
 			}
 			// A never-deployed item diffs against nothing: the whole draft reads as added.
 			noDeployed = fetchedNoDeployed
-			patch = draftDeployedPatch(noDeployed ? undefined : deployed, draft)
+			let beforeSide: unknown = noDeployed ? undefined : deployed
+			let afterSide: unknown = draft
+			if (itemKind === 'variable') {
+				;({ before: beforeSide, after: afterSide } = maskVariableDiffSides(beforeSide, afterSide))
+				flushCaveat += VARIABLE_MASKED_NOTE
+			}
+			patch = draftDeployedPatch(beforeSide, afterSide)
 		}
 	}
 
@@ -5543,8 +5555,8 @@ function formatForkIndexEntry(e: ForkDiffEntryView): string {
 		case 'modified':
 			return `- ${name} — differs (${aheadBehind}; ${e.patchLineCount} diff lines)${draftFlag}`
 		case 'unchanged':
-			return e.secretMasked
-				? `- ${name} — secret content never shown; may differ (${aheadBehind})${draftFlag}`
+			return e.valueMasked
+				? `- ${name} — value never shown in chat; may differ (${aheadBehind})${draftFlag}`
 				: `- ${name} — content matches parent (version history differs: ${aheadBehind})${draftFlag}`
 		case 'pending':
 			return `- ${name} — differs (${aheadBehind}; diff not computed yet, read it with type+path)${draftFlag}`
@@ -5665,10 +5677,10 @@ async function diffForkItem(
 		: ''
 	const changedFileCount = entry.files ? Object.keys(entry.files).length : 0
 	if (entry.status === 'unchanged' || (!entry.patch && changedFileCount === 0)) {
-		// A masked secret can differ in content without producing a patch —
+		// A masked value can differ in content without producing a patch —
 		// never report that as "same content".
-		const message = entry.secretMasked
-			? `${type} "${path}": no visible config differences vs parent "${parent}", but its secret value is never shown, so a content change cannot be displayed. The workspace comparison reports it as ${entry.ahead > 0 || entry.behind > 0 ? `differing (ahead ${entry.ahead}, behind ${entry.behind})` : 'in sync'}.`
+		const message = entry.valueMasked
+			? `${type} "${path}": no visible config differences vs parent "${parent}", but variable values are never shown in chat, so a value change cannot be displayed. The workspace comparison reports it as ${entry.ahead > 0 || entry.behind > 0 ? `differing (ahead ${entry.ahead}, behind ${entry.behind})` : 'in sync'}.`
 			: `${type} "${path}" has the same content in the fork and its parent "${parent}" (only version history differs).`
 		toolCallbacks.setToolStatus(toolId, { content: message, result: message })
 		return draftCaveat + message

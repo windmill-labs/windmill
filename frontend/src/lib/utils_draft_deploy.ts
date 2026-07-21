@@ -38,6 +38,7 @@ import type { DeployResult } from '$lib/utils_workspace_deploy'
 import { TRIGGER_RUNTIME_IGNORE } from '$lib/utils_deployable'
 import { deployRawAppDraft } from '$lib/rawAppDeploy'
 import { canonicalRawAppDiffValue } from '$lib/components/raw_apps/utils'
+import { classicAppDraftValue } from '$lib/appDiffSides'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 import { userStore } from '$lib/stores'
@@ -127,7 +128,7 @@ export interface DraftDiffValues {
 const EMPTY_DEPLOYED: Partial<Record<DraftKind, (draft: any) => unknown>> = {
 	script: (draft) => ({ content: '', language: draft?.language, schema: {} }),
 	flow: () => ({ summary: '', value: { modules: [] }, schema: {} }),
-	app: () => ({ summary: '', value: {}, policy: {} })
+	app: () => ({ value: {} })
 }
 
 // Server-managed script-row fields, stripped from BOTH sides of a draft diff:
@@ -165,11 +166,15 @@ function stripScriptRowRuntime(row: any): Record<string, unknown> {
 export function canonicalDraftSideValue(kind: DraftKind, value: unknown): unknown {
 	if (kind === 'script') return stripScriptRowRuntime(value)
 	if (kind === 'raw_app') return canonicalRawAppDiffValue((value ?? {}) as Record<string, any>)
+	if (kind === 'app') return { value: classicAppDraftValue(value) }
 	if (kind === 'flow' && value !== null && typeof value === 'object') {
 		const { version_id: _v, ...rest } = value as Record<string, unknown>
 		return rest
 	}
-	return value
+	// Drawer kinds (variables/resources/schedules/triggers): the editor-state
+	// shape diverges from the backend row — same canonicalization the overlay
+	// diff applies.
+	return canonicalizeDraftDiffValue(kind, value, true)
 }
 
 // Schedule & trigger rows drop the same runtime/server-managed fields as the
@@ -298,19 +303,13 @@ export async function getDraftDiffValues(
 				noDeployed: r.no_deployed === true
 			}
 		}
-		const deployed = {
-			summary: r.summary,
-			value: r.value,
-			policy: r.policy,
-			path: r.path,
-			custom_path: r.custom_path
-		}
-		// Strip the draft's pinned fork-base `parent_version` (the deployed allowlist
-		// above already omits it) so it never renders as a spurious diff line.
-		const { parent_version: _pv, ...draftValue } = (r.draft ?? deployed) as any
+		// Classic app: the editor drafts the bare grid `value` while the row nests
+		// it beside summary/policy — both sides reduce to `{ value }` (wrapper
+		// metadata cannot change through a classic draft).
+		const draftValue = r.draft != null ? classicAppDraftValue(r.draft) : r.value
 		return {
-			deployed: draftOnly ? EMPTY_DEPLOYED.app!(draftValue) : deployed,
-			draft: draftValue,
+			deployed: draftOnly ? EMPTY_DEPLOYED.app!(draftValue) : { value: r.value },
+			draft: { value: draftValue },
 			hasDraft: r.draft != null,
 			noDeployed: r.no_deployed === true
 		}

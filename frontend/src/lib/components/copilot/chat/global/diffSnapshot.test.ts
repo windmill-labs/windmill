@@ -191,6 +191,24 @@ describe('getWorkspaceDiffIndex', () => {
 		expect(getDraftDiffValues).toHaveBeenCalledTimes(1)
 	})
 
+	it('masks draft-mode variable values but still marks a value change', async () => {
+		vi.mocked(getDraftItems).mockResolvedValue([
+			row({ kind: 'variable', path: 'f/a/token' })
+		] as any)
+		vi.mocked(getDraftDiffValues).mockResolvedValue({
+			deployed: { value: 'old-plaintext', is_secret: false, description: 'd' },
+			draft: { value: 'new-plaintext', is_secret: false, description: 'd' },
+			hasDraft: true,
+			noDeployed: false
+		} as any)
+		const entry = await readWorkspaceDiffEntry(WS, 'variable', 'f/a/token')
+		expect(entry?.status).toBe('modified')
+		expect(entry?.valueMasked).toBe(true)
+		// No plaintext on either side — the patch only marks that it changed.
+		expect(entry?.patch).not.toContain('plaintext')
+		expect(entry?.patch).toContain('(changed)')
+	})
+
 	it('materializes classic-app drafts under the chat app type', async () => {
 		vi.mocked(getDraftItems).mockResolvedValue([row({ kind: 'app', path: 'f/a/classic' })] as any)
 		mockDiffValues({ summary: 'v1' }, { summary: 'v2' })
@@ -378,22 +396,23 @@ describe('fork mode', () => {
 		expect(getItemValue).toHaveBeenCalledTimes(4)
 	})
 
-	it('never decrypts variables and redacts secret values', async () => {
-		mockComparison([comparisonDiff({ kind: 'variable', path: 'f/a/secret' })])
+	it('never decrypts variables and masks every value, secret or not', async () => {
+		mockComparison([comparisonDiff({ kind: 'variable', path: 'f/a/plain' })])
 		vi.mocked(VariableService.getVariable).mockImplementation(async ({ workspace }: any) => ({
-			path: 'f/a/secret',
-			is_secret: true,
-			value: `cipher-${workspace}`,
+			path: 'f/a/plain',
+			is_secret: false,
+			value: `plaintext-${workspace}`,
 			description: workspace === FORK ? 'fork side' : 'parent side'
 		})) as any
-		const entry = await readForkDiffEntry(FORK, PARENT, ['variable'], 'f/a/secret')
+		const entry = await readForkDiffEntry(FORK, PARENT, ['variable'], 'f/a/plain')
 		expect(
 			vi.mocked(VariableService.getVariable).mock.calls.every(([a]: any) => !a.decryptSecret)
 		).toBe(true)
-		expect(entry?.patch).not.toContain('cipher-')
-		// Description change still shows; the secret value itself never differs.
+		// NON-secret values are masked too — the chat never sees variable values.
+		expect(entry?.patch).not.toContain('plaintext-')
+		// Description change still shows; the value itself never differs here.
 		expect(entry?.patch).toContain('fork side')
-		expect(entry?.secretMasked).toBe(true)
+		expect(entry?.valueMasked).toBe(true)
 	})
 
 	it('sees script description-only changes the shared projection drops', async () => {
