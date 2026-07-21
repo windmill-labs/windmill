@@ -99,14 +99,32 @@
 	// prod). Persists immediately — it's a mode switch on an already-saved repo.
 	async function setDevPromotion(v: boolean) {
 		if (!repo || idx === null) return
+		const prevIndiv = repo.use_individual_branch
+		const prevGbf = repo.group_by_folder
 		repo.use_individual_branch = v
 		if (!v) repo.group_by_folder = false
-		await gitSyncContext.saveRepository(idx)
+		try {
+			await gitSyncContext.saveRepository(idx)
+		} catch (e) {
+			// The backend rejects promotion mode without an active EE plan; revert
+			// the optimistic toggle instead of leaving it stuck on until reload.
+			if (repo) {
+				repo.use_individual_branch = prevIndiv
+				repo.group_by_folder = prevGbf
+			}
+			sendUserToast(`Could not ${v ? 'enable' : 'disable'} Git promotion: ${e}`, true)
+		}
 	}
 	async function setGroupByFolder(v: boolean) {
 		if (!repo || idx === null) return
+		const prev = repo.group_by_folder
 		repo.group_by_folder = v
-		await gitSyncContext.saveRepository(idx)
+		try {
+			await gitSyncContext.saveRepository(idx)
+		} catch (e) {
+			if (repo) repo.group_by_folder = prev
+			sendUserToast(`Could not change promotion granularity: ${e}`, true)
+		}
 	}
 
 	let targetBranch = $state<string | undefined>(undefined) // Default to main, will be updated when resource is available

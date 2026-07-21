@@ -9,6 +9,10 @@ on:
       - "backend/windmill-api-integration-tests/tests/git_sync*"
       - "backend/ee-repo-ref.txt"
       - "backend/windmill-common/src/workspaces.rs"
+      - "backend/windmill-worker/src/result_processor.rs"
+      - "backend/windmill-api-workspaces/**"
+      - "cli/src/commands/sync/**"
+      - "cli/src/utils/git.ts"
       - "integration_tests/test/git_sync_test.py"
       - ".github/workflows/git-sync-test.yml"
   pull_request:
@@ -18,6 +22,10 @@ on:
       - "backend/windmill-api-integration-tests/tests/git_sync*"
       - "backend/ee-repo-ref.txt"
       - "backend/windmill-common/src/workspaces.rs"
+      - "backend/windmill-worker/src/result_processor.rs"
+      - "backend/windmill-api-workspaces/**"
+      - "cli/src/commands/sync/**"
+      - "cli/src/utils/git.ts"
       - "integration_tests/test/git_sync_test.py"
       - ".github/workflows/git-sync-test.yml"
 

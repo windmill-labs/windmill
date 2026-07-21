@@ -147,13 +147,13 @@
 		<div class="space-y-6 pt-6">
 			<GitSyncRepositoryCard
 				variant="primary-sync"
-				mode="sync"
+				mode={isDevWorkspace && devPrimaryRepo?.repo?.use_individual_branch ? 'promotion' : 'sync'}
 				idx={(isDevWorkspace ? devPrimaryRepo : primarySync)?.idx ?? null}
 				repository={(isDevWorkspace ? devPrimaryRepo : primarySync)?.repo ?? null}
 				onAdd={() => gitSyncContext.addSyncRepository()}
 				isCollapsible={false}
 				showEmptyState={(isDevWorkspace ? devPrimaryRepo : primarySync)?.repo == null}
-				devPromotion={isDevWorkspace}
+				devPromotion={isDevWorkspace && !!$enterpriseLicense}
 			/>
 
 			{#if $enterpriseLicense}
