@@ -1667,6 +1667,11 @@
     forbiddenToolsUsed:
       - deploy_workspace_item
       - delete_workspace_item
+    toolCallArgs:
+      - tool: diff
+        field: path
+        stringIncludesAnyOf:
+          - f/evals/global/format_greeting
   judgeChecklist:
     - creates an AI draft for the existing f/evals/global/format_greeting script with the exclamation-mark change
     - the draft changes only the returned message's punctuation — summary, language, path, and the rest of the code are untouched

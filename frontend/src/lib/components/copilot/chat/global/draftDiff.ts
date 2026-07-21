@@ -101,7 +101,10 @@ export function windowPatch(
 ): string {
 	const lines = patch.split('\n')
 	const total = lines.length
-	const start = Math.min(offset, total)
+	if (offset >= total) {
+		return `(no lines at offset ${offset} — the patch has ${total} lines; call again with a smaller offset)`
+	}
+	const start = offset
 	const requestedEnd = Math.min(total, start + limit)
 	let body = lines.slice(start, requestedEnd).join('\n')
 	let effectiveEnd = requestedEnd

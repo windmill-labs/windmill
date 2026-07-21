@@ -5606,7 +5606,8 @@ function formatForkIndexEntry(e: ForkDiffEntryView): string {
 			// Folder display_name lives only in the DB (no API surface exposes
 			// it), so an identical projection cannot prove folder parity.
 			if (e.kind === 'folder') {
-				return `- ${name} — no comparable differences; the folder display name is not exposed by the API and may differ (${aheadBehind})${draftFlag}`
+				const suffix = aheadBehind ? ` (${aheadBehind})` : ''
+				return `- ${name} — no comparable differences; the folder display name is not exposed by the API and may differ${suffix}${draftFlag}`
 			}
 			return e.valueMasked
 				? `- ${name} — value never shown in chat; may differ (${aheadBehind})${draftFlag}`

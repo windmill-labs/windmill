@@ -58,17 +58,37 @@ describe('fetchWorkspaceComparison', () => {
 		}
 	})
 
-	it('invalidation makes the next tolerant read fetch fresh (first post-deploy read)', async () => {
+	it('invalidation evicts by EITHER side and fences in-flight requests', async () => {
 		compareWorkspaces.mockResolvedValueOnce({ summary: { total_diffs: 0 } })
 		compareWorkspaces.mockResolvedValueOnce({ summary: { total_diffs: 3 } })
 
 		// Banner prewarms the cache pre-deploy...
-		await fetchWorkspaceComparison('p', 'f-inval', { maxAgeMs: 30_000 })
-		// ...a deploy invalidates (wired to invalidateWorkspaceDrafts)...
-		invalidateWorkspaceComparison('f-inval')
+		await fetchWorkspaceComparison('p-side', 'f-inval', { maxAgeMs: 30_000 })
+		// ...a deploy in the PARENT invalidates too...
+		invalidateWorkspaceComparison('p-side')
 		// ...so even a first-ever tolerant read cannot reuse the stale tally.
-		const fresh = await fetchWorkspaceComparison('p', 'f-inval', { maxAgeMs: 30_000 })
+		const fresh = await fetchWorkspaceComparison('p-side', 'f-inval', { maxAgeMs: 30_000 })
 		expect(fresh.summary.total_diffs).toBe(3)
+		expect(compareWorkspaces).toHaveBeenCalledTimes(2)
+	})
+
+	it('a pre-invalidation in-flight request is not joined and cannot land in the cache', async () => {
+		const stale = deferred<unknown>()
+		compareWorkspaces.mockImplementationOnce(() => stale.promise)
+		compareWorkspaces.mockResolvedValueOnce({ summary: { total_diffs: 9 } })
+
+		const preMutation = fetchWorkspaceComparison('p', 'f-fence', { maxAgeMs: 30_000 })
+		invalidateWorkspaceComparison('f-fence')
+		// Tolerant post-mutation read: must NOT join the fenced request.
+		const post = fetchWorkspaceComparison('p', 'f-fence', { maxAgeMs: 30_000 })
+		expect(compareWorkspaces).toHaveBeenCalledTimes(2)
+
+		stale.resolve({ summary: { total_diffs: 0 } })
+		await preMutation
+		expect((await post).summary.total_diffs).toBe(9)
+		// The stale request's late completion never landed in the cache.
+		const reread = await fetchWorkspaceComparison('p', 'f-fence', { maxAgeMs: 30_000 })
+		expect(reread.summary.total_diffs).toBe(9)
 		expect(compareWorkspaces).toHaveBeenCalledTimes(2)
 	})
 

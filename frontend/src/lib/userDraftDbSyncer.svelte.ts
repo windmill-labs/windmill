@@ -246,6 +246,16 @@ const saveListeners = new Map<string, Set<() => void>>()
 type DraftSavedEvent = { workspace: string; itemKind: UserDraftItemKind; path: string }
 const anySavedListeners = new Set<(event: DraftSavedEvent) => void>()
 
+function notifyAnySaved(event: DraftSavedEvent): void {
+	for (const listener of [...anySavedListeners]) {
+		try {
+			listener(event)
+		} catch (e) {
+			console.error('UserDraftDbSyncer.onAnySaved listener threw', e)
+		}
+	}
+}
+
 /**
  * Best-effort error → readable string. The generated client wraps HTTP
  * failures as `ApiError` (`body` / `statusText`); raw fetch errors are a
@@ -320,10 +330,9 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 			if (listeners) for (const l of [...listeners]) l()
 		}
 		// Global subscribers hear deletes too — a removed row invalidates
-		// cached state the same way an upsert does.
-		for (const l of [...anySavedListeners]) {
-			l({ workspace: opts.workspace, itemKind: opts.itemKind, path: opts.path })
-		}
+		// cached state the same way an upsert does. Listener errors must never
+		// make a committed save read as failed.
+		notifyAnySaved({ workspace: opts.workspace, itemKind: opts.itemKind, path: opts.path })
 	} catch (e) {
 		console.error('UserDraftDbSyncer.save failed', e)
 		// Leave pending opts in place so the next attempt retries the same
@@ -380,8 +389,11 @@ function flushOnPageHide(): void {
 				console.error('UserDraftDbSyncer: keepalive flush failed', e)
 			})
 			// POST advanced the row past `lastSync` and we can't read the
-			// response — mark the key so a bfcache restore drops it.
+			// response — mark the key so a bfcache restore drops it, and notify
+			// subscribers conservatively (this path bypasses postSave; on a
+			// bfcache restore a cache must not serve the pre-flush state).
 			staleSyncAfterHideFlush.add(key)
+			notifyAnySaved({ workspace: opts.workspace, itemKind: opts.itemKind, path: opts.path })
 		} catch (e) {
 			console.error('UserDraftDbSyncer: keepalive flush threw', e)
 		}

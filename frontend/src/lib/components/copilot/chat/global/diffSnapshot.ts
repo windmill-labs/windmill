@@ -222,6 +222,9 @@ interface CacheEntry {
 	displayPath: string
 	materialized?: Materialized
 	materializing?: Promise<void>
+	/** Bumped by stale-marking; a materialization started before the bump
+	 * must not store its (pre-save) result. */
+	staleGeneration?: number
 }
 
 interface WorkspaceCache {
@@ -259,10 +262,18 @@ export function markWorkspaceDiffEntryStale(
 	path: string
 ): void {
 	const cache = caches.get(workspace)
-	if (!cache) return
-	cache.listFetchedAt = 0
-	const entry = cache.entries.get(entryKey(itemKind, path))
-	if (entry) entry.materialized = undefined
+	if (cache) {
+		cache.listFetchedAt = 0
+		const entry = cache.entries.get(entryKey(itemKind, path))
+		if (entry) {
+			entry.materialized = undefined
+			entry.staleGeneration = (entry.staleGeneration ?? 0) + 1
+		}
+	}
+	// Fork entries embed a hasLocalDraft flag joined from the draft rows —
+	// refresh the join on the next fork access (patches survive via markers).
+	const fork = forkCaches.get(workspace)
+	if (fork) fork.fetchedAt = 0
 }
 
 // One app-lifetime subscription: every persisted draft write invalidates its
@@ -388,7 +399,13 @@ export function maskVariableDiffSides(
  * Reuses the cached patch when younger than `maxAgeMs`. */
 async function materialize(workspace: string, entry: CacheEntry, maxAgeMs: number): Promise<void> {
 	if (entry.materialized && Date.now() - entry.materialized.fetchedAt < maxAgeMs) return
-	if (entry.materializing) return entry.materializing
+	if (entry.materializing) {
+		// If a save landed mid-flight, the awaited run discarded its result —
+		// fall through and fetch fresh instead of serving nothing.
+		await entry.materializing
+		if (entry.materialized && Date.now() - entry.materialized.fetchedAt < maxAgeMs) return
+	}
+	const generationAtStart = entry.staleGeneration ?? 0
 	const run = (async () => {
 		try {
 			const { deployed, draft, noDeployed } = await getDraftDiffValues(
@@ -404,6 +421,8 @@ async function materialize(workspace: string, entry: CacheEntry, maxAgeMs: numbe
 				;({ before, after, valueUncomparable } = maskVariableDiffSides(before, after))
 			}
 			const parts = computeDiffParts(before, after, 'deployed', 'draft')
+			// A save that landed mid-fetch invalidated this run's inputs.
+			if ((entry.staleGeneration ?? 0) !== generationAtStart) return
 			entry.materialized = {
 				status: noDeployed ? 'new' : parts.hasChanges ? 'modified' : 'unchanged',
 				patch: parts.patch,
@@ -415,6 +434,7 @@ async function materialize(workspace: string, entry: CacheEntry, maxAgeMs: numbe
 				fetchedAt: Date.now()
 			}
 		} catch (e) {
+			if ((entry.staleGeneration ?? 0) !== generationAtStart) return
 			entry.materialized = {
 				status: 'error',
 				patch: '',
@@ -602,6 +622,7 @@ interface ForkEntry {
 interface ForkCache {
 	parentWorkspaceId: string
 	draftsVersion: number
+	parentDraftsVersion: number
 	fetchedAt: number
 	skippedComparison: boolean
 	entries: Map<string, ForkEntry>
@@ -655,10 +676,12 @@ function draftKindForForkKind(kind: string): UserDraftItemKind | undefined {
 async function reconcileFork(workspace: string, parentWorkspaceId: string): Promise<ForkCache> {
 	const prev = forkCaches.get(workspace)
 	const version = getWorkspaceDraftsVersion(workspace)
+	const parentVersion = getWorkspaceDraftsVersion(parentWorkspaceId)
 	if (
 		prev &&
 		prev.parentWorkspaceId === parentWorkspaceId &&
 		prev.draftsVersion === version &&
+		prev.parentDraftsVersion === parentVersion &&
 		Date.now() - prev.fetchedAt < FORK_COMPARISON_REUSE_MS
 	) {
 		return prev
@@ -668,7 +691,10 @@ async function reconcileFork(workspace: string, parentWorkspaceId: string): Prom
 	const run = (async () => {
 		// A drafts-version bump means something deployed in-app: demand a fresh
 		// tally. Otherwise piggyback on a recent fetch (e.g. the fork banner's).
-		const comparisonMaxAge = prev && prev.draftsVersion !== version ? 0 : FORK_COMPARISON_REUSE_MS
+		const comparisonMaxAge =
+			prev && (prev.draftsVersion !== version || prev.parentDraftsVersion !== parentVersion)
+				? 0
+				: FORK_COMPARISON_REUSE_MS
 		const [comparison, draftsCache] = await Promise.all([
 			fetchWorkspaceComparison(parentWorkspaceId, workspace, { maxAgeMs: comparisonMaxAge }),
 			reconcile(workspace)
@@ -707,6 +733,7 @@ async function reconcileFork(workspace: string, parentWorkspaceId: string): Prom
 		const cache: ForkCache = {
 			parentWorkspaceId,
 			draftsVersion: version,
+			parentDraftsVersion: parentVersion,
 			fetchedAt: Date.now(),
 			skippedComparison: comparison.skipped_comparison,
 			entries,

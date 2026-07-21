@@ -51,6 +51,11 @@ describe('windowPatch', () => {
 		expect(next).toContain(`line-${String(continueAt).padStart(2, '0')}`)
 	})
 
+	it('reports an overshooting offset instead of an impossible range', async () => {
+		const { windowPatch } = await import('./draftDiff')
+		expect(windowPatch('a\nb', 10, 5, 100)).toContain('no lines at offset 10')
+	})
+
 	it('steps past a single line larger than the whole budget', async () => {
 		const { windowPatch } = await import('./draftDiff')
 		const patch = ['x'.repeat(100), 'after'].join('\n')

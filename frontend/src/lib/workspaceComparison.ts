@@ -16,6 +16,7 @@ interface CacheEntry {
 
 interface InflightEntry {
 	startedAt: number
+	generation: number
 	promise: Promise<WorkspaceComparison>
 }
 
@@ -24,6 +25,11 @@ const inflight = new Map<string, InflightEntry>()
 // Millisecond timestamps collide under concurrency — ordering between
 // requests rides on this monotonic generation instead.
 let requestGeneration = 0
+// Per-key floor: results from requests at or below this generation are
+// pre-invalidation and must never land in the cache.
+const invalidatedBelow = new Map<string, number>()
+// Comparisons are big; keep only the few pairs a session actually browses.
+const MAX_CACHE_ENTRIES = 8
 
 function key(parentWorkspaceId: string, forkWorkspaceId: string): string {
 	return `${parentWorkspaceId}:${forkWorkspaceId}`
@@ -59,14 +65,23 @@ export async function fetchWorkspaceComparison(
 			workspace: parentWorkspaceId,
 			targetWorkspaceId: forkWorkspaceId
 		})
-		// A superseded (older-generation) request must not clobber a newer result.
+		// A superseded (older-generation) or pre-invalidation request must not
+		// clobber a newer result.
 		const existing = cache.get(k)
-		if (!existing || existing.generation < generation) {
+		if (
+			generation > (invalidatedBelow.get(k) ?? 0) &&
+			(!existing || existing.generation < generation)
+		) {
+			cache.delete(k)
 			cache.set(k, { fetchedAt: startedAt, generation, comparison })
+			// Insertion-ordered Map: evict the oldest pairs past the cap.
+			while (cache.size > MAX_CACHE_ENTRIES) {
+				cache.delete(cache.keys().next().value as string)
+			}
 		}
 		return comparison
 	})()
-	inflight.set(k, { startedAt, promise: run })
+	inflight.set(k, { startedAt, generation, promise: run })
 	try {
 		return await run
 	} finally {
@@ -74,12 +89,19 @@ export async function fetchWorkspaceComparison(
 	}
 }
 
-/** Drop cached comparisons involving this fork workspace. Wired to
- * `invalidateWorkspaceDrafts`, so any in-app deploy/draft mutation makes the
- * NEXT read fetch a fresh tally even when no snapshot baseline exists yet.
- * (Workspace ids cannot contain ':', so the suffix match is exact.) */
-export function invalidateWorkspaceComparison(forkWorkspaceId: string): void {
+/** Drop cached comparisons involving this workspace on EITHER side — a
+ * deploy in a parent moves its forks' tallies too. Also fences in-flight
+ * requests: nobody new joins them and their late results never land in the
+ * cache. (Workspace ids cannot contain ':', so the matches are exact.) */
+export function invalidateWorkspaceComparison(workspaceId: string): void {
+	const matches = (k: string) => k.startsWith(`${workspaceId}:`) || k.endsWith(`:${workspaceId}`)
 	for (const k of [...cache.keys()]) {
-		if (k.endsWith(`:${forkWorkspaceId}`)) cache.delete(k)
+		if (matches(k)) cache.delete(k)
+	}
+	for (const [k, entry] of [...inflight.entries()]) {
+		if (matches(k)) {
+			invalidatedBelow.set(k, entry.generation)
+			inflight.delete(k)
+		}
 	}
 }

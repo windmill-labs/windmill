@@ -16,7 +16,6 @@
  */
 import { resource } from 'runed'
 import { DraftService, type UserDraftItemKind } from '$lib/gen'
-import { invalidateWorkspaceComparison } from '$lib/workspaceComparison'
 
 export type DraftKind = UserDraftItemKind
 
@@ -90,9 +89,6 @@ const versions: Record<string, number> = $state({})
 export function invalidateWorkspaceDrafts(workspace: string | undefined): void {
 	if (!workspace) return
 	versions[workspace] = (versions[workspace] ?? 0) + 1
-	// A mutation may have moved either side of a fork comparison — the cached
-	// tally must not serve the first post-mutation read.
-	invalidateWorkspaceComparison(workspace)
 }
 
 /** Current invalidation version for a workspace. Non-reactive read — callers

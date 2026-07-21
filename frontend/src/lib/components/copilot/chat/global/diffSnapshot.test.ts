@@ -321,6 +321,7 @@ describe('readWorkspaceDiffEntry', () => {
 		expect(entry?.status).toBe('new')
 	})
 
+	// (resolveWorkspaceDiffTarget)
 	it('resolves a renamed draft to its owning row across kinds', async () => {
 		vi.mocked(getDraftItems).mockResolvedValue([
 			row({ kind: 'app', path: 'f/old/name', draft_path: 'f/new/name' })

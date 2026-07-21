@@ -40,6 +40,7 @@ import { deployRawAppDraft } from '$lib/rawAppDeploy'
 import { canonicalRawAppDiffValue } from '$lib/components/raw_apps/utils'
 import { classicAppDraftParts } from '$lib/appDiffSides'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
+import { invalidateWorkspaceComparison } from '$lib/workspaceComparison'
 import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 import { userStore } from '$lib/stores'
 import { deployTriggers, type Trigger } from '$lib/components/triggers/utils'
@@ -639,6 +640,10 @@ export async function deployDraft(
 		})
 		// Mutated the workspace's Server Drafts — refresh every mounted reader.
 		invalidateWorkspaceDrafts(workspace)
+		// The DEPLOYED state moved: cached fork comparisons involving this
+		// workspace (as fork or as parent) are no longer trustworthy. Draft-only
+		// mutations skip this — they never move the deployed tally.
+		invalidateWorkspaceComparison(workspace)
 		// For script/flow/app the server-side delete bypasses UserDraftDbSyncer,
 		// so the syncer-owned hint won't auto-clear — clear it explicitly.
 		// (Idempotent: the drawer-kind delete above already cleared it.)
