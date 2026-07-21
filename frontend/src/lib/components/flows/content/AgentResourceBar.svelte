@@ -139,19 +139,29 @@
 		saveDrawer?.openDrawer()
 	}
 
-	// The provider is required by the backend (AIAgentArgs.provider is non-optional). Only static
-	// transforms are captured into the resource, so a computed/connected provider would be dropped,
-	// producing an agent that fails to deserialize on every run — block saving in that case.
-	let providerNotStatic = $derived(nonStaticBrainKeys(inputTransforms).includes('provider'))
+	// The provider is required by the backend (AIAgentArgs.provider is non-optional), so an agent
+	// saved without a complete one fails on every linked run. Block saving when the provider is
+	// computed/connected (only a static value can be captured into the resource) or when the static
+	// value is incomplete (a fresh step defaults to empty resource/model, which is still static).
+	let providerSaveError = $derived.by(() => {
+		const t = inputTransforms?.provider as
+			| { type?: string; value?: { resource?: string; model?: string } }
+			| undefined
+		if (!t || t.type !== 'static') {
+			return 'Set a static provider before saving. A linked agent needs a provider stored on the resource, so a computed/connected value can not be saved.'
+		}
+		if (!t.value?.resource || !t.value?.model) {
+			return 'Select a provider resource and model before saving.'
+		}
+		return undefined
+	})
 
 	// Create or update the `ai_agent` resource at `path` from the step's current brain + tools, then
 	// link the step to it.
 	async function persist(path: string, description?: string) {
 		const dropped = nonStaticBrainKeys(inputTransforms)
-		if (providerNotStatic) {
-			throw new Error(
-				'The provider uses a computed/connected value. Set a static provider before saving — a linked agent needs a provider stored on the resource.'
-			)
+		if (providerSaveError) {
+			throw new Error(providerSaveError)
 		}
 		if (dropped.length > 0) {
 			sendUserToast(
@@ -366,7 +376,7 @@
 					size="xs2"
 					variant="accent"
 					startIcon={{ icon: Save }}
-					disabled={saving || providerNotStatic}
+					disabled={saving || !!providerSaveError}
 					onclick={saveChanges}
 				>
 					Save changes
@@ -385,10 +395,9 @@
 			propagates to every flow that links to it. Cancel keeps your edits here as a standalone step
 			instead.
 		</p>
-		{#if providerNotStatic}
+		{#if providerSaveError}
 			<p class="text-2xs text-red-600 dark:text-red-400 mt-1">
-				Set a static provider before saving — a linked agent needs a provider stored on the
-				resource.
+				{providerSaveError}
 			</p>
 		{/if}
 	{:else}
@@ -427,10 +436,9 @@
 				<span class="text-secondary">Description</span>
 				<TextInput bind:value={description} placeholder="What this agent does" size="sm" />
 			</label>
-			{#if providerNotStatic}
+			{#if providerSaveError}
 				<p class="text-xs text-red-600 dark:text-red-400">
-					Set a static provider before saving — a linked agent needs a provider stored on the
-					resource, so a computed/connected provider can't be saved.
+					{providerSaveError}
 				</p>
 			{/if}
 		</div>
@@ -438,7 +446,7 @@
 			<Button
 				variant="accent"
 				startIcon={{ icon: Save }}
-				disabled={!newPath || !!pathError || saving || providerNotStatic}
+				disabled={!newPath || !!pathError || saving || !!providerSaveError}
 				onclick={saveAsAgent}
 			>
 				Save agent
