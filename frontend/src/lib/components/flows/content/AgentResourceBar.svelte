@@ -238,7 +238,11 @@
 
 	// Copy the linked resource's brain + tools into the step, turning it back into a standalone
 	// editable agent. Shared by Unlink (diverge here) and Edit (edit the saved agent itself).
-	async function forkFromResource(): Promise<string | undefined> {
+	// Unlink folds the host flow's tool_inputs overrides into the tools (the standalone step keeps
+	// its effective bindings) and clears them. Edit must NOT fold: it edits the shared defaults, so
+	// it starts from the resource's own tools and preserves tool_inputs so this flow's overrides
+	// survive the re-link after Save changes instead of being promoted into the agent.
+	async function forkFromResource(foldOverrides: boolean): Promise<string | undefined> {
 		if (!ws || !agent) {
 			return undefined
 		}
@@ -254,17 +258,17 @@
 			}
 		}
 		inputTransforms = { ...brain, ...local }
-		// The forked step owns the tools directly, with the host bindings folded into each tool's
-		// input_transforms, so the linked-only override map no longer applies.
 		const forkedTools = cfg.tools ?? []
-		for (const tool of forkedTools) {
-			const overrides = toolInputs?.[tool.id]
-			if (overrides && tool.value?.input_transforms) {
-				tool.value.input_transforms = { ...tool.value.input_transforms, ...overrides }
+		if (foldOverrides) {
+			for (const tool of forkedTools) {
+				const overrides = toolInputs?.[tool.id]
+				if (overrides && tool.value?.input_transforms) {
+					tool.value.input_transforms = { ...tool.value.input_transforms, ...overrides }
+				}
 			}
+			toolInputs = {}
 		}
 		tools = forkedTools
-		toolInputs = {}
 		agent = undefined
 		pickerValue = undefined
 		return path
@@ -273,7 +277,7 @@
 	// Unlink forks the agent into this step so it can diverge here. It does not write back.
 	async function unlink() {
 		try {
-			const path = await forkFromResource()
+			const path = await forkFromResource(true)
 			if (path) {
 				setAgentEditingPath(ws, flowPath, moduleId, undefined)
 				sendUserToast('Forked agent — its configuration was copied into this step')
@@ -287,7 +291,7 @@
 	// "Save changes" writes back to it (updating every flow that links to it).
 	async function editAgent() {
 		try {
-			const path = await forkFromResource()
+			const path = await forkFromResource(false)
 			if (path) {
 				setAgentEditingPath(ws, flowPath, moduleId, path)
 				sendUserToast(`Editing ${path} — make changes, then Save changes to update it`)
