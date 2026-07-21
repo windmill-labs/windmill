@@ -603,6 +603,7 @@
 		} else if (
 			e.key === 'ArrowUp' &&
 			!e.defaultPrevented &&
+			e.target instanceof HTMLTextAreaElement &&
 			editingMessageIndex === null &&
 			onSendRequest === undefined &&
 			!instructions.trim()
@@ -610,8 +611,10 @@
 			// Shell-style recall: ArrowUp in the empty main composer pulls the
 			// queued message (if any, same as the queued-message chip's click/X)
 			// or otherwise a copy of the last sent message back into the input.
-			// Main composer only — the edit input and custom-send consumers
-			// (inline widget) have their own history semantics.
+			// Textarea only — ArrowUp on the wrapper's buttons/badges must not
+			// mutate the composer; and main composer only — the edit input and
+			// custom-send consumers (inline widget) have their own history
+			// semantics.
 			if (aiChatManager.queuedMessage) {
 				e.preventDefault()
 				aiChatManager.dequeueMessage()
