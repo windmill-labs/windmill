@@ -813,6 +813,16 @@ type TriggerEvent =
       };
     }
   | {
+      kind: "amqp";
+      trigger_path: string;
+      payload: string;
+      exchange: string;
+      routing_key: string;
+      queue_name: string;
+      redelivered: boolean;
+      delivery_tag: number;
+    }
+  | {
       kind: "gcp";
       trigger_path: string;
       payload: string;
@@ -986,6 +996,17 @@ class MqttEvent(TypedDict):
     v5: Optional[MqttV5Properties]
 
 
+class AmqpEvent(TypedDict):
+    kind: Literal["amqp"]
+    trigger_path: str
+    payload: str
+    exchange: str
+    routing_key: str
+    queue_name: str
+    redelivered: bool
+    delivery_tag: int
+
+
 class GcpEvent(TypedDict):
     kind: Literal["gcp"]
     trigger_path: str
@@ -1019,6 +1040,7 @@ Event = Union[
     NatsEvent,
     SqsEvent,
     MqttEvent,
+    AmqpEvent,
     GcpEvent,
     PostgresEvent,
 ]
@@ -1097,6 +1119,10 @@ export const PHP_PREPROCESSOR_MODULE_CODE = `function preprocessor(object $event
     // MQTT event:
     // ['kind' => 'mqtt', 'trigger_path' => '...', 'payload' => '...', 'topic' => '...', 'retain' => true, 'pkid' => 1,
     //  'qos' => 1, 'v5' => [...]]
+    //
+    // AMQP event:
+    // ['kind' => 'amqp', 'trigger_path' => '...', 'payload' => '...', 'exchange' => '...', 'routing_key' => '...',
+    //  'queue_name' => '...', 'redelivered' => false, 'delivery_tag' => 1]
     //
     // GCP event:
     // ['kind' => 'gcp', 'trigger_path' => '...', 'payload' => '...', 'message_id' => '...', 'subscription' => '...',
