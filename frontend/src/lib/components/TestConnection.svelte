@@ -102,7 +102,7 @@ export async function main(s3: S3) {
 			lang: 'bun',
 			argName: 's3',
 			tooltip:
-				'The storage operations of this test run on the Windmill server, which is also what serves workspace object storage reads/writes. If no access key/secret key is set, the ambient AWS credentials of the server (environment variables, instance role) are used — scripts using this resource directly through an S3 SDK resolve credentials on the worker instead.'
+				'If no access key/secret key is set, the ambient AWS credentials are used. If you only configured AWS credentials on your workers and not the server, this test will fail (but the resource will work from the workers).'
 		},
 		azure_blob: {
 			code: `
