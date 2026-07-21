@@ -694,8 +694,14 @@
 
 {#snippet sendStopButton()}
 	{@const isLoading = loading ?? aiChatManager.loading}
+	{@const emptyDraft = instructions.trim().length === 0 && images.length === 0}
+	<!-- An empty GLOBAL draft is a valid "go on" turn (Enter already sends it),
+	     so the button stays enabled there for pointer/touch parity. Custom
+	     onSendRequest consumers (inline ⌘K) and editor copilots need content. -->
 	{@const sendDisabled =
-		disabled || (instructions.trim().length === 0 && images.length === 0) || pendingImages > 0}
+		disabled ||
+		pendingImages > 0 ||
+		(emptyDraft && (onSendRequest !== undefined || aiChatManager.mode !== AIMode.GLOBAL))}
 	<Button
 		variant="subtle"
 		unifiedSize="md"

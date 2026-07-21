@@ -186,9 +186,12 @@ leaves and ignores the current scope.
 		)
 	)
 
+	// Search nav must follow DISPLAY order (the grouped blocks), not the raw
+	// fuzzy ranking — grouping reorders interleaved results, and rank-ordered
+	// keys would make ArrowUp/Down jump between non-adjacent visible rows.
 	const navKeys = $derived(
 		isSearching
-			? (searchedItems ?? ([] as typeof searchItems)).map((r) => r.leaf.key)
+			? searchResultsByGroup.flatMap((g) => g.items.map((r) => r.leaf.key))
 			: entryList.map((e) => e.key)
 	)
 
