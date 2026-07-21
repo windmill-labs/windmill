@@ -28,13 +28,7 @@
 		customWidth={170}
 	>
 		{#snippet buttonReplacement()}
-			<Button
-				nonCaptureEvent
-				unifiedSize="2xs"
-				variant="subtle"
-				endIcon={{ icon: ChevronDown }}
-				title="Switch mode (Shift+Tab)"
-			>
+			<Button nonCaptureEvent unifiedSize="2xs" variant="subtle" endIcon={{ icon: ChevronDown }}>
 				{modeLabel(aiChatManager.mode)}
 			</Button>
 		{/snippet}
