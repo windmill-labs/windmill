@@ -3523,7 +3523,8 @@ async fn edit_git_sync_config(
             tracing::warn!("git auto-pull: webhook field persist error: {}", e);
         }
         for (path, hook_id) in removed_webhooks {
-            if let Ok(url) = windmill_common::git_sync_ee::resolve_repo_url(&db, &w_id, &path).await
+            if let Ok(url) =
+                windmill_common::git_sync_ee::resolve_repo_url_interpolated(&db, &w_id, &path).await
             {
                 let _ =
                     windmill_common::git_sync_ee::delete_repo_webhook(&db, &w_id, &url, hook_id)
@@ -3882,7 +3883,7 @@ async fn delete_git_sync_repository(
     // Removal is durable now — best-effort delete the GitHub webhook.
     #[cfg(all(feature = "enterprise", feature = "private"))]
     if let Some(hook_id) = webhook_to_delete {
-        if let Ok(url) = windmill_common::git_sync_ee::resolve_repo_url(
+        if let Ok(url) = windmill_common::git_sync_ee::resolve_repo_url_interpolated(
             &db,
             &w_id,
             &request.git_repo_resource_path,
@@ -7071,7 +7072,8 @@ async fn attach_dev_workspace(
     // (their auto_pull is gone), so remove them from GitHub.
     #[cfg(all(feature = "enterprise", feature = "private"))]
     for (path, hook_id) in stripped_webhooks {
-        if let Ok(url) = windmill_common::git_sync_ee::resolve_repo_url(&db, &dev_w_id, &path).await
+        if let Ok(url) =
+            windmill_common::git_sync_ee::resolve_repo_url_interpolated(&db, &dev_w_id, &path).await
         {
             let _ =
                 windmill_common::git_sync_ee::delete_repo_webhook(&db, &dev_w_id, &url, hook_id)
