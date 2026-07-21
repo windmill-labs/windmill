@@ -186,6 +186,20 @@ leaves and ignores the current scope.
 		)
 	)
 
+	// Browse rows annotated with the section header rendered above them. A
+	// header is emitted when a leaf's section differs from the previous LEAF's
+	// section — comparing against the previous entry of any type would insert a
+	// duplicate header after every branch interleaved between same-section leaves.
+	const entryRows = $derived.by(() => {
+		let lastLeafSection: string | undefined
+		return entryList.map((entry) => {
+			const section = entry.type === 'leaf' ? entry.node.section : undefined
+			const header = entry.type === 'leaf' && section !== lastLeafSection ? section : undefined
+			if (entry.type === 'leaf') lastLeafSection = section
+			return { entry, header }
+		})
+	})
+
 	// Search nav must follow DISPLAY order (the grouped blocks), not the raw
 	// fuzzy ranking — grouping reorders interleaved results, and rank-ordered
 	// keys would make ArrowUp/Down jump between non-adjacent visible rows.
@@ -558,14 +572,11 @@ leaves and ignores the current scope.
 			<div role="status" class="px-3 py-2 text-xs text-tertiary">Empty</div>
 		{:else}
 			<div class="flex flex-col py-1">
-				{#each entryList as entry, i (entry.key)}
+				{#each entryRows as { entry, header } (entry.key)}
 					{@const isHl = entry.key === highlightedKey}
-					{@const section = entry.type === 'leaf' ? entry.node.section : undefined}
-					{@const prev = i > 0 ? entryList[i - 1] : undefined}
-					{@const prevSection = prev?.type === 'leaf' ? prev.node.section : undefined}
-					{#if section && section !== prevSection}
+					{#if header}
 						<div class="px-3 pt-2 pb-1 text-2xs uppercase tracking-wide text-tertiary font-medium">
-							{section}
+							{header}
 						</div>
 					{/if}
 					{#if entry.type === 'leaf'}

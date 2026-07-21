@@ -1823,6 +1823,10 @@ export type SessionPromptContext = {
 	/** The operating workspace is a persistent dev workspace, not an ephemeral
 	 * staged fork. Same promote-to-parent deploy flow; different lifecycle. */
 	isDevWorkspace?: boolean
+	/** Committed workspace missing from the user's workspace list (access lost /
+	 * stale store): still a fork per `isForkSession`, but the parent is unknown —
+	 * must not be presented as the live workspace. */
+	forkParentUnknown?: boolean
 	/** Pre-send intent: a staged fork of this workspace is created at first send. */
 	pendingForkOf?: string
 }
@@ -1849,6 +1853,10 @@ export function getSessionContextPromptSection(ctx: SessionPromptContext): strin
 		const name = ctx.workspaceName ? ` ("${ctx.workspaceName}")` : ''
 		lines.push(
 			`- Operating workspace: "${ctx.workspaceId}"${name} — an ephemeral STAGED FORK of workspace "${ctx.parentWorkspaceId}", created for session work. deploy_workspace_item publishes into the fork only, and the user reviews & promotes fork changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
+		)
+	} else if (ctx.forkParentUnknown) {
+		lines.push(
+			`- Operating workspace: "${ctx.workspaceId}" — a fork whose parent workspace is not currently visible to this user. deploy_workspace_item publishes into the fork only; the user promotes changes from the session's deploy panel. Never present a change as live in any other workspace.`
 		)
 	} else if (ctx.workspaceId) {
 		lines.push(

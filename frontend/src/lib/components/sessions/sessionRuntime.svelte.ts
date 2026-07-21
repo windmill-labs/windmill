@@ -348,6 +348,9 @@ function createRuntime(session: Session): SessionRuntime {
 			workspaceName: ws?.name,
 			parentWorkspaceId: ws?.parent_workspace_id ?? undefined,
 			isDevWorkspace: ws?.is_dev_workspace,
+			// Committed workspace missing from the list: still a fork (mirrors
+			// isForkSession) — the prompt must not call it the live workspace.
+			forkParentUnknown: !ws && !!s.workspace_id,
 			pendingForkOf: s.pending_fork?.parent_workspace_id
 		}
 	}

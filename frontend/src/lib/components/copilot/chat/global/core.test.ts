@@ -3513,6 +3513,15 @@ describe('getSessionContextPromptSection', () => {
 		const s = getSessionContextPromptSection({ workspaceId: 'prod', pendingForkOf: 'prod' })
 		expect(s).toContain('staged fork of workspace "prod" is created automatically')
 	})
+
+	it('never calls a committed-but-unlisted workspace the live workspace', () => {
+		const s = getSessionContextPromptSection({
+			workspaceId: 'wm-fork-gone',
+			forkParentUnknown: true
+		})
+		expect(s).toContain('parent workspace is not currently visible')
+		expect(s).not.toContain('the live workspace itself')
+	})
 })
 
 describe('prepareGlobalSystemMessage', () => {
