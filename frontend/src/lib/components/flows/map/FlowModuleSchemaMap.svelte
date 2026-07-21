@@ -171,14 +171,15 @@
 		let state = emptyFlowModuleState()
 		flowStateStore.val[module.id] = state
 		if (wsFlow) {
-			;[module, state] = await pickFlow(wsFlow.path, wsFlow.summary, module.id)
+			;[module, state] = await pickFlow(wsFlow.path, wsFlow.summary, module.id, opWs)
 		} else if (wsScript) {
 			;[module, state] = await pickScript(
 				wsScript.path,
 				wsScript.summary,
 				module.id,
 				wsScript.hash,
-				kind
+				kind,
+				opWs
 			)
 		} else if (kind == 'forloop') {
 			;[module, state] = await createLoop(module.id, !disableAi && $copilotInfo.enabled)
@@ -244,7 +245,10 @@
 		} else if (toolKind === 'aiAgentTool') {
 			// Create AI Agent tool (nested agent)
 			const aiAgentTool = createAiAgentTool(module.id)
-			flowStateStore.val[module.id] = await loadFlowModuleState(agentToolToFlowModule(aiAgentTool))
+			flowStateStore.val[module.id] = await loadFlowModuleState(
+				agentToolToFlowModule(aiAgentTool),
+				opWs
+			)
 			;(modules as AgentTool[]).splice(index, 0, aiAgentTool)
 			return modules as AgentTool[]
 		} else if (toolKind === 'flowmoduleTool') {
@@ -705,7 +709,8 @@
 						flowStore,
 						flowStateStore,
 						detail.inlineScript,
-						detail.script
+						detail.script,
+						opWs
 					)
 					selectionManager.selectId('preprocessor')
 					if (detail.inlineScript?.instructions) {

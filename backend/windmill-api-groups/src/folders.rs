@@ -15,7 +15,7 @@ use axum::{
 };
 use lazy_static::lazy_static;
 use regex::Regex;
-use windmill_api_auth::{check_scopes, ApiAuthed, AuthCache, Tokened};
+use windmill_api_auth::{build_scope_path_predicate, check_scopes, ApiAuthed, AuthCache, Tokened};
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::DB;
@@ -109,6 +109,7 @@ async fn list_folders(
     let (per_page, offset) = paginate(pagination);
     let mut tx = user_db.begin(&authed).await?;
 
+    let allowed = build_scope_path_predicate(&authed, "folders", "read");
     let rows = sqlx::query_as!(
         Folder,
         "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as, labels FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
@@ -117,7 +118,10 @@ async fn list_folders(
         offset as i64
     )
     .fetch_all(&mut *tx)
-    .await?;
+    .await?
+    .into_iter()
+    .filter(|r| allowed(&format!("f/{}", r.name)))
+    .collect::<Vec<_>>();
     tx.commit().await?;
 
     Ok(Json(rows))
@@ -131,6 +135,7 @@ async fn list_foldernames(
     let (per_page, offset) = paginate(pagination);
     let mut tx = user_db.begin(&authed).await?;
 
+    let allowed = build_scope_path_predicate(&authed, "folders", "read");
     let rows = sqlx::query_scalar!(
         "SELECT name FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
         w_id,
@@ -138,7 +143,10 @@ async fn list_foldernames(
         offset as i64
     )
     .fetch_all(&mut *tx)
-    .await?;
+    .await?
+    .into_iter()
+    .filter(|name| allowed(&format!("f/{}", name)))
+    .collect::<Vec<_>>();
 
     tx.commit().await?;
 

@@ -10,6 +10,8 @@
 	import ToolContentDisplay from './ToolContentDisplay.svelte'
 	import ToolMessageActions from './ToolMessageActions.svelte'
 	import AskUserQuestionDisplay from './AskUserQuestionDisplay.svelte'
+	import WebSearchSourcesDisplay from './WebSearchSourcesDisplay.svelte'
+	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 
 	interface Props {
 		message: ToolDisplayMessage
@@ -29,8 +31,12 @@
 	)
 	const autoCollapseDetails = $derived(message.autoCollapseDetails !== false)
 
+	// An errored tool must be expandable even if it never opted into details,
+	// otherwise the error set on its status would be invisible.
+	const detailsAvailable = $derived(message.showDetails === true || message.error !== undefined)
+
 	let isExpanded = $derived(
-		(message.showDetails && (!isSuccessful || !autoCollapseDetails)) ||
+		(detailsAvailable && (!isSuccessful || !autoCollapseDetails)) ||
 			(message.isStreamingArguments && hasParameters) ||
 			(message.isLoading && message.needsConfirmation)
 	)
@@ -57,7 +63,7 @@
 				message.needsConfirmation ? 'opacity-80' : ''
 			)}
 			onclick={() => (isExpanded = !isExpanded)}
-			disabled={!message.showDetails && !message.isStreamingArguments}
+			disabled={!detailsAvailable && !message.isStreamingArguments}
 		>
 			<div class="flex items-center gap-2">
 				{#if message.isLoading && !message.needsConfirmation}
@@ -67,7 +73,7 @@
 					{message.content}
 				</span>
 
-				{#if message.showDetails || message.isStreamingArguments}
+				{#if detailsAvailable || message.isStreamingArguments}
 					<ChevronRight
 						class={twMerge(
 							'w-3 h-3 text-secondary transition-transform duration-150',
@@ -77,6 +83,17 @@
 				{/if}
 			</div>
 		</button>
+
+		<!-- Image a tool produced (e.g. take_screenshot) — shown inline, not gated on expand. -->
+		{#if message.imageUrl}
+			<div class="my-1">
+				<ExpandableImage
+					src={message.imageUrl}
+					alt="App preview screenshot"
+					class="max-h-48 max-w-full rounded border border-border-light"
+				/>
+			</div>
+		{/if}
 
 		<!-- Expanded Content -->
 		{#if isExpanded}
@@ -137,6 +154,8 @@
 
 					{#if visibleActions.length > 0}
 						<ToolMessageActions actions={visibleActions} />
+					{:else if message.webSearchSources?.length && !message.error}
+						<WebSearchSourcesDisplay sources={message.webSearchSources} />
 					{:else}
 						<ToolContentDisplay
 							title="Result"

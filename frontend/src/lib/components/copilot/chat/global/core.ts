@@ -46,6 +46,11 @@ import {
 } from '$lib/components/raw_apps/templates'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
+import type { RawAppDomQuery } from '$lib/components/raw_apps/rawAppDom'
+import { dataUrlToImagePart, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
+import { modelSupportsVision } from '../../modelConfig'
+import { tryGetCurrentModel } from '$lib/aiStore'
+import { isChromiumBrowser } from '$lib/utils'
 import {
 	applyEditableFlowJsonToFlow,
 	buildEditableFlowJson,
@@ -53,6 +58,7 @@ import {
 	validateEditableFlowJson
 } from '../flow/editableFlowJson'
 import { createInlineScriptSession } from '../flow/inlineScriptsUtils'
+import { searchNpmPackagesTool } from '../script/core'
 import {
 	getDatatableSdkReference,
 	getFlowPrompt,
@@ -78,10 +84,13 @@ import {
 	type ToolDisplayAction
 } from '../shared'
 import { searchDocsTool, readDocsPageTool } from '../docs/core'
+import { createDbSchemaTool } from '../script/core'
 import type { ContextElement } from '../context'
 import { getDatatableTools } from '../datatableTools'
 import { fileTools } from '../files/fileTools'
 import type { AttachedFilesStore } from '../files/attachedFiles.svelte'
+import { artifactTools } from '../artifacts/artifactTools'
+import type { SessionArtifactsStore } from '../artifacts/artifactsState.svelte'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
 import { inferArgs } from '$lib/infer'
@@ -146,6 +155,8 @@ import {
 	setEphemeralSecretVariableDraftValue,
 	type DraftPersistResult
 } from './userDraftAdapter'
+import { apiCatalogTools } from './apiCatalogTools'
+import { isSessionPipelinesEnabled, SESSION_PIPELINES_GATED_MESSAGE } from './pipelineGate'
 
 const ITEM_TYPES = [
 	'script',
@@ -190,6 +201,8 @@ export type GlobalActiveEditorContext = {
 export type GlobalUserMessageOptions = {
 	workspace?: string
 	activeEditor?: GlobalActiveEditorContext
+	/** Images attached to this message; delivered as image_url content parts. */
+	images?: AttachedImage[]
 }
 
 const itemTypeSchema = z.enum(ITEM_TYPES)
@@ -283,7 +296,17 @@ const listWorkspaceItemsSchema = z.object({
 		.min(1)
 		.max(MAX_LIST_LIMIT)
 		.optional()
-		.describe('Maximum number of items to return. Defaults to 50 and is capped at 100.')
+		.describe(
+			'Maximum items per item type per page (for triggers, per trigger kind). Defaults to 50 and is capped at 100.'
+		),
+	page: z
+		.number()
+		.int()
+		.min(1)
+		.optional()
+		.describe(
+			'Page number, starting at 1. Each item type pages independently: request the next page while any type still returns a full page. Drafts appear on page 1 only, capped at limit per type.'
+		)
 })
 
 const readWorkspaceItemSchema = z.object({
@@ -291,7 +314,13 @@ const readWorkspaceItemSchema = z.object({
 	path: z.string().describe('Workspace path of the item to read.'),
 	trigger_kind: triggerKindSchema
 		.optional()
-		.describe('Required when type is trigger. Identifies which trigger service to call.')
+		.describe('Required when type is trigger. Identifies which trigger service to call.'),
+	version: z
+		.enum(['deployed'])
+		.optional()
+		.describe(
+			'Pass "deployed" to read the deployed workspace state even when a draft exists (e.g. to learn the deployed input schema before running the deployed version). Default reads your draft when one exists.'
+		)
 })
 
 const draftOverrideField = z
@@ -363,7 +392,14 @@ const writeFlowSchema = z.object({
 		.optional()
 		.nullable()
 		.describe(
-			'JSON string containing the optional array of semantic flow groups. Pass null to clear groups.'
+			'JSON string, array of semantic flow groups (call get_instructions subject:"flow" for the full field reference). color MUST be one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray — never hex codes. Pass null to clear groups.'
+		),
+	notes: z
+		.string()
+		.optional()
+		.nullable()
+		.describe(
+			'JSON string, array of free-floating sticky notes (type must be "free"; call get_instructions subject:"flow" for the full field reference). color MUST be one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray — never hex codes. Pass null to clear notes.'
 		),
 	override: draftOverrideField
 })
@@ -386,7 +422,8 @@ function editableFlowToDraftValue(editable: EditableFlowJson): FlowDraftValue {
 		modules: editable.modules,
 		preprocessor_module: editable.preprocessor_module ?? undefined,
 		failure_module: editable.failure_module ?? undefined,
-		groups: editable.groups ?? undefined
+		groups: editable.groups ?? undefined,
+		notes: editable.notes ?? undefined
 	}
 	return {
 		value,
@@ -795,6 +832,44 @@ const listAppRunsSchema = z.object({
 		.describe('How many of the most recent backend runs to return, newest first. Defaults to 20.')
 })
 
+const domSelectorField = z
+	.string()
+	.optional()
+	.describe(
+		'CSS selector for the element to inspect in the live raw app preview. Omit to target the whole page (<body>). Prefer a selector from a DOM element chip the user attached. If it matches several elements, the first is used.'
+	)
+
+const domAppPathField = z
+	.string()
+	.optional()
+	.describe(
+		"Raw-app path of the element, from its `app_path` in the SELECTED DOM ELEMENTS block. Pass it so the RIGHT app's preview is read even if another preview tab is now visible; omit to use the currently active preview. If that app's preview has been closed, the tool says so."
+	)
+
+const searchDomSchema = z.object({
+	app_path: domAppPathField,
+	selector: domSelectorField,
+	pattern: z.string().describe('JavaScript regular expression to search the rendered HTML for.'),
+	ignore_case: z.boolean().optional().describe('Case-insensitive matching. Defaults to false.')
+})
+
+const readDomSchema = z.object({
+	app_path: domAppPathField,
+	selector: domSelectorField,
+	start_line: z
+		.number()
+		.int()
+		.optional()
+		.describe('1-based first line of the pretty-printed HTML to read. Defaults to 1.'),
+	end_line: z
+		.number()
+		.int()
+		.optional()
+		.describe('1-based last line to read. The window is capped at 200 lines.')
+})
+
+const takeScreenshotSchema = z.object({})
+
 const FRAMEWORK_KEYS = [
 	'react19',
 	'react18',
@@ -885,6 +960,12 @@ const buildGlobalSystemPrompt = (
 ) => {
 	const folderGuidance = buildFolderGuidance(username, folderCtx)
 	const folderGuidanceBlock = folderGuidance ? `\n${folderGuidance}` : ''
+	// `previewTools` doubles as "this is a session chat" — sessions are the only
+	// chats that get the preview tool set, and the only surface the gate covers.
+	const pipelinesGated = previewTools && !isSessionPipelinesEnabled()
+	const pipelineBullet = pipelinesGated
+		? `- Data pipelines are in alpha and NOT yet available in this chat. A "data pipeline" is a DAG of independent annotated scripts wired by storage assets — it is not a flow. If the user asks for a data pipeline (or to ingest/transform/materialize data across steps in one), tell them that data pipelines are in alpha and will be handled by the chat soon — do not build one (no annotated pipeline scripts, no get_instructions with subject "pipeline"), and do not build a flow as a substitute.`
+		: `- A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.`
 	return `You are Windmill's global workspace assistant.
 
 The current user's workspace username is "${username}".
@@ -906,21 +987,36 @@ Rules:
 - Use discard_local_draft to remove a draft, including the matching open editor draft. Use delete_workspace_item only to delete a deployed workspace item.
 - Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
 - Use search_resource_types before write_resource.
+- When script or raw app code needs an external npm package you are not fully familiar with, use search_npm_packages to find it and get its documentation and type definitions. Link the package documentation in your answer when you rely on it.
+- Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
-- A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.
+${pipelineBullet}
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
+- For a Windmill operation no other tool covers (workers, queue state, a run's result or args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
+- runScriptByPath / runFlowByPath from the API catalog run the DEPLOYED version of an item. Use them only when the user explicitly asks to run the deployed version, and read the item with read_workspace_item version: "deployed" first so the arguments match the deployed input schema (a draft may have different inputs). To test something you are editing or just wrote, always use test_run_script, test_run_flow, or test_run_step — they run the draft.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
 - When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
 - Keep context targeted.${
 		previewTools
 			? `
-- After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.
-- Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty or not-yet-created folder is fine (create_folder first if needed, then open it). Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.
+- After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.${
+					pipelinesGated
+						? ''
+						: `
+- Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty or not-yet-created folder is fine (create_folder first if needed, then open it). Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.`
+				}
 - When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
+- To inspect what actually rendered in a running raw app (verify an edit landed on screen, diagnose a blank/empty or wrong view, answer "what's showing"), use search_dom (regex over the live HTML) and read_dom (a line-numbered window). Pass a \`selector\` to scope to an element — prefer the selector from a DOM element chip the user attached — or omit it for the whole page. When a chip lists an \`app_path\`, pass it too so the RIGHT app is read (several previews can be open; a query without \`app_path\` hits the visible one). The DOM is read live and is never in context; no match means the element isn't rendered. Both need the raw app preview open.
 - get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.
-- open_page opens its page as a tab in the side-panel preview next to the chat — the only way to show one of these pages there (open_preview only handles editable items). Changing filters on a page already open updates that same tab; only pass new_tab when the user explicitly asks for a separate tab.`
+${
+	isChromiumBrowser()
+		? `- When the user raises how a raw app looks (something is off, or they want the design or layout improved), call take_screenshot to see what they are looking at before changing anything. Reach for it when the request is about appearance, not to review your own edits, which you can read back from the code. It needs the raw app preview open (open_preview kind="raw_app").`
+		: `- When the user raises how a raw app looks (something is off, or they want the design or layout improved) and their description alone isn't specific enough to pinpoint the problem, ask them to paste or drop a screenshot of it into the chat before changing anything.`
+}
+- open_page opens its page as a tab in the side-panel preview next to the chat — the only way to show one of these pages there (open_preview only handles editable items). Changing filters on a page already open updates that same tab; only pass new_tab when the user explicitly asks for a separate tab.
+- create_artifact saves a persistent markdown document (a planning doc, design write-up, spec, or other longer structured output) shown in the session preview panel. Prefer it over a long inline reply for content the user will revisit; keep brief answers inline. To revise one, call list_artifacts then read_artifact for the current content, then update_artifact to overwrite it — never create a second artifact for the same document.`
 			: ''
 	}
 
@@ -985,7 +1081,10 @@ function scriptToItem(script: Script | NewScript, includeValue: boolean): Worksp
 		summary: script.summary,
 		language: script.language,
 		value: includeValue ? script.content : undefined,
-		isDraft: false
+		schema: includeValue ? (script as Script).schema : undefined,
+		// Listings with includeDraftOnly synthesize rows for editor drafts that
+		// have no deployed counterpart — label those honestly.
+		isDraft: (script as Script).draft_only ?? false
 	}
 }
 
@@ -997,7 +1096,7 @@ function flowToItem(flow: Flow, includeValue: boolean): WorkspaceItem {
 		value: includeValue
 			? { value: flow.value, schema: flow.schema, groups: flow.value.groups ?? null }
 			: undefined,
-		isDraft: false
+		isDraft: (flow as Flow & { draft_only?: boolean }).draft_only ?? false
 	}
 }
 
@@ -1384,7 +1483,12 @@ function triggerToItem(
 type TriggerService = {
 	exists(args: { workspace: string; path: string }): Promise<boolean>
 	get(args: { workspace: string; path: string }): Promise<TriggerLike>
-	list(args: { workspace: string; pathStart?: string; perPage?: number }): Promise<TriggerLike[]>
+	list(args: {
+		workspace: string
+		pathStart?: string
+		perPage?: number
+		page?: number
+	}): Promise<TriggerLike[]>
 	create(args: { workspace: string; requestBody: any }): Promise<string>
 	update(args: { workspace: string; path: string; requestBody: any }): Promise<string>
 	delete(args: { workspace: string; path: string }): Promise<string>
@@ -1469,18 +1573,27 @@ async function readWorkspaceItem(
 	type: WorkspaceItemType,
 	path: string,
 	workspace: string,
-	triggerKind?: TriggerKind
+	triggerKind?: TriggerKind,
+	deployedOnly = false
 ): Promise<WorkspaceItem> {
 	switch (type) {
 		case 'script': {
-			// Prefer the DB draft (newer than the deployed version) when one exists.
-			const script = await ScriptService.getScriptByPath({ workspace, path, getDraft: true })
-			return scriptToItem((script.draft as Script | undefined) ?? script, true)
+			// Prefer the DB draft (newer than the deployed version) when one exists,
+			// unless the caller explicitly asked for the deployed state.
+			const script = await ScriptService.getScriptByPath({
+				workspace,
+				path,
+				getDraft: !deployedOnly
+			})
+			const draft = deployedOnly ? undefined : (script.draft as Script | undefined)
+			return scriptToItem(draft ?? script, true)
 		}
 		case 'flow': {
-			// Prefer the DB draft (newer than the deployed version) when one exists.
-			const flow = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
-			return flowToItem((flow.draft as Flow | undefined) ?? flow, true)
+			// Prefer the DB draft (newer than the deployed version) when one exists,
+			// unless the caller explicitly asked for the deployed state.
+			const flow = await FlowService.getFlowByPath({ workspace, path, getDraft: !deployedOnly })
+			const draft = deployedOnly ? undefined : (flow.draft as Flow | undefined)
+			return flowToItem(draft ?? flow, true)
 		}
 		case 'schedule':
 			return scheduleToItem(await ScheduleService.getSchedule({ workspace, path }), true)
@@ -1521,7 +1634,8 @@ async function listWorkspaceItems(
 	types: WorkspaceItemType[],
 	workspace: string,
 	pathPrefix: string | undefined,
-	perPage: number
+	perPage: number,
+	page?: number
 ): Promise<WorkspaceItem[]> {
 	const items: WorkspaceItem[] = []
 
@@ -1530,6 +1644,7 @@ async function listWorkspaceItems(
 			workspace,
 			pathStart: pathPrefix,
 			perPage,
+			page,
 			includeDraftOnly: true,
 			withoutDescription: true
 		})
@@ -1541,6 +1656,7 @@ async function listWorkspaceItems(
 			workspace,
 			pathStart: pathPrefix,
 			perPage,
+			page,
 			includeDraftOnly: true,
 			withoutDescription: true
 		})
@@ -1551,7 +1667,8 @@ async function listWorkspaceItems(
 		const schedules = await ScheduleService.listSchedules({
 			workspace,
 			pathStart: pathPrefix,
-			perPage
+			perPage,
+			page
 		})
 		for (const schedule of schedules) items.push(scheduleToItem(schedule, false))
 	}
@@ -1561,7 +1678,8 @@ async function listWorkspaceItems(
 			const triggers = await triggerServices[kind].list({
 				workspace,
 				pathStart: pathPrefix,
-				perPage
+				perPage,
+				page
 			})
 			for (const trigger of triggers) items.push(triggerToItem(kind, trigger, false))
 		}
@@ -1571,7 +1689,8 @@ async function listWorkspaceItems(
 		const resources = await ResourceService.listResource({
 			workspace,
 			pathStart: pathPrefix,
-			perPage
+			perPage,
+			page
 		})
 		for (const resource of resources) items.push(resourceToItem(resource, false))
 	}
@@ -1580,7 +1699,8 @@ async function listWorkspaceItems(
 		const variables = await VariableService.listVariable({
 			workspace,
 			pathStart: pathPrefix,
-			perPage
+			perPage,
+			page
 		})
 		for (const variable of variables) items.push(variableToItem(variable))
 	}
@@ -1589,7 +1709,8 @@ async function listWorkspaceItems(
 		const apps = await AppService.listApps({
 			workspace,
 			pathStart: pathPrefix,
-			perPage
+			perPage,
+			page
 		})
 		for (const app of apps) items.push(appToItem(app, false))
 	}
@@ -1620,20 +1741,34 @@ function getFlowInstructions(): string {
 
 - Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
 - Paths follow the conventions in the system prompt: default to \`u/<current-user>/<name>\` when the user gave a bare name; only use \`f/<folder>/<name>\` when the folder is known to exist. Never invent a folder.
-- \`write_flow\` mirrors flow mode's \`set_flow_json\`: pass \`path\`, optional \`summary\`, optional \`description\`, required \`modules\`, and optional \`schema\`, \`preprocessor_module\`, \`failure_module\`, and \`groups\`. \`summary\` and \`description\` are top-level flow metadata (not part of the compact value \`patch_flow_json\` edits); the flow-structure arguments are JSON strings, matching the tool schema descriptions.
-- \`read_workspace_item\` returns a compact flow \`value\` object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, and \`groups\`.
+- \`write_flow\` mirrors flow mode's \`set_flow_json\`: pass \`path\`, optional \`summary\`, optional \`description\`, required \`modules\`, and optional \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, and \`notes\`. \`summary\` and \`description\` are top-level flow metadata (not part of the compact value \`patch_flow_json\` edits); the flow-structure arguments are JSON strings, matching the tool schema descriptions.
+- \`read_workspace_item\` returns a compact flow \`value\` object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, and \`notes\`.
 - \`modules\` contains normal sequential modules. Use top-level \`preprocessor_module\` and \`failure_module\` for special modules; do not put \`preprocessor\` or \`failure\` in \`modules\`.
 - Every module needs a stable unique \`id\` and a useful \`summary\` when the schema supports it.
 - Prefer path/script/flow modules when composing existing workspace logic. Use rawscript modules only when new inline code is needed.
 - When writing rawscript module code, call \`get_instructions\` with \`subject: "script"\` and the rawscript language first.
 
+## Organizing flows: groups and notes
+
+- \`groups\`: Array of semantic groups for organizing modules in the editor (optional, but **strongly recommended** — proactively segment any non-trivial flow into groups so it reads clearly; don't wait to be asked). Each group has \`summary\` (display name), \`note\` (markdown description shown below the group header — attached directly to the group, not a separate sticky note), \`autocollapse\`, \`start_id\`, \`end_id\`, and \`color\`. \`start_id\` and \`end_id\` must reference existing module IDs in the flow (not \`preprocessor\` or \`failure\`). \`color\` MUST be one of these exact names: \`yellow\`, \`blue\`, \`green\`, \`purple\`, \`pink\`, \`orange\`, \`red\`, \`cyan\`, \`lime\`, \`gray\` — do NOT use hex codes, CSS colors, or any other strings. Omit \`color\` entirely if no preference and the editor will assign one automatically. Groups do not affect execution — they provide naming and collapsibility in the editor. Pass \`null\` to clear existing groups.
+- \`notes\`: Array of free-floating sticky notes shown in the editor (optional). Each note has \`id\` (unique string), \`text\` (markdown content), \`color\` (same palette as groups: \`yellow\`, \`blue\`, \`green\`, \`purple\`, \`pink\`, \`orange\`, \`red\`, \`cyan\`, \`lime\`, \`gray\` — never hex codes), and optional \`position\` {x, y} / \`size\` {width, height} (omit both — the editor auto-places and sizes the note). Always set \`type\` to \`free\`. The \`group\` note type is **deprecated** — do not create group notes; use the \`groups\` field to segment a flow instead. Notes are documentation only and do not affect execution. Pass \`null\` to clear existing notes.
+
+### When to use notes vs groups
+
+**Strongly prefer \`groups\` to organize flows.** Groups are the primary way to make a flow readable: whenever a flow has more than a couple of steps, or any time consecutive steps form a logical stage (e.g. "fetch", "transform", "notify"), segment them into \`groups\`. Each group spans a range of steps (\`start_id\`..\`end_id\`), carries its own \`summary\`, \`note\` (markdown under the group header), and \`color\`, and can be collapsed. Proactively add or update groups when building or restructuring a flow — do not wait to be asked. Aim for every meaningful step to belong to a semantic group.
+
+- **\`groups\` (default, use liberally):** segment a flow into labelled semantic sections. This is the main organizational tool — reach for it on essentially any non-trivial flow, not just "complex" ones.
+- **\`notes\` (free sticky notes, use sparingly):** reserve for important flow-wide information that does not belong to a specific span of steps — overall purpose, key assumptions, warnings, or TODOs. Usually a single note is enough; do not use notes to label sequences of steps (that is what \`groups\` are for).
+- Do **not** use \`group\`-type notes (deprecated) — \`groups\` is the supported way to group steps.
+- With \`patch_flow_json\`, edit \`groups\` and \`notes\` the same way as any other field — they appear as top-level keys in the compact flow value.
+
 ## Compact view: how rawscript bodies surface in tool I/O
 
-- \`read_workspace_item\` and \`patch_flow_json\` operate on a **compact view** of the flow: every rawscript module's \`value.content\` is replaced with the placeholder \`"inline_script.<moduleId>"\` so inline script bodies don't bloat tool I/O. Schema, groups, preprocessor_module and failure_module are all shown in this view.
+- \`read_workspace_item\` and \`patch_flow_json\` operate on a **compact view** of the flow: every rawscript module's \`value.content\` is replaced with the placeholder \`"inline_script.<moduleId>"\` so inline script bodies don't bloat tool I/O. Schema, groups, notes, preprocessor_module and failure_module are all shown in this view.
 - Inline rawscript content is **not** part of the JSON \`patch_flow_json\` sees. Edits to inline bodies happen via dedicated tools:
   - \`read_flow_module_code(path, module_id)\` — returns the raw inline script content for one module.
   - \`set_flow_module_code(path, module_id, code)\` — overwrites that module's inline script content; saves to the draft.
-- Use \`patch_flow_json\` for *structural* edits: module ids, paths, input_transforms, branch arrangement, summaries, preprocessor/failure swaps, schema/groups. Use \`set_flow_module_code\` for changes inside a specific rawscript body.
+- Use \`patch_flow_json\` for *structural* edits: module ids, paths, input_transforms, branch arrangement, summaries, preprocessor/failure swaps, schema/groups/notes. Use \`set_flow_module_code\` for changes inside a specific rawscript body.
 - \`write_flow\` is for full overwrites / create-from-scratch. Its \`modules\`, \`preprocessor_module\`, and \`failure_module\` arguments use **non-compact** flow modules (rawscript content is the actual code, not a placeholder).
 
 # Windmill flow authoring reference
@@ -2089,8 +2224,19 @@ export const globalTools: Tool<{}>[] = [
 			'get_instructions',
 			'Get authoring guidance for scripts, flows, data pipelines, resources, apps, or the datatable SQL SDK (wmill.datatable()) used inside runnables.'
 		),
-		fn: async ({ args, toolId, toolCallbacks }) => {
+		fn: async (ctx) => {
+			const { args, toolId, toolCallbacks } = ctx
 			const parsed = getInstructionsSchema.parse(args)
+			// Session chats (explicit isSessionChat helper) don't get pipeline
+			// authoring while pipelines are gated; the standalone global chat keeps it.
+			if (
+				parsed.subject === 'pipeline' &&
+				isSessionChatFromCtx(ctx) &&
+				!isSessionPipelinesEnabled()
+			) {
+				toolCallbacks.setToolStatus(toolId, { content: 'Data pipelines are in alpha' })
+				return SESSION_PIPELINES_GATED_MESSAGE
+			}
 			const label =
 				parsed.subject === 'script' && parsed.language
 					? `${parsed.subject} (${parsed.language})`
@@ -2100,6 +2246,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	createSearchHubScriptsTool(false),
+	searchNpmPackagesTool,
 	searchDocsTool,
 	readDocsPageTool,
 	{
@@ -2108,6 +2255,7 @@ export const globalTools: Tool<{}>[] = [
 			'askUserQuestion',
 			'Ask the user a question with proposed answers and wait for their selected or custom answer before continuing.'
 		),
+		streamingLabel: 'Asking the user a question...',
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			const parsed = askUserQuestionSchema.parse(args)
 			const userQuestion = {
@@ -2117,7 +2265,7 @@ export const globalTools: Tool<{}>[] = [
 			}
 
 			toolCallbacks.setToolStatus(toolId, {
-				content: parsed.question,
+				content: `Asking user: ${parsed.question}`,
 				userQuestion,
 				isLoading: true
 			})
@@ -2137,7 +2285,7 @@ export const globalTools: Tool<{}>[] = [
 			if (!selected?.length) {
 				const message = 'Question cancelled by user'
 				toolCallbacks.setToolStatus(toolId, {
-					content: message,
+					content: `Asked: ${parsed.question} — cancelled by user`,
 					userQuestion: { ...userQuestion, canceled: true },
 					isLoading: false,
 					error: message
@@ -2151,12 +2299,13 @@ export const globalTools: Tool<{}>[] = [
 			// ("Yes, immediately") stays unambiguous to the model reading it back.
 			const answerText =
 				selected.length === 1 ? selected[0] : selected.map((c) => `- ${c}`).join('\n')
-			// The collapsed tool-header is a human glance, not model input, so the picks
-			// read as a compact comma list there instead of a stacked bullet list.
+			// The collapsed tool-header is a human glance, not model input, so it carries
+			// the question plus the picks as a compact comma list (not a bullet list) —
+			// it is the only place the exchange stays readable in the transcript.
 			const answerSummary = selected.join(', ')
 
 			toolCallbacks.setToolStatus(toolId, {
-				content: `User answered question: ${answerSummary}`,
+				content: `Asked: ${parsed.question} — ${answerSummary}`,
 				userQuestion: {
 					...userQuestion,
 					selectedChoices: selected
@@ -2244,7 +2393,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			listWorkspaceItemsSchema,
 			'list_workspace_items',
-			'List workspace items and drafts. Returns metadata only.'
+			'List workspace items and drafts. Returns metadata only, up to limit items per item type per page (default 50); pass page to continue past a full page.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = listWorkspaceItemsSchema.parse(args)
@@ -2257,24 +2406,37 @@ export const globalTools: Tool<{}>[] = [
 				types,
 				workspace,
 				parsed.path_prefix,
-				Math.min(limit, MAX_LIST_LIMIT)
+				Math.min(limit, MAX_LIST_LIMIT),
+				parsed.page
 			)
 			for (const item of workspaceItems) {
 				byKey.set(getWorkspaceItemKey(item.type, item.path, item.triggerKind), item)
 			}
 
-			for (const draft of await listGlobalDrafts(workspace)) {
-				if (!types.includes(draft.type)) continue
-				if (parsed.path_prefix && !draft.path.startsWith(parsed.path_prefix)) continue
-				byKey.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), {
-					...draft,
-					value: undefined
-				})
+			// Drafts are not paginated server-side; overlay them on page 1 only,
+			// capped at `limit` per type, so results stay bounded and later pages
+			// never repeat a page-1 item as its draft twin. Chat draft counts are
+			// small — past the cap, a narrower path_prefix still finds any draft
+			// (it filters before the cap; query filters after).
+			if ((parsed.page ?? 1) === 1) {
+				const draftCountByType = new Map<string, number>()
+				for (const draft of await listGlobalDrafts(workspace)) {
+					if (!types.includes(draft.type)) continue
+					if (parsed.path_prefix && !draft.path.startsWith(parsed.path_prefix)) continue
+					const count = draftCountByType.get(draft.type) ?? 0
+					if (count >= limit) continue
+					draftCountByType.set(draft.type, count + 1)
+					byKey.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), {
+						...draft,
+						value: undefined
+					})
+				}
 			}
 
-			const results = Array.from(byKey.values())
-				.filter((item) => itemMatches(item, parsed.query))
-				.slice(0, limit)
+			// No cross-type truncation: each type is already capped at `limit` rows by
+			// its own list call, and slicing the concatenation would silently drop the
+			// later types' rows while their next page skips past them.
+			const results = Array.from(byKey.values()).filter((item) => itemMatches(item, parsed.query))
 
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Listed ${results.length} workspace item(s)`
@@ -2286,7 +2448,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			readWorkspaceItemSchema,
 			'read_workspace_item',
-			'Read one workspace item or draft.'
+			'Read one workspace item or draft. Prefers your draft when one exists; pass version: "deployed" to read the deployed state instead.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = readWorkspaceItemSchema.parse(args)
@@ -2295,7 +2457,10 @@ export const globalTools: Tool<{}>[] = [
 				toolCallbacks.setToolStatus(toolId, { content: message, error: message })
 				return JSON.stringify({ success: false, error: message })
 			}
-			const draft = await getGlobalDraft(workspace, parsed.type, parsed.path, parsed.trigger_kind)
+			const draft =
+				parsed.version === 'deployed'
+					? null
+					: await getGlobalDraft(workspace, parsed.type, parsed.path, parsed.trigger_kind)
 			if (draft) {
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Read draft ${parsed.type} "${parsed.path}"`
@@ -2306,7 +2471,13 @@ export const globalTools: Tool<{}>[] = [
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Reading ${parsed.type} "${parsed.path}"...`
 			})
-			const item = await readWorkspaceItem(parsed.type, parsed.path, workspace, parsed.trigger_kind)
+			const item = await readWorkspaceItem(
+				parsed.type,
+				parsed.path,
+				workspace,
+				parsed.trigger_kind,
+				parsed.version === 'deployed'
+			)
 			toolCallbacks.setToolStatus(toolId, { content: `Read ${parsed.type} "${parsed.path}"` })
 			return JSON.stringify(serializeWorkspaceItemForRead(item), null, 2)
 		}
@@ -2376,7 +2547,8 @@ export const globalTools: Tool<{}>[] = [
 					'preprocessor_module'
 				),
 				failure_module: parseOptionalJsonArg(parsed.failure_module, 'failure_module'),
-				groups: parseOptionalJsonArg(parsed.groups, 'groups')
+				groups: parseOptionalJsonArg(parsed.groups, 'groups'),
+				notes: parseOptionalJsonArg(parsed.notes, 'notes')
 			})
 			return writeFlowDraft(
 				{
@@ -2454,7 +2626,7 @@ export const globalTools: Tool<{}>[] = [
 			return testRunScriptByPath(parsed, ctx)
 		},
 		requiresConfirmation: true,
-		confirmationMessage: 'Run script test',
+		confirmationMessage: (args) => `Run a test of ${pathLeaf(args?.path, 'the script')}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -2465,7 +2637,7 @@ export const globalTools: Tool<{}>[] = [
 			return testRunFlowByPath(parsed, ctx)
 		},
 		requiresConfirmation: true,
-		confirmationMessage: 'Run flow test',
+		confirmationMessage: (args) => `Run a test of ${pathLeaf(args?.path, 'the flow')}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -2476,7 +2648,8 @@ export const globalTools: Tool<{}>[] = [
 			return testRunFlowStepByPath(parsed, ctx)
 		},
 		requiresConfirmation: true,
-		confirmationMessage: 'Run flow step test',
+		confirmationMessage: (args) =>
+			`Run a test of step "${args?.stepId ?? ''}" in ${pathLeaf(args?.path, 'the flow')}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -2685,6 +2858,11 @@ export const globalTools: Tool<{}>[] = [
 			)
 		}
 	},
+	createDbSchemaTool<{}>({
+		description:
+			'Fetch the schema (tables and columns) of a database resource by its path. Supports postgresql, mysql, ms_sql_server, snowflake and bigquery resources.',
+		updateEditorCache: false
+	}),
 	{
 		def: createToolDef(
 			readFlowModuleCodeSchema,
@@ -2811,6 +2989,7 @@ export const globalTools: Tool<{}>[] = [
 			return deleteAppRunnable(parsed, ctx)
 		}
 	},
+	...artifactTools,
 	{
 		def: createToolDef(
 			openPreviewSchema,
@@ -2878,10 +3057,115 @@ export const globalTools: Tool<{}>[] = [
 			return result.aiResult
 		}
 	},
+	{
+		def: createToolDef(
+			searchDomSchema,
+			'search_dom',
+			'Search the live rendered HTML of the raw app preview open in this AI session with a regex, returning matching lines with their line numbers. Use it to check what actually rendered (verify an edit landed, diagnose a blank/empty view). Scope to an element with `selector`, or omit it for the whole page. The DOM is read live, so it reflects the current state.'
+		),
+		showDetails: true,
+		fn: async (ctx) => {
+			const parsed = searchDomSchema.parse(ctx.args)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Searching app DOM...' })
+			const result = await getSessionDom(
+				{
+					mode: 'search',
+					appPath: parsed.app_path,
+					selector: parsed.selector,
+					pattern: parsed.pattern,
+					ignoreCase: parsed.ignore_case
+				},
+				sessionIdFromCtx(ctx)
+			)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+				content: result.uiMessage,
+				result: result.toolResult
+			})
+			return result.aiResult
+		}
+	},
+	{
+		def: createToolDef(
+			readDomSchema,
+			'read_dom',
+			'Read a bounded window of the live rendered HTML of the raw app preview open in this AI session, pretty-printed and line-numbered. Scope to an element with `selector`, or omit it for the whole page. Use search_dom first to locate content, then read_dom to see a specific region. The DOM is read live.'
+		),
+		showDetails: true,
+		fn: async (ctx) => {
+			const parsed = readDomSchema.parse(ctx.args)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Reading app DOM...' })
+			const result = await getSessionDom(
+				{
+					mode: 'read',
+					appPath: parsed.app_path,
+					selector: parsed.selector,
+					startLine: parsed.start_line,
+					endLine: parsed.end_line
+				},
+				sessionIdFromCtx(ctx)
+			)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+				content: result.uiMessage,
+				result: result.toolResult
+			})
+			return result.aiResult
+		}
+	},
+	{
+		def: createToolDef(
+			takeScreenshotSchema,
+			'take_screenshot',
+			// Keep this short: every global session iteration re-sends it. How to read
+			// the result belongs on the result, where only a real capture pays for it.
+			'Capture a screenshot of the raw app preview currently open in this AI session and attach it as an image so you can see the rendered UI. Use it when the user raises how the app looks, whether reporting a problem or asking for the design improved, rather than to check your own edits. The image is attached in the following message. Requires the raw app preview open (open_preview kind="raw_app").'
+		),
+		showDetails: true,
+		fn: async (ctx) => {
+			// A known text-only model would reject the follow-up image message and fail
+			// the turn, so refuse before capturing rather than buffer an image it can
+			// never read. The model is re-read here because it can change between turns.
+			const model = tryGetCurrentModel()
+			if (model && !modelSupportsVision(model.provider, model.model)) {
+				const cannotSee = `${model.model} cannot read images, so a screenshot would be discarded. Ask the user to describe what looks wrong, or to switch to a model that supports images.`
+				ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+					content: `${model.model} cannot read images`,
+					error: cannotSee
+				})
+				return cannotSee
+			}
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Capturing screenshot...' })
+			const result = await getSessionScreenshot(sessionIdFromCtx(ctx))
+			if (!result.dataUrl) {
+				ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+					content: result.uiMessage ?? 'Screenshot unavailable',
+					error: result.error
+				})
+				return result.error ?? 'Could not capture the app preview.'
+			}
+			// Normalize (downscale + png/jpeg) so history/context never carry a full-res blob;
+			// buffered here and flushed as a follow-up user image message once the tool batch
+			// completes (see appendPendingToolImages).
+			const image = await normalizeImageDataUrl(result.dataUrl)
+			ctx.toolCallbacks.attachToolImage?.(ctx.toolId, image)
+			// The card shows the same copy the model gets; sharing the exact data URL
+			// lets the history's blob store persist one copy for both.
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+				content: 'Screenshot captured',
+				imageUrl: image.dataUrl
+			})
+			return (
+				'Screenshot captured; the image is attached in the following message.\n\n' +
+				'It is rebuilt from the DOM rather than captured from the screen, so it can differ from what the user sees, and it differs by browser. Treat what you see as real and fix it. Before dismissing anything as a capture artifact, read the source for that element and name the specific cause; if you cannot, it is a real bug. If you are still unsure, say what looks wrong and ask the user to screenshot it themselves and drag the image into the chat rather than guessing.'
+			)
+		}
+	},
 	// Workspace-scoped datatable tools (unrestricted: no whitelist, no creation policy)
 	...getDatatableTools(),
 	// Read-only tools over files the user attached to the conversation
-	...fileTools
+	...fileTools,
+	// Search + call access to the backend API endpoint catalog, for operations
+	// no dedicated tool covers
+	...apiCatalogTools
 ]
 
 // Tools that only make sense inside an AI session (they drive the session's
@@ -2892,7 +3176,14 @@ export const SESSION_PREVIEW_TOOL_NAMES = new Set([
 	'get_preview_status',
 	'close_page',
 	'get_app_runtime_logs',
-	'list_app_runs'
+	'list_app_runs',
+	'search_dom',
+	'read_dom',
+	'take_screenshot',
+	'create_artifact',
+	'update_artifact',
+	'list_artifacts',
+	'read_artifact'
 ])
 
 /**
@@ -2901,9 +3192,16 @@ export const SESSION_PREVIEW_TOOL_NAMES = new Set([
  * global side-panel chat.
  */
 export function globalToolsFor({ sessionPreview }: { sessionPreview: boolean }): Tool<{}>[] {
-	return sessionPreview
+	const tools = sessionPreview
 		? globalTools
 		: globalTools.filter((t) => !SESSION_PREVIEW_TOOL_NAMES.has(t.def.function.name))
+	// DOM capture re-renders the app through the engine's SVG-image path, which is
+	// only faithful on Blink — Gecko/WebKit shift text spacing and wrapping (font
+	// fallback, sub-pixel rounding). Elsewhere the tool is withheld entirely and
+	// the system prompt tells the agent to ask the user for a screenshot instead.
+	return isChromiumBrowser()
+		? tools
+		: tools.filter((t) => t.def.function.name !== 'take_screenshot')
 }
 
 type WriteDraftCtx = {
@@ -2940,10 +3238,22 @@ export type GlobalToolHelpers = SessionToolHelpers & {
 	// (possibly forked) workspace while $workspaceStore stays on the navigation workspace,
 	// so permission gating (open_page) must read this, not the global store.
 	operatingWorkspace?: string
+	// Wired only for session chats (see AIChatManager): the artifact tools are session-gated.
+	artifacts?: SessionArtifactsStore
+	getChatId?: () => string | undefined
+	openArtifact?: (artifactId: string, name: string) => void
+	// Explicit "this chat is an AI session" marker for session-scoped gating
+	// (the pipeline gate). Do NOT infer it from `sessionId`: the eval harness
+	// passes a sessionId to its standalone (non-session) chats too.
+	isSessionChat?: boolean
 }
 
 function sessionIdFromCtx(ctx: { helpers?: unknown }): string | undefined {
 	return (ctx.helpers as GlobalToolHelpers | undefined)?.sessionId
+}
+
+function isSessionChatFromCtx(ctx: { helpers?: unknown }): boolean {
+	return (ctx.helpers as GlobalToolHelpers | undefined)?.isSessionChat === true
 }
 
 function operatingWorkspaceFromHelpers(helpers: unknown): string | undefined {
@@ -2979,6 +3289,10 @@ function openSessionPreview(
 ) {
 	if (!openPreviewHandler) {
 		return 'Error: open_preview is only available inside an AI session. Tell the user to switch to a session to view the preview, or describe the item textually.'
+	}
+	// open_preview only exists in sessions, so no sessionId check is needed here.
+	if (args.kind === 'pipeline' && !isSessionPipelinesEnabled()) {
+		return SESSION_PIPELINES_GATED_MESSAGE
 	}
 	return openPreviewHandler({ ...args, sessionId })
 }
@@ -3109,6 +3423,54 @@ function getSessionAppRuns(
 		})
 	}
 	return Promise.resolve(listAppRunsHandler({ sessionId, limit }))
+}
+
+export type GetDomHandler = (req: {
+	sessionId: string | undefined
+	query: RawAppDomQuery
+}) => Promise<SessionToolResult>
+
+let getDomHandler: GetDomHandler | undefined
+
+export function setGetDomHandler(handler: GetDomHandler | undefined): void {
+	getDomHandler = handler
+}
+
+function getSessionDom(
+	query: RawAppDomQuery,
+	sessionId: string | undefined
+): Promise<SessionToolResult> {
+	if (!getDomHandler) {
+		return Promise.resolve({
+			aiResult:
+				'Error: search_dom and read_dom are only available inside an AI session. Tell the user the rendered DOM can only be read from a session preview, or switch to a session and open the raw app preview.',
+			uiMessage: 'DOM unavailable',
+			toolResult: 'DOM unavailable'
+		})
+	}
+	return getDomHandler({ sessionId, query })
+}
+
+export type SessionScreenshotResult = { dataUrl?: string; error?: string; uiMessage?: string }
+export type ScreenshotHandler = (req: {
+	sessionId: string | undefined
+}) => Promise<SessionScreenshotResult>
+
+let screenshotHandler: ScreenshotHandler | undefined
+
+export function setScreenshotHandler(handler: ScreenshotHandler | undefined): void {
+	screenshotHandler = handler
+}
+
+function getSessionScreenshot(sessionId: string | undefined): Promise<SessionScreenshotResult> {
+	if (!screenshotHandler) {
+		return Promise.resolve({
+			error:
+				'Error: take_screenshot is only available inside an AI session with a raw app preview open. Ask the user to open the raw app preview (open_preview kind="raw_app"), then try again.',
+			uiMessage: 'Screenshot unavailable'
+		})
+	}
+	return screenshotHandler({ sessionId })
 }
 
 // Registered by the session runtime to reload the open preview after a chat
@@ -3728,6 +4090,13 @@ async function loadDraftFlowPreviewValue(
 	}
 	const nestedFlow = await loadFlowDraftValue(path, workspace)
 	return flowDraftValueForPreview(nestedFlow.flow)
+}
+
+// Leaf of a workspace path (last segment), for human-readable confirmation
+// prompts. Falls back to the full path, then a generic noun.
+function pathLeaf(path: unknown, fallback: string): string {
+	const p = typeof path === 'string' ? path : ''
+	return p.split('/').filter(Boolean).pop() || p || fallback
 }
 
 async function testRunScriptByPath(
@@ -5217,7 +5586,32 @@ export function prepareGlobalUserMessage(
 		content += '\n'
 	}
 
+	const domSelectors = selectedContext.filter((c) => c.type === 'app_dom_selector')
+	if (domSelectors.length > 0) {
+		content += '## SELECTED DOM ELEMENTS\n'
+		content +=
+			"The user pointed at these elements in the live raw app preview. Their HTML is not included here — inspect it live with search_dom / read_dom, passing the element's `app_path` and `selector` so the right app's preview is read.\n"
+		for (const el of domSelectors) {
+			content += `- ${el.title} — app_path: ${el.appPath}, selector: ${el.selector}\n`
+		}
+		content += '\n'
+	}
+
 	content += `## INSTRUCTIONS:\n${instructions}`
+
+	const images = options.images ?? []
+	if (images.length > 0) {
+		// Multimodal message: the text block plus one image_url part per attachment.
+		// The provider converters translate image_url for Anthropic/Responses; the
+		// OpenAI-compatible path sends it as-is.
+		return {
+			role: 'user',
+			content: [
+				{ type: 'text', text: content },
+				...images.map((img) => dataUrlToImagePart(img.dataUrl))
+			]
+		}
+	}
 
 	return {
 		role: 'user',

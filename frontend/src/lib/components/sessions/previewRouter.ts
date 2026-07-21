@@ -13,6 +13,7 @@ import {
 } from 'lucide-svelte'
 import type { DrillIcon } from '$lib/components/drillPicker'
 import type { WorkspaceItem, WorkspaceItemKind } from '$lib/components/workspacePicker'
+import { isSessionPipelinesEnabled } from '$lib/components/copilot/chat/global/pipelineGate'
 import type { SessionTargetKind } from './sessionRuntime.svelte'
 
 /** What the preview breadcrumb picker can route to: a static workspace page
@@ -21,6 +22,7 @@ import type { SessionTargetKind } from './sessionRuntime.svelte'
 export type PreviewTarget =
 	| { type: 'page'; href: string; label: string }
 	| { type: 'item'; item: WorkspaceItem }
+	| { type: 'artifact'; id: string; name: string }
 
 export type PreviewPage = { label: string; path: string; icon: DrillIcon }
 
@@ -97,6 +99,8 @@ export function matchPreviewPage(path: string): PreviewPage | undefined {
  * page, run detail, or item path. Shared by the sessions tab strip and the
  * close_page matcher so both name a tab the same way. */
 export function previewLocationLabel(url: string): string {
+	const artifact = parseArtifactRoute(url)
+	if (artifact) return artifact.name || 'Artifact'
 	const page = matchPreviewPage(url)
 	if (page) return page.label
 	const trigger = triggerLabelForPath(url)
@@ -110,27 +114,20 @@ export function previewLocationLabel(url: string): string {
 	return stripBase(url)
 }
 
-/** Tab label for a preview location, preferring the friendly path a raw-app
- * editor was renamed to while still parked at its throwaway `…/draft_<uuid>`
- * storage path. `rawAppDraft` is the session's live raw app (its storage `path`
- * plus the pending `draft_path` the user typed in the editor). When the tab
- * shows that app at a draft placeholder path, it's labelled by the friendly
- * leaf rather than the uuid. Display-only — the tab's URL keeps the storage
- * path. Falls back to `previewLocationLabel` for every other tab. */
-export function previewTabLabel(
-	url: string,
-	rawAppDraft?: { path: string; draft_path?: string }
-): string {
-	const route = parsePreviewItemRoute(url)
-	if (
-		route?.raw_app &&
-		rawAppDraft?.draft_path &&
-		rawAppDraft.path === route.itemPath &&
-		route.itemPath.split('/').pop()?.startsWith('draft_')
-	) {
-		return rawAppDraft.draft_path.split('/').pop() ?? rawAppDraft.draft_path
-	}
-	return previewLocationLabel(url)
+/** The friendly display leaf for a preview tab, or `undefined` to fall back to
+ * `previewLocationLabel`. A never-deployed script / flow / raw app is parked at a
+ * throwaway `…/draft_<uuid>` storage path while its editor shows a friendly name
+ * (auto-generated or typed); pass that `friendlyPath` — the live cell's
+ * `draft_path`/`path` — to label the tab by its leaf instead of the uuid. Returns
+ * `undefined` for a deployed item (real storage path) or when the friendly path
+ * is itself a placeholder. Display-only: the tab's URL keeps the storage path. */
+export function draftFriendlyLeaf(
+	storagePath: string,
+	friendlyPath: string | undefined
+): string | undefined {
+	if (!storagePath.split('/').pop()?.startsWith('draft_')) return undefined
+	const leaf = friendlyPath?.split('/').pop()
+	return leaf && !leaf.startsWith('draft_') ? leaf : undefined
 }
 
 export type PreviewItemRoute = { kind: WorkspaceItemKind; raw_app: boolean; itemPath: string }
@@ -157,6 +154,24 @@ export function parsePipelineRoute(fullPath: string): string | null {
 	return m ? decodeURIComponent(m[1]) : null
 }
 
+// The id (before the hash) is the artifact's stable routing identity; the name rides in
+// the hash so the tab strip labels it without a store lookup.
+export function parseArtifactRoute(url: string): { id: string; name: string } | null {
+	const m = url.match(/^artifact:([^#]+)(?:#(.*))?$/)
+	if (!m) return null
+	return { id: decodeURIComponent(m[1]), name: m[2] ? decodeURIComponent(m[2]) : '' }
+}
+
+export function artifactUrl(id: string, name: string): string {
+	return `artifact:${encodeURIComponent(id)}#${encodeURIComponent(name)}`
+}
+
+/** Drill-picker leaf key for an artifact, shared by the picker tree and the
+ * active-tab highlight so a pick and a highlight agree on identity. */
+export const artifactKey = (id: string) => `artifact:${id}`
+
+export const isArtifactKey = (key: string) => key.startsWith('artifact:')
+
 // How a preview tab should render: as an in-process live editor or an iframe
 // fallback. Any editable item of a wrappable kind (script, flow, raw app) mounts
 // its per-(kind,path) cell editor; a `/pipeline/<folder>` route mounts the
@@ -165,11 +180,19 @@ export function parsePipelineRoute(fullPath: string): string | null {
 // other route) stays an iframe.
 export type PreviewSlot =
 	| { kind: 'editor'; editorKind: SessionTargetKind | 'pipeline'; path: string }
+	| { kind: 'artifact'; id: string }
 	| { kind: 'iframe' }
 
 export function resolvePreviewTab(url: string): PreviewSlot {
+	const artifact = parseArtifactRoute(url)
+	if (artifact) return { kind: 'artifact', id: artifact.id }
+	// While session pipelines are gated, a /pipeline/<folder> tab stays a plain
+	// iframe: mounting the in-realm pipeline editor would register the pipeline
+	// canvas tools on the session chat, un-gating it through the back door.
 	const pipelineFolder = parsePipelineRoute(url)
-	if (pipelineFolder) return { kind: 'editor', editorKind: 'pipeline', path: pipelineFolder }
+	if (pipelineFolder && isSessionPipelinesEnabled()) {
+		return { kind: 'editor', editorKind: 'pipeline', path: pipelineFolder }
+	}
 	const route = parsePreviewItemRoute(url)
 	if (!route) return { kind: 'iframe' }
 	const editorKind: SessionTargetKind | undefined =

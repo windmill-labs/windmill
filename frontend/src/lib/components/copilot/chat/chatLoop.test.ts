@@ -12,7 +12,8 @@ const mocks = vi.hoisted(() => ({
 	parseOpenAIResponsesCompletion: vi.fn(),
 	getAnthropicCompletion: vi.fn(),
 	parseAnthropicCompletion: vi.fn(),
-	resolveRequestReasoning: vi.fn()
+	resolveRequestReasoning: vi.fn(),
+	resolveEffectiveReasoning: vi.fn()
 }))
 
 vi.mock('../lib', () => ({
@@ -22,7 +23,8 @@ vi.mock('../lib', () => ({
 }))
 
 vi.mock('../reasoningRegistry', () => ({
-	resolveRequestReasoning: mocks.resolveRequestReasoning
+	resolveRequestReasoning: mocks.resolveRequestReasoning,
+	resolveEffectiveReasoning: mocks.resolveEffectiveReasoning
 }))
 
 vi.mock('./openai-responses', () => ({
@@ -50,12 +52,14 @@ function createConfig({
 	workspace,
 	modelProvider = { provider: 'openai', model: 'gpt-4.1' },
 	callbacks = createCallbacks(),
-	onWebSearchUnavailable
+	onWebSearchUnavailable,
+	onReasoningSummaryUnavailable
 }: {
 	workspace: string
 	modelProvider?: ReasoningProviderModel
 	callbacks?: ChatLoopConfig['callbacks']
 	onWebSearchUnavailable?: ChatLoopConfig['onWebSearchUnavailable']
+	onReasoningSummaryUnavailable?: ChatLoopConfig['onReasoningSummaryUnavailable']
 }): ChatLoopConfig {
 	const messages: ChatCompletionMessageParam[] = [{ role: 'user', content: 'search this' }]
 
@@ -73,7 +77,8 @@ function createConfig({
 		},
 		workspace,
 		maxIterations: 1,
-		onWebSearchUnavailable
+		onWebSearchUnavailable,
+		onReasoningSummaryUnavailable
 	}
 }
 
@@ -291,6 +296,133 @@ describe('runChatLoop web search fallback', () => {
 	})
 })
 
+describe('runChatLoop reasoning summary fallback', () => {
+	beforeEach(() => {
+		vi.resetAllMocks()
+		mocks.providerSupportsWebSearch.mockReturnValue(false)
+		mocks.resolveRequestReasoning.mockReturnValue('high')
+		mocks.resolveEffectiveReasoning.mockReturnValue('high')
+		mocks.parseOpenAIResponsesCompletion.mockResolvedValue({
+			shouldContinue: false,
+			tokenUsage
+		})
+	})
+
+	it('retries once without the summary on the unverified-org error and caches per workspace/provider', async () => {
+		const onReasoningSummaryUnavailable = vi.fn()
+		const workspace = `workspace-${randomUUID()}`
+		const modelProvider: ReasoningProviderModel = { provider: 'openai', model: 'gpt-5.1' }
+
+		mocks.getOpenAIResponsesCompletion
+			.mockRejectedValueOnce(
+				Object.assign(
+					new Error('Your organization must be verified to generate reasoning summaries.'),
+					{
+						status: 400,
+						param: 'reasoning.summary',
+						code: 'unsupported_value',
+						error: { type: 'invalid_request_error' }
+					}
+				)
+			)
+			.mockResolvedValue({})
+
+		await runChatLoop(createConfig({ workspace, modelProvider, onReasoningSummaryUnavailable }))
+
+		expect(mocks.getOpenAIResponsesCompletion).toHaveBeenCalledTimes(2)
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[0][3]).toEqual(
+			expect.objectContaining({ reasoningSummary: true })
+		)
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[1][3]).toEqual(
+			expect.objectContaining({ reasoningSummary: false })
+		)
+		expect(onReasoningSummaryUnavailable).toHaveBeenCalledTimes(1)
+		expect(mocks.getCompletion).not.toHaveBeenCalled()
+
+		// Cached: a later run in the same workspace skips the summary outright,
+		// but a different model on the same provider shares the cache entry.
+		await runChatLoop(
+			createConfig({
+				workspace,
+				modelProvider: { provider: 'openai', model: 'o3' }
+			})
+		)
+
+		expect(mocks.getOpenAIResponsesCompletion).toHaveBeenCalledTimes(3)
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[2][3]).toEqual(
+			expect.objectContaining({ reasoningSummary: false })
+		)
+	})
+
+	it('composes with the web-search fallback when the errors arrive web-search first', async () => {
+		mocks.providerSupportsWebSearch.mockReturnValue(true)
+		const onReasoningSummaryUnavailable = vi.fn()
+		const onWebSearchUnavailable = vi.fn()
+		const workspace = `workspace-${randomUUID()}`
+		const modelProvider: ReasoningProviderModel = { provider: 'openai', model: 'gpt-5.1' }
+
+		mocks.getOpenAIResponsesCompletion
+			.mockRejectedValueOnce(
+				Object.assign(new Error("Hosted tool 'web_search' is not supported with this model"), {
+					status: 400,
+					error: { type: 'invalid_request_error' }
+				})
+			)
+			.mockRejectedValueOnce(
+				Object.assign(
+					new Error('Your organization must be verified to generate reasoning summaries.'),
+					{
+						status: 400,
+						param: 'reasoning.summary',
+						code: 'unsupported_value',
+						error: { type: 'invalid_request_error' }
+					}
+				)
+			)
+			.mockResolvedValue({})
+
+		await runChatLoop(
+			createConfig({
+				workspace,
+				modelProvider,
+				onReasoningSummaryUnavailable,
+				onWebSearchUnavailable
+			})
+		)
+
+		expect(mocks.getOpenAIResponsesCompletion).toHaveBeenCalledTimes(3)
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[0][3]).toEqual(
+			expect.objectContaining({ webSearch: true, reasoningSummary: true })
+		)
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[1][3]).toEqual(
+			expect.objectContaining({ webSearch: false, reasoningSummary: true })
+		)
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[2][3]).toEqual(
+			expect.objectContaining({ webSearch: false, reasoningSummary: false })
+		)
+		expect(onWebSearchUnavailable).toHaveBeenCalledTimes(1)
+		expect(onReasoningSummaryUnavailable).toHaveBeenCalledTimes(1)
+		expect(mocks.getCompletion).not.toHaveBeenCalled()
+	})
+
+	it('does not request a summary when reasoning is explicitly off via a disable token', async () => {
+		// gpt-5.1+ reasoning is turned off with the explicit 'none' effort on the
+		// wire, while the effective reasoning resolves to undefined.
+		mocks.resolveRequestReasoning.mockReturnValue('none')
+		mocks.resolveEffectiveReasoning.mockReturnValue(undefined)
+		mocks.getOpenAIResponsesCompletion.mockResolvedValue({})
+		const workspace = `workspace-${randomUUID()}`
+
+		await runChatLoop(
+			createConfig({ workspace, modelProvider: { provider: 'openai', model: 'gpt-5.1' } })
+		)
+
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[0][3]).toEqual(
+			expect.objectContaining({ reasoningEffort: 'none', reasoningSummary: false })
+		)
+	})
+})
+
 describe('runChatLoop lastIterationUsage', () => {
 	beforeEach(() => {
 		vi.resetAllMocks()
@@ -436,5 +568,110 @@ describe('runChatLoop history sanitization', () => {
 		const sentAssistant = sent.find((m) => m.role === 'assistant' && m.tool_calls)
 		expect(sentAssistant.tool_calls[0].function.arguments).toBe('{}')
 		expect((poisoned as any).tool_calls[0].function.arguments).toContain('trunc')
+	})
+})
+
+describe('runChatLoop per-iteration vision gating', () => {
+	beforeEach(() => {
+		vi.resetAllMocks()
+		mocks.providerSupportsWebSearch.mockReturnValue(false)
+		mocks.resolveRequestReasoning.mockReturnValue(undefined)
+	})
+
+	// The loop owns the vision strip entirely — the caller passes the full
+	// history even for a known text-only model (see AIChatManager.chatRequest).
+	it('strips image parts from the first iteration on a known text-only model', async () => {
+		const config = createConfig({
+			workspace: `workspace-${randomUUID()}`,
+			modelProvider: { provider: 'groq', model: 'llama-3.3-70b-versatile' }
+		})
+		config.messages.splice(0, config.messages.length, {
+			role: 'user',
+			content: [
+				{ type: 'text', text: 'earlier turn' },
+				{ type: 'image_url', image_url: { url: 'data:image/png;base64,IMG' } }
+			]
+		} as any)
+		mocks.getCompletion.mockResolvedValue({})
+		mocks.parseOpenAICompletion.mockResolvedValue({ shouldContinue: false, tokenUsage })
+
+		await runChatLoop(config)
+
+		expect(mocks.getCompletion).toHaveBeenCalled()
+		expect(JSON.stringify(mocks.getCompletion.mock.calls[0][0])).not.toContain('image_url')
+	})
+
+	// The model selector stays enabled while the loop runs, and the loop re-reads
+	// the model each iteration. The vision gate has to be re-applied at the same
+	// cadence: filtering once at send start would ship the history's image parts
+	// to a text-only model the user switched to mid-turn.
+	it('strips image parts when the model switches to a text-only one mid-loop', async () => {
+		const config = createConfig({ workspace: `workspace-${randomUUID()}` })
+		config.maxIterations = 2
+		config.messages.splice(0, config.messages.length, {
+			role: 'user',
+			content: [
+				{ type: 'text', text: 'look at this' },
+				{ type: 'image_url', image_url: { url: 'data:image/png;base64,IMG' } }
+			]
+		} as any)
+		// vision model on the first iteration, known text-only on the second
+		let iteration = 0
+		Object.defineProperty(config, 'modelProvider', {
+			get: () =>
+				iteration === 0
+					? { provider: 'openai', model: 'gpt-4.1' }
+					: { provider: 'groq', model: 'llama-3.3-70b-versatile' }
+		})
+		mocks.getOpenAIResponsesCompletion.mockResolvedValue({})
+		mocks.parseOpenAIResponsesCompletion.mockImplementation(async () => {
+			iteration++
+			return { shouldContinue: true, tokenUsage }
+		})
+		mocks.getCompletion.mockResolvedValue({})
+		mocks.parseOpenAICompletion.mockResolvedValue({ shouldContinue: false, tokenUsage })
+
+		await runChatLoop(config)
+
+		// the vision iteration carries the image...
+		const first = mocks.getOpenAIResponsesCompletion.mock.calls[0][0]
+		expect(JSON.stringify(first)).toContain('image_url')
+		// ...the text-only iteration must not
+		expect(mocks.getCompletion).toHaveBeenCalled()
+		const second = mocks.getCompletion.mock.calls[0][0]
+		expect(JSON.stringify(second)).not.toContain('image_url')
+	})
+
+	// A history whose images together exceed the provider request-size limit gets
+	// the whole request rejected with a 413 the vision-rejection fallback cannot
+	// classify — the loop must keep the outbound copy under the byte cap.
+	it('drops the oldest images when the history exceeds the total byte cap', async () => {
+		const config = createConfig({ workspace: `workspace-${randomUUID()}` })
+		const bigImage = () => ({
+			type: 'image_url',
+			// two of these exceed MAX_TOTAL_IMAGE_BYTES (12MB decoded)
+			image_url: { url: 'data:image/png;base64,' + 'A'.repeat(9_000_000) }
+		})
+		config.messages.splice(
+			0,
+			config.messages.length,
+			{ role: 'user', content: [{ type: 'text', text: 'old' }, bigImage()] } as any,
+			{ role: 'assistant', content: 'ok' },
+			{ role: 'user', content: [{ type: 'text', text: 'new' }, bigImage()] } as any
+		)
+		mocks.getOpenAIResponsesCompletion.mockResolvedValue({})
+		mocks.parseOpenAIResponsesCompletion.mockResolvedValue({ shouldContinue: false, tokenUsage })
+
+		await runChatLoop(config)
+
+		const sent = mocks.getOpenAIResponsesCompletion.mock.calls[0][0] as any[]
+		const users = sent.filter((m) => m.role === 'user')
+		// the oldest message's image is stripped to a placeholder...
+		expect(users[0].content.some((p: any) => p.type === 'image_url')).toBe(false)
+		expect(JSON.stringify(users[0].content)).toContain('[image omitted]')
+		// ...the newest keeps its image part
+		expect(users[1].content.some((p: any) => p.type === 'image_url')).toBe(true)
+		// the stored history is untouched
+		expect((config.messages[0] as any).content.some((p: any) => p.type === 'image_url')).toBe(true)
 	})
 })

@@ -29,7 +29,7 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import DeleteForkedWorkspaceModal from './DeleteForkedWorkspaceModal.svelte'
-	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
+	import { workspaceIsFork, isForkOwner } from '$lib/utils/workspaceHierarchy'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import DiscordIcon from '../icons/brands/Discord.svelte'
 	import MenuLink from './MenuLink.svelte'
@@ -69,15 +69,23 @@
 	} = $props()
 
 	const currentWs = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
-	const canManageWorkspace = $derived($userStore?.is_admin || $superadmin)
-	// Fork/dev workspaces are detected by their parent link, not the `wm-fork-` id prefix.
-	const currentWsIsFork = $derived(workspaceIsFork($workspaceStore, $userWorkspaces ?? []))
 
 	const settingsTargetWs = $derived(
 		workspaceSettingsTarget
 			? $userWorkspaces?.find((w) => w.id === workspaceSettingsTarget)
 			: undefined
 	)
+
+	// The fork-owner grant must be checked against the workspace the settings entry
+	// actually points at — the session target when in session mode, else the active
+	// workspace — otherwise ownership of the wrong workspace could hide the entry or
+	// expose a dead link to a fork the user doesn't own.
+	const settingsWs = $derived(workspaceSettingsTarget ? settingsTargetWs : currentWs)
+	const canManageWorkspace = $derived(
+		$userStore?.is_admin || $superadmin || isForkOwner(settingsWs, $userStore?.email)
+	)
+	// Fork/dev workspaces are detected by their parent link, not the `wm-fork-` id prefix.
+	const currentWsIsFork = $derived(workspaceIsFork($workspaceStore, $userWorkspaces ?? []))
 
 	let leaveWorkspaceModal = $state(false)
 	let deleteForkModal = $state<DeleteForkedWorkspaceModal>()
@@ -136,8 +144,32 @@
 
 	// Account / instance actions gathered under one "Settings" dropdown, shared by
 	// the session rail and the global sidebar so both expose the same entry point.
-	// User sits just above Logout so the account-scoped entries read as one block.
-	const items = $derived<Item[]>([
+	// Logout lives inside the user submenu with the other account-scoped entries.
+	// Workspace- and instance-scoped entries anchor the bottom of the menu,
+	// instance settings last.
+	const workspaceInstanceItems = $derived<Item[]>([
+		...(!canManageWorkspace && !workspaceSettingsTarget
+			? [
+					{
+						displayName: 'Leave workspace',
+						icon: LogOut,
+						type: 'delete' as const,
+						action: () => (leaveWorkspaceModal = true)
+					}
+				]
+			: []),
+		// Fork deletion is a global-sidebar action on the active workspace, so keep it
+		// out of the session rail's per-target settings entry (`workspaceSettingsTarget`).
+		...(currentWsIsFork && !workspaceSettingsTarget
+			? [
+					{
+						displayName: 'Delete forked workspace',
+						icon: Trash2,
+						type: 'delete' as const,
+						action: () => deleteForkModal?.openModal()
+					}
+				]
+			: []),
 		...(canManageWorkspace
 			? [
 					workspaceSettingsTarget
@@ -163,35 +195,15 @@
 						action: () => goto(SUPERADMIN_SETTINGS_HASH)
 					}
 				]
-			: []),
-		...(!canManageWorkspace && !workspaceSettingsTarget
-			? [
-					{
-						displayName: 'Leave workspace',
-						icon: LogOut,
-						type: 'delete' as const,
-						action: () => (leaveWorkspaceModal = true)
-					}
-				]
-			: []),
-		// Fork deletion is a global-sidebar action on the active workspace, so keep it
-		// out of the session rail's per-target settings entry (`workspaceSettingsTarget`).
-		...(currentWsIsFork && !workspaceSettingsTarget
-			? [
-					{
-						displayName: 'Delete forked workspace',
-						icon: Trash2,
-						type: 'delete' as const,
-						action: () => deleteForkModal?.openModal()
-					}
-				]
-			: []),
+			: [])
+	])
+
+	const items = $derived<Item[]>([
 		{
 			displayName: 'Help',
 			icon: HelpCircle,
 			submenuItems: helpItems,
-			extra: helpPing,
-			separatorTop: true
+			extra: helpPing
 		},
 		{
 			displayName: 'Switch theme',
@@ -218,10 +230,11 @@
 								disabled: true
 							}
 						]
-					: [])
+					: []),
+				{ displayName: 'Logout', icon: LogOut, action: () => logout() }
 			]
 		},
-		{ displayName: 'Logout', icon: LogOut, action: () => logout() }
+		...workspaceInstanceItems.map((item, i) => (i === 0 ? { ...item, separatorTop: true } : item))
 	])
 
 	const logsItems = $derived<Item[]>([

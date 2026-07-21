@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT CASE WHEN pg_column_size(args) < 40000 OR $3 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args FROM v2_job WHERE id = $1 AND workspace_id = $2\n            UNION ALL\n            SELECT CASE WHEN pg_column_size(args) < 40000 OR $3 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args FROM input WHERE id = $1 AND workspace_id = $2 AND (is_public IS true OR created_by = $4)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "args",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ef57c1622cc57e4485ffe086dd55f62df8b7f510b4c478818ff8ab1a11d7d5ea"
+}

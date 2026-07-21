@@ -145,7 +145,8 @@
 	// total, and keyboard navigation.
 	const visibleSessions = $derived(
 		sessionState.sessions.filter((s) => {
-			if (s.transient) return false
+			// Pending (unsent) sessions show like any other, so several drafts can be
+			// set up in parallel; they group by pending_workspace_id via sessionRootOf.
 			// The open session always stays in the list, ignoring both filters.
 			if (s.id === sessionState.currentSessionId) return true
 			if (s.archived && !showArchived.val) return false
@@ -309,10 +310,8 @@
 	async function createAndOpen() {
 		const fresh = createSession()
 		// A new session opened from a Windmill page adopts that page as its first
-		// preview tab (resetSessionPreviewTabs handles a reused transient whose
-		// tabs still show a previous destination). Skip when already on the
-		// sessions page (nothing meaningful to capture) so the preview starts
-		// empty until the chat opens something.
+		// preview tab. Skip when already on the sessions page (nothing meaningful to
+		// capture) so the preview starts empty until the chat opens something.
 		if (!onSessionsPage) {
 			const url = page.url.pathname + page.url.search
 			resetSessionPreviewTabs(fresh.id, url)

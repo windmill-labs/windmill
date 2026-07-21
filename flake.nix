@@ -354,8 +354,7 @@
           (pkgs.writeScriptBin "wm-caddy" ''
             cd ./frontend
             xcaddy build "$@" \
-              --with github.com/mholt/caddy-l4@145ec36251a44286f05a10d231d8bfb3a8192e09 \
-              --with github.com/RussellLuo/caddy-ext/layer4@ab1e18cfe426012af351a68463937ae2e934a2a1
+              --with github.com/mholt/caddy-l4@bd96009ea7373869bb07d61055554f966b1f5088
           '')
           (pkgs.writeScriptBin "wm-setup" ''
             sqlx database create
