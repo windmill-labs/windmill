@@ -62,7 +62,7 @@
 	// Kept in an external store (not local state) so it survives this component unmounting when
 	// another node is selected; validated against the forked `tools` identity so a stale entry
 	// can't resurface after undo/session restores or in another flow (see agentEditStore).
-	let editingPath = $derived(getAgentEditingPath(ws, moduleId, tools))
+	let editingPath = $derived(getAgentEditingPath(tools))
 
 	type LinkedInfo = {
 		config: AIAgentConfig
@@ -210,7 +210,7 @@
 		// The brain + tools now live in the resource; a linked step keeps only the flow-local inputs.
 		tools = []
 		inputTransforms = flowLocalInputs(inputTransforms)
-		setAgentEditingPath(ws, moduleId, undefined, undefined)
+		setAgentEditingPath(tools, undefined)
 	}
 
 	async function saveAsAgent() {
@@ -295,7 +295,7 @@
 		try {
 			const path = await forkFromResource(true)
 			if (path) {
-				setAgentEditingPath(ws, moduleId, undefined, undefined)
+				setAgentEditingPath(tools, undefined)
 				sendUserToast('Forked agent — its configuration was copied into this step')
 			}
 		} catch (e) {
@@ -309,7 +309,7 @@
 		try {
 			const path = await forkFromResource(false)
 			if (path) {
-				setAgentEditingPath(ws, moduleId, path, tools)
+				setAgentEditingPath(tools, path)
 				sendUserToast(`Editing ${path} — make changes, then Save changes to update it`)
 			}
 		} catch (e) {
@@ -328,7 +328,7 @@
 			}
 		}
 		toolInputs = {}
-		setAgentEditingPath(ws, moduleId, undefined, undefined)
+		setAgentEditingPath(tools, undefined)
 	}
 </script>
 

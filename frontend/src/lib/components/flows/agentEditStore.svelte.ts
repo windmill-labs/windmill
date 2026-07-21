@@ -1,35 +1,24 @@
 // The path an AI agent step is being edited-in-place against (set by "Edit" on a linked agent).
-// Kept out of AgentResourceBar's local state because that component unmounts when another node is
-// selected — the "Editing <path>" mode must survive navigating away and back.
+// Lives outside AgentResourceBar so the "Editing <path>" mode survives that component unmounting
+// when another node is selected.
 //
-// Validity is anchored to the forked step's `tools` array identity rather than a flow-path key:
-// Edit assigns a fresh array, in-place edits keep it, and any wholesale state replacement (undo,
-// redo, session-draft updates, opening a different flow that reuses the module id) produces new
-// objects. A stale entry therefore fails the marker check instead of resurfacing a phantom
-// Editing banner whose Save could overwrite the shared agent — while an in-place flow rename
-// (which touches no modules) keeps the banner alive.
+// Entries are looked up by the forked step's `tools` array identity, not by any location key:
+// Edit assigns a fresh array (unique per fork, including nested editors reusing a module id),
+// in-place edits keep it, and wholesale state replacement (undo, session drafts) yields new
+// objects that simply never match — a stale entry can't resurface as a phantom Editing banner.
 type Entry = { path: string; marker: object }
 
-let editingByStep = $state<Record<string, Entry | undefined>>({})
+// Capped: abandoned forks (editor closed without Save/Cancel) leave dead entries behind.
+const MAX_ENTRIES = 20
 
-function key(workspace: string | undefined, moduleId: string): string {
-	return `${workspace ?? ''}:${moduleId}`
+let entries = $state<Entry[]>([])
+
+export function getAgentEditingPath(marker: object | undefined): string | undefined {
+	return marker ? entries.find((e) => e.marker === marker)?.path : undefined
 }
 
-export function getAgentEditingPath(
-	workspace: string | undefined,
-	moduleId: string,
-	marker: object | undefined
-): string | undefined {
-	const entry = editingByStep[key(workspace, moduleId)]
-	return entry && marker && entry.marker === marker ? entry.path : undefined
-}
-
-export function setAgentEditingPath(
-	workspace: string | undefined,
-	moduleId: string,
-	path: string | undefined,
-	marker: object | undefined
-) {
-	editingByStep[key(workspace, moduleId)] = path && marker ? { path, marker } : undefined
+export function setAgentEditingPath(marker: object | undefined, path: string | undefined) {
+	if (!marker) return
+	const rest = entries.filter((e) => e.marker !== marker)
+	entries = path ? [...rest.slice(-(MAX_ENTRIES - 1)), { marker, path }] : rest
 }
