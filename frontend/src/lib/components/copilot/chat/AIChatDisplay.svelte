@@ -362,10 +362,11 @@
 		e.preventDefault()
 		const dt = e.dataTransfer
 		if (!dt) return
-		// Images attach to the message; other files link as text context. Images are
-		// reserved from dt.files BEFORE any await (a send mid-ingestion would land
-		// them on the next message), and dt.files is the only place a disk-less drag
-		// exists — a cross-tab image resolves every getAsFileSystemHandle() to null.
+		// Images and loose text files attach to the message; folders link as session
+		// assets. Images are reserved from dt.files BEFORE any await (a send
+		// mid-ingestion would land them on the next message), and dt.files is the
+		// only place a disk-less drag exists — a cross-tab image resolves every
+		// getAsFileSystemHandle() to null.
 		const flatFiles = Array.from(dt.files ?? [])
 		const topLevelImages = flatFiles.filter(isImageFile)
 		const imageWork: Promise<unknown>[] = []

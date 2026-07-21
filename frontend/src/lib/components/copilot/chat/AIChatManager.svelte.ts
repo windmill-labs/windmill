@@ -2041,16 +2041,9 @@ export class AIChatManager {
 	}
 
 	/** Attached-file bytes counted against MAX_CONVERSATION_FILE_BYTES by
-	 * everything other than the composer identified by `selfKey`: transcript +
-	 * queue, then every other live composer's staged bytes. The caller adds its
-	 * own committed + pending bytes on top.
-	 *
-	 * `selfKey`'s own edited message is dropped from the transcript sum — the
-	 * caller's stage replaces it. But a message another composer is editing is
-	 * charged at the LARGER of its persisted size and that editor's current
-	 * stage: an edit is not committed until send, so cancelling it returns the
-	 * persisted attachments. Substituting a smaller in-progress stage would hand
-	 * this composer headroom that evaporates on cancel and overflow the cap. */
+	 * everything except composer `selfKey` (whose stage replaces its own edited
+	 * message). A message ANOTHER composer is editing charges max(persisted,
+	 * editor stage): a cancelled edit returns the persisted attachments. */
 	attachmentBytesExcluding(selfKey: string): number {
 		const selfEditing = this.#composerStaged.get(selfKey)?.editingIndex ?? null
 		const otherEdits = new Map<number, number>()
