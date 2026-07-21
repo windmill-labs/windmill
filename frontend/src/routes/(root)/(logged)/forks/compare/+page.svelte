@@ -22,6 +22,7 @@
 	import { readChatModifiedItems } from '$lib/components/copilot/chat/HistoryManager.svelte'
 	import {
 		COMPARE_ITEMS_PARAM,
+		maskHasDraftRow,
 		parseItemsMaskParam
 	} from '$lib/components/sessions/modifiedItemsMask'
 
@@ -149,8 +150,31 @@
 
 	$effect(() => {
 		if (modeResolved || !currentWorkspaceData) return
+		if (!isFork) {
+			untrack(() => {
+				mode = 'draft'
+				modeResolved = true
+			})
+			return
+		}
+		// A fork reached with a preselection mask but no ?mode= must land on the
+		// view where the masked items actually are: a chat's pending drafts have no
+		// fork-diff row, so fork mode would open with none of them selected. Defer
+		// until the mask and the draft list are known, then prefer the draft view
+		// when any masked item is a pending draft; else keep the fork comparison.
+		if (!chatMaskReady) return
+		const mask = chatMask
+		if (mask?.size) {
+			if (drafts.loading) return
+			const masksDraft = drafts.items.some((d) => maskHasDraftRow(mask, d))
+			untrack(() => {
+				mode = masksDraft ? 'draft' : 'fork'
+				modeResolved = true
+			})
+			return
+		}
 		untrack(() => {
-			mode = isFork ? 'fork' : 'draft'
+			mode = 'fork'
 			modeResolved = true
 		})
 	})
