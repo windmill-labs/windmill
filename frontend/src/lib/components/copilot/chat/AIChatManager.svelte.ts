@@ -2219,9 +2219,9 @@ export class AIChatManager {
 	) => {
 		// Returns whether the input was consumed: true when it was sent as a chat
 		// turn OR handled as a local built-in command, false when it was dropped
-		// without being acted on (mode hidden, empty, beforeSend failed). The
-		// queue flush restores the queued message only on false, so a consumed
-		// command isn't re-queued and re-fired into the next conversation.
+		// without being acted on (mode hidden, empty non-GLOBAL draft, beforeSend
+		// failed). The queue flush restores the queued message only on false, so a
+		// consumed command isn't re-queued and re-fired into the next conversation.
 		const requestedMode = options.mode ?? this.mode
 		if (!isAIModeVisible(requestedMode)) {
 			return false
@@ -2236,9 +2236,19 @@ export class AIChatManager {
 		if (options.instructions !== undefined) {
 			this.instructions = options.instructions
 		}
-		// An empty draft is NOT dropped: an empty send is a real turn with its own
-		// user bubble (a "go on" nudge). Safe API-wise — every mode's prepare*
-		// wraps instructions in section headers, so the content is never empty.
+		// In GLOBAL mode an empty draft is NOT dropped: an empty send is a real
+		// turn with its own user bubble (a "go on" nudge); the model-facing text
+		// gets an explicit empty-message marker further down. The other modes are
+		// editor copilots where an accidental Enter would burn a turn — drop the
+		// empty draft there, but let image-bearing drafts through to the
+		// switch-back refusal below so attachments aren't silently lost.
+		if (
+			this.mode !== AIMode.GLOBAL &&
+			!this.instructions.trim() &&
+			(options.images?.length ?? 0) === 0
+		) {
+			return false
+		}
 		// Built-in session commands run locally instead of becoming a chat turn.
 		// Intercepted here — before the beforeSend workspace commit, file regrants,
 		// and skill expansion. Scoped to session chat GLOBAL mode, where the

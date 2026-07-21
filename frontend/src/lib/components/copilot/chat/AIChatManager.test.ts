@@ -915,10 +915,29 @@ describe('AIChatManager queued messages', () => {
 		expect(hasImage).toBe(true)
 	})
 
-	it('still ignores a send with no text and no images', async () => {
+	// An empty GLOBAL send is a real turn — visible (empty) user bubble, and the
+	// model-facing text carries an explicit marker instead of a dangling
+	// INSTRUCTIONS header the model would echo back.
+	it('sends an empty GLOBAL draft as a turn with an empty-message marker', async () => {
 		replyWith('done')
 		const manager = createManager(createInputMock())
 		manager.mode = AIMode.GLOBAL
+
+		await manager.sendRequest({ instructions: '' })
+
+		expect(mocks.runChatLoop).toHaveBeenCalled()
+		const sent = mocks.runChatLoop.mock.calls[0][0].messages.at(-1)
+		expect(sent.content).toContain('(the user sent an empty message)')
+		// The bubble shows what the user typed: nothing.
+		expect(manager.displayMessages.find((m) => m.role === 'user')?.content).toBe('')
+	})
+
+	// Editor copilots (non-GLOBAL modes) keep dropping empty drafts: an
+	// accidental Enter there must not burn a model turn.
+	it('still ignores an empty send outside GLOBAL mode', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.NAVIGATOR
 
 		await manager.sendRequest({ instructions: '' })
 
