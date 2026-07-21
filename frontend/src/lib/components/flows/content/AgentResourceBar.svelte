@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import LightweightResourcePicker from '$lib/components/LightweightResourcePicker.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { ResourceService, type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { Bot, Save, Unlink, Pencil, TriangleAlert } from 'lucide-svelte'
+	import { Bot, Save, Unlink, Pencil } from 'lucide-svelte'
 	import {
 		AGENT_FLOW_LOCAL_KEYS,
 		agentConfigToInputTransforms,
@@ -282,7 +284,7 @@
 
 <div class="px-2 xl:px-4 pt-2">
 	{#if agent}
-		<div class="rounded-md border border-border bg-surface-secondary px-3 py-2">
+		<div class="rounded-md border border-light bg-surface-secondary px-3 py-2">
 			<div class="flex items-center gap-2 text-xs">
 				<Bot size={16} class="text-primary shrink-0" />
 				<span class="text-secondary shrink-0">Linked to</span>
@@ -317,7 +319,7 @@
 				</div>
 			</div>
 			{#if brainParams.length > 0 || inheritedTools.length > 0}
-				<dl class="mt-2 flex flex-col gap-1 border-t border-border pt-2">
+				<dl class="mt-2 flex flex-col gap-1 border-t border-light pt-2">
 					{#each brainParams as param (param.label)}
 						<div class="flex items-baseline gap-2 text-2xs">
 							<dt class="text-tertiary shrink-0 w-28">{param.label}</dt>
@@ -330,7 +332,7 @@
 							<dd class="flex flex-wrap gap-1">
 								{#each inheritedTools as tool (tool.id)}
 									<span
-										class="inline-flex items-center rounded border border-border bg-surface px-1.5 py-0.5 text-secondary"
+										class="inline-flex items-center rounded border border-light bg-surface px-1.5 py-0.5 text-secondary"
 										title={tool.id}
 									>
 										{toolLabel(tool)}
@@ -343,21 +345,17 @@
 			{/if}
 		</div>
 		{#if !providerOk}
-			<div
-				class="mt-1 flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-2xs text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-300"
-			>
-				<TriangleAlert size={14} class="mt-0.5 shrink-0" />
-				<span>
+			<div class="mt-1">
+				<Alert type="error" size="xs" title="Model provider not accessible">
 					This agent's model provider{#if providerPath}
 						(<span class="font-medium">{providerPath}</span>){/if} isn't accessible in this workspace.
-					Unlink to fork the agent, or gain access to the provider resource{#if providerPath}
-						at <span class="font-medium">{providerPath}</span>{/if}.
-				</span>
+					Unlink to fork the agent, or gain access to the provider resource.
+				</Alert>
 			</div>
 		{/if}
 	{:else if editingPath}
 		<div
-			class="flex items-center gap-2 rounded-md border border-border bg-surface-secondary px-3 py-2 text-xs"
+			class="flex items-center gap-2 rounded-md border border-light bg-surface-secondary px-3 py-2 text-xs"
 		>
 			<Pencil size={16} class="text-primary shrink-0" />
 			<span class="text-secondary">Editing</span>
@@ -426,7 +424,7 @@
 			/>
 			<label class="flex flex-col gap-1 text-xs">
 				<span class="text-secondary">Description</span>
-				<input class="text-xs" bind:value={description} placeholder="What this agent does" />
+				<TextInput bind:value={description} placeholder="What this agent does" size="sm" />
 			</label>
 			{#if providerNotStatic}
 				<p class="text-xs text-red-600 dark:text-red-400">

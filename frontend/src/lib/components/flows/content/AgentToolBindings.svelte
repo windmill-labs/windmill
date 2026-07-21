@@ -100,8 +100,8 @@
 	<div class="flex flex-col gap-2 px-2 pb-8 xl:px-4">
 		{#each flowTools as tool (tool.id)}
 			{@const code = toolCode(tool)}
-			<div class="rounded-md border border-border">
-				<div class="flex items-center gap-1.5 border-b border-border px-3 py-1.5 text-xs">
+			<div class="rounded-md border border-light">
+				<div class="flex items-center gap-1.5 border-b border-light px-3 py-1.5 text-xs">
 					<Wrench size={14} class="shrink-0 text-tertiary" />
 					<span class="font-medium">{tool.summary || tool.id}</span>
 					{#if tool.description}
@@ -128,11 +128,11 @@
 					<div class="px-3 py-2 text-2xs text-tertiary">Loading inputs...</div>
 				{/if}
 				{#if code}
-					<details class="border-t border-border">
+					<details class="border-t border-light">
 						<summary class="cursor-pointer px-3 py-1.5 text-2xs font-medium text-tertiary">
 							Tool code (read-only)
 						</summary>
-						<div class="max-h-64 overflow-auto border-t border-border p-2 text-xs">
+						<div class="max-h-64 overflow-auto border-t border-light p-2 text-xs">
 							<HighlightCode language={code.language} code={code.content ?? ''} />
 						</div>
 					</details>
