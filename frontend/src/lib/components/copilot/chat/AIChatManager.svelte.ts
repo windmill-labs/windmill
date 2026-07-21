@@ -67,8 +67,8 @@ import {
 	stripImagePartsFromMessages
 } from './imageUtils'
 import { chatDraft, expanded } from './chatDraft'
+import { MessageDraft, type DraftSnapshot } from './messageDraft.svelte'
 import {
-	foldIntoDraft,
 	MAX_ATTACHED_FILES,
 	textByteLength,
 	withAttachedTextFileIds,
@@ -328,12 +328,10 @@ function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean)
 	return appendWebSearchErrorHint(message, webSearchUnavailable)
 }
 
-/** A message queued while a turn streams: text, attachments and the pinned
+/** A message queued while a turn streams: the draft lanes and the pinned
  * context snapshot always move together so a flush can't drop one. */
 type QueuedEntry = {
-	text: string
-	images: AttachedImage[]
-	files: AttachedTextFile[]
+	draft: DraftSnapshot
 	context: ContextElement[] | undefined
 }
 
@@ -355,22 +353,29 @@ export class AIChatManager {
 	savedSize = $state<number>(0)
 	instructions = $state<string>('')
 	pendingPrompt = $state<string>('')
-	// Message typed while a turn is streaming. There is only ever one queued
-	// message; pressing Enter again appends another line to it. Auto-sent when
+	// Message queued while a turn is streaming. There is only ever one queued
+	// draft; pressing Enter again appends another line to it. Auto-sent when
 	// the turn finishes (clean completion or user cancel). Ephemeral — never
-	// saved to displayMessages or history.
-	queuedMessage = $state<string>('')
+	// saved to displayMessages or history. Owning it as a MessageDraft means
+	// every aggregation applies the draft rules (fold, caps, lanes move
+	// together) instead of re-implementing them here.
+	#queuedDraft = new MessageDraft()
 	// Context snapshot to send WITH the queued message, when it must stay scoped to
 	// what was selected at queue time (e.g. an inline element prompt submitted mid-
 	// stream) rather than the live selection, which may change before the flush.
 	queuedContext = $state<ContextElement[] | undefined>(undefined)
-	// Images attached to that message. Kept beside the text rather than inside it
-	// because the queued chip renders `queuedMessage` as a plain string. Always
-	// move the two together — #takeQueue/#clearQueue/#restoreQueue exist so no
-	// call site can drop one and auto-send a message the user never wrote.
-	queuedImages = $state<AttachedImage[]>([])
-	// Text files attached to that message — same contract as queuedImages.
-	queuedFiles = $state<AttachedTextFile[]>([])
+	get queuedMessage(): string {
+		return this.#queuedDraft.text
+	}
+	set queuedMessage(text: string) {
+		this.#queuedDraft.text = text
+	}
+	get queuedImages(): AttachedImage[] {
+		return this.#queuedDraft.images
+	}
+	get queuedFiles(): AttachedTextFile[] {
+		return this.#queuedDraft.files
+	}
 	// Jobs the chat started that detached into the background (global/sessions
 	// chat only). Rendered in the jobs tray, persisted with the chat, and advanced
 	// by a single background poller. See registerJob / #pollBackgroundJobs.
@@ -1332,9 +1337,9 @@ export class AIChatManager {
 		if ((result === 'ok' || this.wasCancelledByUser()) && this.#hasQueuedMessage()) {
 			const next = this.#takeQueue()
 			const accepted = await this.sendRequest({
-				instructions: next.text,
-				images: next.images,
-				files: next.files,
+				instructions: next.draft.text,
+				images: next.draft.images,
+				files: next.draft.files,
 				contextOverride: next.context,
 				queued: true
 			})
@@ -1489,23 +1494,16 @@ export class AIChatManager {
 		if (trimmed) {
 			this.queuedMessage = this.queuedMessage ? `${this.queuedMessage}\n${trimmed}` : trimmed
 		}
-		if (images.length > 0) {
-			const merged = [...this.queuedImages, ...images]
-			if (merged.length > MAX_ATTACHED_IMAGES) {
-				sendUserToast(`Only the first ${MAX_ATTACHED_IMAGES} images are kept.`, true)
-			}
-			this.queuedImages = merged.slice(0, MAX_ATTACHED_IMAGES)
+		// The queue is a message draft like any other: attachments join under the
+		// draft rules (fold, caps) — repeated submissions during one stream
+		// aggregate into a single queued message.
+		const droppedImages = images.length > 0 ? this.#queuedDraft.addImages(images) : 0
+		if (droppedImages > 0) {
+			sendUserToast(`Only the first ${MAX_ATTACHED_IMAGES} images are kept.`, true)
 		}
-		if (files.length > 0) {
-			// Fold like the composer's commit: repeated submissions during one stream
-			// aggregate into a single queued message, so an identical re-attach must
-			// dedupe (not eat a slot) and a same-name clash gets the courtesy rename —
-			// the queue is a message draft like any other.
-			const merged = [...this.queuedFiles, ...foldIntoDraft(this.queuedFiles, files)]
-			if (merged.length > MAX_ATTACHED_FILES) {
-				sendUserToast(`Only the first ${MAX_ATTACHED_FILES} files are kept.`, true)
-			}
-			this.queuedFiles = merged.slice(0, MAX_ATTACHED_FILES)
+		const droppedFiles = files.length > 0 ? this.#queuedDraft.addFiles(files).droppedAtCap : 0
+		if (droppedFiles > 0) {
+			sendUserToast(`Only the first ${MAX_ATTACHED_FILES} files are kept.`, true)
 		}
 		// Pin the context snapshot to the queued message. The queued text accumulates
 		// (several inline prompts can queue during one stream), so union the DOM
@@ -1536,33 +1534,27 @@ export class AIChatManager {
 
 	/** Whether anything is waiting in the queue — an attachment-only message has empty text. */
 	#hasQueuedMessage(): boolean {
-		return this.queuedMessage !== '' || this.queuedImages.length > 0 || this.queuedFiles.length > 0
+		return !this.#queuedDraft.isEmpty
 	}
 
-	/** Detach the queue for sending. Text, attachments and context always leave together. */
+	/** Detach the queue for sending. The draft lanes and context always leave together. */
 	#takeQueue(): QueuedEntry {
 		const taken = {
-			text: this.queuedMessage,
-			images: this.queuedImages,
-			files: this.queuedFiles,
+			draft: this.#queuedDraft.take(),
 			context: this.queuedContext
 		}
-		this.#clearQueue()
+		this.queuedContext = undefined
 		return taken
 	}
 
 	#clearQueue() {
-		this.queuedMessage = ''
-		this.queuedImages = []
-		this.queuedFiles = []
+		this.#queuedDraft.clear()
 		this.queuedContext = undefined
 	}
 
 	/** Put a taken queue back after an auto-send bailed before becoming a turn. */
 	#restoreQueue(queued: QueuedEntry) {
-		this.queuedMessage = queued.text
-		this.queuedImages = queued.images
-		this.queuedFiles = queued.files
+		this.#queuedDraft.replace(queued.draft)
 		this.queuedContext = queued.context
 	}
 
@@ -1597,7 +1589,11 @@ export class AIChatManager {
 			return
 		}
 		const queued = this.#takeQueue()
-		const mergedIntoDraft = this.restoreToInput(queued.text, queued.images, queued.files)
+		const mergedIntoDraft = this.restoreToInput(
+			queued.draft.text,
+			queued.draft.images,
+			queued.draft.files
+		)
 		// The queued draft pinned its own DOM context; restore it so sending from
 		// the composer targets the element the draft was written for, not whatever
 		// is selected now. If its text was prepended onto an existing draft, that
@@ -1616,9 +1612,7 @@ export class AIChatManager {
 		if (this.aiChatInput) {
 			return this.aiChatInput.prependText(text, images, files) === true
 		}
-		this.queuedMessage = text
-		this.queuedImages = images
-		this.queuedFiles = files
+		this.#queuedDraft.replace({ text, images, files })
 		return false
 	}
 
@@ -2617,9 +2611,9 @@ export class AIChatManager {
 			if (this.wasCancelledByUser() && this.#hasQueuedMessage()) {
 				const next = this.#takeQueue()
 				const accepted = await this.sendRequest({
-					instructions: next.text,
-					images: next.images,
-					files: next.files,
+					instructions: next.draft.text,
+					images: next.draft.images,
+					files: next.draft.files,
 					contextOverride: next.context,
 					queued: true
 				})
@@ -3153,9 +3147,9 @@ export class AIChatManager {
 		if ((turnCommittedCleanly || this.wasCancelledByUser()) && this.#hasQueuedMessage()) {
 			const next = this.#takeQueue()
 			const accepted = await this.sendRequest({
-				instructions: next.text,
-				images: next.images,
-				files: next.files,
+				instructions: next.draft.text,
+				images: next.draft.images,
+				files: next.draft.files,
 				contextOverride: next.context,
 				queued: true
 			})

@@ -31,15 +31,14 @@
 	import { tryGetCurrentModel } from '$lib/aiStore'
 	import { createLongHash } from '$lib/editorLangUtils'
 	import {
-		admitWithinByteBudget,
 		fileToAttachedTextFile,
-		foldIntoDraft,
 		MAX_ATTACHED_FILES,
 		MAX_CONVERSATION_FILE_BYTES,
 		MAX_TEXT_FILE_BYTES,
 		textByteLength,
 		type AttachedTextFile
 	} from './textFileUtils'
+	import { MessageDraft } from './messageDraft.svelte'
 	import ExpandableImage, {
 		isImageViewerOpen
 	} from '$lib/components/common/image/ExpandableImage.svelte'
@@ -153,16 +152,22 @@
 
 	let contextTextareaComponent: ContextTextarea | undefined = $state()
 	let instructionsTextareaComponent: HTMLTextAreaElement | undefined = $state()
-	let instructions = $state(untrack(() => initialInstructions))
+	// The four lanes that ship with the next send — text, collapsed big-paste
+	// blobs, per-message images, per-message text files — owned by one draft so
+	// every aggregation applies the draft rules. The composer keeps only the
+	// async in-flight accounting (pending counters, byte reservations).
+	const draft = new MessageDraft(
+		untrack(() => ({
+			text: initialInstructions,
+			pastes: initialPastes ?? [],
+			images: initialImages ?? [],
+			files: initialFiles ?? []
+		}))
+	)
 	$effect(() => {
-		const text = instructions
+		const text = draft.text
 		untrack(() => onDraftChange?.(text))
 	})
-	// Collapsed big-paste blobs referenced by tokens in `instructions`.
-	let pastes = $state<PasteAttachment[]>(untrack(() => initialPastes ?? []))
-	// Per-message image attachments (drag/drop/paste), GLOBAL mode only. One-shot:
-	// they attach to the next send and clear, unlike the persistent attached-files store.
-	let images = $state<AttachedImage[]>(untrack(() => initialImages ?? []))
 	// Images being decoded right now. Holds off sending so a message can never go
 	// out without an attachment the user already dropped, and reserves cap slots
 	// against a concurrent drop.
@@ -182,10 +187,10 @@
 			sendUserToast(`${model.model} can't read images. Switch to a vision model first.`, true)
 			return
 		}
-		// Count decodes already in flight: two drops that both read `images.length`
+		// Count decodes already in flight: two drops that both read the image count
 		// before either resolves would each claim the same free slots and overshoot
 		// the cap.
-		const remaining = MAX_ATTACHED_IMAGES - images.length - pendingImages
+		const remaining = MAX_ATTACHED_IMAGES - draft.images.length - pendingImages
 		if (remaining <= 0) {
 			sendUserToast(`You can attach up to ${MAX_ATTACHED_IMAGES} images.`, true)
 			return
@@ -221,7 +226,7 @@
 					failed++
 				}
 			}
-			if (added.length > 0) images = [...images, ...added]
+			if (added.length > 0) draft.addImages(added)
 			if (failed > 0) sendUserToast(`Could not attach ${failed} image(s).`, true)
 		} finally {
 			pendingImages -= batch.length
@@ -229,13 +234,9 @@
 	}
 
 	function removeImage(index: number) {
-		images = images.filter((_, i) => i !== index)
+		draft.images = draft.images.filter((_, i) => i !== index)
 	}
 
-	// Per-message text-file attachments, GLOBAL mode only. One-shot like images:
-	// they attach to the next send and clear. Linked folders stay in the
-	// session-scoped attached-files store instead.
-	let files = $state<AttachedTextFile[]>(untrack(() => initialFiles ?? []))
 	// Files being read right now — same send-hold/slot-reservation role as pendingImages.
 	let pendingFiles = $state(0)
 	// Bytes those in-flight reads have claimed against the conversation budget:
@@ -249,7 +250,7 @@
 	// the two can't each spend the whole conversation allowance.
 	const composerKey = untrack(() => createLongHash())
 	let stagedBytes = $derived(
-		files.reduce((sum, f) => sum + textByteLength(f.content), 0) + pendingFileBytes
+		draft.files.reduce((sum, f) => sum + textByteLength(f.content), 0) + pendingFileBytes
 	)
 	$effect(() => {
 		aiChatManager.setComposerStaged(composerKey, editingMessageIndex, stagedBytes)
@@ -260,7 +261,7 @@
 	export async function addTextFiles(candidates: File[]) {
 		if (aiChatManager.mode !== AIMode.GLOBAL) return
 		if (candidates.length === 0) return
-		const remaining = MAX_ATTACHED_FILES - files.length - pendingFiles
+		const remaining = MAX_ATTACHED_FILES - draft.files.length - pendingFiles
 		if (remaining <= 0) {
 			sendUserToast(`You can attach up to ${MAX_ATTACHED_FILES} files.`, true)
 			return
@@ -291,7 +292,7 @@
 		let budget =
 			MAX_CONVERSATION_FILE_BYTES -
 			aiChatManager.attachmentBytesExcluding(composerKey) -
-			files.reduce((sum, f) => sum + textByteLength(f.content), 0) -
+			draft.files.reduce((sum, f) => sum + textByteLength(f.content), 0) -
 			pendingFileBytes
 		const withinBudget: File[] = []
 		for (const f of batch) {
@@ -324,26 +325,22 @@
 					skipped++
 				}
 			}
-			// Dedupe, courtesy-rename, and mint ids in one synchronous commit against
-			// the live list — another attach batch can land between this one's file
-			// reads, so decisions made mid-loop would be stale.
-			const folded = foldIntoDraft(files, reads)
-			// Re-check the byte budget against the DECODED sizes: the admission above
-			// used raw File.size, but the committed charge is the decoded UTF-8
-			// length, which malformed input inflates. Synchronous with the commit, so
-			// nothing interleaves. This batch's own raw reservation is excluded — the
-			// decoded sizes replace it.
+			// Commit through the draft in one synchronous step — fold (dedupe,
+			// courtesy rename) and decoded-byte admission both run against the live
+			// list, so another batch landing between this one's file reads can't be
+			// missed, and malformed input that inflates on decode can't slip past the
+			// raw-size admission above. This batch's own raw reservation is excluded
+			// from the budget — the decoded sizes replace it.
 			const liveBudget =
 				MAX_CONVERSATION_FILE_BYTES -
 				aiChatManager.attachmentBytesExcluding(composerKey) -
-				files.reduce((sum, f) => sum + textByteLength(f.content), 0) -
+				draft.files.reduce((sum, f) => sum + textByteLength(f.content), 0) -
 				(pendingFileBytes - reservedBytes)
-			const { admitted, dropped } = admitWithinByteBudget(folded, liveBudget)
-			if (admitted.length > 0) files = [...files, ...admitted]
-			if (dropped > 0) {
+			const { droppedAtBudget } = draft.addFiles(reads, liveBudget)
+			if (droppedAtBudget > 0) {
 				const mb = Math.round(MAX_CONVERSATION_FILE_BYTES / 1_000_000)
 				sendUserToast(
-					`${dropped} file(s) skipped — this conversation reached its ${mb}MB attachment budget. Link a folder to read larger sets on demand.`,
+					`${droppedAtBudget} file(s) skipped — this conversation reached its ${mb}MB attachment budget. Link a folder to read larger sets on demand.`,
 					true
 				)
 			}
@@ -355,7 +352,7 @@
 	}
 
 	function removeFile(index: number) {
-		files = files.filter((_, i) => i !== index)
+		draft.files = draft.files.filter((_, i) => i !== index)
 	}
 
 	// App mode @ mention state
@@ -400,9 +397,9 @@
 	 * leave duplicate tokens. */
 	export function insertMention(title: string) {
 		const target = `@${title}`
-		if (instructions.split(/\s+/).includes(target)) return
-		const sep = instructions.length === 0 || /\s$/.test(instructions) ? '' : ' '
-		instructions = `${instructions}${sep}${target} `
+		if (draft.text.split(/\s+/).includes(target)) return
+		const sep = draft.text.length === 0 || /\s$/.test(draft.text) ? '' : ' '
+		draft.text = `${draft.text}${sep}${target} `
 	}
 
 	/** Strip every `@title` token from the textarea — used when the user
@@ -418,7 +415,7 @@
 		contextTextareaComponent?.unsyncMention(title)
 		const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 		const re = new RegExp(`(^|\\s)@${escaped}(\\s|$)`, 'g')
-		instructions = instructions.replace(re, (_m, lead, trail) => {
+		draft.text = draft.text.replace(re, (_m, lead, trail) => {
 			// Boundary on at least one side → drop the mention entirely.
 			if (!lead || !trail) return ''
 			// Middle of text: keep ONE of the bracketing whitespace chars so
@@ -449,19 +446,19 @@
 		restoredImages: AttachedImage[] = [],
 		restoredFiles: AttachedTextFile[] = []
 	): boolean {
+		// Attachments still decoding/reading count as occupancy too — they belong
+		// to a draft the user started even though their lane is still empty.
+		if (pendingImages > 0 || pendingFiles > 0) return false
 		if (
-			instructions.trim() ||
-			images.length > 0 ||
-			pendingImages > 0 ||
-			files.length > 0 ||
-			pendingFiles > 0
+			!draft.replaceIfEmpty({
+				text: value,
+				pastes: restoredPastes,
+				images: restoredImages,
+				files: restoredFiles
+			})
 		) {
 			return false
 		}
-		instructions = value
-		pastes = restoredPastes
-		images = restoredImages
-		files = restoredFiles
 		focusInput()
 		return true
 	}
@@ -476,36 +473,25 @@
 		restoredImages: AttachedImage[] = [],
 		restoredFiles: AttachedTextFile[] = []
 	): boolean {
-		// Whether the restored text landed on top of a draft the user was already
-		// writing: both instructions now share one composer, so the caller must keep
-		// both their contexts rather than replacing one with the other.
-		const mergedIntoDraft = !!text && !!instructions.trim()
-		// An attachment-only restore has empty text; prepending it would only add blank lines.
-		if (text) {
-			instructions = instructions.trim() ? `${text}\n\n${instructions}` : text
+		// mergedIntoDraft: the restored text landed on top of a draft the user was
+		// already writing — both instructions now share one composer, so the caller
+		// must keep both their contexts rather than replacing one with the other.
+		const { mergedIntoDraft, droppedImages, droppedFiles } = draft.prepend({
+			text,
+			images: restoredImages,
+			files: restoredFiles
+		})
+		if (droppedImages > 0) {
+			sendUserToast(
+				`You can attach up to ${MAX_ATTACHED_IMAGES} images; ${droppedImages} restored image(s) were dropped.`,
+				true
+			)
 		}
-		if (restoredImages.length > 0) {
-			const merged = [...images, ...restoredImages]
-			if (merged.length > MAX_ATTACHED_IMAGES) {
-				sendUserToast(
-					`You can attach up to ${MAX_ATTACHED_IMAGES} images; ${merged.length - MAX_ATTACHED_IMAGES} restored image(s) were dropped.`,
-					true
-				)
-			}
-			images = merged.slice(0, MAX_ATTACHED_IMAGES)
-		}
-		if (restoredFiles.length > 0) {
-			// Fold like any other draft aggregation: the composer may already hold
-			// attachments, so restored files dedupe against them and same-name
-			// clashes get the courtesy rename instead of raw concatenation.
-			const merged = [...files, ...foldIntoDraft(files, restoredFiles)]
-			if (merged.length > MAX_ATTACHED_FILES) {
-				sendUserToast(
-					`You can attach up to ${MAX_ATTACHED_FILES} files; ${merged.length - MAX_ATTACHED_FILES} restored file(s) were dropped.`,
-					true
-				)
-			}
-			files = merged.slice(0, MAX_ATTACHED_FILES)
+		if (droppedFiles > 0) {
+			sendUserToast(
+				`You can attach up to ${MAX_ATTACHED_FILES} files; ${droppedFiles} restored file(s) were dropped.`,
+				true
+			)
 		}
 		focusInput()
 		return mergedIntoDraft
@@ -513,8 +499,8 @@
 
 	/** Insert a plain @filename mention for an attached file (used by the @ menu Files category). */
 	export function insertFileMention(name: string) {
-		const sep = instructions.length === 0 || instructions.endsWith(' ') ? '' : ' '
-		instructions = `${instructions}${sep}${formatMention(name)} `
+		const sep = draft.text.length === 0 || draft.text.endsWith(' ') ? '' : ' '
+		draft.text = `${draft.text}${sep}${formatMention(name)} `
 		focusInput()
 	}
 
@@ -616,21 +602,15 @@
 			// Editing-while-loading keeps the old discard behavior. Paste
 			// tokens are expanded into the queued text (the queue is plain
 			// strings), so the full content survives the auto-send.
-			if (
-				editingMessageIndex === null &&
-				(instructions.trim() || images.length > 0 || files.length > 0)
-			) {
+			if (editingMessageIndex === null && !draft.isEmpty) {
+				const sent = draft.take()
 				aiChatManager.queueMessage(
-					expanded(chatDraft(instructions, pastes)),
-					images,
+					expanded(chatDraft(sent.text, sent.pastes)),
+					sent.images,
 					undefined,
-					files
+					sent.files
 				)
 				contextTextareaComponent?.clearForSend()
-				instructions = ''
-				pastes = []
-				images = []
-				files = []
 			}
 			return
 		}
@@ -638,27 +618,30 @@
 			// In edit mode selectedContext is the edit box's own copy (seeded from the
 			// message's original chips), so send exactly what's shown — the user may
 			// have added or removed chips.
+			const sent = draft.take()
 			aiChatManager.restartGeneration(
 				editingMessageIndex,
-				instructions,
-				pastes,
-				images,
+				sent.text,
+				sent.pastes,
+				sent.images,
 				selectedContext,
-				files
+				sent.files
 			)
 			onEditEnd()
 		} else {
-			aiChatManager.sendRequest({ instructions, pastes, images, files })
+			const sent = draft.take()
+			aiChatManager.sendRequest({
+				instructions: sent.text,
+				pastes: sent.pastes,
+				images: sent.images,
+				files: sent.files
+			})
 			// clearForSend() pre-zaps the textarea's mention-sync so the wipe
 			// doesn't drop `selectedContext` before `AIChatManager.beforeSend`
 			// snapshots it. Only mounted in SCRIPT/FLOW/GLOBAL — APP and the
-			// fallback textarea still rely on the plain `instructions = ''`
-			// reset (no `@`-mention state to coordinate).
+			// fallback textarea still rely on the draft reset alone (no
+			// `@`-mention state to coordinate).
 			contextTextareaComponent?.clearForSend()
-			instructions = ''
-			pastes = []
-			images = []
-			files = []
 		}
 	}
 
@@ -667,7 +650,7 @@
 	// for the conversation bubble and expands them for the LLM inside the manager.
 	function submitRequest() {
 		if (onSendRequest) {
-			onSendRequest(expanded(chatDraft(instructions, pastes)))
+			onSendRequest(expanded(chatDraft(draft.text, draft.pastes)))
 		} else {
 			sendRequest()
 		}
@@ -839,7 +822,7 @@
 	}
 
 	function handleAppInput(_e: Event) {
-		const words = instructions.split(/\s+/)
+		const words = draft.text.split(/\s+/)
 		const lastWord = words[words.length - 1]
 
 		if (
@@ -858,9 +841,9 @@
 	function handleAppContextSelection(contextElement: ContextElement) {
 		void addContextToSelection(contextElement)
 		// Update instructions with the selected context title
-		const index = instructions.lastIndexOf('@')
+		const index = draft.text.lastIndexOf('@')
 		if (index !== -1) {
-			instructions = instructions.substring(0, index) + `@${contextElement.title}`
+			draft.text = draft.text.substring(0, index) + `@${contextElement.title}`
 		}
 		showAppContextTooltip = false
 	}
@@ -876,7 +859,7 @@
 	{@const isLoading = loading ?? aiChatManager.loading}
 	{@const sendDisabled =
 		disabled ||
-		(instructions.trim().length === 0 && images.length === 0 && files.length === 0) ||
+		(draft.text.trim().length === 0 && draft.images.length === 0 && draft.files.length === 0) ||
 		pendingImages > 0 ||
 		pendingFiles > 0}
 	<Button
@@ -902,7 +885,7 @@
      thumbnails get their own row (different height). -->
 {#snippet badgeRow()}
 	{@const contextChips = showContext ? selectedContext : domSelectorChips}
-	{#if contextChips.length > 0 || files.length > 0 || pendingFiles > 0}
+	{#if contextChips.length > 0 || draft.files.length > 0 || pendingFiles > 0}
 		<div class="flex flex-row flex-wrap items-center gap-1 px-2.5 pt-2">
 			{#each contextChips as element (contextKey(element))}
 				<ContextElementBadge
@@ -914,7 +897,7 @@
 					}}
 				/>
 			{/each}
-			{#each files as file, i (i)}
+			{#each draft.files as file, i (i)}
 				<ContextElementBadge
 					contextElement={createAttachedFileContextElement(file.name, file.content)}
 					deletable
@@ -934,9 +917,9 @@
 {/snippet}
 
 {#snippet imageChipsRow()}
-	{#if images.length > 0 || pendingImages > 0}
+	{#if draft.images.length > 0 || pendingImages > 0}
 		<div class="flex flex-row flex-wrap items-center gap-1.5 px-2.5 pt-2">
-			{#each images as image, i (i)}
+			{#each draft.images as image, i (i)}
 				<div class="relative group">
 					<!-- The chip is a 48px object-cover crop, so the expanded view is the only
 					     way to check what was actually attached before sending it. -->
@@ -984,8 +967,8 @@
 		<div class="relative">
 			<ContextTextarea
 				bind:this={contextTextareaComponent}
-				bind:value={instructions}
-				bind:pastes
+				bind:value={draft.text}
+				bind:pastes={draft.pastes}
 				onImageFiles={aiChatManager.mode === AIMode.GLOBAL
 					? (pasted) => void addImages(pasted)
 					: undefined}
@@ -1026,7 +1009,7 @@
 		<div class={twMerge('relative w-full scroll-pb-2', className)}>
 			<textarea
 				bind:this={instructionsTextareaComponent}
-				bind:value={instructions}
+				bind:value={draft.text}
 				use:autosize={{ maxHeight: '40vh' }}
 				oninput={handleAppInput}
 				onblur={() => {
@@ -1090,7 +1073,7 @@
 		<div class={twMerge('relative w-full scroll-pb-2 pt-2', className)}>
 			<textarea
 				bind:this={instructionsTextareaComponent}
-				bind:value={instructions}
+				bind:value={draft.text}
 				use:autosize={{ maxHeight: '40vh' }}
 				onkeydown={(e) => {
 					if (onKeyDown) {
