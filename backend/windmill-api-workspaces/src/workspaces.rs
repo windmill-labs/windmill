@@ -4942,6 +4942,7 @@ async fn clone_workspace_data(
     // Clone CI test references
     clone_ci_test_references(tx, source_workspace_id, target_workspace_id).await?;
     clone_macro_registry(tx, source_workspace_id, target_workspace_id).await?;
+    clone_metric_catalog(tx, source_workspace_id, target_workspace_id).await?;
     clone_asset_usages_and_triggers(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone flows with new versions
@@ -5589,6 +5590,26 @@ async fn clone_macro_registry(
         "INSERT INTO macro_usage (workspace_id, consumer_path, macro_name)
          SELECT $2, consumer_path, macro_name
          FROM macro_usage WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+// Declared measures/dimensions are deploy-derived like the macro registry:
+// without cloning them the fork's editor and agent tools report no metrics until
+// every producer is manually redeployed there.
+async fn clone_metric_catalog(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO data_metric (workspace_id, script_path, table_path, kind, name, expr, filter)
+         SELECT $2, script_path, table_path, kind, name, expr, filter
+         FROM data_metric WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,
     )
