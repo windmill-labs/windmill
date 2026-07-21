@@ -88,3 +88,42 @@ export function textFilePatch(
 	if (beforeText === afterText) return ''
 	return createTwoFilesPatch(beforeLabel, afterLabel, beforeText, afterText, '', '', { context: 3 })
 }
+
+/** Window a patch by lines with a character backstop. When the backstop cuts
+ * inside the window, the continuation offset advances only past the COMPLETE
+ * lines actually delivered — a pre-truncation offset would skip the rest of
+ * the window forever. */
+export function windowPatch(
+	patch: string,
+	offset: number,
+	limit: number,
+	maxChars: number
+): string {
+	const lines = patch.split('\n')
+	const total = lines.length
+	const start = Math.min(offset, total)
+	const requestedEnd = Math.min(total, start + limit)
+	let body = lines.slice(start, requestedEnd).join('\n')
+	let effectiveEnd = requestedEnd
+	let note = ''
+	if (body.length > maxChars) {
+		body = body.slice(0, maxChars)
+		const lastNewline = body.lastIndexOf('\n')
+		if (lastNewline === -1) {
+			// One pathological line exceeds the budget: deliver its head and step
+			// past it, or pagination could never advance.
+			effectiveEnd = start + 1
+			note = `\n… [line truncated at ${maxChars} chars]`
+		} else {
+			body = body.slice(0, lastNewline)
+			effectiveEnd = start + body.split('\n').length
+			note = `\n… window truncated at ${maxChars} chars.`
+		}
+	}
+	if (start > 0 || effectiveEnd < total) {
+		note += `\n(lines ${start + 1}-${effectiveEnd} of ${total}${
+			effectiveEnd < total ? `; call diff again with offset=${effectiveEnd} for the rest` : ''
+		})`
+	}
+	return body + note
+}

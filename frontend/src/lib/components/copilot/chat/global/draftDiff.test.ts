@@ -33,6 +33,34 @@ describe('draftDeployedPatch', () => {
 	})
 })
 
+describe('windowPatch', () => {
+	it('continues from the last delivered line when the char cap cuts a window', async () => {
+		const { windowPatch } = await import('./draftDiff')
+		const patch = Array.from({ length: 20 }, (_, i) => `line-${String(i).padStart(2, '0')}`).join(
+			'\n'
+		)
+		// Cap fits ~5 complete 7-char lines ("line-NN" + newline).
+		const out = windowPatch(patch, 0, 20, 40)
+		const continueAt = Number(out.match(/offset=(\d+)/)?.[1])
+		expect(continueAt).toBeGreaterThan(0)
+		expect(continueAt).toBeLessThan(20)
+		// The continuation must resume exactly at the first undelivered line.
+		const delivered = out.split('\n').filter((l) => l.startsWith('line-'))
+		expect(delivered[delivered.length - 1]).toBe(`line-${String(continueAt - 1).padStart(2, '0')}`)
+		const next = windowPatch(patch, continueAt, 20, 40)
+		expect(next).toContain(`line-${String(continueAt).padStart(2, '0')}`)
+	})
+
+	it('steps past a single line larger than the whole budget', async () => {
+		const { windowPatch } = await import('./draftDiff')
+		const patch = ['x'.repeat(100), 'after'].join('\n')
+		const out = windowPatch(patch, 0, 10, 40)
+		expect(out).toContain('offset=1')
+		const next = windowPatch(patch, 1, 10, 40)
+		expect(next).toContain('after')
+	})
+})
+
 describe('changedLineIndices', () => {
 	it('counts source lines starting with ++ or -- but never the file labels', () => {
 		const patch = textFilePatch('a\n--counter\nb\n', 'a\n++counter\nb\n', 'deployed', 'draft')

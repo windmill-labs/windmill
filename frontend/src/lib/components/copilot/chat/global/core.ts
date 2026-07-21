@@ -124,7 +124,7 @@ import {
 	deployDraft as deployDraftToWorkspace,
 	getDraftDiffValues
 } from '$lib/utils_draft_deploy'
-import { changedLineIndices, draftDeployedPatch } from './draftDiff'
+import { changedLineIndices, draftDeployedPatch, windowPatch } from './draftDiff'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import type { UserDraftItemKind } from '$lib/gen'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
@@ -5198,30 +5198,15 @@ async function rebaseAppDraft(path: string, ctx: WriteDraftCtx): Promise<string>
 }
 
 const MAX_DIFF_PATCH_CHARS = 50_000
+
+function windowPatchBody(patch: string, offset: number, limit: number): string {
+	return windowPatch(patch, offset, limit, MAX_DIFF_PATCH_CHARS)
+}
+
 const DIFF_READ_DEFAULT_LINES = 500
 const DIFF_INDEX_DEFAULT_ITEMS = 50
 const DIFF_INDEX_MAX_ITEMS = 100
 
-// Slice a patch to the requested line window, with a char backstop so a
-// pathological line can't blow past the budget.
-function windowPatch(patch: string, offset: number, limit: number): string {
-	const lines = patch.split('\n')
-	const total = lines.length
-	const start = Math.min(offset, total)
-	const end = Math.min(total, start + limit)
-	let body = lines.slice(start, end).join('\n')
-	let note = ''
-	if (body.length > MAX_DIFF_PATCH_CHARS) {
-		body = body.slice(0, MAX_DIFF_PATCH_CHARS)
-		note = `\n... window truncated at ${MAX_DIFF_PATCH_CHARS} chars.`
-	}
-	if (start > 0 || end < total) {
-		note += `\n(lines ${start + 1}-${end} of ${total}${
-			end < total ? `; call diff again with offset=${end} for the rest` : ''
-		})`
-	}
-	return body + note
-}
 
 // Read-only draft-vs-deployed diff for one draftable item, served from the
 // workspace diff snapshot (fetched once, shared with the index), with a direct
@@ -5423,7 +5408,7 @@ async function diffWorkspaceItem(
 	}
 	const body = files
 		? renderEntryFiles(files, patch, args)
-		: windowPatch(patch, args.offset ?? 0, args.limit ?? DIFF_READ_DEFAULT_LINES)
+		: windowPatchBody(patch, args.offset ?? 0, args.limit ?? DIFF_READ_DEFAULT_LINES)
 	const result = flushCaveat + header + body
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Draft vs deployed diff for "${path}"`,
@@ -5459,7 +5444,7 @@ function renderEntryFiles(
 			// Empty file added/deleted: the presence change IS the whole diff.
 			return `File "${resolved}" was ${fileDiff.status} with empty content.`
 		}
-		return windowPatch(fileDiff.patch, args.offset ?? 0, args.limit ?? DIFF_READ_DEFAULT_LINES)
+		return windowPatchBody(fileDiff.patch, args.offset ?? 0, args.limit ?? DIFF_READ_DEFAULT_LINES)
 	}
 	const sections: string[] = []
 	const fileLines = Object.entries(files).map(
@@ -5474,7 +5459,7 @@ function renderEntryFiles(
 	if (configPatch) {
 		sections.push(
 			'Config changes:\n' +
-				windowPatch(configPatch, args.offset ?? 0, args.limit ?? DIFF_READ_DEFAULT_LINES)
+				windowPatchBody(configPatch, args.offset ?? 0, args.limit ?? DIFF_READ_DEFAULT_LINES)
 		)
 	}
 	return sections.join('\n\n')
@@ -5768,7 +5753,7 @@ async function diffForkItem(
 	}
 	const body = entry.files
 		? renderEntryFiles(entry.files, entry.patch ?? '', args)
-		: windowPatch(entry.patch ?? '', args.offset ?? 0, args.limit ?? DIFF_READ_DEFAULT_LINES)
+		: windowPatchBody(entry.patch ?? '', args.offset ?? 0, args.limit ?? DIFF_READ_DEFAULT_LINES)
 	const result = draftCaveat + header + body
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Fork vs parent diff for "${path}"`,
