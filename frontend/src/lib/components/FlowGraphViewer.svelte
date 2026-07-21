@@ -136,7 +136,7 @@
 				noGraph ? 'border-0 w-max' : ''
 			)}
 		>
-			<FlowGraphViewerStep schema={flow?.schema} {stepDetail} {hideDefaultInputs} />
+			<FlowGraphViewerStep schema={flow?.schema} {stepDetail} {hideDefaultInputs} {workspace} />
 		</div>
 	{/if}
 </div>

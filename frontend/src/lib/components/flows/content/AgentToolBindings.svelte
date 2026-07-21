@@ -77,12 +77,18 @@
 					const reloadSchema = defChanged || schemas[t.id] === undefined
 					defSnaps[t.id] = defSnap
 					if (reloadSchema) {
+						// Publish only if this request is still for the current definition — a slower
+						// load for a superseded definition must not overwrite the newest schema.
 						loadSchemaFromModule(agentToolToFlowModule(t), ws)
 							.then(({ schema }) => {
-								schemas[t.id] = schema
+								if (defSnaps[t.id] === defSnap) {
+									schemas[t.id] = schema
+								}
 							})
 							.catch(() => {
-								schemas[t.id] = { properties: {} }
+								if (defSnaps[t.id] === defSnap) {
+									schemas[t.id] = { properties: {} }
+								}
 							})
 					}
 				}

@@ -12,7 +12,7 @@
 	import SchemaViewer from './SchemaViewer.svelte'
 	import { scriptPathToHref } from '$lib/scripts'
 	import { cleanExpr, copyToClipboard } from '$lib/utils'
-	import { hubBaseUrlStore } from '$lib/stores'
+	import { hubBaseUrlStore, workspaceStore } from '$lib/stores'
 
 	import { twMerge } from 'tailwind-merge'
 	import FlowModuleScript from './flows/content/FlowModuleScript.svelte'
@@ -25,14 +25,19 @@
 		stepDetail?: FlowModule | string | undefined
 		jobScriptHash?: string | undefined
 		hideDefaultInputs?: boolean
+		// The workspace the viewed flow belongs to (differs from the nav workspace in fork/session
+		// editors); used to qualify resource links.
+		workspace?: string
 	}
 
 	let {
 		schema = undefined,
 		stepDetail = undefined,
 		jobScriptHash = undefined,
-		hideDefaultInputs = false
+		hideDefaultInputs = false,
+		workspace = undefined
 	}: Props = $props()
+	let ws = $derived(workspace ?? $workspaceStore)
 	let codeViewer: Drawer | undefined = $state()
 </script>
 
@@ -233,7 +238,7 @@
 						<span class="shrink-0">Linked to</span>
 						<a
 							class="truncate font-medium"
-							href={`/resources?path=${stepDetail.value.agent}`}
+							href={`/resources?path=${stepDetail.value.agent}&workspace=${ws}`}
 							title={stepDetail.value.agent}>{stepDetail.value.agent}</a
 						>
 					</div>

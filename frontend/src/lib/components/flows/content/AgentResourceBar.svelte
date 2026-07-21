@@ -305,7 +305,10 @@
 				<Bot size={16} class="text-primary shrink-0" />
 				<span class="text-secondary shrink-0">Linked to</span>
 				<span class="flex min-w-0 flex-1 items-center gap-1">
-					<a class="font-medium truncate" href={`/resources?path=${agent}`} title={agent}>{agent}</a
+					<a
+						class="font-medium truncate"
+						href={`/resources?path=${agent}&workspace=${ws}`}
+						title={agent}>{agent}</a
 					>
 					<Tooltip small placement="bottom">
 						{#snippet text()}
