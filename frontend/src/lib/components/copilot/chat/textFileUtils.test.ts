@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { attachedTextFileId, uniqueDraftFileName } from './textFileUtils'
+import { attachedTextFileId, foldIntoDraft, uniqueDraftFileName } from './textFileUtils'
 
 describe('attachedTextFileId', () => {
 	it('is deterministic and pinned — persisted transcripts depend on this exact value', () => {
@@ -27,5 +27,27 @@ describe('uniqueDraftFileName', () => {
 		expect(uniqueDraftFileName('notes.md', ['notes.md'])).toBe('notes (2).md')
 		expect(uniqueDraftFileName('notes.md', ['notes.md', 'notes (2).md'])).toBe('notes (3).md')
 		expect(uniqueDraftFileName('Makefile', ['Makefile'])).toBe('Makefile (2)')
+	})
+})
+
+describe('foldIntoDraft', () => {
+	// Attach batches overlap (each awaits its file reads), so normalization runs
+	// against the list as it stands at commit — these pin the fold semantics.
+	it('drops identical duplicates against the live list and within the batch', () => {
+		const current = [{ name: 'a.md', content: 'x', id: attachedTextFileId('a.md', 'x') }]
+		const commit = foldIntoDraft(current, [
+			{ name: 'a.md', content: 'x' },
+			{ name: 'b.md', content: 'y' },
+			{ name: 'b.md', content: 'y' }
+		])
+		expect(commit.map((f) => f.name)).toEqual(['b.md'])
+	})
+
+	it('renames a same-name clash committed by another batch and mints the id from the final name', () => {
+		const current = [{ name: 'a.md', content: 'old', id: attachedTextFileId('a.md', 'old') }]
+		const commit = foldIntoDraft(current, [{ name: 'a.md', content: 'new' }])
+		expect(commit).toEqual([
+			{ name: 'a (2).md', content: 'new', id: attachedTextFileId('a (2).md', 'new') }
+		])
 	})
 })

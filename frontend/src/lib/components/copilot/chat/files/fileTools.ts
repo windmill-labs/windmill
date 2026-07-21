@@ -117,8 +117,12 @@ export const searchFilesTool: Tool<{}> = {
 			content: `Searching attached files for /${parsed.pattern}/...`
 		})
 
+		// Hit lines are the model's only handle on which row matched, and display
+		// names may collide — label id-bearing rows with the reference that
+		// resolves back to exactly that row.
+		const rows = ready.map((f) => (f.id ? { ...f, name: `${f.name} (file id: ${f.id})` } : f))
 		// Run in a Worker so a pathological model-supplied regex can't freeze the tab.
-		const result = await searchFilesInWorker(ready, parsed.pattern, {
+		const result = await searchFilesInWorker(rows, parsed.pattern, {
 			flags: parsed.ignore_case ? 'i' : ''
 		})
 		if (result.error) {

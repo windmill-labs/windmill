@@ -89,6 +89,31 @@ export function withAttachedTextFileIds(files: AttachedTextFile[]): AttachedText
 	return files.map((f) => (f.id ? f : { ...f, id: attachedTextFileId(f.name, f.content) }))
 }
 
+/**
+ * Fold freshly-read files into a draft's attachment list: identical
+ * (name, content) duplicates are dropped, same-name-different-content clashes
+ * get the courtesy rename, and ids are minted from the final name. Must run
+ * against the LIVE list in the synchronous commit step — attach batches overlap
+ * (each awaits its file reads), so dedupe/rename decisions made mid-read would
+ * be stale by commit time.
+ */
+export function foldIntoDraft(
+	current: AttachedTextFile[],
+	reads: { name: string; content: string }[]
+): AttachedTextFile[] {
+	const commit: AttachedTextFile[] = []
+	for (const f of reads) {
+		const draft = [...current, ...commit]
+		if (draft.some((x) => x.name === f.name && x.content === f.content)) continue
+		const name = uniqueDraftFileName(
+			f.name,
+			draft.map((x) => x.name)
+		)
+		commit.push({ name, content: f.content, id: attachedTextFileId(name, f.content) })
+	}
+	return commit
+}
+
 /** Courtesy rename for a same-name clash within one message draft: `notes.md` →
  * `notes (2).md`. Display-only — identity is the id, and names may collide
  * across messages — but two identical labels inside one draft would be

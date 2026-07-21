@@ -31,13 +31,12 @@
 	import { tryGetCurrentModel } from '$lib/aiStore'
 	import { createLongHash } from '$lib/editorLangUtils'
 	import {
-		attachedTextFileId,
 		fileToAttachedTextFile,
+		foldIntoDraft,
 		MAX_ATTACHED_FILES,
 		MAX_CONVERSATION_FILE_BYTES,
 		MAX_TEXT_FILE_BYTES,
 		textByteLength,
-		uniqueDraftFileName,
 		type AttachedTextFile
 	} from './textFileUtils'
 	import ExpandableImage, {
@@ -313,36 +312,21 @@
 		const reservedBytes = batch.reduce((sum, f) => sum + f.size, 0)
 		pendingFileBytes += reservedBytes
 		try {
-			const added: AttachedTextFile[] = []
+			const reads: { name: string; content: string }[] = []
 			let skipped = 0
 			for (const file of batch) {
 				try {
 					const attached = await fileToAttachedTextFile(file)
-					if (!attached) {
-						skipped++
-						continue
-					}
-					const draft = [...files, ...added]
-					// A double-drop of the identical file is a no-op — a duplicate
-					// entry would ship the content twice.
-					if (draft.some((f) => f.name === attached.name && f.content === attached.content)) {
-						continue
-					}
-					// Courtesy rename on a same-name clash within this draft, BEFORE
-					// minting the id — the id hashes the final display name.
-					const name = uniqueDraftFileName(
-						attached.name,
-						draft.map((f) => f.name)
-					)
-					added.push({
-						name,
-						content: attached.content,
-						id: attachedTextFileId(name, attached.content)
-					})
+					if (attached) reads.push(attached)
+					else skipped++
 				} catch {
 					skipped++
 				}
 			}
+			// Dedupe, courtesy-rename, and mint ids in one synchronous commit against
+			// the live list — another attach batch can land between this one's file
+			// reads, so decisions made mid-loop would be stale.
+			const added = foldIntoDraft(files, reads)
 			if (added.length > 0) files = [...files, ...added]
 			if (skipped > 0) sendUserToast(`Skipped ${skipped} file(s) (non-text).`, true)
 		} finally {
