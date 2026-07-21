@@ -2386,6 +2386,7 @@ async fn update_resource_type(
     feature = "http_trigger",
     feature = "postgres_trigger",
     feature = "mqtt_trigger",
+    feature = "amqp_trigger",
     all(
         feature = "enterprise",
         any(

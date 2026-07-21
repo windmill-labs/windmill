@@ -1717,6 +1717,7 @@ export async function elementsToMap(
         path.endsWith(".nats_trigger" + ext) ||
         path.endsWith(".postgres_trigger" + ext) ||
         path.endsWith(".mqtt_trigger" + ext) ||
+        path.endsWith(".amqp_trigger" + ext) ||
         path.endsWith(".sqs_trigger" + ext) ||
         path.endsWith(".gcp_trigger" + ext) ||
         path.endsWith(".azure_trigger" + ext) ||
@@ -2470,6 +2471,7 @@ function getOrderFromPath(p: string) {
     typ == "nats_trigger" ||
     typ == "postgres_trigger" ||
     typ == "mqtt_trigger" ||
+    typ == "amqp_trigger" ||
     typ == "sqs_trigger" ||
     typ == "gcp_trigger" ||
     typ == "azure_trigger" ||
@@ -4237,7 +4239,7 @@ export async function push(
           }
         }
         const rules = folderRulesCache.get(folderName)!;
-        const remotePath = change.path.replace(/\.(script|schedule|http_trigger|websocket_trigger|kafka_trigger|nats_trigger|postgres_trigger|mqtt_trigger|sqs_trigger|gcp_trigger|azure_trigger|email_trigger)\.(yaml|json)$/, "").replace(/(\.flow|__flow)\/flow\.(yaml|json)$/, "").replace(/\.(app|raw_app)(\/app\.(yaml|json))?$/, "");
+        const remotePath = change.path.replace(/\.(script|schedule|http_trigger|websocket_trigger|kafka_trigger|nats_trigger|postgres_trigger|mqtt_trigger|amqp_trigger|sqs_trigger|gcp_trigger|azure_trigger|email_trigger)\.(yaml|json)$/, "").replace(/(\.flow|__flow)\/flow\.(yaml|json)$/, "").replace(/\.(app|raw_app)(\/app\.(yaml|json))?$/, "");
         const relative = remotePath.slice(`f/${folderName}/`.length);
         if (!relative) continue;
         for (const rule of rules) {
@@ -4929,6 +4931,12 @@ export async function push(
                   await wmill.deleteMqttTrigger({
                     workspace: workspaceId,
                     path: removeSuffix(target, ".mqtt_trigger.json"),
+                  });
+                  break;
+                case "amqp_trigger":
+                  await wmill.deleteAmqpTrigger({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".amqp_trigger.json"),
                   });
                   break;
                 case "sqs_trigger":

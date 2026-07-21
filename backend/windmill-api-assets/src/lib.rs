@@ -784,6 +784,11 @@ enum TriggerEdge {
         runnable_kind: AssetUsageKind,
         runnable_path: String,
     },
+    Amqp {
+        path: String,
+        runnable_kind: AssetUsageKind,
+        runnable_path: String,
+    },
     Nats {
         path: String,
         runnable_kind: AssetUsageKind,
@@ -926,6 +931,9 @@ async fn asset_graph(
                 WHERE workspace_id = $1
             UNION ALL
             SELECT 'mqtt', path, script_path, is_flow FROM mqtt_trigger
+                WHERE workspace_id = $1
+            UNION ALL
+            SELECT 'amqp', path, script_path, is_flow FROM amqp_trigger
                 WHERE workspace_id = $1
             UNION ALL
             SELECT 'nats', path, script_path, is_flow FROM nats_trigger
@@ -1210,6 +1218,7 @@ async fn asset_graph(
             "email" => TriggerEdge::Email { path, runnable_kind, runnable_path: script_path },
             "kafka" => TriggerEdge::Kafka { path, runnable_kind, runnable_path: script_path },
             "mqtt" => TriggerEdge::Mqtt { path, runnable_kind, runnable_path: script_path },
+            "amqp" => TriggerEdge::Amqp { path, runnable_kind, runnable_path: script_path },
             "nats" => TriggerEdge::Nats { path, runnable_kind, runnable_path: script_path },
             "postgres" => TriggerEdge::Postgres { path, runnable_kind, runnable_path: script_path },
             "sqs" => TriggerEdge::Sqs { path, runnable_kind, runnable_path: script_path },

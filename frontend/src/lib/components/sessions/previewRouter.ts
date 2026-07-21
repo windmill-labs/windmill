@@ -57,6 +57,7 @@ export type TriggerKind =
 	| 'gcp'
 	| 'azure'
 	| 'mqtt'
+	| 'amqp'
 	| 'email'
 
 export const TRIGGER_PAGES: Record<TriggerKind, { path: string; label: string; ee?: boolean }> = {
@@ -69,6 +70,7 @@ export const TRIGGER_PAGES: Record<TriggerKind, { path: string; label: string; e
 	gcp: { path: '/gcp_triggers', label: 'GCP Pub/Sub triggers', ee: true },
 	azure: { path: '/azure_triggers', label: 'Azure Event Grid triggers', ee: true },
 	mqtt: { path: '/mqtt_triggers', label: 'MQTT triggers' },
+	amqp: { path: '/amqp_triggers', label: 'AMQP triggers' },
 	email: { path: '/email_triggers', label: 'Email triggers' }
 }
 

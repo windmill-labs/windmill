@@ -71,6 +71,7 @@ const assetNodeId = (kind: string, path: string): string => `${kind}:${path}`;
 const NON_AUTORUN_TRIGGER_KINDS = new Set([
   "kafka",
   "mqtt",
+  "amqp",
   "nats",
   "postgres",
   "sqs",

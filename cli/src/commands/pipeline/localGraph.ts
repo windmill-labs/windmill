@@ -259,6 +259,7 @@ const NATIVE_KINDS = new Set([
   "email",
   "kafka",
   "mqtt",
+  "amqp",
   "nats",
   "postgres",
   "sqs",
