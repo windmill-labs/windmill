@@ -179,8 +179,8 @@ export function autoOutputAsset(
 		// object (`s3:///<key>` parses to path `/<key>`). The deploy-time
 		// parser stores writes in that form — a slashless seeded path would
 		// never match it, and the post-deploy drift check would report the
-		// output as lost (it isn't; the key differs by one '/'). Bodies that
-		// take a bare key (`{ s3: ... }`) strip the slash via `s3Key`.
+		// output as lost (it isn't; the key differs by one '/'). Bodies emit
+		// the path verbatim after `s3://`, so the slash round-trips.
 		case 's3_parquet':
 			return {
 				kind: 's3object',
@@ -220,13 +220,6 @@ const ASSET_URI_PREFIX: Record<AssetKind, string> = {
 
 export function assetUri(asset: { kind: AssetKind; path: string }): string {
 	return `${ASSET_URI_PREFIX[asset.kind]}${asset.path}`
-}
-
-// Bare object key for the SDK's `{ s3: <key> }` / `s3:///<key>` forms: the
-// canonical asset path of a default-storage object has a leading slash, the
-// key must not.
-function s3Key(path: string): string {
-	return path.replace(/^\//, '')
 }
 
 // Splits a datatable asset path (`<db>/<table>` or `<db>/<schema>.<table>`)
@@ -438,11 +431,12 @@ function bodyTs(ctx: TemplateContext): string {
 		if (!input) return ''
 		switch (input.kind) {
 			case 's3object':
-				// `s3:///<key>` URI — one spelling shared with the `// on
-				// s3:///…` annotation form (the object literal `{ s3: <key> }`
-				// is equivalent).
+				// `input.path` encodes storage as `<storage>/<key>` (an empty
+				// storage segment — leading slash — is the workspace default).
+				// Emit it verbatim after `s3://` so a named-storage input keeps
+				// its storage; stripping the slash reads the default-storage key.
 				return [
-					`  const buf = await wmill.loadS3File(${JSON.stringify(`s3:///${s3Key(input.path)}`)})`,
+					`  const buf = await wmill.loadS3File(${JSON.stringify(`s3://${input.path}`)})`,
 					`  const rows = JSON.parse(new TextDecoder().decode(buf))`,
 					``
 				].join('\n')
@@ -468,10 +462,10 @@ function bodyTs(ctx: TemplateContext): string {
 		switch (outputKind) {
 			case 's3_parquet':
 			case 's3_object':
-				// `s3:///<key>` URI — see the loadS3File note above.
+				// `s3://<storage>/<key>` URI — see the loadS3File note above.
 				return [
 					`  const payload = new TextEncoder().encode(JSON.stringify(rows))`,
-					`  await wmill.writeS3File(${JSON.stringify(`s3:///${s3Key(output.path)}`)}, payload)`
+					`  await wmill.writeS3File(${JSON.stringify(`s3://${output.path}`)}, payload)`
 				].join('\n')
 			case 'datatable': {
 				const dbName = output.path.split('/')[0] ?? 'main'
@@ -525,11 +519,12 @@ function bodyPython(ctx: TemplateContext): string {
 		if (!input) return ''
 		switch (input.kind) {
 			case 's3object':
-				// `s3:///<key>` URI — SDK string params must be s3:// URIs
-				// (bare keys are rejected), and this form matches the
-				// `# on s3:///…` annotation spelling.
+				// SDK string params must be s3:// URIs (bare keys are rejected).
+				// `input.path` encodes storage as `<storage>/<key>` (empty storage
+				// segment — leading slash — is the workspace default), so emit it
+				// verbatim after `s3://` to preserve a named-storage input.
 				return [
-					`    buf = wmill.load_s3_file(${JSON.stringify(`s3:///${s3Key(input.path)}`)})`,
+					`    buf = wmill.load_s3_file(${JSON.stringify(`s3://${input.path}`)})`,
 					`    import json; rows = json.loads(buf.decode("utf-8"))`
 				].join('\n')
 			case 'datatable':
@@ -552,10 +547,10 @@ function bodyPython(ctx: TemplateContext): string {
 		switch (outputKind) {
 			case 's3_parquet':
 			case 's3_object':
-				// `s3:///<key>` URI — see the load_s3_file note above.
+				// `s3://<storage>/<key>` URI — see the load_s3_file note above.
 				return [
 					`    import json`,
-					`    wmill.write_s3_file(${JSON.stringify(`s3:///${s3Key(output.path)}`)}, json.dumps(rows).encode("utf-8"))`
+					`    wmill.write_s3_file(${JSON.stringify(`s3://${output.path}`)}, json.dumps(rows).encode("utf-8"))`
 				].join('\n')
 			case 'datatable': {
 				const dbName = output.path.split('/')[0] ?? 'main'
