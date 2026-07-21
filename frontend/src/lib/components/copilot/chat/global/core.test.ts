@@ -250,10 +250,15 @@ vi.mock('./rawAppBundlerBridge', () => ({
 vi.mock('$lib/components/lint/headlessLint', () => ({
 	canLintHeadless: (lang: string) => lang === 'bun',
 	lintCode: vi.fn(async () => ({
-		errorCount: 1,
-		warningCount: 0,
-		errors: [{ startLineNumber: 2, message: "Type 'string' is not assignable to type 'number'." }],
-		warnings: [],
+		status: 'complete',
+		result: {
+			errorCount: 1,
+			warningCount: 0,
+			errors: [
+				{ startLineNumber: 2, message: "Type 'string' is not assignable to type 'number'." }
+			],
+			warnings: []
+		},
 		contentMismatch: false
 	}))
 }))
@@ -464,6 +469,35 @@ describe('global AI tools', () => {
 		expect(toolCallbacks.setToolStatus).toHaveBeenCalledWith(
 			'test-get_lint_errors',
 			expect.objectContaining({ result })
+		)
+	})
+
+	it('never reports an incomplete lint (no errors) as clean', async () => {
+		const { lintCode } = await import('$lib/components/lint/headlessLint')
+		// A checker that did not answer: zero markers, but status incomplete.
+		vi.mocked(lintCode).mockResolvedValueOnce({
+			status: 'incomplete',
+			result: { errorCount: 0, warningCount: 0, errors: [], warnings: [] },
+			missing: ['the TypeScript checker']
+		} as any)
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'u/admin/probe',
+			content: 'export async function main() {}',
+			language: 'bun',
+			summary: ''
+		} as any)
+
+		const result = await callGlobalTool('get_lint_errors', {
+			kind: 'script',
+			path: 'u/admin/probe'
+		})
+
+		expect(result).not.toContain('No lint issues')
+		expect(result).toContain('did not respond')
+		expect(result).toContain('inconclusive')
+		expect(toolCallbacks.setToolStatus).toHaveBeenCalledWith(
+			'test-get_lint_errors',
+			expect.objectContaining({ content: expect.stringContaining('inconclusive') })
 		)
 	})
 

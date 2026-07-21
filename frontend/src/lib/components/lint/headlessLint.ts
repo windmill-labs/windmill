@@ -4,7 +4,7 @@ import {
 	getTypeScriptWorker
 } from '@codingame/monaco-vscode-standalone-typescript-language-features'
 import { scriptLangToEditorLang } from '$lib/scripts'
-import type { ScriptLintResult } from '../copilot/chat/shared'
+import type { LintOutcome, ScriptLintResult } from '../copilot/chat/shared'
 import { initializeVscode, keepModelAroundToAvoidDisposalOfWorkers } from '../vscode'
 import {
 	setMonacoJavascriptOptions,
@@ -40,20 +40,13 @@ export interface HeadlessLintRequest {
 	workspace: string
 }
 
-export interface HeadlessLintOutcome extends ScriptLintResult {
-	/** An editor already owns this model and its content differs from what was requested. */
-	contentMismatch: boolean
-	/** Language servers that could not be reached, so their diagnostics are missing. */
-	unavailableServers?: string[]
-}
-
 // Models we created ourselves, least recently used first.
 const ownedModels: string[] = []
 const MAX_OWNED_MODELS = 4
 
 const absolutePathExtraLibs = new Map<string, { dispose: () => void }>()
 const ataByKey = new Map<string, (source: string) => Promise<void>>()
-const pendingByUri = new Map<string, Promise<HeadlessLintOutcome>>()
+const pendingByUri = new Map<string, Promise<LintOutcome>>()
 
 function withDeadline(promise: Promise<unknown>, ms: number): Promise<unknown> {
 	return Promise.race([promise, new Promise((resolve) => setTimeout(resolve, ms))])
@@ -87,7 +80,7 @@ function evictOwnedModels(keepUri: string) {
 export async function lintCode(
 	req: HeadlessLintRequest,
 	opts?: { timeoutMs?: number }
-): Promise<HeadlessLintOutcome> {
+): Promise<LintOutcome> {
 	if (!canLintHeadless(req.scriptLang)) {
 		throw new Error(`Headless linting is not supported for language ${req.scriptLang}`)
 	}
@@ -96,7 +89,7 @@ export async function lintCode(
 	if (LSP_LANGS.includes(req.scriptLang)) {
 		// Language servers analyse one document at a time and the editor gives these
 		// languages randomized paths, so there is no shared model to serialize on.
-		const result = await lintWithLsp({
+		return lintWithLsp({
 			content: req.content,
 			scriptLang: req.scriptLang,
 			editorLang,
@@ -104,7 +97,6 @@ export async function lintCode(
 			path: req.path,
 			timeoutMs: opts?.timeoutMs
 		})
-		return { ...result, contentMismatch: false }
 	}
 
 	const uriString = computeModelUri(
@@ -122,7 +114,7 @@ export async function lintCode(
 		uriString,
 		run.finally(() => {
 			if (pendingByUri.get(uriString) === run) pendingByUri.delete(uriString)
-		}) as Promise<HeadlessLintOutcome>
+		}) as Promise<LintOutcome>
 	)
 	return run
 }
@@ -132,7 +124,7 @@ async function lintOne(
 	uriString: string,
 	editorLang: string,
 	timeoutMs: number
-): Promise<HeadlessLintOutcome> {
+): Promise<LintOutcome> {
 	setMonacoTypescriptOptions()
 	if (editorLang === 'javascript') {
 		setMonacoJavascriptOptions()
@@ -183,13 +175,12 @@ async function lintOne(
 	}
 
 	const settled = await waitForMarkersToSettle(uri, editorLang, timeoutMs)
-	return {
-		...readModelMarkers(uri),
-		contentMismatch,
-		// A worker that never came up leaves the markers empty for lack of analysis; say so
-		// rather than let an empty set read as clean.
-		...(settled ? {} : { unavailableServers: ['the TypeScript checker'] })
-	}
+	const result = readModelMarkers(uri)
+	// A worker that never came up leaves the markers empty for lack of analysis; report it
+	// as incomplete rather than let an empty set read as clean.
+	return settled
+		? { status: 'complete', result, contentMismatch }
+		: { status: 'incomplete', result, missing: ['the TypeScript checker'], contentMismatch }
 }
 
 async function acquireTypes(req: HeadlessLintRequest, uriString: string): Promise<void> {
@@ -283,8 +274,8 @@ export interface AppFileLintResult {
 
 export interface AppFrontendLintResult {
 	files: AppFileLintResult[]
-	/** A file could not be type-checked (worker unavailable); its clean read is not trustworthy. */
-	incomplete: boolean
+	/** 'incomplete' when a file could not be type-checked; its clean read is not trustworthy. */
+	status: 'complete' | 'incomplete'
 }
 
 /**
@@ -346,7 +337,7 @@ export async function lintAppFrontend(req: {
 			const result = readModelMarkers(uri)
 			if (result.errorCount > 0 || result.warningCount > 0) out.push({ filePath, result })
 		}
-		return { files: out, incomplete }
+		return { files: out, status: incomplete ? 'incomplete' : 'complete' }
 	} finally {
 		for (const uriString of created) {
 			const model = meditor.getModel(Uri.parse(uriString))

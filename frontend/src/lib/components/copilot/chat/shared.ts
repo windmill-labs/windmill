@@ -1731,6 +1731,16 @@ export interface ScriptLintResult {
 	warnings: meditor.IMarker[]
 }
 
+/**
+ * The result of a headless lint. `complete` is the only shape that may be rendered as
+ * "clean" — an analysis that never ran (worker down, server stalled, timed out) is forced
+ * to be `incomplete`, so an empty marker set can never be mistaken for a clean bill.
+ * `missing` names the checkers whose diagnostics are absent.
+ */
+export type LintOutcome =
+	| { status: 'complete'; result: ScriptLintResult; contentMismatch?: boolean }
+	| { status: 'incomplete'; result: ScriptLintResult; missing: string[]; contentMismatch?: boolean }
+
 /** Format script lint result for display */
 export function formatScriptLintResult(lintResult: ScriptLintResult): string {
 	let response = ''

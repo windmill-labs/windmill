@@ -4081,7 +4081,7 @@ async function checkAppFrontend(path: string, ctx: WriteDraftCtx): Promise<strin
 	// some files could not be checked though others were — both mean "not a clean bill".
 	const typeCheckFailed = fileResults === undefined
 	const files = fileResults?.files ?? []
-	const partial = fileResults?.incomplete ?? false
+	const partial = fileResults?.status === 'incomplete'
 
 	const sections: string[] = []
 	if (buildError) {
@@ -4150,27 +4150,38 @@ async function getLintErrors(args: LintTargetArgs, ctx: WriteDraftCtx): Promise<
 	}
 
 	toolCallbacks.setToolStatus(toolId, { content: `Linting ${target.label}...` })
-	const result = await lintCode({
+	const outcome = await lintCode({
 		content: target.content,
 		scriptLang: target.language,
 		path: target.lintPath,
 		workspace
 	})
+	const result = outcome.result
+	const incomplete = outcome.status === 'incomplete'
 
 	const summary =
 		result.errorCount > 0
 			? `${result.errorCount} error(s)`
 			: result.warningCount > 0
 				? `${result.warningCount} warning(s)`
-				: result.unavailableServers?.length
-					? // No errors, but a checker didn't answer — not the same as clean.
-						'inconclusive'
+				: // No errors, but a checker didn't answer — not the same as clean.
+					incomplete
+					? 'inconclusive'
 					: 'no issues'
-	let response = formatScriptLintResult(result)
-	if (result.unavailableServers?.length) {
-		response += `\n\nNote: the ${result.unavailableServers.join(' and ')} language server${result.unavailableServers.length > 1 ? 's did' : ' did'} not respond, so some problems may not be listed. Treat a clean result as inconclusive.`
+	const hasIssues = result.errorCount > 0 || result.warningCount > 0
+	// Only a completed analysis with no markers is "clean" — an incomplete one with no
+	// markers found nothing because it never finished, which formatScriptLintResult would
+	// otherwise print as a green all-clear.
+	let response = hasIssues
+		? formatScriptLintResult(result)
+		: incomplete
+			? ''
+			: '✅ No lint issues found.'
+	if (incomplete) {
+		const note = `${outcome.missing.join(' and ')} did not respond, so some problems may not be listed. Treat a clean result as inconclusive.`
+		response += response ? `\n\nNote: ${note}` : `⚠️ ${note}`
 	}
-	if (result.contentMismatch) {
+	if (outcome.contentMismatch) {
 		response += `\n\nNote: an editor is currently open on this code and its buffer differs from the draft. The results above are for what that editor shows.`
 	}
 	// The result has to reach the tool display, or its details panel reads "No result yet".

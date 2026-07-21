@@ -3,7 +3,7 @@ import { editor as meditor, MarkerSeverity, Uri } from 'monaco-editor'
 import { MonacoLanguageClient } from 'monaco-languageclient'
 import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
 import { CloseAction, ErrorAction } from 'vscode-languageclient'
-import type { ScriptLintResult } from '../copilot/chat/shared'
+import type { LintOutcome, ScriptLintResult } from '../copilot/chat/shared'
 import { initializeVscode } from '../vscode'
 import { computeModelPath, computeModelUri } from './monacoUri'
 import { buildDenoImportMap, lspServersFor, type LspServerConfig } from './lspLanguageConfig'
@@ -224,10 +224,7 @@ function dedupe(markers: meditor.IMarker[]): ScriptLintResult {
 	return { errorCount: errors.length, warningCount: warnings.length, errors, warnings }
 }
 
-export interface LspLintResult extends ScriptLintResult {
-	/** Configured servers that could not be used, so their diagnostics are missing. */
-	unavailableServers: string[]
-}
+const EMPTY_RESULT: ScriptLintResult = { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
 
 export async function lintWithLsp(req: {
 	content: string
@@ -237,7 +234,7 @@ export async function lintWithLsp(req: {
 	/** Only used to build deno's import map, which resolves relative imports. */
 	path?: string
 	timeoutMs?: number
-}): Promise<LspLintResult> {
+}): Promise<LintOutcome> {
 	await initializeVscode('headlessLsp')
 
 	const modelPath = computeModelPath(undefined, req.scriptLang)
@@ -265,9 +262,8 @@ export async function lintWithLsp(req: {
 		)
 		for (const r of results) if (r) started.push(r)
 		if (started.length === 0) {
-			throw new Error(
-				`No language server for ${req.scriptLang} responded, so this code could not be linted. The language servers may be unavailable on this instance.`
-			)
+			// Nothing analysed the document — incomplete, never a clean result.
+			return { status: 'incomplete', result: EMPTY_RESULT, missing: servers.map((s) => s.name) }
 		}
 
 		// Each server is awaited on its own deadline: one that stalls must not discard
@@ -306,11 +302,14 @@ export async function lintWithLsp(req: {
 
 		// Pushed diagnostics have already been turned into markers on the model.
 		const pushedMarkers = meditor.getModelMarkers({ resource: uri })
-		const unavailableServers = [
+		const missing = [
 			...servers.filter((s) => !started.some((st) => st.server.name === s.name)).map((s) => s.name),
 			...stalled
 		]
-		return { ...dedupe([...pushedMarkers, ...perServer.flat()]), unavailableServers }
+		const result = dedupe([...pushedMarkers, ...perServer.flat()])
+		return missing.length > 0
+			? { status: 'incomplete', result, missing }
+			: { status: 'complete', result }
 	} finally {
 		await Promise.all(started.map(stopClient))
 		model.dispose()
