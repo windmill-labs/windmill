@@ -182,6 +182,8 @@ import {
 
 const VARIABLE_MASKED_NOTE =
 	'Note: variable values are never shown in chat — the diff marks whether the value changed without revealing it.\n\n'
+const SECRET_UNCOMPARABLE_NOTE =
+	'Note: this is a SECRET variable — its value is never shown and cannot be compared, so it may ALSO have changed beyond what this diff shows.\n\n'
 import { apiCatalogTools } from './apiCatalogTools'
 import { isSessionPipelinesEnabled, SESSION_PIPELINES_GATED_MESSAGE } from './pipelineGate'
 
@@ -5330,7 +5332,7 @@ async function diffWorkspaceItem(
 				after: afterSide,
 				valueUncomparable
 			} = maskVariableDiffSides(beforeSide, afterSide))
-			flushCaveat += VARIABLE_MASKED_NOTE
+			flushCaveat += valueUncomparable ? SECRET_UNCOMPARABLE_NOTE : VARIABLE_MASKED_NOTE
 		}
 		const parts = computeDiffParts(beforeSide, afterSide, 'deployed', 'draft')
 		patch = parts.patch
@@ -5351,7 +5353,9 @@ async function diffWorkspaceItem(
 			noDeployed = entry.noDeployed === true
 			files = entry.files
 			valueUncomparable = entry.valueUncomparable === true
-			if (entry.valueMasked) flushCaveat += VARIABLE_MASKED_NOTE
+			if (entry.valueMasked) {
+				flushCaveat += valueUncomparable ? SECRET_UNCOMPARABLE_NOTE : VARIABLE_MASKED_NOTE
+			}
 		} else {
 			// Not in the draft listing — either no draft at all (deployed is current),
 			// nothing at the path, or a listing/overlay disagreement; ask the overlay.
@@ -5382,7 +5386,7 @@ async function diffWorkspaceItem(
 					after: afterSide,
 					valueUncomparable
 				} = maskVariableDiffSides(beforeSide, afterSide))
-				flushCaveat += VARIABLE_MASKED_NOTE
+				flushCaveat += valueUncomparable ? SECRET_UNCOMPARABLE_NOTE : VARIABLE_MASKED_NOTE
 			}
 			patch = draftDeployedPatch(beforeSide, afterSide)
 		}
@@ -5498,7 +5502,9 @@ function formatDiffIndexEntry(e: WorkspaceDiffEntryView): string {
 		case 'new':
 			return `- ${name} — new, never deployed (${e.patchLineCount} lines)`
 		case 'modified':
-			return `- ${name} — modified (${e.patchLineCount} diff lines)`
+			return e.valueUncomparable
+				? `- ${name} — modified (${e.patchLineCount} diff lines; secret value may also differ)`
+				: `- ${name} — modified (${e.patchLineCount} diff lines)`
 		case 'unchanged':
 			return e.valueUncomparable
 				? `- ${name} — no visible changes (secret value cannot be compared; may differ)`
@@ -5760,9 +5766,13 @@ function renderForkEntrySection(
 			`Could not diff ${entry.kind} "${path}" against the parent: ${entry.errorMessage}`
 		)
 	}
-	const draftCaveat = entry.hasLocalDraft
+	let draftCaveat = entry.hasLocalDraft
 		? 'Note: you also have an undeployed local draft on this item — it is NOT part of this deployed-vs-deployed comparison; use diff without against to see it.\n\n'
 		: ''
+	if (entry.valueMasked && entry.status === 'modified') {
+		draftCaveat +=
+			'Note: variable values are never compared in chat — the value may also differ beyond the changes shown.\n\n'
+	}
 	const changedFileCount = entry.files ? Object.keys(entry.files).length : 0
 	if (entry.status === 'unchanged' || (!entry.patch && changedFileCount === 0)) {
 		// A masked value can differ in content without producing a patch —
@@ -6241,6 +6251,11 @@ async function deployDraft(
 			}
 		}
 	}
+
+	// Deployed state moved for EVERY branch above (some bypass
+	// deployDraftToWorkspace, which invalidates on its own path) — evict cached
+	// fork comparisons before the fallible draft cleanup below.
+	invalidateWorkspaceComparison(workspace)
 
 	await deleteGlobalDraft(workspace, type, path, triggerKind, { preserveLiveDraft: true })
 

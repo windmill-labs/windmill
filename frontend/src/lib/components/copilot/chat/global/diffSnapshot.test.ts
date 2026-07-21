@@ -253,6 +253,25 @@ describe('getWorkspaceDiffIndex', () => {
 		expect(entry?.valueUncomparable).toBe(true)
 	})
 
+	it('keeps the uncomparable flag on a secret whose metadata also changed', async () => {
+		vi.mocked(getDraftItems).mockResolvedValue([
+			row({ kind: 'variable', path: 'f/a/secret' })
+		] as any)
+		vi.mocked(getDraftDiffValues).mockResolvedValue({
+			deployed: { value: '<secret>', is_secret: true, description: 'old desc' },
+			draft: { value: '<secret>', is_secret: true, description: 'new desc' },
+			hasDraft: true,
+			noDeployed: false
+		} as any)
+		const entry = await readWorkspaceDiffEntry(WS, 'variable', 'f/a/secret')
+		// A non-empty metadata patch must not swallow the secret caveat: the
+		// value itself may ALSO differ beyond what the patch shows.
+		expect(entry?.status).toBe('modified')
+		expect(entry?.valueUncomparable).toBe(true)
+		expect(entry?.patch).toContain('desc')
+		expect(entry?.patch).not.toContain('<secret')
+	})
+
 	it('materializes classic-app drafts under the chat app type', async () => {
 		vi.mocked(getDraftItems).mockResolvedValue([row({ kind: 'app', path: 'f/a/classic' })] as any)
 		mockDiffValues({ summary: 'v1' }, { summary: 'v2' })
@@ -373,8 +392,12 @@ describe('readWorkspaceDiffEntry', () => {
 	})
 })
 
-
-async function readForkDiffEntryOne(workspace: string, parent: string, kinds: string[], path: string) {
+async function readForkDiffEntryOne(
+	workspace: string,
+	parent: string,
+	kinds: string[],
+	path: string
+) {
 	const entries = await readForkDiffEntries(workspace, parent, kinds, path)
 	return entries[0]
 }
