@@ -74,6 +74,20 @@ describe('search_files — attachments present but nothing readable', () => {
 	})
 })
 
+describe('roster — folder names are raw disk keys, sanitized at render', () => {
+	it('strips control characters from locked/unavailable folder lines', async () => {
+		const { buildAttachedFilesRoster } = await import('./fileTools')
+		const store = {
+			folders: [{ name: 'bad\nfolder', status: 'locked', files: [] }],
+			standalone: [],
+			messageAttached: []
+		} as any
+		const roster = buildAttachedFilesRoster(store)
+		expect(roster).toContain('- bad folder (locked')
+		expect(roster).not.toContain('bad\nfolder')
+	})
+})
+
 // Display names may collide (same-named attachments on different messages). In
 // this environment `new Worker` throws, so searchFilesInWorker takes its
 // main-thread fallback — the search logic exercised is the same.

@@ -54,7 +54,7 @@ export const MAX_CONVERSATION_FILE_BYTES = 5_000_000
  * a crafted name must not be able to inject prompt structure. Applied at
  * attach and again wherever a (possibly legacy) name is printed for the model. */
 export function sanitizeAttachmentName(name: string): string {
-	return name.replace(/[\u0000-\u001f\u007f]+/g, " ").trim() || "file"
+	return name.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim() || 'file'
 }
 
 /** Read a file for message attachment. Returns null when the sniff says binary
@@ -155,21 +155,25 @@ export function foldIntoDraft(
 	const commit: AttachedTextFile[] = []
 	for (const f of reads) {
 		const draft = [...current, ...commit]
+		// Sanitized here, not assumed: the fold is the draft side's single choke
+		// point, so every rule a name needs is applied by this one call — a future
+		// entry point cannot skip one.
+		const readName = sanitizeAttachmentName(f.name)
 		// "Same file dropped twice" means same original (name, content) — a
 		// courtesy-renamed copy carries its original name in sourceName rather than
 		// inferring provenance from the display name (a user's real `report (2).md`
 		// is not a rename of `report.md`). Folds compose: a file renamed by an
 		// earlier fold (composer → queue → dequeue) keeps its original source.
-		const src = f.sourceName ?? f.name
+		const src = f.sourceName ? sanitizeAttachmentName(f.sourceName) : readName
 		if (
 			draft.some(
-				(x) => x.content === f.content && (x.name === f.name || (x.sourceName ?? x.name) === src)
+				(x) => x.content === f.content && (x.name === readName || (x.sourceName ?? x.name) === src)
 			)
 		) {
 			continue
 		}
 		const name = uniqueDraftFileName(
-			f.name,
+			readName,
 			draft.map((x) => x.name)
 		)
 		commit.push({

@@ -237,16 +237,21 @@ export class AttachedFilesStore {
 
 		for (const item of Array.from(input as ArrayLike<FileToAttach>)) {
 			const file = item instanceof File ? item : item.file
-			const desired =
+			// rawPath keys everything that must match the disk (folder split, junk
+			// filter, relPath); the sanitized form is what names may be compared and
+			// stored as — mixing the two is how dedupe once compared raw against
+			// sanitized and missed.
+			const rawPath =
 				(item instanceof File ? '' : (item.path ?? '')) ||
 				(file as File & { webkitRelativePath?: string }).webkitRelativePath ||
 				file.name ||
 				'file'
+			const desired = sanitizeAttachmentName(rawPath)
 
-			const folder = desired.includes('/') ? desired.split('/')[0] : undefined
-			if (folder && isIgnoredPath(desired)) continue // skip junk inside folders
+			const folder = rawPath.includes('/') ? rawPath.split('/')[0] : undefined
+			if (folder && isIgnoredPath(rawPath)) continue // skip junk inside folders
 
-			if (this.#isDuplicate(desired, file)) {
+			if (this.#isDuplicate(desired, rawPath, file)) {
 				continue // silent no-op on re-link
 			}
 
@@ -256,8 +261,8 @@ export class AttachedFilesStore {
 				continue
 			}
 
-			const name = this.#uniqueName(sanitizeAttachmentName(desired))
-			const relPath = folder ? desired : undefined
+			const name = this.#claimName(rawPath)
+			const relPath = folder ? rawPath : undefined
 			const sourceId = createLongHash()
 
 			this.#pushIndexing({ name, file, folder, sourceId, relPath })
@@ -309,7 +314,7 @@ export class AttachedFilesStore {
 				result.rejected.push({ name: path, reason: 'Not a text file' })
 				continue
 			}
-			const name = this.#uniqueName(sanitizeAttachmentName(path))
+			const name = this.#claimName(path)
 			this.#pushIndexing({ name, file, folder, sourceId, handle: dirHandle, relPath: path })
 			result.added.push(name)
 		}
@@ -347,9 +352,10 @@ export class AttachedFilesStore {
 						continue
 					}
 					this.#pushIndexing({
-						// Sanitized on read: rows persisted before name sanitization existed
-						// must come back with a clean (advertisable, resolvable) name.
-						name: sanitizeAttachmentName(item.name),
+						// Claimed on read: rows persisted before sanitization existed must
+						// come back clean AND unique — two legacy names can sanitize to the
+						// same string, and both must stay independently resolvable.
+						name: this.#claimName(item.name),
 						file: item.blob,
 						folder: item.folder,
 						relPath: item.relPath,
@@ -455,19 +461,22 @@ export class AttachedFilesStore {
 	 * Session rows only — message rows dedupe by their content-hash id in
 	 * registerMessageFiles, and a same-named row of the other scope is a
 	 * different file, not a duplicate. */
-	#isDuplicate(desired: string, file: File): boolean {
+	#isDuplicate(name: string, rawPath: string, file: File): boolean {
 		return this.files.some(
 			(f) =>
 				// Folder-root placeholders aren't real files — they must not block attaching a
 				// standalone file that happens to share the folder's name.
 				!f.isFolderRoot &&
 				!f.messageScoped &&
-				(f.name === desired ||
+				// Stored names are sanitized, so the compare must be too (`name`).
+				(f.name === name ||
 					// Identical re-drop at the SAME relative path (its row name may have been
-					// auto-suffixed). Keyed on the path, NOT the basename — otherwise two distinct
-					// files sharing a basename under different folder subdirs (proj/a/index.ts vs
-					// proj/b/index.ts) would be wrongly deduped and silently dropped.
-					((f.relPath ?? f.name) === desired &&
+					// auto-suffixed). Keyed on the RAW on-disk path, NOT the basename —
+					// otherwise two distinct files sharing a basename under different folder
+					// subdirs (proj/a/index.ts vs proj/b/index.ts) would be wrongly deduped
+					// and silently dropped.
+					(f.relPath !== undefined &&
+						f.relPath === rawPath &&
 						f.size === file.size &&
 						f.file instanceof File &&
 						f.file.lastModified === file.lastModified))
@@ -523,10 +532,14 @@ export class AttachedFilesStore {
 		status: AttachedFileStatus,
 		isFolderRoot = false
 	): void {
+		// File placeholders claim like any row (a legacy name may collide once
+		// sanitized); folder-root placeholders keep the folder key's name and stay
+		// outside name uniqueness — they may legitimately share a name with a file.
+		const name = isFolderRoot ? sanitizeAttachmentName(item.name) : this.#claimName(item.name)
 		this.files = [
 			...this.files,
 			{
-				name: sanitizeAttachmentName(item.name),
+				name,
 				file: EMPTY,
 				size: item.size ?? 0,
 				lineIndex: [],
@@ -545,7 +558,7 @@ export class AttachedFilesStore {
 		const children = await enumerateDir(dirHandle)
 		for (const { file, path } of children) {
 			if (!(await this.#sniffText(file))) continue
-			const name = this.#uniqueName(sanitizeAttachmentName(path))
+			const name = this.#claimName(path)
 			this.#pushIndexing({ name, file, folder, sourceId, handle: dirHandle, relPath: path })
 		}
 		this.#ensureFolderRow(sourceId, folder, dirHandle)
@@ -593,7 +606,7 @@ export class AttachedFilesStore {
 			if (!cur) {
 				// newly added on disk
 				if (!(await this.#sniffText(file))) continue
-				const name = this.#uniqueName(sanitizeAttachmentName(path))
+				const name = this.#claimName(path)
 				this.#pushIndexing({ name, file, folder, sourceId, handle, relPath: path })
 			} else {
 				const curMod = cur.file instanceof File ? cur.file.lastModified : undefined
@@ -673,6 +686,16 @@ export class AttachedFilesStore {
 	}
 	#patchSource(sourceId: string, changes: Partial<AttachedFile>): void {
 		this.files = this.files.map((f) => (f.sourceId === sourceId ? { ...f, ...changes } : f))
+	}
+
+	/** The only way a session row gets its display name: sanitize (control
+	 * characters must never reach model-facing text) then uniquify among session
+	 * rows. Every creation path — attach, folder expansion, refresh, persisted
+	 * restore — goes through here so none can skip a rule. Message rows stay out
+	 * by design (id-addressed, names may collide); `relPath` and `folder` stay
+	 * raw by design (on-disk keys). */
+	#claimName(raw: string): string {
+		return this.#uniqueName(sanitizeAttachmentName(raw))
 	}
 
 	#uniqueName(original: string): string {

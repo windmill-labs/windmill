@@ -45,9 +45,12 @@ function notReadyMessage(store: AttachedFilesStore, file: string): string | unde
 		return `File "${file}" is no longer available (moved, deleted, or its local copy was evicted). Ask the user to re-link it.`
 	if (entry?.status === 'error')
 		return `File "${file}" failed to load: ${entry.error ?? 'unknown error'}.`
+	// Re-sanitized: folder-root placeholder rows carry the raw folder key.
 	const names = store
 		.list()
-		.map((f) => (f.id ? `${f.name} (file id: ${f.id})` : f.name))
+		.map((f) =>
+			f.id ? `${sanitizeAttachmentName(f.name)} (file id: ${f.id})` : sanitizeAttachmentName(f.name)
+		)
 		.join(', ')
 	return `No attached file matching "${file}". Attached files: ${names || '(none)'}.`
 }
@@ -211,11 +214,15 @@ export function buildAttachedFilesRoster(
 ): string {
 	const lines: string[] = []
 	for (const folder of store.folders) {
+		// Folder names are RAW disk keys (never sanitized in the store — they must
+		// match the handle, children, and persistence record), so this model-facing
+		// render is where control characters get stripped.
+		const folderName = sanitizeAttachmentName(folder.name)
 		// A locked/unavailable folder has no readable children — one line for the whole folder.
 		if (folder.status === 'locked') {
-			lines.push(`- ${folder.name} (locked — needs the user to restore access)`)
+			lines.push(`- ${folderName} (locked — needs the user to restore access)`)
 		} else if (folder.status === 'unavailable') {
-			lines.push(`- ${folder.name} (unavailable)`)
+			lines.push(`- ${folderName} (unavailable)`)
 		} else {
 			lines.push(...folder.files.map(rosterLine))
 		}

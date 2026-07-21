@@ -555,6 +555,42 @@ describe('AttachedFilesStore', () => {
 		expect(store.list().some((f) => f.name.includes('\n'))).toBe(false)
 	})
 
+	it('re-linking a control-char filename dedupes against the sanitized stored name', async () => {
+		await store.addFiles([file('a\nb.md', 'controlled\n')])
+		await settle(store)
+		// The duplicate check must compare what is STORED (sanitized), not the raw
+		// re-link name — else every control-char file re-links as a "(2)" copy.
+		await store.addFiles([file('a\nb.md', 'controlled\n')])
+		await settle(store)
+		expect(store.standalone.map((f) => f.name)).toEqual(['a b.md'])
+	})
+
+	it('restore claims names, keeping legacy rows that sanitize identically distinct', async () => {
+		const { getItemsForSession } = await import('./attachedFilesDB')
+		const record = (id: string, name: string) => ({
+			id,
+			sessionId: 's1',
+			kind: 'snapshot' as const,
+			name,
+			blob: new Blob([`content ${id}\n`]),
+			size: 10,
+			lastModified: 1,
+			addedAt: 1
+		})
+		;(getItemsForSession as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+			record('r1', 'a\nb.md'),
+			record('r2', 'a\tb.md')
+		])
+		const s = new AttachedFilesStore()
+		await s.restore('s1', false)
+		await settle(s)
+		// Both legacy rows sanitize to `a b.md`; the claim must uniquify so each
+		// stays independently visible and resolvable.
+		expect(s.standalone.map((f) => f.name).sort()).toEqual(['a b (2).md', 'a b.md'])
+		expect(s.resolve('a b.md')).toBeDefined()
+		expect(s.resolve('a b (2).md')).toBeDefined()
+	})
+
 	it('resolve prefers a literal filename over label interpretation', async () => {
 		// A file literally named like a printed label must stay addressable by its
 		// exact name — label parsing must not strip it down to the base name.
