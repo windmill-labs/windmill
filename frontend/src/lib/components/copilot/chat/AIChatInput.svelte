@@ -356,9 +356,10 @@
 		const messages = aiChatManager.displayMessages
 		for (let i = messages.length - 1; i >= 0; i--) {
 			const message = messages[i]
-			if (message.role === 'user' && message.content) {
+			if (message.role === 'user' && (message.content || message.images?.length)) {
 				instructions = message.content
 				pastes = message.pastes ? [...message.pastes] : []
+				images = message.images ? [...message.images] : []
 				focusInput()
 				return true
 			}
@@ -815,16 +816,19 @@
 			e.target instanceof HTMLTextAreaElement &&
 			editingMessageIndex === null &&
 			onSendRequest === undefined &&
-			!instructions.trim()
+			!instructions.trim() &&
+			images.length === 0 &&
+			pendingImages === 0
 		) {
 			// Shell-style recall: ArrowUp in the empty main composer pulls the
 			// queued message (if any, same as the queued-message chip's click/X)
 			// or otherwise a copy of the last sent message back into the input.
-			// Textarea only — ArrowUp on the wrapper's buttons/badges must not
-			// mutate the composer; and main composer only — the edit input and
-			// custom-send consumers (inline widget) have their own history
-			// semantics.
-			if (aiChatManager.queuedMessage) {
+			// Empty means no attached/decoding images either — recalling over a
+			// pictures-only draft would clobber it. Textarea only — ArrowUp on
+			// the wrapper's buttons/badges must not mutate the composer; and
+			// main composer only — the edit input and custom-send consumers
+			// (inline widget) have their own history semantics.
+			if (aiChatManager.queuedMessage || aiChatManager.queuedImages.length > 0) {
 				e.preventDefault()
 				aiChatManager.dequeueMessage()
 			} else if (recallLastSentMessage()) {
