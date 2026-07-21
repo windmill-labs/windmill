@@ -6,7 +6,9 @@
 // Edit assigns a fresh array (unique per fork, including nested editors reusing a module id),
 // in-place edits keep it, and wholesale state replacement (undo, session drafts) yields new
 // objects that simply never match — a stale entry can't resurface as a phantom Editing banner.
-import type { FlowModule } from '$lib/gen'
+import type { FlowModule, OpenFlow } from '$lib/gen'
+import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+import type { StateStore } from '$lib/utils'
 import { forEachFlowModule } from './dfs'
 
 type Entry = { path: string; marker: object }
@@ -26,10 +28,22 @@ export function setAgentEditingPath(marker: object | undefined, path: string | u
 	entries = path ? [...rest.slice(-(MAX_ENTRIES - 1)), { marker, path }] : rest
 }
 
-// Carry edit state across a wholesale clone of the flow: refreshStateStore deep-snapshots the
-// store, replacing every `tools` array (breaking marker identity) while preserving content
-// verbatim, so re-keying entries to the cloned arrays by module id is safe there — unlike undo
-// or session restores, which change content and must keep invalidating.
+// Refresh the flow store without dropping an in-progress agent Editing session. Use this instead
+// of a bare refreshStateStore(flowStore) at every site that preserves module content (structural
+// edits, schema/failure-module/mock changes) — the bare form's deep clone breaks the marker
+// identity above. Content-changing replacements (undo, YAML/diff/AI apply, session restores)
+// must stay bare so stale edit state keeps invalidating.
+export function refreshFlowStateStore(flowStore: StateStore<OpenFlow>) {
+	reanchorAgentEditsAcross(
+		() => flowStore.val.value?.modules,
+		() => refreshStateStore(flowStore)
+	)
+}
+
+// Carry edit state across a wholesale clone of the flow: the clone replaces every `tools` array
+// (breaking marker identity) while preserving content verbatim, so re-keying entries to the
+// cloned arrays by module id is safe there — unlike undo or session restores, which change
+// content and must keep invalidating.
 export function reanchorAgentEditsAcross(
 	getModules: () => FlowModule[] | undefined,
 	refresh: () => void

@@ -180,6 +180,9 @@
 		// Tool inputs are saved verbatim: the agent carries its tools' default bindings (static, AI or
 		// flow expressions) as authored. Host flows override per-step via tool_inputs, never here.
 		const value = inputTransformsToAgentConfig(inputTransforms, tools)
+		// If the step is replaced while the requests below are in flight (undo, session-draft sync),
+		// the resource is still written but the replacement module must not be relinked/cleared.
+		const forkMarker = tools
 		const exists = await ResourceService.existsResource({ workspace: ws!, path })
 		if (exists) {
 			// The drawer's path check is debounced, so a fast save can reach here with an unrelated
@@ -206,9 +209,13 @@
 				}
 			})
 		}
+		if (tools !== forkMarker && getAgentEditingPath(tools) === undefined) {
+			return
+		}
 		agent = path
 		// Clear the edit entry while `tools` is still the fork's marker, before it's reassigned.
 		setAgentEditingPath(tools, undefined)
+		setAgentEditingPath(forkMarker, undefined)
 		// The brain + tools now live in the resource; a linked step keeps only the flow-local inputs.
 		tools = []
 		inputTransforms = flowLocalInputs(inputTransforms)

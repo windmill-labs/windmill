@@ -529,8 +529,12 @@
 
 	// Linked-agent tool resolutions are scoped by workspace + flow path; a rename moves every
 	// reader to a new scope, so migrate the bucket or unselected linked agents lose their tool
-	// nodes until the next full flow-state init.
-	let prevLinkedToolsScope = untrack(() => linkedToolsScope(opWorkspace, $pathStore))
+	// nodes until the next full flow-state init. The baseline starts at the flow doc's own path
+	// — where initFlowState published — which for a loaded renamed draft already differs from
+	// the live-edited $pathStore, so the first effect run migrates the bucket into the live scope.
+	let prevLinkedToolsScope = untrack(() =>
+		linkedToolsScope(opWorkspace, (flowStore.val as { path?: string }).path ?? $pathStore)
+	)
 	$effect(() => {
 		const scope = linkedToolsScope(opWorkspace, $pathStore)
 		untrack(() => {

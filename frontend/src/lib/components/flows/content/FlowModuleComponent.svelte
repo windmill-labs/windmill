@@ -62,7 +62,7 @@
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+	import { refreshFlowStateStore } from '$lib/components/flows/agentEditStore.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import AssetsDropdownButton from '$lib/components/assets/AssetsDropdownButton.svelte'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
@@ -1571,7 +1571,7 @@
 											onUpdateMock={(detail) => {
 												flowModule.mock = detail
 												flowModule = flowModule
-												refreshStateStore(flowStore)
+												refreshFlowStateStore(flowStore)
 											}}
 											{testJob}
 											{scriptProgress}
