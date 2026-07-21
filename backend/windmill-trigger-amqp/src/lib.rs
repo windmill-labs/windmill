@@ -62,6 +62,17 @@ pub struct AmqpOptions {
     pub prefetch_count: Option<u16>,
 }
 
+/// Shared validation for AMQP options used by both the CRUD handler and the
+/// consumer builder (which also covers capture configs, that bypass CRUD
+/// validation). RabbitMQ treats prefetch 0 as unlimited (unbounded consumer
+/// buffer), so a set prefetch must be at least 1.
+pub fn validate_amqp_options(options: Option<&AmqpOptions>) -> Result<(), String> {
+    if options.and_then(|o| o.prefetch_count) == Some(0) {
+        return Err("Prefetch count must be at least 1".to_string());
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct AmqpConfig {
     pub amqp_resource_path: String,
@@ -178,15 +189,14 @@ impl<'client> AmqpClientBuilder<'client> {
         let connection = self.connect().await?;
         let channel = connection.create_channel().await?;
 
-        // Only apply a QoS limit for a positive prefetch. 0 means unlimited in
-        // AMQP (unbounded consumer buffer), so ignore it defensively — CRUD
-        // rejects it up front, but capture configs bypass that validation.
+        // Reject prefetch 0 here too (not just in CRUD validate_config): capture
+        // configs bypass that validation, and skipping basic_qos would still
+        // leave the channel unlimited.
+        validate_amqp_options(self.options).map_err(|e| AmqpError::Common(Error::BadConfig(e)))?;
         if let Some(prefetch_count) = self.options.and_then(|o| o.prefetch_count) {
-            if prefetch_count > 0 {
-                channel
-                    .basic_qos(prefetch_count, BasicQosOptions::default())
-                    .await?;
-            }
+            channel
+                .basic_qos(prefetch_count, BasicQosOptions::default())
+                .await?;
         }
 
         let declare_queue = self.options.and_then(|o| o.declare_queue).unwrap_or(true);
@@ -313,5 +323,22 @@ mod tests {
     fn build_uri_brackets_ipv6_host() {
         let uri = build_uri(&resource("::1", Some(5672), None, None, None, None));
         assert_eq!(uri, "amqp://[::1]:5672/%2F");
+    }
+
+    fn options(prefetch: Option<u16>) -> AmqpOptions {
+        AmqpOptions { declare_queue: None, prefetch_count: prefetch }
+    }
+
+    #[test]
+    fn validate_amqp_options_rejects_zero_prefetch() {
+        assert!(validate_amqp_options(Some(&options(Some(0)))).is_err());
+    }
+
+    #[test]
+    fn validate_amqp_options_accepts_valid_prefetch_and_none() {
+        assert!(validate_amqp_options(Some(&options(Some(1)))).is_ok());
+        assert!(validate_amqp_options(Some(&options(Some(65535)))).is_ok());
+        assert!(validate_amqp_options(Some(&options(None))).is_ok());
+        assert!(validate_amqp_options(None).is_ok());
     }
 }
