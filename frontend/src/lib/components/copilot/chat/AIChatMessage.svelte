@@ -136,7 +136,10 @@
 							{/each}
 						</div>
 					{/if}
-					{#if message.content.trim() !== '' || !((message.images && message.images.length > 0) || (message.files && message.files.length > 0))}
+					<!-- Text-free messages show only their context chips / images / file
+					     chips — no empty bubble (empty sends require chips, images, or
+					     files to go out). -->
+					{#if message.content.trim() !== ''}
 						<div
 							class="text-xs px-3 py-2 w-fit max-w-[min(32rem,100%)] bg-surface-accent-selected text-accent rounded-lg relative group break-words"
 						>

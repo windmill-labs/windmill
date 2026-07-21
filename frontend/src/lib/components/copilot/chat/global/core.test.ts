@@ -253,9 +253,11 @@ vi.mock('$lib/infer', async () => ({
 }))
 
 import {
+	buildOpenPageUrl,
 	globalTools,
 	globalToolsFor,
 	prepareGlobalSystemMessage,
+	getSessionContextPromptSection,
 	prepareGlobalUserMessage,
 	setDeployedInSessionHandler,
 	setGetPreviewStatusHandler,
@@ -490,6 +492,42 @@ describe('global AI tools', () => {
 				summary: 'Send Message'
 			}
 		])
+	})
+
+	it('reads the deployed state, skipping chat and DB drafts, with version: deployed', async () => {
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/greet',
+			language: 'bun',
+			content: 'export async function main(renamed_input: string) {}'
+		})
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			hash: 1,
+			path: 'f/scripts/greet',
+			summary: 'Deployed greet',
+			content: 'export async function main(name: string) {}',
+			schema: { properties: { name: { type: 'string' } } },
+			language: 'bun',
+			kind: 'script',
+			draft: { content: 'export async function main(db_draft_input: string) {}' }
+		} as any)
+
+		const raw = await callGlobalTool('read_workspace_item', {
+			type: 'script',
+			path: 'f/scripts/greet',
+			version: 'deployed'
+		})
+		const item = JSON.parse(raw)
+
+		expect(ScriptService.getScriptByPath).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'f/scripts/greet',
+			getDraft: false
+		})
+		expect(item.isDraft).toBe(false)
+		expect(item.schema).toEqual({ properties: { name: { type: 'string' } } })
+		expect(raw).toContain('main(name: string)')
+		expect(raw).not.toContain('renamed_input')
+		expect(raw).not.toContain('db_draft_input')
 	})
 
 	it('redacts variable draft values when reading workspace items', async () => {
@@ -872,6 +910,59 @@ describe('global AI tools', () => {
 				isDraft: true
 			})
 		])
+	})
+
+	it('forwards page to the list calls, capping page-1 drafts at limit per type', async () => {
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/draft_a',
+			language: 'bun',
+			content: 'export async function main() {}'
+		})
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/draft_b',
+			language: 'bun',
+			content: 'export async function main() {}'
+		})
+
+		const page1 = await callGlobalTool('list_workspace_items', {
+			types: ['script'],
+			limit: 1,
+			page: 1
+		})
+		const page2 = await callGlobalTool('list_workspace_items', {
+			types: ['script'],
+			limit: 1,
+			page: 2
+		})
+
+		expect(ScriptService.listScripts).toHaveBeenCalledWith(expect.objectContaining({ page: 2 }))
+		// Bounded on page 1, no draft rows on later pages; the capped-out draft
+		// stays reachable through the query filter.
+		expect(JSON.parse(page1)).toHaveLength(1)
+		expect(JSON.parse(page2)).toEqual([])
+		const byQuery = await callGlobalTool('list_workspace_items', {
+			types: ['script'],
+			query: 'draft_b'
+		})
+		expect(JSON.parse(byQuery).map((i: any) => i.path)).toEqual(['f/scripts/draft_b'])
+	})
+
+	it('applies limit per item type so a full page of one type cannot hide another', async () => {
+		vi.mocked(ScriptService.listScripts).mockResolvedValueOnce([
+			{ path: 'f/scripts/s1', language: 'bun' },
+			{ path: 'f/scripts/s2', language: 'bun', draft_only: true }
+		] as any)
+		vi.mocked(FlowService.listFlows).mockResolvedValueOnce([{ path: 'f/flows/f1' }] as any)
+
+		const raw = await callGlobalTool('list_workspace_items', {
+			types: ['script', 'flow'],
+			limit: 2
+		})
+
+		const items = JSON.parse(raw)
+		expect(items.map((i: any) => i.path)).toEqual(['f/scripts/s1', 'f/scripts/s2', 'f/flows/f1'])
+		// Server-synthesized draft-only rows must read as drafts, not deployed items.
+		expect(items.map((i: any) => i.isDraft)).toEqual([false, true, false])
 	})
 
 	it('lists and edits the live script editor draft through its effective path', async () => {
@@ -3482,6 +3573,46 @@ describe('session pipeline gate', () => {
 	})
 })
 
+describe('getSessionContextPromptSection', () => {
+	it('describes an ephemeral staged fork with its parent and deploy semantics', () => {
+		const s = getSessionContextPromptSection({
+			workspaceId: 'wm-fork-foo',
+			parentWorkspaceId: 'prod'
+		})
+		expect(s).toContain('STAGED FORK of workspace "prod"')
+		expect(s).toContain('Never present a change as live in "prod"')
+	})
+
+	it('distinguishes a persistent dev workspace from a staged fork', () => {
+		const s = getSessionContextPromptSection({
+			workspaceId: 'guilhem',
+			parentWorkspaceId: 'prod',
+			isDevWorkspace: true
+		})
+		expect(s).toContain('persistent DEV WORKSPACE')
+		expect(s).not.toContain('STAGED FORK')
+	})
+
+	it('marks a parentless workspace as the live workspace', () => {
+		const s = getSessionContextPromptSection({ workspaceId: 'prod' })
+		expect(s).toContain('the live workspace itself')
+	})
+
+	it('announces a pending fork before the first send commits it', () => {
+		const s = getSessionContextPromptSection({ workspaceId: 'prod', pendingForkOf: 'prod' })
+		expect(s).toContain('staged fork of workspace "prod" is created automatically')
+	})
+
+	it('never calls a committed-but-unlisted workspace the live workspace', () => {
+		const s = getSessionContextPromptSection({
+			workspaceId: 'wm-fork-gone',
+			forkParentUnknown: true
+		})
+		expect(s).toContain('parent workspace is not currently visible')
+		expect(s).not.toContain('the live workspace itself')
+	})
+})
+
 describe('prepareGlobalSystemMessage', () => {
 	it('keeps global chat draft instructions concise and user-facing', () => {
 		const message = prepareGlobalSystemMessage()
@@ -4111,5 +4242,38 @@ describe('prepareGlobalUserMessage', () => {
 		const message = prepareGlobalUserMessage('Create a draft')
 
 		expect(message.content).toBe('## INSTRUCTIONS:\nCreate a draft')
+	})
+})
+
+describe('buildOpenPageUrl compare selection', () => {
+	const itemsOf = (url: string) => new URL(url, 'http://x').searchParams.get('items')
+
+	it('explicit items win over the chat mask', () => {
+		const url = buildOpenPageUrl(
+			'compare',
+			{ page: 'compare', items: ['script:f/a/b'] },
+			{ workspaceId: 'ws', chatItems: ['flow:f/c/d'] }
+		)
+		expect(itemsOf(url)).toBe('script:f/a/b')
+	})
+
+	it('omitted items fall back to the chat-modified mask', () => {
+		const url = buildOpenPageUrl(
+			'compare',
+			{ page: 'compare' },
+			{ workspaceId: 'ws', chatItems: ['flow:f/c/d', 'script:f/a/b'] }
+		)
+		expect(itemsOf(url)).toBe('flow:f/c/d,script:f/a/b')
+	})
+
+	it('an empty or absent mask yields no items param (page select-all default)', () => {
+		expect(
+			itemsOf(
+				buildOpenPageUrl('compare', { page: 'compare' }, { workspaceId: 'ws', chatItems: [] })
+			)
+		).toBeNull()
+		expect(
+			itemsOf(buildOpenPageUrl('compare', { page: 'compare' }, { workspaceId: 'ws' }))
+		).toBeNull()
 	})
 })

@@ -1435,6 +1435,30 @@ export const INITIAL_CODE = {
 	// for related places search: ADD_NEW_LANG
 }
 
+/**
+ * Whether a bash script body runs inside a custom container image that does not
+ * ship the `wmill` CLI (nor `jq`), namely `# sandbox <image>` or `# docker`. In
+ * that case editor snippets must fall back to a plain HTTP client instead of `wmill`.
+ *
+ * Mirrors the worker's annotation grammar (backend/windmill-common/src/worker.rs,
+ * `BashAnnotations`): only leading comment lines are scanned, stopping at the first
+ * non-comment line. A bare `# sandbox` (no image) is the nsjail-bash modifier that
+ * still runs on the worker rootfs where `wmill` is available, so it is excluded.
+ */
+export function bashRunsInCustomImage(code: string): boolean {
+	for (const line of code.split('\n')) {
+		const trimmed = line.trim()
+		if (trimmed === '') continue
+		if (!trimmed.startsWith('#')) break
+		const tokens = trimmed.slice(1).trim().split(/\s+/)
+		// `# sandbox <image>` selects a container; bare `# sandbox` does not.
+		if (tokens[0] === 'sandbox' && tokens[1]) return true
+		// `# docker` (v1 daemon runtime) runs in the referenced image, no wmill.
+		if (tokens[0] === 'docker' && tokens.length === 1) return true
+	}
+	return false
+}
+
 export function isInitialCode(content: string): boolean {
 	for (const lang of Object.values(INITIAL_CODE)) {
 		for (const code of Object.values(lang)) {

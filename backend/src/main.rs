@@ -64,7 +64,7 @@ use windmill_common::{
         UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
         WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
         WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
-        WORKSPACE_REGISTRIES_SETTING,
+        WORKSPACE_MAX_QUEUED_JOBS_SETTING, WORKSPACE_REGISTRIES_SETTING,
     },
     scripts::ScriptLang,
     stats_oss::schedule_stats,
@@ -127,16 +127,16 @@ use crate::monitor::{
     load_preview_tags_override, load_require_preexisting_user, load_retention_period_overrides,
     load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces,
     load_workspace_fairness_duration_secs, load_workspace_fairness_enabled,
-    load_workspace_fairness_max_percent, load_workspace_fairness_min_total, monitor_db,
-    reload_app_workspaced_route_setting, reload_audit_log_retention_days_setting,
-    reload_base_url_setting, reload_bun_install_min_release_age_setting,
-    reload_bunfig_install_scopes_setting, reload_critical_alert_mute_ui_setting,
-    reload_critical_alerts_on_token_expiry_setting, reload_critical_error_channels_setting,
-    reload_extra_pip_index_url_setting, reload_http_route_workspaced_route_setting,
-    reload_hub_api_secret_setting, reload_hub_base_url_setting,
-    reload_instance_events_webhook_setting, reload_job_default_timeout_setting,
-    reload_job_isolation_setting, reload_jwt_secret_setting, reload_license_key,
-    reload_npm_config_registry_setting, reload_nsjail_tmp_backing_setting,
+    load_workspace_fairness_max_percent, load_workspace_fairness_min_total,
+    load_workspace_max_queued_jobs, monitor_db, reload_app_workspaced_route_setting,
+    reload_audit_log_retention_days_setting, reload_base_url_setting,
+    reload_bun_install_min_release_age_setting, reload_bunfig_install_scopes_setting,
+    reload_critical_alert_mute_ui_setting, reload_critical_alerts_on_token_expiry_setting,
+    reload_critical_error_channels_setting, reload_extra_pip_index_url_setting,
+    reload_http_route_workspaced_route_setting, reload_hub_api_secret_setting,
+    reload_hub_base_url_setting, reload_instance_events_webhook_setting,
+    reload_job_default_timeout_setting, reload_job_isolation_setting, reload_jwt_secret_setting,
+    reload_license_key, reload_npm_config_registry_setting, reload_nsjail_tmp_backing_setting,
     reload_nsjail_tmpfs_size_setting, reload_otel_tracing_proxy_setting,
     reload_pip_index_url_setting, reload_retention_period_setting,
     reload_sandbox_image_cache_max_setting, reload_sandbox_image_default_registry_setting,
@@ -290,11 +290,18 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     create_dir_all(&*HUB_CACHE_DIR)?;
     create_dir_all(&*BUN_BUNDLE_CACHE_DIR)?;
 
-    // Ensure the latest git sync script is always cached, regardless of hubPaths.json contents
+    // Ensure the backend-hardcoded git sync scripts are always cached, regardless of
+    // hubPaths.json contents. These are run by backend-driven sync (not necessarily listed
+    // in hubPaths.json), so airgapped workers would otherwise miss them on a cache lookup.
     let mut all_paths: Vec<String> = paths.into_values().collect();
-    let latest_git_sync = windmill_common::workspaces::LATEST_GIT_SYNC_SCRIPT_PATH.to_string();
-    if !all_paths.contains(&latest_git_sync) {
-        all_paths.push(latest_git_sync);
+    for git_sync_path in [
+        windmill_common::workspaces::LATEST_GIT_SYNC_SCRIPT_PATH,
+        windmill_common::workspaces::GIT_SYNC_PULL_SCRIPT_PATH,
+    ] {
+        let git_sync_path = git_sync_path.to_string();
+        if !all_paths.contains(&git_sync_path) {
+            all_paths.push(git_sync_path);
+        }
     }
 
     for path in &all_paths {
@@ -1883,6 +1890,11 @@ async fn process_notify_event(
                 CONCURRENCY_KEY_MAX_QUEUED_SETTING => {
                     if let Err(e) = load_concurrency_key_max_queued(db).await {
                         tracing::error!("Error loading concurrency key max queued: {e:#}");
+                    }
+                }
+                WORKSPACE_MAX_QUEUED_JOBS_SETTING => {
+                    if let Err(e) = load_workspace_max_queued_jobs(db).await {
+                        tracing::error!("Error loading workspace max queued jobs: {e:#}");
                     }
                 }
                 SMTP_SETTING => {

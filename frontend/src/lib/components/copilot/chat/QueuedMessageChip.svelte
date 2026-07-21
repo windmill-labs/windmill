@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { FileText, X } from 'lucide-svelte'
+	import ContextElementBadge from './ContextElementBadge.svelte'
+	import { contextElementKey } from './context'
 	import { getAiChatManager } from './aiChatManagerContext'
 
 	// The single message typed while a turn was streaming, waiting to be
@@ -11,10 +13,13 @@
 	const aiChatManager = getAiChatManager()
 </script>
 
-<!-- Attachment-only queues have empty text; without the attachment rows the
-     queued draft would be invisible — undismissable, then auto-sent as a
-     surprise turn. -->
-{#if aiChatManager.queuedMessage || aiChatManager.queuedImages.length > 0 || aiChatManager.queuedFiles.length > 0}
+<!-- Attachment-only and context-only queues have empty text; without their
+     image / file / badge row the queued draft would be invisible —
+     undismissable, then auto-sent as a surprise turn. Context badges render
+     here only for context-ONLY queues: text queues pin the same chips, but
+     those stay visible in the composer, and repeating them would read as two
+     selections. -->
+{#if aiChatManager.queuedMessage || aiChatManager.queuedImages.length > 0 || aiChatManager.queuedFiles.length > 0 || (aiChatManager.queuedContext?.length ?? 0) > 0}
 	<div
 		class="mb-1 flex flex-row items-start gap-1 rounded-md bg-surface-input px-3 py-2 opacity-60"
 		title={aiChatManager.queuedMessage}
@@ -48,6 +53,12 @@
 				<p class="text-xs text-secondary whitespace-pre-wrap line-clamp-2">
 					{aiChatManager.queuedMessage}
 				</p>
+			{:else if aiChatManager.queuedImages.length === 0 && aiChatManager.queuedFiles.length === 0 && aiChatManager.queuedContext?.length}
+				<div class="flex flex-row flex-wrap gap-1">
+					{#each aiChatManager.queuedContext as element (contextElementKey(element))}
+						<ContextElementBadge contextElement={element} compact />
+					{/each}
+				</div>
 			{/if}
 		</div>
 		<Button
