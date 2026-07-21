@@ -92,7 +92,11 @@
 			}
 		}
 
-		clearWorkspaceFromStorage()
+		try {
+			clearWorkspaceFromStorage()
+		} catch (e) {
+			console.error('Could not clear workspace storage during deleted-workspace recovery', e)
+		}
 		workspaceStore.set(undefined)
 		sendUserToast(
 			`Workspace ${workspaceId} is no longer available, please pick a workspace.`,
