@@ -96,7 +96,10 @@ async function mapFlowModule(flowModule: FlowModule, modulesState: FlowState, wo
 
 // Fetch a linked agent's tool set from its `ai_agent` resource. Degrades to no tools when the
 // resource is missing or inaccessible so a broken link never stalls the flow load.
-async function resolveLinkedAgentTools(agentRef: string, workspace?: string): Promise<AgentTool[]> {
+export async function resolveLinkedAgentTools(
+	agentRef: string,
+	workspace?: string
+): Promise<AgentTool[]> {
 	const ws = workspace ?? get(workspaceStore)
 	if (!ws) return []
 	const path = agentRef.replace(/^\$res:/, '').replace(/^res:\/\//, '')

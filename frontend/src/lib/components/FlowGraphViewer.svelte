@@ -11,6 +11,9 @@
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 	import { dfs } from './flows/dfs'
 	import { workspaceStore } from '$lib/stores'
+	import { untrack } from 'svelte'
+	import { resolveLinkedAgentTools } from './flows/flowState'
+	import { setLinkedAgentTools } from './flows/linkedAgentToolsStore.svelte'
 
 	interface Props {
 		flow: {
@@ -63,6 +66,23 @@
 	}
 
 	const dispatch = createEventDispatcher()
+
+	// This read-only viewer doesn't run initFlowState, so linked agents' tools would otherwise never
+	// resolve (they'd show only the "linked" marker). Resolve them for display, keyed by module id.
+	// Best-effort: resolveLinkedAgentTools swallows access errors and returns [], so an inaccessible
+	// agent gracefully falls back to the marker node — this never affects a run.
+	$effect(() => {
+		const modules = dfs(flow?.value?.modules ?? [], (m) => m)
+		const ws = workspace
+		untrack(() => {
+			for (const m of modules) {
+				const value = m?.value as { type?: string; agent?: string } | undefined
+				if (value?.type === 'aiagent' && value.agent) {
+					resolveLinkedAgentTools(value.agent, ws).then((tools) => setLinkedAgentTools(m.id, tools))
+				}
+			}
+		})
+	})
 </script>
 
 <div bind:clientHeight={availableHeight} class="grid grid-cols-3 w-full h-full min-h-0">
