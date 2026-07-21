@@ -70,3 +70,15 @@ export function parseItemsMaskParam(value: string): Set<string> {
 			.filter(Boolean)
 	)
 }
+
+// Whether a mask names a draft row. Mask entries key items by storage path
+// (`maskKey`), but a never-deployed live-editor draft parks at an opaque
+// `draft_<uuid>` storage path while callers building an explicit `?items=` mask
+// know it by its visible `draft_path` — so a row matches under either name.
+export function maskHasDraftRow(
+	mask: Set<string>,
+	row: { kind: UserDraftItemKind; path: string; draft_path?: string }
+): boolean {
+	if (mask.has(maskKey(row.kind, row.path))) return true
+	return !!row.draft_path && mask.has(maskKey(row.kind, row.draft_path))
+}
