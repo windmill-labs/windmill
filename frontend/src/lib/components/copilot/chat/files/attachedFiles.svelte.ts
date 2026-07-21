@@ -94,14 +94,15 @@ export class AttachedFilesStore {
 		return this.files
 	}
 	get(name: string): AttachedFile | undefined {
-		// Name lookup: session links (advertised by name in the roster) and legacy
-		// transcripts (persisted before ids existed) resolve here. Message rows take
-		// precedence — a legacy prompt reference names the file attached to the
-		// message, not a same-named session link added later.
+		// Name lookup. A bare name is the roster's namespace: session links are
+		// advertised by filename and have no other handle, so they resolve first —
+		// a same-named message attachment must not shadow them (it is addressed by
+		// id). Message rows resolve by name only as the fallback, for transcripts
+		// persisted before ids existed.
 		// Folder-root placeholders may share a name with a real file — never resolve to one.
 		return (
-			this.files.find((f) => f.name === name && f.messageScoped) ??
-			this.files.find((f) => f.name === name && !f.isFolderRoot)
+			this.files.find((f) => f.name === name && !f.isFolderRoot && !f.messageScoped) ??
+			this.files.find((f) => f.name === name && f.messageScoped)
 		)
 	}
 	/** Resolve a tool-supplied file reference: stable id first (how message

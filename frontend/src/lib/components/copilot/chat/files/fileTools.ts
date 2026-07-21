@@ -105,9 +105,11 @@ export const searchFilesTool: Tool<{}> = {
 			const notReady = notReadyMessage(store, parsed.file)
 			if (notReady) return notReady
 		}
-		// The worker filters by entry name — map an id reference to its row's name.
-		const fileFilter = parsed.file ? (store.resolve(parsed.file)?.name ?? parsed.file) : undefined
-		const ready = store.readyFiles()
+		// Restrict to the resolved row itself, not a name filter: display names may
+		// collide (same-named attachments on different messages), and a name filter
+		// would silently search all of them under one label.
+		const target = parsed.file ? store.resolve(parsed.file) : undefined
+		const ready = target ? [target] : store.readyFiles()
 		if (ready.length === 0) {
 			return noReadyFilesMessage(store)
 		}
@@ -117,13 +119,12 @@ export const searchFilesTool: Tool<{}> = {
 
 		// Run in a Worker so a pathological model-supplied regex can't freeze the tab.
 		const result = await searchFilesInWorker(ready, parsed.pattern, {
-			flags: parsed.ignore_case ? 'i' : '',
-			pathFilter: fileFilter
+			flags: parsed.ignore_case ? 'i' : ''
 		})
 		if (result.error) {
 			return `Error: ${result.error}`
 		}
-		const scope = fileFilter ? `"${fileFilter}"` : `${ready.length} file(s)`
+		const scope = target ? `"${target.name}"` : `${ready.length} file(s)`
 		if (result.hits.length === 0) {
 			return `No matches for /${parsed.pattern}/ in ${scope}.`
 		}

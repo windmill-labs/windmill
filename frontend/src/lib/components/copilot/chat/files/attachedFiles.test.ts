@@ -513,11 +513,13 @@ describe('AttachedFilesStore', () => {
 		await settle(store)
 
 		// Two rows, one display name, independently addressable: the message row by
-		// its id, the session row by name (its roster handle).
+		// its id, the session row by name (its roster handle — a bare-name resolve
+		// must return it, never the same-named message attachment shadowing it).
 		const messageRow = store.resolve(attachedTextFileId('notes.md', 'message content\n'))
 		expect(messageRow?.messageScoped).toBe(true)
 		expect(await (messageRow!.file as Blob).text()).toBe('message content\n')
-		const sessionRow = store.files.find((f) => f.name === 'notes.md' && !f.messageScoped)
+		const sessionRow = store.resolve('notes.md')
+		expect(sessionRow?.messageScoped).toBeFalsy()
 		expect(await (sessionRow!.file as Blob).text()).toBe('session content\n')
 
 		// A footer removal of the session file must not take the message row along.

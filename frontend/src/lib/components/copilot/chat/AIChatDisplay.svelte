@@ -273,8 +273,8 @@
 
 	// File attachment is GLOBAL-mode only.
 	const canAttachFiles = $derived(aiChatManager.mode === AIMode.GLOBAL && !disabled)
-	// Steers the OS file picker toward text + image formats (soft hint; images attach to
-	// the message, other files link as text context after a content sniff).
+	// Steers the OS file picker toward text + image formats (soft hint; both attach
+	// to the message — text files after a content sniff).
 	const TEXT_FILE_ACCEPT =
 		'image/*,text/*,.txt,.csv,.tsv,.json,.jsonl,.ndjson,.md,.markdown,.log,.yaml,.yml,.toml,.ini,.cfg,.conf,.env,.xml,.html,.htm,.css,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.rb,.rs,.go,.java,.kt,.c,.h,.cpp,.cc,.cs,.php,.sh,.bash,.zsh,.sql,.svelte,.vue,.dockerfile'
 	let fileInputEl = $state<HTMLInputElement | null>(null)
@@ -885,7 +885,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								{/snippet}
 							</DropdownV2>
 							<!-- Fallback file picker (used when the File System Access API is unavailable).
-							     `accept` only steers toward text; the content sniff in addFiles() is authoritative. -->
+							     `accept` only steers the picker; the content sniff at attach is authoritative. -->
 							<input
 								bind:this={fileInputEl}
 								type="file"
