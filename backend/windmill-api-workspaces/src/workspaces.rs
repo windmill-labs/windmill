@@ -3150,6 +3150,84 @@ async fn check_promotion_license<'a>(
     Ok(())
 }
 
+#[cfg(all(feature = "enterprise", feature = "private"))]
+fn normalize_git_url(u: &str) -> String {
+    u.trim()
+        .trim_end_matches('/')
+        .trim_end_matches(".git")
+        .to_string()
+}
+
+/// A dev workspace's promotion must target its parent ("prod") workspace's own
+/// git repository — that is what "promote to prod" means. A fork-created dev
+/// inherits prod's repo (same URL); an **attached** dev keeps its own, which may
+/// be unrelated. Enabling promotion on a repo the parent doesn't track would
+/// open pull requests against the wrong repository, so reject it. Roots (no
+/// parent) and throwaway forks (rejected earlier) never reach the URL check.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn check_dev_promotion_targets_parent_repo<'a>(
+    db: &DB,
+    w_id: &str,
+    repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
+) -> Result<()> {
+    let promo_paths: Vec<String> = repos
+        .filter(|r| r.use_individual_branch.unwrap_or(false))
+        .map(|r| r.git_repo_resource_path.clone())
+        .collect();
+    if promo_paths.is_empty() {
+        return Ok(());
+    }
+    let parent = sqlx::query!(
+        "SELECT parent_workspace_id, is_dev_workspace FROM workspace WHERE id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .and_then(|r| {
+        r.is_dev_workspace
+            .then_some(r.parent_workspace_id)
+            .flatten()
+    });
+    let Some(parent) = parent else {
+        return Ok(());
+    };
+    let parent_settings: Option<windmill_common::workspaces::WorkspaceGitSyncSettings> =
+        sqlx::query!(
+            "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+            parent
+        )
+        .fetch_optional(db)
+        .await?
+        .and_then(|r| r.git_sync)
+        .and_then(|v| serde_json::from_value(v).ok());
+    let mut parent_urls = std::collections::HashSet::new();
+    if let Some(ps) = parent_settings {
+        for r in &ps.repositories {
+            if let Ok(u) = windmill_common::git_sync_ee::resolve_repo_url(
+                db,
+                &parent,
+                &r.git_repo_resource_path,
+            )
+            .await
+            {
+                parent_urls.insert(normalize_git_url(&u));
+            }
+        }
+    }
+    for path in &promo_paths {
+        let url = windmill_common::git_sync_ee::resolve_repo_url(db, w_id, path).await?;
+        if !parent_urls.contains(&normalize_git_url(&url)) {
+            return Err(Error::BadRequest(
+                "Promotion mode on a dev workspace must reuse the parent workspace's git repository, \
+                 but this repository is not one the parent tracks — promotion would target a \
+                 repository the parent does not sync with."
+                    .to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(feature = "enterprise")]
 async fn check_git_sync_access(_db: &DB, _w_id: &str) -> Result<()> {
     Ok(())
@@ -3296,6 +3374,9 @@ async fn edit_git_sync_config(
         check_open_prs_license(git_sync_settings.repositories.iter()).await?;
         #[cfg(feature = "enterprise")]
         check_promotion_license(git_sync_settings.repositories.iter()).await?;
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        check_dev_promotion_targets_parent_repo(&db, &w_id, git_sync_settings.repositories.iter())
+            .await?;
         // Promotion mode: EE only (mirrors edit_git_sync_repository).
         #[cfg(not(feature = "enterprise"))]
         if git_sync_settings
@@ -3521,6 +3602,9 @@ async fn edit_git_sync_repository(
     check_open_prs_license(std::iter::once(&new_config.repository)).await?;
     #[cfg(feature = "enterprise")]
     check_promotion_license(std::iter::once(&new_config.repository)).await?;
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    check_dev_promotion_targets_parent_repo(&db, &w_id, std::iter::once(&new_config.repository))
+        .await?;
 
     // Promotion mode: EE only
     #[cfg(not(feature = "enterprise"))]
