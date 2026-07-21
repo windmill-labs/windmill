@@ -190,7 +190,10 @@ services:
     logging: *default-logging
 
   caddy:
-    image: ghcr.io/windmill-labs/caddy-l4:latest
+    # Pinned: this image and the ./Caddyfile next to it are version-coupled, so
+    # they have to move together. Bump docker/caddy-l4.version in the same
+    # commit as any Caddyfile change.
+    image: ghcr.io/windmill-labs/caddy-l4:2.11.4-1
     restart: unless-stopped
     # Configure the mounted Caddyfile and the exposed ports or use another reverse proxy if needed
     volumes:

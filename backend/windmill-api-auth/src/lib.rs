@@ -502,6 +502,89 @@ pub fn build_scope_path_predicate(
     }
 }
 
+/// The same `domain:action` path grant as [`build_scope_path_predicate`], decomposed
+/// into what a SQL `WHERE` clause needs so the filtering happens IN the query.
+///
+/// Filtering in SQL rather than dropping rows after the fetch is mandatory wherever
+/// the result is paginated: a post-fetch filter makes a page's size — and any
+/// continuation cursor derived from it — reveal the count of rows the caller cannot
+/// see. `ScopePathFilter::allows` mirrors the emitted SQL, and a cross-check test
+/// pins both to the predicate.
+pub enum ScopePathFilter {
+    /// Unscoped token, or a grant that covers every path: no restriction.
+    AllowAll,
+    /// A path is granted iff it equals an `exact` entry or sits at or under a
+    /// `prefix` (from a `prefix/*` grant, matched on the `/` boundary). Both empty
+    /// grants nothing.
+    Restricted { exact: Vec<String>, prefix: Vec<String> },
+}
+
+impl ScopePathFilter {
+    /// Whether `path` is granted. Mirrors the SQL a caller builds from this filter,
+    /// and the matching rule in `resource_matches_pattern`.
+    pub fn allows(&self, path: &str) -> bool {
+        match self {
+            ScopePathFilter::AllowAll => true,
+            ScopePathFilter::Restricted { exact, prefix } => {
+                exact.iter().any(|e| e == path)
+                    || prefix.iter().any(|p| {
+                        path == p || path.strip_prefix(p).is_some_and(|r| r.starts_with('/'))
+                    })
+            }
+        }
+    }
+}
+
+/// Restrictions equivalent to `build_scope_path_predicate(authed, domain, action)`,
+/// but pushable into SQL. See [`ScopePathFilter`]. Not for `jobs:run` scopes (whose
+/// `kind` dimension this ignores), matching the predicate's path-domain use.
+pub fn build_scope_path_filter(authed: &ApiAuthed, domain: &str, action: &str) -> ScopePathFilter {
+    let (is_scoped_token, parsed): (bool, Vec<ScopeDefinition>) = match authed.scopes.as_ref() {
+        Some(scopes) => {
+            let mut is_scoped = false;
+            let parsed = scopes
+                .iter()
+                .filter(|s| !s.starts_with("if_jobs:filter_tags:"))
+                .inspect(|_| is_scoped = true)
+                .filter_map(|s| ScopeDefinition::from_scope_string(s).ok())
+                .collect();
+            (is_scoped, parsed)
+        }
+        None => (false, Vec::new()),
+    };
+    if !is_scoped_token {
+        return ScopePathFilter::AllowAll;
+    }
+    let mut exact = Vec::new();
+    let mut prefix = Vec::new();
+    for s in &parsed {
+        if s.domain != domain {
+            continue;
+        }
+        // `write` covers `read`, mirroring ScopeDefinition::includes' action rule.
+        if !(s.action == action || (s.action == "write" && action == "read")) {
+            continue;
+        }
+        match &s.resource {
+            // A domain:action scope with no path part grants every path.
+            None => return ScopePathFilter::AllowAll,
+            Some(resources) => {
+                for r in resources {
+                    // `*` grants every path (resources_match's wildcard short-circuit).
+                    if r == "*" {
+                        return ScopePathFilter::AllowAll;
+                    }
+                    match r.strip_suffix("/*") {
+                        Some(p) => prefix.push(p.to_string()),
+                        None => exact.push(r.clone()),
+                    }
+                }
+            }
+        }
+    }
+    ScopePathFilter::Restricted { exact, prefix }
+}
+
 pub async fn require_devops_role(db: &DB, email: &str) -> error::Result<()> {
     let is_devops = is_devops_email(db, email).await?;
 
@@ -1209,6 +1292,48 @@ mod tests {
         let allowed = build_scope_path_predicate(&authed, "resources", "read");
         assert!(allowed("u/alice/foo"));
         assert!(!allowed("u/alice/bar"));
+    }
+
+    // The SQL-pushable filter must grant exactly what the post-fetch predicate does:
+    // any divergence either leaks/over-grants (filter looser) or hides authorized
+    // rows (filter tighter). Cross-check both over a matrix of scope sets and paths.
+    #[test]
+    fn scope_path_filter_agrees_with_predicate() {
+        let scope_sets: Vec<Option<Vec<&str>>> = vec![
+            None,
+            Some(vec![]),
+            Some(vec!["if_jobs:filter_tags:default"]),
+            Some(vec!["resources:read"]),
+            Some(vec!["resources:read:*"]),
+            Some(vec!["resources:read:u/alice/foo"]),
+            Some(vec!["resources:read:f/team/*"]),
+            Some(vec!["resources:write:f/team/*"]),
+            Some(vec!["resources:read:u/alice/foo,f/team/*"]),
+            Some(vec!["variables:read:f/team/*"]),
+            Some(vec!["resources:read:f/team", "resources:read:f/team2/*"]),
+        ];
+        let paths = [
+            "u/alice/foo",
+            "u/alice/foobar",
+            "u/bob/foo",
+            "f/team",
+            "f/team/db",
+            "f/team/sub/nested",
+            "f/team2",
+            "f/other/db",
+        ];
+        for scopes in &scope_sets {
+            let authed = authed_with_scopes(scopes.clone());
+            let predicate = build_scope_path_predicate(&authed, "resources", "read");
+            let filter = build_scope_path_filter(&authed, "resources", "read");
+            for path in paths {
+                assert_eq!(
+                    filter.allows(path),
+                    predicate(path),
+                    "mismatch for scopes {scopes:?} path {path}"
+                );
+            }
+        }
     }
 
     fn opt_scopes(scopes: Option<Vec<&str>>) -> Option<Vec<String>> {

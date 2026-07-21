@@ -47,7 +47,7 @@ use windmill_common::HUB_BASE_URL;
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error, JsonResult, Result},
-    flows::{Flow, FlowWithStarred, ListFlowQuery, ListableFlow, NewFlow},
+    flows::{EditFlow, Flow, FlowWithStarred, ListFlowQuery, ListableFlow, NewFlow},
     jobs::JobPayload,
     schedule::Schedule,
     utils::{http_get_from_hub, not_found_if_none, paginate, Pagination, RunnableKind, StripPath},
@@ -1007,7 +1007,7 @@ async fn update_flow(
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
-    Json(nf): Json<NewFlow>,
+    Json(ef): Json<EditFlow>,
 ) -> Result<String> {
     if authed.is_operator {
         return Err(Error::NotAuthorized(
@@ -1015,6 +1015,8 @@ async fn update_flow(
         ));
     }
     let flow_path = flow_path.to_path();
+    // The URL identifies the flow being updated; the body path is only needed to rename.
+    let nf = ef.into_new_flow(flow_path);
     check_scopes(&authed, || format!("flows:write:{}", flow_path))?;
 
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(

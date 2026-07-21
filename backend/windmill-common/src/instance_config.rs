@@ -641,6 +641,15 @@ pub struct OtelTracingProxySettings {
     /// pin their own CA (kubectl, helm, terraform providers, aws cli for EKS, etc.).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub no_proxy_hosts: Option<String>,
+    /// Comma-separated host/IP patterns for which the MITM proxy skips upstream TLS
+    /// verification. Unlike `no_proxy_hosts` the hosts stay traced — only the proxy's own
+    /// upstream certificate check is disabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub insecure_upstream_hosts: Option<String>,
+    /// Extra CA certificates (PEM bundle) added to the MITM proxy's upstream trust store,
+    /// on top of the system roots, so internal endpoints signed by a private CA verify.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream_ca_certs: Option<String>,
 }
 
 /// Script language identifier (for instance config use).

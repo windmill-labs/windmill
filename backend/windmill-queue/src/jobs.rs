@@ -6280,15 +6280,29 @@ async fn push_inner<'c, 'd>(
         )
         .unzip();
 
+    #[cfg(feature = "cloud")]
+    if *CLOUD_HOSTED {
+        check_workspace_queue_cap(&mut *tx, workspace_id).await?;
+    }
+
     if concurrency_settings.concurrent_limit.is_some() {
-        insert_concurrency_key(
+        let concurrency_key = resolve_concurrency_key(
             workspace_id,
             &args,
             &runnable_path,
             job_kind,
             concurrency_settings.concurrency_key.clone(),
+        );
+        #[cfg(feature = "cloud")]
+        if *CLOUD_HOSTED {
+            check_concurrency_key_queue_cap(&mut *tx, &concurrency_key).await?;
+        }
+        insert_resolved_concurrency_key(
+            &concurrency_key,
             &mut *tx,
             job_id,
+            &runnable_path,
+            workspace_id,
         )
         .await?;
     }
@@ -6617,16 +6631,14 @@ async fn push_inner<'c, 'd>(
     Ok((job_id, tx))
 }
 
-pub async fn insert_concurrency_key<'d, 'c>(
+fn resolve_concurrency_key<'d>(
     workspace_id: &str,
     args: &PushArgs<'d>,
     script_path: &Option<String>,
     job_kind: JobKind,
     custom_concurrency_key: Option<String>,
-    db: impl PgExecutor<'c>,
-    job_id: Uuid,
-) -> Result<(), Error> {
-    let concurrency_key = custom_concurrency_key
+) -> String {
+    custom_concurrency_key
         .map(|x| {
             let interpolated = interpolate_args(x.clone(), args, workspace_id);
             // In cloud mode, enforce workspace isolation by prefixing with workspace
@@ -6648,7 +6660,50 @@ pub async fn insert_concurrency_key<'d, 'c>(
             workspace_id,
             script_path.as_ref(),
             &job_kind,
-        ));
+        ))
+}
+
+/// Resolves the concurrency key, applies the cloud-only queue-depth cap, then registers the key.
+///
+/// `concurrent_limit: None` still registers the key but skips the cap: without a limit nothing
+/// serializes the key, so there is no backlog to bound. Callers register keys for tag
+/// interpolation alone, so the two are not interchangeable.
+///
+/// Takes a `Copy` executor because the cap runs a query before the insert on the same one. `push`
+/// cannot use this — it holds a `&mut Transaction` — so it performs the same three steps inline.
+pub async fn insert_concurrency_key_capped<'d, 'c, E: PgExecutor<'c> + Copy>(
+    workspace_id: &str,
+    args: &PushArgs<'d>,
+    script_path: &Option<String>,
+    job_kind: JobKind,
+    custom_concurrency_key: Option<String>,
+    concurrent_limit: Option<i32>,
+    db: E,
+    job_id: Uuid,
+) -> Result<(), Error> {
+    let concurrency_key = resolve_concurrency_key(
+        workspace_id,
+        args,
+        script_path,
+        job_kind,
+        custom_concurrency_key,
+    );
+    #[cfg(feature = "cloud")]
+    if *CLOUD_HOSTED && concurrent_limit.is_some() {
+        check_concurrency_key_queue_cap(db, &concurrency_key).await?;
+    }
+    #[cfg(not(feature = "cloud"))]
+    let _ = concurrent_limit;
+    insert_resolved_concurrency_key(&concurrency_key, db, job_id, script_path, workspace_id).await
+}
+
+async fn insert_resolved_concurrency_key<'c>(
+    concurrency_key: &str,
+    db: impl PgExecutor<'c>,
+    job_id: Uuid,
+    script_path: &Option<String>,
+    workspace_id: &str,
+) -> Result<(), Error> {
     sqlx::query!(
         "WITH inserted_concurrency_counter AS (
                 INSERT INTO concurrency_counter (concurrency_id, job_uuids)
@@ -6663,6 +6718,145 @@ pub async fn insert_concurrency_key<'d, 'c>(
     .warn_after_seconds(3)
     .await
     .map_err(|e| Error::internal_err(format!("Could not insert concurrency_key={concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e:#}")))?;
+    Ok(())
+}
+
+/// Counts jobs *waiting* behind `concurrency_key`, scanning at most `limit` rows.
+///
+/// Three constraints on the query below, each pinned by a test in
+/// `tests/concurrency_key_queue_depth_test.rs`:
+/// - Any `scheduled_for`: the limiter parks blocked jobs in the future, so a gated backlog is
+///   almost entirely future-dated and `scheduled_for <= now()` would never see it.
+/// - `running = false`: running jobs keep `ended_at` NULL, and counting them would charge a key
+///   for the concurrency it is licensed to use.
+/// - `LIMIT` inside the `EXISTS`, not outside: rows whose job left the queue without
+///   `add_completed_job` keep `ended_at` NULL forever (the retention sweep only matches
+///   `ended_at <= …`), so an outside `LIMIT` would let them be rescanned on every push.
+///
+/// Takes an already-resolved key and performs no authorization; `pub` only so the integration
+/// test can reach it. Never call it with a caller-supplied key — it would leak queue depth
+/// across workspaces.
+pub async fn concurrency_key_queue_depth<'c>(
+    db: impl PgExecutor<'c>,
+    concurrency_key: &str,
+    limit: i64,
+) -> Result<i64, Error> {
+    sqlx::query_scalar!(
+        "SELECT count(*) FROM (
+            SELECT ck.job_id FROM concurrency_key ck
+            WHERE ck.key = $1 AND ck.ended_at IS NULL
+            LIMIT $2
+        ) s WHERE EXISTS (
+            SELECT 1 FROM v2_job_queue q WHERE q.id = s.job_id AND q.running = false
+        )",
+        concurrency_key,
+        limit,
+    )
+    .fetch_one(db)
+    .warn_after_seconds(3)
+    .await
+    .map_err(|e| {
+        Error::internal_err(format!(
+            "Could not count queued jobs for concurrency_key={concurrency_key}: {e:#}"
+        ))
+    })
+    .map(|c| c.unwrap_or(0))
+}
+
+/// Rejects the push when `concurrency_key` already has `CONCURRENCY_KEY_MAX_QUEUED` jobs queued.
+///
+/// Caller must runtime-gate this on `*CLOUD_HOSTED`, and must call it from *every push path*
+/// that registers a concurrency key: a flow with a preprocessor is pushed with `concurrent_limit`
+/// cleared and only registers its key later from `worker_flow`, so gating `push` alone leaves
+/// trigger-driven flows uncapped.
+///
+/// `add_batch_jobs` writes keys directly and is deliberately exempt: it is superadmin-only, and a
+/// superadmin can set the cap to `0` anyway. `import_queued_jobs` is likewise exempt because it
+/// is rejected outright on cloud.
+#[cfg(feature = "cloud")]
+async fn check_concurrency_key_queue_cap<'c>(
+    db: impl PgExecutor<'c>,
+    concurrency_key: &str,
+) -> Result<(), Error> {
+    let cap = windmill_common::worker::CONCURRENCY_KEY_MAX_QUEUED
+        .load(std::sync::atomic::Ordering::Relaxed);
+    if cap == 0 {
+        return Ok(());
+    }
+    let cap = cap as i64;
+    let depth = concurrency_key_queue_depth(db, concurrency_key, cap).await?;
+    if depth >= cap {
+        return Err(Error::QuotaExceeded(format!(
+            "Too many jobs queued behind concurrency key '{concurrency_key}': at least {depth} \
+             jobs are already waiting and the limit is {cap}. Jobs sharing a concurrency key run \
+             at most `concurrent_limit` at a time, so this queue is growing faster than it can \
+             drain. Cancel the backlog, slow down the caller, or raise the concurrency limit."
+        )));
+    }
+    Ok(())
+}
+
+/// Bounded count of a workspace's non-running queued jobs, capped at `limit` so the scan
+/// stops once the ceiling is reached rather than counting an entire runaway backlog.
+///
+/// Internal helper for `check_workspace_queue_cap`, `pub` only so the integration test can call
+/// it (like `concurrency_key_queue_depth`). Returns a count, not job contents; the caller is
+/// responsible for any authorization — it takes the workspace id as given.
+pub async fn workspace_queue_depth<'c>(
+    db: impl PgExecutor<'c>,
+    workspace_id: &str,
+    limit: i64,
+) -> Result<i64, Error> {
+    sqlx::query_scalar!(
+        "SELECT count(*) FROM (
+            SELECT 1 FROM v2_job_queue
+            WHERE workspace_id = $1 AND running = false
+            LIMIT $2
+        ) s",
+        workspace_id,
+        limit,
+    )
+    .fetch_one(db)
+    .warn_after_seconds(3)
+    .await
+    .map_err(|e| {
+        Error::internal_err(format!(
+            "Could not count queued jobs for workspace={workspace_id}: {e:#}"
+        ))
+    })
+    .map(|c| c.unwrap_or(0))
+}
+
+/// Rejects the push when the workspace already has `WORKSPACE_MAX_QUEUED_JOBS` jobs queued.
+///
+/// Caller must runtime-gate this on `*CLOUD_HOSTED`. It runs on every push (not only
+/// concurrency-limited ones) because a workspace can flood the queue across many keys or with
+/// keyless jobs. It caps *new* pushes past the ceiling; jobs already queued still drain, so an
+/// in-flight flow only ever fails to push further work while the workspace is at the ceiling.
+///
+/// This is a soft ceiling, like the per-key cap: the count and the insert are not serialized, so
+/// a burst of concurrent pushes can land a handful over the limit. That is fine and intentional
+/// — the cap exists to stop an unbounded runaway, not to enforce an exact quota, and a
+/// per-workspace lock on every push would add hot-path contention for no practical gain.
+#[cfg(feature = "cloud")]
+async fn check_workspace_queue_cap<'c>(
+    db: impl PgExecutor<'c>,
+    workspace_id: &str,
+) -> Result<(), Error> {
+    let cap = windmill_common::worker::WORKSPACE_MAX_QUEUED_JOBS
+        .load(std::sync::atomic::Ordering::Relaxed);
+    if cap == 0 {
+        return Ok(());
+    }
+    let cap = cap as i64;
+    let depth = workspace_queue_depth(db, workspace_id, cap).await?;
+    if depth >= cap {
+        return Err(Error::QuotaExceeded(format!(
+            "Too many jobs queued in workspace '{workspace_id}': at least {depth} jobs are \
+             already waiting and the instance limit is {cap}. Cancel the backlog or slow down \
+             whatever is creating jobs before pushing more."
+        )));
+    }
     Ok(())
 }
 

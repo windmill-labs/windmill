@@ -93,12 +93,21 @@ describe('resolvePreviewTab', () => {
 		expect(resolvePreviewTab('/apps/edit/f/a/b')).toEqual({ kind: 'iframe' })
 	})
 
-	it('routes a pipeline folder to the pipeline editor kind', () => {
-		expect(resolvePreviewTab('/pipeline/my_folder')).toEqual({
-			kind: 'editor',
-			editorKind: 'pipeline',
-			path: 'my_folder'
-		})
+	it('routes a pipeline folder to the pipeline editor kind when session pipelines are enabled', () => {
+		localStorage.setItem('wm_dev_session_pipelines', '1')
+		try {
+			expect(resolvePreviewTab('/pipeline/my_folder')).toEqual({
+				kind: 'editor',
+				editorKind: 'pipeline',
+				path: 'my_folder'
+			})
+		} finally {
+			localStorage.removeItem('wm_dev_session_pipelines')
+		}
+	})
+
+	it('routes a pipeline folder to the iframe fallback while session pipelines are gated', () => {
+		expect(resolvePreviewTab('/pipeline/my_folder')).toEqual({ kind: 'iframe' })
 	})
 
 	it('routes the bare pipeline list page to the iframe fallback', () => {

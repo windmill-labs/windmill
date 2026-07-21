@@ -13,7 +13,13 @@ import {
 	workspaceAIClients
 } from '../lib'
 import { applyReasoningToConfig } from '../reasoningRegistry'
-import { processToolCall, type Tool, type ToolCallbacks } from './shared'
+import {
+	appendPendingToolImages,
+	processToolCall,
+	type Tool,
+	type ToolCallbacks,
+	type WebSearchSource
+} from './shared'
 import type { ResponseStream } from 'openai/lib/responses/ResponseStream.mjs'
 import type { AIProviderModel } from '$lib/gen'
 import { openAIResponsesUsageToChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
@@ -30,24 +36,80 @@ const openAIWebSearchToolId = (itemId: string) => `openai_web_search:${itemId}`
 function setOpenAIWebSearchStatus(
 	callbacks: ToolCallbacks & { onMessageEnd: () => void },
 	itemId: string,
-	status: WebSearchStatus
+	status: WebSearchStatus,
+	details?: { query?: string; sources?: WebSearchSource[] }
 ) {
 	const isLoading = status === 'in_progress' || status === 'searching'
 	const failed = status === 'failed'
+	const sources = details?.sources
 	callbacks.onMessageEnd()
 	callbacks.setToolStatus(openAIWebSearchToolId(itemId), {
-		content: failed ? 'Web search failed' : isLoading ? 'Searching the web...' : 'Searched the web',
+		content: failed
+			? 'Web search failed'
+			: isLoading
+				? 'Searching the web...'
+				: details?.query
+					? `Searched the web for "${details.query}"`
+					: 'Searched the web',
 		error: failed ? 'Web search failed' : undefined,
 		isLoading,
 		isStreamingArguments: false,
 		needsConfirmation: false,
 		toolName: 'web_search',
-		showDetails: false,
-		autoCollapseDetails: true
+		// Sources keep the card expanded (no auto-collapse) so the consulted
+		// pages surface live as each search completes mid-stream.
+		...(sources?.length
+			? { webSearchSources: sources, showDetails: true, autoCollapseDetails: false }
+			: {})
 	})
 }
 
+// Pull query + consulted URLs out of a completed web_search_call item.
+// The pinned SDK types the action shapes (ResponseFunctionWebSearch.Search)
+// but its ResponseFunctionWebSearch interface predates the `action` property
+// itself, so the field must be read untyped and shape-checked.
+export function openAIWebSearchDetails(item: any): {
+	query?: string
+	sources?: WebSearchSource[]
+} {
+	const action = item?.action
+	// The current schema sends a `queries` array and may omit the deprecated
+	// singular `query`; support both so the label never falls back to the bare
+	// "Searched the web".
+	const queries: string[] = Array.isArray(action?.queries)
+		? action.queries.filter((q: any) => typeof q === 'string' && q)
+		: []
+	const query = queries.length
+		? queries.join(', ')
+		: typeof action?.query === 'string' && action.query
+			? action.query
+			: undefined
+	const sources = Array.isArray(action?.sources)
+		? action.sources
+				.filter((s: any) => typeof s?.url === 'string')
+				.map((s: any) => ({ url: s.url }))
+		: undefined
+	return { query, sources }
+}
+
 // Conversion utilities for Responses API
+
+/**
+ * Translate Chat-Completions message content to Responses-native content. Strings
+ * pass through; a content-part array maps text→input_text and image_url→input_image
+ * (Responses takes image_url as a plain string, not the {url} object).
+ */
+export function toResponsesContent(content: unknown): unknown {
+	if (!Array.isArray(content)) return content
+	return content.map((part) => {
+		if (part?.type === 'text') return { type: 'input_text', text: part.text }
+		if (part?.type === 'image_url' && part.image_url?.url) {
+			return { type: 'input_image', image_url: part.image_url.url }
+		}
+		return part
+	})
+}
+
 function convertMessagesToResponsesInput(messages: ChatCompletionMessageParam[]): {
 	instructions?: string
 	input: Array<any>
@@ -100,7 +162,7 @@ function convertMessagesToResponsesInput(messages: ChatCompletionMessageParam[])
 			input.push({
 				type: 'message' as const,
 				role: m.role === 'developer' ? 'developer' : m.role === 'assistant' ? 'assistant' : 'user',
-				content: m.content
+				content: toResponsesContent(m.content)
 			})
 		}
 	}
@@ -183,9 +245,12 @@ export async function getOpenAIResponsesCompletion(
 	}
 
 	// Enable OpenAI's built-in web search tool. The proxy forwards the body
-	// verbatim, so this reaches OpenAI as a native server-side tool.
+	// verbatim, so this reaches OpenAI as a native server-side tool. Sources
+	// (the URLs each search consulted) are only returned when asked for via
+	// `include` — they feed the expandable source list on the tool card.
 	if (options?.webSearch && providerSupportsWebSearch(provider)) {
 		responsesConfig.tools = [...(responsesConfig.tools ?? []), { type: 'web_search' }]
+		responsesConfig.include = [...(responsesConfig.include ?? []), 'web_search_call.action.sources']
 	}
 
 	const client = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
@@ -361,6 +426,25 @@ export async function parseOpenAIResponsesCompletion(
 		setOpenAIWebSearchStatus(callbacks, event.item_id, 'completed')
 	})
 
+	// The completed event above only carries item_id; the full item (with
+	// action.query and the requested action.sources) lands in output_item.done,
+	// mid-stream — surface the source list there rather than at end of turn.
+	// Track surfaced ids so the final-response sweep doesn't re-emit the status
+	// and re-expand a card the user collapsed in the meantime.
+	const surfacedWebSearchCalls = new Set<string>()
+	runner.on('response.output_item.done', (event) => {
+		const item = event.item as any
+		if (item?.type === 'web_search_call' && item.id) {
+			surfacedWebSearchCalls.add(item.id)
+			setOpenAIWebSearchStatus(
+				callbacks,
+				item.id,
+				item.status ?? 'completed',
+				openAIWebSearchDetails(item)
+			)
+		}
+	})
+
 	// Stream function call arguments incrementally
 	runner.on('response.function_call_arguments.delta', (event) => {
 		if (currentStreamingTool?.shouldStream && currentStreamingTool.itemId === event.item_id) {
@@ -436,8 +520,9 @@ export async function parseOpenAIResponsesCompletion(
 	const tokenUsage = openAIResponsesUsageToChatTokenUsage(finalResponse.usage)
 
 	for (const item of finalResponse.output ?? []) {
-		if (item.type === 'web_search_call') {
-			setOpenAIWebSearchStatus(callbacks, item.id, item.status)
+		if (item.type === 'web_search_call' && !surfacedWebSearchCalls.has(item.id)) {
+			// Fallback for a call whose output_item.done event was missed.
+			setOpenAIWebSearchStatus(callbacks, item.id, item.status, openAIWebSearchDetails(item))
 		}
 	}
 
@@ -462,6 +547,7 @@ export async function parseOpenAIResponsesCompletion(
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)
 		}
+		appendPendingToolImages(messages, addedMessages, callbacks)
 		return { shouldContinue: true, tokenUsage }
 	}
 

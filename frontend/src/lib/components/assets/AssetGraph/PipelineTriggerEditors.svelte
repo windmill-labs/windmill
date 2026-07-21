@@ -22,6 +22,7 @@
 	import EmailTriggerEditor from '$lib/components/triggers/email/EmailTriggerEditor.svelte'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import WebhookEditor from '$lib/components/triggers/webhook/WebhookEditor.svelte'
+	import { setTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 
 	// Owns the native-trigger drawer wiring for the pipeline canvas: the nine
 	// editor instances, the create/edit dispatch by kind, and the delete
@@ -34,8 +35,12 @@
 	// (matching the previous `{#if mode === 'edit'}` wrapper). The webhook
 	// editor stays mounted in every mode — its node is clickable in view mode
 	// too (informational endpoint URLs/token).
-	type Props = { onUpdate: () => void; mountTriggerEditors: boolean }
-	let { onUpdate, mountTriggerEditors }: Props = $props()
+	type Props = { onUpdate: () => void; mountTriggerEditors: boolean; workspace?: string }
+	let { onUpdate, mountTriggerEditors, workspace: triggerWorkspace }: Props = $props()
+
+	// Register the trigger-workspace resolver for the whole editor subtree (the
+	// nine editors + the delete handler below). See triggerWorkspace.ts.
+	setTriggerWorkspace(() => triggerWorkspace ?? $workspaceStore)
 
 	let kafkaEditor: KafkaTriggerEditor | undefined = $state()
 	let mqttEditor: MqttTriggerEditor | undefined = $state()
@@ -115,9 +120,9 @@
 	}
 
 	async function confirmDeleteAttachedTrigger() {
-		if (!triggerDeleteTarget || !$workspaceStore) return
+		const workspace = triggerWorkspace ?? $workspaceStore
+		if (!triggerDeleteTarget || !workspace) return
 		const { kind, path: triggerPath } = triggerDeleteTarget
-		const workspace = $workspaceStore
 		triggerDeleteLoading = true
 		try {
 			switch (kind) {

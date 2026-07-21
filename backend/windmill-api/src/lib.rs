@@ -657,6 +657,10 @@ pub async fn run_server(
                         .nest("/workers", windmill_api_workers::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest(
+                            "/data_metrics",
+                            windmill_api_workspaces::data_metrics::workspaced_service(),
+                        )
+                        .nest(
                             "/deployment_request",
                             windmill_api_workspaces::deployment_requests::workspaced_service(),
                         )

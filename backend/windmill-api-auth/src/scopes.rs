@@ -240,6 +240,10 @@ pub enum ScopeDomain {
     // Core resource domains
     Jobs,
     Scripts,
+    /// The `/data_metrics` catalog. Its own domain, NOT an alias of `Scripts`: a
+    /// `data_metrics:read` token must reach only this route, never the broader
+    /// `/scripts` routes (some of which do no further scope check).
+    DataMetrics,
     Flows,
     FlowConversations,
     Apps,
@@ -303,6 +307,7 @@ impl ScopeDomain {
         match self {
             Self::Jobs => "jobs",
             Self::Scripts => "scripts",
+            Self::DataMetrics => "data_metrics",
             Self::Flows => "flows",
             Self::FlowConversations => "flow_conversations",
             Self::Apps => "apps",
@@ -355,6 +360,9 @@ impl ScopeDomain {
         match s {
             "jobs" | "jobs_u" => Some(Self::Jobs),
             "scripts" => Some(Self::Scripts),
+            // A distinct domain, not an alias of `scripts` (see the enum variant):
+            // a `data_metrics:read` token must not reach the broader /scripts routes.
+            "data_metrics" => Some(Self::DataMetrics),
             "flows" => Some(Self::Flows),
             "flow_conversations" => Some(Self::FlowConversations),
             "apps" | "apps_u" => Some(Self::Apps),
@@ -985,6 +993,24 @@ mod tests {
 
         // DELETE now requires write permission, so it should still fail with read-only scope
         assert!(check_route_access(&scopes, "/api/w/test_workspace/jobs/123", "DELETE").is_err());
+    }
+
+    #[test]
+    fn data_metrics_is_its_own_domain_not_a_scripts_alias() {
+        // `data_metrics` must be a distinct domain: a token scoped to it must reach
+        // only the data_metrics route, never the broader /scripts routes (some of
+        // which do no further scope check). Regression for a privilege escalation.
+        assert_eq!(
+            ScopeDomain::from_str("data_metrics"),
+            Some(ScopeDomain::DataMetrics)
+        );
+        let dm = vec!["data_metrics:read".to_string()];
+        assert!(check_route_access(&dm, "/api/w/test/data_metrics/list", "GET").is_ok());
+        assert!(check_route_access(&dm, "/api/w/test/scripts/list", "GET").is_err());
+        assert!(check_route_access(&dm, "/api/w/test/scripts/raw/h/abc.ts", "GET").is_err());
+        // Conversely a scripts token does not reach the data_metrics route.
+        let sc = vec!["scripts:read".to_string()];
+        assert!(check_route_access(&sc, "/api/w/test/data_metrics/list", "GET").is_err());
     }
 
     #[test]

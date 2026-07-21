@@ -21,7 +21,7 @@
         "tar-stream": "^3.1.7",
         "windmill-parser-wasm-asset": "1.749.0",
         "windmill-parser-wasm-csharp": "1.510.1",
-        "windmill-parser-wasm-go": "1.510.1",
+        "windmill-parser-wasm-go": "1.761.0",
         "windmill-parser-wasm-java": "1.510.1",
         "windmill-parser-wasm-nu": "1.510.1",
         "windmill-parser-wasm-php": "1.647.1",
@@ -294,7 +294,7 @@
 
     "windmill-parser-wasm-csharp": ["windmill-parser-wasm-csharp@1.510.1", "", {}, "sha512-qm09YmnbeYHLwYn1jUnObVzPhYO9NZKMlIO7nlo7zPJBXqksgG5fK/KCtwGw9rChrnz+DsvM9wP5FhrwRLMtwQ=="],
 
-    "windmill-parser-wasm-go": ["windmill-parser-wasm-go@1.510.1", "", {}, "sha512-HOkk6LXK0wrwvkn+zjm3Gxo90HmyL6TYqmLo2yp8fZuppy7GOngT27zwYeBtwONiPyvDKskzoqPQoEfd8VuUsQ=="],
+    "windmill-parser-wasm-go": ["windmill-parser-wasm-go@1.761.0", "", {}, "sha512-jNM0kh0U5uSetwBVSmueFs91GTdbn/tffny2XB1LrrSUElP5i+PK7i12zrWNT2q9JUK2L215CbmyfNmkacbo1Q=="],
 
     "windmill-parser-wasm-java": ["windmill-parser-wasm-java@1.510.1", "", {}, "sha512-Zle+JZT/ZwUArUVacUudYlS+CaHp2lSnkqD/IhWaRUG+gcv26VbERnrrHPonqXbVMS+eA9ElfXrFM5j0ukaXUw=="],
 

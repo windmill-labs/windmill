@@ -1,6 +1,6 @@
 <script lang="ts">
 	import autosize from '$lib/autosize'
-	import { tick } from 'svelte'
+	import { tick, type Snippet } from 'svelte'
 	import type { ContextElement } from './context'
 	import { AIMode } from './AIChatManager.svelte'
 	import ChatCommandPicker from './ChatCommandPicker.svelte'
@@ -35,8 +35,12 @@
 		 * from the textarea. The host should drop the matching entry from
 		 * selectedContext (only items with `deletable !== false` are reported). */
 		onRemoveContext?: (contextElement: ContextElement) => void
+		/** Called with image files found in a paste, so the host can attach them. */
+		onImageFiles?: (files: File[]) => void
 		className?: string
 		onKeyDown?: (e: KeyboardEvent) => void
+		/** Rendered inside the input box, above the textarea (e.g. context chips). */
+		leading?: Snippet
 	}
 
 	let {
@@ -49,8 +53,10 @@
 		onSendRequest,
 		onAddContext,
 		onRemoveContext,
+		onImageFiles,
 		className = '',
-		onKeyDown = undefined
+		onKeyDown = undefined,
+		leading
 	}: Props = $props()
 
 	const aiChatManager = getAiChatManager()
@@ -300,6 +306,22 @@
 	// widened over overlapped tokens so pasting onto a chip replaces it whole.
 	function handlePaste(e: ClipboardEvent) {
 		const text = e.clipboardData?.getData('text/plain') ?? ''
+		// Image paste (screenshots, copied images) → hand off to the host to attach.
+		// Only when the clipboard carries no text: spreadsheet and browser copies put a
+		// bitmap alongside the text, and pasting a cell range must paste the cells, not
+		// a picture of them. An OS screenshot carries the image alone, so it still lands
+		// here. `onImageFiles` is unset outside GLOBAL, where attaching is unsupported —
+		// the paste must then fall through to text rather than be swallowed.
+		if (!text.trim() && onImageFiles) {
+			const imageFiles = Array.from(e.clipboardData?.files ?? []).filter((f) =>
+				f.type.startsWith('image/')
+			)
+			if (imageFiles.length > 0) {
+				e.preventDefault()
+				onImageFiles(imageFiles)
+				return
+			}
+		}
 		if (!text || !shouldCollapsePaste(text)) return
 		e.preventDefault()
 		const ta = e.currentTarget as HTMLTextAreaElement
@@ -734,57 +756,71 @@
 	}
 </script>
 
-<div class="relative w-full scroll-pb-2 bg-surface">
-	<div
-		class={twMerge(
-			'textarea-input absolute inset-0 overflow-hidden pointer-events-none',
-			CHAT_INPUT_PADDING,
-			className
-		)}
-	>
-		<div style="transform: translateY({-scrollTop}px)" use:chipClickDelegate>
-			<span class="break-words">
-				{@html getHighlightedText(value)}
-			</span>
+<!-- The composer box: border + rounded live HERE (on the wrapper), not on the
+     textarea, so context chips can sit INSIDE the box, above the text. The
+     textarea's own @tailwindcss/forms border/ring is neutralized below. -->
+<div
+	class="w-full scroll-pb-2 bg-surface-input rounded-md border border-border-light focus-within:border-border-selected transition-colors"
+>
+	<!-- Context chips live inside the input box, above the textarea. The snippet
+	     self-guards (renders nothing when empty) so no blank row appears. -->
+	{@render leading?.()}
+	<div class="relative w-full">
+		<div
+			class={twMerge(
+				'textarea-input absolute inset-0 overflow-hidden pointer-events-none',
+				CHAT_INPUT_PADDING,
+				className
+			)}
+		>
+			<div style="transform: translateY({-scrollTop}px)" use:chipClickDelegate>
+				<span class="break-words">
+					{@html getHighlightedText(value)}
+				</span>
+			</div>
 		</div>
+		<textarea
+			bind:this={textarea}
+			onkeydown={handleKeyDown}
+			bind:value
+			use:autosize={{ maxHeight: '40vh' }}
+			rows={1}
+			oninput={handleInput}
+			onpaste={handlePaste}
+			onbeforeinput={handlePasteBeforeInput}
+			oncopy={handlePasteCopyCut}
+			oncut={handlePasteCopyCut}
+			ondragstart={handlePasteDragStart}
+			onscroll={(e) => {
+				scrollTop = e.currentTarget.scrollTop
+				// Keep the picker pinned to its anchor while the input scrolls
+				// internally (autoUpdate can't observe a virtual ref's scroll).
+				if (showContextTooltip || showCommandTooltip) updateAnchorRect()
+			}}
+			onblur={() => {
+				setTimeout(() => {
+					// Don't close if focus moved to inside the tooltip (e.g., search input)
+					if (tooltipElement?.contains(document.activeElement)) {
+						return
+					}
+					showContextTooltip = false
+					showCommandTooltip = false
+				}, 200)
+			}}
+			{placeholder}
+			class={twMerge(
+				'textarea-input resize-none caret-black dark:caret-white overflow-clip',
+				// The box (border/ring) lives on the wrapper; kill the textarea's own
+				// @tailwindcss/forms border, focus ring, and background so only the
+				// wrapper reads as the field.
+				'!border-transparent !bg-transparent !shadow-none focus:!border-transparent focus:!ring-0',
+				CHAT_INPUT_PADDING,
+				className
+			)}
+			class:transparent-text={value.length > 0}
+			{disabled}
+		></textarea>
 	</div>
-	<textarea
-		bind:this={textarea}
-		onkeydown={handleKeyDown}
-		bind:value
-		use:autosize={{ maxHeight: '40vh' }}
-		rows={1}
-		oninput={handleInput}
-		onpaste={handlePaste}
-		onbeforeinput={handlePasteBeforeInput}
-		oncopy={handlePasteCopyCut}
-		oncut={handlePasteCopyCut}
-		ondragstart={handlePasteDragStart}
-		onscroll={(e) => {
-			scrollTop = e.currentTarget.scrollTop
-			// Keep the picker pinned to its anchor while the input scrolls
-			// internally (autoUpdate can't observe a virtual ref's scroll).
-			if (showContextTooltip || showCommandTooltip) updateAnchorRect()
-		}}
-		onblur={() => {
-			setTimeout(() => {
-				// Don't close if focus moved to inside the tooltip (e.g., search input)
-				if (tooltipElement?.contains(document.activeElement)) {
-					return
-				}
-				showContextTooltip = false
-				showCommandTooltip = false
-			}, 200)
-		}}
-		{placeholder}
-		class={twMerge(
-			'textarea-input resize-none bg-transparent caret-black dark:caret-white overflow-clip',
-			CHAT_INPUT_PADDING,
-			className
-		)}
-		class:transparent-text={value.length > 0}
-		{disabled}
-	></textarea>
 </div>
 
 {#if showContextTooltip || showCommandTooltip}

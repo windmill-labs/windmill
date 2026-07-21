@@ -123,6 +123,8 @@ export type WorkspaceItem = {
 		| CreateResource
 		| CreateVariable
 		| AppDraftValue
+	/** Input schema of a script read (flows carry theirs inside `value`). */
+	schema?: unknown
 	isDraft: boolean
 	isLiveDraft?: boolean
 }

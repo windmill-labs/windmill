@@ -19,6 +19,7 @@
 	} from '$lib/gen'
 	import { displayDate, displaySize, emptyString } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
+	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 
 	interface Props {
 		fileKey: string | undefined
@@ -243,11 +244,12 @@
 			</div>
 		{:else if fileMetadata?.fileKey.endsWith('.png') || fileMetadata?.fileKey.endsWith('.jpg') || fileMetadata?.fileKey.endsWith('.jpeg') || fileMetadata?.fileKey.endsWith('.webp')}
 			<div>
-				<img
+				<ExpandableImage
 					src={`/api/w/${$workspaceStore}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
 						fileMetadata.fileKey
 					)}${storageQS}`}
 					alt="S3 preview"
+					title={fileMetadata.fileKey}
 				/>
 			</div>
 		{:else if fileMetadata?.fileKey.endsWith('.pdf')}

@@ -13,6 +13,7 @@ import {
 } from 'lucide-svelte'
 import type { DrillIcon } from '$lib/components/drillPicker'
 import type { WorkspaceItem, WorkspaceItemKind } from '$lib/components/workspacePicker'
+import { isSessionPipelinesEnabled } from '$lib/components/copilot/chat/global/pipelineGate'
 import type { SessionTargetKind } from './sessionRuntime.svelte'
 
 /** What the preview breadcrumb picker can route to: a static workspace page
@@ -185,8 +186,13 @@ export type PreviewSlot =
 export function resolvePreviewTab(url: string): PreviewSlot {
 	const artifact = parseArtifactRoute(url)
 	if (artifact) return { kind: 'artifact', id: artifact.id }
+	// While session pipelines are gated, a /pipeline/<folder> tab stays a plain
+	// iframe: mounting the in-realm pipeline editor would register the pipeline
+	// canvas tools on the session chat, un-gating it through the back door.
 	const pipelineFolder = parsePipelineRoute(url)
-	if (pipelineFolder) return { kind: 'editor', editorKind: 'pipeline', path: pipelineFolder }
+	if (pipelineFolder && isSessionPipelinesEnabled()) {
+		return { kind: 'editor', editorKind: 'pipeline', path: pipelineFolder }
+	}
 	const route = parsePreviewItemRoute(url)
 	if (!route) return { kind: 'iframe' }
 	const editorKind: SessionTargetKind | undefined =

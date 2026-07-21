@@ -18,6 +18,7 @@ export const SPECIAL_MODULE_IDS = {
 } as const
 import { get } from 'svelte/store'
 import type { PasteAttachment } from './pasteTokens'
+import { dataUrlToImagePart, type AttachedImage } from './imageUtils'
 import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
 import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
@@ -38,6 +39,7 @@ import {
 } from '$lib/gen'
 import uFuzzy from '@leeoniya/ufuzzy'
 import { emptyString } from '$lib/utils'
+import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { forLater } from '$lib/forLater'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getCurrentModel } from '$lib/aiStore'
@@ -468,6 +470,9 @@ export type UserDisplayMessage = BaseDisplayMessage & {
 	// Collapsed big-paste blobs referenced by tokens in `content`. Lets the
 	// bubble render/expand chips; the LLM message stores the expanded text.
 	pastes?: PasteAttachment[]
+	// Images the user attached to this message (drag/drop/paste), rendered as
+	// thumbnails in the bubble. The LLM message carries them as image_url parts.
+	images?: AttachedImage[]
 }
 
 export type CreatedResourceTriggerKind =
@@ -522,6 +527,12 @@ export function answeredChoices(q: UserQuestionDisplay): string[] | undefined {
 	return q.selectedChoices ?? (q.selectedChoice ? [q.selectedChoice] : undefined)
 }
 
+/** One page hit from a provider-side web search (OpenAI sources carry no title). */
+export type WebSearchSource = {
+	url: string
+	title?: string
+}
+
 export type ToolDisplayMessage = {
 	role: 'tool'
 	tool_call_id: string
@@ -539,6 +550,9 @@ export type ToolDisplayMessage = {
 	showFade?: boolean
 	actions?: ToolDisplayAction[]
 	userQuestion?: UserQuestionDisplay
+	webSearchSources?: WebSearchSource[]
+	/** Data URL of an image the tool produced (e.g. take_screenshot), shown on the card. */
+	imageUrl?: string
 }
 
 export type AssistantDisplayMessage = BaseDisplayMessage & {
@@ -750,6 +764,11 @@ export async function processToolCall<T>({
 		}
 
 		let result = ''
+		// Key by the resolved tool's declared name, not the model-provided string,
+		// so hallucinated tool names never enter telemetry.
+		if (tool) {
+			logFeatureUsage('ai_chat', 'tool', { key: tool.def.function.name, workspace: workspaceId })
+		}
 		try {
 			result = await callTool({
 				tools,
@@ -794,6 +813,32 @@ export async function processToolCall<T>({
 			content: `Error while calling tool: ${errorMessage}`
 		}
 	}
+}
+
+/**
+ * Flush images buffered by tools during a batch (via toolCallbacks.attachToolImage)
+ * as ONE follow-up user message, appended to both `messages` (sent on later
+ * iterations) and `addedMessages` (committed to history). Call this once per
+ * completion, right after the whole tool loop — never mid-batch, so every tool_call
+ * id is already answered by its tool result before this non-tool message. The image
+ * parts ride the same `image_url` carrier that the provider converters translate.
+ */
+export function appendPendingToolImages(
+	messages: ChatCompletionMessageParam[],
+	addedMessages: ChatCompletionMessageParam[],
+	toolCallbacks: ToolCallbacks
+): void {
+	const images = toolCallbacks.takePendingToolImages?.() ?? []
+	if (images.length === 0) return
+	const message: ChatCompletionMessageParam = {
+		role: 'user',
+		content: [
+			{ type: 'text', text: 'Screenshot(s) of the app preview:' },
+			...images.map((img) => dataUrlToImagePart(img.dataUrl))
+		]
+	}
+	messages.push(message)
+	addedMessages.push(message)
 }
 
 export interface Tool<T> {
@@ -860,6 +905,9 @@ export type ChatJob = {
 	detached: boolean
 	/** Notify-only: whether its completion has been surfaced to the model yet. */
 	reported: boolean
+	/** Whether the user saw its terminal status in the jobs popover. Reviewed
+	 * outcomes stop driving the segment chip's status readout. Persisted. */
+	reviewed?: boolean
 	/** Trimmed snapshot of the last fetched Job (heavy fields stripped, see
 	 * `trimJob`), fed to `<JobStatusIcon>` so the tray badge matches the runs page
 	 * exactly. Always written together with `status` from the SAME job so the two
@@ -939,6 +987,16 @@ export interface ToolCallbacks {
 	onItemDeployed?: (itemKind: UserDraftItemKind, storagePath: string, deployedPath: string) => void
 	/** A tool discarded a draft: the chat's touch on the item is undone. */
 	onItemDiscarded?: (itemKind: UserDraftItemKind, storagePath: string) => void
+	/**
+	 * Buffer an image a tool produced (e.g. take_screenshot). Tool results are
+	 * string-only and OpenAI forbids images in tool messages, so buffered images are
+	 * flushed as a follow-up user message once the whole tool batch is answered (see
+	 * appendPendingToolImages) — appending mid-batch would leave sibling tool_call ids
+	 * unanswered before a non-tool message.
+	 */
+	attachToolImage?: (toolId: string, image: AttachedImage) => void
+	/** Drain every image buffered this batch (insertion order), clearing the buffer. */
+	takePendingToolImages?: () => AttachedImage[]
 }
 
 export function createToolDef(

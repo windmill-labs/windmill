@@ -16,8 +16,46 @@ import type { MessageStream } from '@anthropic-ai/sdk/lib/MessageStream'
 import type { AIProviderModel } from '$lib/gen'
 import { getProviderAndCompletionConfig, workspaceAIClients } from '../lib'
 import { applyReasoningToConfig } from '../reasoningRegistry'
-import { processToolCall, type Tool, type ToolCallbacks } from './shared'
+import {
+	appendPendingToolImages,
+	processToolCall,
+	type Tool,
+	type ToolCallbacks,
+	type WebSearchSource
+} from './shared'
 import { anthropicUsageToChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
+import { parseImageDataUrl } from './imageUtils'
+
+const ANTHROPIC_IMAGE_MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
+
+/**
+ * Convert an OpenAI user-message content array (text + image_url parts) to Anthropic
+ * content blocks. Returns a plain string when the content is a lone text part so
+ * simple messages stay unchanged. Non-image/text parts are dropped.
+ */
+function openAIUserContentToAnthropic(content: unknown): string | any[] {
+	if (typeof content === 'string') return content
+	if (!Array.isArray(content)) return JSON.stringify(content)
+	const blocks: any[] = []
+	for (const part of content) {
+		if (part?.type === 'text' && typeof part.text === 'string') {
+			blocks.push({ type: 'text', text: part.text })
+		} else if (part?.type === 'image_url' && part.image_url?.url) {
+			const { mediaType, base64 } = parseImageDataUrl(part.image_url.url)
+			if (!base64) continue
+			blocks.push({
+				type: 'image',
+				source: {
+					type: 'base64',
+					media_type: ANTHROPIC_IMAGE_MEDIA_TYPES.has(mediaType) ? mediaType : 'image/png',
+					data: base64
+				}
+			})
+		}
+	}
+	if (blocks.length === 1 && blocks[0].type === 'text') return blocks[0].text
+	return blocks
+}
 
 interface ParsedCompletionResult {
 	shouldContinue: boolean
@@ -30,21 +68,61 @@ function setAnthropicWebSearchStatus(
 	callbacks: ToolCallbacks & { onMessageEnd: () => void },
 	toolId: string,
 	status: WebSearchStatus,
-	errorCode?: string
+	details?: { errorCode?: string; query?: string; sources?: WebSearchSource[] }
 ) {
 	const isLoading = status === 'searching'
 	const failed = status === 'failed'
+	const sources = details?.sources
 	callbacks.onMessageEnd()
 	callbacks.setToolStatus(`anthropic_web_search:${toolId}`, {
-		content: failed ? 'Web search failed' : isLoading ? 'Searching the web...' : 'Searched the web',
-		error: failed ? `Web search failed${errorCode ? `: ${errorCode}` : ''}` : undefined,
+		content: failed
+			? 'Web search failed'
+			: isLoading
+				? details?.query
+					? `Searching the web for "${details.query}"...`
+					: 'Searching the web...'
+				: details?.query
+					? `Searched the web for "${details.query}"`
+					: 'Searched the web',
+		error: failed
+			? `Web search failed${details?.errorCode ? `: ${details.errorCode}` : ''}`
+			: undefined,
 		isLoading,
 		isStreamingArguments: false,
 		needsConfirmation: false,
 		toolName: 'web_search',
-		showDetails: false,
-		autoCollapseDetails: true
+		// Sources keep the card expanded (no auto-collapse) so the consulted
+		// pages surface live as each search completes mid-stream.
+		...(sources?.length
+			? { webSearchSources: sources, showDetails: true, autoCollapseDetails: false }
+			: {})
 	})
+}
+
+// The query streams as partial JSON ({"query": "..."} cut mid-string), so
+// JSON.parse fails until the block completes; regex out the string prefix to
+// label the card while the model is still typing the query.
+export function partialWebSearchQuery(partialJson: string): string | undefined {
+	const m = partialJson.match(/"query"\s*:\s*"((?:[^"\\]|\\.)*)/)
+	if (!m || !m[1]) return undefined
+	try {
+		return JSON.parse(`"${m[1]}"`)
+	} catch {
+		return undefined
+	}
+}
+
+function anthropicWebSearchSources(
+	content: Anthropic.Messages.WebSearchToolResultBlock['content']
+): { errorCode?: string; sources?: WebSearchSource[] } {
+	if (!Array.isArray(content)) {
+		return { errorCode: content?.error_code }
+	}
+	return {
+		sources: content
+			.filter((r) => r.type === 'web_search_result')
+			.map((r) => ({ url: r.url, title: r.title }))
+	}
 }
 
 export async function getAnthropicCompletion(
@@ -121,9 +199,16 @@ export async function parseAnthropicCompletion(
 	let error = null
 
 	let currentStreamingTool:
-		| { tempId: string; shouldStream: boolean; toolName: string }
+		| { tempId: string; shouldStream: boolean; toolName: string; isWebSearch?: boolean }
 		| undefined = undefined
 	let accumulatedJson = ''
+	// server_tool_use id → query, filled while the query streams; the paired
+	// web_search_tool_result block only carries tool_use_id.
+	const webSearchQueries = new Map<string, string>()
+	// Result blocks already surfaced from stream events: the end-of-turn message
+	// handler must not re-emit these — re-setting the status would re-expand a
+	// card the user collapsed in the meantime.
+	const surfacedWebSearchResults = new Set<string>()
 
 	completion.on('streamEvent', (event: RawMessageStreamEvent) => {
 		if (event.type === 'content_block_start') {
@@ -151,7 +236,26 @@ export async function parseAnthropicCompletion(
 					autoCollapseDetails: tool?.autoCollapseDetails
 				})
 			} else if (block.type === 'server_tool_use' && block.name === 'web_search') {
+				accumulatedJson = ''
+				currentStreamingTool = {
+					tempId: block.id,
+					shouldStream: false,
+					toolName: 'web_search',
+					isWebSearch: true
+				}
 				setAnthropicWebSearchStatus(callbacks, block.id, 'searching')
+			} else if (block.type === 'web_search_tool_result') {
+				// Server tool results arrive complete in content_block_start; surface
+				// the source list now, while the model is still streaming the rest of
+				// its turn, instead of waiting for the end-of-turn message event.
+				surfacedWebSearchResults.add(block.tool_use_id)
+				const { errorCode, sources } = anthropicWebSearchSources(block.content)
+				setAnthropicWebSearchStatus(
+					callbacks,
+					block.tool_use_id,
+					errorCode ? 'failed' : 'completed',
+					{ errorCode, query: webSearchQueries.get(block.tool_use_id), sources }
+				)
 			}
 		}
 	})
@@ -172,6 +276,15 @@ export async function parseAnthropicCompletion(
 	})
 
 	completion.on('inputJson', (partialJson: string) => {
+		if (currentStreamingTool?.isWebSearch) {
+			accumulatedJson += partialJson
+			const query = partialWebSearchQuery(accumulatedJson)
+			if (query) {
+				webSearchQueries.set(currentStreamingTool.tempId, query)
+				setAnthropicWebSearchStatus(callbacks, currentStreamingTool.tempId, 'searching', { query })
+			}
+			return
+		}
 		if (currentStreamingTool?.shouldStream && currentStreamingTool.tempId) {
 			// Accumulate the partial JSON
 			accumulatedJson += partialJson
@@ -201,6 +314,16 @@ export async function parseAnthropicCompletion(
 	})
 
 	completion.on('message', (message: Message) => {
+		// Final message blocks carry the complete query; overwrite whatever the
+		// partial-JSON extraction reconstructed during streaming.
+		for (const block of message.content) {
+			if (block.type === 'server_tool_use' && block.name === 'web_search') {
+				const query = (block.input as any)?.query
+				if (typeof query === 'string' && query.length > 0) {
+					webSearchQueries.set(block.id, query)
+				}
+			}
+		}
 		for (const block of message.content) {
 			if (block.type === 'text') {
 				const text = block.text
@@ -208,13 +331,17 @@ export async function parseAnthropicCompletion(
 				messages.push(assistantMessage)
 				addedMessages.push(assistantMessage)
 				callbacks.onMessageEnd()
-			} else if (block.type === 'web_search_tool_result') {
-				const errorCode = Array.isArray(block.content) ? undefined : block.content.error_code
+			} else if (
+				block.type === 'web_search_tool_result' &&
+				!surfacedWebSearchResults.has(block.tool_use_id)
+			) {
+				// Fallback for a result whose content_block_start was missed.
+				const { errorCode, sources } = anthropicWebSearchSources(block.content)
 				setAnthropicWebSearchStatus(
 					callbacks,
 					block.tool_use_id,
 					errorCode ? 'failed' : 'completed',
-					errorCode
+					{ errorCode, query: webSearchQueries.get(block.tool_use_id), sources }
 				)
 			} else if (block.type === 'tool_use') {
 				// Convert Anthropic tool calls to OpenAI format for compatibility
@@ -310,6 +437,7 @@ export async function parseAnthropicCompletion(
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)
 		}
+		appendPendingToolImages(messages, addedMessages, callbacks)
 		return { shouldContinue: true, tokenUsage }
 	}
 
@@ -367,8 +495,7 @@ export function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessage
 		if (message.role === 'user') {
 			anthropicMessages.push({
 				role: 'user',
-				content:
-					typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+				content: openAIUserContentToAnthropic(message.content)
 			})
 		} else if (message.role === 'assistant') {
 			// Replay a captured assistant turn verbatim so its thinking-block signatures
@@ -443,8 +570,8 @@ export function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessage
 	// block of the last message. Each continuation only appends a tool result plus the
 	// next turn, so everything up to here is read from cache — which is what keeps
 	// replaying assistant turns verbatim (web-search results included) affordable.
-	// cache_control is valid on text/tool_use/tool_result blocks, but a thinking or
-	// redacted_thinking block must never be modified, so skip the breakpoint there.
+	// cache_control is valid on text/tool_use/tool_result/image blocks, but a thinking
+	// or redacted_thinking block must never be modified, so skip the breakpoint there.
 	if (anthropicMessages.length > 0) {
 		const lastMessage = anthropicMessages[anthropicMessages.length - 1]
 		if (typeof lastMessage.content === 'string') {

@@ -10,6 +10,8 @@
 	import ToolContentDisplay from './ToolContentDisplay.svelte'
 	import ToolMessageActions from './ToolMessageActions.svelte'
 	import AskUserQuestionDisplay from './AskUserQuestionDisplay.svelte'
+	import WebSearchSourcesDisplay from './WebSearchSourcesDisplay.svelte'
+	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 
 	interface Props {
 		message: ToolDisplayMessage
@@ -82,6 +84,17 @@
 			</div>
 		</button>
 
+		<!-- Image a tool produced (e.g. take_screenshot) — shown inline, not gated on expand. -->
+		{#if message.imageUrl}
+			<div class="my-1">
+				<ExpandableImage
+					src={message.imageUrl}
+					alt="App preview screenshot"
+					class="max-h-48 max-w-full rounded border border-border-light"
+				/>
+			</div>
+		{/if}
+
 		<!-- Expanded Content -->
 		{#if isExpanded}
 			<div
@@ -141,6 +154,8 @@
 
 					{#if visibleActions.length > 0}
 						<ToolMessageActions actions={visibleActions} />
+					{:else if message.webSearchSources?.length && !message.error}
+						<WebSearchSourcesDisplay sources={message.webSearchSources} />
 					{:else}
 						<ToolContentDisplay
 							title="Result"

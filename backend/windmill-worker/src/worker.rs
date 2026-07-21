@@ -149,7 +149,7 @@ use crate::{
     pwsh_executor::handle_powershell_job,
     result_processor::{handle_job_error, process_result, start_background_processor},
     schema::schema_validator_from_main_arg_sig,
-    worker_flow::{handle_flow, SchedulePushZombieError},
+    worker_flow::handle_flow,
     worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
     },
@@ -283,6 +283,17 @@ pub struct OtelTracingProxySettings {
     pub enabled_languages: HashSet<ScriptLang>,
     #[serde(default)]
     pub no_proxy_hosts: Option<String>,
+    /// Comma-separated host/IP patterns for which the MITM proxy skips upstream TLS
+    /// verification. Unlike `no_proxy_hosts` (which bypasses the proxy entirely, so the
+    /// request goes untraced), these hosts stay traced — only the proxy's own upstream
+    /// certificate check is disabled. Same suffix-matching semantics as `no_proxy_hosts`.
+    #[serde(default)]
+    pub insecure_upstream_hosts: Option<String>,
+    /// Extra CA certificates (PEM bundle) added to the MITM proxy's upstream trust store,
+    /// on top of the system roots. Lets the proxy verify internal endpoints signed by a
+    /// private CA without disabling verification.
+    #[serde(default)]
+    pub upstream_ca_certs: Option<String>,
 }
 
 #[cfg(feature = "prometheus")]
@@ -1591,7 +1602,7 @@ const STATUS_DESCRIPTION_MAX_LEN: usize = 512;
 #[derive(Debug)]
 pub enum JobOutcome {
     /// Job ran cleanly, was forwarded as a flow, was a no-op (test workspace),
-    /// or was suspended waiting for child jobs (WAC v2 / schedule zombie).
+    /// or was suspended waiting for child jobs (WAC v2).
     /// All of these leave the span `Status` `Unset`.
     Completed,
     /// Job was attempted but its execution returned an error; the failure has
@@ -2005,6 +2016,9 @@ pub async fn run_worker(
     }
 
     create_directory_async(&worker_dir).await;
+
+    #[cfg(all(feature = "python", unix))]
+    crate::ansible_executor::prepare_persistent_control_path_root().await;
 
     if is_sandboxing_enabled() {
         let _ = write_file(
@@ -3805,7 +3819,7 @@ pub async fn handle_queued_job(
                 // Not a preview: fetch from the cache or the database.
                 _ => cache::job::fetch_flow(db, &job.kind, job.runnable_id).await?,
             };
-            match Box::pin(handle_flow(
+            Box::pin(handle_flow(
                 job,
                 &flow_data,
                 db,
@@ -3822,19 +3836,8 @@ pub async fn handle_queued_job(
                 false,
             ))
             .warn_after_seconds(10)
-            .await
-            {
-                Err(err) if err.downcast_ref::<SchedulePushZombieError>().is_some() => {
-                    tracing::error!(
-                        "Schedule push zombie: {err}. Leaving flow job in queue for zombie detection to restart."
-                    );
-                    Ok(JobOutcome::Completed)
-                }
-                other => {
-                    other?;
-                    Ok(JobOutcome::Completed)
-                }
-            }
+            .await?;
+            Ok(JobOutcome::Completed)
         } else {
             return Err(Error::internal_err(
                 "Could not handle flow job with agent worker".to_string(),

@@ -4,6 +4,7 @@
 		superadmin,
 		usedTriggerKinds,
 		userStore,
+		userWorkspaces,
 		workspaceStore,
 		isCriticalAlertsUIOpen,
 		enterpriseLicense,
@@ -11,6 +12,7 @@
 		tutorialsToDo,
 		skippedAll
 	} from '$lib/stores'
+	import { isForkOwner } from '$lib/utils/workspaceHierarchy'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import {
@@ -400,6 +402,12 @@
 			return !page.url.pathname.includes(link.href) && !$usedTriggerKinds.includes(link.kind)
 		})
 	)
+	// Admins, superadmins, and fork creators reach workspace settings (the latter
+	// for the fork members screen; see isForkOwner / backend authorize_fork_owner_add_user).
+	const currentWs = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
+	const canManageWorkspace = $derived(
+		$userStore?.is_admin || $superadmin || isForkOwner(currentWs, $userStore?.email)
+	)
 	let secondaryMenuLinks = $derived([
 		// {
 		// 	label: 'Workspace',
@@ -422,7 +430,7 @@
 					aiDescription: 'Button to navigate to account settings',
 					faIcon: undefined
 				},
-				...($userStore?.is_admin || $superadmin
+				...(canManageWorkspace
 					? [
 							{
 								label: 'Workspace',

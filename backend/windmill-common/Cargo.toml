@@ -90,6 +90,7 @@ const-str.workspace = true
 crc.workspace = true
 windmill-macros.workspace = true
 windmill-parser-sql.workspace = true
+windmill-parser-sql-asset.workspace = true
 windmill-parser-ts.workspace = true
 windmill-parser-py = { workspace = true, optional = true }
 windmill-parser.workspace = true

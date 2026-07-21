@@ -413,7 +413,22 @@
 			// loadingSave = false // del
 			// return
 
-			if (newFlow) {
+			// `newFlow` comes from the embedder, and updating a path that has no
+			// deployed flow 404s. Confirm with the server before taking the update
+			// branch so a first deploy still lands.
+			let isNewFlow = newFlow
+			if (!isNewFlow) {
+				try {
+					isNewFlow =
+						initialPath === '' ||
+						!(await FlowService.existsFlowByPath({ workspace: opWorkspace!, path: initialPath }))
+				} catch (err) {
+					// Unreachable check: keep the caller's intent rather than failing the deploy.
+					console.error('Could not check flow existence', err)
+				}
+			}
+
+			if (isNewFlow) {
 				await FlowService.createFlow({
 					workspace: opWorkspace!,
 					requestBody: {
@@ -1129,17 +1144,21 @@
 					: 'max-h-12'}"
 			>
 				<div class="flex flex-row items-center gap-2 min-w-0">
-					<div class="min-w-0 overflow-hidden">
-						<EditorHeader
-							bind:summary={flowStore.val.summary}
-							bind:path={$pathStore}
-							savedPath={initialPath}
-							onBehalfOfEmail={$savedOnBehalfOfEmail}
-							hidePath={condensedHeader}
-							workspaceId={autosaveWorkspace}
-							onNavigate={(item) => onNavigate?.(item)}
-						/>
-					</div>
+					{#if customUi?.topBar?.path != false}
+						<div class="min-w-0 overflow-hidden">
+							<EditorHeader
+								bind:summary={flowStore.val.summary}
+								bind:path={$pathStore}
+								savedPath={initialPath}
+								onBehalfOfEmail={$savedOnBehalfOfEmail}
+								summaryEditable={customUi?.topBar?.editableSummary != false}
+								pathEditable={customUi?.topBar?.editablePath != false}
+								hidePath={condensedHeader}
+								workspaceId={autosaveWorkspace}
+								onNavigate={(item) => onNavigate?.(item)}
+							/>
+						</div>
+					{/if}
 					{#if opWorkspace && indicatorPath !== undefined}
 						<AutosaveIndicator
 							workspace={opWorkspace}

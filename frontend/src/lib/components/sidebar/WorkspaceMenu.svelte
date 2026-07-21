@@ -30,7 +30,7 @@
 	import { workspaceAIClients } from '../copilot/lib'
 	import { twMerge } from 'tailwind-merge'
 	import type { MenubarBuilders } from '@melt-ui/svelte'
-	import { buildWorkspaceHierarchy } from '$lib/utils/workspaceHierarchy'
+	import { buildWorkspaceHierarchy, isForkOwner } from '$lib/utils/workspaceHierarchy'
 	import { canCreateFork } from '$lib/utils/editInFork'
 	import { getContrastTextColor } from '$lib/utils'
 	import { workspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
@@ -167,7 +167,9 @@
 
 	// The active workspace itself (fork included) — names the settings entry.
 	const activeWorkspace = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
-	const canManageWorkspace = $derived($userStore?.is_admin || $superadmin)
+	const canManageWorkspace = $derived(
+		$userStore?.is_admin || $superadmin || isForkOwner(activeWorkspace, $userStore?.email)
+	)
 
 	// font-normal is explicit: href-less MenuItems render as <button>, which the
 	// global stylesheet makes semibold, unlike the <a> the href entries get.
