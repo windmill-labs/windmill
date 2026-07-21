@@ -10,16 +10,28 @@ import type { UserWorkspace } from './stores'
 const FORK_PARENTS_KEY = 'fork_parents'
 const MAX_ENTRIES = 50
 
+// A null-prototype map so workspace ids that collide with Object prototype members
+// (`__proto__`, `constructor`, …) are stored as plain own properties rather than
+// triggering prototype semantics on read/write.
+function emptyMap(): Record<string, string> {
+	return Object.create(null)
+}
+
 function readMap(): Record<string, string> {
+	const map = emptyMap()
 	try {
 		const raw = localStorage.getItem(FORK_PARENTS_KEY)
-		if (!raw) return {}
+		if (!raw) return map
 		const parsed = JSON.parse(raw)
-		return parsed && typeof parsed === 'object' ? (parsed as Record<string, string>) : {}
+		if (!parsed || typeof parsed !== 'object') return map
+		for (const key of Object.keys(parsed)) {
+			const value = (parsed as Record<string, unknown>)[key]
+			if (typeof value === 'string') map[key] = value
+		}
 	} catch (e) {
 		console.error('Could not read fork parent mapping', e)
-		return {}
 	}
+	return map
 }
 
 function writeMap(map: Record<string, string>): void {

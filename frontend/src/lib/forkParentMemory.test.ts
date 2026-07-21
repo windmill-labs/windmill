@@ -49,6 +49,15 @@ describe('recordForkParent / getRememberedForkParent', () => {
 		recordForkParent('wm-fork-a', [ws('parent')])
 		expect(getRememberedForkParent('wm-fork-a')).toBe('parent')
 	})
+
+	it('handles workspace ids that collide with Object prototype members', () => {
+		for (const id of ['__proto__', 'constructor', 'toString']) {
+			recordForkParent(id, [ws(id, `parent-${id}`), ws(`parent-${id}`)])
+			expect(getRememberedForkParent(id)).toBe(`parent-${id}`)
+			forgetForkParent(id)
+			expect(getRememberedForkParent(id)).toBeUndefined()
+		}
+	})
 })
 
 describe('forgetForkParent', () => {
