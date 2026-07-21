@@ -178,10 +178,15 @@ impl<'client> AmqpClientBuilder<'client> {
         let connection = self.connect().await?;
         let channel = connection.create_channel().await?;
 
+        // Only apply a QoS limit for a positive prefetch. 0 means unlimited in
+        // AMQP (unbounded consumer buffer), so ignore it defensively — CRUD
+        // rejects it up front, but capture configs bypass that validation.
         if let Some(prefetch_count) = self.options.and_then(|o| o.prefetch_count) {
-            channel
-                .basic_qos(prefetch_count, BasicQosOptions::default())
-                .await?;
+            if prefetch_count > 0 {
+                channel
+                    .basic_qos(prefetch_count, BasicQosOptions::default())
+                    .await?;
+            }
         }
 
         let declare_queue = self.options.and_then(|o| o.declare_queue).unwrap_or(true);

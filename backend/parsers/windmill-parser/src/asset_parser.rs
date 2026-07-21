@@ -172,6 +172,7 @@ pub enum TriggerSpec {
     Email,
     Kafka,
     Mqtt,
+    Amqp,
     Nats,
     Postgres,
     Sqs,
@@ -1527,6 +1528,7 @@ fn parse_trigger_spec(s: &str) -> Option<TriggerSpec> {
         ("email", TriggerSpec::Email),
         ("kafka", TriggerSpec::Kafka),
         ("mqtt", TriggerSpec::Mqtt),
+        ("amqp", TriggerSpec::Amqp),
         ("nats", TriggerSpec::Nats),
         ("postgres", TriggerSpec::Postgres),
         ("sqs", TriggerSpec::Sqs),
@@ -1722,7 +1724,10 @@ mod pipeline_annotation_tests {
         );
         // A non-ASCII body must not panic on a byte offset that is not a char
         // boundary.
-        assert_eq!(split_measure_filter("sum(amount) + π"), ("sum(amount) + π", None));
+        assert_eq!(
+            split_measure_filter("sum(amount) + π"),
+            ("sum(amount) + π", None)
+        );
         assert_eq!(
             split_measure_filter("sum(π) where region = 'π'"),
             ("sum(π)", Some("region = 'π'".to_string()))

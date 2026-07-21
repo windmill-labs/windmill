@@ -15,7 +15,7 @@
 		SqsTriggerService
 	} from '$lib/gen'
 	import KafkaTriggerEditor from '$lib/components/triggers/kafka/KafkaTriggerEditor.svelte'
-	import MqttTriggerEditor from '/components/triggers/mqtt/MqttTriggerEditor.svelte'
+	import MqttTriggerEditor from '$lib/components/triggers/mqtt/MqttTriggerEditor.svelte'
 	import AmqpTriggerEditor from '$lib/components/triggers/amqp/AmqpTriggerEditor.svelte'
 	import NatsTriggerEditor from '$lib/components/triggers/nats/NatsTriggerEditor.svelte'
 	import PostgresTriggerEditor from '$lib/components/triggers/postgres/PostgresTriggerEditor.svelte'

@@ -703,7 +703,7 @@ export const TS_PREPROCESSOR_SCRIPT_INTRO = `/**
  *
  * ⚠️ This function runs BEFORE the main function.
  *
- * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email)
+ * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email)
  * before passing it to \`main\`. This separates the trigger logic from the main logic and keeps the auto-generated runnable UI clean.
  *
  * The returned object defines the parameter values passed to \`main()\`.
@@ -716,7 +716,7 @@ export const TS_PREPROCESSOR_SCRIPT_INTRO = `/**
 export const TS_PREPROCESSOR_FLOW_INTRO = `/**
  * Trigger preprocessor
  *
- * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
+ * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) 
  * before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
  * 
  * The returned object determines the parameter values passed to the flow.
@@ -877,7 +877,7 @@ export const PYTHON_PREPROCESSOR_SCRIPT_INTRO = `# Trigger preprocessor
 #
 # ⚠️ This function runs BEFORE the main function.
 #
-# It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
+# It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) 
 # before passing it to \`main\`. This separates the trigger logic from the main logic and keeps the auto-generated UI clean.
 #
 # The returned object defines the parameter values passed to \`main()\`.
@@ -888,7 +888,7 @@ export const PYTHON_PREPROCESSOR_SCRIPT_INTRO = `# Trigger preprocessor
 
 export const PYTHON_PREPROCESSOR_FLOW_INTRO = `# Trigger preprocessor
 #
-# It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
+# It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) 
 # before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 # 
 # The returned object determines the parameter values passed to the flow.
@@ -1058,7 +1058,7 @@ export const PHP_PREPROCESSOR_SCRIPT_INTRO = `<?php
  *
  * ⚠️ This function runs BEFORE the main function.
  *
- * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email)
+ * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email)
  * before passing it to \`main\`. This separates the trigger logic from the main logic and keeps the auto-generated runnable UI clean.
  *
  * The returned object defines the parameter values passed to \`main()\`.
@@ -1074,7 +1074,7 @@ export const PHP_PREPROCESSOR_FLOW_INTRO = `<?php
 /**
  * Trigger preprocessor
  *
- * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
+ * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) 
  * before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
  * 
  * The returned object determines the parameter values passed to the flow.
