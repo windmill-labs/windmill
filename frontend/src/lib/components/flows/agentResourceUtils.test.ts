@@ -5,6 +5,7 @@ import {
 	flowLocalInputs,
 	inputTransformsToAgentConfig,
 	nonStaticBrainKeys,
+	portableAgentTools,
 	summarizeAgentBrain,
 	toolInputOverrides
 } from './agentResourceUtils'
@@ -143,5 +144,36 @@ describe('toolInputOverrides', () => {
 		expect(toolInputOverrides({ extra: { type: 'static', value: 1 } } as any, base)).toEqual({
 			extra: { type: 'static', value: 1 }
 		})
+	})
+})
+
+describe('portableAgentTools', () => {
+	it('drops flow-context (javascript) tool inputs to AI-filled, keeps static and ai', () => {
+		const tools = [
+			{
+				id: 't1',
+				summary: 'search',
+				value: {
+					tool_type: 'flowmodule',
+					type: 'rawscript',
+					input_transforms: {
+						tenant: { type: 'javascript', expr: 'flow_input.tenant' },
+						query: { type: 'static', value: 'hello' },
+						extra: { type: 'ai' }
+					}
+				}
+			}
+		]
+		const out = portableAgentTools(tools as any)
+		expect((out[0].value as any).input_transforms).toEqual({
+			tenant: { type: 'ai' },
+			query: { type: 'static', value: 'hello' },
+			extra: { type: 'ai' }
+		})
+	})
+
+	it('leaves non-flowmodule tools unchanged', () => {
+		const tools = [{ id: 'm', value: { tool_type: 'mcp', resource_path: 'x' } }]
+		expect(portableAgentTools(tools as any)).toEqual(tools)
 	})
 })
