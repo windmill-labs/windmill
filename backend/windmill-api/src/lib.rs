@@ -68,6 +68,7 @@ use windmill_common::error::AppError;
 mod ai;
 mod ai_skills;
 mod apps;
+pub use apps::invalidate_app_policy_cache;
 pub mod args;
 mod audit;
 pub mod auth;
@@ -483,8 +484,13 @@ pub async fn run_server(
                 add_www_authenticate_header, add_www_authenticate_header_gateway,
                 extract_workspace_from_token,
             };
-            let (mcp_router, mcp_cancellation_token) =
-                setup_mcp_server(db.clone(), user_db, _base_internal_url.clone()).await?;
+            let (mcp_router, mcp_cancellation_token) = setup_mcp_server(
+                db.clone(),
+                user_db,
+                _base_internal_url.clone(),
+                auth_cache.clone(),
+            )
+            .await?;
             // Workspace-scoped MCP router
             let workspaced_mcp_router = mcp_router
                 .clone()
@@ -650,6 +656,10 @@ pub async fn run_server(
                         .nest("/volumes", volumes_oss::workspaced_service())
                         .nest("/workers", windmill_api_workers::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
+                        .nest(
+                            "/data_metrics",
+                            windmill_api_workspaces::data_metrics::workspaced_service(),
+                        )
                         .nest(
                             "/deployment_request",
                             windmill_api_workspaces::deployment_requests::workspaced_service(),

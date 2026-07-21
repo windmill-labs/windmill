@@ -203,7 +203,7 @@ pub async fn update_min_version(
                 Connection::Sql(db) => {
                     for worker_name in &_worker_names {
                         crate::ee::simple_alert_helper(
-                            format!("Worker {worker_name} version {current} is below minimum keep-alive version {min_keep_alive}. Upgrade immediately."),
+                            async { format!("Worker {worker_name} version {current} is below minimum keep-alive version {min_keep_alive}. Upgrade immediately.") },
                             format!("Worker {worker_name} version {current} is now at or above minimum keep-alive version {min_keep_alive}."),
                             &format!("worker-below-min-keep-alive-{worker_name}"),
                             || current < min_keep_alive,

@@ -1,5 +1,5 @@
 import type { ScriptLang } from '$lib/gen/types.gen'
-import { WorkspaceService, JobService, type CompletedJob } from '$lib/gen'
+import { JobService, type CompletedJob } from '$lib/gen'
 import type { FlowOptions, ScriptOptions } from './ContextManager.svelte'
 import {
 	flowTools,
@@ -45,6 +45,8 @@ import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
 import { workspaceAIClients, getNonStreamingCompletion } from '../lib'
+import { logFeatureUsage } from '$lib/utils/featureUsage'
+import { modelSupportsVision } from '../modelConfig'
 import { getKnownModelContextWindow } from '../modelConfig'
 import {
 	getCompactionSummaryPrompt,
@@ -57,6 +59,13 @@ import type { UserDraftItemKind } from '$lib/gen'
 import { maskKey } from '$lib/components/sessions/modifiedItemsMask'
 import { getStringError } from './utils'
 import { type PasteAttachment } from './pasteTokens'
+import {
+	type AttachedImage,
+	imagesFromContent,
+	MAX_ATTACHED_IMAGES,
+	messagesHaveImageParts,
+	stripImagePartsFromMessages
+} from './imageUtils'
 import { chatDraft, expanded } from './chatDraft'
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
@@ -72,6 +81,7 @@ import {
 	createAppBackendRunnableContextElement,
 	createAppFrontendFileContextElement,
 	flattenDatatablesToAppContextElements,
+	isSameContextElement,
 	type ContextElement,
 	type AppDatatableElement
 } from './context'
@@ -98,6 +108,9 @@ import {
 	prepareGlobalSystemMessage,
 	prepareGlobalUserMessage,
 	type AiSkillListItem,
+	type ChatCommandItem,
+	type SessionPromptContext,
+	getSessionContextPromptSection,
 	type GlobalToolHelpers
 } from './global/core'
 import { formatChatJobCompletion } from './datatableTools'
@@ -110,6 +123,7 @@ import {
 import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userScopedStorage'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { AttachedFilesStore } from './files/attachedFiles.svelte'
+import { SessionArtifactsStore } from './artifacts/artifactsState.svelte'
 import { appendAttachedFilesRoster } from './files/fileTools'
 
 // SSR and users who prefer reduced motion get no typewriter pacing.
@@ -127,6 +141,9 @@ function prefersInstantReveal(): boolean {
 // schema changes from mode switches, and the estimate's chars/4 error.
 const COMPACTION_TRIGGER_RATIO = 0.8
 const COMPACTION_TARGET_RATIO = 0.7
+// Flat per-image token estimate for a downscaled (≤1568px) vision image. Used instead
+// of chars/4 on the base64 data URL, which would overcount by ~50x.
+const IMAGE_TOKEN_ESTIMATE = 1200
 // Headroom reserved within the target budget for the summary message itself, so
 // the summary + kept tail + overhead land under the target ratio.
 const SUMMARY_OUTPUT_RESERVE_TOKENS = 8000
@@ -153,6 +170,21 @@ const AI_AUTONOMY_MODE_STORAGE_KEY = 'ai-chat-autonomy-mode'
 const LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY = 'ai-chat-yolo-mode'
 const WEB_SEARCH_ERROR_HINT =
 	'Web search is unavailable for this provider/model/key. Disable web search in workspace settings and try again.'
+// The full explanation is shown once per browser; afterwards the hidden
+// thinking is only hinted at discreetly in the typing indicator.
+const REASONING_SUMMARY_WARNED_STORAGE_KEY = 'ai-chat-reasoning-summary-unverified-warned'
+
+function providerDisplayName(provider: string): string {
+	return provider === 'azure_openai' ? 'Azure OpenAI' : 'OpenAI'
+}
+
+function reasoningSummaryUnavailableMessage(provider: string): string {
+	const verifyHint =
+		provider === 'azure_openai'
+			? 'To display it, verify your organization with your provider, then reload this page.'
+			: 'To display it, verify your organization in the OpenAI platform settings (Settings > General), then reload this page.'
+	return `This model is reasoning, but your ${providerDisplayName(provider)} organization is not verified to generate reasoning summaries, so its thinking stays hidden. ${verifyHint}`
+}
 
 export enum AIMode {
 	SCRIPT = 'script',
@@ -258,6 +290,32 @@ function appendWebSearchErrorHint(message: string, shouldAppend: boolean): strin
 	return `${message}${separator}${WEB_SEARCH_ERROR_HINT}`
 }
 
+/**
+ * Whether a provider rejected the request over an image it could not take. The
+ * vision gate only knows the models we ship, so this is the net for the rest:
+ * every provider words it differently, hence matching on the subject rather than
+ * a code. Only consulted when the outbound request actually carried an image, so
+ * an unrelated error mentioning "image" cannot trigger it on its own.
+ */
+function isImageRejection(err: unknown, models: (string | undefined)[] = []): boolean {
+	let message = (err instanceof Error ? err.message : String(err)).toLowerCase()
+	// Vision-capable model ids often contain the subject words themselves
+	// (llama-3.2-90b-vision-instruct, Phi-4-multimodal-instruct) and providers echo
+	// the id in unrelated errors (rate limits, capacity). A match inside the id
+	// would treat those as rejections and destroy good images, so drop the ids
+	// before matching — only the error's own wording counts. Callers pass every
+	// model the turn may have used: the error can come from the model selected at
+	// send time OR the one currently selected (switchable mid-flight).
+	for (const model of models) {
+		if (model) message = message.replaceAll(model.toLowerCase(), '')
+	}
+	// Whole words only: "provisioning"/"provisioned" contain "vision", and a
+	// transient capacity error must not destroy good images. image_url and
+	// input_image are the content-part names providers echo in schema errors
+	// ('_' is a word char, so \bimage\b alone would miss them).
+	return /\bimages?(_url)?\b|\binput_image\b|\bvision\b|\bmultimodal\b/.test(message)
+}
+
 function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean): string {
 	const errorMessage =
 		err instanceof Error ? err.message : typeof err === 'string' ? err : undefined
@@ -267,11 +325,17 @@ function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean)
 	return appendWebSearchErrorHint(message, webSearchUnavailable)
 }
 
+/** A message queued while a turn streams: text, images and the pinned context
+ * snapshot always move together so a flush can't drop one. */
+type QueuedEntry = { text: string; images: AttachedImage[]; context: ContextElement[] | undefined }
+
 export class AIChatManager {
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
 	/** Files the user attached to the current GLOBAL-mode conversation. */
 	attachedFiles = new AttachedFilesStore()
+	/** Markdown artifacts the copilot created for the current session. */
+	artifacts = new SessionArtifactsStore()
 	abortController: AbortController | undefined = undefined
 	inlineAbortController: AbortController | undefined = undefined
 	// Flag to skip Responses API if it's not available (e.g., Azure region doesn't support it)
@@ -288,6 +352,15 @@ export class AIChatManager {
 	// the turn finishes (clean completion or user cancel). Ephemeral — never
 	// saved to displayMessages or history.
 	queuedMessage = $state<string>('')
+	// Context snapshot to send WITH the queued message, when it must stay scoped to
+	// what was selected at queue time (e.g. an inline element prompt submitted mid-
+	// stream) rather than the live selection, which may change before the flush.
+	queuedContext = $state<ContextElement[] | undefined>(undefined)
+	// Images attached to that message. Kept beside the text rather than inside it
+	// because the queued chip renders `queuedMessage` as a plain string. Always
+	// move the two together — #takeQueue/#clearQueue/#restoreQueue exist so no
+	// call site can drop one and auto-send a message the user never wrote.
+	queuedImages = $state<AttachedImage[]>([])
 	// Jobs the chat started that detached into the background (global/sessions
 	// chat only). Rendered in the jobs tray, persisted with the chat, and advanced
 	// by a single background poller. See registerJob / #pollBackgroundJobs.
@@ -317,10 +390,36 @@ export class AIChatManager {
 	 * undefined in the global side-panel chat, where the tray falls back to opening
 	 * the run in a new browser tab. */
 	openRunInPreview?: (a: { jobId: string; workspace: string; label: string }) => void
+	openArtifact?: (artifactId: string, name: string) => void
+	closeArtifact?: (artifactId: string) => void
 	loading = $state<boolean>(false)
 	currentReply = $state<string>('')
 	currentReasoning = $state<string>('')
 	currentReasoningActive = $state<boolean>(false)
+	// The provider reasons but refuses to stream summaries (unverified OpenAI
+	// organization) — drives the discreet "Thinking (hidden)" indicator. Keyed
+	// by workspace:provider like the chat-loop fallback cache, so the hint never
+	// carries over to a provider or workspace whose summaries work. A list, not
+	// a scalar: several workspace/provider pairs can be unavailable at once, and
+	// the chat loop only notifies on first detection per pair.
+	private reasoningSummaryUnavailableFor = $state<string[]>([])
+
+	private reasoningSummaryKey(provider: string): string {
+		return `${this.operatingWorkspace ?? ''}:${provider}`
+	}
+
+	/** Label for the live "Thinking" indicator when thinking stays hidden for
+	 * the current workspace/provider, undefined otherwise. */
+	get reasoningHiddenIndicatorLabel(): string | undefined {
+		if (this.reasoningSummaryUnavailableFor.length === 0) {
+			return undefined
+		}
+		const provider = getCurrentModel().provider
+		if (!this.reasoningSummaryUnavailableFor.includes(this.reasoningSummaryKey(provider))) {
+			return undefined
+		}
+		return `Thinking (hidden, ${providerDisplayName(provider)} org not verified)`
+	}
 	// Smooths the provider's bursty delivery into continuous typing by revealing
 	// buffered text a slice per frame. The reply and the reasoning/thinking stream
 	// each get their own reveal (independent buffers, both append to their own
@@ -336,6 +435,16 @@ export class AIChatManager {
 	})
 	displayMessages = $state<DisplayMessage[]>([])
 	messages = $state<ChatCompletionMessageParam[]>([])
+	/** Images buffered by tools (e.g. take_screenshot) during the current tool batch,
+	 * keyed by toolId. Drained by appendPendingToolImages into a follow-up user message
+	 * after the batch. Cleared at each turn start so an aborted batch can't leak. */
+	private pendingToolImages = new Map<string, AttachedImage[]>()
+	/** Model of the most recent loop iteration, recorded via onBeforeIteration.
+	 * The selector stays switchable mid-flight, so when a request fails neither
+	 * the send-time nor the currently-selected model necessarily names the one
+	 * whose request is being classified (A→B→C switches). Reset at each turn
+	 * start, consumed by image-rejection recovery. */
+	private lastIterationModel: ReturnType<typeof getCurrentModel> | undefined = undefined
 	/** Provider-reported context size of the last committed turn (prompt +
 	 * completion of its latest completion — exact, includes system prompt and
 	 * tools), or undefined whenever no report describes the current history
@@ -349,6 +458,11 @@ export class AIChatManager {
 	// True while the summarization round-trip is in flight, so the UI can show a
 	// "Compacting conversation" label on the processing indicator.
 	compacting = $state(false)
+	// General-purpose label for the processing indicator, set by a beforeSend hook
+	// to describe pre-flight work (e.g. "Creating workspace fork...") that runs
+	// before the request goes out. Takes precedence over the compacting/thinking
+	// labels while set; the hook clears it back to undefined when done.
+	loadingLabel = $state<string | undefined>(undefined)
 	autonomyMode = $state<AIAutonomyMode>(getPersistedAutonomyMode())
 	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
 	autoAcceptEditsActive = $derived(
@@ -402,6 +516,11 @@ export class AIChatManager {
 	// tool `helpers` in GLOBAL mode so the preview/deploy tools dispatch to THIS
 	// session rather than the UI-active one — keeps backgrounded sessions isolated.
 	sessionId: string | undefined = undefined
+	// Live session facts (fork vs live workspace) for the GLOBAL system prompt.
+	// A resolver set by the session runtime — copilot must not import the
+	// sessions modules — and re-read on every system-message rebuild; the send
+	// path rebuilds after beforeSend, so a fork committed there is picked up.
+	sessionContextResolver: (() => SessionPromptContext | undefined) | undefined = undefined
 	// Resolves the workspace this chat operates on. Session chats set it to their
 	// own (possibly forked) workspace so the chat targets it WITHOUT switching the
 	// global workspaceStore. Undefined for the global side-panel chat, which
@@ -518,8 +637,26 @@ export class AIChatManager {
 	updateJob = (jobId: string, update: Partial<ChatJob>) => {
 		const idx = this.backgroundJobs.findIndex((j) => j.jobId === jobId)
 		if (idx === -1) return
+		const wasTerminal = !this.isJobNonTerminal(this.backgroundJobs[idx].status)
 		this.backgroundJobs[idx] = { ...this.backgroundJobs[idx], ...update }
 		this.backgroundJobs = [...this.backgroundJobs]
+		// Persist on the transition to terminal: a job that completes inside the
+		// inline wait never hits the detach/poller persist paths, and would
+		// otherwise vanish from the tray on reload.
+		if (!wasTerminal && !this.isJobNonTerminal(this.backgroundJobs[idx].status)) {
+			void this.#persistBackgroundJobs()
+		}
+	}
+
+	/** Mark finished jobs as reviewed (their terminal status was shown in the
+	 * jobs popover) and persist, so the chip stays relaxed across reloads. */
+	markJobsReviewed = (jobIds: string[]) => {
+		const ids = new Set(jobIds)
+		if (!this.backgroundJobs.some((j) => ids.has(j.jobId) && !j.reviewed)) return
+		this.backgroundJobs = this.backgroundJobs.map((j) =>
+			ids.has(j.jobId) && !j.reviewed ? { ...j, reviewed: true } : j
+		)
+		void this.#persistBackgroundJobs()
 	}
 
 	/** A job left the inline wait — hand it to the background poller. */
@@ -816,18 +953,28 @@ export class AIChatManager {
 	// alongside workspace skills. Unlike a skill, these run locally and never
 	// reach the model; the submit path intercepts them first, so they shadow any
 	// workspace skill of the same name.
-	readonly sessionBuiltinCommands: AiSkillListItem[] = [
-		{ name: COMPACT_COMMAND_NAME, description: 'Summarize the conversation to free up context' },
-		{ name: CLEAR_COMMAND_NAME, description: 'Clear the conversation and start a new chat' }
+	readonly sessionBuiltinCommands: ChatCommandItem[] = [
+		{
+			name: COMPACT_COMMAND_NAME,
+			description: 'Summarize the conversation to free up context',
+			kind: 'action'
+		},
+		{
+			name: CLEAR_COMMAND_NAME,
+			description: 'Clear the conversation and start a new chat',
+			kind: 'action'
+		}
 	]
 
 	// Built-ins followed by workspace skills, with any skill whose name collides
 	// with a built-in dropped: the picker keys leaves by name, so a duplicate
 	// would break its keyed list and ambiguous-resolve nav. Built-ins win — they
 	// already shadow same-named skills at execution (the submit interception).
-	sessionCommands: AiSkillListItem[] = $derived([
+	sessionCommands: ChatCommandItem[] = $derived([
 		...this.sessionBuiltinCommands,
-		...this.globalSkills.filter((s) => !this.sessionBuiltinCommands.some((b) => b.name === s.name))
+		...this.globalSkills
+			.filter((s) => !this.sessionBuiltinCommands.some((b) => b.name === s.name))
+			.map((s) => ({ ...s, kind: 'skill' as const }))
 	])
 
 	allowedModes: Record<AIMode, boolean> = $derived({
@@ -852,6 +999,15 @@ export class AIChatManager {
 			const tokenPerCharacter = 4
 			if (typeof message.content === 'string') {
 				acc += message.content.length / tokenPerCharacter
+			} else if (Array.isArray(message.content)) {
+				// Multimodal content: chars/4 for the text parts, a flat estimate per image
+				// (a base64 data URL is huge as text but only ~1.1-1.6k tokens as vision input,
+				// so JSON.stringify here would overcount by orders of magnitude).
+				for (const part of message.content as any[]) {
+					if (part?.type === 'text') acc += (part.text?.length ?? 0) / tokenPerCharacter
+					else if (part?.type === 'image_url') acc += IMAGE_TOKEN_ESTIMATE
+					else acc += JSON.stringify(part).length / tokenPerCharacter
+				}
 			} else if (message.content) {
 				acc += JSON.stringify(message.content).length / tokenPerCharacter
 			}
@@ -921,12 +1077,15 @@ export class AIChatManager {
 		}
 		this.messages = this.messages.slice(drop)
 		// User display messages carry the index of their API message so restart
-		// can rewind to it; re-base them on the compacted history. A message
-		// whose API counterpart was dropped clamps to 0: everything before it
-		// was dropped too (compaction only removes prefixes), so restarting
-		// from it restarts from an empty history.
+		// can rewind to it; re-base them on the compacted history. A message whose
+		// API counterpart was dropped goes negative — deliberately NOT clamped to
+		// 0, which would alias it to the first surviving message and let
+		// storedImages hand a retry that message's images. Negative reads as
+		// "counterpart gone": storedImages finds nothing there, and restart maps
+		// it to an empty history (everything before it was dropped too, since
+		// compaction only removes prefixes).
 		this.displayMessages = this.displayMessages.map((m) =>
-			m.role === 'user' ? { ...m, index: Math.max(0, m.index - drop) } : m
+			m.role === 'user' ? { ...m, index: m.index - drop } : m
 		)
 		return freed
 	}
@@ -953,12 +1112,19 @@ export class AIChatManager {
 	): Promise<'ok' | 'empty' | 'aborted' | 'error'> => {
 		this.compacting = true
 		try {
+			// Cap the summarizer's output at the budget already reserved for the
+			// summary. Without a cap the model's default max_tokens applies, and the
+			// Anthropic SDK rejects non-streaming requests whose max_tokens implies
+			// >10 minutes of generation (~21k tokens) before anything is sent.
 			const raw = await getNonStreamingCompletion(
 				[
-					...sanitizeToolCallArguments(prefix),
+					// Strip image blobs from the summarizer input — the summary text stands in
+					// for them, so re-sending base64 to the summarizer only wastes tokens.
+					...stripImagePartsFromMessages(sanitizeToolCallArguments(prefix)),
 					{ role: 'user', content: getCompactionSummaryPrompt() }
 				],
-				abortController
+				abortController,
+				{ maxTokensCap: SUMMARY_OUTPUT_RESERVE_TOKENS }
 			)
 			const formatted = formatCompactSummary(raw ?? '')
 			if (!formatted) {
@@ -1043,9 +1209,16 @@ export class AIChatManager {
 			tailTokens += t
 			keepFrom = i
 		}
-		// The tail must start on a user message — move the boundary forward over
-		// any leading tool/assistant messages, folding them into the prefix.
-		while (keepFrom < last && this.messages[keepFrom].role !== 'user') {
+		// The tail must start on a user message the transcript also shows — move the
+		// boundary forward over leading tool/assistant messages, and over synthetic
+		// user messages that carry no display entry (the image follow-ups
+		// appendPendingToolImages injects). Landing on one would slice `messages`
+		// and `displayMessages` at different turns, silently dropping the cards in
+		// between from the visible history.
+		const shownUserIndices = new Set(
+			this.displayMessages.filter((m) => m.role === 'user').map((m) => m.index)
+		)
+		while (keepFrom < last && !shownUserIndices.has(keepFrom)) {
 			keepFrom++
 		}
 
@@ -1055,11 +1228,10 @@ export class AIChatManager {
 			return false
 		}
 
-		// The user message at the boundary has a display counterpart with the same
-		// index; resolve it before any mutation so a corrupt transcript can never
-		// result from an unexpected miss.
+		// Exact index, never >=: a miss must fail the compaction, because resolving
+		// to a later turn would slice the transcript short of the kept API tail.
 		const displayKeepFrom = this.displayMessages.findIndex(
-			(m) => m.role === 'user' && m.index >= keepFrom
+			(m) => m.role === 'user' && m.index === keepFrom
 		)
 		if (displayKeepFrom === -1) {
 			this.consecutiveCompactionFailures++
@@ -1145,12 +1317,16 @@ export class AIChatManager {
 		// epilogue (loading gated its capture): auto-send after a successful
 		// compaction or a deliberate user cancel — the user is ready to move on —
 		// while a failed/empty compaction or a programmatic cancel leaves it queued.
-		if ((result === 'ok' || this.wasCancelledByUser()) && this.queuedMessage) {
-			const next = this.queuedMessage
-			this.queuedMessage = ''
-			const accepted = await this.sendRequest({ instructions: next })
+		if ((result === 'ok' || this.wasCancelledByUser()) && this.#hasQueuedMessage()) {
+			const next = this.#takeQueue()
+			const accepted = await this.sendRequest({
+				instructions: next.text,
+				images: next.images,
+				contextOverride: next.context,
+				queued: true
+			})
 			if (accepted === false) {
-				this.queuedMessage = next
+				this.#restoreQueue(next)
 			}
 		}
 	}
@@ -1263,7 +1439,7 @@ export class AIChatManager {
 			if (message.role === 'tool' && message.tool_call_id === toolId && message.userQuestion) {
 				return {
 					...message,
-					content: `User answered question: ${answerSummary}`,
+					content: `Asked: ${message.userQuestion.question} — ${answerSummary}`,
 					isLoading: false,
 					userQuestion: {
 						...message.userQuestion,
@@ -1284,34 +1460,123 @@ export class AIChatManager {
 
 	/** Queue the message typed while a turn is streaming. There is only ever
 	 * one queued message; pressing Enter again appends the new text as another
-	 * line so it all goes out as a single message. */
-	queueMessage(text: string) {
+	 * line so it all goes out as a single message, and its images accumulate
+	 * alongside it. */
+	queueMessage(text: string, images: AttachedImage[] = [], context?: ContextElement[]) {
 		const trimmed = text.trim()
-		if (!trimmed) {
+		// An image-only or context-only draft is still a message; only a fully
+		// empty send is ignored (mirrors the idle empty-send guard).
+		if (!trimmed && images.length === 0 && (context?.length ?? 0) === 0) {
 			return
 		}
-		this.queuedMessage = this.queuedMessage ? `${this.queuedMessage}\n${trimmed}` : trimmed
+		if (trimmed) {
+			this.queuedMessage = this.queuedMessage ? `${this.queuedMessage}\n${trimmed}` : trimmed
+		}
+		if (images.length > 0) {
+			const merged = [...this.queuedImages, ...images]
+			if (merged.length > MAX_ATTACHED_IMAGES) {
+				sendUserToast(`Only the first ${MAX_ATTACHED_IMAGES} images are kept.`, true)
+			}
+			this.queuedImages = merged.slice(0, MAX_ATTACHED_IMAGES)
+		}
+		// Pin the context snapshot to the queued message. Several prompts can
+		// queue during one stream and each pinned the selection at its press —
+		// union by identity so a later press doesn't drop an earlier prompt's
+		// chips (all pinned entries ride the single flushed turn together).
+		if (context && context.length > 0) {
+			const merged = [...(this.queuedContext ?? [])]
+			for (const c of context) {
+				if (!merged.some((m) => isSameContextElement(m, c))) {
+					merged.push(c)
+				}
+			}
+			this.queuedContext = merged
+		}
 	}
 
-	/** Remove the queued message and put its text back into the input. */
-	dequeueMessage() {
-		if (!this.queuedMessage) {
-			return
+	/** Whether anything is waiting in the queue — an image-only or context-only
+	 * message has empty text. */
+	#hasQueuedMessage(): boolean {
+		return (
+			this.queuedMessage !== '' ||
+			this.queuedImages.length > 0 ||
+			(this.queuedContext?.length ?? 0) > 0
+		)
+	}
+
+	/** Detach the queue for sending. Text, images and context always leave together. */
+	#takeQueue(): QueuedEntry {
+		const taken = {
+			text: this.queuedMessage,
+			images: this.queuedImages,
+			context: this.queuedContext
 		}
-		const message = this.queuedMessage
+		this.#clearQueue()
+		return taken
+	}
+
+	#clearQueue() {
 		this.queuedMessage = ''
-		this.restoreToInput(message)
+		this.queuedImages = []
+		this.queuedContext = undefined
 	}
 
-	/** Put text the user typed back where they can see it: into the input
+	/** Put a taken queue back after an auto-send bailed before becoming a turn. */
+	#restoreQueue(queued: QueuedEntry) {
+		this.queuedMessage = queued.text
+		this.queuedImages = queued.images
+		this.queuedContext = queued.context
+	}
+
+	/** Put a draft's pinned DOM selector chips back as the live selection, so the
+	 * restored draft and the selection stay coherent (its instruction targets the
+	 * element it was written for). No-op when the draft pinned no DOM chips, so a
+	 * plain-text draft leaves the live selection untouched.
+	 *
+	 * `keepExisting` when the restored text was merged into a draft the user was
+	 * already writing: that draft's own chips must survive alongside, or its
+	 * instruction — still sitting in the composer — would be retargeted at this
+	 * draft's element. Otherwise the restore replaces, since any chip selected
+	 * since belongs to a draft that is being replaced too. */
+	#restoreDomContext(context: ContextElement[] | undefined, keepExisting = false) {
+		const domChips = (context ?? []).filter((c) => c.type === 'app_dom_selector')
+		if (domChips.length === 0) return
+		const existing = keepExisting
+			? (this.contextManager?.getSelectedContext().filter((c) => c.type === 'app_dom_selector') ??
+				[])
+			: []
+		this.contextManager?.clearSelectedDomElements()
+		// addSelectedDomElement dedups on (selector, appPath), so a chip both drafts
+		// share collapses to one.
+		for (const c of [...domChips, ...existing]) {
+			this.contextManager?.addSelectedDomElement(c)
+		}
+	}
+
+	/** Remove the queued message and put it back into the input, images included. */
+	dequeueMessage() {
+		if (!this.#hasQueuedMessage()) {
+			return
+		}
+		const queued = this.#takeQueue()
+		const mergedIntoDraft = this.restoreToInput(queued.text, queued.images)
+		// The queued draft pinned its own DOM context; restore it so sending from
+		// the composer targets the element the draft was written for, not whatever
+		// is selected now. If its text was prepended onto an existing draft, that
+		// draft's chips are kept too — both instructions now share one composer.
+		this.#restoreDomContext(queued.context, mergedIntoDraft)
+	}
+
+	/** Put what the user typed back where they can see it: into the input
 	 * when it's mounted, otherwise back into the queue so it reappears with
 	 * the chat panel instead of being silently dropped. */
-	private restoreToInput(text: string) {
+	private restoreToInput(text: string, images: AttachedImage[] = []): boolean {
 		if (this.aiChatInput) {
-			this.aiChatInput.prependText(text)
-		} else {
-			this.queuedMessage = text
+			return this.aiChatInput.prependText(text, images) === true
 		}
+		this.queuedMessage = text
+		this.queuedImages = images
+		return false
 	}
 
 	focusInput() {
@@ -1455,14 +1720,26 @@ export class AIChatManager {
 			previewTools: this.isSessionChat,
 			skills: this.globalSkills
 		})
+		const sessionCtx = this.sessionContextResolver?.()
+		if (sessionCtx) {
+			systemMessage.content += getSessionContextPromptSection(sessionCtx)
+		}
 		const baseHelpers: GlobalToolHelpers = {
 			// A session targets its own fixed (possibly forked) workspace, so capture it for
 			// permission gating. The global side-panel chat follows the live navigation
 			// workspace instead, so leave it unset there — allowedOpenPages reads the store.
 			...(this.isSessionChat
-				? { sessionId: this.sessionId, operatingWorkspace: this.operatingWorkspace }
+				? {
+						isSessionChat: true,
+						sessionId: this.sessionId,
+						operatingWorkspace: this.operatingWorkspace,
+						artifacts: this.artifacts,
+						getChatId: () => this.historyManager.getCurrentChatId(),
+						openArtifact: this.openArtifact
+					}
 				: {}),
 			testActiveFlow: async (args?: Record<string, any>) => this.flowAiChatHelpers?.testFlow(args),
+			getModifiedItems: () => (this.modifiedItems ? [...this.modifiedItems] : undefined),
 			attachedFiles: this.attachedFiles,
 			getUserInstructions: () => getUserCustomPrompts()[AIMode.GLOBAL] ?? '',
 			setUserInstructions: (instructions: string) => {
@@ -1486,6 +1763,7 @@ export class AIChatManager {
 			this.helpers = baseHelpers
 		}
 		this.systemMessage = systemMessage
+		this.syncArtifactsSession()
 	}
 
 	refreshGlobalSkills = async (workspace = this.operatingWorkspace ?? '') => {
@@ -1511,9 +1789,13 @@ export class AIChatManager {
 			previewTools: this.isSessionChat,
 			skills: this.globalSkills
 		})
-		// Preserve the active pipeline-editor augmentation that configureGlobalMode
-		// adds — otherwise update_user_instructions (which calls this) would drop the
-		// /pipeline/<folder> context + direct-draft/materialize guidance mid-session.
+		// Preserve the session-state and active pipeline-editor augmentations that
+		// configureGlobalMode adds — otherwise update_user_instructions (which calls
+		// this) would drop them mid-session.
+		const sessionCtx = this.sessionContextResolver?.()
+		if (sessionCtx) {
+			systemMessage.content += getSessionContextPromptSection(sessionCtx)
+		}
 		const pipeline = this.pipelineAiChatHelpers
 		if (pipeline) {
 			systemMessage.content += getPipelinePromptSection(pipeline.getPipelineContext())
@@ -1690,12 +1972,25 @@ export class AIChatManager {
 		modelLenAfterUser: number,
 		instructions: string,
 		pastes: PasteAttachment[],
-		restoreToInput: boolean = true
-	) => {
+		restoreToInput: boolean = true,
+		images: AttachedImage[] = []
+	): boolean => {
 		this.displayMessages = this.displayMessages.slice(0, displayLenAfterUser - 1)
 		this.messages = this.messages.slice(0, modelLenAfterUser - 1)
-		if (restoreToInput) {
-			this.aiChatInput?.restoreInstructions(instructions, pastes)
+		if (!restoreToInput) return false
+		// An occupied composer declines the restore and keeps its own draft.
+		return this.aiChatInput?.restoreInstructions(instructions, pastes, images) === true
+	}
+
+	private notifyReasoningSummaryUnavailable = () => {
+		const provider = getCurrentModel().provider
+		const key = this.reasoningSummaryKey(provider)
+		if (!this.reasoningSummaryUnavailableFor.includes(key)) {
+			this.reasoningSummaryUnavailableFor = [...this.reasoningSummaryUnavailableFor, key]
+		}
+		if (getLocalSetting(REASONING_SUMMARY_WARNED_STORAGE_KEY) !== 'true') {
+			storeLocalSetting(REASONING_SUMMARY_WARNED_STORAGE_KEY, 'true')
+			sendUserToast(reasoningSummaryUnavailableMessage(provider), 'warning', [], undefined, 10000)
 		}
 	}
 
@@ -1718,6 +2013,11 @@ export class AIChatManager {
 		systemMessage?: ChatCompletionSystemMessageParam
 		onWebSearchUnavailable?: () => void
 	}) => {
+		// Fresh batch for this turn — drop any images an aborted prior turn left buffered.
+		this.pendingToolImages.clear()
+		// Stale from a prior turn it would misattribute a pre-first-iteration failure.
+		this.lastIterationModel = undefined
+		const onReasoningSummaryUnavailable = () => this.notifyReasoningSummaryUnavailable()
 		try {
 			// Use JS getters so runChatLoop re-reads tools/helpers/systemMessage/modelProvider
 			// on each iteration. This is critical for changeModeTool (Navigator → Script/Flow)
@@ -1767,6 +2067,7 @@ export class AIChatManager {
 					this.skipResponsesApi = true
 				},
 				onWebSearchUnavailable,
+				onReasoningSummaryUnavailable,
 				getPendingUserMessage: () => {
 					const pendingPrompt = this.pendingPrompt
 					if (!pendingPrompt) return undefined
@@ -1791,7 +2092,8 @@ export class AIChatManager {
 					}
 					return undefined
 				},
-				onBeforeIteration: async (tools) => {
+				onBeforeIteration: async (tools, _helpers, modelProvider) => {
+					this.lastIterationModel = modelProvider
 					for (const tool of tools) {
 						if (tool.setSchema) {
 							await tool.setSchema(this.helpers)
@@ -1799,6 +2101,13 @@ export class AIChatManager {
 					}
 				}
 			})
+			if (this.isSessionChat && this.sessionId && result.tokenUsage.total > 0) {
+				logFeatureUsage('ai_session', 'tokens', {
+					entityId: this.sessionId,
+					value: result.tokenUsage.total,
+					workspace: this.operatingWorkspace
+				})
+			}
 			return result
 		} catch (err) {
 			console.log('chatRequest error', err)
@@ -1897,10 +2206,10 @@ export class AIChatManager {
 		}
 	}
 
-	// Optional pre-flight hook called once per send, after validation but
-	// before any UI state mutates or backend calls go out. Sessions use
-	// this to commit/materialise the workspace (creating a staged fork via
-	// the API) so the first message targets the correct workspace.
+	// Optional pre-flight hook called once per send, after the user's message
+	// bubble + loading indicator are shown optimistically but before the request
+	// goes out. Sessions use this to commit/materialise the workspace (creating a
+	// staged fork via the API) so the first message targets the correct workspace.
 	beforeSend?: () => Promise<void> | void
 	afterFirstTurnSaved?: () => Promise<void> | void
 
@@ -1910,16 +2219,31 @@ export class AIChatManager {
 			addBackCode?: boolean
 			instructions?: string
 			pastes?: PasteAttachment[]
+			images?: AttachedImage[]
 			mode?: AIMode
 			lang?: ScriptLang | 'bunnative'
 			isPreprocessor?: boolean
+			// Use this selected-context snapshot for the turn instead of the live
+			// contextManager. Set when flushing a queued message that captured its
+			// context at submit time; the live selection is left untouched.
+			contextOverride?: ContextElement[]
+			/** Where `contextOverride` came from. 'pinned' (default): the chips were
+			 * selected for THIS message, so they are consumed from the live selection
+			 * on send. 'replay': an edit/retry resending an older message's context —
+			 * those chips were consumed long ago, and removing them again would strip
+			 * an identical selection the user has since made in the composer. */
+			contextOverrideOrigin?: 'pinned' | 'replay'
+			/** Auto-send of a queued draft: on preflight failure the caller re-queues
+			 * it, so the composer restore must not also fire (the draft would exist
+			 * twice — queue chip and composer). */
+			queued?: boolean
 		} = {}
 	) => {
 		// Returns whether the input was consumed: true when it was sent as a chat
 		// turn OR handled as a local built-in command, false when it was dropped
-		// without being acted on (mode hidden, empty, beforeSend failed). The
-		// queue flush restores the queued message only on false, so a consumed
-		// command isn't re-queued and re-fired into the next conversation.
+		// without being acted on (mode hidden, empty non-GLOBAL draft, beforeSend
+		// failed). The queue flush restores the queued message only on false, so a
+		// consumed command isn't re-queued and re-fired into the next conversation.
 		const requestedMode = options.mode ?? this.mode
 		if (!isAIModeVisible(requestedMode)) {
 			return false
@@ -1928,11 +2252,26 @@ export class AIChatManager {
 			lang: options.lang,
 			isPreprocessor: options.isPreprocessor
 		})
-		if (options.instructions) {
+		// Explicitly-passed instructions win even when empty: an image-only send
+		// carries '' and must not inherit stale text a failed or cancelled earlier
+		// turn left in this.instructions.
+		if (options.instructions !== undefined) {
 			this.instructions = options.instructions
 		}
-		if (!this.instructions.trim()) {
-			return false
+		// A text-free GLOBAL draft is a real turn — rendered as its context chips
+		// (no bubble), with the empty-message marker substituted further down —
+		// but only when it carries something for the model: images or selected
+		// context elements. A bare accidental Enter is dropped in every mode (in
+		// editor copilots it would burn a turn for nothing). Gate on requestedMode,
+		// not this.mode: changeMode can decline a switch (e.g. SCRIPT with no
+		// model), and a declined non-GLOBAL request must not slip through as a
+		// GLOBAL empty turn. Image-bearing non-GLOBAL drafts still pass through
+		// to the switch-back refusal below so attachments aren't silently lost.
+		if (!this.instructions.trim() && (options.images?.length ?? 0) === 0) {
+			const contextEls = options.contextOverride ?? this.contextManager?.getSelectedContext() ?? []
+			if (requestedMode !== AIMode.GLOBAL || contextEls.length === 0) {
+				return false
+			}
 		}
 		// Built-in session commands run locally instead of becoming a chat turn.
 		// Intercepted here — before the beforeSend workspace commit, file regrants,
@@ -1968,6 +2307,75 @@ export class AIChatManager {
 		} catch (e) {
 			console.error('Attached-files upkeep failed before send', e)
 		}
+		// beforeSend runs sequential API calls (session materialise + workspace fork
+		// creation) that can take seconds. Show the user bubble and loading indicator
+		// optimistically before it so the input doesn't just clear into a void.
+		// Context elements and the snapshot are attached after beforeSend (see below).
+		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
+		const pastes = options.pastes ?? []
+		// Images ride only on GLOBAL turns, but the composer stays mounted across
+		// a mode switch, so chips attached in GLOBAL can arrive with a send in any
+		// mode. Refuse and restore rather than silently dropping attachments the
+		// user can see. This sits past the awaits above on purpose: the composer
+		// clears itself synchronously right after calling sendRequest, so an
+		// earlier restore would be wiped. Queued drafts are the caller's to
+		// restore (it re-queues on false).
+		if ((options.images?.length ?? 0) > 0 && this.mode !== AIMode.GLOBAL) {
+			sendUserToast('Switch back to the chat mode to send images. Your message was kept.', true)
+			if (!options.queued) {
+				this.aiChatInput?.restoreInstructions(this.instructions, pastes, options.images ?? [])
+			}
+			return false
+		}
+		// Non-GLOBAL sends with images were refused above. The vision check is
+		// repeated here, not just at attach time: the model can be switched to a
+		// text-only one after attaching, and sending the image then fails the turn.
+		const requestedImages = options.images ?? []
+		const sendModel = tryGetCurrentModel()
+		const modelIsBlind = !!sendModel && !modelSupportsVision(sendModel.provider, sendModel.model)
+		if (requestedImages.length > 0 && modelIsBlind) {
+			// An image-only message has nothing left once the images are dropped —
+			// put them back in the composer instead of silently discarding them
+			// (the input already cleared itself optimistically on send). Queued
+			// drafts are the caller's to restore (it re-queues on false).
+			if (!this.instructions.trim()) {
+				sendUserToast(`${sendModel.model} can't read images. Switch to a vision model first.`, true)
+				if (!options.queued) this.restoreToInput('', requestedImages)
+				return false
+			}
+			sendUserToast(
+				`${sendModel.model} can't read images; sending without the ${requestedImages.length} attached image(s).`,
+				true
+			)
+		}
+		const images = modelIsBlind ? [] : requestedImages
+		const optimisticIndex = this.displayMessages.length
+		this.loading = true
+		// Create the abort controller before the (possibly slow) beforeSend pre-flight,
+		// not after: the loading indicator below exposes Stop/Escape during "Creating
+		// workspace fork...", and those call cancel() → abortController.abort(). Without a
+		// controller here that abort would hit nothing and the request would still fire
+		// once the pre-flight resolves; the pre-flight-cancel check after beforeSend honours it.
+		this.abortController = new AbortController()
+		this.displayMessages = [
+			...this.displayMessages,
+			{
+				role: 'user',
+				content: this.instructions,
+				pastes: pastes.length > 0 ? pastes : undefined,
+				// Same objects as the API message's parts: sharing the exact data URL
+				// lets the history's blob store persist one copy for both.
+				images: images.length > 0 ? images : undefined,
+				index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
+			}
+		]
+		// Undo the optimistic bubble + loading/label. Shared by the beforeSend-failure and
+		// pre-flight-cancel paths below; callers put the message back in the composer.
+		const rollbackOptimisticSend = () => {
+			this.displayMessages = this.displayMessages.filter((_, i) => i !== optimisticIndex)
+			this.loading = false
+			this.loadingLabel = undefined
+		}
 		if (this.beforeSend) {
 			try {
 				await this.beforeSend()
@@ -1975,8 +2383,13 @@ export class AIChatManager {
 				// beforeSend commits the session's workspace before the first
 				// message hits the backend. If it throws, sending anyway would
 				// silently target the wrong workspace (typically the parent), so
-				// abort and tell the user — their message text stays in the input.
+				// abort and put the message back in the composer (which cleared
+				// itself optimistically on send).
 				console.error('AIChatManager beforeSend hook failed', e)
+				rollbackOptimisticSend()
+				if (!options.queued) {
+					this.aiChatInput?.restoreInstructions(this.instructions, pastes, images)
+				}
 				sendUserToast(
 					`Could not prepare the session before sending: ${
 						e instanceof Error ? e.message : String(e)
@@ -1991,7 +2404,27 @@ export class AIChatManager {
 		if (this.mode === AIMode.GLOBAL) {
 			await this.refreshGlobalSkills(this.operatingWorkspace ?? '')
 		}
-		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
+		// Stop/Escape during the beforeSend pre-flight aborted this send before any
+		// request went out. Mirror the main "cancelled before usable output" recovery:
+		// roll the optimistic turn back, then either hand off to a queued message (the
+		// input cleared the composer on send, so a deliberate cancel with a queued
+		// message auto-sends it) or restore this prompt to the composer so it isn't lost.
+		if (this.abortController.signal.aborted) {
+			rollbackOptimisticSend()
+			if (this.wasCancelledByUser() && this.#hasQueuedMessage()) {
+				const next = this.#takeQueue()
+				const accepted = await this.sendRequest({
+					instructions: next.text,
+					images: next.images,
+					contextOverride: next.context,
+					queued: true
+				})
+				if (accepted === false) this.#restoreQueue(next)
+			} else {
+				this.aiChatInput?.restoreInstructions(this.instructions, pastes, images)
+			}
+			return true
+		}
 		// Declared outside `try` so the catch can recover what the loop produced
 		// before a failure: the structured messages and the latest streamed text
 		// that never became one.
@@ -2006,25 +2439,63 @@ export class AIChatManager {
 		// rollbacks leave it false so queued text is restored to the input.
 		let turnCommittedCleanly = false
 		try {
-			const oldSelectedContext = this.contextManager?.getSelectedContext() ?? []
+			// A queued message carries its own context snapshot (contextOverride); use
+			// it verbatim and leave the live selection alone (it belongs to whatever the
+			// user has selected since). Otherwise read the current selection.
+			const oldSelectedContext =
+				options.contextOverride ?? this.contextManager?.getSelectedContext() ?? []
+			// DOM selector chips are one-shot: they ride with this message (captured in
+			// oldSelectedContext) and render above it, but must not persist in the input
+			// for the next turn. Clearing here leaves oldSelectedContext untouched.
+			if (options.contextOverrideOrigin === 'replay') {
+				// Edit/retry: the override is a copy of an already-sent message's
+				// context, consumed on its original send. The live selection belongs to
+				// the composer's own draft — touching it here would strip it.
+			} else if (options.contextOverride) {
+				// Queued message: only the chips it carried are consumed. Drop just
+				// those from the live selection (still there if the user didn't
+				// re-select); a newer selection made since is left intact.
+				for (const c of options.contextOverride) {
+					if (c.type === 'app_dom_selector') {
+						// Match appPath too: another app's live chip can share this
+						// selector, and dropping it would discard a newer selection.
+						this.contextManager?.removeSelectedDomElement(c.selector, c.appPath)
+					}
+				}
+			} else {
+				this.contextManager?.clearSelectedDomElements()
+			}
 			if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
 				this.contextManager?.updateContextOnRequest(options)
 			}
-			this.loading = true
+			// loading + abortController were set optimistically before beforeSend, above.
 			this.#automaticScroll = true
-			this.abortController = new AbortController()
 
 			const model = tryGetCurrentModel()
 			if (model) {
-				WorkspaceService.logAiChat({
-					workspace: this.operatingWorkspace ?? '',
-					requestBody: {
-						session_id: this.historyManager.getCurrentChatId(),
-						provider: model.provider,
-						model: model.model,
-						mode: this.mode
-					}
-				}).catch(() => {})
+				const chatId = this.historyManager.getCurrentChatId()
+				logFeatureUsage('ai_chat', 'message', {
+					key: this.mode,
+					entityId: chatId,
+					workspace: this.operatingWorkspace
+				})
+				logFeatureUsage('ai_chat', 'model', {
+					key: `${model.provider}:${model.model}`,
+					entityId: chatId,
+					workspace: this.operatingWorkspace
+				})
+			}
+			if (this.isSessionChat && this.sessionId) {
+				logFeatureUsage('ai_session', 'message', {
+					key: this.mode,
+					entityId: this.sessionId,
+					workspace: this.operatingWorkspace
+				})
+				logFeatureUsage('ai_session', 'autonomy', {
+					key: this.autonomyMode,
+					entityId: this.sessionId,
+					workspace: this.operatingWorkspace
+				})
 			}
 
 			if (this.mode === AIMode.FLOW && !this.flowAiChatHelpers) {
@@ -2042,28 +2513,38 @@ export class AIChatManager {
 				snapshot = { type: 'app', value: this.appAiChatHelpers!.snapshot() }
 			}
 
-			const pastes = options.pastes ?? []
-			this.displayMessages = [
-				...this.displayMessages,
-				{
-					role: 'user',
-					content: this.instructions,
-					contextElements:
-						this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW || this.mode === AIMode.GLOBAL
-							? oldSelectedContext
-							: undefined,
-					pastes: pastes.length > 0 ? pastes : undefined,
-					snapshot,
-					index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
-				}
-			]
+			// Attach the enrichments that are only known after beforeSend (selected
+			// context + snapshot) to the optimistic user message pushed before it.
+			this.displayMessages = this.displayMessages.map((m, i) =>
+				i === optimisticIndex
+					? {
+							...m,
+							contextElements:
+								this.mode === AIMode.SCRIPT ||
+								this.mode === AIMode.FLOW ||
+								this.mode === AIMode.GLOBAL
+									? oldSelectedContext
+									: undefined,
+							snapshot
+						}
+					: m
+			)
 			// For restoreUnsentTurn: the compact composer form (with paste tokens),
 			// not the expanded LLM text, plus the rollback anchor after the user turn.
 			const sentInstructions = this.instructions
 			const sentPastes = pastes
+			const sentImages = images
 			// The LLM gets the full pasted content; the display message above keeps
 			// the compact tokens + registry so the bubble can render/expand chips.
-			const oldInstructions = expanded(chatDraft(this.instructions, pastes))
+			// A text-free send (and image-only sends carry their images as the
+			// content) gets an explicit model-facing marker: every mode's template
+			// interpolates the text under an INSTRUCTIONS header, and a dangling
+			// header confuses models into echoing it back verbatim.
+			const expandedInstructions = expanded(chatDraft(this.instructions, pastes))
+			const oldInstructions =
+				expandedInstructions.trim() || sentImages.length > 0
+					? expandedInstructions
+					: '(the user sent an empty message)'
 			// Deliver background-job completions to the model as a preamble on this
 			// turn (notify-only wake). Folded into the model-facing text only — the
 			// display bubble keeps this.instructions, and no extra message is added, so
@@ -2110,7 +2591,8 @@ export class AIChatManager {
 					break
 				case AIMode.GLOBAL:
 					userMessage = prepareGlobalUserMessage(modelInstructions, oldSelectedContext, {
-						workspace: this.operatingWorkspace
+						workspace: this.operatingWorkspace,
+						images: sentImages
 					})
 					break
 				case AIMode.APP:
@@ -2196,6 +2678,11 @@ export class AIChatManager {
 					onMessageEnd: () => void
 				}
 			} = {
+				// The full history goes to the loop, image parts included, even on a
+				// known text-only model: runChatLoop strips them per iteration for
+				// whatever model that iteration runs on, so a mid-loop switch in either
+				// direction (vision→text or text→vision) sees the right view. A copy
+				// stripped here instead could never be un-stripped by a later iteration.
 				messages: [...this.messages],
 				abortController: this.abortController,
 				callbacks: {
@@ -2259,7 +2746,16 @@ export class AIChatManager {
 					requestUserQuestion: this.requestUserQuestion,
 					onItemModified: (kind, path) => this.recordModifiedItem(kind, path),
 					onItemDeployed: (kind, from, to) => void this.renameModifiedItem(kind, from, to),
-					onItemDiscarded: (kind, path) => void this.removeModifiedItem(kind, path)
+					onItemDiscarded: (kind, path) => void this.removeModifiedItem(kind, path),
+					attachToolImage: (toolId, image) => {
+						const existing = this.pendingToolImages.get(toolId) ?? []
+						this.pendingToolImages.set(toolId, [...existing, image])
+					},
+					takePendingToolImages: () => {
+						const images = [...this.pendingToolImages.values()].flat()
+						this.pendingToolImages.clear()
+						return images
+					}
 				}
 			}
 
@@ -2316,14 +2812,27 @@ export class AIChatManager {
 				// When the user cancelled with a message queued, that message is
 				// about to auto-send (see the flush below) — drop the rolled-back
 				// prompt instead of restoring it to the input so the handoff is clean.
-				const willAutoSendQueued = this.wasCancelledByUser() && !!this.queuedMessage
-				this.restoreUnsentTurn(
+				const willAutoSendQueued = this.wasCancelledByUser() && this.#hasQueuedMessage()
+				const textRestored = this.restoreUnsentTurn(
 					displayLenAfterUser,
 					modelLenAfterUser,
 					sentInstructions,
 					sentPastes,
-					!willAutoSendQueued
+					!willAutoSendQueued,
+					sentImages
 				)
+				// restoreUnsentTurn hands the text/pastes/images back for a resend, but
+				// the DOM selector chips were already consumed from the live selection
+				// before the request went out. Restore this turn's own chips so the
+				// resend keeps its element scope — replacing (not merging) any chips
+				// selected during the stream, so the restored draft stays coherent.
+				// Only when the composer actually took the text back: on a queued-message
+				// handoff, or when a draft typed during the stream made the composer
+				// decline, this prompt is dropped — restoring its chips would then
+				// retarget whatever draft is sitting there.
+				if (textRestored) {
+					this.#restoreDomContext(oldSelectedContext)
+				}
 				if (this.displayMessages.length === 0) {
 					// saveChat no-ops on an empty transcript; the chat persisted earlier
 					// this turn would linger in history and resurface the rolled-back
@@ -2377,6 +2886,38 @@ export class AIChatManager {
 			// re-committing would duplicate the turn's messages.
 			if (!turnOutcomeHandled) {
 				this.commitInterruptedTurn(collectedMessages, partialReply)
+				// The turn is kept as context, images and all — but a provider that just
+				// refused an image would refuse it again on every later turn, wedging the
+				// conversation with no way out but editing the message or starting over.
+				// Drop the parts so the text still gets an answer; the bubbles keep their
+				// thumbnails, so the user can still see what they sent. Gated on the
+				// history, not this turn's attachments: the refused image can also be a
+				// screenshot follow-up or an earlier turn's upload (an unlisted text-only
+				// model gets the full history).
+				// The failing request is the last iteration's — the loop strips image
+				// parts per iteration, so that request carried them only if ITS model
+				// passed the vision gate. The send-time flag is only the fallback for a
+				// failure before the first iteration read the model (a turn can start on
+				// a known text-only model and switch mid-loop to an unlisted blind one).
+				const failingModel = this.lastIterationModel
+				const requestCarriedImages = failingModel
+					? modelSupportsVision(failingModel.provider, failingModel.model)
+					: !modelIsBlind
+				if (
+					requestCarriedImages &&
+					messagesHaveImageParts(this.messages) &&
+					isImageRejection(err, [
+						sendModel?.model,
+						tryGetCurrentModel()?.model,
+						failingModel?.model
+					])
+				) {
+					this.messages = stripImagePartsFromMessages(this.messages)
+					sendUserToast(
+						`${tryGetCurrentModel()?.model ?? 'The model'} could not read the attached image(s), so they were removed from the conversation. Your message was kept.`,
+						true
+					)
+				}
 				// Any prior report no longer describes the history (a partial turn
 				// was just committed); clear it so readers estimate instead. When
 				// the failure WAS a context-length error, that high estimate forces
@@ -2409,14 +2950,18 @@ export class AIChatManager {
 		// empty-response rollback, or a programmatic cancel (panel teardown,
 		// save-and-clear) leaves it in place as a card so it isn't fired into a
 		// failed or torn-down turn.
-		if ((turnCommittedCleanly || this.wasCancelledByUser()) && this.queuedMessage) {
-			const next = this.queuedMessage
-			this.queuedMessage = ''
-			const accepted = await this.sendRequest({ instructions: next })
+		if ((turnCommittedCleanly || this.wasCancelledByUser()) && this.#hasQueuedMessage()) {
+			const next = this.#takeQueue()
+			const accepted = await this.sendRequest({
+				instructions: next.text,
+				images: next.images,
+				contextOverride: next.context,
+				queued: true
+			})
 			if (accepted === false) {
 				// The auto-send bailed before becoming a turn (e.g. beforeSend
 				// failed); keep it as the queued message instead of losing it.
-				this.queuedMessage = next
+				this.#restoreQueue(next)
 			}
 		}
 		// A background job may have finished mid-turn: its note missed this turn's
@@ -2462,10 +3007,30 @@ export class AIChatManager {
 		this.inlineAbortController?.abort(cancelReason)
 	}
 
+	/**
+	 * The images of a stored user turn as the model saw them. Anything resending
+	 * a turn (retry, edit) must read them from here, never from the transcript
+	 * bubble: a provider rejection strips them from history while the bubble
+	 * keeps its copy so the user can still see what they sent — resending that
+	 * copy would re-attach the image the provider just refused.
+	 */
+	storedImages(displayMessageIndex: number): AttachedImage[] | undefined {
+		const shown = this.displayMessages[displayMessageIndex]
+		if (!shown || shown.role !== 'user') return undefined
+		// The wire format has no filename; recover it from the bubble's entry
+		// (same attachment order) so a retried/edited image keeps its name — the
+		// history title of an image-only chat derives from it.
+		return imagesFromContent(this.messages[shown.index]?.content)?.map((image, i) =>
+			shown.images?.[i]?.name ? { ...image, name: shown.images[i].name } : image
+		)
+	}
+
 	restartGeneration = (
 		displayMessageIndex: number,
 		newContent?: string,
-		pastes?: PasteAttachment[]
+		pastes?: PasteAttachment[],
+		images?: AttachedImage[],
+		editedContext?: ContextElement[]
 	) => {
 		const userMessage = this.displayMessages[displayMessageIndex]
 
@@ -2473,11 +3038,19 @@ export class AIChatManager {
 			throw new Error('No user message found at the specified index')
 		}
 
+		// Read while both arrays are intact: storedImages pairs the API message with
+		// its transcript entry, and the truncations below drop them.
+		const sentImages = this.storedImages(displayMessageIndex)
+
 		// Remove all messages including and after the specified user message
 		this.displayMessages = this.displayMessages.slice(0, displayMessageIndex)
 
-		// Find corresponding message in actual messages and remove it and everything after it
-		let actualMessageIndex = this.messages.findIndex((_, i) => i === userMessage.index)
+		// Find corresponding message in actual messages and remove it and everything
+		// after it. A negative index marks a message whose API counterpart was
+		// removed by drop-oldest compaction — everything before it went too, so
+		// restarting from it restarts from an empty history.
+		let actualMessageIndex =
+			userMessage.index < 0 ? 0 : this.messages.findIndex((_, i) => i === userMessage.index)
 
 		if (actualMessageIndex === -1) {
 			throw new Error('No actual user message found to restart from')
@@ -2491,9 +3064,21 @@ export class AIChatManager {
 		// error, which rewinds through here.
 		this.contextUsage = undefined
 
-		// Resend the request with the same instructions
+		// Resend with the message's context, not the live selection. DOM selector
+		// chips (and other context) are one-shot — cleared from the live selection
+		// after the first send — so reading the current selection would lose or swap
+		// the element the message was about. An edit passes `editedContext` (the edit
+		// box was seeded from this message's chips and the user may have changed
+		// them); a bare Retry passes nothing and falls back to the original
+		// contextElements. `undefined` for modes that don't attach context leaves the
+		// live-selection behavior. An empty array is a deliberate "no context".
 		this.instructions = newContent ?? userMessage.content
-		this.sendRequest({ pastes: pastes ?? userMessage.pastes })
+		this.sendRequest({
+			pastes: pastes ?? userMessage.pastes,
+			contextOverride: editedContext ?? userMessage.contextElements,
+			contextOverrideOrigin: 'replay',
+			images: images ?? sentImages
+		})
 	}
 
 	fix = () => {
@@ -2526,7 +3111,7 @@ export class AIChatManager {
 		this.cancel('saveAndClear')
 		// Drop any message queued in this conversation so it can't auto-send into
 		// the fresh chat or linger as a card across the switch.
-		this.queuedMessage = ''
+		this.#clearQueue()
 		// The tray + poller belong to the conversation being left; the just-saved
 		// chat keeps its persisted jobs (save() omits the arg → fallback preserves).
 		this.clearBackgroundJobs()
@@ -2548,15 +3133,16 @@ export class AIChatManager {
 		// session, so "New chat" must clear them — otherwise the next, unrelated conversation
 		// would still get the previous file roster and could read/search it.
 		if (!this.isSessionChat) this.attachedFiles.clear()
+		this.syncArtifactsSession()
 		this.onChatRotated?.(this.historyManager.getCurrentChatId())
 	}
 
 	loadPastChat = async (id: string) => {
-		const chat = this.historyManager.loadPastChat(id)
+		const chat = await this.historyManager.loadPastChat(id)
 		if (chat) {
 			// Drop any message queued in the current conversation so it doesn't
 			// auto-send into the loaded one or linger as a card across the switch.
-			this.queuedMessage = ''
+			this.#clearQueue()
 			// Stop the poller for the conversation being left before swapping in the
 			// loaded chat's jobs below.
 			this.clearBackgroundJobs()
@@ -2585,8 +3171,13 @@ export class AIChatManager {
 			if (this.backgroundJobs.length > 0) this.backgroundJobs = [...this.backgroundJobs]
 			this.#ensureJobPoller()
 			this.#automaticScroll = true
+			this.syncArtifactsSession()
 			this.onChatRotated?.(id)
 		}
+	}
+
+	private syncArtifactsSession = () => {
+		void this.artifacts.setSession(this.isSessionChat ? this.sessionId : undefined)
 	}
 
 	get automaticScroll() {
@@ -2873,7 +3464,11 @@ export class AIChatManager {
 				return {
 					...message,
 					isLoading: false,
-					content: messageText,
+					// A question's card disappears once canceled, so keep the question
+					// itself readable in the collapsed header.
+					content: message.userQuestion
+						? `Asked: ${message.userQuestion.question} — ${messageText}`
+						: messageText,
 					error: messageText,
 					userQuestion: message.userQuestion
 						? { ...message.userQuestion, canceled: true }

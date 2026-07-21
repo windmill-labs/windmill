@@ -167,7 +167,8 @@
                 "github",
                 "azure",
                 "asset",
-                "freshness"
+                "freshness",
+                "amqp"
               ]
             }
           }

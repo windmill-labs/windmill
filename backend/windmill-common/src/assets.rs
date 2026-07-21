@@ -629,6 +629,7 @@ pub fn trigger_spec_to_row(spec: &TriggerSpec) -> Option<(ScriptTriggerKind, Str
         | TriggerSpec::Email
         | TriggerSpec::Kafka
         | TriggerSpec::Mqtt
+        | TriggerSpec::Amqp
         | TriggerSpec::Nats
         | TriggerSpec::Postgres
         | TriggerSpec::Sqs

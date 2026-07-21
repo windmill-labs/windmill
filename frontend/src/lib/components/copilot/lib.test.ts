@@ -14,6 +14,7 @@ import { parseFimCompletionChoice } from './fim'
 import {
 	getKnownModelContextWindow,
 	getModelContextWindow,
+	modelSupportsVision,
 	requiresMaxCompletionTokens
 } from './modelConfig'
 import { supportsAutocomplete } from './utils'
@@ -253,5 +254,42 @@ describe('model context windows', () => {
 	it('returns undefined for unrecognized models, 128K via the defaulting wrapper', () => {
 		expect(getKnownModelContextWindow('some-custom-model')).toBeUndefined()
 		expect(getModelContextWindow('some-custom-model')).toBe(128000)
+	})
+})
+
+describe('modelSupportsVision', () => {
+	// One listed pair pins the lookup mechanism (exact pair match, case-insensitive
+	// model ids); the set's contents are data, not behavior.
+	it('refuses images on a listed provider:model pair', () => {
+		expect(modelSupportsVision('groq' as any, 'llama-3.3-70b-versatile')).toBe(false)
+		expect(modelSupportsVision('azure_foundry' as any, 'DeepSeek-R1')).toBe(false)
+	})
+
+	// The reason this is an exact-match set. Each of these WOULD be wrongly blocked
+	// by a substring of an entry above, and each takes images via its API.
+	it.each([
+		['azure_foundry', 'Mistral-Large-3'], // substring of 'mistral-large-2411'
+		['azure_foundry', 'Phi-4-multimodal-instruct'], // substring of 'phi-4'
+		['openrouter', 'meta-llama/llama-3.2-90b-vision-instruct'], // 'llama-3.2-...'
+		['groq', 'meta-llama/llama-4-scout-17b-16e-instruct'],
+		['groq', 'qwen/qwen3.6-27b']
+	])('does not let a text-only id shadow the vision model %s/%s', (provider, model) => {
+		expect(modelSupportsVision(provider as any, model)).toBe(true)
+	})
+
+	// Permissive by design: a wrong "no" blocks a working model with no override,
+	// while a wrong "yes" costs one turn and the failure path recovers it.
+	it('allows unknown and custom models', () => {
+		expect(modelSupportsVision('customai' as any, 'some-internal-vlm')).toBe(true)
+		expect(modelSupportsVision('deepseek' as any, 'deepseek-v9-sees-everything')).toBe(true)
+		expect(modelSupportsVision(undefined, undefined)).toBe(true)
+	})
+
+	// The reason entries are keyed by provider, not id alone: an id proves nothing
+	// about a different endpoint. A Custom AI deployment serving a vision model
+	// under a colliding name must not inherit another provider's verdict.
+	it("does not apply one provider's text-only verdict to another provider's model", () => {
+		expect(modelSupportsVision('customai' as any, 'deepseek-chat')).toBe(true)
+		expect(modelSupportsVision('customai' as any, 'llama-3.3-70b-versatile')).toBe(true)
 	})
 })

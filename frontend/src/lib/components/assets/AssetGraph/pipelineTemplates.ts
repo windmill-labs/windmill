@@ -309,6 +309,7 @@ export type DraftTriggerSource =
 				| 'email'
 				| 'kafka'
 				| 'mqtt'
+				| 'amqp'
 				| 'nats'
 				| 'postgres'
 				| 'sqs'

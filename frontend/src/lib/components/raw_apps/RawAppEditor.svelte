@@ -23,8 +23,11 @@
 		type RawAppRuntimeLogEntry,
 		type RawAppRuntimeLogRequester,
 		type RawAppRunSummary,
-		type RawAppRunsProvider
+		type RawAppRunsProvider,
+		type RawAppScreenshotRequester
 	} from './utils'
+	import { runDomQueryOnHtml, type RawAppDomQuery, type RawAppDomRequester } from './rawAppDom'
+	import InlineElementPrompt from './InlineElementPrompt.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import RawAppSidebar from './RawAppSidebar.svelte'
 	import type { Modules } from './RawAppModules.svelte'
@@ -37,6 +40,7 @@
 		InspectorElementInfo
 	} from '../copilot/chat/app/core'
 	import { createAppSelectedContext, type AppCodeSelectionElement } from '../copilot/chat/context'
+	import { captureScale, MAX_IMAGE_EDGE } from '../copilot/chat/imageUtils'
 	import { rawAppLintStore } from './lintStore'
 	import { dbSchemas } from '$lib/stores'
 	import {
@@ -125,6 +129,21 @@
 		onOpenOthersDrafts?: () => void
 		onRuntimeLogRequester?: (requester: RawAppRuntimeLogRequester | undefined) => void
 		onRunsProvider?: (provider: RawAppRunsProvider | undefined) => void
+		// Session preview only: expose a live DOM query requester (search/read the
+		// rendered preview by CSS selector) and forward inspector element picks so
+		// they can be attached to the session chat as selector context chips.
+		onDomRequester?: (requester: RawAppDomRequester | undefined) => void
+		// `additive` (Shift held) adds to the selection; otherwise it replaces it.
+		onInspectorSelect?: (info: InspectorElementInfo, additive: boolean) => void
+		// Session preview only: the chat's current DOM-selector chips (source of
+		// truth). Pushed into the preview so it renders one highlight per selector.
+		selectedDomSelectors?: string[]
+		onInspectorDeselect?: (selector: string) => void
+		onInspectorClearAll?: () => void
+		// Session preview only: send a prompt scoped to a selected element (via the
+		// inline mini-composer anchored over it in the preview).
+		onInlinePrompt?: (selector: string, prompt: string) => void
+		onScreenshotRequester?: (requester: RawAppScreenshotRequester | undefined) => void
 		// Restoring an older deployment from the history drawer. A callback prop
 		// (not `on:restore` forwarding): forwarding a `createEventDispatcher`
 		// event up through these runes-mode components silently drops it.
@@ -166,6 +185,13 @@
 		onOpenOthersDrafts,
 		onRuntimeLogRequester = undefined,
 		onRunsProvider = undefined,
+		onDomRequester = undefined,
+		onInspectorSelect = undefined,
+		selectedDomSelectors = [],
+		onInspectorDeselect = undefined,
+		onInspectorClearAll = undefined,
+		onInlinePrompt = undefined,
+		onScreenshotRequester = undefined,
 		onRestore,
 		onSavedNewAppPath,
 		condensedHeader = false
@@ -291,6 +317,29 @@
 	let buildError = $state<string | undefined>(undefined)
 	// Latest uncaught runtime error thrown by the rendered app; cleared on next build.
 	let runtimeError = $state<string | undefined>(undefined)
+	// Set when a build ran cleanly but never mounted anything into #root — the
+	// entrypoint defines a component without ever mounting it. Cleared on next build.
+	let emptyRender = $state(false)
+	// The repair hint above has to match the app's framework: only React apps have
+	// an `index.tsx` and `createRoot`; Svelte and Vue mount from `index.ts`. Keyed
+	// off file extensions rather than exact template filenames, which users rename.
+	let mountHint = $derived.by(() => {
+		const paths = Object.keys(files ?? {}).map((p) => p.replace(/^\//, ''))
+		const entrypoint = paths.find((p) => /^index\.(tsx|jsx|ts|js)$/.test(p))
+		if (paths.some((p) => p.endsWith('.svelte'))) {
+			return {
+				entrypoint: entrypoint ?? 'index.ts',
+				call: "mount(App, { target: document.getElementById('root')! })"
+			}
+		}
+		if (paths.some((p) => p.endsWith('.vue'))) {
+			return { entrypoint: entrypoint ?? 'index.ts', call: "createApp(App).mount('#root')" }
+		}
+		return {
+			entrypoint: entrypoint ?? 'index.tsx',
+			call: "createRoot(document.getElementById('root')!).render(<App />)"
+		}
+	})
 	let logsCollapsed = $state(false)
 	let logsDiv: HTMLDivElement | undefined = $state(undefined)
 	$effect(() => {
@@ -1099,6 +1148,18 @@
 			return
 		}
 
+		// The build ran without mounting the app, so the preview is blank with
+		// nothing to report — surfaced as a hint naming the missing mount call.
+		// `renderAppeared` withdraws it if a mount lands after the grace window.
+		if (fromPreview && e.data.type === 'emptyRender') {
+			emptyRender = true
+			return
+		}
+		if (fromPreview && e.data.type === 'renderAppeared') {
+			emptyRender = false
+			return
+		}
+
 		// Uncaught error/rejection from the rendered app — surfaced in the preview
 		// overlay so a runtime crash isn't a silent blank error.
 		if (fromPreview && e.data.type === 'runtimeError') {
@@ -1112,11 +1173,24 @@
 		// Inspector events come exclusively from the preview iframe.
 		if (fromPreview && e.data.type === 'inspectorSelect') {
 			inspectorElement = e.data.element as InspectorElementInfo
-			inspectorEnabled = false
+			// Session preview: forward the pick so it can be attached to the chat as a
+			// selector context chip (the app-mode SelectedContext path is separate).
+			// App mode picks one element then exits; the session stays on to keep
+			// picking (the chip list, not the harness, holds the selection). Shift
+			// held → add to the selection; a plain click replaces it.
+			if (onInspectorSelect) onInspectorSelect(inspectorElement, !!e.data.additive)
+			else inspectorEnabled = false
+			return
+		}
+		if (fromPreview && e.data.type === 'inspectorDeselect') {
+			// User clicked × on a selected overlay in the preview — drop that chip.
+			if (typeof e.data.selector === 'string') onInspectorDeselect?.(e.data.selector)
 			return
 		}
 		if (fromPreview && e.data.type === 'inspectorClear') {
 			inspectorElement = undefined
+			// A rebuild invalidates the selection — clear all session chips.
+			onInspectorClearAll?.()
 			return
 		}
 
@@ -1198,11 +1272,12 @@
 		}
 	}
 
-	// Feed a build into the inline preview iframe. Clears any prior runtime-error
-	// overlay first: a fresh render supersedes the old crash, and if the new
-	// render throws again app-preview.html re-posts `runtimeError`.
+	// Feed a build into the inline preview iframe. Clears the previous run's
+	// overlays first: a fresh render supersedes the old crash or blank, and
+	// app-preview.html re-posts if the new render fails the same way.
 	function feedPreviewIframe(build: { css: string; js: string }) {
 		runtimeError = undefined
+		emptyRender = false
 		previewIframe?.contentWindow?.postMessage(
 			{ type: 'preview', css: build.css, js: build.js },
 			'*'
@@ -1298,6 +1373,172 @@
 		})
 	}
 
+	// Live DOM inspection for the session chat. Same-origin: the preview iframe is a
+	// same-origin document (see the load listener below that reads its contentWindow),
+	// so we read `contentDocument` directly — no postMessage, no ui_builder change. The
+	// element is re-read on every call, so the model always sees the current render.
+	const requestDomQuery: RawAppDomRequester = async (query: RawAppDomQuery) => {
+		const doc = previewIframe?.contentDocument
+		if (!doc || !previewIframeLoaded) return undefined
+		const selector = query.selector?.trim()
+		let el: Element | null
+		let matchCount: number
+		if (selector) {
+			let matches: NodeListOf<Element>
+			try {
+				matches = doc.querySelectorAll(selector)
+			} catch (e) {
+				return {
+					text: `Invalid CSS selector "${selector}": ${e instanceof Error ? e.message : String(e)}`
+				}
+			}
+			matchCount = matches.length
+			el = matches[0] ?? null
+		} else {
+			el = doc.body
+			matchCount = el ? 1 : 0
+		}
+		if (!el) {
+			return {
+				text: `No element matches selector "${selector}". It may not be rendered yet, or the selector is wrong. Try a broader selector or omit it to read the whole page.`
+			}
+		}
+		// A <script> is source the browser executes, not rendered output; an
+		// `.inspector-label` is chrome this inspector injects. The descendant strips
+		// below can't reach either when it IS the clone root (querySelectorAll skips
+		// the root), so reject such a root here — otherwise a `script` query would
+		// serialize the whole compiled bundle and an `.inspector-label` query would
+		// return inspector chrome.
+		if (el.tagName.toLowerCase() === 'script') {
+			return {
+				text: `The "${selector}" selector matches a <script> element — source code the browser executes, not rendered output. Omit the selector to read the whole page, or target a rendered element.`
+			}
+		}
+		if (el.classList.contains('inspector-label')) {
+			return {
+				text: `The "${selector}" selector matches an inspector label — UI chrome injected by the element picker, not part of the app. Target a rendered app element instead.`
+			}
+		}
+		// Strip the inspector's own artifacts so the model never sees them: the
+		// label pills it injects into <body>, and the outline classes it adds to
+		// app elements (highlights are element outlines, not overlay nodes).
+		const clone = el.cloneNode(true) as Element
+		// The preview harness appends the compiled app bundle as a <script> under
+		// <body>. It is source, not rendered output: serializing it would let
+		// search_dom match strings that exist only in source and pollute / truncate
+		// read_dom's line window with bundle JS. Drop every script from the clone.
+		clone.querySelectorAll('script').forEach((n) => n.remove())
+		clone.querySelectorAll('.inspector-label').forEach((n) => n.remove())
+		// The outline classes sit on the selected element itself (the clone root),
+		// not only its descendants — querySelectorAll skips the root, so strip it too.
+		clone.classList.remove('inspector-hover', 'inspector-picked')
+		clone
+			.querySelectorAll('.inspector-hover, .inspector-picked')
+			.forEach((n) => n.classList.remove('inspector-hover', 'inspector-picked'))
+		const text = await runDomQueryOnHtml(clone.outerHTML, query, {
+			selector: selector ?? 'body',
+			tagName: el.tagName.toLowerCase(),
+			matchCount
+		})
+		return { text }
+	}
+
+	// ---- Inline "prompt this element" mini-composer (session preview only) ----
+	// Anchored over the most-recently selected element in the live preview. It's a
+	// host overlay (position: fixed in the top document) computed from the element's
+	// rect inside the same-origin preview iframe, repositioned as the preview scrolls.
+	let inlinePromptDismissed = $state(false)
+	let inlinePromptPos = $state<{ x: number; y: number } | undefined>(undefined)
+	let inlinePromptLabel = $state('')
+	const inlinePromptSelector = $derived(
+		onInlinePrompt && selectedDomSelectors.length > 0
+			? selectedDomSelectors[selectedDomSelectors.length - 1]
+			: undefined
+	)
+
+	function shortElementLabel(el: Element): string {
+		const tag = el.tagName.toLowerCase()
+		const id = el.id ? `#${el.id}` : ''
+		const cls =
+			typeof el.className === 'string'
+				? el.className
+						.trim()
+						.split(/\s+/)
+						.filter((c) => c && !c.startsWith('inspector-'))[0]
+				: undefined
+		return `${tag}${id}${cls ? `.${cls}` : ''}`
+	}
+
+	function updateInlinePromptPos() {
+		const sel = inlinePromptSelector
+		const doc = previewIframe?.contentDocument
+		if (!sel || !doc || !previewIframeLoaded || inlinePromptDismissed) {
+			inlinePromptPos = undefined
+			return
+		}
+		let el: Element | null
+		try {
+			el = doc.querySelector(sel)
+		} catch (_) {
+			el = null
+		}
+		if (!el) {
+			inlinePromptPos = undefined
+			return
+		}
+		const r = el.getBoundingClientRect()
+		const ir = previewIframe!.getBoundingClientRect()
+		// Hide while the element is scrolled outside the preview's visible area.
+		if (r.bottom < 0 || r.top > ir.height || r.right < 0 || r.left > ir.width) {
+			inlinePromptPos = undefined
+			return
+		}
+		const inputW = 260
+		const inputH = 42
+		// The harness draws the element's name+size pill ~20px above its top edge;
+		// clear it so the input sits above the label rather than covering it.
+		const labelGutter = 16
+		let top = ir.top + r.top - inputH - labelGutter
+		// No room above → drop it just below the element's top edge instead (the
+		// label is above the element, so this still doesn't cover it).
+		if (top < ir.top + 4) top = ir.top + Math.max(r.top, 0) + 4
+		// Anchored to the element's top-left edge (aligned with the name+size pill),
+		// clamped to the viewport.
+		let left = ir.left + r.left
+		left = Math.max(4, Math.min(left, window.innerWidth - inputW - 4))
+		inlinePromptPos = { x: left, y: top }
+		inlinePromptLabel = shortElementLabel(el)
+	}
+
+	// Reset the dismissed flag whenever the anchored element changes.
+	$effect(() => {
+		inlinePromptSelector
+		untrack(() => {
+			inlinePromptDismissed = false
+		})
+	})
+
+	$effect(() => {
+		// Recompute on selection change, preview (re)load, or dismiss; and keep the
+		// overlay pinned as the preview (or the host) scrolls/resizes.
+		inlinePromptSelector
+		selectedDomSelectors
+		previewIframeLoaded
+		inlinePromptDismissed
+		updateInlinePromptPos()
+		if (!previewIframe || !previewIframeLoaded) return
+		const win = previewIframe.contentWindow
+		const onScroll = () => updateInlinePromptPos()
+		win?.addEventListener('scroll', onScroll, true)
+		window.addEventListener('scroll', onScroll, true)
+		window.addEventListener('resize', onScroll)
+		return () => {
+			win?.removeEventListener('scroll', onScroll, true)
+			window.removeEventListener('scroll', onScroll, true)
+			window.removeEventListener('resize', onScroll)
+		}
+	})
+
 	const getRuns: RawAppRunsProvider = () => {
 		const out: RawAppRunSummary[] = []
 		for (const id of jobs) {
@@ -1316,12 +1557,123 @@
 		return out.reverse()
 	}
 
+	// Only values whose non-wrapping counterpart collapses whitespace identically.
+	// `pre-line`/`break-spaces` have no such counterpart: forcing them to nowrap
+	// would eat their preserved newlines, so they are left to re-wrap.
+	const NON_WRAPPING_EQUIVALENT: Record<string, string> = {
+		normal: 'nowrap',
+		'pre-wrap': 'pre'
+	}
+
+	// getClientRects yields a rect per contained node, not per line box, so the
+	// count alone says nothing: `a <b>b</b>` is two rects on one line. Rects
+	// sharing a line overlap vertically, and `top` alone would split a line that
+	// mixes font sizes — so count vertically disjoint runs.
+	function countLines(range: Range): number {
+		const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0 || r.height > 0)
+		if (rects.length === 0) return 0
+		rects.sort((a, b) => a.top - b.top)
+		let lines = 1
+		let lineBottom = rects[0].bottom
+		for (const r of rects) {
+			if (r.top >= lineBottom) {
+				lines++
+				lineBottom = r.bottom
+			} else {
+				lineBottom = Math.max(lineBottom, r.bottom)
+			}
+		}
+		return lines
+	}
+
+	// A box that shrink-wraps its text can have zero sub-pixel slack (a 208.59px box
+	// holding a 208.59px text run). The capture re-runs layout in whole pixels, so
+	// the text no longer fits, wraps, and is then clipped out of the box entirely.
+	// Pinning runs that are already single-line is a no-op on the live DOM but stops
+	// the re-layout from re-deciding where they break.
+	function pinSingleLineText(root: HTMLElement): () => void {
+		const doc = root.ownerDocument
+		const view = doc.defaultView
+		if (!view) return () => {}
+		// Measure every candidate before mutating any of them: interleaving reads and
+		// writes forces a synchronous reflow per element.
+		const pending: Array<[HTMLElement, string]> = []
+		const walker = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT)
+		let node: Node | null
+		while ((node = walker.nextNode())) {
+			const el = node as HTMLElement
+			if (!(el instanceof view.HTMLElement)) continue
+			const hasOwnText = Array.from(el.childNodes).some(
+				(c) => c.nodeType === Node.TEXT_NODE && (c.textContent ?? '').trim() !== ''
+			)
+			if (!hasOwnText) continue
+			const replacement = NON_WRAPPING_EQUIVALENT[view.getComputedStyle(el).whiteSpace]
+			if (!replacement) continue
+			const range = doc.createRange()
+			range.selectNodeContents(el)
+			if (countLines(range) !== 1) continue // already wraps — leave its breaks alone
+			pending.push([el, replacement])
+		}
+		const restores = pending.map(([el, replacement]) => {
+			const prev = el.style.getPropertyValue('white-space')
+			const prio = el.style.getPropertyPriority('white-space')
+			el.style.setProperty('white-space', replacement, 'important')
+			return () => {
+				if (prev) el.style.setProperty('white-space', prev, prio)
+				else el.style.removeProperty('white-space')
+			}
+		})
+		return () => restores.forEach((r) => r())
+	}
+
+	// Capture the live preview as a PNG data URL. The preview iframe
+	// (/ui_builder/app-preview.html) is same-origin with no sandbox, so its rendered
+	// document is reachable and can be serialized from here. There is no native
+	// element-screenshot API; modern-screenshot reconstructs the DOM into an SVG
+	// foreignObject, so a WebGL canvas is only captured when its context was created
+	// with preserveDrawingBuffer. Lazy-imported so the library only loads on demand.
+	const captureScreenshot: RawAppScreenshotRequester = async () => {
+		const target = previewIframe?.contentDocument?.body
+		if (!previewIframe || !previewIframeLoaded || !target) {
+			throw new Error('App preview is not ready')
+		}
+		// Collapsing the preview leaves the iframe mounted and populated at zero
+		// width, which passes every check above and then fails inside the rasteriser
+		// as an opaque decode error. Name the cause so the agent can act on it.
+		if (!target.clientWidth || !target.clientHeight) {
+			throw new Error(
+				'The app preview is collapsed, so there is nothing to capture. Ask the user to expand the preview panel, then try again.'
+			)
+		}
+		const { domToPng } = await import('modern-screenshot')
+		// Above CSS resolution for small previews (a 1× capture of a ~900px preview
+		// reads blurry next to the live render), sub-1× for oversized bodies — see
+		// captureScale. maximumCanvasSize is the belt over that math: the rasterised
+		// box can exceed the body's client size, and an unbounded canvas on a tall
+		// scrolling app can freeze the tab before normalize ever bounds the pixels.
+		const scale = captureScale(Math.max(target.clientWidth, target.clientHeight))
+		const restore = pinSingleLineText(target)
+		try {
+			return await domToPng(target, {
+				backgroundColor: '#ffffff',
+				scale,
+				maximumCanvasSize: MAX_IMAGE_EDGE
+			})
+		} finally {
+			restore()
+		}
+	}
+
 	onMount(() => {
 		onRuntimeLogRequester?.(requestRuntimeLogs)
 		onRunsProvider?.(getRuns)
+		onDomRequester?.(requestDomQuery)
+		onScreenshotRequester?.(captureScreenshot)
 		return () => {
 			onRuntimeLogRequester?.(undefined)
 			onRunsProvider?.(undefined)
+			onDomRequester?.(undefined)
+			onScreenshotRequester?.(undefined)
 			for (const requestId of Array.from(pendingRuntimeLogReqs.keys()))
 				resolvePendingRuntimeLogRequest(requestId, undefined)
 		}
@@ -1362,7 +1714,10 @@
 			previewIframe?.contentWindow?.addEventListener(
 				'keydown',
 				(e) => {
-					if (e.key === 'Escape' && (inspectorEnabled || inspectorElement)) {
+					if (
+						e.key === 'Escape' &&
+						(inspectorEnabled || inspectorElement || selectedDomSelectors.length > 0)
+					) {
 						disableInspector()
 					}
 				},
@@ -1385,6 +1740,18 @@
 		// Match VS Code's editor font size to Windmill's text-xs.
 		if (iframe && iframeLoaded) {
 			iframe.contentWindow?.postMessage({ type: 'setFontSize', px: editorFontSize }, '*')
+		}
+	})
+	$effect(() => {
+		// Push the chat's DOM-selector chips into the preview (source of truth):
+		// the harness renders one highlight per selector. Re-posts on every
+		// selection change and on preview (re)load.
+		const selectors = selectedDomSelectors
+		if (previewIframe && previewIframeLoaded) {
+			previewIframe.contentWindow?.postMessage(
+				{ type: 'inspectorSetSelection', selectors: [...selectors] },
+				'*'
+			)
 		}
 	})
 	$effect(() => {
@@ -1544,8 +1911,11 @@
 	function disableInspector() {
 		// Picking an element auto-clears `inspectorEnabled`, so Escape after a
 		// pick gets here with hover already off but the green selection still
-		// up. Bail only when there is genuinely nothing to dismiss.
-		if (!inspectorEnabled && !inspectorElement) return
+		// up. In a session the chat's DOM chips are the source of truth for the
+		// selection (highlights + the inline prompt), so a chip-only selection
+		// (picking already toggled off) must still be dismissable. Bail only
+		// when there is genuinely nothing to dismiss.
+		if (!inspectorEnabled && !inspectorElement && selectedDomSelectors.length === 0) return
 		inspectorEnabled = false
 		// `inspectorDisable` only stops hover/click; the green "selected"
 		// overlay from a prior pick persists until we explicitly clear it.
@@ -1553,6 +1923,12 @@
 		previewIframe?.contentWindow?.postMessage({ type: 'inspectorDisable' }, '*')
 		previewIframe?.contentWindow?.postMessage({ type: 'inspectorClear' }, '*')
 		inspectorElement = undefined
+		// Session mode: clear the chips too. Emptying the selection hides the
+		// inline prompt (it's driven by the chips) and drops the highlights (the
+		// push effect re-posts the now-empty set) — otherwise the overlays clear
+		// but the chips + inline prompt stay stranded.
+		onInspectorClearAll?.()
+		inlinePromptDismissed = true
 	}
 
 	// Escape exits inspect mode. We listen in the capture phase because a global
@@ -1560,7 +1936,10 @@
 	// iframe (separate document) is covered by its own listener on load.
 	$effect(() => {
 		const onEscapeCapture = (e: KeyboardEvent) => {
-			if (e.key === 'Escape' && (inspectorEnabled || inspectorElement)) {
+			if (
+				e.key === 'Escape' &&
+				(inspectorEnabled || inspectorElement || selectedDomSelectors.length > 0)
+			) {
 				disableInspector()
 				e.stopImmediatePropagation()
 				e.preventDefault()
@@ -1888,13 +2267,17 @@
 													: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
 												aria-label="Toggle element inspector"
 												onclick={() => {
-													inspectorEnabled = !inspectorEnabled
-													previewIframe?.contentWindow?.postMessage(
-														{
-															type: inspectorEnabled ? 'inspectorEnable' : 'inspectorDisable'
-														},
-														'*'
-													)
+													if (inspectorEnabled) {
+														// Turning off is a full exit: stop picking and clear the
+														// selection + inline prompt (mirrors Escape).
+														disableInspector()
+													} else {
+														inspectorEnabled = true
+														previewIframe?.contentWindow?.postMessage(
+															{ type: 'inspectorEnable' },
+															'*'
+														)
+													}
 												}}
 											>
 												<MousePointerSquareDashed size={14} />
@@ -1967,6 +2350,22 @@
 											>
 										</Alert>
 									</div>
+								{:else if emptyRender}
+									<div class="absolute top-12 left-2 right-2 z-20 isolate" role="alert">
+										<Alert
+											type="error"
+											title="Nothing was mounted"
+											class="relative before:absolute before:inset-0 before:-z-10 before:rounded-md before:bg-surface before:content-['']"
+										>
+											<span class="text-xs">
+												The build succeeded but nothing mounted into <code>#root</code>. Add a mount
+												call to <code>{mountHint.entrypoint}</code>:
+												<code class="block mt-1 whitespace-pre-wrap break-all"
+													>{mountHint.call}</code
+												>
+											</span>
+										</Alert>
+									</div>
 								{/if}
 								{#if logs}
 									<div
@@ -2001,6 +2400,24 @@
 		</Splitpanes>
 	</div>
 </div>
+
+{#if inlinePromptPos && inlinePromptSelector && onInlinePrompt}
+	<!-- Key on the selector so selecting a different element remounts the input
+	     (fresh value + autofocus); repositioning on scroll keeps the same key so
+	     it never steals focus mid-scroll. -->
+	{#key inlinePromptSelector}
+		<InlineElementPrompt
+			x={inlinePromptPos.x}
+			y={inlinePromptPos.y}
+			label={inlinePromptLabel}
+			onSend={(prompt) => {
+				onInlinePrompt?.(inlinePromptSelector!, prompt)
+				inlinePromptDismissed = true
+			}}
+			onClose={() => (inlinePromptDismissed = true)}
+		/>
+	{/key}
+{/if}
 
 <style>
 	/* Remove the splitter from the inner content-area Splitpanes when we're

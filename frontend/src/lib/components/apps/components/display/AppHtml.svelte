@@ -6,6 +6,8 @@
 	import { initCss } from '../../utils'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import MarkupApprovalGate from '$lib/components/MarkupApprovalGate.svelte'
+	import { getAppMarkupTrust } from '../../markupTrust'
 
 	interface Props {
 		id: string
@@ -23,16 +25,26 @@
 		render
 	}: Props = $props()
 
+	const markupTrust = getAppMarkupTrust()
 	const { app, worldStore, mode } = getContext<AppViewerContext>('AppViewerContext')
 
-	const outputs = initOutput($worldStore, untrack(() => id), {
-		result: undefined,
-		loading: false
-	})
+	const outputs = initOutput(
+		$worldStore,
+		untrack(() => id),
+		{
+			result: undefined,
+			loading: false
+		}
+	)
 
 	let result: string | undefined = $state(undefined)
 
-	let css = $state(initCss($app.css?.htmlcomponent, untrack(() => customCss)))
+	let css = $state(
+		initCss(
+			$app.css?.htmlcomponent,
+			untrack(() => customCss)
+		)
+	)
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}
@@ -66,7 +78,17 @@
 		>
 			<div class="w-full h-full overflow-auto">
 				{#key result}
-					{@html result}
+					{#if markupTrust === 'approval'}
+						<MarkupApprovalGate>
+							{#snippet children()}
+								<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+								{@html result}
+							{/snippet}
+						</MarkupApprovalGate>
+					{:else}
+						<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+						{@html result}
+					{/if}
 				{/key}
 			</div>
 		</RunnableWrapper>

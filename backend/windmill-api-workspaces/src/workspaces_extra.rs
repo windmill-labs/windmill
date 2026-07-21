@@ -115,6 +115,53 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
+    // The managed git-sync webhooks deliver to /api/w/{old_id}/... — a URL the
+    // renamed workspace no longer answers on (the old id is archived and the
+    // receiver skips it). Strip the webhook fields from the new row so polling
+    // resumes at the normal interval and the next settings save re-registers a
+    // hook with the new URL; the stale hooks are deleted after commit.
+    #[allow(unused_mut)]
+    let mut stale_webhooks: Vec<(String, i64)> = Vec::new();
+    if let Some(git_sync) = sqlx::query_scalar!(
+        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+        &rw.new_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten()
+    {
+        if let Ok(mut settings) = serde_json::from_value::<
+            windmill_common::workspaces::WorkspaceGitSyncSettings,
+        >(git_sync)
+        {
+            let mut changed = false;
+            for r in settings.repositories.iter_mut() {
+                if let Some(ap) = r.auto_pull.as_mut() {
+                    if let Some(hook) = ap.webhook_id {
+                        stale_webhooks.push((r.git_repo_resource_path.clone(), hook));
+                    }
+                    changed |= ap.webhook_id.is_some()
+                        || ap.webhook_secret.is_some()
+                        || ap.webhook_error.is_some();
+                    ap.webhook_id = None;
+                    ap.webhook_secret = None;
+                    ap.webhook_error = None;
+                }
+            }
+            if changed {
+                let serialized = serde_json::to_value(&settings)
+                    .map_err(|e| Error::internal_err(e.to_string()))?;
+                sqlx::query!(
+                    "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
+                    serialized,
+                    &rw.new_id
+                )
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+    }
+
     info!("Duplicating workspace_key table");
     sqlx::query!(
         "INSERT INTO workspace_key SELECT $1, kind, key FROM workspace_key WHERE workspace_id = $2",
@@ -226,6 +273,15 @@ pub(crate) async fn change_workspace_id(
     info!("Updating mqtt_trigger table");
     sqlx::query!(
         "UPDATE mqtt_trigger SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    info!("Updating amqp_trigger table");
+    sqlx::query!(
+        "UPDATE amqp_trigger SET workspace_id = $1 WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
@@ -743,6 +799,19 @@ pub(crate) async fn change_workspace_id(
     .await?;
 
     tx.commit().await?;
+
+    // Best-effort: the hooks stripped above still exist on GitHub pointing at
+    // the old workspace URL; remove them (resources already live under the new id).
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    for (path, hook_id) in stale_webhooks {
+        if let Ok(url) =
+            windmill_common::git_sync_ee::resolve_repo_url(&db, &rw.new_id, &path).await
+        {
+            let _ =
+                windmill_common::git_sync_ee::delete_repo_webhook(&db, &rw.new_id, &url, hook_id)
+                    .await;
+        }
+    }
 
     // The children's parent_workspace_id changed (old root -> new root); invalidate their fork-parent
     // routing cache and their billing-workspace mapping so jobs route + meter under the renamed root

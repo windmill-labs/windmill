@@ -139,6 +139,21 @@ export function workspaceIsFork(
 }
 
 /**
+ * Whether `userEmail` is the creator of a fork workspace. The fork creator gets workspace-settings
+ * access (the fork members screen) even when they are not an admin of it: forking as an ordinary
+ * developer copies their parent `usr` row, leaving them otherwise unable to bring collaborators in.
+ * Mirrors the backend `authorize_fork_owner_add_user` grant.
+ */
+export function isForkOwner(
+	workspace: UserWorkspace | undefined,
+	userEmail: string | null | undefined
+): boolean {
+	return (
+		Boolean(workspace?.parent_workspace_id) && !!userEmail && workspace?.created_by === userEmail
+	)
+}
+
+/**
  * The canonical dev workspace of a prod workspace, if any (at most one per prod). Used to redirect
  * edits from a locked prod workspace into its dev workspace. Disabled dev workspaces are excluded:
  * redirecting edits to one the user can't select would be a dead end.

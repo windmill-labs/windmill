@@ -50,6 +50,7 @@ export function assetUriToNodeId(uri: string): string | undefined {
 const EVENT_TRIGGER_KINDS: ReadonlySet<string> = new Set<NativeTriggerKind>([
 	'kafka',
 	'mqtt',
+	'amqp',
 	'nats',
 	'postgres',
 	'sqs',

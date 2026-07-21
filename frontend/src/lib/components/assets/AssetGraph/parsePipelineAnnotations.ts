@@ -31,6 +31,7 @@ const NATIVE_TRIGGER_KEYWORDS: NativeTriggerKind[] = [
 	'email',
 	'kafka',
 	'mqtt',
+	'amqp',
 	'nats',
 	'postgres',
 	'sqs',

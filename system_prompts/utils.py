@@ -46,6 +46,7 @@ SCHEMA_MAPPINGS = {
         ('NatsTrigger', 'nats_trigger'),
         ('PostgresTrigger', 'postgres_trigger'),
         ('MqttTrigger', 'mqtt_trigger'),
+        ('AmqpTrigger', 'amqp_trigger'),
         ('SqsTrigger', 'sqs_trigger'),
         ('GcpTrigger', 'gcp_trigger'),
         ('AzureTrigger', 'azure_trigger'),
