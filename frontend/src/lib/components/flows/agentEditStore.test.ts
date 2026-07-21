@@ -35,6 +35,28 @@ describe('reanchorAgentEditsAcross', () => {
 		expect(getAgentEditingPath((modules[1].value as any).tools)).toBe('f/agents/two')
 	})
 
+	it('keeps host and nested-agent entries distinct when a nested tool reuses the host id', () => {
+		// Resource tool ids are not flow-global: a nested agent tool may share the host step's id.
+		const nestedTools: object[] = [tool('t2')]
+		const nested = agentFork('a', nestedTools)
+		const hostTools: object[] = [tool('t1'), nested]
+		let modules = [agentFork('a', hostTools)]
+		setAgentEditingPath(hostTools, 'f/agents/parent')
+		setAgentEditingPath(nestedTools, 'f/agents/nested')
+
+		reanchorAgentEditsAcross(
+			() => modules,
+			() => {
+				modules = JSON.parse(JSON.stringify(modules))
+			}
+		)
+
+		const newHost = (modules[0].value as any).tools
+		const newNested = newHost[1].value.tools
+		expect(getAgentEditingPath(newHost)).toBe('f/agents/parent')
+		expect(getAgentEditingPath(newNested)).toBe('f/agents/nested')
+	})
+
 	it('drops the entry when the module is gone after the refresh', () => {
 		const tools: object[] = [tool('t1')]
 		let modules = [agentFork('a', tools)]

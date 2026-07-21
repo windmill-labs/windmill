@@ -33,11 +33,12 @@ export function setLinkedAgentTools(scope: string, moduleId: string, tools: Agen
 	version++
 }
 
-/** A flow rename (or workspace switch) moves every reader to a new scope; carry the resolved
- * tools over so unselected linked agents keep their tool nodes without a full state re-init. */
+/** Move one scope's resolutions into another: used when a rename moves readers to a new scope,
+ * and to sweep republished data (keyed by the flow doc's path) into the live-edited scope. The
+ * source bucket carries the newer resolution in both cases, so it wins the merge. */
 export function migrateLinkedAgentToolsScope(oldScope: string, newScope: string) {
 	if (oldScope === newScope || byScope[oldScope] === undefined) return
-	byScope[newScope] = { ...(byScope[oldScope] ?? {}), ...(byScope[newScope] ?? {}) }
+	byScope[newScope] = { ...(byScope[newScope] ?? {}), ...(byScope[oldScope] ?? {}) }
 	delete byScope[oldScope]
 	version++
 }

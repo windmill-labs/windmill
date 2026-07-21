@@ -12,6 +12,7 @@
 	import { initHistory, redo, undo } from '$lib/history.svelte'
 	import {
 		linkedToolsScope,
+		linkedAgentToolsVersion,
 		migrateLinkedAgentToolsScope
 	} from '$lib/components/flows/linkedAgentToolsStore.svelte'
 	import {
@@ -527,20 +528,25 @@
 	const history = initHistory(untrack(() => flowStore).val)
 	const pathStore = writable<string>(untrack(() => pathStoreInit) ?? initialPath)
 
-	// Linked-agent tool resolutions are scoped by workspace + flow path; a rename moves every
-	// reader to a new scope, so migrate the bucket or unselected linked agents lose their tool
-	// nodes until the next full flow-state init. The baseline starts at the flow doc's own path
-	// — where initFlowState published — which for a loaded renamed draft already differs from
-	// the live-edited $pathStore, so the first effect run migrates the bucket into the live scope.
-	let prevLinkedToolsScope = untrack(() =>
-		linkedToolsScope(opWorkspace, (flowStore.val as { path?: string }).path ?? $pathStore)
-	)
+	// Linked-agent tool resolutions are scoped by workspace + flow path, but publishers key by the
+	// flow doc's own path while readers use the live-edited $pathStore — which diverge for renames
+	// and renamed drafts. Sweep the doc-path bucket into the live scope on every rename and every
+	// publish (initFlowState re-runs on session-draft sync and republishes under the doc path).
+	let prevLinkedToolsScope = untrack(() => linkedToolsScope(opWorkspace, $pathStore))
 	$effect(() => {
+		linkedAgentToolsVersion()
 		const scope = linkedToolsScope(opWorkspace, $pathStore)
+		const docScope = linkedToolsScope(
+			opWorkspace,
+			(flowStore.val as { path?: string }).path ?? $pathStore
+		)
 		untrack(() => {
 			if (scope !== prevLinkedToolsScope) {
 				migrateLinkedAgentToolsScope(prevLinkedToolsScope, scope)
 				prevLinkedToolsScope = scope
+			}
+			if (docScope !== scope) {
+				migrateLinkedAgentToolsScope(docScope, scope)
 			}
 		})
 	})
