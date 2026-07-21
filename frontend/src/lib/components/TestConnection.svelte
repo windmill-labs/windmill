@@ -102,7 +102,7 @@ export async function main(s3: S3) {
 			lang: 'bun',
 			argName: 's3',
 			tooltip:
-				'If no access key/secret key is set, the ambient AWS credentials are used. The test runs from the worker that picks up the job (from the server for agent workers), so if your workers have different AWS credentials, results may differ from actual usage.'
+				'The storage operations of this test run on the Windmill server (the API process), not on the worker. If no access key/secret key is set, the ambient AWS credentials of the server (environment variables, instance role) are used — scripts using this resource directly through an S3 SDK resolve credentials on the worker instead, so results may differ.'
 		},
 		azure_blob: {
 			code: `
@@ -132,7 +132,7 @@ export async function main(s3: S3) {
 			lang: 'bun',
 			argName: 's3',
 			tooltip:
-				'The test runs from the worker that picks up the job (from the server for agent workers).'
+				'The storage operations of this test run on the Windmill server (the API process), not on the worker.'
 		},
 		graphql: {
 			code: '{ __typename }',
@@ -180,7 +180,7 @@ export async function main(bucket: any) {
 			lang: 'bun',
 			argName: 'bucket',
 			tooltip:
-				'If no access key/secret key is set, the ambient AWS credentials (environment variables, instance role) of the tested process are used.'
+				'The storage operations of this test run on the Windmill server (the API process). If no access key/secret key is set, the ambient AWS credentials (environment variables, instance role) of the server are used.'
 		}
 	}
 
