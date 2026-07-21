@@ -244,13 +244,30 @@ leaves and ignores the current scope.
 		el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
 	}
 
+	function leafForKey(key: string): DrillLeaf<L> | undefined {
+		if (isSearching) return (searchedItems ?? []).find((r) => r.leaf.key === key)?.leaf
+		const entry = entryList.find((e) => e.key === key)
+		return entry?.type === 'leaf' ? entry.node : undefined
+	}
+
 	function moveHighlight(delta: 1 | -1) {
 		if (navKeys.length === 0) return
 		const cur = navKeys.indexOf(highlightedKey ?? '')
 		const next = cur < 0 ? 0 : (cur + delta + navKeys.length) % navKeys.length
 		highlightedKey = navKeys[next]
 		mouseActive = false
-		requestAnimationFrame(scrollHighlightIntoView)
+		requestAnimationFrame(() => {
+			scrollHighlightIntoView()
+			// Keyboard parity for the tooltip: anchor it to the row the highlight
+			// landed on — otherwise the full descriptions are pointer-only.
+			if (!rowTooltip || !highlightedKey) return
+			const leaf = leafForKey(highlightedKey)
+			const el = pickerRoot?.querySelector<HTMLElement>(
+				`[data-nav-key="${CSS.escape(highlightedKey)}"]`
+			)
+			if (leaf && el) tooltipEnter(el, leaf)
+			else tooltipLeave()
+		})
 	}
 
 	function setHoverHighlight(key: string) {
@@ -458,6 +475,7 @@ leaves and ignores the current scope.
 	{@const key = leaf.key}
 	{@const isHl = key === highlightedKey}
 	{@const isCur = !!leaf.current}
+	{@const tip = rowTooltip?.(leaf)}
 	<button
 		type="button"
 		id={idFor(key)}
@@ -465,6 +483,7 @@ leaves and ignores the current scope.
 		aria-selected={isHl}
 		data-nav-key={key}
 		aria-current={isCur ? 'true' : undefined}
+		aria-label={tip ? `${leaf.label} — ${tip}` : undefined}
 		class="w-full text-left flex items-center gap-2 px-3 transition-colors {baseClass} {isHl
 			? 'bg-surface-hover'
 			: ''} {isCur ? 'cursor-default text-emphasis font-medium' : ''} {leaf.disabled

@@ -2236,15 +2236,18 @@ export class AIChatManager {
 		if (options.instructions !== undefined) {
 			this.instructions = options.instructions
 		}
-		// A text-free GLOBAL draft is a real turn — bubble + empty-message marker
-		// further down — but only when it carries something for the model: images
-		// or selected context elements. A bare accidental Enter is dropped in
-		// every mode (in editor copilots it would burn a turn for nothing).
-		// Image-bearing non-GLOBAL drafts still pass through to the switch-back
-		// refusal below so attachments aren't silently lost.
+		// A text-free GLOBAL draft is a real turn — rendered as its context chips
+		// (no bubble), with the empty-message marker substituted further down —
+		// but only when it carries something for the model: images or selected
+		// context elements. A bare accidental Enter is dropped in every mode (in
+		// editor copilots it would burn a turn for nothing). Gate on requestedMode,
+		// not this.mode: changeMode can decline a switch (e.g. SCRIPT with no
+		// model), and a declined non-GLOBAL request must not slip through as a
+		// GLOBAL empty turn. Image-bearing non-GLOBAL drafts still pass through
+		// to the switch-back refusal below so attachments aren't silently lost.
 		if (!this.instructions.trim() && (options.images?.length ?? 0) === 0) {
 			const contextEls = options.contextOverride ?? this.contextManager?.getSelectedContext() ?? []
-			if (this.mode !== AIMode.GLOBAL || contextEls.length === 0) {
+			if (requestedMode !== AIMode.GLOBAL || contextEls.length === 0) {
 				return false
 			}
 		}

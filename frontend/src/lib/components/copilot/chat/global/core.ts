@@ -1813,10 +1813,11 @@ export type AiSkillListItem = { name: string; description: string }
  * sessions modules) and re-read on every system-message rebuild — the fork
  * commits at first send, and the user can re-point the session's workspace. */
 export type SessionPromptContext = {
-	/** Operating workspace (undefined while the session is an unsent draft with no pick). */
+	/** Operating workspace (undefined while the session is an unsent draft with
+	 * no pick). Only slug-validated workspace IDs belong here — free-form
+	 * metadata like display names is user-controlled text that must not be
+	 * interpolated into the system prompt. */
 	workspaceId?: string
-	/** Display name of the operating workspace. */
-	workspaceName?: string
 	/** Set when the operating workspace is a fork of this workspace (staged
 	 * session fork or persistent dev workspace — `isDevWorkspace` splits them). */
 	parentWorkspaceId?: string
@@ -1845,14 +1846,12 @@ export function getSessionContextPromptSection(ctx: SessionPromptContext): strin
 			`- No workspace is committed yet: a staged fork of workspace "${ctx.pendingForkOf}" is created automatically when the first message is sent, and all work lands in that fork.`
 		)
 	} else if (ctx.parentWorkspaceId && ctx.isDevWorkspace) {
-		const name = ctx.workspaceName ? ` ("${ctx.workspaceName}")` : ''
 		lines.push(
-			`- Operating workspace: "${ctx.workspaceId}"${name} — the user's persistent DEV WORKSPACE, forked from workspace "${ctx.parentWorkspaceId}". deploy_workspace_item publishes into the dev workspace only; the user reviews & promotes changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
+			`- Operating workspace: "${ctx.workspaceId}" — the user's persistent DEV WORKSPACE, forked from workspace "${ctx.parentWorkspaceId}". deploy_workspace_item publishes into the dev workspace only; the user reviews & promotes changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
 		)
 	} else if (ctx.parentWorkspaceId) {
-		const name = ctx.workspaceName ? ` ("${ctx.workspaceName}")` : ''
 		lines.push(
-			`- Operating workspace: "${ctx.workspaceId}"${name} — an ephemeral STAGED FORK of workspace "${ctx.parentWorkspaceId}", created for session work. deploy_workspace_item publishes into the fork only, and the user reviews & promotes fork changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
+			`- Operating workspace: "${ctx.workspaceId}" — an ephemeral STAGED FORK of workspace "${ctx.parentWorkspaceId}", created for session work. deploy_workspace_item publishes into the fork only, and the user reviews & promotes fork changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
 		)
 	} else if (ctx.forkParentUnknown) {
 		lines.push(

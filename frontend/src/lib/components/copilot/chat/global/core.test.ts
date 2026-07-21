@@ -3487,7 +3487,6 @@ describe('getSessionContextPromptSection', () => {
 	it('describes an ephemeral staged fork with its parent and deploy semantics', () => {
 		const s = getSessionContextPromptSection({
 			workspaceId: 'wm-fork-foo',
-			workspaceName: 'foo',
 			parentWorkspaceId: 'prod'
 		})
 		expect(s).toContain('STAGED FORK of workspace "prod"')

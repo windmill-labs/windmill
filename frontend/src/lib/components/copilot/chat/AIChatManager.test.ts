@@ -915,9 +915,10 @@ describe('AIChatManager queued messages', () => {
 		expect(hasImage).toBe(true)
 	})
 
-	// A text-free GLOBAL send carrying context chips is a real turn — visible
-	// (empty) user bubble, and the model-facing text carries an explicit marker
-	// instead of a dangling INSTRUCTIONS header the model would echo back.
+	// A text-free GLOBAL send carrying context chips is a real turn — the
+	// transcript renders just the chips (no bubble), and the model-facing text
+	// carries an explicit marker instead of a dangling INSTRUCTIONS header the
+	// model would echo back.
 	it('sends a context-only GLOBAL draft as a turn with an empty-message marker', async () => {
 		replyWith('done')
 		const manager = createManager(createInputMock())
@@ -931,7 +932,8 @@ describe('AIChatManager queued messages', () => {
 		expect(mocks.runChatLoop).toHaveBeenCalled()
 		const sent = mocks.runChatLoop.mock.calls[0][0].messages.at(-1)
 		expect(sent.content).toContain('(the user sent an empty message)')
-		// The bubble shows what the user typed: nothing.
+		// The stored message keeps what the user typed — nothing — so the
+		// transcript renders chips only, and edit/retry restores an empty draft.
 		expect(manager.displayMessages.find((m) => m.role === 'user')?.content).toBe('')
 	})
 

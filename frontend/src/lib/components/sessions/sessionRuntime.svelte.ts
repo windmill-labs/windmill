@@ -345,7 +345,6 @@ function createRuntime(session: Session): SessionRuntime {
 		const ws = get(userWorkspaces).find((w) => w.id === wsId)
 		return {
 			workspaceId: wsId,
-			workspaceName: ws?.name,
 			parentWorkspaceId: ws?.parent_workspace_id ?? undefined,
 			isDevWorkspace: ws?.is_dev_workspace,
 			// Committed workspace missing from the list: still a fork (mirrors
