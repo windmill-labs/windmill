@@ -180,7 +180,7 @@ export async function main(bucket: any) {
 			lang: 'bun',
 			argName: 'bucket',
 			tooltip:
-				'The storage operations of this test run on the Windmill server (the API process). If no access key/secret key is set, the ambient AWS credentials (environment variables, instance role) of the server are used.'
+				"The storage operations of this test run on the Windmill server (the API process). If no credentials are configured, the server's ambient credentials for the configured provider (environment variables, instance role) are used."
 		}
 	}
 
