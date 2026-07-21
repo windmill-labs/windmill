@@ -776,19 +776,16 @@ impl AmbientAwsCredentials {
     const NO_EXPIRY_TTL: std::time::Duration = std::time::Duration::from_secs(300);
     const EXPIRY_MARGIN: std::time::Duration = std::time::Duration::from_secs(120);
 
-    fn still_valid(
-        creds: &aws_sdk_sts::config::Credentials,
-        fetched_at: std::time::Instant,
-    ) -> bool {
+    fn still_valid(creds: &aws_sdk_sts::config::Credentials, age: std::time::Duration) -> bool {
         match creds.expiry() {
             Some(expiry) => std::time::SystemTime::now() + Self::EXPIRY_MARGIN < expiry,
-            None => fetched_at.elapsed() < Self::NO_EXPIRY_TTL,
+            None => age < Self::NO_EXPIRY_TTL,
         }
     }
 
     async fn get(&self) -> anyhow::Result<aws_sdk_sts::config::Credentials> {
         if let Some((creds, fetched_at)) = self.cached.read().await.as_ref() {
-            if Self::still_valid(creds, *fetched_at) {
+            if Self::still_valid(creds, fetched_at.elapsed()) {
                 return Ok(creds.clone());
             }
         }
@@ -796,7 +793,7 @@ impl AmbientAwsCredentials {
         // hit the metadata service at once.
         let mut guard = self.cached.write().await;
         if let Some((creds, fetched_at)) = guard.as_ref() {
-            if Self::still_valid(creds, *fetched_at) {
+            if Self::still_valid(creds, fetched_at.elapsed()) {
                 return Ok(creds.clone());
             }
         }
@@ -1558,7 +1555,7 @@ mod tests {
     #[cfg(feature = "parquet")]
     #[test]
     fn test_ambient_credentials_still_valid() {
-        use std::time::{Duration, Instant, SystemTime};
+        use std::time::{Duration, SystemTime};
 
         fn creds(expiry: Option<SystemTime>) -> aws_sdk_sts::config::Credentials {
             let mut builder = aws_sdk_sts::config::Credentials::builder()
@@ -1571,22 +1568,24 @@ mod tests {
             builder.build()
         }
 
-        let now = Instant::now();
         // Expiry far in the future: valid regardless of fetch time
         assert!(AmbientAwsCredentials::still_valid(
             &creds(Some(SystemTime::now() + Duration::from_secs(3600))),
-            now
+            Duration::ZERO
         ));
         // Expiry within the refresh margin: must be re-fetched
         assert!(!AmbientAwsCredentials::still_valid(
             &creds(Some(SystemTime::now() + Duration::from_secs(30))),
-            now
+            Duration::ZERO
         ));
         // No expiry: valid while fresh, re-fetched after the TTL
-        assert!(AmbientAwsCredentials::still_valid(&creds(None), now));
+        assert!(AmbientAwsCredentials::still_valid(
+            &creds(None),
+            Duration::ZERO
+        ));
         assert!(!AmbientAwsCredentials::still_valid(
             &creds(None),
-            now - (AmbientAwsCredentials::NO_EXPIRY_TTL + Duration::from_secs(1))
+            AmbientAwsCredentials::NO_EXPIRY_TTL + Duration::from_secs(1)
         ));
     }
 

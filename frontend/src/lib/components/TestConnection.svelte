@@ -255,7 +255,9 @@ export async function main(bucket: any) {
 			{buttonTextOverride ?? 'Test connection'}
 		</Button>
 		{#if scripts[resourceType].tooltip}
-			<Tooltip>{scripts[resourceType].tooltip}</Tooltip>
+			<Tooltip>
+				{#snippet text()}{scripts[resourceType].tooltip}{/snippet}
+			</Tooltip>
 		{/if}
 	</div>
 {/if}
