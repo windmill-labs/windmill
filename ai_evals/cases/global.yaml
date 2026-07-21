@@ -1069,9 +1069,17 @@
         field: page
         stringIncludesAnyOf:
           - compare
+      # The eval chat is untracked (no modified-items mask), so the model must scope
+      # the review by passing the item it changed explicitly — an omitted mask would
+      # preselect every pending change in the workspace.
+      - tool: open_page
+        field: items
+        stringIncludesAnyOf:
+          - f/evals/global/compare_review_demo
   skipJudge: true
   judgeChecklist:
     - creates the script draft, then opens the Compare & Deploy review page instead of deploying itself
+    - preselects only the created script on the review page
     - does not deploy or delete anything
 
 - id: global-closepage1-close-runs-tab
