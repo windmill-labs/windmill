@@ -22,7 +22,8 @@ vi.mock('$lib/stores', async () => {
 vi.mock('$lib/gen', () => ({
 	VariableService: { getVariable: vi.fn() },
 	ScriptService: { getScriptByPath: vi.fn() },
-	ResourceService: { getResource: vi.fn() }
+	ResourceService: { getResource: vi.fn(), getResourceType: vi.fn() },
+	FlowService: { getFlowByPath: vi.fn() }
 }))
 vi.mock('./userDraftAdapter', () => ({
 	itemTypeForKind: (kind: string) =>
@@ -39,7 +40,7 @@ import { getDraftItems, getWorkspaceDraftsVersion } from '$lib/workspaceDrafts.s
 import { getDraftDiffValues } from '$lib/utils_draft_deploy'
 import { getItemValue } from '$lib/utils_workspace_deploy'
 import { fetchWorkspaceComparison } from '$lib/workspaceComparison'
-import { ScriptService, VariableService } from '$lib/gen'
+import { FlowService, ScriptService, VariableService } from '$lib/gen'
 import {
 	expireWorkspaceDiffList,
 	getForkDiffIndex,
@@ -341,7 +342,7 @@ const PARENT = 'parent-ws'
 
 function comparisonDiff(overrides: Partial<Record<string, unknown>> = {}) {
 	return {
-		kind: 'flow',
+		kind: 'schedule',
 		path: 'f/a/b',
 		ahead: 1,
 		behind: 0,
@@ -432,6 +433,21 @@ describe('fork mode', () => {
 		expect(entry?.valueMasked).toBe(true)
 	})
 
+	it('sees flow schema-only changes the shared projection drops', async () => {
+		mockComparison([comparisonDiff({ kind: 'flow', path: 'f/a/fl' })])
+		vi.mocked(FlowService.getFlowByPath).mockImplementation(async ({ workspace }: any) => ({
+			summary: 'same',
+			description: 'same',
+			schema: { properties: workspace === FORK ? { a: {} } : { a: {}, b: {} } },
+			value: { modules: [{ id: 'x', value: { type: 'script', hash: `h-${workspace}` } }] }
+		})) as any
+		const entry = await readForkDiffEntry(FORK, PARENT, ['flow'], 'f/a/fl')
+		expect(entry?.status).toBe('modified')
+		expect(entry?.patch).toContain('schema')
+		// Inline-script hashes are per-workspace noise, never a diff line.
+		expect(entry?.patch).not.toContain('h-fork-ws')
+	})
+
 	it('sees script description-only changes the shared projection drops', async () => {
 		mockComparison([comparisonDiff({ kind: 'script', path: 'f/a/s' })])
 		vi.mocked(ScriptService.getScriptByPath).mockImplementation(async ({ workspace }: any) => ({
@@ -474,7 +490,9 @@ describe('fork mode', () => {
 
 	it('flags entries that also carry a local draft', async () => {
 		mockComparison([comparisonDiff(), comparisonDiff({ path: 'f/a/other' })])
-		vi.mocked(getDraftItems).mockResolvedValue([row({ kind: 'flow', path: 'f/a/b' })] as any)
+		vi.mocked(getDraftItems).mockResolvedValue([
+			row({ kind: 'trigger_schedule', path: 'f/a/b' })
+		] as any)
 		vi.mocked(getItemValue).mockResolvedValue({ content: 'x' })
 		const index = await getForkDiffIndex(FORK, PARENT)
 		const byPath = Object.fromEntries(index.entries.map((e) => [e.path, e]))

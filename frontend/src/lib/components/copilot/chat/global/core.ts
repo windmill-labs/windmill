@@ -126,6 +126,7 @@ import {
 } from '$lib/utils_draft_deploy'
 import { changedLineIndices, draftDeployedPatch } from './draftDiff'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+import type { UserDraftItemKind } from '$lib/gen'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
 	buildRunsUrl,
@@ -156,7 +157,7 @@ import {
 	listGlobalDrafts,
 	persistGlobalDraft,
 	readGlobalDraftValue,
-	readLocalDraftCell,
+	readLocalDraftCellByKind,
 	saveGlobalAppDraft,
 	setEphemeralSecretVariableDraftValue,
 	type DraftPersistResult
@@ -5256,10 +5257,16 @@ async function diffWorkspaceItem(
 	// user chose to keep local. The just-flushed row must not be served from the
 	// throttled listing cache, so expire it.
 	const storagePath = getGlobalDraftStoragePath(workspace, type, path, triggerKind)
-	const flushQuery = { workspace, itemKind, path: storagePath }
-	await UserDraftDbSyncer.flush(flushQuery, { honorAutosaveToggle: true })
+	// The chat `app` type spans two draft kinds: raw apps AND classic apps —
+	// the classic editor parks its cell under `app`, so both keys must be
+	// flushed and probed or classic edits silently go stale.
+	const draftKinds: UserDraftItemKind[] = type === 'app' ? ['raw_app', 'app'] : [itemKind]
+	const flushQueries = draftKinds.map((kind) => ({ workspace, itemKind: kind, path: storagePath }))
+	for (const query of flushQueries) {
+		await UserDraftDbSyncer.flush(query, { honorAutosaveToggle: true })
+	}
 	expireWorkspaceDiffList(workspace)
-	let flushCaveat = UserDraftDbSyncer.getConflict(flushQuery).conflict
+	let flushCaveat = flushQueries.some((query) => UserDraftDbSyncer.getConflict(query).conflict)
 		? 'Warning: the draft has a conflicting newer version on the server; this diff shows the persisted draft, which may not include the latest editor edits.\n\n'
 		: ''
 
@@ -5267,12 +5274,22 @@ async function diffWorkspaceItem(
 	// save failed), the persisted state is stale: diff against the in-memory
 	// editor value instead — read-only, nothing gets persisted — and bypass
 	// the snapshot cache, which must only ever hold persisted state.
-	const flushSkipped =
-		UserDraftDbSyncer.hasUnsavedDisabledChanges(flushQuery) ||
-		UserDraftDbSyncer.getState(flushQuery).state === 'failed'
-	const localValue = flushSkipped
-		? readLocalDraftCell(workspace, type, path, triggerKind)
-		: undefined
+	let flushSkipped = false
+	let localValue: unknown
+	let localKind: UserDraftItemKind = itemKind
+	for (const query of flushQueries) {
+		const skipped =
+			UserDraftDbSyncer.hasUnsavedDisabledChanges(query) ||
+			UserDraftDbSyncer.getState(query).state === 'failed'
+		if (!skipped) continue
+		flushSkipped = true
+		const cell = readLocalDraftCellByKind(workspace, query.itemKind, storagePath)
+		if (cell !== undefined) {
+			localValue = cell
+			localKind = query.itemKind
+			break
+		}
+	}
 
 	let patch: string
 	let noDeployed: boolean
@@ -5281,7 +5298,7 @@ async function diffWorkspaceItem(
 	if (localValue !== undefined) {
 		let deployedSide: unknown
 		try {
-			const values = await getDraftDiffValues(itemKind, storagePath, workspace)
+			const values = await getDraftDiffValues(localKind, storagePath, workspace)
 			noDeployed = values.noDeployed
 			deployedSide = noDeployed ? undefined : values.deployed
 		} catch (e) {
@@ -5290,7 +5307,7 @@ async function diffWorkspaceItem(
 			noDeployed = true
 		}
 		let beforeSide = deployedSide
-		let afterSide = canonicalDraftSideValue(itemKind, localValue)
+		let afterSide = canonicalDraftSideValue(localKind, localValue)
 		if (itemKind === 'variable') {
 			;({
 				before: beforeSide,
@@ -5520,7 +5537,7 @@ async function diffWorkspaceIndex(
 	}
 	if (unflushedPaths.length > 0) {
 		notes.push(
-			`Warning: unsaved editor changes on ${unflushedPaths.join(', ')} are NOT reflected here (auto-save is off or a save failed). Read the item with type+path to include them.`
+			`Warning: unsaved editor changes on ${unflushedPaths.join(', ')} are NOT reflected here (auto-save off, a save failed, or a conflict is unresolved). Read the item with type+path to include them.`
 		)
 	}
 	const summaryLine =
@@ -5784,7 +5801,7 @@ async function diffSearch(
 		const { unflushedPaths } = await flushGlobalDraftSaves(workspace)
 		expireWorkspaceDiffList(workspace)
 		if (unflushedPaths.length > 0) {
-			unflushedNote = `\nWarning: unsaved editor changes on ${unflushedPaths.join(', ')} were not searched (auto-save is off or a save failed).`
+			unflushedNote = `\nWarning: unsaved editor changes on ${unflushedPaths.join(', ')} were not searched (auto-save off, a save failed, or a conflict is unresolved).`
 		}
 		const index = await getWorkspaceDiffIndex(workspace, { materializeAll: true })
 		collectDiffSearchUnits(index.entries, units)

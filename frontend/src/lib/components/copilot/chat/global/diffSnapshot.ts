@@ -24,6 +24,7 @@ import {
 	type DraftItem
 } from '$lib/workspaceDrafts.svelte'
 import {
+	FlowService,
 	ResourceService,
 	ScriptService,
 	VariableService,
@@ -717,6 +718,22 @@ const APP_ROW_CROSS_WORKSPACE_IGNORE = new Set([
 	'bundle_secret'
 ])
 
+/** Inline flow scripts pin a `hash` the server recomputes per workspace —
+ * never comparable across workspaces. Generic deep walk so nested module
+ * shapes (loops, branches) need no taxonomy here. */
+function stripInlineFlowHashes(node: unknown): void {
+	if (Array.isArray(node)) {
+		for (const item of node) stripInlineFlowHashes(item)
+		return
+	}
+	if (node === null || typeof node !== 'object') return
+	const obj = node as Record<string, any>
+	if (obj.value?.type === 'script' && obj.value.hash != undefined) {
+		obj.value.hash = undefined
+	}
+	for (const child of Object.values(obj)) stripInlineFlowHashes(child)
+}
+
 interface ForkSideValue {
 	value: unknown
 	/** The variable's content was replaced by the placeholder — content-only
@@ -774,6 +791,34 @@ async function fetchForkSideValue(
 				value: resource.value,
 				description: resource.description,
 				resource_type: resource.resource_type
+			},
+			valueMasked: false
+		}
+	}
+	if (kind === 'flow') {
+		// The shared projection drops `schema`, which the backend comparison
+		// counts — a schema-only change would falsely read "matches parent".
+		const flow = await FlowService.getFlowByPath({ workspace, path })
+		const value = structuredClone(flow.value)
+		stripInlineFlowHashes(value)
+		return {
+			value: {
+				summary: flow.summary,
+				description: flow.description,
+				schema: flow.schema,
+				value
+			},
+			valueMasked: false
+		}
+	}
+	if (kind === 'resource_type') {
+		const rt = await ResourceService.getResourceType({ workspace, path })
+		return {
+			value: {
+				schema: rt.schema,
+				description: rt.description,
+				format_extension: rt.format_extension,
+				is_fileset: rt.is_fileset
 			},
 			valueMasked: false
 		}

@@ -645,17 +645,16 @@ export async function deleteGlobalDraft(
 	invalidateWorkspaceDrafts(workspace)
 }
 
-/** Local in-memory draft value for an item (the open editor's cell), without
- * any backend fallback. This is the freshest state when a save is parked
- * (auto-save off) or failed — read-only callers use it instead of persisting. */
-export function readLocalDraftCell(
+/** Local in-memory draft cell, kind-addressed: the chat `app` type spans two
+ * draft kinds (raw_app + classic app), so callers probing both address by
+ * kind. No backend fallback — this is the freshest state when a save is
+ * parked (auto-save off), failed, or conflicted; read-only callers use it
+ * instead of persisting. */
+export function readLocalDraftCellByKind(
 	workspace: string,
-	type: WorkspaceItemType,
-	path: string,
-	triggerKind?: TriggerKind
+	itemKind: UserDraftItemKind,
+	path: string
 ): unknown | undefined {
-	const itemKind = itemKindFor(type, triggerKind)
-	if (!itemKind) return undefined
 	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
 	return UserDraft.get(itemKind, storagePath, { workspace })
 }
@@ -670,7 +669,11 @@ export function readLocalDraftCell(
 export async function flushGlobalDraftSaves(
 	workspace: string
 ): Promise<{ unflushedPaths: string[] }> {
-	const drafts = UserDraft.list({ workspace, itemKinds: [...GLOBAL_DRAFT_KINDS] })
+	// Classic-app editor cells live under the `app` kind, which is deliberately
+	// NOT in GLOBAL_DRAFT_KINDS (clearGlobalDrafts must never clear a user's
+	// open classic editor) — but their unflushed edits must be flushed/reported
+	// like every other kind.
+	const drafts = UserDraft.list({ workspace, itemKinds: [...GLOBAL_DRAFT_KINDS, 'app'] })
 	await Promise.all(
 		drafts.map((draft) =>
 			UserDraftDbSyncer.flush(
@@ -682,9 +685,12 @@ export async function flushGlobalDraftSaves(
 	const unflushedPaths = drafts
 		.filter((draft) => {
 			const query = { workspace, itemKind: draft.itemKind, path: draft.path }
+			// A conflicted save also leaves the server without the local edits:
+			// the payload stays parked but the state is neither pending nor failed.
 			return (
 				UserDraftDbSyncer.hasUnsavedDisabledChanges(query) ||
-				UserDraftDbSyncer.getState(query).state === 'failed'
+				UserDraftDbSyncer.getState(query).state === 'failed' ||
+				UserDraftDbSyncer.getConflict(query).conflict !== undefined
 			)
 		})
 		.map((draft) => draft.path)

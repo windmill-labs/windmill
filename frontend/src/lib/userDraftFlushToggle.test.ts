@@ -41,6 +41,27 @@ describe('UserDraftDbSyncer toggle-honoring flush', () => {
 	})
 })
 
+/** A conflicted save leaves the local payload parked with the conflict
+ * recorded while the state reads 'none' — the exact triple the diff tool's
+ * unflushed-edits detection reads. Pins that a conflict never looks like a
+ * clean sync. */
+describe('UserDraftDbSyncer conflict aftermath', () => {
+	it('keeps the payload parked and the conflict readable after flush settles', async () => {
+		const q = { workspace: 'w', itemKind: 'script' as const, path: 'u/me/conflicted' }
+		updateDraft.mockResolvedValueOnce({
+			status: 'conflict',
+			current_timestamp: '2020-01-02T00:00:00Z'
+		})
+		await UserDraftDbSyncer.save({ ...q, value: { content: 'mine' }, immediate: true })
+
+		// The triple the diff tool's unflushed detection reads: conflict set,
+		// state 'none' (not pending/failed), auto-save signal silent.
+		expect(UserDraftDbSyncer.getConflict(q).conflict).toBeDefined()
+		expect(UserDraftDbSyncer.getState(q).state).toBe('none')
+		expect(UserDraftDbSyncer.hasUnsavedDisabledChanges(q)).toBe(false)
+	})
+})
+
 /** The diff snapshot cache invalidates through this hook — it must fire for
  * upserts AND deletes, the moment the write lands. */
 describe('UserDraftDbSyncer.onAnySaved', () => {
