@@ -5224,6 +5224,7 @@ async function diffWorkspaceItem(
 		type?: WorkspaceItemType
 		path?: string
 		trigger_kind?: TriggerKind
+		file?: string
 		offset?: number
 		limit?: number
 	},
@@ -5342,6 +5343,11 @@ async function diffWorkspaceItem(
 	const header = noDeployed
 		? `${type} "${path}" has no deployed version yet — the entire draft is new.\n\n`
 		: `Draft changes vs deployed for ${type} "${path}":\n\n`
+	if (args.file !== undefined && !files) {
+		throw new Error(
+			`file only applies to multi-file apps; ${type} "${path}" diffs as a single document — call again without file.`
+		)
+	}
 	const body = files
 		? renderEntryFiles(files, patch, args)
 		: windowPatch(patch, args.offset ?? 0, args.limit ?? DIFF_READ_DEFAULT_LINES)
@@ -5616,6 +5622,7 @@ async function diffForkItem(
 		type?: WorkspaceItemType
 		path?: string
 		trigger_kind?: TriggerKind
+		file?: string
 		offset?: number
 		limit?: number
 	},
@@ -5667,6 +5674,11 @@ async function diffForkItem(
 			: entry.status === 'deleted_in_fork'
 				? `${type} "${path}" was deleted in the fork but still exists in parent "${parent}". Removed content:\n\n`
 				: `Fork changes vs parent "${parent}" for ${type} "${path}":\n\n`
+	if (args.file !== undefined && !entry.files) {
+		throw new Error(
+			`file only applies to multi-file apps; ${type} "${path}" diffs as a single document — call again without file.`
+		)
+	}
 	const body = entry.files
 		? renderEntryFiles(entry.files, entry.patch ?? '', args)
 		: windowPatch(entry.patch ?? '', args.offset ?? 0, args.limit ?? DIFF_READ_DEFAULT_LINES)
