@@ -1150,12 +1150,30 @@ describe('AIChatManager queued messages', () => {
 		manager.queueMessage('', [], undefined, [file])
 
 		expect(manager.queuedMessage).toBe('')
-		expect(manager.queuedFiles).toEqual([file])
+		expect(manager.queuedFiles).toMatchObject([file])
+		const queued = manager.queuedFiles
 
 		manager.dequeueMessage()
 
 		expect(manager.queuedFiles).toEqual([])
-		expect(input.prependText).toHaveBeenCalledWith('', [], [file])
+		expect(input.prependText).toHaveBeenCalledWith('', [], queued)
+	})
+
+	it('normalizes files aggregated into one queued message', () => {
+		// Repeated submissions during a stream fold into one queued message, so the
+		// queue applies the same commit normalization as the composer: identical
+		// re-attaches dedupe (no wasted slot), same-name clashes get the courtesy
+		// rename, distinct files survive.
+		const input = createInputMock()
+		const manager = createManager(input)
+		manager.queueMessage('', [], undefined, [{ name: 'notes.md', content: 'alpha' }])
+		manager.queueMessage('', [], undefined, [
+			{ name: 'notes.md', content: 'alpha' },
+			{ name: 'notes.md', content: 'bravo' }
+		])
+
+		expect(manager.queuedFiles.map((f) => f.name)).toEqual(['notes.md', 'notes (2).md'])
+		expect(manager.queuedFiles.map((f) => f.content)).toEqual(['alpha', 'bravo'])
 	})
 
 	// While editing an earlier message the bottom composer and the edit box are

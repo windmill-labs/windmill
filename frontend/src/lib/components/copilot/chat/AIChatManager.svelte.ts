@@ -68,6 +68,7 @@ import {
 } from './imageUtils'
 import { chatDraft, expanded } from './chatDraft'
 import {
+	foldIntoDraft,
 	MAX_ATTACHED_FILES,
 	textByteLength,
 	withAttachedTextFileIds,
@@ -1496,7 +1497,11 @@ export class AIChatManager {
 			this.queuedImages = merged.slice(0, MAX_ATTACHED_IMAGES)
 		}
 		if (files.length > 0) {
-			const merged = [...this.queuedFiles, ...files]
+			// Fold like the composer's commit: repeated submissions during one stream
+			// aggregate into a single queued message, so an identical re-attach must
+			// dedupe (not eat a slot) and a same-name clash gets the courtesy rename —
+			// the queue is a message draft like any other.
+			const merged = [...this.queuedFiles, ...foldIntoDraft(this.queuedFiles, files)]
 			if (merged.length > MAX_ATTACHED_FILES) {
 				sendUserToast(`Only the first ${MAX_ATTACHED_FILES} files are kept.`, true)
 			}
