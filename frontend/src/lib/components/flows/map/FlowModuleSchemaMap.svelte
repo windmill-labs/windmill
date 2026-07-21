@@ -37,6 +37,7 @@
 	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
 	import { MoveManager } from '$lib/components/graph/moveManager.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+	import { reanchorAgentEditsAcross } from '../agentEditStore.svelte'
 	import type { GraphModuleState } from '$lib/components/graph'
 	import FlowStickyNode from './FlowStickyNode.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
@@ -386,6 +387,15 @@
 		requestDelete(ids)
 	}
 
+	// refreshStateStore deep-clones the flow, which would break the tools-array identity keying
+	// an in-progress agent Editing session; re-key that state across the clone.
+	function refreshFlowStore() {
+		reanchorAgentEditsAcross(
+			() => flowStore.val.value.modules,
+			() => refreshStateStore(flowStore)
+		)
+	}
+
 	// Operates directly on the flat module array (not the structure tree).
 	// Cloned modules are inserted after the originals, intentionally outside any group.
 	export function duplicateMultiple(ids: string[]) {
@@ -424,7 +434,7 @@
 			parentArr.splice(lastIndex + 1, 0, ...clones)
 		}
 
-		refreshStateStore(flowStore)
+		refreshFlowStore()
 		selectionManager.selectByIds(allCloneIds)
 	}
 
@@ -684,7 +694,7 @@
 							selectionManager.selectId(movingId)
 						}
 						moveManager.clearMoving()
-						refreshStateStore(flowStore)
+						refreshFlowStore()
 						dispatch('change')
 					}
 
@@ -718,7 +728,7 @@
 							instructions: detail.inlineScript?.instructions
 						})
 					}
-					refreshStateStore(flowStore)
+					refreshFlowStore()
 					dispatch('change')
 					return
 				}
@@ -749,7 +759,7 @@
 						const id = tools[tools.length - 1].id
 						selectionManager.selectId(id)
 					}
-					refreshStateStore(flowStore)
+					refreshFlowStore()
 					dispatch('change')
 					return
 				}
@@ -827,13 +837,13 @@
 				if (['branchone', 'branchall'].includes(detail.kind)) {
 					await addBranch(module.id)
 				}
-				refreshStateStore(flowStore)
+				refreshFlowStore()
 				dispatch('change')
 			}}
 			onNewBranch={async (id) => {
 				if (id) {
 					await addBranch(id)
-					refreshStateStore(flowStore)
+					refreshFlowStore()
 				}
 			}}
 			onSelect={(id) => {
@@ -887,13 +897,13 @@
 				}
 				flowStateStore.val[newId] = flowStateStore.val[id]
 				delete flowStateStore.val[id]
-				refreshStateStore(flowStore)
+				refreshFlowStore()
 				selectionManager.selectId(newId)
 			}}
 			onDeleteBranch={async ({ id, index }) => {
 				if (id) {
 					await removeBranch(id, index)
-					refreshStateStore(flowStore)
+					refreshFlowStore()
 					selectionManager.selectId(id)
 				}
 			}}
@@ -932,7 +942,7 @@
 				})
 
 				targetModules.splice(targetIndex + 1, 0, clone)
-				refreshStateStore(flowStore)
+				refreshFlowStore()
 				selectionManager.selectId(clone.id)
 			}}
 			onUpdateMock={(detail) => {
@@ -941,7 +951,7 @@
 					throw new Error(`Node ${detail.id} not found`)
 				}
 				module.mock = $state.snapshot(detail.mock)
-				refreshStateStore(flowStore)
+				refreshFlowStore()
 			}}
 			{onTestFlow}
 			{isRunning}

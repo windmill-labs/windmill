@@ -207,10 +207,11 @@
 			})
 		}
 		agent = path
+		// Clear the edit entry while `tools` is still the fork's marker, before it's reassigned.
+		setAgentEditingPath(tools, undefined)
 		// The brain + tools now live in the resource; a linked step keeps only the flow-local inputs.
 		tools = []
 		inputTransforms = flowLocalInputs(inputTransforms)
-		setAgentEditingPath(tools, undefined)
 	}
 
 	async function saveAsAgent() {

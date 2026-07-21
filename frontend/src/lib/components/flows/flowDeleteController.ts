@@ -6,13 +6,10 @@ import type { OpenFlow } from '$lib/gen'
 import { push, type History } from '$lib/history.svelte'
 import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 import type { StateStore } from '$lib/utils'
-import {
-	createDeletePlan,
-	removeDeletePlanTools,
-	type DeletePlan
-} from './flowDeleteUtils'
+import { createDeletePlan, removeDeletePlanTools, type DeletePlan } from './flowDeleteUtils'
 import type { FlowState } from './flowState'
 import { deleteFlowStateById } from './flowStateUtils.svelte'
+import { reanchorAgentEditsAcross } from './agentEditStore.svelte'
 
 export type PreparedDeleteRequest = {
 	plan: DeletePlan
@@ -76,7 +73,12 @@ export function executeDeletePlan(
 		deleteFlowStateById(id, args.flowStateStore)
 	}
 
-	refreshStateStore(args.flowStore)
+	// The deep clone would break the tools-array identity keying an in-progress agent Editing
+	// session (see agentEditStore); re-key it across the refresh.
+	reanchorAgentEditsAcross(
+		() => args.flowStore.val.value.modules,
+		() => refreshStateStore(args.flowStore)
+	)
 
 	if (plan.inputIds.length === 1) {
 		args.onDelete?.(plan.targets[0].id)
