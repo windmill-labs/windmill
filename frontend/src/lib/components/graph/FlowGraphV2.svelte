@@ -57,7 +57,10 @@
 	import AssetsOverflowedNode from './renderers/nodes/AssetsOverflowedNode.svelte'
 	import type { FlowGraphAssetContext } from '../flows/types'
 	import AiToolNode, { computeAIToolNodes } from './renderers/nodes/AIToolNode.svelte'
-	import { linkedAgentTools } from '$lib/components/flows/linkedAgentToolsStore.svelte'
+	import {
+		linkedAgentTools,
+		linkedAgentToolsVersion
+	} from '$lib/components/flows/linkedAgentToolsStore.svelte'
 	import NewAiToolNode from './renderers/nodes/NewAIToolNode.svelte'
 	import NoteNode from './renderers/nodes/NoteNode.svelte'
 	import CollapsedGroupNode from './renderers/nodes/CollapsedGroupNode.svelte'
@@ -940,7 +943,9 @@
 			showNotes,
 			noteManager.renderCount,
 			currentGroups,
-			groupDisplayState.renderCount
+			groupDisplayState.renderCount,
+			// A linked step's tools resolve asynchronously; recompute tool nodes when they land.
+			linkedAgentToolsVersion()
 		]
 		untrack(async () => {
 			await updateStores()

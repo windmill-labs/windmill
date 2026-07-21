@@ -156,7 +156,10 @@
 				})
 			}
 
-			const totalRows = Math.ceil(tools.length / MAX_TOOLS_PER_ROW) + (insertable ? 1 : 0) // + 1 for add tool node when insertable
+			// A linked agent shows no "add tool" node, so its rows must not reserve one; otherwise the
+			// tools float up by a row, leaving a gap above the agent where the add node would have been.
+			const showAddToolNode = insertable && !isLinkedAgent
+			const totalRows = Math.ceil(tools.length / MAX_TOOLS_PER_ROW) + (showAddToolNode ? 1 : 0)
 
 			const siblingNames = tools.map((t) => t.name)
 			const toolNodes: (Node & AiToolN)[] = tools.map((tool, i) => {
@@ -165,7 +168,7 @@
 
 				const row = Math.floor(i / MAX_TOOLS_PER_ROW) + 1
 
-				const isLastRow = insertable ? row === totalRows - 1 : row === totalRows
+				const isLastRow = showAddToolNode ? row === totalRows - 1 : row === totalRows
 				return {
 					type: 'aiTool' as const,
 					parentId: node.id,
@@ -220,7 +223,7 @@
 
 			// A linked agent is rigid: its tools come from the resource and can't be edited here, so
 			// don't offer the "add tool" node (unlink/fork the step to change tools).
-			if (insertable && !isLinkedAgent) {
+			if (showAddToolNode) {
 				allToolNodes.push({
 					type: 'newAiTool',
 					data: { eventHandlers, agentModuleId: node.data.module.id },

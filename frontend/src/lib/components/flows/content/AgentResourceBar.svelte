@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
+	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import LightweightResourcePicker from '$lib/components/LightweightResourcePicker.svelte'
 	import { ResourceService, type InputTransform } from '$lib/gen'
@@ -260,32 +261,32 @@
 
 <div class="px-2 xl:px-4 pt-2">
 	{#if agent}
-		<div
-			class="flex items-center gap-2 rounded-md border border-border bg-surface-secondary px-3 py-2 text-xs"
-		>
-			<Bot size={16} class="text-primary shrink-0" />
-			<span class="text-secondary">Linked to</span>
-			<a class="font-medium truncate" href={`/resources?path=${agent}`} title={agent}>{agent}</a>
-			<div class="ml-auto flex items-center gap-1">
-				<Button size="xs2" variant="default" startIcon={{ icon: Pencil }} onclick={editAgent}>
-					Edit
-				</Button>
-				<Button size="xs2" variant="default" startIcon={{ icon: Unlink }} onclick={unlink}>
-					Unlink
-				</Button>
-			</div>
-		</div>
-		<p class="text-2xs text-tertiary mt-1">
-			The configuration below comes from this saved agent and is read-only. Only the message/inputs
-			are set in this flow. <span class="font-medium">Edit</span> to change the agent everywhere it's
-			used, or Unlink to fork an editable copy into just this step.
-		</p>
-		{#if brainParams.length > 0 || inheritedTools.length > 0}
-			<div class="mt-1 rounded-md border border-border bg-surface-secondary px-3 py-2">
-				<div class="text-2xs font-medium text-tertiary uppercase tracking-wide">
-					From saved agent · read-only
+		<div class="rounded-md border border-border bg-surface-secondary px-3 py-2">
+			<div class="flex items-center gap-2 text-xs">
+				<Bot size={16} class="text-primary shrink-0" />
+				<span class="text-secondary shrink-0">Linked to</span>
+				<span class="flex min-w-0 items-center gap-1">
+					<a class="font-medium truncate" href={`/resources?path=${agent}`} title={agent}>{agent}</a
+					>
+					<Tooltip small placement="bottom">
+						{#snippet text()}
+							Read-only: the configuration comes from this saved agent, and only the message and
+							inputs are set in this flow. Edit changes the agent everywhere it's used. Unlink forks
+							an editable copy into just this step.
+						{/snippet}
+					</Tooltip>
+				</span>
+				<div class="ml-auto flex items-center gap-1 shrink-0">
+					<Button size="xs2" variant="default" startIcon={{ icon: Pencil }} onclick={editAgent}>
+						Edit
+					</Button>
+					<Button size="xs2" variant="default" startIcon={{ icon: Unlink }} onclick={unlink}>
+						Unlink
+					</Button>
 				</div>
-				<dl class="mt-1 flex flex-col gap-1">
+			</div>
+			{#if brainParams.length > 0 || inheritedTools.length > 0}
+				<dl class="mt-2 flex flex-col gap-1 border-t border-border pt-2">
 					{#each brainParams as param (param.label)}
 						<div class="flex items-baseline gap-2 text-2xs">
 							<dt class="text-tertiary shrink-0 w-28">{param.label}</dt>
@@ -308,8 +309,8 @@
 						</div>
 					{/if}
 				</dl>
-			</div>
-		{/if}
+			{/if}
+		</div>
 		{#if !providerOk}
 			<div
 				class="mt-1 flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-2xs text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-300"
