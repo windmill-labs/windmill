@@ -9,6 +9,7 @@ import {
   HttpTrigger,
   KafkaTrigger,
   MqttTrigger,
+  AmqpTrigger,
   NatsTrigger,
   PostgresTrigger,
   SqsTrigger,
@@ -48,6 +49,7 @@ type Trigger = {
   nats: NatsTrigger;
   postgres: PostgresTrigger;
   mqtt: MqttTrigger;
+  amqp: AmqpTrigger;
   sqs: SqsTrigger;
   gcp: GcpTrigger;
   azure: AzureTrigger;
@@ -84,6 +86,7 @@ async function getTrigger<K extends TriggerType>(
     nats: wmill.getNatsTrigger,
     postgres: wmill.getPostgresTrigger,
     mqtt: wmill.getMqttTrigger,
+    amqp: wmill.getAmqpTrigger,
     sqs: wmill.getSqsTrigger,
     gcp: wmill.getGcpTrigger,
     azure: wmill.getAzureTrigger,
@@ -114,6 +117,7 @@ async function updateTrigger<K extends TriggerType>(
     nats: wmill.updateNatsTrigger,
     postgres: wmill.updatePostgresTrigger,
     mqtt: wmill.updateMqttTrigger,
+    amqp: wmill.updateAmqpTrigger,
     sqs: wmill.updateSqsTrigger,
     gcp: wmill.updateGcpTrigger,
     azure: wmill.updateAzureTrigger,
@@ -142,6 +146,7 @@ async function createTrigger<K extends TriggerType>(
     nats: wmill.createNatsTrigger,
     postgres: wmill.createPostgresTrigger,
     mqtt: wmill.createMqttTrigger,
+    amqp: wmill.createAmqpTrigger,
     sqs: wmill.createSqsTrigger,
     gcp: wmill.createGcpTrigger,
     azure: wmill.createAzureTrigger,
@@ -381,6 +386,13 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
     subscribe_topics: [],
     enabled: false,
   },
+  amqp: {
+    script_path: "",
+    is_flow: false,
+    amqp_resource_path: "",
+    queue_name: "",
+    enabled: false,
+  },
   sqs: {
     script_path: "",
     is_flow: false,
@@ -536,6 +548,7 @@ async function list(opts: GlobalOptions & { json?: boolean }) {
     natsTriggers,
     postgresTriggers,
     mqttTriggers,
+    amqpTriggers,
     sqsTriggers,
     gcpTriggers,
     azureTriggers,
@@ -547,6 +560,7 @@ async function list(opts: GlobalOptions & { json?: boolean }) {
     listOrEmpty(() => wmill.listNatsTriggers({ workspace: ws })),
     listOrEmpty(() => wmill.listPostgresTriggers({ workspace: ws })),
     listOrEmpty(() => wmill.listMqttTriggers({ workspace: ws })),
+    listOrEmpty(() => wmill.listAmqpTriggers({ workspace: ws })),
     listOrEmpty(() => wmill.listSqsTriggers({ workspace: ws })),
     listOrEmpty(() => wmill.listGcpTriggers({ workspace: ws })),
     listOrEmpty(() => wmill.listAzureTriggers({ workspace: ws })),
@@ -559,6 +573,7 @@ async function list(opts: GlobalOptions & { json?: boolean }) {
     ...natsTriggers.map((x) => ({ path: x.path, kind: "nats" })),
     ...postgresTriggers.map((x) => ({ path: x.path, kind: "postgres" })),
     ...mqttTriggers.map((x) => ({ path: x.path, kind: "mqtt" })),
+    ...amqpTriggers.map((x) => ({ path: x.path, kind: "amqp" })),
     ...sqsTriggers.map((x) => ({ path: x.path, kind: "sqs" })),
     ...gcpTriggers.map((x) => ({ path: x.path, kind: "gcp" })),
     ...azureTriggers.map((x) => ({ path: x.path, kind: "azure" })),
@@ -643,11 +658,11 @@ const command = new Command()
   .command("get", "get a trigger's details")
   .arguments("<path:string>")
   .option("--json", "Output as JSON (for piping to jq)")
-  .option("--kind <kind:string>", "Trigger kind (http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email). Recommended for faster lookup")
+  .option("--kind <kind:string>", "Trigger kind (http, websocket, kafka, nats, postgres, mqtt, amqp, sqs, gcp, azure, email). Recommended for faster lookup")
   .action(get as any)
   .command("new", "create a new trigger locally")
   .arguments("<path:string>")
-  .option("--kind <kind:string>", "Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email)")
+  .option("--kind <kind:string>", "Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, amqp, sqs, gcp, azure, email)")
   .action(newTrigger as any)
   .command(
     "push",
@@ -662,7 +677,7 @@ const command = new Command()
   .arguments("<path:string> <email:string>")
   .option(
     "--kind <kind:string>",
-    "Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email)"
+    "Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, amqp, sqs, gcp, azure, email)"
   )
   .action((async (opts: any, triggerPath: string, email: string) => {
     const workspace = await resolveWorkspace(opts);

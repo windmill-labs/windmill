@@ -42,13 +42,17 @@
 
 	const gitSyncAllowed = $derived(gitSyncStatus.enabled)
 	const isFreeTier = $derived(gitSyncAllowed && !$enterpriseLicense)
-	// Fork/dev workspaces never run promotion mode: their deploys always go to
-	// the fork's own wm-fork/** branch, so a promotion repo could never take
-	// effect (the backend rejects it too). Mirrors the backend/CLI fork rule.
+	// Throwaway forks never run promotion mode: their deploys always go to the
+	// fork's own wm-fork/** branch, so a promotion repo could never take effect
+	// (the backend rejects it too). A dev workspace is the exception — it deploys
+	// per-item wm_deploy/** branches that promote into its parent. Mirrors the
+	// backend/CLI rule.
+	const currentWorkspace = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
 	const isFork = $derived(
-		($workspaceStore?.startsWith('wm-fork-') ?? false) ||
-			!!$userWorkspaces?.find((w) => w.id === $workspaceStore)?.parent_workspace_id
+		($workspaceStore?.startsWith('wm-fork-') ?? false) || !!currentWorkspace?.parent_workspace_id
 	)
+	const isDevWorkspace = $derived(!!currentWorkspace?.is_dev_workspace)
+	const showPromotion = $derived(!isFork || isDevWorkspace)
 	const hasConfiguredRepos = $derived(
 		gitSyncContext?.repositories?.some((r) => r.git_repo_resource_path) ?? false
 	)
@@ -70,6 +74,16 @@
 	// Derived state for repository categorization
 	const primarySync = $derived(gitSyncContext?.getPrimarySyncRepository() || null)
 	const primaryPromotion = $derived(gitSyncContext?.getPrimaryPromotionRepository() || null)
+	// A dev workspace reuses the single repo it inherited from prod: whether it's
+	// currently in sync or promotion mode, it's the same one card, toggled between
+	// the two — so a dev never configures a separate promotion repo.
+	const devPrimaryRepo = $derived(isDevWorkspace ? (primarySync ?? primaryPromotion) : null)
+	// The single-repo dev UX (one card + promotion toggle, secondaries hidden) is
+	// only safe when the dev actually has one repo — i.e. it inherited prod's on
+	// fork. An ATTACHED dev keeps its own repos: with more than one, fall back to
+	// the normal layout so none are hidden and we don't present an unrelated repo
+	// as prod's promotion target.
+	const devSingleRepo = $derived(isDevWorkspace && (gitSyncContext?.repositories?.length ?? 0) <= 1)
 	const secondarySync = $derived(gitSyncContext?.getSecondarySyncRepositories() || [])
 	const secondaryPromotion = $derived(gitSyncContext?.getSecondaryPromotionRepositories() || [])
 
@@ -139,17 +153,18 @@
 		<div class="space-y-6 pt-6">
 			<GitSyncRepositoryCard
 				variant="primary-sync"
-				mode="sync"
-				idx={primarySync?.idx ?? null}
-				repository={primarySync?.repo ?? null}
+				mode={devSingleRepo && devPrimaryRepo?.repo?.use_individual_branch ? 'promotion' : 'sync'}
+				idx={(devSingleRepo ? devPrimaryRepo : primarySync)?.idx ?? null}
+				repository={(devSingleRepo ? devPrimaryRepo : primarySync)?.repo ?? null}
 				onAdd={() => gitSyncContext.addSyncRepository()}
 				isCollapsible={false}
-				showEmptyState={primarySync?.repo === null}
+				showEmptyState={(devSingleRepo ? devPrimaryRepo : primarySync)?.repo == null}
+				devPromotion={devSingleRepo && !!$enterpriseLicense}
 			/>
 
 			{#if $enterpriseLicense}
-				<!-- Secondary Sync Repositories (EE only) -->
-				{#if primarySync && !primarySync.repo?.isUnsavedConnection}
+				<!-- Secondary Sync Repositories (EE only; a dev workspace has a single inherited repo) -->
+				{#if primarySync && !primarySync.repo?.isUnsavedConnection && !devSingleRepo}
 					{#if secondarySync.length > 0 || secondarySyncExpanded}
 						<div class="mt-4">
 							<button
@@ -211,8 +226,9 @@
 					{/if}
 				{/if}
 
-				<!-- Primary Promotion Repository (EE only; not on forks) -->
-				{#if !isFork}
+				<!-- Primary Promotion Repository (EE only; roots only — a dev promotes via the
+					toggle on its single inherited repo, not a separate promotion repo) -->
+				{#if showPromotion && !devSingleRepo}
 					<div class="mt-6">
 						<GitSyncRepositoryCard
 							variant="primary-promotion"

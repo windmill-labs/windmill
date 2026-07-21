@@ -1717,6 +1717,7 @@ export async function elementsToMap(
         path.endsWith(".nats_trigger" + ext) ||
         path.endsWith(".postgres_trigger" + ext) ||
         path.endsWith(".mqtt_trigger" + ext) ||
+        path.endsWith(".amqp_trigger" + ext) ||
         path.endsWith(".sqs_trigger" + ext) ||
         path.endsWith(".gcp_trigger" + ext) ||
         path.endsWith(".azure_trigger" + ext) ||
@@ -2470,6 +2471,7 @@ function getOrderFromPath(p: string) {
     typ == "nats_trigger" ||
     typ == "postgres_trigger" ||
     typ == "mqtt_trigger" ||
+    typ == "amqp_trigger" ||
     typ == "sqs_trigger" ||
     typ == "gcp_trigger" ||
     typ == "azure_trigger" ||
@@ -2863,17 +2865,20 @@ export async function pull(
     }
     const clonedBranchName = getCurrentGitBranch() ?? "main";
 
-    // Fork / dev workspaces force-disable use_individual_branch / group_by_folder
-    // (1:1 with the hub script's inner()). Dev workspaces have a prefix-less id, so
-    // detect them via the parent-workspace id the backend passes.
+    // Throwaway forks force-disable use_individual_branch / group_by_folder
+    // (1:1 with the hub script's inner()). A dev workspace is the exception: it
+    // honors promotion mode and gets per-item wm_deploy/** branches. Dev
+    // workspaces have a prefix-less id, so detect them via the environment label
+    // the backend passes with the deploy.
     const targetIsFork = isForkWorkspace(
       workspace.workspaceId,
       opts.parentWorkspaceId,
     );
-    const useIndividualBranch = targetIsFork
+    const forceOffPromotion = targetIsFork && !opts.devWorkspaceLabel;
+    const useIndividualBranch = forceOffPromotion
       ? false
       : !!opts.useIndividualBranch;
-    const groupByFolder = targetIsFork ? false : !!opts.groupByFolder;
+    const groupByFolder = forceOffPromotion ? false : !!opts.groupByFolder;
 
     // Fork-of-a-fork: when the parent workspace is itself a fork, root the new
     // branch on the parent's fork branch (the content this fork diverged from).
@@ -3445,13 +3450,14 @@ export async function gitDeploy(
     }
   }
 
-  // Fork / dev workspaces force-disable use_individual_branch / group_by_folder
-  // (1:1 with the hub script's inner()): they always sync to their own
-  // wm-fork/<branch>/<id> branch, and — critically — that disabling also
-  // flips the include/promotion derivation below. Dev workspaces have a
-  // prefix-less id, so detect them via the parent-workspace id too.
+  // Throwaway forks force-disable use_individual_branch / group_by_folder (1:1
+  // with the hub script's inner()): they always sync to their own
+  // wm-fork/<branch>/<id> branch, and — critically — that disabling also flips
+  // the include/promotion derivation below. A dev workspace is the exception: it
+  // honors promotion mode, detected via the environment label the backend passes.
   const isFork = isForkWorkspace(opts.workspace ?? "", opts.parentWorkspaceId);
-  const useIndividualBranch = isFork ? false : !!opts.useIndividualBranch;
+  const useIndividualBranch =
+    isFork && !opts.devWorkspaceLabel ? false : !!opts.useIndividualBranch;
 
   // Derive the include filters from the deployed items (replaces the hub
   // script's regexFromPath + per-kind --include-* construction).
@@ -4237,7 +4243,7 @@ export async function push(
           }
         }
         const rules = folderRulesCache.get(folderName)!;
-        const remotePath = change.path.replace(/\.(script|schedule|http_trigger|websocket_trigger|kafka_trigger|nats_trigger|postgres_trigger|mqtt_trigger|sqs_trigger|gcp_trigger|azure_trigger|email_trigger)\.(yaml|json)$/, "").replace(/(\.flow|__flow)\/flow\.(yaml|json)$/, "").replace(/\.(app|raw_app)(\/app\.(yaml|json))?$/, "");
+        const remotePath = change.path.replace(/\.(script|schedule|http_trigger|websocket_trigger|kafka_trigger|nats_trigger|postgres_trigger|mqtt_trigger|amqp_trigger|sqs_trigger|gcp_trigger|azure_trigger|email_trigger)\.(yaml|json)$/, "").replace(/(\.flow|__flow)\/flow\.(yaml|json)$/, "").replace(/\.(app|raw_app)(\/app\.(yaml|json))?$/, "");
         const relative = remotePath.slice(`f/${folderName}/`.length);
         if (!relative) continue;
         for (const rule of rules) {
@@ -4929,6 +4935,12 @@ export async function push(
                   await wmill.deleteMqttTrigger({
                     workspace: workspaceId,
                     path: removeSuffix(target, ".mqtt_trigger.json"),
+                  });
+                  break;
+                case "amqp_trigger":
+                  await wmill.deleteAmqpTrigger({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".amqp_trigger.json"),
                   });
                   break;
                 case "sqs_trigger":

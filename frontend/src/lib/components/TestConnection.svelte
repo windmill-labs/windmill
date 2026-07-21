@@ -3,15 +3,16 @@
 
 	import { Database, Loader2 } from 'lucide-svelte'
 	import Button from './common/button/Button.svelte'
+	import Tooltip from './meltComponents/Tooltip.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
 	import { tryEvery } from '$lib/utils'
 
 	interface Props {
-		workspaceOverride?: string | undefined;
-		resourceType: string | undefined;
-		args?: Record<string, any> | any;
-		buttonTextOverride?: string | undefined;
+		workspaceOverride?: string | undefined
+		resourceType: string | undefined
+		args?: Record<string, any> | any
+		buttonTextOverride?: string | undefined
 	}
 
 	let {
@@ -19,13 +20,15 @@
 		resourceType,
 		args = {},
 		buttonTextOverride = undefined
-	}: Props = $props();
+	}: Props = $props()
 
 	const scripts: {
 		[key: string]: {
 			code: string
 			lang: string
 			argName: string
+			// Shown as an info tooltip next to the button, e.g. to clarify where the test executes
+			tooltip?: string
 			additionalCheck?: (testResult: CompletedJob) => CompletedJob
 		}
 	} = {
@@ -97,7 +100,9 @@ export async function main(s3: S3) {
 }
 `,
 			lang: 'bun',
-			argName: 's3'
+			argName: 's3',
+			tooltip:
+				'The storage operations of this test run on the Windmill server (the API process), not on the worker. If no access key/secret key is set, the ambient AWS credentials of the server (environment variables, instance role) are used — scripts using this resource directly through an S3 SDK resolve credentials on the worker instead, so results may differ.'
 		},
 		azure_blob: {
 			code: `
@@ -125,7 +130,9 @@ export async function main(s3: S3) {
 }
 `,
 			lang: 'bun',
-			argName: 's3'
+			argName: 's3',
+			tooltip:
+				'The storage operations of this test run on the Windmill server (the API process), not on the worker.'
 		},
 		graphql: {
 			code: '{ __typename }',
@@ -171,7 +178,9 @@ export async function main(bucket: any) {
 }
 `,
 			lang: 'bun',
-			argName: 'bucket'
+			argName: 'bucket',
+			tooltip:
+				"The storage operations of this test run on the Windmill server (the API process). If no credentials are configured, the server's ambient credentials for the configured provider (environment variables, instance role) are used."
 		}
 	}
 
@@ -236,13 +245,20 @@ export async function main(bucket: any) {
 	}
 </script>
 
-{#if Object.keys(scripts).includes(resourceType || '')}
-	<Button spacingSize="sm" size="xs" unifiedSize="md" variant="default" on:click={testConnection}>
-		{#if loading}
-			<Loader2 class="animate-spin mr-2 !h-4 !w-4" />
-		{:else}
-			<Database class="mr-2 !h-4 !w-4" />
+{#if resourceType && Object.keys(scripts).includes(resourceType)}
+	<div class="flex items-center gap-1">
+		<Button spacingSize="sm" size="xs" unifiedSize="md" variant="default" on:click={testConnection}>
+			{#if loading}
+				<Loader2 class="animate-spin mr-2 !h-4 !w-4" />
+			{:else}
+				<Database class="mr-2 !h-4 !w-4" />
+			{/if}
+			{buttonTextOverride ?? 'Test connection'}
+		</Button>
+		{#if scripts[resourceType].tooltip}
+			<Tooltip>
+				{#snippet text()}{scripts[resourceType].tooltip}{/snippet}
+			</Tooltip>
 		{/if}
-		{buttonTextOverride ?? 'Test connection'}
-	</Button>
+	</div>
 {/if}

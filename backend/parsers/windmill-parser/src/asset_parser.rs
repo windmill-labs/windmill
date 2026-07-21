@@ -172,6 +172,7 @@ pub enum TriggerSpec {
     Email,
     Kafka,
     Mqtt,
+    Amqp,
     Nats,
     Postgres,
     Sqs,
@@ -721,26 +722,13 @@ pub fn parse_asset_syntax(s: &str, enable_default_syntax: bool) -> Option<(Asset
     }
     for (prefix, kind) in ASSET_KINDS.iter() {
         if s.starts_with(prefix) {
-            let path = &s[prefix.len()..];
-            // Canonicalize S3 keys to a single asset identity. The SDK object
-            // form (`{ s3: "key" }` / `S3Object(s3="key")`, default storage)
-            // resolves to `s3:///key`, whose path is `/key`, while DuckDB
-            // `s3://key` and `// on s3://key` yield the bare `key`. Strip every
-            // leading slash so the triple-slash default-storage form and the
-            // `s3://storage/key` form share one path — otherwise a TS/Python
-            // writer and a DuckDB reader of the same object become disconnected
-            // nodes in the pipeline graph. Stripping ALL leading slashes (not
-            // just one) keeps the identity stable through URI reconstruction:
-            // `trigger_spec_to_row` rebuilds `s3://<path>`, so a canonical path
-            // must never itself start with `/` or the rebuilt ref would parse
-            // back to a different key. Only leading slashes are touched, so
-            // Hive-partition keys (`s3://b/y=2024/f.parquet`) are untouched.
-            let path = if matches!(kind, AssetKind::S3Object) {
-                path.trim_start_matches('/')
-            } else {
-                path
-            };
-            return Some((*kind, path));
+            // The suffix is kept verbatim. For S3 the path encodes the storage:
+            // `s3://<storage>/<key>`, with an EMPTY storage segment for the
+            // workspace default — so `s3:///key` yields `/key` (leading slash
+            // significant, default storage) while `s3://secondary/key` yields
+            // `secondary/key`. Stripping leading slashes here would conflate a
+            // default-storage object with a named-storage one.
+            return Some((*kind, &s[prefix.len()..]));
         }
     }
     None
@@ -1527,6 +1515,7 @@ fn parse_trigger_spec(s: &str) -> Option<TriggerSpec> {
         ("email", TriggerSpec::Email),
         ("kafka", TriggerSpec::Kafka),
         ("mqtt", TriggerSpec::Mqtt),
+        ("amqp", TriggerSpec::Amqp),
         ("nats", TriggerSpec::Nats),
         ("postgres", TriggerSpec::Postgres),
         ("sqs", TriggerSpec::Sqs),
@@ -1558,52 +1547,43 @@ mod pipeline_annotation_tests {
     use super::*;
 
     #[test]
-    fn s3_key_normalization_unifies_uri_forms() {
-        // A TS/Python SDK write of `{ s3: "exports/x" }` (default storage)
-        // resolves to the URI `s3:///exports/x`, while a DuckDB read of
-        // `s3://exports/x` and the `// on s3://exports/x` trigger form yield the
-        // bare `exports/x`. All three must canonicalize to one asset key so
-        // the writer and reader connect in the pipeline graph.
-        let sdk_write = parse_asset_syntax("s3:///exports/x", false);
-        let duckdb_read = parse_asset_syntax("s3://exports/x", false);
-        assert_eq!(sdk_write, Some((AssetKind::S3Object, "exports/x")));
-        assert_eq!(duckdb_read, Some((AssetKind::S3Object, "exports/x")));
-        assert_eq!(sdk_write, duckdb_read);
+    fn s3_path_keeps_storage_distinction() {
+        // An S3 asset path is `<storage>/<key>` with an empty storage segment
+        // for the workspace default. The default-storage form `s3:///key`
+        // yields `/key` (leading slash significant); the named-storage form
+        // `s3://secondary/key` yields `secondary/key`. The two name DIFFERENT
+        // objects and must never collapse to one identity.
+        assert_eq!(
+            parse_asset_syntax("s3:///exports/x", false),
+            Some((AssetKind::S3Object, "/exports/x"))
+        );
+        assert_eq!(
+            parse_asset_syntax("s3://exports/x", false),
+            Some((AssetKind::S3Object, "exports/x"))
+        );
+        assert_ne!(
+            parse_asset_syntax("s3:///exports/x", false),
+            parse_asset_syntax("s3://exports/x", false)
+        );
 
         // The `// on` trigger annotation goes through the same function.
         assert_eq!(
             parse_asset_syntax("s3:///exports/x", true),
-            parse_asset_syntax("s3://exports/x", true)
+            Some((AssetKind::S3Object, "/exports/x"))
         );
 
-        // Explicit-storage form is unaffected (no leading slash to strip).
         assert_eq!(
-            parse_asset_syntax("s3://mybucket/exports/x", false),
-            Some((AssetKind::S3Object, "mybucket/exports/x"))
+            parse_asset_syntax("s3://secondary_storage/path/to/file.csv", false),
+            Some((AssetKind::S3Object, "secondary_storage/path/to/file.csv"))
         );
 
-        // Hive-partition keys and nested paths under default storage are
-        // preserved verbatim (only leading slashes are stripped).
+        // Hive-partition keys are preserved verbatim.
         assert_eq!(
             parse_asset_syntax("s3:///t/year=2024/month=01/f.parquet", false),
-            Some((AssetKind::S3Object, "t/year=2024/month=01/f.parquet"))
+            Some((AssetKind::S3Object, "/t/year=2024/month=01/f.parquet"))
         );
 
-        // Every leading slash is stripped so a canonical S3 path never starts
-        // with `/`. `S3Object(s3="/x")` resolves to the quad-slash URI
-        // `s3:////x`; the identity must be the bare `x` (not `/x`) so the ref
-        // that `trigger_spec_to_row` rebuilds round-trips back to it.
-        assert_eq!(
-            parse_asset_syntax("s3:////x", false),
-            Some((AssetKind::S3Object, "x"))
-        );
-        assert_eq!(
-            parse_asset_syntax("s3://///deep///", false),
-            Some((AssetKind::S3Object, "deep///"))
-        );
-
-        // Non-S3 kinds keep their leading slash (their paths are workspace-
-        // relative and the slash is significant).
+        // Non-S3 kinds also keep their suffix verbatim.
         assert_eq!(
             parse_asset_syntax("res://f/foo", false),
             Some((AssetKind::Resource, "f/foo"))
@@ -1611,26 +1591,6 @@ mod pipeline_annotation_tests {
         assert_eq!(
             parse_asset_syntax("ducklake://analytics/orders", false),
             Some((AssetKind::Ducklake, "analytics/orders"))
-        );
-    }
-
-    #[test]
-    fn s3_explicit_storage_aliases_default_storage_nested_key() {
-        // Accepted tradeoff of one canonical key: the explicit-storage form
-        // `s3://storage/key` and the default-storage nested-key form
-        // `s3:///storage/key` collapse to the same node `storage/key`, even
-        // though they name different objects. This is a best-effort lineage
-        // graph that does not split the first segment as a storage name; the
-        // collision only happens when a storage config is named to match a
-        // default-storage prefix. Pinned so the aliasing is intentional, not a
-        // latent surprise.
-        assert_eq!(
-            parse_asset_syntax("s3://mybucket/x", false),
-            parse_asset_syntax("s3:///mybucket/x", false)
-        );
-        assert_eq!(
-            parse_asset_syntax("s3://mybucket/x", false),
-            Some((AssetKind::S3Object, "mybucket/x"))
         );
     }
 
@@ -1722,7 +1682,10 @@ mod pipeline_annotation_tests {
         );
         // A non-ASCII body must not panic on a byte offset that is not a char
         // boundary.
-        assert_eq!(split_measure_filter("sum(amount) + π"), ("sum(amount) + π", None));
+        assert_eq!(
+            split_measure_filter("sum(amount) + π"),
+            ("sum(amount) + π", None)
+        );
         assert_eq!(
             split_measure_filter("sum(π) where region = 'π'"),
             ("sum(π)", Some("region = 'π'".to_string()))

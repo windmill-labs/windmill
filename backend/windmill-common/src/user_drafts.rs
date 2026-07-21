@@ -45,6 +45,7 @@ pub enum UserDraftItemKind {
     TriggerKafka,
     TriggerNats,
     TriggerMqtt,
+    TriggerAmqp,
     TriggerSqs,
     TriggerGcp,
     TriggerAzure,
@@ -80,6 +81,7 @@ impl UserDraftItemKind {
             UserDraftItemKind::TriggerKafka => "trigger_kafka",
             UserDraftItemKind::TriggerNats => "trigger_nats",
             UserDraftItemKind::TriggerMqtt => "trigger_mqtt",
+            UserDraftItemKind::TriggerAmqp => "trigger_amqp",
             UserDraftItemKind::TriggerSqs => "trigger_sqs",
             UserDraftItemKind::TriggerGcp => "trigger_gcp",
             UserDraftItemKind::TriggerAzure => "trigger_azure",
@@ -94,7 +96,7 @@ impl UserDraftItemKind {
 
     /// Every variant, for code that must enumerate kinds (e.g. generating
     /// the `draft_only` existence SQL).
-    pub const ALL: [UserDraftItemKind; 25] = [
+    pub const ALL: [UserDraftItemKind; 26] = [
         UserDraftItemKind::Script,
         UserDraftItemKind::Flow,
         UserDraftItemKind::App,
@@ -111,6 +113,7 @@ impl UserDraftItemKind {
         UserDraftItemKind::TriggerKafka,
         UserDraftItemKind::TriggerNats,
         UserDraftItemKind::TriggerMqtt,
+        UserDraftItemKind::TriggerAmqp,
         UserDraftItemKind::TriggerSqs,
         UserDraftItemKind::TriggerGcp,
         UserDraftItemKind::TriggerAzure,
@@ -144,6 +147,7 @@ impl UserDraftItemKind {
             TriggerKafka => Some("kafka_trigger"),
             TriggerNats => Some("nats_trigger"),
             TriggerMqtt => Some("mqtt_trigger"),
+            TriggerAmqp => Some("amqp_trigger"),
             TriggerSqs => Some("sqs_trigger"),
             TriggerGcp => Some("gcp_trigger"),
             TriggerAzure => Some("azure_trigger"),

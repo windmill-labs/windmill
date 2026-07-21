@@ -63,6 +63,7 @@ export const TRIGGER_TYPES = [
   "nats",
   "postgres",
   "mqtt",
+  "amqp",
   "sqs",
   "gcp",
   "azure",
@@ -243,6 +244,8 @@ export async function pushObj(
     await pushTrigger("postgres", workspace, p, befObj, newObj, permissionedAsContext);
   } else if (typeEnding === "mqtt_trigger") {
     await pushTrigger("mqtt", workspace, p, befObj, newObj, permissionedAsContext);
+  } else if (typeEnding === "amqp_trigger") {
+    await pushTrigger("amqp", workspace, p, befObj, newObj, permissionedAsContext);
   } else if (typeEnding === "sqs_trigger") {
     await pushTrigger("sqs", workspace, p, befObj, newObj, permissionedAsContext);
   } else if (typeEnding === "gcp_trigger") {
@@ -335,6 +338,7 @@ export function getTypeStrFromPath(
   | "nats_trigger"
   | "postgres_trigger"
   | "mqtt_trigger"
+  | "amqp_trigger"
   | "sqs_trigger"
   | "gcp_trigger"
   | "azure_trigger"
@@ -419,6 +423,7 @@ export function getTypeStrFromPath(
     typeEnding === "nats_trigger" ||
     typeEnding === "postgres_trigger" ||
     typeEnding === "mqtt_trigger" ||
+    typeEnding === "amqp_trigger" ||
     typeEnding === "sqs_trigger" ||
     typeEnding === "gcp_trigger" ||
     typeEnding === "azure_trigger" ||
