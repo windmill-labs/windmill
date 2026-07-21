@@ -32,8 +32,15 @@ export function setSessionsBetaOptOut(optOut: boolean, target: string) {
 	// mode, which is the honest feedback that the toggle didn't stick.
 	let persisted = true
 	try {
-		if (optOut) localStorage.setItem(OPT_OUT_KEY, '1')
-		else localStorage.removeItem(OPT_OUT_KEY)
+		if (optOut) {
+			localStorage.setItem(OPT_OUT_KEY, '1')
+			// Land with the legacy pane open — on a fresh profile the pane
+			// defaults to closed, and the round-trip must end in a visible chat
+			// (with its reactivation banner), not on a bare workspace page.
+			localStorage.setItem('ai-chat-open', 'true')
+		} else {
+			localStorage.removeItem(OPT_OUT_KEY)
+		}
 	} catch {
 		persisted = false
 	}

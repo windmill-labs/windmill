@@ -18,44 +18,50 @@
 </script>
 
 <!-- Slim footer sharing the Alert info palette (bg/border/text), minus the
-     Alert component's card layout, which is too tall for a one-line bar. -->
+     Alert component's card layout, which is too tall for a one-line bar. The
+     wrapper mirrors the composer column of the hosting chat (wide session
+     layout vs narrow docked pane) so the bar lines up with the input. -->
 <div
-	class="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5 px-2 py-1 {alertClasses.info
-		.bgClass} border-0 text-xs {alertClasses.info.titleClass} shrink-0"
+	class="w-full mx-auto my-1 shrink-0 {variant === 'session' ? 'max-w-3xl px-6' : 'max-w-2xl px-2'}"
 >
-	<InfoIcon size={14} class="shrink-0 {alertClasses.info.iconClass}" />
-	{#if variant === 'session'}
-		<span class="font-medium">AI Sessions is in beta</span>
-		<span>·</span>
-		<Button
-			variant="subtle"
-			size="xs"
-			btnClasses="!text-accent font-medium !py-0.5"
-			href={FEEDBACK_ISSUE_URL}
-			target="_blank"
-			endIcon={{ icon: ExternalLink }}
-		>
-			Give feedback
-		</Button>
-		<span>·</span>
-		<Button
-			variant="subtle"
-			size="xs"
-			btnClasses="!py-0.5"
-			onclick={() => setSessionsBetaOptOut(true, `${base}/`)}
-		>
-			Switch back to legacy chat
-		</Button>
-	{:else}
-		<span class="font-medium">Try AI Sessions (beta)</span>
-		<span>·</span>
-		<Button
-			variant="subtle"
-			size="xs"
-			btnClasses="!py-0.5"
-			onclick={() => setSessionsBetaOptOut(false, `${base}/sessions`)}
-		>
-			Activate
-		</Button>
-	{/if}
+	<div
+		class="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5 px-3 py-1 rounded-md {alertClasses
+			.info.bgClass} border-0 text-xs {alertClasses.info.titleClass}"
+	>
+		<InfoIcon size={14} class="shrink-0 {alertClasses.info.iconClass}" />
+		{#if variant === 'session'}
+			<span class="font-medium">AI Sessions is in beta</span>
+			<span>·</span>
+			<Button
+				variant="subtle"
+				size="xs"
+				btnClasses="!text-accent font-medium !py-0.5"
+				href={FEEDBACK_ISSUE_URL}
+				target="_blank"
+				endIcon={{ icon: ExternalLink }}
+			>
+				Give feedback
+			</Button>
+			<span>·</span>
+			<Button
+				variant="subtle"
+				size="xs"
+				btnClasses="!py-0.5"
+				onclick={() => setSessionsBetaOptOut(true, `${base}/`)}
+			>
+				Switch back to legacy chat
+			</Button>
+		{:else}
+			<span class="font-medium">Try AI Sessions (beta)</span>
+			<span>·</span>
+			<Button
+				variant="subtle"
+				size="xs"
+				btnClasses="!py-0.5"
+				onclick={() => setSessionsBetaOptOut(false, `${base}/sessions`)}
+			>
+				Activate
+			</Button>
+		{/if}
+	</div>
 </div>
