@@ -70,7 +70,8 @@ function startClient(
 			settled = true
 			clearTimeout(timer)
 			if (!v) {
-				if (client) void stopClient({ server, client, webSocket, pushedDiagnostics: Promise.resolve() })
+				if (client)
+					void stopClient({ server, client, webSocket, pushedDiagnostics: Promise.resolve() })
 				try {
 					webSocket?.close()
 				} catch {}
@@ -188,9 +189,14 @@ function lspDiagnosticToMarker(d: any, uri: Uri): meditor.IMarker {
  *
  * Asked of every server rather than only those advertising diagnosticProvider up front,
  * because pyright registers that capability dynamically after initialize. A server that
- * does not support the request simply answers with an error.
+ * does not support the request answers with an error, which is indistinguishable here from
+ * a genuine failure — hence `undefined` rather than an empty list, so the caller can fall
+ * back to the push channel instead of concluding the document is clean.
  */
-async function pullDiagnostics(started: StartedClient, uri: Uri): Promise<meditor.IMarker[]> {
+async function pullDiagnostics(
+	started: StartedClient,
+	uri: Uri
+): Promise<meditor.IMarker[] | undefined> {
 	try {
 		const report: any = await started.client.sendRequest('textDocument/diagnostic', {
 			textDocument: { uri: uri.toString() }
@@ -199,7 +205,7 @@ async function pullDiagnostics(started: StartedClient, uri: Uri): Promise<medito
 		return items.map((d: any) => lspDiagnosticToMarker(d, uri))
 	} catch (e) {
 		console.error(`headlessLsp: ${started.server.name} diagnostic request failed`, e)
-		return []
+		return undefined
 	}
 }
 
@@ -273,12 +279,19 @@ export async function lintWithLsp(req: {
 				const items = await withDeadline(
 					(async () => {
 						const pulled = await pullDiagnostics(s, uri)
-						// A server that answers with nothing may be a publisher instead, so give
-						// its push a bounded chance before concluding the document is clean.
-						if (pulled.length === 0) {
-							await withDeadline(s.pushedDiagnostics, PUSH_FALLBACK_MS, undefined)
+						// No conclusive pull (unsupported, failed, or empty) may mean the server
+						// publishes instead, so give its push a bounded chance.
+						if (pulled === undefined || pulled.length === 0) {
+							const pushed = await withDeadline(
+								s.pushedDiagnostics.then(() => true),
+								PUSH_FALLBACK_MS,
+								false
+							)
+							// A failed pull that also never published told us nothing: unresolved,
+							// not clean.
+							if (pulled === undefined && !pushed) return undefined
 						}
-						return pulled
+						return pulled ?? []
 					})(),
 					timeoutMs,
 					undefined

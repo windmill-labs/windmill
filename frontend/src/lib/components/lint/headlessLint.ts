@@ -182,8 +182,14 @@ async function lintOne(
 		)
 	}
 
-	await waitForMarkersToSettle(uri, editorLang, timeoutMs)
-	return { ...readModelMarkers(uri), contentMismatch }
+	const settled = await waitForMarkersToSettle(uri, editorLang, timeoutMs)
+	return {
+		...readModelMarkers(uri),
+		contentMismatch,
+		// A worker that never came up leaves the markers empty for lack of analysis; say so
+		// rather than let an empty set read as clean.
+		...(settled ? {} : { unavailableServers: ['the TypeScript checker'] })
+	}
 }
 
 async function acquireTypes(req: HeadlessLintRequest, uriString: string): Promise<void> {
@@ -248,15 +254,23 @@ async function countExpectedMarkers(uri: Uri, editorLang: string): Promise<numbe
 // Ask the worker how many diagnostics it has and wait for that many markers to be
 // published. Clean code never fires a marker-change event, so there is no event to wait
 // on and a count is the only signal that validation has actually run.
-async function waitForMarkersToSettle(uri: Uri, editorLang: string, timeoutMs: number) {
+// Returns false when the worker could not be queried at all: the markers then read as
+// empty for lack of analysis, not because the code is clean, and the caller must not
+// report that as a clean result.
+async function waitForMarkersToSettle(
+	uri: Uri,
+	editorLang: string,
+	timeoutMs: number
+): Promise<boolean> {
 	const expected = await countExpectedMarkers(uri, editorLang)
-	if (expected === undefined) return
+	if (expected === undefined) return false
 	const deadline = Date.now() + timeoutMs
 	while (Date.now() < deadline) {
 		const published = meditor.getModelMarkers({ resource: uri, owner: editorLang }).length
-		if (published === expected) return
+		if (published === expected) return true
 		await new Promise((r) => setTimeout(r, 50))
 	}
+	return true
 }
 
 const APP_LINTABLE_FILE = /\.(tsx?|jsx?)$/
@@ -265,6 +279,12 @@ const APP_DECLARATION_FILE = /\.d\.ts$/
 export interface AppFileLintResult {
 	filePath: string
 	result: ScriptLintResult
+}
+
+export interface AppFrontendLintResult {
+	files: AppFileLintResult[]
+	/** A file could not be type-checked (worker unavailable); its clean read is not trustworthy. */
+	incomplete: boolean
 }
 
 /**
@@ -280,7 +300,7 @@ export async function lintAppFrontend(req: {
 	files: Record<string, string>
 	workspace: string
 	timeoutMs?: number
-}): Promise<AppFileLintResult[]> {
+}): Promise<AppFrontendLintResult> {
 	setMonacoTypescriptOptions()
 	await initializeVscode('headlessLint')
 	keepModelAroundToAvoidDisposalOfWorkers()
@@ -295,7 +315,11 @@ export async function lintAppFrontend(req: {
 		const uri = Uri.parse(uriString)
 		const existing = meditor.getModel(uri)
 		if (existing) {
-			if (existing.getValue() !== content) existing.setValue(content)
+			// An attached model is a buffer some editor is showing; never overwrite it, the
+			// same rule lintOne follows.
+			if (!existing.isAttachedToEditor() && existing.getValue() !== content) {
+				existing.setValue(content)
+			}
 		} else {
 			meditor.createModel(content, 'typescript', uri)
 			created.push(uriString)
@@ -314,13 +338,15 @@ export async function lintAppFrontend(req: {
 		)
 
 		const out: AppFileLintResult[] = []
+		let incomplete = false
 		for (const { filePath, uriString } of reportable) {
 			const uri = Uri.parse(uriString)
-			await waitForMarkersToSettle(uri, 'typescript', timeoutMs)
+			const settled = await waitForMarkersToSettle(uri, 'typescript', timeoutMs)
+			if (!settled) incomplete = true
 			const result = readModelMarkers(uri)
 			if (result.errorCount > 0 || result.warningCount > 0) out.push({ filePath, result })
 		}
-		return out
+		return { files: out, incomplete }
 	} finally {
 		for (const uriString of created) {
 			const model = meditor.getModel(Uri.parse(uriString))

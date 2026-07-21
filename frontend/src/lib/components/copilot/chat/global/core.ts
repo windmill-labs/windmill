@@ -4077,37 +4077,51 @@ async function checkAppFrontend(path: string, ctx: WriteDraftCtx): Promise<strin
 		})
 	])
 
+	// The type check reports nothing when the whole call rejected, and separately flags when
+	// some files could not be checked though others were — both mean "not a clean bill".
+	const typeCheckFailed = fileResults === undefined
+	const files = fileResults?.files ?? []
+	const partial = fileResults?.incomplete ?? false
+
 	const sections: string[] = []
 	if (buildError) {
 		sections.push(`❌ The app frontend failed to build:\n\n${buildError}`)
 	}
-	if (fileResults === undefined) {
+	if (typeCheckFailed) {
 		sections.push('⚠️ The frontend could not be type-checked, so type errors may be missing.')
-	} else if (fileResults.length > 0) {
-		const total = fileResults.reduce((n, f) => n + f.result.errorCount + f.result.warningCount, 0)
-		sections.push(
-			`❌ **${total} problem(s)** found by the type checker:\n` +
-				fileResults
-					.map(
-						(f) =>
-							`\n**${f.filePath}**\n` +
-							[...f.result.errors, ...f.result.warnings]
-								.map((m) => `- Line ${m.startLineNumber}: ${m.message}`)
-								.join('\n')
-					)
-					.join('\n')
-		)
+	} else {
+		if (files.length > 0) {
+			const total = files.reduce((n, f) => n + f.result.errorCount + f.result.warningCount, 0)
+			sections.push(
+				`❌ **${total} problem(s)** found by the type checker:\n` +
+					files
+						.map(
+							(f) =>
+								`\n**${f.filePath}**\n` +
+								[...f.result.errors, ...f.result.warnings]
+									.map((m) => `- Line ${m.startLineNumber}: ${m.message}`)
+									.join('\n')
+						)
+						.join('\n')
+			)
+		}
+		if (partial) {
+			sections.push('⚠️ Some files could not be type-checked, so type errors may be missing.')
+		}
 	}
 	if (sections.length === 0) {
 		sections.push('✅ The app frontend builds and type-checks with no errors.')
 	}
 
-	const failed = buildError !== undefined || (fileResults?.length ?? 0) > 0
+	const hasProblems = buildError !== undefined || files.length > 0
+	const inconclusive = typeCheckFailed || partial
 	const response = sections.join('\n\n')
 	toolCallbacks.setToolStatus(toolId, {
-		content: failed
+		content: hasProblems
 			? `Frontend of app "${path}" has problems`
-			: `Frontend of app "${path}" is clean`,
+			: inconclusive
+				? `Frontend of app "${path}" could not be fully checked`
+				: `Frontend of app "${path}" is clean`,
 		result: response
 	})
 	return response
@@ -4148,7 +4162,10 @@ async function getLintErrors(args: LintTargetArgs, ctx: WriteDraftCtx): Promise<
 			? `${result.errorCount} error(s)`
 			: result.warningCount > 0
 				? `${result.warningCount} warning(s)`
-				: 'no issues'
+				: result.unavailableServers?.length
+					? // No errors, but a checker didn't answer — not the same as clean.
+						'inconclusive'
+					: 'no issues'
 	let response = formatScriptLintResult(result)
 	if (result.unavailableServers?.length) {
 		response += `\n\nNote: the ${result.unavailableServers.join(' and ')} language server${result.unavailableServers.length > 1 ? 's did' : ' did'} not respond, so some problems may not be listed. Treat a clean result as inconclusive.`
