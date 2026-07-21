@@ -495,6 +495,16 @@ describe('fork mode', () => {
 		expect(fetchWorkspaceComparisonMeta).toHaveBeenCalledTimes(2)
 	})
 
+	it('reports a swallowed side fetch as an error, never as a fabricated diff', async () => {
+		mockComparison([comparisonDiff()])
+		// The shared reader returns {} for ANY failed fetch — with both sides
+		// "empty" a real diff would read as parity, one side as an addition.
+		vi.mocked(getItemValue).mockResolvedValue({})
+		const index = await getForkDiffIndex(FORK, PARENT)
+		expect(index.entries[0].status).toBe('error')
+		expect(index.entries[0].errorMessage).toContain('failed to read')
+	})
+
 	it('never joins a fork reconciliation started under a previous account', async () => {
 		usersWorkspaceStore.set({ email: 'fork-a@x.dev' } as any)
 		mockComparison([comparisonDiff({ path: 'f/a/fresh' })])

@@ -967,6 +967,13 @@ async function fetchForkSideValue(
 		}
 	}
 	const value = await getItemValue(kind as DeployKind, path, workspace)
+	// getItemValue reads `{}` for ANY failed fetch ("item may not exist") — but
+	// a fork side is only fetched when the comparison lists it as existing, so
+	// an empty read is a transient failure. Erroring (surfaced as a fetch-error
+	// entry) beats fabricating a one-sided or matching diff out of it.
+	if (value == null || (typeof value === 'object' && Object.keys(value).length === 0)) {
+		throw new Error(`failed to read ${kind} ${path} in ${workspace}`)
+	}
 	if ((kind === 'app' || kind === 'raw_app') && value !== null && typeof value === 'object') {
 		const row = value as Record<string, unknown>
 		// Raw apps: project onto the flat files/runnables draft shape so per-file

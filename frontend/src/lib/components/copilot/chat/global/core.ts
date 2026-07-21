@@ -5271,14 +5271,13 @@ async function diffWorkspaceItem(
 		await UserDraftDbSyncer.flush(query, { honorAutosaveToggle: true })
 	}
 	expireWorkspaceDiffList(workspace)
-	let flushCaveat = flushQueries.some((query) => UserDraftDbSyncer.getConflict(query).conflict)
-		? 'Warning: the draft has a conflicting newer version on the server; this diff shows the persisted draft, which may not include the latest editor edits.\n\n'
-		: ''
+	const hasConflict = flushQueries.some((query) => UserDraftDbSyncer.getConflict(query).conflict)
 
-	// When the latest edits never reached the server (auto-save off, or the
-	// save failed), the persisted state is stale: diff against the in-memory
-	// editor value instead — read-only, nothing gets persisted — and bypass
-	// the snapshot cache, which must only ever hold persisted state.
+	// When the latest edits never reached the server (auto-save off, the save
+	// failed, or it conflicted with a newer server version), the persisted
+	// state is stale: diff against the in-memory editor value instead —
+	// read-only, nothing gets persisted — and bypass the snapshot cache,
+	// which must only ever hold persisted state.
 	let flushSkipped = false
 	let localValue: unknown
 	let localKind: UserDraftItemKind = itemKind
@@ -5286,7 +5285,8 @@ async function diffWorkspaceItem(
 	for (const query of flushQueries) {
 		const skipped =
 			UserDraftDbSyncer.hasUnsavedDisabledChanges(query) ||
-			UserDraftDbSyncer.getState(query).state === 'failed'
+			UserDraftDbSyncer.getState(query).state === 'failed' ||
+			UserDraftDbSyncer.getConflict(query).conflict
 		if (!skipped) continue
 		flushSkipped = true
 		const cell = readLocalDraftCellByKind(workspace, query.itemKind, query.path)
@@ -5298,6 +5298,11 @@ async function diffWorkspaceItem(
 		}
 	}
 
+	let flushCaveat = hasConflict
+		? localValue !== undefined
+			? "Warning: the draft conflicts with a newer server version; this diff shows YOUR local editor value, not the server's. Resolve the conflict in the editor before deploying.\n\n"
+			: 'Warning: the draft has a conflicting newer version on the server; this diff shows the persisted draft, which may not include the latest editor edits.\n\n'
+		: ''
 	let patch: string
 	let noDeployed: boolean
 	let files: Record<string, DiffFileView> | undefined
