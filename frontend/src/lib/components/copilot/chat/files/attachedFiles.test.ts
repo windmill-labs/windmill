@@ -536,6 +536,15 @@ describe('AttachedFilesStore', () => {
 		expect(await (store.resolve('notes.md')!.file as Blob).text()).toBe('message content\n')
 	})
 
+	it('resolve accepts the printed composite label verbatim', async () => {
+		// Rosters and search hits print `name (file id: x)`; models echo references
+		// verbatim, so the printed form must resolve.
+		const f = mf('notes.md', 'message content\n')
+		store.registerMessageFiles([f])
+		await settle(store)
+		expect(store.resolve(`notes.md (file id: ${f.id})`)?.id).toBe(f.id)
+	})
+
 	it('syncMessageScoped reconciles rows to the transcript references', async () => {
 		store.syncMessageScoped([mf('a.md', 'aaa\n'), mf('b.md', 'bbb\n')])
 		await settle(store)

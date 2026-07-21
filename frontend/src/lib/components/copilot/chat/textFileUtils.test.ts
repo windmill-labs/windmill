@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { attachedTextFileId, foldIntoDraft, uniqueDraftFileName } from './textFileUtils'
+import {
+	attachedTextFileId,
+	foldIntoDraft,
+	textLineCount,
+	uniqueDraftFileName
+} from './textFileUtils'
 
 describe('attachedTextFileId', () => {
 	it('is deterministic and pinned — persisted transcripts depend on this exact value', () => {
@@ -47,8 +52,23 @@ describe('foldIntoDraft', () => {
 		const current = [{ name: 'a.md', content: 'old', id: attachedTextFileId('a.md', 'old') }]
 		const commit = foldIntoDraft(current, [{ name: 'a.md', content: 'new' }])
 		expect(commit).toEqual([
-			{ name: 'a (2).md', content: 'new', id: attachedTextFileId('a (2).md', 'new') }
+			{
+				name: 'a (2).md',
+				content: 'new',
+				id: attachedTextFileId('a (2).md', 'new'),
+				sourceName: 'a.md'
+			}
 		])
+	})
+
+	it('keeps a real suffix-named file that is not a rename of its base name', () => {
+		// `report (2).md` here is the user's actual filename, not a courtesy rename
+		// of `report.md` — identical content must not collapse the two.
+		const current = [
+			{ name: 'report (2).md', content: 'same', id: attachedTextFileId('report (2).md', 'same') }
+		]
+		const commit = foldIntoDraft(current, [{ name: 'report.md', content: 'same' }])
+		expect(commit.map((f) => f.name)).toEqual(['report.md'])
 	})
 
 	it('dedupes an identical re-drop even after its first copy was courtesy-renamed', () => {
@@ -66,5 +86,15 @@ describe('foldIntoDraft', () => {
 
 		const second = foldIntoDraft([...current, ...first], [{ name: 'notes.md', content: 'new' }])
 		expect(second).toEqual([])
+	})
+})
+
+describe('textLineCount', () => {
+	it('matches read_file numbering: 0 for empty, no phantom trailing line', () => {
+		expect(textLineCount('')).toBe(0)
+		expect(textLineCount('a')).toBe(1)
+		expect(textLineCount('a\n')).toBe(1)
+		expect(textLineCount('a\nb')).toBe(2)
+		expect(textLineCount('a\nb\n')).toBe(2)
 	})
 })

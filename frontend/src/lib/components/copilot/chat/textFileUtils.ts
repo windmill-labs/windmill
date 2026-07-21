@@ -17,6 +17,11 @@ export type AttachedTextFile = {
 	 * and may collide freely. Absent only on transcripts persisted before ids
 	 * existed; hydrated (deterministically, from the same hash) on chat load. */
 	id?: string
+	/** Original filename before a courtesy rename (set only when one happened).
+	 * Lets duplicate detection recognize a re-drop of the same source file without
+	 * inferring provenance from the display name — a user's real `report (2).md`
+	 * must never be mistaken for a rename of `report.md`. */
+	sourceName?: string
 	content: string
 }
 
@@ -44,12 +49,27 @@ export const MAX_TEXT_FILE_BYTES = 1_000_000
  */
 export const MAX_CONVERSATION_FILE_BYTES = 5_000_000
 
-/** Read a file for message attachment. Returns null when the sniff says binary.
+/** Read a file for message attachment. Returns null when the sniff says binary
+ * or the content exceeds MAX_TEXT_FILE_BYTES — the cap is enforced here at the
+ * reader, not only at callers' pre-checks, so no ingestion path can persist an
+ * oversized attachment (decoding can also grow past the raw size when malformed
+ * UTF-8 expands to replacement characters).
  * The id is minted by the composer after name finalization (a same-name clash in
  * one draft gets a courtesy rename first, and the id hashes the final name). */
 export async function fileToAttachedTextFile(file: File): Promise<AttachedTextFile | null> {
+	if (file.size > MAX_TEXT_FILE_BYTES) return null
 	if (!(await isTextFile(file))) return null
-	return { name: file.name, content: await file.text() }
+	const content = await file.text()
+	if (textByteLength(content) > MAX_TEXT_FILE_BYTES) return null
+	return { name: file.name, content }
+}
+
+/** Line count as the file tools report it (fileEngine.buildLineIndex): an empty
+ * file has 0 lines and a trailing newline is not an extra line. The prompt must
+ * advertise the same number or the model requests invalid read_file ranges. */
+export function textLineCount(content: string): number {
+	if (content === '') return 0
+	return content.split('\n').length - (content.endsWith('\n') ? 1 : 0)
 }
 
 // cyrb53 (public-domain hash by bryc) — chosen over crypto.subtle because it is
@@ -104,13 +124,12 @@ export function foldIntoDraft(
 	const commit: AttachedTextFile[] = []
 	for (const f of reads) {
 		const draft = [...current, ...commit]
-		// "Same file dropped twice" means same original (name, content) — but a
-		// committed copy may have been courtesy-renamed, losing the original name,
-		// so also match entries whose suffix-stripped base name equals the read's.
+		// "Same file dropped twice" means same original (name, content) — a
+		// committed copy may have been courtesy-renamed, so its original name is
+		// carried in sourceName rather than inferred from the display name (a
+		// user's real `report (2).md` is not a rename of `report.md`).
 		if (
-			draft.some(
-				(x) => x.content === f.content && (x.name === f.name || draftBaseName(x.name) === f.name)
-			)
+			draft.some((x) => x.content === f.content && (x.name === f.name || x.sourceName === f.name))
 		) {
 			continue
 		}
@@ -118,16 +137,14 @@ export function foldIntoDraft(
 			f.name,
 			draft.map((x) => x.name)
 		)
-		commit.push({ name, content: f.content, id: attachedTextFileId(name, f.content) })
+		commit.push({
+			name,
+			content: f.content,
+			id: attachedTextFileId(name, f.content),
+			...(name !== f.name ? { sourceName: f.name } : {})
+		})
 	}
 	return commit
-}
-
-/** Undo one courtesy-rename suffix: `notes (2).md` → `notes.md`, `Makefile (2)` →
- * `Makefile`. Names without a suffix pass through unchanged. */
-function draftBaseName(name: string): string {
-	const m = name.match(/^(.*) \(\d+\)(\.[^.]*)?$/)
-	return m ? m[1] + (m[2] ?? '') : name
 }
 
 /** Courtesy rename for a same-name clash within one message draft: `notes.md` →

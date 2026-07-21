@@ -48,7 +48,7 @@ import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/d
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
 import type { RawAppDomQuery } from '$lib/components/raw_apps/rawAppDom'
 import { dataUrlToImagePart, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
-import type { AttachedTextFile } from '../textFileUtils'
+import { textLineCount, type AttachedTextFile } from '../textFileUtils'
 import { modelSupportsVision } from '../../modelConfig'
 import { tryGetCurrentModel } from '$lib/aiStore'
 import { isChromiumBrowser } from '$lib/utils'
@@ -5533,7 +5533,9 @@ export function prepareGlobalUserMessage(
 		content +=
 			'The user attached these files to this message. Their content is NOT included here — read it with `read_file` (or scan it with `search_files`), passing the file id, before answering questions about it.\n'
 		for (const f of files) {
-			const lines = f.content.split('\n').length
+			// textLineCount matches read_file's numbering — a mismatch would make the
+			// model request line ranges past the end.
+			const lines = textLineCount(f.content)
 			// The id is the durable reference (names may repeat across messages);
 			// absent only on legacy pre-id transcripts, where the name resolves.
 			const ref = f.id ? `${f.name} (file id: ${f.id})` : f.name

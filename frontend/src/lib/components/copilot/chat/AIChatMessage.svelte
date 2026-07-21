@@ -75,9 +75,16 @@
 		onkeydown={() => {}}
 	>
 		<!-- One wrapping row for every badge on the message: selected context / DOM
-		     picks and attached files, side by side. -->
+		     picks and attached files, side by side. Clicks stay inside the row: the
+		     wrapper's click opens edit mode, which would unmount a badge's preview
+		     popover the instant it opens. -->
 		{#if message.role === 'user' && editingMessageIndex !== messageIndex && ((message.contextElements?.length ?? 0) > 0 || (message.files?.length ?? 0) > 0)}
-			<div class="flex flex-row flex-wrap gap-1 mb-1 px-2">
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div
+				class="flex flex-row flex-wrap gap-1 mb-1 px-2"
+				onclick={(e) => e.stopPropagation()}
+				onkeydown={(e) => e.stopPropagation()}
+			>
 				{#each message.contextElements ?? [] as element}
 					<ContextElementBadge contextElement={element} compact />
 				{/each}
