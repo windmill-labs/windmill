@@ -985,8 +985,25 @@ class TestGitSyncAutoPull(GitSyncTestBase):
                 "settings": {"include_type": ["script"], "include_path": ["**"]},
             }],
         })
+        root = self._client._workspace
+        # Only one dev workspace per root, so clear any left attached by a prior
+        # test before attaching ours, and detach ours afterward so we don't leak.
+        existing = self._client._client.get(
+            f"/api/w/{root}/workspaces/get_dev_workspace"
+        )
+        if existing.status_code == 200 and existing.json():
+            self._client._client.post(
+                f"/api/w/{root}/workspaces/detach_dev_workspace",
+                json={"dev_workspace_id": existing.json()["id"]},
+            )
+        self.addCleanup(
+            lambda: self._client._client.post(
+                f"/api/w/{root}/workspaces/detach_dev_workspace",
+                json={"dev_workspace_id": dev_id},
+            )
+        )
         attach = self._client._client.post(
-            f"/api/w/{self._client._workspace}/workspaces/attach_dev_workspace",
+            f"/api/w/{root}/workspaces/attach_dev_workspace",
             json={"dev_workspace_id": dev_id, "dev_workspace_label": "dev"},
         )
         self.assertEqual(
