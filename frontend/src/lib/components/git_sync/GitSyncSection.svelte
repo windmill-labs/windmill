@@ -74,6 +74,10 @@
 	// Derived state for repository categorization
 	const primarySync = $derived(gitSyncContext?.getPrimarySyncRepository() || null)
 	const primaryPromotion = $derived(gitSyncContext?.getPrimaryPromotionRepository() || null)
+	// A dev workspace reuses the single repo it inherited from prod: whether it's
+	// currently in sync or promotion mode, it's the same one card, toggled between
+	// the two — so a dev never configures a separate promotion repo.
+	const devPrimaryRepo = $derived(isDevWorkspace ? (primarySync ?? primaryPromotion) : null)
 	const secondarySync = $derived(gitSyncContext?.getSecondarySyncRepositories() || [])
 	const secondaryPromotion = $derived(gitSyncContext?.getSecondaryPromotionRepositories() || [])
 
@@ -144,16 +148,17 @@
 			<GitSyncRepositoryCard
 				variant="primary-sync"
 				mode="sync"
-				idx={primarySync?.idx ?? null}
-				repository={primarySync?.repo ?? null}
+				idx={(isDevWorkspace ? devPrimaryRepo : primarySync)?.idx ?? null}
+				repository={(isDevWorkspace ? devPrimaryRepo : primarySync)?.repo ?? null}
 				onAdd={() => gitSyncContext.addSyncRepository()}
 				isCollapsible={false}
-				showEmptyState={primarySync?.repo === null}
+				showEmptyState={(isDevWorkspace ? devPrimaryRepo : primarySync)?.repo == null}
+				devPromotion={isDevWorkspace}
 			/>
 
 			{#if $enterpriseLicense}
-				<!-- Secondary Sync Repositories (EE only) -->
-				{#if primarySync && !primarySync.repo?.isUnsavedConnection}
+				<!-- Secondary Sync Repositories (EE only; a dev workspace has a single inherited repo) -->
+				{#if primarySync && !primarySync.repo?.isUnsavedConnection && !isDevWorkspace}
 					{#if secondarySync.length > 0 || secondarySyncExpanded}
 						<div class="mt-4">
 							<button
@@ -215,8 +220,9 @@
 					{/if}
 				{/if}
 
-				<!-- Primary Promotion Repository (EE only; dev workspaces, not throwaway forks) -->
-				{#if showPromotion}
+				<!-- Primary Promotion Repository (EE only; roots only — a dev promotes via the
+					toggle on its single inherited repo, not a separate promotion repo) -->
+				{#if showPromotion && !isDevWorkspace}
 					<div class="mt-6">
 						<GitSyncRepositoryCard
 							variant="primary-promotion"

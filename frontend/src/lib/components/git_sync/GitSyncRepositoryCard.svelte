@@ -33,7 +33,8 @@
 		repository = null,
 		onAdd = null,
 		isCollapsible = true,
-		showEmptyState = false
+		showEmptyState = false,
+		devPromotion = false
 	} = $props<{
 		idx?: number | null
 		isSecondary?: boolean
@@ -44,6 +45,9 @@
 		onAdd?: (() => void) | null
 		isCollapsible?: boolean
 		showEmptyState?: boolean
+		// Dev workspace: this is the single inherited repo, and promotion is a
+		// toggle on it (reuse prod's repo) rather than a separately-configured one.
+		devPromotion?: boolean
 	}>()
 
 	const gitSyncContext = getGitSyncContext()
@@ -89,6 +93,20 @@
 	}
 	function setPromotionOpenPrs(v: boolean) {
 		if (repo) repo.promotion_open_prs = v
+	}
+	// Dev-workspace promotion toggle: flips the inherited repo between sync mode
+	// (deploys to the dev branch) and promotion mode (per-item wm_deploy/** PRs to
+	// prod). Persists immediately — it's a mode switch on an already-saved repo.
+	async function setDevPromotion(v: boolean) {
+		if (!repo || idx === null) return
+		repo.use_individual_branch = v
+		if (!v) repo.group_by_folder = false
+		await gitSyncContext.saveRepository(idx)
+	}
+	async function setGroupByFolder(v: boolean) {
+		if (!repo || idx === null) return
+		repo.group_by_folder = v
+		await gitSyncContext.saveRepository(idx)
 	}
 
 	let targetBranch = $state<string | undefined>(undefined) // Default to main, will be updated when resource is available
@@ -596,6 +614,32 @@
 									Push to repo
 								</Button>
 							</div>
+							{#if devPromotion && !repo.isUnsavedConnection}
+								<div class="mt-2">
+									<Toggle
+										checked={repo.use_individual_branch ?? false}
+										options={{
+											right: 'Promote to prod via Git',
+											rightTooltip:
+												"Each deploy pushes a per-item wm_deploy/** branch to prod's repository and opens a pull request into its tracked branch, instead of committing to the dev branch. Reuses prod's repository — no separate setup."
+										}}
+										on:change={(e) => setDevPromotion(e.detail)}
+									/>
+									{#if repo.use_individual_branch}
+										<div class="mt-2">
+											<Toggle
+												checked={repo.group_by_folder ?? false}
+												options={{
+													right: 'One pull request per folder',
+													rightTooltip:
+														"Group a folder's items into a single wm_deploy/** branch and pull request, instead of one per item."
+												}}
+												on:change={(e) => setGroupByFolder(e.detail)}
+											/>
+										</div>
+									{/if}
+								</div>
+							{/if}
 							{#if repoMode === 'promotion' && isGithubApp}
 								<div class="mt-2">
 									<Toggle
@@ -752,22 +796,22 @@
 								{#if !isGithubApp && !loadingResourceInfo}
 									<div class="mt-2">
 										<Alert type="info" title="Instant pull recommended" size="xs">
-											Pull for this repository checks the tracked branch about every minute;
-											longer gaps make drift and merge conflicts more likely. For instant pull,
-											connect the repository through the
+											Pull for this repository checks the tracked branch about every minute; longer
+											gaps make drift and merge conflicts more likely. For instant pull, connect the
+											repository through the
 											<a
 												href="https://www.windmill.dev/docs/integrations/git_repository#github-app"
 												target="_blank"
 												class="text-blue-500 hover:underline">GitHub App</a
 											>
-											(which also lets Windmill manage pull requests), or push changes into
-											Windmill with the
+											(which also lets Windmill manage pull requests), or push changes into Windmill
+											with the
 											<a
 												href="https://www.windmill.dev/docs/advanced/git_sync#github-actions"
 												target="_blank"
 												class="text-blue-500 hover:underline">sync GitHub workflow</a
-											>. If you already push changes with a GitHub Action, keep either the
-											Action or automatic pull, not both, so they don't fight over deploys.
+											>. If you already push changes with a GitHub Action, keep either the Action or
+											automatic pull, not both, so they don't fight over deploys.
 										</Alert>
 									</div>
 								{/if}
