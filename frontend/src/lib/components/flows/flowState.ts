@@ -78,20 +78,20 @@ async function mapFlowModule(
 	}
 
 	if (value.type === 'aiagent') {
-		// A linked step's tools come from the resource (its own `tools` is empty); resolve them so
-		// the graph can render tool nodes and their input schemas load like any other tool.
 		const agentRef = (value as { agent?: string }).agent
-		const tools = agentRef
-			? await resolveLinkedAgentTools(agentRef, workspace)
-			: (value.tools ?? [])
 		if (agentRef) {
-			setLinkedAgentTools(scope, flowModule.id, tools)
+			// A linked step's tools come from the resource (its own `tools` is empty); resolve them so
+			// the graph can render its tool nodes. They are display-only (their inputs are edited in
+			// the step panel, which infers schemas itself), so no per-tool module state is loaded —
+			// resource tool ids are not flow-unique and must not key into the flow state.
+			setLinkedAgentTools(scope, flowModule.id, await resolveLinkedAgentTools(agentRef, workspace))
+		} else {
+			await Promise.all(
+				(value.tools ?? []).filter(isFlowModuleTool).map(async (tool) => {
+					modulesState[tool.id] = await loadFlowModuleState(agentToolToFlowModule(tool), workspace)
+				})
+			)
 		}
-		await Promise.all(
-			tools.filter(isFlowModuleTool).map(async (tool) => {
-				modulesState[tool.id] = await loadFlowModuleState(agentToolToFlowModule(tool), workspace)
-			})
-		)
 	}
 
 	if (value.type === 'identity') {

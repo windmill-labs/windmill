@@ -18,15 +18,18 @@ every workspace via the standard cached-resource-type sync, like other built-in 
   provider `$res:` credentials resolve automatically).
 - The step keeps only the flow-local inputs (`user_message`, `user_attachments`) in its own
   `input_transforms`; the brain and tools stay in the resource (read-only in the step).
-- A tool's `input_transforms` reference the *authoring* flow, so `tool_inputs` rebinds each
-  tool's inputs to the host flow's context; at runtime these overlay onto the matching tools'
-  transforms.
+- Saving an agent strips flow-context tool inputs (`flow_input`/`results` expressions become
+  AI-filled), so the resource never carries references to its authoring flow. Each host flow
+  rebinds what it needs: `tool_inputs` stores per-tool overrides (a diff from the resource
+  tool's own transforms) that overlay onto the matching tools at runtime.
 
 In the flow editor, the AI agent step's **Step Input** tab shows a single read-only card
 (*linked to <path>*, with the inherited brain + tools and an explanatory tooltip) plus
 *Edit* (fork into the editable step, Save changes upserts back and re-links) and *Unlink*
 (fork the resolved config — including any `tool_inputs` — back into the step as a one-off).
-A linked agent's tools appear as clickable graph tool nodes; selecting one opens the standard
-input editor to rebind its inputs against the host flow.
+A linked agent's tools appear as display-only graph tool nodes (clicking one selects the
+agent step); below the step's inputs, each tool gets a section with the standard schema-aware
+input editors (prop picker included) and a read-only view of its code — edits persist into
+`tool_inputs`.
 
 Sharing works through standard resource folder permissions (save agents under `f/...`).

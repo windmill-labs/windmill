@@ -194,7 +194,11 @@
 							? undefined
 							: getToolNameError(tool.name, tool.type, siblingNames),
 						eventHandlers,
-						moduleId: tool.id,
+						// A linked agent's tools are display-only: their ids come from the resource (not
+						// flow-unique, so they can't drive selection) and their inputs are edited in the
+						// step panel. Clicking one selects the agent step. Runtime action nodes keep their
+						// own prefixed ids.
+						moduleId: isLinkedAgent && !agentActions ? node.id : tool.id,
 						insertable,
 						readOnly: isLinkedAgent,
 						flowModuleStates

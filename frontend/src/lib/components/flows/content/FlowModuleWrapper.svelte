@@ -22,11 +22,7 @@
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { formatCron } from '$lib/utils'
 	import AgentToolWrapper from './AgentToolWrapper.svelte'
-	import LinkedAgentToolEditor from './LinkedAgentToolEditor.svelte'
-	import { isFlowModuleTool } from '../agentToolUtils'
-	import { getLinkedAgentTools } from '../linkedAgentToolsStore.svelte'
-
-	const { selectionManager, flowStateStore, opWorkspace, pathStore } =
+	const { selectionManager, flowStateStore, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	const selectedId = $derived(selectionManager.getSelectedId())
 
@@ -320,31 +316,4 @@
 			/>
 		{/if}
 	{/each}
-	<!-- Linked agent: tools come from the resource (resolved into the store). Their structure is
-	read-only; only their inputs are rebound to this flow, persisted into the step's tool_inputs. -->
-	{#if flowModule.value.type === 'aiagent' && flowModule.value.agent}
-		{#each getLinkedAgentTools($pathStore, flowModule.id).filter(isFlowModuleTool) as tool (tool.id)}
-			{#if selectedId === tool.id}
-				<LinkedAgentToolEditor
-					resourceTool={tool}
-					bind:toolInputs={
-						() => (flowModule.value.type === 'aiagent' ? (flowModule.value.tool_inputs ?? {}) : {}),
-						(v) => {
-							if (flowModule.value.type === 'aiagent') {
-								flowModule.value.tool_inputs = v
-							}
-						}
-					}
-					parentModule={flowModule}
-					{previousModule}
-					{enableAi}
-					{forceTestTab}
-					{highlightArg}
-					siblingToolNames={getLinkedAgentTools($pathStore, flowModule.id).map(
-						(t) => t.summary ?? ''
-					)}
-				/>
-			{/if}
-		{/each}
-	{/if}
 {/if}

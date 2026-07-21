@@ -37,6 +37,8 @@
 	import FlowPathViewer from './FlowPathViewer.svelte'
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
 	import AgentResourceBar from './AgentResourceBar.svelte'
+	import AgentToolBindings from './AgentToolBindings.svelte'
+	import { getLinkedAgentTools } from '../linkedAgentToolsStore.svelte'
 	import { flowLocalAgentSchema } from '../agentResourceUtils'
 	import FlowModuleMockTransitionMessage from './FlowModuleMockTransitionMessage.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -1131,6 +1133,28 @@
 													helperScript={retrieveDynCodeAndLang(flowModule.value)}
 													chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 												/>
+												{#if agentLinked}
+													<!-- Linked agent: the resource's tools with their inputs rebindable to this
+													flow; overrides persist on the step as tool_inputs (diff from the resource). -->
+													<AgentToolBindings
+														tools={getLinkedAgentTools($pathStore, flowModule.id)}
+														pickableProperties={stepPropPicker.pickableProperties}
+														extraLib={stepPropPicker.extraLib}
+														workspace={opWs}
+														{enableAi}
+														bind:toolInputs={
+															() =>
+																flowModule.value.type === 'aiagent'
+																	? (flowModule.value.tool_inputs ?? {})
+																	: {},
+															(v) => {
+																if (flowModule.value.type === 'aiagent') {
+																	flowModule.value.tool_inputs = v
+																}
+															}
+														}
+													/>
+												{/if}
 											</PropPickerWrapper>
 										</div>
 									{:else if visibleSelected === 'test'}
