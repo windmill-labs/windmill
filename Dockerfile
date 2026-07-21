@@ -245,13 +245,9 @@ RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releas
 # timestamps or Python's mtime-based .pyc invalidation discards these compiled files.
 RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install 3.11 --compile-bytecode
 RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $LATEST_STABLE_PY --compile-bytecode
-# Upgrade the bundled pip in each real runtime (skip uv's version-alias symlinks). -e fails the build if any upgrade fails.
-RUN set -eux; \
-    for runtime in $(find /tmp/build_cache/py_runtime -mindepth 1 -maxdepth 1 -type d); do \
-        if [ -x "$runtime/bin/python" ]; then \
-            uv pip install --python "$runtime/bin/python" --break-system-packages --compile-bytecode --upgrade "pip==$PIP_VERSION"; \
-        fi; \
-    done
+# Upgrade the bundled pip to the pinned version (the RUN fails the build if the pin can't be installed).
+RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv pip install --python 3.11 --system --break-system-packages --upgrade "pip==$PIP_VERSION"
+RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv pip install --python $LATEST_STABLE_PY --system --break-system-packages --upgrade "pip==$PIP_VERSION"
 
 
 RUN curl -sL https://deb.nodesource.com/setup_20.x | bash -
