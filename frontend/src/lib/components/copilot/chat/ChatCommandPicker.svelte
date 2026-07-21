@@ -24,12 +24,14 @@
 		skill: 'Skills'
 	}
 
+	// No `secondary`: rows show just the command; the full description lives in
+	// the hover tooltip (rowTooltip below). It stays in `searchableText` so
+	// filtering by description keeps working.
 	const tree = $derived<DrillNode<ChatCommandItem>[]>(
 		skills.map((skill) => ({
 			type: 'leaf' as const,
 			key: `skill:${skill.name}`,
 			label: `/${skill.name}`,
-			secondary: skill.description,
 			searchableText: `${skill.name} ${skill.description}`,
 			section: skill.kind ? SECTION_LABELS[skill.kind] : undefined,
 			data: skill
