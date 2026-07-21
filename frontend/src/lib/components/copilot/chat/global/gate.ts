@@ -12,10 +12,7 @@
  * visibility, custom prompt settings, the `change_mode` tool enum, and the
  * AI skills workspace settings tab) so the rip-out is a small grep.
  */
-import { get } from 'svelte/store'
-import { workspaceStore } from '$lib/stores'
-import { WorkspaceService } from '$lib/gen'
-import { randomUUID } from '$lib/utils/uuid'
+import { logFeatureUsage } from '$lib/utils/featureUsage'
 
 const OPT_OUT_KEY = 'wm_sessions_beta_optout'
 
@@ -29,7 +26,7 @@ export function isGlobalAiEnabled(): boolean {
 }
 
 /** Persist the opt-out choice, then hard-reload so every gated site re-reads it. */
-export async function setSessionsBetaOptOut(optOut: boolean, target: string) {
+export function setSessionsBetaOptOut(optOut: boolean, target: string) {
 	// Navigate even when persistence throws (quota, private browsing) — the
 	// button must not be a silent no-op. The reload then shows the unchanged
 	// mode, which is the honest feedback that the toggle didn't stick.
@@ -40,23 +37,10 @@ export async function setSessionsBetaOptOut(optOut: boolean, target: string) {
 	} catch {
 		persisted = false
 	}
-	// Best-effort telemetry on the same channel as chat messages (ai_chat_usage).
-	// Awaited with a cap: the hard navigation below would abort a fire-and-forget
-	// request, but a hanging API must not trap the user on the old mode either.
-	const workspace = get(workspaceStore)
-	if (persisted && workspace) {
-		await Promise.race([
-			WorkspaceService.logAiChat({
-				workspace,
-				requestBody: {
-					session_id: randomUUID(),
-					provider: 'none',
-					model: 'none',
-					mode: optOut ? 'sessions_beta_optout' : 'sessions_beta_optin'
-				}
-			}).catch(() => {}),
-			new Promise((resolve) => setTimeout(resolve, 1500))
-		])
+	// Anonymous usage counter on the shared feature_usage channel. The buffer's
+	// pagehide flush + keepalive fetch carry it across the hard navigation below.
+	if (persisted) {
+		logFeatureUsage('ai_session', optOut ? 'beta_optout' : 'beta_optin')
 	}
 	window.location.href = target
 }
