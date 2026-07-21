@@ -6,6 +6,7 @@
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import type { AmqpExchange, AmqpOptions } from '$lib/gen'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { fade } from 'svelte/transition'
 	import { emptyStringTrimmed } from '$lib/utils'
@@ -74,12 +75,9 @@
 				<p class="text-xs text-primary mb-2">
 					Name of the queue to consume messages from<Required required={true} />
 				</p>
-				<input
-					type="text"
+				<TextInput
 					bind:value={queue_name}
-					disabled={!can_write}
-					placeholder="queue name"
-					autocomplete="off"
+					inputProps={{ placeholder: 'queue name', disabled: !can_write, autocomplete: 'off' }}
 				/>
 			</Subsection>
 
@@ -109,12 +107,13 @@
 					<div class="flex flex-col gap-2 mt-2">
 						<label class="flex flex-col w-full gap-1">
 							<span class="text-secondary text-sm">Exchange name</span>
-							<input
-								type="text"
+							<TextInput
 								bind:value={exchange.exchange_name}
-								disabled={!can_write}
-								placeholder="exchange name"
-								autocomplete="off"
+								inputProps={{
+									placeholder: 'exchange name',
+									disabled: !can_write,
+									autocomplete: 'off'
+								}}
 							/>
 						</label>
 
@@ -124,12 +123,13 @@
 						</span>
 						{#each exchange.routing_keys ?? [] as _, i}
 							<div class="flex w-full gap-2 items-center">
-								<input
-									type="text"
+								<TextInput
 									bind:value={exchange.routing_keys![i]}
-									disabled={!can_write}
-									placeholder="routing key"
-									autocomplete="off"
+									inputProps={{
+										placeholder: 'routing key',
+										disabled: !can_write,
+										autocomplete: 'off'
+									}}
 								/>
 								<button
 									transition:fade|local={{ duration: 100 }}

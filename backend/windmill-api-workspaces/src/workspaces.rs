@@ -9848,7 +9848,6 @@ const TRIGGER_OR_SCHEDULE_TABLES: &[&str] = &[
     "nats_trigger",
     "postgres_trigger",
     "mqtt_trigger",
-    "amqp_trigger",
     "sqs_trigger",
     "gcp_trigger",
     "azure_trigger",

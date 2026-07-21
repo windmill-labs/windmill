@@ -8,6 +8,7 @@ import {
 	JobService,
 	KafkaTriggerService,
 	MqttTriggerService,
+	AmqpTriggerService,
 	NatsTriggerService,
 	PostgresTriggerService,
 	ResourceService,
@@ -457,6 +458,7 @@ const writeTriggerSchema = z.object({
 			triggerRequestSchemas.nats,
 			triggerRequestSchemas.postgres,
 			triggerRequestSchemas.mqtt,
+			triggerRequestSchemas.amqp,
 			triggerRequestSchemas.sqs,
 			triggerRequestSchemas.gcp,
 			triggerRequestSchemas.azure
@@ -1542,6 +1544,14 @@ const triggerServices: Record<TriggerKind, TriggerService> = {
 		create: (a) => MqttTriggerService.createMqttTrigger(a),
 		update: (a) => MqttTriggerService.updateMqttTrigger(a),
 		delete: (a) => MqttTriggerService.deleteMqttTrigger(a)
+	},
+	amqp: {
+		exists: (a) => AmqpTriggerService.existsAmqpTrigger(a),
+		get: (a) => AmqpTriggerService.getAmqpTrigger(a),
+		list: (a) => AmqpTriggerService.listAmqpTriggers(a),
+		create: (a) => AmqpTriggerService.createAmqpTrigger(a),
+		update: (a) => AmqpTriggerService.updateAmqpTrigger(a),
+		delete: (a) => AmqpTriggerService.deleteAmqpTrigger(a)
 	},
 	sqs: {
 		exists: (a) => SqsTriggerService.existsSqsTrigger(a),
@@ -4725,6 +4735,7 @@ const triggerLabels: Record<TriggerKind, string> = {
 	nats: 'NATS trigger',
 	postgres: 'Postgres trigger',
 	mqtt: 'MQTT trigger',
+	amqp: 'AMQP trigger',
 	sqs: 'SQS trigger',
 	gcp: 'GCP Pub/Sub trigger',
 	azure: 'Azure Event Grid trigger'
