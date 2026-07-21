@@ -151,8 +151,6 @@ ARG features=""
 # 2. Change LATEST_STABLE_PY in dockerfile
 # 3. Change #[default] annotation for PyVersion in backend
 ARG LATEST_STABLE_PY=3.12
-# Pinned pip for uv-managed runtimes: the bundled pip lags, so upgrade it explicitly.
-ARG PIP_VERSION=26.1.2
 ENV UV_PYTHON_INSTALL_DIR=/tmp/windmill/cache/py_runtime
 ENV UV_PYTHON_PREFERENCE=only-managed
 
@@ -245,9 +243,6 @@ RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releas
 # timestamps or Python's mtime-based .pyc invalidation discards these compiled files.
 RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install 3.11 --compile-bytecode
 RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $LATEST_STABLE_PY --compile-bytecode
-# Upgrade the bundled pip to the pinned version (the RUN fails the build if the pin can't be installed).
-RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv pip install --python 3.11 --system --break-system-packages --upgrade "pip==$PIP_VERSION"
-RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv pip install --python $LATEST_STABLE_PY --system --break-system-packages --upgrade "pip==$PIP_VERSION"
 
 
 RUN curl -sL https://deb.nodesource.com/setup_20.x | bash -
