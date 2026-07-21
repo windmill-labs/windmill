@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { draftDeployedPatch } from './draftDiff'
+import { changedLineIndices, draftDeployedPatch, textFilePatch } from './draftDiff'
 
 describe('draftDeployedPatch', () => {
 	it('returns an empty string for identical values', () => {
@@ -30,5 +30,19 @@ describe('draftDeployedPatch', () => {
 		const patch = draftDeployedPatch(undefined, { summary: 'new item', value: { modules: [] } })
 		expect(patch).toContain('+summary: new item')
 		expect(patch).not.toMatch(/^-[^-]/m)
+	})
+})
+
+describe('changedLineIndices', () => {
+	it('counts source lines starting with ++ or -- but never the file labels', () => {
+		const patch = textFilePatch('a\n--counter\nb\n', 'a\n++counter\nb\n', 'deployed', 'draft')
+		const lines = patch.split('\n')
+		const changed = changedLineIndices(patch).map((i) => lines[i])
+		// A changed `--counter`/`++counter` source line is byte-identical to a
+		// file label prefix — only hunk-awareness keeps it.
+		expect(changed).toContain('---counter')
+		expect(changed).toContain('+++counter')
+		// The actual file labels never count as changes.
+		expect(changed.some((l) => l.includes('deployed') || l.includes('draft'))).toBe(false)
 	})
 })

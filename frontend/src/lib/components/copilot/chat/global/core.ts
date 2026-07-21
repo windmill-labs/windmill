@@ -124,7 +124,7 @@ import {
 	deployDraft as deployDraftToWorkspace,
 	getDraftDiffValues
 } from '$lib/utils_draft_deploy'
-import { draftDeployedPatch } from './draftDiff'
+import { changedLineIndices, draftDeployedPatch } from './draftDiff'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
@@ -5720,16 +5720,6 @@ function collectDiffSearchUnits(
 	}
 }
 
-// A patch line that represents an actual change (not context, not the
-// `+++`/`---` side labels).
-function isChangedPatchLine(line: string): boolean {
-	return (
-		(line.startsWith('+') || line.startsWith('-')) &&
-		!line.startsWith('+++') &&
-		!line.startsWith('---')
-	)
-}
-
 // Literal substring search over the changed lines of every diff in the
 // comparison. Materializes all patches first (search cannot skip any), then
 // scans in memory — same output conventions as search_app.
@@ -5785,9 +5775,10 @@ async function diffSearch(
 	let truncated = false
 	for (const unit of filtered.sort((a, b) => a.subject.localeCompare(b.subject))) {
 		const lines = unit.patch.split('\n')
+		const changed = new Set(changedLineIndices(unit.patch))
 		let unitHadMatch = false
 		for (let i = 0; i < lines.length; i++) {
-			if (!isChangedPatchLine(lines[i]) || !lines[i].toLowerCase().includes(needle)) continue
+			if (!changed.has(i) || !lines[i].toLowerCase().includes(needle)) continue
 			totalMatchCount++
 			unitHadMatch = true
 			if (renderedMatchCount >= maxMatches) {

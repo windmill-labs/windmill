@@ -134,8 +134,10 @@ export function triggerKindToUserDraftKind(kind: TriggerKind): UserDraftItemKind
 }
 
 /** Inverse of `itemKindFor`: the chat-facing type (+ trigger kind) for a draft
- * kind. `undefined` for kinds the chat cannot address (classic apps, webhook /
- * poll / cli trigger drafts, data pipelines). */
+ * kind. Classic and raw app drafts both surface as the chat's `app` type —
+ * mirroring the read path, which pairs the two kinds. `undefined` for kinds
+ * the chat cannot address (webhook / poll / cli trigger drafts, data
+ * pipelines). */
 export function itemTypeForKind(
 	kind: UserDraftItemKind
 ): { type: WorkspaceItemType; triggerKind?: TriggerKind } | undefined {
@@ -145,6 +147,7 @@ export function itemTypeForKind(
 		case 'resource':
 		case 'variable':
 			return { type: kind }
+		case 'app':
 		case 'raw_app':
 			return { type: 'app' }
 		case 'trigger_schedule':

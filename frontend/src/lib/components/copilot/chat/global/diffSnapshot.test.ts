@@ -28,7 +28,7 @@ vi.mock('./userDraftAdapter', () => ({
 	itemTypeForKind: (kind: string) =>
 		kind === 'script'
 			? { type: 'script' }
-			: kind === 'raw_app'
+			: kind === 'raw_app' || kind === 'app'
 				? { type: 'app' }
 				: kind === 'trigger_http'
 					? { type: 'trigger', triggerKind: 'http' }
@@ -189,6 +189,14 @@ describe('getWorkspaceDiffIndex', () => {
 		expect(byPath['f/a/pipe'].status).toBe('not_diffable')
 		// Unaddressable kinds are never fetched.
 		expect(getDraftDiffValues).toHaveBeenCalledTimes(1)
+	})
+
+	it('materializes classic-app drafts under the chat app type', async () => {
+		vi.mocked(getDraftItems).mockResolvedValue([row({ kind: 'app', path: 'f/a/classic' })] as any)
+		mockDiffValues({ summary: 'v1' }, { summary: 'v2' })
+		const index = await getWorkspaceDiffIndex(WS)
+		expect(index.entries[0].type).toBe('app')
+		expect(index.entries[0].status).toBe('modified')
 	})
 
 	it('leaves entries beyond the eager cap pending', async () => {

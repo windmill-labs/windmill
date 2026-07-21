@@ -55,6 +55,25 @@ export function draftDeployedPatch(deployed: unknown, draft: unknown): string {
 	return yamlValuePatch(deployed, draft, 'deployed', 'draft')
 }
 
+/** Indices of the real changed lines (+/-) in a unified patch. Hunk-aware:
+ * the `---`/`+++` file-label lines are structure, but they only occur before
+ * the first `@@` marker — a changed SOURCE line may itself start with ++ or
+ * -- (e.g. `++counter`), so prefix-matching `+++`/`---` would drop it. */
+export function changedLineIndices(patch: string): number[] {
+	const indices: number[] = []
+	const lines = patch.split('\n')
+	let inHunk = false
+	for (let i = 0; i < lines.length; i++) {
+		if (lines[i].startsWith('@@')) {
+			inHunk = true
+			continue
+		}
+		if (!inHunk) continue
+		if (lines[i].startsWith('+') || lines[i].startsWith('-')) indices.push(i)
+	}
+	return indices
+}
+
 /** Unified patch between two raw text files (no YAML wrapping — file contents
  * diff line-by-line as-is). Returns '' when identical; an absent side is
  * treated as empty, so a one-sided file reads as all additions/removals. */
