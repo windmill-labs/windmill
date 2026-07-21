@@ -57,7 +57,7 @@
 	// step, but "Save changes" upserts back to this path (and re-links), propagating to all flows.
 	// Kept in a module-keyed store (not local state) so it survives this component unmounting when a
 	// tool node is selected.
-	let editingPath = $derived(getAgentEditingPath(moduleId))
+	let editingPath = $derived(getAgentEditingPath(flowPath, moduleId))
 
 	type LinkedInfo = {
 		config: AIAgentConfig
@@ -184,7 +184,7 @@
 		// The brain + tools now live in the resource; a linked step keeps only the flow-local inputs.
 		tools = []
 		inputTransforms = flowLocalInputs(inputTransforms)
-		setAgentEditingPath(moduleId, undefined)
+		setAgentEditingPath(flowPath, moduleId, undefined)
 	}
 
 	async function saveAsAgent() {
@@ -260,7 +260,7 @@
 		try {
 			const path = await forkFromResource()
 			if (path) {
-				setAgentEditingPath(moduleId, undefined)
+				setAgentEditingPath(flowPath, moduleId, undefined)
 				sendUserToast('Forked agent — its configuration was copied into this step')
 			}
 		} catch (e) {
@@ -274,7 +274,7 @@
 		try {
 			const path = await forkFromResource()
 			if (path) {
-				setAgentEditingPath(moduleId, path)
+				setAgentEditingPath(flowPath, moduleId, path)
 				sendUserToast(`Editing ${path} — make changes, then Save changes to update it`)
 			}
 		} catch (e) {
@@ -374,7 +374,7 @@
 				<Button
 					size="xs2"
 					variant="default"
-					onclick={() => setAgentEditingPath(moduleId, undefined)}
+					onclick={() => setAgentEditingPath(flowPath, moduleId, undefined)}
 				>
 					Cancel
 				</Button>

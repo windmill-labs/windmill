@@ -30,10 +30,11 @@ export async function initFlowState(
 	flow: Flow,
 	flowStateStore: StateStore<FlowState>,
 	// The acting workspace when the flow editor runs in an AI session; else the nav workspace.
-	workspace?: string,
+	workspace: string | undefined,
 	// Scope for the linked-agent tools store (the flow path); keeps agents that share a module id
-	// across simultaneously-shown flows from aliasing each other.
-	scope: string = ''
+	// across simultaneously-shown flows from aliasing each other. Required so call sites can't
+	// silently publish into the '' bucket while the graph reads the real flow path.
+	scope: string
 ) {
 	const modulesState: FlowState = {}
 
