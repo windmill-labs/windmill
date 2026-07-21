@@ -30,7 +30,7 @@ function writeMap(map: Record<string, string>): void {
 	}
 }
 
-function rememberForkParent(forkId: string, parentId: string): void {
+export function rememberForkParent(forkId: string, parentId: string): void {
 	const map = readMap()
 	if (map[forkId] === parentId) return
 	// Re-insert at the end so the oldest entries are the ones trimmed below.
