@@ -1,62 +1,35 @@
-// The path an AI agent step is being edited-in-place against (set by "Edit" on a linked agent),
-// keyed by workspace + flow path + module id. Kept out of AgentResourceBar's local state because
-// that component unmounts when another node is selected — the "Editing <path>" mode must survive
-// navigating to a tool. Fully qualified key: module ids (a, b, …) repeat across flows and flow
-// paths repeat across workspaces (fork/session editors), and a leaked entry would show a phantom
-// Editing bar elsewhere whose Save could overwrite an unrelated agent.
-let editingByStep = $state<Record<string, string | undefined>>({})
+// The path an AI agent step is being edited-in-place against (set by "Edit" on a linked agent).
+// Kept out of AgentResourceBar's local state because that component unmounts when another node is
+// selected — the "Editing <path>" mode must survive navigating away and back.
+//
+// Validity is anchored to the forked step's `tools` array identity rather than a flow-path key:
+// Edit assigns a fresh array, in-place edits keep it, and any wholesale state replacement (undo,
+// redo, session-draft updates, opening a different flow that reuses the module id) produces new
+// objects. A stale entry therefore fails the marker check instead of resurfacing a phantom
+// Editing banner whose Save could overwrite the shared agent — while an in-place flow rename
+// (which touches no modules) keeps the banner alive.
+type Entry = { path: string; marker: object }
 
-function key(workspace: string | undefined, flowPath: string, moduleId: string): string {
-	return `${workspace ?? ''}:${flowPath}:${moduleId}`
+let editingByStep = $state<Record<string, Entry | undefined>>({})
+
+function key(workspace: string | undefined, moduleId: string): string {
+	return `${workspace ?? ''}:${moduleId}`
 }
 
 export function getAgentEditingPath(
 	workspace: string | undefined,
-	flowPath: string,
-	moduleId: string
+	moduleId: string,
+	marker: object | undefined
 ): string | undefined {
-	return editingByStep[key(workspace, flowPath, moduleId)]
+	const entry = editingByStep[key(workspace, moduleId)]
+	return entry && marker && entry.marker === marker ? entry.path : undefined
 }
 
 export function setAgentEditingPath(
 	workspace: string | undefined,
-	flowPath: string,
 	moduleId: string,
-	path: string | undefined
+	path: string | undefined,
+	marker: object | undefined
 ) {
-	editingByStep[key(workspace, flowPath, moduleId)] = path
-}
-
-/**
- * Invalidate all pending edit modes for a flow. Called when the flow's state is replaced wholesale
- * (undo/redo, session-draft updates, re-init): a stale "Editing" target no longer corresponds to
- * the restored modules, and saving it would overwrite the shared agent with unrelated config.
- */
-export function clearAgentEditingForFlow(workspace: string | undefined, flowPath: string) {
-	const prefix = `${workspace ?? ''}:${flowPath}:`
-	for (const k of Object.keys(editingByStep)) {
-		if (k.startsWith(prefix)) {
-			delete editingByStep[k]
-		}
-	}
-}
-
-/**
- * Re-key pending edit modes when the flow is renamed in place, so an in-progress "Editing" fork
- * keeps its banner (and Save/Cancel) instead of being stranded under the old path.
- */
-export function migrateAgentEditingFlow(
-	workspace: string | undefined,
-	oldPath: string,
-	newPath: string
-) {
-	if (oldPath === newPath) return
-	const oldPrefix = `${workspace ?? ''}:${oldPath}:`
-	const newPrefix = `${workspace ?? ''}:${newPath}:`
-	for (const k of Object.keys(editingByStep)) {
-		if (k.startsWith(oldPrefix)) {
-			editingByStep[newPrefix + k.slice(oldPrefix.length)] = editingByStep[k]
-			delete editingByStep[k]
-		}
-	}
+	editingByStep[key(workspace, moduleId)] = path && marker ? { path, marker } : undefined
 }

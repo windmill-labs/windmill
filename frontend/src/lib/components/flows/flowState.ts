@@ -5,7 +5,6 @@ import { get } from 'svelte/store'
 import { workspaceStore } from '$lib/stores'
 import { isFlowModuleTool, agentToolToFlowModule, type AgentTool } from './agentToolUtils'
 import { linkedToolsScope, setLinkedAgentTools } from './linkedAgentToolsStore.svelte'
-import { clearAgentEditingForFlow } from './agentEditStore.svelte'
 import { loadFlowModuleState } from './flowStateUtils.svelte'
 import { emptyFlowModuleState } from './utils.svelte'
 import type { StateStore } from '$lib/utils'
@@ -40,9 +39,6 @@ export async function initFlowState(
 	const modulesState: FlowState = {}
 
 	const ws = workspace ?? get(workspaceStore)
-	// The flow state is being (re)built wholesale (load, session-draft update): any pending
-	// out-of-band agent Edit mode no longer corresponds to the incoming modules.
-	clearAgentEditingForFlow(ws, flowPath)
 	const scope = linkedToolsScope(ws, flowPath)
 	await mapFlowModules(flow.value.modules, modulesState, workspace, scope)
 
