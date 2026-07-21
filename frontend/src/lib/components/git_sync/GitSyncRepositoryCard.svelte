@@ -97,12 +97,17 @@
 	// Dev-workspace promotion toggle: flips the inherited repo between sync mode
 	// (deploys to the dev branch) and promotion mode (per-item wm_deploy/** PRs to
 	// prod). Persists immediately — it's a mode switch on an already-saved repo.
+	// While a save is in flight both promotion toggles are disabled: concurrent
+	// whole-repository saves can complete out of order (enabling runs extra
+	// backend checks), letting a stale earlier state overwrite the latest one.
+	let savingDevPromotion = $state(false)
 	async function setDevPromotion(v: boolean) {
-		if (!repo || idx === null) return
+		if (!repo || idx === null || savingDevPromotion) return
 		const prevIndiv = repo.use_individual_branch
 		const prevGbf = repo.group_by_folder
 		repo.use_individual_branch = v
 		if (!v) repo.group_by_folder = false
+		savingDevPromotion = true
 		try {
 			await gitSyncContext.saveRepository(idx)
 		} catch (e) {
@@ -113,17 +118,22 @@
 				repo.group_by_folder = prevGbf
 			}
 			sendUserToast(`Could not ${v ? 'enable' : 'disable'} Git promotion: ${e}`, true)
+		} finally {
+			savingDevPromotion = false
 		}
 	}
 	async function setGroupByFolder(v: boolean) {
-		if (!repo || idx === null) return
+		if (!repo || idx === null || savingDevPromotion) return
 		const prev = repo.group_by_folder
 		repo.group_by_folder = v
+		savingDevPromotion = true
 		try {
 			await gitSyncContext.saveRepository(idx)
 		} catch (e) {
 			if (repo) repo.group_by_folder = prev
 			sendUserToast(`Could not change promotion granularity: ${e}`, true)
+		} finally {
+			savingDevPromotion = false
 		}
 	}
 
@@ -636,6 +646,7 @@
 								<div class="mt-2">
 									<Toggle
 										checked={repo.use_individual_branch ?? false}
+										disabled={savingDevPromotion}
 										options={{
 											right: 'Promote to prod via Git',
 											rightTooltip:
@@ -647,6 +658,7 @@
 										<div class="mt-2">
 											<Toggle
 												checked={repo.group_by_folder ?? false}
+												disabled={savingDevPromotion}
 												options={{
 													right: 'One pull request per folder',
 													rightTooltip:
