@@ -672,8 +672,12 @@
 							{/if}
 							{#if repoMode === 'promotion' && isGithubApp}
 								<div class="mt-2">
+									<!-- Locked while the dev promotion toggle's save is in flight: this
+										toggle is revealed by that save, and an edit made mid-save would be
+										absorbed into the saved baseline without ever reaching the backend. -->
 									<Toggle
 										checked={repo.promotion_open_prs ?? false}
+										disabled={savingDevPromotion}
 										options={{
 											right: 'Open a pull request for each deploy branch',
 											rightTooltip:
