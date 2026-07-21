@@ -434,7 +434,11 @@
 			/>
 			<label class="flex flex-col gap-1 text-xs">
 				<span class="text-secondary">Description</span>
-				<TextInput bind:value={description} placeholder="What this agent does" size="sm" />
+				<TextInput
+					bind:value={description}
+					inputProps={{ placeholder: 'What this agent does' }}
+					size="sm"
+				/>
 			</label>
 			{#if providerSaveError}
 				<p class="text-xs text-red-600 dark:text-red-400">

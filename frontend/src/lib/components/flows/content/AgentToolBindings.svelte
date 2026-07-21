@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
 	import { deepEqual } from 'fast-equals'
-	import type { InputTransform } from '$lib/gen'
+	import type { InputTransform, ScriptLang } from '$lib/gen'
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import { Wrench } from 'lucide-svelte'
@@ -90,8 +90,8 @@
 		})
 	})
 
-	function toolCode(tool: FlowModuleTool): { language?: string; content?: string } | undefined {
-		const v = tool.value as { type?: string; language?: string; content?: string }
+	function toolCode(tool: FlowModuleTool): { language?: ScriptLang; content?: string } | undefined {
+		const v = tool.value as { type?: string; language?: ScriptLang; content?: string }
 		return v.type === 'rawscript' && v.content ? v : undefined
 	}
 </script>
