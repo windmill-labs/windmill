@@ -11,13 +11,17 @@ type ResourceTypeLang = (typeof RESOURCE_TYPE_LANGS)[number]
 
 export async function ensureResourceTypeNamespace(
 	workspace: string,
-	scriptLang: string | undefined
+	scriptLang: string | undefined,
+	// Checked after the fetch: a headless lint that has already given up (timed out and restored
+	// its snapshot) passes this so a late response can't reinstall the wrong workspace's types.
+	isCancelled?: () => boolean
 ): Promise<void> {
 	if (!RESOURCE_TYPE_LANGS.includes(scriptLang as ResourceTypeLang)) {
 		return
 	}
 	const lang = scriptLang as ResourceTypeLang
 	const resourceTypes = await ResourceService.listResourceType({ workspace })
+	if (isCancelled?.()) return
 	const namespace = formatResourceTypes(resourceTypes, lang === 'bunnative' ? 'bun' : lang)
 	typescriptDefaults.addExtraLib(namespace, 'rt.d.ts')
 }
@@ -59,8 +63,13 @@ export function applyCustomWmillTypes(data: CustomWmillTypesData): () => void {
 	}
 }
 
-export async function ensureCustomWmillTypes(workspace: string): Promise<void> {
-	applyCustomWmillTypes(await fetchCustomWmillTypesData(workspace))
+export async function ensureCustomWmillTypes(
+	workspace: string,
+	isCancelled?: () => boolean
+): Promise<void> {
+	const data = await fetchCustomWmillTypesData(workspace)
+	if (isCancelled?.()) return
+	applyCustomWmillTypes(data)
 }
 
 // The two libs above are keyed by workspace but installed at these fixed, global URIs — an

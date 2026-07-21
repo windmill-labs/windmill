@@ -67,6 +67,18 @@ function withDeadline(promise: Promise<unknown>, ms: number): Promise<unknown> {
 	return Promise.race([promise, new Promise((resolve) => setTimeout(resolve, ms))])
 }
 
+// Like withDeadline, but reports which happened — so a caller can tell a completed load from a
+// timed-out or failed one and treat the latter as inconclusive rather than clean.
+function raceLoad(promise: Promise<unknown>, ms: number): Promise<'loaded' | 'failed' | 'timeout'> {
+	return Promise.race([
+		promise.then(
+			() => 'loaded' as const,
+			() => 'failed' as const
+		),
+		new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), ms))
+	])
+}
+
 export async function lintCode(
 	req: HeadlessLintRequest,
 	opts?: { timeoutMs?: number }
@@ -167,16 +179,33 @@ async function lintOne(
 		// concurrent lint of another workspace can neither observe nor clobber them.
 		return withWorkspaceTypes(async () => {
 			const restore = snapshotWorkspaceExtraLibs()
+			// Flipped once we stop waiting for the declarations (timeout, failure, or done). A
+			// slow request that resolves afterwards checks this before its addExtraLib, so it can
+			// never reinstall types over the restored snapshot.
+			let cancelled = false
 			try {
-				await withDeadline(
+				const loaded = await raceLoad(
 					Promise.all([
-						ensureResourceTypeNamespace(req.workspace, req.scriptLang),
-						ensureCustomWmillTypes(req.workspace)
-					]).catch((e) => console.error('headlessLint: extra libs unavailable', e)),
+						ensureResourceTypeNamespace(req.workspace, req.scriptLang, () => cancelled),
+						ensureCustomWmillTypes(req.workspace, () => cancelled)
+					]),
 					timeoutMs
 				)
-				return await settleAndRead(uri, editorLang, timeoutMs)
+				// Types that failed or timed out mean the diagnostics were computed without this
+				// workspace's declarations — never report that as a clean, complete result.
+				if (loaded !== 'loaded') cancelled = true
+				const outcome = await settleAndRead(uri, editorLang, timeoutMs)
+				if (loaded === 'loaded') return outcome
+				return {
+					status: 'incomplete',
+					result: outcome.result,
+					missing: [
+						...(outcome.status === 'incomplete' ? outcome.missing : []),
+						'the workspace type declarations'
+					]
+				}
 			} finally {
+				cancelled = true
 				restore()
 			}
 		})
@@ -208,6 +237,12 @@ function withWorkspaceTypes<T>(run: () => Promise<T>): Promise<T> {
 	return task
 }
 
+// Known limitation (deferred to the Tier-2 isolated engine): an absolute import like "/f/shared"
+// must resolve at the global URI file:///f/shared.ts — TypeScript has nowhere else to look — so
+// its declaration is registered in the shared typescriptDefaults and is NOT workspace-isolated.
+// A fork linting "/f/shared" whose content differs from the parent can leave a parent-workspace
+// editor validating against the fork's version. Narrow, and only a per-lint isolated file system
+// fixes it cleanly; see the Tier-2 handoff.
 async function acquireTypes(req: HeadlessLintRequest, uriString: string): Promise<void> {
 	const key = `${req.workspace}:${uriString}`
 	let ata = ataByKey.get(key)
@@ -259,9 +294,36 @@ function normalizeCode(code: unknown): string {
 	return String(code)
 }
 
-// A diagnostic's identity: where it starts and its code. Counting markers is not enough —
-// an edit that swaps one error for another of the same count would otherwise look settled
-// while the old marker is still showing.
+interface DiagnosticMessageChain {
+	messageText: string
+	next?: DiagnosticMessageChain[]
+}
+
+// Mirrors TypeScript's flattenDiagnosticMessageText (the exact transform Monaco applies before
+// it stores a marker's message), so a worker diagnostic's text can be compared to a published
+// marker's message character-for-character.
+function flattenTsMessage(
+	message: string | DiagnosticMessageChain | undefined,
+	indent = 0
+): string {
+	if (typeof message === 'string') return message
+	if (message === undefined) return ''
+	let result = ''
+	if (indent) {
+		result += '\n'
+		for (let i = 0; i < indent; i++) result += '  '
+	}
+	result += message.messageText
+	if (message.next) {
+		for (const next of message.next) result += flattenTsMessage(next, indent + 1)
+	}
+	return result
+}
+
+// A diagnostic's identity: where it starts, its code, and its message. Position and code alone
+// are not enough — an edit that swaps one error for another at the same spot with the same code
+// (e.g. two different TS2322 assignability messages) would otherwise look settled while the old
+// marker is still showing.
 async function expectedMarkerKeys(uri: Uri, editorLang: string): Promise<string[] | undefined> {
 	try {
 		const worker = await getWorkerFor(uri, editorLang)
@@ -277,7 +339,7 @@ async function expectedMarkerKeys(uri: Uri, editorLang: string): Promise<string[
 			.filter((d) => !TS_DIAGNOSTIC_CODES_TO_IGNORE.includes(d.code))
 			.map((d) => {
 				const pos = model.getPositionAt(d.start ?? 0)
-				return `${pos.lineNumber}:${pos.column}:${normalizeCode(d.code)}`
+				return `${pos.lineNumber}:${pos.column}:${normalizeCode(d.code)}:${flattenTsMessage(d.messageText)}`
 			})
 			.sort()
 	} catch (e) {
@@ -304,7 +366,7 @@ async function waitForMarkersToSettle(
 	while (Date.now() < deadline) {
 		const published = meditor
 			.getModelMarkers({ resource: uri, owner: editorLang })
-			.map((m) => `${m.startLineNumber}:${m.startColumn}:${normalizeCode(m.code)}`)
+			.map((m) => `${m.startLineNumber}:${m.startColumn}:${normalizeCode(m.code)}:${m.message}`)
 			.sort()
 			.join('\n')
 		if (published === expectedJoined) return true
