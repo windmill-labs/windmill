@@ -5,6 +5,7 @@
 	import AgentToolWrapper from './AgentToolWrapper.svelte'
 	import type { AgentTool } from '../agentToolUtils'
 	import { toolInputOverrides } from '../agentResourceUtils'
+	import HighlightCode from '$lib/components/HighlightCode.svelte'
 
 	let {
 		resourceTool,
@@ -28,6 +29,11 @@
 		highlightArg?: Record<string, string | undefined>
 		siblingToolNames?: string[]
 	} = $props()
+
+	// The tool's code lives in the resource and is read-only here; surface it for reference.
+	let code = $derived(
+		resourceTool.value as { type?: string; language?: string; content?: string } | undefined
+	)
 
 	// The resource tool's own transforms (authored against the source flow). Overrides are stored as
 	// the diff from these, so unchanged inputs keep inheriting from the resource.
@@ -80,3 +86,14 @@
 	{highlightArg}
 	{siblingToolNames}
 />
+
+{#if code?.type === 'rawscript' && code?.content}
+	<details class="mx-2 mt-2 rounded-md border border-border bg-surface-secondary xl:mx-4">
+		<summary class="cursor-pointer px-3 py-2 text-2xs font-medium text-tertiary">
+			Tool code (read-only)
+		</summary>
+		<div class="max-h-64 overflow-auto border-t border-border p-2 text-xs">
+			<HighlightCode language={code.language} code={code.content} />
+		</div>
+	</details>
+{/if}

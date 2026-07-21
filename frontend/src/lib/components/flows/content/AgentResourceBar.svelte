@@ -19,6 +19,7 @@
 		type AgentTool
 	} from '../agentResourceUtils'
 	import { setLinkedAgentTools, clearLinkedAgentTools } from '../linkedAgentToolsStore.svelte'
+	import { getAgentEditingPath, setAgentEditingPath } from '../agentEditStore.svelte'
 	import type { AgentTool as AgentToolStrict } from '../agentToolUtils'
 	import { resource } from 'runed'
 
@@ -53,7 +54,9 @@
 	let pickerValue: string | undefined = $state(undefined)
 	// Set when the step was forked from a saved agent for editing: it's now an editable standalone
 	// step, but "Save changes" upserts back to this path (and re-links), propagating to all flows.
-	let editingPath: string | undefined = $state(undefined)
+	// Kept in a module-keyed store (not local state) so it survives this component unmounting when a
+	// tool node is selected.
+	let editingPath = $derived(getAgentEditingPath(moduleId))
 
 	type LinkedInfo = {
 		config: AIAgentConfig
@@ -178,7 +181,7 @@
 		// The brain + tools now live in the resource; a linked step keeps only the flow-local inputs.
 		tools = []
 		inputTransforms = flowLocalInputs(inputTransforms)
-		editingPath = undefined
+		setAgentEditingPath(moduleId, undefined)
 	}
 
 	async function saveAsAgent() {
@@ -254,7 +257,7 @@
 		try {
 			const path = await forkFromResource()
 			if (path) {
-				editingPath = undefined
+				setAgentEditingPath(moduleId, undefined)
 				sendUserToast('Forked agent — its configuration was copied into this step')
 			}
 		} catch (e) {
@@ -268,7 +271,7 @@
 		try {
 			const path = await forkFromResource()
 			if (path) {
-				editingPath = path
+				setAgentEditingPath(moduleId, path)
 				sendUserToast(`Editing ${path} — make changes, then Save changes to update it`)
 			}
 		} catch (e) {
@@ -359,7 +362,11 @@
 				>
 					Save changes
 				</Button>
-				<Button size="xs2" variant="default" onclick={() => (editingPath = undefined)}>
+				<Button
+					size="xs2"
+					variant="default"
+					onclick={() => setAgentEditingPath(moduleId, undefined)}
+				>
 					Cancel
 				</Button>
 			</div>
