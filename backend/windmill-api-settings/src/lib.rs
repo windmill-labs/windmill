@@ -283,15 +283,15 @@ pub async fn test_s3_bucket(
         let mut list = client.list(Some(
             &windmill_object_store::object_store_reexports::Path::from("".to_string()),
         ));
-        let first_file = list.next().await;
-        if first_file.is_some() {
-            if let Err(e) = first_file.as_ref().unwrap() {
+        match list.next().await {
+            Some(Err(e)) => {
                 tracing::error!("error listing bucket: {e:#}");
-                error::Error::internal_err(format!("Failed to list files in blob storage: {e:#}"));
+                return Err(error::Error::internal_err(format!(
+                    "Failed to list files in blob storage: {e:#}"
+                )));
             }
-            tracing::info!("Listed files: {:?}", first_file.unwrap());
-        } else {
-            tracing::info!("No files in blob storage");
+            Some(Ok(first_file)) => tracing::info!("Listed files: {:?}", first_file),
+            None => tracing::info!("No files in blob storage"),
         }
 
         let path = windmill_object_store::object_store_reexports::Path::from(format!(
