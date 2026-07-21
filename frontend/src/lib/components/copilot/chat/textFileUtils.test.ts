@@ -50,4 +50,21 @@ describe('foldIntoDraft', () => {
 			{ name: 'a (2).md', content: 'new', id: attachedTextFileId('a (2).md', 'new') }
 		])
 	})
+
+	it('dedupes an identical re-drop even after its first copy was courtesy-renamed', () => {
+		// A name clash renames the first copy (notes.md → notes (2).md), erasing the
+		// original name — an identical re-drop must still read as a duplicate, in the
+		// same batch and in a later overlapping one.
+		const current = [
+			{ name: 'notes.md', content: 'old', id: attachedTextFileId('notes.md', 'old') }
+		]
+		const first = foldIntoDraft(current, [
+			{ name: 'notes.md', content: 'new' },
+			{ name: 'notes.md', content: 'new' }
+		])
+		expect(first.map((f) => f.name)).toEqual(['notes (2).md'])
+
+		const second = foldIntoDraft([...current, ...first], [{ name: 'notes.md', content: 'new' }])
+		expect(second).toEqual([])
+	})
 })

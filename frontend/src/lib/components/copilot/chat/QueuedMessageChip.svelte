@@ -39,7 +39,7 @@
 							title={file.name}
 						>
 							<FileText size={10} class="shrink-0" />
-							<span class="truncate">{file.name}</span>
+							<span class="truncate min-w-0">{file.name}</span>
 						</span>
 					{/each}
 				</div>

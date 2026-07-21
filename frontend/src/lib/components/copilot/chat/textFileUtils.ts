@@ -104,7 +104,16 @@ export function foldIntoDraft(
 	const commit: AttachedTextFile[] = []
 	for (const f of reads) {
 		const draft = [...current, ...commit]
-		if (draft.some((x) => x.name === f.name && x.content === f.content)) continue
+		// "Same file dropped twice" means same original (name, content) — but a
+		// committed copy may have been courtesy-renamed, losing the original name,
+		// so also match entries whose suffix-stripped base name equals the read's.
+		if (
+			draft.some(
+				(x) => x.content === f.content && (x.name === f.name || draftBaseName(x.name) === f.name)
+			)
+		) {
+			continue
+		}
 		const name = uniqueDraftFileName(
 			f.name,
 			draft.map((x) => x.name)
@@ -112,6 +121,13 @@ export function foldIntoDraft(
 		commit.push({ name, content: f.content, id: attachedTextFileId(name, f.content) })
 	}
 	return commit
+}
+
+/** Undo one courtesy-rename suffix: `notes (2).md` → `notes.md`, `Makefile (2)` →
+ * `Makefile`. Names without a suffix pass through unchanged. */
+function draftBaseName(name: string): string {
+	const m = name.match(/^(.*) \(\d+\)(\.[^.]*)?$/)
+	return m ? m[1] + (m[2] ?? '') : name
 }
 
 /** Courtesy rename for a same-name clash within one message draft: `notes.md` →
