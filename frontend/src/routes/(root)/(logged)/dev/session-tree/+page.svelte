@@ -2,7 +2,7 @@
 	// DEV-ONLY design exploration: how to visually distinguish a *workspace* from a
 	// *session* in the rail tree, and make the hierarchy (forks) clear. Not linked
 	// anywhere; open at /dev/session-tree. Pure mock data, no real session state.
-	// Gated behind the same dev flag as the sessions UI it explores.
+	// Gated behind the same beta gate as the sessions UI it explores.
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
 	import {

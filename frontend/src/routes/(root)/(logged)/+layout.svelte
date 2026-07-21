@@ -226,10 +226,10 @@
 	// nest the whole experience. Hide it when embedded.
 	const embedded = BROWSER && window.self !== window.top
 
-	// AI sessions are still dev-gated (localStorage wm_dev_global_ai=1), same as
-	// the global chat. The Workspace ⇄ Sessions switch is the only entry point, so
-	// gate it on the flag too — otherwise it would ship the unfinished experience
-	// to prod. The /sessions page has its own gate for direct navigation.
+	// AI sessions (beta) are on unless the user opted out from the banner under
+	// the session chat. The Workspace ⇄ Sessions switch is the only entry point,
+	// so it follows the gate; opted-out users get the legacy Ask-AI pane instead.
+	// The /sessions page has its own gate for direct navigation.
 	const globalAiEnabled = isGlobalAiEnabled()
 
 	if (page.status == 404) {
@@ -935,8 +935,8 @@
 													shortcut={`${getModifierKey()}k`}
 												/>
 												{#if !globalAiEnabled}
-													<!-- Global Ask-AI pane. When the sessions dev flag is on it is
-													     replaced by SessionModeSwitch, so it only shows in prod. -->
+													<!-- Legacy Ask-AI pane, shown only when the user opted out of the
+													     AI Sessions beta (otherwise SessionModeSwitch replaces it). -->
 													<MenuButton
 														stopPropagationOnClick={true}
 														on:click={() => aiChatManager.toggleOpen()}
@@ -1068,8 +1068,8 @@
 											shortcut={`${getModifierKey()}k`}
 										/>
 										{#if !globalAiEnabled}
-											<!-- Global Ask-AI pane. When the sessions dev flag is on it is
-											     replaced by SessionModeSwitch, so it only shows in prod. -->
+											<!-- Legacy Ask-AI pane, shown only when the user opted out of the
+											     AI Sessions beta (otherwise SessionModeSwitch replaces it). -->
 											<MenuButton
 												stopPropagationOnClick={true}
 												on:click={() => aiChatManager.toggleOpen()}
@@ -1266,6 +1266,7 @@
 				{children}
 				noPadding={devOnly || menuHidden}
 				disableAi={globalAiEnabled ? true : sessionMode}
+				showSessionsBetaBanner={true}
 				sidebarWidth={railWidth}
 				transitionClass={sidebarTransitionClass}
 				isMobile={innerWidth < 768}
