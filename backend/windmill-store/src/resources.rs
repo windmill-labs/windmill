@@ -2867,20 +2867,24 @@ async fn get_repo_latest_commit_hash(
     Ok(commit_hash)
 }
 
-/// Resolve a workspace git-sync repository and return its current head commit
-/// for the tracked branch, for background auto-pull polling (no authed user).
+/// Load a git-sync repository resource's value with `$var:`/`$res:` references
+/// resolved. Shared by the auto-pull poller (`get_git_repo_head_for_autopull`)
+/// and deploy-mode detection so the interpolation lives in exactly one place.
 ///
-/// Returns `Ok(Some((ref_spec, sha)))` for a pollable repo, or `Ok(None)` for
-/// repos that cannot be polled in-process — currently GitHub-App-backed repos,
-/// which authenticate via an installation token at clone time and sync via
-/// webhooks instead. Credentials embedded in the resource URL (including
-/// `$var:` references) are resolved with the system identity, bypassing
-/// per-user ACLs, since the poller runs without an authenticated request.
-pub async fn get_git_repo_head_for_autopull(
+/// SECURITY: reads under the system identity (`SUPERADMIN_SYNC_EMAIL`), so it
+/// **bypasses resource RLS** and returns fully-interpolated JSON that **may
+/// contain credentials** (an embedded `$var:` token in the URL). Callers must
+/// have already authorized access to `w_id`, must use it only for git-sync
+/// `git_repository` resources, and must **not** return the resolved value to a
+/// client — derive and return only non-sensitive facts. Pass `allow_cache=true`
+/// for the poller (avoids re-decrypting/re-auditing a `$var:` secret every tick);
+/// pass `false` for on-demand reads that must reflect the current resource.
+pub async fn resolve_git_repository_resource(
     db: &DB,
     w_id: &str,
     git_repo_resource_path: &str,
-) -> Result<Option<(String, String)>> {
+    allow_cache: bool,
+) -> Result<Option<serde_json::Value>> {
     use windmill_common::db::DbWithOptAuthed;
 
     let resource_path = git_repo_resource_path
@@ -2897,18 +2901,29 @@ pub async fn get_git_repo_head_for_autopull(
         },
     };
 
-    // allow_cache=true so repeated polls reuse the interpolated value instead of
-    // re-decrypting any `$var:` secret in the URL (and writing an audit row) on
-    // every tick.
-    let value =
-        get_resource_value_interpolated_internal(&dba, w_id, resource_path, None, None, true)
-            .await?
-            .ok_or_else(|| {
-                Error::BadRequest(format!(
-                    "Git repository resource '{}' not found",
-                    resource_path
-                ))
-            })?;
+    get_resource_value_interpolated_internal(&dba, w_id, resource_path, None, None, allow_cache)
+        .await
+}
+
+/// Resolve a workspace git-sync repository and return its current head commit
+/// `(ref_spec, sha)` for the tracked branch, for background auto-pull polling.
+/// Returns `Ok(None)` for repos that cannot be polled in-process (GitHub-App
+/// repos, which sync via webhooks instead).
+pub async fn get_git_repo_head_for_autopull(
+    db: &DB,
+    w_id: &str,
+    git_repo_resource_path: &str,
+) -> Result<Option<(String, String)>> {
+    let value = resolve_git_repository_resource(db, w_id, git_repo_resource_path, true)
+        .await?
+        .ok_or_else(|| {
+            Error::BadRequest(format!(
+                "Git repository resource '{}' not found",
+                git_repo_resource_path
+                    .strip_prefix("$res:")
+                    .unwrap_or(git_repo_resource_path)
+            ))
+        })?;
 
     if value
         .get("is_github_app")

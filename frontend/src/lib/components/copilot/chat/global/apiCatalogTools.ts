@@ -17,12 +17,21 @@ import { createToolDef, type Tool } from '../shared'
 // explicit deploy, draft cleanup on delete), the variable reads would expose
 // variable values to the model (getVariable even decrypts secrets by default),
 // and the rest are exact duplicates that would fragment behavior across two
-// code paths. getResource stays available: resource values are readable in
-// this chat by design (read_workspace_item returns them too) — secrets belong
-// in variables referenced as "$var:path", which a plain get leaves unresolved.
+// code paths.
 const COVERED_ENDPOINTS: Record<string, string> = {
 	getVariable: 'read_workspace_item (variable values are never readable in chat)',
 	listVariable: 'list_workspace_items (variable values are never readable in chat)',
+	// The item read/list endpoints return deployed state only, blind to the user's
+	// drafts; read_workspace_item / list_workspace_items merge drafts, and for
+	// flows return the compact JSON that patch_flow_json matches against.
+	getScriptByPath: 'read_workspace_item (reads your draft when one exists; pass version: "deployed" for the deployed state)',
+	getFlowByPath: 'read_workspace_item (reads your draft when one exists; pass version: "deployed" for the deployed state)',
+	getResource: 'read_workspace_item (reads your draft when one exists; pass version: "deployed" for the deployed state)',
+	getSchedule: 'read_workspace_item (reads your draft when one exists; pass version: "deployed" for the deployed state)',
+	listScripts: 'list_workspace_items (it includes your drafts)',
+	listFlows: 'list_workspace_items (it includes your drafts)',
+	listResource: 'list_workspace_items (it includes your drafts)',
+	listSchedules: 'list_workspace_items (it includes your drafts)',
 	deleteScriptByPath: 'delete_workspace_item',
 	deleteScriptByHash: 'delete_workspace_item',
 	deleteFlowByPath: 'delete_workspace_item',

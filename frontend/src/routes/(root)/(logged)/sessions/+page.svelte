@@ -35,7 +35,7 @@
 	import { withWorkspaceParam } from '$lib/components/sessions/sessionMode.svelte'
 	import { enterSessionMode } from '$lib/components/sessions/sessionSwitch.svelte'
 	import type { SessionPreviewTabs } from '$lib/components/sessions/sessionPreviewTabs.svelte'
-	import { userWorkspaces, workspaceStore } from '$lib/stores'
+	import { userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import {
 		getOrCreateRuntime,
 		getRuntime,
@@ -133,6 +133,11 @@
 	// not-found UI below.
 	$effect(() => {
 		if (embedded || !sessionState.hydrated) return
+		// Family membership can't be judged before the workspace list arrives:
+		// workspaceRootId falls back to the raw id for workspaces it can't find,
+		// which makes a same-family session look foreign on a hard reload and
+		// would bounce the URL to another (or a brand-new) session.
+		if ($usersWorkspaceStore === undefined) return
 		// sessionInCurrentFamily reads these via get(), so track them explicitly.
 		$workspaceStore
 		$userWorkspaces

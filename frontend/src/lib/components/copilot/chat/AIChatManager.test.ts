@@ -23,7 +23,6 @@ const mocks = vi.hoisted(() => ({
 	getCurrentModel: vi.fn(),
 	tryGetCurrentModel: vi.fn(),
 	isWebSearchEnabledForProvider: vi.fn(),
-	logAiChat: vi.fn(),
 	sendUserToast: vi.fn(),
 	getOpenaiClient: vi.fn(),
 	getAnthropicClient: vi.fn(),
@@ -38,9 +37,10 @@ vi.mock('monaco-editor', () => ({
 	Selection: class Selection {}
 }))
 
+vi.mock('$lib/utils/featureUsage', () => ({ logFeatureUsage: vi.fn() }))
+
 vi.mock('$lib/gen', () => ({
 	WorkspaceService: {
-		logAiChat: mocks.logAiChat,
 		listAiSkills: mocks.listAiSkills
 	},
 	ScriptService: {},
@@ -129,7 +129,6 @@ beforeEach(() => {
 	mocks.getCurrentModel.mockReturnValue(undefined)
 	mocks.tryGetCurrentModel.mockReturnValue(undefined)
 	mocks.isWebSearchEnabledForProvider.mockReturnValue(true)
-	mocks.logAiChat.mockResolvedValue(undefined)
 	mocks.getOpenaiClient.mockReturnValue({})
 	mocks.getAnthropicClient.mockReturnValue({})
 	mocks.listAiSkills.mockResolvedValue([])
@@ -915,10 +914,65 @@ describe('AIChatManager queued messages', () => {
 		expect(hasImage).toBe(true)
 	})
 
-	it('still ignores a send with no text and no images', async () => {
+	// A text-free GLOBAL send carrying context chips is a real turn — the
+	// transcript renders just the chips (no bubble), and the model-facing text
+	// carries an explicit marker instead of a dangling INSTRUCTIONS header the
+	// model would echo back.
+	it('sends a context-only GLOBAL draft as a turn with an empty-message marker', async () => {
 		replyWith('done')
 		const manager = createManager(createInputMock())
 		manager.mode = AIMode.GLOBAL
+
+		await manager.sendRequest({
+			instructions: '',
+			contextOverride: [{ type: 'code', content: 'x', title: 'snippet', lang: 'bun' }]
+		})
+
+		expect(mocks.runChatLoop).toHaveBeenCalled()
+		const sent = mocks.runChatLoop.mock.calls[0][0].messages.at(-1)
+		expect(sent.content).toContain('(the user sent an empty message)')
+		// The stored message keeps what the user typed — nothing — so the
+		// transcript renders chips only, and edit/retry restores an empty draft.
+		expect(manager.displayMessages.find((m) => m.role === 'user')?.content).toBe('')
+	})
+
+	// With nothing riding the draft at all — no text, images, or context — the
+	// send is dropped in every mode; a bare accidental Enter must not burn a turn.
+	it('ignores an empty send with no context in GLOBAL mode', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+
+		await manager.sendRequest({ instructions: '' })
+
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+	})
+
+	// A context-only draft queued mid-stream must be retained — the queue guard
+	// previously dropped anything with no text and no images, silently eating
+	// the draft the idle path would have sent.
+	it('queues a context-only draft while streaming', () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		const a = { type: 'code' as const, content: 'x', title: 'snippet', lang: 'bun' as const }
+		const b = { type: 'code' as const, content: 'y', title: 'other', lang: 'bun' as const }
+
+		manager.queueMessage('', [], [a])
+		// A second queued prompt pins its own selection; the union must keep the
+		// earlier prompt's chip and not duplicate re-selected ones.
+		manager.queueMessage('', [], [b, a])
+
+		expect(manager.queuedContext).toEqual([a, b])
+		// A fully empty queue attempt still leaves nothing behind.
+		manager.dequeueMessage()
+		manager.queueMessage('', [], [])
+		expect(manager.queuedContext).toBeUndefined()
+	})
+
+	it('still ignores an empty send outside GLOBAL mode', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.NAVIGATOR
 
 		await manager.sendRequest({ instructions: '' })
 
@@ -2538,6 +2592,37 @@ describe('AIChatManager background job completion', () => {
 
 		expect(manager.pendingJobNotes).toHaveLength(1)
 		expect(manager.pendingJobNotes[0]).toContain('Background job job-1 for "run" succeeded')
+	})
+
+	it('persists on the inline terminal transition and on review', async () => {
+		const manager = new AIChatManager()
+		manager.registerJob({
+			jobId: 'job-1',
+			toolCallId: 'tc-1',
+			kind: 'script',
+			label: 'run',
+			workspace: 'ws'
+		})
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+
+		// Inline completion reports through updateJob without ever detaching; the
+		// terminal transition alone must write the tray or the job vanishes on reload.
+		manager.updateJob('job-1', { status: 'running' })
+		expect(saveChat).not.toHaveBeenCalled()
+		manager.updateJob('job-1', { status: 'success' })
+		await vi.waitFor(() => expect(saveChat).toHaveBeenCalledTimes(1))
+		expect(saveChat.mock.calls[0][4]).toEqual([
+			expect.objectContaining({ jobId: 'job-1', status: 'success' })
+		])
+
+		// Reviewing persists the flag; re-reviewing is a no-op (no extra write).
+		manager.markJobsReviewed(['job-1'])
+		await vi.waitFor(() => expect(saveChat).toHaveBeenCalledTimes(2))
+		expect(saveChat.mock.calls[1][4]).toEqual([
+			expect.objectContaining({ jobId: 'job-1', reviewed: true })
+		])
+		manager.markJobsReviewed(['job-1'])
+		expect(saveChat).toHaveBeenCalledTimes(2)
 	})
 })
 

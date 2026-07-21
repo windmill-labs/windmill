@@ -251,6 +251,8 @@ Manage git-sync settings between local wmill.yaml and Windmill backend
   - `--with-backend-settings <json:string>` - Use provided JSON settings instead of querying backend (for testing)
   - `--yes` - Skip interactive prompts and use default behavior
   - `--promotion <branch:string>` - Use promotionOverrides from the specified branch instead of regular overrides
+- `gitsync-settings status` - Report how local changes deploy to the workspace (git push vs wmill sync push)
+  - `--json-output` - Output in JSON format
 
 ### group
 
