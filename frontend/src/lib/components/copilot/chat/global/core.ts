@@ -5618,6 +5618,11 @@ function formatForkIndexEntry(e: ForkDiffEntryView): string {
 		case 'modified':
 			return `- ${name} — differs (${aheadBehind}; ${e.patchLineCount} diff lines)${draftFlag}`
 		case 'unchanged':
+			// Folder display_name lives only in the DB (no API surface exposes
+			// it), so an identical projection cannot prove folder parity.
+			if (e.kind === 'folder') {
+				return `- ${name} — no comparable differences; the folder display name is not exposed by the API and may differ (${aheadBehind})${draftFlag}`
+			}
 			return e.valueMasked
 				? `- ${name} — value never shown in chat; may differ (${aheadBehind})${draftFlag}`
 				: `- ${name} — content matches parent (version history differs: ${aheadBehind})${draftFlag}`
@@ -5744,7 +5749,9 @@ async function diffForkItem(
 		// never report that as "same content".
 		const message = entry.valueMasked
 			? `${type} "${path}": no visible config differences vs parent "${parent}", but variable values are never shown in chat, so a value change cannot be displayed. The workspace comparison reports it as ${entry.ahead > 0 || entry.behind > 0 ? `differing (ahead ${entry.ahead}, behind ${entry.behind})` : 'in sync'}.`
-			: `${type} "${path}" has the same content in the fork and its parent "${parent}" (only version history differs).`
+			: entry.kind === 'folder'
+				? `folder "${path}": no comparable differences vs parent "${parent}" — the folder display name is not exposed by the API and may be what differs (comparison reports ahead ${entry.ahead}, behind ${entry.behind}).`
+				: `${type} "${path}" has the same content in the fork and its parent "${parent}" (only version history differs).`
 		toolCallbacks.setToolStatus(toolId, { content: message, result: message })
 		return draftCaveat + message
 	}
