@@ -2,35 +2,31 @@
 
 An AI agent flow step can be saved as a **reusable agent** — a resource of the built-in
 `ai_agent` resource type that bundles the agent's brain (provider/model, system prompt,
-temperature, output schema, memory…), its tool set, and an **eval suite**. Other flows can
-link to the same agent, and edits to the agent propagate to every linked step.
+temperature, output schema, memory…) and its tool set. Other flows can link to the same
+agent, and edits to the agent propagate to every linked step.
 
-## Hybrid linking
+The `ai_agent` resource type is defined in the hub (windmill-integrations) and synced into
+every workspace via the standard cached-resource-type sync, like other built-in types.
 
-`FlowModuleValue::AIAgent` has an optional `agent` field holding the resource path. When set:
+## Rigid linking
+
+`FlowModuleValue::AIAgent` has an optional `agent` field holding the resource path, plus a
+`tool_inputs` map (per-tool host-flow input overrides). When `agent` is set:
 
 - The brain config and tools are resolved at runtime from the resource
   (`windmill-worker/src/ai_executor.rs`, via `get_resource_value_interpolated` — nested
   provider `$res:` credentials resolve automatically).
-- The flow step keeps only the flow-local inputs (`user_message`, `user_attachments`) in its
-  `input_transforms`.
-- v1 boundary: a linked agent's tools come wholly from the resource (per-tool flow-context
-  wiring is a fast-follow).
+- The step keeps only the flow-local inputs (`user_message`, `user_attachments`) in its own
+  `input_transforms`; the brain and tools stay in the resource (read-only in the step).
+- A tool's `input_transforms` reference the *authoring* flow, so `tool_inputs` rebinds each
+  tool's inputs to the host flow's context; at runtime these overlay onto the matching tools'
+  transforms.
 
-In the flow editor, the AI agent step's **Step Input** tab shows a bar to *Save as agent*,
-*Use saved agent* (picker), or *Unlink* (snapshots the resolved config back into the step).
-
-## Evals
-
-A saved agent carries `evals.cases`. Each case has an input message, an optional LLM-judge
-checklist, and optional deterministic assertions (`contains` / `not_contains` / `regex` /
-`json_path_equals` / `output_schema_valid`). The **Evals** tab authors and runs them.
-
-Cases run for real (they cost tokens): the backend pushes a single-step AIAgent flow-preview
-job and grades the output. The judge itself runs as an inline AIAgent step with a structured
-output schema (`{score, pass, summary}`), defaulting to the agent's own provider.
-
-- `POST /w/{workspace}/ai_agents/run` — run a saved agent once on an input.
-- `POST /w/{workspace}/ai_agents/eval_case` — run one eval case (execute + assertions + judge).
+In the flow editor, the AI agent step's **Step Input** tab shows a single read-only card
+(*linked to <path>*, with the inherited brain + tools and an explanatory tooltip) plus
+*Edit* (fork into the editable step, Save changes upserts back and re-links) and *Unlink*
+(fork the resolved config — including any `tool_inputs` — back into the step as a one-off).
+A linked agent's tools appear as clickable graph tool nodes; selecting one opens the standard
+input editor to rebind its inputs against the host flow.
 
 Sharing works through standard resource folder permissions (save agents under `f/...`).
