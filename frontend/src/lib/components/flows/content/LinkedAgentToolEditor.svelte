@@ -4,6 +4,7 @@
 	import type { FlowModule, InputTransform } from '$lib/gen'
 	import AgentToolWrapper from './AgentToolWrapper.svelte'
 	import type { AgentTool } from '../agentToolUtils'
+	import { toolInputOverrides } from '../agentResourceUtils'
 
 	let {
 		resourceTool,
@@ -28,42 +29,42 @@
 		siblingToolNames?: string[]
 	} = $props()
 
+	// The resource tool's own transforms (authored against the source flow). Overrides are stored as
+	// the diff from these, so unchanged inputs keep inheriting from the resource.
+	const baseInputs =
+		(untrack(() =>
+			$state.snapshot(
+				(resourceTool.value as { input_transforms?: Record<string, InputTransform> })
+					.input_transforms
+			)
+		) as Record<string, InputTransform>) ?? {}
+
 	// Editable copy: structure from the resource (code hidden via noEditor on the wrapper),
 	// input_transforms seeded from the resource then overlaid with the step's existing binding.
-	// FlowModuleComponent edits this copy; the effect below mirrors its inputs into tool_inputs.
+	// FlowModuleComponent edits this copy; the effect below mirrors its diff into tool_inputs.
 	let editable = $state<AgentTool>(
 		untrack(() => {
-			const base = ((resourceTool.value as { input_transforms?: Record<string, InputTransform> })
-				.input_transforms ?? {}) as Record<string, InputTransform>
 			const overlay = toolInputs?.[resourceTool.id] ?? {}
 			return {
 				...resourceTool,
-				value: { ...resourceTool.value, input_transforms: { ...base, ...overlay } }
+				value: { ...resourceTool.value, input_transforms: { ...baseInputs, ...overlay } }
 			} as AgentTool
 		})
 	)
 
-	// The seeded value (resource base + saved overlay). Opening a tool must not dirty the flow, so
-	// we only publish once the editor diverges from this — merely materializing the seed is not an edit.
-	const initialInputs = untrack(() =>
-		$state.snapshot(
-			(editable.value as { input_transforms?: Record<string, InputTransform> }).input_transforms
-		)
-	) as Record<string, InputTransform>
-
-	// Mirror the editor's input_transforms into the step's tool_inputs (full map per tool; the
-	// runtime overlays it onto the resource tool). Guarded so our own write doesn't re-trigger.
+	// Mirror the editor's inputs into the step's tool_inputs, storing only the keys that diverge from
+	// the resource tool (see toolInputOverrides). This makes merely opening a tool a no-op — the seed
+	// equals base ∪ overrides, whose diff is the saved overrides — and lets a revert persist. Guarded
+	// so our own write doesn't re-trigger.
 	$effect(() => {
 		const its = $state.snapshot(
 			(editable.value as { input_transforms?: Record<string, InputTransform> }).input_transforms
 		) as Record<string, InputTransform>
 		const id = editable.id
+		const overrides = toolInputOverrides(its, baseInputs)
 		untrack(() => {
-			if (deepEqual(its, initialInputs)) {
-				return
-			}
-			if (!deepEqual(toolInputs?.[id], its)) {
-				toolInputs = { ...toolInputs, [id]: its }
+			if (!deepEqual(toolInputs?.[id], overrides)) {
+				toolInputs = { ...toolInputs, [id]: overrides }
 			}
 		})
 	})

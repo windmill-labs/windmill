@@ -5,7 +5,8 @@ import {
 	flowLocalInputs,
 	inputTransformsToAgentConfig,
 	nonStaticBrainKeys,
-	summarizeAgentBrain
+	summarizeAgentBrain,
+	toolInputOverrides
 } from './agentResourceUtils'
 
 describe('summarizeAgentBrain', () => {
@@ -108,5 +109,29 @@ describe('flowLocalInputs', () => {
 
 	it('handles undefined', () => {
 		expect(flowLocalInputs(undefined)).toEqual({})
+	})
+})
+
+describe('toolInputOverrides', () => {
+	const base = {
+		tenant: { type: 'javascript', expr: 'flow_input.tenant' },
+		query: { type: 'static', value: 'x' }
+	} as any
+
+	it('returns nothing when inputs equal the resource base (opening a tool is a no-op)', () => {
+		expect(toolInputOverrides(base, base)).toEqual({})
+	})
+
+	it('returns only the edited keys, so a revert to base drops back to nothing', () => {
+		const edited = { ...base, query: { type: 'static', value: 'y' } }
+		expect(toolInputOverrides(edited, base)).toEqual({ query: { type: 'static', value: 'y' } })
+		// reverting query back to the base value yields an empty override set again
+		expect(toolInputOverrides(base, base)).toEqual({})
+	})
+
+	it('includes keys absent from the base', () => {
+		expect(toolInputOverrides({ extra: { type: 'static', value: 1 } } as any, base)).toEqual({
+			extra: { type: 'static', value: 1 }
+		})
 	})
 })

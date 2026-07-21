@@ -1,3 +1,4 @@
+import { deepEqual } from 'fast-equals'
 import type { InputTransform } from '$lib/gen'
 
 // The brain fields stored flat in an `ai_agent` resource value. The flow-local inputs
@@ -44,6 +45,25 @@ export function flowLocalInputs(
 		}
 	}
 	return out
+}
+
+/**
+ * The host-flow overrides to store on a linked step for one tool: the subset of the tool's edited
+ * input_transforms that diverges from the resource tool's own transforms. Storing only the diff (not
+ * the full merged map) keeps unchanged inputs inheriting from the resource, makes merely opening a
+ * tool a no-op (its inputs still equal base ∪ overrides), and lets reverting an edit persist.
+ */
+export function toolInputOverrides(
+	inputs: Record<string, InputTransform> | undefined,
+	base: Record<string, InputTransform> | undefined
+): Record<string, InputTransform> {
+	const overrides: Record<string, InputTransform> = {}
+	for (const [key, value] of Object.entries(inputs ?? {})) {
+		if (!deepEqual(value, base?.[key])) {
+			overrides[key] = value
+		}
+	}
+	return overrides
 }
 
 export interface AIAgentConfig {
