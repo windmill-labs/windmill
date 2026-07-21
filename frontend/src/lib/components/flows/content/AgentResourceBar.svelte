@@ -10,6 +10,7 @@
 	import {
 		AGENT_FLOW_LOCAL_KEYS,
 		agentConfigToInputTransforms,
+		flowLocalInputs,
 		inputTransformsToAgentConfig,
 		nonStaticBrainKeys,
 		summarizeAgentBrain,
@@ -108,6 +109,8 @@
 			agent = pickerValue
 			tools = []
 			toolInputs = {}
+			// Drop the step's brain transforms; a linked step keeps only the flow-local inputs.
+			inputTransforms = flowLocalInputs(inputTransforms)
 		}
 	})
 
@@ -152,8 +155,9 @@
 			})
 		}
 		agent = path
-		// The brain + tools now live in the resource; a linked step keeps none of its own.
+		// The brain + tools now live in the resource; a linked step keeps only the flow-local inputs.
 		tools = []
+		inputTransforms = flowLocalInputs(inputTransforms)
 		editingPath = undefined
 	}
 

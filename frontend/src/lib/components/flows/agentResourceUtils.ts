@@ -28,6 +28,24 @@ export function nonStaticBrainKeys(
 	})
 }
 
+/**
+ * Keep only the flow-local inputs on a step's input_transforms. Used when linking: the brain comes
+ * from the resource, so the step must not carry stale `provider`/`system_prompt`/… transforms — at
+ * runtime they'd still be resolved (an unnecessary, possibly failing provider `$res:` fetch) yet
+ * never used, since the linked branch takes the brain from the resource.
+ */
+export function flowLocalInputs(
+	inputTransforms: Record<string, InputTransform> | undefined
+): Record<string, InputTransform> {
+	const out: Record<string, InputTransform> = {}
+	for (const key of AGENT_FLOW_LOCAL_KEYS) {
+		if (inputTransforms?.[key]) {
+			out[key] = inputTransforms[key]
+		}
+	}
+	return out
+}
+
 export interface AIAgentConfig {
 	provider?: unknown
 	output_type?: string

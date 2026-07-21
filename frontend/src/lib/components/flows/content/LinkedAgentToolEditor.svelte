@@ -43,6 +43,14 @@
 		})
 	)
 
+	// The seeded value (resource base + saved overlay). Opening a tool must not dirty the flow, so
+	// we only publish once the editor diverges from this — merely materializing the seed is not an edit.
+	const initialInputs = untrack(() =>
+		$state.snapshot(
+			(editable.value as { input_transforms?: Record<string, InputTransform> }).input_transforms
+		)
+	) as Record<string, InputTransform>
+
 	// Mirror the editor's input_transforms into the step's tool_inputs (full map per tool; the
 	// runtime overlays it onto the resource tool). Guarded so our own write doesn't re-trigger.
 	$effect(() => {
@@ -51,6 +59,9 @@
 		) as Record<string, InputTransform>
 		const id = editable.id
 		untrack(() => {
+			if (deepEqual(its, initialInputs)) {
+				return
+			}
 			if (!deepEqual(toolInputs?.[id], its)) {
 				toolInputs = { ...toolInputs, [id]: its }
 			}
