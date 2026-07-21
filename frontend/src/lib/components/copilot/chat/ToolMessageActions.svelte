@@ -7,6 +7,7 @@
 		Database,
 		DollarSign,
 		FolderOpen,
+		GitCompareArrows,
 		KeyRound,
 		Mail,
 		Package,
@@ -69,7 +70,8 @@
 		folders: { title: 'Folders', icon: FolderOpen },
 		groups: { title: 'Groups', icon: Users },
 		triggers: { title: 'Triggers', icon: Zap },
-		workspace_settings: { title: 'Workspace settings', icon: Settings }
+		workspace_settings: { title: 'Workspace settings', icon: Settings },
+		compare: { title: 'Compare & Deploy', icon: GitCompareArrows }
 	}
 
 	function getActionCard(action: ToolDisplayAction): ActionCard {
