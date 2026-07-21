@@ -107,7 +107,14 @@
 				const overrides = toolInputOverrides(cur, baseInputs(t))
 				if (!deepEqual(toolInputs?.[t.id] ?? {}, overrides)) {
 					lastPublished[t.id] = overrides
-					toolInputs = { ...toolInputs, [t.id]: overrides }
+					if (Object.keys(overrides).length === 0) {
+						// Fully reverted: drop the key rather than keep an empty {} that dirties the flow.
+						const rest = { ...toolInputs }
+						delete rest[t.id]
+						toolInputs = rest
+					} else {
+						toolInputs = { ...toolInputs, [t.id]: overrides }
+					}
 				}
 			}
 		})

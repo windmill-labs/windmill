@@ -68,9 +68,9 @@
 	const dispatch = createEventDispatcher()
 
 	// This read-only viewer doesn't run initFlowState, so linked agents' tools would otherwise never
-	// resolve (they'd show only the "linked" marker). Resolve them for display, keyed by module id.
-	// Best-effort: resolveLinkedAgentTools swallows access errors and returns [], so an inaccessible
-	// agent gracefully falls back to the marker node — this never affects a run.
+	// resolve. Resolve them for display, keyed by module id. Best-effort: resolveLinkedAgentTools
+	// swallows access errors and returns [], so an inaccessible agent simply shows no tool nodes
+	// (its label still names the link) — this never affects a run.
 	$effect(() => {
 		const modules = dfs(flow?.value?.modules ?? [], (m) => m)
 		const ws = workspace

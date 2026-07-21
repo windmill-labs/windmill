@@ -1097,7 +1097,9 @@
 																	: {},
 															(v) => {
 																if (flowModule.value.type === 'aiagent') {
-																	flowModule.value.tool_inputs = v
+																	// An emptied map reverts to absent so the doc matches its pre-override state.
+																	flowModule.value.tool_inputs =
+																		Object.keys(v).length > 0 ? v : undefined
 																}
 															}
 														}
@@ -1153,7 +1155,9 @@
 																	: {},
 															(v) => {
 																if (flowModule.value.type === 'aiagent') {
-																	flowModule.value.tool_inputs = v
+																	// An emptied map reverts to absent so the doc matches its pre-override state.
+																	flowModule.value.tool_inputs =
+																		Object.keys(v).length > 0 ? v : undefined
 																}
 															}
 														}
