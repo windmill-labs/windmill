@@ -58,7 +58,7 @@
 	import type { FlowGraphAssetContext } from '../flows/types'
 	import AiToolNode, { computeAIToolNodes } from './renderers/nodes/AIToolNode.svelte'
 	import {
-		linkedAgentTools,
+		linkedAgentToolsForScope,
 		linkedAgentToolsVersion
 	} from '$lib/components/flows/linkedAgentToolsStore.svelte'
 	import NewAiToolNode from './renderers/nodes/NewAIToolNode.svelte'
@@ -707,7 +707,7 @@
 			eventHandler,
 			insertable,
 			flowModuleStates,
-			linkedAgentTools()
+			linkedAgentToolsForScope(path ?? '')
 		)
 
 		let finalNodes: (Node & NodeLayout)[] = [

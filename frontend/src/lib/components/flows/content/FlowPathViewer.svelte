@@ -47,7 +47,7 @@
 
 <div class="flex flex-col flex-1 h-full overflow-auto">
 	{#if flow}
-		<FlowGraphViewer triggerNode={true} {noSide} {flow} {fillAvailableHeight} />
+		<FlowGraphViewer triggerNode={true} {noSide} {flow} {fillAvailableHeight} workspace={opWs} />
 	{:else}
 		<Skeleton layout={[[40]]} />
 	{/if}

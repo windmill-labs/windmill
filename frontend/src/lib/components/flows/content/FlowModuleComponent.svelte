@@ -1044,6 +1044,7 @@
 												<AgentResourceBar
 													moduleId={flowModule.id}
 													opWorkspace={opWs}
+													flowPath={$pathStore}
 													bind:agent={
 														() =>
 															flowModule.value.type === 'aiagent'

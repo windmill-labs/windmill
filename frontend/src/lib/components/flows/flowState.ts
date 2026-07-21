@@ -30,11 +30,14 @@ export async function initFlowState(
 	flow: Flow,
 	flowStateStore: StateStore<FlowState>,
 	// The acting workspace when the flow editor runs in an AI session; else the nav workspace.
-	workspace?: string
+	workspace?: string,
+	// Scope for the linked-agent tools store (the flow path); keeps agents that share a module id
+	// across simultaneously-shown flows from aliasing each other.
+	scope: string = ''
 ) {
 	const modulesState: FlowState = {}
 
-	await mapFlowModules(flow.value.modules, modulesState, workspace)
+	await mapFlowModules(flow.value.modules, modulesState, workspace, scope)
 
 	const failureModule = flow.value.failure_module
 		? await loadFlowModuleState(flow.value.failure_module, workspace)
@@ -50,21 +53,26 @@ export async function initFlowState(
  * mapFlowModule recursively explore the flow, following deeply nested loop and branches modules
  * to build the initial state.
  */
-async function mapFlowModule(flowModule: FlowModule, modulesState: FlowState, workspace?: string) {
+async function mapFlowModule(
+	flowModule: FlowModule,
+	modulesState: FlowState,
+	workspace?: string,
+	scope: string = ''
+) {
 	const value = flowModule.value
 	if (value.type === 'forloopflow') {
-		await mapFlowModules(value.modules, modulesState, workspace)
+		await mapFlowModules(value.modules, modulesState, workspace, scope)
 	}
 
 	if (value.type === 'branchone') {
-		await mapFlowModules(value.default, modulesState, workspace)
+		await mapFlowModules(value.default, modulesState, workspace, scope)
 	}
 
 	if (value.type === 'branchone' || value.type === 'branchall') {
 		await Promise.all(
 			value.branches.map(
 				(branchModule: { summary?: string; skip_failure?: boolean; modules: Array<FlowModule> }) =>
-					mapFlowModules(branchModule.modules, modulesState, workspace)
+					mapFlowModules(branchModule.modules, modulesState, workspace, scope)
 			)
 		)
 	}
@@ -77,7 +85,7 @@ async function mapFlowModule(flowModule: FlowModule, modulesState: FlowState, wo
 			? await resolveLinkedAgentTools(agentRef, workspace)
 			: (value.tools ?? [])
 		if (agentRef) {
-			setLinkedAgentTools(flowModule.id, tools)
+			setLinkedAgentTools(scope, flowModule.id, tools)
 		}
 		await Promise.all(
 			tools.filter(isFlowModuleTool).map(async (tool) => {
@@ -114,9 +122,12 @@ export async function resolveLinkedAgentTools(
 async function mapFlowModules(
 	flowModules: FlowModule[],
 	modulesState: FlowState,
-	workspace?: string
+	workspace?: string,
+	scope: string = ''
 ) {
 	await Promise.all(
-		flowModules.map((flowModule: FlowModule) => mapFlowModule(flowModule, modulesState, workspace))
+		flowModules.map((flowModule: FlowModule) =>
+			mapFlowModule(flowModule, modulesState, workspace, scope)
+		)
 	)
 }

@@ -78,7 +78,10 @@
 			for (const m of modules) {
 				const value = m?.value as { type?: string; agent?: string } | undefined
 				if (value?.type === 'aiagent' && value.agent) {
-					resolveLinkedAgentTools(value.agent, ws).then((tools) => setLinkedAgentTools(m.id, tools))
+					const scope = flow?.path ?? ''
+					resolveLinkedAgentTools(value.agent, ws).then((tools) =>
+						setLinkedAgentTools(scope, m.id, tools)
+					)
 				}
 			}
 		})

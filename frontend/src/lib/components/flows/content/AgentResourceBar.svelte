@@ -27,7 +27,8 @@
 		tools = $bindable(),
 		toolInputs = $bindable(),
 		moduleId,
-		opWorkspace = undefined
+		opWorkspace = undefined,
+		flowPath = ''
 	}: {
 		agent: string | undefined
 		inputTransforms: Record<string, InputTransform>
@@ -37,6 +38,8 @@
 		// The workspace the flow editor operates on (differs from the nav workspace in session/fork
 		// editors). All resource reads/writes must target it, not $workspaceStore.
 		opWorkspace?: string
+		// Scope for the linked-agent tools store (the flow path); must match what the graph reads.
+		flowPath?: string
 	} = $props()
 
 	let ws = $derived(opWorkspace ?? $workspaceStore)
@@ -116,7 +119,7 @@
 	// its tool nodes update without reloading the flow.
 	$effect(() => {
 		if (!agent) {
-			clearLinkedAgentTools(moduleId)
+			clearLinkedAgentTools(flowPath, moduleId)
 			return
 		}
 		// Publish only once the resource has loaded — don't clobber the load-time tools with [] while
@@ -124,7 +127,7 @@
 		const loaded = linkedResource.current
 		if (loaded) {
 			// linkedResource types tools loosely; they are the same resource tools the store holds.
-			setLinkedAgentTools(moduleId, loaded.tools as AgentToolStrict[])
+			setLinkedAgentTools(flowPath, moduleId, loaded.tools as AgentToolStrict[])
 		}
 	})
 
@@ -433,6 +436,7 @@
 				initialPath=""
 				namePlaceholder="my_agent"
 				kind="resource"
+				workspaceOverride={ws}
 			/>
 			<label class="flex flex-col gap-1 text-xs">
 				<span class="text-secondary">Description</span>
