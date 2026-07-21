@@ -565,20 +565,49 @@ describe('AttachedFilesStore', () => {
 		expect(store.standalone.map((f) => f.name)).toEqual(['a b.md'])
 	})
 
-	it('links two distinct files whose raw names sanitize identically', async () => {
-		// A display-name collision is NOT a duplicate: dedupe requires matching
-		// file stats, so the second file claims a suffixed name instead of being
-		// silently discarded — and re-linking either original still dedupes.
+	it('links two distinct files whose raw names sanitize identically — equal stats included', async () => {
+		// A display-name collision is NOT a duplicate: the re-link identity is the
+		// RAW name, so even identical size and mtime cannot collapse two distinct
+		// raw names into one row. The second claims a suffixed name.
 		await store.addFiles([file('a\nb.md', 'first\n', 1)])
 		await settle(store)
-		await store.addFiles([file('a\tb.md', 'second!\n', 2)])
+		await store.addFiles([file('a\tb.md', 'other\n', 1)]) // same size, same mtime
 		await settle(store)
 		expect(store.standalone.map((f) => f.name).sort()).toEqual(['a b (2).md', 'a b.md'])
 
-		// Re-link of the suffixed file matches via its pre-suffix sourceName.
-		await store.addFiles([file('a\tb.md', 'second!\n', 2)])
+		// Re-link of the suffixed file matches via its raw sourceName.
+		await store.addFiles([file('a\tb.md', 'other\n', 1)])
 		await settle(store)
 		expect(store.standalone).toHaveLength(2)
+	})
+
+	it('re-link dedupe survives a reload — raw provenance is persisted', async () => {
+		const { getItemsForSession } = await import('./attachedFilesDB')
+		const record = (id: string, name: string, sourceName: string, blob: File) => ({
+			id,
+			sessionId: 's1',
+			kind: 'snapshot' as const,
+			name,
+			sourceName,
+			blob,
+			size: blob.size,
+			lastModified: blob.lastModified,
+			addedAt: 1
+		})
+		;(getItemsForSession as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+			record('r1', 'a b.md', 'a\nb.md', file('a b.md', 'first\n', 1)),
+			record('r2', 'a b (2).md', 'a\tb.md', file('a b (2).md', 'other\n', 2))
+		])
+		const s = new AttachedFilesStore()
+		await s.restore('s1', false)
+		await settle(s)
+		expect(s.standalone.map((f) => f.name).sort()).toEqual(['a b (2).md', 'a b.md'])
+
+		// Re-linking the original file behind the suffixed row must dedupe, not
+		// create `a b (3).md` — the raw identity rode the persisted record.
+		await s.addFiles([file('a\tb.md', 'other\n', 2)])
+		await settle(s)
+		expect(s.standalone).toHaveLength(2)
 	})
 
 	it('restore claims names, keeping legacy rows that sanitize identically distinct', async () => {

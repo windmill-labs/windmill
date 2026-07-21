@@ -53,9 +53,11 @@ export interface AttachedFile extends FileEntry {
 	 * transcript and prompt carry. Names are display-only and may collide;
 	 * lookups join on this. See attachedTextFileId. */
 	id?: string
-	/** Pre-suffix display name when uniquifying renamed the row (session rows).
-	 * Used only by re-link dedupe — a re-link arrives under the original name
-	 * and must match the row it was suffixed into. */
+	/** Raw pre-sanitization source name (session rows) — the re-link identity.
+	 * Display names lose information (sanitize + suffix), so a re-link must
+	 * match on the raw name it arrives under: two distinct raw names that
+	 * sanitize identically are different files even with equal stats. Falls back
+	 * to `name` for rows persisted before provenance existed. */
 	sourceName?: string
 }
 
@@ -250,32 +252,31 @@ export class AttachedFilesStore {
 				(file as File & { webkitRelativePath?: string }).webkitRelativePath ||
 				file.name ||
 				'file'
-			const desired = sanitizeAttachmentName(rawPath)
-
 			const folder = rawPath.includes('/') ? rawPath.split('/')[0] : undefined
 			if (folder && isIgnoredPath(rawPath)) continue // skip junk inside folders
 
-			if (this.#isDuplicate(desired, rawPath, file)) {
+			if (this.#isDuplicate(rawPath, file)) {
 				continue // silent no-op on re-link
 			}
 
 			const reason = await this.#preflight(file)
 			if (reason) {
-				result.rejected.push({ name: desired, reason })
+				result.rejected.push({ name: sanitizeAttachmentName(rawPath), reason })
 				continue
 			}
 
-			const { name, sourceName } = this.#claimName(rawPath)
+			const name = this.#claimName(rawPath)
 			const relPath = folder ? rawPath : undefined
 			const sourceId = createLongHash()
 
-			this.#pushIndexing({ name, sourceName, file, folder, sourceId, relPath })
+			this.#pushIndexing({ name, sourceName: rawPath, file, folder, sourceId, relPath })
 			result.added.push(name)
 			void this.#persist({
 				id: sourceId,
 				sessionId: this.sessionId ?? '',
 				kind: 'snapshot',
 				name,
+				sourceName: rawPath,
 				folder,
 				relPath,
 				blob: file,
@@ -318,10 +319,10 @@ export class AttachedFilesStore {
 				result.rejected.push({ name: path, reason: 'Not a text file' })
 				continue
 			}
-			const { name, sourceName } = this.#claimName(path)
+			const name = this.#claimName(path)
 			this.#pushIndexing({
 				name,
-				sourceName,
+				sourceName: path,
 				file,
 				folder,
 				sourceId,
@@ -363,11 +364,12 @@ export class AttachedFilesStore {
 						this.#pushPlaceholder(item, 'unavailable')
 						continue
 					}
-					// Claimed on read: rows persisted before sanitization existed must
-					// come back clean AND unique — two legacy names can sanitize to the
-					// same string, and both must stay independently resolvable.
+					// Claimed on read from the persisted RAW identity: legacy names can
+					// sanitize to one display name (both must stay resolvable), and the
+					// raw sourceName is what a later re-link dedupes against.
 					this.#pushIndexing({
-						...this.#claimName(item.name),
+						name: this.#claimName(item.sourceName ?? item.name),
+						sourceName: item.sourceName ?? item.name,
 						file: item.blob,
 						folder: item.folder,
 						relPath: item.relPath,
@@ -473,12 +475,14 @@ export class AttachedFilesStore {
 	 * Session rows only — message rows dedupe by their content-hash id in
 	 * registerMessageFiles, and a same-named row of the other scope is a
 	 * different file, not a duplicate. */
-	#isDuplicate(name: string, rawPath: string, file: File): boolean {
-		// "Duplicate" means the SAME file re-linked — identical stats plus a
-		// matching name, pre-suffix name, or raw path. Never a bare display-name
-		// match: two distinct raw names can sanitize to one display name and both
-		// must survive (#claimName suffixes the second). A same-named file with
-		// different stats is a different (or edited) file and links as its own row.
+	#isDuplicate(rawPath: string, file: File): boolean {
+		// "Duplicate" means the SAME source file re-linked: identical stats plus a
+		// matching RAW identity — the row's sourceName (raw name at link time,
+		// `name` fallback for pre-provenance rows) or, for folder children, the
+		// raw on-disk relPath. Never a display-name compare: sanitize and suffix
+		// both lose information, so two distinct raw names can share a display
+		// name even with equal stats and must both survive (#claimName suffixes
+		// the second).
 		return this.files.some(
 			(f) =>
 				// Folder-root placeholders aren't real files — they must not block attaching a
@@ -488,11 +492,7 @@ export class AttachedFilesStore {
 				f.size === file.size &&
 				f.file instanceof File &&
 				f.file.lastModified === file.lastModified &&
-				// Sanitized-name compare (stored names are sanitized); sourceName catches
-				// a re-link of a row that uniquifying suffixed; relPath keys folder
-				// children on the RAW on-disk path, NOT the basename — two distinct files
-				// sharing a basename under different subdirs must not dedupe.
-				(f.name === name || f.sourceName === name || f.relPath === rawPath)
+				((f.sourceName ?? f.name) === rawPath || f.relPath === rawPath)
 		)
 	}
 
@@ -550,9 +550,10 @@ export class AttachedFilesStore {
 		// File placeholders claim like any row (a legacy name may collide once
 		// sanitized); folder-root placeholders keep the folder key's name and stay
 		// outside name uniqueness — they may legitimately share a name with a file.
-		const { name, sourceName } = isFolderRoot
-			? { name: sanitizeAttachmentName(item.name), sourceName: undefined }
-			: this.#claimName(item.name)
+		const name = isFolderRoot
+			? sanitizeAttachmentName(item.name)
+			: this.#claimName(item.sourceName ?? item.name)
+		const sourceName = isFolderRoot ? undefined : (item.sourceName ?? item.name)
 		this.files = [
 			...this.files,
 			{
@@ -576,10 +577,10 @@ export class AttachedFilesStore {
 		const children = await enumerateDir(dirHandle)
 		for (const { file, path } of children) {
 			if (!(await this.#sniffText(file))) continue
-			const { name, sourceName } = this.#claimName(path)
+			const name = this.#claimName(path)
 			this.#pushIndexing({
 				name,
-				sourceName,
+				sourceName: path,
 				file,
 				folder,
 				sourceId,
@@ -632,8 +633,16 @@ export class AttachedFilesStore {
 			if (!cur) {
 				// newly added on disk
 				if (!(await this.#sniffText(file))) continue
-				const { name, sourceName } = this.#claimName(path)
-				this.#pushIndexing({ name, sourceName, file, folder, sourceId, handle, relPath: path })
+				const name = this.#claimName(path)
+				this.#pushIndexing({
+					name,
+					sourceName: path,
+					file,
+					folder,
+					sourceId,
+					handle,
+					relPath: path
+				})
 			} else {
 				const curMod = cur.file instanceof File ? cur.file.lastModified : undefined
 				if (file.size !== cur.size || file.lastModified !== curMod) {
@@ -718,14 +727,10 @@ export class AttachedFilesStore {
 	 * characters must never reach model-facing text) then uniquify among session
 	 * rows. Every creation path — attach, folder expansion, refresh, persisted
 	 * restore — goes through here so none can skip a rule. Message rows stay out
-	 * by design (id-addressed, names may collide); `relPath` and `folder` stay
-	 * raw by design (on-disk keys). When uniquifying renamed the row,
-	 * `sourceName` records the pre-suffix name so re-link dedupe can still
-	 * recognize the same source file. */
-	#claimName(raw: string): { name: string; sourceName?: string } {
-		const base = sanitizeAttachmentName(raw)
-		const name = this.#uniqueName(base)
-		return name === base ? { name } : { name, sourceName: base }
+	 * by design (id-addressed, names may collide); `relPath`, `folder`, and the
+	 * row's `sourceName` (re-link identity) stay raw by design. */
+	#claimName(raw: string): string {
+		return this.#uniqueName(sanitizeAttachmentName(raw))
 	}
 
 	#uniqueName(original: string): string {
