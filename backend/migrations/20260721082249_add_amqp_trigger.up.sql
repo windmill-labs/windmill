@@ -73,3 +73,11 @@ USING (exists(
     SELECT key, value FROM jsonb_each_text(extra_perms)
     WHERE SPLIT_PART(key, '/', 1) = 'g' AND key = ANY((select regexp_split_to_array(current_setting('session.pgroups'), ','))::text[])
     AND value::boolean));
+
+-- Enum values for the new trigger kind. ALTER TYPE ... ADD VALUE runs inside the
+-- migration transaction on PG >= 14 (Windmill's minimum) as long as the value
+-- isn't used in the same transaction — the amqp_trigger table above does not
+-- reference these enum types.
+ALTER TYPE TRIGGER_KIND ADD VALUE IF NOT EXISTS 'amqp';
+ALTER TYPE job_trigger_kind ADD VALUE IF NOT EXISTS 'amqp';
+ALTER TYPE draft_kind ADD VALUE IF NOT EXISTS 'trigger_amqp';
