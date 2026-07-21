@@ -639,7 +639,7 @@
 										options={{
 											right: 'Promote to prod via Git',
 											rightTooltip:
-												"Each deploy pushes a per-item wm_deploy/** branch to prod's repository and opens a pull request into its tracked branch, instead of committing to the dev branch. Reuses prod's repository — no separate setup."
+												"Each deploy pushes a per-item wm_deploy/** branch to prod's repository, ready to open a pull request into its tracked branch, instead of committing to the dev branch. Enable automatic pull requests below to have Windmill open them. Reuses prod's repository, no separate setup."
 										}}
 										on:change={(e) => setDevPromotion(e.detail)}
 									/>
@@ -650,7 +650,7 @@
 												options={{
 													right: 'One pull request per folder',
 													rightTooltip:
-														"Group a folder's items into a single wm_deploy/** branch and pull request, instead of one per item."
+														"Group a folder's items into a single wm_deploy/** branch, ready as one pull request, instead of one branch per item."
 												}}
 												on:change={(e) => setGroupByFolder(e.detail)}
 											/>
