@@ -4,6 +4,7 @@ import {
 	HttpTriggerService,
 	KafkaTriggerService,
 	MqttTriggerService,
+	AmqpTriggerService,
 	NatsTriggerService,
 	PostgresTriggerService,
 	ScheduleService,
@@ -14,6 +15,7 @@ import {
 	type NewHttpTrigger,
 	type NewKafkaTrigger,
 	type NewMqttTrigger,
+	type NewAmqpTrigger,
 	type NewNatsTrigger,
 	type NewPostgresTrigger,
 	type NewSchedule,
@@ -45,6 +47,7 @@ type TriggerRequestByKind = {
 	nats: NewNatsTrigger
 	postgres: NewPostgresTrigger
 	mqtt: NewMqttTrigger
+	amqp: NewAmqpTrigger
 	sqs: NewSqsTrigger
 	gcp: GcpTriggerData
 	azure: AzureTriggerData
@@ -154,6 +157,12 @@ const triggerConfigs = {
 		requestSchema: triggerRequestSchemas.mqtt as z.ZodType<NewMqttTrigger>,
 		create: (data: { workspace: string; requestBody: NewMqttTrigger }) =>
 			MqttTriggerService.createMqttTrigger(data)
+	},
+	amqp: {
+		label: 'AMQP trigger',
+		requestSchema: triggerRequestSchemas.amqp as z.ZodType<NewAmqpTrigger>,
+		create: (data: { workspace: string; requestBody: NewAmqpTrigger }) =>
+			AmqpTriggerService.createAmqpTrigger(data)
 	},
 	sqs: {
 		label: 'SQS trigger',
@@ -302,7 +311,9 @@ const createScheduleTool: Tool<any> = {
 				})
 				return JSON.stringify(toolResult)
 			} catch (error) {
-				throw new Error(`Failed to create schedule "${requestBody.path}": ${formatToolError(error)}`)
+				throw new Error(
+					`Failed to create schedule "${requestBody.path}": ${formatToolError(error)}`
+				)
 			}
 		} catch (error) {
 			return setToolError(toolCallbacks, toolId, error)

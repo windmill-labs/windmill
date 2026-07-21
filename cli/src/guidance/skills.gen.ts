@@ -7232,12 +7232,12 @@ trigger related commands
   - \`--json\` - Output as JSON (for piping to jq)
 - \`trigger get <path:string>\` - get a trigger's details
   - \`--json\` - Output as JSON (for piping to jq)
-  - \`--kind <kind:string>\` - Trigger kind (http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email). Recommended for faster lookup
+  - \`--kind <kind:string>\` - Trigger kind (http, websocket, kafka, nats, postgres, mqtt, amqp, sqs, gcp, azure, email). Recommended for faster lookup
 - \`trigger new <path:string>\` - create a new trigger locally
-  - \`--kind <kind:string>\` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email)
+  - \`--kind <kind:string>\` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, amqp, sqs, gcp, azure, email)
 - \`trigger push <file_path:string> <remote_path:string>\` - push a local trigger spec. This overrides any remote versions.
 - \`trigger set-permissioned-as <path:string> <email:string>\` - Set the email (run-as user) for a trigger (requires admin or wm_deployers group)
-  - \`--kind <kind:string>\` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email)
+  - \`--kind <kind:string>\` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, amqp, sqs, gcp, azure, email)
 
 ### user
 
@@ -7509,6 +7509,120 @@ Both print the job result, are safe to run yourself, and don't deploy.
 
 // YAML schema content for triggers and schedules
 export const SCHEMAS: Record<string, string> = {
+  "amqp_trigger": `type: object
+properties:
+  script_path:
+    type: string
+    description: Path to the script or flow to execute when triggered
+  permissioned_as:
+    type: string
+    description: The user or group this trigger runs as (permissioned_as)
+  is_flow:
+    type: boolean
+    description: True if script_path points to a flow, false if it points to a script
+  labels:
+    type: array
+    items:
+      type: string
+  draft_only:
+    type: boolean
+    description: 'True when this row is a per-user draft with no deployed
+
+      trigger at the same path. Set by list endpoints when
+
+      \`include_draft_only=true\` synthesizes the row from the
+
+      draft. Frontend renders a "Draft" badge.
+
+      '
+  is_draft:
+    type: boolean
+    description: 'True when the authed user has a per-user draft at this path
+
+      (over a deployed row or a synthesized draft-only row).
+
+      Frontend appends a \`*\` to the displayed name.
+
+      '
+  amqp_resource_path:
+    type: string
+    description: Path to the AMQP resource containing broker connection configuration
+  queue_name:
+    type: string
+    description: Name of the queue to consume messages from
+  exchange:
+    type: object
+    properties:
+      exchange_name:
+        type: string
+        description: Name of the exchange to bind the consumed queue to
+      routing_keys:
+        type: array
+        items:
+          type: string
+        description: Routing keys used to bind the queue to the exchange
+  options:
+    type: object
+    properties:
+      declare_queue:
+        type: boolean
+        description: Declare the queue (durable) before consuming; when false the
+          queue is declared passively and must already exist
+      prefetch_count:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 65535
+        description: Maximum number of unacknowledged messages the broker delivers
+          at once (1-65535)
+  error_handler_path:
+    type: string
+    description: Path to a script or flow to run when the triggered job fails
+  error_handler_args:
+    type: object
+    description: The arguments to pass to the script or flow
+  retry:
+    type: object
+    properties:
+      constant:
+        type: object
+        description: Retry with constant delay between attempts
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          seconds:
+            type: integer
+            description: Seconds to wait between retries
+      exponential:
+        type: object
+        description: Retry with exponential backoff (delay doubles each time)
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          multiplier:
+            type: integer
+            description: Multiplier for exponential backoff
+          seconds:
+            type: integer
+            minimum: 1
+            description: Initial delay in seconds
+          random_factor:
+            type: integer
+            minimum: 0
+            maximum: 100
+            description: Random jitter percentage (0-100) to avoid thundering herd
+      retry_if:
+        $ref: '#/components/schemas/RetryIf'
+    description: Retry configuration for failed module executions
+required:
+- script_path
+- permissioned_as
+- is_flow
+- amqp_resource_path
+- queue_name
+`,
   "azure_trigger": `type: object
 properties:
   script_path:
@@ -8815,6 +8929,7 @@ export const SCHEMA_MAPPINGS: Record<string, SchemaMapping[]> = {
     { name: "NatsTrigger", schemaKey: "nats_trigger", filePattern: "*.nats_trigger.yaml" },
     { name: "PostgresTrigger", schemaKey: "postgres_trigger", filePattern: "*.postgres_trigger.yaml" },
     { name: "MqttTrigger", schemaKey: "mqtt_trigger", filePattern: "*.mqtt_trigger.yaml" },
+    { name: "AmqpTrigger", schemaKey: "amqp_trigger", filePattern: "*.amqp_trigger.yaml" },
     { name: "SqsTrigger", schemaKey: "sqs_trigger", filePattern: "*.sqs_trigger.yaml" },
     { name: "GcpTrigger", schemaKey: "gcp_trigger", filePattern: "*.gcp_trigger.yaml" },
     { name: "AzureTrigger", schemaKey: "azure_trigger", filePattern: "*.azure_trigger.yaml" },

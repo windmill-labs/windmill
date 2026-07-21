@@ -19,6 +19,7 @@ export const SPECIAL_MODULE_IDS = {
 import { get } from 'svelte/store'
 import type { PasteAttachment } from './pasteTokens'
 import { dataUrlToImagePart, type AttachedImage } from './imageUtils'
+import type { AttachedTextFile } from './textFileUtils'
 import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
 import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
@@ -473,6 +474,10 @@ export type UserDisplayMessage = BaseDisplayMessage & {
 	// Images the user attached to this message (drag/drop/paste), rendered as
 	// thumbnails in the bubble. The LLM message carries them as image_url parts.
 	images?: AttachedImage[]
+	// Text files the user attached to this message, rendered as chips in the
+	// bubble. The prompt lists them by reference; the content here is the durable
+	// copy, re-registered into the session file store on load for tool reads.
+	files?: AttachedTextFile[]
 }
 
 export type CreatedResourceTriggerKind =
@@ -482,6 +487,7 @@ export type CreatedResourceTriggerKind =
 	| 'nats'
 	| 'postgres'
 	| 'mqtt'
+	| 'amqp'
 	| 'sqs'
 	| 'gcp'
 	| 'azure'
@@ -570,13 +576,20 @@ export type AssistantDisplayMessage = BaseDisplayMessage & {
 
 /**
  * Compaction boundary: replaces the summarized prefix in BOTH displayMessages
- * and the API messages (where it is a plain user message). It carries no index
- * because it is never a restart target — only the surviving tail's user
- * messages are rewound to.
+ * and the API messages (where it is a plain user message). It is never a restart
+ * target — only the surviving tail's user messages are rewound to.
  */
 export type SummaryDisplayMessage = {
 	role: 'summary'
 	content: string
+	// Index of the summary's API message, tracked ONLY so orphan detection can tell
+	// when a later drop-oldest compaction drops it (index goes negative) and its
+	// carried files must move to the roster. Not a restart target. Absent on
+	// summaries loaded from pre-existing history.
+	index?: number
+	// Files attached to messages the summary folded away — carried forward so
+	// they stay tool-readable (and reload-safe) after compaction.
+	files?: AttachedTextFile[]
 }
 
 export type DisplayMessage =

@@ -7,6 +7,7 @@ import type {
 	NewHttpTrigger,
 	NewKafkaTrigger,
 	NewMqttTrigger,
+	NewAmqpTrigger,
 	NewNatsTrigger,
 	NewPostgresTrigger,
 	NewSchedule,
@@ -38,6 +39,7 @@ export const TRIGGER_KINDS = [
 	'nats',
 	'postgres',
 	'mqtt',
+	'amqp',
 	'sqs',
 	'gcp',
 	'azure'
@@ -52,6 +54,7 @@ export type TriggerRequestBody =
 	| NewNatsTrigger
 	| NewPostgresTrigger
 	| NewMqttTrigger
+	| NewAmqpTrigger
 	| NewSqsTrigger
 	| GcpTriggerData
 	| AzureTriggerData

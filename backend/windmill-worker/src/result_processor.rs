@@ -908,8 +908,10 @@ async fn maybe_reconcile_git_sync_auto_pull(
 /// derivation: a dev workspace deploys to its environment-label branch
 /// (`dev`/`staging`), other fork workspaces to `wm-fork/<base>/<id-suffix>`,
 /// else the promotion `wm_deploy/**` formula (per-folder or per-item form).
-/// `None` when the deploy stays on the base branch (workspace-wide mode) and
-/// has no PR to open.
+/// A dev workspace in promotion mode is the exception: it takes the promotion
+/// `wm_deploy/**` formula (per-item PRs into the parent) instead of its label
+/// branch. `None` when the deploy stays on the base branch (workspace-wide
+/// mode) and has no PR to open.
 #[cfg(all(feature = "enterprise", feature = "private"))]
 fn git_sync_deploy_pr_head_branch(
     workspace_id: &str,
@@ -922,18 +924,23 @@ fn git_sync_deploy_pr_head_branch(
     item_parent_path: &str,
     path_type: &str,
 ) -> Option<String> {
-    if dev_workspace_label.is_some() {
-        return Some(windmill_common::workspaces::dev_workspace_branch(
-            dev_workspace_label,
-        ));
-    }
-    let is_fork = parent_workspace_id.is_some()
-        || workspace_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX);
-    if is_fork {
-        let suffix = workspace_id
-            .strip_prefix(windmill_common::workspaces::WM_FORK_PREFIX)
-            .unwrap_or(workspace_id);
-        return Some(format!("wm-fork/{base}/{suffix}"));
+    let is_dev = dev_workspace_label.is_some();
+    // A dev workspace with promotion on falls through to the wm_deploy/**
+    // formula below; the label/fork branches only apply when promotion is off.
+    if !(is_dev && use_individual_branch) {
+        if is_dev {
+            return Some(windmill_common::workspaces::dev_workspace_branch(
+                dev_workspace_label,
+            ));
+        }
+        let is_fork = parent_workspace_id.is_some()
+            || workspace_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX);
+        if is_fork {
+            let suffix = workspace_id
+                .strip_prefix(windmill_common::workspaces::WM_FORK_PREFIX)
+                .unwrap_or(workspace_id);
+            return Some(format!("wm-fork/{base}/{suffix}"));
+        }
     }
     if !use_individual_branch {
         return None;
@@ -2219,5 +2226,78 @@ mod git_sync_pr_tests {
             ),
             Some("dev".to_string())
         );
+    }
+
+    #[test]
+    fn dev_workspace_promotion_uses_wm_deploy_branch() {
+        // Promotion on: a dev workspace gets per-item wm_deploy/** branches
+        // (namespaced by its own id), not its env-label branch.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch(
+                "dev",
+                Some("prod"),
+                Some("dev"),
+                "main",
+                true,
+                false,
+                "f/folder/my_script",
+                "",
+                "script"
+            ),
+            Some("wm_deploy/dev/script/f__folder__my_script".to_string())
+        );
+        // Per-folder form still honored for a promotion dev workspace.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch(
+                "dev",
+                Some("prod"),
+                Some("dev"),
+                "main",
+                true,
+                true,
+                "f/folder/my_script",
+                "",
+                "script"
+            ),
+            Some("wm_deploy/dev/f__folder".to_string())
+        );
+        // Promotion off: the env-label branch still wins.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch(
+                "dev",
+                Some("prod"),
+                Some("dev"),
+                "main",
+                false,
+                false,
+                "f/x/y",
+                "",
+                "script"
+            ),
+            Some("dev".to_string())
+        );
+    }
+
+    #[test]
+    fn dev_promotion_user_group_items_open_no_pr() {
+        // User/group objects get no wm_deploy branch even on a dev workspace; the
+        // CLI isolates them to the env-label branch, so the backend opens no PR
+        // (never a PR from the env-label branch into the parent for these).
+        for path_type in ["user", "group"] {
+            assert_eq!(
+                git_sync_deploy_pr_head_branch(
+                    "dev",
+                    Some("prod"),
+                    Some("dev"),
+                    "main",
+                    true,
+                    false,
+                    "u/alice",
+                    "",
+                    path_type
+                ),
+                None
+            );
+        }
     }
 }

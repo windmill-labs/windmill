@@ -943,6 +943,117 @@ class TestGitSyncAutoPull(GitSyncTestBase):
             "Parent workspace received a commit from a fork branch",
         )
 
+    def test_fork_of_dev_workspace_branch_deploys_into_fork(self):
+        """A throwaway fork OF a dev workspace pushes to wm-fork/<tracked>/<id>
+        (the tracked branch, NOT the dev's label), and the root's sync_forks
+        poller enumerates wm-fork/<tracked>/* and routes a commit on that branch
+        into the nested fork — through the root, since only the root holds
+        auto-pull config. Regression for the assumption that such a fork lives on
+        wm-fork/<dev-label>/<id> and is therefore never collected/reconciled."""
+        repo_name, _ = self._create_test_repo()
+        resource_path = self._setup_git_sync_resource(repo_name)
+        self._configure_single_repo_sync(resource_path, include_type=["script"])
+
+        script_path = self._deploy_seed_script("forkofdev")
+        script_file = self._repo_script_file(repo_name, script_path)
+        # Seed before the fork branch is created so the branch inherits it.
+        self._seed_wmill_yaml(repo_name)
+
+        self._configure_auto_pull(resource_path, sync_forks=True)
+
+        # Attach an existing workspace as a dev workspace of the root (label
+        # "dev"). It carries the same inherited sync repo so a fork beneath it
+        # resolves against it.
+        dev_id = f"it-dev-{uuid.uuid4().hex[:8]}"
+        self._fork_workspaces_to_cleanup.append(dev_id)
+        dev_client = WindmillClient(workspace=dev_id)
+        dev_client.create_resource(
+            path=resource_path,
+            resource_type="git_repository",
+            value={
+                "url": self._gitea.get_docker_clone_url(repo_name),
+                "branch": "main",
+                "is_github_app": False,
+            },
+            update_if_exists=True,
+        )
+        dev_client.configure_git_sync({
+            "repositories": [{
+                "git_repo_resource_path": f"$res:{resource_path}",
+                "use_individual_branch": False,
+                "group_by_folder": False,
+                "settings": {"include_type": ["script"], "include_path": ["**"]},
+            }],
+        })
+        root = self._client._workspace
+        # Only one dev workspace per root, so clear any left attached by a prior
+        # test before attaching ours, and detach ours afterward so we don't leak.
+        existing = self._client._client.get(
+            f"/api/w/{root}/workspaces/get_dev_workspace"
+        )
+        if existing.status_code == 200 and existing.json():
+            self._client._client.post(
+                f"/api/w/{root}/workspaces/detach_dev_workspace",
+                json={"dev_workspace_id": existing.json()["id"]},
+            )
+        self.addCleanup(
+            lambda: self._client._client.post(
+                f"/api/w/{root}/workspaces/detach_dev_workspace",
+                json={"dev_workspace_id": dev_id},
+            )
+        )
+        attach = self._client._client.post(
+            f"/api/w/{root}/workspaces/attach_dev_workspace",
+            json={"dev_workspace_id": dev_id, "dev_workspace_label": "dev"},
+        )
+        self.assertEqual(
+            attach.status_code // 100,
+            2,
+            f"attach_dev_workspace failed: {attach.content.decode()}",
+        )
+
+        # Fork the dev workspace (branch first, then workspace) — its parent is
+        # the dev, so this is a fork OF a dev workspace.
+        fork_id = f"wm-fork-{uuid.uuid4().hex[:8]}"
+        self._fork_workspaces_to_cleanup.append(fork_id)
+        job_ids = dev_client.create_workspace_fork_branch(fork_id, f"Fork {fork_id}")
+        if job_ids:
+            dev_client.wait_for_jobs_by_ids(job_ids, timeout=90)
+            time.sleep(3)
+        dev_client.create_workspace_fork(fork_id, f"Fork {fork_id}")
+
+        # The fork branch is named after the tracked branch, not the dev label.
+        fork_suffix = fork_id[len("wm-fork-"):]
+        fork_branch = f"wm-fork/main/{fork_suffix}"
+        branches = self._get_branches(self._clone_repo_all_branches(repo_name))
+        self.assertTrue(
+            any(fork_branch in b for b in branches),
+            f"expected {fork_branch} in the repo after forking the dev, got: {branches}",
+        )
+        self.assertFalse(
+            any(f"wm-fork/dev/{fork_suffix}" in b for b in branches),
+            f"fork-of-dev must not live on a wm-fork/<dev-label>/* branch: {branches}",
+        )
+
+        self._gitea.create_file(
+            repo_name, script_file, ts_script("return 'fork only'"),
+            branch=fork_branch,
+        )
+
+        fork_client = WindmillClient(workspace=fork_id)
+        self._wait_until(
+            lambda: "fork only" in fork_client.get_script_content(script_path),
+            timeout=self.PULL_TIMEOUT,
+            message=f"fork-of-dev workspace {fork_id} did not receive the fork-branch commit",
+        )
+
+        # The root (the fork's grandparent, holder of the poller) must not see it.
+        self.assertNotIn(
+            "fork only",
+            self._client.get_script_content(script_path),
+            "Root workspace received a commit from a fork-of-dev branch",
+        )
+
     def test_settings_normalization_and_redaction(self):
         """Webhook mode on a token repo is persisted as polling; server-owned
         webhook fields are never exposed; legacy repos gain no auto_pull key."""

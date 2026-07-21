@@ -279,6 +279,15 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
+    info!("Updating amqp_trigger table");
+    sqlx::query!(
+        "UPDATE amqp_trigger SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
     info!("Updating gcp_trigger table");
     sqlx::query!(
         "UPDATE gcp_trigger SET workspace_id = $1 WHERE workspace_id = $2",

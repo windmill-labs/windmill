@@ -1050,6 +1050,38 @@
     - opens the Kafka triggers page
     - does not write, deploy, or delete anything
 
+- id: global-openpage7-compare-review
+  prompt: |-
+    Create a TypeScript script draft at f/evals/global/compare_review_demo that returns the string "ok" (no need to test it), then open the review page so I can look over the pending change and deploy it myself.
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+      - open_page
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: open_page
+        field: page
+        stringIncludesAnyOf:
+          - compare
+      # The eval chat is untracked (no modified-items mask), so the model must scope
+      # the review by passing the item it changed explicitly — an omitted mask would
+      # preselect every pending change in the workspace.
+      - tool: open_page
+        field: items
+        stringIncludesAnyOf:
+          - f/evals/global/compare_review_demo
+  skipJudge: true
+  judgeChecklist:
+    - creates the script draft, then opens the Compare & Deploy review page instead of deploying itself
+    - preselects only the created script on the review page
+    - does not deploy or delete anything
+
 - id: global-closepage1-close-runs-tab
   prompt: |-
     You just opened the runs page for me in the side panel. Close that tab, I'm done looking at it.
@@ -1675,3 +1707,35 @@
   skipJudge: true
   judgeChecklist:
     - deletes the deployed script via delete_workspace_item rather than a raw API endpoint
+
+- id: global-draft-diff-report
+  prompt: |-
+    Update the existing workspace script at `f/evals/global/format_greeting` so the returned message ends with an exclamation mark, keeping everything else the same.
+    Then show me exactly what your draft changes compared to the deployed version.
+    Leave the result as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/format_greeting_script.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/format_greeting
+        language: bun
+        valueIncludes:
+          - "!"
+  toolExpect:
+    requiredToolsUsed:
+      - diff
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: diff
+        field: path
+        stringIncludesAnyOf:
+          - f/evals/global/format_greeting
+  judgeChecklist:
+    - creates an AI draft for the existing f/evals/global/format_greeting script with the exclamation-mark change
+    - the draft changes only the returned message's punctuation — summary, language, path, and the rest of the code are untouched
+    - does not deploy or save the draft to the workspace
