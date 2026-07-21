@@ -215,6 +215,20 @@ async fn test_deployed_app_s3_viewer_union(db: Pool<Postgres>) -> anyhow::Result
         "scope-restricted token must stay gated, not get the viewer fallback: {body}"
     );
 
+    // A filter-tags-only token carries no real scope restriction (the route-scope
+    // middleware treats it as unscoped), so it can read via job_helpers directly and
+    // MUST get the viewer fallback here — not be gated like a genuinely scoped token.
+    let tag_only = mint_scoped_token(port, vec!["if_jobs:filter_tags:default"]).await?;
+    let body = authed(client().get(&url), &tag_only)
+        .send()
+        .await?
+        .text()
+        .await?;
+    assert!(
+        !body.contains("is not accessible from this app") && !body.contains("File restricted"),
+        "filter-tags-only token is effectively unscoped and must delegate, not be gated: {body}"
+    );
+
     Ok(())
 }
 

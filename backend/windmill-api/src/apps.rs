@@ -3974,17 +3974,22 @@ async fn check_if_allowed_to_access_s3_file_from_app(
         return Ok(AppS3ReadIdentity::OnBehalf);
     }
 
-    // Gate denied. A viewer holding a FULL, unscoped session falls back to reading as
-    // THEMSELVES: the file is still bounded by their own S3 perms downstream, and such
-    // a session can already fetch it via `job_helpers/download_s3_file`, so the fallback
-    // adds zero capability. The `scopes.is_none()` guard is what makes that true: a
-    // scope-restricted token (e.g. `apps:read:<path>`, or an app-embed token) is
-    // allowed on `apps_u/*` but REJECTED by the route-scope middleware on
+    // Gate denied. A viewer whose token is effectively unscoped falls back to reading
+    // as THEMSELVES: the file is still bounded by their own S3 perms downstream, and
+    // such a token can already fetch it via `job_helpers/download_s3_file`, so the
+    // fallback adds zero capability. `is_effectively_unscoped` (the same predicate the
+    // route-scope middleware uses) is what makes that true: a genuinely scope-restricted
+    // token (e.g. `apps:read:<path>`) is allowed on `apps_u/*` but REJECTED on
     // `job_helpers/*`, so serving it the file here WOULD be a new capability — it stays
-    // gated. Anonymous callers (no identity) also have no viewer to fall back to. Only
-    // the confused-deputy denial reaches the message below.
+    // gated. `!is_app_embed` keeps that confinement explicit (embed tokens carry the
+    // `app_embed` scope, so they are already scope-restricted). Anonymous callers (no
+    // identity) also have no viewer to fall back to. Only the confused-deputy denial
+    // reaches the message below.
     match opt_authed.as_ref() {
-        Some(viewer) if !is_app_embed && viewer.scopes.is_none() => {
+        Some(viewer)
+            if !is_app_embed
+                && windmill_api_auth::is_effectively_unscoped(viewer.scopes.as_deref()) =>
+        {
             Ok(AppS3ReadIdentity::AsViewer(viewer.clone()))
         }
         _ => Err(Error::BadRequest(format!(
