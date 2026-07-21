@@ -253,9 +253,11 @@ vi.mock('$lib/infer', async () => ({
 }))
 
 import {
+	buildOpenPageUrl,
 	globalTools,
 	globalToolsFor,
 	prepareGlobalSystemMessage,
+	getSessionContextPromptSection,
 	prepareGlobalUserMessage,
 	setDeployedInSessionHandler,
 	setGetPreviewStatusHandler,
@@ -3571,6 +3573,46 @@ describe('session pipeline gate', () => {
 	})
 })
 
+describe('getSessionContextPromptSection', () => {
+	it('describes an ephemeral staged fork with its parent and deploy semantics', () => {
+		const s = getSessionContextPromptSection({
+			workspaceId: 'wm-fork-foo',
+			parentWorkspaceId: 'prod'
+		})
+		expect(s).toContain('STAGED FORK of workspace "prod"')
+		expect(s).toContain('Never present a change as live in "prod"')
+	})
+
+	it('distinguishes a persistent dev workspace from a staged fork', () => {
+		const s = getSessionContextPromptSection({
+			workspaceId: 'guilhem',
+			parentWorkspaceId: 'prod',
+			isDevWorkspace: true
+		})
+		expect(s).toContain('persistent DEV WORKSPACE')
+		expect(s).not.toContain('STAGED FORK')
+	})
+
+	it('marks a parentless workspace as the live workspace', () => {
+		const s = getSessionContextPromptSection({ workspaceId: 'prod' })
+		expect(s).toContain('the live workspace itself')
+	})
+
+	it('announces a pending fork before the first send commits it', () => {
+		const s = getSessionContextPromptSection({ workspaceId: 'prod', pendingForkOf: 'prod' })
+		expect(s).toContain('staged fork of workspace "prod" is created automatically')
+	})
+
+	it('never calls a committed-but-unlisted workspace the live workspace', () => {
+		const s = getSessionContextPromptSection({
+			workspaceId: 'wm-fork-gone',
+			forkParentUnknown: true
+		})
+		expect(s).toContain('parent workspace is not currently visible')
+		expect(s).not.toContain('the live workspace itself')
+	})
+})
+
 describe('prepareGlobalSystemMessage', () => {
 	it('keeps global chat draft instructions concise and user-facing', () => {
 		const message = prepareGlobalSystemMessage()
@@ -4169,5 +4211,38 @@ describe('prepareGlobalUserMessage', () => {
 		const message = prepareGlobalUserMessage('Create a draft')
 
 		expect(message.content).toBe('## INSTRUCTIONS:\nCreate a draft')
+	})
+})
+
+describe('buildOpenPageUrl compare selection', () => {
+	const itemsOf = (url: string) => new URL(url, 'http://x').searchParams.get('items')
+
+	it('explicit items win over the chat mask', () => {
+		const url = buildOpenPageUrl(
+			'compare',
+			{ page: 'compare', items: ['script:f/a/b'] },
+			{ workspaceId: 'ws', chatItems: ['flow:f/c/d'] }
+		)
+		expect(itemsOf(url)).toBe('script:f/a/b')
+	})
+
+	it('omitted items fall back to the chat-modified mask', () => {
+		const url = buildOpenPageUrl(
+			'compare',
+			{ page: 'compare' },
+			{ workspaceId: 'ws', chatItems: ['flow:f/c/d', 'script:f/a/b'] }
+		)
+		expect(itemsOf(url)).toBe('flow:f/c/d,script:f/a/b')
+	})
+
+	it('an empty or absent mask yields no items param (page select-all default)', () => {
+		expect(
+			itemsOf(
+				buildOpenPageUrl('compare', { page: 'compare' }, { workspaceId: 'ws', chatItems: [] })
+			)
+		).toBeNull()
+		expect(
+			itemsOf(buildOpenPageUrl('compare', { page: 'compare' }, { workspaceId: 'ws' }))
+		).toBeNull()
 	})
 })

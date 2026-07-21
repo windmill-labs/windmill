@@ -26,7 +26,7 @@ RUN make
 FROM ${DEBIAN_IMAGE}
 
 ARG APP=/usr/src/app
-ARG LATEST_STABLE_PY=3.12.12
+ARG LATEST_STABLE_PY=3.12.13
 
 # UV configuration
 ENV UV_CACHE_DIR=/tmp/windmill/cache/uv

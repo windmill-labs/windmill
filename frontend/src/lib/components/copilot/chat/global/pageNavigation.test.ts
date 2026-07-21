@@ -5,8 +5,10 @@ import {
 	buildResourcesUrl,
 	buildVariablesUrl,
 	buildTriggersUrl,
-	buildFoldersUrl
+	buildFoldersUrl,
+	buildCompareUrl
 } from './pageNavigation'
+import { parseItemsMaskParam } from '$lib/components/sessions/modifiedItemsMask'
 
 function parse(appPath: string): URL {
 	return new URL(appPath, 'http://x')
@@ -62,5 +64,20 @@ describe('pageNavigation builders', () => {
 		const u = parse(buildFoldersUrl())
 		expect(u.pathname).toBe('/folders')
 		expect(u.search).toBe('')
+	})
+
+	it('compare carries workspace, mode, and an items mask that round-trips through the page parser', () => {
+		const items = ['script:f/foo/bar', 'trigger_schedule:u/alice/daily']
+		const u = parse(buildCompareUrl({ workspace_id: 'wm-fork-x', mode: 'fork', items }))
+		expect(u.pathname).toBe('/forks/compare')
+		expect(u.searchParams.get('workspace_id')).toBe('wm-fork-x')
+		expect(u.searchParams.get('mode')).toBe('fork')
+		expect(parseItemsMaskParam(u.searchParams.get('items')!)).toEqual(new Set(items))
+	})
+
+	it('compare omits mode and items when not provided', () => {
+		const u = parse(buildCompareUrl({ workspace_id: 'ws' }))
+		expect(u.searchParams.get('mode')).toBeNull()
+		expect(u.searchParams.get('items')).toBeNull()
 	})
 })

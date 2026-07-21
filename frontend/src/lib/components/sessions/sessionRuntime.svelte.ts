@@ -25,7 +25,7 @@ type SavedScript = Omit<Script & UserDraftOverlay, 'draft'> & { draft?: NewScrip
 type SavedFlow = Omit<Flow & UserDraftOverlay, 'draft'> & { draft?: Flow }
 import type { HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
-import { workspaceStore } from '$lib/stores'
+import { userWorkspaces, workspaceStore } from '$lib/stores'
 import { loadCopilot, copilotWorkspace } from '$lib/aiStore'
 import { emptySchema, type StateStore } from '$lib/utils'
 import {
@@ -50,7 +50,7 @@ import {
 	selectPreviewTabsToClose
 } from './sessionPreviewTabs.svelte'
 import {
-	matchPreviewPage,
+	matchReusablePage,
 	parsePreviewItemRoute,
 	previewLocationLabel,
 	resolvePreviewTab
@@ -340,6 +340,24 @@ function createRuntime(session: Session): SessionRuntime {
 	manager.workspaceResolver = () => {
 		const s = sessionState.sessions.find((x) => x.id === session.id)
 		return s ? getEffectiveWorkspaceId(s) : undefined
+	}
+	// Session facts (fork vs live workspace) for the system prompt. A resolver so
+	// each rebuild reads the current record — the fork commits at first send, and
+	// the user can re-point the session's workspace between sends.
+	manager.sessionContextResolver = () => {
+		const s = sessionState.sessions.find((x) => x.id === session.id)
+		if (!s) return undefined
+		const wsId = getEffectiveWorkspaceId(s)
+		const ws = get(userWorkspaces).find((w) => w.id === wsId)
+		return {
+			workspaceId: wsId,
+			parentWorkspaceId: ws?.parent_workspace_id ?? undefined,
+			isDevWorkspace: ws?.is_dev_workspace,
+			// Committed workspace missing from the list: still a fork (mirrors
+			// isForkSession) — the prompt must not call it the live workspace.
+			forkParentUnknown: !ws && !!s.workspace_id,
+			pendingForkOf: s.pending_fork?.parent_workspace_id
+		}
 	}
 	// Pre-flight: materialise the (still-transient) session, then commit
 	// the workspace (creating a staged fork if needed) before any send.
@@ -1000,10 +1018,10 @@ setOpenPagePreviewHandler(({ sessionId: callerSessionId, href, label, newTab }) 
 	// filter change updates it in place instead of spawning a duplicate — unless the
 	// user asked for a separate tab. open() dedupes on the exact URL, so differing
 	// filters would otherwise always open a new tab.
-	const targetPage = matchPreviewPage(href)
+	const targetPage = matchReusablePage(href)
 	if (!newTab && targetPage) {
 		const existing = owner.tabs.find(
-			(t) => matchPreviewPage(t.loc || t.url)?.path === targetPage.path
+			(t) => matchReusablePage(t.loc || t.url)?.path === targetPage.path
 		)
 		if (existing) {
 			owner.select(existing.id)

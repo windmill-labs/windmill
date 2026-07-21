@@ -302,3 +302,19 @@ export type ContextElement = (
 ) & {
 	deletable?: boolean
 }
+
+// DOM selector chips can share a display title (two `button.btn` from repeated
+// elements), so identify them by (appPath, selector) — keying or removing by
+// title would collide, giving repeated chips one Svelte key and deleting them
+// together. Other context types stay identified by (type, title).
+export function contextElementKey(c: ContextElement): string {
+	return c.type === 'app_dom_selector' ? `dom:${c.appPath}:${c.selector}` : `${c.type}:${c.title}`
+}
+
+export function isSameContextElement(a: ContextElement, b: ContextElement): boolean {
+	if (a.type !== b.type) return false
+	if (a.type === 'app_dom_selector' && b.type === 'app_dom_selector') {
+		return a.selector === b.selector && a.appPath === b.appPath
+	}
+	return a.title === b.title
+}
