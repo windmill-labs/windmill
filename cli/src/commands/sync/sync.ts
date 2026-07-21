@@ -1008,7 +1008,11 @@ function ZipFSElement(
             }
 
             if (stripOnBehalfOf) {
-              (flow as any).has_on_behalf_of = !!(flow as any).on_behalf_of_email;
+              // Only emit the flag when set; a `false` here is the default and
+              // would produce a spurious diff for every ownerless flow.
+              if ((flow as any).on_behalf_of_email) {
+                (flow as any).has_on_behalf_of = true;
+              }
               delete (flow as any).on_behalf_of_email;
             }
 
@@ -1293,7 +1297,11 @@ function ZipFSElement(
               parsed["codebase"] = undefined;
             }
             if (stripOnBehalfOf) {
-              parsed["has_on_behalf_of"] = !!parsed["on_behalf_of_email"];
+              // Only emit the flag when set; a `false` here is the default and
+              // would produce a spurious diff for every ownerless script.
+              if (parsed["on_behalf_of_email"]) {
+                parsed["has_on_behalf_of"] = true;
+              }
               delete parsed["on_behalf_of_email"];
             }
             // Modules are stored as files in __mod/ folder, not in metadata
@@ -1340,13 +1348,19 @@ function ZipFSElement(
               if (stripOnBehalfOf) {
                 const isSchedule = p.endsWith(".schedule.json");
                 const isTrigger = p.endsWith("_trigger.json");
+                // Only emit the flag when set; a `false` here is the default and
+                // would produce a spurious diff for every ownerless schedule/trigger.
                 if (isSchedule) {
-                  parsed["has_permissioned_as"] = !!parsed["permissioned_as"];
+                  if (parsed["permissioned_as"]) {
+                    parsed["has_permissioned_as"] = true;
+                  }
                   delete parsed["permissioned_as"];
                   delete parsed["email"];
                   delete parsed["edited_by"];
                 } else if (isTrigger) {
-                  parsed["has_permissioned_as"] = !!parsed["permissioned_as"];
+                  if (parsed["permissioned_as"]) {
+                    parsed["has_permissioned_as"] = true;
+                  }
                   delete parsed["permissioned_as"];
                   delete parsed["edited_by"];
                 }
@@ -1703,6 +1717,7 @@ export async function elementsToMap(
         path.endsWith(".nats_trigger" + ext) ||
         path.endsWith(".postgres_trigger" + ext) ||
         path.endsWith(".mqtt_trigger" + ext) ||
+        path.endsWith(".amqp_trigger" + ext) ||
         path.endsWith(".sqs_trigger" + ext) ||
         path.endsWith(".gcp_trigger" + ext) ||
         path.endsWith(".azure_trigger" + ext) ||
@@ -2456,6 +2471,7 @@ function getOrderFromPath(p: string) {
     typ == "nats_trigger" ||
     typ == "postgres_trigger" ||
     typ == "mqtt_trigger" ||
+    typ == "amqp_trigger" ||
     typ == "sqs_trigger" ||
     typ == "gcp_trigger" ||
     typ == "azure_trigger" ||
@@ -2779,6 +2795,8 @@ export async function pull(
       gitDeployItems?: string;
       onlyCreateBranch?: boolean;
       parentWorkspaceId?: string;
+      devWorkspaceLabel?: string;
+      parentDevWorkspaceLabel?: string;
       gitCommitterEmail?: string;
       gitCommitterName?: string;
     },
@@ -2847,37 +2865,55 @@ export async function pull(
     }
     const clonedBranchName = getCurrentGitBranch() ?? "main";
 
-    // Fork workspaces force-disable use_individual_branch / group_by_folder
-    // (1:1 with the hub script's inner()).
-    const targetIsFork = isForkWorkspace(workspace.workspaceId);
+    // Fork / dev workspaces force-disable use_individual_branch / group_by_folder
+    // (1:1 with the hub script's inner()). Dev workspaces have a prefix-less id, so
+    // detect them via the parent-workspace id the backend passes.
+    const targetIsFork = isForkWorkspace(
+      workspace.workspaceId,
+      opts.parentWorkspaceId,
+    );
     const useIndividualBranch = targetIsFork
       ? false
       : !!opts.useIndividualBranch;
     const groupByFolder = targetIsFork ? false : !!opts.groupByFolder;
 
-    // Fork-of-a-fork: only when the parent workspace is itself a fork, root
-    // the new branch on the parent's fork branch (mirrors the hub script's
-    // `parent_workspace_id?.startsWith(FORKED_…)` gate).
-    if (opts.parentWorkspaceId && isForkWorkspace(opts.parentWorkspaceId)) {
-      const parentBranch = computeGitSyncDeployBranch({
-        workspaceId: opts.parentWorkspaceId,
-        items: deployItems,
-        useIndividualBranch,
-        groupByFolder,
-        clonedBranchName,
-      });
-      if (parentBranch && parentBranch !== clonedBranchName) {
-        checkoutGitSyncDeployBranch(parentBranch);
-      }
+    // Fork-of-a-fork: when the parent workspace is itself a fork, root the new
+    // branch on the parent's fork branch (the content this fork diverged from).
+    // A dev-workspace parent has a prefix-less id the prefix check can't see, so
+    // the backend passes its environment label; its branch is the label verbatim.
+    const parentBranch = opts.parentDevWorkspaceLabel
+      ? opts.parentDevWorkspaceLabel
+      : opts.parentWorkspaceId && isForkWorkspace(opts.parentWorkspaceId)
+        ? computeGitSyncDeployBranch({
+            workspaceId: opts.parentWorkspaceId,
+            items: deployItems,
+            useIndividualBranch,
+            groupByFolder,
+            clonedBranchName,
+          })
+        : null;
+    if (parentBranch && parentBranch !== clonedBranchName) {
+      checkoutGitSyncDeployBranch(parentBranch);
     }
 
     const deployBranch = computeGitSyncDeployBranch({
       workspaceId: workspace.workspaceId,
+      parentWorkspaceId: opts.parentWorkspaceId,
+      devWorkspaceLabel: opts.devWorkspaceLabel,
       items: deployItems,
       useIndividualBranch,
       groupByFolder,
       clonedBranchName,
     });
+    // A dev workspace whose environment-label branch equals the repository's
+    // tracked branch would silently commit the fork's content straight to the
+    // tracked branch. Refuse instead of deploying in place.
+    if (targetIsFork && deployBranch && deployBranch === clonedBranchName) {
+      log.error(
+        `Fork branch '${deployBranch}' equals the checked-out branch '${clonedBranchName}'; refusing to deploy a fork directly to the tracked branch. Use a different dev workspace label or tracked branch.`,
+      );
+      process.exit(1);
+    }
     if (deployBranch && deployBranch !== clonedBranchName) {
       checkoutGitSyncDeployBranch(deployBranch);
     }
@@ -3394,6 +3430,8 @@ export async function gitDeploy(
       groupByFolder?: boolean;
       onlyCreateBranch?: boolean;
       parentWorkspaceId?: string;
+      devWorkspaceLabel?: string;
+      parentDevWorkspaceLabel?: string;
       skipSecrets?: boolean;
       gitCommitterEmail?: string;
       gitCommitterName?: string;
@@ -3409,11 +3447,12 @@ export async function gitDeploy(
     }
   }
 
-  // Fork workspaces force-disable use_individual_branch / group_by_folder
-  // (1:1 with the hub script's inner()): a fork always syncs to its own
+  // Fork / dev workspaces force-disable use_individual_branch / group_by_folder
+  // (1:1 with the hub script's inner()): they always sync to their own
   // wm-fork/<branch>/<id> branch, and — critically — that disabling also
-  // flips the include/promotion derivation below.
-  const isFork = isForkWorkspace(opts.workspace ?? "");
+  // flips the include/promotion derivation below. Dev workspaces have a
+  // prefix-less id, so detect them via the parent-workspace id too.
+  const isFork = isForkWorkspace(opts.workspace ?? "", opts.parentWorkspaceId);
   const useIndividualBranch = isFork ? false : !!opts.useIndividualBranch;
 
   // Derive the include filters from the deployed items (replaces the hub
@@ -4200,7 +4239,7 @@ export async function push(
           }
         }
         const rules = folderRulesCache.get(folderName)!;
-        const remotePath = change.path.replace(/\.(script|schedule|http_trigger|websocket_trigger|kafka_trigger|nats_trigger|postgres_trigger|mqtt_trigger|sqs_trigger|gcp_trigger|azure_trigger|email_trigger)\.(yaml|json)$/, "").replace(/(\.flow|__flow)\/flow\.(yaml|json)$/, "").replace(/\.(app|raw_app)(\/app\.(yaml|json))?$/, "");
+        const remotePath = change.path.replace(/\.(script|schedule|http_trigger|websocket_trigger|kafka_trigger|nats_trigger|postgres_trigger|mqtt_trigger|amqp_trigger|sqs_trigger|gcp_trigger|azure_trigger|email_trigger)\.(yaml|json)$/, "").replace(/(\.flow|__flow)\/flow\.(yaml|json)$/, "").replace(/\.(app|raw_app)(\/app\.(yaml|json))?$/, "");
         const relative = remotePath.slice(`f/${folderName}/`.length);
         if (!relative) continue;
         for (const rule of rules) {
@@ -4894,6 +4933,12 @@ export async function push(
                     path: removeSuffix(target, ".mqtt_trigger.json"),
                   });
                   break;
+                case "amqp_trigger":
+                  await wmill.deleteAmqpTrigger({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".amqp_trigger.json"),
+                  });
+                  break;
                 case "sqs_trigger":
                   await wmill.deleteSqsTrigger({
                     workspace: workspaceId,
@@ -5303,6 +5348,14 @@ const command = new Command()
   .option(
     "--parent-workspace-id <id:string>",
     "Parent workspace id, used to root a fork-of-a-fork branch",
+  )
+  .option(
+    "--dev-workspace-label <label:string>",
+    "Environment label of a dev workspace (dev/staging); its deploys go to that branch",
+  )
+  .option(
+    "--parent-dev-workspace-label <label:string>",
+    "Environment label of the parent dev workspace; roots a fork-of-dev branch on it",
   )
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option(

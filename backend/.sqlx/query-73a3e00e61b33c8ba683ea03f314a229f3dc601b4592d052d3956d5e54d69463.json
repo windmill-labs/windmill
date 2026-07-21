@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) FROM v2_job_completed\n             WHERE completed_at <= now() - ($1::bigint::text || ' s')::interval\n               AND ($2::text[] IS NULL OR workspace_id NOT IN (\n                   SELECT u FROM unnest($2::text[]) AS u WHERE u IS NOT NULL\n               ))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "73a3e00e61b33c8ba683ea03f314a229f3dc601b4592d052d3956d5e54d69463"
+}

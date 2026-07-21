@@ -28,7 +28,7 @@
 		generateStep: { moduleId: string; instructions: string; lang: ScriptLang }
 	}>()
 
-	const { selectionManager, flowStateStore, flowStore } =
+	const { selectionManager, flowStateStore, flowStore, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	const failureModuleId = $derived(flowStore.val?.value?.failure_module?.id)
@@ -47,7 +47,7 @@
 		},
 		wsScript?: { path: string; summary: string; hash: string | undefined }
 	) {
-		await insertNewFailureModule(flowStore, flowStateStore, inlineScript, wsScript)
+		await insertNewFailureModule(flowStore, flowStateStore, inlineScript, wsScript, opWorkspace?.())
 
 		if (inlineScript?.instructions) {
 			dispatch('generateStep', {

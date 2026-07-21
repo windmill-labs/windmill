@@ -61,7 +61,8 @@ use windmill_common::{
         AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_HUB_SETTING,
         EMAIL_DOMAIN_SETTING, ENV_SETTINGS, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
-        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING, RUFF_CONFIG_SETTING,
+        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING, MAX_RETENTION_OVERRIDE_WORKSPACES,
+        RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RUFF_CONFIG_SETTING,
         WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
         WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
         WS_BASE_URL_SETTING,
@@ -1043,6 +1044,38 @@ async fn run_setting_pre_write_hook(
 
                     return Err(error::Error::JsonErr(
                         serde_json::to_value(error_response).unwrap(),
+                    ));
+                }
+            }
+        }
+        RETENTION_PERIOD_SECS_OVERRIDES_SETTING => {
+            // Reject a malformed map at write time so it can never be persisted. A persisted bad
+            // value (negative or non-integer) would fail to parse on the next server start and,
+            // because the loader fails closed (skips cleanup until a known-good value is read),
+            // silently disable ALL job-retention cleanup indefinitely. This shape check must stay in
+            // sync with `parse_retention_overrides` in backend/src/monitor.rs.
+            match value {
+                // Clearing (delete row) is handled by the caller; allow it through.
+                serde_json::Value::Null => {}
+                serde_json::Value::String(s) if s.trim().is_empty() => {}
+                serde_json::Value::Object(map) => {
+                    if map.len() > MAX_RETENTION_OVERRIDE_WORKSPACES {
+                        return Err(error::Error::BadRequest(format!(
+                            "retention_period_secs_overrides: at most {MAX_RETENTION_OVERRIDE_WORKSPACES} per-workspace overrides are allowed, got {}",
+                            map.len()
+                        )));
+                    }
+                    for (ws, v) in map {
+                        if !v.as_i64().is_some_and(|secs| secs >= 0) {
+                            return Err(error::Error::BadRequest(format!(
+                                "retention_period_secs_overrides: override for '{ws}' must be a non-negative integer number of seconds, got {v}"
+                            )));
+                        }
+                    }
+                }
+                _ => {
+                    return Err(error::Error::BadRequest(
+                        "retention_period_secs_overrides must be a JSON object of {workspace_id: seconds}".to_string(),
                     ));
                 }
             }

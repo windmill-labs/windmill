@@ -12,13 +12,18 @@ import { workspaceStore, userStore } from '$lib/stores'
  * switch or permission change. Uses `runed`'s `resource()` which handles race conditions
  * and loading state automatically.
  */
-export function useFolderDefaultPermissionedAs(pathGetter: () => string | undefined) {
+export function useFolderDefaultPermissionedAs(
+	pathGetter: () => string | undefined,
+	// The acting workspace; defaults to the nav `$workspaceStore` when omitted so
+	// a forked session resolves the folder default from its own workspace.
+	wsGetter?: () => string | undefined
+) {
 	// Subscribe to the stores so the effect re-runs on changes.
-	let workspace = $state<string | undefined>(undefined)
+	let navWorkspace = $state<string | undefined>(undefined)
 	let user = $state<any>(undefined)
 
 	$effect(() => {
-		const unsubWs = workspaceStore.subscribe((w) => (workspace = w))
+		const unsubWs = workspaceStore.subscribe((w) => (navWorkspace = w))
 		const unsubUser = userStore.subscribe((u) => (user = u))
 		return () => {
 			unsubWs()
@@ -27,7 +32,7 @@ export function useFolderDefaultPermissionedAs(pathGetter: () => string | undefi
 	})
 
 	const folderResource = resource(
-		() => ({ path: pathGetter(), workspace, user }),
+		() => ({ path: pathGetter(), workspace: wsGetter?.() ?? navWorkspace, user }),
 		async ({ path, workspace, user }) => {
 			const canPreserve =
 				user?.is_admin || user?.is_super_admin || (user?.groups ?? []).includes('wm_deployers')

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
+	import { maskHasDraftRow } from './sessions/modifiedItemsMask'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import WorkspaceDeployItemSummary from './WorkspaceDeployItemSummary.svelte'
 	import DraftBadge from './DraftBadge.svelte'
@@ -94,6 +95,9 @@
 		 * actionable. Other users' rows (shown when "Show all drafts" is on) are
 		 * view-only: you can't deploy/discard someone else's draft. */
 		mine: boolean
+		/** Fork only: true when this draft is identical to the parent's (inherited
+		 * on fork, never edited here). Drives "Hide unchanged drafts". */
+		unchanged_from_parent?: boolean
 	}
 	function getItemKey(kind: string, path: string): string {
 		return `${kind}:${path}`
@@ -114,6 +118,7 @@
 				'nats_trigger',
 				'postgres_trigger',
 				'mqtt_trigger',
+				'amqp_trigger',
 				'sqs_trigger',
 				'gcp_trigger',
 				'azure_trigger',
@@ -133,10 +138,15 @@
 	let showAll = $state(false)
 	const allDrafts = useWorkspaceDrafts(
 		() => (showAll ? currentWorkspaceId : undefined),
-		() => true
+		() => true,
+		() => (isFork ? parentWorkspaceId : undefined)
 	)
 	const sourceItems = $derived(showAll ? allDrafts.items : draftItems)
 	const loading = $derived(showAll ? allDrafts.loading : draftsLoading)
+
+	// On by default: a fork inherits the parent's drafts on creation, and those
+	// (unrelated to the fork's own work) are the common case worth hiding.
+	let hideUnchanged = $state(true)
 
 	// The list (and, in the default view, the Draft Count) come from the Workspace
 	// Drafts module; deploy/discard invalidate the resource, so the list refetches
@@ -164,10 +174,11 @@
 			.filter((u): u is string => !!u && u !== currentUsername)
 	}
 
-	// The backend already returns exactly the rows for the current view (own +
-	// legacy, or every user's with "Show all drafts"), so there's no client-side
-	// filtering — `visibleItems` is just the mapped list.
-	const visibleItems = $derived(items)
+	// The backend returns exactly the rows for the current view; the only
+	// client-side filter is "Hide unchanged drafts".
+	const visibleItems = $derived(
+		isFork && hideUnchanged ? items.filter((i) => i.unchanged_from_parent !== true) : items
+	)
 
 	// A row is actionable when it isn't already deployed this session, the user has
 	// write permission, AND it's their own draft (you can't deploy someone else's
@@ -306,9 +317,17 @@
 			// Default intent is deploy-all; when reached from a session's Review
 			// (chatMask set), preselect only that chat's items instead.
 			const selectable = visibleItems.filter(isSelectable)
-			selectedItems = (chatMask ? selectable.filter((i) => chatMask.has(i.key)) : selectable).map(
-				(i) => i.key
-			)
+			selectedItems = (
+				chatMask
+					? selectable.filter((i) =>
+							maskHasDraftRow(chatMask, {
+								kind: i.draftKind,
+								path: i.path,
+								draft_path: i.draft_path
+							})
+						)
+					: selectable
+			).map((i) => i.key)
 			hasAutoSelected = true
 		}
 	})
@@ -465,6 +484,7 @@
 		trigger_kafka: '/kafka_triggers',
 		trigger_nats: '/nats_triggers',
 		trigger_mqtt: '/mqtt_triggers',
+		trigger_amqp: '/amqp_triggers',
 		trigger_sqs: '/sqs_triggers',
 		trigger_gcp: '/gcp_triggers',
 		trigger_azure: '/azure_triggers',
@@ -546,20 +566,35 @@
 			onDeselectAll={deselectAll}
 			emptyMessage={loading
 				? 'Loading drafts…'
-				: showAll
-					? 'No drafts in this workspace'
-					: 'No drafts you authored in this workspace'}
+				: isFork && hideUnchanged && items.length > 0
+					? 'All drafts are unchanged from the parent workspace. Turn off "Hide unchanged drafts" to show them.'
+					: showAll
+						? 'No drafts in this workspace'
+						: 'No drafts you authored in this workspace'}
 		>
 			{#snippet selectAllActions()}
-				<Toggle
-					bind:checked={showAll}
-					size="xs"
-					options={{
-						right: 'Show all drafts',
-						rightTooltip:
-							"Show every user's drafts in this workspace, not just yours. Others' drafts are view-only — you can only deploy or discard your own."
-					}}
-				/>
+				<div class="flex items-center gap-4">
+					{#if isFork}
+						<Toggle
+							bind:checked={hideUnchanged}
+							size="xs"
+							options={{
+								right: 'Hide unchanged drafts',
+								rightTooltip:
+									"Hide drafts identical to the parent workspace. A fork inherits the parent's drafts when it's created; those are unrelated to the changes made in this fork."
+							}}
+						/>
+					{/if}
+					<Toggle
+						bind:checked={showAll}
+						size="xs"
+						options={{
+							right: 'Show all drafts',
+							rightTooltip:
+								"Show every user's drafts in this workspace, not just yours. Others' drafts are view-only — you can only deploy or discard your own."
+						}}
+					/>
+				</div>
 			{/snippet}
 
 			{#snippet header()}

@@ -211,6 +211,45 @@ describe('processToolCall', () => {
 		expect(result.content).toBe(error)
 	})
 
+	it('surfaces the real error in the tool status when the tool throws', async () => {
+		const { createToolDef, processToolCall } = await import('./shared')
+		const apiError = Object.assign(new Error('Bad Request'), {
+			status: 400,
+			body: { error: { message: 'script not found at path f/scripts/missing' } }
+		})
+		const setToolStatus = vi.fn()
+
+		const result = await processToolCall({
+			tools: [
+				{
+					def: createToolDef(z.object({}), 'run_script', 'Run script'),
+					fn: vi.fn().mockRejectedValue(apiError)
+				}
+			],
+			toolCall: {
+				id: 'call_err',
+				type: 'function',
+				function: { name: 'run_script', arguments: '{}' }
+			},
+			helpers: {},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus,
+				removeToolStatus: vi.fn()
+			}
+		})
+
+		const expectedError = 'script not found at path f/scripts/missing'
+		expect(setToolStatus).toHaveBeenLastCalledWith(
+			'call_err',
+			expect.objectContaining({
+				isLoading: false,
+				error: expectedError
+			})
+		)
+		expect(result.content).toBe(`Error while calling tool: ${expectedError}`)
+	})
+
 	it('continues to confirmation when pre-confirmation validation passes', async () => {
 		const { createToolDef, processToolCall } = await import('./shared')
 		const fn = vi.fn().mockResolvedValue('ok')
@@ -896,5 +935,41 @@ describe('trimJob', () => {
 		const job = { id: 'j1', success: true, result: 42 }
 		trimJob(job as any)
 		expect(job.result).toBe(42)
+	})
+})
+
+describe('appendPendingToolImages', () => {
+	// Tool results are string-only, so tool-produced images ride a follow-up
+	// user message appended after the whole tool batch. It must land in BOTH
+	// arrays (messages = sent next iteration, addedMessages = committed to
+	// history) and drain the buffer exactly once — a second flush appending the
+	// same screenshots again would duplicate them in history.
+	it('appends one user message to both arrays and drains the buffer once', async () => {
+		const { appendPendingToolImages } = await import('./shared')
+		let pending = [{ dataUrl: 'data:image/png;base64,SHOT', mediaType: 'image/png' as const }]
+		const toolCallbacks = {
+			setToolStatus: vi.fn(),
+			takePendingToolImages: () => {
+				const taken = pending
+				pending = []
+				return taken
+			}
+		}
+		const messages: any[] = []
+		const addedMessages: any[] = []
+
+		appendPendingToolImages(messages, addedMessages, toolCallbacks as any)
+
+		expect(messages).toHaveLength(1)
+		expect(messages[0]).toBe(addedMessages[0])
+		expect(messages[0].role).toBe('user')
+		expect(messages[0].content[1]).toEqual({
+			type: 'image_url',
+			image_url: { url: 'data:image/png;base64,SHOT' }
+		})
+
+		appendPendingToolImages(messages, addedMessages, toolCallbacks as any)
+		expect(messages).toHaveLength(1)
+		expect(addedMessages).toHaveLength(1)
 	})
 })

@@ -46,13 +46,13 @@ fn audit_action_prefix_for_acl_kind(kind: &str) -> Option<&'static str> {
         "variable" => Some("variables"),
         "schedule" => Some("schedules"),
         "http_trigger" | "websocket_trigger" | "kafka_trigger" | "nats_trigger"
-        | "postgres_trigger" | "mqtt_trigger" | "gcp_trigger" | "azure_trigger" | "sqs_trigger"
-        | "email_trigger" => Some("triggers"),
+        | "postgres_trigger" | "mqtt_trigger" | "amqp_trigger" | "gcp_trigger"
+        | "azure_trigger" | "sqs_trigger" | "email_trigger" => Some("triggers"),
         _ => None,
     }
 }
 
-const KINDS: [&str; 20] = [
+const KINDS: [&str; 21] = [
     "script",
     "group_",
     "resource",
@@ -68,6 +68,7 @@ const KINDS: [&str; 20] = [
     "nats_trigger",
     "postgres_trigger",
     "mqtt_trigger",
+    "amqp_trigger",
     "gcp_trigger",
     "azure_trigger",
     "sqs_trigger",

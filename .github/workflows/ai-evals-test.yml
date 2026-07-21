@@ -69,7 +69,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-workspaces: backend
-          toolchain: 1.93.0
+          toolchain: 1.97.0
 
       - uses: oven-sh/setup-bun@v2
         with:

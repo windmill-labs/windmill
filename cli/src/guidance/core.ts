@@ -89,7 +89,7 @@ When a new app needs to be created, YOU run \`wmill app new\` yourself with \`--
 
 ## Triggers
 
-You MUST use the \`triggers\` skill to configure HTTP routes, WebSocket, Kafka, NATS, SQS, MQTT, GCP, Azure, Email, or Postgres CDC triggers.
+You MUST use the \`triggers\` skill to configure HTTP routes, WebSocket, Kafka, NATS, SQS, MQTT, AMQP, GCP, Azure, Email, or Postgres CDC triggers.
 
 ## Schedules
 
@@ -137,23 +137,24 @@ There are two ways local changes reach the workspace. Pick based on how the repo
 
 ### Detecting the setup
 
-Before deploying, check whether this repo has a **GitHub Actions (or other CI) workflow that runs \`wmill sync push\` on push**. That workflow is the signal that pushing a branch will deploy:
+A \`git push\` deploys when either mechanism is in place: **server-handled git sync** (the workspace auto-pulls the remote, so Windmill deploys what you push) or a **CI workflow that runs \`wmill sync push\` on push**. Check for either:
 
-- Look for \`.github/workflows/*.yml\` (or other CI configs) that invoke \`wmill sync push\`, \`wmill\` deployment commands, or similar.
+- Run \`wmill gitsync-settings status\`. If it reports \`deploy_on_push\`, pushing the current branch deploys via backend auto-pull — no CI needed.
+- Otherwise look for a \`.github/workflows/*.yml\` (or other CI config) that invokes \`wmill sync push\` or similar \`wmill\` deployment commands.
 
-If such a workflow exists → **use \`git push\`** (Option A). Otherwise → **use \`wmill sync push\`** directly (Option B).
+If either is present → **use \`git push\`** (Option A). If \`status\` reports no auto-pull and there is no CI wiring, **ask the user** how this repo deploys (a CI pipeline you didn't recognize → \`git push\`, or manual → \`wmill sync push\`) rather than assuming — then record the answer (below). Only use \`wmill sync push\` directly (Option B) once you've confirmed there is no deploy-on-push path.
 
-**Save the preference so you don't re-detect it every session.** Once you've determined which option this repo uses (or the user tells you), record it in the **project-specific instructions** section of \`AGENTS.md\` (user-owned — never overwritten by \`wmill refresh prompts\`), e.g. a line like \`Deploy mode: git push (CI runs wmill sync push)\` or \`Deploy mode: wmill sync push (no CI wiring)\`. On later sessions, read that line first and skip the scan. Re-detect only if the CI wiring visibly changed.
+**Save the preference so you don't re-detect it every session.** Once you've determined which option this repo uses (or the user tells you), record it in the **project-specific instructions** section of \`AGENTS.md\` (user-owned — never overwritten by \`wmill refresh prompts\`), e.g. a line like \`Deploy mode: git push (backend auto-pull)\`, \`Deploy mode: git push (CI runs wmill sync push)\`, or \`Deploy mode: wmill sync push (no git-push deploy)\`. On later sessions, read that line first and skip the scan. Re-detect only if the wiring visibly changed.
 
-### Option A — \`git push\` (CI is wired to sync)
+### Option A — \`git push\` (backend auto-pull or CI deploys on push)
 
-The CI workflow will pick up the commit and run \`wmill sync push\` on the backend, which is how deployments are intended to happen in this repo. Don't bypass it.
+Pushing the commit deploys it: the backend auto-pulls the remote, or a CI workflow runs \`wmill sync push\`. This is how deployments are intended to happen in this repo. Don't bypass it.
 
 1. \`git add\` + \`git commit\` the local changes.
-2. \`git push\` to the branch the CI runs on.
-3. The workflow deploys to the workspace.
+2. \`git push\` to the tracked branch (the one the backend pulls or CI runs on).
+3. The deploy happens on the backend.
 
-Only fall back to Option B if the user explicitly asks to bypass CI for this change (e.g. CI is broken, urgent hotfix), or if the workflow doesn't cover the current branch.
+Only fall back to Option B if the user explicitly asks to bypass this for this change (e.g. the pipeline is broken, urgent hotfix), or if the tracked branch doesn't cover the current branch.
 
 ### Option B — \`wmill sync push\` (no CI wiring)
 

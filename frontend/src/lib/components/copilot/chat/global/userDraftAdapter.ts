@@ -21,6 +21,7 @@ const TRIGGER_DRAFT_KIND_BY_TRIGGER_KIND = {
 	nats: 'trigger_nats',
 	postgres: 'trigger_postgres',
 	mqtt: 'trigger_mqtt',
+	amqp: 'trigger_amqp',
 	sqs: 'trigger_sqs',
 	gcp: 'trigger_gcp',
 	azure: 'trigger_azure'
@@ -44,6 +45,7 @@ const GLOBAL_DRAFT_KINDS = [
 	'trigger_nats',
 	'trigger_postgres',
 	'trigger_mqtt',
+	'trigger_amqp',
 	'trigger_sqs',
 	'trigger_gcp',
 	'trigger_azure',
@@ -67,7 +69,10 @@ function normalizeAppDraftValue(value: AppDraftValue): AppDraftValue {
 		custom_path: value.custom_path,
 		// Carry the fork-base version through the whitelist — it is dropped on every
 		// save otherwise, which would defeat the stale-draft check.
-		parent_version: value.parent_version
+		parent_version: value.parent_version,
+		// Same for the friendly path of a draft-only app: dropping it here would
+		// rename the app back to its `draft_<uuid>` storage key on every chat edit.
+		draft_path: value.draft_path
 	}
 }
 
@@ -133,6 +138,10 @@ function scriptDraftToWorkspaceItem(path: string, draft: NewScript): WorkspaceIt
 	return {
 		type: 'script',
 		path,
+		// The session editor parks a rename in the draft's `draft_path` (see
+		// sessionDraftCodecs.ts); surface it so lists/pickers show the friendly
+		// name instead of the `draft_<uuid>` storage key.
+		draftPath: (draft as NewScript & { draft_path?: string }).draft_path,
 		summary: draft.summary,
 		language: draft.language,
 		value: draft.content,
@@ -145,6 +154,7 @@ function flowDraftToWorkspaceItem(path: string, draft: Flow): WorkspaceItem {
 	return {
 		type: 'flow',
 		path,
+		draftPath: (draft as Flow & { draft_path?: string }).draft_path,
 		summary: draft.summary,
 		// The persisted flow draft carries `version_id` (the deployed head it was
 		// forked from, pinned at fork by writeDraft/the editor) — the flow analog
@@ -165,6 +175,7 @@ function appDraftToWorkspaceItem(path: string, draft: AppDraftValue): WorkspaceI
 	return {
 		type: 'app',
 		path,
+		draftPath: value.draft_path,
 		summary: value.summary,
 		parentVersionId: value.parent_version,
 		value,
@@ -266,7 +277,14 @@ function userDraftEntryToWorkspaceItem(
 				: undefined
 		}
 	}
-	return item && isLiveDraft ? { ...item, isLiveDraft: true } : item
+	if (!item) return undefined
+	// Drop a draftPath that just repeats `path` (no extra display information),
+	// keep it otherwise — including on live entries: a live editor that
+	// registers its storage key as the effective path (flow/raw-app renames
+	// live in the value's `draft_path`, not `path`) must not hide the staged
+	// rename from lists and pickers.
+	const draftPath = item.draftPath === item.path ? undefined : item.draftPath
+	return isLiveDraft ? { ...item, draftPath, isLiveDraft: true } : { ...item, draftPath }
 }
 
 function liveDisplayPath(
@@ -473,6 +491,7 @@ function backendDraftRowToWorkspaceItem(
 		kind: string
 		path: string
 		summary?: string
+		draft_path?: string
 	}
 ): WorkspaceItem | undefined {
 	if (!(GLOBAL_DRAFT_KINDS as readonly string[]).includes(row.kind)) return undefined
@@ -506,6 +525,12 @@ function backendDraftRowToWorkspaceItem(
 	return {
 		type,
 		path: displayPath,
+		// The row's friendly path (from the draft JSON) names the item; only a
+		// draft_path that repeats the display path adds nothing. Kept even for
+		// live rows — a live registration whose effective path is the storage key
+		// (flow/raw-app renames live in the value's `draft_path`, not `path`)
+		// must not hide the staged rename.
+		draftPath: row.draft_path === displayPath ? undefined : row.draft_path,
 		summary: row.summary,
 		value: undefined,
 		isDraft: true,

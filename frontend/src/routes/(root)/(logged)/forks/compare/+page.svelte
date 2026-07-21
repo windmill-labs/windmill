@@ -20,6 +20,11 @@
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { goto } from '$lib/navigation'
 	import { readChatModifiedItems } from '$lib/components/copilot/chat/HistoryManager.svelte'
+	import {
+		COMPARE_ITEMS_PARAM,
+		maskHasDraftRow,
+		parseItemsMaskParam
+	} from '$lib/components/sessions/modifiedItemsMask'
 
 	type CompareMode = 'fork' | 'draft'
 
@@ -49,6 +54,15 @@
 	// selection here; the page only swaps which comparison component is shown.
 	let forkDirection = $state<'deploy_to' | 'update'>('deploy_to')
 
+	// Explicit preselection via `?items=<kind:path,...>` (built by the chat's
+	// open_page tool). Parsed synchronously from the live URL so it can never race
+	// the children's select-all default. Present-but-empty means "preselect
+	// nothing", distinct from absent (undefined → no mask).
+	const urlItemsMask = $derived.by(() => {
+		const v = page.url.searchParams.get(COMPARE_ITEMS_PARAM)
+		return v === null ? undefined : parseItemsMaskParam(v)
+	})
+
 	// When reached via a session's Review button (`from_session=<chatId>`), preselect
 	// only the items that chat modified. The mask is the chat's stored
 	// `${UserDraftItemKind}:${storagePath}` set; undefined for a legacy chat (no
@@ -56,29 +70,32 @@
 	// Derived from the live URL: an in-app navigation to this route with a
 	// different from_session must reload the mask, not keep the first one.
 	const fromChatId = $derived(page.url.searchParams.get('from_session'))
-	let chatMask = $state<Set<string> | undefined>(undefined)
+	let sessionMask = $state<Set<string> | undefined>(undefined)
 	// The mask loads asynchronously, while the resolved value can legitimately be
 	// undefined (legacy chat). The children must not run their select-all default
 	// until the mask is known, else they'd race it and select everything. Ready
 	// immediately when there's no session to read from.
-	let chatMaskReady = $state(!page.url.searchParams.get('from_session'))
+	let sessionMaskReady = $state(!page.url.searchParams.get('from_session'))
 	$effect(() => {
 		const id = fromChatId
-		chatMask = undefined
-		chatMaskReady = !id
+		sessionMask = undefined
+		sessionMaskReady = !id
 		if (!id) return
 		untrack(() => {
 			void readChatModifiedItems(id)
 				.then((arr) => {
 					// A slower read for a superseded chat id must not win.
 					if (id !== untrack(() => fromChatId)) return
-					chatMask = arr ? new Set(arr) : undefined
+					sessionMask = arr ? new Set(arr) : undefined
 				})
 				.finally(() => {
-					if (id === untrack(() => fromChatId)) chatMaskReady = true
+					if (id === untrack(() => fromChatId)) sessionMaskReady = true
 				})
 		})
 	})
+
+	const chatMask = $derived(urlItemsMask ?? sessionMask)
+	const chatMaskReady = $derived(urlItemsMask !== undefined || sessionMaskReady)
 
 	function selectMode(v: 'deploy_to' | 'update' | 'draft') {
 		if (v === 'draft') {
@@ -92,8 +109,17 @@
 	// Draft count drives the "Deployed ↔ draft" toggle badge. Reads the shared
 	// Workspace Drafts resource — count ≡ the draft list, and it refreshes itself
 	// when a deploy/discard invalidates the workspace.
-	const drafts = useWorkspaceDrafts(() => currentWorkspaceId)
-	const draftCount = $derived(drafts.count)
+	const drafts = useWorkspaceDrafts(
+		() => currentWorkspaceId,
+		() => false,
+		() => (isFork ? (parentWorkspaceId ?? undefined) : undefined)
+	)
+	// On a fork, match the badge to the default deploy-draft view, which hides
+	// drafts unchanged from the parent (else a fresh fork shows a count over an
+	// empty list).
+	const draftCount = $derived(
+		isFork ? drafts.items.filter((d) => d.unchanged_from_parent !== true).length : drafts.count
+	)
 
 	// Keys (`kind:path`) of fork items that are deployed *and* carry a pending
 	// draft (has_draft, i.e. not draft_only). CompareWorkspaces uses this to flag
@@ -124,8 +150,40 @@
 
 	$effect(() => {
 		if (modeResolved || !currentWorkspaceData) return
+		if (!isFork) {
+			untrack(() => {
+				mode = 'draft'
+				modeResolved = true
+			})
+			return
+		}
+		// An explicit ?mode=fork is only deferred (not latched at init) so the
+		// non-fork fallback above can veto it — on a real fork, honor it as is.
+		if (urlMode === 'fork') {
+			untrack(() => {
+				mode = 'fork'
+				modeResolved = true
+			})
+			return
+		}
+		// A fork reached with a preselection mask but no ?mode= must land on the
+		// view where the masked items actually are: a chat's pending drafts have no
+		// fork-diff row, so fork mode would open with none of them selected. Defer
+		// until the mask and the draft list are known, then prefer the draft view
+		// when any masked item is a pending draft; else keep the fork comparison.
+		if (!chatMaskReady) return
+		const mask = chatMask
+		if (mask?.size) {
+			if (drafts.loading) return
+			const masksDraft = drafts.items.some((d) => maskHasDraftRow(mask, d))
+			untrack(() => {
+				mode = masksDraft ? 'draft' : 'fork'
+				modeResolved = true
+			})
+			return
+		}
 		untrack(() => {
-			mode = isFork ? 'fork' : 'draft'
+			mode = 'fork'
 			modeResolved = true
 		})
 	})

@@ -22,13 +22,18 @@ export type FlowState = Record<string, FlowModuleState>
  * We also hold the data of the results of a test job, ran by the user.
  */
 
-export async function initFlowState(flow: Flow, flowStateStore: StateStore<FlowState>) {
+export async function initFlowState(
+	flow: Flow,
+	flowStateStore: StateStore<FlowState>,
+	// The acting workspace when the flow editor runs in an AI session; else the nav workspace.
+	workspace?: string
+) {
 	const modulesState: FlowState = {}
 
-	await mapFlowModules(flow.value.modules, modulesState)
+	await mapFlowModules(flow.value.modules, modulesState, workspace)
 
 	const failureModule = flow.value.failure_module
-		? await loadFlowModuleState(flow.value.failure_module)
+		? await loadFlowModuleState(flow.value.failure_module, workspace)
 		: emptyFlowModuleState()
 
 	flowStateStore.val = {
@@ -41,21 +46,21 @@ export async function initFlowState(flow: Flow, flowStateStore: StateStore<FlowS
  * mapFlowModule recursively explore the flow, following deeply nested loop and branches modules
  * to build the initial state.
  */
-async function mapFlowModule(flowModule: FlowModule, modulesState: FlowState) {
+async function mapFlowModule(flowModule: FlowModule, modulesState: FlowState, workspace?: string) {
 	const value = flowModule.value
 	if (value.type === 'forloopflow') {
-		await mapFlowModules(value.modules, modulesState)
+		await mapFlowModules(value.modules, modulesState, workspace)
 	}
 
 	if (value.type === 'branchone') {
-		await mapFlowModules(value.default, modulesState)
+		await mapFlowModules(value.default, modulesState, workspace)
 	}
 
 	if (value.type === 'branchone' || value.type === 'branchall') {
 		await Promise.all(
 			value.branches.map(
 				(branchModule: { summary?: string; skip_failure?: boolean; modules: Array<FlowModule> }) =>
-					mapFlowModules(branchModule.modules, modulesState)
+					mapFlowModules(branchModule.modules, modulesState, workspace)
 			)
 		)
 	}
@@ -63,7 +68,7 @@ async function mapFlowModule(flowModule: FlowModule, modulesState: FlowState) {
 	if (value.type === 'aiagent' && value.tools) {
 		await Promise.all(
 			value.tools.filter(isFlowModuleTool).map(async (tool) => {
-				modulesState[tool.id] = await loadFlowModuleState(agentToolToFlowModule(tool))
+				modulesState[tool.id] = await loadFlowModuleState(agentToolToFlowModule(tool), workspace)
 			})
 		)
 	}
@@ -71,13 +76,17 @@ async function mapFlowModule(flowModule: FlowModule, modulesState: FlowState) {
 	if (value.type === 'identity') {
 		modulesState[flowModule.id] = emptyFlowModuleState()
 	} else {
-		const flowModuleState = await loadFlowModuleState(flowModule)
+		const flowModuleState = await loadFlowModuleState(flowModule, workspace)
 		modulesState[flowModule.id] = flowModuleState
 	}
 }
 
-async function mapFlowModules(flowModules: FlowModule[], modulesState: FlowState) {
+async function mapFlowModules(
+	flowModules: FlowModule[],
+	modulesState: FlowState,
+	workspace?: string
+) {
 	await Promise.all(
-		flowModules.map((flowModule: FlowModule) => mapFlowModule(flowModule, modulesState))
+		flowModules.map((flowModule: FlowModule) => mapFlowModule(flowModule, modulesState, workspace))
 	)
 }

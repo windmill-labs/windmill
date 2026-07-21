@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.753.0
+  version: 1.764.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -655,6 +655,7 @@ components:
           enum:
             - deno
             - bun
+            - bunnative
             - python3
             - go
             - bash
@@ -934,6 +935,9 @@ components:
         summary:
           type: string
           description: Short description of what this tool does (shown to the AI)
+        description:
+          type: string
+          description: Free-text description of the tool given to the AI to decide when and how to call it. Overrides the description auto-derived from the underlying script.
         value:
           $ref: '#/components/schemas/ToolValue'
       required:

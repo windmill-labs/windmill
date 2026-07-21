@@ -71,9 +71,7 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Row, Transaction};
 use windmill_common::oauth2::InstanceEvent;
-use windmill_common::secret_backend::{
-    get_secret_backend, is_external_stored_value, is_vault_backend_configured,
-};
+use windmill_common::secret_backend::{get_secret_backend, is_vault_backend_configured};
 use windmill_common::utils::not_found_if_none;
 
 lazy_static::lazy_static! {
@@ -137,6 +135,7 @@ pub fn workspaced_service() -> Router {
         .route("/edit_datatable_config", post(edit_datatable_config))
         .merge(crate::datatable_migrations::routes())
         .route("/git_sync_enabled", get(get_git_sync_enabled))
+        .route("/git_sync_deploy_mode", get(get_git_sync_deploy_mode))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
         .route(
@@ -160,7 +159,6 @@ pub fn workspaced_service() -> Router {
         .route("/create_fork", post(create_workspace_fork))
         .route("/attach_dev_workspace", post(attach_dev_workspace))
         .route("/detach_dev_workspace", post(detach_dev_workspace))
-        .route("/set_dev_workspace_label", post(set_dev_workspace_label))
         .route("/get_dev_workspace", get(get_dev_workspace))
         .route("/change_workspace_name", post(change_workspace_name))
         .route("/change_workspace_color", post(change_workspace_color))
@@ -202,7 +200,7 @@ pub fn workspaced_service() -> Router {
             "/protection_rules/{rule_name}",
             post(update_protection_rule).delete(delete_protection_rule),
         )
-        .route("/log_chat", post(log_ai_chat))
+        .route("/log_feature_usage", post(log_feature_usage))
         .route("/cloud_quotas", get(get_cloud_quotas))
         .route("/prune_versions", post(prune_versions))
         .route("/list_ws_specific", get(list_ws_specific))
@@ -517,6 +515,10 @@ struct UserWorkspace {
     pub parent_workspace_id: Option<String>,
     pub is_dev_workspace: bool,
     pub dev_workspace_label: Option<String>,
+    /// Creator of the workspace (`workspace.owner`). On a fork it identifies the forker, who gets a
+    /// narrow membership grant over it even without being an admin — the UI keys the fork members
+    /// screen off this.
+    pub created_by: Option<String>,
     pub disabled: bool,
 }
 
@@ -749,6 +751,178 @@ async fn list_workspaces(
     Ok(Json(workspaces))
 }
 
+/// Strip the server-only webhook HMAC secret from a `git_sync` blob before it is
+/// returned to a client. The UI never needs it; it stays (encrypted) in the DB.
+fn redact_git_sync_webhook_secrets(git_sync: &mut serde_json::Value) {
+    if let Some(repos) = git_sync
+        .get_mut("repositories")
+        .and_then(|r| r.as_array_mut())
+    {
+        for repo in repos {
+            if let Some(auto_pull) = repo.get_mut("auto_pull").and_then(|a| a.as_object_mut()) {
+                auto_pull.remove("webhook_secret");
+            }
+        }
+    }
+}
+
+/// Zero the server-owned auto-pull fields (webhook id/secret/error, synced sha,
+/// last pull status) on a client-supplied `AutoPullSettings`. The client only
+/// controls `enabled` / `mode` / `poll_interval_s`; the rest is written by the
+/// server (webhook creation, poller) and must never be trusted from the request —
+/// otherwise a caller could inject a webhook id/secret or fake sync state.
+fn clear_client_supplied_auto_pull_state(
+    auto_pull: &mut windmill_common::workspaces::AutoPullSettings,
+) {
+    auto_pull.webhook_id = None;
+    auto_pull.webhook_secret = None;
+    auto_pull.webhook_error = None;
+    auto_pull.last_synced_sha = std::collections::HashMap::new();
+    auto_pull.last_pull_status = None;
+}
+
+/// A dev workspace deploys to a branch named after its environment label. If a
+/// git-sync repository's tracked branch carries that same name, dev deploys
+/// would write straight into the branch the workspace (or its prod) syncs
+/// from — the CLI refuses that push, so every deploy job would fail. Reject
+/// the label up front instead.
+async fn reject_dev_label_matching_tracked_branch(
+    db: &DB,
+    label: Option<&str>,
+    workspace_ids: &[&str],
+) -> Result<()> {
+    let label_branch = windmill_common::workspaces::dev_workspace_branch(label);
+    for w_id in workspace_ids {
+        let Some(settings) = sqlx::query_scalar!(
+            "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+            w_id
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten()
+        .and_then(|v| serde_json::from_value::<WorkspaceGitSyncSettings>(v).ok()) else {
+            continue;
+        };
+        for repo in &settings.repositories {
+            let path = repo.git_repo_resource_path.trim_start_matches("$res:");
+            let branch: Option<String> = sqlx::query_scalar!(
+                "SELECT value->>'branch' FROM resource WHERE workspace_id = $1 AND path = $2",
+                w_id,
+                path
+            )
+            .fetch_optional(db)
+            .await?
+            .flatten();
+            if branch.as_deref() == Some(label_branch.as_str()) {
+                return Err(Error::BadRequest(format!(
+                    "The environment label '{label_branch}' matches the tracked branch of git-sync \
+                     repository '{path}' in workspace '{w_id}': deploys from the dev workspace go \
+                     to the '{label_branch}' branch and would overwrite the branch that repository \
+                     syncs from. Use the other label or change the repository's tracked branch."
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Reject parent-only git-sync settings on a fork workspace. Auto-pull, fork
+/// PRs, and promotion mode are all configured at the parent: repo → fork sync is
+/// routed by the parent's webhook/poller (`sync_forks`), a fork-owned auto-pull
+/// would register a second webhook on the same GitHub repo per fork, and a
+/// fork's deploys always go to its `wm-fork/**` branch so a promotion repo could
+/// never take effect there.
+async fn reject_parent_only_git_sync_settings_on_fork<'a>(
+    db: &DB,
+    w_id: &str,
+    mut repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
+) -> Result<()> {
+    let offending = repos.find_map(|r| {
+        if r.auto_pull.as_ref().is_some_and(|a| a.enabled) {
+            Some("Auto-pull")
+        } else if r.use_individual_branch.unwrap_or(false) {
+            Some("Promotion mode")
+        } else if r.fork_open_prs {
+            Some("Opening PRs for fork deploys")
+        } else {
+            None
+        }
+    });
+    let Some(offending) = offending else {
+        return Ok(());
+    };
+    let parent = sqlx::query_scalar!(
+        "SELECT parent_workspace_id FROM workspace WHERE id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    if parent.is_some() || w_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX) {
+        return Err(Error::BadRequest(format!(
+            "{offending} cannot be configured on a fork workspace: it is managed from the parent workspace's git sync settings"
+        )));
+    }
+    Ok(())
+}
+
+/// Persist only the reconciled webhook fields (id/secret/error/mode) for `changed`
+/// repos, one targeted JSONB update per repo (same pattern as the EE auto-pull
+/// status writer). The webhook reconcile runs after the main save has committed,
+/// so a read-modify-write of the whole blob would clobber a poller status write
+/// or another settings save landing in the gap. `mode` is carried too: the
+/// reconcile normalizes webhook -> polling for repos that can't register hooks,
+/// and losing that would leave the poller skipping a webhook-mode repo that has
+/// no webhook. A repo whose `auto_pull` was concurrently removed is left alone.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn persist_reconciled_webhook_fields(
+    db: &DB,
+    w_id: &str,
+    changed: &[(String, windmill_common::workspaces::AutoPullSettings)],
+) -> Result<()> {
+    for (path, new_ap) in changed {
+        let mut patch = serde_json::Map::new();
+        patch.insert(
+            "mode".to_string(),
+            serde_json::to_value(&new_ap.mode).map_err(|e| Error::internal_err(e.to_string()))?,
+        );
+        if let Some(id) = new_ap.webhook_id {
+            patch.insert("webhook_id".to_string(), serde_json::json!(id));
+        }
+        if let Some(secret) = &new_ap.webhook_secret {
+            patch.insert("webhook_secret".to_string(), serde_json::json!(secret));
+        }
+        if let Some(err) = &new_ap.webhook_error {
+            patch.insert("webhook_error".to_string(), serde_json::json!(err));
+        }
+        let patch = serde_json::Value::Object(patch);
+        sqlx::query!(
+            r#"
+            UPDATE workspace_settings
+            SET git_sync = jsonb_set(
+                git_sync,
+                '{repositories}',
+                (SELECT jsonb_agg(
+                    CASE WHEN elem->>'git_repo_resource_path' = $2
+                          AND jsonb_typeof(elem->'auto_pull') = 'object'
+                        THEN jsonb_set(elem, '{auto_pull}',
+                             ((elem->'auto_pull') - 'webhook_id' - 'webhook_secret' - 'webhook_error') || $3)
+                        ELSE elem END)
+                 FROM jsonb_array_elements(git_sync->'repositories') AS elem)
+            )
+            WHERE workspace_id = $1
+              AND jsonb_typeof(git_sync->'repositories') = 'array'
+            "#,
+            w_id,
+            path,
+            patch,
+        )
+        .execute(db)
+        .await?;
+    }
+    Ok(())
+}
+
 async fn get_settings(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
@@ -805,8 +979,12 @@ async fn get_settings(
     .await
     .map_err(|e| Error::internal_err(format!("getting settings: {e:#}")))?;
 
-    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
+    let mut settings = not_found_if_none(settings, "workspace settings", &w_id)?;
     tx.commit().await?;
+
+    if let Some(git_sync) = settings.git_sync.as_mut() {
+        redact_git_sync_webhook_secrets(git_sync);
+    }
 
     Ok(Json(settings))
 }
@@ -846,6 +1024,260 @@ async fn get_public_settings(
     tx.commit().await?;
 
     Ok(Json(settings))
+}
+
+#[derive(Deserialize)]
+pub struct GitSyncDeployModeQuery {
+    /// The branch the caller would push.
+    pub branch: Option<String>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct GitSyncDeployMode {
+    /// At least one git-sync repository is configured for this workspace.
+    pub configured: bool,
+    /// Pushing `branch` deploys via server-side auto-pull: exactly one licensed,
+    /// deliverable auto-pull repository tracks it. False (deploy via `git push`
+    /// through CI, or `wmill sync push`) when unlicensed, no repo tracks the
+    /// branch, or several do — with multiple synced repos we can't tell which the
+    /// local checkout is, so the caller asks the user instead.
+    pub deploy_on_push: bool,
+}
+
+/// Whether an enabled auto-pull repo actually has a delivery path that fires, so
+/// a push really deploys — mirroring the poller/webhook. Polling needs an HTTP(S)
+/// URL (SSH is rejected in the background); webhook-only mode needs an active
+/// hook; `auto` needs either. With neither, `enabled` alone never deploys (e.g. a
+/// webhook that failed to register).
+fn has_runnable_delivery(
+    auto_pull: &windmill_common::workspaces::AutoPullSettings,
+    resource: &serde_json::Value,
+) -> bool {
+    let webhook_active = auto_pull.webhook_id.is_some();
+    let is_app = resource
+        .get("is_github_app")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let is_http_url = resource
+        .get("url")
+        .and_then(|v| v.as_str())
+        .map(|u| {
+            let u = u.trim_start();
+            u.starts_with("https://") || u.starts_with("http://")
+        })
+        .unwrap_or(false);
+    // App repos also have a GitHub-API poll fallback, but require an active
+    // webhook here — conservative (errs toward `wmill sync push`) rather than
+    // asserting the app installation can mint a token.
+    let can_poll = !is_app && is_http_url;
+    match auto_pull.mode {
+        windmill_common::workspaces::AutoPullMode::Webhook => webhook_active,
+        windmill_common::workspaces::AutoPullMode::Polling => can_poll,
+        windmill_common::workspaces::AutoPullMode::Auto => webhook_active || can_poll,
+    }
+}
+
+/// Whether pushing `pushed_branch` matches a repo directly tracking
+/// `tracked_branch` (the non-fork case). A blank tracked branch (repo default) is
+/// unresolvable without a network call, so it never matches and the caller falls
+/// back to `wmill sync push`. Fork/dev routing goes through
+/// `windmill_common::workspaces::resolve_fork_branch_target` instead.
+fn deploys_on_push_branch(pushed_branch: &str, tracked_branch: &str) -> bool {
+    !tracked_branch.is_empty() && pushed_branch == tracked_branch
+}
+
+/// Non-admin endpoint so the CLI/agent can pick the deploy path (git push vs
+/// `wmill sync push`) without reading the admin-only workspace settings. Takes
+/// only the branch and returns booleans — no repository URLs, credentials, or
+/// webhook config ever leave the backend.
+async fn get_git_sync_deploy_mode(
+    _authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Query(q): Query<GitSyncDeployModeQuery>,
+    Extension(db): Extension<DB>,
+) -> JsonResult<GitSyncDeployMode> {
+    // A fork clears its own auto-pull; its pushes deploy through the root
+    // ancestor's repo (which owns `sync_forks`), so evaluate the root's settings.
+    let ancestors = windmill_common::workspaces::fork_ancestor_chain(&db, &w_id).await?;
+    let is_fork = !ancestors.is_empty();
+    let root_id = ancestors.last().cloned().unwrap_or_else(|| w_id.clone());
+
+    // Polling and webhook delivery both exclude deleted roots, so an archived
+    // root (or anything beneath one) can't deploy on push — treat a missing row
+    // as archived too.
+    let root_deleted = sqlx::query_scalar!("SELECT deleted FROM workspace WHERE id = $1", &root_id)
+        .fetch_optional(&db)
+        .await?
+        .unwrap_or(true);
+
+    // Read on the plain pool: a fork member may not be a member of the root
+    // workspace, and only derived booleans are returned (never the settings).
+    let git_sync = sqlx::query_scalar!(
+        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+        &root_id
+    )
+    .fetch_optional(&db)
+    .await
+    .map_err(|e| Error::internal_err(format!("getting git_sync settings: {e:#}")))?;
+
+    let settings = git_sync.flatten().and_then(|v| {
+        serde_json::from_value::<WorkspaceGitSyncSettings>(v)
+            .map_err(|e| {
+                tracing::warn!(
+                    "git_sync deploy mode: settings deserialize failed for {root_id}: {e}"
+                )
+            })
+            .ok()
+    });
+
+    // Missing settings row / null git_sync means nothing is configured, not a 404.
+    let Some(settings) = settings else {
+        return Ok(Json(GitSyncDeployMode {
+            configured: false,
+            deploy_on_push: false,
+        }));
+    };
+
+    let configured = !settings.repositories.is_empty();
+
+    // Auto-pull runs only on Enterprise-licensed instances (see poll_git_auto_pull);
+    // without a caller branch there is nothing to match. Either way deploy_on_push
+    // stays false and the caller falls back (git push via CI, or wmill sync push).
+    let Some(branch) = q.branch.as_deref() else {
+        return Ok(Json(GitSyncDeployMode {
+            configured,
+            deploy_on_push: false,
+        }));
+    };
+    let licensed = matches!(
+        windmill_common::ee_oss::get_license_plan().await,
+        windmill_common::ee_oss::LicensePlan::Enterprise
+    );
+
+    // Count the auto-pull repos that would deploy this branch. We deliberately do
+    // not check the caller's remote URL: with exactly one such repo the local
+    // checkout is unambiguously it, and with several we can't tell which is the
+    // caller's, so we report false and let the CLI ask the user.
+    let mut matches = 0u32;
+    if licensed && !root_deleted {
+        for repo in &settings.repositories {
+            let Some(auto_pull) = repo.auto_pull.as_ref() else {
+                continue;
+            };
+            if !auto_pull.enabled {
+                continue;
+            }
+            // A fork deploys only through the root's sync_forks repos.
+            if is_fork && !auto_pull.sync_forks {
+                continue;
+            }
+            // Interpolates `$var:`/`$res:` as the auto-pull poller does.
+            // allow_cache=false: an on-demand status must reflect the current
+            // repo config, not a value cached by an earlier poll.
+            let Some(value) = windmill_store::resources::resolve_git_repository_resource(
+                &db,
+                &root_id,
+                &repo.git_repo_resource_path,
+                false,
+            )
+            .await?
+            else {
+                continue;
+            };
+            // `enabled` isn't enough: without a runnable delivery path (active
+            // webhook, or pollable non-app HTTPS repo) the push never deploys.
+            if !has_runnable_delivery(auto_pull, &value) {
+                continue;
+            }
+            let tracked_branch = value.get("branch").and_then(|v| v.as_str()).unwrap_or("");
+            let deploys = if is_fork {
+                // Fork/dev routing (wm-fork/* or an env-label branch) resolved by
+                // the same logic the auto-pull reconciler uses; this repo counts
+                // only if the branch routes to *this* workspace.
+                windmill_common::workspaces::resolve_fork_branch_target(
+                    &db,
+                    &root_id,
+                    &repo.git_repo_resource_path,
+                    branch,
+                    tracked_branch,
+                )
+                .await?
+                .is_some_and(|(fork_id, _)| fork_id == w_id)
+            } else {
+                deploys_on_push_branch(branch, tracked_branch)
+            };
+            if deploys {
+                matches += 1;
+            }
+        }
+    }
+
+    Ok(Json(GitSyncDeployMode {
+        configured,
+        deploy_on_push: matches == 1,
+    }))
+}
+
+#[cfg(test)]
+mod git_sync_deploy_mode_tests {
+    use super::{deploys_on_push_branch, has_runnable_delivery};
+    use serde_json::json;
+    use windmill_common::workspaces::{AutoPullMode, AutoPullSettings};
+
+    fn auto_pull(mode: AutoPullMode, webhook_id: Option<i64>) -> AutoPullSettings {
+        AutoPullSettings { enabled: true, mode, webhook_id, ..Default::default() }
+    }
+
+    #[test]
+    fn runnable_delivery_requires_a_firing_path() {
+        let https = json!({ "url": "https://github.com/o/r.git" });
+        let ssh = json!({ "url": "git@github.com:o/r.git" });
+        let app = json!({ "url": "https://github.com/o/r.git", "is_github_app": true });
+        // Polling serves only non-app HTTPS repos (SSH is rejected in background).
+        assert!(has_runnable_delivery(
+            &auto_pull(AutoPullMode::Auto, None),
+            &https
+        ));
+        assert!(has_runnable_delivery(
+            &auto_pull(AutoPullMode::Polling, None),
+            &https
+        ));
+        assert!(!has_runnable_delivery(
+            &auto_pull(AutoPullMode::Polling, None),
+            &ssh
+        ));
+        assert!(!has_runnable_delivery(
+            &auto_pull(AutoPullMode::Auto, None),
+            &ssh
+        ));
+        // Webhook-only mode needs an active hook.
+        assert!(!has_runnable_delivery(
+            &auto_pull(AutoPullMode::Webhook, None),
+            &https
+        ));
+        assert!(has_runnable_delivery(
+            &auto_pull(AutoPullMode::Webhook, Some(1)),
+            &https
+        ));
+        // App repos are gated on an active webhook here (conservative): their
+        // API poll-fallback may still deploy, so this is a safe under-report.
+        assert!(!has_runnable_delivery(
+            &auto_pull(AutoPullMode::Auto, None),
+            &app
+        ));
+        assert!(has_runnable_delivery(
+            &auto_pull(AutoPullMode::Auto, Some(1)),
+            &app
+        ));
+    }
+
+    #[test]
+    fn non_fork_matches_tracked_branch_only() {
+        assert!(deploys_on_push_branch("main", "main"));
+        assert!(!deploys_on_push_branch("dev", "main"));
+        // An unresolved default (blank) tracked branch never matches.
+        assert!(!deploys_on_push_branch("main", ""));
+    }
 }
 
 async fn get_copilot_settings_state(
@@ -2664,6 +3096,40 @@ fn cleanup_legacy_git_sync_settings_in_memory(
 #[cfg(not(feature = "enterprise"))]
 const CE_GIT_SYNC_MAX_USERS: i64 = 2;
 
+/// Auto-pull is licensed per plan, not just per build: the poller only serves
+/// Enterprise plans at runtime, so the save path must reject the setting too —
+/// otherwise an EE binary without the plan could still register a webhook and
+/// receive webhook-driven pulls.
+#[cfg(feature = "enterprise")]
+async fn check_git_sync_ee_license(feature: &str) -> Result<()> {
+    if !matches!(
+        windmill_common::ee_oss::get_license_plan().await,
+        windmill_common::ee_oss::LicensePlan::Enterprise
+    ) {
+        return Err(Error::BadRequest(format!(
+            "{feature} requires an Enterprise license"
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "enterprise")]
+async fn check_auto_pull_license() -> Result<()> {
+    check_git_sync_ee_license("Automatic pull from git").await
+}
+
+/// In-app PR creation (promotion/fork deploy branches) drives GitHub API calls
+/// from the deploy completion hook; runtime-gate it like auto-pull.
+#[cfg(feature = "enterprise")]
+async fn check_open_prs_license<'a>(
+    mut repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
+) -> Result<()> {
+    if repos.any(|r| r.promotion_open_prs || r.fork_open_prs) {
+        check_git_sync_ee_license("Opening pull requests from Windmill").await?;
+    }
+    Ok(())
+}
+
 #[cfg(feature = "enterprise")]
 async fn check_git_sync_access(_db: &DB, _w_id: &str) -> Result<()> {
     Ok(())
@@ -2764,11 +3230,113 @@ async fn edit_git_sync_config(
     )
     .await?;
 
+    // The whole-config save only writes the DB below; the managed GitHub webhooks
+    // are reconciled after the commit is durable (like the per-repository endpoint):
+    // `post_commit` carries the saved repos to reconcile + the hooks of repos this
+    // save removed, to delete.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    let post_commit: Option<(WorkspaceGitSyncSettings, Vec<(String, i64)>)>;
+
     if let Some(mut git_sync_settings) = new_config.git_sync_settings {
+        // Client-supplied server-owned auto-pull state is never trusted: strip it up
+        // front, then existing repos re-derive it from `existing` below and new repos
+        // stay clean.
+        for repo in git_sync_settings.repositories.iter_mut() {
+            if let Some(ap) = repo.auto_pull.as_mut() {
+                clear_client_supplied_auto_pull_state(ap);
+            }
+            repo.open_pr_error = None;
+        }
+        reject_parent_only_git_sync_settings_on_fork(
+            &db,
+            &w_id,
+            git_sync_settings.repositories.iter(),
+        )
+        .await?;
+        // Auto-pull is EE-only (see edit_git_sync_repository).
+        #[cfg(not(feature = "enterprise"))]
+        if git_sync_settings
+            .repositories
+            .iter()
+            .any(|r| r.auto_pull.as_ref().is_some_and(|a| a.enabled))
+        {
+            return Err(Error::BadRequest(
+                "Automatic pull from git is an Enterprise Edition feature".to_string(),
+            ));
+        }
+        #[cfg(feature = "enterprise")]
+        if git_sync_settings
+            .repositories
+            .iter()
+            .any(|r| r.auto_pull.as_ref().is_some_and(|a| a.enabled))
+        {
+            check_auto_pull_license().await?;
+        }
+        #[cfg(feature = "enterprise")]
+        check_open_prs_license(git_sync_settings.repositories.iter()).await?;
+        // Preserve server-owned auto-pull state (webhook id/secret, synced sha, last
+        // status) that the redacted GET response omits — otherwise a whole-config
+        // save from the UI would drop the webhook secret (breaking delivery) or
+        // clobber what the poller/webhook layer wrote.
+        let existing: Option<WorkspaceGitSyncSettings> = sqlx::query_scalar!(
+            "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+            &w_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten()
+        .and_then(|v| serde_json::from_value(v).ok());
+        // Repos present before but absent from this save: their webhooks won't be
+        // reconciled below (no longer listed), so capture them for deletion.
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        let removed_webhooks: Vec<(String, i64)> = existing
+            .as_ref()
+            .map(|e| {
+                e.repositories
+                    .iter()
+                    .filter_map(|old| {
+                        let hook = old.auto_pull.as_ref().and_then(|a| a.webhook_id)?;
+                        // The save carries the hook forward (reconciled below) only
+                        // when the repo is still present AND still has auto_pull — the
+                        // preservation loop copies webhook fields only onto a Some
+                        // auto_pull. Otherwise (repo dropped, or auto_pull cleared) the
+                        // hook would orphan, so delete it.
+                        let carried = git_sync_settings
+                            .repositories
+                            .iter()
+                            .find(|n| n.git_repo_resource_path == old.git_repo_resource_path)
+                            .map(|n| n.auto_pull.is_some())
+                            .unwrap_or(false);
+                        (!carried).then_some((old.git_repo_resource_path.clone(), hook))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if let Some(existing) = &existing {
+            for repo in git_sync_settings.repositories.iter_mut() {
+                let Some(old) = existing
+                    .repositories
+                    .iter()
+                    .find(|r| r.git_repo_resource_path == repo.git_repo_resource_path)
+                else {
+                    continue;
+                };
+                repo.open_pr_error = old.open_pr_error.clone();
+                if let (Some(new_ap), Some(old_ap)) =
+                    (repo.auto_pull.as_mut(), old.auto_pull.as_ref())
+                {
+                    new_ap.webhook_id = old_ap.webhook_id;
+                    new_ap.webhook_secret = old_ap.webhook_secret.clone();
+                    new_ap.last_synced_sha = old_ap.last_synced_sha.clone();
+                    new_ap.last_pull_status = old_ap.last_pull_status.clone();
+                }
+            }
+        }
+
         // Clean up legacy workspace-level settings if all repos are migrated
         cleanup_legacy_git_sync_settings_in_memory(&mut git_sync_settings, &w_id);
 
-        let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)
+        let serialized_config = serde_json::to_value(&git_sync_settings)
             .map_err(|err| Error::internal_err(err.to_string()))?;
 
         sqlx::query!(
@@ -2778,7 +3346,37 @@ async fn edit_git_sync_config(
         )
         .execute(&mut *tx)
         .await?;
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        {
+            post_commit = Some((git_sync_settings, removed_webhooks));
+        }
     } else {
+        // Clearing the whole config removes every repo — delete all their webhooks.
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        {
+            let existing: Option<WorkspaceGitSyncSettings> = sqlx::query_scalar!(
+                "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+                &w_id
+            )
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten()
+            .and_then(|v| serde_json::from_value(v).ok());
+            let removed_webhooks: Vec<(String, i64)> = existing
+                .map(|e| {
+                    e.repositories
+                        .iter()
+                        .filter_map(|old| {
+                            old.auto_pull
+                                .as_ref()
+                                .and_then(|a| a.webhook_id)
+                                .map(|h| (old.git_repo_resource_path.clone(), h))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            post_commit = Some((WorkspaceGitSyncSettings::default(), removed_webhooks));
+        }
         sqlx::query!(
             "UPDATE workspace_settings SET git_sync = NULL WHERE workspace_id = $1",
             &w_id,
@@ -2788,6 +3386,37 @@ async fn edit_git_sync_config(
     }
 
     tx.commit().await?;
+
+    // Post-commit: reconcile each saved repo's managed webhook to match the config
+    // and delete the webhooks of repos this save removed. Best-effort — a failure
+    // leaves polling on.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    if let Some((mut settings, removed_webhooks)) = post_commit {
+        let mut changed: Vec<(String, windmill_common::workspaces::AutoPullSettings)> = Vec::new();
+        for repo in settings.repositories.iter_mut() {
+            let before = serde_json::to_value(&repo.auto_pull).ok();
+            if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await
+            {
+                tracing::warn!("git auto-pull: webhook sync error: {}", e);
+            }
+            if serde_json::to_value(&repo.auto_pull).ok() != before {
+                if let Some(ap) = repo.auto_pull.as_ref() {
+                    changed.push((repo.git_repo_resource_path.clone(), ap.clone()));
+                }
+            }
+        }
+        if let Err(e) = persist_reconciled_webhook_fields(&db, &w_id, &changed).await {
+            tracing::warn!("git auto-pull: webhook field persist error: {}", e);
+        }
+        for (path, hook_id) in removed_webhooks {
+            if let Ok(url) = windmill_common::git_sync_ee::resolve_repo_url(&db, &w_id, &path).await
+            {
+                let _ =
+                    windmill_common::git_sync_ee::delete_repo_webhook(&db, &w_id, &url, hook_id)
+                        .await;
+            }
+        }
+    }
 
     // Trigger git sync for git sync settings changes
     handle_deployment_metadata(
@@ -2810,13 +3439,53 @@ async fn edit_git_sync_repository(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     ApiAuthed { is_admin, username, .. }: ApiAuthed,
-    Json(new_config): Json<EditGitSyncRepository>,
+    Json(mut new_config): Json<EditGitSyncRepository>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
     check_git_sync_access(&db, &w_id).await?;
 
     // Validate the resource path format
     validate_git_repo_resource_path(&new_config.git_repo_resource_path)?;
+
+    // Server-owned auto-pull state (webhook id/secret + sync status) is never
+    // accepted from the client — the webhook layer and poller own it. Strip it so an
+    // existing repo re-derives it from the DB (carried over below) and a new one
+    // starts clean.
+    if let Some(ap) = new_config.repository.auto_pull.as_mut() {
+        clear_client_supplied_auto_pull_state(ap);
+    }
+    new_config.repository.open_pr_error = None;
+    reject_parent_only_git_sync_settings_on_fork(
+        &db,
+        &w_id,
+        std::iter::once(&new_config.repository),
+    )
+    .await?;
+
+    // Auto-pull is EE-only: CE builds compile neither the poller nor the webhook
+    // reconciler, so accepting the setting would silently do nothing.
+    #[cfg(not(feature = "enterprise"))]
+    if new_config
+        .repository
+        .auto_pull
+        .as_ref()
+        .is_some_and(|a| a.enabled)
+    {
+        return Err(Error::BadRequest(
+            "Automatic pull from git is an Enterprise Edition feature".to_string(),
+        ));
+    }
+    #[cfg(feature = "enterprise")]
+    if new_config
+        .repository
+        .auto_pull
+        .as_ref()
+        .is_some_and(|a| a.enabled)
+    {
+        check_auto_pull_license().await?;
+    }
+    #[cfg(feature = "enterprise")]
+    check_open_prs_license(std::iter::once(&new_config.repository)).await?;
 
     // Promotion mode: EE only
     #[cfg(not(feature = "enterprise"))]
@@ -2895,8 +3564,32 @@ async fn edit_git_sync_repository(
         .find(|repo| repo.git_repo_resource_path == new_config.git_repo_resource_path);
 
     if let Some(existing_repo) = repo_found {
-        // Update existing repository
-        *existing_repo = new_config.repository;
+        // Update existing repository, but preserve server-owned auto-pull state
+        // (synced sha, last pull status, webhook id/secret) so a settings save
+        // from the UI cannot revert what the poller/webhook layer wrote.
+        let mut updated = new_config.repository;
+        updated.open_pr_error = existing_repo.open_pr_error.clone();
+        match (updated.auto_pull.as_mut(), existing_repo.auto_pull.as_ref()) {
+            (Some(new_ap), Some(old_ap)) => {
+                new_ap.last_synced_sha = old_ap.last_synced_sha.clone();
+                new_ap.last_pull_status = old_ap.last_pull_status.clone();
+                new_ap.webhook_id = old_ap.webhook_id;
+                new_ap.webhook_secret = old_ap.webhook_secret.clone();
+            }
+            // UI omitted auto_pull (e.g. older client): keep existing config.
+            (None, Some(_)) => {
+                updated.auto_pull = existing_repo.auto_pull.clone();
+            }
+            _ => {}
+        }
+        // The request-side license gate above only saw the submitted config; the
+        // preservation can resurrect an enabled auto_pull (None arm), so re-check
+        // the effective state before it gets written and reconciled.
+        #[cfg(feature = "enterprise")]
+        if updated.auto_pull.as_ref().is_some_and(|a| a.enabled) {
+            check_auto_pull_license().await?;
+        }
+        *existing_repo = updated;
     } else {
         // Repository doesn't exist, add it as a new repository
         git_sync_settings.repositories.push(new_config.repository);
@@ -2905,8 +3598,13 @@ async fn edit_git_sync_repository(
     // Clean up legacy workspace-level settings if all repos are migrated
     cleanup_legacy_git_sync_settings_in_memory(&mut git_sync_settings, &w_id);
 
-    // Save the updated configuration
-    let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)
+    // Save the updated configuration first, then reconcile the GitHub webhook to
+    // match it *after* the commit is durable (phase 2). Reconciling before the
+    // commit could leave the DB pointing at a hook that no longer matches if the
+    // save then failed (e.g. a delete on disable); post-commit reconciliation
+    // cannot. The pre-edit webhook id/secret are carried over above, so the
+    // committed row stays consistent until the reconcile persists any change.
+    let serialized_config = serde_json::to_value(&git_sync_settings)
         .map_err(|err| Error::internal_err(err.to_string()))?;
 
     sqlx::query!(
@@ -2916,8 +3614,33 @@ async fn edit_git_sync_repository(
     )
     .execute(&mut *tx)
     .await?;
-
     tx.commit().await?;
+
+    // Post-commit: create/remove the webhook to match the saved config and persist
+    // the resulting hook id/secret. Best-effort — a failure leaves polling on.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    {
+        let mut changed: Vec<(String, windmill_common::workspaces::AutoPullSettings)> = Vec::new();
+        if let Some(repo) = git_sync_settings
+            .repositories
+            .iter_mut()
+            .find(|r| r.git_repo_resource_path == new_config.git_repo_resource_path)
+        {
+            let before = serde_json::to_value(&repo.auto_pull).ok();
+            if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await
+            {
+                tracing::warn!("git auto-pull: webhook sync error: {}", e);
+            }
+            if serde_json::to_value(&repo.auto_pull).ok() != before {
+                if let Some(ap) = repo.auto_pull.as_ref() {
+                    changed.push((repo.git_repo_resource_path.clone(), ap.clone()));
+                }
+            }
+        }
+        if let Err(e) = persist_reconciled_webhook_fields(&db, &w_id, &changed).await {
+            tracing::warn!("git auto-pull: webhook field persist error: {}", e);
+        }
+    }
 
     // Trigger git sync for individual repository update/add
     handle_deployment_metadata(
@@ -2981,6 +3704,18 @@ async fn delete_git_sync_repository(
         WorkspaceGitSyncSettings::default()
     };
 
+    // Capture the repo's managed webhook id; the hook itself is deleted only after
+    // the DB removal commits (below), so a failed save can't leave the repo pointing
+    // at a hook that no longer exists. Deletion bypasses the sync_repo_webhook
+    // lifecycle, so GitHub would otherwise keep delivering to an orphaned hook.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    let webhook_to_delete: Option<i64> = git_sync_settings
+        .repositories
+        .iter()
+        .find(|r| r.git_repo_resource_path == request.git_repo_resource_path)
+        .and_then(|r| r.auto_pull.as_ref())
+        .and_then(|a| a.webhook_id);
+
     // Check if repository exists and remove it
     let original_count = git_sync_settings.repositories.len();
     git_sync_settings
@@ -3022,6 +3757,21 @@ async fn delete_git_sync_repository(
     .await?;
 
     tx.commit().await?;
+
+    // Removal is durable now — best-effort delete the GitHub webhook.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    if let Some(hook_id) = webhook_to_delete {
+        if let Ok(url) = windmill_common::git_sync_ee::resolve_repo_url(
+            &db,
+            &w_id,
+            &request.git_repo_resource_path,
+        )
+        .await
+        {
+            let _ =
+                windmill_common::git_sync_ee::delete_repo_webhook(&db, &w_id, &url, hook_id).await;
+        }
+    }
 
     // Trigger git sync for repository deletion
     handle_deployment_metadata(
@@ -3694,6 +4444,7 @@ struct UsedTriggers {
     pub nats_used: bool,
     pub postgres_used: bool,
     pub mqtt_used: bool,
+    pub amqp_used: bool,
     pub sqs_used: bool,
     pub gcp_used: bool,
     pub azure_used: bool,
@@ -3719,6 +4470,7 @@ async fn get_used_triggers(
             EXISTS(SELECT 1 FROM nats_trigger WHERE workspace_id = $1) as "nats_used!",
             EXISTS(SELECT 1 FROM postgres_trigger WHERE workspace_id = $1) AS "postgres_used!",
             EXISTS(SELECT 1 FROM mqtt_trigger WHERE workspace_id = $1) AS "mqtt_used!",
+            EXISTS(SELECT 1 FROM amqp_trigger WHERE workspace_id = $1) AS "amqp_used!",
             EXISTS(SELECT 1 FROM sqs_trigger WHERE workspace_id = $1) AS "sqs_used!",
             EXISTS(SELECT 1 FROM gcp_trigger WHERE workspace_id = $1) AS "gcp_used!",
             EXISTS(SELECT 1 FROM azure_trigger WHERE workspace_id = $1) AS "azure_used!",
@@ -3807,6 +4559,7 @@ async fn user_workspaces(
         UserWorkspace,
         "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color, workspace.parent_workspace_id,
                 workspace.is_dev_workspace, workspace.dev_workspace_label,
+                workspace.owner AS \"created_by?\",
                 CASE WHEN usr.operator THEN workspace_settings.operator_settings ELSE NULL END as operator_settings,
                 usr.disabled
          FROM workspace
@@ -4191,6 +4944,7 @@ async fn clone_workspace_data(
     // Clone CI test references
     clone_ci_test_references(tx, source_workspace_id, target_workspace_id).await?;
     clone_macro_registry(tx, source_workspace_id, target_workspace_id).await?;
+    clone_metric_catalog(tx, source_workspace_id, target_workspace_id).await?;
     clone_asset_usages_and_triggers(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone flows with new versions
@@ -4395,6 +5149,23 @@ async fn clone_triggers_and_schedules(
     .await?;
 
     sqlx::query!(
+        r#"INSERT INTO amqp_trigger (
+            amqp_resource_path, queue_name, exchange, options, path, script_path, is_flow,
+            workspace_id, edited_by, edited_at, extra_perms, server_id, last_server_ping,
+            error, error_handler_path, error_handler_args, retry, mode, permissioned_as, labels
+        )
+        SELECT
+            amqp_resource_path, queue_name, exchange, options, path, script_path, is_flow,
+            $1, edited_by, edited_at, extra_perms, NULL, NULL,
+            NULL, error_handler_path, error_handler_args, retry, 'disabled'::TRIGGER_MODE, permissioned_as, labels
+        FROM amqp_trigger WHERE workspace_id = $2"#,
+        target_workspace_id,
+        source_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
         r#"INSERT INTO sqs_trigger (
             path, queue_url, aws_resource_path, message_attributes, script_path,
             is_flow, workspace_id, edited_by, edited_at, extra_perms, error,
@@ -4542,6 +5313,18 @@ async fn update_workspace_settings(
         .into_iter()
         .filter(|r| !r.use_individual_branch.unwrap_or(false))
         .take(1)
+        .map(|mut r| {
+            // Auto-pull and fork PRs are parent-owned and must not be inherited:
+            // the fork would otherwise carry the parent's webhook id (turning off
+            // auto-pull on the fork would delete the parent's webhook). A fork
+            // still inherits the push-direction config and the installation.
+            // Repo → fork sync is driven by the parent's webhook/poller
+            // (`sync_forks`), which routes the fork's `wm-fork/**` branch into it.
+            r.auto_pull = None;
+            r.fork_open_prs = false;
+            r.open_pr_error = None;
+            r
+        })
         .collect();
 
     let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)
@@ -4703,15 +5486,13 @@ async fn clone_variables(
     .execute(&mut **tx)
     .await?;
 
-    // With an external secret backend (Vault / Azure KV / AWS SM), the copied
-    // `value` is only a `$vault:`/`$azure_kv:`/`$aws_sm:` marker: the actual
-    // secret lives in the external store under a key derived from
-    // (workspace_id, path). The row copy above therefore leaves the fork's
-    // markers pointing at keys that don't exist — replicate each secret under
-    // the fork's workspace id.
+    // With an external backend the secret lives in the store under (workspace_id,
+    // path), so the row copy above leaves the fork pointing at keys that don't
+    // exist. Replicate every secret, not just marker-valued ones: migration writes
+    // to the store without rewriting `value` to a `$...:` marker.
     if is_vault_backend_configured(db).await? {
         let secret_variables = sqlx::query!(
-            "SELECT path, value FROM variable
+            "SELECT path FROM variable
              WHERE workspace_id = $1 AND is_secret = true AND value != ''",
             target_workspace_id,
         )
@@ -4719,10 +5500,7 @@ async fn clone_variables(
         .await?;
 
         let backend = get_secret_backend(db).await?;
-        for variable in secret_variables
-            .into_iter()
-            .filter(|v| is_external_stored_value(&v.value))
-        {
+        for variable in secret_variables {
             match backend
                 .get_secret(source_workspace_id, &variable.path)
                 .await
@@ -4831,6 +5609,26 @@ async fn clone_macro_registry(
         "INSERT INTO macro_usage (workspace_id, consumer_path, macro_name)
          SELECT $2, consumer_path, macro_name
          FROM macro_usage WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+// Declared measures/dimensions are deploy-derived like the macro registry:
+// without cloning them the fork's editor and agent tools report no metrics until
+// every producer is manually redeployed there.
+async fn clone_metric_catalog(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO data_metric (workspace_id, script_path, table_path, kind, name, expr, filter)
+         SELECT $2, script_path, table_path, kind, name, expr, filter
+         FROM data_metric WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,
     )
@@ -5358,7 +6156,8 @@ async fn create_workspace_fork_branch(
     if nw.is_dev_workspace {
         validate_dev_workspace_id(&nw.id)?;
         // Reject a bad cosmetic label before any git branch is created (acted on in create_workspace_fork).
-        normalize_dev_workspace_label(nw.dev_workspace_label.clone())?;
+        let label = normalize_dev_workspace_label(nw.dev_workspace_label.clone())?;
+        reject_dev_label_matching_tracked_branch(&db, label.as_deref(), &[&w_id]).await?;
         ensure_dev_parent_is_root(&db, &w_id).await?;
         // Reject before creating any git branch if the parent already has a dev workspace,
         // otherwise the deferred branch-creation job leaves a dangling branch on the synced repos.
@@ -5680,7 +6479,10 @@ async fn create_workspace_fork(
     validate_workspace_name(&nw.name)?;
     // Cosmetic label only applies to dev workspaces; a non-dev fork stores NULL.
     let dev_workspace_label = if nw.is_dev_workspace {
-        normalize_dev_workspace_label(nw.dev_workspace_label.clone())?
+        let label = normalize_dev_workspace_label(nw.dev_workspace_label.clone())?;
+        reject_dev_label_matching_tracked_branch(&db, label.as_deref(), &[&parent_workspace_id])
+            .await?;
+        label
     } else {
         None
     };
@@ -5810,8 +6612,14 @@ async fn create_workspace_fork(
     .await?;
 
     // Clone all data from the parent workspace using Rust implementation
-    if let Err(e) =
-        clone_workspace_data(&mut tx, &db, &parent_workspace_id, &forked_id, &authed.email).await
+    if let Err(e) = clone_workspace_data(
+        &mut tx,
+        &db,
+        &parent_workspace_id,
+        &forked_id,
+        &authed.email,
+    )
+    .await
     {
         // A genuine `\u0000` in a source `json` value (`app_version.value` /
         // `flow_version.schema`) aborts the clone when it is re-encoded to jsonb:
@@ -5984,6 +6792,14 @@ async fn attach_dev_workspace(
     // The id is interpolated into a `wm-fork/<branch>/<id>` branch name like any fork.
     validate_dev_workspace_id(&dev_w_id)?;
     let dev_workspace_label = normalize_dev_workspace_label(req.dev_workspace_label.clone())?;
+    // The attached workspace keeps its own sync repos and prod keeps its config;
+    // the label branch must not collide with either side's tracked branch.
+    reject_dev_label_matching_tracked_branch(
+        &db,
+        dev_workspace_label.as_deref(),
+        &[&prod_w_id, &dev_w_id],
+    )
+    .await?;
 
     let dev = sqlx::query!(
         r#"SELECT parent_workspace_id, deleted FROM workspace WHERE id = $1"#,
@@ -6066,6 +6882,45 @@ async fn attach_dev_workspace(
     .execute(&mut *tx)
     .await?;
 
+    // The attached workspace is now parent-managed like any fork: its own
+    // auto-pull (and webhook), fork PRs, and promotion repos must not stay
+    // live — they'd keep pulling/pushing against its pre-attach tracked
+    // branch. Mirror the fork-creation copy: keep sync repos only, strip the
+    // parent-only fields, and delete any managed webhook after commit.
+    #[allow(unused_mut)]
+    let mut stripped_webhooks: Vec<(String, i64)> = Vec::new();
+    if let Some(git_sync) = sqlx::query_scalar!(
+        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+        &dev_w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten()
+    {
+        if let Ok(mut settings) = serde_json::from_value::<WorkspaceGitSyncSettings>(git_sync) {
+            settings
+                .repositories
+                .retain(|r| !r.use_individual_branch.unwrap_or(false));
+            for r in settings.repositories.iter_mut() {
+                if let Some(hook) = r.auto_pull.as_ref().and_then(|a| a.webhook_id) {
+                    stripped_webhooks.push((r.git_repo_resource_path.clone(), hook));
+                }
+                r.auto_pull = None;
+                r.fork_open_prs = false;
+                r.open_pr_error = None;
+            }
+            let serialized =
+                serde_json::to_value(&settings).map_err(|e| Error::internal_err(e.to_string()))?;
+            sqlx::query!(
+                "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
+                serialized,
+                &dev_w_id
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
     if req.lock_prod_deploy || req.lock_prod_forking {
         lock_prod_workspace(
             &mut tx,
@@ -6091,6 +6946,17 @@ async fn attach_dev_workspace(
     // The dev workspace's parent just changed (none -> prod); drop its cached fork->parent mapping
     // so per-workspace job tags route to the prod family immediately rather than after the TTL.
     windmill_queue::tags::invalidate_fork_parent_cache(&dev_w_id);
+    // Best-effort: the hooks captured before the strip above are unreachable now
+    // (their auto_pull is gone), so remove them from GitHub.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    for (path, hook_id) in stripped_webhooks {
+        if let Ok(url) = windmill_common::git_sync_ee::resolve_repo_url(&db, &dev_w_id, &path).await
+        {
+            let _ =
+                windmill_common::git_sync_ee::delete_repo_webhook(&db, &dev_w_id, &url, hook_id)
+                    .await;
+        }
+    }
     // Drop the cached ancestor chains too — the workspace existed BEFORE the attach, so a
     // cached empty chain reads as "not a fork" and its ducklake jobs would write the shared
     // lake until the TTL. Descendants' chains also gained the new root.
@@ -6118,51 +6984,6 @@ async fn attach_dev_workspace(
         "Attached {} as dev workspace of {}",
         dev_w_id, prod_w_id
     ))
-}
-
-#[derive(Deserialize)]
-struct SetDevWorkspaceLabel {
-    #[serde(default)]
-    dev_workspace_label: Option<String>,
-}
-
-/// Change the cosmetic display label ('dev' | 'staging') of the current workspace, which must itself
-/// be a dev workspace. Purely visual (badge text + wording); requires admin of the dev workspace.
-async fn set_dev_workspace_label(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-    Json(req): Json<SetDevWorkspaceLabel>,
-) -> Result<String> {
-    require_admin(authed.is_admin, &authed.username)?;
-    let label = normalize_dev_workspace_label(req.dev_workspace_label)?;
-
-    let mut tx = db.begin().await?;
-    let updated = sqlx::query_scalar!(
-        "UPDATE workspace SET dev_workspace_label = $1 WHERE id = $2 AND is_dev_workspace RETURNING id",
-        label,
-        &w_id,
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
-    if updated.is_none() {
-        return Err(Error::BadRequest(format!(
-            "Workspace '{w_id}' is not a dev workspace"
-        )));
-    }
-
-    audit_log(
-        &mut *tx,
-        &authed,
-        "workspaces.set_dev_workspace_label",
-        ActionKind::Update,
-        &w_id,
-        label.as_deref(),
-        None,
-    )
-    .await?;
-    tx.commit().await?;
-    Ok(format!("Updated dev workspace label for {w_id}"))
 }
 
 /// Reverse [`attach_dev_workspace`] / clear the dev designation: unset the dev flag and remove the
@@ -6195,8 +7016,14 @@ async fn detach_dev_workspace(
     }
 
     let mut tx = db.begin().await?;
+    // A wm-fork- workspace re-designated as dev returns to being a plain fork
+    // (keeps its parent); a standalone workspace that was attached returns to
+    // being standalone — with the parent kept it would still classify as a
+    // fork and deploy to wm-fork/** branches forever.
     sqlx::query!(
-        "UPDATE workspace SET is_dev_workspace = false WHERE id = $1",
+        "UPDATE workspace SET is_dev_workspace = false,
+         parent_workspace_id = CASE WHEN id LIKE 'wm-fork-%' THEN parent_workspace_id ELSE NULL END
+         WHERE id = $1",
         &dev_w_id
     )
     .execute(&mut *tx)
@@ -6223,6 +7050,20 @@ async fn detach_dev_workspace(
     tx.commit().await?;
 
     windmill_common::workspaces::invalidate_protection_rules_cache(&prod_w_id);
+    // The parent link may just have been cleared (standalone workspace that was
+    // attached): drop the caches that resolved it, mirroring attach.
+    windmill_queue::tags::invalidate_fork_parent_cache(&dev_w_id);
+    windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&dev_w_id);
+    for id in windmill_common::workspaces::list_fork_descendants(&db, &dev_w_id).await? {
+        windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&id);
+    }
+    #[cfg(feature = "cloud")]
+    {
+        windmill_common::workspaces::invalidate_billing_workspace_cache(&dev_w_id);
+        for id in windmill_common::workspaces::list_fork_descendants(&db, &dev_w_id).await? {
+            windmill_common::workspaces::invalidate_billing_workspace_cache(&id);
+        }
+    }
 
     Ok(format!(
         "Detached dev workspace {} from {}",
@@ -6633,6 +7474,72 @@ If you do not have an account on {}, login with SSO or ask an admin to create an
     ))
 }
 
+/// Non-admin path for `add_user`: the creator of a fork may bring collaborators into the fork they
+/// created, so a team can work on it without an admin of the fork having to step in. The grant is
+/// deliberately narrow, because a fork holds a full clone of its parent (secrets included) and the
+/// creator may be an ordinary developer:
+/// - only on a fork they created, never on a root workspace;
+/// - only as a developer, so it can never mint an admin (nor an operator, which would need the
+///   workspace's operator settings to be meaningful);
+/// - only for someone who is already a developer or admin of the parent, so pulling them into the
+///   fork cannot widen who can read the parent's data.
+///
+/// Anything outside those bounds stays an admin's call. Returns the username the new member must be
+/// given in the fork.
+async fn authorize_fork_owner_add_user(
+    db: &DB,
+    w_id: &str,
+    authed: &ApiAuthed,
+    nu: &NewWorkspaceUser,
+) -> Result<String> {
+    let parent = windmill_common::workspaces::fork_owned_by(db, w_id, &authed.email)
+        .await?
+        .ok_or_else(|| Error::RequireAdmin(authed.username.clone()))?;
+
+    if nu.is_admin || nu.operator {
+        return Err(Error::PermissionDenied(format!(
+            "as the creator of fork {w_id} you can only add members as developers; ask an admin of \
+             {w_id} for any other role"
+        )));
+    }
+
+    let parent_username = sqlx::query_scalar!(
+        "SELECT username FROM usr
+         WHERE workspace_id = $1 AND email = $2 AND NOT operator AND NOT disabled",
+        parent,
+        nu.email,
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let Some(parent_username) = parent_username else {
+        return Err(Error::PermissionDenied(format!(
+            "as the creator of fork {w_id} you can only add developers or admins of its parent \
+             workspace {parent}; {} is not one, so only an admin of {w_id} can add them",
+            nu.email
+        )));
+    };
+
+    // Ownership of a `u/<username>/` path is decided by the username alone, and the fork holds a
+    // clone of every such path from the parent. Seating the new member on a username other than
+    // their own would therefore hand them that parent user's cloned scripts, variables and secrets
+    // — so their parent username is the only one they may be given here, whatever the caller asked
+    // for (`add_user` otherwise lets the caller choose it when AUTOMATE_USERNAME_CREATION is off).
+    if nu
+        .username
+        .as_deref()
+        .is_some_and(|u| !u.is_empty() && u != parent_username)
+    {
+        return Err(Error::PermissionDenied(format!(
+            "as the creator of fork {w_id} you cannot choose the username of a member you add; {} \
+             joins as '{parent_username}', the username they already have in {parent}",
+            nu.email
+        )));
+    }
+
+    Ok(parent_username)
+}
+
 async fn add_user(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -6640,8 +7547,6 @@ async fn add_user(
     Path(w_id): Path<String>,
     Json(mut nu): Json<NewWorkspaceUser>,
 ) -> Result<(StatusCode, String)> {
-    require_admin(authed.is_admin, &authed.username)?;
-
     #[cfg(not(feature = "enterprise"))]
     if w_id == "admins" {
         return Err(Error::BadRequest(
@@ -6650,6 +7555,12 @@ async fn add_user(
     }
 
     nu.email = nu.email.to_lowercase();
+
+    let fork_owner_username = if !authed.is_admin {
+        Some(authorize_fork_owner_add_user(&db, &w_id, &authed, &nu).await?)
+    } else {
+        None
+    };
 
     #[cfg(feature = "enterprise")]
     if let Some(msg) =
@@ -6686,7 +7597,9 @@ async fn add_user(
     .flatten()
     .unwrap_or(true);
 
-    let username = if automate_username_creation {
+    let username = if let Some(username) = fork_owner_username {
+        username
+    } else if automate_username_creation {
         if nu.username.is_some() && nu.username.unwrap().len() > 0 {
             return Err(Error::BadRequest(
                 "username is not allowed when username creation is automated".to_string(),
@@ -8941,25 +9854,96 @@ const TRIGGER_OR_SCHEDULE_TABLES: &[&str] = &[
     "email_trigger",
 ];
 
+const MAX_FEATURE_USAGE_EVENTS: usize = 50;
+
 #[derive(Deserialize)]
-struct LogAiChatPayload {
-    session_id: String,
-    provider: String,
-    model: String,
-    mode: String,
+struct FeatureUsageEvent {
+    feature: String,
+    kind: String,
+    #[serde(default)]
+    key: String,
+    #[serde(default)]
+    entity_id: String,
+    value: Option<i64>,
 }
 
-async fn log_ai_chat(
+#[derive(Deserialize)]
+struct LogFeatureUsagePayload {
+    events: Vec<FeatureUsageEvent>,
+}
+
+// Only registered (feature, kind) actions are accepted, so telemetry stays
+// limited to predefined feature actions. Keys are shape-checked (identifier-like,
+// no spaces) rather than pinned to value sets: they come from our own frontend
+// (modes, tab/draft kinds, tool names, provider:model) and pinning every value
+// server-side was not worth the maintenance.
+const FEATURE_USAGE_KINDS: &[(&str, &str)] = &[
+    ("ai_session", "created"),
+    ("ai_session", "message"),
+    ("ai_session", "autonomy"),
+    ("ai_session", "tab"),
+    ("ai_session", "tokens"),
+    ("ai_session", "deployed"),
+    ("ai_session", "archived"),
+    ("ai_session", "deleted"),
+    ("ai_chat", "message"),
+    ("ai_chat", "model"),
+    ("ai_chat", "tool"),
+];
+
+fn is_identifier_shaped(s: &str, max_len: usize) -> bool {
+    !s.is_empty()
+        && s.len() <= max_len
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | ':' | '.' | '/'))
+}
+
+fn valid_feature_usage_event(e: &FeatureUsageEvent) -> bool {
+    FEATURE_USAGE_KINDS.contains(&(e.feature.as_str(), e.kind.as_str()))
+        && (e.key.is_empty() || is_identifier_shaped(&e.key, 100))
+        && (e.entity_id.is_empty() || is_identifier_shaped(&e.entity_id, 50))
+}
+
+async fn log_feature_usage(
     Extension(db): Extension<DB>,
-    Json(payload): Json<LogAiChatPayload>,
+    Json(payload): Json<LogFeatureUsagePayload>,
 ) -> Result<StatusCode> {
+    // Pre-sum duplicate keys: two rows hitting the same conflict target in a
+    // single INSERT error out ("cannot affect row a second time").
+    let mut agg: HashMap<(String, String, String, String), i64> = HashMap::new();
+    for e in payload.events.into_iter().take(MAX_FEATURE_USAGE_EVENTS) {
+        if !valid_feature_usage_event(&e) {
+            continue;
+        }
+        let value = e.value.unwrap_or(1).clamp(1, 1_000_000);
+        *agg.entry((e.feature, e.kind, e.key, e.entity_id))
+            .or_insert(0) += value;
+    }
+    if agg.is_empty() {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+    let mut features = Vec::with_capacity(agg.len());
+    let mut kinds = Vec::with_capacity(agg.len());
+    let mut keys = Vec::with_capacity(agg.len());
+    let mut entity_ids = Vec::with_capacity(agg.len());
+    let mut values = Vec::with_capacity(agg.len());
+    for ((feature, kind, key, entity_id), value) in agg {
+        features.push(feature);
+        kinds.push(kind);
+        keys.push(key);
+        entity_ids.push(entity_id);
+        values.push(value);
+    }
     sqlx::query!(
-        "INSERT INTO ai_chat_usage (session_id, provider, model, mode) VALUES ($1, $2, $3, $4)
-         ON CONFLICT (session_id) DO UPDATE SET message_count = ai_chat_usage.message_count + 1",
-        &payload.session_id,
-        &payload.provider,
-        &payload.model,
-        &payload.mode
+        "INSERT INTO feature_usage (feature, kind, key, entity_id, value)
+         SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::text[], $5::bigint[])
+         ON CONFLICT (feature, kind, key, entity_id, day)
+         DO UPDATE SET value = feature_usage.value + EXCLUDED.value, updated_at = now()",
+        &features,
+        &kinds,
+        &keys,
+        &entity_ids,
+        &values
     )
     .execute(&db)
     .await?;
