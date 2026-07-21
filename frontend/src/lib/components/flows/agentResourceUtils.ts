@@ -18,26 +18,6 @@ export const AGENT_FLOW_LOCAL_KEYS = ['user_message', 'user_attachments'] as con
 
 export type AgentTool = Record<string, any>
 
-export type AgentAssertion =
-	| { kind: 'contains'; value: string; case_sensitive?: boolean }
-	| { kind: 'not_contains'; value: string; case_sensitive?: boolean }
-	| { kind: 'regex'; pattern: string }
-	| { kind: 'json_path_equals'; path: string; value: unknown }
-	| { kind: 'output_schema_valid' }
-
-export interface AgentEvalCase {
-	id: string
-	name?: string
-	input: { user_message?: string; user_attachments?: unknown[] }
-	judge_checklist?: string[]
-	assertions?: AgentAssertion[]
-}
-
-export interface AgentEvalSuite {
-	cases: AgentEvalCase[]
-	judge?: unknown
-}
-
 /** Brain keys whose step transform is non-static and would be dropped by a save-as-agent snapshot. */
 export function nonStaticBrainKeys(
 	inputTransforms: Record<string, InputTransform> | undefined
@@ -59,16 +39,14 @@ export interface AIAgentConfig {
 	temperature?: number
 	max_iterations?: number
 	tools?: AgentTool[]
-	evals?: AgentEvalSuite
 }
 
 /** Extract the static brain values from a step's input_transforms into a flat agent config. */
 export function inputTransformsToAgentConfig(
 	inputTransforms: Record<string, InputTransform> | undefined,
-	tools: AgentTool[] | undefined,
-	evals?: AgentEvalSuite
+	tools: AgentTool[] | undefined
 ): AIAgentConfig {
-	const config: AIAgentConfig = { tools: tools ?? [], evals: evals ?? { cases: [] } }
+	const config: AIAgentConfig = { tools: tools ?? [] }
 	for (const key of AGENT_BRAIN_KEYS) {
 		const t = inputTransforms?.[key] as any
 		if (t && t.type === 'static' && t.value !== undefined) {

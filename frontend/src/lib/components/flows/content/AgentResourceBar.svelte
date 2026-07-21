@@ -123,8 +123,7 @@
 	}
 
 	// Create or update the `ai_agent` resource at `path` from the step's current brain + tools, then
-	// link the step to it. Updating preserves the resource's existing eval suite (evals are edited
-	// in place on the linked step's Evals tab, not here).
+	// link the step to it.
 	async function persist(path: string, description?: string) {
 		const dropped = nonStaticBrainKeys(inputTransforms)
 		if (dropped.length > 0) {
@@ -136,11 +135,6 @@
 		const value = inputTransformsToAgentConfig(inputTransforms, tools)
 		const exists = await ResourceService.existsResource({ workspace: $workspaceStore!, path })
 		if (exists) {
-			const cur = await ResourceService.getResource({ workspace: $workspaceStore!, path })
-			const curEvals = (cur.value as AIAgentConfig | undefined)?.evals
-			if (curEvals) {
-				value.evals = curEvals
-			}
 			await ResourceService.updateResourceValue({
 				workspace: $workspaceStore!,
 				path,
