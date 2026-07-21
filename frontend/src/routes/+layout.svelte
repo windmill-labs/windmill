@@ -32,15 +32,10 @@
 		updateEditorSwipeGuard(e)
 	}
 
-	// On macOS Chromium, horizontal wheel overscroll triggers history
-	// back/forward navigation, so a sideways trackpad swipe over a code editor
-	// navigates away. Cancelling wheel events can't block it reliably (only the
-	// first event of a gesture stream is cancelable, and Monaco stops
-	// propagation of events it consumes), but Chromium consults
-	// `overscroll-behavior-x` on the root element for the gesture — disable it
-	// while the pointer is over any Monaco editor. The wheel handler also feeds
-	// this for editors that mount underneath a stationary cursor, where no
-	// pointerover fires.
+	// macOS Chromium turns horizontal wheel overscroll into history navigation. Cancelling
+	// wheel events can't block it (only a gesture's first event is cancelable; Monaco swallows
+	// the rest), but Chromium honors root `overscroll-behavior-x`, so toggle it while over a
+	// Monaco editor. Wheel also feeds this: editors mounting under a still cursor fire no pointerover.
 	function updateEditorSwipeGuard(e: Event) {
 		const overEditor = e.target instanceof Element && e.target.closest('.monaco-editor') != null
 		const value = overEditor ? 'none' : ''
