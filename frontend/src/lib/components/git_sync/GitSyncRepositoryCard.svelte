@@ -94,10 +94,7 @@
 	function setPromotionOpenPrs(v: boolean) {
 		if (repo) repo.promotion_open_prs = v
 	}
-	// Dev-workspace promotion toggle: flips the inherited repo between sync mode
-	// (deploys to the dev branch) and promotion mode (per-item wm_deploy/** PRs to
-	// prod). Persists immediately — it's a mode switch on an already-saved repo.
-	// While a save is in flight both promotion toggles are disabled: concurrent
+	// The promotion toggles persist immediately and must not overlap: concurrent
 	// whole-repository saves can complete out of order (enabling runs extra
 	// backend checks), letting a stale earlier state overwrite the latest one.
 	let savingDevPromotion = $state(false)

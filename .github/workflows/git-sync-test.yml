@@ -58,10 +58,7 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED_FILES"
 
-          # Direct git sync file changes — always relevant. Covers the git-sync
-          # crate, the deploy branch/PR derivation (result_processor.rs), the
-          # git-sync settings guard (windmill-api-workspaces), the CLI's
-          # git-deploy branch/include logic, and the test files themselves.
+          # Direct git sync file changes — always relevant.
           if echo "$CHANGED_FILES" | grep -qE '^(backend/windmill-git-sync/|backend/windmill-worker/src/result_processor\.rs|backend/windmill-api-workspaces/|backend/windmill-api-integration-tests/tests/git_sync|backend/windmill-common/src/workspaces\.rs|cli/src/commands/sync/|cli/src/utils/git\.ts|integration_tests/test/git_sync|\.github/workflows/git-sync-test\.yml)'; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
             echo "Relevant: direct git sync file changes"
