@@ -1262,11 +1262,14 @@
 					</button>
 				</div>
 			{/if}
+			<!-- Operators are exempt from the sessions beta: their minimal sidebar has
+			     no Workspace ⇄ Sessions switch, so disabling the docked chat would leave
+			     their "Ask AI" button toggling an unmounted pane. -->
 			<AiChatLayout
 				{children}
 				noPadding={devOnly || menuHidden}
-				disableAi={globalAiEnabled ? true : sessionMode}
-				showSessionsBetaBanner={true}
+				disableAi={globalAiEnabled && !$userStore?.operator ? true : sessionMode}
+				showSessionsBetaBanner={!$userStore?.operator}
 				sidebarWidth={railWidth}
 				transitionClass={sidebarTransitionClass}
 				isMobile={innerWidth < 768}
