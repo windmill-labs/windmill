@@ -35,8 +35,8 @@ import { getDraftDiffValues } from '$lib/utils_draft_deploy'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { getItemValue } from '$lib/utils_workspace_deploy'
 import type { Kind as DeployKind } from '$lib/utils_deployable'
-import { userWorkspaces } from '$lib/stores'
-import { fetchWorkspaceComparison } from '$lib/workspaceComparison'
+import { userWorkspaces, usersWorkspaceStore } from '$lib/stores'
+import { fetchWorkspaceComparisonMeta, isComparisonCurrent } from '$lib/workspaceComparison'
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
 import { textFilePatch, yamlValuePatch } from './draftDiff'
 import { itemTypeForKind } from './userDraftAdapter'
@@ -250,6 +250,28 @@ function bumpMutationEpoch(workspace: string): void {
 	mutationEpochs.set(workspace, mutationEpoch(workspace) + 1)
 }
 
+// Caches hold per-user drafts and permission-filtered fork patches but are
+// keyed only by workspace — an SPA logout/login must never serve one
+// account's content to another. The epoch bumps fence in-flight producers
+// started under the previous identity.
+let cacheOwner: string | undefined = undefined
+
+function ensureCacheOwner(): void {
+	const owner = get(usersWorkspaceStore)?.email
+	if (owner === cacheOwner) return
+	cacheOwner = owner
+	for (const ws of new Set([
+		...caches.keys(),
+		...forkCaches.keys(),
+		...reconciling.keys(),
+		...forkReconciling.keys()
+	])) {
+		bumpMutationEpoch(ws)
+	}
+	caches.clear()
+	forkCaches.clear()
+}
+
 function entryKey(kind: UserDraftItemKind, storagePath: string): string {
 	return `${kind}:${storagePath}`
 }
@@ -329,6 +351,7 @@ async function mapPool<T>(
 /** Refetch the workspace draft rows and rebuild the entry map, carrying over
  * each cached patch whose draft row is provably unchanged. */
 async function reconcile(workspace: string): Promise<WorkspaceCache> {
+	ensureCacheOwner()
 	// Retry loop: a joiner re-validates after awaiting, and a producer refuses
 	// to store results whose inputs predate a mutation (epoch moved mid-fetch).
 	// Bounded: each retry needs another concurrent mutation, and the final
@@ -659,7 +682,14 @@ interface ForkCache {
 	parentWorkspaceId: string
 	draftsVersion: number
 	parentDraftsVersion: number
+	/** When the underlying comparison request STARTED (from its meta), not
+	 * when this snapshot adopted it — aging from adoption time would let a
+	 * near-expiry comparison live a whole extra reuse window here. */
 	fetchedAt: number
+	/** Comparison-store generation; reuse stops the moment
+	 * `invalidateWorkspaceComparison` fences it (e.g. a deploy whose draft
+	 * cleanup failed and thus never bumped the drafts version). */
+	comparisonGeneration: number
 	skippedComparison: boolean
 	entries: Map<string, ForkEntry>
 	hiddenAheadCount: number
@@ -710,6 +740,7 @@ function draftKindForForkKind(kind: string): UserDraftItemKind | undefined {
 }
 
 async function reconcileFork(workspace: string, parentWorkspaceId: string): Promise<ForkCache> {
+	ensureCacheOwner()
 	// Same epoch/version fencing as `reconcile`: joiners re-validate after
 	// awaiting, producers refuse to store pre-mutation inputs (bounded retries).
 	for (let attempt = 0; ; attempt++) {
@@ -725,7 +756,8 @@ async function reconcileFork(workspace: string, parentWorkspaceId: string): Prom
 			prev &&
 			isCurrent(prev) &&
 			prev.draftsVersion === version &&
-			Date.now() - prev.fetchedAt < FORK_COMPARISON_REUSE_MS
+			Date.now() - prev.fetchedAt < FORK_COMPARISON_REUSE_MS &&
+			isComparisonCurrent(parentWorkspaceId, workspace, prev.comparisonGeneration)
 		) {
 			return prev
 		}
@@ -736,52 +768,54 @@ async function reconcileFork(workspace: string, parentWorkspaceId: string): Prom
 			continue
 		}
 		const run = (async () => {
-		// A drafts-version bump means something deployed in-app: demand a fresh
-		// tally. Otherwise piggyback on a recent fetch (e.g. the fork banner's).
-		const comparisonMaxAge =
-			prev && (prev.draftsVersion !== version || prev.parentDraftsVersion !== parentVersion)
-				? 0
-				: FORK_COMPARISON_REUSE_MS
-		const [comparison, draftsCache] = await Promise.all([
-			fetchWorkspaceComparison(parentWorkspaceId, workspace, { maxAgeMs: comparisonMaxAge }),
-			reconcile(workspace)
-		])
-		const localDraftKeys = new Set(
-			[...draftsCache.entries.values()].map((e) => entryKey(e.row.kind, e.row.path))
-		)
-		const entries = new Map<string, ForkEntry>()
-		for (const diff of comparison.diffs as WorkspaceItemDiff[]) {
-			const key = `${diff.kind}:${diff.path}`
-			const old = prev?.entries.get(key)
-			const reusable =
-				old &&
-				prev!.draftsVersion === version &&
-				old.ahead === diff.ahead &&
-				old.behind === diff.behind &&
-				old.existsInParent === diff.exists_in_source &&
-				old.existsInFork === diff.exists_in_fork
-					? old.materialized
-					: undefined
-			const addressing = forkKindAddressing(diff.kind)
-			const draftKind = draftKindForForkKind(diff.kind)
-			entries.set(key, {
-				kind: diff.kind,
-				path: diff.path,
-				ahead: diff.ahead,
-				behind: diff.behind,
-				existsInParent: diff.exists_in_source,
-				existsInFork: diff.exists_in_fork,
-				type: addressing?.type,
-				triggerKind: addressing?.triggerKind,
-				hasLocalDraft: draftKind ? localDraftKeys.has(entryKey(draftKind, diff.path)) : false,
-				materialized: reusable
-			})
-		}
-		const cache: ForkCache = {
+			// A drafts-version bump means something deployed in-app: demand a fresh
+			// tally. Otherwise piggyback on a recent fetch (e.g. the fork banner's).
+			const comparisonMaxAge =
+				prev && (prev.draftsVersion !== version || prev.parentDraftsVersion !== parentVersion)
+					? 0
+					: FORK_COMPARISON_REUSE_MS
+			const [comparisonMeta, draftsCache] = await Promise.all([
+				fetchWorkspaceComparisonMeta(parentWorkspaceId, workspace, { maxAgeMs: comparisonMaxAge }),
+				reconcile(workspace)
+			])
+			const comparison = comparisonMeta.comparison
+			const localDraftKeys = new Set(
+				[...draftsCache.entries.values()].map((e) => entryKey(e.row.kind, e.row.path))
+			)
+			const entries = new Map<string, ForkEntry>()
+			for (const diff of comparison.diffs as WorkspaceItemDiff[]) {
+				const key = `${diff.kind}:${diff.path}`
+				const old = prev?.entries.get(key)
+				const reusable =
+					old &&
+					prev!.draftsVersion === version &&
+					old.ahead === diff.ahead &&
+					old.behind === diff.behind &&
+					old.existsInParent === diff.exists_in_source &&
+					old.existsInFork === diff.exists_in_fork
+						? old.materialized
+						: undefined
+				const addressing = forkKindAddressing(diff.kind)
+				const draftKind = draftKindForForkKind(diff.kind)
+				entries.set(key, {
+					kind: diff.kind,
+					path: diff.path,
+					ahead: diff.ahead,
+					behind: diff.behind,
+					existsInParent: diff.exists_in_source,
+					existsInFork: diff.exists_in_fork,
+					type: addressing?.type,
+					triggerKind: addressing?.triggerKind,
+					hasLocalDraft: draftKind ? localDraftKeys.has(entryKey(draftKind, diff.path)) : false,
+					materialized: reusable
+				})
+			}
+			const cache: ForkCache = {
 				parentWorkspaceId,
 				draftsVersion: version,
 				parentDraftsVersion: parentVersion,
-				fetchedAt: Date.now(),
+				fetchedAt: comparisonMeta.fetchedAt,
+				comparisonGeneration: comparisonMeta.generation,
 				skippedComparison: comparison.skipped_comparison,
 				entries,
 				hiddenAheadCount: comparison.hidden_ahead?.total ?? 0,

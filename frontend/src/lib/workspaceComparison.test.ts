@@ -4,8 +4,13 @@ const compareWorkspaces = vi.fn()
 vi.mock('$lib/gen', () => ({
 	WorkspaceService: { compareWorkspaces: (...a: unknown[]) => compareWorkspaces(...(a as [])) }
 }))
+vi.mock('$lib/stores', async () => {
+	const { writable } = await import('svelte/store')
+	return { usersWorkspaceStore: writable(undefined) }
+})
 
 import { fetchWorkspaceComparison, invalidateWorkspaceComparison } from './workspaceComparison'
+import { usersWorkspaceStore } from '$lib/stores'
 
 function deferred<T>() {
 	let resolve!: (v: T) => void
@@ -121,5 +126,38 @@ describe('fetchWorkspaceComparison', () => {
 		first.resolve({ summary: { total_diffs: 2 } })
 		expect((await a).summary.total_diffs).toBe(2)
 		expect((await b).summary.total_diffs).toBe(2)
+	})
+	it('an account switch clears cached comparisons', async () => {
+		usersWorkspaceStore.set({ email: 'first@x.dev' } as any)
+		compareWorkspaces.mockResolvedValueOnce({ summary: { total_diffs: 3 } })
+		await fetchWorkspaceComparison('p', 'f-owner', { maxAgeMs: 30_000 })
+		await fetchWorkspaceComparison('p', 'f-owner', { maxAgeMs: 30_000 })
+		expect(compareWorkspaces).toHaveBeenCalledTimes(1)
+
+		compareWorkspaces.mockResolvedValueOnce({ summary: { total_diffs: 9 } })
+		usersWorkspaceStore.set({ email: 'second@x.dev' } as any)
+		const fresh = await fetchWorkspaceComparison('p', 'f-owner', { maxAgeMs: 30_000 })
+		expect(fresh.summary.total_diffs).toBe(9)
+		expect(compareWorkspaces).toHaveBeenCalledTimes(2)
+	})
+
+	it('a request started under the previous account never joins or lands after a switch', async () => {
+		const old = deferred<unknown>()
+		compareWorkspaces.mockImplementationOnce(() => old.promise)
+		compareWorkspaces.mockResolvedValueOnce({ summary: { total_diffs: 5 } })
+
+		usersWorkspaceStore.set({ email: 'a@x.dev' } as any)
+		fetchWorkspaceComparison('p', 'f-switch', { maxAgeMs: 30_000 })
+		usersWorkspaceStore.set({ email: 'b@x.dev' } as any)
+		const after = fetchWorkspaceComparison('p', 'f-switch', { maxAgeMs: 30_000 })
+		// The new account must not have joined the old account's request.
+		expect(compareWorkspaces).toHaveBeenCalledTimes(2)
+
+		old.resolve({ summary: { total_diffs: 0 } })
+		expect((await after).summary.total_diffs).toBe(5)
+		// And the old account's late result must not have landed in the cache.
+		const reread = await fetchWorkspaceComparison('p', 'f-switch', { maxAgeMs: 30_000 })
+		expect(reread.summary.total_diffs).toBe(5)
+		expect(compareWorkspaces).toHaveBeenCalledTimes(2)
 	})
 })

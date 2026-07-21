@@ -11,12 +11,14 @@ vi.mock('$lib/utils_workspace_deploy', () => ({
 	getItemValue: vi.fn()
 }))
 vi.mock('$lib/workspaceComparison', () => ({
-	fetchWorkspaceComparison: vi.fn()
+	fetchWorkspaceComparisonMeta: vi.fn(),
+	isComparisonCurrent: vi.fn(() => true)
 }))
 vi.mock('$lib/stores', async () => {
-	const { readable } = await import('svelte/store')
+	const { readable, writable } = await import('svelte/store')
 	return {
-		userWorkspaces: readable([{ id: 'fork-ws', parent_workspace_id: 'parent-ws' }])
+		userWorkspaces: readable([{ id: 'fork-ws', parent_workspace_id: 'parent-ws' }]),
+		usersWorkspaceStore: writable(undefined)
 	}
 })
 vi.mock('$lib/gen', () => ({
@@ -39,7 +41,8 @@ vi.mock('./userDraftAdapter', () => ({
 import { getDraftItems, getWorkspaceDraftsVersion } from '$lib/workspaceDrafts.svelte'
 import { getDraftDiffValues } from '$lib/utils_draft_deploy'
 import { getItemValue } from '$lib/utils_workspace_deploy'
-import { fetchWorkspaceComparison } from '$lib/workspaceComparison'
+import { fetchWorkspaceComparisonMeta, isComparisonCurrent } from '$lib/workspaceComparison'
+import { usersWorkspaceStore } from '$lib/stores'
 import { FlowService, ResourceService, ScriptService, VariableService } from '$lib/gen'
 import {
 	expireWorkspaceDiffList,
@@ -418,21 +421,28 @@ function comparisonDiff(overrides: Partial<Record<string, unknown>> = {}) {
 	}
 }
 
-function mockComparison(diffs: unknown[]) {
-	vi.mocked(fetchWorkspaceComparison).mockResolvedValue({
-		skipped_comparison: false,
-		diffs,
-		summary: { total_diffs: diffs.length },
-		hidden_ahead: { total: 0, by_kind: {}, items: [] },
-		hidden_behind: { total: 0, by_kind: {}, items: [] }
-	} as any)
+let comparisonGen = 0
+function mockComparison(diffs: unknown[], meta: { fetchedAt?: number } = {}) {
+	const fetchedAt = meta.fetchedAt
+	vi.mocked(fetchWorkspaceComparisonMeta).mockImplementation(async () => ({
+		comparison: {
+			skipped_comparison: false,
+			diffs,
+			summary: { total_diffs: diffs.length },
+			hidden_ahead: { total: 0, by_kind: {}, items: [] },
+			hidden_behind: { total: 0, by_kind: {}, items: [] }
+		} as any,
+		fetchedAt: fetchedAt ?? Date.now(),
+		generation: ++comparisonGen
+	}))
 }
 
 describe('fork mode', () => {
 	beforeEach(() => {
 		vi.mocked(getDraftItems).mockResolvedValue([] as any)
 		vi.mocked(getItemValue).mockReset()
-		vi.mocked(fetchWorkspaceComparison).mockReset()
+		vi.mocked(fetchWorkspaceComparisonMeta).mockReset()
+		vi.mocked(isComparisonCurrent).mockReset().mockReturnValue(true)
 		vi.mocked(VariableService.getVariable).mockReset()
 	})
 
@@ -458,6 +468,31 @@ describe('fork mode', () => {
 		expect(byPath['f/a/gone'].status).toBe('deleted_in_fork')
 		// One-sided entries fetch only the existing side: 2 + 1 + 1 calls.
 		expect(getItemValue).toHaveBeenCalledTimes(4)
+	})
+
+	it('ages a reused comparison from its fetch time, not adoption time', async () => {
+		// Adopt a tally another surface fetched 25s ago (tolerant join).
+		mockComparison([comparisonDiff()], { fetchedAt: Date.now() - 25_000 })
+		vi.mocked(getItemValue).mockResolvedValue({ content: 'x' })
+		await getForkDiffIndex(FORK, PARENT)
+		expect(fetchWorkspaceComparisonMeta).toHaveBeenCalledTimes(1)
+		// 10s later the underlying tally is 35s old — past the reuse window.
+		// The snapshot must not have granted it a fresh window of its own.
+		vi.advanceTimersByTime(10_000)
+		await getForkDiffIndex(FORK, PARENT)
+		expect(fetchWorkspaceComparisonMeta).toHaveBeenCalledTimes(2)
+	})
+
+	it('drops the snapshot when the comparison store was invalidated without a drafts bump', async () => {
+		mockComparison([comparisonDiff()])
+		vi.mocked(getItemValue).mockResolvedValue({ content: 'x' })
+		await getForkDiffIndex(FORK, PARENT)
+		expect(fetchWorkspaceComparisonMeta).toHaveBeenCalledTimes(1)
+		// A deploy invalidated the comparison store but its draft cleanup
+		// failed, so no drafts-version bump ever reaches this cache.
+		vi.mocked(isComparisonCurrent).mockReturnValue(false)
+		await getForkDiffIndex(FORK, PARENT)
+		expect(fetchWorkspaceComparisonMeta).toHaveBeenCalledTimes(2)
 	})
 
 	it('reuses patches while the item ahead/behind marker is unchanged, refetches when it moves', async () => {
@@ -586,5 +621,20 @@ describe('fork mode', () => {
 		const byPath = Object.fromEntries(index.entries.map((e) => [e.path, e]))
 		expect(byPath['f/a/b'].hasLocalDraft).toBe(true)
 		expect(byPath['f/a/other'].hasLocalDraft).toBe(false)
+	})
+})
+
+describe('account switches', () => {
+	it("never serves one account's cached drafts to another", async () => {
+		usersWorkspaceStore.set({ email: 'first@x.dev' } as any)
+		vi.mocked(getDraftItems).mockResolvedValue([row()] as any)
+		mockDiffValues({ content: 'a' }, { content: 'b' })
+		await getWorkspaceDiffIndex(WS)
+		await getWorkspaceDiffIndex(WS)
+		// Same account: the throttled listing is reused.
+		expect(getDraftItems).toHaveBeenCalledTimes(1)
+		usersWorkspaceStore.set({ email: 'second@x.dev' } as any)
+		await getWorkspaceDiffIndex(WS)
+		expect(getDraftItems).toHaveBeenCalledTimes(2)
 	})
 })

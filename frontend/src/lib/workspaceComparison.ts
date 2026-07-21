@@ -6,7 +6,9 @@
  * consumer that accepts a slightly stale result (`maxAgeMs`) can reuse the
  * fetch another surface just made instead of recomputing it.
  */
+import { get } from 'svelte/store'
 import { WorkspaceService, type WorkspaceComparison } from '$lib/gen'
+import { usersWorkspaceStore } from '$lib/stores'
 
 interface CacheEntry {
 	fetchedAt: number
@@ -30,12 +32,31 @@ let requestGeneration = 0
 // workspace id (either side of a pair), so even requests the inflight map no
 // longer tracks are fenced.
 const invalidGenFloor = new Map<string, number>()
+// Raised when the authenticated identity changes — fences EVERY earlier
+// request at once, including ones whose workspace ids nothing tracks anymore.
+let globalGenFloor = 0
 
 function generationFloor(parentWorkspaceId: string, forkWorkspaceId: string): number {
 	return Math.max(
+		globalGenFloor,
 		invalidGenFloor.get(parentWorkspaceId) ?? 0,
 		invalidGenFloor.get(forkWorkspaceId) ?? 0
 	)
+}
+
+// Comparisons are permission-filtered per user but keyed only by workspace
+// pair — an SPA logout/login must never serve one account's tallies (or let
+// its in-flight fetches land) for another.
+let cacheOwner: string | undefined = undefined
+
+function ensureCacheOwner(): void {
+	const owner = get(usersWorkspaceStore)?.email
+	if (owner === cacheOwner) return
+	cacheOwner = owner
+	cache.clear()
+	inflight.clear()
+	invalidGenFloor.clear()
+	globalGenFloor = requestGeneration
 }
 // Comparisons are big; keep only the few pairs a session actually browses.
 const MAX_CACHE_ENTRIES = 8
@@ -57,11 +78,46 @@ export async function fetchWorkspaceComparison(
 	forkWorkspaceId: string,
 	opts: { maxAgeMs?: number } = {}
 ): Promise<WorkspaceComparison> {
+	return (await fetchWorkspaceComparisonMeta(parentWorkspaceId, forkWorkspaceId, opts)).comparison
+}
+
+export interface WorkspaceComparisonMeta {
+	comparison: WorkspaceComparison
+	/** When the underlying request STARTED — a reused result is as old as its
+	 * fetch, not as old as the reuse. Callers layering their own freshness
+	 * window must age from this, or windows compound. */
+	fetchedAt: number
+	/** Pass to `isComparisonCurrent` to learn whether an invalidation has
+	 * outdated this result since. */
+	generation: number
+}
+
+/** True while no `invalidateWorkspaceComparison` (or identity change) has
+ * fenced the request that produced `generation`. */
+export function isComparisonCurrent(
+	parentWorkspaceId: string,
+	forkWorkspaceId: string,
+	generation: number
+): boolean {
+	ensureCacheOwner()
+	return generation > generationFloor(parentWorkspaceId, forkWorkspaceId)
+}
+
+export async function fetchWorkspaceComparisonMeta(
+	parentWorkspaceId: string,
+	forkWorkspaceId: string,
+	opts: { maxAgeMs?: number } = {}
+): Promise<WorkspaceComparisonMeta> {
+	ensureCacheOwner()
 	const k = key(parentWorkspaceId, forkWorkspaceId)
 	const maxAgeMs = opts.maxAgeMs ?? 0
 	const cached = cache.get(k)
 	if (cached && Date.now() - cached.fetchedAt < maxAgeMs) {
-		return cached.comparison
+		return {
+			comparison: cached.comparison,
+			fetchedAt: cached.fetchedAt,
+			generation: cached.generation
+		}
 	}
 	const pending = inflight.get(k)
 	if (
@@ -70,7 +126,11 @@ export async function fetchWorkspaceComparison(
 		Date.now() - pending.startedAt < maxAgeMs &&
 		pending.generation > generationFloor(parentWorkspaceId, forkWorkspaceId)
 	) {
-		return pending.promise
+		return {
+			comparison: await pending.promise,
+			fetchedAt: pending.startedAt,
+			generation: pending.generation
+		}
 	}
 	const startedAt = Date.now()
 	const generation = ++requestGeneration
@@ -97,7 +157,7 @@ export async function fetchWorkspaceComparison(
 	})()
 	inflight.set(k, { startedAt, generation, promise: run })
 	try {
-		return await run
+		return { comparison: await run, fetchedAt: startedAt, generation }
 	} finally {
 		if (inflight.get(k)?.promise === run) inflight.delete(k)
 	}

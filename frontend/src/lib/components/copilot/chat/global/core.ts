@@ -5210,7 +5210,6 @@ const DIFF_READ_DEFAULT_LINES = 500
 const DIFF_INDEX_DEFAULT_ITEMS = 50
 const DIFF_INDEX_MAX_ITEMS = 100
 
-
 // Read-only draft-vs-deployed diff for one draftable item, served from the
 // workspace diff snapshot (fetched once, shared with the index), with a direct
 // computation fallback when no draft row is listed.
@@ -6339,10 +6338,11 @@ async function deleteWorkspaceItem(
 			break
 	}
 
-	await deleteGlobalDraft(workspace, type, path, triggerKind)
 	// Deployed state changed — cached fork comparisons involving this workspace
-	// are no longer trustworthy (same rule as deploy success).
+	// are no longer trustworthy (same rule as deploy success). Before the
+	// draft cleanup: a cleanup failure must not leave stale comparisons.
 	invalidateWorkspaceComparison(workspace)
+	await deleteGlobalDraft(workspace, type, path, triggerKind)
 
 	// Record the deletion in the chat's modified-items mask. In a fork this leaves a
 	// reviewable "removed" diff vs the parent that stays scoped to this chat. Keyed
