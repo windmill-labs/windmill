@@ -300,6 +300,20 @@
 			sendUserToast(`Failed to edit agent: ${e}`, true)
 		}
 	}
+
+	// Cancel keeps the edits as a standalone step. Edit preserved the flow-local overrides for the
+	// re-link; on a standalone step the runtime ignores tool_inputs, so fold them into the tools
+	// (as Unlink does) to keep the step's effective bindings, and clear the now-inert map.
+	function cancelEdit() {
+		for (const tool of tools) {
+			const overrides = toolInputs?.[tool.id]
+			if (overrides && tool.value?.input_transforms) {
+				tool.value.input_transforms = { ...tool.value.input_transforms, ...overrides }
+			}
+		}
+		toolInputs = {}
+		setAgentEditingPath(ws, flowPath, moduleId, undefined)
+	}
 </script>
 
 <div class="px-2 xl:px-4 pt-2">
@@ -393,13 +407,7 @@
 				>
 					Save changes
 				</Button>
-				<Button
-					size="xs2"
-					variant="default"
-					onclick={() => setAgentEditingPath(ws, flowPath, moduleId, undefined)}
-				>
-					Cancel
-				</Button>
+				<Button size="xs2" variant="default" onclick={cancelEdit}>Cancel</Button>
 			</div>
 		</div>
 		<p class="text-2xs text-tertiary mt-1">
