@@ -17,7 +17,7 @@
 			startIcon={{ icon: expanded ? ChevronDown : ChevronRight }}
 			onclick={() => (expanded = !expanded)}
 		>
-			<span class="inline-flex items-center gap-1 text-2xs text-tertiary">
+			<span class="inline-flex items-center gap-1 text-normal text-2xs">
 				<History size={12} />
 				Summarized earlier conversation
 			</span>
