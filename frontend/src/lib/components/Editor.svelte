@@ -105,7 +105,7 @@
 		ensureResourceTypeNamespace,
 		fetchCustomWmillTypesData
 	} from './lint/typescriptExtraLibs'
-	import { createWindmillAta, genAtaRoot } from './lint/typescriptAta'
+	import { ataSeedImport, createWindmillAta, genAtaRoot } from './lint/typescriptAta'
 	import { readModelMarkers } from './lint/markers'
 	import { registerEditor as registerLintEditor } from './lint/headlessModelHost'
 	import { buildDenoImportMap, hasLanguageServers, lspServersFor } from './lint/lspLanguageConfig'
@@ -1625,10 +1625,11 @@
 					}
 				}
 			})
-			if (scriptLang == 'bun') {
-				ata?.('import "bun-types"')
+			const seed = ataSeedImport(scriptLang)
+			if (seed) {
+				ata?.(seed)
 			}
-			if (scriptLang == 'bunnative' || scriptLang == 'bun') {
+			if (scriptLang == 'bunnative' || scriptLang == 'bun' || scriptLang == 'tsx') {
 				ata?.(code ?? '')
 			}
 			dispatch('ataReady')

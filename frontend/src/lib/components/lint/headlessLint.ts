@@ -20,7 +20,7 @@ import {
 	releaseOwnedModel
 } from './headlessModelHost'
 import { ensureCustomWmillTypes, ensureResourceTypeNamespace } from './typescriptExtraLibs'
-import { createWindmillAta, genAtaRoot } from './typescriptAta'
+import { ataSeedImport, createWindmillAta, genAtaRoot } from './typescriptAta'
 import { lintWithLsp } from './headlessLsp'
 
 // Lints code without a mounted editor, by driving the same Monaco model + global
@@ -152,7 +152,7 @@ async function lintOne(
 			)
 		}
 
-		if (req.scriptLang === 'bun' || req.scriptLang === 'bunnative') {
+		if (req.scriptLang === 'bun' || req.scriptLang === 'bunnative' || req.scriptLang === 'tsx') {
 			await withDeadline(
 				acquireTypes(req, ownedUri).catch((e) =>
 					console.error('headlessLint: type acquisition failed', e)
@@ -189,9 +189,8 @@ async function acquireTypes(req: HeadlessLintRequest, uriString: string): Promis
 			absolutePathExtraLibs
 		})
 		ataByKey.set(key, ata)
-		if (req.scriptLang === 'bun') {
-			await ata('import "bun-types"')
-		}
+		const seed = ataSeedImport(req.scriptLang)
+		if (seed) await ata(seed)
 	}
 	await ata(req.content)
 }

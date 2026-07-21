@@ -13,6 +13,18 @@ import { lspTokenStore } from '$lib/stores'
 // global typescriptDefaults. Without it, TypeScript reports every third-party import
 // as unresolved, so headless linting and the editor must acquire types the same way.
 
+/**
+ * The import a language must feed to ATA so its ambient types resolve, even when the code
+ * itself does not import them: `bun-types` for bun's globals, `react` for tsx's JSX namespace
+ * (without it, `<div>` reports "JSX.IntrinsicElements does not exist" / "React not in scope").
+ * The editor and the headless linter both seed through this so their diagnostics can't drift.
+ */
+export function ataSeedImport(scriptLang: string | undefined): string | undefined {
+	if (scriptLang === 'bun') return 'import "bun-types"'
+	if (scriptLang === 'tsx') return 'import "react"'
+	return undefined
+}
+
 export async function genAtaRoot(workspace: string): Promise<string> {
 	let token = get(lspTokenStore)
 	if (!token) {
