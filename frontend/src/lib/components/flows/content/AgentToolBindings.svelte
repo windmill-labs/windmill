@@ -34,41 +34,54 @@
 
 	let flowTools = $derived(tools.filter(isFlowModuleTool))
 
-	// Tool input schemas, inferred from each tool's definition (rawscript content / script path).
-	let schemas = $state<Record<string, any>>({})
-	$effect(() => {
-		const ts = flowTools
-		const ws = workspace
-		untrack(() => {
-			for (const t of ts) {
-				if (schemas[t.id] === undefined) {
-					loadSchemaFromModule(agentToolToFlowModule(t), ws)
-						.then(({ schema }) => {
-							schemas[t.id] = schema
-						})
-						.catch(() => {
-							schemas[t.id] = { properties: {} }
-						})
-				}
-			}
-		})
-	})
-
 	function baseInputs(tool: FlowModuleTool): Record<string, InputTransform> {
 		return ((tool.value as { input_transforms?: Record<string, InputTransform> })
 			.input_transforms ?? {}) as Record<string, InputTransform>
 	}
 
-	// Editable copies (resource base ∪ saved overrides), one per tool. The form mutates these
-	// proxies in place, so a plain function-bind getter returning a fresh merged object would lose
-	// edits — the mirror effect below diffs them back into the step's tool_inputs instead.
+	// Tool input schemas, inferred from each tool's definition (rawscript content / script path).
+	let schemas = $state<Record<string, any>>({})
+	// Editable copies (resource base ∪ overrides), one per tool. The form mutates these proxies in
+	// place, so a plain function-bind getter returning a fresh merged object would lose edits — the
+	// mirror effect below diffs them back into the step's tool_inputs instead.
 	let localArgs = $state<Record<string, Record<string, InputTransform>>>({})
+	// Non-reactive bookkeeping distinguishing our own mirror-writes from external tool_inputs
+	// changes (undo/redo, session drafts), and detecting resource-tool changes under a stable id.
+	let lastPublished: Record<string, Record<string, InputTransform>> = {}
+	let baseSnaps: Record<string, string> = {}
+
+	// Seed and resynchronize the editable copies. Tracks the step's tool_inputs and the resource
+	// tools so external changes re-seed the form; our own mirror-writes match lastPublished and are
+	// left alone (no re-seed while typing).
 	$effect(() => {
 		const ts = flowTools
+		const incomingAll = $state.snapshot(toolInputs ?? {}) as Record<
+			string,
+			Record<string, InputTransform>
+		>
+		const ws = workspace
 		untrack(() => {
 			for (const t of ts) {
-				if (localArgs[t.id] === undefined) {
-					localArgs[t.id] = { ...baseInputs(t), ...(toolInputs?.[t.id] ?? {}) }
+				const base = baseInputs(t)
+				const baseSnap = JSON.stringify(base)
+				const incoming = incomingAll[t.id] ?? {}
+				const baseChanged = baseSnaps[t.id] !== baseSnap
+				const external =
+					lastPublished[t.id] === undefined || !deepEqual(incoming, lastPublished[t.id])
+				if (localArgs[t.id] === undefined || baseChanged || external) {
+					localArgs[t.id] = { ...base, ...incoming }
+					lastPublished[t.id] = incoming
+					const reloadSchema = baseChanged || schemas[t.id] === undefined
+					baseSnaps[t.id] = baseSnap
+					if (reloadSchema) {
+						loadSchemaFromModule(agentToolToFlowModule(t), ws)
+							.then(({ schema }) => {
+								schemas[t.id] = schema
+							})
+							.catch(() => {
+								schemas[t.id] = { properties: {} }
+							})
+					}
 				}
 			}
 		})
@@ -84,6 +97,7 @@
 				if (!cur) continue
 				const overrides = toolInputOverrides(cur, baseInputs(t))
 				if (!deepEqual(toolInputs?.[t.id] ?? {}, overrides)) {
+					lastPublished[t.id] = overrides
 					toolInputs = { ...toolInputs, [t.id]: overrides }
 				}
 			}

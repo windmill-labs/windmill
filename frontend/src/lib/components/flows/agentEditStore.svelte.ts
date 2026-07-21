@@ -1,18 +1,28 @@
 // The path an AI agent step is being edited-in-place against (set by "Edit" on a linked agent),
-// keyed by flow path + module id. Kept out of AgentResourceBar's local state because that component
-// unmounts when another node is selected — the "Editing <path>" mode must survive navigating to a
-// tool. Keyed by flow path too: module ids (a, b, …) repeat across flows, and a leaked entry would
-// otherwise show a phantom Editing bar in an unrelated flow whose Save could overwrite the agent.
+// keyed by workspace + flow path + module id. Kept out of AgentResourceBar's local state because
+// that component unmounts when another node is selected — the "Editing <path>" mode must survive
+// navigating to a tool. Fully qualified key: module ids (a, b, …) repeat across flows and flow
+// paths repeat across workspaces (fork/session editors), and a leaked entry would show a phantom
+// Editing bar elsewhere whose Save could overwrite an unrelated agent.
 let editingByStep = $state<Record<string, string | undefined>>({})
 
-function key(flowPath: string, moduleId: string): string {
-	return `${flowPath}:${moduleId}`
+function key(workspace: string | undefined, flowPath: string, moduleId: string): string {
+	return `${workspace ?? ''}:${flowPath}:${moduleId}`
 }
 
-export function getAgentEditingPath(flowPath: string, moduleId: string): string | undefined {
-	return editingByStep[key(flowPath, moduleId)]
+export function getAgentEditingPath(
+	workspace: string | undefined,
+	flowPath: string,
+	moduleId: string
+): string | undefined {
+	return editingByStep[key(workspace, flowPath, moduleId)]
 }
 
-export function setAgentEditingPath(flowPath: string, moduleId: string, path: string | undefined) {
-	editingByStep[key(flowPath, moduleId)] = path
+export function setAgentEditingPath(
+	workspace: string | undefined,
+	flowPath: string,
+	moduleId: string,
+	path: string | undefined
+) {
+	editingByStep[key(workspace, flowPath, moduleId)] = path
 }
