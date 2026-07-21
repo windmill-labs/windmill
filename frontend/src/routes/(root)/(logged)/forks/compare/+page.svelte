@@ -157,6 +157,15 @@
 			})
 			return
 		}
+		// An explicit ?mode=fork is only deferred (not latched at init) so the
+		// non-fork fallback above can veto it — on a real fork, honor it as is.
+		if (urlMode === 'fork') {
+			untrack(() => {
+				mode = 'fork'
+				modeResolved = true
+			})
+			return
+		}
 		// A fork reached with a preselection mask but no ?mode= must land on the
 		// view where the masked items actually are: a chat's pending drafts have no
 		// fork-diff row, so fork mode would open with none of them selected. Defer
