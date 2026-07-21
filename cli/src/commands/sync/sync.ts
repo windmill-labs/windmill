@@ -2865,17 +2865,20 @@ export async function pull(
     }
     const clonedBranchName = getCurrentGitBranch() ?? "main";
 
-    // Fork / dev workspaces force-disable use_individual_branch / group_by_folder
-    // (1:1 with the hub script's inner()). Dev workspaces have a prefix-less id, so
-    // detect them via the parent-workspace id the backend passes.
+    // Throwaway forks force-disable use_individual_branch / group_by_folder
+    // (1:1 with the hub script's inner()). A dev workspace is the exception: it
+    // honors promotion mode and gets per-item wm_deploy/** branches. Dev
+    // workspaces have a prefix-less id, so detect them via the environment label
+    // the backend passes with the deploy.
     const targetIsFork = isForkWorkspace(
       workspace.workspaceId,
       opts.parentWorkspaceId,
     );
-    const useIndividualBranch = targetIsFork
+    const forceOffPromotion = targetIsFork && !opts.devWorkspaceLabel;
+    const useIndividualBranch = forceOffPromotion
       ? false
       : !!opts.useIndividualBranch;
-    const groupByFolder = targetIsFork ? false : !!opts.groupByFolder;
+    const groupByFolder = forceOffPromotion ? false : !!opts.groupByFolder;
 
     // Fork-of-a-fork: when the parent workspace is itself a fork, root the new
     // branch on the parent's fork branch (the content this fork diverged from).
@@ -3447,13 +3450,14 @@ export async function gitDeploy(
     }
   }
 
-  // Fork / dev workspaces force-disable use_individual_branch / group_by_folder
-  // (1:1 with the hub script's inner()): they always sync to their own
-  // wm-fork/<branch>/<id> branch, and — critically — that disabling also
-  // flips the include/promotion derivation below. Dev workspaces have a
-  // prefix-less id, so detect them via the parent-workspace id too.
+  // Throwaway forks force-disable use_individual_branch / group_by_folder (1:1
+  // with the hub script's inner()): they always sync to their own
+  // wm-fork/<branch>/<id> branch, and — critically — that disabling also flips
+  // the include/promotion derivation below. A dev workspace is the exception: it
+  // honors promotion mode, detected via the environment label the backend passes.
   const isFork = isForkWorkspace(opts.workspace ?? "", opts.parentWorkspaceId);
-  const useIndividualBranch = isFork ? false : !!opts.useIndividualBranch;
+  const useIndividualBranch =
+    isFork && !opts.devWorkspaceLabel ? false : !!opts.useIndividualBranch;
 
   // Derive the include filters from the deployed items (replaces the hub
   // script's regexFromPath + per-kind --include-* construction).

@@ -826,21 +826,37 @@ async fn reject_dev_label_matching_tracked_branch(
     Ok(())
 }
 
-/// Reject parent-only git-sync settings on a fork workspace. Auto-pull, fork
-/// PRs, and promotion mode are all configured at the parent: repo → fork sync is
-/// routed by the parent's webhook/poller (`sync_forks`), a fork-owned auto-pull
-/// would register a second webhook on the same GitHub repo per fork, and a
-/// fork's deploys always go to its `wm-fork/**` branch so a promotion repo could
-/// never take effect there.
+/// Reject parent-only git-sync settings on a fork workspace. Auto-pull and fork
+/// PRs are configured at the parent: repo → fork sync is routed by the parent's
+/// webhook/poller (`sync_forks`), and a fork-owned auto-pull would register a
+/// second webhook on the same GitHub repo per fork. Promotion mode is rejected
+/// on throwaway forks (their deploys always go to their `wm-fork/**` branch, so
+/// a promotion repo could never take effect) but allowed on a **dev workspace**,
+/// which deploys per-item `wm_deploy/**` branches that promote into the parent.
 async fn reject_parent_only_git_sync_settings_on_fork<'a>(
     db: &DB,
     w_id: &str,
-    mut repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
+    repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
 ) -> Result<()> {
-    let offending = repos.find_map(|r| {
+    let row = sqlx::query!(
+        "SELECT parent_workspace_id, is_dev_workspace FROM workspace WHERE id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?;
+    let is_fork = row
+        .as_ref()
+        .and_then(|r| r.parent_workspace_id.as_ref())
+        .is_some()
+        || w_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX);
+    if !is_fork {
+        return Ok(());
+    }
+    let is_dev = row.map(|r| r.is_dev_workspace).unwrap_or(false);
+    let offending = repos.into_iter().find_map(|r| {
         if r.auto_pull.as_ref().is_some_and(|a| a.enabled) {
             Some("Auto-pull")
-        } else if r.use_individual_branch.unwrap_or(false) {
+        } else if r.use_individual_branch.unwrap_or(false) && !is_dev {
             Some("Promotion mode")
         } else if r.fork_open_prs {
             Some("Opening PRs for fork deploys")
@@ -848,17 +864,7 @@ async fn reject_parent_only_git_sync_settings_on_fork<'a>(
             None
         }
     });
-    let Some(offending) = offending else {
-        return Ok(());
-    };
-    let parent = sqlx::query_scalar!(
-        "SELECT parent_workspace_id FROM workspace WHERE id = $1",
-        w_id
-    )
-    .fetch_optional(db)
-    .await?
-    .flatten();
-    if parent.is_some() || w_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX) {
+    if let Some(offending) = offending {
         return Err(Error::BadRequest(format!(
             "{offending} cannot be configured on a fork workspace: it is managed from the parent workspace's git sync settings"
         )));
@@ -3130,6 +3136,95 @@ async fn check_open_prs_license<'a>(
     Ok(())
 }
 
+/// Promotion mode (`use_individual_branch`: per-item `wm_deploy/**` deploy
+/// branches) is an EE feature; runtime-gate it like auto-pull and PR creation
+/// so an enterprise binary without an active plan can't enable it via either
+/// git-sync edit endpoint.
+#[cfg(feature = "enterprise")]
+async fn check_promotion_license<'a>(
+    mut repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
+) -> Result<()> {
+    if repos.any(|r| r.use_individual_branch.unwrap_or(false)) {
+        check_git_sync_ee_license("Promotion mode").await?;
+    }
+    Ok(())
+}
+
+/// Promotion on a dev workspace needs the dev-aware sync script (hub >= 28796):
+/// an older pinned script bundles a CLI that force-disables per-item branches
+/// on every fork, so enabling promotion would silently keep deploying to the
+/// env-label branch. Reject with an actionable error instead (the dispatcher
+/// demotes inherited configs the same way). Roots run promotion on any script
+/// version, and auto-managed repositories (no pin) always use the latest.
+#[cfg(feature = "enterprise")]
+async fn check_dev_promotion_script_version<'a>(
+    db: &DB,
+    w_id: &str,
+    repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
+) -> Result<()> {
+    let mut offending: Option<String> = None;
+    for r in repos {
+        if !r.use_individual_branch.unwrap_or(false) {
+            continue;
+        }
+        if !r.is_script_meets_min_version(28796)? {
+            offending = Some(r.effective_script_path().to_string());
+            break;
+        }
+    }
+    let Some(offending) = offending else {
+        return Ok(());
+    };
+    let is_dev = sqlx::query!(
+        "SELECT parent_workspace_id, is_dev_workspace FROM workspace WHERE id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .map(|r| r.is_dev_workspace)
+    .unwrap_or(false);
+    if !is_dev {
+        return Ok(());
+    }
+    Err(Error::BadRequest(format!(
+        "Promotion mode on a dev workspace requires git sync script version 28796 or newer, \
+         but this repository pins '{offending}'. Update the pinned sync script (or reset it to \
+         auto-managed) first."
+    )))
+}
+
+/// A dev workspace's promotion must target its parent ("prod") workspace's own
+/// git repository (same URL and branch) — that is what "promote to prod" means.
+/// A fork-created dev inherits prod's repo; an **attached** dev keeps its own,
+/// which may be unrelated. Reject enabling promotion on a repo the parent does
+/// not track so the UI can't present an unrelated repo as prod's target. The
+/// deploy path re-checks the same invariant (a resource edit could break it
+/// after save), via the shared `dev_promotion_target_matches_parent`.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn check_dev_promotion_targets_parent_repo<'a>(
+    db: &DB,
+    w_id: &str,
+    repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
+) -> Result<()> {
+    for r in repos.filter(|r| r.use_individual_branch.unwrap_or(false)) {
+        if !windmill_common::git_sync_ee::dev_promotion_target_matches_parent(
+            db,
+            w_id,
+            &r.git_repo_resource_path,
+        )
+        .await?
+        {
+            return Err(Error::BadRequest(
+                "Promotion mode on a dev workspace must reuse the parent workspace's git repository \
+                 (same URL and branch), but this repository is not one the parent tracks — promotion \
+                 would target a repository the parent does not sync with."
+                    .to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(feature = "enterprise")]
 async fn check_git_sync_access(_db: &DB, _w_id: &str) -> Result<()> {
     Ok(())
@@ -3274,6 +3369,25 @@ async fn edit_git_sync_config(
         }
         #[cfg(feature = "enterprise")]
         check_open_prs_license(git_sync_settings.repositories.iter()).await?;
+        #[cfg(feature = "enterprise")]
+        check_promotion_license(git_sync_settings.repositories.iter()).await?;
+        #[cfg(feature = "enterprise")]
+        check_dev_promotion_script_version(&db, &w_id, git_sync_settings.repositories.iter())
+            .await?;
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        check_dev_promotion_targets_parent_repo(&db, &w_id, git_sync_settings.repositories.iter())
+            .await?;
+        // Promotion mode: EE only (mirrors edit_git_sync_repository).
+        #[cfg(not(feature = "enterprise"))]
+        if git_sync_settings
+            .repositories
+            .iter()
+            .any(|r| r.use_individual_branch.unwrap_or(false))
+        {
+            return Err(Error::BadRequest(
+                "Promotion mode is an Enterprise Edition feature".to_string(),
+            ));
+        }
         // Preserve server-owned auto-pull state (webhook id/secret, synced sha, last
         // status) that the redacted GET response omits — otherwise a whole-config
         // save from the UI would drop the webhook secret (breaking delivery) or
@@ -3486,6 +3600,13 @@ async fn edit_git_sync_repository(
     }
     #[cfg(feature = "enterprise")]
     check_open_prs_license(std::iter::once(&new_config.repository)).await?;
+    #[cfg(feature = "enterprise")]
+    check_promotion_license(std::iter::once(&new_config.repository)).await?;
+    #[cfg(feature = "enterprise")]
+    check_dev_promotion_script_version(&db, &w_id, std::iter::once(&new_config.repository)).await?;
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    check_dev_promotion_targets_parent_repo(&db, &w_id, std::iter::once(&new_config.repository))
+        .await?;
 
     // Promotion mode: EE only
     #[cfg(not(feature = "enterprise"))]
