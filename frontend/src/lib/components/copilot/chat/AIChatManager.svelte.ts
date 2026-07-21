@@ -2236,18 +2236,17 @@ export class AIChatManager {
 		if (options.instructions !== undefined) {
 			this.instructions = options.instructions
 		}
-		// In GLOBAL mode an empty draft is NOT dropped: an empty send is a real
-		// turn with its own user bubble (a "go on" nudge); the model-facing text
-		// gets an explicit empty-message marker further down. The other modes are
-		// editor copilots where an accidental Enter would burn a turn — drop the
-		// empty draft there, but let image-bearing drafts through to the
-		// switch-back refusal below so attachments aren't silently lost.
-		if (
-			this.mode !== AIMode.GLOBAL &&
-			!this.instructions.trim() &&
-			(options.images?.length ?? 0) === 0
-		) {
-			return false
+		// A text-free GLOBAL draft is a real turn — bubble + empty-message marker
+		// further down — but only when it carries something for the model: images
+		// or selected context elements. A bare accidental Enter is dropped in
+		// every mode (in editor copilots it would burn a turn for nothing).
+		// Image-bearing non-GLOBAL drafts still pass through to the switch-back
+		// refusal below so attachments aren't silently lost.
+		if (!this.instructions.trim() && (options.images?.length ?? 0) === 0) {
+			const contextEls = options.contextOverride ?? this.contextManager?.getSelectedContext() ?? []
+			if (this.mode !== AIMode.GLOBAL || contextEls.length === 0) {
+				return false
+			}
 		}
 		// Built-in session commands run locally instead of becoming a chat turn.
 		// Intercepted here — before the beforeSend workspace commit, file regrants,

@@ -915,15 +915,18 @@ describe('AIChatManager queued messages', () => {
 		expect(hasImage).toBe(true)
 	})
 
-	// An empty GLOBAL send is a real turn — visible (empty) user bubble, and the
-	// model-facing text carries an explicit marker instead of a dangling
-	// INSTRUCTIONS header the model would echo back.
-	it('sends an empty GLOBAL draft as a turn with an empty-message marker', async () => {
+	// A text-free GLOBAL send carrying context chips is a real turn — visible
+	// (empty) user bubble, and the model-facing text carries an explicit marker
+	// instead of a dangling INSTRUCTIONS header the model would echo back.
+	it('sends a context-only GLOBAL draft as a turn with an empty-message marker', async () => {
 		replyWith('done')
 		const manager = createManager(createInputMock())
 		manager.mode = AIMode.GLOBAL
 
-		await manager.sendRequest({ instructions: '' })
+		await manager.sendRequest({
+			instructions: '',
+			contextOverride: [{ type: 'code', content: 'x', title: 'snippet', lang: 'bun' }]
+		})
 
 		expect(mocks.runChatLoop).toHaveBeenCalled()
 		const sent = mocks.runChatLoop.mock.calls[0][0].messages.at(-1)
@@ -932,8 +935,18 @@ describe('AIChatManager queued messages', () => {
 		expect(manager.displayMessages.find((m) => m.role === 'user')?.content).toBe('')
 	})
 
-	// Editor copilots (non-GLOBAL modes) keep dropping empty drafts: an
-	// accidental Enter there must not burn a model turn.
+	// With nothing riding the draft at all — no text, images, or context — the
+	// send is dropped in every mode; a bare accidental Enter must not burn a turn.
+	it('ignores an empty send with no context in GLOBAL mode', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+
+		await manager.sendRequest({ instructions: '' })
+
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+	})
+
 	it('still ignores an empty send outside GLOBAL mode', async () => {
 		replyWith('done')
 		const manager = createManager(createInputMock())
