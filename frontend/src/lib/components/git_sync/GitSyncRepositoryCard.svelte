@@ -706,7 +706,7 @@
 											options={{
 												right: 'Open a pull request when an item is deployed in a fork',
 												rightTooltip:
-													"After an item deployed in a fork is pushed to the fork's wm-fork/** branch, Windmill opens a pull request to the tracked branch of the shared repository. Runs from the deploy itself, so it works without inbound webhooks."
+													"After an item deployed in a fork is pushed to the fork's branch (wm-fork/**, or the dev branch for a dev workspace), Windmill opens a pull request to the tracked branch of the shared repository. Runs from the deploy itself, so it works without inbound webhooks. When a dev workspace enables Git promotion, its own pull request toggle takes over for its wm_deploy/** branches."
 											}}
 											on:change={(e) => setForkOpenPrs(e.detail)}
 										>
