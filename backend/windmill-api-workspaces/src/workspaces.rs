@@ -3150,6 +3150,49 @@ async fn check_promotion_license<'a>(
     Ok(())
 }
 
+/// Promotion on a dev workspace needs the dev-aware sync script (hub >= 28796):
+/// an older pinned script bundles a CLI that force-disables per-item branches
+/// on every fork, so enabling promotion would silently keep deploying to the
+/// env-label branch. Reject with an actionable error instead (the dispatcher
+/// demotes inherited configs the same way). Roots run promotion on any script
+/// version, and auto-managed repositories (no pin) always use the latest.
+#[cfg(feature = "enterprise")]
+async fn check_dev_promotion_script_version<'a>(
+    db: &DB,
+    w_id: &str,
+    repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
+) -> Result<()> {
+    let mut offending: Option<String> = None;
+    for r in repos {
+        if !r.use_individual_branch.unwrap_or(false) {
+            continue;
+        }
+        if !r.is_script_meets_min_version(28796)? {
+            offending = Some(r.effective_script_path().to_string());
+            break;
+        }
+    }
+    let Some(offending) = offending else {
+        return Ok(());
+    };
+    let is_dev = sqlx::query!(
+        "SELECT parent_workspace_id, is_dev_workspace FROM workspace WHERE id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .map(|r| r.is_dev_workspace)
+    .unwrap_or(false);
+    if !is_dev {
+        return Ok(());
+    }
+    Err(Error::BadRequest(format!(
+        "Promotion mode on a dev workspace requires git sync script version 28796 or newer, \
+         but this repository pins '{offending}'. Update the pinned sync script (or reset it to \
+         auto-managed) first."
+    )))
+}
+
 /// A dev workspace's promotion must target its parent ("prod") workspace's own
 /// git repository (same URL and branch) — that is what "promote to prod" means.
 /// A fork-created dev inherits prod's repo; an **attached** dev keeps its own,
@@ -3328,6 +3371,9 @@ async fn edit_git_sync_config(
         check_open_prs_license(git_sync_settings.repositories.iter()).await?;
         #[cfg(feature = "enterprise")]
         check_promotion_license(git_sync_settings.repositories.iter()).await?;
+        #[cfg(feature = "enterprise")]
+        check_dev_promotion_script_version(&db, &w_id, git_sync_settings.repositories.iter())
+            .await?;
         #[cfg(all(feature = "enterprise", feature = "private"))]
         check_dev_promotion_targets_parent_repo(&db, &w_id, git_sync_settings.repositories.iter())
             .await?;
@@ -3556,6 +3602,8 @@ async fn edit_git_sync_repository(
     check_open_prs_license(std::iter::once(&new_config.repository)).await?;
     #[cfg(feature = "enterprise")]
     check_promotion_license(std::iter::once(&new_config.repository)).await?;
+    #[cfg(feature = "enterprise")]
+    check_dev_promotion_script_version(&db, &w_id, std::iter::once(&new_config.repository)).await?;
     #[cfg(all(feature = "enterprise", feature = "private"))]
     check_dev_promotion_targets_parent_repo(&db, &w_id, std::iter::once(&new_config.repository))
         .await?;
