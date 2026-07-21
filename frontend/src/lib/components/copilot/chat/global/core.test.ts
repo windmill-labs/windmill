@@ -253,6 +253,7 @@ vi.mock('$lib/infer', async () => ({
 }))
 
 import {
+	buildOpenPageUrl,
 	globalTools,
 	globalToolsFor,
 	prepareGlobalSystemMessage,
@@ -4169,5 +4170,38 @@ describe('prepareGlobalUserMessage', () => {
 		const message = prepareGlobalUserMessage('Create a draft')
 
 		expect(message.content).toBe('## INSTRUCTIONS:\nCreate a draft')
+	})
+})
+
+describe('buildOpenPageUrl compare selection', () => {
+	const itemsOf = (url: string) => new URL(url, 'http://x').searchParams.get('items')
+
+	it('explicit items win over the chat mask', () => {
+		const url = buildOpenPageUrl(
+			'compare',
+			{ page: 'compare', items: ['script:f/a/b'] },
+			{ workspaceId: 'ws', chatItems: ['flow:f/c/d'] }
+		)
+		expect(itemsOf(url)).toBe('script:f/a/b')
+	})
+
+	it('omitted items fall back to the chat-modified mask', () => {
+		const url = buildOpenPageUrl(
+			'compare',
+			{ page: 'compare' },
+			{ workspaceId: 'ws', chatItems: ['flow:f/c/d', 'script:f/a/b'] }
+		)
+		expect(itemsOf(url)).toBe('flow:f/c/d,script:f/a/b')
+	})
+
+	it('an empty or absent mask yields no items param (page select-all default)', () => {
+		expect(
+			itemsOf(
+				buildOpenPageUrl('compare', { page: 'compare' }, { workspaceId: 'ws', chatItems: [] })
+			)
+		).toBeNull()
+		expect(
+			itemsOf(buildOpenPageUrl('compare', { page: 'compare' }, { workspaceId: 'ws' }))
+		).toBeNull()
 	})
 })

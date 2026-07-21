@@ -50,7 +50,7 @@ import {
 	selectPreviewTabsToClose
 } from './sessionPreviewTabs.svelte'
 import {
-	matchPreviewPage,
+	matchReusablePage,
 	parsePreviewItemRoute,
 	previewLocationLabel,
 	resolvePreviewTab
@@ -1000,10 +1000,10 @@ setOpenPagePreviewHandler(({ sessionId: callerSessionId, href, label, newTab }) 
 	// filter change updates it in place instead of spawning a duplicate — unless the
 	// user asked for a separate tab. open() dedupes on the exact URL, so differing
 	// filters would otherwise always open a new tab.
-	const targetPage = matchPreviewPage(href)
+	const targetPage = matchReusablePage(href)
 	if (!newTab && targetPage) {
 		const existing = owner.tabs.find(
-			(t) => matchPreviewPage(t.loc || t.url)?.path === targetPage.path
+			(t) => matchReusablePage(t.loc || t.url)?.path === targetPage.path
 		)
 		if (existing) {
 			owner.select(existing.id)

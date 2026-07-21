@@ -1,5 +1,6 @@
 <script lang="ts">
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
+	import { maskHasDraftRow } from './sessions/modifiedItemsMask'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import WorkspaceDeployItemSummary from './WorkspaceDeployItemSummary.svelte'
 	import DraftBadge from './DraftBadge.svelte'
@@ -315,9 +316,17 @@
 			// Default intent is deploy-all; when reached from a session's Review
 			// (chatMask set), preselect only that chat's items instead.
 			const selectable = visibleItems.filter(isSelectable)
-			selectedItems = (chatMask ? selectable.filter((i) => chatMask.has(i.key)) : selectable).map(
-				(i) => i.key
-			)
+			selectedItems = (
+				chatMask
+					? selectable.filter((i) =>
+							maskHasDraftRow(chatMask, {
+								kind: i.draftKind,
+								path: i.path,
+								draft_path: i.draft_path
+							})
+						)
+					: selectable
+			).map((i) => i.key)
 			hasAutoSelected = true
 		}
 	})
