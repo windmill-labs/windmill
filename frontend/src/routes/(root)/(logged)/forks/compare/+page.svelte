@@ -93,7 +93,6 @@
 		})
 	})
 
-	// An explicit `items` mask wins over the from_session lookup.
 	const chatMask = $derived(urlItemsMask ?? sessionMask)
 	const chatMaskReady = $derived(urlItemsMask !== undefined || sessionMaskReady)
 
