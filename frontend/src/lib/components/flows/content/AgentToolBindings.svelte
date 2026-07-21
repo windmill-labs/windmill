@@ -20,8 +20,7 @@
 		toolInputs = $bindable(),
 		pickableProperties = undefined,
 		extraLib = 'missing extraLib',
-		workspace = undefined,
-		enableAi = false
+		workspace = undefined
 	}: {
 		// Tools inherited from the linked agent resource (read-only structure).
 		tools: AgentTool[]
@@ -31,7 +30,6 @@
 		pickableProperties?: PickableProperties
 		extraLib?: string
 		workspace?: string
-		enableAi?: boolean
 	} = $props()
 
 	let flowTools = $derived(tools.filter(isFlowModuleTool))
@@ -118,7 +116,6 @@
 						schema={schemas[tool.id]}
 						{pickableProperties}
 						{extraLib}
-						{enableAi}
 						isAgentTool
 						bind:args={
 							() => localArgs[tool.id],

@@ -286,7 +286,7 @@
 			<div class="flex items-center gap-2 text-xs">
 				<Bot size={16} class="text-primary shrink-0" />
 				<span class="text-secondary shrink-0">Linked to</span>
-				<span class="flex min-w-0 items-center gap-1">
+				<span class="flex min-w-0 flex-1 items-center gap-1">
 					<a class="font-medium truncate" href={`/resources?path=${agent}`} title={agent}>{agent}</a
 					>
 					<Tooltip small placement="bottom">
@@ -298,12 +298,22 @@
 					</Tooltip>
 				</span>
 				<div class="ml-auto flex items-center gap-1 shrink-0">
-					<Button size="xs2" variant="default" startIcon={{ icon: Pencil }} onclick={editAgent}>
-						Edit
-					</Button>
-					<Button size="xs2" variant="default" startIcon={{ icon: Unlink }} onclick={unlink}>
-						Unlink
-					</Button>
+					<Button
+						size="xs2"
+						variant="default"
+						startIcon={{ icon: Pencil }}
+						iconOnly
+						title="Edit the saved agent (updates it everywhere it's used)"
+						onclick={editAgent}
+					/>
+					<Button
+						size="xs2"
+						variant="default"
+						startIcon={{ icon: Unlink }}
+						iconOnly
+						title="Unlink (fork an editable copy into just this step)"
+						onclick={unlink}
+					/>
 				</div>
 			</div>
 			{#if brainParams.length > 0 || inheritedTools.length > 0}

@@ -263,7 +263,7 @@
 					{...itemProps}
 					{nodeState}
 					label={mod.summary ||
-						(mod.value.type === 'aiagent' ? 'AI Agent' : undefined) ||
+						(mod.value.type === 'aiagent' ? (mod.value.agent ?? 'AI Agent') : undefined) ||
 						(mod.id === 'preprocessor'
 							? 'Preprocessor'
 							: mod.id.startsWith('failure')

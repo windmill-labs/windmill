@@ -1042,54 +1042,6 @@
 									</Tabs>
 									{#if visibleSelected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent')}
 										<div class="flex-1 overflow-auto" id="flow-editor-step-input">
-											{#if flowModule.value.type === 'aiagent'}
-												<AgentResourceBar
-													moduleId={flowModule.id}
-													opWorkspace={opWs}
-													flowPath={$pathStore}
-													bind:agent={
-														() =>
-															flowModule.value.type === 'aiagent'
-																? flowModule.value.agent
-																: undefined,
-														(v) => {
-															if (flowModule.value.type === 'aiagent') {
-																flowModule.value.agent = v
-															}
-														}
-													}
-													bind:inputTransforms={
-														() => (flowModule.value as any).input_transforms,
-														(v) => {
-															if (flowModule.value.type === 'aiagent') {
-																;(flowModule.value as any).input_transforms = v
-															}
-														}
-													}
-													bind:tools={
-														() =>
-															flowModule.value.type === 'aiagent'
-																? (flowModule.value.tools ?? [])
-																: [],
-														(v) => {
-															if (flowModule.value.type === 'aiagent') {
-																flowModule.value.tools = v
-															}
-														}
-													}
-													bind:toolInputs={
-														() =>
-															flowModule.value.type === 'aiagent'
-																? (flowModule.value.tool_inputs ?? {})
-																: {},
-														(v) => {
-															if (flowModule.value.type === 'aiagent') {
-																flowModule.value.tool_inputs = v
-															}
-														}
-													}
-												/>
-											{/if}
 											<PropPickerWrapper
 												pickableProperties={stepPropPicker.pickableProperties}
 												error={failureModule}
@@ -1100,6 +1052,56 @@
 														title={reloadError}
 														class="absolute left-2 top-2 rounded-full w-2 h-2 bg-red-300"
 													></div>
+												{/if}
+												{#if flowModule.value.type === 'aiagent'}
+													<!-- Inside the wrapper so the card scrolls with the inputs (a single
+													scroll region) instead of stacking a second scrollbar above it. -->
+													<AgentResourceBar
+														moduleId={flowModule.id}
+														opWorkspace={opWs}
+														flowPath={$pathStore}
+														bind:agent={
+															() =>
+																flowModule.value.type === 'aiagent'
+																	? flowModule.value.agent
+																	: undefined,
+															(v) => {
+																if (flowModule.value.type === 'aiagent') {
+																	flowModule.value.agent = v
+																}
+															}
+														}
+														bind:inputTransforms={
+															() => (flowModule.value as any).input_transforms,
+															(v) => {
+																if (flowModule.value.type === 'aiagent') {
+																	;(flowModule.value as any).input_transforms = v
+																}
+															}
+														}
+														bind:tools={
+															() =>
+																flowModule.value.type === 'aiagent'
+																	? (flowModule.value.tools ?? [])
+																	: [],
+															(v) => {
+																if (flowModule.value.type === 'aiagent') {
+																	flowModule.value.tools = v
+																}
+															}
+														}
+														bind:toolInputs={
+															() =>
+																flowModule.value.type === 'aiagent'
+																	? (flowModule.value.tool_inputs ?? {})
+																	: {},
+															(v) => {
+																if (flowModule.value.type === 'aiagent') {
+																	flowModule.value.tool_inputs = v
+																}
+															}
+														}
+													/>
 												{/if}
 												<InputTransformSchemaForm
 													class="px-2 xl:px-4 pb-8"
@@ -1141,7 +1143,6 @@
 														pickableProperties={stepPropPicker.pickableProperties}
 														extraLib={stepPropPicker.extraLib}
 														workspace={opWs}
-														{enableAi}
 														bind:toolInputs={
 															() =>
 																flowModule.value.type === 'aiagent'
