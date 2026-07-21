@@ -480,6 +480,25 @@ export async function getWorkspaceDiffIndex(
 	}
 }
 
+/** Resolve a requested path to the draft row that owns it — by exact key or
+ * friendly draft_path — across the given kinds. Item mode flushes/probes the
+ * RESOLVED key: a renamed classic app's cell lives at its original storage
+ * path, which only the listing knows. */
+export async function resolveWorkspaceDiffTarget(
+	workspace: string,
+	kinds: UserDraftItemKind[],
+	path: string
+): Promise<{ kind: UserDraftItemKind; storagePath: string } | undefined> {
+	const cache = await reconcile(workspace)
+	for (const kind of kinds) {
+		if (cache.entries.has(entryKey(kind, path))) return { kind, storagePath: path }
+	}
+	const entry = [...cache.entries.values()].find(
+		(e) => kinds.includes(e.row.kind) && (e.displayPath === path || e.row.path === path)
+	)
+	return entry ? { kind: entry.row.kind, storagePath: entry.row.path } : undefined
+}
+
 /** One item's diff entry, addressed by storage path or friendly draft path.
  * Returns undefined when the current user has no draft there. */
 export async function readWorkspaceDiffEntry(

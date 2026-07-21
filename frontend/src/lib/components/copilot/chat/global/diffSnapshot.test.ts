@@ -321,6 +321,15 @@ describe('readWorkspaceDiffEntry', () => {
 		expect(entry?.status).toBe('new')
 	})
 
+	it('resolves a renamed draft to its owning row across kinds', async () => {
+		vi.mocked(getDraftItems).mockResolvedValue([
+			row({ kind: 'app', path: 'f/old/name', draft_path: 'f/new/name' })
+		] as any)
+		const { resolveWorkspaceDiffTarget } = await import('./diffSnapshot')
+		const target = await resolveWorkspaceDiffTarget(WS, ['raw_app', 'app'], 'f/new/name')
+		expect(target).toEqual({ kind: 'app', storagePath: 'f/old/name' })
+	})
+
 	it('returns undefined when the user has no draft at the path', async () => {
 		vi.mocked(getDraftItems).mockResolvedValue([] as any)
 		const entry = await readWorkspaceDiffEntry(WS, 'script', 'f/a/b')

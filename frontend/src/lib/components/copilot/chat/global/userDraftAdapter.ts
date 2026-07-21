@@ -645,6 +645,16 @@ export async function deleteGlobalDraft(
 	invalidateWorkspaceDrafts(workspace)
 }
 
+/** Kind-addressed live-editor storage resolution (friendly → storage path),
+ * for callers that must probe several draft kinds per chat type. */
+export function resolveGlobalDraftStoragePathByKind(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	path: string
+): string {
+	return resolveDraftStoragePath(workspace, itemKind, path)
+}
+
 /** Local in-memory draft cell, kind-addressed: the chat `app` type spans two
  * draft kinds (raw_app + classic app), so callers probing both address by
  * kind. No backend fallback — this is the freshest state when a save is

@@ -299,9 +299,14 @@ export async function getDraftDiffValues(
 			// deployed row nests them under `value`, and deployed inline scripts carry
 			// server-recomputed locks. Canonicalize both onto the same shape with the
 			// post-deploy noise stripped — the same module the editor's Diff button uses.
+			// A staged rename (`draft_path`) changes where deploy lands the app —
+			// compare it as `path` on both sides so a rename-only draft diffs.
+			const rawDraftPath = (r.draft?.draft_path as string | undefined) ?? r.path
 			return {
-				deployed: draftOnly ? canonicalRawAppDiffValue({}) : canonicalRawAppDiffValue(r),
-				draft: canonicalRawAppDiffValue(r.draft ?? r),
+				deployed: draftOnly
+					? canonicalRawAppDiffValue({})
+					: { ...canonicalRawAppDiffValue(r), path: r.path },
+				draft: { ...canonicalRawAppDiffValue(r.draft ?? r), path: rawDraftPath },
 				hasDraft: r.draft != null,
 				noDeployed: r.no_deployed === true
 			}
@@ -313,12 +318,13 @@ export async function getDraftDiffValues(
 		// the grid never diffs against draft-only markers.
 		const deployedParts = classicAppDraftParts(r.value)
 		const draftParts = r.draft != null ? classicAppDraftParts(r.draft) : deployedParts
-		const deployed = { summary: r.summary ?? '', value: deployedParts.value }
+		const deployed = { summary: r.summary ?? '', value: deployedParts.value, path: r.path }
 		return {
 			deployed: draftOnly ? EMPTY_DEPLOYED.app!(undefined) : deployed,
 			draft: {
 				summary: draftParts.summary ?? r.summary ?? '',
-				value: draftParts.value
+				value: draftParts.value,
+				path: draftParts.draftPath ?? r.path
 			},
 			hasDraft: r.draft != null,
 			noDeployed: r.no_deployed === true

@@ -1,15 +1,12 @@
-/** Comparable parts of a CLASSIC (visual) app draft/deployed value.
- *
- * The classic editor autosaves the bare `App` grid with `summary` (and a
- * draft-only `draft_path`) mirrored INTO it so a draft round-trips them,
- * while a deployed row keeps `summary` as a column outside `value` — so the
- * metadata must be compared separately from the grid or it diffs as spurious
- * additions. Extracts `{ value, summary }`: value is the grid with
- * summary/draft_path/parent_version stripped (apply to BOTH sides so an older
- * deployed value that retained an inner summary stays comparable). Defensively
- * unwraps a legacy wrapped draft: a bare grid never carries summary/policy/
- * custom_path siblings next to an object `value`. */
-export function classicAppDraftParts(json: unknown): { value: unknown; summary?: string } {
+/** Split a CLASSIC app draft into comparable parts. The editor mirrors
+ * summary/draft_path INTO the bare grid it autosaves, while a deployed row
+ * keeps them outside `value` — compared raw, metadata diffs as grid noise.
+ * Also unwraps legacy wrapped drafts ({summary/policy/custom_path, value}). */
+export function classicAppDraftParts(json: unknown): {
+	value: unknown
+	summary?: string
+	draftPath?: string
+} {
 	if (json === null || typeof json !== 'object' || Array.isArray(json)) {
 		return { value: json }
 	}
@@ -20,8 +17,16 @@ export function classicAppDraftParts(json: unknown): { value: unknown; summary?:
 		('summary' in obj || 'policy' in obj || 'custom_path' in obj)
 	if (wrapped) {
 		const inner = classicAppDraftParts(obj.value)
-		return { value: inner.value, summary: (obj.summary as string | undefined) ?? inner.summary }
+		return {
+			value: inner.value,
+			summary: (obj.summary as string | undefined) ?? inner.summary,
+			draftPath: (obj.draft_path as string | undefined) ?? inner.draftPath
+		}
 	}
-	const { parent_version: _pv, draft_path: _dp, summary, ...value } = obj
-	return { value, summary: summary as string | undefined }
+	const { parent_version: _pv, draft_path, summary, ...value } = obj
+	return {
+		value,
+		summary: summary as string | undefined,
+		draftPath: draft_path as string | undefined
+	}
 }

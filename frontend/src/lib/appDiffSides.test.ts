@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { classicAppDraftParts } from './appDiffSides'
 
 describe('classicAppDraftParts', () => {
-	it('extracts the mirrored summary and strips draft-only markers from the grid', () => {
+	it('extracts the mirrored summary and staged rename, stripping them from the grid', () => {
 		const draft = {
 			grid: [{ id: 'a' }],
 			fullscreen: false,
@@ -12,7 +12,8 @@ describe('classicAppDraftParts', () => {
 		}
 		expect(classicAppDraftParts(draft)).toEqual({
 			value: { grid: [{ id: 'a' }], fullscreen: false },
-			summary: 'My app'
+			summary: 'My app',
+			draftPath: 'f/nice/name'
 		})
 	})
 

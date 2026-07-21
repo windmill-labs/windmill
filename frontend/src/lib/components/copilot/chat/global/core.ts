@@ -158,6 +158,7 @@ import {
 	persistGlobalDraft,
 	readGlobalDraftValue,
 	readLocalDraftCellByKind,
+	resolveGlobalDraftStoragePathByKind,
 	saveGlobalAppDraft,
 	setEphemeralSecretVariableDraftValue,
 	type DraftPersistResult
@@ -172,6 +173,7 @@ import {
 	maskVariableDiffSides,
 	readForkDiffEntry,
 	readWorkspaceDiffEntry,
+	resolveWorkspaceDiffTarget,
 	type DiffFileView,
 	type ForkDiffEntryView,
 	type WorkspaceDiffEntryView
@@ -5256,12 +5258,28 @@ async function diffWorkspaceItem(
 	// honored — with auto-save off, a read-only tool must not persist edits the
 	// user chose to keep local. The just-flushed row must not be served from the
 	// throttled listing cache, so expire it.
-	const storagePath = getGlobalDraftStoragePath(workspace, type, path, triggerKind)
 	// The chat `app` type spans two draft kinds: raw apps AND classic apps —
 	// the classic editor parks its cell under `app`, so both keys must be
-	// flushed and probed or classic edits silently go stale.
+	// flushed and probed or classic edits silently go stale. Each kind resolves
+	// its own storage path (live-editor mapping), and the listing resolves a
+	// friendly/renamed path to the row that owns it — a renamed classic app's
+	// cell lives at its ORIGINAL storage path, which only the listing knows.
 	const draftKinds: UserDraftItemKind[] = type === 'app' ? ['raw_app', 'app'] : [itemKind]
-	const flushQueries = draftKinds.map((kind) => ({ workspace, itemKind: kind, path: storagePath }))
+	const flushQueries = draftKinds.map((kind) => ({
+		workspace,
+		itemKind: kind,
+		path: resolveGlobalDraftStoragePathByKind(workspace, kind, path)
+	}))
+	const listedTarget = await resolveWorkspaceDiffTarget(workspace, draftKinds, path)
+	if (
+		listedTarget &&
+		!flushQueries.some(
+			(q) => q.itemKind === listedTarget.kind && q.path === listedTarget.storagePath
+		)
+	) {
+		flushQueries.push({ workspace, itemKind: listedTarget.kind, path: listedTarget.storagePath })
+	}
+	const storagePath = listedTarget?.storagePath ?? flushQueries[0].path
 	for (const query of flushQueries) {
 		await UserDraftDbSyncer.flush(query, { honorAutosaveToggle: true })
 	}
@@ -5277,16 +5295,18 @@ async function diffWorkspaceItem(
 	let flushSkipped = false
 	let localValue: unknown
 	let localKind: UserDraftItemKind = itemKind
+	let localPath = storagePath
 	for (const query of flushQueries) {
 		const skipped =
 			UserDraftDbSyncer.hasUnsavedDisabledChanges(query) ||
 			UserDraftDbSyncer.getState(query).state === 'failed'
 		if (!skipped) continue
 		flushSkipped = true
-		const cell = readLocalDraftCellByKind(workspace, query.itemKind, storagePath)
+		const cell = readLocalDraftCellByKind(workspace, query.itemKind, query.path)
 		if (cell !== undefined) {
 			localValue = cell
 			localKind = query.itemKind
+			localPath = query.path
 			break
 		}
 	}
@@ -5298,7 +5318,7 @@ async function diffWorkspaceItem(
 	if (localValue !== undefined) {
 		let deployedSide: unknown
 		try {
-			const values = await getDraftDiffValues(localKind, storagePath, workspace)
+			const values = await getDraftDiffValues(localKind, localPath, workspace)
 			noDeployed = values.noDeployed
 			deployedSide = noDeployed ? undefined : values.deployed
 		} catch (e) {
@@ -5308,6 +5328,16 @@ async function diffWorkspaceItem(
 		}
 		let beforeSide = deployedSide
 		let afterSide = canonicalDraftSideValue(localKind, localValue)
+		// App sides carry `path` (staged renames diff); mirror it onto the local
+		// canonical value, which only knows a draft_path.
+		if (localKind === 'app' || localKind === 'raw_app') {
+			const deployedPath = (deployedSide as { path?: string } | undefined)?.path ?? localPath
+			const stagedPath = (localValue as { draft_path?: string } | null)?.draft_path
+			afterSide = { ...(afterSide as Record<string, unknown>), path: stagedPath ?? deployedPath }
+			if (deployedSide !== undefined) {
+				beforeSide = { ...(deployedSide as Record<string, unknown>), path: deployedPath }
+			}
+		}
 		if (itemKind === 'variable') {
 			;({
 				before: beforeSide,
