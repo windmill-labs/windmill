@@ -408,6 +408,11 @@ export function mapWarningsToMarkers(code: string, warnings: ContractWarning[]):
 						(l) => /^\s*(\/\/|--|#)\s*column\s/.test(l) && !!w.column && l.includes(w.column)
 					)
 					break
+				// The measure/dimension warning kinds (`missing_measure_column`,
+				// `missing_dimension_column`, `non_aggregate_measure`) are not handled
+				// here: this live mirror does not parse metric annotations, so it never
+				// produces them. They are surfaced by the authoritative post-deploy
+				// `check_schema_contracts` endpoint, not by Monaco markers.
 				case 'missing_relationship_column':
 				case 'relationship_type_mismatch':
 					lineNumber = lineMatching(

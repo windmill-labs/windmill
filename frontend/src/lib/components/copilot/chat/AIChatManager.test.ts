@@ -23,7 +23,6 @@ const mocks = vi.hoisted(() => ({
 	getCurrentModel: vi.fn(),
 	tryGetCurrentModel: vi.fn(),
 	isWebSearchEnabledForProvider: vi.fn(),
-	logAiChat: vi.fn(),
 	sendUserToast: vi.fn(),
 	getOpenaiClient: vi.fn(),
 	getAnthropicClient: vi.fn(),
@@ -38,9 +37,10 @@ vi.mock('monaco-editor', () => ({
 	Selection: class Selection {}
 }))
 
+vi.mock('$lib/utils/featureUsage', () => ({ logFeatureUsage: vi.fn() }))
+
 vi.mock('$lib/gen', () => ({
 	WorkspaceService: {
-		logAiChat: mocks.logAiChat,
 		listAiSkills: mocks.listAiSkills
 	},
 	ScriptService: {},
@@ -129,7 +129,6 @@ beforeEach(() => {
 	mocks.getCurrentModel.mockReturnValue(undefined)
 	mocks.tryGetCurrentModel.mockReturnValue(undefined)
 	mocks.isWebSearchEnabledForProvider.mockReturnValue(true)
-	mocks.logAiChat.mockResolvedValue(undefined)
 	mocks.getOpenaiClient.mockReturnValue({})
 	mocks.getAnthropicClient.mockReturnValue({})
 	mocks.listAiSkills.mockResolvedValue([])
@@ -455,10 +454,12 @@ describe('AIChatManager queued messages', () => {
 		mocks.tryGetCurrentModel.mockReturnValue(model)
 	})
 
+	// The real composer reports whether it took the restore (an occupied one declines);
+	// default to an empty composer, which always takes it.
 	function createInputMock() {
 		return {
-			prependText: vi.fn(),
-			restoreInstructions: vi.fn(),
+			prependText: vi.fn().mockReturnValue(false),
+			restoreInstructions: vi.fn().mockReturnValue(true),
 			focusInput: vi.fn()
 		}
 	}
@@ -576,6 +577,57 @@ describe('AIChatManager queued messages', () => {
 			.filter((p) => p.type === 'image_url')
 			.map((p) => p.image_url.url)
 		expect(urls).toEqual(['data:image/png;base64,FULLRES'])
+	})
+
+	it('an edit resends the edited context, a bare retry the original', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		const cm = manager.contextManager
+		cm.setSelectedDomElement({ selector: 'div.a', appPath: 'f/app', tagName: 'div' })
+		const chipA = cm.getSelectedContext()[0]
+		cm.setSelectedDomElement({ selector: 'div.b', appPath: 'f/app', tagName: 'div' })
+		const chipB = cm.getSelectedContext()[0]
+		cm.clearSelectedDomElements()
+
+		const seed = () => {
+			manager.displayMessages = [
+				{ role: 'user', content: 'style it', index: 0, contextElements: [chipA] },
+				{ role: 'assistant', content: 'ok' }
+			]
+			manager.messages = [
+				{ role: 'user', content: 'style it' },
+				{ role: 'assistant', content: 'ok' }
+			]
+		}
+		const sentChipSelectors = () =>
+			(manager.displayMessages.find((m) => m.role === 'user')?.contextElements ?? [])
+				.filter((c) => c.type === 'app_dom_selector')
+				.map((c) => c.selector)
+
+		// Edit swapped the chip A → B in the edit box: the resend carries B, not A.
+		seed()
+		manager.restartGeneration(0, 'style it', undefined, undefined, [chipB])
+		await vi.waitFor(() => expect(sentChipSelectors()).toEqual(['div.b']))
+
+		// A bare retry passes no edited context and falls back to the original A.
+		seed()
+		manager.restartGeneration(0)
+		await vi.waitFor(() => expect(sentChipSelectors()).toEqual(['div.a']))
+
+		// An edit/retry replays context that was consumed on its original send, so it
+		// must not touch the composer's own live selection — even when it holds the
+		// very same chip.
+		seed()
+		cm.setSelectedDomElement({ selector: 'div.a', appPath: 'f/app', tagName: 'div' })
+		manager.restartGeneration(0)
+		await vi.waitFor(() => expect(sentChipSelectors()).toEqual(['div.a']))
+		expect(
+			cm
+				.getSelectedContext()
+				.filter((c) => c.type === 'app_dom_selector')
+				.map((c) => c.selector)
+		).toEqual(['div.a'])
 	})
 
 	// The loop, not the send, owns the vision strip: it re-applies it per iteration
@@ -1194,6 +1246,94 @@ describe('AIChatManager queued messages', () => {
 		// clean handoff: queued message sent, cancelled prompt NOT shoved back in
 		expect(manager.queuedMessage).toBe('')
 		expect(input.restoreInstructions).not.toHaveBeenCalled()
+	})
+
+	it('restores consumed DOM selector chips when a turn is cancelled before output', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		manager.contextManager.setSelectedDomElement({
+			selector: 'div.card',
+			appPath: 'f/app',
+			tagName: 'div'
+		})
+		// The chip is consumed on send; while the turn streams the user selects a
+		// different element, then cancels before any usable output (rollback path).
+		mocks.runChatLoop.mockImplementationOnce(async ({ abortController }: any) => {
+			manager.contextManager.addSelectedDomElement({
+				selector: 'div.other',
+				appPath: 'f/app',
+				tagName: 'div'
+			})
+			abortController.abort('user_cancelled')
+			throw new Error('aborted')
+		})
+
+		await manager.sendRequest({ instructions: 'make it red' })
+
+		// Rollback restores THIS turn's chip and replaces the chip selected mid-stream,
+		// so the restored draft stays coherent (its instruction targets div.card only).
+		const chips = manager.contextManager
+			.getSelectedContext()
+			.filter((c) => c.type === 'app_dom_selector')
+		expect(chips.map((c) => c.selector)).toEqual(['div.card'])
+	})
+
+	it('restores a dequeued inline prompt’s pinned DOM context, replacing the live selection', () => {
+		const manager = createManager(createInputMock())
+		const cm = manager.contextManager
+		// Prompt A was queued with its own element pinned.
+		cm.setSelectedDomElement({ selector: 'div.a', appPath: 'f/app', tagName: 'div' })
+		manager.queueMessage('style A', [], [...cm.getSelectedContext()])
+		// The user then selects B in the live preview.
+		cm.setSelectedDomElement({ selector: 'div.b', appPath: 'f/app', tagName: 'div' })
+
+		// Returning the queued draft to the composer must restore A's context, not
+		// leave B's live selection (which would retarget the restored prompt).
+		manager.dequeueMessage()
+
+		const chips = cm.getSelectedContext().filter((c) => c.type === 'app_dom_selector')
+		expect(chips.map((c) => c.selector)).toEqual(['div.a'])
+	})
+
+	// Restoration is only coherent when the text it belongs to actually lands in the
+	// composer. Both cases below leave another draft sitting there, so replacing its
+	// chips would silently retarget an instruction the user is still writing.
+	it('leaves an occupied composer’s DOM context alone when it declines a cancelled prompt', async () => {
+		const input = createInputMock()
+		// The user typed a B-scoped draft during the stream, so the composer keeps it
+		// and declines the cancelled prompt's text.
+		input.restoreInstructions.mockReturnValue(false)
+		const manager = createManager(input)
+		manager.mode = AIMode.GLOBAL
+		const cm = manager.contextManager
+		cm.setSelectedDomElement({ selector: 'div.a', appPath: 'f/app', tagName: 'div' })
+		mocks.runChatLoop.mockImplementationOnce(async ({ abortController }: any) => {
+			cm.addSelectedDomElement({ selector: 'div.b', appPath: 'f/app', tagName: 'div' })
+			abortController.abort('user_cancelled')
+			throw new Error('aborted')
+		})
+
+		await manager.sendRequest({ instructions: 'style A' })
+
+		const chips = cm.getSelectedContext().filter((c) => c.type === 'app_dom_selector')
+		expect(chips.map((c) => c.selector)).toEqual(['div.b'])
+	})
+
+	it('keeps both drafts’ chips when a dequeued prompt is prepended onto an existing draft', () => {
+		const input = createInputMock()
+		// prependText merged the queued text on top of a draft already in the composer.
+		input.prependText.mockReturnValue(true)
+		const manager = createManager(input)
+		const cm = manager.contextManager
+		cm.setSelectedDomElement({ selector: 'div.a', appPath: 'f/app', tagName: 'div' })
+		manager.queueMessage('style A', [], [...cm.getSelectedContext()])
+		cm.setSelectedDomElement({ selector: 'div.b', appPath: 'f/app', tagName: 'div' })
+
+		manager.dequeueMessage()
+
+		// Both instructions now share one composer, so both elements stay in scope.
+		const chips = cm.getSelectedContext().filter((c) => c.type === 'app_dom_selector')
+		expect(chips.map((c) => c.selector).sort()).toEqual(['div.a', 'div.b'])
 	})
 
 	it('re-queues the message when its auto-send is rejected by beforeSend', async () => {
@@ -2397,5 +2537,94 @@ describe('AIChatManager background job completion', () => {
 
 		expect(manager.pendingJobNotes).toHaveLength(1)
 		expect(manager.pendingJobNotes[0]).toContain('Background job job-1 for "run" succeeded')
+	})
+
+	it('persists on the inline terminal transition and on review', async () => {
+		const manager = new AIChatManager()
+		manager.registerJob({
+			jobId: 'job-1',
+			toolCallId: 'tc-1',
+			kind: 'script',
+			label: 'run',
+			workspace: 'ws'
+		})
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+
+		// Inline completion reports through updateJob without ever detaching; the
+		// terminal transition alone must write the tray or the job vanishes on reload.
+		manager.updateJob('job-1', { status: 'running' })
+		expect(saveChat).not.toHaveBeenCalled()
+		manager.updateJob('job-1', { status: 'success' })
+		await vi.waitFor(() => expect(saveChat).toHaveBeenCalledTimes(1))
+		expect(saveChat.mock.calls[0][4]).toEqual([
+			expect.objectContaining({ jobId: 'job-1', status: 'success' })
+		])
+
+		// Reviewing persists the flag; re-reviewing is a no-op (no extra write).
+		manager.markJobsReviewed(['job-1'])
+		await vi.waitFor(() => expect(saveChat).toHaveBeenCalledTimes(2))
+		expect(saveChat.mock.calls[1][4]).toEqual([
+			expect.objectContaining({ jobId: 'job-1', reviewed: true })
+		])
+		manager.markJobsReviewed(['job-1'])
+		expect(saveChat).toHaveBeenCalledTimes(2)
+	})
+})
+
+describe('DOM selector chips scoped by app path', () => {
+	const domChips = (manager: AIChatManager) =>
+		manager.contextManager.getSelectedContext().filter((c) => c.type === 'app_dom_selector')
+
+	it('keeps same-selector chips from different apps and removes only the scoped one', () => {
+		const manager = new AIChatManager()
+		const cm = manager.contextManager
+		const base = { selector: 'div.card', tagName: 'div' }
+		cm.addSelectedDomElement({ ...base, appPath: 'f/app/a' })
+		cm.addSelectedDomElement({ ...base, appPath: 'f/app/b' })
+		// Same selector, different apps: both survive (dedup is per app path).
+		expect(domChips(manager)).toHaveLength(2)
+
+		// A selector-only removal would wipe both; scoping by appPath keeps app A's.
+		cm.removeSelectedDomElement('div.card', 'f/app/b')
+		const remaining = domChips(manager)
+		expect(remaining).toHaveLength(1)
+		expect(remaining[0].appPath).toBe('f/app/a')
+	})
+
+	it("a scoped clear (preview rebuild) drops only that app's chips", () => {
+		const manager = new AIChatManager()
+		const cm = manager.contextManager
+		cm.addSelectedDomElement({ selector: 'h1', appPath: 'f/app/a', tagName: 'h1' })
+		cm.addSelectedDomElement({ selector: 'button', appPath: 'f/app/b', tagName: 'button' })
+
+		// App A rebuilding must not wipe app B's active selection.
+		cm.clearSelectedDomElements('f/app/a')
+		const remaining = domChips(manager)
+		expect(remaining).toHaveLength(1)
+		expect(remaining[0].appPath).toBe('f/app/b')
+
+		// An unscoped clear (post-send / foreign reset) still drops everything.
+		cm.clearSelectedDomElements()
+		expect(domChips(manager)).toHaveLength(0)
+	})
+
+	it('unions DOM chips across inline prompts queued during one stream', () => {
+		const manager = new AIChatManager()
+		const cm = manager.contextManager
+		cm.setSelectedDomElement({ selector: 'div.a', appPath: 'f/app', tagName: 'div' })
+		const snapA = [...cm.getSelectedContext()]
+		cm.setSelectedDomElement({ selector: 'div.b', appPath: 'f/app', tagName: 'div' })
+		const snapB = [...cm.getSelectedContext()]
+
+		// Two element-scoped inline prompts queued while a turn streams. The earlier
+		// element's chip must survive so its instruction isn't retargeted to the later one.
+		manager.queueMessage('make A red', [], snapA)
+		manager.queueMessage('make B bigger', [], snapB)
+
+		const queuedSelectors = (manager.queuedContext ?? [])
+			.filter((c) => c.type === 'app_dom_selector')
+			.map((c) => c.selector)
+			.sort()
+		expect(queuedSelectors).toEqual(['div.a', 'div.b'])
 	})
 })

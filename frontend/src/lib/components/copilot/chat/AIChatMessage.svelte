@@ -28,7 +28,6 @@
 
 	interface Props {
 		availableContext: ContextElement[]
-		selectedContext: ContextElement[]
 		message: DisplayMessage
 		messageIndex: number
 		editingMessageIndex: number | null
@@ -39,15 +38,22 @@
 		message,
 		messageIndex,
 		availableContext,
-		selectedContext = $bindable(),
 		editingMessageIndex = $bindable(null),
 		isLast = false
 	}: Props = $props()
+
+	// The edit box edits a copy of THIS message's original context, not the live
+	// selection: chips are one-shot and gone from the selection by edit time, so
+	// binding the live selection would show the wrong chips and let a submit send
+	// something other than what's displayed. Seeded on entering edit; the user's
+	// add/remove here rides along on submit (see restartGeneration).
+	let editContext = $state<ContextElement[]>([])
 
 	function editMessage() {
 		if (message.role !== 'user' || editingMessageIndex !== null || aiChatManager.loading) {
 			return
 		}
+		editContext = [...(message.contextElements ?? [])]
 		editingMessageIndex = messageIndex
 	}
 </script>
@@ -71,7 +77,7 @@
 		{#if message.role === 'user' && message.contextElements && editingMessageIndex !== messageIndex}
 			<div class="flex flex-row gap-1 mb-1 overflow-scroll no-scrollbar px-2">
 				{#each message.contextElements as element}
-					<ContextElementBadge contextElement={element} />
+					<ContextElementBadge contextElement={element} compact />
 				{/each}
 			</div>
 		{/if}
@@ -79,7 +85,7 @@
 			<div class="px-2 max-w-lg">
 				<AIChatInput
 					{availableContext}
-					bind:selectedContext
+					bind:selectedContext={editContext}
 					initialInstructions={message.content}
 					initialPastes={message.pastes}
 					initialImages={aiChatManager.storedImages(messageIndex)}

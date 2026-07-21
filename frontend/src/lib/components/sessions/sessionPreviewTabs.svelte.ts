@@ -35,6 +35,9 @@ export type PreviewTabsAdapter = {
 	// Fired synchronously on every tab-set change, so the runtime can drop editor
 	// cells no open tab references anymore (a closed / navigated-away item).
 	onTabsChanged?: () => void
+	// Fired when open() creates a brand-new tab (not focus/retarget of an
+	// existing one), with the tab's initial URL.
+	onTabOpened?: (url: string) => void
 }
 
 // True when a tab's URL is the live editor for a specific editable item. Every
@@ -268,6 +271,7 @@ export class SessionPreviewTabs {
 		this.#tabs.push(tab)
 		this.#activeId = tab.id
 		this.#flush()
+		this.#adapter.onTabOpened?.(url)
 		return { status: 'opened' }
 	}
 

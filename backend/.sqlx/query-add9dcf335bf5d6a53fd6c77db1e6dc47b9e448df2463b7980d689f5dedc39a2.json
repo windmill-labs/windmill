@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO data_metric (workspace_id, script_path, table_path, kind, name, expr, filter)\n         SELECT $2, script_path, table_path, kind, name, expr, filter\n         FROM data_metric WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "add9dcf335bf5d6a53fd6c77db1e6dc47b9e448df2463b7980d689f5dedc39a2"
+}

@@ -357,6 +357,7 @@ async fn get_concurrent_intervals(
 }
 
 async fn get_concurrency_key(
+    _authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(job_id): Path<Uuid>,
 ) -> JsonResult<Option<String>> {

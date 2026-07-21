@@ -70,7 +70,7 @@ use windmill_common::{
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
-    insert_concurrency_key, interpolate_args,
+    insert_concurrency_key_capped, interpolate_args,
     report_error_to_workspace_handler_or_critical_side_channel, try_schedule_next_job, CanceledBy,
     FlowRunners, MiniCompletedJob, MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload,
     WrappedError,
@@ -1552,12 +1552,13 @@ pub async fn update_flow_status_after_job_completion_internal(
             if concurrency_requires_args {
                 let args = PushArgs::from(fetched_args.as_ref().unwrap());
                 if let Some(ck) = concurrency_key {
-                    insert_concurrency_key(
+                    insert_concurrency_key_capped(
                         &flow_job.workspace_id,
                         &args,
                         &flow_job.runnable_path,
                         JobKind::Flow,
                         Some(ck),
+                        concurrent_limit,
                         db,
                         flow,
                     )
@@ -1567,12 +1568,13 @@ pub async fn update_flow_status_after_job_completion_internal(
                     tag = Some(interpolate_args(t, &args, &flow_job.workspace_id));
                 }
             } else if concurrent_limit.is_some() {
-                insert_concurrency_key(
+                insert_concurrency_key_capped(
                     &flow_job.workspace_id,
                     &PushArgs::from(&HashMap::new()),
                     &flow_job.runnable_path,
                     JobKind::Flow,
                     concurrency_key,
+                    concurrent_limit,
                     db,
                     flow,
                 )

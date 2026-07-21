@@ -46,6 +46,7 @@ import {
 } from '$lib/components/raw_apps/templates'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
+import type { RawAppDomQuery } from '$lib/components/raw_apps/rawAppDom'
 import { dataUrlToImagePart, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
 import { modelSupportsVision } from '../../modelConfig'
 import { tryGetCurrentModel } from '$lib/aiStore'
@@ -57,6 +58,7 @@ import {
 	validateEditableFlowJson
 } from '../flow/editableFlowJson'
 import { createInlineScriptSession } from '../flow/inlineScriptsUtils'
+import { searchNpmPackagesTool } from '../script/core'
 import {
 	getDatatableSdkReference,
 	getFlowPrompt,
@@ -82,6 +84,7 @@ import {
 	type ToolDisplayAction
 } from '../shared'
 import { searchDocsTool, readDocsPageTool } from '../docs/core'
+import { createDbSchemaTool } from '../script/core'
 import type { ContextElement } from '../context'
 import { getDatatableTools } from '../datatableTools'
 import { fileTools } from '../files/fileTools'
@@ -152,6 +155,7 @@ import {
 	setEphemeralSecretVariableDraftValue,
 	type DraftPersistResult
 } from './userDraftAdapter'
+import { apiCatalogTools } from './apiCatalogTools'
 import { isSessionPipelinesEnabled, SESSION_PIPELINES_GATED_MESSAGE } from './pipelineGate'
 
 const ITEM_TYPES = [
@@ -292,7 +296,17 @@ const listWorkspaceItemsSchema = z.object({
 		.min(1)
 		.max(MAX_LIST_LIMIT)
 		.optional()
-		.describe('Maximum number of items to return. Defaults to 50 and is capped at 100.')
+		.describe(
+			'Maximum items per item type per page (for triggers, per trigger kind). Defaults to 50 and is capped at 100.'
+		),
+	page: z
+		.number()
+		.int()
+		.min(1)
+		.optional()
+		.describe(
+			'Page number, starting at 1. Each item type pages independently: request the next page while any type still returns a full page. Drafts appear on page 1 only, capped at limit per type.'
+		)
 })
 
 const readWorkspaceItemSchema = z.object({
@@ -300,7 +314,13 @@ const readWorkspaceItemSchema = z.object({
 	path: z.string().describe('Workspace path of the item to read.'),
 	trigger_kind: triggerKindSchema
 		.optional()
-		.describe('Required when type is trigger. Identifies which trigger service to call.')
+		.describe('Required when type is trigger. Identifies which trigger service to call.'),
+	version: z
+		.enum(['deployed'])
+		.optional()
+		.describe(
+			'Pass "deployed" to read the deployed workspace state even when a draft exists (e.g. to learn the deployed input schema before running the deployed version). Default reads your draft when one exists.'
+		)
 })
 
 const draftOverrideField = z
@@ -812,6 +832,42 @@ const listAppRunsSchema = z.object({
 		.describe('How many of the most recent backend runs to return, newest first. Defaults to 20.')
 })
 
+const domSelectorField = z
+	.string()
+	.optional()
+	.describe(
+		'CSS selector for the element to inspect in the live raw app preview. Omit to target the whole page (<body>). Prefer a selector from a DOM element chip the user attached. If it matches several elements, the first is used.'
+	)
+
+const domAppPathField = z
+	.string()
+	.optional()
+	.describe(
+		"Raw-app path of the element, from its `app_path` in the SELECTED DOM ELEMENTS block. Pass it so the RIGHT app's preview is read even if another preview tab is now visible; omit to use the currently active preview. If that app's preview has been closed, the tool says so."
+	)
+
+const searchDomSchema = z.object({
+	app_path: domAppPathField,
+	selector: domSelectorField,
+	pattern: z.string().describe('JavaScript regular expression to search the rendered HTML for.'),
+	ignore_case: z.boolean().optional().describe('Case-insensitive matching. Defaults to false.')
+})
+
+const readDomSchema = z.object({
+	app_path: domAppPathField,
+	selector: domSelectorField,
+	start_line: z
+		.number()
+		.int()
+		.optional()
+		.describe('1-based first line of the pretty-printed HTML to read. Defaults to 1.'),
+	end_line: z
+		.number()
+		.int()
+		.optional()
+		.describe('1-based last line to read. The window is capped at 200 lines.')
+})
+
 const takeScreenshotSchema = z.object({})
 
 const FRAMEWORK_KEYS = [
@@ -931,11 +987,15 @@ Rules:
 - Use discard_local_draft to remove a draft, including the matching open editor draft. Use delete_workspace_item only to delete a deployed workspace item.
 - Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
 - Use search_resource_types before write_resource.
+- When script or raw app code needs an external npm package you are not fully familiar with, use search_npm_packages to find it and get its documentation and type definitions. Link the package documentation in your answer when you rely on it.
+- Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
 ${pipelineBullet}
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
+- For a Windmill operation no other tool covers (workers, queue state, a run's result or args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
+- runScriptByPath / runFlowByPath from the API catalog run the DEPLOYED version of an item. Use them only when the user explicitly asks to run the deployed version, and read the item with read_workspace_item version: "deployed" first so the arguments match the deployed input schema (a draft may have different inputs). To test something you are editing or just wrote, always use test_run_script, test_run_flow, or test_run_step — they run the draft.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
 - When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
 - Keep context targeted.${
@@ -948,6 +1008,7 @@ ${pipelineBullet}
 - Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty or not-yet-created folder is fine (create_folder first if needed, then open it). Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.`
 				}
 - When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
+- To inspect what actually rendered in a running raw app (verify an edit landed on screen, diagnose a blank/empty or wrong view, answer "what's showing"), use search_dom (regex over the live HTML) and read_dom (a line-numbered window). Pass a \`selector\` to scope to an element — prefer the selector from a DOM element chip the user attached — or omit it for the whole page. When a chip lists an \`app_path\`, pass it too so the RIGHT app is read (several previews can be open; a query without \`app_path\` hits the visible one). The DOM is read live and is never in context; no match means the element isn't rendered. Both need the raw app preview open.
 - get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.
 ${
 	isChromiumBrowser()
@@ -1020,7 +1081,10 @@ function scriptToItem(script: Script | NewScript, includeValue: boolean): Worksp
 		summary: script.summary,
 		language: script.language,
 		value: includeValue ? script.content : undefined,
-		isDraft: false
+		schema: includeValue ? (script as Script).schema : undefined,
+		// Listings with includeDraftOnly synthesize rows for editor drafts that
+		// have no deployed counterpart — label those honestly.
+		isDraft: (script as Script).draft_only ?? false
 	}
 }
 
@@ -1032,7 +1096,7 @@ function flowToItem(flow: Flow, includeValue: boolean): WorkspaceItem {
 		value: includeValue
 			? { value: flow.value, schema: flow.schema, groups: flow.value.groups ?? null }
 			: undefined,
-		isDraft: false
+		isDraft: (flow as Flow & { draft_only?: boolean }).draft_only ?? false
 	}
 }
 
@@ -1419,7 +1483,12 @@ function triggerToItem(
 type TriggerService = {
 	exists(args: { workspace: string; path: string }): Promise<boolean>
 	get(args: { workspace: string; path: string }): Promise<TriggerLike>
-	list(args: { workspace: string; pathStart?: string; perPage?: number }): Promise<TriggerLike[]>
+	list(args: {
+		workspace: string
+		pathStart?: string
+		perPage?: number
+		page?: number
+	}): Promise<TriggerLike[]>
 	create(args: { workspace: string; requestBody: any }): Promise<string>
 	update(args: { workspace: string; path: string; requestBody: any }): Promise<string>
 	delete(args: { workspace: string; path: string }): Promise<string>
@@ -1504,18 +1573,27 @@ async function readWorkspaceItem(
 	type: WorkspaceItemType,
 	path: string,
 	workspace: string,
-	triggerKind?: TriggerKind
+	triggerKind?: TriggerKind,
+	deployedOnly = false
 ): Promise<WorkspaceItem> {
 	switch (type) {
 		case 'script': {
-			// Prefer the DB draft (newer than the deployed version) when one exists.
-			const script = await ScriptService.getScriptByPath({ workspace, path, getDraft: true })
-			return scriptToItem((script.draft as Script | undefined) ?? script, true)
+			// Prefer the DB draft (newer than the deployed version) when one exists,
+			// unless the caller explicitly asked for the deployed state.
+			const script = await ScriptService.getScriptByPath({
+				workspace,
+				path,
+				getDraft: !deployedOnly
+			})
+			const draft = deployedOnly ? undefined : (script.draft as Script | undefined)
+			return scriptToItem(draft ?? script, true)
 		}
 		case 'flow': {
-			// Prefer the DB draft (newer than the deployed version) when one exists.
-			const flow = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
-			return flowToItem((flow.draft as Flow | undefined) ?? flow, true)
+			// Prefer the DB draft (newer than the deployed version) when one exists,
+			// unless the caller explicitly asked for the deployed state.
+			const flow = await FlowService.getFlowByPath({ workspace, path, getDraft: !deployedOnly })
+			const draft = deployedOnly ? undefined : (flow.draft as Flow | undefined)
+			return flowToItem(draft ?? flow, true)
 		}
 		case 'schedule':
 			return scheduleToItem(await ScheduleService.getSchedule({ workspace, path }), true)
@@ -1556,7 +1634,8 @@ async function listWorkspaceItems(
 	types: WorkspaceItemType[],
 	workspace: string,
 	pathPrefix: string | undefined,
-	perPage: number
+	perPage: number,
+	page?: number
 ): Promise<WorkspaceItem[]> {
 	const items: WorkspaceItem[] = []
 
@@ -1565,6 +1644,7 @@ async function listWorkspaceItems(
 			workspace,
 			pathStart: pathPrefix,
 			perPage,
+			page,
 			includeDraftOnly: true,
 			withoutDescription: true
 		})
@@ -1576,6 +1656,7 @@ async function listWorkspaceItems(
 			workspace,
 			pathStart: pathPrefix,
 			perPage,
+			page,
 			includeDraftOnly: true,
 			withoutDescription: true
 		})
@@ -1586,7 +1667,8 @@ async function listWorkspaceItems(
 		const schedules = await ScheduleService.listSchedules({
 			workspace,
 			pathStart: pathPrefix,
-			perPage
+			perPage,
+			page
 		})
 		for (const schedule of schedules) items.push(scheduleToItem(schedule, false))
 	}
@@ -1596,7 +1678,8 @@ async function listWorkspaceItems(
 			const triggers = await triggerServices[kind].list({
 				workspace,
 				pathStart: pathPrefix,
-				perPage
+				perPage,
+				page
 			})
 			for (const trigger of triggers) items.push(triggerToItem(kind, trigger, false))
 		}
@@ -1606,7 +1689,8 @@ async function listWorkspaceItems(
 		const resources = await ResourceService.listResource({
 			workspace,
 			pathStart: pathPrefix,
-			perPage
+			perPage,
+			page
 		})
 		for (const resource of resources) items.push(resourceToItem(resource, false))
 	}
@@ -1615,7 +1699,8 @@ async function listWorkspaceItems(
 		const variables = await VariableService.listVariable({
 			workspace,
 			pathStart: pathPrefix,
-			perPage
+			perPage,
+			page
 		})
 		for (const variable of variables) items.push(variableToItem(variable))
 	}
@@ -1624,7 +1709,8 @@ async function listWorkspaceItems(
 		const apps = await AppService.listApps({
 			workspace,
 			pathStart: pathPrefix,
-			perPage
+			perPage,
+			page
 		})
 		for (const app of apps) items.push(appToItem(app, false))
 	}
@@ -2160,6 +2246,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	createSearchHubScriptsTool(false),
+	searchNpmPackagesTool,
 	searchDocsTool,
 	readDocsPageTool,
 	{
@@ -2306,7 +2393,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			listWorkspaceItemsSchema,
 			'list_workspace_items',
-			'List workspace items and drafts. Returns metadata only.'
+			'List workspace items and drafts. Returns metadata only, up to limit items per item type per page (default 50); pass page to continue past a full page.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = listWorkspaceItemsSchema.parse(args)
@@ -2319,24 +2406,37 @@ export const globalTools: Tool<{}>[] = [
 				types,
 				workspace,
 				parsed.path_prefix,
-				Math.min(limit, MAX_LIST_LIMIT)
+				Math.min(limit, MAX_LIST_LIMIT),
+				parsed.page
 			)
 			for (const item of workspaceItems) {
 				byKey.set(getWorkspaceItemKey(item.type, item.path, item.triggerKind), item)
 			}
 
-			for (const draft of await listGlobalDrafts(workspace)) {
-				if (!types.includes(draft.type)) continue
-				if (parsed.path_prefix && !draft.path.startsWith(parsed.path_prefix)) continue
-				byKey.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), {
-					...draft,
-					value: undefined
-				})
+			// Drafts are not paginated server-side; overlay them on page 1 only,
+			// capped at `limit` per type, so results stay bounded and later pages
+			// never repeat a page-1 item as its draft twin. Chat draft counts are
+			// small — past the cap, a narrower path_prefix still finds any draft
+			// (it filters before the cap; query filters after).
+			if ((parsed.page ?? 1) === 1) {
+				const draftCountByType = new Map<string, number>()
+				for (const draft of await listGlobalDrafts(workspace)) {
+					if (!types.includes(draft.type)) continue
+					if (parsed.path_prefix && !draft.path.startsWith(parsed.path_prefix)) continue
+					const count = draftCountByType.get(draft.type) ?? 0
+					if (count >= limit) continue
+					draftCountByType.set(draft.type, count + 1)
+					byKey.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), {
+						...draft,
+						value: undefined
+					})
+				}
 			}
 
-			const results = Array.from(byKey.values())
-				.filter((item) => itemMatches(item, parsed.query))
-				.slice(0, limit)
+			// No cross-type truncation: each type is already capped at `limit` rows by
+			// its own list call, and slicing the concatenation would silently drop the
+			// later types' rows while their next page skips past them.
+			const results = Array.from(byKey.values()).filter((item) => itemMatches(item, parsed.query))
 
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Listed ${results.length} workspace item(s)`
@@ -2348,7 +2448,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			readWorkspaceItemSchema,
 			'read_workspace_item',
-			'Read one workspace item or draft.'
+			'Read one workspace item or draft. Prefers your draft when one exists; pass version: "deployed" to read the deployed state instead.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = readWorkspaceItemSchema.parse(args)
@@ -2357,7 +2457,10 @@ export const globalTools: Tool<{}>[] = [
 				toolCallbacks.setToolStatus(toolId, { content: message, error: message })
 				return JSON.stringify({ success: false, error: message })
 			}
-			const draft = await getGlobalDraft(workspace, parsed.type, parsed.path, parsed.trigger_kind)
+			const draft =
+				parsed.version === 'deployed'
+					? null
+					: await getGlobalDraft(workspace, parsed.type, parsed.path, parsed.trigger_kind)
 			if (draft) {
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Read draft ${parsed.type} "${parsed.path}"`
@@ -2368,7 +2471,13 @@ export const globalTools: Tool<{}>[] = [
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Reading ${parsed.type} "${parsed.path}"...`
 			})
-			const item = await readWorkspaceItem(parsed.type, parsed.path, workspace, parsed.trigger_kind)
+			const item = await readWorkspaceItem(
+				parsed.type,
+				parsed.path,
+				workspace,
+				parsed.trigger_kind,
+				parsed.version === 'deployed'
+			)
 			toolCallbacks.setToolStatus(toolId, { content: `Read ${parsed.type} "${parsed.path}"` })
 			return JSON.stringify(serializeWorkspaceItemForRead(item), null, 2)
 		}
@@ -2749,6 +2858,11 @@ export const globalTools: Tool<{}>[] = [
 			)
 		}
 	},
+	createDbSchemaTool<{}>({
+		description:
+			'Fetch the schema (tables and columns) of a database resource by its path. Supports postgresql, mysql, ms_sql_server, snowflake and bigquery resources.',
+		updateEditorCache: false
+	}),
 	{
 		def: createToolDef(
 			readFlowModuleCodeSchema,
@@ -2945,6 +3059,60 @@ export const globalTools: Tool<{}>[] = [
 	},
 	{
 		def: createToolDef(
+			searchDomSchema,
+			'search_dom',
+			'Search the live rendered HTML of the raw app preview open in this AI session with a regex, returning matching lines with their line numbers. Use it to check what actually rendered (verify an edit landed, diagnose a blank/empty view). Scope to an element with `selector`, or omit it for the whole page. The DOM is read live, so it reflects the current state.'
+		),
+		showDetails: true,
+		fn: async (ctx) => {
+			const parsed = searchDomSchema.parse(ctx.args)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Searching app DOM...' })
+			const result = await getSessionDom(
+				{
+					mode: 'search',
+					appPath: parsed.app_path,
+					selector: parsed.selector,
+					pattern: parsed.pattern,
+					ignoreCase: parsed.ignore_case
+				},
+				sessionIdFromCtx(ctx)
+			)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+				content: result.uiMessage,
+				result: result.toolResult
+			})
+			return result.aiResult
+		}
+	},
+	{
+		def: createToolDef(
+			readDomSchema,
+			'read_dom',
+			'Read a bounded window of the live rendered HTML of the raw app preview open in this AI session, pretty-printed and line-numbered. Scope to an element with `selector`, or omit it for the whole page. Use search_dom first to locate content, then read_dom to see a specific region. The DOM is read live.'
+		),
+		showDetails: true,
+		fn: async (ctx) => {
+			const parsed = readDomSchema.parse(ctx.args)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Reading app DOM...' })
+			const result = await getSessionDom(
+				{
+					mode: 'read',
+					appPath: parsed.app_path,
+					selector: parsed.selector,
+					startLine: parsed.start_line,
+					endLine: parsed.end_line
+				},
+				sessionIdFromCtx(ctx)
+			)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+				content: result.uiMessage,
+				result: result.toolResult
+			})
+			return result.aiResult
+		}
+	},
+	{
+		def: createToolDef(
 			takeScreenshotSchema,
 			'take_screenshot',
 			// Keep this short: every global session iteration re-sends it. How to read
@@ -2994,7 +3162,10 @@ export const globalTools: Tool<{}>[] = [
 	// Workspace-scoped datatable tools (unrestricted: no whitelist, no creation policy)
 	...getDatatableTools(),
 	// Read-only tools over files the user attached to the conversation
-	...fileTools
+	...fileTools,
+	// Search + call access to the backend API endpoint catalog, for operations
+	// no dedicated tool covers
+	...apiCatalogTools
 ]
 
 // Tools that only make sense inside an AI session (they drive the session's
@@ -3006,6 +3177,8 @@ export const SESSION_PREVIEW_TOOL_NAMES = new Set([
 	'close_page',
 	'get_app_runtime_logs',
 	'list_app_runs',
+	'search_dom',
+	'read_dom',
 	'take_screenshot',
 	'create_artifact',
 	'update_artifact',
@@ -3250,6 +3423,32 @@ function getSessionAppRuns(
 		})
 	}
 	return Promise.resolve(listAppRunsHandler({ sessionId, limit }))
+}
+
+export type GetDomHandler = (req: {
+	sessionId: string | undefined
+	query: RawAppDomQuery
+}) => Promise<SessionToolResult>
+
+let getDomHandler: GetDomHandler | undefined
+
+export function setGetDomHandler(handler: GetDomHandler | undefined): void {
+	getDomHandler = handler
+}
+
+function getSessionDom(
+	query: RawAppDomQuery,
+	sessionId: string | undefined
+): Promise<SessionToolResult> {
+	if (!getDomHandler) {
+		return Promise.resolve({
+			aiResult:
+				'Error: search_dom and read_dom are only available inside an AI session. Tell the user the rendered DOM can only be read from a session preview, or switch to a session and open the raw app preview.',
+			uiMessage: 'DOM unavailable',
+			toolResult: 'DOM unavailable'
+		})
+	}
+	return getDomHandler({ sessionId, query })
 }
 
 export type SessionScreenshotResult = { dataUrl?: string; error?: string; uiMessage?: string }
@@ -5383,6 +5582,17 @@ export function prepareGlobalUserMessage(
 						? 'flow'
 						: 'raw_app'
 			content += `- type: ${itemType}, path: ${context.path}\n`
+		}
+		content += '\n'
+	}
+
+	const domSelectors = selectedContext.filter((c) => c.type === 'app_dom_selector')
+	if (domSelectors.length > 0) {
+		content += '## SELECTED DOM ELEMENTS\n'
+		content +=
+			"The user pointed at these elements in the live raw app preview. Their HTML is not included here — inspect it live with search_dom / read_dom, passing the element's `app_path` and `selector` so the right app's preview is read.\n"
+		for (const el of domSelectors) {
+			content += `- ${el.title} — app_path: ${el.appPath}, selector: ${el.selector}\n`
 		}
 		content += '\n'
 	}

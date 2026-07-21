@@ -1,5 +1,5 @@
 import type { ScriptLang } from '$lib/gen/types.gen'
-import { WorkspaceService, JobService, type CompletedJob } from '$lib/gen'
+import { JobService, type CompletedJob } from '$lib/gen'
 import type { FlowOptions, ScriptOptions } from './ContextManager.svelte'
 import {
 	flowTools,
@@ -45,6 +45,7 @@ import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
 import { workspaceAIClients, getNonStreamingCompletion } from '../lib'
+import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { modelSupportsVision } from '../modelConfig'
 import { getKnownModelContextWindow } from '../modelConfig'
 import {
@@ -320,6 +321,10 @@ function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean)
 	return appendWebSearchErrorHint(message, webSearchUnavailable)
 }
 
+/** A message queued while a turn streams: text, images and the pinned context
+ * snapshot always move together so a flush can't drop one. */
+type QueuedEntry = { text: string; images: AttachedImage[]; context: ContextElement[] | undefined }
+
 export class AIChatManager {
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
@@ -343,6 +348,10 @@ export class AIChatManager {
 	// the turn finishes (clean completion or user cancel). Ephemeral — never
 	// saved to displayMessages or history.
 	queuedMessage = $state<string>('')
+	// Context snapshot to send WITH the queued message, when it must stay scoped to
+	// what was selected at queue time (e.g. an inline element prompt submitted mid-
+	// stream) rather than the live selection, which may change before the flush.
+	queuedContext = $state<ContextElement[] | undefined>(undefined)
 	// Images attached to that message. Kept beside the text rather than inside it
 	// because the queued chip renders `queuedMessage` as a plain string. Always
 	// move the two together — #takeQueue/#clearQueue/#restoreQueue exist so no
@@ -619,8 +628,26 @@ export class AIChatManager {
 	updateJob = (jobId: string, update: Partial<ChatJob>) => {
 		const idx = this.backgroundJobs.findIndex((j) => j.jobId === jobId)
 		if (idx === -1) return
+		const wasTerminal = !this.isJobNonTerminal(this.backgroundJobs[idx].status)
 		this.backgroundJobs[idx] = { ...this.backgroundJobs[idx], ...update }
 		this.backgroundJobs = [...this.backgroundJobs]
+		// Persist on the transition to terminal: a job that completes inside the
+		// inline wait never hits the detach/poller persist paths, and would
+		// otherwise vanish from the tray on reload.
+		if (!wasTerminal && !this.isJobNonTerminal(this.backgroundJobs[idx].status)) {
+			void this.#persistBackgroundJobs()
+		}
+	}
+
+	/** Mark finished jobs as reviewed (their terminal status was shown in the
+	 * jobs popover) and persist, so the chip stays relaxed across reloads. */
+	markJobsReviewed = (jobIds: string[]) => {
+		const ids = new Set(jobIds)
+		if (!this.backgroundJobs.some((j) => ids.has(j.jobId) && !j.reviewed)) return
+		this.backgroundJobs = this.backgroundJobs.map((j) =>
+			ids.has(j.jobId) && !j.reviewed ? { ...j, reviewed: true } : j
+		)
+		void this.#persistBackgroundJobs()
 	}
 
 	/** A job left the inline wait — hand it to the background poller. */
@@ -1276,6 +1303,7 @@ export class AIChatManager {
 			const accepted = await this.sendRequest({
 				instructions: next.text,
 				images: next.images,
+				contextOverride: next.context,
 				queued: true
 			})
 			if (accepted === false) {
@@ -1415,7 +1443,7 @@ export class AIChatManager {
 	 * one queued message; pressing Enter again appends the new text as another
 	 * line so it all goes out as a single message, and its images accumulate
 	 * alongside it. */
-	queueMessage(text: string, images: AttachedImage[] = []) {
+	queueMessage(text: string, images: AttachedImage[] = [], context?: ContextElement[]) {
 		const trimmed = text.trim()
 		// An image with no text is still a message; only a fully empty send is ignored.
 		if (!trimmed && images.length === 0) {
@@ -1431,6 +1459,31 @@ export class AIChatManager {
 			}
 			this.queuedImages = merged.slice(0, MAX_ATTACHED_IMAGES)
 		}
+		// Pin the context snapshot to the queued message. The queued text accumulates
+		// (several inline prompts can queue during one stream), so union the DOM
+		// selector chips too — replacing would drop an earlier prompt's element and
+		// misapply its instruction. Non-DOM context comes from the latest snapshot.
+		if (context && context.length > 0) {
+			if (!this.queuedContext) {
+				this.queuedContext = context
+			} else {
+				const merged = [...context]
+				for (const c of this.queuedContext) {
+					if (
+						c.type === 'app_dom_selector' &&
+						!merged.some(
+							(m) =>
+								m.type === 'app_dom_selector' &&
+								m.selector === c.selector &&
+								m.appPath === c.appPath
+						)
+					) {
+						merged.push(c)
+					}
+				}
+				this.queuedContext = merged
+			}
+		}
 	}
 
 	/** Whether anything is waiting in the queue — an image-only message has empty text. */
@@ -1438,9 +1491,13 @@ export class AIChatManager {
 		return this.queuedMessage !== '' || this.queuedImages.length > 0
 	}
 
-	/** Detach the queue for sending. Text and images always leave together. */
-	#takeQueue(): { text: string; images: AttachedImage[] } {
-		const taken = { text: this.queuedMessage, images: this.queuedImages }
+	/** Detach the queue for sending. Text, images and context always leave together. */
+	#takeQueue(): QueuedEntry {
+		const taken = {
+			text: this.queuedMessage,
+			images: this.queuedImages,
+			context: this.queuedContext
+		}
 		this.#clearQueue()
 		return taken
 	}
@@ -1448,12 +1505,39 @@ export class AIChatManager {
 	#clearQueue() {
 		this.queuedMessage = ''
 		this.queuedImages = []
+		this.queuedContext = undefined
 	}
 
 	/** Put a taken queue back after an auto-send bailed before becoming a turn. */
-	#restoreQueue(queued: { text: string; images: AttachedImage[] }) {
+	#restoreQueue(queued: QueuedEntry) {
 		this.queuedMessage = queued.text
 		this.queuedImages = queued.images
+		this.queuedContext = queued.context
+	}
+
+	/** Put a draft's pinned DOM selector chips back as the live selection, so the
+	 * restored draft and the selection stay coherent (its instruction targets the
+	 * element it was written for). No-op when the draft pinned no DOM chips, so a
+	 * plain-text draft leaves the live selection untouched.
+	 *
+	 * `keepExisting` when the restored text was merged into a draft the user was
+	 * already writing: that draft's own chips must survive alongside, or its
+	 * instruction — still sitting in the composer — would be retargeted at this
+	 * draft's element. Otherwise the restore replaces, since any chip selected
+	 * since belongs to a draft that is being replaced too. */
+	#restoreDomContext(context: ContextElement[] | undefined, keepExisting = false) {
+		const domChips = (context ?? []).filter((c) => c.type === 'app_dom_selector')
+		if (domChips.length === 0) return
+		const existing = keepExisting
+			? (this.contextManager?.getSelectedContext().filter((c) => c.type === 'app_dom_selector') ??
+				[])
+			: []
+		this.contextManager?.clearSelectedDomElements()
+		// addSelectedDomElement dedups on (selector, appPath), so a chip both drafts
+		// share collapses to one.
+		for (const c of [...domChips, ...existing]) {
+			this.contextManager?.addSelectedDomElement(c)
+		}
 	}
 
 	/** Remove the queued message and put it back into the input, images included. */
@@ -1462,19 +1546,24 @@ export class AIChatManager {
 			return
 		}
 		const queued = this.#takeQueue()
-		this.restoreToInput(queued.text, queued.images)
+		const mergedIntoDraft = this.restoreToInput(queued.text, queued.images)
+		// The queued draft pinned its own DOM context; restore it so sending from
+		// the composer targets the element the draft was written for, not whatever
+		// is selected now. If its text was prepended onto an existing draft, that
+		// draft's chips are kept too — both instructions now share one composer.
+		this.#restoreDomContext(queued.context, mergedIntoDraft)
 	}
 
 	/** Put what the user typed back where they can see it: into the input
 	 * when it's mounted, otherwise back into the queue so it reappears with
 	 * the chat panel instead of being silently dropped. */
-	private restoreToInput(text: string, images: AttachedImage[] = []) {
+	private restoreToInput(text: string, images: AttachedImage[] = []): boolean {
 		if (this.aiChatInput) {
-			this.aiChatInput.prependText(text, images)
-		} else {
-			this.queuedMessage = text
-			this.queuedImages = images
+			return this.aiChatInput.prependText(text, images) === true
 		}
+		this.queuedMessage = text
+		this.queuedImages = images
+		return false
 	}
 
 	focusInput() {
@@ -1863,12 +1952,12 @@ export class AIChatManager {
 		pastes: PasteAttachment[],
 		restoreToInput: boolean = true,
 		images: AttachedImage[] = []
-	) => {
+	): boolean => {
 		this.displayMessages = this.displayMessages.slice(0, displayLenAfterUser - 1)
 		this.messages = this.messages.slice(0, modelLenAfterUser - 1)
-		if (restoreToInput) {
-			this.aiChatInput?.restoreInstructions(instructions, pastes, images)
-		}
+		if (!restoreToInput) return false
+		// An occupied composer declines the restore and keeps its own draft.
+		return this.aiChatInput?.restoreInstructions(instructions, pastes, images) === true
 	}
 
 	private notifyReasoningSummaryUnavailable = () => {
@@ -1990,6 +2079,13 @@ export class AIChatManager {
 					}
 				}
 			})
+			if (this.isSessionChat && this.sessionId && result.tokenUsage.total > 0) {
+				logFeatureUsage('ai_session', 'tokens', {
+					entityId: this.sessionId,
+					value: result.tokenUsage.total,
+					workspace: this.operatingWorkspace
+				})
+			}
 			return result
 		} catch (err) {
 			console.log('chatRequest error', err)
@@ -2105,6 +2201,16 @@ export class AIChatManager {
 			mode?: AIMode
 			lang?: ScriptLang | 'bunnative'
 			isPreprocessor?: boolean
+			// Use this selected-context snapshot for the turn instead of the live
+			// contextManager. Set when flushing a queued message that captured its
+			// context at submit time; the live selection is left untouched.
+			contextOverride?: ContextElement[]
+			/** Where `contextOverride` came from. 'pinned' (default): the chips were
+			 * selected for THIS message, so they are consumed from the live selection
+			 * on send. 'replay': an edit/retry resending an older message's context —
+			 * those chips were consumed long ago, and removing them again would strip
+			 * an identical selection the user has since made in the composer. */
+			contextOverrideOrigin?: 'pinned' | 'replay'
 			/** Auto-send of a queued draft: on preflight failure the caller re-queues
 			 * it, so the composer restore must not also fire (the draft would exist
 			 * twice — queue chip and composer). */
@@ -2280,6 +2386,7 @@ export class AIChatManager {
 				const accepted = await this.sendRequest({
 					instructions: next.text,
 					images: next.images,
+					contextOverride: next.context,
 					queued: true
 				})
 				if (accepted === false) this.#restoreQueue(next)
@@ -2302,7 +2409,32 @@ export class AIChatManager {
 		// rollbacks leave it false so queued text is restored to the input.
 		let turnCommittedCleanly = false
 		try {
-			const oldSelectedContext = this.contextManager?.getSelectedContext() ?? []
+			// A queued message carries its own context snapshot (contextOverride); use
+			// it verbatim and leave the live selection alone (it belongs to whatever the
+			// user has selected since). Otherwise read the current selection.
+			const oldSelectedContext =
+				options.contextOverride ?? this.contextManager?.getSelectedContext() ?? []
+			// DOM selector chips are one-shot: they ride with this message (captured in
+			// oldSelectedContext) and render above it, but must not persist in the input
+			// for the next turn. Clearing here leaves oldSelectedContext untouched.
+			if (options.contextOverrideOrigin === 'replay') {
+				// Edit/retry: the override is a copy of an already-sent message's
+				// context, consumed on its original send. The live selection belongs to
+				// the composer's own draft — touching it here would strip it.
+			} else if (options.contextOverride) {
+				// Queued message: only the chips it carried are consumed. Drop just
+				// those from the live selection (still there if the user didn't
+				// re-select); a newer selection made since is left intact.
+				for (const c of options.contextOverride) {
+					if (c.type === 'app_dom_selector') {
+						// Match appPath too: another app's live chip can share this
+						// selector, and dropping it would discard a newer selection.
+						this.contextManager?.removeSelectedDomElement(c.selector, c.appPath)
+					}
+				}
+			} else {
+				this.contextManager?.clearSelectedDomElements()
+			}
 			if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
 				this.contextManager?.updateContextOnRequest(options)
 			}
@@ -2311,15 +2443,29 @@ export class AIChatManager {
 
 			const model = tryGetCurrentModel()
 			if (model) {
-				WorkspaceService.logAiChat({
-					workspace: this.operatingWorkspace ?? '',
-					requestBody: {
-						session_id: this.historyManager.getCurrentChatId(),
-						provider: model.provider,
-						model: model.model,
-						mode: this.mode
-					}
-				}).catch(() => {})
+				const chatId = this.historyManager.getCurrentChatId()
+				logFeatureUsage('ai_chat', 'message', {
+					key: this.mode,
+					entityId: chatId,
+					workspace: this.operatingWorkspace
+				})
+				logFeatureUsage('ai_chat', 'model', {
+					key: `${model.provider}:${model.model}`,
+					entityId: chatId,
+					workspace: this.operatingWorkspace
+				})
+			}
+			if (this.isSessionChat && this.sessionId) {
+				logFeatureUsage('ai_session', 'message', {
+					key: this.mode,
+					entityId: this.sessionId,
+					workspace: this.operatingWorkspace
+				})
+				logFeatureUsage('ai_session', 'autonomy', {
+					key: this.autonomyMode,
+					entityId: this.sessionId,
+					workspace: this.operatingWorkspace
+				})
 			}
 
 			if (this.mode === AIMode.FLOW && !this.flowAiChatHelpers) {
@@ -2629,7 +2775,7 @@ export class AIChatManager {
 				// about to auto-send (see the flush below) — drop the rolled-back
 				// prompt instead of restoring it to the input so the handoff is clean.
 				const willAutoSendQueued = this.wasCancelledByUser() && this.#hasQueuedMessage()
-				this.restoreUnsentTurn(
+				const textRestored = this.restoreUnsentTurn(
 					displayLenAfterUser,
 					modelLenAfterUser,
 					sentInstructions,
@@ -2637,6 +2783,18 @@ export class AIChatManager {
 					!willAutoSendQueued,
 					sentImages
 				)
+				// restoreUnsentTurn hands the text/pastes/images back for a resend, but
+				// the DOM selector chips were already consumed from the live selection
+				// before the request went out. Restore this turn's own chips so the
+				// resend keeps its element scope — replacing (not merging) any chips
+				// selected during the stream, so the restored draft stays coherent.
+				// Only when the composer actually took the text back: on a queued-message
+				// handoff, or when a draft typed during the stream made the composer
+				// decline, this prompt is dropped — restoring its chips would then
+				// retarget whatever draft is sitting there.
+				if (textRestored) {
+					this.#restoreDomContext(oldSelectedContext)
+				}
 				if (this.displayMessages.length === 0) {
 					// saveChat no-ops on an empty transcript; the chat persisted earlier
 					// this turn would linger in history and resurface the rolled-back
@@ -2759,6 +2917,7 @@ export class AIChatManager {
 			const accepted = await this.sendRequest({
 				instructions: next.text,
 				images: next.images,
+				contextOverride: next.context,
 				queued: true
 			})
 			if (accepted === false) {
@@ -2832,7 +2991,8 @@ export class AIChatManager {
 		displayMessageIndex: number,
 		newContent?: string,
 		pastes?: PasteAttachment[],
-		images?: AttachedImage[]
+		images?: AttachedImage[],
+		editedContext?: ContextElement[]
 	) => {
 		const userMessage = this.displayMessages[displayMessageIndex]
 
@@ -2866,10 +3026,19 @@ export class AIChatManager {
 		// error, which rewinds through here.
 		this.contextUsage = undefined
 
-		// Resend the request with the same instructions
+		// Resend with the message's context, not the live selection. DOM selector
+		// chips (and other context) are one-shot — cleared from the live selection
+		// after the first send — so reading the current selection would lose or swap
+		// the element the message was about. An edit passes `editedContext` (the edit
+		// box was seeded from this message's chips and the user may have changed
+		// them); a bare Retry passes nothing and falls back to the original
+		// contextElements. `undefined` for modes that don't attach context leaves the
+		// live-selection behavior. An empty array is a deliberate "no context".
 		this.instructions = newContent ?? userMessage.content
 		this.sendRequest({
 			pastes: pastes ?? userMessage.pastes,
+			contextOverride: editedContext ?? userMessage.contextElements,
+			contextOverrideOrigin: 'replay',
 			images: images ?? sentImages
 		})
 	}

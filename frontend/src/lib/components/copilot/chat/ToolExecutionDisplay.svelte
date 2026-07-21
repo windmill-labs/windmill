@@ -10,6 +10,7 @@
 	import ToolContentDisplay from './ToolContentDisplay.svelte'
 	import ToolMessageActions from './ToolMessageActions.svelte'
 	import AskUserQuestionDisplay from './AskUserQuestionDisplay.svelte'
+	import WebSearchSourcesDisplay from './WebSearchSourcesDisplay.svelte'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 
 	interface Props {
@@ -153,6 +154,8 @@
 
 					{#if visibleActions.length > 0}
 						<ToolMessageActions actions={visibleActions} />
+					{:else if message.webSearchSources?.length && !message.error}
+						<WebSearchSourcesDisplay sources={message.webSearchSources} />
 					{:else}
 						<ToolContentDisplay
 							title="Result"
