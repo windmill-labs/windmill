@@ -565,6 +565,22 @@ describe('AttachedFilesStore', () => {
 		expect(store.standalone.map((f) => f.name)).toEqual(['a b.md'])
 	})
 
+	it('links two distinct files whose raw names sanitize identically', async () => {
+		// A display-name collision is NOT a duplicate: dedupe requires matching
+		// file stats, so the second file claims a suffixed name instead of being
+		// silently discarded — and re-linking either original still dedupes.
+		await store.addFiles([file('a\nb.md', 'first\n', 1)])
+		await settle(store)
+		await store.addFiles([file('a\tb.md', 'second!\n', 2)])
+		await settle(store)
+		expect(store.standalone.map((f) => f.name).sort()).toEqual(['a b (2).md', 'a b.md'])
+
+		// Re-link of the suffixed file matches via its pre-suffix sourceName.
+		await store.addFiles([file('a\tb.md', 'second!\n', 2)])
+		await settle(store)
+		expect(store.standalone).toHaveLength(2)
+	})
+
 	it('restore claims names, keeping legacy rows that sanitize identically distinct', async () => {
 		const { getItemsForSession } = await import('./attachedFilesDB')
 		const record = (id: string, name: string) => ({
