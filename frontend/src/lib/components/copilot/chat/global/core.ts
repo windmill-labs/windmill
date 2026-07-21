@@ -5815,10 +5815,22 @@ interface DiffSearchUnit {
 }
 
 function collectDiffSearchUnits(
-	entries: Array<{ path: string; patch?: string; files?: Record<string, DiffFileView> }>,
-	out: DiffSearchUnit[]
+	entries: Array<{
+		path: string
+		status?: string
+		patch?: string
+		files?: Record<string, DiffFileView>
+	}>,
+	out: DiffSearchUnit[],
+	failedPaths: string[]
 ): void {
 	for (const e of entries) {
+		// A failed materialization has no patch — claiming "no matches" for it
+		// would present an incomplete search as a definitive one.
+		if (e.status === 'error') {
+			failedPaths.push(e.path)
+			continue
+		}
 		if (e.files) {
 			for (const [name, fileDiff] of Object.entries(e.files)) {
 				// App file keys lead with '/'; a raw join would yield `f/x//file`,
@@ -5852,6 +5864,7 @@ async function diffSearch(
 	toolCallbacks.setToolStatus(toolId, { content: `Searching diffs for "${query}"...` })
 
 	const units: DiffSearchUnit[] = []
+	const failedPaths: string[] = []
 	let unflushedNote = ''
 	if (args.against === 'parent_workspace') {
 		const parent = forkParentOrThrow(workspace)
@@ -5861,7 +5874,7 @@ async function diffSearch(
 			toolCallbacks.setToolStatus(toolId, { content: message })
 			return message
 		}
-		collectDiffSearchUnits(index.entries, units)
+		collectDiffSearchUnits(index.entries, units, failedPaths)
 	} else {
 		const { unflushedPaths } = await flushGlobalDraftSaves(workspace)
 		expireWorkspaceDiffList(workspace)
@@ -5869,7 +5882,10 @@ async function diffSearch(
 			unflushedNote = `\nWarning: unsaved editor changes on ${unflushedPaths.join(', ')} were not searched (auto-save off, a save failed, or a conflict is unresolved).`
 		}
 		const index = await getWorkspaceDiffIndex(workspace, { materializeAll: true })
-		collectDiffSearchUnits(index.entries, units)
+		collectDiffSearchUnits(index.entries, units, failedPaths)
+	}
+	if (failedPaths.length > 0) {
+		unflushedNote += `\nWarning: ${failedPaths.length === 1 ? 'this diff' : 'these diffs'} could not be computed and ${failedPaths.length === 1 ? 'was' : 'were'} NOT searched (matches may be missing): ${failedPaths.join(', ')}. Retry, or read the item${failedPaths.length === 1 ? '' : 's'} directly for the error.`
 	}
 	const filtered = args.file_glob
 		? units.filter((u) => appFileMatchesGlob(u.subject, args.file_glob as string))
