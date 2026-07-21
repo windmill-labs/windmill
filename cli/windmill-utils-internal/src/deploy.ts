@@ -28,7 +28,6 @@ export type DeployKind =
   | "nats_trigger"
   | "postgres_trigger"
   | "mqtt_trigger"
-  | "amqp_trigger"
   | "sqs_trigger"
   | "gcp_trigger"
   | "azure_trigger"
@@ -41,7 +40,6 @@ export const TRIGGER_KINDS = [
   "nats_trigger",
   "postgres_trigger",
   "mqtt_trigger",
-  "amqp_trigger",
   "sqs_trigger",
   "gcp_trigger",
   "azure_trigger",

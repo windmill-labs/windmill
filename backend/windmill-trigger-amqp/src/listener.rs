@@ -115,6 +115,9 @@ impl Listener for AmqpTrigger {
                         )
                         .await;
 
+                    // Ack unconditionally regardless of the dispatch result:
+                    // native triggers are at-most-once, matching the SQS listener.
+
                     if let Err(err) = delivery.acker.ack(BasicAckOptions::default()).await {
                         let error = err.to_string();
                         tracing::error!(
