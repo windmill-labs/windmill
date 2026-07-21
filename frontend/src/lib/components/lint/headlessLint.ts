@@ -19,7 +19,11 @@ import {
 	readThrough,
 	releaseOwnedModel
 } from './headlessModelHost'
-import { ensureCustomWmillTypes, ensureResourceTypeNamespace } from './typescriptExtraLibs'
+import {
+	ensureCustomWmillTypes,
+	ensureResourceTypeNamespace,
+	snapshotWorkspaceExtraLibs
+} from './typescriptExtraLibs'
 import { ataSeedImport, createWindmillAta, genAtaRoot } from './typescriptAta'
 import { lintWithLsp } from './headlessLsp'
 
@@ -140,18 +144,10 @@ async function lintOne(
 	// Otherwise lint an owned model.
 	const uri = acquireOwnedModel(ownedUri, req.content, editorLang)
 	try {
-		// Bounded: these fetch over the network, and lints of one URI are serialized behind
-		// each other, so one hung request would wedge the tool for that item indefinitely.
-		if (editorLang === 'typescript') {
-			await withDeadline(
-				Promise.all([
-					ensureResourceTypeNamespace(req.workspace, req.scriptLang),
-					ensureCustomWmillTypes(req.workspace)
-				]).catch((e) => console.error('headlessLint: extra libs unavailable', e)),
-				timeoutMs
-			)
-		}
-
+		// Type acquisition writes workspace-agnostic global libs (npm types) and owned-namespace
+		// import models, so it stays outside the serialized section below. Bounded: it fetches
+		// over the network, and lints of one URI are serialized, so a hung request would wedge
+		// the tool for that item.
 		if (req.scriptLang === 'bun' || req.scriptLang === 'bunnative' || req.scriptLang === 'tsx') {
 			await withDeadline(
 				acquireTypes(req, ownedUri).catch((e) =>
@@ -161,16 +157,55 @@ async function lintOne(
 			)
 		}
 
-		const settled = await waitForMarkersToSettle(uri, editorLang, timeoutMs)
-		const result = readModelMarkers(uri)
-		// A worker that never came up leaves the markers empty for lack of analysis; report
-		// it as incomplete rather than let an empty set read as clean.
-		return settled
-			? { status: 'complete', result }
-			: { status: 'incomplete', result, missing: ['the TypeScript checker'] }
+		// JavaScript has no workspace-specific declarations; nothing to install or isolate.
+		if (editorLang !== 'typescript') {
+			return settleAndRead(uri, editorLang, timeoutMs)
+		}
+
+		// The resource-type and windmill-client declarations live at global URIs shared with the
+		// editor. Install this workspace's, settle+read, then restore — all under one lock so a
+		// concurrent lint of another workspace can neither observe nor clobber them.
+		return withWorkspaceTypes(async () => {
+			const restore = snapshotWorkspaceExtraLibs()
+			try {
+				await withDeadline(
+					Promise.all([
+						ensureResourceTypeNamespace(req.workspace, req.scriptLang),
+						ensureCustomWmillTypes(req.workspace)
+					]).catch((e) => console.error('headlessLint: extra libs unavailable', e)),
+					timeoutMs
+				)
+				return await settleAndRead(uri, editorLang, timeoutMs)
+			} finally {
+				restore()
+			}
+		})
 	} finally {
 		releaseOwnedModel(ownedUri)
 	}
+}
+
+async function settleAndRead(
+	uri: Uri,
+	editorLang: string,
+	timeoutMs: number
+): Promise<LintOutcome> {
+	const settled = await waitForMarkersToSettle(uri, editorLang, timeoutMs)
+	const result = readModelMarkers(uri)
+	// A worker that never came up leaves the markers empty for lack of analysis; report it as
+	// incomplete rather than let an empty set read as clean.
+	return settled
+		? { status: 'complete', result }
+		: { status: 'incomplete', result, missing: ['the TypeScript checker'] }
+}
+
+// Serializes the install → settle → restore of the global workspace declaration libs, so two
+// lints of different workspaces can't interleave and leave the wrong declarations resident.
+let workspaceTypesChain: Promise<unknown> = Promise.resolve()
+function withWorkspaceTypes<T>(run: () => Promise<T>): Promise<T> {
+	const task = workspaceTypesChain.catch(() => {}).then(run)
+	workspaceTypesChain = task.catch(() => {})
+	return task
 }
 
 async function acquireTypes(req: HeadlessLintRequest, uriString: string): Promise<void> {
@@ -186,7 +221,12 @@ async function acquireTypes(req: HeadlessLintRequest, uriString: string): Promis
 			root: await genAtaRoot(req.workspace),
 			scriptPath: editorPathOf(req),
 			modelUri: uriString,
-			absolutePathExtraLibs
+			absolutePathExtraLibs,
+			// An absolute import like "/f/shared" resolves via new URL() to the canonical editor
+			// URI file:///f/shared.ts — outside the __wmlint__ sandbox. If an editor owns that
+			// model, ATA must never write the fetched dependency over its (possibly unsaved,
+			// possibly other-workspace) buffer. Only create genuinely-missing import models.
+			overwriteLocalModels: () => false
 		})
 		ataByKey.set(key, ata)
 		const seed = ataSeedImport(req.scriptLang)
@@ -213,44 +253,64 @@ async function getWorkerFor(uri: Uri, editorLang: string) {
 	throw lastError ?? new Error('typescript worker unavailable')
 }
 
-async function countExpectedMarkers(uri: Uri, editorLang: string): Promise<number | undefined> {
+function normalizeCode(code: unknown): string {
+	if (code == null) return ''
+	if (typeof code === 'object') return String((code as { value?: unknown }).value ?? '')
+	return String(code)
+}
+
+// A diagnostic's identity: where it starts and its code. Counting markers is not enough —
+// an edit that swaps one error for another of the same count would otherwise look settled
+// while the old marker is still showing.
+async function expectedMarkerKeys(uri: Uri, editorLang: string): Promise<string[] | undefined> {
 	try {
 		const worker = await getWorkerFor(uri, editorLang)
+		const model = meditor.getModel(uri)
+		if (!model) return undefined
 		const fileName = uri.toString()
 		const [syntactic, semantic, suggestions] = await Promise.all([
 			worker.getSyntacticDiagnostics(fileName),
 			worker.getSemanticDiagnostics(fileName),
 			worker.getSuggestionDiagnostics(fileName)
 		])
-		return [...syntactic, ...semantic, ...suggestions].filter(
-			(d) => !TS_DIAGNOSTIC_CODES_TO_IGNORE.includes(d.code)
-		).length
+		return [...syntactic, ...semantic, ...suggestions]
+			.filter((d) => !TS_DIAGNOSTIC_CODES_TO_IGNORE.includes(d.code))
+			.map((d) => {
+				const pos = model.getPositionAt(d.start ?? 0)
+				return `${pos.lineNumber}:${pos.column}:${normalizeCode(d.code)}`
+			})
+			.sort()
 	} catch (e) {
 		console.error('headlessLint: could not query the typescript worker', e)
 		return undefined
 	}
 }
 
-// Ask the worker how many diagnostics it has and wait for that many markers to be
-// published. Clean code never fires a marker-change event, so there is no event to wait
-// on and a count is the only signal that validation has actually run.
-// Returns false when the worker could not be queried at all: the markers then read as
-// empty for lack of analysis, not because the code is clean, and the caller must not
-// report that as a clean result.
+// Wait until the published markers match the worker's current diagnostics by identity, not
+// just by count. Clean code never fires a marker-change event, so there is no event to wait
+// on and the worker is the only signal that validation has actually run.
+// Returns false when the worker could not be queried at all, or when the markers never
+// converged before the deadline: in both cases what is on the model is not a trustworthy
+// picture of this content's diagnostics, and the caller must not report it as clean.
 async function waitForMarkersToSettle(
 	uri: Uri,
 	editorLang: string,
 	timeoutMs: number
 ): Promise<boolean> {
-	const expected = await countExpectedMarkers(uri, editorLang)
+	const expected = await expectedMarkerKeys(uri, editorLang)
 	if (expected === undefined) return false
+	const expectedJoined = expected.join('\n')
 	const deadline = Date.now() + timeoutMs
 	while (Date.now() < deadline) {
-		const published = meditor.getModelMarkers({ resource: uri, owner: editorLang }).length
-		if (published === expected) return true
+		const published = meditor
+			.getModelMarkers({ resource: uri, owner: editorLang })
+			.map((m) => `${m.startLineNumber}:${m.startColumn}:${normalizeCode(m.code)}`)
+			.sort()
+			.join('\n')
+		if (published === expectedJoined) return true
 		await new Promise((r) => setTimeout(r, 50))
 	}
-	return true
+	return false
 }
 
 const APP_LINTABLE_FILE = /\.(tsx?|jsx?)$/

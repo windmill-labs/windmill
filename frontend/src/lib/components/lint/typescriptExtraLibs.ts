@@ -62,3 +62,28 @@ export function applyCustomWmillTypes(data: CustomWmillTypesData): () => void {
 export async function ensureCustomWmillTypes(workspace: string): Promise<void> {
 	applyCustomWmillTypes(await fetchCustomWmillTypesData(workspace))
 }
+
+// The two libs above are keyed by workspace but installed at these fixed, global URIs — an
+// editor and a headless lint of *different* workspaces would otherwise overwrite each other's
+// declarations. A headless lint snapshots them, installs its own, and restores afterwards so a
+// mounted editor keeps validating against its own workspace's types.
+const WORKSPACE_LIB_URIS = ['rt.d.ts', 'file:///custom_wmill_types.d.ts'] as const
+const NEUTRAL_LIB = 'export {};'
+
+export function snapshotWorkspaceExtraLibs(): () => void {
+	const libs = typescriptDefaults.getExtraLibs()
+	const saved = WORKSPACE_LIB_URIS.map((uri) => ({ uri, content: libs[uri]?.content }))
+	return () => {
+		const now = typescriptDefaults.getExtraLibs()
+		for (const { uri, content } of saved) {
+			if (content !== undefined) {
+				// Restore the prior content (a no-op when the lint left it unchanged).
+				typescriptDefaults.addExtraLib(content, uri)
+			} else if (now[uri] !== undefined) {
+				// The lint installed a lib where none existed; there is no editor declaration to
+				// restore, so neutralize it rather than leave one workspace's types resident.
+				typescriptDefaults.addExtraLib(NEUTRAL_LIB, uri)
+			}
+		}
+	}
+}
