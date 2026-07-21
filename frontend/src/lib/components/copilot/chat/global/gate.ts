@@ -30,17 +30,21 @@ export function isGlobalAiEnabled(): boolean {
 
 /** Persist the opt-out choice, then hard-reload so every gated site re-reads it. */
 export async function setSessionsBetaOptOut(optOut: boolean, target: string) {
+	// Navigate even when persistence throws (quota, private browsing) — the
+	// button must not be a silent no-op. The reload then shows the unchanged
+	// mode, which is the honest feedback that the toggle didn't stick.
+	let persisted = true
 	try {
 		if (optOut) localStorage.setItem(OPT_OUT_KEY, '1')
 		else localStorage.removeItem(OPT_OUT_KEY)
 	} catch {
-		return
+		persisted = false
 	}
 	// Best-effort telemetry on the same channel as chat messages (ai_chat_usage).
 	// Awaited with a cap: the hard navigation below would abort a fire-and-forget
 	// request, but a hanging API must not trap the user on the old mode either.
 	const workspace = get(workspaceStore)
-	if (workspace) {
+	if (persisted && workspace) {
 		await Promise.race([
 			WorkspaceService.logAiChat({
 				workspace,
