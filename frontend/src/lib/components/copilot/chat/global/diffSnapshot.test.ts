@@ -123,6 +123,32 @@ describe('getWorkspaceDiffIndex', () => {
 		expect(getDraftItems).toHaveBeenCalledTimes(2)
 	})
 
+	it('an in-flight listing fetch never serves rows that predate a mid-flight save', async () => {
+		let release!: () => void
+		const gate = new Promise<void>((res) => (release = res))
+		const oldRows = [row()]
+		const newRows = [row(), row({ path: 'f/a/created-mid-flight' })]
+		let call = 0
+		vi.mocked(getDraftItems).mockImplementation(async () => {
+			call++
+			if (call === 1) {
+				await gate
+				return oldRows as any
+			}
+			return newRows as any
+		})
+		mockDiffValues({ content: 'a' }, { content: 'b' })
+
+		const first = getWorkspaceDiffIndex(WS)
+		// A save lands while the first listing fetch is in flight...
+		markWorkspaceDiffEntryStale(WS, 'script', 'f/a/created-mid-flight')
+		release()
+		const index = await first
+		// ...so the result must reflect the post-save listing, not the stale rows.
+		expect(index.entries.map((e) => e.storagePath)).toContain('f/a/created-mid-flight')
+		expect(getDraftItems).toHaveBeenCalledTimes(2)
+	})
+
 	it('refetches a stale-marked entry immediately, despite every reuse window', async () => {
 		vi.mocked(getDraftItems).mockResolvedValue([row()] as any)
 		mockDiffValues({ content: 'a' }, { content: 'b' })

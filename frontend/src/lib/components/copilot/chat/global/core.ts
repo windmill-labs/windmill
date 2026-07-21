@@ -126,6 +126,7 @@ import {
 } from '$lib/utils_draft_deploy'
 import { changedLineIndices, draftDeployedPatch, windowPatch } from './draftDiff'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+import { invalidateWorkspaceComparison } from '$lib/workspaceComparison'
 import type { UserDraftItemKind } from '$lib/gen'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
@@ -5555,9 +5556,12 @@ async function diffWorkspaceIndex(
 			`Warning: unsaved editor changes on ${unflushedPaths.join(', ')} are NOT reflected here (auto-save off, a save failed, or a conflict is unresolved). Read the item with type+path to include them.`
 		)
 	}
+	const filtersActive = (args.types?.length ?? 0) > 0 || !!args.path_prefix
 	const summaryLine =
 		total === 0
-			? 'No drafts in this workspace — nothing differs from the deployed state.'
+			? filtersActive && index.entries.length > 0
+				? `No drafts match your filters (${index.entries.length} draft(s) exist in the workspace).`
+				: 'No drafts in this workspace — nothing differs from the deployed state.'
 			: `${total} draft(s) vs deployed:`
 	const result = [summaryLine, ...lines, ...notes].join('\n')
 	toolCallbacks.setToolStatus(toolId, {
@@ -5679,11 +5683,14 @@ async function diffForkIndex(
 			`Hidden items you lack permission to view also differ: ${index.hiddenAheadCount} ahead, ${index.hiddenBehindCount} behind (a conflicted item counts in both).`
 		)
 	}
+	const forkFiltersActive = (args.types?.length ?? 0) > 0 || !!args.path_prefix
 	const summaryLine =
 		total === 0
-			? hasHidden
-				? `No differences visible to you between this fork and its parent "${parent}" — but hidden items differ (see below).`
-				: `This fork matches its parent workspace "${parent}" — no differences.`
+			? forkFiltersActive && index.entries.length > 0
+				? `No differing items match your filters (${index.entries.length} differing item(s) exist).`
+				: hasHidden
+					? `No differences visible to you between this fork and its parent "${parent}" — but hidden items differ (see below).`
+					: `This fork matches its parent workspace "${parent}" — no differences.`
 			: `${total} item(s) differ between this fork and its parent "${parent}":`
 	const result = [summaryLine, ...lines, ...notes].join('\n')
 	toolCallbacks.setToolStatus(toolId, {
@@ -6318,6 +6325,9 @@ async function deleteWorkspaceItem(
 	}
 
 	await deleteGlobalDraft(workspace, type, path, triggerKind)
+	// Deployed state changed — cached fork comparisons involving this workspace
+	// are no longer trustworthy (same rule as deploy success).
+	invalidateWorkspaceComparison(workspace)
 
 	// Record the deletion in the chat's modified-items mask. In a fork this leaves a
 	// reviewable "removed" diff vs the parent that stays scoped to this chat. Keyed

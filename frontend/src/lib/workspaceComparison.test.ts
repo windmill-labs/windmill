@@ -92,6 +92,24 @@ describe('fetchWorkspaceComparison', () => {
 		expect(compareWorkspaces).toHaveBeenCalledTimes(2)
 	})
 
+	it('a superseded request fenced by invalidation cannot repopulate the cache late', async () => {
+		const superseded = deferred<unknown>()
+		compareWorkspaces.mockImplementationOnce(() => superseded.promise)
+		compareWorkspaces.mockResolvedValueOnce({ summary: { total_diffs: 5 } })
+		compareWorkspaces.mockResolvedValueOnce({ summary: { total_diffs: 6 } })
+
+		// Request A pends; forced request B replaces it in the inflight map and completes.
+		const a = fetchWorkspaceComparison('p', 'f-late', { maxAgeMs: 30_000 })
+		await fetchWorkspaceComparison('p', 'f-late', { maxAgeMs: 0 })
+		// Invalidation happens while A (no longer tracked in inflight) still pends.
+		invalidateWorkspaceComparison('f-late')
+		// A resolves late with pre-mutation data — it must NOT land in the cache.
+		superseded.resolve({ summary: { total_diffs: 0 } })
+		await a
+		const read = await fetchWorkspaceComparison('p', 'f-late', { maxAgeMs: 30_000 })
+		expect(read.summary.total_diffs).toBe(6)
+	})
+
 	it('tolerant callers join a recent in-flight request', async () => {
 		const first = deferred<unknown>()
 		compareWorkspaces.mockImplementationOnce(() => first.promise)

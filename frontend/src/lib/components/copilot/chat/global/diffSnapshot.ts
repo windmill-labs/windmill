@@ -229,6 +229,7 @@ interface CacheEntry {
 
 interface WorkspaceCache {
 	version: number
+	epoch: number
 	listFetchedAt: number
 	entries: Map<string, CacheEntry>
 	otherUsersDraftCount: number
@@ -236,6 +237,18 @@ interface WorkspaceCache {
 
 const caches = new Map<string, WorkspaceCache>()
 const reconciling = new Map<string, Promise<WorkspaceCache>>()
+// Bumped on every invalidation. Producers capture it at start and refuse to
+// store results whose inputs predate a mutation — ONE fence for every async
+// producer instead of bespoke per-surface races.
+const mutationEpochs = new Map<string, number>()
+
+function mutationEpoch(workspace: string): number {
+	return mutationEpochs.get(workspace) ?? 0
+}
+
+function bumpMutationEpoch(workspace: string): void {
+	mutationEpochs.set(workspace, mutationEpoch(workspace) + 1)
+}
 
 function entryKey(kind: UserDraftItemKind, storagePath: string): string {
 	return `${kind}:${storagePath}`
@@ -250,6 +263,7 @@ function entryKey(kind: UserDraftItemKind, storagePath: string): string {
 export function expireWorkspaceDiffList(workspace: string): void {
 	const cache = caches.get(workspace)
 	if (cache) cache.listFetchedAt = 0
+	bumpMutationEpoch(workspace)
 }
 
 /** Mark one item's cached patch stale and expire the listing throttle, so the
@@ -261,6 +275,7 @@ export function markWorkspaceDiffEntryStale(
 	itemKind: UserDraftItemKind,
 	path: string
 ): void {
+	bumpMutationEpoch(workspace)
 	const cache = caches.get(workspace)
 	if (cache) {
 		cache.listFetchedAt = 0
@@ -314,47 +329,68 @@ async function mapPool<T>(
 /** Refetch the workspace draft rows and rebuild the entry map, carrying over
  * each cached patch whose draft row is provably unchanged. */
 async function reconcile(workspace: string): Promise<WorkspaceCache> {
-	const prev = caches.get(workspace)
-	const version = getWorkspaceDraftsVersion(workspace)
-	if (prev && prev.version === version && Date.now() - prev.listFetchedAt < LIST_REUSE_MS) {
-		return prev
-	}
-	const inflight = reconciling.get(workspace)
-	if (inflight) return inflight
-	const run = (async () => {
-		const rows = await getDraftItems(workspace, true)
-		const mine = rows.filter((r) => r.mine)
-		const entries = new Map<string, CacheEntry>()
-		for (const row of mine) {
-			const key = entryKey(row.kind, row.path)
-			const old = prev?.entries.get(key)
-			const reusable =
-				old && prev!.version === version && old.row.created_at === row.created_at
-					? old.materialized
-					: undefined
-			const addressing = itemTypeForKind(row.kind)
-			entries.set(key, {
-				row,
-				type: addressing?.type,
-				triggerKind: addressing?.triggerKind,
-				displayPath: row.draft_path || row.path,
-				materialized: reusable
-			})
+	// Retry loop: a joiner re-validates after awaiting, and a producer refuses
+	// to store results whose inputs predate a mutation (epoch moved mid-fetch).
+	// Bounded: each retry needs another concurrent mutation, and the final
+	// attempt's result is served regardless so a save storm cannot livelock us.
+	for (let attempt = 0; ; attempt++) {
+		const prev = caches.get(workspace)
+		const version = getWorkspaceDraftsVersion(workspace)
+		const epoch = mutationEpoch(workspace)
+		if (
+			prev &&
+			prev.version === version &&
+			prev.epoch === epoch &&
+			Date.now() - prev.listFetchedAt < LIST_REUSE_MS
+		) {
+			return prev
 		}
-		const cache: WorkspaceCache = {
-			version,
-			listFetchedAt: Date.now(),
-			entries,
-			otherUsersDraftCount: rows.length - mine.length
+		const inflight = reconciling.get(workspace)
+		if (inflight) {
+			const joined = await inflight
+			if (joined.epoch === mutationEpoch(workspace) || attempt >= 4) return joined
+			continue
 		}
-		caches.set(workspace, cache)
-		return cache
-	})()
-	reconciling.set(workspace, run)
-	try {
-		return await run
-	} finally {
-		reconciling.delete(workspace)
+		const run = (async () => {
+			const rows = await getDraftItems(workspace, true)
+			const mine = rows.filter((r) => r.mine)
+			const entries = new Map<string, CacheEntry>()
+			for (const row of mine) {
+				const key = entryKey(row.kind, row.path)
+				const old = prev?.entries.get(key)
+				const reusable =
+					old && prev!.version === version && old.row.created_at === row.created_at
+						? old.materialized
+						: undefined
+				const addressing = itemTypeForKind(row.kind)
+				entries.set(key, {
+					row,
+					type: addressing?.type,
+					triggerKind: addressing?.triggerKind,
+					displayPath: row.draft_path || row.path,
+					materialized: reusable
+				})
+			}
+			return {
+				version,
+				epoch,
+				listFetchedAt: Date.now(),
+				entries,
+				otherUsersDraftCount: rows.length - mine.length
+			} satisfies WorkspaceCache
+		})()
+		reconciling.set(workspace, run)
+		let cache: WorkspaceCache
+		try {
+			cache = await run
+		} finally {
+			if (reconciling.get(workspace) === run) reconciling.delete(workspace)
+		}
+		if (mutationEpoch(workspace) === epoch || attempt >= 4) {
+			caches.set(workspace, cache)
+			return cache
+		}
+		// Inputs predate a mutation that landed mid-fetch: refetch.
 	}
 }
 
@@ -674,21 +710,32 @@ function draftKindForForkKind(kind: string): UserDraftItemKind | undefined {
 }
 
 async function reconcileFork(workspace: string, parentWorkspaceId: string): Promise<ForkCache> {
-	const prev = forkCaches.get(workspace)
-	const version = getWorkspaceDraftsVersion(workspace)
-	const parentVersion = getWorkspaceDraftsVersion(parentWorkspaceId)
-	if (
-		prev &&
-		prev.parentWorkspaceId === parentWorkspaceId &&
-		prev.draftsVersion === version &&
-		prev.parentDraftsVersion === parentVersion &&
-		Date.now() - prev.fetchedAt < FORK_COMPARISON_REUSE_MS
-	) {
-		return prev
-	}
-	const inflight = forkReconciling.get(workspace)
-	if (inflight) return inflight
-	const run = (async () => {
+	// Same epoch/version fencing as `reconcile`: joiners re-validate after
+	// awaiting, producers refuse to store pre-mutation inputs (bounded retries).
+	for (let attempt = 0; ; attempt++) {
+		const prev = forkCaches.get(workspace)
+		const version = getWorkspaceDraftsVersion(workspace)
+		const parentVersion = getWorkspaceDraftsVersion(parentWorkspaceId)
+		const epoch = mutationEpoch(workspace)
+		const isCurrent = (c: ForkCache) =>
+			c.parentWorkspaceId === parentWorkspaceId &&
+			c.draftsVersion === getWorkspaceDraftsVersion(workspace) &&
+			c.parentDraftsVersion === getWorkspaceDraftsVersion(parentWorkspaceId)
+		if (
+			prev &&
+			isCurrent(prev) &&
+			prev.draftsVersion === version &&
+			Date.now() - prev.fetchedAt < FORK_COMPARISON_REUSE_MS
+		) {
+			return prev
+		}
+		const inflight = forkReconciling.get(workspace)
+		if (inflight) {
+			const joined = await inflight
+			if ((isCurrent(joined) && epoch === mutationEpoch(workspace)) || attempt >= 4) return joined
+			continue
+		}
+		const run = (async () => {
 		// A drafts-version bump means something deployed in-app: demand a fresh
 		// tally. Otherwise piggyback on a recent fetch (e.g. the fork banner's).
 		const comparisonMaxAge =
@@ -731,23 +778,29 @@ async function reconcileFork(workspace: string, parentWorkspaceId: string): Prom
 			})
 		}
 		const cache: ForkCache = {
-			parentWorkspaceId,
-			draftsVersion: version,
-			parentDraftsVersion: parentVersion,
-			fetchedAt: Date.now(),
-			skippedComparison: comparison.skipped_comparison,
-			entries,
-			hiddenAheadCount: comparison.hidden_ahead?.total ?? 0,
-			hiddenBehindCount: comparison.hidden_behind?.total ?? 0
+				parentWorkspaceId,
+				draftsVersion: version,
+				parentDraftsVersion: parentVersion,
+				fetchedAt: Date.now(),
+				skippedComparison: comparison.skipped_comparison,
+				entries,
+				hiddenAheadCount: comparison.hidden_ahead?.total ?? 0,
+				hiddenBehindCount: comparison.hidden_behind?.total ?? 0
+			}
+			return cache
+		})()
+		forkReconciling.set(workspace, run)
+		let cache: ForkCache
+		try {
+			cache = await run
+		} finally {
+			if (forkReconciling.get(workspace) === run) forkReconciling.delete(workspace)
 		}
-		forkCaches.set(workspace, cache)
-		return cache
-	})()
-	forkReconciling.set(workspace, run)
-	try {
-		return await run
-	} finally {
-		forkReconciling.delete(workspace)
+		if ((isCurrent(cache) && mutationEpoch(workspace) === epoch) || attempt >= 4) {
+			forkCaches.set(workspace, cache)
+			return cache
+		}
+		// A deploy/save landed mid-fetch: this tally's inputs are pre-mutation.
 	}
 }
 

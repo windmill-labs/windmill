@@ -25,9 +25,18 @@ const inflight = new Map<string, InflightEntry>()
 // Millisecond timestamps collide under concurrency — ordering between
 // requests rides on this monotonic generation instead.
 let requestGeneration = 0
-// Per-key floor: results from requests at or below this generation are
-// pre-invalidation and must never land in the cache.
-const invalidatedBelow = new Map<string, number>()
+// Per-WORKSPACE floor: any request started at or below this generation is
+// pre-invalidation and must neither be joined nor land in the cache. Keyed by
+// workspace id (either side of a pair), so even requests the inflight map no
+// longer tracks are fenced.
+const invalidGenFloor = new Map<string, number>()
+
+function generationFloor(parentWorkspaceId: string, forkWorkspaceId: string): number {
+	return Math.max(
+		invalidGenFloor.get(parentWorkspaceId) ?? 0,
+		invalidGenFloor.get(forkWorkspaceId) ?? 0
+	)
+}
 // Comparisons are big; keep only the few pairs a session actually browses.
 const MAX_CACHE_ENTRIES = 8
 
@@ -55,7 +64,12 @@ export async function fetchWorkspaceComparison(
 		return cached.comparison
 	}
 	const pending = inflight.get(k)
-	if (pending && maxAgeMs > 0 && Date.now() - pending.startedAt < maxAgeMs) {
+	if (
+		pending &&
+		maxAgeMs > 0 &&
+		Date.now() - pending.startedAt < maxAgeMs &&
+		pending.generation > generationFloor(parentWorkspaceId, forkWorkspaceId)
+	) {
 		return pending.promise
 	}
 	const startedAt = Date.now()
@@ -69,7 +83,7 @@ export async function fetchWorkspaceComparison(
 		// clobber a newer result.
 		const existing = cache.get(k)
 		if (
-			generation > (invalidatedBelow.get(k) ?? 0) &&
+			generation > generationFloor(parentWorkspaceId, forkWorkspaceId) &&
 			(!existing || existing.generation < generation)
 		) {
 			cache.delete(k)
@@ -98,10 +112,10 @@ export function invalidateWorkspaceComparison(workspaceId: string): void {
 	for (const k of [...cache.keys()]) {
 		if (matches(k)) cache.delete(k)
 	}
-	for (const [k, entry] of [...inflight.entries()]) {
-		if (matches(k)) {
-			invalidatedBelow.set(k, entry.generation)
-			inflight.delete(k)
-		}
+	for (const k of [...inflight.keys()]) {
+		if (matches(k)) inflight.delete(k)
 	}
+	// Fence EVERY request started before this point — including ones the
+	// inflight map no longer tracks (superseded requests still resolve late).
+	invalidGenFloor.set(workspaceId, requestGeneration)
 }
