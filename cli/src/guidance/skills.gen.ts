@@ -7569,9 +7569,12 @@ properties:
         description: Declare the queue (durable) before consuming; when false the
           queue is declared passively and must already exist
       prefetch_count:
-        type: number
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 65535
         description: Maximum number of unacknowledged messages the broker delivers
-          at once
+          at once (1-65535)
   error_handler_path:
     type: string
     description: Path to a script or flow to run when the triggered job fails

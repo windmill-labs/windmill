@@ -117,13 +117,23 @@ fn build_uri(resource: &AmqpResource) -> String {
     };
 
     // The URI path is the virtual host and must be percent-encoded; the default
-    // vhost "/" therefore becomes "%2F".
-    let vhost = resource.vhost.as_deref().unwrap_or("/");
+    // vhost "/" therefore becomes "%2F". An empty vhost also falls back to "/".
+    let vhost = match resource.vhost.as_deref() {
+        Some(v) if !v.is_empty() => v,
+        _ => "/",
+    };
     let vhost_encoded = urlencoding::encode(vhost);
+
+    // Bracket an IPv6 literal host so `host:port` parses correctly.
+    let host = if resource.host.contains(':') && !resource.host.starts_with('[') {
+        format!("[{}]", resource.host)
+    } else {
+        resource.host.clone()
+    };
 
     format!(
         "{}://{}{}:{}/{}",
-        scheme, credentials, resource.host, port, vhost_encoded
+        scheme, credentials, host, port, vhost_encoded
     )
 }
 
@@ -174,10 +184,7 @@ impl<'client> AmqpClientBuilder<'client> {
                 .await?;
         }
 
-        let declare_queue = self
-            .options
-            .and_then(|o| o.declare_queue)
-            .unwrap_or(true);
+        let declare_queue = self.options.and_then(|o| o.declare_queue).unwrap_or(true);
 
         let queue_declare_options = QueueDeclareOptions {
             passive: !declare_queue,
@@ -227,12 +234,7 @@ impl<'client> AmqpClientBuilder<'client> {
             )
             .await?;
 
-        Ok(AmqpConsumer {
-            connection,
-            channel,
-            consumer,
-            queue_name: self.queue_name.to_string(),
-        })
+        Ok(AmqpConsumer { connection, channel, consumer, queue_name: self.queue_name.to_string() })
     }
 }
 
@@ -285,7 +287,26 @@ mod tests {
 
     #[test]
     fn build_uri_omits_credentials_when_username_empty() {
-        let uri = build_uri(&resource("broker", None, Some(""), Some("secret"), None, None));
+        let uri = build_uri(&resource(
+            "broker",
+            None,
+            Some(""),
+            Some("secret"),
+            None,
+            None,
+        ));
         assert_eq!(uri, "amqp://broker:5672/%2F");
+    }
+
+    #[test]
+    fn build_uri_blank_vhost_falls_back_to_root() {
+        let uri = build_uri(&resource("broker", None, None, None, Some(""), None));
+        assert_eq!(uri, "amqp://broker:5672/%2F");
+    }
+
+    #[test]
+    fn build_uri_brackets_ipv6_host() {
+        let uri = build_uri(&resource("::1", Some(5672), None, None, None, None));
+        assert_eq!(uri, "amqp://[::1]:5672/%2F");
     }
 }

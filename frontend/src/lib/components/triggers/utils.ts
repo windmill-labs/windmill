@@ -295,6 +295,8 @@ export function triggerKindToTriggerType(kind: TriggerKind): TriggerType | undef
 			return 'nats'
 		case 'mqtt':
 			return 'mqtt'
+		case 'amqp':
+			return 'amqp'
 		case 'sqs':
 			return 'sqs'
 		case 'gcp':

@@ -302,7 +302,7 @@ export const amqpTriggerRequestSchema = z.object({
 	}).describe("Optional exchange binding for the consumed queue").nullable().optional(),
 	"options": z.object({
 		"declare_queue": z.boolean().describe("Declare the queue (durable) before consuming; when false the queue is declared passively and must already exist").optional(),
-		"prefetch_count": z.number().describe("Maximum number of unacknowledged messages the broker delivers at once").optional()
+		"prefetch_count": z.number().int().gte(1).lte(65535).describe("Maximum number of unacknowledged messages the broker delivers at once (1-65535)").optional()
 	}).describe("Optional consumer options (queue declaration, prefetch)").nullable().optional(),
 	"path": z.string().describe("The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`."),
 	"script_path": z.string().describe("Path to the script or flow to execute when a message is received"),

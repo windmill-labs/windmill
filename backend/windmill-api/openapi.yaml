@@ -27671,8 +27671,11 @@ components:
           type: boolean
           description: Declare the queue (durable) before consuming; when false the queue is declared passively and must already exist
         prefetch_count:
-          type: number
-          description: Maximum number of unacknowledged messages the broker delivers at once
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 65535
+          description: Maximum number of unacknowledged messages the broker delivers at once (1-65535)
 
     AmqpTrigger:
       allOf:

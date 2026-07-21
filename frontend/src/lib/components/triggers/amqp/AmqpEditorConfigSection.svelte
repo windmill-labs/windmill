@@ -47,7 +47,11 @@
 	})
 
 	$effect(() => {
-		isValid = !emptyStringTrimmed(amqp_resource_path) && !emptyStringTrimmed(queue_name)
+		isValid =
+			!emptyStringTrimmed(amqp_resource_path) &&
+			!emptyStringTrimmed(queue_name) &&
+			// when the exchange binding is enabled, its name must be set
+			(!exchange || !emptyStringTrimmed(exchange.exchange_name))
 	})
 </script>
 
