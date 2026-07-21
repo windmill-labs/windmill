@@ -159,12 +159,16 @@
 			// A linked agent whose tools aren't resolved (the read-only flow viewer doesn't fetch the
 			// resource) would otherwise render as a toolless agent. Show a single marker pointing at the
 			// linked resource instead, so it reads as intentionally linked rather than half-rendered.
-			// Clicking it selects the agent module (id = node.id).
+			// Clicking it selects the agent module (via selectTarget below).
 			const linkedPlaceholder = isLinkedAgent && !agentActions && tools.length === 0
 			if (linkedPlaceholder) {
 				const agentPath = node.data.module.value.agent ?? ''
 				tools = [
-					{ id: node.id, name: agentPath.split('/').pop() || 'linked agent', type: 'linked' }
+					{
+						id: `${node.id}-linked`,
+						name: agentPath.split('/').pop() || 'linked agent',
+						type: 'linked'
+					}
 				]
 			}
 
@@ -194,11 +198,12 @@
 							? undefined
 							: getToolNameError(tool.name, tool.type, siblingNames),
 						eventHandlers,
-						// A linked agent's tools are display-only: their ids come from the resource (not
-						// flow-unique, so they can't drive selection) and their inputs are edited in the
-						// step panel. Clicking one selects the agent step. Runtime action nodes keep their
-						// own prefixed ids.
-						moduleId: isLinkedAgent && !agentActions ? node.id : tool.id,
+						moduleId: tool.id,
+						// A linked agent's tools are display-only: their resource-owned ids are not
+						// flow-unique, so they must not drive selection. Clicking one selects the agent
+						// step instead. Kept separate from moduleId — aliasing the module id here would
+						// misroute agent-node clicks into the graph's manual aiTool selection path.
+						selectTarget: isLinkedAgent && !agentActions ? node.id : undefined,
 						insertable,
 						readOnly: isLinkedAgent,
 						flowModuleStates
@@ -302,9 +307,20 @@
 	let colorClasses = $derived(
 		getNodeColorClasses(
 			data.nameError ? 'Failure' : flowModuleState?.type,
-			selectionManager?.getSelectedId() === data.moduleId
+			selectionManager?.getSelectedId() === (data.selectTarget ?? data.moduleId)
 		)
 	)
+
+	// Display-only tools (linked agents) select their agent step instead of themselves. The manager
+	// is set here rather than via the graph's select handler: this click never creates a svelte-flow
+	// node selection (the tool isn't selectable), so a manual select is safe, whereas routing the
+	// agent's module id through the manual path would race the agent node's own click selection.
+	function onSelect() {
+		if (data.selectTarget) {
+			selectionManager?.selectId(data.selectTarget)
+		}
+		data.eventHandlers.select(data.selectTarget ?? data.moduleId)
+	}
 </script>
 
 <NodeWrapper nodeId={id}>
@@ -322,7 +338,7 @@
 					colorClasses.text,
 					colorClasses.bg
 				)}
-				onclick={() => data.eventHandlers.select(data.moduleId)}
+				onclick={onSelect}
 			>
 				{#if data.moduleId.startsWith(AI_TOOL_MESSAGE_PREFIX)}
 					<MessageCircle size={16} class="ml-1 shrink-0" />
