@@ -6,13 +6,13 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::types::{StandardTriggerQuery, TriggerData, TriggerMode};
+use crate::types::{HasPath, StandardTriggerQuery, TriggerData, TriggerMode};
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{FromRow, PgConnection};
 use std::fmt::Debug;
-use windmill_api_auth::{check_scopes, ApiAuthed};
+use windmill_api_auth::{build_scope_path_predicate, check_scopes, ApiAuthed};
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
@@ -65,6 +65,8 @@ pub trait TriggerCrud: Send + Sync + 'static {
         + Send
         + Sync
         + Unpin
+        // Path accessor so `list_triggers` can apply scoped-token filtering.
+        + HasPath
         // `'static` so the deployed trigger can be boxed into
         // `WithDraftOverlay`'s erased-serde inner (it's an owned row).
         + 'static;
@@ -662,6 +664,9 @@ async fn list_triggers<T: TriggerCrud>(
         }
     }
 
+    let allowed = build_scope_path_predicate(&authed, T::scope_domain_name(), "read");
+    triggers.retain(|t| allowed(t.trigger_path()));
+
     Ok(Json(triggers))
 }
 
@@ -715,6 +720,12 @@ async fn update_trigger<T: TriggerCrud>(
     Json(mut edit_trigger): Json<TriggerData<T::TriggerConfigRequest>>,
 ) -> Result<String> {
     let path = path.to_path();
+    // A scoped token must be allowed on both the existing path (URL) and the
+    // new path (body); checking only the latter would let it move a trigger it
+    // can't touch into its scope.
+    check_scopes(&authed, || {
+        format!("{}:write:{}", T::scope_domain_name(), &path)
+    })?;
     check_scopes(&authed, || {
         format!(
             "{}:write:{}",
