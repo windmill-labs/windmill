@@ -2046,7 +2046,7 @@ const openPageFullSchema = z.object({
 		.enum(['draft', 'fork'])
 		.optional()
 		.describe(
-			"Compare: which comparison to show — 'draft' (deployed items vs their pending drafts) or 'fork' (this forked workspace vs its parent). Omit to auto-pick: fork on a forked workspace, draft otherwise."
+			"Compare: which comparison to show — 'draft' (deployed items vs their pending drafts) or 'fork' (this forked workspace vs its parent). Omit to auto-pick: the view containing the preselected items (draft whenever any of them is a pending draft); with nothing preselected, fork on a forked workspace and draft otherwise."
 		),
 	items: z.array(z.string()).min(1).optional().describe(COMPARE_ITEMS_DESCRIPTIONS.tracked),
 	new_tab: z

@@ -132,7 +132,9 @@ export function buildGroupsUrl(): string {
  * default, which is not necessarily the session's (possibly forked) workspace. `items`
  * preselects exactly those `kind:path` entries (see modifiedItemsMask.ts); omitted, the
  * page falls back to its select-all default. `mode` forces the draft or fork comparison;
- * omitted, the page auto-picks (fork on a forked workspace, draft otherwise).
+ * omitted, the page auto-picks: on a fork it lands on the view containing the masked
+ * items (draft when any of them is a pending draft, else the fork comparison); a
+ * non-fork always gets the draft view.
  */
 export function buildCompareUrl({
 	workspace_id,
