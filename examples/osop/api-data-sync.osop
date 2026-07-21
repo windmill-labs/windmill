@@ -1,0 +1,63 @@
+osop_version: "1.0"
+id: windmill-api-sync
+name: Windmill API Data Sync
+description: Automated API data synchronization with error handling and retry logic.
+tags: [windmill, api, sync, automation]
+
+nodes:
+  - id: webhook-trigger
+    type: api
+    name: Webhook Trigger
+    description: Receive incoming webhook events from external services.
+
+  - id: validate-payload
+    type: system
+    name: Validate Payload
+    description: Check the webhook payload structure and required fields.
+
+  - id: fetch-enrichment
+    type: api
+    name: Fetch Enrichment Data
+    description: Call external APIs to enrich the incoming data.
+    timeout_sec: 30
+    retry_policy:
+      max_retries: 3
+      backoff_sec: 5
+
+  - id: transform
+    type: cli
+    name: Transform & Map
+    description: Transform and map data to the target schema.
+    runtime:
+      command: python transform.py
+
+  - id: store-db
+    type: db
+    name: Store in Database
+    description: Upsert the processed data into PostgreSQL.
+
+  - id: notify-slack
+    type: api
+    name: Notify Slack
+    description: Post summary to Slack channel.
+
+edges:
+  - from: webhook-trigger
+    to: validate-payload
+    mode: sequential
+  - from: validate-payload
+    to: fetch-enrichment
+    mode: sequential
+  - from: fetch-enrichment
+    to: transform
+    mode: sequential
+  - from: transform
+    to: store-db
+    mode: sequential
+  - from: store-db
+    to: notify-slack
+    mode: sequential
+  - from: fetch-enrichment
+    to: notify-slack
+    mode: error
+    label: API call failed
