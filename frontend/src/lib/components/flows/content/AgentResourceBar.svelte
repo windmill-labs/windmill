@@ -179,6 +179,14 @@
 		const value = inputTransformsToAgentConfig(inputTransforms, tools)
 		const exists = await ResourceService.existsResource({ workspace: ws!, path })
 		if (exists) {
+			// The drawer's path check is debounced, so a fast save can reach here with an unrelated
+			// resource at the path — never clobber a resource of another type.
+			const existing = await ResourceService.getResource({ workspace: ws!, path })
+			if (existing.resource_type !== 'ai_agent') {
+				throw new Error(
+					`A ${existing.resource_type} resource already exists at ${path}. Pick another path.`
+				)
+			}
 			await ResourceService.updateResourceValue({
 				workspace: ws!,
 				path,

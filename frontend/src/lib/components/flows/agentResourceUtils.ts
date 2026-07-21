@@ -141,7 +141,8 @@ export function summarizeAgentBrain(
 		if (key === 'provider') {
 			value = [v.kind, v.model].filter(Boolean).join(' · ') || 'configured'
 		} else if (key === 'memory') {
-			value = typeof v === 'object' ? (v.type ?? 'configured') : String(v)
+			// Memory configs are serialized with a `kind` tag (serde tag = "kind").
+			value = typeof v === 'object' ? (v.kind ?? v.type ?? 'configured') : String(v)
 		} else if (key === 'output_schema') {
 			value = 'configured'
 		} else if (typeof v === 'boolean') {

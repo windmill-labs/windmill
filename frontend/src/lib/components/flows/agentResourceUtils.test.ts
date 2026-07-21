@@ -33,8 +33,9 @@ describe('summarizeAgentBrain', () => {
 	})
 
 	it('summarizes structured fields compactly', () => {
+		// memory is serialized with a `kind` tag (serde tag = "kind")
 		const rows = summarizeAgentBrain({
-			memory: { type: 'auto', context_length: 20 } as any,
+			memory: { kind: 'auto', context_length: 20 } as any,
 			output_schema: { type: 'object' } as any
 		})
 		expect(rows).toEqual([
