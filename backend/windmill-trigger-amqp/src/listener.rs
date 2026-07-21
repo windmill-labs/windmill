@@ -118,40 +118,54 @@ impl Listener for AmqpTrigger {
                     // Only ack once the job/capture was dispatched. On failure
                     // (e.g. a transient DB error) nack with requeue so the broker
                     // redelivers rather than dropping the message (at-least-once).
-                    let ack_result = match dispatched {
-                        Ok(()) => delivery.acker.ack(BasicAckOptions::default()).await,
-                        Err(_) => {
-                            delivery
-                                .acker
-                                .nack(BasicNackOptions { requeue: true, multiple: false })
-                                .await
-                        }
+                    let dispatch_failed = dispatched.is_err();
+                    let ack_result = if dispatch_failed {
+                        delivery
+                            .acker
+                            .nack(BasicNackOptions { requeue: true, multiple: false })
+                            .await
+                    } else {
+                        delivery.acker.ack(BasicAckOptions::default()).await
                     };
 
                     if let Err(err) = ack_result {
-                        let error = err.to_string();
-                        tracing::error!(
+                        // Ack/nack IO error: the channel is gone. Stop; the listener
+                        // framework re-lists this trigger and reconnects.
+                        tracing::warn!(
                             "Error acknowledging AMQP message for trigger {}: {}",
                             &listening_trigger.path,
-                            &error
+                            err
                         );
-                        self.disable_with_error(db, listening_trigger, error).await;
+                        return;
+                    }
+
+                    if dispatch_failed {
+                        // The message was requeued. Stop consuming instead of
+                        // immediately polling again: RabbitMQ redelivers the requeued
+                        // message right away, so continuing would spin a tight retry
+                        // loop that hammers job dispatch and error reporting. The
+                        // framework re-lists the trigger after its ping goes stale
+                        // (~15s), which backs the redelivery off to that cadence.
                         return;
                     }
                 }
                 Some(Err(err)) => {
-                    let error = err.to_string();
-                    tracing::debug!("AMQP consumer error: {}", &error);
-                    self.disable_with_error(db, listening_trigger, error).await;
+                    // Connection/consumer error. Don't permanently disable on a
+                    // transient blip (lapin has no built-in reconnect): stop and let
+                    // the framework re-list and reconnect. A persistent failure is
+                    // caught by `get_consumer`, which disables the trigger there.
+                    tracing::warn!(
+                        "AMQP consumer error for trigger {}, will reconnect: {}",
+                        &listening_trigger.path,
+                        err
+                    );
                     return;
                 }
                 None => {
-                    self.disable_with_error(
-                        db,
-                        listening_trigger,
-                        "AMQP consumer stream ended unexpectedly".to_string(),
-                    )
-                    .await;
+                    tracing::warn!(
+                        "AMQP consumer stream ended for trigger {}, will reconnect",
+                        &listening_trigger.path
+                    );
                     return;
                 }
             }

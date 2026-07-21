@@ -482,6 +482,7 @@ export type CreatedResourceTriggerKind =
 	| 'nats'
 	| 'postgres'
 	| 'mqtt'
+	| 'amqp'
 	| 'sqs'
 	| 'gcp'
 	| 'azure'

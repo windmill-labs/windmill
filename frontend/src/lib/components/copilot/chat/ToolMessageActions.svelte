@@ -25,6 +25,7 @@
 	import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
 	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
 	import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
+	import AmqpIcon from '$lib/components/icons/AmqpIcon.svelte'
 	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 	import { runToolDisplayAction } from './createdResourceActions.svelte'
 	import type { CreatedResourceTriggerKind, ToolDisplayAction } from './shared'
@@ -53,6 +54,7 @@
 		kafka: { title: 'Kafka trigger', icon: KafkaIcon },
 		nats: { title: 'NATS trigger', icon: NatsIcon },
 		mqtt: { title: 'MQTT trigger', icon: MqttIcon },
+		amqp: { title: 'AMQP trigger', icon: AmqpIcon },
 		sqs: { title: 'SQS trigger', icon: AwsIcon },
 		gcp: { title: 'GCP Pub/Sub trigger', icon: GoogleCloudIcon },
 		azure: { title: 'Azure Event Grid trigger', icon: AzureIcon },
