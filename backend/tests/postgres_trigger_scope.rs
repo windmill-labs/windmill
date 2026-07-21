@@ -1,16 +1,8 @@
-//! Regression test for the Postgres-trigger ancillary routes (slot / publication
-//! / version management) scope enforcement.
-//!
-//! The route-level middleware only checks that a token carries *some*
-//! `postgres_triggers` scope; per-resource-path enforcement is delegated to each
-//! handler. These handlers previously made no `check_scopes` call, so a token
-//! scoped to one resource path could drive slot/publication management (including
-//! the destructive `drop_slot_name`, which terminates the active backend and
-//! drops the replication slot) against any Postgres resource in the workspace.
-//!
-//! Each handler now calls `check_scopes` before touching the database, so a
-//! path-mismatched scoped token is rejected before any connection is opened —
-//! which is exactly why this test needs no real Postgres resource.
+//! Postgres-trigger ancillary handlers (slot / publication / version management)
+//! must reject a path-mismatched scoped token before opening any connection —
+//! the route-level middleware only checks the scope domain, so per-path
+//! enforcement lives in the handlers. Rejecting pre-connection is why these tests
+//! need no real Postgres resource.
 
 use axum::{extract::Path, Extension, Json};
 use sqlx::{Pool, Postgres};
