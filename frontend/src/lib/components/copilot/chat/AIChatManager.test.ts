@@ -914,10 +914,65 @@ describe('AIChatManager queued messages', () => {
 		expect(hasImage).toBe(true)
 	})
 
-	it('still ignores a send with no text and no images', async () => {
+	// A text-free GLOBAL send carrying context chips is a real turn — the
+	// transcript renders just the chips (no bubble), and the model-facing text
+	// carries an explicit marker instead of a dangling INSTRUCTIONS header the
+	// model would echo back.
+	it('sends a context-only GLOBAL draft as a turn with an empty-message marker', async () => {
 		replyWith('done')
 		const manager = createManager(createInputMock())
 		manager.mode = AIMode.GLOBAL
+
+		await manager.sendRequest({
+			instructions: '',
+			contextOverride: [{ type: 'code', content: 'x', title: 'snippet', lang: 'bun' }]
+		})
+
+		expect(mocks.runChatLoop).toHaveBeenCalled()
+		const sent = mocks.runChatLoop.mock.calls[0][0].messages.at(-1)
+		expect(sent.content).toContain('(the user sent an empty message)')
+		// The stored message keeps what the user typed — nothing — so the
+		// transcript renders chips only, and edit/retry restores an empty draft.
+		expect(manager.displayMessages.find((m) => m.role === 'user')?.content).toBe('')
+	})
+
+	// With nothing riding the draft at all — no text, images, or context — the
+	// send is dropped in every mode; a bare accidental Enter must not burn a turn.
+	it('ignores an empty send with no context in GLOBAL mode', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+
+		await manager.sendRequest({ instructions: '' })
+
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+	})
+
+	// A context-only draft queued mid-stream must be retained — the queue guard
+	// previously dropped anything with no text and no images, silently eating
+	// the draft the idle path would have sent.
+	it('queues a context-only draft while streaming', () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		const a = { type: 'code' as const, content: 'x', title: 'snippet', lang: 'bun' as const }
+		const b = { type: 'code' as const, content: 'y', title: 'other', lang: 'bun' as const }
+
+		manager.queueMessage('', [], [a])
+		// A second queued prompt pins its own selection; the union must keep the
+		// earlier prompt's chip and not duplicate re-selected ones.
+		manager.queueMessage('', [], [b, a])
+
+		expect(manager.queuedContext).toEqual([a, b])
+		// A fully empty queue attempt still leaves nothing behind.
+		manager.dequeueMessage()
+		manager.queueMessage('', [], [])
+		expect(manager.queuedContext).toBeUndefined()
+	})
+
+	it('still ignores an empty send outside GLOBAL mode', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.NAVIGATOR
 
 		await manager.sendRequest({ instructions: '' })
 

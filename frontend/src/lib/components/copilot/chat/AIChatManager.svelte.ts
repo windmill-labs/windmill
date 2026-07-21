@@ -81,6 +81,7 @@ import {
 	createAppBackendRunnableContextElement,
 	createAppFrontendFileContextElement,
 	flattenDatatablesToAppContextElements,
+	isSameContextElement,
 	type ContextElement,
 	type AppDatatableElement
 } from './context'
@@ -107,6 +108,9 @@ import {
 	prepareGlobalSystemMessage,
 	prepareGlobalUserMessage,
 	type AiSkillListItem,
+	type ChatCommandItem,
+	type SessionPromptContext,
+	getSessionContextPromptSection,
 	type GlobalToolHelpers
 } from './global/core'
 import { formatChatJobCompletion } from './datatableTools'
@@ -512,6 +516,11 @@ export class AIChatManager {
 	// tool `helpers` in GLOBAL mode so the preview/deploy tools dispatch to THIS
 	// session rather than the UI-active one — keeps backgrounded sessions isolated.
 	sessionId: string | undefined = undefined
+	// Live session facts (fork vs live workspace) for the GLOBAL system prompt.
+	// A resolver set by the session runtime — copilot must not import the
+	// sessions modules — and re-read on every system-message rebuild; the send
+	// path rebuilds after beforeSend, so a fork committed there is picked up.
+	sessionContextResolver: (() => SessionPromptContext | undefined) | undefined = undefined
 	// Resolves the workspace this chat operates on. Session chats set it to their
 	// own (possibly forked) workspace so the chat targets it WITHOUT switching the
 	// global workspaceStore. Undefined for the global side-panel chat, which
@@ -944,18 +953,28 @@ export class AIChatManager {
 	// alongside workspace skills. Unlike a skill, these run locally and never
 	// reach the model; the submit path intercepts them first, so they shadow any
 	// workspace skill of the same name.
-	readonly sessionBuiltinCommands: AiSkillListItem[] = [
-		{ name: COMPACT_COMMAND_NAME, description: 'Summarize the conversation to free up context' },
-		{ name: CLEAR_COMMAND_NAME, description: 'Clear the conversation and start a new chat' }
+	readonly sessionBuiltinCommands: ChatCommandItem[] = [
+		{
+			name: COMPACT_COMMAND_NAME,
+			description: 'Summarize the conversation to free up context',
+			kind: 'action'
+		},
+		{
+			name: CLEAR_COMMAND_NAME,
+			description: 'Clear the conversation and start a new chat',
+			kind: 'action'
+		}
 	]
 
 	// Built-ins followed by workspace skills, with any skill whose name collides
 	// with a built-in dropped: the picker keys leaves by name, so a duplicate
 	// would break its keyed list and ambiguous-resolve nav. Built-ins win — they
 	// already shadow same-named skills at execution (the submit interception).
-	sessionCommands: AiSkillListItem[] = $derived([
+	sessionCommands: ChatCommandItem[] = $derived([
 		...this.sessionBuiltinCommands,
-		...this.globalSkills.filter((s) => !this.sessionBuiltinCommands.some((b) => b.name === s.name))
+		...this.globalSkills
+			.filter((s) => !this.sessionBuiltinCommands.some((b) => b.name === s.name))
+			.map((s) => ({ ...s, kind: 'skill' as const }))
 	])
 
 	allowedModes: Record<AIMode, boolean> = $derived({
@@ -1445,8 +1464,9 @@ export class AIChatManager {
 	 * alongside it. */
 	queueMessage(text: string, images: AttachedImage[] = [], context?: ContextElement[]) {
 		const trimmed = text.trim()
-		// An image with no text is still a message; only a fully empty send is ignored.
-		if (!trimmed && images.length === 0) {
+		// An image-only or context-only draft is still a message; only a fully
+		// empty send is ignored (mirrors the idle empty-send guard).
+		if (!trimmed && images.length === 0 && (context?.length ?? 0) === 0) {
 			return
 		}
 		if (trimmed) {
@@ -1459,36 +1479,29 @@ export class AIChatManager {
 			}
 			this.queuedImages = merged.slice(0, MAX_ATTACHED_IMAGES)
 		}
-		// Pin the context snapshot to the queued message. The queued text accumulates
-		// (several inline prompts can queue during one stream), so union the DOM
-		// selector chips too — replacing would drop an earlier prompt's element and
-		// misapply its instruction. Non-DOM context comes from the latest snapshot.
+		// Pin the context snapshot to the queued message. Several prompts can
+		// queue during one stream and each pinned the selection at its press —
+		// union by identity so a later press doesn't drop an earlier prompt's
+		// chips (all pinned entries ride the single flushed turn together).
 		if (context && context.length > 0) {
-			if (!this.queuedContext) {
-				this.queuedContext = context
-			} else {
-				const merged = [...context]
-				for (const c of this.queuedContext) {
-					if (
-						c.type === 'app_dom_selector' &&
-						!merged.some(
-							(m) =>
-								m.type === 'app_dom_selector' &&
-								m.selector === c.selector &&
-								m.appPath === c.appPath
-						)
-					) {
-						merged.push(c)
-					}
+			const merged = [...(this.queuedContext ?? [])]
+			for (const c of context) {
+				if (!merged.some((m) => isSameContextElement(m, c))) {
+					merged.push(c)
 				}
-				this.queuedContext = merged
 			}
+			this.queuedContext = merged
 		}
 	}
 
-	/** Whether anything is waiting in the queue — an image-only message has empty text. */
+	/** Whether anything is waiting in the queue — an image-only or context-only
+	 * message has empty text. */
 	#hasQueuedMessage(): boolean {
-		return this.queuedMessage !== '' || this.queuedImages.length > 0
+		return (
+			this.queuedMessage !== '' ||
+			this.queuedImages.length > 0 ||
+			(this.queuedContext?.length ?? 0) > 0
+		)
 	}
 
 	/** Detach the queue for sending. Text, images and context always leave together. */
@@ -1707,6 +1720,10 @@ export class AIChatManager {
 			previewTools: this.isSessionChat,
 			skills: this.globalSkills
 		})
+		const sessionCtx = this.sessionContextResolver?.()
+		if (sessionCtx) {
+			systemMessage.content += getSessionContextPromptSection(sessionCtx)
+		}
 		const baseHelpers: GlobalToolHelpers = {
 			// A session targets its own fixed (possibly forked) workspace, so capture it for
 			// permission gating. The global side-panel chat follows the live navigation
@@ -1772,9 +1789,13 @@ export class AIChatManager {
 			previewTools: this.isSessionChat,
 			skills: this.globalSkills
 		})
-		// Preserve the active pipeline-editor augmentation that configureGlobalMode
-		// adds — otherwise update_user_instructions (which calls this) would drop the
-		// /pipeline/<folder> context + direct-draft/materialize guidance mid-session.
+		// Preserve the session-state and active pipeline-editor augmentations that
+		// configureGlobalMode adds — otherwise update_user_instructions (which calls
+		// this) would drop them mid-session.
+		const sessionCtx = this.sessionContextResolver?.()
+		if (sessionCtx) {
+			systemMessage.content += getSessionContextPromptSection(sessionCtx)
+		}
 		const pipeline = this.pipelineAiChatHelpers
 		if (pipeline) {
 			systemMessage.content += getPipelinePromptSection(pipeline.getPipelineContext())
@@ -2220,9 +2241,9 @@ export class AIChatManager {
 	) => {
 		// Returns whether the input was consumed: true when it was sent as a chat
 		// turn OR handled as a local built-in command, false when it was dropped
-		// without being acted on (mode hidden, empty, beforeSend failed). The
-		// queue flush restores the queued message only on false, so a consumed
-		// command isn't re-queued and re-fired into the next conversation.
+		// without being acted on (mode hidden, empty non-GLOBAL draft, beforeSend
+		// failed). The queue flush restores the queued message only on false, so a
+		// consumed command isn't re-queued and re-fired into the next conversation.
 		const requestedMode = options.mode ?? this.mode
 		if (!isAIModeVisible(requestedMode)) {
 			return false
@@ -2237,12 +2258,20 @@ export class AIChatManager {
 		if (options.instructions !== undefined) {
 			this.instructions = options.instructions
 		}
-		// Only a truly empty draft is dropped here. An image with no text is a
-		// valid GLOBAL-mode message; outside GLOBAL an image-bearing draft must
-		// still get past this guard to reach the refusal below, which puts it
-		// back in the composer instead of silently losing it.
+		// A text-free GLOBAL draft is a real turn — rendered as its context chips
+		// (no bubble), with the empty-message marker substituted further down —
+		// but only when it carries something for the model: images or selected
+		// context elements. A bare accidental Enter is dropped in every mode (in
+		// editor copilots it would burn a turn for nothing). Gate on requestedMode,
+		// not this.mode: changeMode can decline a switch (e.g. SCRIPT with no
+		// model), and a declined non-GLOBAL request must not slip through as a
+		// GLOBAL empty turn. Image-bearing non-GLOBAL drafts still pass through
+		// to the switch-back refusal below so attachments aren't silently lost.
 		if (!this.instructions.trim() && (options.images?.length ?? 0) === 0) {
-			return false
+			const contextEls = options.contextOverride ?? this.contextManager?.getSelectedContext() ?? []
+			if (requestedMode !== AIMode.GLOBAL || contextEls.length === 0) {
+				return false
+			}
 		}
 		// Built-in session commands run locally instead of becoming a chat turn.
 		// Intercepted here — before the beforeSend workspace commit, file regrants,
@@ -2507,7 +2536,15 @@ export class AIChatManager {
 			const sentImages = images
 			// The LLM gets the full pasted content; the display message above keeps
 			// the compact tokens + registry so the bubble can render/expand chips.
-			const oldInstructions = expanded(chatDraft(this.instructions, pastes))
+			// A text-free send (and image-only sends carry their images as the
+			// content) gets an explicit model-facing marker: every mode's template
+			// interpolates the text under an INSTRUCTIONS header, and a dangling
+			// header confuses models into echoing it back verbatim.
+			const expandedInstructions = expanded(chatDraft(this.instructions, pastes))
+			const oldInstructions =
+				expandedInstructions.trim() || sentImages.length > 0
+					? expandedInstructions
+					: '(the user sent an empty message)'
 			// Deliver background-job completions to the model as a preamble on this
 			// turn (notify-only wake). Folded into the model-facing text only — the
 			// display bubble keeps this.instructions, and no extra message is added, so
