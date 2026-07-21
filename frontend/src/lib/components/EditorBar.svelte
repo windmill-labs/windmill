@@ -39,6 +39,7 @@
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { getScriptByPath, scriptLangToEditorLang } from '$lib/scripts'
+	import { bashRunsInCustomImage } from '$lib/script_helpers'
 	import Toggle from './Toggle.svelte'
 
 	import {
@@ -673,7 +674,17 @@
 			}
 			editor.insertAtCursor(`v, _ := wmill.GetVariable("${path}")`)
 		} else if (lang == 'bash') {
-			editor.insertAtCursor(`wmill variable get ${path} --json | jq -r .value`)
+			if (bashRunsInCustomImage(editor.getCode())) {
+				// Custom image: no wmill CLI. Fall back to curl, then busybox wget
+				// (the default `# sandbox alpine:latest` image ships wget, not curl).
+				// get_value returns a JSON-quoted string, so strip the outer quotes
+				// to match the `jq -r .value` output of the non-sandbox branch.
+				editor.insertAtCursor(
+					`{ curl -sf -H "Authorization: Bearer $WM_TOKEN" "$BASE_INTERNAL_URL/api/w/$WM_WORKSPACE/variables/get_value/${path}" 2>/dev/null || wget -qO- --header="Authorization: Bearer $WM_TOKEN" "$BASE_INTERNAL_URL/api/w/$WM_WORKSPACE/variables/get_value/${path}"; } | sed 's/^"//;s/"$//'`
+				)
+			} else {
+				editor.insertAtCursor(`wmill variable get ${path} --json | jq -r .value`)
+			}
 		} else if (lang == 'powershell') {
 			editor.insertAtCursor(`$Headers = @{\n"Authorization" = "Bearer $Env:WM_TOKEN"`)
 			editor.arrowDown()
@@ -751,7 +762,16 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 			}
 			editor.insertAtCursor(`r, _ := wmill.GetResource("${path}")`)
 		} else if (lang == 'bash') {
-			editor.insertAtCursor(`wmill resource get ${path} --json | jq .value`)
+			if (bashRunsInCustomImage(editor.getCode())) {
+				// Custom image: no wmill CLI. Fall back to curl, then busybox wget
+				// (the default `# sandbox alpine:latest` image ships wget, not curl).
+				// get_value_interpolated returns JSON, matching the `jq .value` branch.
+				editor.insertAtCursor(
+					`curl -sf -H "Authorization: Bearer $WM_TOKEN" "$BASE_INTERNAL_URL/api/w/$WM_WORKSPACE/resources/get_value_interpolated/${path}" 2>/dev/null || wget -qO- --header="Authorization: Bearer $WM_TOKEN" "$BASE_INTERNAL_URL/api/w/$WM_WORKSPACE/resources/get_value_interpolated/${path}"`
+				)
+			} else {
+				editor.insertAtCursor(`wmill resource get ${path} --json | jq .value`)
+			}
 		} else if (lang == 'powershell') {
 			editor.insertAtCursor(`$Headers = @{\n"Authorization" = "Bearer $Env:WM_TOKEN"`)
 			editor.arrowDown()
@@ -962,7 +982,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			// after an unterminated one produces invalid SQL. The separator starts on
 			// its own line so the `;` cannot land inside a trailing line comment.
 			const existing = editor?.getCode() ?? ''
-			const sep = existing.trim() === '' ? '' : endsWithUnterminatedStatement(existing) ? '\n;\n\n' : '\n\n'
+			const sep =
+				existing.trim() === '' ? '' : endsWithUnterminatedStatement(existing) ? '\n;\n\n' : '\n\n'
 			editor?.append(sep + sql + '\n')
 		}}
 	/>
