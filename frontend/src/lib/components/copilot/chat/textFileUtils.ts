@@ -142,17 +142,21 @@ export function withAttachedTextFileIds(files: AttachedTextFile[]): AttachedText
  */
 export function foldIntoDraft(
 	current: AttachedTextFile[],
-	reads: { name: string; content: string }[]
+	reads: { name: string; content: string; sourceName?: string }[]
 ): AttachedTextFile[] {
 	const commit: AttachedTextFile[] = []
 	for (const f of reads) {
 		const draft = [...current, ...commit]
 		// "Same file dropped twice" means same original (name, content) — a
-		// committed copy may have been courtesy-renamed, so its original name is
-		// carried in sourceName rather than inferred from the display name (a
-		// user's real `report (2).md` is not a rename of `report.md`).
+		// courtesy-renamed copy carries its original name in sourceName rather than
+		// inferring provenance from the display name (a user's real `report (2).md`
+		// is not a rename of `report.md`). Folds compose: a file renamed by an
+		// earlier fold (composer → queue → dequeue) keeps its original source.
+		const src = f.sourceName ?? f.name
 		if (
-			draft.some((x) => x.content === f.content && (x.name === f.name || x.sourceName === f.name))
+			draft.some(
+				(x) => x.content === f.content && (x.name === f.name || (x.sourceName ?? x.name) === src)
+			)
 		) {
 			continue
 		}
@@ -164,7 +168,7 @@ export function foldIntoDraft(
 			name,
 			content: f.content,
 			id: attachedTextFileId(name, f.content),
-			...(name !== f.name ? { sourceName: f.name } : {})
+			...(name !== src ? { sourceName: src } : {})
 		})
 	}
 	return commit

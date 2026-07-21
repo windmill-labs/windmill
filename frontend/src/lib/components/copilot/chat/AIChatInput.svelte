@@ -495,7 +495,10 @@
 			images = merged.slice(0, MAX_ATTACHED_IMAGES)
 		}
 		if (restoredFiles.length > 0) {
-			const merged = [...files, ...restoredFiles]
+			// Fold like any other draft aggregation: the composer may already hold
+			// attachments, so restored files dedupe against them and same-name
+			// clashes get the courtesy rename instead of raw concatenation.
+			const merged = [...files, ...foldIntoDraft(files, restoredFiles)]
 			if (merged.length > MAX_ATTACHED_FILES) {
 				sendUserToast(
 					`You can attach up to ${MAX_ATTACHED_FILES} files; ${merged.length - MAX_ATTACHED_FILES} restored file(s) were dropped.`,

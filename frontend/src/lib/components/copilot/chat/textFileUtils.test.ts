@@ -63,6 +63,20 @@ describe('foldIntoDraft', () => {
 		])
 	})
 
+	it('preserves rename provenance across composed folds (composer → queue → re-attach)', () => {
+		// The composer renames notes.md → notes (2).md against an older notes.md.
+		const composerOut = foldIntoDraft(
+			[{ name: 'notes.md', content: 'old', id: attachedTextFileId('notes.md', 'old') }],
+			[{ name: 'notes.md', content: 'new' }]
+		)
+		// Queuing folds the renamed file into an empty queue: no further rename
+		// happens, but the provenance must survive the pass-through.
+		const queued = foldIntoDraft([], composerOut)
+		expect(queued[0]).toMatchObject({ name: 'notes (2).md', sourceName: 'notes.md' })
+		// Re-attaching the original file is a duplicate of the queued copy.
+		expect(foldIntoDraft(queued, [{ name: 'notes.md', content: 'new' }])).toEqual([])
+	})
+
 	it('keeps a real suffix-named file that is not a rename of its base name', () => {
 		// `report (2).md` here is the user's actual filename, not a courtesy rename
 		// of `report.md` — identical content must not collapse the two.
