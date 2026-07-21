@@ -4,7 +4,7 @@ import { ResourceService } from '$lib/gen'
 import { get } from 'svelte/store'
 import { workspaceStore } from '$lib/stores'
 import { isFlowModuleTool, agentToolToFlowModule, type AgentTool } from './agentToolUtils'
-import { setLinkedAgentTools } from './linkedAgentToolsStore.svelte'
+import { linkedToolsScope, setLinkedAgentTools } from './linkedAgentToolsStore.svelte'
 import { loadFlowModuleState } from './flowStateUtils.svelte'
 import { emptyFlowModuleState } from './utils.svelte'
 import type { StateStore } from '$lib/utils'
@@ -31,13 +31,14 @@ export async function initFlowState(
 	flowStateStore: StateStore<FlowState>,
 	// The acting workspace when the flow editor runs in an AI session; else the nav workspace.
 	workspace: string | undefined,
-	// Scope for the linked-agent tools store (the flow path); keeps agents that share a module id
-	// across simultaneously-shown flows from aliasing each other. Required so call sites can't
-	// silently publish into the '' bucket while the graph reads the real flow path.
-	scope: string
+	// Flow path half of the linked-agent tools scope; keeps agents that share a module id across
+	// simultaneously-shown flows from aliasing each other. Required so call sites can't silently
+	// publish into the '' bucket while the graph reads the real flow path.
+	flowPath: string
 ) {
 	const modulesState: FlowState = {}
 
+	const scope = linkedToolsScope(workspace ?? get(workspaceStore), flowPath)
 	await mapFlowModules(flow.value.modules, modulesState, workspace, scope)
 
 	const failureModule = flow.value.failure_module

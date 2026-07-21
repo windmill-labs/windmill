@@ -8,6 +8,19 @@ import type { AgentTool } from './agentToolUtils'
 // changes. The scope prevents agents that share a module id across different flows shown at the same
 // time (e.g. an editor and an embedded flow preview) from aliasing each other's tools.
 let byScope = $state<Record<string, Record<string, AgentTool[]>>>({})
+
+/**
+ * Scope key for the store: workspace + flow path. Flow paths repeat across workspaces, so a late
+ * async resolution from a previous workspace must land in its own bucket instead of overwriting
+ * the tools of an identically-named flow in the current one. Every publisher and reader must
+ * derive the workspace the same way (operating workspace, falling back to the nav workspace).
+ */
+export function linkedToolsScope(
+	workspace: string | undefined,
+	flowPath: string | undefined
+): string {
+	return `${workspace ?? ''}:${flowPath ?? ''}`
+}
 // Bumped on every mutation. Non-reactive graph recomputations (which read the map inside untrack)
 // track this to re-run when a link resolves after the initial render, e.g. right after linking.
 let version = $state(0)

@@ -19,7 +19,11 @@
 		type AIAgentConfig,
 		type AgentTool
 	} from '../agentResourceUtils'
-	import { setLinkedAgentTools, clearLinkedAgentTools } from '../linkedAgentToolsStore.svelte'
+	import {
+		setLinkedAgentTools,
+		clearLinkedAgentTools,
+		linkedToolsScope
+	} from '../linkedAgentToolsStore.svelte'
 	import { getAgentEditingPath, setAgentEditingPath } from '../agentEditStore.svelte'
 	import type { AgentTool as AgentToolStrict } from '../agentToolUtils'
 	import { resource } from 'runed'
@@ -102,9 +106,10 @@
 	// Keep the graph's linked-tool store current for this step. flowState resolves every linked step
 	// at load; here we refresh the one being edited when its link changes (or clear it on unlink), so
 	// its tool nodes update without reloading the flow.
+	let toolScope = $derived(linkedToolsScope(ws, flowPath))
 	$effect(() => {
 		if (!agent) {
-			clearLinkedAgentTools(flowPath, moduleId)
+			clearLinkedAgentTools(toolScope, moduleId)
 			return
 		}
 		// Publish only once the resource has loaded — don't clobber the load-time tools with [] while
@@ -112,7 +117,7 @@
 		const loaded = linkedResource.current
 		if (loaded) {
 			// linkedResource types tools loosely; they are the same resource tools the store holds.
-			setLinkedAgentTools(flowPath, moduleId, loaded.tools as AgentToolStrict[])
+			setLinkedAgentTools(toolScope, moduleId, loaded.tools as AgentToolStrict[])
 		}
 	})
 

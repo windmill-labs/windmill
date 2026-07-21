@@ -599,7 +599,7 @@
 			failureModule={flowStore.val.value?.failure_module}
 			currentInputSchema={flowStore.val.schema}
 			{selectionManager}
-			{workspace}
+			workspace={opWs}
 			editMode
 			{onTestUpTo}
 			{onEditInput}

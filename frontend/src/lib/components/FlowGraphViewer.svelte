@@ -13,7 +13,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { untrack } from 'svelte'
 	import { resolveLinkedAgentTools } from './flows/flowState'
-	import { setLinkedAgentTools } from './flows/linkedAgentToolsStore.svelte'
+	import { linkedToolsScope, setLinkedAgentTools } from './flows/linkedAgentToolsStore.svelte'
 
 	interface Props {
 		flow: {
@@ -78,7 +78,7 @@
 			for (const m of modules) {
 				const value = m?.value as { type?: string; agent?: string } | undefined
 				if (value?.type === 'aiagent' && value.agent) {
-					const scope = flow?.path ?? ''
+					const scope = linkedToolsScope(ws, flow?.path)
 					resolveLinkedAgentTools(value.agent, ws).then((tools) =>
 						setLinkedAgentTools(scope, m.id, tools)
 					)

@@ -59,7 +59,8 @@
 	import AiToolNode, { computeAIToolNodes } from './renderers/nodes/AIToolNode.svelte'
 	import {
 		linkedAgentToolsForScope,
-		linkedAgentToolsVersion
+		linkedAgentToolsVersion,
+		linkedToolsScope
 	} from '$lib/components/flows/linkedAgentToolsStore.svelte'
 	import NewAiToolNode from './renderers/nodes/NewAIToolNode.svelte'
 	import NoteNode from './renderers/nodes/NoteNode.svelte'
@@ -707,7 +708,7 @@
 			eventHandler,
 			insertable,
 			flowModuleStates,
-			linkedAgentToolsForScope(path ?? '')
+			linkedAgentToolsForScope(linkedToolsScope(workspace, path))
 		)
 
 		let finalNodes: (Node & NodeLayout)[] = [

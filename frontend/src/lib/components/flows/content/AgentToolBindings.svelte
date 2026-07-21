@@ -48,7 +48,7 @@
 	// Non-reactive bookkeeping distinguishing our own mirror-writes from external tool_inputs
 	// changes (undo/redo, session drafts), and detecting resource-tool changes under a stable id.
 	let lastPublished: Record<string, Record<string, InputTransform>> = {}
-	let baseSnaps: Record<string, string> = {}
+	let defSnaps: Record<string, string> = {}
 
 	// Seed and resynchronize the editable copies. Tracks the step's tool_inputs and the resource
 	// tools so external changes re-seed the form; our own mirror-writes match lastPublished and are
@@ -63,16 +63,19 @@
 		untrack(() => {
 			for (const t of ts) {
 				const base = baseInputs(t)
-				const baseSnap = JSON.stringify(base)
+				// Fingerprint the whole tool definition + workspace, not just the transforms: the
+				// inferred schema also depends on script content/path/language and the workspace, so a
+				// definition change under a stable id must re-infer and re-seed.
+				const defSnap = JSON.stringify([t.value, ws])
 				const incoming = incomingAll[t.id] ?? {}
-				const baseChanged = baseSnaps[t.id] !== baseSnap
+				const defChanged = defSnaps[t.id] !== defSnap
 				const external =
 					lastPublished[t.id] === undefined || !deepEqual(incoming, lastPublished[t.id])
-				if (localArgs[t.id] === undefined || baseChanged || external) {
+				if (localArgs[t.id] === undefined || defChanged || external) {
 					localArgs[t.id] = { ...base, ...incoming }
 					lastPublished[t.id] = incoming
-					const reloadSchema = baseChanged || schemas[t.id] === undefined
-					baseSnaps[t.id] = baseSnap
+					const reloadSchema = defChanged || schemas[t.id] === undefined
+					defSnaps[t.id] = defSnap
 					if (reloadSchema) {
 						loadSchemaFromModule(agentToolToFlowModule(t), ws)
 							.then(({ schema }) => {

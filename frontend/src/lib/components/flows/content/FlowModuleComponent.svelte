@@ -38,7 +38,7 @@
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
 	import AgentResourceBar from './AgentResourceBar.svelte'
 	import AgentToolBindings from './AgentToolBindings.svelte'
-	import { getLinkedAgentTools } from '../linkedAgentToolsStore.svelte'
+	import { getLinkedAgentTools, linkedToolsScope } from '../linkedAgentToolsStore.svelte'
 	import { flowLocalAgentSchema } from '../agentResourceUtils'
 	import FlowModuleMockTransitionMessage from './FlowModuleMockTransitionMessage.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -1139,7 +1139,10 @@
 													<!-- Linked agent: the resource's tools with their inputs rebindable to this
 													flow; overrides persist on the step as tool_inputs (diff from the resource). -->
 													<AgentToolBindings
-														tools={getLinkedAgentTools($pathStore, flowModule.id)}
+														tools={getLinkedAgentTools(
+															linkedToolsScope(opWs, $pathStore),
+															flowModule.id
+														)}
 														pickableProperties={stepPropPicker.pickableProperties}
 														extraLib={stepPropPicker.extraLib}
 														workspace={opWs}
