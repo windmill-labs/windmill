@@ -300,13 +300,10 @@ function fallbackParse(content: string, language: string): ParseAssetsRaw {
     if (uri) {
       const prefix = uri[1].toLowerCase();
       const kind = prefix === "s3" ? "s3object" : prefix;
-      // Mirror Rust `parse_asset_syntax`: strip all leading slashes from S3 keys
-      // so `s3:///key` (default storage) and `s3://key` / DuckDB canonicalize
-      // to the same node id (and a canonical key never starts with `/`) —
-      // otherwise a go/bash fallback consumer's `// on s3:///x` would not
-      // connect to a wasm-inferred `x` producer.
-      const path = kind === "s3object" ? uri[2].replace(/^\/+/, "") : uri[2];
-      out.triggers!.push({ kind: "asset", asset_kind: kind, path });
+      // The suffix is kept verbatim (mirrors Rust `parse_asset_syntax`): an S3
+      // path encodes the storage, with a leading `/` for the workspace default
+      // (`s3:///key` → `/key`) vs `s3://secondary/key` → `secondary/key`.
+      out.triggers!.push({ kind: "asset", asset_kind: kind, path: uri[2] });
     } else if (NATIVE_KINDS.has(firstTok) && rest === firstTok) {
       // A native marker (`// on data_upload`) must stand alone: the canonical
       // parser rejects a marker line with trailing content (`// on data_upload
@@ -393,14 +390,10 @@ export function parseMuteAnnotations(content: string): {
     }
     for (const [prefix, kind] of MUTE_ASSET_PREFIXES) {
       if (arg.startsWith(prefix)) {
-        // S3 canonicalization as in `parse_asset_syntax`: strip every leading
-        // slash so `s3:///key` (default storage) mutes the same node as the
-        // inferred bare `key`.
-        const p =
-          kind === "s3object"
-            ? arg.slice(prefix.length).replace(/^\/+/, "")
-            : arg.slice(prefix.length);
-        muted.add(`${kind}:${p}`);
+        // The suffix is kept verbatim, as in `parse_asset_syntax` — a muted
+        // `s3:///key` (default storage, path `/key`) only matches an inferred
+        // default-storage read of the same object.
+        muted.add(`${kind}:${arg.slice(prefix.length)}`);
         break;
       }
     }
