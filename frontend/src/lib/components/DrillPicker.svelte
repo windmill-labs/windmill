@@ -16,6 +16,10 @@ leaves and ignores the current scope.
 	import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
+	import Portal from '$lib/components/Portal.svelte'
+	import { zIndexes } from '$lib/zIndexes'
+	import { createFloatingActions } from 'svelte-floating-ui'
+	import { flip, offset, shift } from 'svelte-floating-ui/dom'
 	import { generateRandomString } from '$lib/utils'
 	import { onMount, untrack, type Snippet } from 'svelte'
 	import {
@@ -65,6 +69,9 @@ leaves and ignores the current scope.
 		 * branch to carry a `loading` flag. Needed by flat workspace layouts
 		 * whose root entries only exist once items are fetched. */
 		rootLoading?: boolean
+		/** Full-text hover tooltip for a leaf row (rows truncate their text).
+		 * Return `undefined` to show none for that leaf. */
+		rowTooltip?: (leaf: DrillLeaf<L>) => string | undefined
 	}
 
 	let {
@@ -80,7 +87,8 @@ leaves and ignores the current scope.
 		leafSecondary,
 		onScopeChange,
 		onFilterChange,
-		rootLoading = false
+		rootLoading = false,
+		rowTooltip
 	}: Props = $props()
 
 	let searchInput: TextInput | undefined = $state()
@@ -116,6 +124,9 @@ leaves and ignores the current scope.
 	$effect(() => {
 		void filter
 		onFilterChange?.(filter)
+		// Rows re-render under a stationary pointer without firing mouseleave,
+		// which would strand the tooltip on a removed row.
+		tooltipLeave()
 	})
 
 	/** Tracks whether the last user action was mouse movement (true) or
@@ -141,18 +152,24 @@ leaves and ignores the current scope.
 	)
 	let searchedItems: (SearchEntry & { marked: string })[] | undefined = $state(undefined)
 
-	// Group filtered results by their nearest-branch ancestor for display.
+	// Group filtered results for display: nearest `searchGroup` branch ancestor
+	// first, the leaf's own `section` otherwise.
 	const searchResultsByGroup = $derived.by(() => {
 		const groups = new Map<
 			string,
-			{ group: DrillBranch<L> | null; items: (SearchEntry & { marked: string })[] }
+			{ key: string; label: string | null; items: (SearchEntry & { marked: string })[] }
 		>()
-		if (!searchedItems) return [] as { group: DrillBranch<L> | null; items: SearchEntry[] }[]
+		if (!searchedItems) return [] as { key: string; label: string | null; items: SearchEntry[] }[]
 		for (const r of searchedItems) {
-			const gkey = r.group?.key ?? '__none'
+			const gkey = r.group?.key ?? (r.leaf.section ? `__section:${r.leaf.section}` : '__none')
 			const existing = groups.get(gkey)
 			if (existing) existing.items.push(r)
-			else groups.set(gkey, { group: r.group, items: [r] })
+			else
+				groups.set(gkey, {
+					key: gkey,
+					label: r.group?.label ?? r.leaf.section ?? null,
+					items: [r]
+				})
 		}
 		return Array.from(groups.values())
 	})
@@ -230,6 +247,40 @@ leaves and ignores the current scope.
 		if (leaf.current || leaf.disabled) return
 		onPick(leaf)
 	}
+
+	// Single shared hover tooltip (opt-in via `rowTooltip`): one floating node
+	// re-anchored to the hovered row, instead of a popover per row — rows can
+	// number in the hundreds. Portaled to body because the picker often lives
+	// inside an overflow-clipped floating container that would cut it off.
+	let tooltipText = $state<string | undefined>(undefined)
+	let tooltipTimer: ReturnType<typeof setTimeout> | undefined
+	const [tooltipRef, tooltipContent] = createFloatingActions({
+		strategy: 'fixed',
+		placement: 'right-start',
+		middleware: [offset(8), flip(), shift({ padding: 8 })],
+		autoUpdate: true
+	})
+
+	function tooltipEnter(el: HTMLElement, leaf: DrillLeaf<L>) {
+		if (!rowTooltip) return
+		clearTimeout(tooltipTimer)
+		const text = rowTooltip(leaf)
+		if (!text) {
+			tooltipText = undefined
+			return
+		}
+		tooltipTimer = setTimeout(() => {
+			tooltipRef(el)
+			tooltipText = text
+		}, 250)
+	}
+
+	function tooltipLeave() {
+		clearTimeout(tooltipTimer)
+		tooltipText = undefined
+	}
+
+	$effect(() => () => clearTimeout(tooltipTimer))
 
 	function activate(key: string | undefined) {
 		if (!key) return
@@ -405,7 +456,11 @@ leaves and ignores the current scope.
 		disabled={leaf.disabled}
 		onmousedown={(e) => e.preventDefault()}
 		onclick={() => pick(leaf)}
-		onmouseenter={() => setHoverHighlight(key)}
+		onmouseenter={(e) => {
+			setHoverHighlight(key)
+			tooltipEnter(e.currentTarget as HTMLElement, leaf)
+		}}
+		onmouseleave={tooltipLeave}
 	>
 		{@render defaultLeafIcon(leaf)}
 		<div class="min-w-0 flex-1">
@@ -479,10 +534,10 @@ leaves and ignores the current scope.
 			{:else if total === 0}
 				<div role="status" class="px-3 py-2 text-xs text-tertiary">No matches</div>
 			{:else}
-				{#each searchResultsByGroup as { group, items } (group?.key ?? '__none')}
-					{#if group}
+				{#each searchResultsByGroup as { key, label, items } (key)}
+					{#if label}
 						<div class="px-3 pt-3 pb-1 text-2xs uppercase tracking-wide text-tertiary font-medium">
-							{group.label}
+							{label}
 						</div>
 					{/if}
 					<ul class="pb-1">
@@ -500,8 +555,16 @@ leaves and ignores the current scope.
 			<div role="status" class="px-3 py-2 text-xs text-tertiary">Empty</div>
 		{:else}
 			<div class="flex flex-col py-1">
-				{#each entryList as entry (entry.key)}
+				{#each entryList as entry, i (entry.key)}
 					{@const isHl = entry.key === highlightedKey}
+					{@const section = entry.type === 'leaf' ? entry.node.section : undefined}
+					{@const prev = i > 0 ? entryList[i - 1] : undefined}
+					{@const prevSection = prev?.type === 'leaf' ? prev.node.section : undefined}
+					{#if section && section !== prevSection}
+						<div class="px-3 pt-2 pb-1 text-2xs uppercase tracking-wide text-tertiary font-medium">
+							{section}
+						</div>
+					{/if}
 					{#if entry.type === 'leaf'}
 						{@render leafRow(
 							entry.node,
@@ -543,6 +606,19 @@ leaves and ignores the current scope.
 		{/if}
 	</div>
 </div>
+
+{#if tooltipText}
+	<Portal target="body">
+		<div
+			use:tooltipContent
+			class="max-w-72 rounded-md border bg-surface px-2.5 py-1.5 text-xs text-primary shadow-md whitespace-pre-wrap break-words"
+			style="z-index: {zIndexes.tooltip};"
+			role="tooltip"
+		>
+			{tooltipText}
+		</div>
+	</Portal>
+{/if}
 
 <style>
 	/* Path truncates from the start (left ellipsis) so the deepest

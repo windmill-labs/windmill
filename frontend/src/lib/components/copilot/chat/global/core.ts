@@ -1808,6 +1808,64 @@ function getInstructions(subject: InstructionSubject, language?: ScriptLang): st
 
 export type AiSkillListItem = { name: string; description: string }
 
+/** Live session facts appended to the GLOBAL system prompt for session chats.
+ * Provided by the session runtime as a resolver (copilot must not import the
+ * sessions modules) and re-read on every system-message rebuild — the fork
+ * commits at first send, and the user can re-point the session's workspace. */
+export type SessionPromptContext = {
+	/** Operating workspace (undefined while the session is an unsent draft with no pick). */
+	workspaceId?: string
+	/** Display name of the operating workspace. */
+	workspaceName?: string
+	/** Set when the operating workspace is a fork of this workspace (staged
+	 * session fork or persistent dev workspace — `isDevWorkspace` splits them). */
+	parentWorkspaceId?: string
+	/** The operating workspace is a persistent dev workspace, not an ephemeral
+	 * staged fork. Same promote-to-parent deploy flow; different lifecycle. */
+	isDevWorkspace?: boolean
+	/** Pre-send intent: a staged fork of this workspace is created at first send. */
+	pendingForkOf?: string
+}
+
+/** Session-state guidance appended to the global system prompt so the model
+ * knows where its work lands (staged fork vs the live workspace). */
+export function getSessionContextPromptSection(ctx: SessionPromptContext): string {
+	const lines = [
+		'',
+		'',
+		'Session state:',
+		'- This chat is a Windmill AI session with its own operating workspace: every tool call (reads, drafts, test runs, deploys) targets that workspace.'
+	]
+	if (ctx.pendingForkOf) {
+		lines.push(
+			`- No workspace is committed yet: a staged fork of workspace "${ctx.pendingForkOf}" is created automatically when the first message is sent, and all work lands in that fork.`
+		)
+	} else if (ctx.parentWorkspaceId && ctx.isDevWorkspace) {
+		const name = ctx.workspaceName ? ` ("${ctx.workspaceName}")` : ''
+		lines.push(
+			`- Operating workspace: "${ctx.workspaceId}"${name} — the user's persistent DEV WORKSPACE, forked from workspace "${ctx.parentWorkspaceId}". deploy_workspace_item publishes into the dev workspace only; the user reviews & promotes changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
+		)
+	} else if (ctx.parentWorkspaceId) {
+		const name = ctx.workspaceName ? ` ("${ctx.workspaceName}")` : ''
+		lines.push(
+			`- Operating workspace: "${ctx.workspaceId}"${name} — an ephemeral STAGED FORK of workspace "${ctx.parentWorkspaceId}", created for session work. deploy_workspace_item publishes into the fork only, and the user reviews & promotes fork changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
+		)
+	} else if (ctx.workspaceId) {
+		lines.push(
+			`- Operating workspace: "${ctx.workspaceId}" — the live workspace itself, not a fork. deploy_workspace_item publishes directly to everyone in it.`
+		)
+	} else {
+		lines.push(
+			'- No operating workspace is set yet; the user picks one (or a new staged fork) before the first message is sent.'
+		)
+	}
+	return lines.join('\n')
+}
+
+/** `/` picker entry: a workspace skill or a built-in session action. The kind
+ * drives the picker's category grouping; entries without one are ungrouped. */
+export type ChatCommandItem = AiSkillListItem & { kind?: 'action' | 'skill' }
+
 /** Fetch the workspace's AI skills (name + description) for the global system prompt. */
 export async function loadWorkspaceSkills(workspace: string): Promise<AiSkillListItem[]> {
 	if (!workspace) return []
