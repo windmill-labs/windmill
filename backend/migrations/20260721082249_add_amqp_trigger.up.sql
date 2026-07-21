@@ -20,7 +20,8 @@ CREATE TABLE amqp_trigger (
     mode TRIGGER_MODE NOT NULL DEFAULT 'enabled'::TRIGGER_MODE,
     permissioned_as VARCHAR(255) NOT NULL,
     labels TEXT[] NULL,
-    PRIMARY KEY (path, workspace_id)
+    PRIMARY KEY (path, workspace_id),
+    FOREIGN KEY (workspace_id) REFERENCES workspace(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_amqp_trigger_labels ON amqp_trigger USING gin (labels) WHERE labels IS NOT NULL;

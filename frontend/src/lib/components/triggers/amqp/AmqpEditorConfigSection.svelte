@@ -17,21 +17,21 @@
 
 	interface Props {
 		can_write?: boolean
-		amqp_resource_path?: string
-		queue_name?: string
+		amqp_resource_path: string
+		queue_name: string
 		exchange?: AmqpExchange | undefined
 		options?: AmqpOptions | undefined
-		isValid?: boolean
+		isValid: boolean
 		showTestingBadge?: boolean
 	}
 
 	let {
 		can_write = false,
-		amqp_resource_path = $bindable(''),
-		queue_name = $bindable(''),
-		exchange = $bindable(undefined),
-		options = $bindable(undefined),
-		isValid = $bindable(false),
+		amqp_resource_path = $bindable(),
+		queue_name = $bindable(),
+		exchange = $bindable(),
+		options = $bindable(),
+		isValid = $bindable(),
 		showTestingBadge = false
 	}: Props = $props()
 

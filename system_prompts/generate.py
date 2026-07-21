@@ -843,6 +843,7 @@ WORKSPACE_TOOL_TRIGGER_SCHEMAS = [
     ('nats', 'natsTriggerRequestSchema'),
     ('postgres', 'postgresTriggerRequestSchema'),
     ('mqtt', 'mqttTriggerRequestSchema'),
+    ('amqp', 'amqpTriggerRequestSchema'),
     ('sqs', 'sqsTriggerRequestSchema'),
     ('gcp', 'gcpTriggerRequestSchema'),
     ('azure', 'azureTriggerRequestSchema'),

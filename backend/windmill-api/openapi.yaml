@@ -17652,10 +17652,11 @@ paths:
             schema:
               type: object
               properties:
-                connection:
-                  type: object
+                amqp_resource_path:
+                  type: string
+                  description: Path to the AMQP resource containing broker connection configuration
               required:
-                - connection
+                - amqp_resource_path
       responses:
         "200":
           description: successfully connected to amqp
@@ -30964,6 +30965,7 @@ components:
               "nats_trigger",
               "postgres_trigger",
               "mqtt_trigger",
+              "amqp_trigger",
               "sqs_trigger",
               "gcp_trigger",
               "azure_trigger",

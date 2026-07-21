@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use futures::StreamExt;
-use lapin::options::BasicAckOptions;
+use lapin::options::{BasicAckOptions, BasicNackOptions};
 use tokio::sync::RwLock;
 use windmill_common::{
     db::UserDB,
@@ -105,7 +105,7 @@ impl Listener for AmqpTrigger {
                         ),
                     ]);
 
-                    let _ = self
+                    let dispatched = self
                         .handle_event(
                             db,
                             listening_trigger,
@@ -115,10 +115,20 @@ impl Listener for AmqpTrigger {
                         )
                         .await;
 
-                    // Ack unconditionally regardless of the dispatch result:
-                    // native triggers are at-most-once, matching the SQS listener.
+                    // Only ack once the job/capture was dispatched. On failure
+                    // (e.g. a transient DB error) nack with requeue so the broker
+                    // redelivers rather than dropping the message (at-least-once).
+                    let ack_result = match dispatched {
+                        Ok(()) => delivery.acker.ack(BasicAckOptions::default()).await,
+                        Err(_) => {
+                            delivery
+                                .acker
+                                .nack(BasicNackOptions { requeue: true, multiple: false })
+                                .await
+                        }
+                    };
 
-                    if let Err(err) = delivery.acker.ack(BasicAckOptions::default()).await {
+                    if let Err(err) = ack_result {
                         let error = err.to_string();
                         tracing::error!(
                             "Error acknowledging AMQP message for trigger {}: {}",

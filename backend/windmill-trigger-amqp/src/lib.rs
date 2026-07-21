@@ -235,3 +235,57 @@ impl<'client> AmqpClientBuilder<'client> {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn resource(
+        host: &str,
+        port: Option<u16>,
+        username: Option<&str>,
+        password: Option<&str>,
+        vhost: Option<&str>,
+        tls: Option<bool>,
+    ) -> AmqpResource {
+        AmqpResource {
+            host: host.to_string(),
+            port,
+            username: username.map(str::to_string),
+            password: password.map(str::to_string),
+            vhost: vhost.map(str::to_string),
+            tls,
+        }
+    }
+
+    #[test]
+    fn build_uri_defaults_encode_root_vhost_and_pick_plaintext_port() {
+        let uri = build_uri(&resource("broker", None, None, None, None, None));
+        assert_eq!(uri, "amqp://broker:5672/%2F");
+    }
+
+    #[test]
+    fn build_uri_tls_picks_amqps_and_5671() {
+        let uri = build_uri(&resource("broker", None, None, None, None, Some(true)));
+        assert_eq!(uri, "amqps://broker:5671/%2F");
+    }
+
+    #[test]
+    fn build_uri_encodes_credentials_and_custom_vhost() {
+        let uri = build_uri(&resource(
+            "broker",
+            Some(5673),
+            Some("us er"),
+            Some("p@ss/word"),
+            Some("my/vhost"),
+            None,
+        ));
+        assert_eq!(uri, "amqp://us%20er:p%40ss%2Fword@broker:5673/my%2Fvhost");
+    }
+
+    #[test]
+    fn build_uri_omits_credentials_when_username_empty() {
+        let uri = build_uri(&resource("broker", None, Some(""), Some("secret"), None, None));
+        assert_eq!(uri, "amqp://broker:5672/%2F");
+    }
+}
