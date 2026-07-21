@@ -3974,14 +3974,19 @@ async fn check_if_allowed_to_access_s3_file_from_app(
         return Ok(AppS3ReadIdentity::OnBehalf);
     }
 
-    // Gate denied. A logged-in, non-embed viewer falls back to reading as THEMSELVES:
-    // the file is still bounded by their own S3 perms downstream, and they could read
-    // it via job_helpers directly anyway, so this adds zero capability while restoring
-    // pre-1.755 behavior. Anonymous callers (no identity) and embed tokens (untrusted
-    // app JS) have no viewer to fall back to and stay fully gated — this is what keeps
-    // the confused-deputy hole closed.
+    // Gate denied. A viewer holding a FULL, unscoped session falls back to reading as
+    // THEMSELVES: the file is still bounded by their own S3 perms downstream, and such
+    // a session can already fetch it via `job_helpers/download_s3_file`, so the fallback
+    // adds zero capability. The `scopes.is_none()` guard is what makes that true: a
+    // scope-restricted token (e.g. `apps:read:<path>`, or an app-embed token) is
+    // allowed on `apps_u/*` but REJECTED by the route-scope middleware on
+    // `job_helpers/*`, so serving it the file here WOULD be a new capability — it stays
+    // gated. Anonymous callers (no identity) also have no viewer to fall back to. Only
+    // the confused-deputy denial reaches the message below.
     match opt_authed.as_ref() {
-        Some(viewer) if !is_app_embed => Ok(AppS3ReadIdentity::AsViewer(viewer.clone())),
+        Some(viewer) if !is_app_embed && viewer.scopes.is_none() => {
+            Ok(AppS3ReadIdentity::AsViewer(viewer.clone()))
+        }
         _ => Err(Error::BadRequest(format!(
             "S3 file \"{}\" is not accessible from this app. A deployed app running on \
              behalf of its author only serves files it generated, files in its declared \

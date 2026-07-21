@@ -1,9 +1,9 @@
 //! Deployed-app S3 reads authorize on-behalf of the app author and are confined to
 //! app provenance (declared keys or recent job outputs): an anonymous viewer cannot
-//! read an arbitrary `file_key` as the author. A logged-in, non-embed viewer instead
-//! falls back to reading as THEMSELVES (bounded by their own S3 perms), so the gate
-//! is exercised here through the anonymous identity it still fully protects. Requires
-//! the `parquet` feature — the real `apps_u/*` S3 handlers are gated on it.
+//! read an arbitrary `file_key` as the author. A viewer on a full (unscoped) session
+//! instead falls back to reading as THEMSELVES (bounded by their own S3 perms), so the
+//! gate is exercised here through the anonymous identity it still fully protects.
+//! Requires the `parquet` feature — the real `apps_u/*` S3 handlers are gated on it.
 //!
 //! `base` fixture: test-user (admin, SECRET_TOKEN); test-user-2 (non-admin,
 //! SECRET_TOKEN_2, no S3 folder permission).
@@ -21,6 +21,19 @@ const NON_PROVENANCE: &str = "evil/secret.csv";
 
 fn client() -> reqwest::Client {
     reqwest::Client::new()
+}
+
+/// Mint an API token for test-user (admin) restricted to `scopes`.
+async fn mint_scoped_token(port: u16, scopes: Vec<&str>) -> anyhow::Result<String> {
+    let resp = authed(
+        client().post(format!("http://localhost:{port}/api/users/tokens/create")),
+        ADMIN_TOKEN,
+    )
+    .json(&json!({ "label": "scoped", "scopes": scopes, "workspace_id": "test-workspace" }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 201, "mint scoped token");
+    Ok(resp.text().await?)
 }
 
 fn authed(builder: reqwest::RequestBuilder, token: &str) -> reqwest::RequestBuilder {
@@ -131,11 +144,11 @@ async fn test_deployed_app_s3_onbehalf_provenance(db: Pool<Postgres>) -> anyhow:
     Ok(())
 }
 
-/// The viewer-perm union: a logged-in, non-embed viewer is no longer hard-denied by
-/// the provenance gate for a pre-existing file. It falls back to reading as ITSELF
-/// (bounded by its own S3 perms downstream), while an anonymous caller — with no
-/// identity to fall back to — stays fully gated with the actionable denial. This is
-/// what restores pre-1.755 behavior without reopening the confused-deputy hole.
+/// The viewer-perm union: a viewer on a full (unscoped) session is no longer hard-denied
+/// by the provenance gate for a pre-existing file. It falls back to reading as ITSELF
+/// (bounded by its own S3 perms downstream), while an anonymous caller (no identity) and
+/// a scope-restricted token (can hit `apps_u/*` but not `job_helpers/*`, so the fallback
+/// would be a new capability) both stay fully gated with the actionable denial.
 #[sqlx::test(fixtures("base"))]
 async fn test_deployed_app_s3_viewer_union(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -184,6 +197,22 @@ async fn test_deployed_app_s3_viewer_union(db: Pool<Postgres>) -> anyhow::Result
     assert!(
         !body.contains("is not accessible from this app") && !body.contains("File restricted"),
         "logged-in viewer must delegate to its own read, not be gate-denied: {body}"
+    );
+
+    // Scope-restricted token: an `apps:read:<app>` token reaches this route but is
+    // REJECTED by the route-scope middleware on `job_helpers/*`, so it must NOT get the
+    // viewer fallback (that would be a capability it cannot obtain directly). It stays
+    // gated with the denial, unlike the unscoped session above.
+    let apps_read_scope = format!("apps:read:{APP}");
+    let scoped = mint_scoped_token(port, vec![apps_read_scope.as_str()]).await?;
+    let body = authed(client().get(&url), &scoped)
+        .send()
+        .await?
+        .text()
+        .await?;
+    assert!(
+        body.contains("is not accessible from this app"),
+        "scope-restricted token must stay gated, not get the viewer fallback: {body}"
     );
 
     Ok(())
