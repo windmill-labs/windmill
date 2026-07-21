@@ -113,17 +113,52 @@ fn find_module_by_id(
     Ok(found)
 }
 
-fn find_ai_agent_tool_module_in_parent_agent(
+async fn find_ai_agent_tool_module_in_parent_agent(
     modules: &Vec<FlowModule>,
     parent_agent_step_id: &str,
     tool_module_id: &str,
+    client: &AuthedClient,
+    job_id: uuid::Uuid,
 ) -> Result<Option<FlowModule>, Error> {
     let Some(parent_agent_module) = find_module_by_id(modules, parent_agent_step_id)? else {
         return Ok(None);
     };
 
-    let FlowModuleValue::AIAgent { tools, .. } = parent_agent_module.get_value()? else {
+    let FlowModuleValue::AIAgent { tools, agent, .. } = parent_agent_module.get_value()? else {
         return Ok(None);
+    };
+
+    // A linked parent carries no tools on the module (they live in the resource, resolved only in
+    // the main execution branch). Resolve them from the resource here too, so a nested agent tool
+    // of a saved+linked agent can still be located when it runs as its own job.
+    let tools = if let Some(agent_ref) = agent.as_deref() {
+        let agent_path = agent_ref
+            .trim_start_matches("$res:")
+            .trim_start_matches("res://");
+        let resource_value = client
+            .get_resource_value_interpolated::<serde_json::Value>(
+                agent_path,
+                Some(job_id.to_string()),
+            )
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "failed to load ai_agent resource {agent_path}: {e}"
+                ))
+            })?;
+        match resource_value {
+            serde_json::Value::Object(mut map) => match map.remove("tools") {
+                Some(t) => serde_json::from_value::<Vec<AgentTool>>(t).map_err(|e| {
+                    Error::internal_err(format!(
+                        "invalid tools in ai_agent resource {agent_path}: {e}"
+                    ))
+                })?,
+                None => Vec::new(),
+            },
+            _ => Vec::new(),
+        }
+    } else {
+        tools
     };
 
     for tool in tools {
@@ -309,7 +344,10 @@ pub async fn handle_ai_agent_job(
             &value.modules,
             parent_agent_step_id,
             flow_step_id,
-        )?
+            client,
+            job.id,
+        )
+        .await?
     } else {
         find_module_by_id(&value.modules, flow_step_id)?
     };
