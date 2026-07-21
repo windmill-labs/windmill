@@ -17536,7 +17536,7 @@ paths:
         - $ref: "#/components/parameters/GetDraft"
       responses:
         "200":
-          description: amqp trigger deleted
+          description: amqp trigger retrieved
           content:
             application/json:
               schema:

@@ -189,9 +189,6 @@ impl<'client> AmqpClientBuilder<'client> {
         let connection = self.connect().await?;
         let channel = connection.create_channel().await?;
 
-        // Reject prefetch 0 here too (not just in CRUD validate_config): capture
-        // configs bypass that validation, and skipping basic_qos would still
-        // leave the channel unlimited.
         validate_amqp_options(self.options).map_err(|e| AmqpError::Common(Error::BadConfig(e)))?;
         if let Some(prefetch_count) = self.options.and_then(|o| o.prefetch_count) {
             channel

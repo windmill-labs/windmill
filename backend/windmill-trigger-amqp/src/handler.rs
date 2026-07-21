@@ -54,8 +54,6 @@ impl TriggerCrud for AmqpTrigger {
             return Err(Error::BadRequest("Queue name cannot be empty".to_string()));
         }
 
-        // RabbitMQ treats prefetch 0 as unlimited (unbounded consumer buffer); the
-        // editor and OpenAPI require >= 1, so reject it server-side too.
         super::validate_amqp_options(config.options.as_ref()).map_err(Error::BadRequest)?;
 
         Ok(())
