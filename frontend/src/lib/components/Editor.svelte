@@ -107,6 +107,7 @@
 	} from './lint/typescriptExtraLibs'
 	import { createWindmillAta, genAtaRoot } from './lint/typescriptAta'
 	import { readModelMarkers } from './lint/markers'
+	import { registerEditor as registerLintEditor } from './lint/headlessModelHost'
 	import { buildDenoImportMap, hasLanguageServers, lspServersFor } from './lint/lspLanguageConfig'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { Selection } from 'monaco-editor'
@@ -1683,8 +1684,16 @@
 	})
 
 	let loadTimeout: number | undefined = undefined
+	// Announce this editor to the headless lint host: when the AI chat lints the same item
+	// in the same workspace, it reads these markers instead of touching this model.
+	let unregisterFromLintHost: (() => void) | undefined = undefined
+
 	onMount(async () => {
 		if (BROWSER) {
+			unregisterFromLintHost = registerLintEditor(uri, $workspaceStore ?? '', () => ({
+				markers: getLintErrors(),
+				content: getCode()
+			}))
 			if (loadAsync) {
 				loadTimeout = setTimeout(() => loadMonaco().then((x) => (disposeMethod = x)), 0)
 			} else {
@@ -1696,6 +1705,7 @@
 
 	onDestroy(() => {
 		console.log('destroying editor')
+		unregisterFromLintHost?.()
 		valueAfterDispose = getCode()
 		pasteCleanup?.()
 		destroyed = true

@@ -3997,7 +3997,14 @@ type LintTargetArgs = {
 async function resolveLintTarget(
 	args: LintTargetArgs,
 	workspace: string
-): Promise<{ content: string; language: string; lintPath: string; label: string }> {
+): Promise<{
+	content: string
+	language: string
+	itemKind: string
+	storagePath: string
+	subPath?: string
+	label: string
+}> {
 	if (args.kind === 'script') {
 		const script = await loadScriptForEdit(args.path, workspace).catch(() => {
 			throw new Error(`No draft or deployed script found at "${args.path}".`)
@@ -4005,7 +4012,8 @@ async function resolveLintTarget(
 		return {
 			content: script.content,
 			language: script.language,
-			lintPath: args.path,
+			itemKind: 'script',
+			storagePath: args.path,
 			label: `script "${args.path}"`
 		}
 	}
@@ -4027,8 +4035,11 @@ async function resolveLintTarget(
 		return {
 			content: module.value.content,
 			language: module.value.language,
-			// The editor mounts flow modules at "<flow path>/<module id>"; lint the same URI.
-			lintPath: `${args.path}/${args.module_id}`,
+			// The editor mounts a flow module at "<flow path>/<module id>"; the owned model
+			// mirrors that under the flow's draft cell.
+			itemKind: 'flow',
+			storagePath: args.path,
+			subPath: args.module_id,
 			label: `module "${args.module_id}" of flow "${args.path}"`
 		}
 	}
@@ -4050,7 +4061,9 @@ async function resolveLintTarget(
 	return {
 		content: runnable.inlineScript.content ?? '',
 		language: runnable.inlineScript.language,
-		lintPath: `${args.path}/${runnableKey}`,
+		itemKind: 'app',
+		storagePath: args.path,
+		subPath: runnableKey,
 		label: `runnable "${runnableKey}" of app "${args.path}"`
 	}
 }
@@ -4153,8 +4166,10 @@ async function getLintErrors(args: LintTargetArgs, ctx: WriteDraftCtx): Promise<
 	const outcome = await lintCode({
 		content: target.content,
 		scriptLang: target.language,
-		path: target.lintPath,
-		workspace
+		workspace,
+		itemKind: target.itemKind,
+		storagePath: target.storagePath,
+		subPath: target.subPath
 	})
 	const result = outcome.result
 	const incomplete = outcome.status === 'incomplete'

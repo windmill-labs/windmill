@@ -11,8 +11,9 @@ import {
 	setMonacoTypescriptOptions,
 	TS_DIAGNOSTIC_CODES_TO_IGNORE
 } from '../monacoLanguagesOptions'
-import { computeModelPath, computeModelUri } from './monacoUri'
+import { computeModelUri, computeOwnedUri } from './monacoUri'
 import { readModelMarkers } from './markers'
+import { acquireOwnedModel, readThrough, releaseOwnedModel } from './headlessModelHost'
 import { ensureCustomWmillTypes, ensureResourceTypeNamespace } from './typescriptExtraLibs'
 import { createWindmillAta, genAtaRoot } from './typescriptAta'
 import { lintWithLsp } from './headlessLsp'
@@ -35,46 +36,26 @@ export function canLintHeadless(scriptLang: string | undefined): boolean {
 export interface HeadlessLintRequest {
 	content: string
 	scriptLang: string
-	/** Canonical editor path without extension: script path, `<flow>/<moduleId>`, `<app>/<runnableKey>`. */
-	path: string
 	workspace: string
+	/** The draft cell this code lives in — its identity, keyed like UserDraft. */
+	itemKind: string
+	storagePath: string
+	/** A unit within the cell: a flow module id or an app runnable key; absent for a whole script. */
+	subPath?: string
 }
 
-// Models we created ourselves, least recently used first.
-const ownedModels: string[] = []
-const MAX_OWNED_MODELS = 4
+/** The editor path this request maps to — where a mounted editor would put its model. */
+function editorPathOf(req: HeadlessLintRequest): string {
+	return req.subPath ? `${req.storagePath}/${req.subPath}` : req.storagePath
+}
 
+const MAX_ATA_INSTANCES = 4
 const absolutePathExtraLibs = new Map<string, { dispose: () => void }>()
 const ataByKey = new Map<string, (source: string) => Promise<void>>()
 const pendingByUri = new Map<string, Promise<LintOutcome>>()
 
 function withDeadline(promise: Promise<unknown>, ms: number): Promise<unknown> {
 	return Promise.race([promise, new Promise((resolve) => setTimeout(resolve, ms))])
-}
-
-function touchOwnedModel(uriString: string) {
-	const at = ownedModels.indexOf(uriString)
-	if (at >= 0) ownedModels.splice(at, 1)
-	ownedModels.push(uriString)
-}
-
-function evictOwnedModels(keepUri: string) {
-	while (ownedModels.length > MAX_OWNED_MODELS) {
-		const candidate = ownedModels.shift()
-		if (!candidate) continue
-		if (candidate === keepUri) {
-			// Still in use: keep tracking it, or a later lint would mistake it for a model
-			// owned by an editor and refuse to update its content.
-			ownedModels.push(candidate)
-			continue
-		}
-		const model = meditor.getModel(Uri.parse(candidate))
-		// An editor may have adopted it in the meantime; disposing it would close the
-		// user's buffer.
-		if (model && !model.isAttachedToEditor()) {
-			model.dispose()
-		}
-	}
 }
 
 export async function lintCode(
@@ -94,26 +75,27 @@ export async function lintCode(
 			scriptLang: req.scriptLang,
 			editorLang,
 			workspace: req.workspace,
-			path: req.path,
+			path: editorPathOf(req),
 			timeoutMs: opts?.timeoutMs
 		})
 	}
 
-	const uriString = computeModelUri(
-		computeModelPath(req.path, req.scriptLang),
+	const ownedUri = computeOwnedUri(
+		{ workspace: req.workspace, itemKind: req.itemKind, storagePath: req.storagePath },
+		req.subPath,
 		req.scriptLang,
 		editorLang
 	)
 
-	// Two lints of the same URI would race on model content; run them in order.
-	const previous = pendingByUri.get(uriString) ?? Promise.resolve(undefined)
+	// Two lints of the same owned model would race on its content; run them in order.
+	const previous = pendingByUri.get(ownedUri) ?? Promise.resolve(undefined)
 	const run = previous
 		.catch(() => undefined)
-		.then(() => lintOne(req, uriString, editorLang, opts?.timeoutMs ?? 3000))
+		.then(() => lintOne(req, ownedUri, editorLang, opts?.timeoutMs ?? 3000))
 	pendingByUri.set(
-		uriString,
+		ownedUri,
 		run.finally(() => {
-			if (pendingByUri.get(uriString) === run) pendingByUri.delete(uriString)
+			if (pendingByUri.get(ownedUri) === run) pendingByUri.delete(ownedUri)
 		}) as Promise<LintOutcome>
 	)
 	return run
@@ -121,7 +103,7 @@ export async function lintCode(
 
 async function lintOne(
 	req: HeadlessLintRequest,
-	uriString: string,
+	ownedUri: string,
 	editorLang: string,
 	timeoutMs: number
 ): Promise<LintOutcome> {
@@ -132,69 +114,72 @@ async function lintOne(
 	await initializeVscode('headlessLint')
 	keepModelAroundToAvoidDisposalOfWorkers()
 
-	const uri = Uri.parse(uriString)
-	let model = meditor.getModel(uri)
-	let contentMismatch = false
-	if (model) {
-		// Attachment decides, not who created it: an editor can adopt a model we made, and
-		// its buffer is what the user sees and would save. Never write to it.
-		if (model.isAttachedToEditor() || !ownedModels.includes(uriString)) {
-			contentMismatch = model.getValue() !== req.content
-		} else if (model.getValue() !== req.content) {
-			model.setValue(req.content)
-			// Markers from the previous content survive until revalidation finishes, and a
-			// matching marker count would let the wait below settle on them.
-			meditor.setModelMarkers(model, editorLang, [])
-			touchOwnedModel(uriString)
+	// If an editor in this workspace is showing the item, read its markers — never touch a
+	// model it owns. Its markers still have to settle: right after an edit the buffer holds
+	// the new content but the worker may not have revalidated yet.
+	const editorUri = computeModelUri(editorPathOf(req), req.scriptLang, editorLang)
+	const rt = readThrough(editorUri, req.workspace, req.content)
+	if (rt) {
+		const settled = await waitForMarkersToSettle(Uri.parse(editorUri), editorLang, timeoutMs)
+		const result = rt.reread()
+		return settled
+			? { status: 'complete', result, contentMismatch: rt.contentMismatch }
+			: {
+					status: 'incomplete',
+					result,
+					missing: ['the TypeScript checker'],
+					contentMismatch: rt.contentMismatch
+				}
+	}
+
+	// Otherwise lint an owned model.
+	const uri = acquireOwnedModel(ownedUri, req.content, editorLang)
+	try {
+		// Bounded: these fetch over the network, and lints of one URI are serialized behind
+		// each other, so one hung request would wedge the tool for that item indefinitely.
+		if (editorLang === 'typescript') {
+			await withDeadline(
+				Promise.all([
+					ensureResourceTypeNamespace(req.workspace, req.scriptLang),
+					ensureCustomWmillTypes(req.workspace)
+				]).catch((e) => console.error('headlessLint: extra libs unavailable', e)),
+				timeoutMs
+			)
 		}
-	} else {
-		model = meditor.createModel(req.content, editorLang, uri)
-		touchOwnedModel(uriString)
-		evictOwnedModels(uriString)
-	}
 
-	// Bounded: these fetch over the network, and lints of one URI are serialized behind
-	// each other, so one hung request would wedge the tool for that item indefinitely.
-	if (editorLang === 'typescript') {
-		await withDeadline(
-			Promise.all([
-				ensureResourceTypeNamespace(req.workspace, req.scriptLang),
-				ensureCustomWmillTypes(req.workspace)
-			]).catch((e) => console.error('headlessLint: extra libs unavailable', e)),
-			timeoutMs
-		)
-	}
+		if (req.scriptLang === 'bun' || req.scriptLang === 'bunnative') {
+			await withDeadline(
+				acquireTypes(req, ownedUri).catch((e) =>
+					console.error('headlessLint: type acquisition failed', e)
+				),
+				timeoutMs
+			)
+		}
 
-	if (req.scriptLang === 'bun' || req.scriptLang === 'bunnative') {
-		await withDeadline(
-			acquireTypes(req, uriString).catch((e) =>
-				console.error('headlessLint: type acquisition failed', e)
-			),
-			timeoutMs
-		)
+		const settled = await waitForMarkersToSettle(uri, editorLang, timeoutMs)
+		const result = readModelMarkers(uri)
+		// A worker that never came up leaves the markers empty for lack of analysis; report
+		// it as incomplete rather than let an empty set read as clean.
+		return settled
+			? { status: 'complete', result }
+			: { status: 'incomplete', result, missing: ['the TypeScript checker'] }
+	} finally {
+		releaseOwnedModel(ownedUri)
 	}
-
-	const settled = await waitForMarkersToSettle(uri, editorLang, timeoutMs)
-	const result = readModelMarkers(uri)
-	// A worker that never came up leaves the markers empty for lack of analysis; report it
-	// as incomplete rather than let an empty set read as clean.
-	return settled
-		? { status: 'complete', result, contentMismatch }
-		: { status: 'incomplete', result, missing: ['the TypeScript checker'], contentMismatch }
 }
 
 async function acquireTypes(req: HeadlessLintRequest, uriString: string): Promise<void> {
 	const key = `${req.workspace}:${uriString}`
 	let ata = ataByKey.get(key)
 	if (!ata) {
-		while (ataByKey.size >= MAX_OWNED_MODELS) {
+		while (ataByKey.size >= MAX_ATA_INSTANCES) {
 			const oldest = ataByKey.keys().next().value
 			if (oldest === undefined) break
 			ataByKey.delete(oldest)
 		}
 		ata = await createWindmillAta({
 			root: await genAtaRoot(req.workspace),
-			scriptPath: req.path,
+			scriptPath: editorPathOf(req),
 			modelUri: uriString,
 			absolutePathExtraLibs
 		})
