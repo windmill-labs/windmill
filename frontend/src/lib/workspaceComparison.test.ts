@@ -5,7 +5,7 @@ vi.mock('$lib/gen', () => ({
 	WorkspaceService: { compareWorkspaces: (...a: unknown[]) => compareWorkspaces(...(a as [])) }
 }))
 
-import { fetchWorkspaceComparison } from './workspaceComparison'
+import { fetchWorkspaceComparison, invalidateWorkspaceComparison } from './workspaceComparison'
 
 function deferred<T>() {
 	let resolve!: (v: T) => void
@@ -56,6 +56,20 @@ describe('fetchWorkspaceComparison', () => {
 		} finally {
 			vi.useRealTimers()
 		}
+	})
+
+	it('invalidation makes the next tolerant read fetch fresh (first post-deploy read)', async () => {
+		compareWorkspaces.mockResolvedValueOnce({ summary: { total_diffs: 0 } })
+		compareWorkspaces.mockResolvedValueOnce({ summary: { total_diffs: 3 } })
+
+		// Banner prewarms the cache pre-deploy...
+		await fetchWorkspaceComparison('p', 'f-inval', { maxAgeMs: 30_000 })
+		// ...a deploy invalidates (wired to invalidateWorkspaceDrafts)...
+		invalidateWorkspaceComparison('f-inval')
+		// ...so even a first-ever tolerant read cannot reuse the stale tally.
+		const fresh = await fetchWorkspaceComparison('p', 'f-inval', { maxAgeMs: 30_000 })
+		expect(fresh.summary.total_diffs).toBe(3)
+		expect(compareWorkspaces).toHaveBeenCalledTimes(2)
 	})
 
 	it('tolerant callers join a recent in-flight request', async () => {

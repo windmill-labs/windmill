@@ -11,10 +11,14 @@ export function classicAppDraftParts(json: unknown): {
 		return { value: json }
 	}
 	const obj = json as Record<string, unknown>
+	// A bare App always carries `grid` at top level (and the editor mirrors
+	// summary into it), while a legacy wrapper never does — `grid` is the only
+	// reliable discriminator; metadata keys appear on both shapes.
 	const wrapped =
+		!('grid' in obj) &&
 		typeof obj.value === 'object' &&
 		obj.value !== null &&
-		('summary' in obj || 'policy' in obj || 'custom_path' in obj)
+		'grid' in (obj.value as Record<string, unknown>)
 	if (wrapped) {
 		const inner = classicAppDraftParts(obj.value)
 		return {

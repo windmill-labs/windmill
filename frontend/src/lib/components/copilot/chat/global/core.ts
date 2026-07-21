@@ -171,7 +171,7 @@ import {
 	getForkParentWorkspaceId,
 	getWorkspaceDiffIndex,
 	maskVariableDiffSides,
-	readForkDiffEntry,
+	readForkDiffEntries,
 	readWorkspaceDiffEntry,
 	resolveWorkspaceDiffTarget,
 	type DiffFileView,
@@ -5672,13 +5672,17 @@ async function diffForkIndex(
 			'[+ local draft]: you also have an undeployed draft there — not part of this deployed-vs-deployed comparison; use diff without against to see it.'
 		)
 	}
-	const hidden = index.hiddenAheadCount + index.hiddenBehindCount
-	if (hidden > 0) {
-		notes.push(`${hidden} differing item(s) are hidden (no permission to view them).`)
+	const hasHidden = index.hiddenAheadCount > 0 || index.hiddenBehindCount > 0
+	if (hasHidden) {
+		notes.push(
+			`Hidden items you lack permission to view also differ: ${index.hiddenAheadCount} ahead, ${index.hiddenBehindCount} behind (a conflicted item counts in both).`
+		)
 	}
 	const summaryLine =
 		total === 0
-			? `This fork matches its parent workspace "${parent}" — no differences.`
+			? hasHidden
+				? `No differences visible to you between this fork and its parent "${parent}" — but hidden items differ (see below).`
+				: `This fork matches its parent workspace "${parent}" — no differences.`
 			: `${total} item(s) differ between this fork and its parent "${parent}":`
 	const result = [summaryLine, ...lines, ...notes].join('\n')
 	toolCallbacks.setToolStatus(toolId, {
@@ -5720,19 +5724,29 @@ async function diffForkItem(
 		toolCallbacks.setToolStatus(toolId, { content: message })
 		return message
 	}
-	const resolved = await readForkDiffEntry(workspace, parent, kinds, path)
-	if (resolved && 'ambiguousKinds' in resolved) {
-		throw new Error(
-			`Several kinds differ at "${path}" (${resolved.ambiguousKinds.join(', ')}) — pass type to pick one.`
-		)
-	}
-	const entry = resolved
-	const label = type ?? 'item'
-	if (!entry) {
-		const message = `${label} "${path}" does not differ between this fork and its parent "${parent}" (or does not exist in either).`
+	const entries = await readForkDiffEntries(workspace, parent, kinds, path)
+	if (entries.length === 0) {
+		const message = `${type ?? 'item'} "${path}" does not differ between this fork and its parent "${parent}" (or does not exist in either).`
 		toolCallbacks.setToolStatus(toolId, { content: message })
 		return message
 	}
+	// A wildcard can match several kinds at one path (nothing in the chat
+	// schema could pick between them) — render each kind's section.
+	const sections = entries.map((entry) => renderForkEntrySection(entry, path, parent, args))
+	const result = sections.join('\n\n====\n\n')
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Fork vs parent diff for "${path}"`,
+		result
+	})
+	return result
+}
+
+function renderForkEntrySection(
+	entry: ForkDiffEntryView,
+	path: string,
+	parent: string,
+	args: { file?: string; offset?: number; limit?: number }
+): string {
 	if (entry.status === 'error') {
 		throw new Error(
 			`Could not diff ${entry.kind} "${path}" against the parent: ${entry.errorMessage}`
@@ -5750,7 +5764,6 @@ async function diffForkItem(
 			: entry.kind === 'folder'
 				? `folder "${path}": no comparable differences vs parent "${parent}" — the folder display name is not exposed by the API and may be what differs (comparison reports ahead ${entry.ahead}, behind ${entry.behind}).`
 				: `${entry.kind} "${path}" has the same content in the fork and its parent "${parent}" (only version history differs).`
-		toolCallbacks.setToolStatus(toolId, { content: message, result: message })
 		return draftCaveat + message
 	}
 	const header =
@@ -5767,12 +5780,7 @@ async function diffForkItem(
 	const body = entry.files
 		? renderEntryFiles(entry.files, entry.patch ?? '', args)
 		: windowPatchBody(entry.patch ?? '', args.offset ?? 0, args.limit ?? DIFF_READ_DEFAULT_LINES)
-	const result = draftCaveat + header + body
-	toolCallbacks.setToolStatus(toolId, {
-		content: `Fork vs parent diff for "${path}"`,
-		result
-	})
-	return result
+	return draftCaveat + header + body
 }
 
 const DIFF_SEARCH_DEFAULT_MAX_MATCHES = 50

@@ -30,7 +30,12 @@ describe('classicAppDraftParts', () => {
 	})
 
 	it('does not mistake a grid whose component is named value for a wrapper', () => {
-		const grid = { grid: [], value: { some: 'component-state' } }
-		expect(classicAppDraftParts(grid)).toEqual({ value: grid, summary: undefined })
+		// Production shape: the editor ALWAYS mirrors summary onto the bare app.
+		const grid = { grid: [{ id: 'a' }], value: { some: 'component-state' }, summary: 'My app' }
+		expect(classicAppDraftParts(grid)).toEqual({
+			value: { grid: [{ id: 'a' }], value: { some: 'component-state' } },
+			summary: 'My app',
+			draftPath: undefined
+		})
 	})
 })

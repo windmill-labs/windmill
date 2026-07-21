@@ -40,7 +40,7 @@ import { getDraftItems, getWorkspaceDraftsVersion } from '$lib/workspaceDrafts.s
 import { getDraftDiffValues } from '$lib/utils_draft_deploy'
 import { getItemValue } from '$lib/utils_workspace_deploy'
 import { fetchWorkspaceComparison } from '$lib/workspaceComparison'
-import { FlowService, ScriptService, VariableService } from '$lib/gen'
+import { FlowService, ResourceService, ScriptService, VariableService } from '$lib/gen'
 import {
 	expireWorkspaceDiffList,
 	getForkDiffIndex,
@@ -48,7 +48,7 @@ import {
 	getWorkspaceDiffIndex,
 	invalidateWorkspaceDiffCache,
 	markWorkspaceDiffEntryStale,
-	readForkDiffEntry,
+	readForkDiffEntries,
 	readWorkspaceDiffEntry
 } from './diffSnapshot'
 
@@ -346,6 +346,12 @@ describe('readWorkspaceDiffEntry', () => {
 	})
 })
 
+
+async function readForkDiffEntryOne(workspace: string, parent: string, kinds: string[], path: string) {
+	const entries = await readForkDiffEntries(workspace, parent, kinds, path)
+	return entries[0]
+}
+
 const FORK = 'fork-ws'
 const PARENT = 'parent-ws'
 
@@ -431,7 +437,7 @@ describe('fork mode', () => {
 			value: `plaintext-${workspace}`,
 			description: workspace === FORK ? 'fork side' : 'parent side'
 		})) as any
-		const entry = await readForkDiffEntry(FORK, PARENT, ['variable'], 'f/a/plain')
+		const entry = await readForkDiffEntryOne(FORK, PARENT, ['variable'], 'f/a/plain')
 		expect(
 			vi.mocked(VariableService.getVariable).mock.calls.every(([a]: any) => !a.decryptSecret)
 		).toBe(true)
@@ -450,7 +456,7 @@ describe('fork mode', () => {
 			schema: { properties: workspace === FORK ? { a: {} } : { a: {}, b: {} } },
 			value: { modules: [{ id: 'x', value: { type: 'script', hash: `h-${workspace}` } }] }
 		})) as any
-		const entry = await readForkDiffEntry(FORK, PARENT, ['flow'], 'f/a/fl')
+		const entry = await readForkDiffEntryOne(FORK, PARENT, ['flow'], 'f/a/fl')
 		expect(entry?.status).toBe('modified')
 		expect(entry?.patch).toContain('schema')
 		// Inline-script hashes are per-workspace noise, never a diff line.
@@ -465,7 +471,7 @@ describe('fork mode', () => {
 			description: workspace === FORK ? 'fork docs' : 'parent docs',
 			language: 'bun'
 		})) as any
-		const entry = await readForkDiffEntry(FORK, PARENT, ['script'], 'f/a/s')
+		const entry = await readForkDiffEntryOne(FORK, PARENT, ['script'], 'f/a/s')
 		expect(entry?.status).toBe('modified')
 		expect(entry?.patch).toContain('-description: parent docs')
 	})
@@ -485,7 +491,7 @@ describe('fork mode', () => {
 				runnables: {}
 			}
 		}))
-		const entry = await readForkDiffEntry(FORK, PARENT, ['app', 'raw_app'], 'f/dash/main')
+		const entry = await readForkDiffEntryOne(FORK, PARENT, ['app', 'raw_app'], 'f/dash/main')
 		expect(entry?.status).toBe('modified')
 		expect(entry?.files?.['src/App.tsx'].status).toBe('modified')
 		expect(entry?.files?.['src/App.tsx'].patch).toContain('-old content')
@@ -497,7 +503,7 @@ describe('fork mode', () => {
 		expect(entry?.patch).not.toContain('parent_version')
 	})
 
-	it('reads fork-only kinds by path alone and reports wildcard ambiguity', async () => {
+	it('reads fork-only kinds by path alone; a wildcard returns every matching kind', async () => {
 		mockComparison([
 			comparisonDiff({ kind: 'folder', path: 'f/team' }),
 			comparisonDiff({ kind: 'resource_type', path: 'shared_name' }),
@@ -507,15 +513,17 @@ describe('fork mode', () => {
 			name: path,
 			summary: `${ws}`
 		}))
-		const folder = await readForkDiffEntry(FORK, PARENT, [], 'f/team')
-		expect(folder && 'kind' in folder && folder.kind).toBe('folder')
-		expect(folder && 'status' in folder && folder.status).toBe('modified')
+		vi.mocked(ResourceService.getResourceType).mockImplementation(async ({ workspace }: any) => ({
+			schema: {},
+			description: `${workspace}`
+		})) as any
+		const folder = await readForkDiffEntryOne(FORK, PARENT, [], 'f/team')
+		expect(folder?.kind).toBe('folder')
+		expect(folder?.status).toBe('modified')
 
-		const ambiguous = await readForkDiffEntry(FORK, PARENT, [], 'shared_name')
-		expect(ambiguous && 'ambiguousKinds' in ambiguous && ambiguous.ambiguousKinds.sort()).toEqual([
-			'folder',
-			'resource_type'
-		])
+		const both = await readForkDiffEntries(FORK, PARENT, [], 'shared_name')
+		expect(both.map((e) => e.kind).sort()).toEqual(['folder', 'resource_type'])
+		expect(both.every((e) => e.status === 'modified')).toBe(true)
 	})
 
 	it('flags entries that also carry a local draft', async () => {

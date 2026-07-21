@@ -73,3 +73,13 @@ export async function fetchWorkspaceComparison(
 		if (inflight.get(k)?.promise === run) inflight.delete(k)
 	}
 }
+
+/** Drop cached comparisons involving this fork workspace. Wired to
+ * `invalidateWorkspaceDrafts`, so any in-app deploy/draft mutation makes the
+ * NEXT read fetch a fresh tally even when no snapshot baseline exists yet.
+ * (Workspace ids cannot contain ':', so the suffix match is exact.) */
+export function invalidateWorkspaceComparison(forkWorkspaceId: string): void {
+	for (const k of [...cache.keys()]) {
+		if (k.endsWith(`:${forkWorkspaceId}`)) cache.delete(k)
+	}
+}
