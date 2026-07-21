@@ -28,6 +28,7 @@
 		workspaceUsageStore,
 		userStore,
 		workspaceStore,
+		userWorkspaces,
 		type UserExt,
 		defaultScripts,
 		hubBaseUrlStore,
@@ -86,6 +87,7 @@
 	import { useDbManagerUriState } from '$lib/components/dbManagerDrawerModel.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import CreateWorkspaceInner from '$lib/components/workspaceSettings/CreateWorkspaceInner.svelte'
+	import { recordForkParent, rememberForkParent } from '$lib/forkParentMemory'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -672,6 +674,40 @@
 		$workspaceStore
 		untrack(() => updateUserStore($workspaceStore))
 	})
+	// While a fork is reachable, mirror its parent linkage to localStorage so a
+	// later reload landing on a now-deleted fork can return to the parent (see
+	// forkParentMemory + the deleted-fork recovery in the root layout).
+	$effect(() => {
+		const ws = $workspaceStore
+		const list = $userWorkspaces
+		const isSuperadmin = $superadmin
+		untrack(() => void recordCurrentForkParent(ws, list, isSuperadmin))
+	})
+
+	// A superadmin can open a fork they aren't a member of, including a prefixless
+	// dev workspace. The membership-gated list omits it, so `recordForkParent` can't
+	// see its parent — fetch it directly so the deleted-fork recovery still works.
+	async function recordCurrentForkParent(
+		ws: string | undefined,
+		list: typeof $userWorkspaces,
+		isSuperadmin: string | false | undefined
+	): Promise<void> {
+		if (!ws) return
+		if (list.some((w) => w.id === ws)) {
+			recordForkParent(ws, list)
+			return
+		}
+		if (!isSuperadmin) return
+		try {
+			const workspace = await WorkspaceService.getWorkspaceAsSuperAdmin({ workspace: ws })
+			if (workspace.parent_workspace_id) {
+				rememberForkParent(ws, workspace.parent_workspace_id)
+			}
+		} catch {
+			// Best-effort: if we can't resolve the parent, recovery falls back to the
+			// workspace picker rather than the parent redirect.
+		}
+	}
 	$effect(() => {
 		$workspaceStore && untrack(() => onLoad())
 	})
