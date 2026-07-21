@@ -9,9 +9,8 @@
  *
  * When the beta ends, replace every call to `isGlobalAiEnabled()` with `true`
  * and delete this file. The references are intentionally narrow (chat mode
- * visibility, custom prompt settings, the `change_mode` tool enum, the AI
- * skills workspace settings tab, and the `/global_drafts` dev route) so the
- * rip-out is a small grep.
+ * visibility, custom prompt settings, the `change_mode` tool enum, and the
+ * AI skills workspace settings tab) so the rip-out is a small grep.
  */
 import { get } from 'svelte/store'
 import { workspaceStore } from '$lib/stores'
