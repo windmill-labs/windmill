@@ -72,6 +72,29 @@ export function textLineCount(content: string): number {
 	return content.split('\n').length - (content.endsWith('\n') ? 1 : 0)
 }
 
+/** Admit files in order while their DECODED byte size fits `budget`. Admission
+ * pre-checks use raw File.size, but the committed charge is the decoded UTF-8
+ * length, which malformed input inflates (an invalid byte decodes to a 3-byte
+ * replacement character) — so the commit step must re-check against what will
+ * actually be charged. */
+export function admitWithinByteBudget(
+	files: AttachedTextFile[],
+	budget: number
+): { admitted: AttachedTextFile[]; dropped: number } {
+	const admitted: AttachedTextFile[] = []
+	let dropped = 0
+	for (const f of files) {
+		const bytes = textByteLength(f.content)
+		if (bytes <= budget) {
+			admitted.push(f)
+			budget -= bytes
+		} else {
+			dropped++
+		}
+	}
+	return { admitted, dropped }
+}
+
 // cyrb53 (public-domain hash by bryc) — chosen over crypto.subtle because it is
 // synchronous and works on plain-HTTP deployments where SubtleCrypto is absent.
 function cyrb53(str: string, seed: number): number {

@@ -31,6 +31,7 @@
 	import { tryGetCurrentModel } from '$lib/aiStore'
 	import { createLongHash } from '$lib/editorLangUtils'
 	import {
+		admitWithinByteBudget,
 		fileToAttachedTextFile,
 		foldIntoDraft,
 		MAX_ATTACHED_FILES,
@@ -326,8 +327,26 @@
 			// Dedupe, courtesy-rename, and mint ids in one synchronous commit against
 			// the live list — another attach batch can land between this one's file
 			// reads, so decisions made mid-loop would be stale.
-			const added = foldIntoDraft(files, reads)
-			if (added.length > 0) files = [...files, ...added]
+			const folded = foldIntoDraft(files, reads)
+			// Re-check the byte budget against the DECODED sizes: the admission above
+			// used raw File.size, but the committed charge is the decoded UTF-8
+			// length, which malformed input inflates. Synchronous with the commit, so
+			// nothing interleaves. This batch's own raw reservation is excluded — the
+			// decoded sizes replace it.
+			const liveBudget =
+				MAX_CONVERSATION_FILE_BYTES -
+				aiChatManager.attachmentBytesExcluding(composerKey) -
+				files.reduce((sum, f) => sum + textByteLength(f.content), 0) -
+				(pendingFileBytes - reservedBytes)
+			const { admitted, dropped } = admitWithinByteBudget(folded, liveBudget)
+			if (admitted.length > 0) files = [...files, ...admitted]
+			if (dropped > 0) {
+				const mb = Math.round(MAX_CONVERSATION_FILE_BYTES / 1_000_000)
+				sendUserToast(
+					`${dropped} file(s) skipped — this conversation reached its ${mb}MB attachment budget. Link a folder to read larger sets on demand.`,
+					true
+				)
+			}
 			if (skipped > 0) sendUserToast(`Skipped ${skipped} file(s) (non-text).`, true)
 		} finally {
 			pendingFiles -= batch.length

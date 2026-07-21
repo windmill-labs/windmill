@@ -109,15 +109,16 @@ export class AttachedFilesStore {
 	 * attachments are addressed), then name (session links + legacy prompts).
 	 * The composite label the roster and search hits print — `name (file id: x)`
 	 * — resolves too: models echo references verbatim, so the printed form must
-	 * be a valid one. */
+	 * be a valid one. Exact matches win over label interpretation: a row whose
+	 * literal filename happens to look like a label stays addressable by it. */
 	resolve(ref: string): AttachedFile | undefined {
-		const direct = this.files.find((f) => f.id === ref)
-		if (direct) return direct
+		const exact = this.files.find((f) => f.id === ref) ?? this.get(ref)
+		if (exact) return exact
 		const label = ref.match(/^(.*) \(file id: ([^)]+)\)$/)
 		if (label) {
 			return this.files.find((f) => f.id === label[2]) ?? this.get(label[1])
 		}
-		return this.get(ref)
+		return undefined
 	}
 	readyFiles(): AttachedFile[] {
 		// Folder-root placeholders aren't real files — never expose them to the read/search tools.

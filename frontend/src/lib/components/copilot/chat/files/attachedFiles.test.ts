@@ -545,6 +545,14 @@ describe('AttachedFilesStore', () => {
 		expect(store.resolve(`notes.md (file id: ${f.id})`)?.id).toBe(f.id)
 	})
 
+	it('resolve prefers a literal filename over label interpretation', async () => {
+		// A file literally named like a printed label must stay addressable by its
+		// exact name — label parsing must not strip it down to the base name.
+		await store.addFiles([file('notes (file id: missing)', 'literal\n'), file('notes', 'base\n')])
+		await settle(store)
+		expect(await (store.resolve('notes (file id: missing)')!.file as Blob).text()).toBe('literal\n')
+	})
+
 	it('syncMessageScoped reconciles rows to the transcript references', async () => {
 		store.syncMessageScoped([mf('a.md', 'aaa\n'), mf('b.md', 'bbb\n')])
 		await settle(store)

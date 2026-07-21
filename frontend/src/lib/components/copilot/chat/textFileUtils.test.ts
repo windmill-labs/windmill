@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
+	admitWithinByteBudget,
 	attachedTextFileId,
+	fileToAttachedTextFile,
 	foldIntoDraft,
 	textLineCount,
 	uniqueDraftFileName
@@ -96,5 +98,31 @@ describe('textLineCount', () => {
 		expect(textLineCount('a\n')).toBe(1)
 		expect(textLineCount('a\nb')).toBe(2)
 		expect(textLineCount('a\nb\n')).toBe(2)
+	})
+})
+
+describe('admitWithinByteBudget', () => {
+	it('admits by decoded byte size in order and reports the dropped count', () => {
+		// Decoded size, not raw file size: '€' is 1 char but 3 UTF-8 bytes.
+		const euro = (n: number) => ({ name: `${n}.txt`, content: '€'.repeat(n) })
+		const { admitted, dropped } = admitWithinByteBudget(
+			[euro(2), euro(3), euro(1)],
+			3 * 3 // fits €€ (6) then not €€€ (9), then € (3)
+		)
+		expect(admitted.map((f) => f.name)).toEqual(['2.txt', '1.txt'])
+		expect(dropped).toBe(1)
+	})
+})
+
+describe('fileToAttachedTextFile', () => {
+	it('rejects a file whose decoded content exceeds the per-file cap', async () => {
+		// A valid ASCII prefix passes the 8KB text sniff; the malformed tail decodes
+		// each invalid byte to a 3-byte replacement character, tripling its size —
+		// raw size under the cap, decoded size over it.
+		const prefix = new TextEncoder().encode('a'.repeat(9000))
+		const tail = new Uint8Array(400_000).fill(0xff)
+		const file = new File([prefix, tail], 'inflate.txt', { type: 'text/plain' })
+		expect(file.size).toBeLessThan(1_000_000)
+		expect(await fileToAttachedTextFile(file)).toBeNull()
 	})
 })
