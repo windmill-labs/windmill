@@ -199,6 +199,26 @@ describe("computeGitSyncDeployBranch", () => {
       })
     ).toBe("wm-fork/main/mydev");
   });
+
+  // A throwaway fork OF a dev workspace is named after the tracked (cloned)
+  // branch, NOT the parent dev's label: the child is not itself a dev
+  // workspace, so it carries no devWorkspaceLabel. The dev label reaches this
+  // deploy only as the checkout base + PR target (handled in sync.ts), never as
+  // the branch name — otherwise the branch would be `wm-fork/<label>/<id>` and
+  // the poller's `wm-fork/<tracked>/*` enumeration would miss it.
+  test("throwaway fork of a dev workspace -> wm-fork/<tracked>/<id>, not the dev label", () => {
+    const branch = computeGitSyncDeployBranch({
+      workspaceId: "wm-fork-child",
+      parentWorkspaceId: "prodstaging", // the dev workspace (prefix-less id)
+      devWorkspaceLabel: undefined, // child is not a dev workspace
+      clonedBranchName: "main",
+      groupByFolder: false,
+      useIndividualBranch: false,
+      items: [{ path_type: "script", path: "f/foo/bar" }],
+    });
+    expect(branch).toBe("wm-fork/main/child");
+    expect(branch).not.toBe("wm-fork/dev/child");
+  });
 });
 
 describe("forkBranchName", () => {
