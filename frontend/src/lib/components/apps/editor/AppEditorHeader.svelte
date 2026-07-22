@@ -1076,7 +1076,7 @@
 			/>
 		</div>
 	{/if}
-	{#if $enterpriseLicense && $appPath != ''}
+	{#if $enterpriseLicense && $appPath != '' && !inSessionPane}
 		<div class="shrink-0">
 			<Awareness />
 		</div>

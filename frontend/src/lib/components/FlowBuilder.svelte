@@ -34,7 +34,7 @@
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import AIChangesWarningModal from '$lib/components/copilot/chat/flow/AIChangesWarningModal.svelte'
 
-	import { createRawSnippet, setContext, untrack } from 'svelte'
+	import { createRawSnippet, getContext, setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Button } from './common'
@@ -201,6 +201,12 @@
 		draftTriggersModalOpen = false
 		confirmDeploymentCallback(selectedTriggers)
 	}
+
+	// Inside an AI session pane (SessionEditorTarget injects an aiChatManager via
+	// context) the collaborator presence badge is spurious: the editor is embedded
+	// in the shared /sessions URL under the session's own workspace identity, so
+	// presence keyed on that URL leaks a phantom self-badge. Hide it here.
+	const inSessionPane = !!getContext('aiChatManager')
 
 	function hasAIChanges(): boolean {
 		return aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false
@@ -1173,7 +1179,7 @@
 					{/if}
 				</div>
 				<div class="flex flex-row gap-2 items-center shrink-0">
-					{#if $enterpriseLicense && !newFlow}
+					{#if $enterpriseLicense && !newFlow && !inSessionPane}
 						<Awareness />
 					{/if}
 					<div class="relative">

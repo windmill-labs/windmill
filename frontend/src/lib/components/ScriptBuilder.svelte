@@ -1976,7 +1976,7 @@
 				<!-- Separator -->
 				<div class="flex-1"></div>
 
-				{#if $enterpriseLicense && initialPath != ''}
+				{#if $enterpriseLicense && initialPath != '' && !inSessionPane}
 					<Awareness />
 				{/if}
 
