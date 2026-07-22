@@ -242,11 +242,7 @@ async fn list_search_resources(
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<Vec<SearchResource>> {
     let mut tx = user_db.begin(&authed).await?;
-    #[cfg(feature = "enterprise")]
     let n = 1000;
-
-    #[cfg(not(feature = "enterprise"))]
-    let n = 3;
 
     let allowed = build_scope_path_predicate(&authed, "resources", "read");
     let rows = sqlx::query_as!(
@@ -1239,6 +1235,9 @@ async fn delete_resource(
         collect_var_refs(value, &mut linked_var_paths);
     }
 
+    // A scoped token must not delete linked variables it lacks variables:write for.
+    check_linked_var_delete_scopes(&authed, &linked_var_paths)?;
+
     // Capture linked variables for trashbin before deleting them
     let trash_linked_vars: Vec<serde_json::Value> = if linked_var_paths.is_empty() {
         Vec::new()
@@ -1412,6 +1411,23 @@ fn collect_var_refs(value: &serde_json::Value, out: &mut Vec<String>) {
     }
 }
 
+/// Deleting a resource cascades into the `$var:` variables its value references. A
+/// scoped token must not use that cascade to delete variables it could not delete
+/// directly via `delete_variable` (which gates on `variables:write:<path>`), so require
+/// `variables:write` for EVERY linked variable and fail the whole delete otherwise.
+///
+/// No co-located-path exemption: a resource and a variable may share a path, and a
+/// resource-write token can create a resource over an existing standalone variable and
+/// self-reference it, so "same path as the deleted resource" is attacker-forgeable and
+/// cannot stand in for variable scope. No-op for unscoped tokens (`check_scopes` passes),
+/// so a full token's cascade cleanup is unchanged.
+fn check_linked_var_delete_scopes(authed: &ApiAuthed, linked_var_paths: &[String]) -> Result<()> {
+    for var_path in linked_var_paths {
+        check_scopes(authed, || format!("variables:write:{}", var_path))?;
+    }
+    Ok(())
+}
+
 /// Marks every variable referenced by the resource at `resource_path` as workspace-specific.
 ///
 /// AUTH CONTRACT: this mutates `ws_specific` and does NOT check authorization itself. The caller
@@ -1565,6 +1581,9 @@ async fn delete_resources_bulk(
     }
     linked_var_paths.sort();
     linked_var_paths.dedup();
+
+    // A scoped token must not delete linked variables it lacks variables:write for.
+    check_linked_var_delete_scopes(&authed, &linked_var_paths)?;
 
     sqlx::query!(
         "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = ANY($2)",
@@ -2363,6 +2382,7 @@ async fn update_resource_type(
     feature = "http_trigger",
     feature = "postgres_trigger",
     feature = "mqtt_trigger",
+    feature = "amqp_trigger",
     all(
         feature = "enterprise",
         any(
@@ -2431,8 +2451,13 @@ fn is_private_or_reserved_ip(ip: &IpAddr) -> bool {
                 || (v4.octets()[0] == 100 && (v4.octets()[1] & 0xC0) == 64)
         }
         IpAddr::V6(v6) => {
+            let seg = v6.segments();
             v6.is_loopback()
                 || v6.is_unspecified()
+                // fc00::/7 (unique local address) — std has no stable is_unique_local()
+                || (seg[0] & 0xfe00) == 0xfc00
+                // fe80::/10 (link-local) — std has no stable is_unicast_link_local()
+                || (seg[0] & 0xffc0) == 0xfe80
                 // IPv4-mapped IPv6 (::ffff:x.x.x.x) — check the inner v4
                 || v6.to_ipv4_mapped().map_or(false, |v4| {
                     is_private_or_reserved_ip(&IpAddr::V4(v4))
@@ -2447,10 +2472,16 @@ fn is_private_or_reserved_ip(ip: &IpAddr) -> bool {
 /// SCP-style (`user@host:path`).
 fn extract_host_from_git_url(url: &str) -> Option<String> {
     if let Some(after_scheme) = url.split("://").nth(1) {
-        // Standard URL with scheme
-        let host_part = match after_scheme.find('@') {
-            Some(pos) => &after_scheme[pos + 1..],
-            None => after_scheme,
+        // The authority ends at the first '/', '?', or '#'; the credentials '@'
+        // must be searched only within it, else a '@' in the path/query/fragment
+        // mis-scopes the host (SSRF bypass, GHSA-p5cj-8cfh-mjv6).
+        let authority_end = after_scheme
+            .find(|c| c == '/' || c == '?' || c == '#')
+            .unwrap_or(after_scheme.len());
+        let authority = &after_scheme[..authority_end];
+        let host_part = match authority.rfind('@') {
+            Some(pos) => &authority[pos + 1..],
+            None => authority,
         };
         // Handle IPv6 in brackets: [::1]
         if host_part.starts_with('[') {
@@ -2462,18 +2493,22 @@ fn extract_host_from_git_url(url: &str) -> Option<String> {
                 Some(host.to_lowercase())
             };
         }
-        let host_port = host_part.split('/').next()?;
-        let host = host_port.rsplit_once(':').map_or(host_port, |(h, _)| h);
+        let host = host_part.rsplit_once(':').map_or(host_part, |(h, _)| h);
         if host.is_empty() {
             return None;
         }
         return Some(host.to_lowercase());
     }
 
-    // SCP-style: user@host:path
-    if let Some(at_pos) = url.find('@') {
-        let after_at = &url[at_pos + 1..];
-        let host = after_at.split(':').next()?;
+    // SCP-style: user@host:path. The host is bounded by the first ':' (which
+    // begins the path); credentials are taken from the last '@' within that
+    // authority, mirroring the scheme path so a planted '@' cannot mis-scope it.
+    if url.contains('@') {
+        let authority = url.split(':').next().unwrap_or(url);
+        let host = match authority.rfind('@') {
+            Some(pos) => &authority[pos + 1..],
+            None => authority,
+        };
         if host.is_empty() {
             return None;
         }
@@ -2499,6 +2534,15 @@ async fn validate_git_url(url: &str) -> Result<()> {
             "Git URL contains invalid characters".to_string(),
         ));
     }
+    // Reject query/fragment components. git remote URLs never need them, and
+    // allowing them lets the URL's true authority (what git actually dials)
+    // diverge from the host we validate, e.g.
+    // `http://127.0.0.1/repo.git#@github.com/...` (SSRF, GHSA-p5cj-8cfh-mjv6).
+    if url.contains('?') || url.contains('#') {
+        return Err(Error::BadRequest(
+            "Git URL cannot contain '?' or '#' characters".to_string(),
+        ));
+    }
 
     let lower = url.to_lowercase();
 
@@ -2520,6 +2564,13 @@ async fn validate_git_url(url: &str) -> Result<()> {
 
     let host = extract_host_from_git_url(url)
         .ok_or_else(|| Error::BadRequest("Could not parse hostname from git URL".to_string()))?;
+
+    // CI/dev escape hatch: integration tests run their git remote (a Gitea
+    // container) on localhost, which the network-target checks below reject.
+    // Scheme and option-injection validation above still applies.
+    if std::env::var("ALLOW_LOCAL_GIT_REMOTES").is_ok_and(|v| v == "true" || v == "1") {
+        return Ok(());
+    }
 
     if host == "localhost" || host.ends_with(".local") || host == "[::1]" {
         return Err(Error::BadRequest(
@@ -2734,6 +2785,26 @@ async fn get_git_ssh_cmd(
     Ok((Some(git_ssh_cmd), file_paths))
 }
 
+/// Run a git remote probe with a hard per-command deadline. The auto-pull poller
+/// walks every repository sequentially in one monitor pass, so a single
+/// unresponsive remote must not stall the whole pass (or leave a hung child
+/// process behind — `kill_on_drop` reaps it when the timeout fires).
+const GIT_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+async fn run_git_probe(mut git_cmd: Command, what: &str) -> Result<std::process::Output> {
+    git_cmd.kill_on_drop(true);
+    match tokio::time::timeout(GIT_PROBE_TIMEOUT, git_cmd.output()).await {
+        Ok(output) => {
+            output.map_err(|e| Error::internal_err(format!("Failed to execute git command: {}", e)))
+        }
+        Err(_) => Err(Error::internal_err(format!(
+            "git {} timed out after {}s",
+            what,
+            GIT_PROBE_TIMEOUT.as_secs()
+        ))),
+    }
+}
+
 async fn get_repo_latest_commit_hash(
     git_resource: &GitRepositoryResource,
     git_ssh_command: Option<String>,
@@ -2759,10 +2830,7 @@ async fn get_repo_latest_commit_hash(
     }
     git_cmd.stderr(Stdio::piped());
 
-    let output = git_cmd
-        .output()
-        .await
-        .map_err(|e| Error::internal_err(format!("Failed to execute git command: {}", e)))?;
+    let output = run_git_probe(git_cmd, "ls-remote").await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8(output.stderr)
@@ -2794,6 +2862,234 @@ async fn get_repo_latest_commit_hash(
         })?;
 
     Ok(commit_hash)
+}
+
+/// Load a git-sync repository resource's value with `$var:`/`$res:` references
+/// resolved. Shared by the auto-pull poller (`get_git_repo_head_for_autopull`)
+/// and deploy-mode detection so the interpolation lives in exactly one place.
+///
+/// SECURITY: reads under the system identity (`SUPERADMIN_SYNC_EMAIL`), so it
+/// **bypasses resource RLS** and returns fully-interpolated JSON that **may
+/// contain credentials** (an embedded `$var:` token in the URL). Callers must
+/// have already authorized access to `w_id`, must use it only for git-sync
+/// `git_repository` resources, and must **not** return the resolved value to a
+/// client — derive and return only non-sensitive facts. Pass `allow_cache=true`
+/// for the poller (avoids re-decrypting/re-auditing a `$var:` secret every tick);
+/// pass `false` for on-demand reads that must reflect the current resource.
+pub async fn resolve_git_repository_resource(
+    db: &DB,
+    w_id: &str,
+    git_repo_resource_path: &str,
+    allow_cache: bool,
+) -> Result<Option<serde_json::Value>> {
+    use windmill_common::db::DbWithOptAuthed;
+
+    let resource_path = git_repo_resource_path
+        .strip_prefix("$res:")
+        .unwrap_or(git_repo_resource_path);
+
+    let dba: DbWithOptAuthed<'_, ApiAuthed> = DbWithOptAuthed::DB {
+        db: db.clone(),
+        audit_author: windmill_common::audit::AuditAuthor {
+            username: "git_sync_auto_pull".to_string(),
+            email: windmill_common::users::SUPERADMIN_SYNC_EMAIL.to_string(),
+            username_override: None,
+            token_prefix: None,
+        },
+    };
+
+    get_resource_value_interpolated_internal(&dba, w_id, resource_path, None, None, allow_cache)
+        .await
+}
+
+/// Resolve a workspace git-sync repository and return its current head commit
+/// `(ref_spec, sha)` for the tracked branch, for background auto-pull polling.
+/// Returns `Ok(None)` for repos that cannot be polled in-process (GitHub-App
+/// repos, which sync via webhooks instead).
+pub async fn get_git_repo_head_for_autopull(
+    db: &DB,
+    w_id: &str,
+    git_repo_resource_path: &str,
+) -> Result<Option<(String, String)>> {
+    let value = resolve_git_repository_resource(db, w_id, git_repo_resource_path, true)
+        .await?
+        .ok_or_else(|| {
+            Error::BadRequest(format!(
+                "Git repository resource '{}' not found",
+                git_repo_resource_path
+                    .strip_prefix("$res:")
+                    .unwrap_or(git_repo_resource_path)
+            ))
+        })?;
+
+    if value
+        .get("is_github_app")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        return Ok(None);
+    }
+
+    let git_resource: GitRepositoryResource = serde_json::from_value(value)
+        .map_err(|e| Error::BadRequest(format!("Invalid git repository resource: {}", e)))?;
+
+    // The SSH identity is supplied per-call in the authed commit-hash path; the
+    // background poller has none, so an SSH remote can't authenticate here. Fail
+    // with an actionable message instead of a confusing ls-remote auth error —
+    // these repos should use an HTTPS token URL or the GitHub App for auto-pull.
+    let url = git_resource.url.trim_start();
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err(Error::BadRequest(
+            "Automatic pull can't authenticate an SSH git remote in the background. Use an HTTPS URL with an embedded token, or connect the repository through the GitHub App.".to_string(),
+        ));
+    }
+
+    if let Some(branch) = git_resource.branch.as_deref().filter(|s| !s.is_empty()) {
+        let branch = branch.to_string();
+        let sha = get_repo_latest_commit_hash(&git_resource, None).await?;
+        return Ok(Some((branch, sha)));
+    }
+
+    // No explicit branch: resolve the remote's default-branch NAME along with
+    // its head in one call. Fork sync needs the concrete name to scope
+    // `wm-fork/<branch>/*`, so a bare "HEAD" ref would silently disable it.
+    validate_git_url(&git_resource.url).await?;
+    let mut git_cmd = Command::new("git");
+    git_cmd.args(["ls-remote", "--symref", &git_resource.url, "HEAD"]);
+    git_cmd.stderr(Stdio::piped());
+    let output = run_git_probe(git_cmd, "ls-remote --symref HEAD").await?;
+    if !output.status.success() {
+        let stderr = String::from_utf8(output.stderr)
+            .unwrap_or_else(|_| "Failed to decode stderr".to_string());
+        return Err(Error::BadRequest(format!(
+            "Error resolving git repo HEAD: {}",
+            stderr
+        )));
+    }
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|e| Error::internal_err(format!("Failed to decode git output: {}", e)))?;
+    let (branch, sha) = parse_ls_remote_symref_head(&stdout);
+    let sha = sha.ok_or_else(|| {
+        Error::BadRequest(format!(
+            "No HEAD found in repository '{}'",
+            git_resource.url
+        ))
+    })?;
+    Ok(Some((branch.unwrap_or_else(|| "HEAD".to_string()), sha)))
+}
+
+/// Parse `git ls-remote --symref <url> HEAD` output: the `ref:` line names the
+/// default branch, the plain line carries its head sha.
+fn parse_ls_remote_symref_head(stdout: &str) -> (Option<String>, Option<String>) {
+    let mut branch = None;
+    let mut sha = None;
+    for line in stdout.lines() {
+        let mut parts = line.split_whitespace();
+        match (parts.next(), parts.next()) {
+            (Some("ref:"), Some(target)) => {
+                if let Some(name) = target.strip_prefix("refs/heads/") {
+                    branch = Some(name.to_string());
+                }
+            }
+            (Some(hash), Some("HEAD")) => {
+                sha = Some(hash.to_string());
+            }
+            _ => {}
+        }
+    }
+    (branch, sha)
+}
+
+/// List the head sha of every `wm-fork/<base_branch>/*` branch — plus any
+/// `extra_refs` (dev workspaces' environment-label branches, e.g. `dev`,
+/// `staging`) — of a workspace git-sync repository in one `git ls-remote` call,
+/// for parent-managed fork sync polling. Same auth model and app-repo exclusion
+/// as [`get_git_repo_head_for_autopull`]: returns `Ok(None)` for
+/// GitHub-App-backed repos (polled over the API instead) and errors on SSH
+/// remotes.
+pub async fn get_git_repo_fork_heads_for_autopull(
+    db: &DB,
+    w_id: &str,
+    git_repo_resource_path: &str,
+    base_branch: &str,
+    extra_refs: &[String],
+) -> Result<Option<Vec<(String, String)>>> {
+    use windmill_common::db::DbWithOptAuthed;
+
+    let resource_path = git_repo_resource_path
+        .strip_prefix("$res:")
+        .unwrap_or(git_repo_resource_path);
+
+    let dba: DbWithOptAuthed<'_, ApiAuthed> = DbWithOptAuthed::DB {
+        db: db.clone(),
+        audit_author: windmill_common::audit::AuditAuthor {
+            username: "git_sync_auto_pull".to_string(),
+            email: windmill_common::users::SUPERADMIN_SYNC_EMAIL.to_string(),
+            username_override: None,
+            token_prefix: None,
+        },
+    };
+    let value =
+        get_resource_value_interpolated_internal(&dba, w_id, resource_path, None, None, true)
+            .await?
+            .ok_or_else(|| {
+                Error::BadRequest(format!(
+                    "Git repository resource '{}' not found",
+                    resource_path
+                ))
+            })?;
+
+    if value
+        .get("is_github_app")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        return Ok(None);
+    }
+
+    let git_resource: GitRepositoryResource = serde_json::from_value(value)
+        .map_err(|e| Error::BadRequest(format!("Invalid git repository resource: {}", e)))?;
+    let url = git_resource.url.trim_start();
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err(Error::BadRequest(
+            "Automatic pull can't authenticate an SSH git remote in the background. Use an HTTPS URL with an embedded token, or connect the repository through the GitHub App.".to_string(),
+        ));
+    }
+    validate_git_url(&git_resource.url).await?;
+    validate_git_ref(base_branch)?;
+
+    let mut git_cmd = Command::new("git");
+    git_cmd.args([
+        "ls-remote",
+        &git_resource.url,
+        &format!("refs/heads/wm-fork/{}/*", base_branch),
+    ]);
+    for r in extra_refs {
+        validate_git_ref(r)?;
+        git_cmd.arg(format!("refs/heads/{}", r));
+    }
+    git_cmd.stderr(Stdio::piped());
+    let output = run_git_probe(git_cmd, "ls-remote (fork branches)").await?;
+    if !output.status.success() {
+        let stderr = String::from_utf8(output.stderr)
+            .unwrap_or_else(|_| "Failed to decode stderr".to_string());
+        return Err(Error::BadRequest(format!(
+            "Error listing fork branches: {}",
+            stderr
+        )));
+    }
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|e| Error::internal_err(format!("Failed to decode git output: {}", e)))?;
+    let heads = stdout
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split_whitespace();
+            let sha = parts.next()?;
+            let branch = parts.next()?.strip_prefix("refs/heads/")?;
+            Some((branch.to_string(), sha.to_string()))
+        })
+        .collect();
+    Ok(Some(heads))
 }
 
 #[cfg(all(
@@ -2830,6 +3126,28 @@ mod tests {
     use serde_json::json;
     use windmill_common::audit::AuditAuthor;
     use windmill_common::db::DbWithOptAuthed;
+
+    #[test]
+    fn parse_symref_head_resolves_default_branch() {
+        let out = "ref: refs/heads/main\tHEAD\n7ddb8cec9a0000000000000000000000000000aa\tHEAD\n";
+        assert_eq!(
+            parse_ls_remote_symref_head(out),
+            (
+                Some("main".to_string()),
+                Some("7ddb8cec9a0000000000000000000000000000aa".to_string())
+            )
+        );
+        // Detached/unknown symref: sha still parses, branch stays None.
+        let out2 = "1234567890000000000000000000000000000000\tHEAD\n";
+        assert_eq!(
+            parse_ls_remote_symref_head(out2),
+            (
+                None,
+                Some("1234567890000000000000000000000000000000".to_string())
+            )
+        );
+        assert_eq!(parse_ls_remote_symref_head(""), (None, None));
+    }
 
     fn test_db_with_opt_authed(db: DB) -> DbWithOptAuthed<'static, ApiAuthed> {
         DbWithOptAuthed::DB {
@@ -3016,6 +3334,32 @@ mod tests {
             extract_host_from_git_url("http://[::1]:8080/repo.git"),
             Some("::1".to_string())
         );
+        // Fragment/query must not leak into the authority (GHSA-p5cj-8cfh-mjv6):
+        // the host is the real authority, not the '@' planted in the fragment/query.
+        assert_eq!(
+            extract_host_from_git_url(
+                "http://127.0.0.1:40173/repo.git#@github.com/windmill-labs/windmill.git"
+            ),
+            Some("127.0.0.1".to_string())
+        );
+        assert_eq!(
+            extract_host_from_git_url(
+                "http://127.0.0.1:40173/repo.git?@github.com/windmill-labs/windmill.git"
+            ),
+            Some("127.0.0.1".to_string())
+        );
+        // Path-less authority terminated by the fragment (exercises the '#' branch
+        // of the authority boundary directly).
+        assert_eq!(
+            extract_host_from_git_url("http://127.0.0.1#@github.com"),
+            Some("127.0.0.1".to_string())
+        );
+        // SCP-style with a planted extra '@' must resolve to the real host, not the
+        // credential segment.
+        assert_eq!(
+            extract_host_from_git_url("a@b@127.0.0.1:user/repo.git"),
+            Some("127.0.0.1".to_string())
+        );
         // No host extractable
         assert_eq!(extract_host_from_git_url("/local/path"), None);
         assert_eq!(
@@ -3058,6 +3402,17 @@ mod tests {
         ));
         // IPv6 loopback
         assert!(is_private_or_reserved_ip(&"::1".parse::<IpAddr>().unwrap()));
+        // IPv6 unique local address (fc00::/7)
+        assert!(is_private_or_reserved_ip(
+            &"fd00::1".parse::<IpAddr>().unwrap()
+        ));
+        assert!(is_private_or_reserved_ip(
+            &"fc00::1".parse::<IpAddr>().unwrap()
+        ));
+        // IPv6 link-local (fe80::/10)
+        assert!(is_private_or_reserved_ip(
+            &"fe80::1".parse::<IpAddr>().unwrap()
+        ));
         // IPv4-mapped IPv6
         assert!(is_private_or_reserved_ip(
             &"::ffff:127.0.0.1".parse::<IpAddr>().unwrap()
@@ -3068,6 +3423,12 @@ mod tests {
         ));
         assert!(!is_private_or_reserved_ip(
             &"140.82.121.4".parse::<IpAddr>().unwrap()
+        ));
+        // Public IPv6 should pass
+        assert!(!is_private_or_reserved_ip(
+            &"2606:2800:220:1:248:1893:25c8:1946"
+                .parse::<IpAddr>()
+                .unwrap()
         ));
     }
 
@@ -3092,6 +3453,10 @@ mod tests {
             .await
             .is_err());
         assert!(validate_git_url("git://0.0.0.0/repo.git").await.is_err());
+        // IPv6 loopback, unique-local, and link-local literals
+        assert!(validate_git_url("git://[::1]/repo.git").await.is_err());
+        assert!(validate_git_url("git://[fd00::1]/repo.git").await.is_err());
+        assert!(validate_git_url("git://[fe80::1]/repo.git").await.is_err());
     }
 
     #[tokio::test]
@@ -3127,5 +3492,31 @@ mod tests {
     async fn test_validate_git_url_blocks_option_injection() {
         assert!(validate_git_url("-evil").await.is_err());
         assert!(validate_git_url("--upload-pack=evil").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_validate_git_url_blocks_fragment_query_ssrf() {
+        // GHSA-p5cj-8cfh-mjv6: a loopback authority must stay blocked, and the
+        // fragment/query `@public-host` bypasses of #8600 must be rejected so the
+        // host git dials can never diverge from the validated host.
+        assert!(validate_git_url("http://127.0.0.1:40173/repo.git")
+            .await
+            .is_err());
+        assert!(validate_git_url(
+            "http://127.0.0.1:40173/repo.git#@github.com/windmill-labs/windmill.git"
+        )
+        .await
+        .is_err());
+        assert!(validate_git_url(
+            "http://127.0.0.1:40173/repo.git?@github.com/windmill-labs/windmill.git"
+        )
+        .await
+        .is_err());
+        // A legitimate public repo URL still validates.
+        assert!(
+            validate_git_url("https://github.com/windmill-labs/windmill.git")
+                .await
+                .is_ok()
+        );
     }
 }

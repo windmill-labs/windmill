@@ -1,5 +1,27 @@
 import { describe, it, expect } from 'vitest'
-import { draftFriendlyLeaf, parsePreviewItemRoute, resolvePreviewTab } from './previewRouter'
+import {
+	artifactUrl,
+	draftFriendlyLeaf,
+	matchReusablePage,
+	parseArtifactRoute,
+	parsePreviewItemRoute,
+	previewLocationLabel,
+	resolvePreviewTab
+} from './previewRouter'
+
+describe('matchReusablePage', () => {
+	it('matches curated pages and the compare page, ignoring query params', () => {
+		expect(matchReusablePage('/runs?path=f/a/b')?.path).toBe('/runs')
+		expect(matchReusablePage('/forks/compare?workspace_id=ws&items=script:f/a/b')?.path).toBe(
+			'/forks/compare'
+		)
+		expect(previewLocationLabel('/forks/compare?workspace_id=ws')).toBe('Compare & Deploy')
+	})
+
+	it('does not match trigger pages (they dedupe on exact URL)', () => {
+		expect(matchReusablePage('/kafka_triggers')).toBeUndefined()
+	})
+})
 
 describe('parsePreviewItemRoute', () => {
 	it('maps edit/get routes to item kinds', () => {
@@ -86,15 +108,59 @@ describe('resolvePreviewTab', () => {
 		expect(resolvePreviewTab('/apps/edit/f/a/b')).toEqual({ kind: 'iframe' })
 	})
 
-	it('routes a pipeline folder to the pipeline editor kind', () => {
-		expect(resolvePreviewTab('/pipeline/my_folder')).toEqual({
-			kind: 'editor',
-			editorKind: 'pipeline',
-			path: 'my_folder'
-		})
+	it('routes a pipeline folder to the pipeline editor kind when session pipelines are enabled', () => {
+		localStorage.setItem('wm_dev_session_pipelines', '1')
+		try {
+			expect(resolvePreviewTab('/pipeline/my_folder')).toEqual({
+				kind: 'editor',
+				editorKind: 'pipeline',
+				path: 'my_folder'
+			})
+		} finally {
+			localStorage.removeItem('wm_dev_session_pipelines')
+		}
+	})
+
+	it('routes a pipeline folder to the iframe fallback while session pipelines are gated', () => {
+		expect(resolvePreviewTab('/pipeline/my_folder')).toEqual({ kind: 'iframe' })
 	})
 
 	it('routes the bare pipeline list page to the iframe fallback', () => {
 		expect(resolvePreviewTab('/pipeline')).toEqual({ kind: 'iframe' })
+	})
+
+	it('routes an artifact url to the artifact slot by id (ignoring the name hash)', () => {
+		expect(resolvePreviewTab('artifact:abc%20123#My%20Doc')).toEqual({
+			kind: 'artifact',
+			id: 'abc 123'
+		})
+	})
+})
+
+describe('artifact route', () => {
+	it('round-trips id and name through artifactUrl → parseArtifactRoute, including special chars', () => {
+		for (const [id, name] of [
+			['abc', 'Onboarding plan'],
+			['id-with-dash', 'weird # % / name'],
+			['x', 'artifact:not-an-id#nope'],
+			['y', '']
+		] as const) {
+			expect(parseArtifactRoute(artifactUrl(id, name))).toEqual({ id, name })
+		}
+	})
+
+	it('parses a hash-less artifact url to an empty name', () => {
+		expect(parseArtifactRoute('artifact:abc')).toEqual({ id: 'abc', name: '' })
+	})
+
+	it('returns null for non-artifact urls', () => {
+		expect(parseArtifactRoute('/scripts/edit/f/foo/bar')).toBeNull()
+		expect(parseArtifactRoute('/runs')).toBeNull()
+		expect(parseArtifactRoute('artifactx:abc')).toBeNull()
+	})
+
+	it('labels an artifact tab by its name, falling back to "Artifact" when unnamed', () => {
+		expect(previewLocationLabel(artifactUrl('abc', 'My Doc'))).toBe('My Doc')
+		expect(previewLocationLabel('artifact:abc')).toBe('Artifact')
 	})
 })

@@ -62,8 +62,9 @@ use windmill_common::{
     error::{to_anyhow, Error, JsonResult, Result},
     jobs::{
         get_payload_tag_from_prefixed_path, resolve_delete_after_secs, schedule_job_deletion,
-        JobPayload, RawCode,
+        JobPayload, JobTriggerKind, RawCode,
     },
+    triggers::TriggerMetadata,
     user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
     users::username_to_permissioned_as,
     utils::{
@@ -382,11 +383,7 @@ async fn list_search_apps(
     // apps' definitions. `check_scopes` uses ScopeDefinition::includes, where run
     // does NOT include read, so it correctly denies such tokens.
     check_scopes(&authed, || "apps:read".to_string())?;
-    #[cfg(feature = "enterprise")]
     let n = 1000;
-
-    #[cfg(not(feature = "enterprise"))]
-    let n = 3;
     let mut tx = user_db.begin(&authed).await?;
 
     let allowed = build_scope_path_predicate(&authed, "apps", "read");
@@ -2736,7 +2733,10 @@ async fn update_app_internal<'a>(
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ExecuteApp {
-    /// The app version to execute. Fallback to `path` if not provided.
+    /// The app version the caller last loaded. Used only as a policy-cache
+    /// freshness hint: when it differs from the cached entry the policy is
+    /// refetched, so a redeploy takes effect immediately. It does not select which
+    /// version runs — the policy and runnables are always the app's current ones.
     pub version: Option<i64>,
     /// The app script id (from the `app_script` table) to execute.
     pub id: Option<i64>,
@@ -2826,6 +2826,33 @@ fn empty_triggerables(mut policy: Policy) -> Policy {
     policy
 }
 
+lazy_static! {
+    /// Deployed-app policies keyed by `(workspace_id, path)`, value
+    /// `(cached_version, policy, cached_at)`. The policy carries the
+    /// authorization-critical `execution_mode` (anonymous/public), so a stale entry
+    /// keeps a revoked app publicly executable (GHSA-r5v4-cxh9-7qhq). An entry is
+    /// reused only when all three freshness signals agree, each covering a case the
+    /// others can't:
+    /// - the caller's `version` still matches `cached_version` (a redeploy bumps the
+    ///   version -> instant refetch, for free since it's in the request);
+    /// - the `notify_app_policy_change` event has not evicted the key (policy-only
+    ///   change or deletion, which don't bump the version — see
+    ///   `invalidate_app_policy_cache` and `process_notify_event`);
+    /// - the entry is within its TTL (backstop for a missed event or a restart).
+    static ref APP_POLICY_CACHE: cache::Cache<(String, String), (Option<i64>, Arc<Policy>, std::time::Instant)> =
+        cache::Cache::new(1000);
+}
+
+/// Backstop time-to-live for an [`APP_POLICY_CACHE`] entry — the maximum a policy
+/// change can go unreflected if its invalidation event is never consumed.
+const APP_POLICY_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// Drop the cached policy for one app so the next execute re-reads it live. Invoked
+/// by the `notify_app_policy_change` poller arm on every policy change or deletion.
+pub fn invalidate_app_policy_cache(workspace_id: &str, path: &str) {
+    APP_POLICY_CACHE.remove(&(workspace_id.to_string(), path.to_string()));
+}
+
 async fn execute_component(
     OptAuthed(opt_authed): OptAuthed,
     tokened: OptTokened,
@@ -2867,7 +2894,7 @@ async fn execute_component(
         _ => {}
     };
 
-    let (arc_policy, policy): (Arc<Policy>, Policy);
+    let arc_policy: Arc<Policy>;
     let policy_triggerables_default = Default::default();
     // Preview mode means the request was issued from the editor; the editing
     // user is already trusted by the policy check, so client-supplied `tag`
@@ -2969,15 +2996,31 @@ async fn execute_component(
             .map(|policy| Result::Ok(serde_json::from_str(policy?.get())?))
             .map_ok(empty_triggerables);
 
-            // 1. The app `version` is provided: cache the fetched policy.
-            // 2. Otherwise, always fetch the policy from the database.
-            let policy = if let Some(id) = payload.version {
-                let cache = cache::anon!({ u64 => Arc<Policy> } in "policy" <= 1000);
-                arc_policy = policy_fut.map_ok(Arc::new).cached(cache, id as u64).await?;
+            // Serve the policy from the `(workspace, path)`-keyed cache, refetching
+            // unless all three freshness signals agree (GHSA-r5v4-cxh9-7qhq): the
+            // caller's `version` matches, the key wasn't evicted by
+            // `notify_app_policy_change`, and the entry is within its TTL.
+            let cache_key = (w_id.to_string(), path.to_string());
+            let fresh = APP_POLICY_CACHE
+                .get(&cache_key)
+                .filter(|(v, _, cached_at)| {
+                    *v == payload.version && cached_at.elapsed() < APP_POLICY_CACHE_TTL
+                })
+                .map(|(_, p, _)| p);
+            let policy = if let Some(p) = fresh {
+                arc_policy = p;
                 &*arc_policy
             } else {
-                policy = policy_fut.await?;
-                &policy
+                arc_policy = Arc::new(policy_fut.await?);
+                APP_POLICY_CACHE.insert(
+                    cache_key,
+                    (
+                        payload.version,
+                        arc_policy.clone(),
+                        std::time::Instant::now(),
+                    ),
+                );
+                &*arc_policy
             };
 
             // Caller-supplied inline code (`raw_code`), with or without an
@@ -3134,23 +3177,26 @@ async fn execute_component(
         }
         .filter(|t| !t.is_empty())
     };
-    let (job_payload, tag, on_behalf_of) = match (payload.path, payload.raw_code, payload.id) {
-        // flow or script:
-        (Some(path), None, None) => get_payload_tag_from_prefixed_path(&path, &db, &w_id).await?,
-        // inline script: "preview" mode, or run mode without an entry in the
-        // `app_script` table (legacy `rawscript/<sha>`-keyed triggerables).
-        (None, Some(raw_code), None) => {
-            let tag = resolved_inline_tag(raw_code.tag.clone());
-            (JobPayload::Code(raw_code), tag, None)
-        }
-        // inline script: run mode (deployed app) with an entry in `app_script`.
-        (None, Some(RawCode { language, path, cache_ttl, tag, .. }), Some(id)) => (
-            JobPayload::AppScript { id: AppScriptId(id), cache_ttl, language, path },
-            resolved_inline_tag(tag),
-            None,
-        ),
-        _ => unreachable!(),
-    };
+    let (job_payload, tag, _runnable_on_behalf_of) =
+        match (payload.path, payload.raw_code, payload.id) {
+            // flow or script:
+            (Some(path), None, None) => {
+                get_payload_tag_from_prefixed_path(&path, &db, &w_id).await?
+            }
+            // inline script: "preview" mode, or run mode without an entry in the
+            // `app_script` table (legacy `rawscript/<sha>`-keyed triggerables).
+            (None, Some(raw_code), None) => {
+                let tag = resolved_inline_tag(raw_code.tag.clone());
+                (JobPayload::Code(raw_code), tag, None)
+            }
+            // inline script: run mode (deployed app) with an entry in `app_script`.
+            (None, Some(RawCode { language, path, cache_ttl, tag, .. }), Some(id)) => (
+                JobPayload::AppScript { id: AppScriptId(id), cache_ttl, language, path },
+                resolved_inline_tag(tag),
+                None,
+            ),
+            _ => unreachable!(),
+        };
     // Preview honors the client-supplied inline tag (`resolved_inline_tag`), so
     // — like `/jobs/run/preview` — confine it to worker tags the caller may use
     // (a `if_jobs:filter_tags`-restricted token must not escape its filter).
@@ -3167,17 +3213,21 @@ async fn execute_component(
     // and would add unnecessary breakage risk to the legitimate editor flow.
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());
 
-    let (email, permissioned_as) = if let Some(on_behalf_of) = on_behalf_of.as_ref() {
-        (
-            on_behalf_of.email.as_str(),
-            on_behalf_of.permissioned_as.clone(),
-        )
-    } else {
-        (email.as_str(), permissioned_as)
-    };
+    // An app component runs on-behalf of the APP identity (resolved above), never
+    // the referenced runnable's own `on_behalf_of` — else a Viewer-mode app could
+    // execute as that identity and a preview would run as it, not the caller.
+    // (Direct `/jobs/run` still honors a runnable's `on_behalf_of`.)
+    let (email, permissioned_as) = (email.as_str(), permissioned_as);
 
     let end_user_email =
         get_end_user_email(&db, opt_authed.as_ref(), tokened.token.as_deref()).await;
+
+    // Stamp app-origination (trigger_kind='app' + trigger=<app path>), the signal
+    // the deployed-app S3 provenance gate trusts (unforgeable via `/jobs/run`).
+    // Deployed runs only: a preview runs as the caller and is read back as the caller
+    // (viewer-scoped), so it must never be app-provenanced (else it could forge one).
+    let app_trigger =
+        (!is_preview).then(|| TriggerMetadata::new(Some(path.to_string()), JobTriggerKind::App));
 
     let (uuid, mut tx) = push(
         &db,
@@ -3209,7 +3259,7 @@ async fn execute_component(
         None,
         false,
         end_user_email,
-        None,
+        app_trigger,
         None,
     )
     .await?;
@@ -3829,6 +3879,18 @@ async fn get_on_behalf_authed_from_app(
     Ok((on_behalf_authed, policy))
 }
 
+/// Which identity a deployed `apps_u/*` S3 read runs as.
+#[cfg(feature = "parquet")]
+enum AppS3ReadIdentity {
+    /// The gate passed: read with the policy's on-behalf identity (the app author in
+    /// author-mode, the viewer in viewer-mode).
+    OnBehalf,
+    /// The gate did not pass but a logged-in, non-embed viewer is present: read with
+    /// the viewer's OWN identity so the downstream S3 permission check self-enforces
+    /// their entitlement (never the author's).
+    AsViewer(ApiAuthed),
+}
+
 #[cfg(feature = "parquet")]
 async fn check_if_allowed_to_access_s3_file_from_app(
     db: &DB,
@@ -3837,11 +3899,15 @@ async fn check_if_allowed_to_access_s3_file_from_app(
     w_id: &str,
     path: &str,
     policy: &Policy,
-) -> Result<()> {
+) -> Result<AppS3ReadIdentity> {
     let is_app_embed = opt_authed.as_ref().is_some_and(|authed| {
         windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref())
     });
 
+    // A valid presigned bearer is a self-authorizing capability, so it short-circuits
+    // the provenance gate. OSS builds cannot validate signatures (no workspace-key
+    // HMAC), so there the bearer is ignored and the request falls through to the
+    // checks below — the same path these routes took before presigning.
     if file_query.sig.is_some() {
         #[cfg(feature = "private")]
         {
@@ -3854,56 +3920,81 @@ async fn check_if_allowed_to_access_s3_file_from_app(
                 &db,
             )
             .await?;
-            Ok(())
+            return Ok(AppS3ReadIdentity::OnBehalf);
         }
-        #[cfg(not(feature = "private"))]
-        return Err(Error::InternalErr(
-            "Internal error: signature validation is not supported in open source mode".to_string(),
-        ));
-    } else if matches!(policy.execution_mode, ExecutionMode::Viewer) && !is_app_embed {
+    }
+
+    if matches!(policy.execution_mode, ExecutionMode::Viewer) && !is_app_embed {
         // Viewer mode: the on-behalf identity IS the viewer, so the downstream
         // get_workspace_s3_resource_and_check_paths already bounds the read by
         // their own perms — no provenance gate (it would over-restrict). Embed
         // tokens are excluded (untrusted app JS stays confined below).
-        Ok(())
-    } else {
-        // Author-mode (Anonymous/Publisher) or embed token: confine to the app's
-        // declared keys or files it recently produced. Without this gate a
-        // logged-in viewer could launder the author's S3 perms via an arbitrary
-        // file_key (confused deputy). Producing identity = caller else `anonymous`.
-        let creator = opt_authed
-            .as_ref()
-            .map(|authed| authed.username.clone())
-            .unwrap_or_else(|| "anonymous".to_string());
-        let allowed = policy.allowed_s3_keys.as_ref().is_some_and(|keys| {
-            keys.iter()
-                .any(|key| key.s3_path == file_query.s3 && key.storage == file_query.storage)
-        }) || {
-            sqlx::query_scalar!(
-                r#"SELECT EXISTS (
+        return Ok(AppS3ReadIdentity::OnBehalf);
+    }
+
+    // Author-mode/embed: confine reads to the app's declared keys or files THIS
+    // app produced, else a viewer could launder the author's S3 perms via an
+    // arbitrary file_key (confused deputy). Provenance is the un-forgeable
+    // app-origination marker (`trigger_kind='app'` + `trigger=<this app>`);
+    // `created_by=<caller>` is ANDed only as a per-viewer isolation filter (it
+    // can narrow — one viewer can't read another's result — never forge).
+    let creator = opt_authed
+        .as_ref()
+        .map(|authed| authed.username.clone())
+        .unwrap_or_else(|| "anonymous".to_string());
+    let allowed = policy.allowed_s3_keys.as_ref().is_some_and(|keys| {
+        keys.iter()
+            .any(|key| key.s3_path == file_query.s3 && key.storage == file_query.storage)
+    }) || {
+        sqlx::query_scalar!(
+            r#"SELECT EXISTS (
                 SELECT 1 FROM v2_job_completed c JOIN v2_job j USING (id)
                 WHERE j.workspace_id = $2
-                    AND (j.kind = 'appscript' OR j.kind = 'preview')
-                    AND j.created_by = $4
                     AND c.started_at > now() - interval '3 hours'
-                    AND j.runnable_path LIKE $3 || '/%'
                     AND c.result @> ('{"s3":"' || $1 ||  '"}')::jsonb
+                    AND j.trigger_kind = 'app'
+                    AND j.trigger = $3
+                    AND j.created_by = $4
             )"#,
-                file_query.s3,
-                w_id,
-                path,
-                creator,
-            )
-            .fetch_one(db)
-            .await?
-            .unwrap_or(false)
-        };
+            file_query.s3,
+            w_id,
+            path,
+            creator,
+        )
+        .fetch_one(db)
+        .await?
+        .unwrap_or(false)
+    };
 
-        if !allowed {
-            Err(Error::BadRequest("File restricted".to_string()))
-        } else {
-            Ok(())
+    if allowed {
+        return Ok(AppS3ReadIdentity::OnBehalf);
+    }
+
+    // Gate denied. A viewer whose token is effectively unscoped falls back to reading
+    // as THEMSELVES: the file is still bounded by their own S3 perms downstream, and
+    // such a token can already fetch it via `job_helpers/download_s3_file`, so the
+    // fallback adds zero capability. `is_effectively_unscoped` (the same predicate the
+    // route-scope middleware uses) is what makes that true: a genuinely scope-restricted
+    // token (e.g. `apps:read:<path>`) is allowed on `apps_u/*` but REJECTED on
+    // `job_helpers/*`, so serving it the file here WOULD be a new capability — it stays
+    // gated. `!is_app_embed` keeps that confinement explicit (embed tokens carry the
+    // `app_embed` scope, so they are already scope-restricted). Anonymous callers (no
+    // identity) also have no viewer to fall back to. Only the confused-deputy denial
+    // reaches the message below.
+    match opt_authed.as_ref() {
+        Some(viewer)
+            if !is_app_embed
+                && windmill_api_auth::is_effectively_unscoped(viewer.scopes.as_deref()) =>
+        {
+            Ok(AppS3ReadIdentity::AsViewer(viewer.clone()))
         }
+        _ => Err(Error::BadRequest(format!(
+            "S3 file \"{}\" is not accessible from this app. A deployed app running on \
+             behalf of its author only serves files it generated, files in its declared \
+             allowlist, or presigned files. To expose a pre-existing file, sign it \
+             (signS3Object / sign_s3_object) or set the app's execution mode to \"viewer\".",
+            file_query.s3
+        ))),
     }
 }
 
@@ -3971,7 +4062,7 @@ async fn download_s3_file_from_app(
         get_on_behalf_authed_from_app(&db, &path, &w_id, &opt_authed, force_viewer_allowed_s3_keys)
             .await?;
 
-    check_if_allowed_to_access_s3_file_from_app(
+    let read_authed = match check_if_allowed_to_access_s3_file_from_app(
         &db,
         &opt_authed,
         &query.file_query,
@@ -3979,10 +4070,14 @@ async fn download_s3_file_from_app(
         &path,
         &policy,
     )
-    .await?;
+    .await?
+    {
+        AppS3ReadIdentity::OnBehalf => on_behalf_authed,
+        AppS3ReadIdentity::AsViewer(viewer) => viewer,
+    };
 
     download_s3_file_internal(
-        OptJobAuthed { authed: on_behalf_authed, job_id: None },
+        OptJobAuthed { authed: read_authed, job_id: None },
         &db,
         None,
         &w_id,
@@ -3995,14 +4090,25 @@ async fn download_s3_file_from_app(
     .await
 }
 
+// Presigned bearer params (`exp=..&sig=..`) extracted as a second `Query` so the
+// app-scoped preview/count/metadata routes honor a presigned key the same way the
+// raw `download_s3_file` route does.
 #[cfg(feature = "parquet")]
-fn app_s3_file_query(s3: String, storage: Option<String>) -> AppS3FileQuery {
+#[derive(Deserialize)]
+struct AppS3Sig {
+    sig: Option<String>,
+    #[cfg(feature = "private")]
+    exp: Option<String>,
+}
+
+#[cfg(feature = "parquet")]
+fn app_s3_file_query(s3: String, storage: Option<String>, sig: AppS3Sig) -> AppS3FileQuery {
     AppS3FileQuery {
         s3,
         storage,
-        sig: None,
+        sig: sig.sig,
         #[cfg(feature = "private")]
-        exp: None,
+        exp: sig.exp,
     }
 }
 
@@ -4023,9 +4129,15 @@ async fn app_s3_on_behalf_and_provenance(
     }
     let (on_behalf_authed, policy) =
         get_on_behalf_authed_from_app(db, path, w_id, opt_authed, None).await?;
-    check_if_allowed_to_access_s3_file_from_app(db, opt_authed, file_query, w_id, path, &policy)
-        .await?;
-    Ok(crate::db::OptJobAuthed { authed: on_behalf_authed, job_id: None })
+    let read_authed = match check_if_allowed_to_access_s3_file_from_app(
+        db, opt_authed, file_query, w_id, path, &policy,
+    )
+    .await?
+    {
+        AppS3ReadIdentity::OnBehalf => on_behalf_authed,
+        AppS3ReadIdentity::AsViewer(viewer) => viewer,
+    };
+    Ok(crate::db::OptJobAuthed { authed: read_authed, job_id: None })
 }
 
 // The app-scoped display ops carry the app path in the URL and everything else
@@ -4098,9 +4210,10 @@ async fn app_download_s3_parquet_file_as_csv(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<DownloadFileQuery>,
+    Query(sig): Query<AppS3Sig>,
 ) -> Result<Response> {
     let path = path.to_path();
-    let file_query = app_s3_file_query(query.file_key.clone(), query.storage.clone());
+    let file_query = app_s3_file_query(query.file_key.clone(), query.storage.clone(), sig);
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
     crate::job_helpers_oss::download_s3_parquet_file_as_csv_internal(
@@ -4123,9 +4236,10 @@ async fn app_load_file_metadata(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<LoadFileMetadataQuery>,
+    Query(sig): Query<AppS3Sig>,
 ) -> Result<Response> {
     let path = path.to_path();
-    let file_query = app_s3_file_query(query.file_key.clone(), query.storage.clone());
+    let file_query = app_s3_file_query(query.file_key.clone(), query.storage.clone(), sig);
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
     let resp =
@@ -4139,9 +4253,10 @@ async fn app_load_file_preview(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<LoadFilePreviewQuery>,
+    Query(sig): Query<AppS3Sig>,
 ) -> Result<Response> {
     let path = path.to_path();
-    let file_query = app_s3_file_query(query.file_key.clone(), query.storage.clone());
+    let file_query = app_s3_file_query(query.file_key.clone(), query.storage.clone(), sig);
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
     let resp =
@@ -4155,10 +4270,11 @@ async fn app_load_table_count(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<AppLoadCountQuery>,
+    Query(sig): Query<AppS3Sig>,
 ) -> Result<Response> {
     let path = path.to_path();
     let (file_key, inner) = query.into_inner();
-    let file_query = app_s3_file_query(file_key.clone(), inner.storage.clone());
+    let file_query = app_s3_file_query(file_key.clone(), inner.storage.clone(), sig);
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
     let resp =
@@ -4173,10 +4289,11 @@ async fn app_load_parquet_preview(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<AppLoadPreviewQuery>,
+    Query(sig): Query<AppS3Sig>,
 ) -> Result<Response> {
     let path = path.to_path();
     let (file_key, inner) = query.into_inner();
-    let file_query = app_s3_file_query(file_key.clone(), inner.storage.clone());
+    let file_query = app_s3_file_query(file_key.clone(), inner.storage.clone(), sig);
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
     let resp = crate::job_helpers_oss::load_preview_internal(
@@ -4192,10 +4309,11 @@ async fn app_load_csv_preview(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<AppLoadPreviewQuery>,
+    Query(sig): Query<AppS3Sig>,
 ) -> Result<Response> {
     let path = path.to_path();
     let (file_key, inner) = query.into_inner();
-    let file_query = app_s3_file_query(file_key.clone(), inner.storage.clone());
+    let file_query = app_s3_file_query(file_key.clone(), inner.storage.clone(), sig);
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
     let resp = crate::job_helpers_oss::load_preview_internal(

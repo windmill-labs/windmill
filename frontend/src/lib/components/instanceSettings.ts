@@ -426,6 +426,30 @@ export const settings: Record<string, Setting[]> = {
 			cloudonly: false,
 			ee_only: 'Workspace fairness is an Enterprise feature.',
 			hideInQuickSetup: true
+		},
+		{
+			label: 'Max jobs queued per concurrency key',
+			description:
+				'Rejects new jobs once this many are already queued behind one concurrency key. Jobs sharing a key run at most <em>concurrent limit</em> at a time regardless of spare worker capacity, so a caller pushing faster than the key drains grows a backlog no capacity can absorb. Scoped per key, so a runaway producer cannot block the rest of the workspace. Set 0 to disable. Default 10000.',
+			key: 'concurrency_key_max_queued_jobs',
+			fieldType: 'number',
+			placeholder: '10000',
+			storage: 'setting',
+			cloudonly: true,
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Max jobs queued per workspace',
+			description:
+				'Rejects new jobs once a workspace has this many queued in total, across every concurrency key and script. Guards against a single workspace flooding the queue generally, including from parallel for-loops. Applies even to premium workspaces. Jobs already queued still drain; only new pushes past the ceiling are rejected. Set 0 to disable. Default 20000.',
+			key: 'workspace_max_queued_jobs',
+			fieldType: 'number',
+			placeholder: '20000',
+			storage: 'setting',
+			cloudonly: true,
+			ee_only: '',
+			hideInQuickSetup: true
 		}
 	],
 	'Object Storage': [

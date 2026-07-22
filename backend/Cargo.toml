@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.756.0"
+version = "1.765.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -22,6 +22,7 @@ members = [
     "./windmill-trigger-kafka",
     "./windmill-trigger-postgres",
     "./windmill-trigger-mqtt",
+    "./windmill-trigger-amqp",
     "./windmill-trigger-websocket",
     "./windmill-trigger-email",
     "./windmill-trigger-nats",
@@ -87,7 +88,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.756.0"
+version = "1.765.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -141,6 +142,7 @@ postgres_trigger = ["windmill-api/postgres_trigger"]
 mcp = ["windmill-ai/mcp", "windmill-api/mcp", "windmill-worker/mcp"]
 bedrock = ["windmill-ai/bedrock", "windmill-api/bedrock", "windmill-worker/bedrock"]
 mqtt_trigger = ["windmill-api/mqtt_trigger"]
+amqp_trigger = ["windmill-api/amqp_trigger"]
 native_trigger = ["windmill-api/native_trigger"]
 sqs_trigger = ["windmill-api/sqs_trigger", "windmill-common/aws_auth", "windmill-api/openidconnect"]
 gcp_trigger = ["windmill-api/gcp_trigger"]
@@ -180,7 +182,7 @@ run_inline = ["windmill-api/run_inline"]
 oss_core = [
     "embedding", "parquet", "openidconnect", "license",
     "http_trigger", "zip", "oauth2", "postgres_trigger",
-    "mqtt_trigger", "websocket", "smtp", "native_trigger",
+    "mqtt_trigger", "amqp_trigger", "websocket", "smtp", "native_trigger",
     "static_frontend", "mcp", "bedrock", "run_inline",
     "quickjs"
 ]
@@ -198,10 +200,15 @@ ce = ["ce_rpi", "jemalloc", "dind", "agent_worker_server"]
 # Edition meta-features: EE variants
 ee = ["ce", "ee_core", "ee_server", "kafka-gssapi"]
 ee_rhel = ["ce_core", "ee_core", "kafka-gssapi", "all_languages"]
-ee_windows = ["ce_core", "ee_core", "all_languages_windows"]
+# The Windows binary is worker-only, but a non-agent worker runs windmill-api on
+# localhost (main.rs run_server, `if !is_agent`) and jobs call back into it, so
+# it needs every feature its own plumbing or its jobs invoke in-process; drop
+# only external/server-facing surface the worker never runs.
+worker_windows_core = ["private", "operator", "parquet", "quickjs", "enterprise", "prometheus", "otel", "jemalloc", "windmill-worker/mcp", "windmill-store/mcp", "windmill-worker/bedrock", "openidconnect", "run_inline", "windmill-api/instance_smtp", "oauth2"]
+ee_windows = ["worker_windows_core", "all_languages_windows"]
 all_sqlx_features = ["all_languages", "enterprise", "enterprise_saml", "embedding", "parquet", "prometheus", "flow_testing",
  "openidconnect", "cloud", "jemalloc", "tantivy", "sqlx", "kafka", "kafka-gssapi", "nats", "otel", "dind", "websocket", "http_trigger",
-  "postgres_trigger", "mcp", "mqtt_trigger", "sqs_trigger", "gcp_trigger", "azure_trigger", "smtp", "stripe",
+  "postgres_trigger", "mcp", "mqtt_trigger", "amqp_trigger", "sqs_trigger", "gcp_trigger", "azure_trigger", "smtp", "stripe",
    "license", "oauth2", "zip", "static_frontend", "scoped_cache", "agent_worker_server", "bedrock", "native_trigger", "quickjs",
    "windmill-git-sync/all_sqlx_features"]
 
@@ -250,6 +257,7 @@ windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-object-store.workspace = true
 windmill-git-sync.workspace = true
+windmill-store.workspace = true
 windmill-api = { workspace = true, default-features = false }
 windmill-api-agent-workers = { workspace = true, optional = true }
 windmill-api-scripts.workspace = true
@@ -326,6 +334,8 @@ async-nats.workspace = true
 aws-sdk-sqs.workspace = true
 aws-config.workspace = true
 aws-credential-types.workspace = true
+hmac.workspace = true
+hex.workspace = true
 
 
 [workspace.dependencies]
@@ -358,6 +368,7 @@ windmill-trigger = { path = "./windmill-trigger" }
 windmill-trigger-kafka = { path = "./windmill-trigger-kafka" }
 windmill-trigger-postgres = { path = "./windmill-trigger-postgres" }
 windmill-trigger-mqtt = { path = "./windmill-trigger-mqtt" }
+windmill-trigger-amqp = { path = "./windmill-trigger-amqp" }
 windmill-trigger-websocket = { path = "./windmill-trigger-websocket" }
 windmill-trigger-email = { path = "./windmill-trigger-email" }
 windmill-trigger-nats = { path = "./windmill-trigger-nats" }
@@ -490,6 +501,10 @@ deno_console = "0.209.0"
 deno_url = "0.209.0"
 deno_webidl = "0.209.0"
 deno_web = "0.240.0"
+# Sibling release of the pinned deno_core 0.352 / deno_web 0.240 stack
+# (its deps are deno_core ^0.352, deno_web ^0.240, deno_error =0.6.1). A newer
+# deno_crypto would force bumping the whole deno stack.
+deno_crypto = "0.223.0"
 deno_io = "0.119.0"
 deno_fs = "0.119.0"
 deno_net = "0.201.0"
@@ -671,8 +686,14 @@ tree-sitter-ruby = "=0.23.1"
 tree-sitter-r = "=1.2.0"
 oracle = { version = "0.6.3", features = ["chrono"] }
 rumqttc = { version = "0.24.0", features = ["use-native-tls"]}
+lapin = "2.5"
+tokio-executor-trait = "2.1"
+tokio-reactor-trait = "1.1"
 strum = { version = "0.27", features = ["derive"] }
 strum_macros = "0.27"
 hudsucker = { version = "0.22", features = ["rcgen-ca", "native-tls-client"] }
-hyper-http-proxy = { version = "1", default-features = false, features = ["native-tls"] }
+hyper-http-proxy = { version = "1", default-features = false, features = ["rustls-tls-native-roots"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "ring", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls-native-certs = "0.8"
 rcgen = "0.13"

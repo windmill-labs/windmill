@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO amqp_trigger (\n            amqp_resource_path, queue_name, exchange, options, path, script_path, is_flow,\n            workspace_id, edited_by, edited_at, extra_perms, server_id, last_server_ping,\n            error, error_handler_path, error_handler_args, retry, mode, permissioned_as, labels\n        )\n        SELECT\n            amqp_resource_path, queue_name, exchange, options, path, script_path, is_flow,\n            $1, edited_by, edited_at, extra_perms, NULL, NULL,\n            NULL, error_handler_path, error_handler_args, retry, 'disabled'::TRIGGER_MODE, permissioned_as, labels\n        FROM amqp_trigger WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d9d997591a163f25a9be5134bffacd0068c51ca21018d6751cc1044e38c06730"
+}

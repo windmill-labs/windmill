@@ -137,7 +137,7 @@
 				<!-- prettier-ignore -->
 				<LabelsInput bind:labels={(flowStore.val as any).labels} class="-mt-4" />
 
-				{#if !noEditor}
+				{#if !noEditor && customUi?.topBar?.editablePath != false}
 					<Label label="Path">
 						<Path
 							autofocus={false}

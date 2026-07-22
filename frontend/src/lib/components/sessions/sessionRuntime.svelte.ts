@@ -25,7 +25,7 @@ type SavedScript = Omit<Script & UserDraftOverlay, 'draft'> & { draft?: NewScrip
 type SavedFlow = Omit<Flow & UserDraftOverlay, 'draft'> & { draft?: Flow }
 import type { HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
-import { workspaceStore } from '$lib/stores'
+import { userWorkspaces, workspaceStore } from '$lib/stores'
 import { loadCopilot, copilotWorkspace } from '$lib/aiStore'
 import { emptySchema, type StateStore } from '$lib/utils'
 import {
@@ -49,7 +49,13 @@ import {
 	previewTargetForSessionTarget,
 	selectPreviewTabsToClose
 } from './sessionPreviewTabs.svelte'
-import { matchPreviewPage, parsePreviewItemRoute, previewLocationLabel } from './previewRouter'
+import {
+	matchReusablePage,
+	parsePreviewItemRoute,
+	previewLocationLabel,
+	resolvePreviewTab
+} from './previewRouter'
+import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { armRestartOnFirstInteraction } from '$lib/userDraftToast'
@@ -59,7 +65,9 @@ import {
 	setClosePreviewTabsHandler,
 	setGetPreviewStatusHandler,
 	setGetRuntimeLogsHandler,
+	setGetDomHandler,
 	setListAppRunsHandler,
+	setScreenshotHandler,
 	setOpenPagePreviewHandler,
 	setOpenPreviewHandler
 } from '$lib/components/copilot/chat/global/core'
@@ -69,8 +77,14 @@ import {
 	type RawAppRuntimeLogEntry,
 	type RawAppRuntimeLogRequester,
 	type RawAppRunSummary,
-	type RawAppRunsProvider
+	type RawAppRunsProvider,
+	type RawAppScreenshotRequester
 } from '$lib/components/raw_apps/utils'
+import type {
+	RawAppDomQuery,
+	RawAppDomRequester,
+	RawAppDomResult
+} from '$lib/components/raw_apps/rawAppDom'
 import { getNonStreamingMetadataCompletion } from '$lib/components/copilot/lib'
 import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
@@ -172,8 +186,21 @@ export interface SessionRuntime {
 	): Promise<void>
 	setRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined): void
 	requestRuntimeLogs(limit: number): Promise<RawAppRuntimeLogEntry[] | undefined>
+	/** Register a mounted raw-app preview's DOM requester, keyed by app path.
+	 * ALL mounted preview tabs register (hidden ones stay mounted), so a
+	 * DOM-scoped turn can read its own app even when another tab is visible. */
+	registerDomRequester(appPath: string, requester: RawAppDomRequester): void
+	unregisterDomRequester(appPath: string, requester: RawAppDomRequester): void
+	/** The visible preview — the default target for a query with no app path. */
+	setActiveDomApp(appPath: string, owner: unknown): void
+	releaseActiveDomApp(owner: unknown): void
+	requestDom(query: RawAppDomQuery): Promise<RawAppDomResult | undefined>
 	setAppRunsProvider(provider: RawAppRunsProvider | undefined): void
 	getAppRuns(): RawAppRunSummary[] | undefined
+	setScreenshotRequester(requester: RawAppScreenshotRequester | undefined): void
+	/** Release the slot only if `requester` still owns it. */
+	clearScreenshotRequester(requester: RawAppScreenshotRequester): void
+	requestScreenshot(): Promise<string | undefined>
 	// Discard the local draft + force-reload the editor, so the preview matches
 	// the deployed version. Used by editor onDeploy + the chat deploy handler.
 	syncPreviewWithDeployed(
@@ -314,6 +341,24 @@ function createRuntime(session: Session): SessionRuntime {
 		const s = sessionState.sessions.find((x) => x.id === session.id)
 		return s ? getEffectiveWorkspaceId(s) : undefined
 	}
+	// Session facts (fork vs live workspace) for the system prompt. A resolver so
+	// each rebuild reads the current record — the fork commits at first send, and
+	// the user can re-point the session's workspace between sends.
+	manager.sessionContextResolver = () => {
+		const s = sessionState.sessions.find((x) => x.id === session.id)
+		if (!s) return undefined
+		const wsId = getEffectiveWorkspaceId(s)
+		const ws = get(userWorkspaces).find((w) => w.id === wsId)
+		return {
+			workspaceId: wsId,
+			parentWorkspaceId: ws?.parent_workspace_id ?? undefined,
+			isDevWorkspace: ws?.is_dev_workspace,
+			// Committed workspace missing from the list: still a fork (mirrors
+			// isForkSession) — the prompt must not call it the live workspace.
+			forkParentUnknown: !ws && !!s.workspace_id,
+			pendingForkOf: s.pending_fork?.parent_workspace_id
+		}
+	}
 	// Pre-flight: materialise the (still-transient) session, then commit
 	// the workspace (creating a staged fork if needed) before any send.
 	// AIChatManager awaits this so the first message hits a persisted
@@ -403,8 +448,7 @@ function createRuntime(session: Session): SessionRuntime {
 	// Hydrate the preview-tab owner from the session record (the durable backing);
 	// from here on the owner is the single live copy and writes back through the
 	// adapter. setSessionTabs / setSessionPreviewCollapsed stay the low-level record
-	// writers (a transient session's writes land in the localStorage draft slot
-	// until it materialises).
+	// writers (opening/moving a tab is a touch that persists an in-memory draft).
 	const previewTabs = new SessionPreviewTabs(hydratePreviewTabs(session), {
 		persist: (snap) => {
 			setSessionTabs(session.id, snap.tabs, snap.activeId)
@@ -412,7 +456,16 @@ function createRuntime(session: Session): SessionRuntime {
 			// Only persist a real width; undefined means "never resized" (defaults to 50).
 			if (snap.previewSize != null) setSessionPreviewSize(session.id, snap.previewSize)
 		},
-		onTabsChanged: pruneEditorCells
+		onTabsChanged: pruneEditorCells,
+		onTabOpened: (url) => {
+			const slot = resolvePreviewTab(url)
+			logFeatureUsage('ai_session', 'tab', {
+				key:
+					slot.kind === 'editor' ? slot.editorKind : slot.kind === 'artifact' ? 'artifact' : 'page',
+				entityId: session.id,
+				workspace: getEffectiveWorkspaceId(session)
+			})
+		}
 	})
 
 	// Let the jobs tray open a run in this session's preview panel (as an iframe
@@ -426,13 +479,32 @@ function createRuntime(session: Session): SessionRuntime {
 		})
 	}
 
+	manager.openArtifact = (id, name) => {
+		// Capture before open() un-collapses / re-activates: flash only when the tab
+		// was already the displayed one (nothing else visibly changes).
+		const wasDisplayed = !previewTabs.collapsed
+		const prevActive = previewTabs.activeId
+		const { status } = previewTabs.open({ type: 'artifact', id, name })
+		if (status === 'focused' && wasDisplayed && previewTabs.activeId === prevActive) {
+			previewTabs.pulseFocus(previewTabs.activeId)
+		}
+	}
+	manager.closeArtifact = (id) => previewTabs.closeArtifact(id)
+	// Key the store before any configureGlobalMode runs, so a new session's first create shows at once.
+	void manager.artifacts.setSession(session.id)
+
 	// Pipeline target state lives on the runtime (not the PipelineEditorView
 	// component) so the in-session drafts survive hide/show of the editor pane —
 	// the pane unmounts on hide, and a component-local store would be discarded.
 	const pipelineEditorState = new PipelineEditorState()
 
 	let runtimeLogRequester: RawAppRuntimeLogRequester | undefined = undefined
+	// appPath → requester, one entry per mounted raw-app preview tab.
+	const domRequesters = new Map<string, RawAppDomRequester>()
+	let activeDomAppPath: string | undefined = undefined
+	let activeDomOwner: unknown = undefined
 	let appRunsProvider: RawAppRunsProvider | undefined = undefined
+	let screenshotRequester: RawAppScreenshotRequester | undefined = undefined
 
 	return {
 		sessionId: session.id,
@@ -757,11 +829,61 @@ function createRuntime(session: Session): SessionRuntime {
 		async requestRuntimeLogs(limit) {
 			return runtimeLogRequester ? runtimeLogRequester(limit) : undefined
 		},
+		registerDomRequester(appPath, requester) {
+			domRequesters.set(appPath, requester)
+		},
+		unregisterDomRequester(appPath, requester) {
+			// Identity-guarded: a remount may already have replaced this entry.
+			if (domRequesters.get(appPath) === requester) domRequesters.delete(appPath)
+		},
+		setActiveDomApp(appPath, owner) {
+			activeDomAppPath = appPath
+			activeDomOwner = owner
+		},
+		releaseActiveDomApp(owner) {
+			// Owner-guarded so a set/release race between two tabs can't blank the
+			// new active app regardless of effect order.
+			if (activeDomOwner === owner) {
+				activeDomAppPath = undefined
+				activeDomOwner = undefined
+			}
+		},
+		async requestDom(query) {
+			if (domRequesters.size === 0) return undefined
+			// Route to the query's own app when specified (a DOM-scoped turn reads
+			// its element's app even when another tab is now visible), else the
+			// active preview, else the only one open.
+			const path =
+				query.appPath ??
+				activeDomAppPath ??
+				(domRequesters.size === 1 ? [...domRequesters.keys()][0] : undefined)
+			if (path === undefined) return undefined
+			const requester = domRequesters.get(path)
+			if (!requester) {
+				return {
+					text: `The preview for "${path}" is no longer open, so its DOM can't be read. Re-open that raw app in the session to inspect it.`
+				}
+			}
+			return requester(query)
+		},
 		setAppRunsProvider(provider) {
 			appRunsProvider = provider
 		},
 		getAppRuns() {
 			return appRunsProvider ? appRunsProvider() : undefined
+		},
+		setScreenshotRequester(requester) {
+			screenshotRequester = requester
+		},
+		clearScreenshotRequester(requester) {
+			// Tabs unmount in any order and several stay mounted at once, so a
+			// departing tab must not unregister whichever one now owns the slot.
+			if (screenshotRequester === requester) {
+				screenshotRequester = undefined
+			}
+		},
+		async requestScreenshot() {
+			return screenshotRequester ? screenshotRequester() : undefined
 		}
 	}
 }
@@ -896,22 +1018,38 @@ setOpenPagePreviewHandler(({ sessionId: callerSessionId, href, label, newTab }) 
 	// filter change updates it in place instead of spawning a duplicate — unless the
 	// user asked for a separate tab. open() dedupes on the exact URL, so differing
 	// filters would otherwise always open a new tab.
-	const targetPage = matchPreviewPage(href)
+	const targetPage = matchReusablePage(href)
 	if (!newTab && targetPage) {
 		const existing = owner.tabs.find(
-			(t) => matchPreviewPage(t.loc || t.url)?.path === targetPage.path
+			(t) => matchReusablePage(t.loc || t.url)?.path === targetPage.path
 		)
 		if (existing) {
+			// A target identical to what the tab already shows produces no navigation
+			// signal at all, so a drawer-opening hash (an edit drawer the user closed)
+			// would silently not re-fire — force a load. Hashless targets need no
+			// reload: focusing the already-correct view is enough.
+			const unchanged = href.includes('#') && (existing.loc || existing.url) === href
 			owner.select(existing.id)
 			owner.navigate({ type: 'page', href, label })
 			owner.setCollapsed(false)
+			if (unchanged) {
+				owner.pulseReload(existing.id)
+				return `Re-opened the ${label} preview tab on the requested view.`
+			}
 			return `Updated the ${label} preview tab with the new filters.`
 		}
 	}
 	const result = owner.open({ type: 'page', href, label })
-	return result.status === 'focused'
-		? `A preview tab is already showing ${label} — focused it and applied the filters.`
-		: `Opened ${label} in a new preview tab in the side panel.`
+	if (result.status === 'focused') {
+		// Same no-signal situation as above: open() only reports 'focused' when a
+		// tab already shows this exact URL.
+		if (href.includes('#')) {
+			const shown = owner.tabs.find((t) => (t.loc || t.url) === href)
+			if (shown) owner.pulseReload(shown.id)
+		}
+		return `A preview tab is already showing ${label} — focused it and applied the filters.`
+	}
+	return `Opened ${label} in a new preview tab in the side panel.`
 })
 
 // Companion to the open_preview handler: report the calling session's open
@@ -999,6 +1137,33 @@ setGetRuntimeLogsHandler(async ({ sessionId: callerSessionId, limit }) => {
 	}
 })
 
+setGetDomHandler(async ({ sessionId: callerSessionId, query }) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
+	const runtime = sessionId ? runtimes.get(sessionId) : undefined
+	if (!runtime) {
+		return {
+			aiResult:
+				'Error: search_dom and read_dom are only available inside an AI session. Tell the user the rendered DOM can only be read from a session preview, or switch to a session and open the raw app preview.',
+			uiMessage: 'DOM unavailable',
+			toolResult: 'DOM unavailable'
+		}
+	}
+	const result = await runtime.requestDom(query)
+	if (result === undefined) {
+		return {
+			aiResult:
+				'No raw app preview is running for this session, so the DOM cannot be read. Next step: call open_preview with kind="raw_app" and the app path, wait for it to load, then call search_dom or read_dom again. The DOM is read live from the running preview.',
+			uiMessage: 'DOM unavailable',
+			toolResult: 'DOM unavailable'
+		}
+	}
+	return {
+		aiResult: result.text,
+		uiMessage: query.mode === 'search' ? 'Searched app DOM' : 'Read app DOM',
+		toolResult: result.text
+	}
+})
+
 setListAppRunsHandler(({ sessionId: callerSessionId, limit }) => {
 	const sessionId = callerSessionId ?? sessionState.currentSessionId
 	const runtime = sessionId ? runtimes.get(sessionId) : undefined
@@ -1031,6 +1196,34 @@ setListAppRunsHandler(({ sessionId: callerSessionId, limit }) => {
 		aiResult: formatAppRunsForChat(limited),
 		uiMessage: `Fetched app runs`,
 		toolResult: formatAppRunsForChat(limited)
+	}
+})
+
+setScreenshotHandler(async ({ sessionId: callerSessionId }) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
+	const runtime = sessionId ? runtimes.get(sessionId) : undefined
+	if (!runtime) {
+		return {
+			error:
+				'Error: take_screenshot is only available inside an AI session. Tell the user screenshots can only be captured from a session preview.',
+			uiMessage: 'Screenshot unavailable'
+		}
+	}
+	try {
+		const dataUrl = await runtime.requestScreenshot()
+		if (dataUrl === undefined) {
+			return {
+				error:
+					'No raw app preview is open for this session, so there is nothing to screenshot. Next step: call open_preview with kind="raw_app" and the app path, wait for it to load, then call take_screenshot again.',
+				uiMessage: 'Screenshot unavailable'
+			}
+		}
+		return { dataUrl }
+	} catch (e) {
+		return {
+			error: `Could not capture the app preview: ${e instanceof Error ? e.message : String(e)}`,
+			uiMessage: 'Screenshot failed'
+		}
 	}
 })
 

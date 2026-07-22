@@ -78,9 +78,10 @@ export interface ScriptBuilderProps {
 	// Fired whenever a test run is started from the script editor, with the
 	// preview job id. Used by whitelabel embedders to track test jobs.
 	onTestJob?: (e: { jobId: string }) => void
-	// Forwarded to the underlying ScriptEditor. When true, the right-hand
-	// test/run pane opens collapsed. Used by the session preview.
-	initialTestPanelCollapsed?: boolean
+	// Forwarded to the underlying ScriptEditor. Seeds the right-hand test/run
+	// pane collapsed, and edge-triggers a collapse/expand on later changes. The
+	// session preview drives it from full-screen state.
+	testPanelCollapsed?: boolean
 	// Treat the path as already chosen (seeds the path "dirty" flag) so the
 	// summary→path auto-slug for new scripts (initialPath == '') doesn't
 	// overwrite it. Used by the session preview, which opens AI-created scripts

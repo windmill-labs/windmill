@@ -2,8 +2,7 @@
 	// DEV-ONLY design exploration: how to visually distinguish a *workspace* from a
 	// *session* in the rail tree, and make the hierarchy (forks) clear. Not linked
 	// anywhere; open at /dev/session-tree. Pure mock data, no real session state.
-	// Gated behind the same dev flag as the sessions UI it explores.
-	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
+	// Only reachable on dev builds.
 	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
 	import {
 		MessageSquare,
@@ -323,7 +322,7 @@
 	</div>
 {/snippet}
 
-{#if isGlobalAiEnabled()}
+{#if import.meta.env.DEV}
 	<div class="h-full overflow-auto p-6 bg-surface">
 		<div class="max-w-[1400px] mx-auto flex flex-col gap-2">
 			<h1 class="text-xl font-semibold text-primary flex items-center gap-2">

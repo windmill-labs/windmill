@@ -5,7 +5,7 @@
 	import { setGitSyncContext } from './GitSyncContext.svelte'
 	import GitSyncRepositoryCard from './GitSyncRepositoryCard.svelte'
 	import GitSyncModalManager from './GitSyncModalManager.svelte'
-	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { untrack } from 'svelte'
@@ -42,6 +42,17 @@
 
 	const gitSyncAllowed = $derived(gitSyncStatus.enabled)
 	const isFreeTier = $derived(gitSyncAllowed && !$enterpriseLicense)
+	// Throwaway forks never run promotion mode: their deploys always go to the
+	// fork's own wm-fork/** branch, so a promotion repo could never take effect
+	// (the backend rejects it too). A dev workspace is the exception — it deploys
+	// per-item wm_deploy/** branches that promote into its parent. Mirrors the
+	// backend/CLI rule.
+	const currentWorkspace = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
+	const isFork = $derived(
+		($workspaceStore?.startsWith('wm-fork-') ?? false) || !!currentWorkspace?.parent_workspace_id
+	)
+	const isDevWorkspace = $derived(!!currentWorkspace?.is_dev_workspace)
+	const showPromotion = $derived(!isFork || isDevWorkspace)
 	const hasConfiguredRepos = $derived(
 		gitSyncContext?.repositories?.some((r) => r.git_repo_resource_path) ?? false
 	)
@@ -63,6 +74,16 @@
 	// Derived state for repository categorization
 	const primarySync = $derived(gitSyncContext?.getPrimarySyncRepository() || null)
 	const primaryPromotion = $derived(gitSyncContext?.getPrimaryPromotionRepository() || null)
+	// A dev workspace reuses the single repo it inherited from prod: whether it's
+	// currently in sync or promotion mode, it's the same one card, toggled between
+	// the two — so a dev never configures a separate promotion repo.
+	const devPrimaryRepo = $derived(isDevWorkspace ? (primarySync ?? primaryPromotion) : null)
+	// The single-repo dev UX (one card + promotion toggle, secondaries hidden) is
+	// only safe when the dev actually has one repo — i.e. it inherited prod's on
+	// fork. An ATTACHED dev keeps its own repos: with more than one, fall back to
+	// the normal layout so none are hidden and we don't present an unrelated repo
+	// as prod's promotion target.
+	const devSingleRepo = $derived(isDevWorkspace && (gitSyncContext?.repositories?.length ?? 0) <= 1)
 	const secondarySync = $derived(gitSyncContext?.getSecondarySyncRepositories() || [])
 	const secondaryPromotion = $derived(gitSyncContext?.getSecondaryPromotionRepositories() || [])
 
@@ -88,7 +109,7 @@
 {:else}
 	<SettingsPageHeader
 		title="Git Sync"
-		description="Connect the Windmill workspace to a Git repository to automatically commit and push scripts, flows, and apps to the repository on each deploy."
+		description="Connect the Windmill workspace to a Git repository: each deploy commits scripts, flows, and apps to the repository, and new commits to the repository can automatically deploy into the workspace."
 		link="https://www.windmill.dev/docs/advanced/git_sync"
 	>
 		{#snippet actions()}
@@ -132,17 +153,18 @@
 		<div class="space-y-6 pt-6">
 			<GitSyncRepositoryCard
 				variant="primary-sync"
-				mode="sync"
-				idx={primarySync?.idx ?? null}
-				repository={primarySync?.repo ?? null}
+				mode={devSingleRepo && devPrimaryRepo?.repo?.use_individual_branch ? 'promotion' : 'sync'}
+				idx={(devSingleRepo ? devPrimaryRepo : primarySync)?.idx ?? null}
+				repository={(devSingleRepo ? devPrimaryRepo : primarySync)?.repo ?? null}
 				onAdd={() => gitSyncContext.addSyncRepository()}
 				isCollapsible={false}
-				showEmptyState={primarySync?.repo === null}
+				showEmptyState={(devSingleRepo ? devPrimaryRepo : primarySync)?.repo == null}
+				devPromotion={devSingleRepo && !!$enterpriseLicense}
 			/>
 
 			{#if $enterpriseLicense}
-				<!-- Secondary Sync Repositories (EE only) -->
-				{#if primarySync && !primarySync.repo?.isUnsavedConnection}
+				<!-- Secondary Sync Repositories (EE only; a dev workspace has a single inherited repo) -->
+				{#if primarySync && !primarySync.repo?.isUnsavedConnection && !devSingleRepo}
 					{#if secondarySync.length > 0 || secondarySyncExpanded}
 						<div class="mt-4">
 							<button
@@ -204,81 +226,84 @@
 					{/if}
 				{/if}
 
-				<!-- Primary Promotion Repository (EE only) -->
-				<div class="mt-6">
-					<GitSyncRepositoryCard
-						variant="primary-promotion"
-						mode="promotion"
-						idx={primaryPromotion?.idx ?? null}
-						repository={primaryPromotion?.repo ?? null}
-						onAdd={() => gitSyncContext.addPromotionRepository()}
-						isCollapsible={false}
-						showEmptyState={primaryPromotion?.repo === null}
-					/>
+				<!-- Primary Promotion Repository (EE only; roots only — a dev promotes via the
+					toggle on its single inherited repo, not a separate promotion repo) -->
+				{#if showPromotion && !devSingleRepo}
+					<div class="mt-6">
+						<GitSyncRepositoryCard
+							variant="primary-promotion"
+							mode="promotion"
+							idx={primaryPromotion?.idx ?? null}
+							repository={primaryPromotion?.repo ?? null}
+							onAdd={() => gitSyncContext.addPromotionRepository()}
+							isCollapsible={false}
+							showEmptyState={primaryPromotion?.repo === null}
+						/>
 
-					<!-- Secondary Promotion Repositories -->
-					{#if primaryPromotion && !primaryPromotion.repo?.isUnsavedConnection}
-						{#if secondaryPromotion.length > 0 || secondaryPromotionExpanded}
-							<div class="mt-4">
-								<button
-									class="flex items-center gap-2 text-sm text-secondary hover:text-primary transition-colors"
-									onclick={() => (secondaryPromotionExpanded = !secondaryPromotionExpanded)}
-								>
-									{#if secondaryPromotionExpanded}
-										<ChevronDown size={16} />
-									{:else}
-										<ChevronRight size={16} />
-									{/if}
-									Secondary promotion repositories ({secondaryPromotion.length})
-								</button>
-
-								{#if secondaryPromotionExpanded}
-									<div class="mt-3 space-y-3">
-										{#if secondaryPromotion.length === 0}
-											<div class="text-sm text-secondary italic">
-												No secondary promotion repositories configured
-											</div>
+						<!-- Secondary Promotion Repositories -->
+						{#if primaryPromotion && !primaryPromotion.repo?.isUnsavedConnection}
+							{#if secondaryPromotion.length > 0 || secondaryPromotionExpanded}
+								<div class="mt-4">
+									<button
+										class="flex items-center gap-2 text-sm text-secondary hover:text-primary transition-colors"
+										onclick={() => (secondaryPromotionExpanded = !secondaryPromotionExpanded)}
+									>
+										{#if secondaryPromotionExpanded}
+											<ChevronDown size={16} />
 										{:else}
-											{#each secondaryPromotion as { repo, idx } (repo.git_repo_resource_path)}
-												<div class="pl-4">
-													<GitSyncRepositoryCard variant="secondary" {idx} isSecondary={true} />
-												</div>
-											{/each}
+											<ChevronRight size={16} />
 										{/if}
+										Secondary promotion repositories ({secondaryPromotion.length})
+									</button>
 
-										{#if !hasUnsavedSecondaryPromotion}
-											<div class="pl-4">
-												<Button
-													size="xs"
-													variant="default"
-													startIcon={{ icon: Plus }}
-													onclick={() => gitSyncContext.addPromotionRepository()}
-												>
-													Add secondary promotion
-												</Button>
-											</div>
-										{/if}
+									{#if secondaryPromotionExpanded}
+										<div class="mt-3 space-y-3">
+											{#if secondaryPromotion.length === 0}
+												<div class="text-sm text-secondary italic">
+													No secondary promotion repositories configured
+												</div>
+											{:else}
+												{#each secondaryPromotion as { repo, idx } (repo.git_repo_resource_path)}
+													<div class="pl-4">
+														<GitSyncRepositoryCard variant="secondary" {idx} isSecondary={true} />
+													</div>
+												{/each}
+											{/if}
+
+											{#if !hasUnsavedSecondaryPromotion}
+												<div class="pl-4">
+													<Button
+														size="xs"
+														variant="default"
+														startIcon={{ icon: Plus }}
+														onclick={() => gitSyncContext.addPromotionRepository()}
+													>
+														Add secondary promotion
+													</Button>
+												</div>
+											{/if}
+										</div>
+									{/if}
+								</div>
+							{:else}
+								<!-- Collapsed state when no secondary promotion repos exist -->
+								{#if !hasUnsavedSecondaryPromotion}
+									<div class="mt-2">
+										<button
+											class="text-xs text-primary hover:text-secondary transition-colors"
+											onclick={() => {
+												secondaryPromotionExpanded = true
+												gitSyncContext.addPromotionRepository()
+											}}
+										>
+											+ Add secondary promotion repository
+										</button>
 									</div>
 								{/if}
-							</div>
-						{:else}
-							<!-- Collapsed state when no secondary promotion repos exist -->
-							{#if !hasUnsavedSecondaryPromotion}
-								<div class="mt-2">
-									<button
-										class="text-xs text-primary hover:text-secondary transition-colors"
-										onclick={() => {
-											secondaryPromotionExpanded = true
-											gitSyncContext.addPromotionRepository()
-										}}
-									>
-										+ Add secondary promotion repository
-									</button>
-								</div>
 							{/if}
 						{/if}
-					{/if}
-				</div>
+					</div>
+				{/if}
 			{/if}
 		</div>
 

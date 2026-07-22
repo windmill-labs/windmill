@@ -14,14 +14,29 @@
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import FlowModuleIcon from '$lib/components/flows/FlowModuleIcon.svelte'
 	import type { FlowModule } from '$lib/gen'
+	import { getFileIcon } from '$lib/components/icons/fileIcon'
 
 	interface Props {
 		contextElement: ContextElement
 		deletable?: boolean
 		onDelete?: () => void
+		/** Render context-picker / inspector picks (see COMPACT_TYPES) in a smaller
+		 * size — used above a sent message; the composer keeps every badge the
+		 * same size. */
+		compact?: boolean
 	}
 
-	let { contextElement, deletable = false, onDelete }: Props = $props()
+	let { contextElement, deletable = false, onDelete, compact = false }: Props = $props()
+
+	// Context-picker / inspector picks that render smaller above a sent message
+	// (the composer keeps every badge the same size).
+	const COMPACT_TYPES = new Set([
+		'app_dom_selector',
+		'workspace_app',
+		'workspace_script',
+		'workspace_flow',
+		'attached_file'
+	])
 	const icon = ContextIconMap[untrack(() => contextElement).type]
 	let showDelete = $state(false)
 
@@ -34,9 +49,12 @@
 			contextElement.type === 'diff'
 				? contextElement.title.replace(/_/g, ' ')
 				: contextElement.title}
+		{@const small = compact && COMPACT_TYPES.has(contextElement.type)}
+		{@const iconSize = small ? 12 : 16}
 		<div
 			class={twMerge(
-				'border rounded-md px-1 py-0.5 flex flex-row items-center gap-1 text-primary text-xs font-normal cursor-default hover:bg-surface-hover hover:cursor-pointer max-w-48 bg-surface'
+				'border rounded-md flex flex-row items-center text-primary font-normal cursor-default hover:bg-surface-hover hover:cursor-pointer max-w-48 bg-surface',
+				small ? 'px-1 py-0 gap-0.5 text-2xs' : 'px-1 py-0.5 gap-1 text-xs'
 			)}
 			onmouseenter={() => (showDelete = true)}
 			onmouseleave={() => (showDelete = false)}
@@ -46,12 +64,16 @@
 		>
 			<button onclick={isDeletable ? onDelete : undefined} class:cursor-default={!isDeletable}>
 				{#if showDelete && isDeletable}
-					<X size={16} />
+					<X size={iconSize} />
 				{:else if contextElement.type === 'flow_module' || contextElement.type === 'flow_module_code_piece'}
-					<FlowModuleIcon module={contextElement as FlowModule} size={16} />
+					<FlowModuleIcon module={contextElement as FlowModule} size={iconSize} />
+				{:else if contextElement.type === 'attached_file'}
+					{@const fileIcon = getFileIcon(contextElement.title)}
+					{@const FileIconComponent = fileIcon.icon}
+					<FileIconComponent size={iconSize} class={fileIcon.className ?? ''} />
 				{:else}
 					{@const SvelteComponent = icon}
-					<SvelteComponent size={16} />
+					<SvelteComponent size={iconSize} />
 				{/if}
 			</button>
 			<span class="truncate" title={label}>{label}</span>
@@ -139,6 +161,19 @@
 					)}
 				</div>
 				<ObjectViewer json={contextElement.columns} pureViewer collapseLevel={1} />
+			</div>
+		{:else if contextElement.type === 'app_dom_selector'}
+			<div class="p-2 max-w-96 text-xs overflow-auto">
+				<div class="text-tertiary mb-1">Selected preview element</div>
+				<div class="font-mono break-all">{contextElement.selector}</div>
+			</div>
+		{:else if contextElement.type === 'attached_file'}
+			<div class="p-2 max-w-96 max-h-[300px] text-xs overflow-auto">
+				<pre class="whitespace-pre-wrap break-words font-mono text-2xs"
+					>{contextElement.content.length > 5000
+						? contextElement.content.slice(0, 5000) + '\n…'
+						: contextElement.content}</pre
+				>
 			</div>
 		{/if}
 	{/snippet}

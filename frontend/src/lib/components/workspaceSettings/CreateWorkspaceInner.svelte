@@ -21,6 +21,10 @@
 		findWorkspaceDescendants
 	} from '$lib/utils/workspaceHierarchy'
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
+	import {
+		fetchProtectionRulesForWorkspace,
+		isRuleUnconditionallyActiveInRulesets
+	} from '$lib/workspaceProtectionRules.svelte'
 	import { resource } from 'runed'
 	import { Badge, Button } from '$lib/components/common'
 	import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
@@ -142,6 +146,48 @@
 	let currentWorkspaceName = $derived(
 		baseWorkspaceEntry?.name ?? baseWorkspaceId ?? 'the root workspace'
 	)
+
+	// If the root already blocks direct deploy / forking through an existing protection rule, keep the
+	// matching lock toggle on but locked: this flow only manages its own reserved dev-workspace rule, so
+	// turning it "off" here couldn't lift a separately-defined block. On a failed fetch we fall back to the
+	// editable default-on toggle, which can't drop protection (any real rule still enforces server-side).
+	const rootProtectionRules = resource(
+		() => (canDesignateDevWorkspace && createAsDevWorkspace ? baseWorkspaceId : undefined),
+		async (ws, _prev, { signal }) => {
+			if (!ws) return undefined
+			const rules = await fetchProtectionRulesForWorkspace(ws)
+			// The generated client can't take an abort signal, so drop a superseded response here: a late
+			// result for a previous base must not overwrite the newly selected base's rules.
+			if (signal.aborted) throw new DOMException('superseded', 'AbortError')
+			return { ws, rules }
+		}
+	)
+	// Only trust a result that belongs to the currently selected base (guards the in-flight window and
+	// any out-of-order response); undefined means "not known yet" and is treated as locked below.
+	let rootRules = $derived.by(() => {
+		const current = rootProtectionRules.current
+		return current && current.ws === baseWorkspaceId ? current.rules : undefined
+	})
+	// Only a rule with no bypass users/groups matches the empty-bypass reserved lock we would create; a
+	// bypassable rule stays editable, otherwise forcing the lock on would revoke the bypassed users'
+	// direct-deploy / forking access.
+	let rootAlreadyBlocksDeploy = $derived(
+		isRuleUnconditionallyActiveInRulesets(rootRules ?? [], 'DisableDirectDeployment')
+	)
+	let rootAlreadyBlocksForking = $derived(
+		isRuleUnconditionallyActiveInRulesets(rootRules ?? [], 'DisableWorkspaceForking')
+	)
+	// Until the fetch resolves for the selected base its rules are unknown. Treat each lock as engaged
+	// during that window so the toggle is locked on and the effective value stays true: otherwise a user
+	// could turn a lock off and submit before an existing rule is detected, sending false and omitting
+	// the reserved rule — leaving prod unprotected if that existing rule is later removed.
+	let rootRulesUnknown = $derived(rootProtectionRules.loading || rootRules === undefined)
+	let deployLocked = $derived(rootAlreadyBlocksDeploy || rootRulesUnknown)
+	let forkingLocked = $derived(rootAlreadyBlocksForking || rootRulesUnknown)
+	// Sent to the backend: a locked restriction (enforced or not-yet-known) stays on regardless of the
+	// toggle's raw state, keeping the request consistent with what the locked toggle shows.
+	let effectiveLockProdDeploy = $derived(deployLocked || lockProdDeploy)
+	let effectiveLockProdForking = $derived(forkingLocked || lockProdForking)
 
 	let id = $state('')
 	let name = $state('')
@@ -306,8 +352,8 @@
 					dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabel : undefined,
 					// Send the lock intent in this first phase too so the backend can reject a non-admin's
 					// locked-dev request before any branch is created (avoids dangling branches).
-					lock_prod_deploy: createAsDevWorkspace && lockProdDeploy,
-					lock_prod_forking: createAsDevWorkspace && lockProdForking,
+					lock_prod_deploy: createAsDevWorkspace && effectiveLockProdDeploy,
+					lock_prod_forking: createAsDevWorkspace && effectiveLockProdForking,
 					copy_members: copyMembers
 				}
 			})
@@ -374,8 +420,8 @@
 					shared_ducklakes: forkDucklakeSection?.getSharedDucklakes() ?? [],
 					is_dev_workspace: createAsDevWorkspace,
 					dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabel : undefined,
-					lock_prod_deploy: createAsDevWorkspace && lockProdDeploy,
-					lock_prod_forking: createAsDevWorkspace && lockProdForking,
+					lock_prod_deploy: createAsDevWorkspace && effectiveLockProdDeploy,
+					lock_prod_forking: createAsDevWorkspace && effectiveLockProdForking,
 					copy_members: copyMembers
 				}
 			})
@@ -748,8 +794,7 @@
 						<Toggle bind:checked={createAsDevWorkspace} options={{ right: 'Dev workspace' }} />
 						{#if createAsDevWorkspace}
 							<div class="text-2xs text-secondary">
-								Cosmetic label: <Badge color="indigo" small>{devBadgeText(devWorkspaceLabel)}</Badge
-								>
+								Label: <Badge color="indigo" small>{devBadgeText(devWorkspaceLabel)}</Badge>
 								<button
 									type="button"
 									class="text-secondary hover:text-primary hover:underline"
@@ -769,11 +814,37 @@
 										dev workspace and promoted here.
 									</span>
 								</div>
-								<Toggle
-									bind:checked={lockProdDeploy}
-									options={{ right: 'Block direct edits (deploy via the dev workspace)' }}
-								/>
-								<Toggle bind:checked={lockProdForking} options={{ right: 'Prevent forking' }} />
+								{#if deployLocked}
+									<div class="flex flex-col gap-0.5">
+										<Toggle
+											checked
+											disabled
+											options={{ right: 'Block direct edits (deploy via the dev workspace)' }}
+										/>
+										{#if rootAlreadyBlocksDeploy}
+											<span class="text-2xs text-secondary ml-11"
+												>Already enforced by an existing protection rule</span
+											>
+										{/if}
+									</div>
+								{:else}
+									<Toggle
+										bind:checked={lockProdDeploy}
+										options={{ right: 'Block direct edits (deploy via the dev workspace)' }}
+									/>
+								{/if}
+								{#if forkingLocked}
+									<div class="flex flex-col gap-0.5">
+										<Toggle checked disabled options={{ right: 'Prevent forking' }} />
+										{#if rootAlreadyBlocksForking}
+											<span class="text-2xs text-secondary ml-11"
+												>Already enforced by an existing protection rule</span
+											>
+										{/if}
+									</div>
+								{:else}
+									<Toggle bind:checked={lockProdForking} options={{ right: 'Prevent forking' }} />
+								{/if}
 							</div>
 						{/if}
 					</div>

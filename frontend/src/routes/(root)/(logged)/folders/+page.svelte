@@ -20,8 +20,13 @@
 	import Row from '$lib/components/table/Row.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { untrack } from 'svelte'
+	import { DEMO_RESTRICTION_HINT, isDemoWorkspaceRestricted } from '$lib/cloud'
 
 	type FolderW = Folder & { canWrite: boolean }
+
+	let restricted = $derived(
+		isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
+	)
 
 	let newFolderName: string = $state('')
 	let folders: FolderW[] | undefined = $state(undefined)
@@ -115,38 +120,50 @@
 			documentationLink="https://www.windmill.dev/docs/core_concepts/groups_and_folders"
 		>
 			<div class="flex flex-row">
-				<Popover
-					floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-					contentClasses="flex flex-col gap-2 p-4"
-				>
-					{#snippet trigger()}
-						<Button variant="accent" unifiedSize="md" startIcon={{ icon: Plus }} nonCaptureEvent
-							>New folder</Button
-						>
-					{/snippet}
-					{#snippet content({ close })}
-						<input
-							class="mr-2"
-							onkeyup={(e) => handleKeyUp(e, () => close())}
-							placeholder="New folder name"
-							bind:value={newFolderName}
-						/>
-
-						<div>
-							<Button
-								variant="accent"
-								startIcon={{ icon: Plus }}
-								disabled={!newFolderName}
-								on:click={() => {
-									addFolder()
-									close()
-								}}
+				{#if restricted}
+					<Button
+						variant="accent"
+						unifiedSize="md"
+						startIcon={{ icon: Plus }}
+						disabled
+						title={DEMO_RESTRICTION_HINT}
+					>
+						New folder
+					</Button>
+				{:else}
+					<Popover
+						floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+						contentClasses="flex flex-col gap-2 p-4"
+					>
+						{#snippet trigger()}
+							<Button variant="accent" unifiedSize="md" startIcon={{ icon: Plus }} nonCaptureEvent
+								>New folder</Button
 							>
-								Create
-							</Button>
-						</div>
-					{/snippet}
-				</Popover>
+						{/snippet}
+						{#snippet content({ close })}
+							<input
+								class="mr-2"
+								onkeyup={(e) => handleKeyUp(e, () => close())}
+								placeholder="New folder name"
+								bind:value={newFolderName}
+							/>
+
+							<div>
+								<Button
+									variant="accent"
+									startIcon={{ icon: Plus }}
+									disabled={!newFolderName}
+									on:click={() => {
+										addFolder()
+										close()
+									}}
+								>
+									Create
+								</Button>
+							</div>
+						{/snippet}
+					</Popover>
+				{/if}
 			</div>
 		</PageHeader>
 

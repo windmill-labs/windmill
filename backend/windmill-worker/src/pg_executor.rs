@@ -768,7 +768,15 @@ pub async fn do_postgresql(
     // Materialize any `(s3object)` args into JSON text and rebind them as `jsonb` so
     // `otyp_to_pg_type` picks the right binding. Must run before the param map is
     // built below.
-    materialize_s3object_args(&mut sig.args, &mut pg_args, client, &job.workspace_id).await?;
+    let had_s3object_input = materialize_s3object_args(
+        &mut sig.args,
+        &mut pg_args,
+        client,
+        conn,
+        job.id,
+        &job.workspace_id,
+    )
+    .await?;
 
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
@@ -867,7 +875,7 @@ pub async fn do_postgresql(
     };
 
     let result = if run_inline {
-        result_f.await?
+        result_f.await
     } else {
         run_future_with_polling_update_job_poller(
             job.id,
@@ -881,8 +889,9 @@ pub async fn do_postgresql(
             &mut Some(occupancy_metrics),
             Box::pin(futures::stream::once(async { 0 })),
         )
-        .await?
-    };
+        .await
+    }
+    .map_err(|e| map_s3object_jsonb_overflow(e, had_s3object_input))?;
 
     // Release the cache lock now that we have the result — allows the
     // post-query caching code below to re-acquire it if needed.
@@ -977,13 +986,17 @@ async fn increment_connection_counter(database_string: &str) {
 
 /// For each `(s3object)` arg in `sig_args`: download the referenced file, decode it
 /// to JSON text, then rewrite the arg to bind as `jsonb`. Mutates `args_map` in place
-/// so the existing bind path picks up the materialized payload.
+/// so the existing bind path picks up the materialized payload. Returns whether any
+/// `(s3object)` arg was materialized, so the jsonb-cap error can be rewritten.
 async fn materialize_s3object_args(
     sig_args: &mut [Arg],
     args_map: &mut HashMap<String, Value>,
     client: &AuthedClient,
+    conn: &Connection,
+    job_id: Uuid,
     workspace_id: &str,
-) -> error::Result<()> {
+) -> error::Result<bool> {
+    let mut materialized_any = false;
     for arg in sig_args.iter_mut() {
         if arg.otyp.as_deref() != Some("s3object") {
             continue;
@@ -998,7 +1011,7 @@ async fn materialize_s3object_args(
         let s3_obj: S3Object = serde_json::from_value(raw).map_err(|e| {
             Error::ExecutionErr(format!("Invalid S3Object for arg `{}`: {e}", arg.name))
         })?;
-        let json_text = fetch_s3object_as_json_text(client, workspace_id, &s3_obj)
+        let json_text = fetch_s3object_as_json_text(client, conn, job_id, workspace_id, &s3_obj)
             .await
             .map_err(|e| {
                 Error::ExecutionErr(format!(
@@ -1006,6 +1019,7 @@ async fn materialize_s3object_args(
                     arg.name
                 ))
             })?;
+        materialized_any = true;
         // Parse to a Value so `convert_val`'s Array/Object → JSONB branches bind it
         // correctly. A bare String would mismatch the JSONB param type.
         let parsed: Value = serde_json::from_str(&json_text).map_err(|e| {
@@ -1018,7 +1032,38 @@ async fn materialize_s3object_args(
         arg.otyp = Some("jsonb".to_string());
         arg.typ = Typ::Object(windmill_parser::ObjectType::new(None, Some(vec![])));
     }
-    Ok(())
+    Ok(materialized_any)
+}
+
+/// A `(s3object)` input materializes the whole file into a single jsonb parameter, which
+/// PostgreSQL caps at ~256MB (`total size of jsonb {array,object} elements exceeds the
+/// maximum of 268435455 bytes`). A large input trips this with an opaque server error;
+/// rewrite it into guidance pointing at DuckDB, which reads S3 natively and streams.
+///
+/// The attribution is hedged: the same error can also come from SQL constructing an
+/// oversized jsonb at execution time, and with several inputs we can't tell which one
+/// overflowed, so we point at `(s3object)` inputs as the likely cause rather than naming
+/// a specific file. The DuckDB remediation is the same either way.
+fn map_s3object_jsonb_overflow(e: Error, had_s3object_input: bool) -> Error {
+    if !had_s3object_input {
+        return e;
+    }
+    let msg = e.to_string();
+    // Match only the jsonb byte-size cap ("total size of jsonb ... elements exceeds the
+    // maximum of 268435455 bytes"), so the ~256 MB wording stays accurate. Excludes the
+    // element-count cap and unrelated caps like "array size exceeds the maximum allowed".
+    if !msg.contains("total size of jsonb") {
+        return e;
+    }
+    Error::ExecutionErr(format!(
+        "This query hit PostgreSQL's ~256 MB size limit for a single jsonb value. This is a \
+         server-side database limit, not a worker-memory limit, so a larger worker will not raise \
+         it. If a large `(s3object)` input is the cause: native SQL `(s3object)` inputs load the \
+         whole file into one jsonb parameter and do not stream, so they only fit small files. For \
+         large Parquet/CSV files, use a DuckDB script instead: it reads the file directly from S3 \
+         and streams (e.g. `read_parquet(...)` / `read_csv_auto(...)`) rather than materializing \
+         it.\n\nUnderlying error: {msg}",
+    ))
 }
 
 /// Parse a date string in formats produced by chrono's Display or JS frontends.
@@ -2012,6 +2057,49 @@ impl FromSql<'_> for StringCollector {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_map_s3object_jsonb_overflow() {
+        let pg_err = Error::ExecutionErr(
+            "db error: ERROR: total size of jsonb array elements exceeds the maximum of 268435455 bytes".to_string(),
+        );
+        let mapped = map_s3object_jsonb_overflow(pg_err, true).to_string();
+        assert!(mapped.contains("256 MB"));
+        assert!(mapped.contains("larger worker will not"));
+        assert!(mapped.contains("read_csv_auto"));
+        assert!(mapped.contains("Underlying error"));
+
+        // The element-count cap is not the byte-size cap, so the "256 MB" message would
+        // mislabel it — it must pass through unchanged.
+        let count_err = Error::ExecutionErr(
+            "number of jsonb array elements exceeds the maximum of 268435455".to_string(),
+        );
+        assert_eq!(
+            map_s3object_jsonb_overflow(count_err, true).to_string(),
+            "number of jsonb array elements exceeds the maximum of 268435455",
+        );
+
+        // A different "exceeds the maximum" error must NOT be reclassified as jsonb overflow.
+        let array_err =
+            Error::ExecutionErr("array size exceeds the maximum allowed (134217727)".to_string());
+        assert_eq!(
+            map_s3object_jsonb_overflow(array_err, true).to_string(),
+            "array size exceeds the maximum allowed (134217727)",
+        );
+
+        let other = Error::ExecutionErr("syntax error at or near \"SELCT\"".to_string());
+        assert_eq!(
+            map_s3object_jsonb_overflow(other, true).to_string(),
+            "syntax error at or near \"SELCT\"",
+        );
+
+        // No `(s3object)` input → even a matching error is left alone.
+        let pg_err2 = Error::ExecutionErr("jsonb array elements exceeds the maximum".to_string());
+        assert_eq!(
+            map_s3object_jsonb_overflow(pg_err2, false).to_string(),
+            "jsonb array elements exceeds the maximum",
+        );
+    }
 
     #[test]
     fn test_parse_naive_date() {

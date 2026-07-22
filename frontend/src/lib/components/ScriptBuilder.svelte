@@ -135,7 +135,7 @@
 		onNavigate,
 		onTestJob,
 		disableAi,
-		initialTestPanelCollapsed = false,
+		testPanelCollapsed = false,
 		initialPathChosen = false,
 		onResetToDeployed,
 		loadedFromDraft = false,
@@ -1976,7 +1976,7 @@
 				<!-- Separator -->
 				<div class="flex-1"></div>
 
-				{#if $enterpriseLicense && initialPath != ''}
+				{#if $enterpriseLicense && initialPath != '' && !inSessionPane}
 					<Awareness />
 				{/if}
 
@@ -2152,7 +2152,7 @@
 			bind:assets={script.assets}
 			bind:modules={script.modules}
 			enablePreprocessorSnippet
-			{initialTestPanelCollapsed}
+			{testPanelCollapsed}
 		/>
 	</div>
 {:else}

@@ -449,6 +449,8 @@
 			await loadCache()
 		} else if (tab == 'states') {
 			await loadState()
+		} else if (tab == 'theme') {
+			await loadTheme()
 		} else {
 			await loadResources()
 		}
@@ -603,13 +605,22 @@
 		}
 	})
 
-	onMount(() => {
-		let hash = page.url.hash
-		if (hash.startsWith('#/resource/')) {
-			console.log('hash', hash)
-			let path = hash.slice(11)
-			resourceEditor?.initEdit(path)
+	// Deep link: #/resource/<path> opens that resource's edit drawer. Reactive
+	// rather than onMount so a hash change on the already-mounted page (e.g. the
+	// AI session preview re-pointing its tab) opens the drawer too. Row links
+	// pre-set handledHash: their onclick already opens the drawer.
+	let handledHash = ''
+	$effect(() => {
+		const hash = page.url.hash
+		if (!hash.startsWith('#/resource/')) {
+			// Navigating away from a drawer target must clear the tracker, or
+			// re-targeting the same item later would be skipped as already handled.
+			handledHash = ''
+			return
 		}
+		if (hash === handledHash || !resourceEditor) return
+		handledHash = hash
+		resourceEditor.initEdit(hash.slice(11))
 	})
 
 	let showTable = $derived(
@@ -902,6 +913,9 @@
 					} else if (e.detail == 'states') {
 						loading.resources = true
 						loadState()
+					} else if (e.detail == 'theme') {
+						loading.resources = true
+						loadTheme()
 					}
 				}}
 			>
@@ -1009,8 +1023,17 @@
 												<a
 													class="break-all"
 													href="#/resource/{path}"
-													onclick={() => resourceEditor?.initEdit?.(path)}
-													>{#if marked}{@html marked}{:else}{path}{/if}{(getLocalDraftHint($workspaceStore, 'resource', path) ?? is_draft) ? '*' : ''}</a
+													onclick={() => {
+														handledHash = `#/resource/${path}`
+														resourceEditor?.initEdit?.(path)
+													}}
+													>{#if marked}{@html marked}{:else}{path}{/if}{(getLocalDraftHint(
+														$workspaceStore,
+														'resource',
+														path
+													) ?? is_draft)
+														? '*'
+														: ''}</a
 												>
 												{#if draft_only}
 													<DraftBadge draft_only is_draft={false} />

@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::types::Json;
 use sqlx::{Postgres, Transaction};
 use windmill_parser::asset_parser::{
-    ColumnLineage, DataTest, MaterializeSpec, OnSchemaChange, PARTITION_TOKEN,
+    ColumnLineage, DataTest, Dimension, MaterializeSpec, Measure, OnSchemaChange, PARTITION_TOKEN,
 };
 use windmill_types::assets::{AssetKind, AssetWithAltAccessType};
 
@@ -46,6 +46,15 @@ pub enum ContractWarningKind {
     /// Relationship join columns have different captured types (may still
     /// coerce at run time — phrased as "differs", not "will fail").
     RelationshipTypeMismatch,
+    /// A `// measure` body reads a column absent from the producer's own
+    /// captured (target) schema.
+    MissingMeasureColumn,
+    /// A `// dimension` body reads a column absent from the producer's own
+    /// captured (target) schema.
+    MissingDimensionColumn,
+    /// A `// measure` body contains no aggregate (it is a row-level expression),
+    /// so grouping it by a dimension produces an invalid query.
+    NonAggregateMeasure,
     /// Warnings for this asset were suppressed by the producer's
     /// `on_schema_change=ignore` (one informational entry per asset).
     Suppressed,
@@ -299,6 +308,109 @@ pub fn diff_contract(
     warnings
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MetricRefKind {
+    Measure,
+    Dimension,
+}
+
+/// Warn about measures that contain no aggregate. A measure is meant to reduce
+/// the table's rows, so grouping a row-level expression like `amount` by a
+/// dimension yields an invalid query. Pure and schema-independent. A warning, not
+/// an error: detection is deliberately lenient (any function call is accepted, to
+/// avoid a reserved aggregate-name list), so a hard block would risk rejecting an
+/// unusual-but-valid aggregate.
+pub fn check_measures_aggregate(
+    measures: &[Measure],
+    materialize: Option<&MaterializeSpec>,
+) -> Vec<ContractWarning> {
+    let mut warnings = vec![];
+    let target = materialize
+        .filter(|m| m.target_kind == windmill_parser::asset_parser::AssetKind::Ducklake)
+        .map(|m| normalize_asset_path(&m.target_path))
+        .unwrap_or_default();
+    for m in measures {
+        if windmill_parser_sql_asset::measure_expr_may_aggregate(&m.expr) {
+            continue;
+        }
+        warnings.push(ContractWarning {
+            kind: ContractWarningKind::NonAggregateMeasure,
+            asset_path: target.clone(),
+            column: None,
+            expected_type: None,
+            found_type: None,
+            schema_version: None,
+            captured_at: None,
+            message: format!(
+                "`// measure {} = {}` contains no aggregate, so grouping it by a \
+                 dimension produces an invalid query",
+                m.name, m.expr
+            ),
+        });
+    }
+    warnings
+}
+
+/// A metric measure/dimension plus the column names its body reads, extracted by
+/// the async wrapper (the pure diff never parses SQL). One per declared metric.
+#[derive(Debug, Clone)]
+pub struct MetricColumnRef {
+    pub kind: MetricRefKind,
+    pub name: String,
+    pub columns: Vec<String>,
+}
+
+/// Validate metric measure/dimension bodies against the producer's own captured
+/// (target) schema. Separate from `diff_contract` because these are the
+/// producer's *own* declarations, not consumer reads of an upstream: a measure
+/// citing a column the producer itself dropped is the producer's bug, and is
+/// deliberately not muted by `on_schema_change=ignore` (which only governs
+/// downstream drift). Pure — column refs are pre-extracted by the caller.
+pub fn diff_metric_contract(
+    metric_refs: &[MetricColumnRef],
+    materialize: Option<&MaterializeSpec>,
+    schemas: &HashMap<String, CapturedSchema>,
+) -> Vec<ContractWarning> {
+    let mut warnings: Vec<ContractWarning> = vec![];
+    let Some(m) =
+        materialize.filter(|m| m.target_kind == windmill_parser::asset_parser::AssetKind::Ducklake)
+    else {
+        return warnings;
+    };
+    let own_path = normalize_asset_path(&m.target_path);
+    let Some(schema) = schemas.get(&own_path) else {
+        return warnings;
+    };
+    for mr in metric_refs {
+        for col in &mr.columns {
+            if is_reserved(col) || schema.find(col).is_some() {
+                continue;
+            }
+            let (kind, label) = match mr.kind {
+                MetricRefKind::Measure => (ContractWarningKind::MissingMeasureColumn, "measure"),
+                MetricRefKind::Dimension => {
+                    (ContractWarningKind::MissingDimensionColumn, "dimension")
+                }
+            };
+            warnings.push(ContractWarning {
+                kind,
+                asset_path: own_path.clone(),
+                column: Some(col.clone()),
+                expected_type: None,
+                found_type: None,
+                schema_version: Some(schema.version),
+                captured_at: Some(schema.captured_at),
+                message: format!(
+                    "`// {label} {}` reads `{col}`, which is not in ducklake://{own_path}'s \
+                     captured schema (v{})",
+                    mr.name, schema.version
+                ),
+            });
+        }
+    }
+    warnings
+}
+
 /// Load captured schemas + producer modes and run the contract check for one
 /// consumer script's parsed refs.
 ///
@@ -313,7 +425,13 @@ pub async fn check_schema_contracts(
     column_lineage: &[ColumnLineage],
     data_tests: &[DataTest],
     materialize: Option<&MaterializeSpec>,
+    measures: &[Measure],
+    dimensions: &[Dimension],
 ) -> Result<Vec<ContractWarning>> {
+    // Whether a measure aggregates is a pure property of its expression, so this
+    // check runs regardless of whether a schema has been captured.
+    let mut warnings = check_measures_aggregate(measures, materialize);
+
     // Referenced ducklake paths (normalized) across every ref family the diff
     // inspects — plus the consumer's own materialize target (for W3 types).
     let mut paths: HashSet<String> = HashSet::new();
@@ -342,7 +460,9 @@ pub async fn check_schema_contracts(
         }
     }
     if paths.is_empty() {
-        return Ok(vec![]);
+        // No captured schemas to diff against, but the schema-independent measure
+        // checks above still stand.
+        return Ok(warnings);
     }
 
     // A managed scd2 producer (re)creates a `<dim>_current` view with the base
@@ -462,14 +582,41 @@ pub async fn check_schema_contracts(
         }
     }
 
-    Ok(diff_contract(
+    // Extract the columns each measure/dimension body reads (measure filters
+    // too), then validate them against the producer's own captured schema.
+    let mut metric_refs: Vec<MetricColumnRef> =
+        Vec::with_capacity(measures.len() + dimensions.len());
+    for mm in measures {
+        let mut columns = windmill_parser_sql_asset::extract_expr_column_idents(&mm.expr);
+        if let Some(filter) = &mm.filter {
+            columns.extend(windmill_parser_sql_asset::extract_expr_column_idents(
+                filter,
+            ));
+        }
+        metric_refs.push(MetricColumnRef {
+            kind: MetricRefKind::Measure,
+            name: mm.name.clone(),
+            columns,
+        });
+    }
+    for dd in dimensions {
+        metric_refs.push(MetricColumnRef {
+            kind: MetricRefKind::Dimension,
+            name: dd.name.clone(),
+            columns: windmill_parser_sql_asset::extract_expr_column_idents(&dd.expr),
+        });
+    }
+
+    warnings.extend(diff_contract(
         assets,
         column_lineage,
         data_tests,
         materialize,
         &schemas,
         &ignored,
-    ))
+    ));
+    warnings.extend(diff_metric_contract(&metric_refs, materialize, &schemas));
+    Ok(warnings)
 }
 
 #[cfg(test)]
@@ -529,6 +676,65 @@ mod tests {
         // literal "*" and the reserved partition column are skipped
         let a = read_asset("lake/orders", &["*", "_wm_partition", "id"]);
         assert!(diff_contract(&[a], &[], &[], None, &schemas, &HashSet::new()).is_empty());
+    }
+
+    #[test]
+    fn metric_column_missing_from_own_schema_warns() {
+        let ann = parse_pipeline_annotations("-- materialize ducklake://lake/orders\nSELECT 1;");
+        let schemas = HashMap::from([(
+            "lake/orders".to_string(),
+            schema(&[("amount", "DOUBLE"), ("region", "VARCHAR")]),
+        )]);
+        let refs = vec![
+            MetricColumnRef {
+                kind: MetricRefKind::Measure,
+                name: "revenue".to_string(),
+                columns: vec!["amount".to_string()],
+            },
+            MetricColumnRef {
+                kind: MetricRefKind::Measure,
+                name: "refunds".to_string(),
+                columns: vec!["refund_amt".to_string()],
+            },
+            MetricColumnRef {
+                kind: MetricRefKind::Dimension,
+                name: "zone".to_string(),
+                columns: vec!["zone_id".to_string()],
+            },
+        ];
+        let w = diff_metric_contract(&refs, ann.materialize.as_ref(), &schemas);
+        // `amount` exists; the refund measure and zone dimension cite unknown
+        // columns of the producer's own captured schema.
+        assert_eq!(w.len(), 2);
+        assert_eq!(w[0].kind, ContractWarningKind::MissingMeasureColumn);
+        assert_eq!(w[0].column.as_deref(), Some("refund_amt"));
+        assert_eq!(w[1].kind, ContractWarningKind::MissingDimensionColumn);
+        assert_eq!(w[1].column.as_deref(), Some("zone_id"));
+        // No captured schema → silent (first deploy).
+        assert!(diff_metric_contract(&refs, ann.materialize.as_ref(), &HashMap::new()).is_empty());
+    }
+
+    #[test]
+    fn a_measure_with_no_aggregate_warns_schema_independently() {
+        let ann = parse_pipeline_annotations(
+            "-- materialize ducklake://sales/orders\n\
+             -- measure revenue = amount\n\
+             -- measure scaled = amount * 2\n\
+             -- measure total = sum(amount)\n\
+             -- measure n = count(*)\n\
+             -- measure custom = my_udaf(x)\n\
+             SELECT 1;",
+        );
+        // Runs without any captured schema. Bare column and pure arithmetic warn;
+        // sum/count and an unknown function (benefit of the doubt, no aggregate-name
+        // list) do not.
+        let w = check_measures_aggregate(&ann.measures, ann.materialize.as_ref());
+        assert_eq!(w.len(), 2);
+        assert!(w
+            .iter()
+            .all(|w| w.kind == ContractWarningKind::NonAggregateMeasure));
+        assert!(w[0].message.contains("revenue"));
+        assert!(w[1].message.contains("scaled"));
     }
 
     #[test]

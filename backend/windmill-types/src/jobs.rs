@@ -32,6 +32,7 @@ pub enum JobTriggerKind {
     Email,
     Nats,
     Mqtt,
+    Amqp,
     Sqs,
     Postgres,
     Schedule,
@@ -49,6 +50,11 @@ pub enum JobTriggerKind {
     // A run pushed by the pipeline freshness watchdog (EE) because the
     // script's `// freshness` window elapsed without a successful run.
     Freshness,
+    // A run launched by a deployed app's runtime (`execute_component`). `trigger`
+    // carries the app path. This is the authoritative app-origination marker: a
+    // direct `/jobs/run` cannot set it, so it distinguishes files an app actually
+    // produced from files a viewer forged by running a declared runnable directly.
+    App,
 }
 
 impl std::fmt::Display for JobTriggerKind {
@@ -61,6 +67,7 @@ impl std::fmt::Display for JobTriggerKind {
             JobTriggerKind::Email => "email",
             JobTriggerKind::Nats => "nats",
             JobTriggerKind::Mqtt => "mqtt",
+            JobTriggerKind::Amqp => "amqp",
             JobTriggerKind::Sqs => "sqs",
             JobTriggerKind::Postgres => "postgres",
             JobTriggerKind::Schedule => "schedule",
@@ -72,6 +79,7 @@ impl std::fmt::Display for JobTriggerKind {
             JobTriggerKind::CiTest => "ci_test",
             JobTriggerKind::Asset => "asset",
             JobTriggerKind::Freshness => "freshness",
+            JobTriggerKind::App => "app",
         };
         write!(f, "{}", kind)
     }

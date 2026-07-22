@@ -703,7 +703,7 @@ export const TS_PREPROCESSOR_SCRIPT_INTRO = `/**
  *
  * ⚠️ This function runs BEFORE the main function.
  *
- * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email)
+ * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email)
  * before passing it to \`main\`. This separates the trigger logic from the main logic and keeps the auto-generated runnable UI clean.
  *
  * The returned object defines the parameter values passed to \`main()\`.
@@ -716,7 +716,7 @@ export const TS_PREPROCESSOR_SCRIPT_INTRO = `/**
 export const TS_PREPROCESSOR_FLOW_INTRO = `/**
  * Trigger preprocessor
  *
- * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
+ * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) 
  * before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
  * 
  * The returned object determines the parameter values passed to the flow.
@@ -813,6 +813,16 @@ type TriggerEvent =
       };
     }
   | {
+      kind: "amqp";
+      trigger_path: string;
+      payload: string;
+      exchange: string;
+      routing_key: string;
+      queue_name: string;
+      redelivered: boolean;
+      delivery_tag: number;
+    }
+  | {
       kind: "gcp";
       trigger_path: string;
       payload: string;
@@ -867,7 +877,7 @@ export const PYTHON_PREPROCESSOR_SCRIPT_INTRO = `# Trigger preprocessor
 #
 # ⚠️ This function runs BEFORE the main function.
 #
-# It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
+# It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) 
 # before passing it to \`main\`. This separates the trigger logic from the main logic and keeps the auto-generated UI clean.
 #
 # The returned object defines the parameter values passed to \`main()\`.
@@ -878,7 +888,7 @@ export const PYTHON_PREPROCESSOR_SCRIPT_INTRO = `# Trigger preprocessor
 
 export const PYTHON_PREPROCESSOR_FLOW_INTRO = `# Trigger preprocessor
 #
-# It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
+# It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) 
 # before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 # 
 # The returned object determines the parameter values passed to the flow.
@@ -986,6 +996,17 @@ class MqttEvent(TypedDict):
     v5: Optional[MqttV5Properties]
 
 
+class AmqpEvent(TypedDict):
+    kind: Literal["amqp"]
+    trigger_path: str
+    payload: str
+    exchange: str
+    routing_key: str
+    queue_name: str
+    redelivered: bool
+    delivery_tag: int
+
+
 class GcpEvent(TypedDict):
     kind: Literal["gcp"]
     trigger_path: str
@@ -1019,6 +1040,7 @@ Event = Union[
     NatsEvent,
     SqsEvent,
     MqttEvent,
+    AmqpEvent,
     GcpEvent,
     PostgresEvent,
 ]
@@ -1036,7 +1058,7 @@ export const PHP_PREPROCESSOR_SCRIPT_INTRO = `<?php
  *
  * ⚠️ This function runs BEFORE the main function.
  *
- * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email)
+ * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email)
  * before passing it to \`main\`. This separates the trigger logic from the main logic and keeps the auto-generated runnable UI clean.
  *
  * The returned object defines the parameter values passed to \`main()\`.
@@ -1052,7 +1074,7 @@ export const PHP_PREPROCESSOR_FLOW_INTRO = `<?php
 /**
  * Trigger preprocessor
  *
- * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
+ * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) 
  * before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
  * 
  * The returned object determines the parameter values passed to the flow.
@@ -1097,6 +1119,10 @@ export const PHP_PREPROCESSOR_MODULE_CODE = `function preprocessor(object $event
     // MQTT event:
     // ['kind' => 'mqtt', 'trigger_path' => '...', 'payload' => '...', 'topic' => '...', 'retain' => true, 'pkid' => 1,
     //  'qos' => 1, 'v5' => [...]]
+    //
+    // AMQP event:
+    // ['kind' => 'amqp', 'trigger_path' => '...', 'payload' => '...', 'exchange' => '...', 'routing_key' => '...',
+    //  'queue_name' => '...', 'redelivered' => false, 'delivery_tag' => 1]
     //
     // GCP event:
     // ['kind' => 'gcp', 'trigger_path' => '...', 'payload' => '...', 'message_id' => '...', 'subscription' => '...',
@@ -1433,6 +1459,30 @@ export const INITIAL_CODE = {
 		script: CI_TEST_PYTHON_INIT_CODE
 	}
 	// for related places search: ADD_NEW_LANG
+}
+
+/**
+ * Whether a bash script body runs inside a custom container image that does not
+ * ship the `wmill` CLI (nor `jq`), namely `# sandbox <image>` or `# docker`. In
+ * that case editor snippets must fall back to a plain HTTP client instead of `wmill`.
+ *
+ * Mirrors the worker's annotation grammar (backend/windmill-common/src/worker.rs,
+ * `BashAnnotations`): only leading comment lines are scanned, stopping at the first
+ * non-comment line. A bare `# sandbox` (no image) is the nsjail-bash modifier that
+ * still runs on the worker rootfs where `wmill` is available, so it is excluded.
+ */
+export function bashRunsInCustomImage(code: string): boolean {
+	for (const line of code.split('\n')) {
+		const trimmed = line.trim()
+		if (trimmed === '') continue
+		if (!trimmed.startsWith('#')) break
+		const tokens = trimmed.slice(1).trim().split(/\s+/)
+		// `# sandbox <image>` selects a container; bare `# sandbox` does not.
+		if (tokens[0] === 'sandbox' && tokens[1]) return true
+		// `# docker` (v1 daemon runtime) runs in the referenced image, no wmill.
+		if (tokens[0] === 'docker' && tokens.length === 1) return true
+	}
+	return false
 }
 
 export function isInitialCode(content: string): boolean {

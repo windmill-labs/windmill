@@ -5,8 +5,10 @@ import {
 	buildResourcesUrl,
 	buildVariablesUrl,
 	buildTriggersUrl,
-	buildFoldersUrl
+	buildFoldersUrl,
+	buildCompareUrl
 } from './pageNavigation'
+import { parseItemsMaskParam } from '$lib/components/sessions/modifiedItemsMask'
 
 function parse(appPath: string): URL {
 	return new URL(appPath, 'http://x')
@@ -37,18 +39,32 @@ describe('pageNavigation builders', () => {
 
 	it('resources keeps resource_type + path, drops runs-only keys', () => {
 		const u = parse(
-			buildResourcesUrl({ resource_type: 'postgres', path: 'f/x', status: 'failure' })
+			buildResourcesUrl({ filters: { resource_type: 'postgres', path: 'f/x', status: 'failure' } })
 		)
 		expect(u.searchParams.get('resource_type')).toBe('postgres')
 		expect(u.searchParams.get('path')).toBe('f/x')
 		expect(u.searchParams.has('status')).toBe(false)
 	})
 
+	it('resources opens a specific resource via the #/resource/ hash', () => {
+		const u = parse(buildResourcesUrl({ open: 'f/x/db' }))
+		expect(u.pathname).toBe('/resources')
+		expect(u.hash).toBe('#/resource/f/x/db')
+	})
+
 	it('variables keeps path + owner only', () => {
-		const u = parse(buildVariablesUrl({ path: 'f/x', owner: 'u/alice', resource_type: 'postgres' }))
+		const u = parse(
+			buildVariablesUrl({ filters: { path: 'f/x', owner: 'u/alice', resource_type: 'postgres' } })
+		)
 		expect(u.searchParams.get('path')).toBe('f/x')
 		expect(u.searchParams.get('owner')).toBe('u/alice')
 		expect(u.searchParams.has('resource_type')).toBe(false)
+	})
+
+	it('variables opens a specific variable via hash', () => {
+		const u = parse(buildVariablesUrl({ open: 'u/alice/token' }))
+		expect(u.pathname).toBe('/variables')
+		expect(u.hash).toBe('#u/alice/token')
 	})
 
 	it('triggers route to the kind page, opening a specific trigger via hash', () => {
@@ -62,5 +78,20 @@ describe('pageNavigation builders', () => {
 		const u = parse(buildFoldersUrl())
 		expect(u.pathname).toBe('/folders')
 		expect(u.search).toBe('')
+	})
+
+	it('compare carries workspace, mode, and an items mask that round-trips through the page parser', () => {
+		const items = ['script:f/foo/bar', 'trigger_schedule:u/alice/daily']
+		const u = parse(buildCompareUrl({ workspace_id: 'wm-fork-x', mode: 'fork', items }))
+		expect(u.pathname).toBe('/forks/compare')
+		expect(u.searchParams.get('workspace_id')).toBe('wm-fork-x')
+		expect(u.searchParams.get('mode')).toBe('fork')
+		expect(parseItemsMaskParam(u.searchParams.get('items')!)).toEqual(new Set(items))
+	})
+
+	it('compare omits mode and items when not provided', () => {
+		const u = parse(buildCompareUrl({ workspace_id: 'ws' }))
+		expect(u.searchParams.get('mode')).toBeNull()
+		expect(u.searchParams.get('items')).toBeNull()
 	})
 })

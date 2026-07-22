@@ -21,7 +21,6 @@ pub struct EndpointTool {
     pub path_params_schema: Option<serde_json::Value>,
     pub query_params_schema: Option<serde_json::Value>,
     pub body_schema: Option<serde_json::Value>,
-    pub path_field_renames: Option<serde_json::Value>,
     pub query_field_renames: Option<serde_json::Value>,
     pub body_field_renames: Option<serde_json::Value>,
 }
@@ -215,7 +214,6 @@ mod tests {
                 "required": []
             })),
             body_schema: None,
-            path_field_renames: None,
             query_field_renames: None,
             body_field_renames: None,
         }

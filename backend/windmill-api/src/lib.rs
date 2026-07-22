@@ -68,6 +68,7 @@ use windmill_common::error::AppError;
 mod ai;
 mod ai_skills;
 mod apps;
+pub use apps::invalidate_app_policy_cache;
 pub mod args;
 mod audit;
 pub mod auth;
@@ -657,6 +658,10 @@ pub async fn run_server(
                         .nest("/workers", windmill_api_workers::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/hub", hub_publish::workspaced_service())
+                        .nest(
+                            "/data_metrics",
+                            windmill_api_workspaces::data_metrics::workspaced_service(),
+                        )
                         .nest(
                             "/deployment_request",
                             windmill_api_workspaces::deployment_requests::workspaced_service(),

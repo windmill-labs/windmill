@@ -4,6 +4,7 @@ import {
 	HttpTriggerService,
 	KafkaTriggerService,
 	MqttTriggerService,
+	AmqpTriggerService,
 	NatsTriggerService,
 	PostgresTriggerService,
 	ScheduleService,
@@ -14,6 +15,7 @@ import {
 	type NewHttpTrigger,
 	type NewKafkaTrigger,
 	type NewMqttTrigger,
+	type NewAmqpTrigger,
 	type NewNatsTrigger,
 	type NewPostgresTrigger,
 	type NewSchedule,
@@ -28,6 +30,7 @@ import {
 import { z } from 'zod'
 import {
 	createToolDef,
+	formatToolError,
 	type CreatedResourceTriggerKind,
 	type Tool,
 	type ToolCallbacks,
@@ -44,6 +47,7 @@ type TriggerRequestByKind = {
 	nats: NewNatsTrigger
 	postgres: NewPostgresTrigger
 	mqtt: NewMqttTrigger
+	amqp: NewAmqpTrigger
 	sqs: NewSqsTrigger
 	gcp: GcpTriggerData
 	azure: AzureTriggerData
@@ -154,6 +158,12 @@ const triggerConfigs = {
 		create: (data: { workspace: string; requestBody: NewMqttTrigger }) =>
 			MqttTriggerService.createMqttTrigger(data)
 	},
+	amqp: {
+		label: 'AMQP trigger',
+		requestSchema: triggerRequestSchemas.amqp as z.ZodType<NewAmqpTrigger>,
+		create: (data: { workspace: string; requestBody: NewAmqpTrigger }) =>
+			AmqpTriggerService.createAmqpTrigger(data)
+	},
 	sqs: {
 		label: 'SQS trigger',
 		requestSchema: triggerRequestSchemas.sqs as z.ZodType<NewSqsTrigger>,
@@ -237,30 +247,6 @@ function parseWithExplicitErrors<T>(schema: z.ZodType<T>, value: unknown, label:
 	return result.data
 }
 
-function formatApiError(error: any): string {
-	const bodyMessage =
-		error?.body?.error?.message ??
-		error?.body?.message ??
-		(typeof error?.body?.error === 'string' ? error.body.error : undefined)
-	const body =
-		bodyMessage ??
-		(typeof error?.body === 'string'
-			? error.body
-			: error?.body !== undefined
-				? stringifyErrorBody(error.body)
-				: undefined)
-	const message = body || error?.message || String(error)
-	return error?.status ? `HTTP ${error.status}: ${message}` : message
-}
-
-function stringifyErrorBody(body: unknown): string {
-	try {
-		return JSON.stringify(body)
-	} catch {
-		return String(body)
-	}
-}
-
 function setToolError(toolCallbacks: ToolCallbacks, toolId: string, error: unknown): string {
 	const errorMessage = error instanceof Error ? error.message : String(error)
 	toolCallbacks.setToolStatus(toolId, {
@@ -302,7 +288,7 @@ const createScheduleTool: Tool<any> = {
 					}
 				})
 			} catch (error) {
-				throw new Error(`Invalid schedule or timezone: ${formatApiError(error)}`)
+				throw new Error(`Invalid schedule or timezone: ${formatToolError(error)}`)
 			}
 
 			toolCallbacks.setToolStatus(toolId, {
@@ -325,7 +311,9 @@ const createScheduleTool: Tool<any> = {
 				})
 				return JSON.stringify(toolResult)
 			} catch (error) {
-				throw new Error(`Failed to create schedule "${requestBody.path}": ${formatApiError(error)}`)
+				throw new Error(
+					`Failed to create schedule "${requestBody.path}": ${formatToolError(error)}`
+				)
 			}
 		} catch (error) {
 			return setToolError(toolCallbacks, toolId, error)
@@ -383,7 +371,7 @@ const createTriggerTool: Tool<any> = {
 				return JSON.stringify(toolResult)
 			} catch (error) {
 				throw new Error(
-					`Failed to create ${triggerConfig.label} "${requestBody.path}": ${formatApiError(error)}`
+					`Failed to create ${triggerConfig.label} "${requestBody.path}": ${formatToolError(error)}`
 				)
 			}
 		} catch (error) {
