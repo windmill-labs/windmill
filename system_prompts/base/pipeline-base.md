@@ -13,7 +13,7 @@ Do not spread a pipeline across postgres, S3, and DuckLake when one DuckLake lak
 
 ## Storage prerequisites
 
-A DuckLake pipeline only runs once the workspace has **object storage** (S3 / Azure Blob / GCS) **and a DuckLake catalog** configured — DuckLake tables and `s3://` assets can't be materialized or read without it. Drafting the annotated scripts does not require storage, but the pipeline can't ingest, materialize, or read its assets until it exists. So if the workspace has no object storage / DuckLake catalog configured (set up under Workspace settings → Object Storage), or the user hits "storage not configured" errors, say so and give the right next step **by role**:
+A DuckLake pipeline only runs once the workspace has **object storage** (S3 / Azure Blob / GCS) **and a DuckLake catalog** configured — DuckLake tables and `s3://` assets can't be materialized or read without it. Check with the `list_ducklakes` tool before you build (it returns the configured DuckLake catalogs, or none). Drafting the annotated scripts does not require storage, but the pipeline can't ingest, materialize, or read its assets until it exists. So if `list_ducklakes` returns none (or the user hits "storage not configured" errors), say so and give the right next step **by role**:
 
 - a workspace **admin** sets it up in Workspace settings → Object Storage (add an S3/Azure/GCS storage), then adds a DuckLake catalog on top of it;
 - anyone **without admin rights** should ask a workspace admin to configure object storage + a DuckLake catalog.
