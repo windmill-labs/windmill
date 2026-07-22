@@ -35,5 +35,7 @@
 	endIcon={{ icon: PanelRight }}
 	wrapperClasses="shrink-0"
 >
-	Preview
+	<!-- The chip renders inside the tool row's font-mono scope; the label is UI text.
+	     (font-main, not font-sans — this Tailwind config only defines main/mono.) -->
+	<span class="font-main">Preview</span>
 </Button>
