@@ -4421,11 +4421,9 @@ async function patchFlowJson(
 		},
 		ctx
 	)
-	// A patch that adds a new rawscript module carries an `inline_script.<id>`
-	// placeholder with no session entry; finalize blanks it (or rejects a typo'd
-	// ref). Check the restored value (patchedEditable still holds placeholders
-	// for every rawscript) and tell the model which bodies to fill via
-	// set_flow_module_code.
+	// Warn from the restored value, not patchedEditable — the compact view holds
+	// placeholders for every rawscript, so only post-restore content shows which
+	// modules still need bodies filled via set_flow_module_code.
 	return appendEmptyInlineScriptWarning(result, {
 		...patchedEditable,
 		modules: newFlowValue.modules,
