@@ -65,17 +65,12 @@
 	// operations.
 	function openBundle() {
 		const s = deployHub.session
-		if (!s) return
+		if (!s || s.triggersLoading) return
 		s.prepareBundle()
 		bundleDrawer?.openDrawer()
 	}
 	async function confirmBundle() {
-		const s = deployHub.session
-		if (!s) return
-		if (await s.createDraft()) {
-			bundleDrawer?.closeDrawer()
-			await s.deployAll()
-		}
+		await deployHub.session?.publishBundle(() => bundleDrawer?.closeDrawer())
 	}
 	function openRecord(it: DeployItem) {
 		recordDrawer?.openDrawer()
@@ -188,8 +183,8 @@
 								{#if s.phase === 'predeploy'}
 									<Button
 										variant="accent"
-										loading={s.deploying}
-										disabled={s.selectedItems.length === 0}
+										loading={s.deploying || s.triggersLoading}
+										disabled={s.selectedItems.length === 0 || s.triggersLoading}
 										startIcon={{ icon: Cloud }}
 										onclick={openBundle}
 									>
@@ -973,7 +968,8 @@
 						loading={s.deploying}
 						disabled={!s.hubName.trim() ||
 							(!s.effectiveSlug && !isValidSlug(sanitizeSlug(s.hubName))) ||
-							s.migrationsGenerating}
+							s.migrationsGenerating ||
+							s.triggersLoading}
 						startIcon={{ icon: Cloud }}
 						onclick={confirmBundle}
 					>

@@ -746,10 +746,31 @@ export class DeployToHubSession {
 	}
 
 	/**
+	 * Create the Hub draft then push the full bundle. `deploying` is set
+	 * synchronously before the first request so a double-click cannot start a
+	 * second publish, and the whole run is refused while triggers are still
+	 * loading — an incomplete `relevantTriggers` snapshot would permanently
+	 * omit triggers (and their handlers and migrations) from the draft.
+	 * `onDraftCreated` fires once the draft exists (the bundle drawer closes
+	 * there while items continue publishing).
+	 */
+	async publishBundle(onDraftCreated?: () => void): Promise<void> {
+		if (this.deploying || this.triggersLoading) return
+		this.deploying = true
+		try {
+			if (!(await this.#createDraft())) return
+			onDraftCreated?.()
+			await this.#deployAll()
+		} finally {
+			this.deploying = false
+		}
+	}
+
+	/**
 	 * Create the Hub draft project. Returns true when the draft exists and
 	 * publishing can proceed.
 	 */
-	async createDraft(): Promise<boolean> {
+	async #createDraft(): Promise<boolean> {
 		this.hubName = this.hubName.trim()
 		this.hubSummary = this.hubSummary.trim()
 		this.hubReadme = this.hubReadme.trim()
@@ -930,7 +951,7 @@ export class DeployToHubSession {
 		return results.reduce((a: number, b) => a + b, 0)
 	}
 
-	async deployAll() {
+	async #deployAll() {
 		const slug = this.hubSlug
 		// Snapshot the selection up-front: `selectedItems`/`relevantTriggers` are
 		// derived from live workspace data and `migrationDrafts` is edited in the
@@ -939,7 +960,6 @@ export class DeployToHubSession {
 		const triggersSnapshot = this.relevantTriggers.slice()
 		const migrationsSnapshot = this.migrationDrafts.slice()
 		this.hubItemIds = {}
-		this.deploying = true
 		let failures = 0
 		try {
 			const seed: ItemRef[] = [
