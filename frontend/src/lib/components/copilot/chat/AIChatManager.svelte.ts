@@ -1816,7 +1816,6 @@ export class AIChatManager {
 			// workspace instead, so leave it unset there — allowedOpenPages reads the store.
 			...(this.isSessionChat
 				? {
-						isSessionChat: true,
 						sessionId: this.sessionId,
 						operatingWorkspace: this.operatingWorkspace,
 						artifacts: this.artifacts,
