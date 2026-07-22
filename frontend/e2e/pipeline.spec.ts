@@ -75,27 +75,23 @@ test.describe('Pipeline editor', () => {
 
 		await page.goto(`/pipeline/${folder}`)
 
-		// Header summary: two scripts render as pipeline members.
 		await expect(page.getByRole('heading', { name: 'Pipeline', level: 1 })).toBeVisible()
 		await expect(page.getByText('2 scripts', { exact: false })).toBeVisible()
 
-		// Both script nodes render (the node label may truncate a long path, so match
-		// the leaf name; the full paths are asserted on the edge labels below).
+		// A long path truncates in the node label, so match the leaf name; the full
+		// paths are asserted on the edge labels below.
 		await expect(page.getByText('orders_ingest').first()).toBeVisible()
 		await expect(page.getByText('orders_daily').first()).toBeVisible()
 
-		// The lineage edges are derived purely from the annotations: the CSV read,
-		// the two materialize outputs, and the downstream `-- on <ducklake>` input.
-		// Two of these resolve asynchronously after the initial graph fetch (the
-		// s3 read is detected from the SQL body at deploy time; the missing-schedule
-		// edge is synthesized client-side by the page's per-script annotation sweep),
-		// so a cold-CI failure here points at that async timing, not a missing edge.
+		// Two edges resolve asynchronously after the initial graph fetch (the s3 read
+		// is detected from the SQL body at deploy time; the missing-schedule edge is
+		// synthesized client-side by the page's per-script annotation sweep), so a
+		// cold-CI failure here points at that async timing, not a missing edge.
 		const edges = [
 			`Edge from asset:s3object:raw/orders/*.csv to script:${ingest}`,
 			`Edge from script:${ingest} to asset:ducklake:${ordersTbl}`,
 			`Edge from asset:ducklake:${ordersTbl} to script:${daily}`,
 			`Edge from script:${daily} to asset:ducklake:${dailyTbl}`,
-			// `-- on schedule` with no schedule trigger row still wires a missing-trigger edge.
 			`Edge from trigger:schedule:missing:${ingest} to script:${ingest}`
 		]
 		for (const name of edges) {
