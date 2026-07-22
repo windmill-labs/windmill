@@ -32,11 +32,9 @@ use windmill_common::DB;
 use ee_oss::validate_license_key;
 use windmill_common::usernames::generate_instance_username_for_all_users;
 
-#[cfg(feature = "enterprise")]
-use axum::extract::Query;
 use axum::{
     body::Body,
-    extract::{Extension, Path},
+    extract::{Extension, Path, Query},
     response::Response,
     routing::{get, post},
     Json, Router,
@@ -1972,25 +1970,62 @@ async fn fetch_resource_types_from_hub() -> error::Result<Vec<CachedResourceType
         .collect())
 }
 
+#[derive(serde::Deserialize)]
+struct SyncResourceTypesQuery {
+    name: Option<String>,
+}
+
 async fn sync_cached_resource_types(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
+    Query(SyncResourceTypesQuery { name }): Query<SyncResourceTypesQuery>,
 ) -> error::Result<String> {
     require_super_admin(&db, &authed.email).await?;
 
     use windmill_common::worker::HUB_RT_CACHE_DIR;
     let cache_path = format!("{}/resource_types.json", *HUB_RT_CACHE_DIR);
 
-    let cached_types = match tokio::fs::read_to_string(&cache_path).await {
-        Ok(content) => serde_json::from_str::<Vec<CachedResourceType>>(&content).map_err(|e| {
-            error::Error::InternalErr(format!("Failed to parse cached resource types: {}", e))
-        })?,
-        Err(_) => fetch_resource_types_from_hub().await?,
+    // Manual sync is hub-first so it lands newly-published hub types on demand. The
+    // on-disk cache is only a fallback for when the hub is unreachable (airgapped
+    // installs / network error); refreshing it is left to the daily cache-rt cron and
+    // the startup sync in main.rs, which own the offline path.
+    let resource_types = match fetch_resource_types_from_hub().await {
+        Ok(types) => {
+            tracing::info!("Fetched {} resource types live from the hub", types.len());
+            types
+        }
+        Err(hub_err) => {
+            tracing::warn!(
+                "Live hub fetch failed ({hub_err}), falling back to on-disk cache at {cache_path}"
+            );
+            match tokio::fs::read_to_string(&cache_path).await {
+                Ok(content) => {
+                    serde_json::from_str::<Vec<CachedResourceType>>(&content).map_err(|e| {
+                        error::Error::InternalErr(format!(
+                            "Failed to parse cached resource types: {}",
+                            e
+                        ))
+                    })?
+                }
+                Err(_) => return Err(hub_err),
+            }
+        }
     };
+
+    // Targeted refresh: if a specific type was requested and the hub does not know it,
+    // surface an explicit not-found instead of a silent "Synced 0".
+    if let Some(name) = name.as_deref() {
+        if !resource_types.iter().any(|rt| rt.name == name) {
+            return Err(error::Error::NotFound(format!(
+                "resource type '{}' not found on the hub",
+                name
+            )));
+        }
+    }
 
     let mut synced_count = 0;
 
-    for rt in &cached_types {
+    for rt in &resource_types {
         let exists: Option<bool> = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM resource_type WHERE workspace_id = 'admins' AND name = $1 AND schema IS NOT DISTINCT FROM $2 AND description IS NOT DISTINCT FROM $3)",
             &rt.name,
@@ -2022,7 +2057,7 @@ async fn sync_cached_resource_types(
     Ok(format!(
         "Synced {} resource types ({} unchanged)",
         synced_count,
-        cached_types.len() - synced_count
+        resource_types.len() - synced_count
     ))
 }
 
