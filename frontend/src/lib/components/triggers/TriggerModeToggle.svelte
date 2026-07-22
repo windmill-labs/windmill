@@ -18,6 +18,12 @@
 		// dispatch resolves.
 		onToggleMode: (mode: TriggerMode) => void | boolean | Promise<void | boolean>
 		canWrite: boolean
+		/** Force-disable all controls regardless of write permission
+		 * (e.g. draft-only triggers: nothing deployed to enable). */
+		disabled?: boolean
+		/** Hover text on the enable toggle (e.g. why it is disabled, or
+		 * that it targets the deployed version when a draft also exists). */
+		title?: string
 		hideToggleLabels?: boolean
 		hideDropdown?: boolean
 		suspendedJobsModal?: TriggerSuspendedJobsModal | null
@@ -32,6 +38,8 @@
 		triggerMode,
 		onToggleMode,
 		canWrite,
+		disabled = false,
+		title = undefined,
 		hideToggleLabels = false,
 		hideDropdown = false,
 		suspendedJobsModal: passedSuspendedJobsModal,
@@ -67,7 +75,7 @@
 <div class="flex flex-row gap-2 items-center">
 	{#if triggerMode === 'suspended'}
 		<ToggleButtonGroup
-			disabled={!canWrite}
+			disabled={!canWrite || disabled}
 			onSelected={async (value) => {
 				if (value === 'disabled' || value === 'enabled') {
 					const hasJobs = await suspendedJobsModal?.hasJobs()
@@ -89,8 +97,8 @@
 		</ToggleButtonGroup>
 	{:else}
 		<Toggle
-			disabled={!canWrite}
-			options={hideToggleLabels ? undefined : { right: 'enable', left: 'disable' }}
+			disabled={!canWrite || disabled}
+			options={{ ...(hideToggleLabels ? {} : { right: 'enable', left: 'disable' }), title }}
 			bind:checked={
 				() => innerTriggerMode === 'enabled', (v) => (innerTriggerMode = v ? 'enabled' : 'disabled')
 			}
@@ -107,7 +115,7 @@
 		/>
 		{#if !hideDropdown}
 			<DropdownV2
-				disabled={!canWrite}
+				disabled={!canWrite || disabled}
 				items={[
 					{
 						displayName: 'Suspend job execution',

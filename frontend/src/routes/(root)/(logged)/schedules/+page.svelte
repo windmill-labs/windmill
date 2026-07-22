@@ -367,6 +367,8 @@
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
 					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, paused_until, labels, inherited_labels, draft_only, is_draft } (path)}
+						{@const hasDraft =
+							getLocalDraftHint($workspaceStore, 'trigger_schedule', path) ?? is_draft}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 						{@const avg_s = jobs
 							? jobs.reduce((acc, x) => acc + x.duration_ms, 0) / jobs.length
@@ -379,20 +381,25 @@
 							<div class="w-full flex gap-4 items-center">
 								<RowIcon kind={is_flow ? 'flow' : 'script'} />
 
-								<a
-									href="#{path}"
-									onclick={() => scheduleEditor?.openEdit(path, is_flow)}
-									class="min-w-0 grow hover:underline decoration-gray-400"
-								>
-									<div
-										class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate"
+								<div class="min-w-0 grow flex items-center gap-2">
+									<a
+										href="#{path}"
+										onclick={() => scheduleEditor?.openEdit(path, is_flow)}
+										class="min-w-0 hover:underline decoration-gray-400"
 									>
-										{summary || script_path}{(getLocalDraftHint($workspaceStore, 'trigger_schedule', path) ?? is_draft) ? '*' : ''}
-									</div>
-									<div class="text-secondary text-xs truncate text-left">
-										schedule: {path}
-									</div>
-								</a>
+										<div
+											class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate"
+										>
+											{summary || script_path}{hasDraft ? '*' : ''}
+										</div>
+										<div class="text-secondary text-xs truncate text-left">
+											schedule: {path}
+										</div>
+									</a>
+									{#if draft_only || hasDraft}
+										<DraftBadge {draft_only} is_draft={true} />
+									{/if}
+								</div>
 								{#if labels?.length}
 									{#each labels as label}
 										<Badge
@@ -431,9 +438,6 @@
 
 								<div class="hidden lg:flex flex-row gap-1 items-center">
 									<SharedBadge {canWrite} extraPerms={extra_perms} />
-									{#if draft_only}
-										<DraftBadge draft_only is_draft={false} />
-									{/if}
 								</div>
 
 								<div class="w-10">
@@ -458,7 +462,15 @@
 
 								{#key toggleResetVersions[path] ?? 0}
 									<Toggle
-										checked={enabled}
+										disabled={draft_only}
+										options={{
+											title: draft_only
+												? 'Draft only: deploy the schedule to enable it'
+												: hasDraft
+													? 'Enables/disables the deployed schedule; the draft is not affected'
+													: undefined
+										}}
+										checked={!draft_only && enabled}
 										on:change={(e) => {
 											if (canWrite) {
 												setScheduleEnabled(path, e.detail)
@@ -477,6 +489,7 @@
 								<div class="flex gap-2 items-center justify-end">
 									<Button
 										href={`${base}/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`}
+										disabled={draft_only}
 										unifiedSize="md"
 										startIcon={{ icon: List }}
 										variant="subtle"

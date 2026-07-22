@@ -67,11 +67,14 @@
 	getDeployUiSettings()
 
 	async function loadTriggers(): Promise<void> {
-		triggers = (await MqttTriggerService.listMqttTriggers({ workspace: $workspaceStore!, includeDraftOnly: true })).map(
-			(x) => {
-				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
-			}
-		)
+		triggers = (
+			await MqttTriggerService.listMqttTriggers({
+				workspace: $workspaceStore!,
+				includeDraftOnly: true
+			})
+		).map((x) => {
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+		})
 		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'mqtt', $usedTriggerKinds)
 		loading = false
 	}
@@ -341,6 +344,7 @@
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
 				{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, is_flow, extra_perms, canWrite, error, last_server_ping, server_id, mode, retry, error_handler_path, error_handler_args, labels, draft_only, is_draft } (path)}
+					{@const hasDraft = getLocalDraftHint($workspaceStore, 'trigger_mqtt', path) ?? is_draft}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const ping = last_server_ping ? new Date(last_server_ping) : undefined}
 					{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
@@ -353,24 +357,26 @@
 						<div class="w-full flex gap-5 items-center">
 							<RowIcon kind={is_flow ? 'flow' : 'script'} />
 
-							<a
-								href="#{path}"
-								onclick={() => mqttTriggerEditor?.openEdit(path, is_flow)}
-								class="min-w-0 grow hover:underline decoration-gray-400"
-							>
-								<div class="text-emphasis font-semibold text-xs truncate text-left">
-									{path}{(getLocalDraftHint($workspaceStore, 'trigger_mqtt', path) ?? is_draft) ? '*' : ''}
-								</div>
-								<div class="text-secondary text-xs truncate text-left font-light">
-									runnable: {script_path}
-								</div>
-							</a>
+							<div class="min-w-0 grow flex items-center gap-2">
+								<a
+									href="#{path}"
+									onclick={() => mqttTriggerEditor?.openEdit(path, is_flow)}
+									class="min-w-0 hover:underline decoration-gray-400"
+								>
+									<div class="text-emphasis font-semibold text-xs truncate text-left">
+										{path}{hasDraft ? '*' : ''}
+									</div>
+									<div class="text-secondary text-xs truncate text-left font-light">
+										runnable: {script_path}
+									</div>
+								</a>
+								{#if draft_only || hasDraft}
+									<DraftBadge {draft_only} is_draft={true} />
+								{/if}
+							</div>
 
 							<div class="hidden lg:flex flex-row gap-1 items-center">
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
-									{#if draft_only}
-										<DraftBadge draft_only is_draft={false} />
-									{/if}
 								{#if labels?.length}
 									{#each labels as label}
 										<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
@@ -417,8 +423,14 @@
 							</div>
 
 							<TriggerModeToggle
+								disabled={draft_only}
+								title={draft_only
+									? 'Draft only: deploy the trigger to enable it'
+									: hasDraft
+										? 'Enables/disables the deployed trigger; the draft is not affected'
+										: undefined}
 								onToggleMode={(newMode) => onToggleMode(path, newMode)}
-								triggerMode={mode}
+								triggerMode={draft_only ? 'disabled' : mode}
 								includeModalConfig={{
 									triggerPath: path,
 									triggerKind: 'mqtt',
