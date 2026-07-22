@@ -123,7 +123,10 @@ export async function detectDatatableTables(
 
 // Resolve a table ref (`table` or `schema.table`) to a concrete
 // `{ schemaName, tableName }` present in the live schema, or undefined if the
-// table can't be found (dropped since, typo, …).
+// table can't be found (dropped since, typo, …). A schema-qualified ref that
+// misses stays unresolved: falling back to a same-named table in another
+// schema would generate a migration for an unrelated table while the code
+// still references the missing one.
 function resolveTable(
 	schema: DatabaseSchema,
 	tableRef: string
@@ -132,13 +135,11 @@ function resolveTable(
 	if (dot !== -1) {
 		const schemaName = tableRef.slice(0, dot)
 		const tableName = tableRef.slice(dot + 1)
-		if (schema[schemaName]?.[tableName]) return { schemaName, tableName }
+		return schema[schemaName]?.[tableName] ? { schemaName, tableName } : undefined
 	}
-	// No schema qualifier (or the qualified lookup missed, e.g. a stale schema name):
-	// find the bare table name across every schema, first match wins.
-	const bareName = dot !== -1 ? tableRef.slice(dot + 1) : tableRef
+	// Bare name: find it across every schema, first match wins.
 	for (const schemaName of Object.keys(schema)) {
-		if (schema[schemaName][bareName]) return { schemaName, tableName: bareName }
+		if (schema[schemaName][tableRef]) return { schemaName, tableName: tableRef }
 	}
 	return undefined
 }

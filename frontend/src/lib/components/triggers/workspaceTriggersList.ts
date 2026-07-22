@@ -187,27 +187,48 @@ export const TRIGGER_KINDS: Record<
 
 export const WORKSPACE_TRIGGER_KINDS = Object.keys(TRIGGER_KINDS) as WorkspaceTriggerKind[]
 
+export interface WorkspaceTriggersListing {
+	triggers: WorkspaceTrigger[]
+	/**
+	 * Kinds whose discovery failed or was incomplete. A 404 on a kind's list
+	 * endpoint is NOT a failure (the instance doesn't have that trigger feature
+	 * compiled in); anything else means triggers of that kind may exist but
+	 * couldn't be enumerated, so consumers must not treat the listing as a
+	 * complete snapshot (e.g. publishing should be blocked until a retry).
+	 */
+	failedKinds: WorkspaceTriggerKind[]
+}
+
 /**
  * List every trigger of every kind in the workspace, normalized. EE-only kinds
  * are skipped without a license (their endpoints 404 on CE and would flood the
- * console); a kind whose call fails yields no rows rather than failing the
- * load. Rows a kind excludes because their detail couldn't be resolved are
- * reported through `opts.onError`.
+ * console). Failures are reported through `opts.onError` and recorded in
+ * `failedKinds` rather than silently yielding an empty kind.
  */
 export async function listAllWorkspaceTriggers(
 	workspace: string,
 	opts: { includeEeOnly: boolean; onError?: (message: string) => void }
-): Promise<WorkspaceTrigger[]> {
+): Promise<WorkspaceTriggersListing> {
+	const failedKinds: WorkspaceTriggerKind[] = []
 	const perKind = await Promise.all(
 		WORKSPACE_TRIGGER_KINDS.map(async (kind) => {
 			const def = TRIGGER_KINDS[kind]
 			if (def.eeOnly && !opts.includeEeOnly) return []
+			let kindFailed = false
+			const reportError = (message: string) => {
+				kindFailed = true
+				opts.onError?.(message)
+			}
 			let rows: Array<Record<string, any>>
 			try {
-				rows = await def.list(workspace, opts.onError)
-			} catch {
-				return []
+				rows = await def.list(workspace, reportError)
+			} catch (e: any) {
+				if (e?.status !== 404) {
+					reportError(`Failed to list ${kind} triggers: ${e?.message ?? e}`)
+				}
+				rows = []
 			}
+			if (kindFailed) failedKinds.push(kind)
 			return rows.map(
 				(r): WorkspaceTrigger => ({
 					kind,
@@ -220,7 +241,7 @@ export async function listAllWorkspaceTriggers(
 			)
 		})
 	)
-	return perKind.flat()
+	return { triggers: perKind.flat(), failedKinds }
 }
 
 /**

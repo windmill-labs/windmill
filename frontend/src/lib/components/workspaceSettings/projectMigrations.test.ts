@@ -160,6 +160,14 @@ describe('generateDatatableMigrations', () => {
 		expect(migrations[0].sql).toContain('"public"."customers"')
 	})
 
+	it('leaves a qualified ref unresolved when its schema misses, never another schema\'s table', async () => {
+		getDatatableFullSchemaMock.mockResolvedValue(schema)
+		const usage = new Map([['main', new Set(['sales.orders'])]])
+		const migrations = await generateDatatableMigrations('ws', usage)
+		expect(migrations[0].sql).toContain('"sales.orders" is referenced but was not found')
+		expect(migrations[0].sql).not.toContain('CREATE TABLE "')
+	})
+
 	it('emits all CREATE TABLEs before any FK constraint so circular FKs work', async () => {
 		const cyclicSchema = {
 			public: {

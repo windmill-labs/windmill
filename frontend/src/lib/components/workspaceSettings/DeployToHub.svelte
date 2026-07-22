@@ -184,7 +184,9 @@
 									<Button
 										variant="accent"
 										loading={s.deploying || s.triggersLoading}
-										disabled={s.selectedItems.length === 0 || s.triggersLoading}
+										disabled={s.selectedItems.length === 0 ||
+											s.triggersLoading ||
+											s.triggerDiscoveryFailed}
 										startIcon={{ icon: Cloud }}
 										onclick={openBundle}
 									>
@@ -317,7 +319,20 @@
 										<span class="text-hint font-normal">({s.relevantTriggers.length})</span>
 									{/if}
 								</span>
-								{#if s.relevantTriggers.length === 0}
+								{#if s.triggerDiscoveryFailed}
+									<span class="text-[11px] text-red-600 dark:text-red-400">
+										Some trigger kinds could not be listed — publishing is disabled so triggers
+										aren't silently left out of the bundle.
+									</span>
+									<Button
+										size="xs"
+										variant="subtle"
+										startIcon={{ icon: RotateCcw }}
+										onclick={() => s.reloadTriggers()}
+									>
+										Retry
+									</Button>
+								{:else if s.relevantTriggers.length === 0}
 									<span class="text-[11px] text-hint"
 										>No triggers reference the selected items.</span
 									>
@@ -969,7 +984,8 @@
 						disabled={!s.hubName.trim() ||
 							(!s.effectiveSlug && !isValidSlug(sanitizeSlug(s.hubName))) ||
 							s.migrationsGenerating ||
-							s.triggersLoading}
+							s.triggersLoading ||
+							s.triggerDiscoveryFailed}
 						startIcon={{ icon: Cloud }}
 						onclick={confirmBundle}
 					>

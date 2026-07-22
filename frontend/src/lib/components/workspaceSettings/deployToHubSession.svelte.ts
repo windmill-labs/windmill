@@ -136,6 +136,10 @@ export class DeployToHubSession {
 	draftItems = $state<DeployItem[]>([])
 	workspaceTriggers = $state<WorkspaceTrigger[]>([])
 	triggersLoading = $state(false)
+	// True when a trigger kind's discovery failed (not a feature-gated 404):
+	// the trigger list may be incomplete, so publishing is blocked until a
+	// retry succeeds.
+	triggerDiscoveryFailed = $state(false)
 	schedulePreviews = $state<Record<string, string[]>>({})
 	manualDeselected = $state<Set<string>>(new Set())
 	loading = $state(false)
@@ -444,7 +448,7 @@ export class DeployToHubSession {
 		const tok = ++this.#triggerLoadTok
 		this.triggersLoading = true
 		try {
-			const triggers = await listAllWorkspaceTriggers(this.workspace, {
+			const { triggers, failedKinds } = await listAllWorkspaceTriggers(this.workspace, {
 				includeEeOnly: this.#deps.hasEeLicense(),
 				onError: (message) => {
 					if (!this.#disposed) sendUserToast(message, true)
@@ -452,6 +456,7 @@ export class DeployToHubSession {
 			})
 			if (this.#disposed || tok !== this.#triggerLoadTok) return
 			this.workspaceTriggers = triggers
+			this.triggerDiscoveryFailed = failedKinds.length > 0
 		} finally {
 			if (!this.#disposed && tok === this.#triggerLoadTok) this.triggersLoading = false
 		}
@@ -755,7 +760,7 @@ export class DeployToHubSession {
 	 * there while items continue publishing).
 	 */
 	async publishBundle(onDraftCreated?: () => void): Promise<void> {
-		if (this.deploying || this.triggersLoading) return
+		if (this.deploying || this.triggersLoading || this.triggerDiscoveryFailed) return
 		this.deploying = true
 		try {
 			if (!(await this.#createDraft())) return
