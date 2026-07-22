@@ -56,6 +56,10 @@ lazy_static::lazy_static! {
     pub static ref EMBEDDINGS_DB: Arc<RwLock<Option<EmbeddingsDb>>> = Arc::new(RwLock::new(None));
     pub static ref MODEL_INSTANCE: Arc<RwLock<Option<Arc<ModelInstance>>>> = Arc::new(RwLock::new(None));
     pub static ref HUB_EMBEDDINGS_PULLING_INTERVAL_SECS: u64 = std::env::var("HUB_EMBEDDINGS_PULLING_INTERVAL_SECS").ok().map(|x| x.parse::<u64>().ok()).flatten().unwrap_or(3600 * 24);
+    // On a failed init/refresh we retry after this short interval instead of the
+    // full pulling interval, so a transient startup error doesn't leave the
+    // embeddings DB uninitialized for a whole day.
+    pub static ref HUB_EMBEDDINGS_RETRY_INTERVAL_SECS: u64 = std::env::var("HUB_EMBEDDINGS_RETRY_INTERVAL_SECS").ok().map(|x| x.parse::<u64>().ok()).flatten().unwrap_or(60);
 }
 
 #[cfg(feature = "embedding")]
@@ -601,42 +605,58 @@ pub fn load_embeddings_db(db: &Pool<Postgres>) -> () {
     if !disable_embedding {
         let db_clone = db.clone();
         tokio::spawn(async move {
-            let model_instance = ModelInstance::new().await;
-            if let Ok(model_instance) = model_instance {
-                let mut model_instance_lock = MODEL_INSTANCE.write().await;
-                *model_instance_lock = Some(Arc::new(model_instance));
-                drop(model_instance_lock);
-                loop {
-                    update_embeddings_db(&db_clone).await;
-                    tokio::time::sleep(std::time::Duration::from_secs(
-                        *HUB_EMBEDDINGS_PULLING_INTERVAL_SECS,
-                    ))
-                    .await;
+            // Keep retrying model init: a transient failure here must not
+            // permanently disable embeddings until the next process restart.
+            loop {
+                match ModelInstance::new().await {
+                    Ok(model_instance) => {
+                        let mut model_instance_lock = MODEL_INSTANCE.write().await;
+                        *model_instance_lock = Some(Arc::new(model_instance));
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to initialize model instance: {}. Retrying in {}s...",
+                            e,
+                            *HUB_EMBEDDINGS_RETRY_INTERVAL_SECS
+                        );
+                        tokio::time::sleep(std::time::Duration::from_secs(
+                            *HUB_EMBEDDINGS_RETRY_INTERVAL_SECS,
+                        ))
+                        .await;
+                    }
                 }
-            } else {
-                tracing::error!(
-                    "Failed to initialize model instance: {}",
-                    model_instance.err().unwrap()
-                );
+            }
+            loop {
+                let succeeded = update_embeddings_db(&db_clone).await;
+                let sleep_secs = if succeeded {
+                    *HUB_EMBEDDINGS_PULLING_INTERVAL_SECS
+                } else {
+                    *HUB_EMBEDDINGS_RETRY_INTERVAL_SECS
+                };
+                tokio::time::sleep(std::time::Duration::from_secs(sleep_secs)).await;
             }
         });
     }
 }
 
 #[cfg(feature = "embedding")]
-pub async fn update_embeddings_db(db: &Pool<Postgres>) -> () {
+pub async fn update_embeddings_db(db: &Pool<Postgres>) -> bool {
     if let Some(model_instance) = MODEL_INSTANCE.read().await.as_ref() {
         tracing::info!("Creating embeddings DB...");
         let new_embeddings_db = EmbeddingsDb::new(&db, model_instance.clone()).await;
         if let Err(e) = new_embeddings_db.as_ref() {
             tracing::error!("Failed to create embeddings db: {}", e);
+            false
         } else {
             let mut embeddings_db = EMBEDDINGS_DB.write().await;
             *embeddings_db = new_embeddings_db.ok();
             tracing::info!("Created embeddings DB");
+            true
         }
     } else {
         tracing::error!("Could not update embeddings DB, model instance not initialized");
+        false
     }
 }
 
