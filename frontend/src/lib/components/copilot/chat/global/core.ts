@@ -3000,15 +3000,17 @@ export const globalTools: Tool<{}>[] = [
 		fn: async (ctx) => {
 			const parsed = openPreviewSchema.parse(ctx.args)
 			const sessionId = sessionIdFromCtx(ctx)
-			const result = openSessionPreview(parsed, sessionId)
+			const { opened, message } = openSessionPreview(parsed, sessionId)
 			// Surface the same discrete card the write tools show, so the user can
-			// re-open/focus the preview later from the tool call. Session-only.
-			if (sessionId) {
+			// re-open/focus the preview later from the tool call. Only when the tool
+			// actually opened the preview (not for a refused open, e.g. a gated
+			// pipeline), and only in a session.
+			if (sessionId && opened) {
 				ctx.toolCallbacks.setToolStatus(ctx.toolId, {
 					previewCard: { kind: parsed.kind, path: parsed.path }
 				})
 			}
-			return result
+			return message
 		}
 	},
 	{
@@ -3293,18 +3295,25 @@ export function setOpenPreviewHandler(handler: OpenPreviewHandler | undefined): 
 	openPreviewHandler = handler
 }
 
+// `opened` distinguishes a real open (the caller may then offer a preview card)
+// from a refusal that is returned as a message rather than thrown — so the card is
+// never shown for an item the tool declined to preview (e.g. a gated pipeline).
 function openSessionPreview(
 	args: { kind: 'script' | 'flow' | 'raw_app' | 'pipeline'; path: string },
 	sessionId: string | undefined
-) {
+): { opened: boolean; message: string } {
 	if (!openPreviewHandler) {
-		return 'Error: open_preview is only available inside an AI session. Tell the user to switch to a session to view the preview, or describe the item textually.'
+		return {
+			opened: false,
+			message:
+				'Error: open_preview is only available inside an AI session. Tell the user to switch to a session to view the preview, or describe the item textually.'
+		}
 	}
 	// open_preview only exists in sessions, so no sessionId check is needed here.
 	if (args.kind === 'pipeline' && !isSessionPipelinesEnabled()) {
-		return SESSION_PIPELINES_GATED_MESSAGE
+		return { opened: false, message: SESSION_PIPELINES_GATED_MESSAGE }
 	}
-	return openPreviewHandler({ ...args, sessionId })
+	return { opened: true, message: openPreviewHandler({ ...args, sessionId }) }
 }
 
 // Opens a workspace *page* (Runs, Schedules, …) as a page tab in the session's
