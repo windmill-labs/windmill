@@ -3192,17 +3192,9 @@ async fn resume_suspended(
     }
 
     // Check approval conditions
-    let approval_conditions = if is_wac {
-        flow.flow_status
-            .as_ref()
-            .and_then(|v| v.get("approval_conditions"))
-            .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok())
-    } else {
-        flow.flow_status
-            .as_ref()
-            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
-            .and_then(|fs| fs.approval_conditions)
-    };
+    let approval_conditions = extract_approval_conditions(flow.flow_status.as_ref(), is_wac);
+
+    let trigger_email = flow.email.as_deref().unwrap_or("");
 
     if let Some(ref ac) = approval_conditions {
         if ac.user_auth_required && opt_authed.is_none() {
@@ -3214,10 +3206,9 @@ async fn resume_suspended(
 
     // If logged in, check authorization rules
     if let Some(ref authed) = opt_authed {
-        let trigger_email = flow.email.as_deref().unwrap_or("");
-
         // self_approval_disabled applies to owners too (only admins are exempt), so it is
-        // enforced before the owner shortcut below.
+        // enforced before the owner shortcut below. A token-only (anonymous) resume is treated as
+        // capability-based and intentionally not gated here; see resume_suspended_job.
         if let Some(ref ac) = approval_conditions {
             require_not_self_approval(authed, ac, trigger_email)?;
         }
@@ -3354,10 +3345,11 @@ struct ApprovalInfo {
 }
 
 /// Whether `opt_authed` is allowed to approve — and therefore view — this approval step.
-/// Mirrors the authorization performed at the resume boundary: workspace admins and owners
-/// of the runnable always qualify; otherwise the approval conditions (user_auth_required /
-/// user_groups_required / self_approval_disabled) decide. When the step does not require auth,
-/// an anonymous (token-only) caller qualifies.
+/// Mirrors the authorization performed at the resume boundary: workspace admins always qualify;
+/// self_approval_disabled then bars the triggerer even when they own the runnable; otherwise
+/// owners qualify and the remaining approval conditions (user_auth_required /
+/// user_groups_required) decide. When the step does not require auth, an anonymous (token-only)
+/// caller qualifies.
 fn can_approve_step(
     opt_authed: &Option<ApiAuthed>,
     approval_conditions: &Option<ApprovalConditions>,
@@ -3661,8 +3653,10 @@ async fn resume_suspended_job_internal(
     // Get flow info - works for step-level, flow-level, and WAC approval
     let (flow_info, is_flow_level, is_wac) = get_flow_info_for_resume(job_id, &db).await?;
 
-    // HMAC secret = full capability. Skip approval_conditions checks.
-    // Authorization rules are enforced by the new resume_suspended endpoint instead.
+    // HMAC secret = full capability. Skip approval_conditions checks: possession of the full
+    // resume URL is the authorization (it is only disclosed to intended approvers, e.g. when a
+    // step returns it). Identity-based rules, including self_approval_disabled, are enforced by
+    // the resume_suspended endpoint instead.
 
     let exists = sqlx::query_scalar!(
         r#"
@@ -4106,6 +4100,24 @@ pub async fn get_suspended_job_flow(
     let view_token = Some(format!("{flow_id}.{hmac}"));
 
     Ok(Json(SuspendedJobFlow { job: flow, approvers, view_token }).into_response())
+}
+
+/// Read the step's approval_conditions from the suspended flow status. For classic flows they
+/// live inside the deserialized `FlowStatus`; for workflow-as-code they are a top-level
+/// `approval_conditions` key in the status JSON.
+fn extract_approval_conditions(
+    flow_status: Option<&serde_json::Value>,
+    is_wac: bool,
+) -> Option<ApprovalConditions> {
+    if is_wac {
+        flow_status
+            .and_then(|v| v.get("approval_conditions"))
+            .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok())
+    } else {
+        flow_status
+            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
+            .and_then(|fs| fs.approval_conditions)
+    }
 }
 
 /// The flow's triggerer may not approve their own suspended step when the step sets
