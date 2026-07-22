@@ -96,6 +96,7 @@ import { searchDocsTool, readDocsPageTool } from '../docs/core'
 import { createDbSchemaTool } from '../script/core'
 import type { ContextElement } from '../context'
 import { getDatatableTools } from '../datatableTools'
+import { getDucklakeTools } from '../ducklakeTools'
 import { fileTools } from '../files/fileTools'
 import type { AttachedFilesStore } from '../files/attachedFiles.svelte'
 import { artifactTools } from '../artifacts/artifactTools'
@@ -3493,6 +3494,8 @@ export const globalTools: Tool<{}>[] = [
 	},
 	// Workspace-scoped datatable tools (unrestricted: no whitelist, no creation policy)
 	...getDatatableTools(),
+	// Workspace DuckLake readiness (storage prerequisite check for pipelines)
+	...getDucklakeTools(),
 	// Read-only tools over files the user attached to the conversation
 	...fileTools,
 	// Search + call access to the backend API endpoint catalog, for operations
