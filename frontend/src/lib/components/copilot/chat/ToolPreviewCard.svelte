@@ -2,6 +2,7 @@
 	import { PanelRight } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
+	import type { IconType } from '$lib/utils'
 	import { runToolDisplayAction } from './createdResourceActions.svelte'
 	import { openItemPreviewAction, type PreviewCardKind } from './shared'
 
@@ -31,7 +32,7 @@
 	disabled={opening}
 	title="Open {kindLabel} preview: {card.path}"
 	onClick={open}
-	startIcon={{ icon: RowIcon, props: { kind: card.kind, size: 12 } }}
+	startIcon={{ icon: RowIcon as unknown as IconType, props: { kind: card.kind, size: 12 } }}
 	endIcon={{ icon: PanelRight }}
 	wrapperClasses="shrink-0"
 >
