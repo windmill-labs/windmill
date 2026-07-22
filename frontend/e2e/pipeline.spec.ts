@@ -26,6 +26,18 @@ async function seedScript(page: Page, path: string, content: string, summary: st
 }
 
 test.describe('Pipeline editor', () => {
+	// Track what the test seeds so afterAll can remove it (keeps the shared dev/CI
+	// instance from accumulating a folder + scripts per run).
+	let seeded: { folder: string; scripts: string[] } | undefined
+
+	test.afterAll(async ({ request }) => {
+		if (!seeded) return
+		for (const path of seeded.scripts) {
+			await request.post(`/api/w/${WORKSPACE}/scripts/delete/p/${path}`).catch(() => {})
+		}
+		await request.delete(`/api/w/${WORKSPACE}/folders/delete/${seeded.folder}`).catch(() => {})
+	})
+
 	test('derives the DAG from annotated pipeline scripts', async ({ page }, testInfo) => {
 		const suffix = uniqueSuffix(testInfo.project.name)
 		const folder = `pipeline_e2e_${suffix}`
@@ -33,6 +45,7 @@ test.describe('Pipeline editor', () => {
 		const daily = `f/${folder}/orders_daily`
 		const ordersTbl = `main/orders_${suffix}`
 		const dailyTbl = `main/orders_daily_${suffix}`
+		seeded = { folder, scripts: [ingest, daily] }
 
 		// Folder may already exist from a prior run; only fail on the seeds.
 		await page.request.post(`/api/w/${WORKSPACE}/folders/create`, { data: { name: folder } })
@@ -73,6 +86,10 @@ test.describe('Pipeline editor', () => {
 
 		// The lineage edges are derived purely from the annotations: the CSV read,
 		// the two materialize outputs, and the downstream `-- on <ducklake>` input.
+		// Two of these resolve asynchronously after the initial graph fetch (the
+		// s3 read is detected from the SQL body at deploy time; the missing-schedule
+		// edge is synthesized client-side by the page's per-script annotation sweep),
+		// so a cold-CI failure here points at that async timing, not a missing edge.
 		const edges = [
 			`Edge from asset:s3object:raw/orders/*.csv to script:${ingest}`,
 			`Edge from script:${ingest} to asset:ducklake:${ordersTbl}`,

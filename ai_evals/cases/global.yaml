@@ -1576,7 +1576,7 @@
     - builds the pipeline as three independent scripts (not a flow) in f/evals/global
     - every node carries the pipeline annotation in its own comment syntax (`-- pipeline` for DuckDB/SQL nodes, not `// pipeline`)
     - step 1 binds a schedule with `-- on schedule` and declares a managed DuckLake output with `-- materialize ducklake://<table>` and a bare SELECT body (no separate trigger config or hand-written CREATE TABLE is expected)
-    - "step 2 is incremental: each run appends only that day's rows to a second DuckLake table (`-- materialize ducklake://<table> append`) rather than rebuilding the whole table every run. Selecting the day via the `-- partitioned daily` + `{partition}` / `wm_partition(...)` idiom is the idiomatic form, but an equivalent current-day filter also satisfies this; a full-refresh/replace of the whole table does not"
+    - "step 2 is incremental: each run adds only that day's rows to a second DuckLake table rather than rebuilding the whole table every run (e.g. an `append` or `key=<col>` merge materialize mode, not a full replace). Selecting the day via the `-- partitioned daily` + `{partition}` / `wm_partition(...)` idiom is the idiomatic form, but an equivalent current-day filter also satisfies this; a full-refresh/replace of the whole table does not"
     - step 2 reads the same DuckLake table step 1 writes (via `-- on ducklake://<that-table>`), wiring it to step 1's output asset
     - step 3 reads the daily rollup table and exports it as a Parquet file to S3
     - does not misuse `-- materialize` for the S3 Parquet export (materialize is DuckLake-only; the S3 output is written by the script body, e.g. a DuckDB COPY or an SDK write)
