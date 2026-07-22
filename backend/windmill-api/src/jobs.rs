@@ -25,7 +25,7 @@ use std::time::Instant;
 use tokio::io::AsyncReadExt;
 use tower::ServiceBuilder;
 use url::Url;
-#[cfg(all(feature = "enterprise", feature = "smtp"))]
+#[cfg(all(feature = "enterprise", feature = "instance_smtp"))]
 use windmill_common::auth::is_super_admin_email;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
 #[cfg(feature = "run_inline")]
@@ -54,7 +54,7 @@ use windmill_common::workspace_dependencies::{
     RawWorkspaceDependencies, MIN_VERSION_WORKSPACE_DEPENDENCIES,
 };
 use windmill_common::DYNAMIC_INPUT_CACHE;
-#[cfg(all(feature = "enterprise", feature = "smtp"))]
+#[cfg(all(feature = "enterprise", feature = "instance_smtp"))]
 use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
 use windmill_object_store::upload_artifact_to_store;
 #[cfg(feature = "run_inline")]
@@ -1692,7 +1692,7 @@ impl<'a> GetQuery<'a> {
     }
 }
 
-#[cfg(all(feature = "smtp", feature = "enterprise"))]
+#[cfg(all(feature = "instance_smtp", feature = "enterprise"))]
 async fn send_workspace_trigger_failure_email_notification(
     db: &DB,
     w_id: &str,
@@ -1855,7 +1855,7 @@ struct SendEmail {
     error: Value,
 }
 
-#[cfg(all(feature = "enterprise", feature = "smtp"))]
+#[cfg(all(feature = "enterprise", feature = "instance_smtp"))]
 async fn send_email_with_instance_smtp(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1913,7 +1913,7 @@ async fn send_email_with_instance_smtp(
     Ok(Json(resp))
 }
 
-#[cfg(not(all(feature = "enterprise", feature = "smtp")))]
+#[cfg(not(all(feature = "enterprise", feature = "instance_smtp")))]
 async fn send_email_with_instance_smtp(
     _authed: ApiAuthed,
     Extension(_db): Extension<DB>,

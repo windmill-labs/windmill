@@ -200,7 +200,12 @@ ce = ["ce_rpi", "jemalloc", "dind", "agent_worker_server"]
 # Edition meta-features: EE variants
 ee = ["ce", "ee_core", "ee_server", "kafka-gssapi"]
 ee_rhel = ["ce_core", "ee_core", "kafka-gssapi", "all_languages"]
-ee_windows = ["ce_core", "ee_core", "all_languages_windows"]
+# The Windows binary is worker-only, but a non-agent worker runs windmill-api on
+# localhost (main.rs run_server, `if !is_agent`) and jobs call back into it, so
+# it needs every feature its own plumbing or its jobs invoke in-process; drop
+# only external/server-facing surface the worker never runs.
+worker_windows_core = ["private", "operator", "parquet", "quickjs", "enterprise", "prometheus", "otel", "jemalloc", "windmill-worker/mcp", "windmill-store/mcp", "windmill-worker/bedrock", "openidconnect", "run_inline", "windmill-api/instance_smtp", "oauth2"]
+ee_windows = ["worker_windows_core", "all_languages_windows"]
 all_sqlx_features = ["all_languages", "enterprise", "enterprise_saml", "embedding", "parquet", "prometheus", "flow_testing",
  "openidconnect", "cloud", "jemalloc", "tantivy", "sqlx", "kafka", "kafka-gssapi", "nats", "otel", "dind", "websocket", "http_trigger",
   "postgres_trigger", "mcp", "mqtt_trigger", "amqp_trigger", "sqs_trigger", "gcp_trigger", "azure_trigger", "smtp", "stripe",
