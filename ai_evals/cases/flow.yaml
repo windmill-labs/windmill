@@ -480,3 +480,44 @@
   judgeChecklist:
     - "the flow includes a final top-level step named `webhook_response`"
     - "`webhook_response` returns `ok: true` and the order summary"
+
+- id: flow-test17-implicit-schedule-intent
+  prompt: |-
+    I want this order processing flow to run on its own every morning at 07:30 UTC.
+    Set that up for me. Do not ask me for the flow path.
+  initial: ai_evals/fixtures/frontend/flow/initial/scheduled_order_flow.json
+  toolExpect:
+    requiredToolsUsed:
+      - create_schedule
+    toolCallArgs:
+      - tool: create_schedule
+        field: path
+        stringStartsWithAnyOf:
+          - f/
+          - u/
+        stringMustNotStartWithAnyOf:
+          - schedules/
+  skipJudge: true
+  judgeChecklist:
+    - "a schedule is created for the flow that runs daily at 07:30 UTC"
+
+- id: flow-test18-implicit-http-trigger-intent
+  prompt: |-
+    I need to be able to kick off this order processing flow by sending it an HTTP POST
+    from an external system, with no authentication. Use route path `ai-evals/order-processing-implicit`.
+    Do not ask me for the flow path.
+  initial: ai_evals/fixtures/frontend/flow/initial/scheduled_order_flow.json
+  toolExpect:
+    requiredToolsUsed:
+      - create_trigger
+    toolCallArgs:
+      - tool: create_trigger
+        field: path
+        stringStartsWithAnyOf:
+          - f/
+          - u/
+        stringMustNotStartWithAnyOf:
+          - schedules/
+  skipJudge: true
+  judgeChecklist:
+    - "an HTTP trigger is created for the flow that accepts unauthenticated POST requests"
