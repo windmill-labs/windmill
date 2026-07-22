@@ -1,5 +1,6 @@
 <script lang="ts">
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
+	import { maskHasDraftRow } from './sessions/modifiedItemsMask'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import WorkspaceDeployItemSummary from './WorkspaceDeployItemSummary.svelte'
 	import DraftBadge from './DraftBadge.svelte'
@@ -117,6 +118,7 @@
 				'nats_trigger',
 				'postgres_trigger',
 				'mqtt_trigger',
+				'amqp_trigger',
 				'sqs_trigger',
 				'gcp_trigger',
 				'azure_trigger',
@@ -315,9 +317,17 @@
 			// Default intent is deploy-all; when reached from a session's Review
 			// (chatMask set), preselect only that chat's items instead.
 			const selectable = visibleItems.filter(isSelectable)
-			selectedItems = (chatMask ? selectable.filter((i) => chatMask.has(i.key)) : selectable).map(
-				(i) => i.key
-			)
+			selectedItems = (
+				chatMask
+					? selectable.filter((i) =>
+							maskHasDraftRow(chatMask, {
+								kind: i.draftKind,
+								path: i.path,
+								draft_path: i.draft_path
+							})
+						)
+					: selectable
+			).map((i) => i.key)
 			hasAutoSelected = true
 		}
 	})
@@ -474,6 +484,7 @@
 		trigger_kafka: '/kafka_triggers',
 		trigger_nats: '/nats_triggers',
 		trigger_mqtt: '/mqtt_triggers',
+		trigger_amqp: '/amqp_triggers',
 		trigger_sqs: '/sqs_triggers',
 		trigger_gcp: '/gcp_triggers',
 		trigger_azure: '/azure_triggers',

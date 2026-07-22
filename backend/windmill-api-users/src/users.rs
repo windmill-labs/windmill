@@ -1751,6 +1751,7 @@ pub async fn delete_workspace_user_internal(
         "kafka_trigger",
         "postgres_trigger",
         "mqtt_trigger",
+        "amqp_trigger",
         "nats_trigger",
         "sqs_trigger",
         "gcp_trigger",

@@ -105,6 +105,7 @@ import XeroIcon from './XeroIcon.svelte'
 import KafkaIcon from './KafkaIcon.svelte'
 import NatsIcon from './NatsIcon.svelte'
 import MqttIcon from './MqttIcon.svelte'
+import AmqpIcon from './AmqpIcon.svelte'
 import ApifyIcon from './ApifyIcon.svelte'
 import McpIcon from './McpIcon.svelte'
 import SageIcon from './SageIcon.svelte'
@@ -335,6 +336,7 @@ export const APP_TO_ICON_COMPONENT = {
 	kafka: KafkaIcon,
 	nats: NatsIcon,
 	mqtt: MqttIcon,
+	amqp: AmqpIcon,
 	apify: ApifyIcon,
 	mcp: McpIcon,
 	zoho: ZohoIcon,
@@ -552,6 +554,7 @@ export {
 	KafkaIcon,
 	NatsIcon,
 	MqttIcon,
+	AmqpIcon,
 	ApifyIcon,
 	McpIcon,
 	ZohoIcon,

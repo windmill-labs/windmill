@@ -3883,6 +3883,18 @@ async fn get_on_behalf_authed_from_app(
     Ok((on_behalf_authed, policy))
 }
 
+/// Which identity a deployed `apps_u/*` S3 read runs as.
+#[cfg(feature = "parquet")]
+enum AppS3ReadIdentity {
+    /// The gate passed: read with the policy's on-behalf identity (the app author in
+    /// author-mode, the viewer in viewer-mode).
+    OnBehalf,
+    /// The gate did not pass but a logged-in, non-embed viewer is present: read with
+    /// the viewer's OWN identity so the downstream S3 permission check self-enforces
+    /// their entitlement (never the author's).
+    AsViewer(ApiAuthed),
+}
+
 #[cfg(feature = "parquet")]
 async fn check_if_allowed_to_access_s3_file_from_app(
     db: &DB,
@@ -3891,7 +3903,7 @@ async fn check_if_allowed_to_access_s3_file_from_app(
     w_id: &str,
     path: &str,
     policy: &Policy,
-) -> Result<()> {
+) -> Result<AppS3ReadIdentity> {
     let is_app_embed = opt_authed.as_ref().is_some_and(|authed| {
         windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref())
     });
@@ -3912,7 +3924,7 @@ async fn check_if_allowed_to_access_s3_file_from_app(
                 &db,
             )
             .await?;
-            return Ok(());
+            return Ok(AppS3ReadIdentity::OnBehalf);
         }
     }
 
@@ -3921,24 +3933,25 @@ async fn check_if_allowed_to_access_s3_file_from_app(
         // get_workspace_s3_resource_and_check_paths already bounds the read by
         // their own perms — no provenance gate (it would over-restrict). Embed
         // tokens are excluded (untrusted app JS stays confined below).
-        Ok(())
-    } else {
-        // Author-mode/embed: confine reads to the app's declared keys or files THIS
-        // app produced, else a viewer could launder the author's S3 perms via an
-        // arbitrary file_key (confused deputy). Provenance is the un-forgeable
-        // app-origination marker (`trigger_kind='app'` + `trigger=<this app>`);
-        // `created_by=<caller>` is ANDed only as a per-viewer isolation filter (it
-        // can narrow — one viewer can't read another's result — never forge).
-        let creator = opt_authed
-            .as_ref()
-            .map(|authed| authed.username.clone())
-            .unwrap_or_else(|| "anonymous".to_string());
-        let allowed = policy.allowed_s3_keys.as_ref().is_some_and(|keys| {
-            keys.iter()
-                .any(|key| key.s3_path == file_query.s3 && key.storage == file_query.storage)
-        }) || {
-            sqlx::query_scalar!(
-                r#"SELECT EXISTS (
+        return Ok(AppS3ReadIdentity::OnBehalf);
+    }
+
+    // Author-mode/embed: confine reads to the app's declared keys or files THIS
+    // app produced, else a viewer could launder the author's S3 perms via an
+    // arbitrary file_key (confused deputy). Provenance is the un-forgeable
+    // app-origination marker (`trigger_kind='app'` + `trigger=<this app>`);
+    // `created_by=<caller>` is ANDed only as a per-viewer isolation filter (it
+    // can narrow — one viewer can't read another's result — never forge).
+    let creator = opt_authed
+        .as_ref()
+        .map(|authed| authed.username.clone())
+        .unwrap_or_else(|| "anonymous".to_string());
+    let allowed = policy.allowed_s3_keys.as_ref().is_some_and(|keys| {
+        keys.iter()
+            .any(|key| key.s3_path == file_query.s3 && key.storage == file_query.storage)
+    }) || {
+        sqlx::query_scalar!(
+            r#"SELECT EXISTS (
                 SELECT 1 FROM v2_job_completed c JOIN v2_job j USING (id)
                 WHERE j.workspace_id = $2
                     AND c.started_at > now() - interval '3 hours'
@@ -3947,21 +3960,45 @@ async fn check_if_allowed_to_access_s3_file_from_app(
                     AND j.trigger = $3
                     AND j.created_by = $4
             )"#,
-                file_query.s3,
-                w_id,
-                path,
-                creator,
-            )
-            .fetch_one(db)
-            .await?
-            .unwrap_or(false)
-        };
+            file_query.s3,
+            w_id,
+            path,
+            creator,
+        )
+        .fetch_one(db)
+        .await?
+        .unwrap_or(false)
+    };
 
-        if !allowed {
-            Err(Error::BadRequest("File restricted".to_string()))
-        } else {
-            Ok(())
+    if allowed {
+        return Ok(AppS3ReadIdentity::OnBehalf);
+    }
+
+    // Gate denied. A viewer whose token is effectively unscoped falls back to reading
+    // as THEMSELVES: the file is still bounded by their own S3 perms downstream, and
+    // such a token can already fetch it via `job_helpers/download_s3_file`, so the
+    // fallback adds zero capability. `is_effectively_unscoped` (the same predicate the
+    // route-scope middleware uses) is what makes that true: a genuinely scope-restricted
+    // token (e.g. `apps:read:<path>`) is allowed on `apps_u/*` but REJECTED on
+    // `job_helpers/*`, so serving it the file here WOULD be a new capability — it stays
+    // gated. `!is_app_embed` keeps that confinement explicit (embed tokens carry the
+    // `app_embed` scope, so they are already scope-restricted). Anonymous callers (no
+    // identity) also have no viewer to fall back to. Only the confused-deputy denial
+    // reaches the message below.
+    match opt_authed.as_ref() {
+        Some(viewer)
+            if !is_app_embed
+                && windmill_api_auth::is_effectively_unscoped(viewer.scopes.as_deref()) =>
+        {
+            Ok(AppS3ReadIdentity::AsViewer(viewer.clone()))
         }
+        _ => Err(Error::BadRequest(format!(
+            "S3 file \"{}\" is not accessible from this app. A deployed app running on \
+             behalf of its author only serves files it generated, files in its declared \
+             allowlist, or presigned files. To expose a pre-existing file, sign it \
+             (signS3Object / sign_s3_object) or set the app's execution mode to \"viewer\".",
+            file_query.s3
+        ))),
     }
 }
 
@@ -4029,7 +4066,7 @@ async fn download_s3_file_from_app(
         get_on_behalf_authed_from_app(&db, &path, &w_id, &opt_authed, force_viewer_allowed_s3_keys)
             .await?;
 
-    check_if_allowed_to_access_s3_file_from_app(
+    let read_authed = match check_if_allowed_to_access_s3_file_from_app(
         &db,
         &opt_authed,
         &query.file_query,
@@ -4037,10 +4074,14 @@ async fn download_s3_file_from_app(
         &path,
         &policy,
     )
-    .await?;
+    .await?
+    {
+        AppS3ReadIdentity::OnBehalf => on_behalf_authed,
+        AppS3ReadIdentity::AsViewer(viewer) => viewer,
+    };
 
     download_s3_file_internal(
-        OptJobAuthed { authed: on_behalf_authed, job_id: None },
+        OptJobAuthed { authed: read_authed, job_id: None },
         &db,
         None,
         &w_id,
@@ -4092,9 +4133,15 @@ async fn app_s3_on_behalf_and_provenance(
     }
     let (on_behalf_authed, policy) =
         get_on_behalf_authed_from_app(db, path, w_id, opt_authed, None).await?;
-    check_if_allowed_to_access_s3_file_from_app(db, opt_authed, file_query, w_id, path, &policy)
-        .await?;
-    Ok(crate::db::OptJobAuthed { authed: on_behalf_authed, job_id: None })
+    let read_authed = match check_if_allowed_to_access_s3_file_from_app(
+        db, opt_authed, file_query, w_id, path, &policy,
+    )
+    .await?
+    {
+        AppS3ReadIdentity::OnBehalf => on_behalf_authed,
+        AppS3ReadIdentity::AsViewer(viewer) => viewer,
+    };
+    Ok(crate::db::OptJobAuthed { authed: read_authed, job_id: None })
 }
 
 // The app-scoped display ops carry the app path in the URL and everything else

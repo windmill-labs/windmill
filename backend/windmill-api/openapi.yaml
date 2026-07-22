@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.764.0
+  version: 1.765.0
   title: Windmill API
 
   contact:
@@ -5629,6 +5629,8 @@ paths:
                     type: boolean
                   mqtt_used:
                     type: boolean
+                  amqp_used:
+                    type: boolean
                   gcp_used:
                     type: boolean
                   azure_used:
@@ -5650,6 +5652,7 @@ paths:
                   - nats_used
                   - postgres_used
                   - mqtt_used
+                  - amqp_used
                   - gcp_used
                   - azure_used
                   - sqs_used
@@ -17457,6 +17460,211 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/amqp_triggers/create:
+    post:
+      summary: create amqp trigger
+      operationId: createAmqpTrigger
+      tags:
+        - amqp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new amqp trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewAmqpTrigger"
+      responses:
+        "201":
+          description: amqp trigger created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/amqp_triggers/update/{path}:
+    post:
+      summary: update amqp trigger
+      operationId: updateAmqpTrigger
+      tags:
+        - amqp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditAmqpTrigger"
+      responses:
+        "200":
+          description: amqp trigger updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/amqp_triggers/delete/{path}:
+    delete:
+      summary: delete amqp trigger
+      operationId: deleteAmqpTrigger
+      tags:
+        - amqp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: amqp trigger deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/amqp_triggers/get/{path}:
+    get:
+      summary: get amqp trigger
+      operationId: getAmqpTrigger
+      tags:
+        - amqp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/GetDraft"
+      responses:
+        "200":
+          description: amqp trigger retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/AmqpTrigger"
+                  - $ref: "#/components/schemas/UserDraftOverlay"
+
+  /w/{workspace}/amqp_triggers/list:
+    get:
+      summary: list amqp triggers
+      operationId: listAmqpTriggers
+      tags:
+        - amqp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+          required: true
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: path
+          description: filter by path
+          in: query
+          schema:
+            type: string
+        - name: is_flow
+          in: query
+          schema:
+            type: boolean
+        - name: path_start
+          in: query
+          schema:
+            type: string
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
+        - $ref: "#/components/parameters/IncludeDraftOnly"
+      responses:
+        "200":
+          description: amqp trigger list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AmqpTrigger"
+
+  /w/{workspace}/amqp_triggers/exists/{path}:
+    get:
+      summary: does amqp trigger exists
+      operationId: existsAmqpTrigger
+      tags:
+        - amqp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: amqp trigger exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/amqp_triggers/setmode/{path}:
+    post:
+      summary: set enabled amqp trigger
+      operationId: setAmqpTriggerMode
+      tags:
+        - amqp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated amqp trigger enable
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mode:
+                  $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
+              required:
+                - mode
+      responses:
+        "200":
+          description: amqp trigger enabled set
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/amqp_triggers/test:
+    post:
+      summary: test amqp connection
+      operationId: testAmqpConnection
+      tags:
+        - amqp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: test amqp connection
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amqp_resource_path:
+                  type: string
+                  description: Path to the AMQP resource containing broker connection configuration
+              required:
+                - amqp_resource_path
+      responses:
+        "200":
+          description: successfully connected to amqp
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/gcp_triggers/create:
     post:
       summary: create gcp trigger
@@ -19966,6 +20174,7 @@ paths:
                 nats_trigger,
                 postgres_trigger,
                 mqtt_trigger,
+                amqp_trigger,
                 gcp_trigger,
                 azure_trigger,
                 sqs_trigger,
@@ -20013,6 +20222,7 @@ paths:
                 nats_trigger,
                 postgres_trigger,
                 mqtt_trigger,
+                amqp_trigger,
                 gcp_trigger,
                 azure_trigger,
                 sqs_trigger,
@@ -20071,6 +20281,7 @@ paths:
                 nats_trigger,
                 postgres_trigger,
                 mqtt_trigger,
+                amqp_trigger,
                 gcp_trigger,
                 azure_trigger,
                 sqs_trigger,
@@ -23229,6 +23440,7 @@ components:
         - trigger_kafka
         - trigger_nats
         - trigger_mqtt
+        - trigger_amqp
         - trigger_sqs
         - trigger_gcp
         - trigger_azure
@@ -26415,6 +26627,7 @@ components:
         - kafka
         - nats
         - mqtt
+        - amqp
         - sqs
         - gcp
         - azure
@@ -26918,6 +27131,8 @@ components:
         nats_count:
           type: number
         mqtt_count:
+          type: number
+        amqp_count:
           type: number
         gcp_count:
           type: number
@@ -27434,6 +27649,183 @@ components:
         - enabled
         - subscribe_topics
         - mqtt_resource_path
+
+    AmqpExchange:
+      type: object
+      properties:
+        exchange_name:
+          type: string
+          description: Name of the exchange to bind the consumed queue to
+        routing_keys:
+          type: array
+          items:
+            type: string
+          description: Routing keys used to bind the queue to the exchange
+      required:
+        - exchange_name
+
+    AmqpOptions:
+      type: object
+      properties:
+        declare_queue:
+          type: boolean
+          description: Declare the queue (durable) before consuming; when false the queue is declared passively and must already exist
+        prefetch_count:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 65535
+          description: Maximum number of unacknowledged messages the broker delivers at once (1-65535)
+
+    AmqpTrigger:
+      allOf:
+        - $ref: "#/components/schemas/TriggerExtraProperty"
+      type: object
+      properties:
+        amqp_resource_path:
+          type: string
+          description: Path to the AMQP resource containing broker connection configuration
+        queue_name:
+          type: string
+          description: Name of the queue to consume messages from
+        exchange:
+          $ref: "#/components/schemas/AmqpExchange"
+          nullable: true
+          description: Optional exchange binding for the consumed queue
+        options:
+          $ref: "#/components/schemas/AmqpOptions"
+          nullable: true
+          description: Optional consumer options (queue declaration, prefetch)
+        server_id:
+          type: string
+          description: ID of the server currently handling this trigger (internal)
+        last_server_ping:
+          type: string
+          format: date-time
+          description: Timestamp of last server heartbeat (internal)
+        error:
+          type: string
+          description: Last error message if the trigger failed
+        error_handler_path:
+          type: string
+          description: Path to a script or flow to run when the triggered job fails
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
+      required:
+        - amqp_resource_path
+        - queue_name
+
+    NewAmqpTrigger:
+      type: object
+      properties:
+        amqp_resource_path:
+          type: string
+          description: Path to the AMQP resource containing broker connection configuration
+        queue_name:
+          type: string
+          description: Name of the queue to consume messages from
+        exchange:
+          nullable: true
+          $ref: "#/components/schemas/AmqpExchange"
+          description: Optional exchange binding for the consumed queue
+        options:
+          nullable: true
+          $ref: "#/components/schemas/AmqpOptions"
+          description: Optional consumer options (queue declaration, prefetch)
+        path:
+          type: string
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`.
+        script_path:
+          type: string
+          description: Path to the script or flow to execute when a message is received
+        is_flow:
+          type: boolean
+          description: True if script_path points to a flow, false if it points to a script
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
+        error_handler_path:
+          type: string
+          description: Path to a script or flow to run when the triggered job fails
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
+        permissioned_as:
+          type: string
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
+      required:
+        - path
+        - script_path
+        - is_flow
+        - amqp_resource_path
+        - queue_name
+
+    EditAmqpTrigger:
+      type: object
+      properties:
+        amqp_resource_path:
+          type: string
+          description: Path to the AMQP resource containing broker connection configuration
+        queue_name:
+          type: string
+          description: Name of the queue to consume messages from
+        exchange:
+          nullable: true
+          $ref: "#/components/schemas/AmqpExchange"
+          description: Optional exchange binding for the consumed queue
+        options:
+          nullable: true
+          $ref: "#/components/schemas/AmqpOptions"
+          description: Optional consumer options (queue declaration, prefetch)
+        path:
+          type: string
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`.
+        script_path:
+          type: string
+          description: Path to the script or flow to execute when a message is received
+        is_flow:
+          type: boolean
+          description: True if script_path points to a flow, false if it points to a script
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
+        error_handler_path:
+          type: string
+          description: Path to a script or flow to run when the triggered job fails
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
+        permissioned_as:
+          type: string
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
+      required:
+        - path
+        - script_path
+        - is_flow
+        - amqp_resource_path
+        - queue_name
 
     DeliveryType:
       type: string
@@ -30393,6 +30785,7 @@ components:
           postgres,
           sqs,
           mqtt,
+          amqp,
           gcp,
           azure,
           email,
@@ -30575,6 +30968,7 @@ components:
               "nats_trigger",
               "postgres_trigger",
               "mqtt_trigger",
+              "amqp_trigger",
               "sqs_trigger",
               "gcp_trigger",
               "azure_trigger",

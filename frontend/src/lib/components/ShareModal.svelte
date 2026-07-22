@@ -42,6 +42,7 @@
 		| 'postgres_trigger'
 		| 'gcp_trigger'
 		| 'azure_trigger'
+		| 'amqp_trigger'
 		| 'email_trigger'
 		| 'volume'
 	let kind: Kind
