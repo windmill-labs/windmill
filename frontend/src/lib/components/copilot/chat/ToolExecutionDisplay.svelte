@@ -9,6 +9,7 @@
 	import { slide } from 'svelte/transition'
 	import ToolContentDisplay from './ToolContentDisplay.svelte'
 	import ToolMessageActions from './ToolMessageActions.svelte'
+	import ToolPreviewCard from './ToolPreviewCard.svelte'
 	import AskUserQuestionDisplay from './AskUserQuestionDisplay.svelte'
 	import WebSearchSourcesDisplay from './WebSearchSourcesDisplay.svelte'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
@@ -83,6 +84,12 @@
 				{/if}
 			</div>
 		</button>
+
+		<!-- Discrete preview card for an item a tool created/updated/opened — shown
+		     inline (not gated on expand) so it stays visible after the tool collapses. -->
+		{#if message.previewCard && !message.isLoading && !message.error && !message.needsConfirmation}
+			<ToolPreviewCard card={message.previewCard} />
+		{/if}
 
 		<!-- Image a tool produced (e.g. take_screenshot) — shown inline, not gated on expand. -->
 		{#if message.imageUrl}
