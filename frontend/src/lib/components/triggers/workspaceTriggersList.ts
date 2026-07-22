@@ -60,6 +60,17 @@ export const TRIGGER_KINDS: Record<
 		 * `mode: 'disabled'` — so it must never be auto-created from an import.
 		 */
 		provisionsOnCreate?: boolean
+		/**
+		 * The kind-specific config fields that cross the workspace boundary
+		 * (export to the Hub AND import from it) — an allowlist, so a field
+		 * added upstream is dropped until someone consciously admits it here,
+		 * instead of leaking to the Hub or being injectable from a crafted
+		 * export. Identity/ownership/runtime fields (path, permissioned_as,
+		 * email, enabled, server_id, provisioned subscription ids, …) must
+		 * never be listed. Non-schedule kinds get the shared behavior fields
+		 * (error handler, retry) appended by `portableTriggerConfig`.
+		 */
+		configFields: string[]
 		list: (
 			workspace: string,
 			onError?: (message: string) => void
@@ -68,6 +79,19 @@ export const TRIGGER_KINDS: Record<
 	}
 > = {
 	http: {
+		configFields: [
+			'route_path',
+			'workspaced_route',
+			'http_method',
+			'authentication_resource_path',
+			'is_async',
+			'request_type',
+			'authentication_method',
+			'is_static_website',
+			'static_asset_config',
+			'wrap_body',
+			'raw_string'
+		],
 		badge: 'HTTP',
 		route: 'routes',
 		note: 'Webhook URL regenerates on import — re-register with the external service.',
@@ -77,6 +101,16 @@ export const TRIGGER_KINDS: Record<
 			HttpTriggerService.createHttpTrigger({ workspace, requestBody })
 	},
 	websocket: {
+		configFields: [
+			'url',
+			'filters',
+			'filter_logic',
+			'initial_messages',
+			'url_runnable_args',
+			'can_return_message',
+			'can_return_error_result',
+			'heartbeat'
+		],
 		badge: 'WebSocket',
 		route: 'websocket_triggers',
 		note: 'Reconnect WebSocket auth after import if external service requires it.',
@@ -85,6 +119,25 @@ export const TRIGGER_KINDS: Record<
 			WebsocketTriggerService.createWebsocketTrigger({ workspace, requestBody })
 	},
 	schedule: {
+		configFields: [
+			'schedule',
+			'timezone',
+			'args',
+			'on_failure',
+			'on_failure_times',
+			'on_failure_exact',
+			'on_failure_extra_args',
+			'on_recovery',
+			'on_recovery_times',
+			'on_recovery_extra_args',
+			'on_success',
+			'on_success_extra_args',
+			'ws_error_handler_muted',
+			'retry',
+			'no_flow_overlap',
+			'cron_version',
+			'dynamic_skip'
+		],
 		badge: 'Schedule',
 		route: 'schedules',
 		// listSchedules returns slim rows (no args, handlers, cron_version, retry,
@@ -108,6 +161,15 @@ export const TRIGGER_KINDS: Record<
 		}
 	},
 	kafka: {
+		configFields: [
+			'kafka_resource_path',
+			'group_id',
+			'topics',
+			'filters',
+			'filter_logic',
+			'auto_offset_reset',
+			'auto_commit'
+		],
 		badge: 'Kafka',
 		route: 'kafka_triggers',
 		note: 'Verify Kafka broker access from the importing instance.',
@@ -118,6 +180,13 @@ export const TRIGGER_KINDS: Record<
 			KafkaTriggerService.createKafkaTrigger({ workspace, requestBody })
 	},
 	nats: {
+		configFields: [
+			'nats_resource_path',
+			'use_jetstream',
+			'stream_name',
+			'consumer_name',
+			'subjects'
+		],
 		badge: 'NATS',
 		route: 'nats_triggers',
 		note: 'Verify NATS connection from the importing instance.',
@@ -128,6 +197,12 @@ export const TRIGGER_KINDS: Record<
 			NatsTriggerService.createNatsTrigger({ workspace, requestBody })
 	},
 	sqs: {
+		configFields: [
+			'queue_url',
+			'aws_auth_resource_type',
+			'aws_resource_path',
+			'message_attributes'
+		],
 		badge: 'SQS',
 		route: 'sqs_triggers',
 		resourceField: 'aws_resource_path',
@@ -137,6 +212,14 @@ export const TRIGGER_KINDS: Record<
 			SqsTriggerService.createSqsTrigger({ workspace, requestBody })
 	},
 	mqtt: {
+		configFields: [
+			'mqtt_resource_path',
+			'subscribe_topics',
+			'client_id',
+			'v3_config',
+			'v5_config',
+			'client_version'
+		],
 		badge: 'MQTT',
 		route: 'mqtt_triggers',
 		resourceField: 'mqtt_resource_path',
@@ -145,6 +228,7 @@ export const TRIGGER_KINDS: Record<
 			MqttTriggerService.createMqttTrigger({ workspace, requestBody })
 	},
 	amqp: {
+		configFields: ['amqp_resource_path', 'queue_name', 'exchange', 'options'],
 		badge: 'AMQP',
 		route: 'amqp_triggers',
 		note: 'Verify AMQP broker access from the importing instance.',
@@ -154,6 +238,7 @@ export const TRIGGER_KINDS: Record<
 			AmqpTriggerService.createAmqpTrigger({ workspace, requestBody })
 	},
 	gcp: {
+		configFields: ['gcp_resource_path', 'topic_id', 'delivery_type', 'subscription_mode'],
 		provisionsOnCreate: true,
 		badge: 'GCP Pub/Sub',
 		route: 'gcp_triggers',
@@ -165,6 +250,13 @@ export const TRIGGER_KINDS: Record<
 			GcpTriggerService.createGcpTrigger({ workspace, requestBody })
 	},
 	azure: {
+		configFields: [
+			'azure_resource_path',
+			'azure_mode',
+			'scope_resource_id',
+			'topic_name',
+			'event_type_filters'
+		],
 		provisionsOnCreate: true,
 		badge: 'Azure',
 		route: 'azure_triggers',
@@ -176,6 +268,12 @@ export const TRIGGER_KINDS: Record<
 			AzureTriggerService.createAzureTrigger({ workspace, requestBody })
 	},
 	postgres: {
+		configFields: [
+			'postgres_resource_path',
+			'replication_slot_name',
+			'publication_name',
+			'publication'
+		],
 		badge: 'Postgres',
 		route: 'postgres_triggers',
 		resourceField: 'postgres_resource_path',
@@ -184,6 +282,7 @@ export const TRIGGER_KINDS: Record<
 			PostgresTriggerService.createPostgresTrigger({ workspace, requestBody })
 	},
 	email: {
+		configFields: ['local_part', 'workspaced_local_part'],
 		badge: 'Email',
 		route: 'email_triggers',
 		note: 'Email address regenerates on import.',
@@ -279,29 +378,31 @@ export async function createWorkspaceTriggerDisabled(
 			`${def.badge} triggers manage cloud subscriptions at creation — fill in the imported resource, then re-create this trigger manually`
 		)
 	}
+	// Remote input: only the allowlisted portable slice may reach the create call.
+	const config = portableTriggerConfig(trigger.kind, trigger.config)
 	if (trigger.kind === 'schedule') {
-		// Spread the exported config first so behavioral settings survive the
+		// Spread the portable config first so behavioral settings survive the
 		// import (cron_version, retry, failure/recovery/success handlers,
 		// no_flow_overlap, …) — restoring only cron+timezone would silently
 		// change the schedule's semantics once re-enabled.
 		return ScheduleService.createSchedule({
 			workspace,
 			requestBody: {
-				...(trigger.config ?? {}),
+				...config,
 				path: trigger.path,
-				schedule: trigger.config?.schedule ?? '0 0 * * * *',
-				timezone: trigger.config?.timezone ?? 'UTC',
+				schedule: (config.schedule as string) ?? '0 0 * * * *',
+				timezone: (config.timezone as string) ?? 'UTC',
 				script_path: trigger.script_path,
 				is_flow: trigger.is_flow,
 				enabled: false,
-				args: trigger.config?.args ?? {},
+				args: (config.args as any) ?? {},
 				summary: trigger.summary ?? null
 			}
 		})
 	}
-	// `config` holds only kind-specific fields; explicit fields win.
+	// `config` holds only allowlisted kind-specific fields; explicit fields win.
 	return def.create!(workspace, {
-		...(trigger.config ?? {}),
+		...config,
 		path: trigger.path,
 		script_path: trigger.script_path,
 		is_flow: trigger.is_flow,
@@ -339,8 +440,22 @@ export function triggerHandlerRefs(
 		if (typeof c?.dynamic_skip === 'string' && c.dynamic_skip !== '') {
 			out.push({ kind: 'script', path: c.dynamic_skip })
 		}
-	} else if (typeof c?.error_handler_path === 'string' && c.error_handler_path !== '') {
-		out.push({ kind: 'script', path: c.error_handler_path })
+	} else {
+		if (typeof c?.error_handler_path === 'string' && c.error_handler_path !== '') {
+			out.push({ kind: 'script', path: c.error_handler_path })
+		}
+		if (t.kind === 'websocket') {
+			// The URL itself can be a runnable ($script:<path> / $flow:<path>), and
+			// initial messages can be runnable results.
+			const um = typeof c?.url === 'string' ? /^\$(script|flow):(.+)$/.exec(c.url) : null
+			if (um) out.push({ kind: um[1] as 'script' | 'flow', path: um[2] })
+			for (const msg of Array.isArray(c?.initial_messages) ? c.initial_messages : []) {
+				const rr = msg?.runnable_result
+				if (rr && typeof rr.path === 'string' && rr.path !== '') {
+					out.push({ kind: rr.is_flow ? 'flow' : 'script', path: rr.path })
+				}
+			}
+		}
 	}
 	return out
 }
@@ -350,31 +465,28 @@ export function triggerHandlerRefs(
 // dropped. Error handlers (error_handler_path/args, schedules' on_* fields)
 // are functional config and stay: their runnables are bundled with the
 // project and the paths relocated.
-const TRIGGER_CONFIG_BLACKLIST = new Set([
-	'path',
-	'script_path',
-	'is_flow',
-	'summary',
-	'description',
-	'workspace_id',
-	'edited_by',
-	'edited_at',
-	'email',
-	'enabled',
-	'is_draft',
-	'paused_until',
-	'extra_perms',
-	'permissioned_as',
-	'permissioned_as_email',
-	'error',
-	'test_runnable_args'
-])
-export function stripTriggerConfig(config: Record<string, unknown>): Record<string, unknown> {
+// Portable behavior fields shared by every non-schedule kind (schedules carry
+// their own handler fields in configFields).
+const COMMON_CONFIG_FIELDS = ['error_handler_path', 'error_handler_args', 'retry']
+
+/**
+ * The portable slice of a trigger config — the ONLY fields that cross the
+ * workspace boundary, in either direction. Applied on export (what reaches
+ * the Hub) and on import (what a Hub export may feed into a create call), so
+ * an upstream field addition can't leak out, and a crafted export can't
+ * inject non-allowlisted fields like `permissioned_as`.
+ */
+export function portableTriggerConfig(
+	kind: string,
+	config: Record<string, unknown> | null | undefined
+): Record<string, unknown> {
+	const def = TRIGGER_KINDS[kind as WorkspaceTriggerKind]
+	if (!def || !config) return {}
+	const fields =
+		kind === 'schedule' ? def.configFields : [...def.configFields, ...COMMON_CONFIG_FIELDS]
 	const out: Record<string, unknown> = {}
-	for (const [k, v] of Object.entries(config)) {
-		if (TRIGGER_CONFIG_BLACKLIST.has(k)) continue
-		if (k.startsWith('last_') || k.startsWith('captured_')) continue
-		out[k] = v
+	for (const f of fields) {
+		if (config[f] !== undefined) out[f] = config[f]
 	}
 	return out
 }

@@ -197,6 +197,10 @@ export function rewriteTriggerConfig(config: any, map: Map<string, string>): any
 		if (direct) return direct
 		const handler = /^(script|flow)\/(.+)$/.exec(config)
 		if (handler && map.has(handler[2])) return `${handler[1]}/${map.get(handler[2])}`
+		// Websocket URLs can be runnables: $script:<path> / $flow:<path>.
+		const urlRunnable = /^\$(script|flow):(.+)$/.exec(config)
+		if (urlRunnable && map.has(urlRunnable[2]))
+			return `$${urlRunnable[1]}:${map.get(urlRunnable[2])}`
 		return rewriteContent(config, map)
 	}
 	if (Array.isArray(config)) return config.map((v) => rewriteTriggerConfig(v, map))

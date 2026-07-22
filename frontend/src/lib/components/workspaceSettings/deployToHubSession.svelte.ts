@@ -40,7 +40,7 @@ import {
 	listAllWorkspaceTriggers,
 	triggerResourcePath,
 	triggerHandlerRefs,
-	stripTriggerConfig,
+	portableTriggerConfig,
 	type WorkspaceTrigger,
 	type WorkspaceTriggerKind
 } from '../triggers/workspaceTriggersList'
@@ -312,7 +312,7 @@ export class DeployToHubSession {
 		// its kind resource field or any `$res:` token in its config.
 		const stubByOriginal = new Map(b.resourceStubs.map((s) => [s.originalPath, s]))
 		for (const t of this.relevantTriggers) {
-			const refs = new Set(extractTriggerConfigResourceRefs(stripTriggerConfig(t.config)))
+			const refs = new Set(extractTriggerConfigResourceRefs(portableTriggerConfig(t.kind, t.config)))
 			const rp = triggerResourcePath(t)
 			if (rp) refs.add(rp)
 			for (const ref of refs) {
@@ -894,7 +894,7 @@ export class DeployToHubSession {
 		for (const t of triggers) {
 			const rp = triggerResourcePath(t)
 			if (rp) out.add(rp)
-			for (const p of extractTriggerConfigResourceRefs(stripTriggerConfig(t.config))) {
+			for (const p of extractTriggerConfigResourceRefs(portableTriggerConfig(t.kind, t.config))) {
 				out.add(p)
 			}
 		}
@@ -923,7 +923,7 @@ export class DeployToHubSession {
 			}
 			// Full-config remap: resource paths, error-handler paths and schedule
 			// on_* handler refs all relocate through the bundle's path map.
-			const config = rewriteTriggerConfig(stripTriggerConfig(t.config), resourcePathMap)
+			const config = rewriteTriggerConfig(portableTriggerConfig(t.kind, t.config), resourcePathMap)
 			triggers.push({
 				path: pathMap.get(t.path) ?? t.path,
 				kind: t.kind,
