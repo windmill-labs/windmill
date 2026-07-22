@@ -1739,3 +1739,44 @@
     - creates an AI draft for the existing f/evals/global/format_greeting script with the exclamation-mark change
     - the draft changes only the returned message's punctuation — summary, language, path, and the rest of the code are untouched
     - does not deploy or save the draft to the workspace
+
+- id: global-resource-manual-credentials
+  prompt: |-
+    Set up a resource for our production Postgres database at `f/evals/global/prod_db` (host db.internal.example.com, port 5432, database `orders`, user `app`).
+    I don't want to paste the password into this chat — prepare everything so I can enter it myself.
+    Leave it as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 12
+  validate:
+    draftCountAtLeast: 1
+    requiredDrafts:
+      - type: resource
+        path: f/evals/global/prod_db
+        valueIncludes:
+          - db.internal.example.com
+          - orders
+  toolExpect:
+    requiredToolsUsed:
+      - write_resource
+      - open_page
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      # The model may land the user in the resource's drawer or in the drawer of
+      # the secret variable it created for the password — both are correct.
+      - tool: open_page
+        field: page
+        stringIncludesAnyOf:
+          - resources
+          - variables
+      - tool: open_page
+        field: open
+        stringIncludesAnyOf:
+          - prod_db
+          - password
+  judgeChecklist:
+    - creates a postgres resource draft at f/evals/global/prod_db with the provided host, port, database, and user
+    - the password is left for the user to provide (empty, a placeholder, or a secret variable reference) — no invented password value presented as real
+    - does not deploy or save anything to the workspace
