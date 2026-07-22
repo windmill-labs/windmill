@@ -445,7 +445,10 @@ export class DeployToHubSession {
 		this.triggersLoading = true
 		try {
 			const triggers = await listAllWorkspaceTriggers(this.workspace, {
-				includeEeOnly: this.#deps.hasEeLicense()
+				includeEeOnly: this.#deps.hasEeLicense(),
+				onError: (message) => {
+					if (!this.#disposed) sendUserToast(message, true)
+				}
 			})
 			if (this.#disposed || tok !== this.#triggerLoadTok) return
 			this.workspaceTriggers = triggers
@@ -703,9 +706,14 @@ export class DeployToHubSession {
 		const tok = ++this.#migrationsTok
 		this.migrationsGenerating = true
 		try {
-			const seed: ItemRef[] = this.selectedItems
-				.filter((i) => i.kind !== 'resource')
-				.map((i) => ({ kind: i.kind as ItemRef['kind'], path: i.path }))
+			// Same handler-augmented seed as deployAll: a data table used only by a
+			// bundled trigger handler must still get its migration.
+			const seed: ItemRef[] = [
+				...this.selectedItems
+					.filter((i) => i.kind !== 'resource')
+					.map((i) => ({ kind: i.kind as ItemRef['kind'], path: i.path })),
+				...this.#triggerHandlerSeed(this.relevantTriggers, this.hubSlug || 'project')
+			]
 			// Detection is independent of the final slug (data table refs aren't
 			// relocated), so any placeholder slug works for this throwaway bundle.
 			const bundle = await buildProjectBundle(

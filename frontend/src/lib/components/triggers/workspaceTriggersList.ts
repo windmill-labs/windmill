@@ -54,7 +54,10 @@ export const TRIGGER_KINDS: Record<
 		note?: string
 		resourceField?: string
 		eeOnly?: boolean
-		list: (workspace: string) => Promise<Array<Record<string, any>>>
+		list: (
+			workspace: string,
+			onError?: (message: string) => void
+		) => Promise<Array<Record<string, any>>>
 		create?: (workspace: string, requestBody: any) => Promise<unknown>
 	}
 > = {
@@ -80,12 +83,22 @@ export const TRIGGER_KINDS: Record<
 		route: 'schedules',
 		// listSchedules returns slim rows (no args, handlers, cron_version, retry,
 		// no_flow_overlap) — resolve each to the full schedule so exported configs
-		// are complete; fall back to the slim row if a get fails.
-		list: async (workspace) => {
+		// are complete. A schedule whose detail fetch fails is excluded and
+		// reported: exporting the slim row would silently publish a schedule with
+		// default behavior instead of its real settings.
+		list: async (workspace, onError) => {
 			const rows = await ScheduleService.listSchedules({ workspace })
-			return Promise.all(
-				rows.map((r) => ScheduleService.getSchedule({ workspace, path: r.path }).catch(() => r))
+			const full = await Promise.all(
+				rows.map((r) =>
+					ScheduleService.getSchedule({ workspace, path: r.path }).catch((e: any) => {
+						onError?.(
+							`Failed to load schedule ${r.path} (${e?.message ?? e}) — excluded from the project`
+						)
+						return undefined
+					})
+				)
 			)
+			return full.filter((r): r is NonNullable<typeof r> => r !== undefined)
 		}
 	},
 	kafka: {
@@ -177,11 +190,13 @@ export const WORKSPACE_TRIGGER_KINDS = Object.keys(TRIGGER_KINDS) as WorkspaceTr
 /**
  * List every trigger of every kind in the workspace, normalized. EE-only kinds
  * are skipped without a license (their endpoints 404 on CE and would flood the
- * console); a kind whose call fails yields no rows rather than failing the load.
+ * console); a kind whose call fails yields no rows rather than failing the
+ * load. Rows a kind excludes because their detail couldn't be resolved are
+ * reported through `opts.onError`.
  */
 export async function listAllWorkspaceTriggers(
 	workspace: string,
-	opts: { includeEeOnly: boolean }
+	opts: { includeEeOnly: boolean; onError?: (message: string) => void }
 ): Promise<WorkspaceTrigger[]> {
 	const perKind = await Promise.all(
 		WORKSPACE_TRIGGER_KINDS.map(async (kind) => {
@@ -189,7 +204,7 @@ export async function listAllWorkspaceTriggers(
 			if (def.eeOnly && !opts.includeEeOnly) return []
 			let rows: Array<Record<string, any>>
 			try {
-				rows = await def.list(workspace)
+				rows = await def.list(workspace, opts.onError)
 			} catch {
 				return []
 			}
@@ -272,7 +287,9 @@ export function triggerResourcePath(t: WorkspaceTrigger): string | undefined {
  * Runnables a trigger's config references beyond its primary target, so they
  * can be bundled alongside it: `error_handler_path` (bare script path) for
  * non-schedule kinds, and schedules' `on_failure`/`on_recovery`/`on_success`
- * (`script/<path>` or `flow/<path>`).
+ * (`script/<path>` or `flow/<path>`) plus `dynamic_skip` (bare script path —
+ * schedule creation refuses a dynamic_skip whose script doesn't exist, so an
+ * unbundled one would make the import fail).
  */
 export function triggerHandlerRefs(
 	t: WorkspaceTrigger
@@ -284,6 +301,9 @@ export function triggerHandlerRefs(
 			const v = c?.[field]
 			const m = typeof v === 'string' ? /^(script|flow)\/(.+)$/.exec(v) : null
 			if (m) out.push({ kind: m[1] as 'script' | 'flow', path: m[2] })
+		}
+		if (typeof c?.dynamic_skip === 'string' && c.dynamic_skip !== '') {
+			out.push({ kind: 'script', path: c.dynamic_skip })
 		}
 	} else if (typeof c?.error_handler_path === 'string' && c.error_handler_path !== '') {
 		out.push({ kind: 'script', path: c.error_handler_path })
@@ -305,7 +325,10 @@ const TRIGGER_CONFIG_BLACKLIST = new Set([
 	'workspace_id',
 	'edited_by',
 	'edited_at',
+	'email',
 	'enabled',
+	'is_draft',
+	'paused_until',
 	'extra_perms',
 	'permissioned_as',
 	'permissioned_as_email',
