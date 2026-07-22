@@ -3260,18 +3260,7 @@ export const globalTools: Tool<{}>[] = [
 		),
 		fn: async (ctx) => {
 			const parsed = openPreviewSchema.parse(ctx.args)
-			const sessionId = sessionIdFromCtx(ctx)
-			const { opened, message } = openSessionPreview(parsed, sessionId)
-			// Surface the same discrete card the write tools show, so the user can
-			// re-open/focus the preview later from the tool call. Only when the tool
-			// actually opened the preview (not for a refused open, e.g. a gated
-			// pipeline), and only in a session.
-			if (sessionId && opened) {
-				ctx.toolCallbacks.setToolStatus(ctx.toolId, {
-					previewCard: { kind: parsed.kind, path: parsed.path }
-				})
-			}
-			return message
+			return openSessionPreview(parsed, sessionIdFromCtx(ctx))
 		}
 	},
 	{
@@ -3485,6 +3474,9 @@ type WriteDraftCtx = {
 	// reloads the preview of the session that issued the deploy — not the
 	// UI-active one. Undefined for the global side-panel chat.
 	sessionId?: string
+	// Present when the ctx is the raw tool `fn` context — session chats carry
+	// their id here (see SessionToolHelpers / sessionIdFromCtx).
+	helpers?: unknown
 }
 
 // Sessions are the only context where `open_preview` makes sense — the global
@@ -3560,25 +3552,18 @@ export function setOpenPreviewHandler(handler: OpenPreviewHandler | undefined): 
 	openPreviewHandler = handler
 }
 
-// `opened` distinguishes a real open (the caller may then offer a preview card)
-// from a refusal that is returned as a message rather than thrown — so the card is
-// never shown for an item the tool declined to preview (e.g. a gated pipeline).
 function openSessionPreview(
 	args: { kind: 'script' | 'flow' | 'raw_app' | 'pipeline'; path: string },
 	sessionId: string | undefined
-): { opened: boolean; message: string } {
+): string {
 	if (!openPreviewHandler) {
-		return {
-			opened: false,
-			message:
-				'Error: open_preview is only available inside an AI session. Tell the user to switch to a session to view the preview, or describe the item textually.'
-		}
+		return 'Error: open_preview is only available inside an AI session. Tell the user to switch to a session to view the preview, or describe the item textually.'
 	}
 	// open_preview only exists in sessions, so no sessionId check is needed here.
 	if (args.kind === 'pipeline' && !isSessionPipelinesEnabled()) {
-		return { opened: false, message: SESSION_PIPELINES_GATED_MESSAGE }
+		return SESSION_PIPELINES_GATED_MESSAGE
 	}
-	return { opened: true, message: openPreviewHandler({ ...args, sessionId }) }
+	return openPreviewHandler({ ...args, sessionId })
 }
 
 // Opens a workspace *page* (Runs, Schedules, …) as a page tab in the session's
@@ -3943,15 +3928,17 @@ const PREVIEW_CARD_KIND_BY_ITEM_KIND: Partial<
 }
 
 // Offer a preview card for a write that landed a previewable item. Session chats
-// only (`ctx.sessionId`): the card opens the item in the side panel, which the
-// global side-panel chat has no equivalent of. `path` is the item's display path
-// (what `open_preview` takes), not its synthetic draft storage key.
+// only: the card opens the item in the side panel, which the global side-panel
+// chat has no equivalent of. `path` is the item's display path (what
+// `open_preview` takes), not its synthetic draft storage key.
 function maybeAttachPreviewCard(
 	ctx: WriteDraftCtx,
 	itemKind: DraftPersistResult['itemKind'],
 	path: string
 ): void {
-	if (!ctx.sessionId) return
+	// Write tools pass the raw tool ctx, whose session id lives in `helpers` —
+	// `ctx.sessionId` is only set by callers that thread it explicitly.
+	if (!ctx.sessionId && !sessionIdFromCtx(ctx)) return
 	const kind = PREVIEW_CARD_KIND_BY_ITEM_KIND[itemKind]
 	if (!kind) return
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, { previewCard: { kind, path } })
