@@ -10009,6 +10009,8 @@ const FEATURE_USAGE_KINDS: &[(&str, &str)] = &[
     ("ai_session", "deployed"),
     ("ai_session", "archived"),
     ("ai_session", "deleted"),
+    ("ai_session", "beta_optout"),
+    ("ai_session", "beta_optin"),
     ("ai_chat", "message"),
     ("ai_chat", "model"),
     ("ai_chat", "tool"),
