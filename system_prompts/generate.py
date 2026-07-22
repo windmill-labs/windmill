@@ -832,6 +832,7 @@ WORKSPACE_TOOL_ZOD_SCHEMAS = [
     ('NewSqsTrigger', 'sqsTriggerRequestSchema'),
     ('GcpTriggerData', 'gcpTriggerRequestSchema'),
     ('AzureTriggerData', 'azureTriggerRequestSchema'),
+    ('NewEmailTrigger', 'emailTriggerRequestSchema'),
     ('CreateVariable', 'variableRequestSchema'),
     ('CreateResource', 'resourceRequestSchema'),
 ]
@@ -847,6 +848,7 @@ WORKSPACE_TOOL_TRIGGER_SCHEMAS = [
     ('sqs', 'sqsTriggerRequestSchema'),
     ('gcp', 'gcpTriggerRequestSchema'),
     ('azure', 'azureTriggerRequestSchema'),
+    ('email', 'emailTriggerRequestSchema'),
 ]
 
 WORKSPACE_TOOL_ZOD_OUTPUT_PATH = (
