@@ -445,6 +445,10 @@ const writeFlowSchema = z.object({
 	override: draftOverrideField
 })
 
+// modules/preprocessor_module/failure_module can carry rawscript `content`, whose
+// quotes and newlines are the usual reason the JSON string fails to parse.
+const FLOW_CODE_BEARING_FIELDS = new Set(['modules', 'preprocessor_module', 'failure_module'])
+
 function parseOptionalJsonArg(value: unknown, field: string): unknown {
 	if (value === undefined || value === null) {
 		return value
@@ -454,8 +458,37 @@ function parseOptionalJsonArg(value: unknown, field: string): unknown {
 		return typeof value === 'string' ? JSON.parse(value) : value
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error)
-		throw new Error(`Invalid JSON for ${field}: ${message}`)
+		const hint = FLOW_CODE_BEARING_FIELDS.has(field)
+			? ' A rawscript "content" string with multi-line code or quotes is the usual cause. Instead of inlining large code, create the rawscript module with empty content ("") and fill its body with set_flow_module_code afterwards.'
+			: ''
+		throw new Error(`Invalid JSON for ${field}: ${message}${hint}`)
 	}
+}
+
+/**
+ * Rawscript bodies are fragile to embed inside the `modules` JSON string: the
+ * code's quotes and newlines have to survive three levels of escaping (tool-call
+ * arguments -> modules string -> content string) and the model routinely mangles
+ * them. When a rawscript module is left with empty or placeholder content, steer
+ * the model to fill the body out-of-band with `set_flow_module_code` instead of
+ * re-sending the whole flow.
+ */
+function formatEmptyInlineScriptWarning(editable: EditableFlowJson): string {
+	const value: FlowValue = {
+		modules: editable.modules,
+		preprocessor_module: editable.preprocessor_module ?? undefined,
+		failure_module: editable.failure_module ?? undefined
+	}
+	const session = createInlineScriptSession()
+	buildEditableFlowJson({ value, schema: editable.schema }, session)
+	const emptyIds = Object.entries(session.getAll())
+		.filter(([, content]) => content.trim() === '' || /^inline_script\./.test(content))
+		.map(([id]) => id)
+	if (emptyIds.length === 0) {
+		return ''
+	}
+	const list = emptyIds.map((id) => `"${id}"`).join(', ')
+	return `\n\nWarning: inline scripts ${list} have no code yet. Fill each one with set_flow_module_code(path, module_id, code) — do not re-send the whole flow.`
 }
 
 function editableFlowToDraftValue(editable: EditableFlowJson): FlowDraftValue {
@@ -1892,7 +1925,9 @@ function getFlowInstructions(): string {
   - \`read_flow_module_code(path, module_id)\` — returns the raw inline script content for one module.
   - \`set_flow_module_code(path, module_id, code)\` — overwrites that module's inline script content; saves to the draft.
 - Use \`patch_flow_json\` for *structural* edits: module ids, paths, input_transforms, branch arrangement, summaries, preprocessor/failure swaps, schema/groups/notes. Use \`set_flow_module_code\` for changes inside a specific rawscript body.
-- \`write_flow\` is for full overwrites / create-from-scratch. Its \`modules\`, \`preprocessor_module\`, and \`failure_module\` arguments use **non-compact** flow modules (rawscript content is the actual code, not a placeholder).
+- \`write_flow\` is for full overwrites / create-from-scratch. Its \`modules\`, \`preprocessor_module\`, and \`failure_module\` arguments are **non-compact** flow modules, but you do NOT have to inline the actual rawscript code:
+  - For a short one-liner body, inline it directly in \`content\`.
+  - For multi-line code, or any body containing quotes, create the rawscript module with **empty content** (\`"content": ""\`) and fill each body afterwards with \`set_flow_module_code(path, module_id, code)\`. Embedding large code in the \`modules\` JSON string forces triple-nested escaping and frequently corrupts the JSON — keep code out of the flow structure. \`write_flow\` reports which modules still have empty bodies so you know what to fill.
 
 # Windmill flow authoring reference
 
@@ -2792,7 +2827,7 @@ export const globalTools: Tool<{}>[] = [
 				groups: parseOptionalJsonArg(parsed.groups, 'groups'),
 				notes: parseOptionalJsonArg(parsed.notes, 'notes')
 			})
-			return writeFlowDraft(
+			const message = await writeFlowDraft(
 				{
 					path: parsed.path,
 					summary: parsed.summary,
@@ -2801,6 +2836,7 @@ export const globalTools: Tool<{}>[] = [
 				},
 				ctx
 			)
+			return message + formatEmptyInlineScriptWarning(editable)
 		}
 	},
 	{
