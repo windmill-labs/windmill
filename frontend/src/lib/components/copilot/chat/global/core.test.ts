@@ -3740,8 +3740,7 @@ describe('session pipeline surface (alpha)', () => {
 		const inSession = await callGlobalTool('get_instructions', { subject: 'pipeline' }, undefined, {
 			sessionId: 'session-1'
 		})
-		// Positively assert the actual authoring guidance came back, not just that
-		// the old gate refusal is gone.
+		// Assert the real authoring guidance is returned, not merely a non-error.
 		expect(inSession).toContain('Data pipeline authoring')
 	})
 
