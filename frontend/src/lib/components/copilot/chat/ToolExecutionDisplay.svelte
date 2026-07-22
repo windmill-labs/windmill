@@ -97,7 +97,7 @@
 			</button>
 		{/snippet}
 
-		<!-- Discrete preview chip for an item a tool created/updated/opened, pinned to
+		<!-- Discrete preview chip for an item a tool created/updated, pinned to
 		     the right of the header row. Rendered inline (not gated on expand) so it
 		     stays visible after the tool collapses. -->
 		{#if showPreviewChip && message.previewCard}

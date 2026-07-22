@@ -463,7 +463,7 @@
 		}
 	})
 
-	// Preview cards under create/update/open-preview tool calls dispatch here. Open
+	// Preview cards on create/update tool calls dispatch here. Open
 	// (or focus, if already shown) the item's preview in the active session's panel —
 	// the visible chat is always the active session, so `owner` is its panel. Read
 	// `owner` lazily inside the handler (not in the effect body) so this registers

@@ -515,14 +515,14 @@ export type NavigateAction = {
 	page: string
 }
 
-/** Kinds of item a session preview can host — the subset the `open_preview` tool
- * accepts. `pipeline` targets a folder graph, the rest a workspace item path. */
-export type PreviewCardKind = 'script' | 'flow' | 'raw_app' | 'pipeline'
+/** Kinds of previewable item a write tool can land — the subset of draft item
+ * kinds a session preview can host. */
+export type PreviewCardKind = 'script' | 'flow' | 'raw_app'
 
-// A discrete card shown under a tool call that created/updated/opened the preview of
-// a workspace item. Clicking it opens the item's live preview in the session side
-// panel — or focuses the tab if it is already open. The handler is registered by the
-// sessions page (the only surface with a preview panel).
+// A discrete card shown on a tool call that created or updated a workspace item.
+// Clicking it opens the item's live preview in the session side panel — or focuses
+// the tab if it is already open. The handler is registered by the sessions page
+// (the only surface with a preview panel).
 export type OpenItemPreviewAction = {
 	id: string
 	type: 'open_item_preview'
@@ -586,8 +586,8 @@ export type ToolDisplayMessage = {
 	webSearchSources?: WebSearchSource[]
 	/** Data URL of an image the tool produced (e.g. take_screenshot), shown on the card. */
 	imageUrl?: string
-	/** Workspace item this tool created/updated or opened a preview of. Rendered as a
-	 * discrete, always-visible card that opens (or focuses) the item's preview in the
+	/** Workspace item this tool created or updated. Rendered as a discrete,
+	 * always-visible card that opens (or focuses) the item's preview in the
 	 * session side panel. Set only for session chats — the side panel is their surface. */
 	previewCard?: { kind: PreviewCardKind; path: string }
 }
