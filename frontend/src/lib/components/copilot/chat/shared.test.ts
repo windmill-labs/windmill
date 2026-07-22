@@ -669,6 +669,8 @@ describe('processToolCall', () => {
 			workspace: 'test-workspace',
 			requestBody: expect.objectContaining({
 				local_part: 'orders',
+				// defaulted before the request is sent; the backend column is NOT NULL
+				workspaced_local_part: false,
 				script_path: 'f/flows/current',
 				is_flow: true
 			})

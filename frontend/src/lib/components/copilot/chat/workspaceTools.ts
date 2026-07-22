@@ -387,6 +387,10 @@ const createTriggerTool: Tool<any> = {
 
 			let emailDomain: string | undefined
 			if (parsedArgs.kind === 'email') {
+				// `workspaced_local_part` maps to a NOT NULL column; the model may omit it,
+				// so default it here before the request is sent, not just when formatting the address.
+				const emailBody = requestBody as NewEmailTrigger
+				emailBody.workspaced_local_part = emailBody.workspaced_local_part ?? false
 				const availability = await resolveEmailTriggerAvailability()
 				if (!availability.available) {
 					toolCallbacks.setToolStatus(toolId, {

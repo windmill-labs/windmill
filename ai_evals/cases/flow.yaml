@@ -497,6 +497,14 @@
           - u/
         stringMustNotStartWithAnyOf:
           - schedules/
+      - tool: create_schedule
+        field: schedule
+        stringIncludesAnyOf:
+          - 30 7
+      - tool: create_schedule
+        field: timezone
+        stringIncludesAnyOf:
+          - UTC
   skipJudge: true
   judgeChecklist:
     - "a schedule is created for the flow that runs daily at 07:30 UTC"
@@ -518,6 +526,22 @@
           - u/
         stringMustNotStartWithAnyOf:
           - schedules/
+      - tool: create_trigger
+        field: kind
+        stringStartsWithAnyOf:
+          - http
+      - tool: create_trigger
+        field: config.http_method
+        stringIncludesAnyOf:
+          - post
+      - tool: create_trigger
+        field: config.authentication_method
+        stringIncludesAnyOf:
+          - none
+      - tool: create_trigger
+        field: config.route_path
+        stringIncludesAnyOf:
+          - ai-evals/order-processing-implicit
   skipJudge: true
   judgeChecklist:
     - "an HTTP trigger is created for the flow that accepts unauthenticated POST requests"
