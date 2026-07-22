@@ -32492,16 +32492,20 @@ components:
           type: string
         summary:
           type: string
+          nullable: true
         description:
           type: string
+          nullable: true
         config:
           type: object
         script_ask_id:
           type: integer
           format: int64
+          nullable: true
         flow_id:
           type: integer
           format: int64
+          nullable: true
       required:
         - path
         - kind

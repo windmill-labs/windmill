@@ -20,6 +20,7 @@ import {
 	extractScriptRefs,
 	extractFlowRefs,
 	extractAppRefs,
+	extractTriggerConfigResourceRefs,
 	rewriteTriggerConfig,
 	type BundleDeps,
 	type BundledItem,
@@ -307,18 +308,23 @@ export class DeployToHubSession {
 				ensure(t).usages.push({ role: 'input', label, kind: it.kind, itemPath: it.path })
 			}
 		}
-		// Resources referenced only by a trigger (no item uses them in code).
+		// Resources referenced only by a trigger (no item uses them in code) —
+		// its kind resource field or any `$res:` token in its config.
 		const stubByOriginal = new Map(b.resourceStubs.map((s) => [s.originalPath, s]))
 		for (const t of this.relevantTriggers) {
+			const refs = new Set(extractTriggerConfigResourceRefs(stripTriggerConfig(t.config)))
 			const rp = triggerResourcePath(t)
-			const stub = rp ? stubByOriginal.get(rp) : undefined
-			if (!stub || HIDDEN_RESOURCE_TYPES.has(stub.resource_type)) continue
-			ensure(stub.resource_type).usages.push({
-				role: 'trigger',
-				label: t.summary?.trim() || t.path,
-				triggerKind: t.kind,
-				path: stub.originalPath
-			})
+			if (rp) refs.add(rp)
+			for (const ref of refs) {
+				const stub = stubByOriginal.get(ref)
+				if (!stub || HIDDEN_RESOURCE_TYPES.has(stub.resource_type)) continue
+				ensure(stub.resource_type).usages.push({
+					role: 'trigger',
+					label: t.summary?.trim() || t.path,
+					triggerKind: t.kind,
+					path: stub.originalPath
+				})
+			}
 		}
 		return [...byType.values()].sort((a, b) => a.resource_type.localeCompare(b.resource_type))
 	})
@@ -548,9 +554,7 @@ export class DeployToHubSession {
 				.map((i) => ({ kind: i.kind as ItemRef['kind'], path: i.path })),
 			...this.#triggerHandlerSeed(this.relevantTriggers, slug)
 		]
-		const triggerResources = this.relevantTriggers
-			.map(triggerResourcePath)
-			.filter((p): p is string => !!p)
+		const triggerResources = this.#triggerResourcePaths(this.relevantTriggers)
 		let cancelled = false
 		const timer = setTimeout(() => {
 			buildProjectBundle(seed, slug, this.#cachedBundleDeps(), triggerResources)
@@ -882,6 +886,21 @@ export class DeployToHubSession {
 		return triggers.flatMap(triggerHandlerRefs).filter((r) => classifyPath(r.path, slug) !== 'hub')
 	}
 
+	// Every resource a trigger's exported config references: the kind-specific
+	// broker/auth field plus any `$res:` token nested in it (schedule args,
+	// handler extra args, …) — all must enter the bundle path map.
+	#triggerResourcePaths(triggers: WorkspaceTrigger[]): string[] {
+		const out = new Set<string>()
+		for (const t of triggers) {
+			const rp = triggerResourcePath(t)
+			if (rp) out.add(rp)
+			for (const p of extractTriggerConfigResourceRefs(stripTriggerConfig(t.config))) {
+				out.add(p)
+			}
+		}
+		return [...out]
+	}
+
 	async #pushTriggers(
 		slug: string,
 		resourcePathMap: Map<string, string>,
@@ -973,9 +992,7 @@ export class DeployToHubSession {
 					.map((i) => ({ kind: i.kind as ItemRef['kind'], path: i.path })),
 				...this.#triggerHandlerSeed(triggersSnapshot, slug)
 			]
-			const triggerResources = triggersSnapshot
-				.map(triggerResourcePath)
-				.filter((p): p is string => !!p)
+			const triggerResources = this.#triggerResourcePaths(triggersSnapshot)
 			const bundle = await buildProjectBundle(seed, slug, this.#buildBundleDeps(), triggerResources)
 			// Full path map (incl. unresolved) so a trigger's resource path is always
 			// relocated — never leaks the publisher's original private path to the Hub.

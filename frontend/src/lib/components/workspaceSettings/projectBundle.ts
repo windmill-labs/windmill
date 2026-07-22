@@ -163,6 +163,16 @@ export function rewriteContent(content: string, map: Map<string, string>): strin
  * or a `script/<path>`/`flow/<path>` handler reference (schedules' on_failure
  * et al.), falling back to `$res:` token rewriting for embedded refs.
  */
+/**
+ * `$res:`/`res://` tokens anywhere in a trigger config — schedule args,
+ * on_*_extra_args, error_handler_args, … (e.g. the built-in Slack handler
+ * stores its channel resource this way). These must enter the bundle path map
+ * so `rewriteTriggerConfig` relocates them and a stub is exported.
+ */
+export function extractTriggerConfigResourceRefs(config: any): string[] {
+	return extractScriptRefs(JSON.stringify(config ?? {})).map((r) => r.path)
+}
+
 export function rewriteTriggerConfig(config: any, map: Map<string, string>): any {
 	if (typeof config === 'string') {
 		const direct = map.get(config)

@@ -13,6 +13,7 @@ import {
 	rewriteRawAppContent,
 	buildProjectBundle,
 	retargetProjectExport,
+	extractTriggerConfigResourceRefs,
 	type ProjectExport,
 	type FetchedItem,
 	type ItemRef
@@ -566,5 +567,18 @@ describe('trigger handler relocation', () => {
 		const out = retargetProjectExport(bundle, 'proj', 'dest')
 		expect(out.triggers[0].config.on_failure).toBe('script/f/dest/handler')
 		expect(out.triggers[1].config.error_handler_path).toBe('f/dest/handler')
+	})
+})
+
+describe('extractTriggerConfigResourceRefs', () => {
+	it('collects $res: tokens nested anywhere in a trigger config', () => {
+		expect(
+			extractTriggerConfigResourceRefs({
+				schedule: '0 0 * * * *',
+				args: { channel: '$res:u/admin/slack' },
+				on_failure_extra_args: { db: 'res://f/other/pg' },
+				error_handler_args: { nested: { deep: '$res:u/admin/slack' } }
+			})
+		).toEqual(['u/admin/slack', 'f/other/pg'])
 	})
 })
