@@ -14,11 +14,7 @@
 	// data-pipeline icon.
 	const iconKind = $derived(card.kind === 'pipeline' ? 'data_pipeline' : card.kind)
 	const kindLabel = $derived(
-		card.kind === 'raw_app'
-			? 'App'
-			: card.kind === 'pipeline'
-				? 'Pipeline'
-				: card.kind.charAt(0).toUpperCase() + card.kind.slice(1)
+		card.kind === 'raw_app' ? 'app' : card.kind === 'pipeline' ? 'pipeline' : card.kind
 	)
 
 	let opening = $state(false)
@@ -37,20 +33,13 @@
 	type="button"
 	onclick={open}
 	disabled={opening}
-	title="Open {kindLabel.toLowerCase()} preview: {card.path}"
-	class="group my-1 flex w-full items-center gap-2 rounded-md border border-light bg-surface px-2 py-1.5 text-left transition-colors hover:bg-surface-hover disabled:opacity-60"
+	title="Open {kindLabel} preview: {card.path}"
+	class="group shrink-0 inline-flex items-center gap-1.5 rounded-md border border-light bg-surface pl-1.5 pr-2 py-1 transition-colors hover:bg-surface-hover disabled:opacity-60"
 >
 	<span class="inline-flex shrink-0">
-		<RowIcon kind={iconKind} size={14} />
+		<RowIcon kind={iconKind} size={12} />
 	</span>
-	<span class="min-w-0 flex-1">
-		<span class="block truncate font-mono text-2xs text-primary">{card.path}</span>
-		<span class="block text-[10px] uppercase tracking-wide text-tertiary">{kindLabel}</span>
-	</span>
-	<span
-		class="inline-flex shrink-0 items-center gap-1 text-2xs text-tertiary group-hover:text-secondary"
-	>
-		<PanelRight size={12} />
-		<span class="hidden sm:inline">Preview</span>
+	<span class="inline-flex items-center gap-1 text-2xs text-tertiary group-hover:text-secondary">
+		Preview <PanelRight size={11} />
 	</span>
 </button>
