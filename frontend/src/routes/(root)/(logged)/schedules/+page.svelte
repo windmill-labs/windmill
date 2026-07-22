@@ -206,8 +206,13 @@
 	let handledHash = ''
 	$effect(() => {
 		const hash = $page.url.hash
-		if (hash === handledHash || hash.length <= 1 || schedules.length === 0 || !scheduleEditor)
+		if (hash.length <= 1) {
+			// Navigating away from a drawer target must clear the tracker, or
+			// re-targeting the same schedule later would be skipped as already handled.
+			handledHash = ''
 			return
+		}
+		if (hash === handledHash || schedules.length === 0 || !scheduleEditor) return
 		const path = hash.slice(1)
 		const schedule = schedules.find((s) => s.path === path)
 		if (schedule) {

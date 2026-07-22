@@ -251,7 +251,13 @@
 	let handledHash = ''
 	$effect(() => {
 		const hash = $page.url.hash
-		if (hash === handledHash || hash.length <= 1 || !variableEditor) return
+		if (hash.length <= 1) {
+			// Navigating away from a drawer target must clear the tracker, or
+			// re-targeting the same item later would be skipped as already handled.
+			handledHash = ''
+			return
+		}
+		if (hash === handledHash || !variableEditor) return
 		handledHash = hash
 		variableEditor.editVariable(hash.slice(1))
 	})

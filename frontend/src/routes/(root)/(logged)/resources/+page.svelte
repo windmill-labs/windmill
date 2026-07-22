@@ -612,7 +612,13 @@
 	let handledHash = ''
 	$effect(() => {
 		const hash = page.url.hash
-		if (hash === handledHash || !hash.startsWith('#/resource/') || !resourceEditor) return
+		if (!hash.startsWith('#/resource/')) {
+			// Navigating away from a drawer target must clear the tracker, or
+			// re-targeting the same item later would be skipped as already handled.
+			handledHash = ''
+			return
+		}
+		if (hash === handledHash || !resourceEditor) return
 		handledHash = hash
 		resourceEditor.initEdit(hash.slice(11))
 	})
