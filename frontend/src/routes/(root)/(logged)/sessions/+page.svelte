@@ -47,6 +47,8 @@
 		setSessionsBetaOptOut
 	} from '$lib/components/copilot/chat/global/gate'
 	import { setToolCompletionListener } from '$lib/components/copilot/chat/shared'
+	import { registerToolDisplayActionHandler } from '$lib/components/copilot/chat/createdResourceActions.svelte'
+	import { previewTargetForSessionTarget } from '$lib/components/sessions/sessionPreviewTabs.svelte'
 	import { base } from '$lib/base'
 	import {
 		artifactKey,
@@ -459,6 +461,24 @@
 			pendingPages = new Set()
 			setToolCompletionListener(undefined)
 		}
+	})
+
+	// Preview cards under create/update/open-preview tool calls dispatch here. Open
+	// (or focus, if already shown) the item's preview in the active session's panel —
+	// the visible chat is always the active session, so `owner` is its panel. Read
+	// `owner` lazily inside the handler (not in the effect body) so this registers
+	// once, not on every session switch. A 'focused' open leaves the tab where it is,
+	// so pulse it to make the click visibly land.
+	$effect(() => {
+		return registerToolDisplayActionHandler('open_item_preview', (action) => {
+			if (action.type !== 'open_item_preview') return
+			const o = owner
+			if (!o) return
+			const target = previewTargetForSessionTarget(action.previewKind, action.path)
+			if (!target) return
+			const { status } = o.open(target)
+			if (status === 'focused') o.pulseFocus(o.activeId)
+		})
 	})
 
 	// Editor-style breadcrumb over the previewed page. We only render clickable

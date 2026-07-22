@@ -81,6 +81,11 @@
 			const config = navigatePageConfig[action.page] ?? { title: action.page, icon: Route }
 			return { ...config, subtitle: action.label, buttonIcon: ArrowRight }
 		}
+		if (action.type === 'open_item_preview') {
+			// Preview-item cards render through ToolPreviewCard, not here; keep this branch
+			// only so the exhaustive union stays type-safe.
+			return { title: action.label, icon: SquarePen, subtitle: action.path, buttonIcon: ArrowRight }
+		}
 		const key: ActionCardKey | undefined =
 			action.resource === 'trigger' ? action.triggerKind : action.resource
 		const config = key

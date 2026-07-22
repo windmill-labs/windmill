@@ -81,6 +81,7 @@ import {
 	executeTestRun,
 	findAndReplace,
 	type CreatedResourceTriggerKind,
+	type PreviewCardKind,
 	type Tool,
 	type ToolCallbacks,
 	type ToolDisplayAction
@@ -3259,7 +3260,18 @@ export const globalTools: Tool<{}>[] = [
 		),
 		fn: async (ctx) => {
 			const parsed = openPreviewSchema.parse(ctx.args)
-			return openSessionPreview(parsed, sessionIdFromCtx(ctx))
+			const sessionId = sessionIdFromCtx(ctx)
+			const { opened, message } = openSessionPreview(parsed, sessionId)
+			// Surface the same discrete card the write tools show, so the user can
+			// re-open/focus the preview later from the tool call. Only when the tool
+			// actually opened the preview (not for a refused open, e.g. a gated
+			// pipeline), and only in a session.
+			if (sessionId && opened) {
+				ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+					previewCard: { kind: parsed.kind, path: parsed.path }
+				})
+			}
+			return message
 		}
 	},
 	{
@@ -3548,18 +3560,25 @@ export function setOpenPreviewHandler(handler: OpenPreviewHandler | undefined): 
 	openPreviewHandler = handler
 }
 
+// `opened` distinguishes a real open (the caller may then offer a preview card)
+// from a refusal that is returned as a message rather than thrown — so the card is
+// never shown for an item the tool declined to preview (e.g. a gated pipeline).
 function openSessionPreview(
 	args: { kind: 'script' | 'flow' | 'raw_app' | 'pipeline'; path: string },
 	sessionId: string | undefined
-) {
+): { opened: boolean; message: string } {
 	if (!openPreviewHandler) {
-		return 'Error: open_preview is only available inside an AI session. Tell the user to switch to a session to view the preview, or describe the item textually.'
+		return {
+			opened: false,
+			message:
+				'Error: open_preview is only available inside an AI session. Tell the user to switch to a session to view the preview, or describe the item textually.'
+		}
 	}
 	// open_preview only exists in sessions, so no sessionId check is needed here.
 	if (args.kind === 'pipeline' && !isSessionPipelinesEnabled()) {
-		return SESSION_PIPELINES_GATED_MESSAGE
+		return { opened: false, message: SESSION_PIPELINES_GATED_MESSAGE }
 	}
-	return openPreviewHandler({ ...args, sessionId })
+	return { opened: true, message: openPreviewHandler({ ...args, sessionId }) }
 }
 
 // Opens a workspace *page* (Runs, Schedules, …) as a page tab in the session's
@@ -3912,6 +3931,32 @@ function draftWriteFailure(result: DraftPersistResult, ctx: WriteDraftCtx): stri
 	return undefined
 }
 
+// Item kinds a session preview can host, keyed by the draft item kind a write
+// resolves to. Kinds absent here (resources, variables, triggers, legacy `app`)
+// have no preview panel, so no card is offered for them.
+const PREVIEW_CARD_KIND_BY_ITEM_KIND: Partial<
+	Record<DraftPersistResult['itemKind'], PreviewCardKind>
+> = {
+	script: 'script',
+	flow: 'flow',
+	raw_app: 'raw_app'
+}
+
+// Offer a preview card for a write that landed a previewable item. Session chats
+// only (`ctx.sessionId`): the card opens the item in the side panel, which the
+// global side-panel chat has no equivalent of. `path` is the item's display path
+// (what `open_preview` takes), not its synthetic draft storage key.
+function maybeAttachPreviewCard(
+	ctx: WriteDraftCtx,
+	itemKind: DraftPersistResult['itemKind'],
+	path: string
+): void {
+	if (!ctx.sessionId) return
+	const kind = PREVIEW_CARD_KIND_BY_ITEM_KIND[itemKind]
+	if (!kind) return
+	ctx.toolCallbacks.setToolStatus(ctx.toolId, { previewCard: { kind, path } })
+}
+
 // App write tools build varied success messages but share the same conflict /
 // save-failure handling; `onSaved` supplies the per-tool status + message.
 function finishAppDraftWrite(
@@ -3922,6 +3967,7 @@ function finishAppDraftWrite(
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
 	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
+	maybeAttachPreviewCard(ctx, result.itemKind, result.item.path)
 	const { content, message } = onSaved()
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, { content, result: 'Saved as draft' })
 	return JSON.stringify({ success: true, message }, null, 2)
@@ -3935,6 +3981,7 @@ function finishDraftWrite(
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
 	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
+	maybeAttachPreviewCard(ctx, result.itemKind, result.item.path)
 	const stored = result.item
 	const verb = existed ? 'Updated' : 'Created'
 	// Don't echo the flow value back: the model just sent it in the write call,

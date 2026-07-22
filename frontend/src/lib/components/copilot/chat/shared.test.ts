@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import type { DisplayMessage, ToolDisplayMessage } from './shared'
+import { openItemPreviewAction } from './shared'
 
 vi.mock('monaco-editor', () => ({
 	editor: {}
@@ -971,5 +972,25 @@ describe('appendPendingToolImages', () => {
 		appendPendingToolImages(messages, addedMessages, toolCallbacks as any)
 		expect(messages).toHaveLength(1)
 		expect(addedMessages).toHaveLength(1)
+	})
+})
+
+describe('openItemPreviewAction', () => {
+	// The action's `type` is the key the sessions page registers its handler under,
+	// so it must stay 'open_item_preview'; `previewKind`/`path` are passed verbatim
+	// to previewTargetForSessionTarget.
+	it('carries the kind and path through to the dispatch action', () => {
+		expect(openItemPreviewAction('flow', 'f/team/etl')).toEqual({
+			id: 'open-item-preview:flow:f/team/etl',
+			type: 'open_item_preview',
+			label: 'Open flow preview',
+			previewKind: 'flow',
+			path: 'f/team/etl'
+		})
+	})
+
+	// raw_app is the internal kind; the user-facing label says "app".
+	it('labels raw_app as "app"', () => {
+		expect(openItemPreviewAction('raw_app', 'u/me/dash').label).toBe('Open app preview')
 	})
 })

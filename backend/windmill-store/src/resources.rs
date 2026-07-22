@@ -242,11 +242,7 @@ async fn list_search_resources(
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<Vec<SearchResource>> {
     let mut tx = user_db.begin(&authed).await?;
-    #[cfg(feature = "enterprise")]
     let n = 1000;
-
-    #[cfg(not(feature = "enterprise"))]
-    let n = 3;
 
     let allowed = build_scope_path_predicate(&authed, "resources", "read");
     let rows = sqlx::query_as!(

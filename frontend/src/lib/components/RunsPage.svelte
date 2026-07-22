@@ -565,7 +565,7 @@
 {:else}
 	<div class="w-full h-screen flex flex-col" bind:clientWidth={innerWidth}>
 		<!-- Header and filters -->
-		<div class="flex flex-row items-start w-full px-4 gap-3 py-4 flex-wrap">
+		<div id="runs-filters-bar" class="flex flex-row items-start w-full px-4 gap-3 py-4 flex-wrap">
 			<div class="flex flex-row items-center gap-6">
 				<h1
 					class={twMerge(
@@ -772,11 +772,11 @@
 		</div>
 
 		<!-- Graph -->
-		<div class="p-2 px-4 bg-surface-tertiary mx-4 border rounded-md">
+		<div id="runs-chart" class="p-2 px-4 bg-surface-tertiary mx-4 border rounded-md">
 			<div class="relative z-10 mb-2 flex gap-2">
 				<Tabs bind:selected={graph}>
-					<Tab value="RunChart" label="Duration" />
-					<Tab value="ConcurrencyChart" label="Concurrency">
+					<Tab value="RunChart" label="Duration" id="runs-chart-duration-tab" />
+					<Tab value="ConcurrencyChart" label="Concurrency" id="runs-chart-concurrency-tab">
 						{#snippet extra()}
 							{#if warnJobLimit}
 								<Tooltip Icon={TriangleAlertIcon}>{warnJobLimitMsg}</Tooltip>
