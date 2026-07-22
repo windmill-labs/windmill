@@ -27,7 +27,7 @@
 
 <Tutorial
 	bind:this={tutorial}
-	index={index}
+	{index}
 	name="workspace-onboarding"
 	tainted={false}
 	on:skipAll
@@ -39,15 +39,7 @@
 					description:
 						"Let's take a quick tour! We will show you the main sections of your workspace.",
 					onNextClick: () => {
-						// Wait a bit to ensure the page is fully rendered before moving to next step
-						setTimeout(() => {
-							const button = document.querySelector('#create-script-button') as HTMLElement | null
-							if (button) {
-								driver.moveNext()
-							} else {
-								alert('Could not find the Create Script button. Please make sure you are on the home page.')
-							}
-						}, 100)
+						driver.moveNext()
 					}
 				}
 			},
@@ -55,45 +47,29 @@
 				popover: {
 					title: 'Create your first script',
 					description:
-						'<img src="/languages.png" alt="Programming Languages" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px; display: block; margin-left: auto; margin-right: auto;" /><p>Scripts turn code into tools. Write in Python, TypeScript, Go, Bash, SQL and more. Run them manually, on schedule, or via webhooks.</p>',
+						'<img src="/languages.png" alt="Programming Languages" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px; display: block; margin-left: auto; margin-right: auto;" /><p>Open the <strong>New</strong> menu to create a script. Scripts turn code into tools. Write in Python, TypeScript, Go, Bash, SQL and more. Run them manually, on schedule, or via webhooks.</p>',
 					onNextClick: async () => {
-						// Move to the next step (Create Flow button)
-						setTimeout(() => {
-							const button = document.querySelector('#create-flow-button') as HTMLElement | null
-							if (button) {
-								driver.moveNext()
-							} else {
-								alert('Could not find the Create Flow button. Please make sure you are on the home page.')
-							}
-						}, 100)
+						driver.moveNext()
 					}
 				},
-				element: '#create-script-button',
+				element: '#create-new-button'
 			},
 			{
 				popover: {
 					title: 'Create your first flow',
 					description:
-						'<img src="/flow.png" alt="Flow" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px; display: block; margin-left: auto; margin-right: auto;" /><p>Flows orchestrate multiple scripts. Chain them together with branching, loops, and error handling to build complex workflows.</p>',
+						'<img src="/flow.png" alt="Flow" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px; display: block; margin-left: auto; margin-right: auto;" /><p>The same <strong>New</strong> menu lets you create a flow. Flows orchestrate multiple scripts. Chain them together with branching, loops, and error handling to build complex workflows.</p>',
 					onNextClick: async () => {
-						// Move to the next step (Create App button)
-						setTimeout(() => {
-							const button = document.querySelector('#create-app-button') as HTMLElement | null
-							if (button) {
-								driver.moveNext()
-							} else {
-								alert('Could not find the Create App button. Please make sure you are on the home page.')
-							}
-						}, 100)
+						driver.moveNext()
 					}
 				},
-				element: '#create-flow-button',
+				element: '#create-new-button'
 			},
 			{
 				popover: {
 					title: 'Create your first app',
 					description:
-						'<img src="/app.png" alt="App" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px; display: block; margin-left: auto; margin-right: auto;" /><p>Apps are custom UIs built with drag-and-drop. Combine tables, forms, charts, and buttons that trigger your scripts and flows.. That\'s it for the tour!</p><p style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(128,128,128,0.3); font-size: 0.9em; opacity: 0.9;"><strong>💡 Want to learn more?</strong> Access more tutorials from the <strong>Tutorials</strong> page in the main menu or in the <strong>Help</strong> submenu.</p>',
+						'<img src="/app.png" alt="App" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px; display: block; margin-left: auto; margin-right: auto;" /><p>And from the <strong>New</strong> menu you can also create an app. Apps are custom UIs built with drag-and-drop. Combine tables, forms, charts, and buttons that trigger your scripts and flows. That\'s it for the tour!</p><p style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(128,128,128,0.3); font-size: 0.9em; opacity: 0.9;"><strong>💡 Want to learn more?</strong> Access more tutorials from the <strong>Tutorials</strong> page in the main menu or in the <strong>Help</strong> submenu.</p>',
 					onNextClick: async () => {
 						// Mark tutorial as complete
 						updateProgress(index)
@@ -105,7 +81,7 @@
 						}
 					}
 				},
-				element: '#create-app-button',
+				element: '#create-new-button'
 			}
 		]
 
