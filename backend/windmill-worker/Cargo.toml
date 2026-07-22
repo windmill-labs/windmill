@@ -116,7 +116,7 @@ pem = { workspace = true, optional = true }
 rsa = { workspace = true, optional = true }
 urlencoding.workspace = true
 # `user` adds geteuid(2) to verify ownership of the ansible socket-dir root
-nix = { workspace = true, features = ["fs", "user"] }
+nix = { workspace = true, features = ["user"] }
 # Cross-platform advisory file lock (flock on unix, LockFileEx on windows) for the
 # cross-process Python install lock into shared wheel-cache dirs.
 fs4 = { workspace = true }
