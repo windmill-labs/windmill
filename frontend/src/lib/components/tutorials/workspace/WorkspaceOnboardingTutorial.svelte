@@ -38,7 +38,12 @@
 					title: 'Welcome to your Windmill workspace! 🎉',
 					description:
 						"Let's take a quick tour! We will show you the main sections of your workspace.",
-					onNextClick: () => {
+					onNextClick: async () => {
+						// The New menu button mounts once an async permission check resolves, so
+						// wait for it before highlighting it in the next step.
+						for (let i = 0; i < 20 && !document.querySelector('#create-new-button'); i++) {
+							await new Promise((resolve) => setTimeout(resolve, 100))
+						}
 						driver.moveNext()
 					}
 				}
@@ -48,7 +53,7 @@
 					title: 'Create your first script',
 					description:
 						'<img src="/languages.png" alt="Programming Languages" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px; display: block; margin-left: auto; margin-right: auto;" /><p>Open the <strong>New</strong> menu to create a script. Scripts turn code into tools. Write in Python, TypeScript, Go, Bash, SQL and more. Run them manually, on schedule, or via webhooks.</p>',
-					onNextClick: async () => {
+					onNextClick: () => {
 						driver.moveNext()
 					}
 				},
@@ -59,7 +64,7 @@
 					title: 'Create your first flow',
 					description:
 						'<img src="/flow.png" alt="Flow" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px; display: block; margin-left: auto; margin-right: auto;" /><p>The same <strong>New</strong> menu lets you create a flow. Flows orchestrate multiple scripts. Chain them together with branching, loops, and error handling to build complex workflows.</p>',
-					onNextClick: async () => {
+					onNextClick: () => {
 						driver.moveNext()
 					}
 				},
