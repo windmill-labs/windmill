@@ -3593,7 +3593,7 @@ export type OpenPreviewHandler = (req: {
 	sessionId: string | undefined
 	kind: 'script' | 'flow' | 'raw_app' | 'pipeline'
 	path: string
-}) => string
+}) => string | Promise<string>
 
 let openPreviewHandler: OpenPreviewHandler | undefined
 
@@ -3601,15 +3601,17 @@ export function setOpenPreviewHandler(handler: OpenPreviewHandler | undefined): 
 	openPreviewHandler = handler
 }
 
-function openSessionPreview(
+async function openSessionPreview(
 	args: { kind: 'script' | 'flow' | 'raw_app' | 'pipeline'; path: string },
 	sessionId: string | undefined
-): string {
+): Promise<string> {
 	if (!openPreviewHandler) {
 		return 'Error: open_preview is only available inside an AI session. Tell the user to switch to a session to view the preview, or describe the item textually.'
 	}
 	// open_preview only exists in sessions, so no sessionId check is needed here.
-	return openPreviewHandler({ ...args, sessionId })
+	// For a pipeline the handler awaits the editor's tool registration, so the
+	// model's next build_pipeline_node call can't race the async canvas mount.
+	return await openPreviewHandler({ ...args, sessionId })
 }
 
 // Opens a workspace *page* (Runs, Schedules, …) as a page tab in the session's

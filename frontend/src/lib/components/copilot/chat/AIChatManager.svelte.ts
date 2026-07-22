@@ -355,6 +355,10 @@ export class AIChatManager {
 
 	mode = $state<AIMode>(AIMode.NAVIGATOR)
 	pipelineAiChatHelpers = $state<PipelineAIChatHelpers | undefined>(undefined)
+	// Resolved when a pipeline editor registers its tools. open_preview(pipeline)
+	// awaits this so the model's next build_pipeline_node call can't race ahead of
+	// the async canvas mount and hit "Unknown tool call".
+	#pipelineHelpersWaiters = new Set<() => void>()
 	readonly isOpen = $derived(chatState.size > 0)
 	savedSize = $state<number>(0)
 	instructions = $state<string>('')
@@ -3679,6 +3683,10 @@ export class AIChatManager {
 				this.configureGlobalMode()
 			}
 		})
+		// The pipeline tools are now registered — release anything awaiting them.
+		const waiters = [...this.#pipelineHelpersWaiters]
+		this.#pipelineHelpersWaiters.clear()
+		waiters.forEach((resolve) => resolve())
 
 		return () => {
 			this.pipelineAiChatHelpers = undefined
@@ -3688,6 +3696,27 @@ export class AIChatManager {
 				}
 			})
 		}
+	}
+
+	/**
+	 * Await the pipeline editor's tool registration. Resolves immediately when a
+	 * pipeline editor is already mounted, otherwise when the next one registers —
+	 * or after `timeoutMs` so a mount that never happens (e.g. the tab was closed)
+	 * can't hang the open_preview tool call.
+	 */
+	waitForPipelineHelpers = (timeoutMs = 8000): Promise<void> => {
+		if (this.pipelineAiChatHelpers) return Promise.resolve()
+		return new Promise<void>((resolve) => {
+			let settled = false
+			const done = () => {
+				if (settled) return
+				settled = true
+				this.#pipelineHelpersWaiters.delete(done)
+				resolve()
+			}
+			this.#pipelineHelpersWaiters.add(done)
+			setTimeout(done, timeoutMs)
+		})
 	}
 
 	/**

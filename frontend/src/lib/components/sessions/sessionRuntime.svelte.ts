@@ -986,7 +986,7 @@ export function removeSession(sessionId: string): void {
 // backgrounded session's tool call opens its OWN preview, not the one the user
 // happens to be viewing. Outside a session there is no calling/active id and
 // the tool returns a polite error.
-setOpenPreviewHandler(({ sessionId: callerSessionId, kind, path }) => {
+setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path }) => {
 	const sessionId = callerSessionId ?? sessionState.currentSessionId
 	if (!sessionId) {
 		return 'Error: no active session to open the preview in.'
@@ -999,7 +999,15 @@ setOpenPreviewHandler(({ sessionId: callerSessionId, kind, path }) => {
 	if (!target) {
 		return `Error: ${kind} targets cannot be shown in the preview panel.`
 	}
-	const result = getOrCreateRuntime(session).previewTabs.open(target)
+	const runtime = getOrCreateRuntime(session)
+	const result = runtime.previewTabs.open(target)
+	// The pipeline editor registers its build_pipeline_node / edit_pipeline_node
+	// tools asynchronously once the canvas mounts. Block the tool result until
+	// they are live so the model's next turn doesn't race ahead and hit an
+	// "Unknown tool call" error on the first node it tries to build.
+	if (kind === 'pipeline') {
+		await runtime.manager.waitForPipelineHelpers()
+	}
 	return result.status === 'focused'
 		? `A preview tab is already showing ${kind} "${path}" — focused it.`
 		: `Opened ${kind} preview for ${path} in a new tab in the side panel.`
