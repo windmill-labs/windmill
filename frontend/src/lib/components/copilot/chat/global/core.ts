@@ -26,6 +26,7 @@ import type {
 	CreateResource,
 	CreateVariable,
 	Flow,
+	FlowModule,
 	FlowValue,
 	Job,
 	ListableApp,
@@ -57,9 +58,14 @@ import {
 	applyEditableFlowJsonToFlow,
 	buildEditableFlowJson,
 	type EditableFlowJson,
+	finalizeUnresolvedInlineScripts,
+	restoreSpecialRawscriptModule,
 	validateEditableFlowJson
 } from '../flow/editableFlowJson'
-import { createInlineScriptSession } from '../flow/inlineScriptsUtils'
+import {
+	createInlineScriptSession,
+	findUnresolvedInlineScriptRefs
+} from '../flow/inlineScriptsUtils'
 import { searchNpmPackagesTool } from '../script/core'
 import {
 	getDatatableSdkReference,
@@ -445,6 +451,10 @@ const writeFlowSchema = z.object({
 	override: draftOverrideField
 })
 
+// modules/preprocessor_module/failure_module can carry rawscript `content`, whose
+// quotes and newlines are the usual reason the JSON string fails to parse.
+const FLOW_CODE_BEARING_FIELDS = new Set(['modules', 'preprocessor_module', 'failure_module'])
+
 function parseOptionalJsonArg(value: unknown, field: string): unknown {
 	if (value === undefined || value === null) {
 		return value
@@ -454,8 +464,58 @@ function parseOptionalJsonArg(value: unknown, field: string): unknown {
 		return typeof value === 'string' ? JSON.parse(value) : value
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error)
-		throw new Error(`Invalid JSON for ${field}: ${message}`)
+		const hint = FLOW_CODE_BEARING_FIELDS.has(field)
+			? ' A rawscript "content" string with multi-line code or quotes is the usual cause. Instead of inlining large code, create the rawscript module with empty content ("") and fill its body with set_flow_module_code afterwards.'
+			: ''
+		throw new Error(`Invalid JSON for ${field}: ${message}${hint}`)
 	}
+}
+
+/**
+ * Rawscript bodies are fragile to embed inside the `modules` JSON string: the
+ * code's quotes and newlines have to survive three levels of escaping (tool-call
+ * arguments -> modules string -> content string) and the model routinely mangles
+ * them. So a module may be saved with empty (or `inline_script.` placeholder)
+ * content; return the ids that still need a body filled out-of-band with
+ * `set_flow_module_code`.
+ */
+function emptyInlineScriptModuleIds(editable: EditableFlowJson): string[] {
+	const value: FlowValue = {
+		modules: editable.modules,
+		preprocessor_module: editable.preprocessor_module ?? undefined,
+		failure_module: editable.failure_module ?? undefined
+	}
+	const session = createInlineScriptSession()
+	buildEditableFlowJson({ value, schema: editable.schema }, session)
+	return Object.entries(session.getAll())
+		.filter(([, content]) => content.trim() === '' || /^inline_script\./.test(content))
+		.map(([id]) => id)
+}
+
+/**
+ * Fold the empty-body warning into a flow write tool's JSON result — but only
+ * when the save actually succeeded. `writeFlowDraft` reports
+ * conflicts/persistence errors as `{ success: false }` rather than throwing;
+ * telling the model to fill code on a flow that was never saved would send it
+ * after a stale or nonexistent draft.
+ */
+function appendEmptyInlineScriptWarning(result: string, editable: EditableFlowJson): string {
+	const emptyIds = emptyInlineScriptModuleIds(editable)
+	if (emptyIds.length === 0) {
+		return result
+	}
+	let parsed: { success?: unknown; message?: unknown }
+	try {
+		parsed = JSON.parse(result)
+	} catch {
+		return result
+	}
+	if (parsed.success !== true || typeof parsed.message !== 'string') {
+		return result
+	}
+	const list = emptyIds.map((id) => `"${id}"`).join(', ')
+	parsed.message += `\n\nWarning: inline scripts ${list} have no code yet. Fill each one with set_flow_module_code(path, module_id, code) — do not re-send the whole flow.`
+	return JSON.stringify(parsed, null, 2)
 }
 
 function editableFlowToDraftValue(editable: EditableFlowJson): FlowDraftValue {
@@ -1893,7 +1953,9 @@ function getFlowInstructions(): string {
   - \`read_flow_module_code(path, module_id)\` — returns the raw inline script content for one module.
   - \`set_flow_module_code(path, module_id, code)\` — overwrites that module's inline script content; saves to the draft.
 - Use \`patch_flow_json\` for *structural* edits: module ids, paths, input_transforms, branch arrangement, summaries, preprocessor/failure swaps, schema/groups/notes. Use \`set_flow_module_code\` for changes inside a specific rawscript body.
-- \`write_flow\` is for full overwrites / create-from-scratch. Its \`modules\`, \`preprocessor_module\`, and \`failure_module\` arguments use **non-compact** flow modules (rawscript content is the actual code, not a placeholder).
+- When **adding a new rawscript module** with \`patch_flow_json\`, set its \`content\` to the placeholder \`"inline_script.<moduleId>"\` (matching the compact view) — never real code — then **immediately fill the body** with \`set_flow_module_code(path, module_id, code)\`. The module is saved with an empty body until you do; the tool result lists the module ids still awaiting code. A placeholder that names anything other than the module's own id or an existing rawscript module is rejected.
+- \`write_flow\` is for full overwrites / create-from-scratch. Its \`modules\`, \`preprocessor_module\`, and \`failure_module\` arguments are **non-compact** flow modules: inline each rawscript body directly in \`content\` by default. But if a body is long or quote/backslash-heavy enough that escaping it into the JSON string is error-prone — or if a \`write_flow\` call comes back with a JSON parse error — create that module with **empty content** (\`"content": ""\`) and fill it with \`set_flow_module_code(path, module_id, code)\`, whose \`code\` is a plain argument with no nested escaping. \`write_flow\` reports which modules still have empty bodies so you know what to fill.
+  - When overwriting an **existing** flow, set \`"content": "inline_script.<moduleId>"\` on any rawscript module whose code you are not changing — the placeholder resolves to that module's current body, so you never re-send (or re-read) unchanged code. Placeholders that match no existing rawscript module and are not the module's own id are rejected.
 
 # Windmill flow authoring reference
 
@@ -2798,15 +2860,17 @@ export const globalTools: Tool<{}>[] = [
 				groups: parseOptionalJsonArg(parsed.groups, 'groups'),
 				notes: parseOptionalJsonArg(parsed.notes, 'notes')
 			})
-			return writeFlowDraft(
+			const resolved = await resolveWriteFlowInlineScripts(parsed.path, editable, ctx.workspace)
+			const result = await writeFlowDraft(
 				{
 					path: parsed.path,
 					summary: parsed.summary,
 					description: parsed.description,
-					flow: editableFlowToDraftValue(editable)
+					flow: editableFlowToDraftValue(resolved)
 				},
 				ctx
 			)
+			return appendEmptyInlineScriptWarning(result, resolved)
 		}
 	},
 	{
@@ -4261,6 +4325,46 @@ async function loadFlowDraftValue(
 	}
 }
 
+/**
+ * `write_flow` accepts `inline_script.<id>` placeholders so the model can
+ * overwrite a flow without re-sending (or even reading) unchanged rawscript
+ * bodies. Resolve them against the current draft/deployed flow: an id with a
+ * stored body keeps it, a new module's own-id placeholder becomes an empty body
+ * (to fill via set_flow_module_code), and anything else rejects the write.
+ */
+async function resolveWriteFlowInlineScripts(
+	path: string,
+	editable: EditableFlowJson,
+	workspace: string
+): Promise<EditableFlowJson> {
+	const specials = [editable.preprocessor_module, editable.failure_module].filter(
+		(module): module is FlowModule => module != null
+	)
+	const hasPlaceholders =
+		findUnresolvedInlineScriptRefs(editable.modules).length > 0 ||
+		findUnresolvedInlineScriptRefs(specials).length > 0
+	if (!hasPlaceholders) {
+		return editable
+	}
+
+	const session = createInlineScriptSession()
+	if (
+		(await getGlobalDraft(workspace, 'flow', path)) ||
+		(await FlowService.existsFlowByPath({ workspace, path }))
+	) {
+		const base = await loadFlowDraftValue(path, workspace)
+		buildEditableFlowJson(flowDraftAsEditableInput(base.flow), session)
+	}
+	const resolved: EditableFlowJson = {
+		...editable,
+		modules: session.restoreInlineScriptReferences(editable.modules),
+		preprocessor_module: restoreSpecialRawscriptModule(editable.preprocessor_module, session),
+		failure_module: restoreSpecialRawscriptModule(editable.failure_module, session)
+	}
+	finalizeUnresolvedInlineScripts(resolved)
+	return resolved
+}
+
 async function patchFlowJson(
 	args: { path: string; old_string: string; new_string: string; replace_all: boolean },
 	ctx: WriteDraftCtx
@@ -4293,8 +4397,9 @@ async function patchFlowJson(
 
 	const patchedEditable = validateEditableFlowJson(parsedValue)
 	const newFlowValue = applyEditableFlowJsonToFlow(base.flow.value, patchedEditable, session)
+	finalizeUnresolvedInlineScripts(newFlowValue)
 
-	return writeFlowDraft(
+	const result = await writeFlowDraft(
 		{
 			path,
 			summary: base.summary,
@@ -4307,6 +4412,15 @@ async function patchFlowJson(
 		},
 		ctx
 	)
+	// Warn from the restored value, not patchedEditable — the compact view holds
+	// placeholders for every rawscript, so only post-restore content shows which
+	// modules still need bodies filled via set_flow_module_code.
+	return appendEmptyInlineScriptWarning(result, {
+		...patchedEditable,
+		modules: newFlowValue.modules,
+		preprocessor_module: newFlowValue.preprocessor_module ?? null,
+		failure_module: newFlowValue.failure_module ?? null
+	})
 }
 
 async function readFlowModuleCode(

@@ -10,4 +10,4 @@ export const WM_FORK_PREFIX = "wm-fork";
 // (e.g. utils.ts) can read it without importing main.ts and creating a circular
 // dependency (main → workspace → utils → main) that triggers a TDZ.
 // Re-exported from main.ts for backwards compatibility.
-export const VERSION = "1.765.0";
+export const VERSION = "1.766.1";

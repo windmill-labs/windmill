@@ -1,6 +1,6 @@
 {
 	"name": "@windmill-labs/components",
-	"version": "1.765.0",
+	"version": "1.766.1",
 	"scripts": {
 		"dev": "vite dev",
 		"dev:ui-builder": "mv static/ui_builder static/ui_builder.dev-disabled 2>/dev/null || true ; trap 'mv static/ui_builder.dev-disabled static/ui_builder 2>/dev/null || true' EXIT ; vite dev",
