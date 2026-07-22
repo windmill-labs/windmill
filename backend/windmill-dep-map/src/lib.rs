@@ -156,10 +156,16 @@ pub async fn process_relative_imports(
         )
         .await?;
 
-        // When triggered by a relative import change, don't re-confirm the entries
-        // via patch. This causes dissolve to clear stale importer_kind=script entries
-        // (e.g. companion scripts at flow paths), breaking the self-sustaining cycle.
-        if !triggered_by_relative_import {
+        if triggered_by_relative_import {
+            // When triggered by a relative import change, the dependency map is being
+            // re-triggered by a dependent flow — not because this script's own content
+            // changed. Skip patch+dissolve entirely: patch would re-confirm entries
+            // and dissolve would erase ALL entries in the to_delete set (populated by
+            // fetch with every existing edge), destroying valid dependency edges and
+            // breaking the self-sustaining cycle for companion scripts at flow paths.
+            // Stale entries will be cleaned up on the next normal (non-triggered) update.
+            tx.commit().await?;
+        } else {
             tx = dependency_map
                 .patch(
                     extract_referenced_paths(&code, script_path, *script_lang),
@@ -168,9 +174,9 @@ pub async fn process_relative_imports(
                     tx,
                 )
                 .await?;
-        }
 
-        dependency_map.dissolve(tx).await.commit().await?;
+            dependency_map.dissolve(tx).await.commit().await?;
+        }
     }
 
     {
