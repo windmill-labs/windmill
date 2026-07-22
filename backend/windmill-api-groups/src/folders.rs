@@ -892,6 +892,13 @@ async fn remove_owner(
     Path((w_id, name)): Path<(String, String)>,
     Json(Owner { owner, write }): Json<Owner>,
 ) -> Result<String> {
+    // remove_owner with a `write` value is a grant path: it jsonb_set's the owner's
+    // permission level into extra_perms (only write=None is a pure revoke), so the
+    // demo-workspace sharing restriction must apply when a level is being set.
+    if write.is_some() {
+        crate::check_demo_workspace_restriction(&authed, &w_id, "Sharing")?;
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
     not_found_if_none(get_folderopt(&mut tx, &w_id, &name).await?, "Folder", &name)?;

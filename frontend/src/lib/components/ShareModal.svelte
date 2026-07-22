@@ -340,7 +340,7 @@
 												{:else}{write ? 'Writer' : 'Viewer'}{/if}</td
 											>
 											<td>
-												{#if own && !restricted}
+												{#if own}
 													<Button
 														variant="default"
 														destructive

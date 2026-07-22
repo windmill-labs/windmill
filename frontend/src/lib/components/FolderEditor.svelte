@@ -381,22 +381,24 @@
 					existing. A windmill folder has settable permissions that its children inherit. If an item
 					is within a non-existing folders, only admins will see it.
 				</Alert>
-				<Button
-					variant="default"
-					wrapperClasses="w-min"
-					startIcon={{ icon: Plus }}
-					size="xs"
-					on:click={() => {
-						FolderService.createFolder({
-							workspace: $workspaceStore ?? '',
-							requestBody: { name }
-						}).then(() => {
-							loadFolder()
-						})
-					}}
-				>
-					Create folder "{name}"
-				</Button>
+				{#if !restricted}
+					<Button
+						variant="default"
+						wrapperClasses="w-min"
+						startIcon={{ icon: Plus }}
+						size="xs"
+						on:click={() => {
+							FolderService.createFolder({
+								workspace: $workspaceStore ?? '',
+								requestBody: { name }
+							}).then(() => {
+								loadFolder()
+							})
+						}}
+					>
+						Create folder "{name}"
+					</Button>
+				{/if}
 			{/if}
 			{#if perms}
 				<TableCustom>
@@ -486,7 +488,7 @@
 										{/if}</td
 									>
 									<td class="flex items-center justify-end">
-										{#if !restricted && ((can_write && owner_name != 'u/' + $userStore?.username) || $userStore?.is_admin)}
+										{#if (can_write && owner_name != 'u/' + $userStore?.username) || $userStore?.is_admin}
 											<Button
 												variant="subtle"
 												destructive
