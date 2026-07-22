@@ -521,3 +521,20 @@
   skipJudge: true
   judgeChecklist:
     - "an HTTP trigger is created for the flow that accepts unauthenticated POST requests"
+
+- id: flow-test19-implicit-email-trigger-intent
+  prompt: |-
+    Make this order processing flow run automatically whenever an email is received.
+    Do not ask me for the flow path.
+  initial: ai_evals/fixtures/frontend/flow/initial/scheduled_order_flow.json
+  toolExpect:
+    requiredToolsUsed:
+      - create_trigger
+    toolCallArgs:
+      - tool: create_trigger
+        field: kind
+        stringStartsWithAnyOf:
+          - email
+  skipJudge: true
+  judgeChecklist:
+    - "an email trigger (kind email) is created, or the user is told how to enable email triggering on the instance"
