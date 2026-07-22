@@ -553,6 +553,19 @@ describe('trigger handler relocation', () => {
 		expect(out.initial_messages[0].raw_message).toBe('$script:u/admin/builder')
 	})
 
+	it('leaves literal handler-shaped strings in args untouched', () => {
+		const map = new Map([['f/proj/handler', 'f/dest/handler']])
+		const out = rewriteTriggerConfig(
+			{
+				on_failure: 'script/f/proj/handler',
+				args: { note: 'script/f/proj/handler' }
+			},
+			map
+		)
+		expect(out.on_failure).toBe('script/f/dest/handler')
+		expect(out.args.note).toBe('script/f/proj/handler')
+	})
+
 	it('leaves nested url keys untouched, rewriting only the top-level websocket url', () => {
 		const map = new Map([['u/admin/builder', 'f/proj/builder']])
 		const out = rewriteTriggerConfig(

@@ -194,25 +194,33 @@ export function extractTriggerConfigResourceRefs(config: any): string[] {
  * or a `script/<path>`/`flow/<path>` handler reference (schedules' on_failure
  * et al.), falling back to `$res:` token rewriting for embedded refs.
  */
+// Top-level config fields whose string values are prefixed runnable refs.
+// Prefixed forms are remapped ONLY in these known positions: deciding meaning
+// from string shape alone rewrote literal payloads that merely looked like
+// refs. Bare-path exact matches and $res: tokens stay position-independent.
+const HANDLER_REF_FIELDS = new Set(['on_failure', 'on_recovery', 'on_success'])
+
 export function rewriteTriggerConfig(config: any, map: Map<string, string>, depth = 0): any {
 	if (typeof config === 'string') {
 		const direct = map.get(config)
 		if (direct) return direct
-		const handler = /^(script|flow)\/(.+)$/.exec(config)
-		if (handler && map.has(handler[2])) return `${handler[1]}/${map.get(handler[2])}`
 		return rewriteContent(config, map)
 	}
 	if (Array.isArray(config)) return config.map((v) => rewriteTriggerConfig(v, map, depth + 1))
 	if (config && typeof config === 'object') {
 		return Object.fromEntries(
 			Object.entries(config).map(([k, v]) => {
-				// Only the websocket config's own `url` field (top level) carries
-				// $script:/$flow: runnable refs; remapping that form on any nested
-				// `url` key could corrupt literal payloads (schedule args, handler
-				// extra args, initial messages).
-				if (depth === 0 && k === 'url' && typeof v === 'string') {
-					const m = /^\$(script|flow):(.+)$/.exec(v)
-					if (m && map.has(m[2])) return [k, `$${m[1]}:${map.get(m[2])}`]
+				if (depth === 0 && typeof v === 'string') {
+					// Websocket url: $script:<path> / $flow:<path>.
+					if (k === 'url') {
+						const m = /^\$(script|flow):(.+)$/.exec(v)
+						if (m && map.has(m[2])) return [k, `$${m[1]}:${map.get(m[2])}`]
+					}
+					// Schedule handlers: script/<path> / flow/<path>.
+					if (HANDLER_REF_FIELDS.has(k)) {
+						const m = /^(script|flow)\/(.+)$/.exec(v)
+						if (m && map.has(m[2])) return [k, `${m[1]}/${map.get(m[2])}`]
+					}
 				}
 				return [k, rewriteTriggerConfig(v, map, depth + 1)]
 			})
