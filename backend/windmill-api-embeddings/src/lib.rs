@@ -607,6 +607,10 @@ pub fn load_embeddings_db(db: &Pool<Postgres>) -> () {
         tokio::spawn(async move {
             // Keep retrying model init: a transient failure here must not
             // permanently disable embeddings until the next process restart.
+            // Backoff decays to the pulling interval so an environment where it
+            // can never succeed (e.g. air-gapped, embeddings left enabled)
+            // settles into ~1 attempt/interval rather than a tight error loop.
+            let mut backoff_secs = *HUB_EMBEDDINGS_RETRY_INTERVAL_SECS;
             loop {
                 match ModelInstance::new().await {
                     Ok(model_instance) => {
@@ -618,21 +622,26 @@ pub fn load_embeddings_db(db: &Pool<Postgres>) -> () {
                         tracing::error!(
                             "Failed to initialize model instance: {}. Retrying in {}s...",
                             e,
-                            *HUB_EMBEDDINGS_RETRY_INTERVAL_SECS
+                            backoff_secs
                         );
-                        tokio::time::sleep(std::time::Duration::from_secs(
-                            *HUB_EMBEDDINGS_RETRY_INTERVAL_SECS,
-                        ))
-                        .await;
+                        tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
+                        backoff_secs = backoff_secs
+                            .saturating_mul(2)
+                            .min(*HUB_EMBEDDINGS_PULLING_INTERVAL_SECS);
                     }
                 }
             }
+            let mut backoff_secs = *HUB_EMBEDDINGS_RETRY_INTERVAL_SECS;
             loop {
-                let succeeded = update_embeddings_db(&db_clone).await;
-                let sleep_secs = if succeeded {
+                let sleep_secs = if update_embeddings_db(&db_clone).await {
+                    backoff_secs = *HUB_EMBEDDINGS_RETRY_INTERVAL_SECS;
                     *HUB_EMBEDDINGS_PULLING_INTERVAL_SECS
                 } else {
-                    *HUB_EMBEDDINGS_RETRY_INTERVAL_SECS
+                    let secs = backoff_secs;
+                    backoff_secs = backoff_secs
+                        .saturating_mul(2)
+                        .min(*HUB_EMBEDDINGS_PULLING_INTERVAL_SECS);
+                    secs
                 };
                 tokio::time::sleep(std::time::Duration::from_secs(sleep_secs)).await;
             }
