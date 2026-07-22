@@ -5,6 +5,7 @@ import {
 	NatsTriggerService,
 	SqsTriggerService,
 	MqttTriggerService,
+	AmqpTriggerService,
 	GcpTriggerService,
 	AzureTriggerService,
 	PostgresTriggerService,
@@ -20,6 +21,7 @@ export type WorkspaceTriggerKind =
 	| 'nats'
 	| 'sqs'
 	| 'mqtt'
+	| 'amqp'
 	| 'gcp'
 	| 'azure'
 	| 'postgres'
@@ -76,7 +78,15 @@ export const TRIGGER_KINDS: Record<
 	schedule: {
 		badge: 'Schedule',
 		route: 'schedules',
-		list: (workspace) => ScheduleService.listSchedules({ workspace })
+		// listSchedules returns slim rows (no args, handlers, cron_version, retry,
+		// no_flow_overlap) — resolve each to the full schedule so exported configs
+		// are complete; fall back to the slim row if a get fails.
+		list: async (workspace) => {
+			const rows = await ScheduleService.listSchedules({ workspace })
+			return Promise.all(
+				rows.map((r) => ScheduleService.getSchedule({ workspace, path: r.path }).catch(() => r))
+			)
+		}
 	},
 	kafka: {
 		badge: 'Kafka',
@@ -114,6 +124,15 @@ export const TRIGGER_KINDS: Record<
 		list: (workspace) => MqttTriggerService.listMqttTriggers({ workspace }),
 		create: (workspace, requestBody) =>
 			MqttTriggerService.createMqttTrigger({ workspace, requestBody })
+	},
+	amqp: {
+		badge: 'AMQP',
+		route: 'amqp_triggers',
+		note: 'Verify AMQP broker access from the importing instance.',
+		resourceField: 'amqp_resource_path',
+		list: (workspace) => AmqpTriggerService.listAmqpTriggers({ workspace }),
+		create: (workspace, requestBody) =>
+			AmqpTriggerService.createAmqpTrigger({ workspace, requestBody })
 	},
 	gcp: {
 		badge: 'GCP Pub/Sub',
@@ -212,9 +231,14 @@ export async function createWorkspaceTriggerDisabled(
 		throw new Error(`trigger kind '${trigger.kind}' requires Enterprise`)
 	}
 	if (trigger.kind === 'schedule') {
+		// Spread the exported config first so behavioral settings survive the
+		// import (cron_version, retry, failure/recovery/success handlers,
+		// no_flow_overlap, …) — restoring only cron+timezone would silently
+		// change the schedule's semantics once re-enabled.
 		return ScheduleService.createSchedule({
 			workspace,
 			requestBody: {
+				...(trigger.config ?? {}),
 				path: trigger.path,
 				schedule: trigger.config?.schedule ?? '0 0 * * * *',
 				timezone: trigger.config?.timezone ?? 'UTC',
@@ -244,9 +268,34 @@ export function triggerResourcePath(t: WorkspaceTrigger): string | undefined {
 	return typeof v === 'string' && v !== '' ? v : undefined
 }
 
+/**
+ * Runnables a trigger's config references beyond its primary target, so they
+ * can be bundled alongside it: `error_handler_path` (bare script path) for
+ * non-schedule kinds, and schedules' `on_failure`/`on_recovery`/`on_success`
+ * (`script/<path>` or `flow/<path>`).
+ */
+export function triggerHandlerRefs(
+	t: WorkspaceTrigger
+): Array<{ kind: 'script' | 'flow'; path: string }> {
+	const c = t.config as any
+	const out: Array<{ kind: 'script' | 'flow'; path: string }> = []
+	if (t.kind === 'schedule') {
+		for (const field of ['on_failure', 'on_recovery', 'on_success']) {
+			const v = c?.[field]
+			const m = typeof v === 'string' ? /^(script|flow)\/(.+)$/.exec(v) : null
+			if (m) out.push({ kind: m[1] as 'script' | 'flow', path: m[2] })
+		}
+	} else if (typeof c?.error_handler_path === 'string' && c.error_handler_path !== '') {
+		out.push({ kind: 'script', path: c.error_handler_path })
+	}
+	return out
+}
+
 // Instance-side metadata that has no meaning outside the source workspace
-// (ownership, error handlers, runtime state). Anything `last_*` or `captured_*`
-// is also dropped.
+// (ownership, runtime state). Anything `last_*` or `captured_*` is also
+// dropped. Error handlers (error_handler_path/args, schedules' on_* fields)
+// are functional config and stay: their runnables are bundled with the
+// project and the paths relocated.
 const TRIGGER_CONFIG_BLACKLIST = new Set([
 	'path',
 	'script_path',
@@ -261,8 +310,6 @@ const TRIGGER_CONFIG_BLACKLIST = new Set([
 	'permissioned_as',
 	'permissioned_as_email',
 	'error',
-	'error_handler_path',
-	'error_handler_args',
 	'test_runnable_args'
 ])
 export function stripTriggerConfig(config: Record<string, unknown>): Record<string, unknown> {
@@ -316,6 +363,10 @@ export function triggerDetails(t: WorkspaceTrigger): Array<{ label: string; valu
 					.map((x: any) => x?.topic ?? x)
 					.join(', ')
 			)
+			break
+		case 'amqp':
+			push('Resource', c.amqp_resource_path)
+			push('Queue', c.queue_name)
 			break
 		case 'gcp':
 			push('Resource', c.gcp_resource_path)

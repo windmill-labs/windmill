@@ -160,10 +160,17 @@ export function rewriteContent(content: string, map: Map<string, string>): strin
  * `kafka_resource_path: "f/slug/db"`), not `$res:` tokens, so token rewriting
  * misses them. Deep-walk the config and remap any string that exact-matches a
  * map key (map keys are full bundle paths, so an exact match is a reference),
- * falling back to `$res:` token rewriting for embedded refs.
+ * or a `script/<path>`/`flow/<path>` handler reference (schedules' on_failure
+ * et al.), falling back to `$res:` token rewriting for embedded refs.
  */
 export function rewriteTriggerConfig(config: any, map: Map<string, string>): any {
-	if (typeof config === 'string') return map.get(config) ?? rewriteContent(config, map)
+	if (typeof config === 'string') {
+		const direct = map.get(config)
+		if (direct) return direct
+		const handler = /^(script|flow)\/(.+)$/.exec(config)
+		if (handler && map.has(handler[2])) return `${handler[1]}/${map.get(handler[2])}`
+		return rewriteContent(config, map)
+	}
 	if (Array.isArray(config)) return config.map((v) => rewriteTriggerConfig(v, map))
 	if (config && typeof config === 'object') {
 		return Object.fromEntries(

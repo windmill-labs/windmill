@@ -16,9 +16,11 @@ import { computeSecretUrl } from '$lib/components/apps/editor/appDeploy.svelte'
 import {
 	buildProjectBundle,
 	buildPathMap,
+	classifyPath,
 	extractScriptRefs,
 	extractFlowRefs,
 	extractAppRefs,
+	rewriteTriggerConfig,
 	type BundleDeps,
 	type BundledItem,
 	type FetchedItem,
@@ -36,6 +38,7 @@ import {
 	TRIGGER_KINDS,
 	listAllWorkspaceTriggers,
 	triggerResourcePath,
+	triggerHandlerRefs,
 	stripTriggerConfig,
 	type WorkspaceTrigger,
 	type WorkspaceTriggerKind
@@ -531,9 +534,12 @@ export class DeployToHubSession {
 		this.detectingResources = true
 		this.detectingDatatables = true
 		const slug = this.hubSlug
-		const seed: ItemRef[] = this.selectedItems
-			.filter((i) => i.kind !== 'resource')
-			.map((i) => ({ kind: i.kind as ItemRef['kind'], path: i.path }))
+		const seed: ItemRef[] = [
+			...this.selectedItems
+				.filter((i) => i.kind !== 'resource')
+				.map((i) => ({ kind: i.kind as ItemRef['kind'], path: i.path })),
+			...this.#triggerHandlerSeed(this.relevantTriggers, slug)
+		]
 		const triggerResources = this.relevantTriggers
 			.map(triggerResourcePath)
 			.filter((p): p is string => !!p)
@@ -836,6 +842,12 @@ export class DeployToHubSession {
 		}
 	}
 
+	// Handler runnables (trigger error handlers, schedule on_* handlers) ship
+	// with the bundle like the primary runnables do; hub refs stay external.
+	#triggerHandlerSeed(triggers: WorkspaceTrigger[], slug: string): ItemRef[] {
+		return triggers.flatMap(triggerHandlerRefs).filter((r) => classifyPath(r.path, slug) !== 'hub')
+	}
+
 	async #pushTriggers(
 		slug: string,
 		resourcePathMap: Map<string, string>,
@@ -856,11 +868,9 @@ export class DeployToHubSession {
 				skipped.push(t.path)
 				continue
 			}
-			const config = stripTriggerConfig(t.config)
-			const field = TRIGGER_KINDS[t.kind]?.resourceField
-			if (field && typeof config[field] === 'string') {
-				config[field] = resourcePathMap.get(config[field] as string) ?? config[field]
-			}
+			// Full-config remap: resource paths, error-handler paths and schedule
+			// on_* handler refs all relocate through the bundle's path map.
+			const config = rewriteTriggerConfig(stripTriggerConfig(t.config), resourcePathMap)
 			triggers.push({
 				path: pathMap.get(t.path) ?? t.path,
 				kind: t.kind,
@@ -924,9 +934,12 @@ export class DeployToHubSession {
 		this.deploying = true
 		let failures = 0
 		try {
-			const seed: ItemRef[] = itemsSnapshot
-				.filter((i) => i.kind !== 'resource')
-				.map((i) => ({ kind: i.kind as ItemRef['kind'], path: i.path }))
+			const seed: ItemRef[] = [
+				...itemsSnapshot
+					.filter((i) => i.kind !== 'resource')
+					.map((i) => ({ kind: i.kind as ItemRef['kind'], path: i.path })),
+				...this.#triggerHandlerSeed(triggersSnapshot, slug)
+			]
 			const triggerResources = triggersSnapshot
 				.map(triggerResourcePath)
 				.filter((p): p is string => !!p)

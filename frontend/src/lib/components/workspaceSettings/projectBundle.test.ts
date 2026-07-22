@@ -517,3 +517,54 @@ describe('retargetProjectExport', () => {
 		expect(out.scripts[0].content).toContain('$res:hub/1/x')
 	})
 })
+
+describe('trigger handler relocation', () => {
+	it('rewriteTriggerConfig remaps script/- and flow/-prefixed handler refs', () => {
+		const map = new Map([
+			['u/admin/handler', 'f/proj/handler'],
+			['u/admin/recovery_flow', 'f/proj/recovery_flow']
+		])
+		const out = rewriteTriggerConfig(
+			{
+				error_handler_path: 'u/admin/handler',
+				on_failure: 'script/u/admin/handler',
+				on_recovery: 'flow/u/admin/recovery_flow',
+				on_success: 'script/u/admin/unmapped'
+			},
+			map
+		)
+		expect(out.error_handler_path).toBe('f/proj/handler')
+		expect(out.on_failure).toBe('script/f/proj/handler')
+		expect(out.on_recovery).toBe('flow/f/proj/recovery_flow')
+		expect(out.on_success).toBe('script/u/admin/unmapped')
+	})
+
+	it('retargetProjectExport remaps trigger error handlers with the bundle', () => {
+		const bundle: ProjectExport = {
+			project: { slug: 'proj', name: 'P', summary: '', readme: null },
+			scripts: [{ path: 'f/proj/handler', content: '' }],
+			flows: [],
+			apps: [],
+			resources: [],
+			triggers: [
+				{
+					path: 'f/proj/sched',
+					kind: 'schedule',
+					runnable_path: 'f/proj/handler',
+					runnable_kind: 'script',
+					config: { schedule: '0 0 * * * *', on_failure: 'script/f/proj/handler' }
+				},
+				{
+					path: 'f/proj/mq',
+					kind: 'mqtt',
+					runnable_path: 'f/proj/handler',
+					runnable_kind: 'script',
+					config: { error_handler_path: 'f/proj/handler' }
+				}
+			]
+		}
+		const out = retargetProjectExport(bundle, 'proj', 'dest')
+		expect(out.triggers[0].config.on_failure).toBe('script/f/dest/handler')
+		expect(out.triggers[1].config.error_handler_path).toBe('f/dest/handler')
+	})
+})

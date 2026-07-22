@@ -219,33 +219,56 @@ export async function installProject(args: {
 	} catch {}
 
 	const proj = retargetProjectExport(exportData, exportData.project.slug, folder)
+
+	// The export is remote input: every path it wants to write must stay inside
+	// the folder the user chose. Anything else (crafted export, or an export
+	// whose items weren't relocated into f/<slug>/ at publish) is refused
+	// per-item instead of being created in another namespace.
+	const prefix = `f/${folder}/`
+	const guard = (path: unknown, ...also: unknown[]): string | undefined => {
+		for (const p of [path, ...also]) {
+			if (typeof p !== 'string' || !p.startsWith(prefix)) {
+				return `path '${String(p)}' escapes the target folder ${prefix} — skipped`
+			}
+		}
+		return undefined
+	}
+	const checked = (path: unknown, run: () => Promise<unknown>, ...also: unknown[]) => {
+		const violation = guard(path, ...also)
+		return violation
+			? record(String(path), Promise.reject(new Error(violation)))
+			: record(String(path), run())
+	}
+
 	for (const s of proj.scripts) {
-		await record(s.path, importScript(workspace, s))
+		await checked(s.path, () => importScript(workspace, s))
 	}
 	for (const f of proj.flows) {
-		await record(f.path, importFlow(workspace, f))
+		await checked(f.path, () => importFlow(workspace, f))
 	}
 	for (const r of proj.resources) {
-		await record(r.path, importResourceStub(workspace, r))
+		await checked(r.path, () => importResourceStub(workspace, r))
 	}
 	for (const a of proj.apps) {
-		await record(a.path, importApp(workspace, a))
+		await checked(a.path, () => importApp(workspace, a))
 	}
 	for (const t of proj.triggers) {
-		await record(
+		await checked(
 			t.path,
-			createWorkspaceTriggerDisabled(
-				workspace,
-				{
-					kind: t.kind,
-					path: t.path,
-					script_path: t.runnable_path,
-					is_flow: t.runnable_kind === 'flow',
-					summary: t.summary ?? null,
-					config: t.config ?? null
-				},
-				{ hasEeLicense }
-			)
+			() =>
+				createWorkspaceTriggerDisabled(
+					workspace,
+					{
+						kind: t.kind,
+						path: t.path,
+						script_path: t.runnable_path,
+						is_flow: t.runnable_kind === 'flow',
+						summary: t.summary ?? null,
+						config: t.config ?? null
+					},
+					{ hasEeLicense }
+				),
+			t.runnable_path
 		)
 	}
 

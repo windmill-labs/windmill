@@ -189,6 +189,11 @@
 		const exportData = data
 		if (!exportData || !workspace) return
 		const folder = folderName.trim() || exportData.project.slug
+		// A slug/workspace switch mid-import bumps loadSeq and resets the view for
+		// the new project; this import's UI writes (results/done/toast) must then
+		// be dropped so they can't mark the new project as imported.
+		const sessionSeq = loadSeq
+		const current = () => sessionSeq === loadSeq
 
 		// Review data table migrations first (before the import spinner), so the user
 		// previews/edits and decides, then the whole import runs uninterrupted.
@@ -213,18 +218,20 @@
 				migrations: migrationsToRun,
 				hasEeLicense: !!$enterpriseLicense,
 				onResult: (r) => {
-					results = [...results, r]
+					if (current()) results = [...results, r]
 				}
 			})
 
-			done = true
-			const failed = results.filter((r) => !r.ok).length
-			sendUserToast(
-				failed > 0
-					? `Imported with ${failed} item(s) failed.`
-					: `Project imported into ${workspace}.`,
-				failed > 0
-			)
+			if (current()) {
+				done = true
+				const failed = results.filter((r) => !r.ok).length
+				sendUserToast(
+					failed > 0
+						? `Imported with ${failed} item(s) failed.`
+						: `Project imported into ${workspace}.`,
+					failed > 0
+				)
+			}
 		} finally {
 			installing = false
 		}
