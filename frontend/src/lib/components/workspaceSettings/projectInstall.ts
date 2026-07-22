@@ -10,12 +10,19 @@ import {
 	ScriptService,
 	WorkspaceService
 } from '$lib/gen'
-import { createWorkspaceTriggerDisabled } from '../triggers/workspaceTriggersList'
+import {
+	TRIGGER_KINDS,
+	createWorkspaceTriggerDisabled,
+	triggerHandlerRefs,
+	type WorkspaceTrigger,
+	type WorkspaceTriggerKind
+} from '../triggers/workspaceTriggersList'
 import { updatePolicy } from '$lib/components/apps/editor/appPolicy'
 import { updateRawAppPolicy } from '$lib/sharedUtils'
 import type { App } from '$lib/components/apps/types'
 import { runScriptAndPollResult } from '$lib/components/jobs/utils'
 import {
+	extractTriggerConfigResourceRefs,
 	retargetProjectExport,
 	type ExportItem,
 	type ProjectExport,
@@ -252,23 +259,47 @@ export async function installProject(args: {
 	for (const a of proj.apps) {
 		await checked(a.path, () => importApp(workspace, a))
 	}
+	// A trigger's config is a live binding, not inert content: resource fields,
+	// handler runnables and $res: refs it names are acted on by the backend, so
+	// every one must stay inside the chosen folder (handlers may also point at
+	// hub/ scripts). Otherwise a crafted export could bind the trigger to
+	// existing assets in another namespace.
+	const triggerConfigViolation = (t: ExportItem): string | undefined => {
+		const cfg = (t.config ?? {}) as Record<string, any>
+		for (const r of triggerHandlerRefs({ kind: t.kind, config: cfg } as WorkspaceTrigger)) {
+			if (!r.path.startsWith(prefix) && !r.path.startsWith('hub/')) {
+				return `handler '${r.path}' escapes the target folder ${prefix} — skipped`
+			}
+		}
+		const resourceRefs = new Set(extractTriggerConfigResourceRefs(cfg))
+		const field = TRIGGER_KINDS[t.kind as WorkspaceTriggerKind]?.resourceField
+		const fieldValue = field ? cfg[field] : undefined
+		if (typeof fieldValue === 'string' && fieldValue !== '') resourceRefs.add(fieldValue)
+		for (const p of resourceRefs) {
+			if (!p.startsWith(prefix)) {
+				return `resource '${p}' escapes the target folder ${prefix} — skipped`
+			}
+		}
+		return undefined
+	}
 	for (const t of proj.triggers) {
-		await checked(
-			t.path,
-			() =>
-				createWorkspaceTriggerDisabled(
-					workspace,
-					{
-						kind: t.kind,
-						path: t.path,
-						script_path: t.runnable_path,
-						is_flow: t.runnable_kind === 'flow',
-						summary: t.summary ?? null,
-						config: t.config ?? null
-					},
-					{ hasEeLicense }
-				),
-			t.runnable_path
+		const violation = guard(t.path, t.runnable_path) ?? triggerConfigViolation(t)
+		await record(
+			String(t.path),
+			violation
+				? Promise.reject(new Error(violation))
+				: createWorkspaceTriggerDisabled(
+						workspace,
+						{
+							kind: t.kind,
+							path: t.path,
+							script_path: t.runnable_path,
+							is_flow: t.runnable_kind === 'flow',
+							summary: t.summary ?? null,
+							config: t.config ?? null
+						},
+						{ hasEeLicense }
+					)
 		)
 	}
 

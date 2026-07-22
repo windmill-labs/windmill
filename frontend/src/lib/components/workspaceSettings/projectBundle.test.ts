@@ -582,3 +582,31 @@ describe('extractTriggerConfigResourceRefs', () => {
 		).toEqual(['u/admin/slack', 'f/other/pg'])
 	})
 })
+
+describe('flow_env and preprocessor_module', () => {
+	const flowValue = {
+		modules: [],
+		preprocessor_module: {
+			id: 'pre',
+			value: { type: 'script', path: 'u/admin/preproc', input_transforms: {} }
+		},
+		flow_env: { SLACK: '$res:u/admin/slack', PLAIN: 'not-a-ref' }
+	}
+
+	it('extractFlowRefs sees preprocessor scripts and flow_env resources', () => {
+		const refs = extractFlowRefs(flowValue)
+		expect(refs).toContainEqual({ kind: 'script', path: 'u/admin/preproc' })
+		expect(refs).toContainEqual({ kind: 'resource', path: 'u/admin/slack' })
+	})
+
+	it('rewriteFlowValue relocates both', () => {
+		const map = new Map([
+			['u/admin/preproc', 'f/proj/preproc'],
+			['u/admin/slack', 'f/proj/slack']
+		])
+		const out = rewriteFlowValue(flowValue, map)
+		expect(out.preprocessor_module.value.path).toBe('f/proj/preproc')
+		expect(out.flow_env.SLACK).toBe('$res:f/proj/slack')
+		expect(out.flow_env.PLAIN).toBe('not-a-ref')
+	})
+})

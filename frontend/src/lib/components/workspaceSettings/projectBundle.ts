@@ -58,8 +58,9 @@ export function extractFlowRefs(value: any): Ref[] {
 		}
 	}
 	// getAllModules flattens the whole tree (loops, branches, aiagent tools,
-	// failure module) so each module only needs local inspection.
-	for (const mod of getAllModules(value?.modules ?? [], value?.failure_module)) {
+	// failure module) so each module only needs local inspection; the
+	// preprocessor module sits outside `modules` and is walked the same way.
+	for (const mod of allFlowModules(value)) {
 		const v: any = (mod as any)?.value
 		if (!v || typeof v !== 'object') continue
 		if (v.type === 'script' && typeof v.path === 'string') add('script', v.path)
@@ -78,7 +79,24 @@ export function extractFlowRefs(value: any): Ref[] {
 			}
 		}
 	}
+	// flow_env values support `$res:path` references.
+	const env = value?.flow_env
+	if (env && typeof env === 'object') {
+		for (const key of Object.keys(env)) {
+			if (typeof env[key] !== 'string') continue
+			for (const r of extractScriptRefs(env[key])) add('resource', r.path)
+		}
+	}
 	return out
+}
+
+// Every module of a flow value: the tree under `modules`, the failure module,
+// and the preprocessor module (which lives outside `modules`).
+function allFlowModules(value: any) {
+	return getAllModules(
+		[...(value?.modules ?? []), ...(value?.preprocessor_module ? [value.preprocessor_module] : [])],
+		value?.failure_module
+	)
 }
 
 // Visit every object node in an app value tree (JSON-safe, no cycles).
@@ -192,7 +210,7 @@ export function rewriteTriggerConfig(config: any, map: Map<string, string>): any
 
 export function rewriteFlowValue(value: any, map: Map<string, string>): any {
 	const cloned = JSON.parse(JSON.stringify(value ?? {}))
-	for (const mod of getAllModules(cloned?.modules ?? [], cloned?.failure_module)) {
+	for (const mod of allFlowModules(cloned)) {
 		const v: any = (mod as any)?.value
 		if (!v || typeof v !== 'object') continue
 		if (
@@ -212,6 +230,12 @@ export function rewriteFlowValue(value: any, map: Map<string, string>): any {
 					if (sm && map.has(sm[2])) t.value = `${sm[1]}$res:${map.get(sm[2])}${sm[3]}`
 				}
 			}
+		}
+	}
+	const env = cloned?.flow_env
+	if (env && typeof env === 'object') {
+		for (const key of Object.keys(env)) {
+			if (typeof env[key] === 'string') env[key] = rewriteContent(env[key], map)
 		}
 	}
 	return cloned

@@ -54,6 +54,12 @@ export const TRIGGER_KINDS: Record<
 		note?: string
 		resourceField?: string
 		eeOnly?: boolean
+		/**
+		 * Creating a trigger of this kind manages external cloud state (e.g.
+		 * Pub/Sub or Event Grid subscriptions) before storing it, even with
+		 * `mode: 'disabled'` — so it must never be auto-created from an import.
+		 */
+		provisionsOnCreate?: boolean
 		list: (
 			workspace: string,
 			onError?: (message: string) => void
@@ -148,6 +154,7 @@ export const TRIGGER_KINDS: Record<
 			AmqpTriggerService.createAmqpTrigger({ workspace, requestBody })
 	},
 	gcp: {
+		provisionsOnCreate: true,
 		badge: 'GCP Pub/Sub',
 		route: 'gcp_triggers',
 		note: 'Re-link GCP Pub/Sub subscription after import.',
@@ -158,6 +165,7 @@ export const TRIGGER_KINDS: Record<
 			GcpTriggerService.createGcpTrigger({ workspace, requestBody })
 	},
 	azure: {
+		provisionsOnCreate: true,
 		badge: 'Azure',
 		route: 'azure_triggers',
 		note: 'Re-link Azure Event Grid subscription after import.',
@@ -265,6 +273,11 @@ export async function createWorkspaceTriggerDisabled(
 	if (!def) throw new Error(`trigger kind '${trigger.kind}' not supported yet`)
 	if (def.eeOnly && !opts.hasEeLicense) {
 		throw new Error(`trigger kind '${trigger.kind}' requires Enterprise`)
+	}
+	if (def.provisionsOnCreate) {
+		throw new Error(
+			`${def.badge} triggers manage cloud subscriptions at creation — fill in the imported resource, then re-create this trigger manually`
+		)
 	}
 	if (trigger.kind === 'schedule') {
 		// Spread the exported config first so behavioral settings survive the
