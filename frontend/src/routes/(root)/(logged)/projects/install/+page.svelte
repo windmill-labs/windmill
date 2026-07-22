@@ -206,6 +206,14 @@
 		}
 		// User backed out at the missing-data-table warning — abort the whole import.
 		if (migrationsToRun === null) return
+		// The migration review can stay open indefinitely; if the project or
+		// workspace changed underneath it, confirming the stale dialog must not
+		// write the old export into the old workspace (with all feedback
+		// suppressed by the session guard).
+		if (!current()) {
+			sendUserToast('Import cancelled — the project or workspace changed during review.', true)
+			return
+		}
 
 		installing = true
 		results = []

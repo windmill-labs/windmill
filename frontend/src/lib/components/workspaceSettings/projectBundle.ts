@@ -94,12 +94,16 @@ export function extractFlowRefs(value: any): Ref[] {
 // Every module of a flow value: the tree under `modules`, the failure module,
 // and the preprocessor module (which lives outside `modules`). Any walk over a
 // flow's modules must go through this — a walk that misses a module class
-// silently drops its dependencies from bundles or migrations.
+// silently drops its dependencies from bundles or migrations. All three go in
+// the root list (not getAllModules' failure_module parameter, which appends
+// the module without expanding its descendants) so nested children of a
+// failure or preprocessor module are walked too.
 export function allFlowModules(value: any) {
-	return getAllModules(
-		[...(value?.modules ?? []), ...(value?.preprocessor_module ? [value.preprocessor_module] : [])],
-		value?.failure_module
-	)
+	return getAllModules([
+		...(value?.modules ?? []),
+		...(value?.preprocessor_module ? [value.preprocessor_module] : []),
+		...(value?.failure_module ? [value.failure_module] : [])
+	])
 }
 
 // Visit every object node in an app value tree (JSON-safe, no cycles).

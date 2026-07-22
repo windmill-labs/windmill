@@ -656,6 +656,22 @@ describe('flow_env and preprocessor_module', () => {
 		flow_env: { SLACK: '$res:u/admin/slack', PLAIN: 'not-a-ref' }
 	}
 
+	it('walks nested children of the failure module', () => {
+		const refs = extractFlowRefs({
+			modules: [],
+			failure_module: {
+				id: 'failure',
+				value: {
+					type: 'forloopflow',
+					modules: [
+						{ id: 'f-a', value: { type: 'script', path: 'u/admin/cleanup', input_transforms: {} } }
+					]
+				}
+			}
+		})
+		expect(refs).toContainEqual({ kind: 'script', path: 'u/admin/cleanup' })
+	})
+
 	it('extractFlowRefs sees preprocessor scripts and flow_env resources', () => {
 		const refs = extractFlowRefs(flowValue)
 		expect(refs).toContainEqual({ kind: 'script', path: 'u/admin/preproc' })
