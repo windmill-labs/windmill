@@ -95,6 +95,7 @@ async fn add_granular_acl(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(GranularAcl { owner, write }): Json<GranularAcl>,
 ) -> Result<String> {
+    crate::check_demo_workspace_restriction(&authed, &w_id, "Sharing")?;
     let path = path.to_path();
 
     let (kind, path) = path

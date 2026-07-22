@@ -22,8 +22,13 @@
 	import { untrack } from 'svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
+	import { DEMO_RESTRICTION_HINT, isDemoWorkspaceRestricted } from '$lib/cloud'
 
 	type GroupW = Group & { canWrite: boolean }
+
+	let restricted = $derived(
+		isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
+	)
 
 	let newGroupName: string = $state('')
 	let groups: GroupW[] | undefined = $state(undefined)
@@ -103,37 +108,49 @@
 		>
 			<div class="flex flex-row">
 				<div>
-					<Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
-						{#snippet trigger()}
-							<Button unifiedSize="md" variant="accent" startIcon={{ icon: Plus }} nonCaptureEvent
-								>New&nbsp;group</Button
-							>
-						{/snippet}
-						{#snippet content({ close })}
-							<div class="flex-col flex gap-2 p-4">
-								<TextInput
-									size="md"
-									inputProps={{
-										placeholder: 'New group name',
-										onkeyup: (e) => handleKeyUp(e, close)
-									}}
-									bind:value={newGroupName}
-								/>
-								<Button
-									unifiedSize="md"
-									variant="accent"
-									startIcon={{ icon: Plus }}
-									disabled={!newGroupName}
-									on:click={() => {
-										addGroup()
-										close()
-									}}
+					{#if restricted}
+						<Button
+							unifiedSize="md"
+							variant="accent"
+							startIcon={{ icon: Plus }}
+							disabled
+							title={DEMO_RESTRICTION_HINT}
+						>
+							New&nbsp;group
+						</Button>
+					{:else}
+						<Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
+							{#snippet trigger()}
+								<Button unifiedSize="md" variant="accent" startIcon={{ icon: Plus }} nonCaptureEvent
+									>New&nbsp;group</Button
 								>
-									Create
-								</Button>
-							</div>
-						{/snippet}
-					</Popover>
+							{/snippet}
+							{#snippet content({ close })}
+								<div class="flex-col flex gap-2 p-4">
+									<TextInput
+										size="md"
+										inputProps={{
+											placeholder: 'New group name',
+											onkeyup: (e) => handleKeyUp(e, close)
+										}}
+										bind:value={newGroupName}
+									/>
+									<Button
+										unifiedSize="md"
+										variant="accent"
+										startIcon={{ icon: Plus }}
+										disabled={!newGroupName}
+										on:click={() => {
+											addGroup()
+											close()
+										}}
+									>
+										Create
+									</Button>
+								</div>
+							{/snippet}
+						</Popover>
+					{/if}
 				</div>
 			</div>
 		</PageHeader>

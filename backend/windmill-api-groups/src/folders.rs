@@ -243,6 +243,7 @@ async fn create_folder(
     Path(w_id): Path<String>,
     Json(mut ng): Json<NewFolder>,
 ) -> Result<String> {
+    crate::check_demo_workspace_restriction(&authed, &w_id, "Folder creation")?;
     if let Some(labels) = ng.labels.as_mut() {
         dedup_labels(labels);
     }
@@ -820,6 +821,7 @@ async fn add_owner(
     Path((w_id, name)): Path<(String, String)>,
     Json(Owner { owner, .. }): Json<Owner>,
 ) -> Result<String> {
+    crate::check_demo_workspace_restriction(&authed, &w_id, "Sharing")?;
     let mut tx = user_db.begin(&authed).await?;
 
     not_found_if_none(get_folderopt(&mut tx, &w_id, &name).await?, "Folder", &name)?;
