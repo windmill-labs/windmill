@@ -588,6 +588,7 @@ rust_decimal = { version = "^1", features = ["db-postgres", "serde-float"]}
 jsonwebtoken = "8.3.0"
 pem = "3.0.1"
 nix = { version = "0.27.1", features = ["process", "signal"] }
+fs4 = "0.13"
 tinyvector = { git = "https://github.com/windmill-labs/tinyvector", rev = "20823b94c20f2b9093f318badd24026cf54dcc85" }
 hf-hub = "0.4.3"
 tokenizers = "0.14.1"

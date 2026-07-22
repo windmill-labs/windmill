@@ -16378,6 +16378,7 @@ dependencies = [
  "dotenv",
  "eventsource-stream",
  "flume",
+ "fs4",
  "futures",
  "gcp_auth",
  "git-version",
