@@ -2986,10 +2986,89 @@ describe('global AI tools', () => {
 		expect(result.message).toContain('"write_to_pg"')
 		expect(result.message).not.toContain('"call_api"')
 
-		// The existing module's body must survive the patch round-trip.
+		// The placeholder is blanked, never persisted as literal content, and the
+		// existing module's body survives the patch round-trip.
+		await expect(
+			callGlobalTool('read_flow_module_code', { path, module_id: 'write_to_pg' })
+		).resolves.toBe('')
 		await expect(
 			callGlobalTool('read_flow_module_code', { path, module_id: 'call_api' })
 		).resolves.toBe('export async function main() { return 1 }')
+	})
+
+	it('rejects a patch whose inline_script placeholder references no module', async () => {
+		const path = 'f/flows/patch-bad-ref'
+		await callGlobalTool('write_flow', {
+			path,
+			modules: JSON.stringify([
+				{
+					id: 'call_api',
+					value: {
+						type: 'rawscript',
+						language: 'bun',
+						content: 'export async function main() { return 1 }',
+						input_transforms: {}
+					}
+				}
+			])
+		})
+
+		await expect(
+			callGlobalTool('patch_flow_json', {
+				path,
+				old_string: '"input_transforms":{}}}]',
+				new_string:
+					'"input_transforms":{}}},{"id":"write_to_pg","value":{"type":"rawscript","language":"postgresql","content":"inline_script.call_apy","input_transforms":{}}}]'
+			})
+		).rejects.toThrow(/Unresolved inline script reference/)
+
+		// The rejected patch must not have touched the draft.
+		await expect(
+			callGlobalTool('read_flow_module_code', { path, module_id: 'call_api' })
+		).resolves.toBe('export async function main() { return 1 }')
+	})
+
+	it('write_flow resolves placeholders to existing module bodies on overwrite', async () => {
+		const path = 'f/flows/overwrite-keep-bodies'
+		const code = 'export async function main() { return 1 }'
+		await callGlobalTool('write_flow', {
+			path,
+			modules: JSON.stringify([
+				{
+					id: 'call_api',
+					value: { type: 'rawscript', language: 'bun', content: code, input_transforms: {} }
+				}
+			])
+		})
+
+		const result = JSON.parse(
+			await callGlobalTool('write_flow', {
+				path,
+				summary: 'Reordered',
+				modules: JSON.stringify([
+					{
+						id: 'call_api',
+						value: {
+							type: 'rawscript',
+							language: 'bun',
+							content: 'inline_script.call_api',
+							input_transforms: {}
+						}
+					},
+					{
+						id: 'notify',
+						value: { type: 'rawscript', language: 'bun', content: '', input_transforms: {} }
+					}
+				])
+			})
+		)
+		expect(result.success).toBe(true)
+		expect(result.message).toContain('"notify"')
+		expect(result.message).not.toContain('"call_api"')
+
+		await expect(
+			callGlobalTool('read_flow_module_code', { path, module_id: 'call_api' })
+		).resolves.toBe(code)
 	})
 
 	it('writes flows with flow-mode arguments and reads compact flow value', async () => {
