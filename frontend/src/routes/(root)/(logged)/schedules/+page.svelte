@@ -199,18 +199,20 @@
 	})
 	let scheduleEditor: ScheduleEditor | undefined = $state()
 
-	let hashHandled = false
+	// Deep link: #<path> opens that schedule's edit drawer. Tracks the last
+	// handled hash (not a one-shot flag) so a hash change on the already-mounted
+	// page (e.g. the AI session preview re-pointing its tab) opens the drawer
+	// too. Row links pre-set handledHash: their onclick already opens the drawer.
+	let handledHash = ''
 	$effect(() => {
-		if (!hashHandled && schedules.length > 0 && scheduleEditor) {
-			let hash = $page.url.hash
-			if (hash.length > 1) {
-				let path = hash.slice(1)
-				let schedule = schedules.find((s) => s.path === path)
-				if (schedule) {
-					hashHandled = true
-					scheduleEditor?.openEdit(path, schedule.is_flow)
-				}
-			}
+		const hash = $page.url.hash
+		if (hash === handledHash || hash.length <= 1 || schedules.length === 0 || !scheduleEditor)
+			return
+		const path = hash.slice(1)
+		const schedule = schedules.find((s) => s.path === path)
+		if (schedule) {
+			handledHash = hash
+			scheduleEditor.openEdit(path, schedule.is_flow)
 		}
 	})
 
@@ -381,13 +383,22 @@
 
 								<a
 									href="#{path}"
-									onclick={() => scheduleEditor?.openEdit(path, is_flow)}
+									onclick={() => {
+										handledHash = `#${path}`
+										scheduleEditor?.openEdit(path, is_flow)
+									}}
 									class="min-w-0 grow hover:underline decoration-gray-400"
 								>
 									<div
 										class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate"
 									>
-										{summary || script_path}{(getLocalDraftHint($workspaceStore, 'trigger_schedule', path) ?? is_draft) ? '*' : ''}
+										{summary || script_path}{(getLocalDraftHint(
+											$workspaceStore,
+											'trigger_schedule',
+											path
+										) ?? is_draft)
+											? '*'
+											: ''}
 									</div>
 									<div class="text-secondary text-xs truncate text-left">
 										schedule: {path}
