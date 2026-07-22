@@ -553,6 +553,43 @@ describe('trigger handler relocation', () => {
 		expect(out.initial_messages[0].raw_message).toBe('$script:u/admin/builder')
 	})
 
+	it('leaves nested url keys untouched, rewriting only the top-level websocket url', () => {
+		const map = new Map([['u/admin/builder', 'f/proj/builder']])
+		const out = rewriteTriggerConfig(
+			{
+				url: '$script:u/admin/builder',
+				args: { url: '$script:u/admin/builder' }
+			},
+			map
+		)
+		expect(out.url).toBe('$script:f/proj/builder')
+		expect(out.args.url).toBe('$script:u/admin/builder')
+	})
+
+	it('extracts and relocates $res refs nested in static input transform JSON', () => {
+		const value = {
+			modules: [
+				{
+					id: 'a',
+					value: {
+						type: 'script',
+						path: 'f/proj/step',
+						input_transforms: {
+							provider: { type: 'static', value: { resource: '$res:u/admin/openai' } },
+							note: { type: 'static', value: 'plain text' }
+						}
+					}
+				}
+			]
+		}
+		const refs = extractFlowRefs(value)
+		expect(refs).toContainEqual({ kind: 'resource', path: 'u/admin/openai' })
+		const out = rewriteFlowValue(value, new Map([['u/admin/openai', 'f/proj/openai']]))
+		const it0 = out.modules[0].value.input_transforms
+		expect(it0.provider.value).toEqual({ resource: '$res:f/proj/openai' })
+		expect(typeof it0.note.value).toBe('string')
+	})
+
 	it('retargetProjectExport remaps trigger error handlers with the bundle', () => {
 		const bundle: ProjectExport = {
 			project: { slug: 'proj', name: 'P', summary: '', readme: null },

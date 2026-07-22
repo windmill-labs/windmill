@@ -10,7 +10,7 @@
 
 import { inferAssets } from '$lib/infer'
 import type { SupportedLanguage } from '$lib/common'
-import { getAllModules } from '$lib/components/flows/flowExplorer'
+import { allFlowModules } from './projectBundle'
 import { getFlowModuleAssets } from '$lib/components/assets/lib'
 import { extractDataConfig, parseDataTableRef } from '$lib/components/raw_apps/dataTableRefUtils'
 import {
@@ -82,7 +82,7 @@ export async function detectDatatableTables(
 				for (const a of res.assets) if (a.kind === 'datatable') addUsage(map, a.path)
 			}
 		} else if (item.kind === 'flow') {
-			for (const mod of getAllModules(item.value?.modules ?? [], item.value?.failure_module)) {
+			for (const mod of allFlowModules(item.value)) {
 				const assets = getFlowModuleAssets(mod)
 				if (assets) for (const a of assets) if (a.kind === 'datatable') addUsage(map, a.path)
 			}

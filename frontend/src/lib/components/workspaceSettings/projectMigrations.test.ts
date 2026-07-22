@@ -61,6 +61,30 @@ describe('detectDatatableTables', () => {
 		expect([...(usage.get('analytics') ?? [])]).toEqual(['events'])
 	})
 
+	it('collects datatable refs from the preprocessor module', async () => {
+		inferAssetsMock.mockResolvedValue({ status: 'ok', assets: [] })
+		const items: FetchedItem[] = [
+			{
+				kind: 'flow',
+				path: 'f/p/fl',
+				value: {
+					modules: [],
+					preprocessor_module: {
+						id: 'pre',
+						value: {
+							type: 'rawscript',
+							language: 'duckdb',
+							content: '',
+							assets: [{ kind: 'datatable', path: 'main/inbox' }]
+						}
+					}
+				}
+			}
+		]
+		const usage = await detectDatatableTables(items)
+		expect([...(usage.get('main') ?? [])]).toEqual(['inbox'])
+	})
+
 	it('records a datatable used with no specific table', async () => {
 		inferAssetsMock.mockResolvedValue({
 			status: 'ok',

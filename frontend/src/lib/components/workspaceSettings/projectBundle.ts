@@ -72,9 +72,12 @@ export function extractFlowRefs(value: any): Ref[] {
 		if (it && typeof it === 'object') {
 			for (const key of Object.keys(it)) {
 				const t = it[key]
-				if (t?.type === 'static' && typeof t.value === 'string') {
-					const sm = /^\s*(?:\$res:|res:\/\/)([\w\-./]+)\s*$/.exec(t.value)
-					if (sm) add('resource', sm[1])
+				// Static values can be a bare `$res:` string or arbitrary JSON with
+				// refs nested anywhere — the worker resolves both, so scan the full
+				// serialization.
+				if (t?.type === 'static' && t.value !== undefined) {
+					const text = typeof t.value === 'string' ? t.value : JSON.stringify(t.value)
+					for (const r of extractScriptRefs(text)) add('resource', r.path)
 				}
 			}
 		}
@@ -89,8 +92,10 @@ export function extractFlowRefs(value: any): Ref[] {
 }
 
 // Every module of a flow value: the tree under `modules`, the failure module,
-// and the preprocessor module (which lives outside `modules`).
-function allFlowModules(value: any) {
+// and the preprocessor module (which lives outside `modules`). Any walk over a
+// flow's modules must go through this — a walk that misses a module class
+// silently drops its dependencies from bundles or migrations.
+export function allFlowModules(value: any) {
 	return getAllModules(
 		[...(value?.modules ?? []), ...(value?.preprocessor_module ? [value.preprocessor_module] : [])],
 		value?.failure_module
@@ -189,7 +194,7 @@ export function extractTriggerConfigResourceRefs(config: any): string[] {
  * or a `script/<path>`/`flow/<path>` handler reference (schedules' on_failure
  * et al.), falling back to `$res:` token rewriting for embedded refs.
  */
-export function rewriteTriggerConfig(config: any, map: Map<string, string>): any {
+export function rewriteTriggerConfig(config: any, map: Map<string, string>, depth = 0): any {
 	if (typeof config === 'string') {
 		const direct = map.get(config)
 		if (direct) return direct
@@ -197,18 +202,19 @@ export function rewriteTriggerConfig(config: any, map: Map<string, string>): any
 		if (handler && map.has(handler[2])) return `${handler[1]}/${map.get(handler[2])}`
 		return rewriteContent(config, map)
 	}
-	if (Array.isArray(config)) return config.map((v) => rewriteTriggerConfig(v, map))
+	if (Array.isArray(config)) return config.map((v) => rewriteTriggerConfig(v, map, depth + 1))
 	if (config && typeof config === 'object') {
 		return Object.fromEntries(
 			Object.entries(config).map(([k, v]) => {
-				// Only the websocket `url` field carries $script:/$flow: runnable refs;
-				// remapping that form on every string could corrupt literal payloads
-				// (e.g. an initial raw_message that happens to look like one).
-				if (k === 'url' && typeof v === 'string') {
+				// Only the websocket config's own `url` field (top level) carries
+				// $script:/$flow: runnable refs; remapping that form on any nested
+				// `url` key could corrupt literal payloads (schedule args, handler
+				// extra args, initial messages).
+				if (depth === 0 && k === 'url' && typeof v === 'string') {
 					const m = /^\$(script|flow):(.+)$/.exec(v)
 					if (m && map.has(m[2])) return [k, `$${m[1]}:${map.get(m[2])}`]
 				}
-				return [k, rewriteTriggerConfig(v, map)]
+				return [k, rewriteTriggerConfig(v, map, depth + 1)]
 			})
 		)
 	}
@@ -232,9 +238,14 @@ export function rewriteFlowValue(value: any, map: Map<string, string>): any {
 		if (it && typeof it === 'object') {
 			for (const key of Object.keys(it)) {
 				const t = it[key]
-				if (t?.type === 'static' && typeof t.value === 'string') {
-					const sm = /^(\s*)(?:\$res:|res:\/\/)([\w\-./]+)(\s*)$/.exec(t.value)
-					if (sm && map.has(sm[2])) t.value = `${sm[1]}$res:${map.get(sm[2])}${sm[3]}`
+				// Mirror extraction: rewrite refs wherever they sit, preserving the
+				// value's type (a string stays a string, JSON round-trips).
+				if (t?.type === 'static' && t.value !== undefined) {
+					if (typeof t.value === 'string') {
+						t.value = rewriteContent(t.value, map)
+					} else {
+						t.value = JSON.parse(rewriteContent(JSON.stringify(t.value), map))
+					}
 				}
 			}
 		}

@@ -67,8 +67,11 @@ export const TRIGGER_KINDS: Record<
 		 * instead of leaking to the Hub or being injectable from a crafted
 		 * export. Identity/ownership/runtime fields (path, permissioned_as,
 		 * email, enabled, server_id, provisioned subscription ids, …) must
-		 * never be listed. Non-schedule kinds get the shared behavior fields
-		 * (error handler, retry) appended by `portableTriggerConfig`.
+		 * never be listed. `tag` (schedules) is excluded deliberately: it names
+		 * a worker group of the source instance, and a foreign tag makes
+		 * imported jobs queue forever on a tag no worker serves. Non-schedule
+		 * kinds get the shared behavior fields (error handler, retry) appended
+		 * by `portableTriggerConfig`.
 		 */
 		configFields: string[]
 		list: (
