@@ -9,6 +9,7 @@
 		GroupService
 	} from '$lib/gen'
 	import TableCustom from './TableCustom.svelte'
+	import { DEMO_RESTRICTION_HINT, isDemoWorkspaceRestricted } from '$lib/cloud'
 	import { Alert, Button, Drawer, DrawerContent } from './common'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import GroupEditor from './GroupEditor.svelte'
@@ -108,8 +109,13 @@
 	// --- default_permissioned_as rules editor ---
 	let defaultPermissionedAs: FolderDefaultPermissionedAs = $state([])
 
+	const restricted = $derived(
+		isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
+	)
+
 	const canEditDefaults = $derived(
 		can_write &&
+			!restricted &&
 			($userStore?.is_admin ||
 				$userStore?.is_super_admin ||
 				($userStore?.groups ?? []).includes('wm_deployers'))
@@ -315,7 +321,9 @@
 
 	<Label label={`Permissions (${perms?.length ?? 0})`}>
 		<div class="flex flex-col gap-2">
-			{#if can_write}
+			{#if can_write && restricted}
+				<Alert type="info" title="Sharing disabled">{DEMO_RESTRICTION_HINT}</Alert>
+			{:else if can_write}
 				<Alert type="info" title="New permissions may take up to 60s to apply">
 					Due to permissions cache invalidation
 				</Alert>
@@ -404,7 +412,7 @@
 							{#each perms ?? [] as { owner_name, role }}<tr>
 									<td>{owner_name}</td>
 									<td>
-										{#if can_write}
+										{#if can_write && !restricted}
 											<div>
 												<ToggleButtonGroup
 													disabled={owner_name == 'u/' + $userStore?.username &&
@@ -478,7 +486,7 @@
 										{/if}</td
 									>
 									<td class="flex items-center justify-end">
-										{#if (can_write && owner_name != 'u/' + $userStore?.username) || $userStore?.is_admin}
+										{#if !restricted && ((can_write && owner_name != 'u/' + $userStore?.username) || $userStore?.is_admin)}
 											<Button
 												variant="subtle"
 												destructive

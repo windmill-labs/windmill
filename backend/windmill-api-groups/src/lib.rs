@@ -8,8 +8,8 @@ use windmill_common::{error::Error, worker::CLOUD_HOSTED};
 
 /// The public demo workspace on the managed cloud is kept clean and consistent by
 /// restricting folder creation, item sharing, and group creation for non-admins.
-/// `action` is a short present-tense phrase completing "… is disabled …" (e.g.
-/// "Folder creation"). Returns `Err(BadRequest)` when the caller is blocked.
+/// `action` is a short noun phrase completing "… is disabled …" (e.g.
+/// "Folder creation", "Sharing"). Returns `Err(BadRequest)` when the caller is blocked.
 pub fn check_demo_workspace_restriction(
     authed: &ApiAuthed,
     w_id: &str,

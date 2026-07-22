@@ -419,6 +419,12 @@ async fn update_folder(
         return Err(Error::PermissionDenied(msg));
     }
 
+    // update_folder can also grant permissions (owners / extra_perms / default_permissioned_as),
+    // so it is a sharing path and must honor the demo-workspace sharing restriction.
+    if ng.owners.is_some() || ng.extra_perms.is_some() || ng.default_permissioned_as.is_some() {
+        crate::check_demo_workspace_restriction(&authed, &w_id, "Sharing")?;
+    }
+
     let mut sqlb = SqlBuilder::update_table("folder");
     sqlb.and_where_eq("name", "?".bind(&name));
     sqlb.and_where_eq("workspace_id", "?".bind(&w_id));

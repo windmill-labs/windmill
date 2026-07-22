@@ -317,7 +317,7 @@
 										<tr>
 											<td>{owner}</td>
 											<td
-												>{#if own}
+												>{#if own && !restricted}
 													<div>
 														<ToggleButtonGroup
 															selected={write ? 'writer' : 'viewer'}
@@ -337,10 +337,10 @@
 															{/snippet}
 														</ToggleButtonGroup>
 													</div>
-												{:else}{write}{/if}</td
+												{:else}{write ? 'Writer' : 'Viewer'}{/if}</td
 											>
 											<td>
-												{#if own}
+												{#if own && !restricted}
 													<Button
 														variant="default"
 														destructive
