@@ -19,6 +19,30 @@ pub async fn custom_migrations(migrator: &mut CustomMigrator) -> Result<(), Erro
         tracing::error!("Could not apply flow versioning fix migration: {err:#}");
     }
 
+    if let Err(err) = normalize_custom_instance_user_attributes(migrator).await {
+        tracing::error!("Could not normalize custom_instance_user attributes: {err:#}");
+    }
+
+    Ok(())
+}
+
+// Converged on every boot, not once: the one-shot migration swallows errors (it must not
+// abort startup without superuser), and an older instance sharing the cluster can re-add
+// the attribute. REPLICATION belongs only on custom_instance_replication_user.
+async fn normalize_custom_instance_user_attributes(
+    migrator: &mut CustomMigrator,
+) -> Result<(), Error> {
+    let has_replication = sqlx::query_scalar::<_, bool>(
+        "SELECT rolreplication FROM pg_roles WHERE rolname = 'custom_instance_user'",
+    )
+    .fetch_optional(migrator.connection())
+    .await?;
+    if has_replication == Some(true) {
+        sqlx::query("ALTER ROLE custom_instance_user NOREPLICATION")
+            .execute(migrator.connection())
+            .await?;
+        tracing::info!("Normalized custom_instance_user attributes");
+    }
     Ok(())
 }
 

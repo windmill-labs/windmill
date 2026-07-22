@@ -1044,6 +1044,92 @@ pub async fn get_custom_pg_instance_password(db: &DB) -> Result<String> {
     )
 }
 
+const REFRESH_CUSTOM_INSTANCE_REPLICATION_USER_SQL: &str = r#"
+    DO $$
+        DECLARE
+            pwd text;
+        BEGIN
+            SELECT gen_random_uuid()::text INTO pwd;
+
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'custom_instance_replication_user') THEN
+                EXECUTE format('ALTER USER custom_instance_replication_user WITH PASSWORD %L REPLICATION', pwd);
+            ELSE
+                EXECUTE format('CREATE USER custom_instance_replication_user WITH PASSWORD %L REPLICATION', pwd);
+            END IF;
+
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'custom_instance_user') THEN
+                GRANT custom_instance_user TO custom_instance_replication_user;
+                ALTER ROLE custom_instance_user NOREPLICATION;
+            END IF;
+
+            INSERT INTO global_settings (name, value)
+            VALUES ('custom_instance_replication_pwd', to_jsonb(pwd::text))
+            ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value;
+        END
+        $$;
+"#;
+
+const REPLICATION_PWD_READ_SQL: &str =
+    "SELECT value #>> '{}' FROM global_settings WHERE name = 'custom_instance_replication_pwd'";
+
+/// (Re)create `custom_instance_replication_user` with a fresh password. This role is
+/// used by postgres trigger connections on custom-instance datatables; membership in
+/// `custom_instance_user` lets it manage publications on the datatable tables.
+///
+/// Authorization: rotates a stored database credential and performs no authorization
+/// itself — callers MUST restrict this to superadmin or internal server paths.
+pub async fn refresh_custom_instance_replication_user_pwd(db: &DB) -> Result<()> {
+    sqlx::query(REFRESH_CUSTOM_INSTANCE_REPLICATION_USER_SQL)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
+/// Authorization: returns a stored database credential and performs no authorization
+/// itself — callers MUST restrict this to superadmin or internal server paths (mirrors
+/// [`get_custom_pg_instance_password`]).
+pub async fn get_custom_pg_instance_replication_password(db: &DB) -> Result<String> {
+    // Fast path: already provisioned by the migration.
+    if let Some(pwd) = sqlx::query_scalar::<_, Option<String>>(REPLICATION_PWD_READ_SQL)
+        .fetch_optional(db)
+        .await?
+        .flatten()
+    {
+        return Ok(pwd);
+    }
+    // Self-heal when the role-creating migration was swallowed. The advisory lock + re-check
+    // serialize concurrent workers: otherwise two callers both rotate, and the second
+    // rotation invalidates the password the first already returned. Rotating and reading in
+    // one locked transaction keeps the decision atomic.
+    let mut tx = db.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('custom_instance_replication_pwd'))")
+        .execute(&mut *tx)
+        .await?;
+    if let Some(pwd) = sqlx::query_scalar::<_, Option<String>>(REPLICATION_PWD_READ_SQL)
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten()
+    {
+        tx.commit().await?;
+        return Ok(pwd);
+    }
+    sqlx::query(REFRESH_CUSTOM_INSTANCE_REPLICATION_USER_SQL)
+        .execute(&mut *tx)
+        .await?;
+    let pwd = sqlx::query_scalar::<_, Option<String>>(REPLICATION_PWD_READ_SQL)
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten()
+        .ok_or_else(|| {
+            Error::BadRequest(
+                "Custom instance replication user password not found, did you run migrations ?"
+                    .to_string(),
+            )
+        })?;
+    tx.commit().await?;
+    Ok(pwd)
+}
+
 /// Convert a JSON string to a `Box<RawValue>` without validation.
 ///
 /// # Safety
