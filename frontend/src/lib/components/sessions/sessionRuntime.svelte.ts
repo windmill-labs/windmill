@@ -1024,16 +1024,32 @@ setOpenPagePreviewHandler(({ sessionId: callerSessionId, href, label, newTab }) 
 			(t) => matchReusablePage(t.loc || t.url)?.path === targetPage.path
 		)
 		if (existing) {
+			// A target identical to what the tab already shows produces no navigation
+			// signal at all, so a drawer-opening hash (an edit drawer the user closed)
+			// would silently not re-fire — force a load. Hashless targets need no
+			// reload: focusing the already-correct view is enough.
+			const unchanged = href.includes('#') && (existing.loc || existing.url) === href
 			owner.select(existing.id)
 			owner.navigate({ type: 'page', href, label })
 			owner.setCollapsed(false)
+			if (unchanged) {
+				owner.pulseReload(existing.id)
+				return `Re-opened the ${label} preview tab on the requested view.`
+			}
 			return `Updated the ${label} preview tab with the new filters.`
 		}
 	}
 	const result = owner.open({ type: 'page', href, label })
-	return result.status === 'focused'
-		? `A preview tab is already showing ${label} — focused it and applied the filters.`
-		: `Opened ${label} in a new preview tab in the side panel.`
+	if (result.status === 'focused') {
+		// Same no-signal situation as above: open() only reports 'focused' when a
+		// tab already shows this exact URL.
+		if (href.includes('#')) {
+			const shown = owner.tabs.find((t) => (t.loc || t.url) === href)
+			if (shown) owner.pulseReload(shown.id)
+		}
+		return `A preview tab is already showing ${label} — focused it and applied the filters.`
+	}
+	return `Opened ${label} in a new preview tab in the side panel.`
 })
 
 // Companion to the open_preview handler: report the calling session's open
