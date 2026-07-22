@@ -3192,17 +3192,9 @@ async fn resume_suspended(
     }
 
     // Check approval conditions
-    let approval_conditions = if is_wac {
-        flow.flow_status
-            .as_ref()
-            .and_then(|v| v.get("approval_conditions"))
-            .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok())
-    } else {
-        flow.flow_status
-            .as_ref()
-            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
-            .and_then(|fs| fs.approval_conditions)
-    };
+    let approval_conditions = extract_approval_conditions(flow.flow_status.as_ref(), is_wac);
+
+    let trigger_email = flow.email.as_deref().unwrap_or("");
 
     if let Some(ref ac) = approval_conditions {
         if ac.user_auth_required && opt_authed.is_none() {
@@ -3214,6 +3206,13 @@ async fn resume_suspended(
 
     // If logged in, check authorization rules
     if let Some(ref authed) = opt_authed {
+        // self_approval_disabled applies to owners too (only admins are exempt), so it is
+        // enforced before the owner shortcut below. A token-only (anonymous) resume is treated as
+        // capability-based and intentionally not gated here; see resume_suspended_job.
+        if let Some(ref ac) = approval_conditions {
+            require_not_self_approval(authed, ac, trigger_email)?;
+        }
+
         let is_admin = authed.is_admin;
         let is_owner = flow
             .script_path
@@ -3222,7 +3221,6 @@ async fn resume_suspended(
             .unwrap_or(false);
 
         if !is_admin && !is_owner {
-            let trigger_email = flow.email.as_deref().unwrap_or("");
             conditionally_require_authed_user(
                 Some(authed.clone()),
                 approval_conditions.clone(),
@@ -3347,10 +3345,11 @@ struct ApprovalInfo {
 }
 
 /// Whether `opt_authed` is allowed to approve — and therefore view — this approval step.
-/// Mirrors the authorization performed at the resume boundary: workspace admins and owners
-/// of the runnable always qualify; otherwise the approval conditions (user_auth_required /
-/// user_groups_required / self_approval_disabled) decide. When the step does not require auth,
-/// an anonymous (token-only) caller qualifies.
+/// Mirrors the authorization performed at the resume boundary: workspace admins always qualify;
+/// self_approval_disabled then bars the triggerer even when they own the runnable; otherwise
+/// owners qualify and the remaining approval conditions (user_auth_required /
+/// user_groups_required) decide. When the step does not require auth, an anonymous (token-only)
+/// caller qualifies.
 fn can_approve_step(
     opt_authed: &Option<ApiAuthed>,
     approval_conditions: &Option<ApprovalConditions>,
@@ -3361,6 +3360,12 @@ fn can_approve_step(
         Some(authed) => {
             if authed.is_admin {
                 return true;
+            }
+            // self_approval_disabled applies to owners too, so it gates the owner shortcut.
+            if let Some(ref ac) = approval_conditions {
+                if require_not_self_approval(authed, ac, trigger_email).is_err() {
+                    return false;
+                }
             }
             let is_owner = script_path
                 .map(|p| require_owner_of_path(authed, p).is_ok())
@@ -3648,8 +3653,10 @@ async fn resume_suspended_job_internal(
     // Get flow info - works for step-level, flow-level, and WAC approval
     let (flow_info, is_flow_level, is_wac) = get_flow_info_for_resume(job_id, &db).await?;
 
-    // HMAC secret = full capability. Skip approval_conditions checks.
-    // Authorization rules are enforced by the new resume_suspended endpoint instead.
+    // HMAC secret = full capability. Skip approval_conditions checks: possession of the full
+    // resume URL is the authorization (it is only disclosed to intended approvers, e.g. when a
+    // step returns it). Identity-based rules, including self_approval_disabled, are enforced by
+    // the resume_suspended endpoint instead.
 
     let exists = sqlx::query_scalar!(
         r#"
@@ -4095,6 +4102,45 @@ pub async fn get_suspended_job_flow(
     Ok(Json(SuspendedJobFlow { job: flow, approvers, view_token }).into_response())
 }
 
+/// Read the step's approval_conditions from the suspended flow status. For classic flows they
+/// live inside the deserialized `FlowStatus`; for workflow-as-code they are a top-level
+/// `approval_conditions` key in the status JSON.
+fn extract_approval_conditions(
+    flow_status: Option<&serde_json::Value>,
+    is_wac: bool,
+) -> Option<ApprovalConditions> {
+    if is_wac {
+        flow_status
+            .and_then(|v| v.get("approval_conditions"))
+            .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok())
+    } else {
+        flow_status
+            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
+            .and_then(|fs| fs.approval_conditions)
+    }
+}
+
+/// The flow's triggerer may not approve their own suspended step when the step sets
+/// `self_approval_disabled`. Only admins are exempt: owning the runnable does not grant
+/// the right to approve your own run, so this must be enforced at every resume boundary
+/// independently of the owner shortcut (which only waives user_auth_required /
+/// user_groups_required).
+fn require_not_self_approval(
+    authed: &ApiAuthed,
+    approval_conditions: &ApprovalConditions,
+    trigger_email: &str,
+) -> error::Result<()> {
+    if approval_conditions.self_approval_disabled
+        && !authed.is_admin
+        && authed.email.eq(trigger_email)
+    {
+        return Err(Error::PermissionDenied(
+            "Self-approval is disabled for this flow step".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 fn conditionally_require_authed_user(
     _authed: Option<ApiAuthed>,
     approval_conditions_opt: Option<ApprovalConditions>,
@@ -4106,14 +4152,8 @@ fn conditionally_require_authed_user(
     let approval_conditions = approval_conditions_opt.unwrap();
 
     // Check self-approval independently of user_auth_required
-    if approval_conditions.self_approval_disabled {
-        if let Some(ref authed) = _authed {
-            if !authed.is_admin && authed.email.eq(_trigger_email) {
-                return Err(Error::PermissionDenied(
-                    "Self-approval is disabled for this flow step".to_string(),
-                ));
-            }
-        }
+    if let Some(ref authed) = _authed {
+        require_not_self_approval(authed, &approval_conditions, _trigger_email)?;
     }
 
     if approval_conditions.user_auth_required {
