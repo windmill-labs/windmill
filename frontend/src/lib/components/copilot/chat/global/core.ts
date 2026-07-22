@@ -469,11 +469,11 @@ function parseOptionalJsonArg(value: unknown, field: string): unknown {
  * Rawscript bodies are fragile to embed inside the `modules` JSON string: the
  * code's quotes and newlines have to survive three levels of escaping (tool-call
  * arguments -> modules string -> content string) and the model routinely mangles
- * them. When a rawscript module is left with empty or placeholder content, steer
- * the model to fill the body out-of-band with `set_flow_module_code` instead of
- * re-sending the whole flow.
+ * them. So a module may be saved with empty (or `inline_script.` placeholder)
+ * content; return the ids that still need a body filled out-of-band with
+ * `set_flow_module_code`.
  */
-function formatEmptyInlineScriptWarning(editable: EditableFlowJson): string {
+function emptyInlineScriptModuleIds(editable: EditableFlowJson): string[] {
 	const value: FlowValue = {
 		modules: editable.modules,
 		preprocessor_module: editable.preprocessor_module ?? undefined,
@@ -481,14 +481,34 @@ function formatEmptyInlineScriptWarning(editable: EditableFlowJson): string {
 	}
 	const session = createInlineScriptSession()
 	buildEditableFlowJson({ value, schema: editable.schema }, session)
-	const emptyIds = Object.entries(session.getAll())
+	return Object.entries(session.getAll())
 		.filter(([, content]) => content.trim() === '' || /^inline_script\./.test(content))
 		.map(([id]) => id)
+}
+
+/**
+ * Fold the empty-body warning into `write_flow`'s JSON result — but only when the
+ * save actually succeeded. `writeFlowDraft` reports conflicts/persistence errors
+ * as `{ success: false }` rather than throwing; telling the model to fill code on
+ * a flow that was never saved would send it after a stale or nonexistent draft.
+ */
+function appendEmptyInlineScriptWarning(result: string, editable: EditableFlowJson): string {
+	const emptyIds = emptyInlineScriptModuleIds(editable)
 	if (emptyIds.length === 0) {
-		return ''
+		return result
+	}
+	let parsed: { success?: unknown; message?: unknown }
+	try {
+		parsed = JSON.parse(result)
+	} catch {
+		return result
+	}
+	if (parsed.success !== true || typeof parsed.message !== 'string') {
+		return result
 	}
 	const list = emptyIds.map((id) => `"${id}"`).join(', ')
-	return `\n\nWarning: inline scripts ${list} have no code yet. Fill each one with set_flow_module_code(path, module_id, code) — do not re-send the whole flow.`
+	parsed.message += `\n\nWarning: inline scripts ${list} have no code yet. Fill each one with set_flow_module_code(path, module_id, code) — do not re-send the whole flow.`
+	return JSON.stringify(parsed, null, 2)
 }
 
 function editableFlowToDraftValue(editable: EditableFlowJson): FlowDraftValue {
@@ -2827,7 +2847,7 @@ export const globalTools: Tool<{}>[] = [
 				groups: parseOptionalJsonArg(parsed.groups, 'groups'),
 				notes: parseOptionalJsonArg(parsed.notes, 'notes')
 			})
-			const message = await writeFlowDraft(
+			const result = await writeFlowDraft(
 				{
 					path: parsed.path,
 					summary: parsed.summary,
@@ -2836,7 +2856,7 @@ export const globalTools: Tool<{}>[] = [
 				},
 				ctx
 			)
-			return message + formatEmptyInlineScriptWarning(editable)
+			return appendEmptyInlineScriptWarning(result, editable)
 		}
 	},
 	{

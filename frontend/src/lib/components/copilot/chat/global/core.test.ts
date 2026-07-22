@@ -2857,6 +2857,92 @@ describe('global AI tools', () => {
 		).resolves.toBe(code)
 	})
 
+	it('warns about every empty rawscript body (top-level, nested, preprocessor, failure) and skips populated ones', async () => {
+		const result = JSON.parse(
+			await callGlobalTool('write_flow', {
+				path: 'f/flows/empty-bodies',
+				modules: JSON.stringify([
+					{
+						id: 'empty_top',
+						value: { type: 'rawscript', language: 'bun', content: '', input_transforms: {} }
+					},
+					{
+						id: 'filled',
+						value: {
+							type: 'rawscript',
+							language: 'bun',
+							content: 'export async function main() { return 1 }',
+							input_transforms: {}
+						}
+					},
+					{
+						id: 'loop',
+						value: {
+							type: 'forloopflow',
+							iterator: { type: 'javascript', expr: 'results.filled' },
+							skip_failures: false,
+							modules: [
+								{
+									id: 'empty_nested',
+									value: {
+										type: 'rawscript',
+										language: 'bun',
+										content: '',
+										input_transforms: {}
+									}
+								}
+							]
+						}
+					}
+				]),
+				preprocessor_module: JSON.stringify({
+					id: 'preprocessor',
+					value: { type: 'rawscript', language: 'bun', content: '', input_transforms: {} }
+				}),
+				failure_module: JSON.stringify({
+					id: 'failure',
+					value: { type: 'rawscript', language: 'bun', content: '', input_transforms: {} }
+				})
+			})
+		)
+
+		expect(result.success).toBe(true)
+		expect(result.message).toContain('set_flow_module_code')
+		for (const id of ['empty_top', 'empty_nested', 'preprocessor', 'failure']) {
+			expect(result.message).toContain(`"${id}"`)
+		}
+		expect(result.message).not.toContain('"filled"')
+	})
+
+	it('does not append the empty-body warning when the flow was not saved', async () => {
+		const path = 'f/flows/write-fails'
+		failingWrites.add(`flow:${path}`)
+
+		const result = JSON.parse(
+			await callGlobalTool('write_flow', {
+				path,
+				modules: JSON.stringify([
+					{
+						id: 'empty_step',
+						value: { type: 'rawscript', language: 'bun', content: '', input_transforms: {} }
+					}
+				])
+			})
+		)
+
+		expect(result.success).toBe(false)
+		expect(JSON.stringify(result)).not.toContain('set_flow_module_code')
+	})
+
+	it('hints at inline-code escaping when the modules JSON fails to parse', async () => {
+		await expect(
+			callGlobalTool('write_flow', {
+				path: 'f/flows/bad-json',
+				modules: '[{"id":"a","value":{"type":"rawscript","content":"oops"}]'
+			})
+		).rejects.toThrow(/Invalid JSON for modules.*set_flow_module_code/s)
+	})
+
 	it('writes flows with flow-mode arguments and reads compact flow value', async () => {
 		const writeResult = JSON.parse(
 			await callGlobalTool('write_flow', {
