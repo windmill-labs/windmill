@@ -10,10 +10,10 @@ export const SKILLS: SkillMetadata[] = [
   { name: "write-script-ansible", description: "MUST use when writing Ansible playbooks.", languageKey: "ansible" },
   { name: "write-script-bash", description: "MUST use when writing Bash scripts.", languageKey: "bash" },
   { name: "write-script-bigquery", description: "MUST use when writing BigQuery queries.", languageKey: "bigquery" },
-  { name: "write-script-bun", description: "MUST use when writing Bun/TypeScript scripts.", languageKey: "bun" },
+  { name: "write-script-bun", description: "MUST use when writing TypeScript scripts. Bun is the default and preferred TypeScript runtime — pick it for TypeScript unless the script specifically needs Deno.", languageKey: "bun" },
   { name: "write-script-bunnative", description: "MUST use when writing Bun Native scripts. The script must start with //native to run on the native worker.", languageKey: "bunnative" },
   { name: "write-script-csharp", description: "MUST use when writing C# scripts.", languageKey: "csharp" },
-  { name: "write-script-deno", description: "MUST use when writing Deno/TypeScript scripts.", languageKey: "deno" },
+  { name: "write-script-deno", description: "Use ONLY when a TypeScript script specifically requires the Deno runtime (Deno stdlib or deno.land URL imports). For all other TypeScript, use write-script-bun instead.", languageKey: "deno" },
   { name: "write-script-duckdb", description: "MUST use when writing DuckDB queries.", languageKey: "duckdb" },
   { name: "write-script-go", description: "MUST use when writing Go scripts.", languageKey: "go" },
   { name: "write-script-graphql", description: "MUST use when writing GraphQL queries.", languageKey: "graphql" },
@@ -374,7 +374,7 @@ being buffered, bypassing the 10000-row return cap.
 `,
   "write-script-bun": `---
 name: write-script-bun
-description: MUST use when writing Bun/TypeScript scripts.
+description: MUST use when writing TypeScript scripts. Bun is the default and preferred TypeScript runtime — pick it for TypeScript unless the script specifically needs Deno.
 ---
 
 ## CLI Commands
@@ -424,7 +424,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 # TypeScript (Bun)
 
-Bun runtime with full npm ecosystem and fastest execution.
+Bun runtime with full npm ecosystem and fastest execution. **Bun is the default and preferred TypeScript runtime** — choose it for any TypeScript script unless there is a major reason to use Deno for that specific use-case.
 
 ## Structure
 
@@ -1994,7 +1994,7 @@ public class Script
 `,
   "write-script-deno": `---
 name: write-script-deno
-description: MUST use when writing Deno/TypeScript scripts.
+description: Use ONLY when a TypeScript script specifically requires the Deno runtime (Deno stdlib or deno.land URL imports). For all other TypeScript, use write-script-bun instead.
 ---
 
 ## CLI Commands
@@ -2045,6 +2045,8 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 # TypeScript (Deno)
 
 Deno runtime with npm support via \`npm:\` prefix and native Deno libraries.
+
+**Prefer Bun (\`write-script-bun\`) for TypeScript.** Only use Deno when the script specifically requires the Deno runtime — Deno's standard library or \`deno.land\` URL imports that have no npm equivalent. For all other TypeScript, use Bun instead.
 
 ## Structure
 

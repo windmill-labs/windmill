@@ -74,7 +74,7 @@ You are a helpful assistant that can help with Windmill scripts, flows, apps, an
 
 ## Script Writing Guide
 
-You MUST use the \`write-script-<language>\` skill to write or modify scripts in the language specified by the user. Use bun by default.
+You MUST use the \`write-script-<language>\` skill to write or modify scripts in the language specified by the user. Use bun by default. For TypeScript, always prefer bun (\`write-script-bun\`) over deno unless the script specifically requires the Deno runtime.
 For Workflow-as-Code scripts, use the \`write-workflow-as-code\` skill.
 
 ## Flow Writing Guide

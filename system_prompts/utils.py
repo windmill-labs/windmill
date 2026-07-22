@@ -86,13 +86,13 @@ CLI_EXCLUDED_FIELDS = [
 LANGUAGE_METADATA = {
     'bun': {
         'name': 'TypeScript (Bun)',
-        'description': 'MUST use when writing Bun/TypeScript scripts.',
-        'use_cases': 'TypeScript automation, npm packages, data processing, API integrations'
+        'description': 'MUST use when writing TypeScript scripts. Bun is the default and preferred TypeScript runtime — pick it for TypeScript unless the script specifically needs Deno.',
+        'use_cases': 'TypeScript automation, npm packages, data processing, API integrations — the default choice for TypeScript'
     },
     'deno': {
         'name': 'TypeScript (Deno)',
-        'description': 'MUST use when writing Deno/TypeScript scripts.',
-        'use_cases': 'TypeScript with Deno stdlib, secure sandboxed execution'
+        'description': 'Use ONLY when a TypeScript script specifically requires the Deno runtime (Deno stdlib or deno.land URL imports). For all other TypeScript, use write-script-bun instead.',
+        'use_cases': 'TypeScript that specifically needs the Deno runtime (Deno stdlib or deno.land imports); prefer Bun otherwise'
     },
     # 'nativets' is intentionally omitted: it is a legacy duplicate of
     # 'bunnative' (a Bun script with a leading //native marker). No
