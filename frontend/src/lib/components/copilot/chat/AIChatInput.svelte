@@ -509,6 +509,23 @@
 		focusInput()
 	}
 
+	/** Copy the last sent message (content + paste chips) into the composer.
+	 * The conversation is left untouched — resending creates a new message,
+	 * unlike the bubble's edit pencil which rewinds the conversation. */
+	function recallLastSentMessage(): boolean {
+		const messages = aiChatManager.displayMessages
+		for (let i = messages.length - 1; i >= 0; i--) {
+			const message = messages[i]
+			if (message.role === 'user' && message.content) {
+				instructions = message.content
+				pastes = message.pastes ? [...message.pastes] : []
+				focusInput()
+				return true
+			}
+		}
+		return false
+	}
+
 	function clickOutside(node: HTMLElement) {
 		function handleClick(event: MouseEvent) {
 			// An expanded image chip renders in a portal, so clicks in it land outside
@@ -980,6 +997,27 @@
 		if (e.key === 'Escape' && aiChatManager.loading) {
 			e.preventDefault()
 			aiChatManager.cancel()
+		} else if (
+			e.key === 'ArrowUp' &&
+			!e.defaultPrevented &&
+			e.target instanceof HTMLTextAreaElement &&
+			editingMessageIndex === null &&
+			onSendRequest === undefined &&
+			!instructions.trim()
+		) {
+			// Shell-style recall: ArrowUp in the empty main composer pulls the
+			// queued message (if any, same as the queued-message chip's click/X)
+			// or otherwise a copy of the last sent message back into the input.
+			// Textarea only — ArrowUp on the wrapper's buttons/badges must not
+			// mutate the composer; and main composer only — the edit input and
+			// custom-send consumers (inline widget) have their own history
+			// semantics.
+			if (aiChatManager.queuedMessage) {
+				e.preventDefault()
+				aiChatManager.dequeueMessage()
+			} else if (recallLastSentMessage()) {
+				e.preventDefault()
+			}
 		}
 	}}
 >
