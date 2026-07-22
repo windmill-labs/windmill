@@ -575,7 +575,11 @@ const writeResourceSchema = resourceRequestSchema.extend({ override: draftOverri
 const writeVariableSchema = variableRequestSchema.extend({ override: draftOverrideField })
 
 const searchResourceTypesSchema = z.object({
-	query: z.string().describe('Substring to match against resource type names.'),
+	query: z
+		.string()
+		.describe(
+			'Natural-language description of the integration or capability you need, e.g. "stripe", "postgres database", or "send emails". Matched semantically against resource type names and descriptions, so describe the intent rather than guessing the exact name.'
+		),
 	limit: z
 		.number()
 		.int()

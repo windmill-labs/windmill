@@ -116,6 +116,26 @@ pub struct ResourceTypeResult {
     score: f32,
     schema: Option<serde_json::Value>,
 }
+
+/// Drop results whose score falls more than `max_relative_drop` below the best
+/// match, so a strong hit isn't diluted by weakly-related entries that merely
+/// clear the similarity floor. Expects `results` sorted by descending score and
+/// a positive top score (guaranteed by the caller's similarity threshold).
+#[cfg(feature = "embedding")]
+fn trim_to_top_score<T>(
+    results: Vec<T>,
+    max_relative_drop: f32,
+    score: impl Fn(&T) -> f32,
+) -> Vec<T> {
+    if results.len() <= 1 {
+        return results;
+    }
+    let top_score = score(&results[0]);
+    results
+        .into_iter()
+        .take_while(|r| (top_score - score(r)) / top_score <= max_relative_drop)
+        .collect()
+}
 #[cfg(feature = "embedding")]
 async fn query_resource_types(
     Query(query): Query<ResourceTypesQuery>,
@@ -515,15 +535,7 @@ impl EmbeddingsDb {
             })
             .collect();
 
-        let mut results = results?;
-
-        if results.len() > 1 {
-            let top_score = results[0].score;
-            results = results
-                .into_iter()
-                .take_while(|r| (top_score - r.score) / top_score <= 0.05)
-                .collect();
-        }
+        let results = trim_to_top_score(results?, 0.05, |r| r.score);
 
         Ok(results)
     }
@@ -564,7 +576,7 @@ impl EmbeddingsDb {
             Some(0.75),
         );
 
-        let results: Result<_> = results
+        let results: Result<Vec<ResourceTypeResult>> = results
             .iter()
             .map(|r| {
                 let metadata = r
@@ -586,7 +598,9 @@ impl EmbeddingsDb {
             })
             .collect();
 
-        results
+        let results = trim_to_top_score(results?, 0.05, |r| r.score);
+
+        Ok(results)
     }
 }
 
@@ -687,4 +701,32 @@ pub fn workspaced_service() -> Router {
 #[cfg(not(feature = "embedding"))]
 pub fn global_service() -> Router {
     Router::new()
+}
+
+#[cfg(all(test, feature = "embedding"))]
+mod tests {
+    use super::trim_to_top_score;
+
+    #[test]
+    fn trims_scores_more_than_5pct_below_top() {
+        // top=1.0, cutoff at 0.95: 0.96 stays (0.04 drop), 0.93 is the first
+        // beyond the cutoff so take_while stops there and drops the tail.
+        let kept = trim_to_top_score(vec![1.0f32, 0.97, 0.96, 0.93, 0.9], 0.05, |s| *s);
+        assert_eq!(kept, vec![1.0, 0.97, 0.96]);
+    }
+
+    #[test]
+    fn keeps_all_when_tightly_clustered() {
+        let kept = trim_to_top_score(vec![0.9f32, 0.89, 0.88], 0.05, |s| *s);
+        assert_eq!(kept, vec![0.9, 0.89, 0.88]);
+    }
+
+    #[test]
+    fn passes_through_zero_or_one_result() {
+        assert_eq!(
+            trim_to_top_score(Vec::<f32>::new(), 0.05, |s| *s),
+            Vec::<f32>::new()
+        );
+        assert_eq!(trim_to_top_score(vec![0.42f32], 0.05, |s| *s), vec![0.42]);
+    }
 }
