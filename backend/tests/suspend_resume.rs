@@ -352,6 +352,110 @@ mod suspend_resume {
         Ok(())
     }
 
+    /// Test that self-approval is blocked on the UI resume endpoint (POST
+    /// /jobs/flow/resume_suspended/:job_id) when self_approval_disabled is true, even for a
+    /// user who owns the flow path.
+    ///
+    /// This is the endpoint the "Resume" button in the run detail UI calls. Its owner shortcut
+    /// used to skip the approval-condition checks entirely, so the flow owner/operator who
+    /// triggered the run could self-approve despite self_approval_disabled.
+    #[cfg(feature = "enterprise")]
+    #[cfg(feature = "deno_core")]
+    #[sqlx::test(fixtures("base"))]
+    async fn test_self_approval_disabled_blocks_ui_resume_for_owner(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        initialize_tracing().await;
+
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let flow_with_self_approval_disabled: FlowValue = serde_json::from_value(json!({
+            "modules": [{
+                "id": "a",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return 'step1'; }"
+                },
+                "suspend": {
+                    "required_events": 1,
+                    "user_auth_required": true,
+                    "self_approval_disabled": true
+                }
+            }, {
+                "id": "b",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return 'step2 - after approval'; }"
+                }
+            }]
+        }))
+        .unwrap();
+
+        // Push as a non-admin who owns the flow path, so the owner shortcut is exercised.
+        let flow = RunJob::from(JobPayload::RawFlow {
+            value: flow_with_self_approval_disabled,
+            path: Some("u/test-user-2/test_ui_resume".to_string()),
+            restarted_from: None,
+        })
+        .push_as(&db, "test-user-2", "test2@windmill.dev")
+        .await;
+
+        let queue = listen_for_queue(&db).await;
+        let db_ = db.clone();
+
+        in_test_worker(
+            &db,
+            async move {
+                let db = db_;
+
+                wait_until_flow_suspends(flow, queue, &db).await;
+
+                let token = windmill_common::auth::create_token_for_owner(
+                    &db,
+                    "test-workspace",
+                    "u/test-user-2",
+                    "test-token",
+                    100,
+                    "test2@windmill.dev",
+                    &Uuid::nil(),
+                    None,
+                    None,
+                )
+                .await
+                .unwrap();
+
+                // Resume via the UI endpoint as the owner who triggered the flow.
+                let response = reqwest::Client::new()
+                    .post(format!(
+                        "http://localhost:{port}/api/w/test-workspace/jobs_u/flow/resume_suspended/{flow}"
+                    ))
+                    .header("Authorization", format!("Bearer {token}"))
+                    .header("Content-Type", "application/json")
+                    .body("{}")
+                    .send()
+                    .await
+                    .unwrap();
+
+                let status = response.status();
+                assert!(
+                    status == reqwest::StatusCode::FORBIDDEN,
+                    "Self-approval via the UI resume endpoint should be blocked for the owner when \
+                     self_approval_disabled=true. Expected 403 Forbidden, got {}. Response: {}",
+                    status,
+                    response.text().await.unwrap_or_default()
+                );
+            },
+            port,
+        )
+        .await;
+
+        server.close().await.unwrap();
+        Ok(())
+    }
+
     /// Test that self-approval WORKS when self_approval_disabled is false (default behavior).
     ///
     /// This is the complementary test to test_self_approval_disabled_blocks_owner_resume.

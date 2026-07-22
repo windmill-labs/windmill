@@ -3214,6 +3214,14 @@ async fn resume_suspended(
 
     // If logged in, check authorization rules
     if let Some(ref authed) = opt_authed {
+        let trigger_email = flow.email.as_deref().unwrap_or("");
+
+        // self_approval_disabled applies to owners too (only admins are exempt), so it is
+        // enforced before the owner shortcut below.
+        if let Some(ref ac) = approval_conditions {
+            require_not_self_approval(authed, ac, trigger_email)?;
+        }
+
         let is_admin = authed.is_admin;
         let is_owner = flow
             .script_path
@@ -3222,7 +3230,6 @@ async fn resume_suspended(
             .unwrap_or(false);
 
         if !is_admin && !is_owner {
-            let trigger_email = flow.email.as_deref().unwrap_or("");
             conditionally_require_authed_user(
                 Some(authed.clone()),
                 approval_conditions.clone(),
@@ -3361,6 +3368,12 @@ fn can_approve_step(
         Some(authed) => {
             if authed.is_admin {
                 return true;
+            }
+            // self_approval_disabled applies to owners too, so it gates the owner shortcut.
+            if let Some(ref ac) = approval_conditions {
+                if require_not_self_approval(authed, ac, trigger_email).is_err() {
+                    return false;
+                }
             }
             let is_owner = script_path
                 .map(|p| require_owner_of_path(authed, p).is_ok())
@@ -4095,6 +4108,27 @@ pub async fn get_suspended_job_flow(
     Ok(Json(SuspendedJobFlow { job: flow, approvers, view_token }).into_response())
 }
 
+/// The flow's triggerer may not approve their own suspended step when the step sets
+/// `self_approval_disabled`. Only admins are exempt: owning the runnable does not grant
+/// the right to approve your own run, so this must be enforced at every resume boundary
+/// independently of the owner shortcut (which only waives user_auth_required /
+/// user_groups_required).
+fn require_not_self_approval(
+    authed: &ApiAuthed,
+    approval_conditions: &ApprovalConditions,
+    trigger_email: &str,
+) -> error::Result<()> {
+    if approval_conditions.self_approval_disabled
+        && !authed.is_admin
+        && authed.email.eq(trigger_email)
+    {
+        return Err(Error::PermissionDenied(
+            "Self-approval is disabled for this flow step".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 fn conditionally_require_authed_user(
     _authed: Option<ApiAuthed>,
     approval_conditions_opt: Option<ApprovalConditions>,
@@ -4106,14 +4140,8 @@ fn conditionally_require_authed_user(
     let approval_conditions = approval_conditions_opt.unwrap();
 
     // Check self-approval independently of user_auth_required
-    if approval_conditions.self_approval_disabled {
-        if let Some(ref authed) = _authed {
-            if !authed.is_admin && authed.email.eq(_trigger_email) {
-                return Err(Error::PermissionDenied(
-                    "Self-approval is disabled for this flow step".to_string(),
-                ));
-            }
-        }
+    if let Some(ref authed) = _authed {
+        require_not_self_approval(authed, &approval_conditions, _trigger_email)?;
     }
 
     if approval_conditions.user_auth_required {
