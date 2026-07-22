@@ -98,3 +98,16 @@ describe('triggerHandlerRefs', () => {
 		])
 	})
 })
+
+describe('triggerHandlerRefs edge cases', () => {
+	it('returns empty when no handlers are configured', () => {
+		expect(triggerHandlerRefs(trigger('schedule', { schedule: '0 0 * * * *', timezone: 'UTC' }))).toEqual([])
+		expect(triggerHandlerRefs(trigger('mqtt', { mqtt_resource_path: 'f/p/broker' }))).toEqual([])
+	})
+
+	it('collects on_success handlers', () => {
+		expect(triggerHandlerRefs(trigger('schedule', { on_success: 'script/f/p/notify' }))).toEqual([
+			{ kind: 'script', path: 'f/p/notify' }
+		])
+	})
+})

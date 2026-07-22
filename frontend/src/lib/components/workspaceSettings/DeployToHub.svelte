@@ -327,6 +327,8 @@
 									<Button
 										size="xs"
 										variant="subtle"
+										loading={s.triggersLoading}
+										disabled={s.triggersLoading}
 										startIcon={{ icon: RotateCcw }}
 										onclick={() => s.reloadTriggers()}
 									>

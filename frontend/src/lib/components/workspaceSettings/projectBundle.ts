@@ -79,13 +79,11 @@ export function extractFlowRefs(value: any): Ref[] {
 			}
 		}
 	}
-	// flow_env values support `$res:path` references.
-	const env = value?.flow_env
-	if (env && typeof env === 'object') {
-		for (const key of Object.keys(env)) {
-			if (typeof env[key] !== 'string') continue
-			for (const r of extractScriptRefs(env[key])) add('resource', r.path)
-		}
+	// flow_env values support `$res:path` references — as whole string values or
+	// nested inside JSON values (the worker resolves both), so scan the full
+	// serialization.
+	if (value?.flow_env && typeof value.flow_env === 'object') {
+		for (const r of extractScriptRefs(JSON.stringify(value.flow_env))) add('resource', r.path)
 	}
 	return out
 }
@@ -174,14 +172,6 @@ export function rewriteContent(content: string, map: Map<string, string>): strin
 }
 
 /**
- * Trigger configs reference resources as plain path strings (e.g.
- * `kafka_resource_path: "f/slug/db"`), not `$res:` tokens, so token rewriting
- * misses them. Deep-walk the config and remap any string that exact-matches a
- * map key (map keys are full bundle paths, so an exact match is a reference),
- * or a `script/<path>`/`flow/<path>` handler reference (schedules' on_failure
- * et al.), falling back to `$res:` token rewriting for embedded refs.
- */
-/**
  * `$res:`/`res://` tokens anywhere in a trigger config — schedule args,
  * on_*_extra_args, error_handler_args, … (e.g. the built-in Slack handler
  * stores its channel resource this way). These must enter the bundle path map
@@ -191,6 +181,14 @@ export function extractTriggerConfigResourceRefs(config: any): string[] {
 	return extractScriptRefs(JSON.stringify(config ?? {})).map((r) => r.path)
 }
 
+/**
+ * Trigger configs reference resources as plain path strings (e.g.
+ * `kafka_resource_path: "f/slug/db"`), not `$res:` tokens, so token rewriting
+ * misses them. Deep-walk the config and remap any string that exact-matches a
+ * map key (map keys are full bundle paths, so an exact match is a reference),
+ * or a `script/<path>`/`flow/<path>` handler reference (schedules' on_failure
+ * et al.), falling back to `$res:` token rewriting for embedded refs.
+ */
 export function rewriteTriggerConfig(config: any, map: Map<string, string>): any {
 	if (typeof config === 'string') {
 		const direct = map.get(config)
@@ -236,11 +234,11 @@ export function rewriteFlowValue(value: any, map: Map<string, string>): any {
 			}
 		}
 	}
-	const env = cloned?.flow_env
-	if (env && typeof env === 'object') {
-		for (const key of Object.keys(env)) {
-			if (typeof env[key] === 'string') env[key] = rewriteContent(env[key], map)
-		}
+	if (cloned?.flow_env && typeof cloned.flow_env === 'object') {
+		// Tokens can sit inside nested JSON values, not just string values; the
+		// serialize→rewrite→parse round-trip reaches all of them (paths contain
+		// no characters that would break JSON string literals).
+		cloned.flow_env = JSON.parse(rewriteContent(JSON.stringify(cloned.flow_env), map))
 	}
 	return cloned
 }

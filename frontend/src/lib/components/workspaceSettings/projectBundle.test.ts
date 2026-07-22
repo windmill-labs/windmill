@@ -599,6 +599,23 @@ describe('flow_env and preprocessor_module', () => {
 		expect(refs).toContainEqual({ kind: 'resource', path: 'u/admin/slack' })
 	})
 
+	it('sees and relocates $res refs nested inside JSON flow_env values', () => {
+		const value = {
+			modules: [],
+			flow_env: { CFG: { db: '$res:u/admin/pg', opts: ['res://u/admin/s3'] } }
+		}
+		const refs = extractFlowRefs(value)
+		expect(refs).toContainEqual({ kind: 'resource', path: 'u/admin/pg' })
+		expect(refs).toContainEqual({ kind: 'resource', path: 'u/admin/s3' })
+		const map = new Map([
+			['u/admin/pg', 'f/proj/pg'],
+			['u/admin/s3', 'f/proj/s3']
+		])
+		const out = rewriteFlowValue(value, map)
+		expect(out.flow_env.CFG.db).toBe('$res:f/proj/pg')
+		expect(out.flow_env.CFG.opts[0]).toBe('$res:f/proj/s3')
+	})
+
 	it('rewriteFlowValue relocates both', () => {
 		const map = new Map([
 			['u/admin/preproc', 'f/proj/preproc'],
