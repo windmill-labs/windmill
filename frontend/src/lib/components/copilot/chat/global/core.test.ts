@@ -3736,11 +3736,13 @@ describe('session pipeline surface (alpha)', () => {
 		expect(content).not.toContain('Data pipeline support in this chat is in ALPHA')
 	})
 
-	it('serves get_instructions(pipeline) inside a session', async () => {
+	it('serves the real pipeline instructions for get_instructions(pipeline) inside a session', async () => {
 		const inSession = await callGlobalTool('get_instructions', { subject: 'pipeline' }, undefined, {
 			sessionId: 'session-1'
 		})
-		expect(inSession).not.toContain('Not available')
+		// Positively assert the actual authoring guidance came back, not just that
+		// the old gate refusal is gone.
+		expect(inSession).toContain('Data pipeline authoring')
 	})
 
 	it('opens open_preview(kind=pipeline) inside a session', async () => {
