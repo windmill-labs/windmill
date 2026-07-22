@@ -487,10 +487,11 @@ function emptyInlineScriptModuleIds(editable: EditableFlowJson): string[] {
 }
 
 /**
- * Fold the empty-body warning into `write_flow`'s JSON result — but only when the
- * save actually succeeded. `writeFlowDraft` reports conflicts/persistence errors
- * as `{ success: false }` rather than throwing; telling the model to fill code on
- * a flow that was never saved would send it after a stale or nonexistent draft.
+ * Fold the empty-body warning into a flow write tool's JSON result — but only
+ * when the save actually succeeded. `writeFlowDraft` reports
+ * conflicts/persistence errors as `{ success: false }` rather than throwing;
+ * telling the model to fill code on a flow that was never saved would send it
+ * after a stale or nonexistent draft.
  */
 function appendEmptyInlineScriptWarning(result: string, editable: EditableFlowJson): string {
 	const emptyIds = emptyInlineScriptModuleIds(editable)
@@ -1945,6 +1946,7 @@ function getFlowInstructions(): string {
   - \`read_flow_module_code(path, module_id)\` — returns the raw inline script content for one module.
   - \`set_flow_module_code(path, module_id, code)\` — overwrites that module's inline script content; saves to the draft.
 - Use \`patch_flow_json\` for *structural* edits: module ids, paths, input_transforms, branch arrangement, summaries, preprocessor/failure swaps, schema/groups/notes. Use \`set_flow_module_code\` for changes inside a specific rawscript body.
+- When **adding a new rawscript module** with \`patch_flow_json\`, set its \`content\` to the placeholder \`"inline_script.<moduleId>"\` (matching the compact view) — never real code — then **immediately fill the body** with \`set_flow_module_code(path, module_id, code)\`. Until you do, the module's saved content is the literal placeholder string and the flow cannot run; the tool result lists the module ids still awaiting code.
 - \`write_flow\` is for full overwrites / create-from-scratch. Its \`modules\`, \`preprocessor_module\`, and \`failure_module\` arguments are **non-compact** flow modules, but you do NOT have to inline the actual rawscript code:
   - For a short one-liner body, inline it directly in \`content\`.
   - For multi-line code, or any body containing quotes, create the rawscript module with **empty content** (\`"content": ""\`) and fill each body afterwards with \`set_flow_module_code(path, module_id, code)\`. Embedding large code in the \`modules\` JSON string forces triple-nested escaping and frequently corrupts the JSON — keep code out of the flow structure. \`write_flow\` reports which modules still have empty bodies so you know what to fill.
@@ -4357,7 +4359,7 @@ async function patchFlowJson(
 	const patchedEditable = validateEditableFlowJson(parsedValue)
 	const newFlowValue = applyEditableFlowJsonToFlow(base.flow.value, patchedEditable, session)
 
-	return writeFlowDraft(
+	const result = await writeFlowDraft(
 		{
 			path,
 			summary: base.summary,
@@ -4370,6 +4372,17 @@ async function patchFlowJson(
 		},
 		ctx
 	)
+	// A patch that adds a new rawscript module carries an `inline_script.<id>`
+	// placeholder with no session entry, so the restore above keeps the literal
+	// placeholder as the saved content. Check the restored value (patchedEditable
+	// still holds placeholders for every rawscript) and tell the model which
+	// bodies to fill via set_flow_module_code.
+	return appendEmptyInlineScriptWarning(result, {
+		...patchedEditable,
+		modules: newFlowValue.modules,
+		preprocessor_module: newFlowValue.preprocessor_module ?? null,
+		failure_module: newFlowValue.failure_module ?? null
+	})
 }
 
 async function readFlowModuleCode(

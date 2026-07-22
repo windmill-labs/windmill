@@ -2943,6 +2943,55 @@ describe('global AI tools', () => {
 		).rejects.toThrow(/Invalid JSON for modules.*set_flow_module_code/s)
 	})
 
+	it('warns when patch_flow_json adds a rawscript module left as an inline_script placeholder', async () => {
+		const path = 'f/flows/patch-new-module'
+		await callGlobalTool('write_flow', {
+			path,
+			modules: JSON.stringify([
+				{
+					id: 'call_api',
+					value: {
+						type: 'rawscript',
+						language: 'bun',
+						content: 'export async function main() { return 1 }',
+						input_transforms: {}
+					}
+				}
+			])
+		})
+
+		// A structural patch that adds no module must not trigger the fill-code warning.
+		const benign = JSON.parse(
+			await callGlobalTool('patch_flow_json', {
+				path,
+				old_string: '"language":"bun"',
+				new_string: '"language":"deno"'
+			})
+		)
+		expect(benign.success).toBe(true)
+		expect(benign.message).not.toContain('set_flow_module_code')
+
+		// Adding a new rawscript module in the compact view carries the
+		// inline_script.<id> placeholder as its content; the result must flag it.
+		const result = JSON.parse(
+			await callGlobalTool('patch_flow_json', {
+				path,
+				old_string: '"input_transforms":{}}}]',
+				new_string:
+					'"input_transforms":{}}},{"id":"write_to_pg","value":{"type":"rawscript","language":"postgresql","content":"inline_script.write_to_pg","input_transforms":{}}}]'
+			})
+		)
+		expect(result.success).toBe(true)
+		expect(result.message).toContain('set_flow_module_code')
+		expect(result.message).toContain('"write_to_pg"')
+		expect(result.message).not.toContain('"call_api"')
+
+		// The existing module's body must survive the patch round-trip.
+		await expect(
+			callGlobalTool('read_flow_module_code', { path, module_id: 'call_api' })
+		).resolves.toBe('export async function main() { return 1 }')
+	})
+
 	it('writes flows with flow-mode arguments and reads compact flow value', async () => {
 		const writeResult = JSON.parse(
 			await callGlobalTool('write_flow', {
