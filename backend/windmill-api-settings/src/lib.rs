@@ -1989,10 +1989,10 @@ async fn sync_cached_resource_types(
     // on-disk cache is only a fallback for when the hub is unreachable (airgapped
     // installs / network error); refreshing it is left to the daily cache-rt cron and
     // the startup sync in main.rs, which own the offline path.
-    let resource_types = match fetch_resource_types_from_hub().await {
+    let (resource_types, from_hub) = match fetch_resource_types_from_hub().await {
         Ok(types) => {
             tracing::info!("Fetched {} resource types live from the hub", types.len());
-            types
+            (types, true)
         }
         Err(hub_err) => {
             tracing::warn!(
@@ -2000,28 +2000,19 @@ async fn sync_cached_resource_types(
             );
             match tokio::fs::read_to_string(&cache_path).await {
                 Ok(content) => {
-                    serde_json::from_str::<Vec<CachedResourceType>>(&content).map_err(|e| {
-                        error::Error::InternalErr(format!(
-                            "Failed to parse cached resource types: {}",
-                            e
-                        ))
-                    })?
+                    let parsed = serde_json::from_str::<Vec<CachedResourceType>>(&content)
+                        .map_err(|e| {
+                            error::Error::InternalErr(format!(
+                                "Failed to parse cached resource types: {}",
+                                e
+                            ))
+                        })?;
+                    (parsed, false)
                 }
                 Err(_) => return Err(hub_err),
             }
         }
     };
-
-    // Targeted refresh: if a specific type was requested and the hub does not know it,
-    // surface an explicit not-found instead of a silent "Synced 0".
-    if let Some(name) = name.as_deref() {
-        if !resource_types.iter().any(|rt| rt.name == name) {
-            return Err(error::Error::NotFound(format!(
-                "resource type '{}' not found on the hub",
-                name
-            )));
-        }
-    }
 
     let mut synced_count = 0;
 
@@ -2052,6 +2043,23 @@ async fn sync_cached_resource_types(
         .await?;
 
         synced_count += 1;
+    }
+
+    // If a specific type was requested and is still absent after syncing, surface an
+    // explicit not-found instead of a silent "Synced 0". Word it by source so the
+    // cache-fallback path does not claim it checked the hub.
+    if let Some(name) = name.as_deref() {
+        if !resource_types.iter().any(|rt| rt.name == name) {
+            let source = if from_hub {
+                "on the hub"
+            } else {
+                "in the cached resource types (hub unreachable)"
+            };
+            return Err(error::Error::NotFound(format!(
+                "resource type '{}' not found {}",
+                name, source
+            )));
+        }
     }
 
     Ok(format!(
