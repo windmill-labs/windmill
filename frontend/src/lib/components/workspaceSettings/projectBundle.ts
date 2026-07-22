@@ -195,16 +195,21 @@ export function rewriteTriggerConfig(config: any, map: Map<string, string>): any
 		if (direct) return direct
 		const handler = /^(script|flow)\/(.+)$/.exec(config)
 		if (handler && map.has(handler[2])) return `${handler[1]}/${map.get(handler[2])}`
-		// Websocket URLs can be runnables: $script:<path> / $flow:<path>.
-		const urlRunnable = /^\$(script|flow):(.+)$/.exec(config)
-		if (urlRunnable && map.has(urlRunnable[2]))
-			return `$${urlRunnable[1]}:${map.get(urlRunnable[2])}`
 		return rewriteContent(config, map)
 	}
 	if (Array.isArray(config)) return config.map((v) => rewriteTriggerConfig(v, map))
 	if (config && typeof config === 'object') {
 		return Object.fromEntries(
-			Object.entries(config).map(([k, v]) => [k, rewriteTriggerConfig(v, map)])
+			Object.entries(config).map(([k, v]) => {
+				// Only the websocket `url` field carries $script:/$flow: runnable refs;
+				// remapping that form on every string could corrupt literal payloads
+				// (e.g. an initial raw_message that happens to look like one).
+				if (k === 'url' && typeof v === 'string') {
+					const m = /^\$(script|flow):(.+)$/.exec(v)
+					if (m && map.has(m[2])) return [k, `$${m[1]}:${map.get(m[2])}`]
+				}
+				return [k, rewriteTriggerConfig(v, map)]
+			})
 		)
 	}
 	return config

@@ -540,6 +540,19 @@ describe('trigger handler relocation', () => {
 		expect(out.on_success).toBe('script/u/admin/unmapped')
 	})
 
+	it('remaps $script:/$flow: only in the url field, never in literal payloads', () => {
+		const map = new Map([['u/admin/builder', 'f/proj/builder']])
+		const out = rewriteTriggerConfig(
+			{
+				url: '$script:u/admin/builder',
+				initial_messages: [{ raw_message: '$script:u/admin/builder' }]
+			},
+			map
+		)
+		expect(out.url).toBe('$script:f/proj/builder')
+		expect(out.initial_messages[0].raw_message).toBe('$script:u/admin/builder')
+	})
+
 	it('retargetProjectExport remaps trigger error handlers with the bundle', () => {
 		const bundle: ProjectExport = {
 			project: { slug: 'proj', name: 'P', summary: '', readme: null },
