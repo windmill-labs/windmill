@@ -481,20 +481,84 @@
     - "the flow includes a final top-level step named `webhook_response`"
     - "`webhook_response` returns `ok: true` and the order summary"
 
-- id: flow-test17-create-current-flow-email-trigger
+- id: flow-test17-implicit-schedule-intent
   prompt: |-
-    Set up the current flow so it runs whenever an email is received at the inbox `order-intake`.
-    Name the trigger `order_intake_email`. Do not ask me for the flow path.
+    I want this order processing flow to run on its own every morning at 07:30 UTC.
+    Set that up for me. Do not ask me for the flow path.
+  initial: ai_evals/fixtures/frontend/flow/initial/scheduled_order_flow.json
+  toolExpect:
+    requiredToolsUsed:
+      - create_schedule
+    toolCallArgs:
+      - tool: create_schedule
+        field: path
+        stringStartsWithAnyOf:
+          - f/
+          - u/
+        stringMustNotStartWithAnyOf:
+          - schedules/
+      - tool: create_schedule
+        field: schedule
+        stringIncludesAnyOf:
+          - 30 7
+      - tool: create_schedule
+        field: timezone
+        stringIncludesAnyOf:
+          - UTC
+  skipJudge: true
+  judgeChecklist:
+    - "a schedule is created for the flow that runs daily at 07:30 UTC"
+
+- id: flow-test18-implicit-http-trigger-intent
+  prompt: |-
+    I need to be able to kick off this order processing flow by sending it an HTTP POST
+    from an external system, with no authentication. Use route path `ai-evals/order-processing-implicit`.
+    Do not ask me for the flow path.
   initial: ai_evals/fixtures/frontend/flow/initial/scheduled_order_flow.json
   toolExpect:
     requiredToolsUsed:
       - create_trigger
     toolCallArgs:
-      # An "email is received" intent must resolve to the native email trigger kind,
-      # never a faked HTTP webhook. Existential (includes): at least one create_trigger
-      # call picks email, tolerating partial streamed captures and retries.
+      - tool: create_trigger
+        field: path
+        stringStartsWithAnyOf:
+          - f/
+          - u/
+        stringMustNotStartWithAnyOf:
+          - schedules/
       - tool: create_trigger
         field: kind
+        stringStartsWithAnyOf:
+          - http
+      - tool: create_trigger
+        field: config.http_method
         stringIncludesAnyOf:
+          - post
+      - tool: create_trigger
+        field: config.authentication_method
+        stringIncludesAnyOf:
+          - none
+      - tool: create_trigger
+        field: config.route_path
+        stringIncludesAnyOf:
+          - ai-evals/order-processing-implicit
+  skipJudge: true
+  judgeChecklist:
+    - "an HTTP trigger is created for the flow that accepts unauthenticated POST requests"
+
+- id: flow-test19-implicit-email-trigger-intent
+  prompt: |-
+    Make this order processing flow run automatically whenever an email is received.
+    Do not ask me for the flow path.
+  initial: ai_evals/fixtures/frontend/flow/initial/scheduled_order_flow.json
+  toolExpect:
+    requiredToolsUsed:
+      - create_trigger
+    toolCallArgs:
+      - tool: create_trigger
+        field: kind
+        stringStartsWithAnyOf:
           - email
   skipJudge: true
+  judgeChecklist:
+    - "an email trigger (kind email) is created, or the user is told how to enable email triggering on the instance"

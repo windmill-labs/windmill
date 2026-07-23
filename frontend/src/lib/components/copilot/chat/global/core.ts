@@ -97,6 +97,7 @@ import { searchDocsTool, readDocsPageTool } from '../docs/core'
 import { createDbSchemaTool } from '../script/core'
 import type { ContextElement } from '../context'
 import { getDatatableTools } from '../datatableTools'
+import { getDucklakeTools } from '../ducklakeTools'
 import { fileTools } from '../files/fileTools'
 import type { AttachedFilesStore } from '../files/attachedFiles.svelte'
 import { artifactTools } from '../artifacts/artifactTools'
@@ -576,7 +577,11 @@ const writeResourceSchema = resourceRequestSchema.extend({ override: draftOverri
 const writeVariableSchema = variableRequestSchema.extend({ override: draftOverrideField })
 
 const searchResourceTypesSchema = z.object({
-	query: z.string().describe('Substring to match against resource type names.'),
+	query: z
+		.string()
+		.describe(
+			'Natural-language description of the integration or capability you need, e.g. "stripe", "postgres database", or "send emails". Matched semantically against resource type names and descriptions, so describe the intent rather than guessing the exact name.'
+		),
 	limit: z
 		.number()
 		.int()
@@ -3503,6 +3508,8 @@ export const globalTools: Tool<{}>[] = [
 	},
 	// Workspace-scoped datatable tools (unrestricted: no whitelist, no creation policy)
 	...getDatatableTools(),
+	// Workspace DuckLake readiness (storage prerequisite check for pipelines)
+	...getDucklakeTools(),
 	// Read-only tools over files the user attached to the conversation
 	...fileTools,
 	// Search + call access to the backend API endpoint catalog, for operations
