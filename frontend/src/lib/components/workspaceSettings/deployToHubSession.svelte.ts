@@ -21,7 +21,9 @@ import {
 	extractFlowRefs,
 	extractAppRefs,
 	extractTriggerConfigResourceRefs,
+	extractVarRefsFromValue,
 	rewriteTriggerConfig,
+	rewriteVarRefsInValue,
 	type BundleDeps,
 	type BundledItem,
 	type FetchedItem,
@@ -589,9 +591,10 @@ export class DeployToHubSession {
 			...this.#triggerHandlerSeed(this.relevantTriggers, slug)
 		]
 		const triggerResources = this.#triggerResourcePaths(this.relevantTriggers)
+		const triggerVars = this.#triggerVarPaths(this.relevantTriggers)
 		let cancelled = false
 		const timer = setTimeout(() => {
-			buildProjectBundle(seed, slug, this.#cachedBundleDeps(), triggerResources)
+			buildProjectBundle(seed, slug, this.#cachedBundleDeps(), triggerResources, triggerVars)
 				.then((b) => {
 					if (cancelled) return
 					this.bundlePreview = b
@@ -940,6 +943,16 @@ export class DeployToHubSession {
 		return [...out]
 	}
 
+	// Every whole-string `$var:`/`$jsonvar:` value a trigger's config resolves (SQS
+	// queue_url, schedule args, …) — relocated through the bundle map like item vars.
+	#triggerVarPaths(triggers: WorkspaceTrigger[]): string[] {
+		const out = new Set<string>()
+		for (const t of triggers) {
+			for (const p of extractVarRefsFromValue(portableTriggerConfig(t.kind, t.config))) out.add(p)
+		}
+		return [...out]
+	}
+
 	async #pushTriggers(
 		slug: string,
 		resourcePathMap: Map<string, string>,
@@ -959,9 +972,12 @@ export class DeployToHubSession {
 				skipped.push(t.path)
 				continue
 			}
-			// Full-config remap: resource paths, error-handler paths and schedule
-			// on_* handler refs all relocate through the bundle's path map.
-			const config = rewriteTriggerConfig(portableTriggerConfig(t.kind, t.config), resourcePathMap)
+			// Full-config remap: resource paths, error-handler paths, schedule on_*
+			// handler refs and whole-string `$var:` values all relocate through the map.
+			const config = rewriteVarRefsInValue(
+				rewriteTriggerConfig(portableTriggerConfig(t.kind, t.config), resourcePathMap),
+				resourcePathMap
+			)
 			triggers.push({
 				path: pathMap.get(t.path) ?? t.path,
 				kind: t.kind,
@@ -1033,7 +1049,14 @@ export class DeployToHubSession {
 				...this.#triggerHandlerSeed(triggersSnapshot, slug)
 			]
 			const triggerResources = this.#triggerResourcePaths(triggersSnapshot)
-			const bundle = await buildProjectBundle(seed, slug, this.#buildBundleDeps(), triggerResources)
+			const triggerVars = this.#triggerVarPaths(triggersSnapshot)
+			const bundle = await buildProjectBundle(
+				seed,
+				slug,
+				this.#buildBundleDeps(),
+				triggerResources,
+				triggerVars
+			)
 			// Full path map (incl. unresolved) so a trigger's resource path is always
 			// relocated — never leaks the publisher's original private path to the Hub.
 			const resourcePathMap = bundle.pathMap

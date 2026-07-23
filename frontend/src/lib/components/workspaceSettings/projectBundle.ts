@@ -554,7 +554,8 @@ export async function buildProjectBundle(
 	seed: ItemRef[],
 	slug: string,
 	deps: BundleDeps,
-	extraResourcePaths: string[] = []
+	extraResourcePaths: string[] = [],
+	extraVarPaths: string[] = []
 ): Promise<ProjectBundle> {
 	const fetched = new Map<string, FetchedItem>()
 	const queued = new Set<string>()
@@ -562,10 +563,12 @@ export async function buildProjectBundle(
 	const varPaths = new Set<string>()
 	const unresolved: string[] = []
 
-	// Resources referenced by triggers (by config path, not `$res:` in code).
+	// Resources and variables referenced by triggers (by config value, not `$res:`
+	// in code) — relocated through the same map so the export stays slug-relative.
 	for (const p of extraResourcePaths) {
 		if (classifyPath(p, slug) !== 'hub') resourcePaths.add(p)
 	}
+	for (const p of extraVarPaths) varPaths.add(p)
 
 	// Key by `${kind}:${path}`, not bare path: a script and flow can share a path,
 	// and keying by path alone would silently drop one.
