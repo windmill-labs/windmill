@@ -152,11 +152,12 @@ async fn test_between_steps_zombie_restart_reuses_all_children(
 
     // Hand-restart from the stuck step. `fanout` is recognised as a derivable
     // between-steps zombie (all children succeeded), so it is reused verbatim and
-    // only the dropped transition onward is replayed.
+    // only the dropped transition onward is replayed. `Some(0)` is the exact value the
+    // run page's "Re-start from" button sends (a whole-step restart), not `None`.
     let restarted = RunJob::from(JobPayload::RestartedFlow {
         completed_job_id: full_run.id,
         step_id: "fanout".into(),
-        branch_or_iteration_n: None,
+        branch_or_iteration_n: Some(0),
         flow_version: None,
         branch_chosen: None,
         nested: None,

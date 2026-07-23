@@ -7281,9 +7281,13 @@ async fn restarted_flows_resolution(
                     .modules
                     .last()
                     .is_none_or(|m| m.id != restart_step_id);
+                // A whole-step restart is `None` (restart API with the field omitted) or `Some(0)`
+                // (the run page's "Re-start from" button always sends 0); both mean "redo this step",
+                // which for a monitor-reaped zombie means reuse it. `Some(n>=1)` is an explicit
+                // partial container restart and keeps its existing reuse-0..n-1 / rerun-from-n path.
                 if allow_zombie_reuse
                     && reaped_by_monitor
-                    && branch_or_iteration_n.is_none()
+                    && branch_or_iteration_n.unwrap_or(0) == 0
                     && !nested_restart
                     && has_next_step
                     && module_definition.allows_zombie_reuse()
