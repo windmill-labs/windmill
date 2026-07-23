@@ -59,11 +59,6 @@ export interface DeployItem {
 }
 
 export const canRecord = (k: Kind) => k === 'script' || k === 'flow'
-// Apps and modern (app-table) raw apps can be shared as public iframes; legacy
-// raw_app-table entries have no AppService representation to publish through.
-export const canShareAsIframe = (it: DeployItem) =>
-	it.kind === 'app' || (it.kind === 'raw_app' && it.appTable === true)
-
 // Legacy raw apps live only in the `raw_app` table, but the iframe share flow
 // drives AppService (the `app` table), so it can only target apps stored there.
 export const canShareAsIframe = (it: DeployItem): boolean =>
@@ -251,17 +246,9 @@ export class DeployToHubSession {
 	filteredWorkspaceItems = $derived(
 		this.workspaceItems.filter((i) => i.path.startsWith(this.selectedFolder + '/'))
 	)
-	// Hub rehydration knows nothing about local publish state; decorate draft
-	// items with the live workspace item's shared-iframe fields so a public app
-	// still shows as public (and keeps its Unpublish control) after reopening a
-	// draft. Reactive, so it settles regardless of load ordering.
-	draftItemsWithLocalState = $derived.by(() => {
-		const byKey = new Map(this.workspaceItems.map((i) => [i.key, i]))
-		return this.draftItems.map((d) => {
-			const w = byKey.get(d.key)
-			return w ? { ...d, appTable: w.appTable, published: w.published, publicUrl: w.publicUrl } : d
-		})
-	})
+	// Derived (not merged at load time) so it settles regardless of which of the
+	// racing loads (#loadWorkspace / rehydrateFromHub) finishes last.
+	draftItemsWithLocalState = $derived(mergeShareState(this.draftItems, this.workspaceItems))
 	items = $derived(
 		this.phase === 'predeploy' ? this.filteredWorkspaceItems : this.draftItemsWithLocalState
 	)
@@ -483,7 +470,6 @@ export class DeployToHubSession {
 			}
 			if (this.#disposed) return
 			this.workspaceItems = next
-			this.draftItems = mergeShareState(this.draftItems, this.workspaceItems)
 		} catch (e: any) {
 			if (!this.#disposed) {
 				sendUserToast(`Failed to load project items: ${e?.message ?? e}`, true)
@@ -555,8 +541,6 @@ export class DeployToHubSession {
 				} satisfies DeployItem
 			})
 			this.hubItemIds = ids
-			// Runs after both #loadWorkspace and rehydrateFromHub since they race.
-			this.draftItems = mergeShareState(this.draftItems, this.workspaceItems)
 		} catch {}
 	}
 
