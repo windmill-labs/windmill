@@ -1192,7 +1192,14 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         }
     };
 
-    if let Some(labels) = result.wm_labels() {
+    if let Some(mut labels) = result.wm_labels() {
+        // A `\u0000` inside a wm_labels entry decodes to a real NUL that the
+        // `text[]` column rejects, which would abort this same transaction (and
+        // roll back the sanitized result insert) exactly like an unsanitized
+        // result. Strip it so the labels match the sanitized result.
+        for label in &mut labels {
+            label.retain(|c| c != '\0');
+        }
         sqlx::query!(
             "UPDATE v2_job SET labels = (
                     SELECT array_agg(DISTINCT all_labels)
