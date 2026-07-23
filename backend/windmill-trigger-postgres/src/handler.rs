@@ -37,6 +37,32 @@ lazy_static! {
     pub static ref TEMPLATE: Cache<String, String> = Cache::new(50);
 }
 
+/// CDC needs REPLICATION and reads every change, which would bypass a data
+/// table's fine-grained grants — so wiring a trigger to a permissions-enabled
+/// data table is reserved to workspace admins (the trigger itself keeps using
+/// the shared role).
+async fn require_admin_for_permissioned_datatable_trigger(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    postgres_resource_path: &str,
+) -> Result<()> {
+    let Some(name) = postgres_resource_path.strip_prefix("datatable://") else {
+        return Ok(());
+    };
+    let config = windmill_common::workspaces::get_datatable_config(db, w_id, name).await?;
+    if windmill_common::datatable_permissions::datatable_permissions_enabled(&config)
+        && !authed.is_admin
+    {
+        return Err(Error::PermissionDenied(format!(
+            "Data table '{name}' has fine-grained permissions enabled: creating or editing a \
+             Postgres trigger on it requires workspace admin, because the trigger reads all \
+             database changes through the shared role."
+        )));
+    }
+    Ok(())
+}
+
 #[async_trait]
 impl TriggerCrud for PostgresTrigger {
     type TriggerConfig = PostgresConfig;
@@ -80,6 +106,9 @@ impl TriggerCrud for PostgresTrigger {
             replication_slot_name,
             publication,
         } = trigger.config;
+
+        require_admin_for_permissioned_datatable_trigger(db, authed, w_id, &postgres_resource_path)
+            .await?;
 
         let (pub_name, slot_name) =
             if publication_name.is_empty() && replication_slot_name.is_empty() {
@@ -169,6 +198,9 @@ impl TriggerCrud for PostgresTrigger {
             postgres_resource_path,
             publication,
         } = trigger.config;
+
+        require_admin_for_permissioned_datatable_trigger(db, authed, w_id, &postgres_resource_path)
+            .await?;
 
         let mut pg_connection = get_default_pg_connection(
             authed.clone(),

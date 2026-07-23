@@ -35,12 +35,13 @@ pub mod auth;
 pub mod bench;
 pub mod cache;
 pub mod client;
+pub mod data_metrics;
+pub mod datatable_permissions;
 pub mod db;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 mod db_entra_ee;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 mod db_iam_ee;
-pub mod datatable_permissions;
 pub mod db_params;
 #[cfg(feature = "private")]
 pub mod deployment_requests_ee;
@@ -63,7 +64,6 @@ pub mod instance_config;
 pub mod job_metrics;
 pub mod log_context;
 pub mod materialization;
-pub mod data_metrics;
 pub mod min_version;
 pub mod notify_events;
 pub mod runtime_assets;
@@ -1203,12 +1203,18 @@ pub async fn create_custom_instance_database(
 
     if let Err(e) = client
         .batch_execute(&format!(
-            "GRANT CONNECT ON DATABASE \"{dbname}\" TO custom_instance_user;
+            // REVOKE PUBLIC CONNECT + CREATEROLE support the fine-grained data
+            // table permissions feature: ephemeral per-user roles must not be
+            // able to hop to other databases on the cluster, and the shared
+            // owner role creates/drops them.
+            "REVOKE CONNECT ON DATABASE \"{dbname}\" FROM PUBLIC;
+             GRANT CONNECT ON DATABASE \"{dbname}\" TO custom_instance_user;
              GRANT USAGE ON SCHEMA public TO custom_instance_user;
              GRANT CREATE ON SCHEMA public TO custom_instance_user;
              GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user;
              ALTER DEFAULT PRIVILEGES IN SCHEMA public
-                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;"
+                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;
+             ALTER ROLE custom_instance_user CREATEROLE;"
         ))
         .await
     {

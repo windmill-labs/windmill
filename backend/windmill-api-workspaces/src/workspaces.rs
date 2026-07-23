@@ -134,6 +134,7 @@ pub fn workspaced_service() -> Router {
         )
         .route("/edit_datatable_config", post(edit_datatable_config))
         .merge(crate::datatable_migrations::routes())
+        .merge(crate::datatable_permissions_api::routes())
         .route("/git_sync_enabled", get(get_git_sync_enabled))
         .route("/git_sync_deploy_mode", get(get_git_sync_deploy_mode))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
@@ -2010,7 +2011,7 @@ struct DataTableTableSchema {
 }
 
 async fn list_datatable_schemas(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<DataTableSchema>> {
@@ -2018,12 +2019,26 @@ async fn list_datatable_schemas(
     let mut results = Vec::new();
 
     for datatable_name in datatable_names {
-        let schema = match get_datatable_schema(&db, &w_id, &datatable_name).await {
-            Ok(schemas) => DataTableSchema { datatable_name, schemas, error: None },
+        let gated = crate::datatable_permissions_api::check_datatable_introspection_access(
+            &db,
+            &authed,
+            &w_id,
+            &datatable_name,
+        )
+        .await;
+        let schema = match gated {
             Err(e) => DataTableSchema {
                 datatable_name,
                 schemas: HashMap::new(),
                 error: Some(e.to_string()),
+            },
+            Ok(()) => match get_datatable_schema(&db, &w_id, &datatable_name).await {
+                Ok(schemas) => DataTableSchema { datatable_name, schemas, error: None },
+                Err(e) => DataTableSchema {
+                    datatable_name,
+                    schemas: HashMap::new(),
+                    error: Some(e.to_string()),
+                },
             },
         };
         results.push(schema);
@@ -2033,7 +2048,7 @@ async fn list_datatable_schemas(
 }
 
 async fn list_datatable_tables(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<DataTableTables>> {
@@ -2041,12 +2056,26 @@ async fn list_datatable_tables(
     let mut results = Vec::new();
 
     for datatable_name in datatable_names {
-        let tables = match get_datatable_tables(&db, &w_id, &datatable_name).await {
-            Ok(schemas) => DataTableTables { datatable_name, schemas, error: None },
+        let gated = crate::datatable_permissions_api::check_datatable_introspection_access(
+            &db,
+            &authed,
+            &w_id,
+            &datatable_name,
+        )
+        .await;
+        let tables = match gated {
             Err(e) => DataTableTables {
                 datatable_name,
                 schemas: HashMap::new(),
                 error: Some(e.to_string()),
+            },
+            Ok(()) => match get_datatable_tables(&db, &w_id, &datatable_name).await {
+                Ok(schemas) => DataTableTables { datatable_name, schemas, error: None },
+                Err(e) => DataTableTables {
+                    datatable_name,
+                    schemas: HashMap::new(),
+                    error: Some(e.to_string()),
+                },
             },
         };
         results.push(tables);
@@ -2056,11 +2085,18 @@ async fn list_datatable_tables(
 }
 
 async fn get_datatable_table_schema(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(query): Query<GetDataTableSchemaQuery>,
 ) -> JsonResult<DataTableTableSchema> {
+    crate::datatable_permissions_api::check_datatable_introspection_access(
+        &db,
+        &authed,
+        &w_id,
+        &query.datatable_name,
+    )
+    .await?;
     let columns = get_datatable_table_columns(
         &db,
         &w_id,
@@ -2716,6 +2752,19 @@ async fn import_pg_database(
     Json(req): Json<ImportPgDatabaseRequest>,
 ) -> Result<String> {
     if req.fork_behavior == DataTableForkBehavior::KeepOriginal {
+        if let Some(name) = req.source.strip_prefix("datatable://") {
+            if let Ok(config) =
+                windmill_common::workspaces::get_datatable_config(&db, &w_id, name).await
+            {
+                if windmill_common::datatable_permissions::datatable_permissions_enabled(&config) {
+                    return Err(Error::BadRequest(format!(
+                        "Data table '{name}' has fine-grained permissions enabled and cannot \
+                         keep pointing at the original database in a fork; fork its database \
+                         (schema-only or schema and data) instead."
+                    )));
+                }
+            }
+        }
         return Ok("No action needed for KeepOriginal behavior".to_string());
     }
 
@@ -2945,6 +2994,7 @@ async fn edit_datatable_config(
     // Migrations opt-in is owned by the enable/disable endpoints, not this config
     // form: preserve each existing data table's flag, and default brand-new data
     // tables to enabled.
+    let license_is_ee = windmill_common::datatable_permissions::datatable_license_valid().await;
     for (name, dt) in new_config.settings.datatables.iter_mut() {
         let lookup = rename_src
             .get(name.as_str())
@@ -2954,6 +3004,77 @@ async fn edit_datatable_config(
             Some(old) => old.migrations_enabled,
             None => Some(true),
         };
+        // Fine-grained permissions are owned by the datatable_permissions
+        // endpoints: preserve them here, and default brand-new data tables to
+        // enabled (empty grants = admin-only) on Enterprise.
+        dt.permissions = match old_datatables.get(lookup) {
+            Some(old) => old.permissions.clone(),
+            None if license_is_ee => Some(windmill_common::workspaces::DataTablePermissions {
+                enabled: true,
+                grants: vec![],
+            }),
+            None => None,
+        };
+    }
+
+    // A permissions-enabled data table must be the only config pointing at its
+    // physical database (enforcement is per database, config is per data
+    // table). Check every data table whose database is new or changed, against
+    // both the stored global state and the other entries of this request.
+    let mut default_disabled: Vec<String> = vec![];
+    for (name, dt) in new_config.settings.datatables.iter() {
+        let lookup = rename_src
+            .get(name.as_str())
+            .copied()
+            .unwrap_or(name.as_str());
+        let database_changed = match old_datatables.get(lookup) {
+            Some(old) => {
+                old.database.resource_type != dt.database.resource_type
+                    || old.database.resource_path != dt.database.resource_path
+            }
+            None => true,
+        };
+        if !database_changed {
+            continue;
+        }
+        let self_enabled = dt.permissions.as_ref().is_some_and(|p| p.enabled);
+        let in_request_conflict = new_config.settings.datatables.iter().find(|(n2, dt2)| {
+            n2.as_str() != name.as_str()
+                && dt2.database.resource_type == dt.database.resource_type
+                && dt2.database.resource_path == dt.database.resource_path
+                && (self_enabled || dt2.permissions.as_ref().is_some_and(|p| p.enabled))
+        });
+        if let Some((n2, _)) = in_request_conflict {
+            return Err(Error::BadRequest(format!(
+                "Data tables '{name}' and '{n2}' point at the same physical database while at \
+                 least one of them has fine-grained permissions enabled; a permissions-enabled \
+                 data table must be the only config using its database."
+            )));
+        }
+        let global_check = crate::datatable_permissions_api::check_shared_database_forbid(
+            &db,
+            &w_id,
+            lookup,
+            &dt.database,
+            self_enabled,
+        )
+        .await;
+        if let Err(e) = global_check {
+            let defaulted_new = old_datatables.get(lookup).is_none();
+            if defaulted_new && self_enabled {
+                // The enable came from the EE default, not an explicit request:
+                // fall back to disabled instead of blocking the creation of a
+                // second config on a shared (non-permissioned) database.
+                default_disabled.push(name.clone());
+            } else {
+                return Err(e);
+            }
+        }
+    }
+    for name in default_disabled {
+        if let Some(dt) = new_config.settings.datatables.get_mut(&name) {
+            dt.permissions = None;
+        }
     }
 
     let args_for_audit = format!("{:?}", new_config.settings);
@@ -3006,6 +3127,22 @@ async fn edit_datatable_config(
         &new_config.deleted_datatables,
     )
     .await?;
+
+    // Tear down ephemeral roles of deleted/renamed data tables while the old
+    // config (needed to reach their database) is still readable outside this
+    // transaction. Renames get fresh roles under the new name on next access.
+    for name in new_config
+        .deleted_datatables
+        .iter()
+        .chain(new_config.renames.iter().map(|r| &r.from))
+    {
+        windmill_common::datatable_permissions::drop_datatable_ephemeral_roles_best_effort(
+            &db,
+            &w_id,
+            Some(name),
+        )
+        .await;
+    }
 
     tx.commit().await?;
 
@@ -6494,6 +6631,35 @@ async fn create_workspace_fork(
     } else {
         None
     };
+    // A fork keeping the original database (data table absent from
+    // `forked_datatables`) would query the parent's physical DB through its own
+    // copied config — bypassing or diverging from the parent's fine-grained
+    // grants. Permissions-enabled data tables must be forked, not shared.
+    {
+        let parent_datatables: HashMap<String, DataTable> = serde_json::from_value(
+            sqlx::query_scalar!(
+                "SELECT ws.datatable->'datatables' FROM workspace_settings ws WHERE ws.workspace_id = $1",
+                &parent_workspace_id
+            )
+            .fetch_optional(&db)
+            .await?
+            .flatten()
+            .unwrap_or(serde_json::Value::Null),
+        )
+        .unwrap_or_default();
+        for (name, dt) in parent_datatables {
+            if dt.permissions.as_ref().is_some_and(|p| p.enabled)
+                && !nw.forked_datatables.iter().any(|f| f.name == name)
+            {
+                return Err(Error::BadRequest(format!(
+                    "Data table '{name}' has fine-grained permissions enabled and cannot keep \
+                     pointing at the original database in a fork; fork its database \
+                     (schema-only or schema and data) instead."
+                )));
+            }
+        }
+    }
+
     // Check the id conflict before the CE workspace-count limit so that
     // re-using a taken (possibly archived) fork id reports the actual
     // conflict instead of a misleading "maximum number of workspaces" error.

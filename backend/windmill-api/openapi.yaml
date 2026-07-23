@@ -4716,6 +4716,74 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/workspaces/datatable_permissions/{datatable_name}:
+    get:
+      summary: get a data table's fine-grained permissions config (admins only)
+      operationId: getDataTablePermissions
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: permissions config (defaults when never configured)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataTablePermissions"
+    post:
+      summary: set a data table's fine-grained permissions config (admins only, EE)
+      operationId: setDataTablePermissions
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: permissions config
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DataTablePermissions"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/datatable_permissions_check/{datatable_name}:
+    post:
+      summary: preflight-check that fine-grained permissions can be enabled (license, exclusive database, CREATEROLE)
+      operationId: checkDataTablePermissionsSetup
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/workspaces/run_datatable_migrations/{datatable_name}:
     post:
       summary: run pending datatable migrations against a datatable
@@ -30192,6 +30260,8 @@ components:
               migrations_enabled:
                 type: boolean
                 description: Whether the SQL migrations feature is opted in for this data table
+              permissions:
+                $ref: "#/components/schemas/DataTablePermissions"
               forked_from:
                 type: object
                 description: Fork origin info with schema snapshot
@@ -30200,6 +30270,40 @@ components:
                     type: object
                     description: Schema snapshot at fork time
                     additionalProperties: true
+    DataTablePermissions:
+      type: object
+      description: Fine-grained access control for a data table (EE). When enabled, non-admin access requires a matching grant and goes through an ephemeral per-user Postgres role.
+      properties:
+        enabled:
+          type: boolean
+          default: false
+        grants:
+          type: array
+          items:
+            $ref: "#/components/schemas/DataTableGrant"
+    DataTableGrant:
+      type: object
+      required: [tenant, operations, schema]
+      properties:
+        tenant:
+          type: string
+          description: "u/<username>, g/<group> or f/<folder>"
+        folder_access:
+          type: string
+          enum: [read, write]
+          description: minimum folder access level required (folder tenants only)
+        operations:
+          type: array
+          items:
+            type: string
+            enum: [SELECT, INSERT, UPDATE, DELETE, TRUNCATE]
+        schema:
+          type: string
+        tables:
+          type: array
+          description: empty or absent = the whole schema, including future tables
+          items:
+            type: string
     DatatableMigration:
       type: object
       required: [datatable, timestamp, name, code_up]

@@ -304,6 +304,7 @@ async fn run_datatable_migrations(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Query(query): Query<RunDatatableMigrationsQuery>,
 ) -> JsonResult<RunDatatableMigrationsResult> {
+    require_admin_if_datatable_permissions_enabled(&db, &authed, &w_id, &datatable_name).await?;
     audit_log(
         &db,
         &authed,
@@ -403,6 +404,7 @@ async fn rollback_datatable_migrations(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Query(query): Query<RollbackDatatableMigrationsQuery>,
 ) -> JsonResult<RollbackDatatableMigrationsResult> {
+    require_admin_if_datatable_permissions_enabled(&db, &authed, &w_id, &datatable_name).await?;
     audit_log(
         &db,
         &authed,
@@ -690,6 +692,31 @@ async fn require_datatable_migrations_manager(db: &DB, authed: &ApiAuthed) -> Re
     }
 }
 
+/// When a data table has fine-grained permissions enabled, all migration
+/// mutations (run/rollback/create/upsert/delete) become admin-only: migration
+/// jobs run as the requester and must resolve to the shared owner role so
+/// object ownership stays uniform, and DDL is exactly what per-caller grants
+/// cannot cover.
+pub(crate) async fn require_admin_if_datatable_permissions_enabled(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    datatable_name: &str,
+) -> Result<()> {
+    if authed.is_admin || require_super_admin(db, &authed.email).await.is_ok() {
+        return Ok(());
+    }
+    let config =
+        windmill_common::workspaces::get_datatable_config(db, w_id, datatable_name).await?;
+    if windmill_common::datatable_permissions::datatable_permissions_enabled(&config) {
+        return Err(Error::PermissionDenied(format!(
+            "Data table '{datatable_name}' has fine-grained permissions enabled: managing or \
+             running its migrations requires workspace admin."
+        )));
+    }
+    Ok(())
+}
+
 async fn enable_datatable_migrations(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -954,6 +981,7 @@ async fn create_datatable_migration(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Json(payload): Json<CreateDatatableMigration>,
 ) -> JsonResult<DatatableMigration> {
+    require_admin_if_datatable_permissions_enabled(&db, &authed, &w_id, &datatable_name).await?;
     validate_datatable_path_segment(&datatable_name)?;
     validate_migration_name(&payload.name)?;
     ensure_datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
@@ -1006,6 +1034,7 @@ async fn delete_datatable_migration(
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name, timestamp)): Path<(String, String, i64)>,
 ) -> Result<String> {
+    require_admin_if_datatable_permissions_enabled(&db, &authed, &w_id, &datatable_name).await?;
     // Hold the run-serialization lock across the applied-check and the delete: a
     // run snapshots a migration's SQL before recording its version, so an
     // unserialized delete could race it and leave `_wm_migrations` pointing at a
@@ -1095,6 +1124,7 @@ async fn upsert_datatable_migration(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Json(payload): Json<UpsertDatatableMigration>,
 ) -> Result<String> {
+    require_admin_if_datatable_permissions_enabled(&db, &authed, &w_id, &datatable_name).await?;
     validate_datatable_path_segment(&datatable_name)?;
     validate_migration_name(&payload.name)?;
     ensure_datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
@@ -1208,6 +1238,7 @@ async fn generate_initial_datatable_migration(
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name)): Path<(String, String)>,
 ) -> JsonResult<DatatableMigration> {
+    require_admin_if_datatable_permissions_enabled(&db, &authed, &w_id, &datatable_name).await?;
     validate_datatable_path_segment(&datatable_name)?;
     ensure_datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
 
