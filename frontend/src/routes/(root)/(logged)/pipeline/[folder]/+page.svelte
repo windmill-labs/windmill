@@ -1781,10 +1781,13 @@
 				)
 			}
 		} finally {
-			cascadeRunningRoot = undefined
+			// Hold the run guard until finalization finishes: finalize keeps writing
+			// jobs/samples/code through the recorder store, and a second run's
+			// `start()` would reset those maps mid-write, corrupting both recordings.
 			if (pipelineRecording.active) {
 				lastPipelineRecording = await finalizePipelineRecording(pipelineRecording, $workspaceStore)
 			}
+			cascadeRunningRoot = undefined
 		}
 	}
 

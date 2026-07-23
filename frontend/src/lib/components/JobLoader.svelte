@@ -401,6 +401,11 @@
 
 	let startedWatchingJob: number | undefined = undefined
 	export async function watchJob(testId: string, callbacks?: Callbacks) {
+		// Cancel a previous replay's pending event timers: switching the watched job
+		// on a reused loader (the recording players click node→node) would otherwise
+		// let the old job's scheduled events mutate the newly-watched job.
+		replayTimeouts.forEach(clearTimeout)
+		replayTimeouts = []
 		logOffset = 0
 		resultStreamOffset = 0
 		syncIteration = 0

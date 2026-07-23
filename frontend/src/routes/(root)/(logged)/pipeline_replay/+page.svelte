@@ -54,7 +54,9 @@
 			reset()
 			scriptRecording = data as ScriptRecording
 		} else if (data.type === 'pipeline') {
-			if (!data.graph || !data.timeline) {
+			// `jobs` is required — the player indexes it (Object.keys) on mount, so a
+			// payload missing it must fail here, not crash the page.
+			if (!data.graph || !data.timeline || !data.jobs) {
 				sendUserToast('Invalid pipeline recording format', true)
 				return false
 			}

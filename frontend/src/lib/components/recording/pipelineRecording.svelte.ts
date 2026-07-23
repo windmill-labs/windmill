@@ -8,7 +8,6 @@ import type {
 import { truncateUuids } from './flowRecording.svelte'
 import { capturePipelineAssetSample } from './pipelineAssetSample'
 import type {
-	ActiveReplayData,
 	PipelineAssetSample,
 	PipelineRecordedCode,
 	PipelineRecording,
@@ -185,10 +184,6 @@ export function createPipelineRecording(): PipelineRecordingStore {
 				codes
 			}
 		},
-		/** Convert to the ActiveReplayData shape JobLoader replay consumes. */
-		toReplayData(recording: PipelineRecording): ActiveReplayData {
-			return { jobs: recording.jobs }
-		},
 		download(recording: PipelineRecording) {
 			const blob = new Blob([truncateUuids(JSON.stringify(recording, null, 2))], {
 				type: 'application/json'
@@ -212,8 +207,21 @@ export type PipelineRecordingStore = {
 	recordAssetSample(sample: PipelineAssetSample): void
 	recordCode(path: string, code: PipelineRecordedCode): void
 	stop(): PipelineRecording
-	toReplayData(recording: PipelineRecording): ActiveReplayData
 	download(recording: PipelineRecording): void
+}
+
+// Max asset samples in flight during finalize — each is several preview jobs.
+const ASSET_SAMPLE_CONCURRENCY = 4
+
+/** Run `fn` over `items` at most `limit` at a time (sequential batches). */
+async function forEachWithConcurrency<T>(
+	items: T[],
+	limit: number,
+	fn: (item: T) => Promise<void>
+): Promise<void> {
+	for (let i = 0; i < items.length; i += limit) {
+		await Promise.all(items.slice(i, i + limit).map(fn))
+	}
 }
 
 /**
@@ -249,14 +257,16 @@ export async function finalizePipelineRecording(
 			}
 		})
 	)
-	await Promise.all(
-		(rec.graph.assets ?? [])
-			.filter((a) => a.kind === 'ducklake' || a.kind === 'datatable')
-			.map(async (a) => {
-				const sample = await capturePipelineAssetSample(ws, a.kind, a.path)
-				store.recordAssetSample(sample)
-			})
+	// Each asset sample runs a metadata scan + a SELECT + a COUNT preview job, so a
+	// wide pipeline could fan out hundreds of jobs at once. Bound the concurrency
+	// to keep the recorder from saturating the worker pool.
+	const sampleTargets = (rec.graph.assets ?? []).filter(
+		(a) => a.kind === 'ducklake' || a.kind === 'datatable'
 	)
+	await forEachWithConcurrency(sampleTargets, ASSET_SAMPLE_CONCURRENCY, async (a) => {
+		const sample = await capturePipelineAssetSample(ws, a.kind, a.path)
+		store.recordAssetSample(sample)
+	})
 	const codeByPath = new Map<string, string>()
 	for (const r of Object.values(rec.jobs)) {
 		const j = r.events.find((e) => e.data.completed)?.data.job as
