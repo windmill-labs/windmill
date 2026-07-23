@@ -7161,7 +7161,7 @@ async fn restarted_flows_resolution(
     let row = sqlx::query!(
         "SELECT
             j.runnable_path as script_path, j.runnable_id AS \"script_hash: ScriptHash\",
-            j.kind AS \"job_kind!: JobKind\",
+            j.kind AS \"job_kind!: JobKind\", c.canceled_by,
             COALESCE(c.flow_status, c.workflow_as_code_status) AS \"flow_status: Json<Box<RawValue>>\",
             j.raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
         FROM v2_job_completed c JOIN v2_job j USING (id) WHERE j.id = $1 and j.workspace_id = $2",
@@ -7176,6 +7176,12 @@ async fn restarted_flows_resolution(
             completed_flow_id, workspace_id, err
         ))
     })?;
+
+    // Zombie reuse must only apply to flows the zombie monitor reaped (canceled_by = 'monitor').
+    // An ordinary force-cancel copies the same live flow_status, so a user canceling after a child
+    // succeeds but before the parent transition lands produces the identical InProgress/all-success
+    // shape; those must retain restart-from-step semantics (the step re-runs).
+    let reaped_by_monitor = row.canceled_by.as_deref() == Some("monitor");
 
     let current_flow_version = row.script_hash.map(|x| x.0);
     let is_version_change = flow_version.is_some()
@@ -7276,6 +7282,7 @@ async fn restarted_flows_resolution(
                     .last()
                     .is_none_or(|m| m.id != restart_step_id);
                 if allow_zombie_reuse
+                    && reaped_by_monitor
                     && branch_or_iteration_n.is_none()
                     && !nested_restart
                     && has_next_step

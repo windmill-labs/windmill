@@ -554,3 +554,107 @@ async fn test_raw_flow_restart_does_not_reuse_edited_step(
 
     Ok(())
 }
+
+/// Only a flow reaped by the zombie monitor (canceled_by = 'monitor') is eligible for reuse. A
+/// plain force-cancel at the same boundary (a child succeeded, its parent transition not yet
+/// landed) yields the identical InProgress/all-success shape but must keep restart-from-step
+/// semantics: the selected step re-runs.
+#[sqlx::test(fixtures("base", "hello"))]
+async fn test_non_monitor_cancel_is_not_reused(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let flow_value: FlowValue = serde_json::from_value(json!({
+        "modules": [
+            {
+                "id": "fanout",
+                "value": {
+                    "type": "forloopflow",
+                    "iterator": { "type": "javascript", "expr": "['a', 'b']" },
+                    "skip_failures": false,
+                    "parallel": false,
+                    "modules": [{
+                        "id": "inner",
+                        "value": {
+                            "type": "rawscript", "language": "deno",
+                            "input_transforms": {
+                                "v": { "type": "javascript", "expr": "flow_input.iter.value" }
+                            },
+                            "content": "export function main(v: string) { return v }"
+                        }
+                    }]
+                }
+            },
+            {
+                "id": "after",
+                "value": {
+                    "type": "rawscript", "language": "deno",
+                    "input_transforms": {
+                        "loop_res": { "type": "javascript", "expr": "results.fanout" }
+                    },
+                    "content": "export function main(loop_res: string[]) { return loop_res.join(',') }"
+                }
+            }
+        ]
+    }))
+    .unwrap();
+
+    let full_run = RunJob::from(JobPayload::RawFlow {
+        value: flow_value.clone(),
+        path: None,
+        restarted_from: None,
+    })
+    .run_until_complete(&db, false, port)
+    .await;
+    assert!(full_run.success);
+    let orig_iter0 = child_job_id_for_step(&db, full_run.id, "fanout", Some(0)).await;
+
+    // Same frozen-transition shape as a zombie, but canceled by a USER, not the monitor.
+    let mut flow_status: serde_json::Value = sqlx::query_scalar!(
+        "SELECT flow_status FROM v2_job_completed WHERE id = $1",
+        full_run.id
+    )
+    .fetch_one(&db)
+    .await?
+    .expect("flow_status");
+    for m in flow_status["modules"].as_array_mut().unwrap() {
+        match m["id"].as_str() {
+            Some("fanout") => {
+                m["type"] = json!("InProgress");
+                m["iterator"] = json!({ "index": 1, "itered_len": 2 });
+            }
+            Some("after") => *m = json!({ "type": "WaitingForPriorSteps", "id": "after" }),
+            _ => {}
+        }
+    }
+    flow_status["step"] = json!(0);
+    sqlx::query!(
+        "UPDATE v2_job_completed SET status = 'canceled', canceled_by = 'admin',
+         flow_status = $2 WHERE id = $1",
+        full_run.id,
+        flow_status,
+    )
+    .execute(&db)
+    .await?;
+
+    let restarted = RunJob::from(JobPayload::RestartedFlow {
+        completed_job_id: full_run.id,
+        step_id: "fanout".into(),
+        branch_or_iteration_n: None,
+        flow_version: None,
+        branch_chosen: None,
+        nested: None,
+    })
+    .run_until_complete(&db, false, port)
+    .await;
+
+    assert!(restarted.success);
+    let new_iter0 = child_job_id_for_step(&db, restarted.id, "fanout", Some(0)).await;
+    assert_ne!(
+        new_iter0, orig_iter0,
+        "a non-monitor cancel must re-run the step, not reuse the child"
+    );
+
+    Ok(())
+}
