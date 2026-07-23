@@ -35,15 +35,20 @@
 	import { withWorkspaceParam } from '$lib/components/sessions/sessionMode.svelte'
 	import { enterSessionMode } from '$lib/components/sessions/sessionSwitch.svelte'
 	import type { SessionPreviewTabs } from '$lib/components/sessions/sessionPreviewTabs.svelte'
-	import { userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { userStore, userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import {
 		getOrCreateRuntime,
 		getRuntime,
 		listRuntimes
 	} from '$lib/components/sessions/sessionRuntime.svelte'
 	import { markSessionSeen } from '$lib/components/sessions/sessionUnread.svelte'
-	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
+	import {
+		isGlobalAiEnabled,
+		setSessionsBetaOptOut
+	} from '$lib/components/copilot/chat/global/gate'
 	import { setToolCompletionListener } from '$lib/components/copilot/chat/shared'
+	import { registerToolDisplayActionHandler } from '$lib/components/copilot/chat/createdResourceActions.svelte'
+	import { previewTargetForSessionTarget } from '$lib/components/sessions/sessionPreviewTabs.svelte'
 	import { base } from '$lib/base'
 	import {
 		artifactKey,
@@ -458,6 +463,24 @@
 		}
 	})
 
+	// Preview cards on create/update tool calls dispatch here. Open
+	// (or focus, if already shown) the item's preview in the active session's panel —
+	// the visible chat is always the active session, so `owner` is its panel. Read
+	// `owner` lazily inside the handler (not in the effect body) so this registers
+	// once, not on every session switch. A 'focused' open leaves the tab where it is,
+	// so pulse it to make the click visibly land.
+	$effect(() => {
+		return registerToolDisplayActionHandler('open_item_preview', (action) => {
+			if (action.type !== 'open_item_preview') return
+			const o = owner
+			if (!o) return
+			const target = previewTargetForSessionTarget(action.previewKind, action.path)
+			if (!target) return
+			const { status } = o.open(target)
+			if (status === 'focused') o.pulseFocus(o.activeId)
+		})
+	})
+
 	// Editor-style breadcrumb over the previewed page. We only render clickable
 	// segments when the preview is sitting on a script/flow/app route — for any
 	// other page (home, runs, …) there's no item to drill into, so we fall back
@@ -611,10 +634,33 @@
 				}}>Open sessions</Button
 			>
 		</div>
+	{:else if $userStore?.operator}
+		<!-- Operators are exempt from the sessions beta (the layout keeps their
+		     legacy docked chat); a direct URL must not bypass that. -->
+		<div class="p-8 flex flex-col items-start gap-3 text-secondary text-sm">
+			<p class="text-primary font-medium">AI Sessions are not available for operators</p>
+			<p>Use the Ask AI chat instead.</p>
+			<Button
+				size="xs"
+				onclick={() => {
+					try {
+						localStorage.setItem('ai-chat-open', 'true')
+					} catch {}
+					window.location.href = `${base}/`
+				}}
+			>
+				Open Ask AI chat
+			</Button>
+		</div>
 	{:else if !globalEnabled}
-		<div class="p-8 text-secondary text-sm">
-			Sessions are gated on the global-AI dev flag. Enable with
-			<code class="text-2xs font-mono">localStorage.setItem('wm_dev_global_ai', '1')</code> and reload.
+		<!-- Direct navigation (bookmark, shared link) while the user has opted out
+		     of the beta: offer the way back in instead of a dead end. -->
+		<div class="p-8 flex flex-col items-start gap-3 text-secondary text-sm">
+			<p class="text-primary font-medium">AI Sessions are deactivated</p>
+			<p>You switched back to the legacy chat. Activate AI Sessions (beta) to open this page.</p>
+			<Button size="xs" onclick={() => setSessionsBetaOptOut(false, `${base}/sessions`)}>
+				Activate AI Sessions
+			</Button>
 		</div>
 	{:else if !sessionState.hydrated}
 		<!-- Sessions hydrate from IndexedDB after the user resolves; until then an

@@ -3398,10 +3398,16 @@ async fn push_next_flow_job(
             // Persist approval user groups conditions, if any. Requires runnning the InputTransform
             let required_events = suspend.required_events.unwrap() as u16;
             let user_auth_required = suspend.user_auth_required.unwrap_or(false);
-            if user_auth_required {
-                let self_approval_disabled = suspend.self_approval_disabled.unwrap_or(false);
+            let self_approval_disabled = suspend.self_approval_disabled.unwrap_or(false);
+            // self_approval_disabled must be persisted even without user_auth_required, otherwise
+            // the resume boundary sees no approval_conditions and the restriction is silently
+            // dropped. user_groups_required only applies together with user_auth_required.
+            if user_auth_required || self_approval_disabled {
                 let user_groups_required: Vec<String>;
-                if let Some(user_groups_required_as_input_transform) = suspend.user_groups_required
+                if !user_auth_required {
+                    user_groups_required = Vec::new();
+                } else if let Some(user_groups_required_as_input_transform) =
+                    suspend.user_groups_required
                 {
                     match user_groups_required_as_input_transform {
                         InputTransform::Static { value } => {
@@ -3566,7 +3572,7 @@ async fn push_next_flow_job(
                         count: required_events,
                         job: last
                     }),
-                    (required_events - resume_messages.len() as u16) as i32,
+                    (required_events.saturating_sub(resume_messages.len() as u16)) as i32,
                     Duration::from_secs(
                         suspend.timeout.map(|t| t.into()).unwrap_or_else(|| 30 * 60)
                     ) as Duration,

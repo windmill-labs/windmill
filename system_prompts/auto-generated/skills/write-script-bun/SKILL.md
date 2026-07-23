@@ -1,6 +1,6 @@
 ---
 name: write-script-bun
-description: MUST use when writing Bun/TypeScript scripts.
+description: MUST use when writing TypeScript scripts. Bun is the default and preferred TypeScript runtime — pick it for TypeScript unless the script specifically needs Deno.
 ---
 
 ## CLI Commands
@@ -50,7 +50,7 @@ Use `wmill resource-type list --schema` to discover available resource types.
 
 # TypeScript (Bun)
 
-Bun runtime with full npm ecosystem and fastest execution.
+Bun runtime with full npm ecosystem and fastest execution. **Bun is the default and preferred TypeScript runtime** — choose it for any TypeScript script unless there is a major reason to use Deno for that specific use-case.
 
 ## Structure
 

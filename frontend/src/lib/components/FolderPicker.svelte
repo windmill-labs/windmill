@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { FolderService } from '$lib/gen'
 	import { workspaceStore, userStore } from '$lib/stores'
+	import { isDemoWorkspaceRestricted } from '$lib/cloud'
 	import { ChevronDown, Pen, PlusIcon } from 'lucide-svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import FolderEditor from './FolderEditor.svelte'
@@ -12,6 +13,10 @@
 	import { sendUserToast } from '$lib/toast'
 
 	const VALID_FOLDER_NAME = /^[a-zA-Z_0-9-]+$/
+
+	const restricted = $derived(
+		isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
+	)
 
 	let folders: { name: string; write: boolean }[] = $state([])
 	let filterText: string = $state('')
@@ -137,7 +142,7 @@
 	)
 
 	function handleSelectKeydown(e: KeyboardEvent) {
-		if (e.key === 'Enter' && selectOpen && noMatchingItems) {
+		if (e.key === 'Enter' && selectOpen && noMatchingItems && !restricted) {
 			e.preventDefault()
 			selectOpen = false
 			openCreateFolder()
@@ -233,18 +238,20 @@
 			/>
 		{/snippet}
 		{#snippet bottomSnippet({ close })}
-			<button
-				class="sticky py-2 px-4 w-full text-left text-xs font-medium hover:bg-surface-hover flex items-center justify-center gap-2 border-t border-border-light {noMatchingItems
-					? 'bg-surface-hover'
-					: ''}"
-				onclick={() => {
-					close()
-					openCreateFolder()
-				}}
-			>
-				<PlusIcon class="inline" size={16} />
-				Create folder
-			</button>
+			{#if !restricted}
+				<button
+					class="sticky py-2 px-4 w-full text-left text-xs font-medium hover:bg-surface-hover flex items-center justify-center gap-2 border-t border-border-light {noMatchingItems
+						? 'bg-surface-hover'
+						: ''}"
+					onclick={() => {
+						close()
+						openCreateFolder()
+					}}
+				>
+					<PlusIcon class="inline" size={16} />
+					Create folder
+				</button>
+			{/if}
 		{/snippet}
 	</Select>
 </div>

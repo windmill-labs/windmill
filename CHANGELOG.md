@@ -1,5 +1,52 @@
 # Changelog
 
+## [1.767.0](https://github.com/windmill-labs/windmill/compare/v1.766.2...v1.767.0) (2026-07-22)
+
+
+### Features
+
+* **ai-chat:** email triggers in flow/script chat + trigger-intent eval guards (WIN-2228) ([#10267](https://github.com/windmill-labs/windmill/issues/10267)) ([e41440b](https://github.com/windmill-labs/windmill/commit/e41440b344d94ebe5746a89237c3d1be522aa59d))
+* **ai:** improve data-pipeline building in AI sessions (prompt + evals + e2e) ([#10270](https://github.com/windmill-labs/windmill/issues/10270)) ([0819641](https://github.com/windmill-labs/windmill/commit/0819641f3a89abdf114cc5e341a9f585e5d71296))
+
+
+### Bug Fixes
+
+* **ai-chat:** improve resource-type search tool description and scoring ([#10272](https://github.com/windmill-labs/windmill/issues/10272)) ([ad53673](https://github.com/windmill-labs/windmill/commit/ad53673a2855e787af9fe10dcc8998ffc7f1b960))
+* **embeddings:** retry on failed init instead of disabling for a day ([#10266](https://github.com/windmill-labs/windmill/issues/10266)) ([2318481](https://github.com/windmill-labs/windmill/commit/2318481f4f2932dc578d5cb64c4c705cf5c324a0))
+* manual resource type sync fetches from hub first, cache as fallback ([#10269](https://github.com/windmill-labs/windmill/issues/10269)) ([07d4b67](https://github.com/windmill-labs/windmill/commit/07d4b674f1dbd24c89f7d1e77094a40e528a3740))
+
+## [1.766.2](https://github.com/windmill-labs/windmill/compare/v1.766.1...v1.766.2) (2026-07-22)
+
+
+### Bug Fixes
+
+* **python,windows:** cross-platform cross-process wheel-install lock ([#10264](https://github.com/windmill-labs/windmill/issues/10264)) ([7e2f1af](https://github.com/windmill-labs/windmill/commit/7e2f1afffb4982099870e7ce32592cf3a447e513))
+
+## [1.766.1](https://github.com/windmill-labs/windmill/compare/v1.766.0...v1.766.1) (2026-07-22)
+
+
+### Bug Fixes
+
+* **jobs:** enforce self_approval_disabled on the UI resume path ([#10262](https://github.com/windmill-labs/windmill/issues/10262)) ([2d24b3a](https://github.com/windmill-labs/windmill/commit/2d24b3ac49b65469072bca929730d2c9ecd54b8f))
+
+## [1.766.0](https://github.com/windmill-labs/windmill/compare/v1.765.0...v1.766.0) (2026-07-22)
+
+
+### Features
+
+* **ai-sessions:** show item preview cards for tools ([#10254](https://github.com/windmill-labs/windmill/issues/10254)) ([703744f](https://github.com/windmill-labs/windmill/commit/703744fb8b76f70384cbc3341d5e1b3dbf30455e))
+* make content search a full CE feature ([#10252](https://github.com/windmill-labs/windmill/issues/10252)) ([d2c5d6f](https://github.com/windmill-labs/windmill/commit/d2c5d6f4b4ede9449407ed3831713d3e3d1d6972))
+* **sessions:** ship AI sessions as beta with legacy-chat opt-out ([#10242](https://github.com/windmill-labs/windmill/issues/10242)) ([0508cdd](https://github.com/windmill-labs/windmill/commit/0508cddf0a86b6a6a043cb31978ca68b76a95d02))
+
+
+### Bug Fixes
+
+* accept ssh/scheme-less git repo urls and $var: refs in app repo resolution ([#10246](https://github.com/windmill-labs/windmill/issues/10246)) ([b948efd](https://github.com/windmill-labs/windmill/commit/b948efd3c81aada103bd141eae03fbe626bf6ee5))
+* **copilot:** stop write_flow forcing rawscript code into nested JSON ([#10260](https://github.com/windmill-labs/windmill/issues/10260)) ([ecb1a92](https://github.com/windmill-labs/windmill/commit/ecb1a92070fb18048a6a1467270469e8462a3cbf))
+* prevent u16 underflow in suspend count causing permanent flow deadlock ([#10256](https://github.com/windmill-labs/windmill/issues/10256)) ([68b1fcc](https://github.com/windmill-labs/windmill/commit/68b1fcc5cdd3d217ebb1b9e09c0d52334faf0a63))
+* **prompts:** prefer Bun over Deno for TypeScript runtime selection ([#10253](https://github.com/windmill-labs/windmill/issues/10253)) ([380cf75](https://github.com/windmill-labs/windmill/commit/380cf752ca8fc57eb70f7c8efd57290f7902a030))
+* **tutorials:** repair broken frontend tutorials after UI redesigns ([#10255](https://github.com/windmill-labs/windmill/issues/10255)) ([5685981](https://github.com/windmill-labs/windmill/commit/5685981c9902ff37c3bd271dc5c5ede948a0787a))
+
 ## [1.765.0](https://github.com/windmill-labs/windmill/compare/v1.764.0...v1.765.0) (2026-07-21)
 
 

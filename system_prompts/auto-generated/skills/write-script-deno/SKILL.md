@@ -1,6 +1,6 @@
 ---
 name: write-script-deno
-description: MUST use when writing Deno/TypeScript scripts.
+description: Use ONLY when a TypeScript script specifically requires the Deno runtime (Deno stdlib or deno.land URL imports). For all other TypeScript, use write-script-bun instead.
 ---
 
 ## CLI Commands
@@ -51,6 +51,8 @@ Use `wmill resource-type list --schema` to discover available resource types.
 # TypeScript (Deno)
 
 Deno runtime with npm support via `npm:` prefix and native Deno libraries.
+
+**Prefer Bun (`write-script-bun`) for TypeScript.** Only use Deno when the script specifically requires the Deno runtime — Deno's standard library or `deno.land` URL imports that have no npm equivalent. For all other TypeScript, use Bun instead.
 
 ## Structure
 

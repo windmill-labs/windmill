@@ -296,7 +296,7 @@
 					<p class="text-red-500 dark:text-red-400 text-xs">
 						Resource type '{resource_type}' not found in your workspace
 					</p>
-					<SyncResourceTypes onSynced={() => onLoadResourceType?.()} />
+					<SyncResourceTypes resourceType={resource_type} onSynced={() => onLoadResourceType?.()} />
 					<p class="italic text-secondary text-xs"> Define the value in JSON directly </p>
 				</div>
 			{/if}
