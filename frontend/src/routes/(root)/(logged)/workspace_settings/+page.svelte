@@ -180,6 +180,7 @@
 	let errorHandlerExtraArgs: Record<string, any> = $state({})
 	let errorHandlerMutedOnCancel: boolean | undefined = $state(undefined)
 	let errorHandlerMutedOnUserPath: boolean | undefined = $state(undefined)
+	let errorHandlerFallbackToInstanceAlerts: boolean = $state(false)
 	let successHandlerScriptPath: string | undefined = $state(undefined)
 	let criticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let initialCriticalAlertUIMuted: boolean | undefined = $state(undefined)
@@ -231,6 +232,7 @@
 	let initialErrorHandlerExtraArgs: Record<string, any> = $state({})
 	let initialErrorHandlerMutedOnCancel: boolean | undefined = $state(undefined)
 	let initialErrorHandlerMutedOnUserPath: boolean | undefined = $state(undefined)
+	let initialErrorHandlerFallbackToInstanceAlerts: boolean = $state(false)
 
 	// Track initial success handler for unsaved changes detection
 	let initialSuccessHandlerScriptPath: string | undefined = $state(undefined)
@@ -603,6 +605,8 @@
 		errorHandlerScriptPath = errorHandlerPath.split('/').slice(1).join('/')
 		errorHandlerMutedOnCancel = errorHandler?.muted_on_cancel
 		errorHandlerMutedOnUserPath = errorHandler?.muted_on_user_path
+		errorHandlerFallbackToInstanceAlerts =
+			settings.error_handler_fallback_to_instance_alerts ?? false
 		criticalAlertUIMuted = settings.mute_critical_alerts
 		initialCriticalAlertUIMuted = settings.mute_critical_alerts
 		publicAppRateLimitPerMinute = settings.public_app_execution_limit_per_minute ?? undefined
@@ -664,6 +668,7 @@
 		initialErrorHandlerExtraArgs = clone(errorHandlerExtraArgs)
 		initialErrorHandlerMutedOnCancel = errorHandlerMutedOnCancel
 		initialErrorHandlerMutedOnUserPath = errorHandlerMutedOnUserPath
+		initialErrorHandlerFallbackToInstanceAlerts = errorHandlerFallbackToInstanceAlerts
 
 		// Store initial success handler state for unsaved changes detection
 		initialSuccessHandlerScriptPath = successHandlerScriptPath
@@ -805,7 +810,8 @@
 					path: `${errorHandlerItemKind}/${errorHandlerScriptPath}`,
 					extra_args: errorHandlerExtraArgs,
 					muted_on_cancel: errorHandlerMutedOnCancel,
-					muted_on_user_path: errorHandlerMutedOnUserPath
+					muted_on_user_path: errorHandlerMutedOnUserPath,
+					fallback_to_instance_alerts: errorHandlerFallbackToInstanceAlerts
 				}
 			})
 			sendUserToast(`workspace error handler set to ${errorHandlerScriptPath}`)
@@ -816,10 +822,15 @@
 					path: undefined,
 					extra_args: undefined,
 					muted_on_cancel: undefined,
-					muted_on_user_path: undefined
+					muted_on_user_path: undefined,
+					fallback_to_instance_alerts: errorHandlerFallbackToInstanceAlerts
 				}
 			})
-			sendUserToast(`workspace error handler removed`)
+			sendUserToast(
+				initialErrorHandlerScriptPath
+					? `workspace error handler removed`
+					: `error handler settings saved`
+			)
 		}
 
 		// Update initial values for dirty detection
@@ -829,6 +840,7 @@
 		initialErrorHandlerExtraArgs = clone(errorHandlerExtraArgs)
 		initialErrorHandlerMutedOnCancel = errorHandlerMutedOnCancel
 		initialErrorHandlerMutedOnUserPath = errorHandlerMutedOnUserPath
+		initialErrorHandlerFallbackToInstanceAlerts = errorHandlerFallbackToInstanceAlerts
 	}
 
 	async function editSuccessHandler() {
@@ -1029,7 +1041,8 @@
 			errorHandlerItemKind: initialErrorHandlerItemKind,
 			errorHandlerExtraArgs: normalizeHandlerExtraArgs(initialErrorHandlerExtraArgs),
 			errorHandlerMutedOnCancel: initialErrorHandlerMutedOnCancel,
-			errorHandlerMutedOnUserPath: initialErrorHandlerMutedOnUserPath
+			errorHandlerMutedOnUserPath: initialErrorHandlerMutedOnUserPath,
+			errorHandlerFallbackToInstanceAlerts: initialErrorHandlerFallbackToInstanceAlerts
 		}
 
 		const modifiedValue = {
@@ -1038,7 +1051,8 @@
 			errorHandlerItemKind: errorHandlerItemKind,
 			errorHandlerExtraArgs: normalizeHandlerExtraArgs(errorHandlerExtraArgs),
 			errorHandlerMutedOnCancel: errorHandlerMutedOnCancel,
-			errorHandlerMutedOnUserPath: errorHandlerMutedOnUserPath
+			errorHandlerMutedOnUserPath: errorHandlerMutedOnUserPath,
+			errorHandlerFallbackToInstanceAlerts: errorHandlerFallbackToInstanceAlerts
 		}
 
 		return { savedValue, modifiedValue }
@@ -1052,6 +1066,7 @@
 		errorHandlerExtraArgs = clone(initialErrorHandlerExtraArgs)
 		errorHandlerMutedOnCancel = initialErrorHandlerMutedOnCancel
 		errorHandlerMutedOnUserPath = initialErrorHandlerMutedOnUserPath
+		errorHandlerFallbackToInstanceAlerts = initialErrorHandlerFallbackToInstanceAlerts
 	}
 
 	// Combined function to check for unsaved changes across all tabs
@@ -1856,6 +1871,33 @@
 											options={{ right: 'Do not run error handler for u/ scripts and flows' }}
 										/>
 									</SettingCard>
+
+									{#if !isCloudHosted() && !currentWorkspace?.parent_workspace_id}
+										<SettingCard
+											label="Fall back to the instance critical alert channels"
+											description="When this workspace has no error handler, failed jobs are reported to the Slack, Teams and email channels configured at the instance level. Those channels are managed in instance settings by a superadmin, not here, and the report is sent without adding an entry to the instance critical alert feed."
+											ee_only="Critical alert channels are only available in the EE version"
+											class="gap-2"
+										>
+											<Toggle
+												disabled={!$enterpriseLicense}
+												bind:checked={errorHandlerFallbackToInstanceAlerts}
+												options={{
+													right: 'Report failed jobs to the instance critical alert channels'
+												}}
+											/>
+											{#if errorHandlerFallbackToInstanceAlerts && !emptyString(errorHandlerScriptPath)}
+												<div class="text-xs text-secondary">
+													Inactive as long as the error handler above is set: it takes precedence.
+												</div>
+											{/if}
+											{#if $superadmin}
+												<a class="text-xs w-fit" href="{base}/?workspace=admins#superadmin-settings">
+													Configure the instance critical alert channels
+												</a>
+											{/if}
+										</SettingCard>
+									{/if}
 								</div>
 
 								<SettingsFooter

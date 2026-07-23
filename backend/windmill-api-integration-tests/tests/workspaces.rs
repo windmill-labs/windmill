@@ -902,6 +902,54 @@ async fn test_get_copilot_info_ignores_empty_instance_ai_row(
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_error_handler_instance_alerts_fallback(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/workspaces");
+
+    let stored = || async {
+        sqlx::query_scalar!(
+            "SELECT error_handler_fallback_to_instance_alerts FROM workspace_settings WHERE workspace_id = 'test-workspace'"
+        )
+        .fetch_one(&db)
+        .await
+    };
+
+    let resp = authed(client().post(format!("{base}/edit_error_handler")))
+        .json(&json!({"path": null, "fallback_to_instance_alerts": true}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "enable: {}", resp.text().await?);
+    assert!(stored().await?);
+
+    // A client that predates the setting (the CLI pushing settings.yaml) omits the field and
+    // must not silently turn it back off.
+    let resp = authed(client().post(format!("{base}/edit_error_handler")))
+        .json(&json!({"path": null, "extra_args": null}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "omitted: {}", resp.text().await?);
+    assert!(stored().await?);
+
+    sqlx::query!(
+        "UPDATE workspace SET parent_workspace_id = 'test-workspace' WHERE id = 'test-workspace'"
+    )
+    .execute(&db)
+    .await?;
+    let resp = authed(client().post(format!("{base}/edit_error_handler")))
+        .json(&json!({"path": null, "fallback_to_instance_alerts": true}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400, "fork must be rejected");
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_get_imports(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
