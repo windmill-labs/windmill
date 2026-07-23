@@ -276,8 +276,7 @@ async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(body["description"], "Updated description");
 
     // --- update (resource_type) ---
-    // Guards GIT-932: switching a resource's type (e.g. via git-sync pull) must
-    // actually persist; EditResource previously dropped resource_type silently.
+    // An update that only changes resource_type must persist it.
     let resp = authed(client().post(resource_url(port, "update", "u/test-user/new_resource")))
         .json(&json!({"resource_type": "mcp_server"}))
         .send()
