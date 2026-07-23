@@ -62,9 +62,9 @@ export function refContainmentViolation(refs: Ref[], folder: string): string | u
 
 // `$var:`/`$jsonvar:` references (in flow static inputs, flow_env, app runnable
 // inputs, trigger config) are resolved at runtime under the imported runnable's
-// permissions and are never hub-hosted. Retargeting doesn't rewrite them, so reject
-// any that don't live in the target folder rather than bind a variable in another
-// namespace. Takes the parsed value so inline code carrying a literal is ignored.
+// permissions and are never hub-hosted. Retargeting relocates a project's own refs
+// into the target folder; anything still outside it points at another namespace, so
+// reject those. Takes the parsed value so inline code carrying a literal is ignored.
 export function varContainmentViolation(value: any, folder: string): string | undefined {
 	for (const p of extractVarRefsFromValue(value)) {
 		if (classifyPath(p, folder) !== 'internal') {
