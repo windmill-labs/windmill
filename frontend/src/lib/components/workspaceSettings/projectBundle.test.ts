@@ -608,6 +608,21 @@ describe('retargetProjectExport', () => {
 		expect(out.flows[0].value.flow_env.CFG).toBe('$jsonvar:f/dest/cfg')
 		expect(out.triggers[1].config.queue_url).toBe('$var:f/dest/sqs')
 	})
+
+	it('leaves an inert $var: literal embedded in inline code unchanged', () => {
+		const bundle = baseExport()
+		// Same path as a real runtime ref, but here it is a literal inside code: it
+		// must not be rewritten even once the path enters the retarget map.
+		bundle.flows[0].value.modules[0].value = {
+			type: 'rawscript',
+			content: 'return "$var:f/proj/api_key"',
+			input_transforms: { real: { type: 'static', value: '$var:f/proj/api_key' } }
+		}
+		const out = retargetProjectExport(bundle, 'proj', 'dest')
+		const mod = out.flows[0].value.modules[0].value
+		expect(mod.content).toBe('return "$var:f/proj/api_key"')
+		expect(mod.input_transforms.real.value).toBe('$var:f/dest/api_key')
+	})
 })
 
 describe('collectExportVarPaths', () => {

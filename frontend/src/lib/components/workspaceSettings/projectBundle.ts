@@ -22,11 +22,10 @@ const RES_TOKEN_RE = /(?:\$res:|res:\/\/)([\w\-./]+)/g
 
 // A whole-string `$var:PATH` / `$jsonvar:PATH` value. The worker substitutes these
 // only when an argument value *is* the reference (walking nested JSON), never a
-// token embedded in inline code, so the whole value must match.
+// token embedded in inline code, so the whole value must match. `_KIND` captures
+// the prefix (group 1) and path (group 2) so a rewrite can preserve `var`/`jsonvar`.
 const VAR_VALUE_RE = /^\$(?:json)?var:([\w\-./]+)$/
-
-// The same tokens for in-place rewriting (kind captured to preserve `var`/`jsonvar`).
-const VAR_TOKEN_RE = /\$(var|jsonvar):([\w\-./]+)/g
+const VAR_VALUE_RE_KIND = /^\$(var|jsonvar):([\w\-./]+)$/
 
 // Variable paths a value will resolve at runtime (flow static inputs, flow_env,
 // app runnable inputs, trigger config fields). Walk the parsed structure and match
@@ -199,19 +198,34 @@ export function buildPathMap(paths: Iterable<string>, slug: string): Map<string,
 	return map
 }
 
-// `$res:`/`res://` normalize to `$res:`; `$var:`/`$jsonvar:` keep their kind. Only
-// paths present in the map are rewritten, so the map decides what is a real ref
-// (the retarget map carries variable paths; the publish map does not).
+// Both ref forms normalize to `$res:` on rewrite.
 export function rewriteContent(content: string, map: Map<string, string>): string {
-	return content
-		.replace(RES_TOKEN_RE, (whole, path) => {
-			const next = map.get(path)
-			return next ? `$res:${next}` : whole
-		})
-		.replace(VAR_TOKEN_RE, (whole, kind, path) => {
-			const next = map.get(path)
-			return next ? `$${kind}:${next}` : whole
-		})
+	return content.replace(RES_TOKEN_RE, (whole, path) => {
+		const next = map.get(path)
+		return next ? `$res:${next}` : whole
+	})
+}
+
+// Structurally relocate whole-string `$var:`/`$jsonvar:` values — the only form the
+// worker resolves. Walks the parsed value so an inert token embedded in inline code
+// or arbitrary text is left untouched, unlike token replacement over serialized
+// strings. Only paths present in the map move (the retarget map carries variables).
+export function rewriteVarRefsInValue(value: any, map: Map<string, string>): any {
+	if (typeof value === 'string') {
+		const m = VAR_VALUE_RE_KIND.exec(value)
+		if (m) {
+			const next = map.get(m[2])
+			if (next) return `$${m[1]}:${next}`
+		}
+		return value
+	}
+	if (Array.isArray(value)) return value.map((v) => rewriteVarRefsInValue(v, map))
+	if (value && typeof value === 'object') {
+		const out: Record<string, any> = {}
+		for (const k of Object.keys(value)) out[k] = rewriteVarRefsInValue(value[k], map)
+		return out
+	}
+	return value
 }
 
 /**
@@ -434,7 +448,7 @@ export function retargetProjectExport(
 		flows: bundle.flows.map((f) => ({
 			...f,
 			path: remap(f.path),
-			value: rewriteFlowValue(f.value, map)
+			value: rewriteVarRefsInValue(rewriteFlowValue(f.value, map), map)
 		})),
 		apps: bundle.apps.map((a) => ({
 			...a,
@@ -442,19 +456,30 @@ export function retargetProjectExport(
 			// Raw apps keep their structure in the `value.raw` JSON string.
 			value:
 				a.app_type === 'raw'
-					? { ...a.value, raw: rewriteRawAppContent(a.value?.raw ?? '', map) }
-					: rewriteAppValue(a.value, map)
+					? {
+							...a.value,
+							raw: rewriteRawVarRefs(rewriteRawAppContent(a.value?.raw ?? '', map), map)
+						}
+					: rewriteVarRefsInValue(rewriteAppValue(a.value, map), map)
 		})),
 		resources: bundle.resources.map((r) => ({ ...r, path: remap(r.path) })),
 		triggers: bundle.triggers.map((t) => ({
 			...t,
 			path: remap(t.path),
 			runnable_path: remap(t.runnable_path),
-			// Configs hold both `$res:` tokens and plain resource paths
-			// (kafka_resource_path etc.) — rewrite both.
-			config: t.config ? rewriteTriggerConfig(t.config, map) : t.config
+			// Configs hold `$res:` tokens, plain resource paths (kafka_resource_path
+			// etc.) and whole-string `$var:` values — rewrite all three.
+			config: t.config ? rewriteVarRefsInValue(rewriteTriggerConfig(t.config, map), map) : t.config
 		}))
 	}
+}
+
+// Var relocation for a raw app's `value.raw` JSON string: parse, structurally
+// rewrite whole-string var values, re-serialize; leave invalid JSON untouched.
+function rewriteRawVarRefs(raw: string, map: Map<string, string>): string {
+	const parsed = safeParseRaw(raw)
+	if (parsed === undefined) return raw
+	return JSON.stringify(rewriteVarRefsInValue(parsed, map))
 }
 
 export type ItemKind = 'script' | 'flow' | 'app' | 'raw_app'
