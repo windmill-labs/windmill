@@ -1413,7 +1413,9 @@ describe('global AI tools', () => {
 			requestBody: expect.objectContaining({
 				path: 'u/admin/fresh_inbox',
 				local_part: 'support',
-				script_path: 'f/scripts/handler'
+				script_path: 'f/scripts/handler',
+				// Omitted by the caller above; defaulted so the NOT NULL column is satisfied.
+				workspaced_local_part: false
 			})
 		})
 		expect(

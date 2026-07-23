@@ -4252,6 +4252,12 @@ function writeTriggerDraft(
 	ctx: WriteDraftCtx
 ): Promise<string> {
 	const config = args.config as TriggerDraftConfig
+	if (args.kind === 'email') {
+		// workspaced_local_part maps to a NOT NULL column; the model may omit the
+		// optional field, so default it before the draft is persisted and deployed.
+		const email = config as TriggerDraftConfig & { workspaced_local_part?: boolean }
+		email.workspaced_local_part = email.workspaced_local_part ?? false
+	}
 	return writeDraft(triggerWriteSpec(args.kind), 'trigger', config.path, config, ctx, {
 		triggerKind: args.kind,
 		override: args.override
