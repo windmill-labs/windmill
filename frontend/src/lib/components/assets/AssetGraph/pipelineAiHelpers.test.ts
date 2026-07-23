@@ -114,20 +114,24 @@ describe('pipeline AI direct-draft helpers', () => {
 		expect(drafts().size).toBe(0)
 	})
 
-	it('proposeNode reports the output_kind seed as a detected write', async () => {
-		// A node whose output edge comes only from the output_kind seed (no
-		// body-inferrable write) must still report that write, or the lineage note
-		// would falsely warn "no asset write inferred" for a validly-wired node.
+	it('does not report the output_kind seed as detected lineage', async () => {
+		// The output_kind seed renders a placeholder edge on the canvas, but it is a
+		// random generated URI that live inference overwrites and deploy re-derives
+		// from the body — so it must NOT be reported as detected lineage. Reporting
+		// it would tell the model a dynamic/unwritten output is wired when the
+		// deployable script has no such edge.
 		vi.spyOn(ScriptService, 'getScriptByPath').mockRejectedValue(new Error('404'))
-		const { handle } = makeHandle()
+		const { handle, drafts } = makeHandle()
 		const res = await handle.proposeNode({
 			path: 'f/x/seeded',
 			language: 'duckdb' as any,
 			content: '-- pipeline\n-- on schedule\nSELECT 1',
 			outputKind: 'ducklake' as any
 		})
-		expect(res.detectedWrites.length).toBeGreaterThan(0)
-		expect(res.detectedWrites[0]).toContain('ducklake://')
+		// Seed still present for canvas presentation...
+		expect(drafts().get('f/x/seeded')?.outputAssets?.length).toBeGreaterThan(0)
+		// ...but not surfaced to the model as a detected write.
+		expect(res.detectedWrites).toEqual([])
 	})
 
 	it('editNode rejects a path outside the open folder', async () => {

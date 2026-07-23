@@ -254,13 +254,15 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 			deps.setDrafts(next)
 			deps.onShowDrafts?.()
 			deps.onProposeNode?.(path)
-			// Report the edges that actually formed (matching the canvas) so the model
-			// can confirm wiring without a graph read — an empty list means no asset
-			// edge exists (e.g. a write via a variable/dynamic path isn't detected).
+			// Report ONLY body/annotation-inferred lineage — the deployable truth. The
+			// output_kind `seeded` value above is a random canvas placeholder that live
+			// inference overwrites and deploy re-derives from the body, so it must NOT be
+			// reported as a detected edge: an empty list correctly means the model's
+			// write (e.g. a variable/dynamic path) produced no real edge.
 			return {
 				path,
 				detectedReads: inferred.reads.map(assetUri),
-				detectedWrites: (outputAssets ?? []).map(assetUri)
+				detectedWrites: inferred.writes.map(assetUri)
 			}
 		},
 		editNode: async (path, content) => {
@@ -295,9 +297,11 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 			deps.setDrafts(next)
 			deps.onShowDrafts?.()
 			deps.onProposeNode?.(path)
+			// Report only body/annotation-inferred lineage (the deployable truth), not a
+			// carried-over seed placeholder — see the note in proposeNode.
 			return {
 				detectedReads: inferred.reads.map(assetUri),
-				detectedWrites: (outputAssets ?? []).map(assetUri)
+				detectedWrites: inferred.writes.map(assetUri)
 			}
 		},
 		removeProposedNode: async (path) => {
