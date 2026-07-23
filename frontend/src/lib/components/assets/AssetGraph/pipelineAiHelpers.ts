@@ -250,7 +250,14 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 			deps.setDrafts(next)
 			deps.onShowDrafts?.()
 			deps.onProposeNode?.(path)
-			return { path }
+			// Report what the parser actually detected from the body/annotations (not
+			// the output_kind seed) so the model can tell if its intended write/read
+			// wired — an empty list means no literal asset call was found.
+			return {
+				path,
+				detectedReads: inferred.reads.map(assetUri),
+				detectedWrites: inferred.writes.map(assetUri)
+			}
 		},
 		editNode: async (path, content) => {
 			deps.ensureEditable?.()
@@ -283,6 +290,10 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 			deps.setDrafts(next)
 			deps.onShowDrafts?.()
 			deps.onProposeNode?.(path)
+			return {
+				detectedReads: inferred.reads.map(assetUri),
+				detectedWrites: inferred.writes.map(assetUri)
+			}
 		},
 		removeProposedNode: async (path) => {
 			if (!deps.getDrafts().has(path)) {

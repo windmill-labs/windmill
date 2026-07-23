@@ -57,10 +57,11 @@ function makeHelpers(overrides: Partial<PipelineAIChatHelpers> = {}): {
 		},
 		proposeNode: async (input) => {
 			calls.proposeNode = [...(calls.proposeNode ?? []), [input]]
-			return { path: input.path }
+			return { path: input.path, detectedReads: [], detectedWrites: [] }
 		},
 		editNode: async (path, content) => {
 			calls.editNode = [...(calls.editNode ?? []), [path, content]]
+			return { detectedReads: [], detectedWrites: [] }
 		},
 		removeProposedNode: record('removeProposedNode'),
 		testNode: async () => 'job-123',
@@ -113,6 +114,40 @@ describe('pipeline tools', () => {
 			outputKind: 'ducklake'
 		})
 		expect(out).toContain('not deployed')
+	})
+
+	it('build_pipeline_node reports the inferred asset lineage', async () => {
+		const { helpers } = makeHelpers({
+			proposeNode: async (input) => ({
+				path: input.path,
+				detectedReads: ['s3:///raw/in.csv'],
+				detectedWrites: ['ducklake://main/out']
+			})
+		})
+		const out = await toolByName('build_pipeline_node').fn({
+			args: { path: 'f/analytics/clean', language: 'duckdb', content: '-- pipeline' },
+			workspace: 'w',
+			helpers,
+			toolCallbacks: noopCallbacks(),
+			toolId: 't'
+		})
+		expect(out).toContain('writes ducklake://main/out')
+		expect(out).toContain('reads s3:///raw/in.csv')
+	})
+
+	it('build_pipeline_node warns when no asset lineage is inferred', async () => {
+		const { helpers } = makeHelpers({
+			proposeNode: async (input) => ({ path: input.path, detectedReads: [], detectedWrites: [] })
+		})
+		const out = await toolByName('build_pipeline_node').fn({
+			args: { path: 'f/analytics/clean', language: 'duckdb', content: '-- pipeline' },
+			workspace: 'w',
+			helpers,
+			toolCallbacks: noopCallbacks(),
+			toolId: 't'
+		})
+		expect(out).toMatch(/no storage-asset read or write was inferred/i)
+		expect(out).toContain('string literal')
 	})
 
 	it('edit_pipeline_node reads then applies an exact find/replace', async () => {

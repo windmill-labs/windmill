@@ -2971,8 +2971,8 @@ describe('AIChatManager.waitForPipelineHelpers', () => {
 		return {
 			getPipelineContext: () => ({ folder: 'f', mode: 'edit', nodes: [], assets: [] }),
 			getNodeBody: async () => undefined,
-			proposeNode: async () => ({ path: '' }),
-			editNode: async () => {},
+			proposeNode: async () => ({ path: '', detectedReads: [], detectedWrites: [] }),
+			editNode: async () => ({ detectedReads: [], detectedWrites: [] }),
 			removeProposedNode: async () => {},
 			testNode: async () => undefined
 		}
