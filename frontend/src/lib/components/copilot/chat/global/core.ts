@@ -1,6 +1,7 @@
 import {
 	AppService,
 	AzureTriggerService,
+	EmailTriggerService,
 	FlowService,
 	FolderService,
 	GcpTriggerService,
@@ -561,7 +562,8 @@ const writeTriggerSchema = z.object({
 			triggerRequestSchemas.amqp,
 			triggerRequestSchemas.sqs,
 			triggerRequestSchemas.gcp,
-			triggerRequestSchemas.azure
+			triggerRequestSchemas.azure,
+			triggerRequestSchemas.email
 		])
 		.describe(
 			'Full trigger configuration. Must include path, script_path, is_flow plus the kind-specific fields.'
@@ -1752,6 +1754,14 @@ const triggerServices: Record<TriggerKind, TriggerService> = {
 		create: (a) => AzureTriggerService.createAzureTrigger(a),
 		update: (a) => AzureTriggerService.updateAzureTrigger(a),
 		delete: (a) => AzureTriggerService.deleteAzureTrigger(a)
+	},
+	email: {
+		exists: (a) => EmailTriggerService.existsEmailTrigger(a),
+		get: (a) => EmailTriggerService.getEmailTrigger(a),
+		list: (a) => EmailTriggerService.listEmailTriggers(a),
+		create: (a) => EmailTriggerService.createEmailTrigger(a),
+		update: (a) => EmailTriggerService.updateEmailTrigger(a),
+		delete: (a) => EmailTriggerService.deleteEmailTrigger(a)
 	}
 }
 
@@ -1861,12 +1871,22 @@ async function listWorkspaceItems(
 
 	if (types.includes('trigger')) {
 		for (const kind of TRIGGER_KINDS) {
-			const triggers = await triggerServices[kind].list({
-				workspace,
-				pathStart: pathPrefix,
-				perPage,
-				page
-			})
+			let triggers: Awaited<ReturnType<(typeof triggerServices)[typeof kind]['list']>>
+			try {
+				triggers = await triggerServices[kind].list({
+					workspace,
+					pathStart: pathPrefix,
+					perPage,
+					page
+				})
+			} catch (err) {
+				// A trigger kind whose backend routes aren't compiled in (e.g. email
+				// without smtp+private, or an EE kind on CE) 404s here; skip only that
+				// so one unavailable kind doesn't drop the whole listing. Any other
+				// failure (auth, 5xx, network) is real and must surface.
+				if ((err as { status?: number } | undefined)?.status === 404) continue
+				throw err
+			}
 			for (const trigger of triggers) items.push(triggerToItem(kind, trigger, false))
 		}
 	}
@@ -4211,7 +4231,17 @@ function triggerWriteSpec(kind: TriggerKind): WriteSpec<TriggerDraftConfig, Trig
 		probe: (workspace, path) => service.exists({ workspace, path }),
 		fetchDeployed: async (workspace, path) =>
 			(await service.get({ workspace, path })) as TriggerDraftConfig,
-		buildDraft: (base, config, path) => mergeDraftConfig<TriggerDraftConfig>(base, config, path)
+		buildDraft: (base, config, path) => {
+			const draft = mergeDraftConfig<TriggerDraftConfig>(base, config, path)
+			if (kind === 'email') {
+				// workspaced_local_part maps to a NOT NULL column but is optional in the
+				// tool schema. Default on the merged draft (not the incoming config) so an
+				// omitted field keeps the existing trigger's value instead of resetting it.
+				const email = draft as TriggerDraftConfig & { workspaced_local_part?: boolean }
+				email.workspaced_local_part = email.workspaced_local_part ?? false
+			}
+			return draft
+		}
 	}
 }
 
@@ -5132,7 +5162,8 @@ const triggerLabels: Record<TriggerKind, string> = {
 	amqp: 'AMQP trigger',
 	sqs: 'SQS trigger',
 	gcp: 'GCP Pub/Sub trigger',
-	azure: 'Azure Event Grid trigger'
+	azure: 'Azure Event Grid trigger',
+	email: 'Email trigger'
 }
 
 function createOpenScheduleAction(path: string, targetKind: 'script' | 'flow'): ToolDisplayAction {
