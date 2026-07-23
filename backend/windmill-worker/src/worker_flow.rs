@@ -1525,9 +1525,14 @@ pub async fn update_flow_status_after_job_completion_internal(
             let concurrency_key = tag_and_concurrency_key
                 .as_ref()
                 .and_then(|x| x.concurrency_key.clone());
-            let concurrent_limit = tag_and_concurrency_key
-                .as_ref()
-                .and_then(|x| x.concurrent_limit);
+            // `concurrent_limit` here can come straight from the raw flow JSON (see
+            // get_tag_and_concurrency), bypassing the ConcurrencySettings deserialization guard,
+            // so a stored `0` must still be coerced to disabled before we register a key for it.
+            let concurrent_limit = windmill_common::runnable_settings::none_if_non_positive(
+                tag_and_concurrency_key
+                    .as_ref()
+                    .and_then(|x| x.concurrent_limit),
+            );
             let concurrency_time_window_s = tag_and_concurrency_key
                 .as_ref()
                 .and_then(|x| x.concurrency_time_window_s);

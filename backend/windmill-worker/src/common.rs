@@ -1081,7 +1081,9 @@ pub async fn resolve_job_timeout(
         *MAX_TIMEOUT_DURATION
     };
 
-    match custom_timeout_secs {
+    // A `custom_timeout_secs <= 0` is not a 0-second limit but "unset": fall through to the
+    // default/global-max timeout instead of killing the job immediately.
+    match windmill_common::runnable_settings::none_if_non_positive(custom_timeout_secs) {
         Some(timeout_secs)
             if Duration::from_secs(timeout_secs as u64) < global_max_timeout_duration =>
         {

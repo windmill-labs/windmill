@@ -1107,15 +1107,16 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // Resolve the concurrency-limit settings on the pool *before* opening the
     // completion transaction: doing it inside the tx would hold a second
     // simultaneous connection from the small per-worker pool.
-    let has_concurrent_limit = completed_job.concurrent_limit.is_some()
-        || windmill_common::runnable_settings::prefetch_cached_from_handle(
-            completed_job.runnable_settings_handle,
-            db,
-        )
-        .await?
-        .1
-        .concurrent_limit
-        .is_some();
+    let has_concurrent_limit = has_active_concurrency_limit(completed_job.concurrent_limit)
+        || has_active_concurrency_limit(
+            windmill_common::runnable_settings::prefetch_cached_from_handle(
+                completed_job.runnable_settings_handle,
+                db,
+            )
+            .await?
+            .1
+            .concurrent_limit,
+        );
 
     // A genuine NUL (U+0000) in the result serializes to a `\u0000` escape that
     // the jsonb `result` column rejects with 22P05 ("unsupported Unicode escape
@@ -3921,7 +3922,7 @@ pub async fn pull(
                 let pulled_job_result = match job {
                     #[cfg(feature = "private")]
                     Some(job)
-                        if concurrency_settings.concurrent_limit.is_some()
+                        if has_active_concurrency_limit(concurrency_settings.concurrent_limit)
                             // Concurrency limit is available for either enterprise job or dependency job
                             && (cfg!(feature = "enterprise") || (job.is_dependency() && !*WMDEBUG_NO_DEBOUNCING)) =>
                     {
@@ -3985,7 +3986,8 @@ pub async fn pull(
         .1
         .maybe_fallback(None, job.concurrent_limit, job.concurrency_time_window_s);
 
-        let has_concurent_limit = concurrency_settings.concurrent_limit.is_some();
+        let has_concurent_limit =
+            has_active_concurrency_limit(concurrency_settings.concurrent_limit);
 
         #[cfg(not(feature = "enterprise"))]
         if has_concurent_limit && !job.is_dependency() {
@@ -3994,7 +3996,7 @@ pub async fn pull(
 
         #[cfg(not(feature = "enterprise"))]
         let has_concurent_limit = job.is_dependency()
-            && job.concurrent_limit.is_some()
+            && has_active_concurrency_limit(job.concurrent_limit)
             && cfg!(feature = "private")
             && !*WMDEBUG_NO_DEBOUNCING;
         // if we don't have private flag, we don't have concurrency limit
@@ -4160,6 +4162,13 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
         }
     };
     Ok(job_and_suspended)
+}
+
+/// A concurrency limit is only active when it caps at 1+ slots. `Some(0)` (or negative) is
+/// a disabled limit, not a zero-slot one — see [`ConcurrencySettings::normalized`]. The gate
+/// checks must use this instead of `.is_some()` so a legacy stored `0` behaves as disabled.
+pub fn has_active_concurrency_limit(concurrent_limit: Option<i32>) -> bool {
+    concurrent_limit.is_some_and(|n| n > 0)
 }
 
 pub async fn custom_concurrency_key(
@@ -6141,6 +6150,11 @@ async fn push_inner<'c, 'd>(
         },
     };
 
+    // Guard against an already-stored `concurrent_limit <= 0` reaching the queue: it would
+    // register a zero-slot concurrency key and permanently block the job. Coerce it to
+    // disabled before it is persisted onto the job row / concurrency key here.
+    concurrency_settings = concurrency_settings.normalized();
+
     // Enforce concurrency limit on all dependency jobs.
     // TODO: We can ignore this for scripts djobs. The main reason we need all djobs to be sequential is because we have
     // nodes_to_relock and we need all locks whose corresponding steps aren't in nodes_to_relock be already present.
@@ -6328,7 +6342,7 @@ async fn push_inner<'c, 'd>(
         check_workspace_queue_cap(&mut *tx, workspace_id).await?;
     }
 
-    if concurrency_settings.concurrent_limit.is_some() {
+    if has_active_concurrency_limit(concurrency_settings.concurrent_limit) {
         let concurrency_key = resolve_concurrency_key(
             workspace_id,
             &args,
@@ -6732,7 +6746,7 @@ pub async fn insert_concurrency_key_capped<'d, 'c, E: PgExecutor<'c> + Copy>(
         custom_concurrency_key,
     );
     #[cfg(feature = "cloud")]
-    if *CLOUD_HOSTED && concurrent_limit.is_some() {
+    if *CLOUD_HOSTED && has_active_concurrency_limit(concurrent_limit) {
         check_concurrency_key_queue_cap(db, &concurrency_key).await?;
     }
     #[cfg(not(feature = "cloud"))]
