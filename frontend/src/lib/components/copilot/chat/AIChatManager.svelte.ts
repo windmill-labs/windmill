@@ -3699,23 +3699,26 @@ export class AIChatManager {
 	}
 
 	/**
-	 * Await the pipeline editor's tool registration. Resolves immediately when a
-	 * pipeline editor is already mounted, otherwise when the next one registers —
-	 * or after `timeoutMs` so a mount that never happens (e.g. the tab was closed)
-	 * can't hang the open_preview tool call.
+	 * Await the pipeline editor's tool registration. Resolves `true` immediately
+	 * when a pipeline editor is already mounted, or when the next one registers;
+	 * resolves `false` after `timeoutMs` if none registers (e.g. a backgrounded
+	 * session whose preview tab is not mounted, or a closed tab). Callers must
+	 * treat `false` as "tools NOT available" rather than silently reporting
+	 * success — the open_preview handler surfaces that to the model.
 	 */
-	waitForPipelineHelpers = (timeoutMs = 8000): Promise<void> => {
-		if (this.pipelineAiChatHelpers) return Promise.resolve()
-		return new Promise<void>((resolve) => {
+	waitForPipelineHelpers = (timeoutMs = 8000): Promise<boolean> => {
+		if (this.pipelineAiChatHelpers) return Promise.resolve(true)
+		return new Promise<boolean>((resolve) => {
 			let settled = false
-			const done = () => {
+			const finish = (registered: boolean) => {
 				if (settled) return
 				settled = true
-				this.#pipelineHelpersWaiters.delete(done)
-				resolve()
+				this.#pipelineHelpersWaiters.delete(onRegister)
+				resolve(registered)
 			}
-			this.#pipelineHelpersWaiters.add(done)
-			setTimeout(done, timeoutMs)
+			const onRegister = () => finish(true)
+			this.#pipelineHelpersWaiters.add(onRegister)
+			setTimeout(() => finish(false), timeoutMs)
 		})
 	}
 

@@ -1006,7 +1006,13 @@ setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path }) => {
 	// they are live so the model's next turn doesn't race ahead and hit an
 	// "Unknown tool call" error on the first node it tries to build.
 	if (kind === 'pipeline') {
-		await runtime.manager.waitForPipelineHelpers()
+		const ready = await runtime.manager.waitForPipelineHelpers()
+		// A backgrounded session's preview tab does not mount, so its editor never
+		// registers — don't claim success, or the model calls build_pipeline_node
+		// into the void. Tell it the tools aren't available and how to recover.
+		if (!ready) {
+			return `Opened the pipeline preview for "${path}", but its editor tools (build_pipeline_node / edit_pipeline_node) have not registered — this usually means this session is not the one currently displayed. Do NOT call build_pipeline_node yet: ask the user to open/focus this session's pipeline preview, then retry open_preview.`
+		}
 	}
 	return result.status === 'focused'
 		? `A preview tab is already showing ${kind} "${path}" — focused it.`

@@ -2978,25 +2978,28 @@ describe('AIChatManager.waitForPipelineHelpers', () => {
 		}
 	}
 
-	it('resolves immediately when a pipeline editor is already registered', async () => {
+	it('resolves true immediately when a pipeline editor is already registered', async () => {
 		const manager = new AIChatManager()
 		manager.setPipelineHelpers(fakePipelineHelpers())
-		await expect(manager.waitForPipelineHelpers(1000)).resolves.toBeUndefined()
+		await expect(manager.waitForPipelineHelpers(1000)).resolves.toBe(true)
 	})
 
-	it('resolves once a pipeline editor registers', async () => {
+	it('resolves true once a pipeline editor registers', async () => {
 		const manager = new AIChatManager()
-		let resolved = false
-		const wait = manager.waitForPipelineHelpers(1000).then(() => (resolved = true))
+		let outcome: boolean | undefined
+		const wait = manager.waitForPipelineHelpers(1000).then((v) => (outcome = v))
 		await Promise.resolve()
-		expect(resolved).toBe(false)
+		expect(outcome).toBeUndefined()
 		manager.setPipelineHelpers(fakePipelineHelpers())
 		await wait
-		expect(resolved).toBe(true)
+		expect(outcome).toBe(true)
 	})
 
-	it('falls back to resolving after the timeout when no editor ever registers', async () => {
+	// The false result is the signal the open_preview handler needs: a backgrounded
+	// session's editor never mounts, so it must report "tools unavailable" rather
+	// than silently claim success.
+	it('resolves false after the timeout when no editor ever registers', async () => {
 		const manager = new AIChatManager()
-		await expect(manager.waitForPipelineHelpers(10)).resolves.toBeUndefined()
+		await expect(manager.waitForPipelineHelpers(10)).resolves.toBe(false)
 	})
 })
