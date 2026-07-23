@@ -439,3 +439,120 @@ async fn test_nested_restart_not_swallowed_by_zombie_reuse(
 
     Ok(())
 }
+
+/// A raw-flow (editor preview) restart queues the request's CURRENT definition, which the editor
+/// allows to differ from the completed run. Zombie reuse must not fire there: it would validate the
+/// stored step and synthesize Success from the old children, skipping the user's edit. The edited
+/// step must re-run and downstream must observe its new result.
+#[sqlx::test(fixtures("base", "hello"))]
+async fn test_raw_flow_restart_does_not_reuse_edited_step(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let flow_of = |suffix: &str| -> FlowValue {
+        serde_json::from_value(json!({
+            "modules": [
+                {
+                    "id": "fanout",
+                    "value": {
+                        "type": "forloopflow",
+                        "iterator": { "type": "javascript", "expr": "['a', 'b']" },
+                        "skip_failures": false,
+                        "parallel": false,
+                        "modules": [{
+                            "id": "inner",
+                            "value": {
+                                "type": "rawscript", "language": "deno",
+                                "input_transforms": {
+                                    "v": { "type": "javascript", "expr": "flow_input.iter.value" }
+                                },
+                                "content": format!("export function main(v: string) {{ return v + '{suffix}' }}")
+                            }
+                        }]
+                    }
+                },
+                {
+                    "id": "after",
+                    "value": {
+                        "type": "rawscript", "language": "deno",
+                        "input_transforms": {
+                            "loop_res": { "type": "javascript", "expr": "results.fanout" }
+                        },
+                        "content": "export function main(loop_res: string[]) { return loop_res.join(',') }"
+                    }
+                }
+            ]
+        }))
+        .unwrap()
+    };
+
+    // Original run: inner returns the bare value.
+    let full_run =
+        RunJob::from(JobPayload::RawFlow { value: flow_of(""), path: None, restarted_from: None })
+            .run_until_complete(&db, false, port)
+            .await;
+    assert!(full_run.success);
+    assert_eq!(full_run.json_result().unwrap(), json!("a,b"));
+    let orig_iter0 = child_job_id_for_step(&db, full_run.id, "fanout", Some(0)).await;
+
+    let mut flow_status: serde_json::Value = sqlx::query_scalar!(
+        "SELECT flow_status FROM v2_job_completed WHERE id = $1",
+        full_run.id
+    )
+    .fetch_one(&db)
+    .await?
+    .expect("flow_status");
+    for m in flow_status["modules"].as_array_mut().unwrap() {
+        match m["id"].as_str() {
+            Some("fanout") => {
+                m["type"] = json!("InProgress");
+                m["iterator"] = json!({ "index": 1, "itered_len": 2 });
+            }
+            Some("after") => *m = json!({ "type": "WaitingForPriorSteps", "id": "after" }),
+            _ => {}
+        }
+    }
+    flow_status["step"] = json!(0);
+    sqlx::query!(
+        "UPDATE v2_job_completed SET status = 'canceled', canceled_by = 'monitor',
+         flow_status = $2 WHERE id = $1",
+        full_run.id,
+        flow_status,
+    )
+    .execute(&db)
+    .await?;
+
+    // Restart from `fanout` with an EDITED definition (inner now appends "X").
+    let restarted = RunJob::from(JobPayload::RawFlow {
+        value: flow_of("X"),
+        path: None,
+        restarted_from: Some(RestartedFrom {
+            flow_job_id: full_run.id,
+            step_id: "fanout".into(),
+            branch_or_iteration_n: None,
+            flow_version: None,
+            branch_chosen: None,
+            nested: None,
+        }),
+    })
+    .run_until_complete(&db, false, port)
+    .await;
+
+    // The edited step must run: results reflect the new definition, not the reused old children.
+    assert!(
+        restarted.success,
+        "edited raw-flow restart should succeed: {:?}",
+        restarted.json_result()
+    );
+    assert_eq!(restarted.json_result().unwrap(), json!("aX,bX"));
+    let new_iter0 = child_job_id_for_step(&db, restarted.id, "fanout", Some(0)).await;
+    assert_ne!(
+        new_iter0, orig_iter0,
+        "the edited fanout step must re-run, not be reused"
+    );
+
+    Ok(())
+}

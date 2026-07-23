@@ -5658,6 +5658,9 @@ async fn push_inner<'c, 'd>(
                             restarted_from_val.branch_or_iteration_n,
                             restarted_from_val.flow_version,
                             restarted_from_val.nested.is_some(),
+                            // RawFlow queues the request's (possibly edited) definition, not the
+                            // stored one, so zombie reuse of the stored step is unsafe here.
+                            false,
                         )
                         .await?;
                     FlowStatus {
@@ -6048,6 +6051,9 @@ async fn push_inner<'c, 'd>(
                 branch_or_iteration_n,
                 flow_version,
                 nested.is_some(),
+                // RestartedFlow resolves and queues the completed job's stored definition, so the
+                // step validated for reuse is the one that will run.
+                true,
             )
             .await?;
 
@@ -7133,6 +7139,12 @@ async fn restarted_flows_resolution(
     // A nested restart chain (RestartedFrom.nested) descends into the restart step's child to
     // re-run an inner step; zombie reuse would skip the whole container and ignore it.
     nested_restart: bool,
+    // Zombie reuse validates the restart step against the completed job's STORED definition and
+    // synthesizes Success from its recorded children. That is only sound when the run being queued
+    // uses that same definition (JobPayload::RestartedFlow). A JobPayload::RawFlow restart queues
+    // the editor's current, possibly EDITED, definition instead, so reuse would skip the edited
+    // step and reuse the old child result; disable it there.
+    allow_zombie_reuse: bool,
 ) -> Result<
     (
         Option<i64>,
@@ -7263,7 +7275,8 @@ async fn restarted_flows_resolution(
                     .modules
                     .last()
                     .is_none_or(|m| m.id != restart_step_id);
-                if branch_or_iteration_n.is_none()
+                if allow_zombie_reuse
+                    && branch_or_iteration_n.is_none()
                     && !nested_restart
                     && has_next_step
                     && module_definition.allows_zombie_reuse()
