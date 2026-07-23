@@ -1578,6 +1578,7 @@ async fn refresh_custom_instance_user_pwd(
 ) -> JsonResult<()> {
     require_super_admin(&db, &authed.email).await?;
     windmill_common::utils::refresh_custom_instance_user_pwd(&db).await?;
+    windmill_common::utils::refresh_custom_instance_replication_user_pwd(&db).await?;
     Ok(Json(()))
 }
 
@@ -1704,11 +1705,23 @@ async fn setup_custom_instance_pg_database_inner(
             ))
         })?;
 
+    // The replication attribute lives on a dedicated role used by postgres trigger
+    // connections. The getter creates the role (with its stored password) when the
+    // migration couldn't.
+    if let Err(e) = windmill_common::utils::get_custom_pg_instance_replication_password(db).await {
+        tracing::error!("Failed to ensure custom_instance_replication_user exists: {e:#}");
+    }
     if let Err(e) = client
-        .batch_execute(&format!("ALTER ROLE custom_instance_user REPLICATION;"))
+        .batch_execute(
+            "ALTER ROLE custom_instance_replication_user REPLICATION;
+             GRANT custom_instance_user TO custom_instance_replication_user;
+             ALTER ROLE custom_instance_user NOREPLICATION;",
+        )
         .await
     {
-        tracing::error!("Failed to grant replication permission to custom_instance_user: {e:#}");
+        tracing::error!(
+            "Failed to grant replication permission to custom_instance_replication_user: {e:#}"
+        );
     }
 
     logs.grant_permissions = "OK".to_string();

@@ -1330,7 +1330,7 @@ paths:
 
   /settings/refresh_custom_instance_user_pwd:
     post:
-      summary: Refreshes the password for the custom_instance_user
+      summary: Refreshes the passwords for the custom_instance_user and the custom_instance_replication_user (used by postgres triggers)
       operationId: refreshCustomInstanceUserPwd
       tags:
         - setting

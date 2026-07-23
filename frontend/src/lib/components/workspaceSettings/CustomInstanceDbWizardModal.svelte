@@ -165,14 +165,17 @@
 									title: 'Grant permissions to custom_instance_user',
 									status: status?.logs.grant_permissions,
 									description:
-										'Gives custom_instance_user the required permissions to use the database. custom_instance_user is already created during a migration and has an auto-generated password stored in global_settings.custom_instance_pg_databases.user_pwd. These are the commands : \n\n' +
+										'Gives custom_instance_user the required permissions to use the database. custom_instance_user is already created during a migration and has an auto-generated password stored in global_settings.custom_instance_pg_databases.user_pwd. Postgres triggers use custom_instance_replication_user (password in global_settings.custom_instance_replication_pwd). These are the commands : \n\n' +
 										`GRANT CONNECT ON DATABASE "${dbname}" TO custom_instance_user;\n` +
 										'GRANT USAGE ON SCHEMA public TO custom_instance_user;\n' +
 										'GRANT CREATE ON SCHEMA public TO custom_instance_user;\n' +
 										`GRANT CREATE ON DATABASE "${dbname}" TO custom_instance_user;\n` +
 										'ALTER DEFAULT PRIVILEGES IN SCHEMA public \n' +
 										'  	GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES\n    TO custom_instance_user;\n' +
-										'ALTER ROLE custom_instance_user CREATEROLE;'
+										'ALTER ROLE custom_instance_user CREATEROLE;\n' +
+										'ALTER ROLE custom_instance_replication_user REPLICATION;\n' +
+										'GRANT custom_instance_user TO custom_instance_replication_user;\n' +
+										'ALTER ROLE custom_instance_user NOREPLICATION;'
 								}
 							],
 							status?.error ?? undefined
@@ -185,11 +188,13 @@
 							endIcon={{ icon: InfoIcon }}
 							onClick={async () => {
 								await SettingService.refreshCustomInstanceUserPwd()
-								sendUserToast('custom_instance_user password refreshed')
-							}}>Refresh custom_instance_user password</Button
+								sendUserToast('custom instance user passwords refreshed')
+							}}>Refresh custom instance passwords</Button
 						>
 						{#snippet text()}
-							Try this if there is an issue with your custom instance database password.
+							Try this if there is an issue with your custom instance database passwords. Rotates
+							both custom_instance_user and the custom_instance_replication_user used by postgres
+							triggers.
 						{/snippet}
 					</Tooltip>
 				{/if}
