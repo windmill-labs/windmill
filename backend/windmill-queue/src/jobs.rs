@@ -701,7 +701,7 @@ impl ValidableJson for WrappedError {
     }
 
     fn serialized_json(&self) -> Cow<'_, str> {
-        Cow::Owned(to_raw_value(self).get().to_string())
+        Cow::Owned(serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string()))
     }
 }
 
@@ -780,7 +780,7 @@ impl ValidableJson for serde_json::Value {
     }
 
     fn serialized_json(&self) -> Cow<'_, str> {
-        Cow::Owned(to_raw_value(self).get().to_string())
+        Cow::Owned(serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string()))
     }
 }
 

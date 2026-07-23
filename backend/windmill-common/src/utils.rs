@@ -1146,7 +1146,9 @@ pub fn merge_nested_raw_values_to_array<
 /// contains `u0000` after a backslash (e.g. script source), so it must stay
 /// allocation-light for potentially large documents.
 pub fn strip_json_nul(serialized: &str) -> Cow<'_, str> {
-    if !serialized.contains("\\u0000") {
+    // SIMD substring scan (several times faster than `str::contains`'s Two-Way)
+    // for the guard, since this runs on every completed job's serialized result.
+    if memchr::memmem::find(serialized.as_bytes(), b"\\u0000").is_none() {
         return Cow::Borrowed(serialized);
     }
     let bytes = serialized.as_bytes();
