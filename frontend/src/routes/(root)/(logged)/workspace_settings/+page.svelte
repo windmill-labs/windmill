@@ -346,9 +346,9 @@
 	// their `usr` row is copied from the parent, so forking as an ordinary developer leaves them
 	// unable to bring anyone in to collaborate. Nothing else on this page opens up — the backend
 	// only grants them developer memberships on the fork they created.
-	// A workspace that was attached as a fork/dev after opting in keeps the stored flag until its
-	// next save; never select a tab the group does not render, or saving would submit a value the
-	// API rejects on a fork.
+	// The instance channels are not a valid destination on cloud or on a fork. Never select a tab
+	// the group does not render: saving would submit a value the API rejects, locking the whole
+	// error handler behind a 400.
 	const canUseInstanceAlerts = $derived(
 		!isCloudHosted() && !currentWorkspace?.parent_workspace_id
 	)
