@@ -114,6 +114,22 @@ describe('pipeline AI direct-draft helpers', () => {
 		expect(drafts().size).toBe(0)
 	})
 
+	it('proposeNode reports the output_kind seed as a detected write', async () => {
+		// A node whose output edge comes only from the output_kind seed (no
+		// body-inferrable write) must still report that write, or the lineage note
+		// would falsely warn "no asset write inferred" for a validly-wired node.
+		vi.spyOn(ScriptService, 'getScriptByPath').mockRejectedValue(new Error('404'))
+		const { handle } = makeHandle()
+		const res = await handle.proposeNode({
+			path: 'f/x/seeded',
+			language: 'duckdb' as any,
+			content: '-- pipeline\n-- on schedule\nSELECT 1',
+			outputKind: 'ducklake' as any
+		})
+		expect(res.detectedWrites.length).toBeGreaterThan(0)
+		expect(res.detectedWrites[0]).toContain('ducklake://')
+	})
+
 	it('editNode rejects a path outside the open folder', async () => {
 		const { handle, drafts } = makeHandle()
 		await expect(handle.editNode('f/other/foo', '-- pipeline')).rejects.toThrow(/open folder/)

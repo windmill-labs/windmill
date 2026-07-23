@@ -240,23 +240,27 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 				(outputKind
 					? autoOutputAsset(outputKind as PipelineOutputKind, deps.getFolder(), language)
 					: undefined)
+			// Effective outputs = what actually becomes an output edge on the canvas:
+			// body/annotation-inferred writes, or the output_kind seed as a fallback.
+			const outputAssets =
+				inferred.writes.length > 0 ? inferred.writes : seeded ? [seeded] : undefined
 			const next = new Map(drafts)
 			next.set(path, {
 				localId: deps.newDraftLocalId(),
 				script: makePipelineScript(language, path, content, new Date().toISOString()),
-				outputAssets: inferred.writes.length > 0 ? inferred.writes : seeded ? [seeded] : undefined,
+				outputAssets,
 				inputAssets: inferred.reads
 			})
 			deps.setDrafts(next)
 			deps.onShowDrafts?.()
 			deps.onProposeNode?.(path)
-			// Report what the parser actually detected from the body/annotations (not
-			// the output_kind seed) so the model can tell if its intended write/read
-			// wired — an empty list means no literal asset call was found.
+			// Report the edges that actually formed (matching the canvas) so the model
+			// can confirm wiring without a graph read — an empty list means no asset
+			// edge exists (e.g. a write via a variable/dynamic path isn't detected).
 			return {
 				path,
 				detectedReads: inferred.reads.map(assetUri),
-				detectedWrites: inferred.writes.map(assetUri)
+				detectedWrites: (outputAssets ?? []).map(assetUri)
 			}
 		},
 		editNode: async (path, content) => {
@@ -280,11 +284,12 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 				baseScript = await ScriptService.getScriptByPath({ workspace, path })
 			}
 			const inferred = await inferDraftAssets(baseScript.language, content)
+			const outputAssets = inferred.writes.length > 0 ? inferred.writes : existing?.outputAssets
 			const next = new Map(drafts)
 			next.set(path, {
 				localId: existing?.localId ?? deps.newDraftLocalId(),
 				script: { ...baseScript, content },
-				outputAssets: inferred.writes.length > 0 ? inferred.writes : existing?.outputAssets,
+				outputAssets,
 				inputAssets: inferred.reads
 			})
 			deps.setDrafts(next)
@@ -292,7 +297,7 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 			deps.onProposeNode?.(path)
 			return {
 				detectedReads: inferred.reads.map(assetUri),
-				detectedWrites: inferred.writes.map(assetUri)
+				detectedWrites: (outputAssets ?? []).map(assetUri)
 			}
 		},
 		removeProposedNode: async (path) => {
