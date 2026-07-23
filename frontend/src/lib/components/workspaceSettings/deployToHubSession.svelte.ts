@@ -59,7 +59,10 @@ export interface DeployItem {
 }
 
 export const canRecord = (k: Kind) => k === 'script' || k === 'flow'
-export const canPublishApp = (k: Kind) => k === 'app' || k === 'raw_app'
+// Apps and modern (app-table) raw apps can be shared as public iframes; legacy
+// raw_app-table entries have no AppService representation to publish through.
+export const canShareAsIframe = (it: DeployItem) =>
+	it.kind === 'app' || (it.kind === 'raw_app' && it.appTable === true)
 
 // Legacy raw apps live only in the `raw_app` table, but the iframe share flow
 // drives AppService (the `app` table), so it can only target apps stored there.
@@ -248,7 +251,20 @@ export class DeployToHubSession {
 	filteredWorkspaceItems = $derived(
 		this.workspaceItems.filter((i) => i.path.startsWith(this.selectedFolder + '/'))
 	)
-	items = $derived(this.phase === 'predeploy' ? this.filteredWorkspaceItems : this.draftItems)
+	// Hub rehydration knows nothing about local publish state; decorate draft
+	// items with the live workspace item's shared-iframe fields so a public app
+	// still shows as public (and keeps its Unpublish control) after reopening a
+	// draft. Reactive, so it settles regardless of load ordering.
+	draftItemsWithLocalState = $derived.by(() => {
+		const byKey = new Map(this.workspaceItems.map((i) => [i.key, i]))
+		return this.draftItems.map((d) => {
+			const w = byKey.get(d.key)
+			return w ? { ...d, appTable: w.appTable, published: w.published, publicUrl: w.publicUrl } : d
+		})
+	})
+	items = $derived(
+		this.phase === 'predeploy' ? this.filteredWorkspaceItems : this.draftItemsWithLocalState
+	)
 	selectedItems = $derived(
 		this.phase === 'predeploy'
 			? this.filteredWorkspaceItems.filter((i) => !this.manualDeselected.has(i.key))
@@ -341,7 +357,9 @@ export class DeployToHubSession {
 		// its kind resource field or any `$res:` token in its config.
 		const stubByOriginal = new Map(b.resourceStubs.map((s) => [s.originalPath, s]))
 		for (const t of this.relevantTriggers) {
-			const refs = new Set(extractTriggerConfigResourceRefs(portableTriggerConfig(t.kind, t.config)))
+			const refs = new Set(
+				extractTriggerConfigResourceRefs(portableTriggerConfig(t.kind, t.config))
+			)
 			const rp = triggerResourcePath(t)
 			if (rp) refs.add(rp)
 			for (const ref of refs) {
@@ -1466,7 +1484,7 @@ export class DeployToHubSession {
 	/** Make the publish target public. Returns true on success. */
 	async confirmPublish(): Promise<boolean> {
 		const it = this.publishTarget
-		if (!it || !canPublishApp(it.kind)) return false
+		if (!it || !canShareAsIframe(it)) return false
 		this.publishing = true
 		try {
 			const url = await this.#setAppShared(it, true)
@@ -1482,7 +1500,7 @@ export class DeployToHubSession {
 	}
 
 	unpublishApp = async (it: DeployItem) => {
-		if (!canPublishApp(it.kind)) return
+		if (!canShareAsIframe(it)) return
 		try {
 			await this.#setAppShared(it, false)
 			this.#patchItem(it.key, { published: false, publicUrl: undefined })

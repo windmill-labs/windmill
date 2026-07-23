@@ -193,7 +193,12 @@
 		// the new project; this import's UI writes (results/done/toast) must then
 		// be dropped so they can't mark the new project as imported.
 		const sessionSeq = loadSeq
-		const current = () => sessionSeq === loadSeq
+		const sessionSlug = slug
+		// loadSeq only advances when a NEW load starts; navigating away (workspace
+		// or ?hub becoming empty) never bumps it, so also require the live
+		// identity to still match the captured one.
+		const current = () =>
+			sessionSeq === loadSeq && slug === sessionSlug && $workspaceStore === workspace
 
 		// Review data table migrations first (before the import spinner), so the user
 		// previews/edits and decides, then the whole import runs uninterrupted.
