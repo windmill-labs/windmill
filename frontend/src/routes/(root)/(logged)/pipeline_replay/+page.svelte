@@ -44,6 +44,16 @@
 		}
 		const isObject = (v: unknown): v is Record<string, unknown> =>
 			typeof v === 'object' && v !== null && !Array.isArray(v)
+		// A RecordedJob whose events all carry an object `data`: JobLoader replays
+		// each `event.data` in a `setTimeout`, whose throw a Svelte boundary can't
+		// catch, so a malformed event must be rejected at load. Shared by all three
+		// recording types (flow/script/pipeline all mount jobs through JobLoader).
+		const isRecordedJob = (j: unknown): boolean =>
+			isObject(j) &&
+			isObject(j.initial_job) &&
+			Array.isArray(j.events) &&
+			j.events.every((e) => isObject(e) && isObject(e.data))
+		const isJobsMap = (v: unknown): boolean => isObject(v) && Object.values(v).every(isRecordedJob)
 		// A non-object payload (JSON `null`, an array, a scalar) has no `.version`
 		// to read — guard before dereferencing so it toasts instead of throwing.
 		if (!isObject(data)) {
@@ -55,7 +65,7 @@
 			return false
 		}
 		if (data.type === 'script') {
-			if (!data.job) {
+			if (!isRecordedJob(data.job)) {
 				sendUserToast('Invalid script recording format', true)
 				return false
 			}
@@ -85,11 +95,7 @@
 					(f: unknown) =>
 						isObject(f) && isObject(f.statuses) && Object.values(f.statuses).every(isObject)
 				)
-			const validJobs =
-				isObject(data.jobs) &&
-				Object.values(data.jobs).every(
-					(j) => isObject(j) && isObject(j.initial_job) && objectArray(j.events)
-				)
+			const validJobs = isJobsMap(data.jobs)
 			// A sample renders `rows`/`columns` unless it carries a non-empty `error`.
 			const validSamples = optionalRecord(
 				data.assetSamples,
@@ -108,8 +114,11 @@
 			reset()
 			pipelineRecording = data as PipelineRecording
 		} else {
-			// Flow recording (type === 'flow' or type is absent for backwards compat)
-			if (!data.jobs) {
+			// Flow recording (type === 'flow' or type is absent for backwards compat).
+			// Validate jobs structurally — the `?src=` loader accepts remote payloads
+			// and FlowRecordingReplay mounts them straight into JobLoader, outside the
+			// pipeline boundary.
+			if (!isJobsMap(data.jobs)) {
 				sendUserToast('Invalid flow recording format', true)
 				return false
 			}
