@@ -86,6 +86,13 @@
 	const devSingleRepo = $derived(isDevWorkspace && (gitSyncContext?.repositories?.length ?? 0) <= 1)
 	const secondarySync = $derived(gitSyncContext?.getSecondarySyncRepositories() || [])
 	const secondaryPromotion = $derived(gitSyncContext?.getSecondaryPromotionRepositories() || [])
+	// Fork creation keeps only sync-mode repositories and a fork is refused a
+	// promotion one, so the single way a fork holds one is a dev workspace
+	// detached back into a plain fork. Deploys still sync through it (only the
+	// promotion branching is dropped), so name it instead of showing nothing.
+	const promotionModeRepos = $derived(
+		showPromotion ? [] : [primaryPromotion, ...secondaryPromotion].filter((r) => r != null)
+	)
 
 	// State for collapsible sections
 	let secondarySyncExpanded = $state(false)
@@ -302,6 +309,24 @@
 								{/if}
 							{/if}
 						{/if}
+					</div>
+				{:else if !showPromotion}
+					<div class="mt-6">
+						<Alert
+							type="info"
+							title="Promotion does not apply to a fork"
+							documentationLink="https://www.windmill.dev/docs/advanced/workspace_forks"
+						>
+							Deploys in a fork always commit to the fork's own wm-fork/** branch, so a promotion
+							repository would never take effect here. Promote this fork's work by merging that
+							branch into the tracked branch instead.
+							{#if promotionModeRepos.length > 0}
+								<div class="mt-2">
+									Still set to promotion mode here, and still syncing deploys to the fork's branch:
+									{promotionModeRepos.map((r) => r.repo.git_repo_resource_path).join(', ')}
+								</div>
+							{/if}
+						</Alert>
 					</div>
 				{/if}
 			{/if}
