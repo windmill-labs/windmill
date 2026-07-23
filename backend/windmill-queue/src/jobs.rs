@@ -5666,6 +5666,10 @@ async fn push_inner<'c, 'd>(
                             restarted_from_val.step_id.as_str(),
                             restarted_from_val.branch_or_iteration_n,
                             restarted_from_val.flow_version,
+                            restarted_from_val.nested.is_some(),
+                            // RawFlow queues the request's (possibly edited) definition, not the
+                            // stored one, so zombie reuse of the stored step is unsafe here.
+                            false,
                         )
                         .await?;
                     FlowStatus {
@@ -6055,6 +6059,10 @@ async fn push_inner<'c, 'd>(
                 step_id.as_str(),
                 branch_or_iteration_n,
                 flow_version,
+                nested.is_some(),
+                // RestartedFlow resolves and queues the completed job's stored definition, so the
+                // step validated for reuse is the one that will run.
+                true,
             )
             .await?;
 
@@ -7063,6 +7071,78 @@ fn create_restarted_module(
     }
 }
 
+/// A between-steps-zombie step: an `InProgress` module (in an otherwise terminal,
+/// reaped flow) whose every child is recorded as a `success` completion. Only the
+/// module's final state transition was lost, so the whole step is derivable and
+/// safe to reuse on restart. Children incomplete/failed/cancelled ⟹ not a zombie.
+async fn is_derivable_between_steps_zombie(
+    db: &Pool<Postgres>,
+    workspace_id: &str,
+    module: &FlowStatusModule,
+) -> Result<bool, Error> {
+    // The module's own cursor must prove it reached the end (a serial loop/branch-all reaped
+    // mid-fan-out has an all-success prefix but unrun remaining iterations); while-loops are
+    // never derivable. Children-success is verified below.
+    if !module.is_between_steps_complete() {
+        return Ok(false);
+    }
+    let child_ids: Vec<Uuid> = module
+        .flow_jobs()
+        .filter(|v| !v.is_empty())
+        .or_else(|| module.job().map(|j| vec![j]))
+        .unwrap_or_default();
+    if child_ids.is_empty() {
+        return Ok(false);
+    }
+    let success_children = sqlx::query_scalar!(
+        "SELECT count(*) FROM v2_job_completed
+         WHERE workspace_id = $1 AND id = ANY($2) AND status = 'success'",
+        workspace_id,
+        &child_ids,
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(0);
+    Ok(success_children == child_ids.len() as i64)
+}
+
+/// Convert a between-steps-zombie `InProgress` module (validated by
+/// [`is_derivable_between_steps_zombie`]) into the `Success` it would have become
+/// had its dropped transition landed, reusing all completed children. Downstream
+/// steps re-derive this step's result from `flow_jobs`/`job` on demand
+/// (`get_previous_job_result`), so no aggregate needs recomputing here.
+fn reuse_completed_zombie_module(module: FlowStatusModule) -> FlowStatusModule {
+    match module {
+        FlowStatusModule::InProgress {
+            id,
+            job,
+            flow_jobs,
+            flow_jobs_success,
+            flow_jobs_duration,
+            branch_chosen,
+            agent_actions,
+            agent_actions_success,
+            ..
+        } => FlowStatusModule::Success {
+            id,
+            job,
+            // Every child was verified successful, so normalise the success
+            // vector (the dropped transition may have left the last entry unset).
+            flow_jobs_success: flow_jobs_success
+                .map(|v| v.into_iter().map(|_| Some(true)).collect()),
+            flow_jobs,
+            flow_jobs_duration,
+            branch_chosen,
+            approvers: vec![],
+            failed_retries: vec![],
+            skipped: false,
+            agent_actions,
+            agent_actions_success,
+        },
+        other => other,
+    }
+}
+
 async fn restarted_flows_resolution(
     db: &Pool<Postgres>,
     workspace_id: &str,
@@ -7070,6 +7150,15 @@ async fn restarted_flows_resolution(
     restart_step_id: &str,
     branch_or_iteration_n: Option<usize>,
     flow_version: Option<i64>,
+    // A nested restart chain (RestartedFrom.nested) descends into the restart step's child to
+    // re-run an inner step; zombie reuse would skip the whole container and ignore it.
+    nested_restart: bool,
+    // Zombie reuse validates the restart step against the completed job's STORED definition and
+    // synthesizes Success from its recorded children. That is only sound when the run being queued
+    // uses that same definition (JobPayload::RestartedFlow). A JobPayload::RawFlow restart queues
+    // the editor's current, possibly EDITED, definition instead, so reuse would skip the edited
+    // step and reuse the old child result; disable it there.
+    allow_zombie_reuse: bool,
 ) -> Result<
     (
         Option<i64>,
@@ -7086,7 +7175,7 @@ async fn restarted_flows_resolution(
     let row = sqlx::query!(
         "SELECT
             j.runnable_path as script_path, j.runnable_id AS \"script_hash: ScriptHash\",
-            j.kind AS \"job_kind!: JobKind\",
+            j.kind AS \"job_kind!: JobKind\", c.canceled_by,
             COALESCE(c.flow_status, c.workflow_as_code_status) AS \"flow_status: Json<Box<RawValue>>\",
             j.raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
         FROM v2_job_completed c JOIN v2_job j USING (id) WHERE j.id = $1 and j.workspace_id = $2",
@@ -7101,6 +7190,12 @@ async fn restarted_flows_resolution(
             completed_flow_id, workspace_id, err
         ))
     })?;
+
+    // Zombie reuse must only apply to flows the zombie monitor reaped (canceled_by = 'monitor').
+    // An ordinary force-cancel copies the same live flow_status, so a user canceling after a child
+    // succeeds but before the parent transition lands produces the identical InProgress/all-success
+    // shape; those must retain restart-from-step semantics (the step re-runs).
+    let reaped_by_monitor = row.canceled_by.as_deref() == Some("monitor");
 
     let current_flow_version = row.script_hash.map(|x| x.0);
     let is_version_change = flow_version.is_some()
@@ -7192,9 +7287,36 @@ async fn restarted_flows_resolution(
                 continue;
             };
             if module.id() == restart_step_id {
-                // if the module ID is the one we want to restart the flow at, or if it's past it in the flow,
-                // set the module as WaitingForPriorSteps as it needs to be re-run
-                if branch_or_iteration_n.is_none() || branch_or_iteration_n.unwrap() == 0 {
+                // Reuse is only safe when there is a NEXT step to advance into (advancing past the
+                // last module lands on the failure step) and the step's definition carries no
+                // completion/arming semantics that reuse would skip (stop predicates, skip_if,
+                // suspend, sleep); such a step must re-run, not be synthesized as Success.
+                let has_next_step = flow_value
+                    .modules
+                    .last()
+                    .is_none_or(|m| m.id != restart_step_id);
+                // A whole-step restart is `None` (restart API with the field omitted) or `Some(0)`
+                // (the run page's "Re-start from" button always sends 0); both mean "redo this step",
+                // which for a monitor-reaped zombie means reuse it. `Some(n>=1)` is an explicit
+                // partial container restart and keeps its existing reuse-0..n-1 / rerun-from-n path.
+                if allow_zombie_reuse
+                    && reaped_by_monitor
+                    && branch_or_iteration_n.unwrap_or(0) == 0
+                    && !nested_restart
+                    && has_next_step
+                    && module_definition.allows_zombie_reuse()
+                    && is_derivable_between_steps_zombie(db, workspace_id, &module).await?
+                {
+                    // Between-steps-zombie recovery: this step's children all
+                    // completed but its final state transition was dropped (the
+                    // flow was reaped by the zombie monitor). Reuse the completed
+                    // step verbatim and restart from the NEXT step, so no child
+                    // re-runs and only the dropped transition is replayed onward.
+                    step_n += 1;
+                    truncated_modules.push(reuse_completed_zombie_module(module));
+                } else if branch_or_iteration_n.is_none() || branch_or_iteration_n.unwrap() == 0 {
+                    // if the module ID is the one we want to restart the flow at, or if it's past it in the flow,
+                    // set the module as WaitingForPriorSteps as it needs to be re-run
                     // The module as WaitingForPriorSteps as the entire module (i.e. all the branches) need to be re-run
                     truncated_modules
                         .push(FlowStatusModule::WaitingForPriorSteps { id: module.id() });
