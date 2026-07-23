@@ -75,14 +75,102 @@ jobs:
             "/repos/$REPO/issues/comments/$COMMENT_ID/reactions" \
             -f content=eyes >/dev/null
 
-  claude:
+  # Decide, per agent, whether `/review` should launch a fresh run. A push already
+  # auto-triggers codex/pi (and claude on open) against the PR head. Relaunching via
+  # this issue_comment path both cancels those in-flight auto runs (shared concurrency
+  # group) AND lands the new run's status on main — issue_comment runs never attach a
+  # check to the PR head — leaving the PR showing only a cancelled review. So for the
+  # `/review` fan-out, launch an agent only when nothing covers the head commit; if the
+  # head's run was cancelled/failed, re-run it in place (a re-run keeps the original
+  # pull_request event, so its checks re-attach to the PR head). Explicit /codex, /pi,
+  # /claude are deliberate re-reviews and always launch.
+  plan:
     needs: [parse, check-access]
+    if: |
+      needs.parse.outputs.command != '' &&
+      (
+        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) ||
+        needs.check-access.outputs.authorized == 'true'
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: read
+    outputs:
+      launch_codex: ${{ steps.plan.outputs.launch_codex }}
+      launch_pi: ${{ steps.plan.outputs.launch_pi }}
+      launch_claude: ${{ steps.plan.outputs.launch_claude }}
+    steps:
+      - name: Decide per-agent launch vs re-run for the head commit
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          COMMAND: ${{ needs.parse.outputs.command }}
+        run: |
+          set -euo pipefail
+
+          # Explicit single-agent commands always launch just that agent.
+          if [ "$COMMAND" != "review" ]; then
+            {
+              echo "launch_codex=$([ "$COMMAND" = codex ] && echo true || echo false)"
+              echo "launch_pi=$([ "$COMMAND" = pi ] && echo true || echo false)"
+              echo "launch_claude=$([ "$COMMAND" = claude ] && echo true || echo false)"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          HEAD_SHA=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefOid --jq '.headRefOid')
+          echo "PR #$PR_NUMBER head: $HEAD_SHA"
+
+          decide() {
+            wf="$1"; key="$2"
+            # `--commit` matches runs whose head SHA is the PR head. Auto reviews run on
+            # `pull_request` against that SHA; `/review` (issue_comment) runs execute on
+            # main, so they never match and are not counted as covering the head commit.
+            runs=$(gh run list --repo "$REPO" --workflow "$wf" --commit "$HEAD_SHA" --limit 40 \
+              --json databaseId,status,conclusion)
+            # Healthy = still running, or completed successfully: a review already
+            # covers this commit, so skip.
+            healthy=$(jq -r '[.[] | select(.status != "completed" or .conclusion == "success")] | length' <<<"$runs")
+            if [ "$healthy" -gt 0 ]; then
+              echo "$key: a running or successful review already covers $HEAD_SHA -> skip"
+              echo "$key=false" >> "$GITHUB_OUTPUT"
+              return
+            fi
+            # Re-run only genuinely interrupted runs (cancelled/failed/timed out) in
+            # place, so their checks re-attach to the PR head instead of posting on
+            # main. A `skipped` run produced no review and would just skip again (it is
+            # the draft/fork gate), so it does not count — fall through to a fresh launch.
+            retry_id=$(jq -r '[.[] | select(.status == "completed" and (.conclusion == "cancelled" or .conclusion == "failure" or .conclusion == "timed_out"))] | sort_by(.databaseId) | last | .databaseId // empty' <<<"$runs")
+            if [ -n "$retry_id" ]; then
+              if gh run rerun "$retry_id" --repo "$REPO" >/dev/null 2>&1; then
+                echo "$key: re-ran interrupted run $retry_id (re-attaches to PR head)"
+                echo "$key=false" >> "$GITHUB_OUTPUT"
+                return
+              fi
+              echo "$key: re-run of $retry_id failed -> fresh launch"
+              echo "$key=true" >> "$GITHUB_OUTPUT"
+              return
+            fi
+            echo "$key: no usable review for $HEAD_SHA -> launch"
+            echo "$key=true" >> "$GITHUB_OUTPUT"
+          }
+
+          decide codex-pr-review.yml launch_codex
+          decide pi-pr-review.yml launch_pi
+          decide pr-ready-review.yml launch_claude
+
+  claude:
+    needs: [parse, check-access, plan]
     if: |
       (
         contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) ||
         needs.check-access.outputs.authorized == 'true'
       ) &&
-      (needs.parse.outputs.command == 'review' || needs.parse.outputs.command == 'claude')
+      needs.plan.outputs.launch_claude == 'true'
     permissions:
       contents: read
       pull-requests: read
@@ -97,13 +185,13 @@ jobs:
       WINDMILL_EE_PRIVATE_ACCESS: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
 
   codex:
-    needs: [parse, check-access]
+    needs: [parse, check-access, plan]
     if: |
       (
         contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) ||
         needs.check-access.outputs.authorized == 'true'
       ) &&
-      (needs.parse.outputs.command == 'review' || needs.parse.outputs.command == 'codex')
+      needs.plan.outputs.launch_codex == 'true'
     permissions:
       contents: read
       issues: write
@@ -119,13 +207,13 @@ jobs:
       WINDMILL_EE_PRIVATE_ACCESS: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
 
   pi:
-    needs: [parse, check-access]
+    needs: [parse, check-access, plan]
     if: |
       (
         contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) ||
         needs.check-access.outputs.authorized == 'true'
       ) &&
-      (needs.parse.outputs.command == 'review' || needs.parse.outputs.command == 'pi')
+      needs.plan.outputs.launch_pi == 'true'
     permissions:
       contents: read
       issues: write
