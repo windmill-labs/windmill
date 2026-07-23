@@ -708,24 +708,29 @@ export class DeployToHubSession {
 
 	#cachedBundleDeps(): BundleDeps {
 		const deps = this.#buildBundleDeps()
-		return {
-			fetchItem: (ref) => {
-				const key = `${ref.kind}:${ref.path}`
-				let p = this.#previewItemCache.get(key)
-				if (!p) {
-					p = deps.fetchItem(ref)
-					this.#previewItemCache.set(key, p)
-				}
-				return p
-			},
-			resolveResourceType: (path) => {
-				let p = this.#previewTypeCache.get(path)
-				if (!p) {
-					p = deps.resolveResourceType(path)
-					this.#previewTypeCache.set(path, p)
-				}
-				return p
+		// Memoize only successful lookups: a miss (undefined) is likely transient, so
+		// evict it once it resolves. Otherwise a fixed/retried dependency can never
+		// clear `bundlePreview.unresolved` until the whole session is recreated.
+		const memoize = <T>(
+			cache: Map<string, Promise<T | undefined>>,
+			key: string,
+			run: () => Promise<T | undefined>
+		) => {
+			let p = cache.get(key)
+			if (!p) {
+				p = run()
+				cache.set(key, p)
+				void p.then((r) => {
+					if (r === undefined && cache.get(key) === p) cache.delete(key)
+				})
 			}
+			return p
+		}
+		return {
+			fetchItem: (ref) =>
+				memoize(this.#previewItemCache, `${ref.kind}:${ref.path}`, () => deps.fetchItem(ref)),
+			resolveResourceType: (path) =>
+				memoize(this.#previewTypeCache, path, () => deps.resolveResourceType(path))
 		}
 	}
 
@@ -1111,17 +1116,21 @@ export class DeployToHubSession {
 					.map(async (it) => {
 						const hubId = this.hubItemIds[`${it.kind}:${it.path}`]
 						const src = itemsSnapshot.find((i) => i.kind === 'raw_app' && i.path === it.path)
-						if (hubId && src?.published && src?.publicUrl) {
-							try {
-								await this.#pushRawAppEmbed(hubId, src.publicUrl)
-							} catch (e: any) {
-								// A public raw app whose iframe didn't re-sync is an incomplete
-								// publish — count it so the draft can't become submit-ready.
-								sendUserToast(`Failed to sync iframe for ${it.path}: ${e?.message ?? e}`, true)
-								return 1
-							}
+						if (!hubId || !src?.published) return 0
+						// The re-bundle cleared the embed; a public raw app with no resolved URL
+						// can't have its iframe restored, so it's an incomplete publish too —
+						// count it (like a push failure) so the draft can't become submit-ready.
+						if (!src.publicUrl) {
+							sendUserToast(`Cannot restore the iframe for ${it.path}: missing public URL`, true)
+							return 1
 						}
-						return 0
+						try {
+							await this.#pushRawAppEmbed(hubId, src.publicUrl)
+							return 0
+						} catch (e: any) {
+							sendUserToast(`Failed to sync iframe for ${it.path}: ${e?.message ?? e}`, true)
+							return 1
+						}
 					})
 			)
 			failures += embedResults.reduce((a: number, b) => a + b, 0)
