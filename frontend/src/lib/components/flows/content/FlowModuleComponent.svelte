@@ -1292,7 +1292,7 @@
 																placeholder={`$workspace/script/${$pathStore}-$args[foo]`}
 															/>
 														</Label>
-													{:else}
+													{:else if flowModule.value.type == 'script'}
 														<WorkspaceScriptSettingInfo
 															label="Concurrency limit"
 															active={referencedScriptSettings.settings?.concurrent_limit !=
@@ -1314,6 +1314,11 @@
 															canEdit={canEditWorkspaceScriptSettings}
 															onEdit={openWorkspaceScriptSettings}
 														/>
+													{:else}
+														<Alert type="warning" title="Limitation" size="xs">
+															The concurrency limit of a referenced flow is only settable in the
+															flow settings directly.
+														</Alert>
 													{/if}
 												</Section>
 											{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'timeout'}
