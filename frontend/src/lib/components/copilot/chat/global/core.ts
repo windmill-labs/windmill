@@ -1,6 +1,7 @@
 import {
 	AppService,
 	AzureTriggerService,
+	EmailTriggerService,
 	FlowService,
 	FolderService,
 	GcpTriggerService,
@@ -8,6 +9,7 @@ import {
 	JobService,
 	KafkaTriggerService,
 	MqttTriggerService,
+	AmqpTriggerService,
 	NatsTriggerService,
 	PostgresTriggerService,
 	ResourceService,
@@ -25,6 +27,7 @@ import type {
 	CreateResource,
 	CreateVariable,
 	Flow,
+	FlowModule,
 	FlowValue,
 	Job,
 	ListableApp,
@@ -46,13 +49,25 @@ import {
 } from '$lib/components/raw_apps/templates'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
+import type { RawAppDomQuery } from '$lib/components/raw_apps/rawAppDom'
+import { dataUrlToImagePart, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
+import { sanitizeAttachmentName, textLineCount, type AttachedTextFile } from '../textFileUtils'
+import { modelSupportsVision } from '../../modelConfig'
+import { tryGetCurrentModel } from '$lib/aiStore'
+import { isChromiumBrowser } from '$lib/utils'
 import {
 	applyEditableFlowJsonToFlow,
 	buildEditableFlowJson,
 	type EditableFlowJson,
+	finalizeUnresolvedInlineScripts,
+	restoreSpecialRawscriptModule,
 	validateEditableFlowJson
 } from '../flow/editableFlowJson'
-import { createInlineScriptSession } from '../flow/inlineScriptsUtils'
+import {
+	createInlineScriptSession,
+	findUnresolvedInlineScriptRefs
+} from '../flow/inlineScriptsUtils'
+import { searchNpmPackagesTool } from '../script/core'
 import {
 	getDatatableSdkReference,
 	getFlowPrompt,
@@ -73,13 +88,16 @@ import {
 	executeTestRun,
 	findAndReplace,
 	type CreatedResourceTriggerKind,
+	type PreviewCardKind,
 	type Tool,
 	type ToolCallbacks,
 	type ToolDisplayAction
 } from '../shared'
 import { searchDocsTool, readDocsPageTool } from '../docs/core'
+import { createDbSchemaTool } from '../script/core'
 import type { ContextElement } from '../context'
 import { getDatatableTools } from '../datatableTools'
+import { getDucklakeTools } from '../ducklakeTools'
 import { fileTools } from '../files/fileTools'
 import type { AttachedFilesStore } from '../files/attachedFiles.svelte'
 import { artifactTools } from '../artifacts/artifactTools'
@@ -113,8 +131,15 @@ import {
 	workspaceStore
 } from '$lib/stores'
 import { get } from 'svelte/store'
-import { deployDraft as deployDraftToWorkspace } from '$lib/utils_draft_deploy'
+import {
+	canonicalDraftSideValue,
+	deployDraft as deployDraftToWorkspace,
+	getDraftDiffValues
+} from '$lib/utils_draft_deploy'
+import { changedLineIndices, draftDeployedPatch, windowPatch } from './draftDiff'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+import { invalidateWorkspaceComparison } from '$lib/workspaceComparison'
+import type { UserDraftItemKind } from '$lib/gen'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
 	buildRunsUrl,
@@ -127,8 +152,13 @@ import {
 	buildFoldersUrl,
 	buildGroupsUrl,
 	buildTriggersUrl,
+	buildCompareUrl,
 	WORKSPACE_SETTINGS_TABS
 } from './pageNavigation'
+import {
+	COMPARE_ITEMS_PARAM,
+	parseItemsMaskParam
+} from '$lib/components/sessions/modifiedItemsMask'
 import {
 	pageHref,
 	TRIGGER_PAGES,
@@ -137,6 +167,7 @@ import {
 import {
 	clearEphemeralSecretVariableDraftValue,
 	deleteGlobalDraft,
+	flushGlobalDraftSaves,
 	getEphemeralSecretVariableDraftValue,
 	getGlobalDraft,
 	getGlobalDraftStoragePath,
@@ -144,10 +175,33 @@ import {
 	listGlobalDrafts,
 	persistGlobalDraft,
 	readGlobalDraftValue,
+	readLocalDraftCellByKind,
+	resolveGlobalDraftStoragePathByKind,
 	saveGlobalAppDraft,
 	setEphemeralSecretVariableDraftValue,
 	type DraftPersistResult
 } from './userDraftAdapter'
+import {
+	computeDiffParts,
+	expireWorkspaceDiffList,
+	getForkComparisonStatus,
+	getForkDiffIndex,
+	getForkParentWorkspaceId,
+	getWorkspaceDiffIndex,
+	maskVariableDiffSides,
+	readForkDiffEntries,
+	readWorkspaceDiffEntry,
+	resolveWorkspaceDiffTarget,
+	type DiffFileView,
+	type ForkDiffEntryView,
+	type WorkspaceDiffEntryView
+} from './diffSnapshot'
+
+const VARIABLE_MASKED_NOTE =
+	'Note: variable values are never shown in chat — the diff marks whether the value changed without revealing it.\n\n'
+const SECRET_UNCOMPARABLE_NOTE =
+	'Note: this is a SECRET variable — its value is never shown and cannot be compared, so it may ALSO have changed beyond what this diff shows.\n\n'
+import { apiCatalogTools } from './apiCatalogTools'
 
 const ITEM_TYPES = [
 	'script',
@@ -192,6 +246,11 @@ export type GlobalActiveEditorContext = {
 export type GlobalUserMessageOptions = {
 	workspace?: string
 	activeEditor?: GlobalActiveEditorContext
+	/** Images attached to this message; delivered as image_url content parts. */
+	images?: AttachedImage[]
+	/** Text files attached to this message; listed by reference below — the model
+	 * reads their content on demand via the file tools. */
+	files?: AttachedTextFile[]
 }
 
 const itemTypeSchema = z.enum(ITEM_TYPES)
@@ -285,7 +344,17 @@ const listWorkspaceItemsSchema = z.object({
 		.min(1)
 		.max(MAX_LIST_LIMIT)
 		.optional()
-		.describe('Maximum number of items to return. Defaults to 50 and is capped at 100.')
+		.describe(
+			'Maximum items per item type per page (for triggers, per trigger kind). Defaults to 50 and is capped at 100.'
+		),
+	page: z
+		.number()
+		.int()
+		.min(1)
+		.optional()
+		.describe(
+			'Page number, starting at 1. Each item type pages independently: request the next page while any type still returns a full page. Drafts appear on page 1 only, capped at limit per type.'
+		)
 })
 
 const readWorkspaceItemSchema = z.object({
@@ -293,7 +362,13 @@ const readWorkspaceItemSchema = z.object({
 	path: z.string().describe('Workspace path of the item to read.'),
 	trigger_kind: triggerKindSchema
 		.optional()
-		.describe('Required when type is trigger. Identifies which trigger service to call.')
+		.describe('Required when type is trigger. Identifies which trigger service to call.'),
+	version: z
+		.enum(['deployed'])
+		.optional()
+		.describe(
+			'Pass "deployed" to read the deployed workspace state even when a draft exists (e.g. to learn the deployed input schema before running the deployed version). Default reads your draft when one exists.'
+		)
 })
 
 const draftOverrideField = z
@@ -377,6 +452,10 @@ const writeFlowSchema = z.object({
 	override: draftOverrideField
 })
 
+// modules/preprocessor_module/failure_module can carry rawscript `content`, whose
+// quotes and newlines are the usual reason the JSON string fails to parse.
+const FLOW_CODE_BEARING_FIELDS = new Set(['modules', 'preprocessor_module', 'failure_module'])
+
 function parseOptionalJsonArg(value: unknown, field: string): unknown {
 	if (value === undefined || value === null) {
 		return value
@@ -386,8 +465,58 @@ function parseOptionalJsonArg(value: unknown, field: string): unknown {
 		return typeof value === 'string' ? JSON.parse(value) : value
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error)
-		throw new Error(`Invalid JSON for ${field}: ${message}`)
+		const hint = FLOW_CODE_BEARING_FIELDS.has(field)
+			? ' A rawscript "content" string with multi-line code or quotes is the usual cause. Instead of inlining large code, create the rawscript module with empty content ("") and fill its body with set_flow_module_code afterwards.'
+			: ''
+		throw new Error(`Invalid JSON for ${field}: ${message}${hint}`)
 	}
+}
+
+/**
+ * Rawscript bodies are fragile to embed inside the `modules` JSON string: the
+ * code's quotes and newlines have to survive three levels of escaping (tool-call
+ * arguments -> modules string -> content string) and the model routinely mangles
+ * them. So a module may be saved with empty (or `inline_script.` placeholder)
+ * content; return the ids that still need a body filled out-of-band with
+ * `set_flow_module_code`.
+ */
+function emptyInlineScriptModuleIds(editable: EditableFlowJson): string[] {
+	const value: FlowValue = {
+		modules: editable.modules,
+		preprocessor_module: editable.preprocessor_module ?? undefined,
+		failure_module: editable.failure_module ?? undefined
+	}
+	const session = createInlineScriptSession()
+	buildEditableFlowJson({ value, schema: editable.schema }, session)
+	return Object.entries(session.getAll())
+		.filter(([, content]) => content.trim() === '' || /^inline_script\./.test(content))
+		.map(([id]) => id)
+}
+
+/**
+ * Fold the empty-body warning into a flow write tool's JSON result — but only
+ * when the save actually succeeded. `writeFlowDraft` reports
+ * conflicts/persistence errors as `{ success: false }` rather than throwing;
+ * telling the model to fill code on a flow that was never saved would send it
+ * after a stale or nonexistent draft.
+ */
+function appendEmptyInlineScriptWarning(result: string, editable: EditableFlowJson): string {
+	const emptyIds = emptyInlineScriptModuleIds(editable)
+	if (emptyIds.length === 0) {
+		return result
+	}
+	let parsed: { success?: unknown; message?: unknown }
+	try {
+		parsed = JSON.parse(result)
+	} catch {
+		return result
+	}
+	if (parsed.success !== true || typeof parsed.message !== 'string') {
+		return result
+	}
+	const list = emptyIds.map((id) => `"${id}"`).join(', ')
+	parsed.message += `\n\nWarning: inline scripts ${list} have no code yet. Fill each one with set_flow_module_code(path, module_id, code) — do not re-send the whole flow.`
+	return JSON.stringify(parsed, null, 2)
 }
 
 function editableFlowToDraftValue(editable: EditableFlowJson): FlowDraftValue {
@@ -430,9 +559,11 @@ const writeTriggerSchema = z.object({
 			triggerRequestSchemas.nats,
 			triggerRequestSchemas.postgres,
 			triggerRequestSchemas.mqtt,
+			triggerRequestSchemas.amqp,
 			triggerRequestSchemas.sqs,
 			triggerRequestSchemas.gcp,
-			triggerRequestSchemas.azure
+			triggerRequestSchemas.azure,
+			triggerRequestSchemas.email
 		])
 		.describe(
 			'Full trigger configuration. Must include path, script_path, is_flow plus the kind-specific fields.'
@@ -445,7 +576,11 @@ const writeResourceSchema = resourceRequestSchema.extend({ override: draftOverri
 const writeVariableSchema = variableRequestSchema.extend({ override: draftOverrideField })
 
 const searchResourceTypesSchema = z.object({
-	query: z.string().describe('Substring to match against resource type names.'),
+	query: z
+		.string()
+		.describe(
+			'Natural-language description of the integration or capability you need, e.g. "stripe", "postgres database", or "send emails". Matched semantically against resource type names and descriptions, so describe the intent rather than guessing the exact name.'
+		),
 	limit: z
 		.number()
 		.int()
@@ -520,6 +655,73 @@ const rebaseDraftSchema = z.object({
 	path: z
 		.string()
 		.describe('Workspace path of the draft to rebase onto the latest deployed version.')
+})
+
+const diffSchema = z.object({
+	against: z
+		.enum(['deployed', 'parent_workspace'])
+		.optional()
+		.describe(
+			"What to compare against. 'deployed' (default): the current draft vs the deployed version. 'parent_workspace': the deployed fork vs its parent workspace (only in a fork; local drafts are flagged but not part of that comparison)."
+		),
+	type: itemTypeSchema
+		.optional()
+		.describe('With path: the item to diff. Omit both type and path for the workspace index.'),
+	path: z
+		.string()
+		.optional()
+		.describe(
+			'Workspace path of the item to diff (draft vs deployed). Omit for the index of every draft in the workspace.'
+		),
+	trigger_kind: triggerKindSchema
+		.optional()
+		.describe('Required when type is trigger. Must match the draft trigger kind.'),
+	file: z
+		.string()
+		.optional()
+		.describe(
+			'Item mode, multi-file apps only: read one file\'s diff inside the app (e.g. "src/App.tsx"). Omit for the per-file summary plus config changes.'
+		),
+	search: z
+		.string()
+		.optional()
+		.describe(
+			'Search mode: literal substring (case-insensitive, not a regex) matched against added/removed diff lines across every diff in the comparison. Ignores type/path.'
+		),
+	file_glob: z
+		.string()
+		.optional()
+		.describe(
+			'Search mode: optional glob filter on item paths and app file paths (e.g. "*.ts" matches file names, "f/dash/**" matches full paths).'
+		),
+	max_matches: z
+		.number()
+		.int()
+		.min(1)
+		.optional()
+		.describe('Search mode: maximum matching diff lines returned (default 50, hard cap 200).'),
+	types: z
+		.array(itemTypeSchema)
+		.optional()
+		.describe('Index mode: only list drafts of these item types.'),
+	path_prefix: z
+		.string()
+		.optional()
+		.describe('Index mode: only list drafts under this path prefix, such as f/billing/.'),
+	offset: z
+		.number()
+		.int()
+		.min(0)
+		.optional()
+		.describe('Item mode: skip this many patch lines (paginate a large diff).'),
+	limit: z
+		.number()
+		.int()
+		.min(1)
+		.optional()
+		.describe(
+			'Index mode: max items to list (default 50, capped at 100). Item mode: max patch lines to return (default 500).'
+		)
 })
 
 const editScriptSchema = z.object({
@@ -805,6 +1007,44 @@ const listAppRunsSchema = z.object({
 		.describe('How many of the most recent backend runs to return, newest first. Defaults to 20.')
 })
 
+const domSelectorField = z
+	.string()
+	.optional()
+	.describe(
+		'CSS selector for the element to inspect in the live raw app preview. Omit to target the whole page (<body>). Prefer a selector from a DOM element chip the user attached. If it matches several elements, the first is used.'
+	)
+
+const domAppPathField = z
+	.string()
+	.optional()
+	.describe(
+		"Raw-app path of the element, from its `app_path` in the SELECTED DOM ELEMENTS block. Pass it so the RIGHT app's preview is read even if another preview tab is now visible; omit to use the currently active preview. If that app's preview has been closed, the tool says so."
+	)
+
+const searchDomSchema = z.object({
+	app_path: domAppPathField,
+	selector: domSelectorField,
+	pattern: z.string().describe('JavaScript regular expression to search the rendered HTML for.'),
+	ignore_case: z.boolean().optional().describe('Case-insensitive matching. Defaults to false.')
+})
+
+const readDomSchema = z.object({
+	app_path: domAppPathField,
+	selector: domSelectorField,
+	start_line: z
+		.number()
+		.int()
+		.optional()
+		.describe('1-based first line of the pretty-printed HTML to read. Defaults to 1.'),
+	end_line: z
+		.number()
+		.int()
+		.optional()
+		.describe('1-based last line to read. The window is capped at 200 lines.')
+})
+
+const takeScreenshotSchema = z.object({})
+
 const FRAMEWORK_KEYS = [
 	'react19',
 	'react18',
@@ -895,6 +1135,14 @@ const buildGlobalSystemPrompt = (
 ) => {
 	const folderGuidance = buildFolderGuidance(username, folderCtx)
 	const folderGuidanceBlock = folderGuidance ? `\n${folderGuidance}` : ''
+	// `previewTools` doubles as "this is a session chat" — sessions are the only
+	// chats that get the preview tool set. The alpha heads-up only makes sense
+	// there, where the chat actively builds the pipeline on the canvas; the
+	// standalone global chat keeps its plain guidance.
+	const pipelineAlphaNote = previewTools
+		? ' Data pipeline support in this chat is in ALPHA: the first time the user asks for a data pipeline in this session, briefly tell them it is an alpha feature before you start building.'
+		: ''
+	const pipelineBullet = `- A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.${pipelineAlphaNote}`
 	return `You are Windmill's global workspace assistant.
 
 The current user's workspace username is "${username}".
@@ -914,13 +1162,24 @@ Rules:
 - If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".
 - Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.
 - Use discard_local_draft to remove a draft, including the matching open editor draft. Use delete_workspace_item only to delete a deployed workspace item.
+- Use diff to review changes — before deploying, or when the user asks what changed. It is read-only: without arguments it lists every draft in the workspace with its change status; with type+path it returns that item's unified diff (for multi-file apps, pass file to read one file's diff). In a fork, pass against="parent_workspace" to compare the deployed fork with its parent workspace instead. Pass search to grep changed lines across all diffs.
 - Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
 - Use search_resource_types before write_resource.
+- When script or raw app code needs an external npm package you are not fully familiar with, use search_npm_packages to find it and get its documentation and type definitions. Link the package documentation in your answer when you rely on it.
+- Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
-- A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.
+${pipelineBullet}
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
+- Whenever you ask the user to perform a manual step in the UI — fill in a resource's credentials, set a secret variable's value, adjust a schedule or setting — call open_page in the same message, targeted at that item (pass open with its path to land in its edit drawer, or the page's filters otherwise). Never just describe where to click.
+- When the user is happy with the changes and wants to review or deploy them, use open_page with page "compare" — it opens the Compare & Deploy review page.${
+		previewTools
+			? ' By default it preselects the items this chat modified; pass items ("<kind>:<path>" entries) to control the selection'
+			: ' Pass items ("<kind>:<path>" entries naming the items you changed) so the review is scoped to them — omitting items preselects every pending change in the workspace'
+	}, or mode ("draft" or "fork") to force which comparison is shown. Prefer offering this review page over calling deploy_workspace_item directly when several items changed.
+- For a Windmill operation no other tool covers (workers, queue state, a run's result or args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
+- runScriptByPath / runFlowByPath from the API catalog run the DEPLOYED version of an item. Use them only when the user explicitly asks to run the deployed version, and read the item with read_workspace_item version: "deployed" first so the arguments match the deployed input schema (a draft may have different inputs). To test something you are editing or just wrote, always use test_run_script, test_run_flow, or test_run_step — they run the draft.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
 - When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
 - Keep context targeted.${
@@ -929,7 +1188,13 @@ Rules:
 - After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.
 - Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty or not-yet-created folder is fine (create_folder first if needed, then open it). Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.
 - When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
+- To inspect what actually rendered in a running raw app (verify an edit landed on screen, diagnose a blank/empty or wrong view, answer "what's showing"), use search_dom (regex over the live HTML) and read_dom (a line-numbered window). Pass a \`selector\` to scope to an element — prefer the selector from a DOM element chip the user attached — or omit it for the whole page. When a chip lists an \`app_path\`, pass it too so the RIGHT app is read (several previews can be open; a query without \`app_path\` hits the visible one). The DOM is read live and is never in context; no match means the element isn't rendered. Both need the raw app preview open.
 - get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.
+${
+	isChromiumBrowser()
+		? `- When the user raises how a raw app looks (something is off, or they want the design or layout improved), call take_screenshot to see what they are looking at before changing anything. Reach for it when the request is about appearance, not to review your own edits, which you can read back from the code. It needs the raw app preview open (open_preview kind="raw_app").`
+		: `- When the user raises how a raw app looks (something is off, or they want the design or layout improved) and their description alone isn't specific enough to pinpoint the problem, ask them to paste or drop a screenshot of it into the chat before changing anything.`
+}
 - open_page opens its page as a tab in the side-panel preview next to the chat — the only way to show one of these pages there (open_preview only handles editable items). Changing filters on a page already open updates that same tab; only pass new_tab when the user explicitly asks for a separate tab.
 - create_artifact saves a persistent markdown document (a planning doc, design write-up, spec, or other longer structured output) shown in the session preview panel. Prefer it over a long inline reply for content the user will revisit; keep brief answers inline. To revise one, call list_artifacts then read_artifact for the current content, then update_artifact to overwrite it — never create a second artifact for the same document.`
 			: ''
@@ -996,7 +1261,10 @@ function scriptToItem(script: Script | NewScript, includeValue: boolean): Worksp
 		summary: script.summary,
 		language: script.language,
 		value: includeValue ? script.content : undefined,
-		isDraft: false
+		schema: includeValue ? (script as Script).schema : undefined,
+		// Listings with includeDraftOnly synthesize rows for editor drafts that
+		// have no deployed counterpart — label those honestly.
+		isDraft: (script as Script).draft_only ?? false
 	}
 }
 
@@ -1008,7 +1276,7 @@ function flowToItem(flow: Flow, includeValue: boolean): WorkspaceItem {
 		value: includeValue
 			? { value: flow.value, schema: flow.schema, groups: flow.value.groups ?? null }
 			: undefined,
-		isDraft: false
+		isDraft: (flow as Flow & { draft_only?: boolean }).draft_only ?? false
 	}
 }
 
@@ -1395,7 +1663,12 @@ function triggerToItem(
 type TriggerService = {
 	exists(args: { workspace: string; path: string }): Promise<boolean>
 	get(args: { workspace: string; path: string }): Promise<TriggerLike>
-	list(args: { workspace: string; pathStart?: string; perPage?: number }): Promise<TriggerLike[]>
+	list(args: {
+		workspace: string
+		pathStart?: string
+		perPage?: number
+		page?: number
+	}): Promise<TriggerLike[]>
 	create(args: { workspace: string; requestBody: any }): Promise<string>
 	update(args: { workspace: string; path: string; requestBody: any }): Promise<string>
 	delete(args: { workspace: string; path: string }): Promise<string>
@@ -1450,6 +1723,14 @@ const triggerServices: Record<TriggerKind, TriggerService> = {
 		update: (a) => MqttTriggerService.updateMqttTrigger(a),
 		delete: (a) => MqttTriggerService.deleteMqttTrigger(a)
 	},
+	amqp: {
+		exists: (a) => AmqpTriggerService.existsAmqpTrigger(a),
+		get: (a) => AmqpTriggerService.getAmqpTrigger(a),
+		list: (a) => AmqpTriggerService.listAmqpTriggers(a),
+		create: (a) => AmqpTriggerService.createAmqpTrigger(a),
+		update: (a) => AmqpTriggerService.updateAmqpTrigger(a),
+		delete: (a) => AmqpTriggerService.deleteAmqpTrigger(a)
+	},
 	sqs: {
 		exists: (a) => SqsTriggerService.existsSqsTrigger(a),
 		get: (a) => SqsTriggerService.getSqsTrigger(a),
@@ -1473,6 +1754,14 @@ const triggerServices: Record<TriggerKind, TriggerService> = {
 		create: (a) => AzureTriggerService.createAzureTrigger(a),
 		update: (a) => AzureTriggerService.updateAzureTrigger(a),
 		delete: (a) => AzureTriggerService.deleteAzureTrigger(a)
+	},
+	email: {
+		exists: (a) => EmailTriggerService.existsEmailTrigger(a),
+		get: (a) => EmailTriggerService.getEmailTrigger(a),
+		list: (a) => EmailTriggerService.listEmailTriggers(a),
+		create: (a) => EmailTriggerService.createEmailTrigger(a),
+		update: (a) => EmailTriggerService.updateEmailTrigger(a),
+		delete: (a) => EmailTriggerService.deleteEmailTrigger(a)
 	}
 }
 
@@ -1480,18 +1769,27 @@ async function readWorkspaceItem(
 	type: WorkspaceItemType,
 	path: string,
 	workspace: string,
-	triggerKind?: TriggerKind
+	triggerKind?: TriggerKind,
+	deployedOnly = false
 ): Promise<WorkspaceItem> {
 	switch (type) {
 		case 'script': {
-			// Prefer the DB draft (newer than the deployed version) when one exists.
-			const script = await ScriptService.getScriptByPath({ workspace, path, getDraft: true })
-			return scriptToItem((script.draft as Script | undefined) ?? script, true)
+			// Prefer the DB draft (newer than the deployed version) when one exists,
+			// unless the caller explicitly asked for the deployed state.
+			const script = await ScriptService.getScriptByPath({
+				workspace,
+				path,
+				getDraft: !deployedOnly
+			})
+			const draft = deployedOnly ? undefined : (script.draft as Script | undefined)
+			return scriptToItem(draft ?? script, true)
 		}
 		case 'flow': {
-			// Prefer the DB draft (newer than the deployed version) when one exists.
-			const flow = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
-			return flowToItem((flow.draft as Flow | undefined) ?? flow, true)
+			// Prefer the DB draft (newer than the deployed version) when one exists,
+			// unless the caller explicitly asked for the deployed state.
+			const flow = await FlowService.getFlowByPath({ workspace, path, getDraft: !deployedOnly })
+			const draft = deployedOnly ? undefined : (flow.draft as Flow | undefined)
+			return flowToItem(draft ?? flow, true)
 		}
 		case 'schedule':
 			return scheduleToItem(await ScheduleService.getSchedule({ workspace, path }), true)
@@ -1532,7 +1830,8 @@ async function listWorkspaceItems(
 	types: WorkspaceItemType[],
 	workspace: string,
 	pathPrefix: string | undefined,
-	perPage: number
+	perPage: number,
+	page?: number
 ): Promise<WorkspaceItem[]> {
 	const items: WorkspaceItem[] = []
 
@@ -1541,6 +1840,7 @@ async function listWorkspaceItems(
 			workspace,
 			pathStart: pathPrefix,
 			perPage,
+			page,
 			includeDraftOnly: true,
 			withoutDescription: true
 		})
@@ -1552,6 +1852,7 @@ async function listWorkspaceItems(
 			workspace,
 			pathStart: pathPrefix,
 			perPage,
+			page,
 			includeDraftOnly: true,
 			withoutDescription: true
 		})
@@ -1562,18 +1863,30 @@ async function listWorkspaceItems(
 		const schedules = await ScheduleService.listSchedules({
 			workspace,
 			pathStart: pathPrefix,
-			perPage
+			perPage,
+			page
 		})
 		for (const schedule of schedules) items.push(scheduleToItem(schedule, false))
 	}
 
 	if (types.includes('trigger')) {
 		for (const kind of TRIGGER_KINDS) {
-			const triggers = await triggerServices[kind].list({
-				workspace,
-				pathStart: pathPrefix,
-				perPage
-			})
+			let triggers: Awaited<ReturnType<(typeof triggerServices)[typeof kind]['list']>>
+			try {
+				triggers = await triggerServices[kind].list({
+					workspace,
+					pathStart: pathPrefix,
+					perPage,
+					page
+				})
+			} catch (err) {
+				// A trigger kind whose backend routes aren't compiled in (e.g. email
+				// without smtp+private, or an EE kind on CE) 404s here; skip only that
+				// so one unavailable kind doesn't drop the whole listing. Any other
+				// failure (auth, 5xx, network) is real and must surface.
+				if ((err as { status?: number } | undefined)?.status === 404) continue
+				throw err
+			}
 			for (const trigger of triggers) items.push(triggerToItem(kind, trigger, false))
 		}
 	}
@@ -1582,7 +1895,8 @@ async function listWorkspaceItems(
 		const resources = await ResourceService.listResource({
 			workspace,
 			pathStart: pathPrefix,
-			perPage
+			perPage,
+			page
 		})
 		for (const resource of resources) items.push(resourceToItem(resource, false))
 	}
@@ -1591,7 +1905,8 @@ async function listWorkspaceItems(
 		const variables = await VariableService.listVariable({
 			workspace,
 			pathStart: pathPrefix,
-			perPage
+			perPage,
+			page
 		})
 		for (const variable of variables) items.push(variableToItem(variable))
 	}
@@ -1600,7 +1915,8 @@ async function listWorkspaceItems(
 		const apps = await AppService.listApps({
 			workspace,
 			pathStart: pathPrefix,
-			perPage
+			perPage,
+			page
 		})
 		for (const app of apps) items.push(appToItem(app, false))
 	}
@@ -1659,7 +1975,9 @@ function getFlowInstructions(): string {
   - \`read_flow_module_code(path, module_id)\` — returns the raw inline script content for one module.
   - \`set_flow_module_code(path, module_id, code)\` — overwrites that module's inline script content; saves to the draft.
 - Use \`patch_flow_json\` for *structural* edits: module ids, paths, input_transforms, branch arrangement, summaries, preprocessor/failure swaps, schema/groups/notes. Use \`set_flow_module_code\` for changes inside a specific rawscript body.
-- \`write_flow\` is for full overwrites / create-from-scratch. Its \`modules\`, \`preprocessor_module\`, and \`failure_module\` arguments use **non-compact** flow modules (rawscript content is the actual code, not a placeholder).
+- When **adding a new rawscript module** with \`patch_flow_json\`, set its \`content\` to the placeholder \`"inline_script.<moduleId>"\` (matching the compact view) — never real code — then **immediately fill the body** with \`set_flow_module_code(path, module_id, code)\`. The module is saved with an empty body until you do; the tool result lists the module ids still awaiting code. A placeholder that names anything other than the module's own id or an existing rawscript module is rejected.
+- \`write_flow\` is for full overwrites / create-from-scratch. Its \`modules\`, \`preprocessor_module\`, and \`failure_module\` arguments are **non-compact** flow modules: inline each rawscript body directly in \`content\` by default. But if a body is long or quote/backslash-heavy enough that escaping it into the JSON string is error-prone — or if a \`write_flow\` call comes back with a JSON parse error — create that module with **empty content** (\`"content": ""\`) and fill it with \`set_flow_module_code(path, module_id, code)\`, whose \`code\` is a plain argument with no nested escaping. \`write_flow\` reports which modules still have empty bodies so you know what to fill.
+  - When overwriting an **existing** flow, set \`"content": "inline_script.<moduleId>"\` on any rawscript module whose code you are not changing — the placeholder resolves to that module's current body, so you never re-send (or re-read) unchanged code. Placeholders that match no existing rawscript module and are not the module's own id are rejected.
 
 # Windmill flow authoring reference
 
@@ -1742,6 +2060,71 @@ function getInstructions(subject: InstructionSubject, language?: ScriptLang): st
 
 export type AiSkillListItem = { name: string; description: string }
 
+/** Live session facts appended to the GLOBAL system prompt for session chats.
+ * Provided by the session runtime as a resolver (copilot must not import the
+ * sessions modules) and re-read on every system-message rebuild — the fork
+ * commits at first send, and the user can re-point the session's workspace. */
+export type SessionPromptContext = {
+	/** Operating workspace (undefined while the session is an unsent draft with
+	 * no pick). Only slug-validated workspace IDs belong here — free-form
+	 * metadata like display names is user-controlled text that must not be
+	 * interpolated into the system prompt. */
+	workspaceId?: string
+	/** Set when the operating workspace is a fork of this workspace (staged
+	 * session fork or persistent dev workspace — `isDevWorkspace` splits them). */
+	parentWorkspaceId?: string
+	/** The operating workspace is a persistent dev workspace, not an ephemeral
+	 * staged fork. Same promote-to-parent deploy flow; different lifecycle. */
+	isDevWorkspace?: boolean
+	/** Committed workspace missing from the user's workspace list (access lost /
+	 * stale store): still a fork per `isForkSession`, but the parent is unknown —
+	 * must not be presented as the live workspace. */
+	forkParentUnknown?: boolean
+	/** Pre-send intent: a staged fork of this workspace is created at first send. */
+	pendingForkOf?: string
+}
+
+/** Session-state guidance appended to the global system prompt so the model
+ * knows where its work lands (staged fork vs the live workspace). */
+export function getSessionContextPromptSection(ctx: SessionPromptContext): string {
+	const lines = [
+		'',
+		'',
+		'Session state:',
+		'- This chat is a Windmill AI session with its own operating workspace: every tool call (reads, drafts, test runs, deploys) targets that workspace.'
+	]
+	if (ctx.pendingForkOf) {
+		lines.push(
+			`- No workspace is committed yet: a staged fork of workspace "${ctx.pendingForkOf}" is created automatically when the first message is sent, and all work lands in that fork.`
+		)
+	} else if (ctx.parentWorkspaceId && ctx.isDevWorkspace) {
+		lines.push(
+			`- Operating workspace: "${ctx.workspaceId}" — the user's persistent DEV WORKSPACE, forked from workspace "${ctx.parentWorkspaceId}". deploy_workspace_item publishes into the dev workspace only; the user reviews & promotes changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
+		)
+	} else if (ctx.parentWorkspaceId) {
+		lines.push(
+			`- Operating workspace: "${ctx.workspaceId}" — an ephemeral STAGED FORK of workspace "${ctx.parentWorkspaceId}", created for session work. deploy_workspace_item publishes into the fork only, and the user reviews & promotes fork changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
+		)
+	} else if (ctx.forkParentUnknown) {
+		lines.push(
+			`- Operating workspace: "${ctx.workspaceId}" — a fork whose parent workspace is not currently visible to this user. deploy_workspace_item publishes into the fork only; the user promotes changes from the session's deploy panel. Never present a change as live in any other workspace.`
+		)
+	} else if (ctx.workspaceId) {
+		lines.push(
+			`- Operating workspace: "${ctx.workspaceId}" — the live workspace itself, not a fork. deploy_workspace_item publishes directly to everyone in it.`
+		)
+	} else {
+		lines.push(
+			'- No operating workspace is set yet; the user picks one (or a new staged fork) before the first message is sent.'
+		)
+	}
+	return lines.join('\n')
+}
+
+/** `/` picker entry: a workspace skill or a built-in session action. The kind
+ * drives the picker's category grouping; entries without one are ungrouped. */
+export type ChatCommandItem = AiSkillListItem & { kind?: 'action' | 'skill' }
+
 /** Fetch the workspace's AI skills (name + description) for the global system prompt. */
 export async function loadWorkspaceSkills(workspace: string): Promise<AiSkillListItem[]> {
 	if (!workspace) return []
@@ -1793,7 +2176,8 @@ const OPEN_PAGE_NAMES = [
 	'folders',
 	'groups',
 	'triggers',
-	'workspace_settings'
+	'workspace_settings',
+	'compare'
 ] as const
 type OpenPageName = (typeof OPEN_PAGE_NAMES)[number]
 
@@ -1807,7 +2191,8 @@ const OPEN_PAGE_LABELS: Record<OpenPageName, string> = {
 	folders: 'Folders',
 	groups: 'Groups',
 	triggers: 'Triggers',
-	workspace_settings: 'Workspace settings'
+	workspace_settings: 'Workspace settings',
+	compare: 'Compare & Deploy'
 }
 
 // Trigger kinds available given the workspace's license — the EE-gated kinds
@@ -1844,11 +2229,23 @@ function allowedOpenPages(workspaceId: string | undefined = get(workspaceStore))
 		'audit_logs',
 		'folders',
 		'groups',
-		'triggers'
+		'triggers',
+		'compare'
 	])
 	if (isAdmin) allowed.add('workspace_settings')
 	return OPEN_PAGE_NAMES.filter((p) => allowed.has(p))
 }
+
+// The advertised `items` description must match this chat's surface: only chats that
+// track their modified items (AI sessions) can honor "omitted = this chat's edits" —
+// on an untracked chat (the global side panel) an omitted mask falls through to the
+// page's select-all default, so the model is told to pass the items explicitly there.
+const COMPARE_ITEMS_DESCRIPTIONS = {
+	tracked:
+		"Compare: preselect exactly these changed items, each as '<kind>:<path>' where kind is script, flow, raw_app, app, resource, variable, or a trigger kind like trigger_schedule / trigger_http (e.g. 'script:f/foo/bar'). Omit to preselect the items modified in this chat (everything when this chat modified nothing).",
+	untracked:
+		"Compare: preselect exactly these changed items, each as '<kind>:<path>' where kind is script, flow, raw_app, app, resource, variable, or a trigger kind like trigger_schedule / trigger_http (e.g. 'script:f/foo/bar'). If omitted, the page preselects EVERY pending change in the workspace, not just this chat's — when you changed specific items, pass them so the review is scoped to them."
+} as const
 
 // One flat object (not a discriminated union): `page` selects the target and the
 // per-page fields are optional. Top-level `type: object` is what Anthropic's
@@ -1857,20 +2254,7 @@ function allowedOpenPages(workspaceId: string | undefined = get(workspaceStore))
 // apply to the chosen page is harmless. This full schema is used to PARSE tool args; the
 // advertised schema (what the model sees) is narrowed per-user in `setSchema`.
 const openPageFullSchema = z.object({
-	page: z
-		.enum([
-			'runs',
-			'schedules',
-			'variables',
-			'resources',
-			'assets',
-			'audit_logs',
-			'folders',
-			'groups',
-			'triggers',
-			'workspace_settings'
-		])
-		.describe('Which page to open'),
+	page: z.enum(OPEN_PAGE_NAMES).describe('Which page to open'),
 	path: z
 		.string()
 		.optional()
@@ -1896,7 +2280,7 @@ const openPageFullSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			'Schedules/Triggers: exact schedule or trigger path to open in the edit drawer, e.g. f/foo/my_schedule'
+			'Schedules/Triggers/Variables/Resources: exact item path to open in the edit drawer, e.g. f/foo/my_schedule. Use it whenever the user should act on one specific item (e.g. fill in credentials) so they land directly in its editor.'
 		),
 	summary: z
 		.string()
@@ -1921,6 +2305,13 @@ const openPageFullSchema = z.object({
 		.enum([...WORKSPACE_SETTINGS_TABS] as [string, ...string[]])
 		.optional()
 		.describe('Workspace settings: which settings tab to open'),
+	mode: z
+		.enum(['draft', 'fork'])
+		.optional()
+		.describe(
+			"Compare: which comparison to show — 'draft' (deployed items vs their pending drafts) or 'fork' (this forked workspace vs its parent). Omit to auto-pick: the view containing the preselected items (draft whenever any of them is a pending draft); with nothing preselected, fork on a forked workspace and draft otherwise."
+		),
+	items: z.array(z.string()).min(1).optional().describe(COMPARE_ITEMS_DESCRIPTIONS.tracked),
 	new_tab: z
 		.boolean()
 		.optional()
@@ -1939,7 +2330,7 @@ const OPEN_PAGE_FIELD_PAGES: Record<string, OpenPageName[]> = {
 	schedule_path: ['runs', 'schedules'],
 	job_kinds: ['runs'],
 	user: ['runs'],
-	open: ['schedules', 'triggers'],
+	open: ['schedules', 'triggers', 'variables', 'resources'],
 	summary: ['schedules'],
 	trigger_kind: ['triggers'],
 	resource_type: ['resources'],
@@ -1947,7 +2338,9 @@ const OPEN_PAGE_FIELD_PAGES: Record<string, OpenPageName[]> = {
 	username: ['audit_logs'],
 	operation: ['audit_logs'],
 	resource: ['audit_logs'],
-	tab: ['workspace_settings']
+	tab: ['workspace_settings'],
+	mode: ['compare'],
+	items: ['compare']
 }
 
 // The model-facing schema for the given allowed pages: the `page` enum plus only the
@@ -1955,7 +2348,8 @@ const OPEN_PAGE_FIELD_PAGES: Record<string, OpenPageName[]> = {
 // `trigger_kind` enum is narrowed to the license-available kinds.
 function buildOpenPageDefSchema(
 	pages: readonly OpenPageName[],
-	triggerKinds: readonly PageTriggerKind[]
+	triggerKinds: readonly PageTriggerKind[],
+	chatEditsTracked: boolean
 ): z.ZodTypeAny {
 	const full = openPageFullSchema.shape as Record<string, z.ZodTypeAny>
 	// z.enum() rejects an empty list, and a user with no reachable pages (e.g. an operator
@@ -1974,16 +2368,27 @@ function buildOpenPageDefSchema(
 						.enum([...triggerKinds] as [string, ...string[]])
 						.optional()
 						.describe('Triggers: which trigger kind page to open')
-				: full[field]
+				: field === 'items'
+					? z
+							.array(z.string())
+							.min(1)
+							.optional()
+							.describe(COMPARE_ITEMS_DESCRIPTIONS[chatEditsTracked ? 'tracked' : 'untracked'])
+					: full[field]
 	}
 	shape.new_tab = full.new_tab
 	return z.object(shape)
 }
 
 const OPEN_PAGE_DESCRIPTION =
-	'Open a Windmill page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, Folders, Groups, Triggers (by kind), or Workspace settings (on a specific tab). Inside an AI session it opens as a tab in the side-panel preview next to the chat; elsewhere it offers a clickable link. Use after surfacing something the user likely wants to inspect (e.g. "show me the failed runs of X", "open the schedule for Y", "open the git sync settings", "open the kafka triggers"). This is the only way to show one of these pages in the session preview — open_preview only handles editable items (scripts, flows, raw apps, pipelines). Only pages listed for this user are available; do not offer others.'
+	'Open a Windmill page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, Folders, Groups, Triggers (by kind), Workspace settings (on a specific tab), or the Compare & Deploy review page. Inside an AI session it opens as a tab in the side-panel preview next to the chat; elsewhere it offers a clickable link. Use after surfacing something the user likely wants to inspect (e.g. "show me the failed runs of X", "open the schedule for Y", "open the git sync settings", "open the kafka triggers"), and ALWAYS when asking the user to perform a manual step themselves (fill in a resource\'s credentials, set a variable\'s value — pass open with the item path so its edit drawer opens directly). Use page "compare" when the user wants to review and deploy pending changes (the items field controls which changes are preselected). This is the only way to show one of these pages in the session preview — open_preview only handles editable items (scripts, flows, raw apps, pipelines). Only pages listed for this user are available; do not offer others.'
 
-function buildOpenPageUrl(page: OpenPageName, a: OpenPageArgs): string {
+// Non-arg inputs the URL builder needs: the chat's operating workspace (the compare
+// page cannot fall back to its own store default inside a session preview) and the
+// live modified-items mask backing the compare page's default preselection.
+type OpenPageUrlCtx = { workspaceId: string; chatItems?: readonly string[] }
+
+export function buildOpenPageUrl(page: OpenPageName, a: OpenPageArgs, ctx: OpenPageUrlCtx): string {
 	switch (page) {
 		case 'runs':
 			return buildRunsUrl({
@@ -1999,9 +2404,12 @@ function buildOpenPageUrl(page: OpenPageName, a: OpenPageArgs): string {
 				filters: { path: a.path, schedule_path: a.schedule_path, summary: a.summary }
 			})
 		case 'variables':
-			return buildVariablesUrl({ path: a.path, owner: a.owner })
+			return buildVariablesUrl({ open: a.open, filters: { path: a.path, owner: a.owner } })
 		case 'resources':
-			return buildResourcesUrl({ path: a.path, resource_type: a.resource_type, owner: a.owner })
+			return buildResourcesUrl({
+				open: a.open,
+				filters: { path: a.path, resource_type: a.resource_type, owner: a.owner }
+			})
 		case 'assets':
 			return buildAssetsUrl({ path: a.path })
 		case 'audit_logs':
@@ -2022,6 +2430,15 @@ function buildOpenPageUrl(page: OpenPageName, a: OpenPageArgs): string {
 			})
 		case 'workspace_settings':
 			return buildWorkspaceSettingsUrl({ tab: a.tab })
+		case 'compare':
+			// Explicit `items` wins; otherwise preselect this chat's modified items. An
+			// empty mask (chat modified nothing) passes no items so the page keeps its
+			// select-all default instead of preselecting nothing.
+			return buildCompareUrl({
+				workspace_id: ctx.workspaceId,
+				mode: a.mode,
+				items: a.items ?? (ctx.chatItems?.length ? ctx.chatItems : undefined)
+			})
 	}
 }
 
@@ -2029,6 +2446,19 @@ function buildOpenPageUrl(page: OpenPageName, a: OpenPageArgs): string {
 // hash target), or "all <page>" when unfiltered.
 function summarizeOpenPage(url: string, page: OpenPageName): string {
 	const u = new URL(url, 'http://x')
+	if (page === 'compare') {
+		// The raw params (workspace_id + a possibly long items list) are noise here —
+		// summarize the selection instead.
+		const parts: string[] = []
+		const mode = u.searchParams.get('mode')
+		if (mode) parts.push(`mode=${mode}`)
+		const items = u.searchParams.get(COMPARE_ITEMS_PARAM)
+		if (items) {
+			const n = parseItemsMaskParam(items).size
+			parts.push(`${n} item${n === 1 ? '' : 's'} preselected`)
+		}
+		return parts.length ? parts.join(', ') : 'all pending changes'
+	}
 	const parts: string[] = []
 	u.searchParams.forEach((v, k) => parts.push(`${k}=${v}`))
 	if (u.hash) parts.push(u.hash.slice(1))
@@ -2036,8 +2466,10 @@ function summarizeOpenPage(url: string, page: OpenPageName): string {
 }
 
 export const openPageTool: Tool<{}> = {
+	// The initial def assumes an untracked chat; setSchema below rebuilds it with the
+	// caller's real surface before each iteration.
 	def: createToolDef(
-		buildOpenPageDefSchema(allowedOpenPages(), allowedTriggerKinds()),
+		buildOpenPageDefSchema(allowedOpenPages(), allowedTriggerKinds(), false),
 		'open_page',
 		OPEN_PAGE_DESCRIPTION
 	),
@@ -2052,7 +2484,8 @@ export const openPageTool: Tool<{}> = {
 		this.def = createToolDef(
 			buildOpenPageDefSchema(
 				allowedOpenPages(operatingWorkspaceFromHelpers(helpers)),
-				allowedTriggerKinds()
+				allowedTriggerKinds(),
+				(helpers as GlobalToolHelpers | undefined)?.getModifiedItems?.() !== undefined
 			),
 			'open_page',
 			OPEN_PAGE_DESCRIPTION
@@ -2075,7 +2508,16 @@ export const openPageTool: Tool<{}> = {
 		if (page === 'triggers' && triggerKind && !allowedTriggerKinds().includes(triggerKind)) {
 			return `${TRIGGER_PAGES[triggerKind].label} aren't available on this instance.`
 		}
-		const url = buildOpenPageUrl(page, parsed)
+		// Headless callers (ai_evals) have neither helpers.operatingWorkspace nor a
+		// populated workspaceStore; the chat loop's workspace is still correct there.
+		const urlWorkspace = workspaceId ?? get(workspaceStore) ?? ctx.workspace
+		if (!urlWorkspace) {
+			return 'Error: no workspace is selected, so no page can be opened.'
+		}
+		const url = buildOpenPageUrl(page, parsed, {
+			workspaceId: urlWorkspace,
+			chatItems: (ctx.helpers as GlobalToolHelpers | undefined)?.getModifiedItems?.()
+		})
 		const pageLabel = OPEN_PAGE_LABELS[page]
 		const summary = summarizeOpenPage(url, page)
 
@@ -2114,7 +2556,8 @@ export const globalTools: Tool<{}>[] = [
 			'get_instructions',
 			'Get authoring guidance for scripts, flows, data pipelines, resources, apps, or the datatable SQL SDK (wmill.datatable()) used inside runnables.'
 		),
-		fn: async ({ args, toolId, toolCallbacks }) => {
+		fn: async (ctx) => {
+			const { args, toolId, toolCallbacks } = ctx
 			const parsed = getInstructionsSchema.parse(args)
 			const label =
 				parsed.subject === 'script' && parsed.language
@@ -2125,6 +2568,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	createSearchHubScriptsTool(false),
+	searchNpmPackagesTool,
 	searchDocsTool,
 	readDocsPageTool,
 	{
@@ -2271,7 +2715,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			listWorkspaceItemsSchema,
 			'list_workspace_items',
-			'List workspace items and drafts. Returns metadata only.'
+			'List workspace items and drafts. Returns metadata only, up to limit items per item type per page (default 50); pass page to continue past a full page.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = listWorkspaceItemsSchema.parse(args)
@@ -2284,24 +2728,37 @@ export const globalTools: Tool<{}>[] = [
 				types,
 				workspace,
 				parsed.path_prefix,
-				Math.min(limit, MAX_LIST_LIMIT)
+				Math.min(limit, MAX_LIST_LIMIT),
+				parsed.page
 			)
 			for (const item of workspaceItems) {
 				byKey.set(getWorkspaceItemKey(item.type, item.path, item.triggerKind), item)
 			}
 
-			for (const draft of await listGlobalDrafts(workspace)) {
-				if (!types.includes(draft.type)) continue
-				if (parsed.path_prefix && !draft.path.startsWith(parsed.path_prefix)) continue
-				byKey.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), {
-					...draft,
-					value: undefined
-				})
+			// Drafts are not paginated server-side; overlay them on page 1 only,
+			// capped at `limit` per type, so results stay bounded and later pages
+			// never repeat a page-1 item as its draft twin. Chat draft counts are
+			// small — past the cap, a narrower path_prefix still finds any draft
+			// (it filters before the cap; query filters after).
+			if ((parsed.page ?? 1) === 1) {
+				const draftCountByType = new Map<string, number>()
+				for (const draft of await listGlobalDrafts(workspace)) {
+					if (!types.includes(draft.type)) continue
+					if (parsed.path_prefix && !draft.path.startsWith(parsed.path_prefix)) continue
+					const count = draftCountByType.get(draft.type) ?? 0
+					if (count >= limit) continue
+					draftCountByType.set(draft.type, count + 1)
+					byKey.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), {
+						...draft,
+						value: undefined
+					})
+				}
 			}
 
-			const results = Array.from(byKey.values())
-				.filter((item) => itemMatches(item, parsed.query))
-				.slice(0, limit)
+			// No cross-type truncation: each type is already capped at `limit` rows by
+			// its own list call, and slicing the concatenation would silently drop the
+			// later types' rows while their next page skips past them.
+			const results = Array.from(byKey.values()).filter((item) => itemMatches(item, parsed.query))
 
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Listed ${results.length} workspace item(s)`
@@ -2313,7 +2770,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			readWorkspaceItemSchema,
 			'read_workspace_item',
-			'Read one workspace item or draft.'
+			'Read one workspace item or draft. Prefers your draft when one exists; pass version: "deployed" to read the deployed state instead.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = readWorkspaceItemSchema.parse(args)
@@ -2322,7 +2779,10 @@ export const globalTools: Tool<{}>[] = [
 				toolCallbacks.setToolStatus(toolId, { content: message, error: message })
 				return JSON.stringify({ success: false, error: message })
 			}
-			const draft = await getGlobalDraft(workspace, parsed.type, parsed.path, parsed.trigger_kind)
+			const draft =
+				parsed.version === 'deployed'
+					? null
+					: await getGlobalDraft(workspace, parsed.type, parsed.path, parsed.trigger_kind)
 			if (draft) {
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Read draft ${parsed.type} "${parsed.path}"`
@@ -2333,7 +2793,13 @@ export const globalTools: Tool<{}>[] = [
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Reading ${parsed.type} "${parsed.path}"...`
 			})
-			const item = await readWorkspaceItem(parsed.type, parsed.path, workspace, parsed.trigger_kind)
+			const item = await readWorkspaceItem(
+				parsed.type,
+				parsed.path,
+				workspace,
+				parsed.trigger_kind,
+				parsed.version === 'deployed'
+			)
 			toolCallbacks.setToolStatus(toolId, { content: `Read ${parsed.type} "${parsed.path}"` })
 			return JSON.stringify(serializeWorkspaceItemForRead(item), null, 2)
 		}
@@ -2406,15 +2872,17 @@ export const globalTools: Tool<{}>[] = [
 				groups: parseOptionalJsonArg(parsed.groups, 'groups'),
 				notes: parseOptionalJsonArg(parsed.notes, 'notes')
 			})
-			return writeFlowDraft(
+			const resolved = await resolveWriteFlowInlineScripts(parsed.path, editable, ctx.workspace)
+			const result = await writeFlowDraft(
 				{
 					path: parsed.path,
 					summary: parsed.summary,
 					description: parsed.description,
-					flow: editableFlowToDraftValue(editable)
+					flow: editableFlowToDraftValue(resolved)
 				},
 				ctx
 			)
+			return appendEmptyInlineScriptWarning(result, resolved)
 		}
 	},
 	{
@@ -2627,6 +3095,26 @@ export const globalTools: Tool<{}>[] = [
 	},
 	{
 		def: createToolDef(
+			diffSchema,
+			'diff',
+			"Diff workspace changes. Read-only. Default: drafts vs deployed versions (index without type/path, one item's unified diff with them; file=<name> for one file inside an app). against='parent_workspace': deployed fork vs its parent workspace. search=<text> greps changed lines across all diffs."
+		),
+		showDetails: true,
+		fn: async (ctx) => {
+			const parsed = diffSchema.parse(ctx.args)
+			if (parsed.search !== undefined) {
+				return diffSearch(parsed, ctx)
+			}
+			if (parsed.against === 'parent_workspace') {
+				return parsed.path !== undefined ? diffForkItem(parsed, ctx) : diffForkIndex(parsed, ctx)
+			}
+			return parsed.path !== undefined
+				? diffWorkspaceItem(parsed, ctx)
+				: diffWorkspaceIndex(parsed, ctx)
+		}
+	},
+	{
+		def: createToolDef(
 			deleteWorkspaceItemSchema,
 			'delete_workspace_item',
 			'Delete a deployed workspace item. Mutates the workspace.'
@@ -2714,6 +3202,11 @@ export const globalTools: Tool<{}>[] = [
 			)
 		}
 	},
+	createDbSchemaTool<{}>({
+		description:
+			'Fetch the schema (tables and columns) of a database resource by its path. Supports postgresql, mysql, ms_sql_server, snowflake and bigquery resources.',
+		updateEditorCache: false
+	}),
 	{
 		def: createToolDef(
 			readFlowModuleCodeSchema,
@@ -2908,10 +3401,117 @@ export const globalTools: Tool<{}>[] = [
 			return result.aiResult
 		}
 	},
+	{
+		def: createToolDef(
+			searchDomSchema,
+			'search_dom',
+			'Search the live rendered HTML of the raw app preview open in this AI session with a regex, returning matching lines with their line numbers. Use it to check what actually rendered (verify an edit landed, diagnose a blank/empty view). Scope to an element with `selector`, or omit it for the whole page. The DOM is read live, so it reflects the current state.'
+		),
+		showDetails: true,
+		fn: async (ctx) => {
+			const parsed = searchDomSchema.parse(ctx.args)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Searching app DOM...' })
+			const result = await getSessionDom(
+				{
+					mode: 'search',
+					appPath: parsed.app_path,
+					selector: parsed.selector,
+					pattern: parsed.pattern,
+					ignoreCase: parsed.ignore_case
+				},
+				sessionIdFromCtx(ctx)
+			)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+				content: result.uiMessage,
+				result: result.toolResult
+			})
+			return result.aiResult
+		}
+	},
+	{
+		def: createToolDef(
+			readDomSchema,
+			'read_dom',
+			'Read a bounded window of the live rendered HTML of the raw app preview open in this AI session, pretty-printed and line-numbered. Scope to an element with `selector`, or omit it for the whole page. Use search_dom first to locate content, then read_dom to see a specific region. The DOM is read live.'
+		),
+		showDetails: true,
+		fn: async (ctx) => {
+			const parsed = readDomSchema.parse(ctx.args)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Reading app DOM...' })
+			const result = await getSessionDom(
+				{
+					mode: 'read',
+					appPath: parsed.app_path,
+					selector: parsed.selector,
+					startLine: parsed.start_line,
+					endLine: parsed.end_line
+				},
+				sessionIdFromCtx(ctx)
+			)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+				content: result.uiMessage,
+				result: result.toolResult
+			})
+			return result.aiResult
+		}
+	},
+	{
+		def: createToolDef(
+			takeScreenshotSchema,
+			'take_screenshot',
+			// Keep this short: every global session iteration re-sends it. How to read
+			// the result belongs on the result, where only a real capture pays for it.
+			'Capture a screenshot of the raw app preview currently open in this AI session and attach it as an image so you can see the rendered UI. Use it when the user raises how the app looks, whether reporting a problem or asking for the design improved, rather than to check your own edits. The image is attached in the following message. Requires the raw app preview open (open_preview kind="raw_app").'
+		),
+		showDetails: true,
+		fn: async (ctx) => {
+			// A known text-only model would reject the follow-up image message and fail
+			// the turn, so refuse before capturing rather than buffer an image it can
+			// never read. The model is re-read here because it can change between turns.
+			const model = tryGetCurrentModel()
+			if (model && !modelSupportsVision(model.provider, model.model)) {
+				const cannotSee = `${model.model} cannot read images, so a screenshot would be discarded. Ask the user to describe what looks wrong, or to switch to a model that supports images.`
+				ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+					content: `${model.model} cannot read images`,
+					error: cannotSee
+				})
+				return cannotSee
+			}
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Capturing screenshot...' })
+			const result = await getSessionScreenshot(sessionIdFromCtx(ctx))
+			if (!result.dataUrl) {
+				ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+					content: result.uiMessage ?? 'Screenshot unavailable',
+					error: result.error
+				})
+				return result.error ?? 'Could not capture the app preview.'
+			}
+			// Normalize (downscale + png/jpeg) so history/context never carry a full-res blob;
+			// buffered here and flushed as a follow-up user image message once the tool batch
+			// completes (see appendPendingToolImages).
+			const image = await normalizeImageDataUrl(result.dataUrl)
+			ctx.toolCallbacks.attachToolImage?.(ctx.toolId, image)
+			// The card shows the same copy the model gets; sharing the exact data URL
+			// lets the history's blob store persist one copy for both.
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+				content: 'Screenshot captured',
+				imageUrl: image.dataUrl
+			})
+			return (
+				'Screenshot captured; the image is attached in the following message.\n\n' +
+				'It is rebuilt from the DOM rather than captured from the screen, so it can differ from what the user sees, and it differs by browser. Treat what you see as real and fix it. Before dismissing anything as a capture artifact, read the source for that element and name the specific cause; if you cannot, it is a real bug. If you are still unsure, say what looks wrong and ask the user to screenshot it themselves and drag the image into the chat rather than guessing.'
+			)
+		}
+	},
 	// Workspace-scoped datatable tools (unrestricted: no whitelist, no creation policy)
 	...getDatatableTools(),
+	// Workspace DuckLake readiness (storage prerequisite check for pipelines)
+	...getDucklakeTools(),
 	// Read-only tools over files the user attached to the conversation
-	...fileTools
+	...fileTools,
+	// Search + call access to the backend API endpoint catalog, for operations
+	// no dedicated tool covers
+	...apiCatalogTools
 ]
 
 // Tools that only make sense inside an AI session (they drive the session's
@@ -2923,6 +3523,9 @@ export const SESSION_PREVIEW_TOOL_NAMES = new Set([
 	'close_page',
 	'get_app_runtime_logs',
 	'list_app_runs',
+	'search_dom',
+	'read_dom',
+	'take_screenshot',
 	'create_artifact',
 	'update_artifact',
 	'list_artifacts',
@@ -2935,9 +3538,16 @@ export const SESSION_PREVIEW_TOOL_NAMES = new Set([
  * global side-panel chat.
  */
 export function globalToolsFor({ sessionPreview }: { sessionPreview: boolean }): Tool<{}>[] {
-	return sessionPreview
+	const tools = sessionPreview
 		? globalTools
 		: globalTools.filter((t) => !SESSION_PREVIEW_TOOL_NAMES.has(t.def.function.name))
+	// DOM capture re-renders the app through the engine's SVG-image path, which is
+	// only faithful on Blink — Gecko/WebKit shift text spacing and wrapping (font
+	// fallback, sub-pixel rounding). Elsewhere the tool is withheld entirely and
+	// the system prompt tells the agent to ask the user for a screenshot instead.
+	return isChromiumBrowser()
+		? tools
+		: tools.filter((t) => t.def.function.name !== 'take_screenshot')
 }
 
 type WriteDraftCtx = {
@@ -2948,6 +3558,9 @@ type WriteDraftCtx = {
 	// reloads the preview of the session that issued the deploy — not the
 	// UI-active one. Undefined for the global side-panel chat.
 	sessionId?: string
+	// Present when the ctx is the raw tool `fn` context — session chats carry
+	// their id here (see SessionToolHelpers / sessionIdFromCtx).
+	helpers?: unknown
 }
 
 // Sessions are the only context where `open_preview` makes sense — the global
@@ -2977,6 +3590,10 @@ export type GlobalToolHelpers = SessionToolHelpers & {
 	// Wired only for session chats (see AIChatManager): the artifact tools are session-gated.
 	artifacts?: SessionArtifactsStore
 	getChatId?: () => string | undefined
+	// Live snapshot of the items this chat modified (`kind:path` mask keys, see
+	// modifiedItemsMask.ts); undefined when the chat doesn't track them (the global
+	// side-panel chat). Backs open_page's compare-page default preselection.
+	getModifiedItems?: () => string[] | undefined
 	openArtifact?: (artifactId: string, name: string) => void
 }
 
@@ -3003,7 +3620,7 @@ export type OpenPreviewHandler = (req: {
 	sessionId: string | undefined
 	kind: 'script' | 'flow' | 'raw_app' | 'pipeline'
 	path: string
-}) => string
+}) => string | Promise<string>
 
 let openPreviewHandler: OpenPreviewHandler | undefined
 
@@ -3011,14 +3628,17 @@ export function setOpenPreviewHandler(handler: OpenPreviewHandler | undefined): 
 	openPreviewHandler = handler
 }
 
-function openSessionPreview(
+async function openSessionPreview(
 	args: { kind: 'script' | 'flow' | 'raw_app' | 'pipeline'; path: string },
 	sessionId: string | undefined
-) {
+): Promise<string> {
 	if (!openPreviewHandler) {
 		return 'Error: open_preview is only available inside an AI session. Tell the user to switch to a session to view the preview, or describe the item textually.'
 	}
-	return openPreviewHandler({ ...args, sessionId })
+	// open_preview only exists in sessions, so no sessionId check is needed here.
+	// For a pipeline the handler awaits the editor's tool registration, so the
+	// model's next build_pipeline_node call can't race the async canvas mount.
+	return await openPreviewHandler({ ...args, sessionId })
 }
 
 // Opens a workspace *page* (Runs, Schedules, …) as a page tab in the session's
@@ -3147,6 +3767,54 @@ function getSessionAppRuns(
 		})
 	}
 	return Promise.resolve(listAppRunsHandler({ sessionId, limit }))
+}
+
+export type GetDomHandler = (req: {
+	sessionId: string | undefined
+	query: RawAppDomQuery
+}) => Promise<SessionToolResult>
+
+let getDomHandler: GetDomHandler | undefined
+
+export function setGetDomHandler(handler: GetDomHandler | undefined): void {
+	getDomHandler = handler
+}
+
+function getSessionDom(
+	query: RawAppDomQuery,
+	sessionId: string | undefined
+): Promise<SessionToolResult> {
+	if (!getDomHandler) {
+		return Promise.resolve({
+			aiResult:
+				'Error: search_dom and read_dom are only available inside an AI session. Tell the user the rendered DOM can only be read from a session preview, or switch to a session and open the raw app preview.',
+			uiMessage: 'DOM unavailable',
+			toolResult: 'DOM unavailable'
+		})
+	}
+	return getDomHandler({ sessionId, query })
+}
+
+export type SessionScreenshotResult = { dataUrl?: string; error?: string; uiMessage?: string }
+export type ScreenshotHandler = (req: {
+	sessionId: string | undefined
+}) => Promise<SessionScreenshotResult>
+
+let screenshotHandler: ScreenshotHandler | undefined
+
+export function setScreenshotHandler(handler: ScreenshotHandler | undefined): void {
+	screenshotHandler = handler
+}
+
+function getSessionScreenshot(sessionId: string | undefined): Promise<SessionScreenshotResult> {
+	if (!screenshotHandler) {
+		return Promise.resolve({
+			error:
+				'Error: take_screenshot is only available inside an AI session with a raw app preview open. Ask the user to open the raw app preview (open_preview kind="raw_app"), then try again.',
+			uiMessage: 'Screenshot unavailable'
+		})
+	}
+	return screenshotHandler({ sessionId })
 }
 
 // Registered by the session runtime to reload the open preview after a chat
@@ -3323,6 +3991,34 @@ function draftWriteFailure(result: DraftPersistResult, ctx: WriteDraftCtx): stri
 	return undefined
 }
 
+// Item kinds a session preview can host, keyed by the draft item kind a write
+// resolves to. Kinds absent here (resources, variables, triggers, legacy `app`)
+// have no preview panel, so no card is offered for them.
+const PREVIEW_CARD_KIND_BY_ITEM_KIND: Partial<
+	Record<DraftPersistResult['itemKind'], PreviewCardKind>
+> = {
+	script: 'script',
+	flow: 'flow',
+	raw_app: 'raw_app'
+}
+
+// Offer a preview card for a write that landed a previewable item. Session chats
+// only: the card opens the item in the side panel, which the global side-panel
+// chat has no equivalent of. `path` is the item's display path (what
+// `open_preview` takes), not its synthetic draft storage key.
+function maybeAttachPreviewCard(
+	ctx: WriteDraftCtx,
+	itemKind: DraftPersistResult['itemKind'],
+	path: string
+): void {
+	// Write tools pass the raw tool ctx, whose session id lives in `helpers` —
+	// `ctx.sessionId` is only set by callers that thread it explicitly.
+	if (!ctx.sessionId && !sessionIdFromCtx(ctx)) return
+	const kind = PREVIEW_CARD_KIND_BY_ITEM_KIND[itemKind]
+	if (!kind) return
+	ctx.toolCallbacks.setToolStatus(ctx.toolId, { previewCard: { kind, path } })
+}
+
 // App write tools build varied success messages but share the same conflict /
 // save-failure handling; `onSaved` supplies the per-tool status + message.
 function finishAppDraftWrite(
@@ -3333,6 +4029,7 @@ function finishAppDraftWrite(
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
 	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
+	maybeAttachPreviewCard(ctx, result.itemKind, result.item.path)
 	const { content, message } = onSaved()
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, { content, result: 'Saved as draft' })
 	return JSON.stringify({ success: true, message }, null, 2)
@@ -3346,6 +4043,7 @@ function finishDraftWrite(
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
 	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
+	maybeAttachPreviewCard(ctx, result.itemKind, result.item.path)
 	const stored = result.item
 	const verb = existed ? 'Updated' : 'Created'
 	// Don't echo the flow value back: the model just sent it in the write call,
@@ -3533,7 +4231,17 @@ function triggerWriteSpec(kind: TriggerKind): WriteSpec<TriggerDraftConfig, Trig
 		probe: (workspace, path) => service.exists({ workspace, path }),
 		fetchDeployed: async (workspace, path) =>
 			(await service.get({ workspace, path })) as TriggerDraftConfig,
-		buildDraft: (base, config, path) => mergeDraftConfig<TriggerDraftConfig>(base, config, path)
+		buildDraft: (base, config, path) => {
+			const draft = mergeDraftConfig<TriggerDraftConfig>(base, config, path)
+			if (kind === 'email') {
+				// workspaced_local_part maps to a NOT NULL column but is optional in the
+				// tool schema. Default on the merged draft (not the incoming config) so an
+				// omitted field keeps the existing trigger's value instead of resetting it.
+				const email = draft as TriggerDraftConfig & { workspaced_local_part?: boolean }
+				email.workspaced_local_part = email.workspaced_local_part ?? false
+			}
+			return draft
+		}
 	}
 }
 
@@ -3632,6 +4340,46 @@ async function loadFlowDraftValue(
 	}
 }
 
+/**
+ * `write_flow` accepts `inline_script.<id>` placeholders so the model can
+ * overwrite a flow without re-sending (or even reading) unchanged rawscript
+ * bodies. Resolve them against the current draft/deployed flow: an id with a
+ * stored body keeps it, a new module's own-id placeholder becomes an empty body
+ * (to fill via set_flow_module_code), and anything else rejects the write.
+ */
+async function resolveWriteFlowInlineScripts(
+	path: string,
+	editable: EditableFlowJson,
+	workspace: string
+): Promise<EditableFlowJson> {
+	const specials = [editable.preprocessor_module, editable.failure_module].filter(
+		(module): module is FlowModule => module != null
+	)
+	const hasPlaceholders =
+		findUnresolvedInlineScriptRefs(editable.modules).length > 0 ||
+		findUnresolvedInlineScriptRefs(specials).length > 0
+	if (!hasPlaceholders) {
+		return editable
+	}
+
+	const session = createInlineScriptSession()
+	if (
+		(await getGlobalDraft(workspace, 'flow', path)) ||
+		(await FlowService.existsFlowByPath({ workspace, path }))
+	) {
+		const base = await loadFlowDraftValue(path, workspace)
+		buildEditableFlowJson(flowDraftAsEditableInput(base.flow), session)
+	}
+	const resolved: EditableFlowJson = {
+		...editable,
+		modules: session.restoreInlineScriptReferences(editable.modules),
+		preprocessor_module: restoreSpecialRawscriptModule(editable.preprocessor_module, session),
+		failure_module: restoreSpecialRawscriptModule(editable.failure_module, session)
+	}
+	finalizeUnresolvedInlineScripts(resolved)
+	return resolved
+}
+
 async function patchFlowJson(
 	args: { path: string; old_string: string; new_string: string; replace_all: boolean },
 	ctx: WriteDraftCtx
@@ -3664,8 +4412,9 @@ async function patchFlowJson(
 
 	const patchedEditable = validateEditableFlowJson(parsedValue)
 	const newFlowValue = applyEditableFlowJsonToFlow(base.flow.value, patchedEditable, session)
+	finalizeUnresolvedInlineScripts(newFlowValue)
 
-	return writeFlowDraft(
+	const result = await writeFlowDraft(
 		{
 			path,
 			summary: base.summary,
@@ -3678,6 +4427,15 @@ async function patchFlowJson(
 		},
 		ctx
 	)
+	// Warn from the restored value, not patchedEditable — the compact view holds
+	// placeholders for every rawscript, so only post-restore content shows which
+	// modules still need bodies filled via set_flow_module_code.
+	return appendEmptyInlineScriptWarning(result, {
+		...patchedEditable,
+		modules: newFlowValue.modules,
+		preprocessor_module: newFlowValue.preprocessor_module ?? null,
+		failure_module: newFlowValue.failure_module ?? null
+	})
 }
 
 async function readFlowModuleCode(
@@ -4401,9 +5159,11 @@ const triggerLabels: Record<TriggerKind, string> = {
 	nats: 'NATS trigger',
 	postgres: 'Postgres trigger',
 	mqtt: 'MQTT trigger',
+	amqp: 'AMQP trigger',
 	sqs: 'SQS trigger',
 	gcp: 'GCP Pub/Sub trigger',
-	azure: 'Azure Event Grid trigger'
+	azure: 'Azure Event Grid trigger',
+	email: 'Email trigger'
 }
 
 function createOpenScheduleAction(path: string, targetKind: 'script' | 'flow'): ToolDisplayAction {
@@ -4761,6 +5521,776 @@ async function rebaseAppDraft(path: string, ctx: WriteDraftCtx): Promise<string>
 	)
 }
 
+const MAX_DIFF_PATCH_CHARS = 50_000
+
+function windowPatchBody(patch: string, offset: number, limit: number): string {
+	return windowPatch(patch, offset, limit, MAX_DIFF_PATCH_CHARS)
+}
+
+const DIFF_READ_DEFAULT_LINES = 500
+const DIFF_INDEX_DEFAULT_ITEMS = 50
+const DIFF_INDEX_MAX_ITEMS = 100
+
+// Read-only draft-vs-deployed diff for one draftable item, served from the
+// workspace diff snapshot (fetched once, shared with the index), with a direct
+// computation fallback when no draft row is listed.
+async function diffWorkspaceItem(
+	args: {
+		type?: WorkspaceItemType
+		path?: string
+		trigger_kind?: TriggerKind
+		file?: string
+		offset?: number
+		limit?: number
+	},
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const { type, path, trigger_kind: triggerKind } = args
+	if (!type || !path) {
+		throw new Error('type is required when path is provided.')
+	}
+	const itemKind = itemKindFor(type, triggerKind)
+	if (!itemKind) {
+		throw new Error('trigger_kind is required when type is trigger.')
+	}
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Comparing draft vs deployed for "${path}"...`
+	})
+
+	// Address the draft by its storage path (a draft_only item lives at a
+	// synthetic `u/{user}/draft_{uuid}` key) and flush any parked editor autosave
+	// first so the server overlay reflects the latest edit — the same resolution
+	// the deploy path uses. Unlike deploy: a flush conflict/failure doesn't abort
+	// a read-only diff (surfaced as a caveat), and the auto-save toggle is
+	// honored — with auto-save off, a read-only tool must not persist edits the
+	// user chose to keep local. The just-flushed row must not be served from the
+	// throttled listing cache, so expire it.
+	// The chat `app` type spans two draft kinds: raw apps AND classic apps —
+	// the classic editor parks its cell under `app`, so both keys must be
+	// flushed and probed or classic edits silently go stale. Each kind resolves
+	// its own storage path (live-editor mapping), and the listing resolves a
+	// friendly/renamed path to the row that owns it — a renamed classic app's
+	// cell lives at its ORIGINAL storage path, which only the listing knows.
+	const draftKinds: UserDraftItemKind[] = type === 'app' ? ['raw_app', 'app'] : [itemKind]
+	const flushQueries = draftKinds.map((kind) => ({
+		workspace,
+		itemKind: kind,
+		path: resolveGlobalDraftStoragePathByKind(workspace, kind, path)
+	}))
+	const listedTarget = await resolveWorkspaceDiffTarget(workspace, draftKinds, path)
+	if (
+		listedTarget &&
+		!flushQueries.some(
+			(q) => q.itemKind === listedTarget.kind && q.path === listedTarget.storagePath
+		)
+	) {
+		flushQueries.push({ workspace, itemKind: listedTarget.kind, path: listedTarget.storagePath })
+	}
+	const storagePath = listedTarget?.storagePath ?? flushQueries[0].path
+	for (const query of flushQueries) {
+		await UserDraftDbSyncer.flush(query, { honorAutosaveToggle: true })
+	}
+	expireWorkspaceDiffList(workspace)
+	const hasConflict = flushQueries.some((query) => UserDraftDbSyncer.getConflict(query).conflict)
+
+	// When the latest edits never reached the server (auto-save off, the save
+	// failed, or it conflicted with a newer server version), the persisted
+	// state is stale: diff against the in-memory editor value instead —
+	// read-only, nothing gets persisted — and bypass the snapshot cache,
+	// which must only ever hold persisted state.
+	let flushSkipped = false
+	let localValue: unknown
+	let localKind: UserDraftItemKind = itemKind
+	let localPath = storagePath
+	for (const query of flushQueries) {
+		const skipped =
+			UserDraftDbSyncer.hasUnsavedDisabledChanges(query) ||
+			UserDraftDbSyncer.getState(query).state === 'failed' ||
+			UserDraftDbSyncer.getConflict(query).conflict
+		if (!skipped) continue
+		flushSkipped = true
+		const cell = readLocalDraftCellByKind(workspace, query.itemKind, query.path)
+		if (cell !== undefined) {
+			localValue = cell
+			localKind = query.itemKind
+			localPath = query.path
+			break
+		}
+	}
+
+	let flushCaveat = hasConflict
+		? localValue !== undefined
+			? "Warning: the draft conflicts with a newer server version; this diff shows YOUR local editor value, not the server's. Resolve the conflict in the editor before deploying.\n\n"
+			: 'Warning: the draft has a conflicting newer version on the server; this diff shows the persisted draft, which may not include the latest editor edits.\n\n'
+		: ''
+	let patch: string
+	let noDeployed: boolean
+	let files: Record<string, DiffFileView> | undefined
+	let valueUncomparable = false
+	if (localValue !== undefined) {
+		let deployedSide: unknown
+		try {
+			const values = await getDraftDiffValues(localKind, localPath, workspace)
+			noDeployed = values.noDeployed
+			deployedSide = noDeployed ? undefined : values.deployed
+		} catch (e) {
+			if ((e as { status?: number } | null | undefined)?.status !== 404) throw e
+			// Editor-only draft that was never persisted at all.
+			noDeployed = true
+		}
+		let beforeSide = deployedSide
+		let afterSide = canonicalDraftSideValue(localKind, localValue)
+		// App sides carry `path` (staged renames diff); mirror it onto the local
+		// canonical value, which only knows a draft_path.
+		if (localKind === 'app' || localKind === 'raw_app') {
+			const deployedPath = (deployedSide as { path?: string } | undefined)?.path ?? localPath
+			const stagedPath = (localValue as { draft_path?: string } | null)?.draft_path
+			afterSide = { ...(afterSide as Record<string, unknown>), path: stagedPath ?? deployedPath }
+			if (deployedSide !== undefined) {
+				beforeSide = { ...(deployedSide as Record<string, unknown>), path: deployedPath }
+			}
+		}
+		if (itemKind === 'variable') {
+			;({
+				before: beforeSide,
+				after: afterSide,
+				valueUncomparable
+			} = maskVariableDiffSides(beforeSide, afterSide))
+			flushCaveat += valueUncomparable ? SECRET_UNCOMPARABLE_NOTE : VARIABLE_MASKED_NOTE
+		}
+		const parts = computeDiffParts(beforeSide, afterSide, 'deployed', 'draft')
+		patch = parts.patch
+		files = parts.files
+		flushCaveat +=
+			'Note: this diff includes unsaved editor changes that are NOT saved to the server draft yet (auto-save is off or the last save failed).\n\n'
+	} else if (flushSkipped) {
+		throw new Error(
+			`The latest editor changes for ${type} "${path}" could not be saved and are not readable; retry once the editor saves.`
+		)
+	} else {
+		const entry = await readWorkspaceDiffEntry(workspace, itemKind, storagePath)
+		if (entry) {
+			if (entry.status === 'error') {
+				throw new Error(`Could not diff ${type} "${path}": ${entry.errorMessage}`)
+			}
+			patch = entry.patch ?? ''
+			noDeployed = entry.noDeployed === true
+			files = entry.files
+			valueUncomparable = entry.valueUncomparable === true
+			if (entry.valueMasked) {
+				flushCaveat += valueUncomparable ? SECRET_UNCOMPARABLE_NOTE : VARIABLE_MASKED_NOTE
+			}
+		} else {
+			// Not in the draft listing — either no draft at all (deployed is current),
+			// nothing at the path, or a listing/overlay disagreement; ask the overlay.
+			let values: Awaited<ReturnType<typeof getDraftDiffValues>>
+			try {
+				values = await getDraftDiffValues(itemKind, storagePath, workspace)
+			} catch (e) {
+				if ((e as { status?: number } | null | undefined)?.status === 404) {
+					throw new Error(
+						`No ${type} found at "${path}" — it has neither a deployed version nor a draft.`
+					)
+				}
+				throw e
+			}
+			const { deployed, draft, hasDraft, noDeployed: fetchedNoDeployed } = values
+			if (!fetchedNoDeployed && !hasDraft) {
+				const message = `No draft exists for ${type} "${path}" — the deployed version is current.`
+				toolCallbacks.setToolStatus(toolId, { content: message })
+				return message
+			}
+			// A never-deployed item diffs against nothing: the whole draft reads as added.
+			noDeployed = fetchedNoDeployed
+			let beforeSide: unknown = noDeployed ? undefined : deployed
+			let afterSide: unknown = draft
+			if (itemKind === 'variable') {
+				;({
+					before: beforeSide,
+					after: afterSide,
+					valueUncomparable
+				} = maskVariableDiffSides(beforeSide, afterSide))
+				flushCaveat += valueUncomparable ? SECRET_UNCOMPARABLE_NOTE : VARIABLE_MASKED_NOTE
+			}
+			patch = draftDeployedPatch(beforeSide, afterSide)
+		}
+	}
+
+	const changedFileCount = files ? Object.keys(files).length : 0
+	if (!patch && changedFileCount === 0) {
+		// A secret's sides are masked on both ends — an empty patch cannot prove
+		// the value is unchanged.
+		const message = valueUncomparable
+			? `No visible changes for ${type} "${path}" — but a secret's value cannot be compared and may have been updated in the draft.`
+			: `Draft matches the deployed version of ${type} "${path}" — no changes.`
+		toolCallbacks.setToolStatus(toolId, { content: message, result: message })
+		return flushCaveat + message
+	}
+
+	const header = noDeployed
+		? `${type} "${path}" has no deployed version yet — the entire draft is new.\n\n`
+		: `Draft changes vs deployed for ${type} "${path}":\n\n`
+	if (args.file !== undefined && !files) {
+		throw new Error(
+			`file only applies to multi-file apps; ${type} "${path}" diffs as a single document — call again without file.`
+		)
+	}
+	const body = files
+		? renderEntryFiles(files, patch, args)
+		: windowPatchBody(patch, args.offset ?? 0, args.limit ?? DIFF_READ_DEFAULT_LINES)
+	const result = flushCaveat + header + body
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Draft vs deployed diff for "${path}"`,
+		result
+	})
+	return result
+}
+
+// Body of an item read for a multi-file app: one file's patch when `file` is
+// given, otherwise the per-file summary plus config changes.
+function renderEntryFiles(
+	files: Record<string, DiffFileView>,
+	configPatch: string,
+	args: { file?: string; offset?: number; limit?: number }
+): string {
+	if (args.file !== undefined) {
+		// App files are keyed with a leading slash ("/App.tsx") — accept the
+		// slash-less spelling and a unique basename too.
+		const names = Object.keys(files)
+		const requested = args.file
+		const resolved =
+			names.find((n) => n === requested) ??
+			names.find((n) => n === `/${requested}`) ??
+			(names.filter((n) => n.endsWith(`/${requested.replace(/^\//, '')}`)).length === 1
+				? names.find((n) => n.endsWith(`/${requested.replace(/^\//, '')}`))
+				: undefined)
+		if (resolved === undefined) {
+			const changed = names.join(', ') || '(none)'
+			throw new Error(`No changes in file "${requested}". Changed files: ${changed}.`)
+		}
+		const fileDiff = files[resolved]
+		if (fileDiff.patch === '') {
+			// Empty file added/deleted: the presence change IS the whole diff.
+			return `File "${resolved}" was ${fileDiff.status} with empty content.`
+		}
+		return windowPatchBody(fileDiff.patch, args.offset ?? 0, args.limit ?? DIFF_READ_DEFAULT_LINES)
+	}
+	const sections: string[] = []
+	const fileLines = Object.entries(files).map(
+		([name, fileDiff]) =>
+			`- ${name} — ${fileDiff.status}${fileDiff.status === 'deleted' ? '' : fileDiff.lineCount === 0 ? ' (empty file)' : ` (${fileDiff.lineCount} diff lines)`}`
+	)
+	sections.push(
+		fileLines.length > 0
+			? `${fileLines.length} file(s) changed:\n${fileLines.join('\n')}\nRead one with file="<name>".`
+			: 'No file contents changed.'
+	)
+	if (configPatch) {
+		sections.push(
+			'Config changes:\n' +
+				windowPatchBody(configPatch, args.offset ?? 0, args.limit ?? DIFF_READ_DEFAULT_LINES)
+		)
+	}
+	return sections.join('\n\n')
+}
+
+// Indented per-file child rows under a multi-file app's index line.
+const DIFF_INDEX_MAX_FILE_CHILDREN = 20
+function fileChildrenLines(e: { files?: Record<string, DiffFileView>; patch?: string }): string[] {
+	if (!e.files) return []
+	const names = Object.keys(e.files)
+	if (names.length === 0 && !e.patch) return []
+	const lines = names.slice(0, DIFF_INDEX_MAX_FILE_CHILDREN).map((name) => {
+		const fileDiff = e.files![name]
+		return `    · ${name} — ${fileDiff.status}${
+			fileDiff.status === 'deleted'
+				? ''
+				: fileDiff.lineCount === 0
+					? ' (empty file)'
+					: ` (${fileDiff.lineCount} lines)`
+		}`
+	})
+	if (names.length > DIFF_INDEX_MAX_FILE_CHILDREN) {
+		lines.push(`    · … ${names.length - DIFF_INDEX_MAX_FILE_CHILDREN} more files`)
+	}
+	if (e.patch) {
+		lines.push(`    · (config) — modified (${e.patch.split('\n').length} lines)`)
+	}
+	return lines
+}
+
+function formatDiffIndexEntry(e: WorkspaceDiffEntryView): string {
+	const label = e.type === 'trigger' ? `${e.triggerKind} trigger` : (e.type ?? e.kind)
+	const name = `${label} "${e.path}"`
+	switch (e.status) {
+		case 'new':
+			return `- ${name} — new, never deployed (${e.patchLineCount} lines)`
+		case 'modified':
+			return e.valueUncomparable
+				? `- ${name} — modified (${e.patchLineCount} diff lines; secret value may also differ)`
+				: `- ${name} — modified (${e.patchLineCount} diff lines)`
+		case 'unchanged':
+			return e.valueUncomparable
+				? `- ${name} — no visible changes (secret value cannot be compared; may differ)`
+				: `- ${name} — draft matches deployed`
+		case 'pending':
+			return `- ${name} — draft present (diff not computed yet; read it with type+path)`
+		case 'error':
+			return `- ${name} — diff failed: ${e.errorMessage}`
+		case 'not_diffable':
+			return `- ${e.kind} draft "${e.path}" — not addressable in this chat`
+	}
+}
+
+// Workspace index: every draft the current user has, with its change status
+// from the materialized snapshot.
+async function diffWorkspaceIndex(
+	args: { types?: WorkspaceItemType[]; path_prefix?: string; limit?: number },
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	toolCallbacks.setToolStatus(toolId, { content: 'Computing workspace draft diff...' })
+	// Parked editor autosaves may not have a server row yet (a brand-new draft
+	// only appears in the listing after its first flush).
+	const { unflushedPaths } = await flushGlobalDraftSaves(workspace)
+	expireWorkspaceDiffList(workspace)
+	const index = await getWorkspaceDiffIndex(workspace)
+	let entries = index.entries
+	if (args.types?.length) {
+		entries = entries.filter((e) => e.type !== undefined && args.types!.includes(e.type))
+	}
+	if (args.path_prefix) {
+		entries = entries.filter(
+			(e) => e.path.startsWith(args.path_prefix!) || e.storagePath.startsWith(args.path_prefix!)
+		)
+	}
+	const total = entries.length
+	const shown = entries.slice(
+		0,
+		Math.min(args.limit ?? DIFF_INDEX_DEFAULT_ITEMS, DIFF_INDEX_MAX_ITEMS)
+	)
+	const lines = shown.flatMap((e) => [formatDiffIndexEntry(e), ...fileChildrenLines(e)])
+	const notes: string[] = []
+	if (total > shown.length) {
+		notes.push(
+			`Showing ${shown.length} of ${total} drafts — narrow with types/path_prefix or raise limit.`
+		)
+	}
+	if (index.otherUsersDraftCount > 0) {
+		notes.push(
+			`${index.otherUsersDraftCount} draft(s) by other users exist in this workspace (not shown — drafts are per-user).`
+		)
+	}
+	if (unflushedPaths.length > 0) {
+		notes.push(
+			`Warning: unsaved editor changes on ${unflushedPaths.join(', ')} are NOT reflected here (auto-save off, a save failed, or a conflict is unresolved). Read the item with type+path to include them.`
+		)
+	}
+	const filtersActive = (args.types?.length ?? 0) > 0 || !!args.path_prefix
+	const summaryLine =
+		total === 0
+			? filtersActive && index.entries.length > 0
+				? `No drafts match your filters (${index.entries.length} draft(s) exist in the workspace).`
+				: 'No drafts in this workspace — nothing differs from the deployed state.'
+			: `${total} draft(s) vs deployed:`
+	const result = [summaryLine, ...lines, ...notes].join('\n')
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Workspace diff: ${total} draft(s)`,
+		result
+	})
+	return result
+}
+
+function forkComparisonUnavailableMessage(parent: string): string {
+	return `The comparison with parent workspace "${parent}" is unavailable for this fork (created before comparison tracking existed).`
+}
+
+function forkParentOrThrow(workspace: string): string {
+	const parent = getForkParentWorkspaceId(workspace)
+	if (!parent) {
+		throw new Error(
+			`Workspace "${workspace}" is not a fork — it has no parent workspace to compare against. Use diff without 'against' to compare drafts vs deployed versions.`
+		)
+	}
+	return parent
+}
+
+function forkEntryLabel(e: ForkDiffEntryView): string {
+	const label = e.type === 'trigger' ? `${e.triggerKind} trigger` : (e.type ?? e.kind)
+	return `${label} "${e.path}"`
+}
+
+function formatForkIndexEntry(e: ForkDiffEntryView): string {
+	const name = forkEntryLabel(e)
+	const draftFlag = e.hasLocalDraft ? ' [+ local draft]' : ''
+	const aheadBehind = [
+		e.ahead > 0 ? `ahead ${e.ahead}` : undefined,
+		e.behind > 0 ? `behind ${e.behind}` : undefined
+	]
+		.filter(Boolean)
+		.join(', ')
+	switch (e.status) {
+		case 'only_in_fork':
+			return `- ${name} — only in fork (${e.patchLineCount} lines)${draftFlag}`
+		case 'deleted_in_fork':
+			return `- ${name} — deleted in fork, still in parent${draftFlag}`
+		case 'modified':
+			return `- ${name} — differs (${aheadBehind}; ${e.patchLineCount} diff lines)${draftFlag}`
+		case 'unchanged':
+			// Folder display_name lives only in the DB (no API surface exposes
+			// it), so an identical projection cannot prove folder parity.
+			if (e.kind === 'folder') {
+				const suffix = aheadBehind ? ` (${aheadBehind})` : ''
+				return `- ${name} — no comparable differences; the folder display name is not exposed by the API and may differ${suffix}${draftFlag}`
+			}
+			return e.valueMasked
+				? `- ${name} — value never shown in chat; may differ (${aheadBehind})${draftFlag}`
+				: `- ${name} — content matches parent (version history differs: ${aheadBehind})${draftFlag}`
+		case 'pending':
+			return e.type !== undefined
+				? `- ${name} — differs (${aheadBehind}; diff not computed yet, read it with type+path)${draftFlag}`
+				: `- ${name} — differs (${aheadBehind}; diff not computed yet, read it by path alone)${draftFlag}`
+		case 'error':
+			return `- ${name} — diff failed: ${e.errorMessage}${draftFlag}`
+	}
+}
+
+// Comparison kinds a chat (type, trigger_kind) pair addresses.
+function forkKindsFor(type: WorkspaceItemType, triggerKind?: TriggerKind): string[] {
+	switch (type) {
+		case 'app':
+			return ['app', 'raw_app']
+		case 'trigger':
+			return triggerKind ? [`${triggerKind}_trigger`] : []
+		default:
+			return [type]
+	}
+}
+
+// Fork index: deployed fork vs deployed parent, same tally as the fork banner.
+async function diffForkIndex(
+	args: { types?: WorkspaceItemType[]; path_prefix?: string; limit?: number },
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const parent = forkParentOrThrow(workspace)
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Comparing fork with parent workspace "${parent}"...`
+	})
+	const index = await getForkDiffIndex(workspace, parent)
+	if (index.skippedComparison) {
+		const message = forkComparisonUnavailableMessage(parent)
+		toolCallbacks.setToolStatus(toolId, { content: message })
+		return message
+	}
+	let entries = index.entries
+	if (args.types?.length) {
+		entries = entries.filter((e) => e.type !== undefined && args.types!.includes(e.type))
+	}
+	if (args.path_prefix) {
+		entries = entries.filter((e) => e.path.startsWith(args.path_prefix!))
+	}
+	const total = entries.length
+	const shown = entries.slice(
+		0,
+		Math.min(args.limit ?? DIFF_INDEX_DEFAULT_ITEMS, DIFF_INDEX_MAX_ITEMS)
+	)
+	const lines = shown.flatMap((e) => [formatForkIndexEntry(e), ...fileChildrenLines(e)])
+	const notes: string[] = []
+	if (total > shown.length) {
+		notes.push(
+			`Showing ${shown.length} of ${total} items — narrow with types/path_prefix or raise limit.`
+		)
+	}
+	if (shown.some((e) => e.hasLocalDraft)) {
+		notes.push(
+			'[+ local draft]: you also have an undeployed draft there — not part of this deployed-vs-deployed comparison; use diff without against to see it.'
+		)
+	}
+	const hasHidden = index.hiddenAheadCount > 0 || index.hiddenBehindCount > 0
+	if (hasHidden) {
+		notes.push(
+			`Hidden items you lack permission to view also differ: ${index.hiddenAheadCount} ahead, ${index.hiddenBehindCount} behind (a conflicted item counts in both).`
+		)
+	}
+	const forkFiltersActive = (args.types?.length ?? 0) > 0 || !!args.path_prefix
+	const summaryLine =
+		total === 0
+			? forkFiltersActive && index.entries.length > 0
+				? `No differing items match your filters (${index.entries.length} differing item(s) exist).`
+				: hasHidden
+					? `No differences visible to you between this fork and its parent "${parent}" — but hidden items differ (see below).`
+					: `This fork matches its parent workspace "${parent}" — no differences.`
+			: `${total} item(s) differ between this fork and its parent "${parent}":`
+	const result = [summaryLine, ...lines, ...notes].join('\n')
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Fork vs parent: ${total} differing item(s)`,
+		result
+	})
+	return result
+}
+
+// One item's fork-vs-parent unified diff (deployed sides only).
+async function diffForkItem(
+	args: {
+		type?: WorkspaceItemType
+		path?: string
+		trigger_kind?: TriggerKind
+		file?: string
+		offset?: number
+		limit?: number
+	},
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const { type, path, trigger_kind: triggerKind } = args
+	if (!path) {
+		throw new Error('path is required.')
+	}
+	const parent = forkParentOrThrow(workspace)
+	// No type = path-only wildcard: comparison kinds outside the chat type enum
+	// (folder, resource_type, …) are only reachable this way.
+	const kinds = type ? forkKindsFor(type, triggerKind) : []
+	if (type === 'trigger' && kinds.length === 0) {
+		throw new Error('trigger_kind is required when type is trigger.')
+	}
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Comparing fork vs parent for "${path}"...`
+	})
+	if ((await getForkComparisonStatus(workspace, parent)).skippedComparison) {
+		const message = forkComparisonUnavailableMessage(parent)
+		toolCallbacks.setToolStatus(toolId, { content: message })
+		return message
+	}
+	const entries = await readForkDiffEntries(workspace, parent, kinds, path)
+	if (entries.length === 0) {
+		const message = `${type ?? 'item'} "${path}" does not differ between this fork and its parent "${parent}" (or does not exist in either).`
+		toolCallbacks.setToolStatus(toolId, { content: message })
+		return message
+	}
+	// A wildcard can match several kinds at one path (nothing in the chat
+	// schema could pick between them) — render each kind's section.
+	const sections = entries.map((entry) => renderForkEntrySection(entry, path, parent, args))
+	const result = sections.join('\n\n====\n\n')
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Fork vs parent diff for "${path}"`,
+		result
+	})
+	return result
+}
+
+function renderForkEntrySection(
+	entry: ForkDiffEntryView,
+	path: string,
+	parent: string,
+	args: { file?: string; offset?: number; limit?: number }
+): string {
+	if (entry.status === 'error') {
+		throw new Error(
+			`Could not diff ${entry.kind} "${path}" against the parent: ${entry.errorMessage}`
+		)
+	}
+	let draftCaveat = entry.hasLocalDraft
+		? 'Note: you also have an undeployed local draft on this item — it is NOT part of this deployed-vs-deployed comparison; use diff without against to see it.\n\n'
+		: ''
+	if (entry.valueMasked && entry.status === 'modified') {
+		draftCaveat +=
+			'Note: variable values are never compared in chat — the value may also differ beyond the changes shown.\n\n'
+	}
+	const changedFileCount = entry.files ? Object.keys(entry.files).length : 0
+	if (entry.status === 'unchanged' || (!entry.patch && changedFileCount === 0)) {
+		// A masked value can differ in content without producing a patch —
+		// never report that as "same content".
+		const message = entry.valueMasked
+			? `${entry.kind} "${path}": no visible config differences vs parent "${parent}", but variable values are never shown in chat, so a value change cannot be displayed. The workspace comparison reports it as ${entry.ahead > 0 || entry.behind > 0 ? `differing (ahead ${entry.ahead}, behind ${entry.behind})` : 'in sync'}.`
+			: entry.kind === 'folder'
+				? `folder "${path}": no comparable differences vs parent "${parent}" — the folder display name is not exposed by the API and may be what differs (comparison reports ahead ${entry.ahead}, behind ${entry.behind}).`
+				: `${entry.kind} "${path}" has the same content in the fork and its parent "${parent}" (only version history differs).`
+		return draftCaveat + message
+	}
+	const header =
+		entry.status === 'only_in_fork'
+			? `${entry.kind} "${path}" exists only in the fork — not in parent "${parent}". Full content:\n\n`
+			: entry.status === 'deleted_in_fork'
+				? `${entry.kind} "${path}" was deleted in the fork but still exists in parent "${parent}". Removed content:\n\n`
+				: `Fork changes vs parent "${parent}" for ${entry.kind} "${path}":\n\n`
+	if (args.file !== undefined && !entry.files) {
+		throw new Error(
+			`file only applies to multi-file apps; ${entry.kind} "${path}" diffs as a single document — call again without file.`
+		)
+	}
+	const body = entry.files
+		? renderEntryFiles(entry.files, entry.patch ?? '', args)
+		: windowPatchBody(entry.patch ?? '', args.offset ?? 0, args.limit ?? DIFF_READ_DEFAULT_LINES)
+	return draftCaveat + header + body
+}
+
+const DIFF_SEARCH_DEFAULT_MAX_MATCHES = 50
+const DIFF_SEARCH_MAX_MATCHES_CEILING = 200
+
+interface DiffSearchUnit {
+	/** Item path, or `${itemPath}/${fileName}` for a file inside an app. */
+	subject: string
+	patch: string
+}
+
+function collectDiffSearchUnits(
+	entries: Array<{
+		path: string
+		status?: string
+		patch?: string
+		files?: Record<string, DiffFileView>
+	}>,
+	out: DiffSearchUnit[],
+	failedPaths: string[]
+): void {
+	for (const e of entries) {
+		// A failed materialization has no patch — claiming "no matches" for it
+		// would present an incomplete search as a definitive one.
+		if (e.status === 'error') {
+			failedPaths.push(e.path)
+			continue
+		}
+		if (e.files) {
+			for (const [name, fileDiff] of Object.entries(e.files)) {
+				// App file keys lead with '/'; a raw join would yield `f/x//file`,
+				// which slash-anchored globs like `f/x/*.tsx` can never match.
+				out.push({ subject: `${e.path}/${name.replace(/^\/+/, '')}`, patch: fileDiff.patch })
+			}
+			if (e.patch) out.push({ subject: e.path, patch: e.patch })
+		} else if (e.patch) {
+			out.push({ subject: e.path, patch: e.patch })
+		}
+	}
+}
+
+// Literal substring search over the changed lines of every diff in the
+// comparison. Materializes all patches first (search cannot skip any), then
+// scans in memory — same output conventions as search_app.
+async function diffSearch(
+	args: {
+		against?: 'deployed' | 'parent_workspace'
+		search?: string
+		file_glob?: string
+		max_matches?: number
+	},
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const query = args.search ?? ''
+	if (query.length === 0) {
+		throw new Error('search requires a non-empty string.')
+	}
+	toolCallbacks.setToolStatus(toolId, { content: `Searching diffs for "${query}"...` })
+
+	const units: DiffSearchUnit[] = []
+	const failedPaths: string[] = []
+	let unflushedNote = ''
+	if (args.against === 'parent_workspace') {
+		const parent = forkParentOrThrow(workspace)
+		const index = await getForkDiffIndex(workspace, parent, { materializeAll: true })
+		if (index.skippedComparison) {
+			const message = forkComparisonUnavailableMessage(parent)
+			toolCallbacks.setToolStatus(toolId, { content: message })
+			return message
+		}
+		collectDiffSearchUnits(index.entries, units, failedPaths)
+	} else {
+		const { unflushedPaths } = await flushGlobalDraftSaves(workspace)
+		expireWorkspaceDiffList(workspace)
+		if (unflushedPaths.length > 0) {
+			unflushedNote = `\nWarning: unsaved editor changes on ${unflushedPaths.join(', ')} were not searched (auto-save off, a save failed, or a conflict is unresolved).`
+		}
+		const index = await getWorkspaceDiffIndex(workspace, { materializeAll: true })
+		collectDiffSearchUnits(index.entries, units, failedPaths)
+	}
+	if (failedPaths.length > 0) {
+		unflushedNote += `\nWarning: ${failedPaths.length === 1 ? 'this diff' : 'these diffs'} could not be computed and ${failedPaths.length === 1 ? 'was' : 'were'} NOT searched (matches may be missing): ${failedPaths.join(', ')}. Retry, or read the item${failedPaths.length === 1 ? '' : 's'} directly for the error.`
+	}
+	const filtered = args.file_glob
+		? units.filter((u) => appFileMatchesGlob(u.subject, args.file_glob as string))
+		: units
+
+	const needle = query.toLowerCase()
+	const maxMatches = Math.min(
+		args.max_matches ?? DIFF_SEARCH_DEFAULT_MAX_MATCHES,
+		DIFF_SEARCH_MAX_MATCHES_CEILING
+	)
+	const matches: { subject: string; line: number; text: string }[] = []
+	let totalMatchCount = 0
+	let renderedMatchCount = 0
+	let subjectCount = 0
+	let truncated = false
+	for (const unit of filtered.sort((a, b) => a.subject.localeCompare(b.subject))) {
+		const lines = unit.patch.split('\n')
+		const changed = new Set(changedLineIndices(unit.patch))
+		let unitHadMatch = false
+		for (let i = 0; i < lines.length; i++) {
+			if (!changed.has(i) || !lines[i].toLowerCase().includes(needle)) continue
+			totalMatchCount++
+			unitHadMatch = true
+			if (renderedMatchCount >= maxMatches) {
+				truncated = true
+				continue
+			}
+			renderedMatchCount++
+			const lo = Math.max(0, i - SEARCH_APP_CONTEXT_LINES)
+			const hi = Math.min(lines.length - 1, i + SEARCH_APP_CONTEXT_LINES)
+			for (let j = lo; j <= hi; j++) {
+				matches.push({ subject: unit.subject, line: j + 1, text: lines[j] })
+			}
+		}
+		if (unitHadMatch) subjectCount++
+	}
+
+	if (totalMatchCount === 0) {
+		toolCallbacks.setToolStatus(toolId, { content: `No diff matches for "${query}"` })
+		return (
+			`No changed lines match. Try a broader or differently-spelled term${
+				args.file_glob ? ', or drop the file_glob' : ''
+			}.` + unflushedNote
+		)
+	}
+
+	const header = `${totalMatchCount} changed line${totalMatchCount === 1 ? '' : 's'} match in ${subjectCount} diff${
+		subjectCount === 1 ? '' : 's'
+	}${truncated ? ` (showing the first ${maxMatches}; narrow with file_glob or a more specific query)` : ''}`
+	const out: string[] = [header]
+	let currentSubject = ''
+	let budgetSpent = header.length
+	let budgetHit = false
+	const seen = new Set<string>()
+	for (const m of matches) {
+		const dedupeKey = `${m.subject}:${m.line}`
+		if (seen.has(dedupeKey)) continue
+		seen.add(dedupeKey)
+		const text =
+			m.text.length > SEARCH_APP_MAX_LINE_CHARS
+				? `${m.text.slice(0, SEARCH_APP_MAX_LINE_CHARS)}… [line truncated]`
+				: m.text
+		const subjectHeader = m.subject === currentSubject ? '' : `${m.subject}\n`
+		const row = `${subjectHeader}  ${m.line}: ${text}`
+		if (budgetSpent + row.length + 1 > SEARCH_APP_TOTAL_CHAR_BUDGET) {
+			budgetHit = true
+			break
+		}
+		if (subjectHeader) currentSubject = m.subject
+		out.push(row)
+		budgetSpent += row.length + 1
+	}
+	if (budgetHit) {
+		out.push(
+			`… output truncated at the context budget — narrow with file_glob or a more specific query.`
+		)
+	}
+
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Found ${totalMatchCount} matching changed line${totalMatchCount === 1 ? '' : 's'}`
+	})
+	return out.join('\n') + unflushedNote
+}
+
 // Flush a draft's pending editor autosave, then verify it actually landed before
 // the caller re-reads the persisted draft. `flush()` resolves even when the save
 // recorded a conflict (server has a newer version) or failed (network/5xx) — it
@@ -5063,6 +6593,11 @@ async function deployDraft(
 		}
 	}
 
+	// Deployed state moved for EVERY branch above (some bypass
+	// deployDraftToWorkspace, which invalidates on its own path) — evict cached
+	// fork comparisons before the fallible draft cleanup below.
+	invalidateWorkspaceComparison(workspace)
+
 	await deleteGlobalDraft(workspace, type, path, triggerKind, { preserveLiveDraft: true })
 
 	// Move the chat's mask entry to the deployed path: a draft-only item's
@@ -5145,6 +6680,10 @@ async function deleteWorkspaceItem(
 			break
 	}
 
+	// Deployed state changed — cached fork comparisons involving this workspace
+	// are no longer trustworthy (same rule as deploy success). Before the
+	// draft cleanup: a cleanup failure must not leave stale comparisons.
+	invalidateWorkspaceComparison(workspace)
 	await deleteGlobalDraft(workspace, type, path, triggerKind)
 
 	// Record the deletion in the chat's modified-items mask. In a fork this leaves a
@@ -5262,7 +6801,51 @@ export function prepareGlobalUserMessage(
 		content += '\n'
 	}
 
+	const domSelectors = selectedContext.filter((c) => c.type === 'app_dom_selector')
+	if (domSelectors.length > 0) {
+		content += '## SELECTED DOM ELEMENTS\n'
+		content +=
+			"The user pointed at these elements in the live raw app preview. Their HTML is not included here — inspect it live with search_dom / read_dom, passing the element's `app_path` and `selector` so the right app's preview is read.\n"
+		for (const el of domSelectors) {
+			content += `- ${el.title} — app_path: ${el.appPath}, selector: ${el.selector}\n`
+		}
+		content += '\n'
+	}
+
+	const files = options.files ?? []
+	if (files.length > 0) {
+		content += '## ATTACHED FILES\n'
+		content +=
+			'The user attached these files to this message. Their content is NOT included here — read it with `read_file` (or scan it with `search_files`), passing the file id, before answering questions about it.\n'
+		for (const f of files) {
+			// textLineCount matches read_file's numbering — a mismatch would make the
+			// model request line ranges past the end.
+			const lines = textLineCount(f.content)
+			// The id is the durable reference (names may repeat across messages);
+			// absent only on legacy pre-id transcripts, where the name resolves.
+			// Sanitized again here: legacy names predate attach-time sanitization.
+			const name = sanitizeAttachmentName(f.name)
+			const ref = f.id ? `${name} (file id: ${f.id})` : name
+			content += `- ${ref} — ${lines} lines, ${f.content.length} chars\n`
+		}
+		content += '\n'
+	}
+
 	content += `## INSTRUCTIONS:\n${instructions}`
+
+	const images = options.images ?? []
+	if (images.length > 0) {
+		// Multimodal message: the text block plus one image_url part per attachment.
+		// The provider converters translate image_url for Anthropic/Responses; the
+		// OpenAI-compatible path sends it as-is.
+		return {
+			role: 'user',
+			content: [
+				{ type: 'text', text: content },
+				...images.map((img) => dataUrlToImagePart(img.dataUrl))
+			]
+		}
+	}
 
 	return {
 		role: 'user',

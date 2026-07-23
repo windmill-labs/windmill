@@ -157,11 +157,7 @@ async fn list_search_scripts(
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<Vec<SearchScript>> {
     let mut tx = user_db.begin(&authed).await?;
-    #[cfg(feature = "enterprise")]
     let n = 10000;
-
-    #[cfg(not(feature = "enterprise"))]
-    let n = 10;
 
     let allowed = build_scope_path_predicate(&authed, "scripts", "read");
     let rows = sqlx::query_as!(
@@ -417,11 +413,19 @@ async fn list_scripts(
             // A draft-only pipeline node (`// pipeline`) has no deployed row to carry
             // auto_kind, so compute it from the draft content — mirroring the create
             // path — so the home page folds it into its pipeline like a deployed member.
+            // Otherwise fall back to the `auto_kind` the frontend saved into the draft
+            // (e.g. `lib` for scripts without a `main`); the content-derived pipeline
+            // annotation keeps priority since it mirrors the deploy-time computation.
             let auto_kind = v
                 .get("content")
                 .and_then(|s| s.as_str())
                 .filter(|c| parse_pipeline_annotations(c).in_pipeline)
-                .map(|_| "pipeline".to_string());
+                .map(|_| "pipeline".to_string())
+                .or_else(|| {
+                    v.get("auto_kind")
+                        .and_then(|s| s.as_str())
+                        .map(|s| s.to_string())
+                });
             rows.push(ListableScript {
                 hash: ScriptHash(0),
                 path: row.path,
@@ -1339,6 +1343,18 @@ async fn create_script_internal<'c>(
             malformed_data_tests
         );
     }
+    let (malformed_measures, malformed_dimensions) =
+        windmill_parser::asset_parser::count_malformed_metric_annotations(&ns.content);
+    if malformed_measures > 0 || malformed_dimensions > 0 {
+        tracing::warn!(
+            "script {}: {} `// measure` and {} `// dimension` line(s) are malformed and were \
+             dropped. Fix the syntax (`measure <name> = <agg> [where <pred>]`, \
+             `dimension <name> = <expr>`).",
+            ns.path,
+            malformed_measures,
+            malformed_dimensions
+        );
+    }
     // `// macros` — this script is a workspace macro library: its body is
     // CREATE [OR REPLACE] MACRO statements plus plain setup, registered into
     // `macro_definition` and injected as TEMP macros into consumer jobs.
@@ -1668,6 +1684,19 @@ async fn create_script_internal<'c>(
             .await?;
         }
     }
+
+    // Metric catalog: replace this path's declared measures/dimensions wholesale,
+    // so the catalog always describes the deployed state. Runs for every language,
+    // not just DuckDB: a script that drops its declarations (or changes language,
+    // or is replaced at the same path) must clear its old rows.
+    windmill_common::data_metrics::sync_metric_catalog(
+        &mut *tx,
+        &w_id,
+        &ns.path,
+        old_path,
+        &ns.content,
+    )
+    .await?;
 
     if ns.language == ScriptLang::DuckDb {
         // Record this script's macro-call edges for the asset graph (the
@@ -4103,6 +4132,8 @@ async fn check_schema_contracts(
         &ann.column_lineage,
         &ann.data_tests,
         ann.materialize.as_ref(),
+        &ann.measures,
+        &ann.dimensions,
     )
     .await?;
     tx.commit().await?;

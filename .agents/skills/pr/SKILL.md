@@ -139,8 +139,10 @@ A PR leaves draft **only after a clean CI review round**. Never run `gh pr ready
 
    It comments `/review` on the PR — which runs the Codex, Claude and Pi CI reviewers even on a draft — waits for the spawned `PR Review Commands` workflow run(s) to complete, then prints one verdict line per reviewer and saves the full review comments to files.
 
+   `/review` (and `/codex`) are **idempotent per head SHA**: if a running or successful review already covers the current head, they skip that agent and post nothing new — the waiter reads the existing verdict for that head, so a skipped agent is *not* a missing one. A cancelled/failed head run is re-run in place; a fresh run is launched only when nothing covers the head. So an unchanged-head re-review is a near no-op, not a new round — push a commit to get genuinely fresh reviews.
+
 2. **Judge the round.** Codex is mandatory; Claude, Pi and cubic count whenever they posted. Every review starts with one of the three `REVIEW.md` verdicts:
-   - Codex verdict missing → the round is void: comment `/codex` on the PR, wait for it the same way, and judge again.
+   - Codex verdict missing → the round is void: the waiter warns only when the head has no green Codex run (cancelled/failed/absent — not merely skipped-because-already-reviewed). Comment `/codex` on the PR, which re-runs the interrupted run in place (or launches one if none exists), wait the same way, and judge again.
    - Any **"Should address issues before merging"** → fix the P0/P1 findings (and the nits while you're there), commit, push, and start a new round (step 1).
    - Only **"Mergeable, but should ideally address nits"** and/or **"Good to merge"** → fix the nits too; a nit that is wrong or genuinely not worth fixing may instead be dismissed by replying to the review comment with your reasoning. Push nit-only fixes without starting another full round.
 

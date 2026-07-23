@@ -19,6 +19,7 @@ use windmill_api_auth::check_scopes;
     feature = "websocket",
     feature = "postgres_trigger",
     feature = "mqtt_trigger",
+    feature = "amqp_trigger",
     all(
         feature = "enterprise",
         any(
@@ -144,6 +145,7 @@ pub fn is_none_or_false(val: &Option<bool>) -> bool {
     feature = "websocket",
     feature = "postgres_trigger",
     feature = "mqtt_trigger",
+    feature = "amqp_trigger",
     feature = "native_trigger",
     all(
         feature = "enterprise",
@@ -189,6 +191,7 @@ async fn fork_parent_trigger_modes(
     feature = "websocket",
     feature = "postgres_trigger",
     feature = "mqtt_trigger",
+    feature = "amqp_trigger",
     feature = "native_trigger",
     all(
         feature = "enterprise",
@@ -1221,6 +1224,36 @@ pub(crate) async fn tarball_workspace(
                     .write_to_archive(
                         &trigger_str,
                         &format!("{}.mqtt_trigger.json", trigger.base.path),
+                    )
+                    .await?;
+            }
+        }
+
+        #[cfg(feature = "amqp_trigger")]
+        {
+            use crate::triggers::amqp::AmqpTrigger;
+            let handler = AmqpTrigger;
+            let amqp_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
+            let parent_modes = fork_parent_trigger_modes(
+                &db,
+                <AmqpTrigger as TriggerCrud>::TABLE_NAME,
+                parent_workspace_id.as_deref(),
+            )
+            .await?;
+
+            for trigger in amqp_triggers {
+                let mode_override = trigger_mode_override(&parent_modes, &trigger.base.path);
+                let trigger_str = &to_string_without_metadata_inner(
+                    &trigger,
+                    ExtraPermsBehavior::Drop,
+                    None,
+                    mode_override.as_ref(),
+                )
+                .unwrap();
+                archive
+                    .write_to_archive(
+                        &trigger_str,
+                        &format!("{}.amqp_trigger.json", trigger.base.path),
                     )
                     .await?;
             }

@@ -28,6 +28,7 @@
 		workspaceUsageStore,
 		userStore,
 		workspaceStore,
+		userWorkspaces,
 		type UserExt,
 		defaultScripts,
 		hubBaseUrlStore,
@@ -86,6 +87,7 @@
 	import { useDbManagerUriState } from '$lib/components/dbManagerDrawerModel.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import CreateWorkspaceInner from '$lib/components/workspaceSettings/CreateWorkspaceInner.svelte'
+	import { recordForkParent, rememberForkParent } from '$lib/forkParentMemory'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -226,10 +228,10 @@
 	// nest the whole experience. Hide it when embedded.
 	const embedded = BROWSER && window.self !== window.top
 
-	// AI sessions are still dev-gated (localStorage wm_dev_global_ai=1), same as
-	// the global chat. The Workspace ⇄ Sessions switch is the only entry point, so
-	// gate it on the flag too — otherwise it would ship the unfinished experience
-	// to prod. The /sessions page has its own gate for direct navigation.
+	// AI sessions (beta) are on unless the user opted out from the banner under
+	// the session chat. The Workspace ⇄ Sessions switch is the only entry point,
+	// so it follows the gate; opted-out users get the legacy Ask-AI pane instead.
+	// The /sessions page has its own gate for direct navigation.
 	const globalAiEnabled = isGlobalAiEnabled()
 
 	if (page.status == 404) {
@@ -518,6 +520,7 @@
 			nats_used,
 			sqs_used,
 			mqtt_used,
+			amqp_used,
 			gcp_used,
 			azure_used,
 			email_used,
@@ -544,6 +547,9 @@
 		}
 		if (mqtt_used) {
 			usedKinds.push('mqtt')
+		}
+		if (amqp_used) {
+			usedKinds.push('amqp')
 		}
 		if (sqs_used) {
 			usedKinds.push('sqs')
@@ -672,6 +678,40 @@
 		$workspaceStore
 		untrack(() => updateUserStore($workspaceStore))
 	})
+	// While a fork is reachable, mirror its parent linkage to localStorage so a
+	// later reload landing on a now-deleted fork can return to the parent (see
+	// forkParentMemory + the deleted-fork recovery in the root layout).
+	$effect(() => {
+		const ws = $workspaceStore
+		const list = $userWorkspaces
+		const isSuperadmin = $superadmin
+		untrack(() => void recordCurrentForkParent(ws, list, isSuperadmin))
+	})
+
+	// A superadmin can open a fork they aren't a member of, including a prefixless
+	// dev workspace. The membership-gated list omits it, so `recordForkParent` can't
+	// see its parent — fetch it directly so the deleted-fork recovery still works.
+	async function recordCurrentForkParent(
+		ws: string | undefined,
+		list: typeof $userWorkspaces,
+		isSuperadmin: string | false | undefined
+	): Promise<void> {
+		if (!ws) return
+		if (list.some((w) => w.id === ws)) {
+			recordForkParent(ws, list)
+			return
+		}
+		if (!isSuperadmin) return
+		try {
+			const workspace = await WorkspaceService.getWorkspaceAsSuperAdmin({ workspace: ws })
+			if (workspace.parent_workspace_id) {
+				rememberForkParent(ws, workspace.parent_workspace_id)
+			}
+		} catch {
+			// Best-effort: if we can't resolve the parent, recovery falls back to the
+			// workspace picker rather than the parent redirect.
+		}
+	}
 	$effect(() => {
 		$workspaceStore && untrack(() => onLoad())
 	})
@@ -935,8 +975,8 @@
 													shortcut={`${getModifierKey()}k`}
 												/>
 												{#if !globalAiEnabled}
-													<!-- Global Ask-AI pane. When the sessions dev flag is on it is
-													     replaced by SessionModeSwitch, so it only shows in prod. -->
+													<!-- Legacy Ask-AI pane, shown only when the user opted out of the
+													     AI Sessions beta (otherwise SessionModeSwitch replaces it). -->
 													<MenuButton
 														stopPropagationOnClick={true}
 														on:click={() => aiChatManager.toggleOpen()}
@@ -1068,8 +1108,8 @@
 											shortcut={`${getModifierKey()}k`}
 										/>
 										{#if !globalAiEnabled}
-											<!-- Global Ask-AI pane. When the sessions dev flag is on it is
-											     replaced by SessionModeSwitch, so it only shows in prod. -->
+											<!-- Legacy Ask-AI pane, shown only when the user opted out of the
+											     AI Sessions beta (otherwise SessionModeSwitch replaces it). -->
 											<MenuButton
 												stopPropagationOnClick={true}
 												on:click={() => aiChatManager.toggleOpen()}
@@ -1262,10 +1302,14 @@
 					</button>
 				</div>
 			{/if}
+			<!-- Operators are exempt from the sessions beta: their minimal sidebar has
+			     no Workspace ⇄ Sessions switch, so disabling the docked chat would leave
+			     their "Ask AI" button toggling an unmounted pane. -->
 			<AiChatLayout
 				{children}
 				noPadding={devOnly || menuHidden}
-				disableAi={globalAiEnabled ? true : sessionMode}
+				disableAi={globalAiEnabled && !$userStore?.operator ? true : sessionMode}
+				showSessionsBetaBanner={!$userStore?.operator}
 				sidebarWidth={railWidth}
 				transitionClass={sidebarTransitionClass}
 				isMobile={innerWidth < 768}

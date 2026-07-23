@@ -1,7 +1,9 @@
-//! Deployed-app S3 reads authorize on-behalf of the app author and are confined
-//! to app provenance (declared keys or recent job outputs): a viewer cannot read
-//! an arbitrary `file_key` as the author. Requires the `parquet` feature — the
-//! real `apps_u/*` S3 handlers are gated on it.
+//! Deployed-app S3 reads authorize on-behalf of the app author and are confined to
+//! app provenance (declared keys or recent job outputs): an anonymous viewer cannot
+//! read an arbitrary `file_key` as the author. A viewer on a full (unscoped) session
+//! instead falls back to reading as THEMSELVES (bounded by their own S3 perms), so the
+//! gate is exercised here through the anonymous identity it still fully protects.
+//! Requires the `parquet` feature — the real `apps_u/*` S3 handlers are gated on it.
 //!
 //! `base` fixture: test-user (admin, SECRET_TOKEN); test-user-2 (non-admin,
 //! SECRET_TOKEN_2, no S3 folder permission).
@@ -19,6 +21,19 @@ const NON_PROVENANCE: &str = "evil/secret.csv";
 
 fn client() -> reqwest::Client {
     reqwest::Client::new()
+}
+
+/// Mint an API token for test-user (admin) restricted to `scopes`.
+async fn mint_scoped_token(port: u16, scopes: Vec<&str>) -> anyhow::Result<String> {
+    let resp = authed(
+        client().post(format!("http://localhost:{port}/api/users/tokens/create")),
+        ADMIN_TOKEN,
+    )
+    .json(&json!({ "label": "scoped", "scopes": scopes, "workspace_id": "test-workspace" }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 201, "mint scoped token");
+    Ok(resp.text().await?)
 }
 
 fn authed(builder: reqwest::RequestBuilder, token: &str) -> reqwest::RequestBuilder {
@@ -50,62 +65,54 @@ async fn test_deployed_app_s3_onbehalf_provenance(db: Pool<Postgres>) -> anyhow:
         .await?;
     assert_eq!(resp.status(), 201, "app create: {}", resp.text().await?);
 
-    // GET an app-scoped S3 route as `token`. No workspace storage is configured,
-    // so a request that clears the provenance gate fails later at the storage
-    // lookup (or the CE OSS stub), never with "File restricted" — which is what
-    // lets these assertions distinguish "gate passed" from "gate denied".
-    let get = |route: &str, token: &'static str| {
+    // GET an app-scoped S3 route ANONYMOUSLY. Anonymous callers have no viewer
+    // identity to fall back to, so the provenance gate still fully applies to them
+    // (unlike logged-in viewers, who now read as themselves — see the union test).
+    // No workspace storage is configured, so a request that clears the gate fails
+    // later at the storage lookup (or the CE OSS stub), never with the denial
+    // message — which is what lets these assertions distinguish pass from deny.
+    let get = |route: &str| {
         let url = format!("{ws}/apps_u/{route}");
-        authed(client().get(url), token).send()
+        client().get(url).send()
     };
-    let denied = |body: &str| body.contains("File restricted");
+    let denied = |body: &str| body.contains("is not accessible from this app");
 
-    // download_s3_file: author-on-behalf allowed for the declared key, denied for
-    // a key the app never declared (the confused-deputy guard).
-    let body = get(&format!("download_s3_file/{APP}?s3={DECLARED}"), USER_TOKEN)
+    // download_s3_file: allowed for the declared key, denied for a key the app never
+    // declared (the confused-deputy guard).
+    let body = get(&format!("download_s3_file/{APP}?s3={DECLARED}"))
         .await?
         .text()
         .await?;
     assert!(!denied(&body), "declared key must clear the gate: {body}");
-    let body = get(
-        &format!("download_s3_file/{APP}?s3={NON_PROVENANCE}"),
-        USER_TOKEN,
-    )
-    .await?
-    .text()
-    .await?;
+    let body = get(&format!("download_s3_file/{APP}?s3={NON_PROVENANCE}"))
+        .await?
+        .text()
+        .await?;
     assert!(denied(&body), "non-provenance key must be denied: {body}");
 
     // load_table_count and load_csv_preview enforce the same gate. The preview's
     // numeric `limit`/`offset` must deserialize (regression: a flattened query
     // struct 400s on them under serde_urlencoded).
-    let body = get(
-        &format!("load_table_count/{APP}?file_key={DECLARED}"),
-        USER_TOKEN,
-    )
-    .await?
-    .text()
-    .await?;
+    let body = get(&format!("load_table_count/{APP}?file_key={DECLARED}"))
+        .await?
+        .text()
+        .await?;
     assert!(
         !denied(&body),
         "table_count declared key must clear the gate: {body}"
     );
-    let body = get(
-        &format!("load_table_count/{APP}?file_key={NON_PROVENANCE}"),
-        USER_TOKEN,
-    )
-    .await?
-    .text()
-    .await?;
+    let body = get(&format!("load_table_count/{APP}?file_key={NON_PROVENANCE}"))
+        .await?
+        .text()
+        .await?;
     assert!(
         denied(&body),
         "table_count non-provenance key must be denied: {body}"
     );
 
-    let resp = get(
-        &format!("load_csv_preview/{APP}?file_key={DECLARED}&limit=5&offset=0"),
-        USER_TOKEN,
-    )
+    let resp = get(&format!(
+        "load_csv_preview/{APP}?file_key={DECLARED}&limit=5&offset=0"
+    ))
     .await?;
     let status = resp.status();
     let body = resp.text().await?;
@@ -116,29 +123,110 @@ async fn test_deployed_app_s3_onbehalf_provenance(db: Pool<Postgres>) -> anyhow:
     );
 
     // load_file_preview: `read_bytes_from` / `read_bytes_length` are required.
-    let resp = get(
-        &format!("load_file_preview/{APP}?file_key={DECLARED}"),
-        USER_TOKEN,
-    )
-    .await?;
+    let resp = get(&format!("load_file_preview/{APP}?file_key={DECLARED}")).await?;
     assert_eq!(
         resp.status(),
         400,
         "file_preview without byte range must 400: {}",
         resp.text().await?
     );
-    let body = get(
-        &format!(
-            "load_file_preview/{APP}?file_key={DECLARED}&read_bytes_from=0&read_bytes_length=4096"
-        ),
-        USER_TOKEN,
-    )
+    let body = get(&format!(
+        "load_file_preview/{APP}?file_key={DECLARED}&read_bytes_from=0&read_bytes_length=4096"
+    ))
     .await?
     .text()
     .await?;
     assert!(
         !denied(&body),
         "file_preview declared key must clear the gate: {body}"
+    );
+
+    Ok(())
+}
+
+/// The viewer-perm union: a viewer on a full (unscoped) session is no longer hard-denied
+/// by the provenance gate for a pre-existing file. It falls back to reading as ITSELF
+/// (bounded by its own S3 perms downstream), while an anonymous caller (no identity) and
+/// a scope-restricted token (can hit `apps_u/*` but not `job_helpers/*`, so the fallback
+/// would be a new capability) both stay fully gated with the actionable denial.
+#[sqlx::test(fixtures("base"))]
+async fn test_deployed_app_s3_viewer_union(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
+        .json(&json!({
+            "path": APP,
+            "summary": "s3 viewer union test",
+            "value": {},
+            "policy": {
+                "execution_mode": "anonymous",
+                "triggerables": {},
+                "allowed_s3_keys": [{ "s3_path": DECLARED }]
+            }
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "app create: {}", resp.text().await?);
+
+    let url = format!("{ws}/apps_u/download_s3_file/{APP}?s3={NON_PROVENANCE}");
+
+    // Anonymous: still gated. The denial is the actionable message and echoes the key.
+    let body = client().get(&url).send().await?.text().await?;
+    assert!(
+        body.contains("is not accessible from this app"),
+        "anonymous viewer must stay gated with the actionable denial: {body}"
+    );
+    assert!(
+        body.contains(NON_PROVENANCE),
+        "denial must echo the requested key: {body}"
+    );
+
+    // Logged-in viewer: no longer hard-denied — the gate delegates to reading as the
+    // viewer, so the request falls through to the storage read (no gate denial in
+    // EITHER the old or new form). No workspace storage is configured here, so it
+    // surfaces a downstream storage/OSS error, not a gate denial.
+    let body = authed(client().get(&url), USER_TOKEN)
+        .send()
+        .await?
+        .text()
+        .await?;
+    assert!(
+        !body.contains("is not accessible from this app") && !body.contains("File restricted"),
+        "logged-in viewer must delegate to its own read, not be gate-denied: {body}"
+    );
+
+    // Scope-restricted token: an `apps:read:<app>` token reaches this route but is
+    // REJECTED by the route-scope middleware on `job_helpers/*`, so it must NOT get the
+    // viewer fallback (that would be a capability it cannot obtain directly). It stays
+    // gated with the denial, unlike the unscoped session above.
+    let apps_read_scope = format!("apps:read:{APP}");
+    let scoped = mint_scoped_token(port, vec![apps_read_scope.as_str()]).await?;
+    let body = authed(client().get(&url), &scoped)
+        .send()
+        .await?
+        .text()
+        .await?;
+    assert!(
+        body.contains("is not accessible from this app"),
+        "scope-restricted token must stay gated, not get the viewer fallback: {body}"
+    );
+
+    // A filter-tags-only token carries no real scope restriction (the route-scope
+    // middleware treats it as unscoped), so it can read via job_helpers directly and
+    // MUST get the viewer fallback here — not be gated like a genuinely scoped token.
+    let tag_only = mint_scoped_token(port, vec!["if_jobs:filter_tags:default"]).await?;
+    let body = authed(client().get(&url), &tag_only)
+        .send()
+        .await?
+        .text()
+        .await?;
+    assert!(
+        !body.contains("is not accessible from this app") && !body.contains("File restricted"),
+        "filter-tags-only token is effectively unscoped and must delegate, not be gated: {body}"
     );
 
     Ok(())
@@ -198,16 +286,19 @@ async fn test_deployed_app_s3_presigned_bypasses_gate(db: Pool<Postgres>) -> any
         let url = format!("{ws}/apps_u/{route}");
         authed(client().get(url), token).send()
     };
-    let denied = |body: &str| body.contains("File restricted");
+    let denied = |body: &str| body.contains("is not accessible from this app");
 
-    // Control: NON_PROVENANCE without a signature is denied by the gate.
-    let body = get(
-        format!("download_s3_file/{APP}?s3={NON_PROVENANCE}"),
-        USER_TOKEN,
-    )
-    .await?
-    .text()
-    .await?;
+    // Control: NON_PROVENANCE without a signature is denied by the gate. Sent
+    // anonymously — a logged-in viewer would instead fall back to reading as
+    // themselves, so anonymous is the identity that isolates the presigned bypass.
+    let body = client()
+        .get(format!(
+            "{ws}/apps_u/download_s3_file/{APP}?s3={NON_PROVENANCE}"
+        ))
+        .send()
+        .await?
+        .text()
+        .await?;
     assert!(
         denied(&body),
         "unsigned non-provenance key must be denied: {body}"
@@ -304,12 +395,14 @@ async fn seed_completed_job(
 }
 
 /// A deployed app that renders S3 files it produced (e.g. a SQL query persisted to
-/// S3 by a component) must clear the provenance gate for the viewer whose own app
-/// run produced them, while (a) a viewer cannot forge provenance by running a
-/// runnable directly (no app marker), (b) another app's outputs stay denied, and
-/// (c) another viewer's outputs stay denied (cross-viewer isolation). Provenance is
-/// keyed on the app-origination marker (`trigger_kind='app'` + `trigger=<app path>`)
-/// that `execute_component` stamps, plus `created_by = <this caller>` for isolation.
+/// S3 by a component) must clear the provenance gate for the caller whose own app run
+/// produced them, while (a) provenance cannot be forged by running a runnable directly
+/// (no app marker), (b) another app's outputs stay denied, and (c) another caller's
+/// outputs stay denied (per-caller isolation). Provenance is keyed on the
+/// app-origination marker (`trigger_kind='app'` + `trigger=<app path>`) that
+/// `execute_component` stamps, plus `created_by = <this caller>` for isolation.
+/// Exercised anonymously: the gate still fully governs anonymous callers, whereas a
+/// logged-in viewer would instead fall back to reading as themselves.
 #[sqlx::test(fixtures("base"))]
 async fn test_deployed_app_s3_onbehalf_flow_script_provenance(
     db: Pool<Postgres>,
@@ -322,10 +415,10 @@ async fn test_deployed_app_s3_onbehalf_flow_script_provenance(
 
     const FS_APP: &str = "u/test-user/s3flowscript";
     const OTHER_APP: &str = "u/test-user/other_app";
-    // Produced by test-user-2's own app run of THIS app.
-    const USER_KEY: &str = "results/user2_output.parquet";
-    // Produced by test-user's own app run of THIS app.
-    const ADMIN_KEY: &str = "results/admin_output.parquet";
+    // Produced by the anonymous caller's own app run of THIS app.
+    const OWN_KEY: &str = "results/own_output.parquet";
+    // Produced by a DIFFERENT caller's app run of THIS app → isolation, must stay denied.
+    const OTHER_CALLER_KEY: &str = "results/user2_output.parquet";
     // Produced by an app run of a DIFFERENT app → must stay denied.
     const OTHER_APP_KEY: &str = "results/other_app_output.parquet";
     // Produced by a DIRECT run (no app marker) → the forgery attempt, must stay denied.
@@ -342,64 +435,49 @@ async fn test_deployed_app_s3_onbehalf_flow_script_provenance(
         .await?;
     assert_eq!(resp.status(), 201, "app create: {}", resp.text().await?);
 
-    // Seed the produced-file jobs (all within the 3h window).
-    seed_completed_job(&db, "test-user-2", Some(FS_APP), USER_KEY).await?;
-    seed_completed_job(&db, "test-user", Some(FS_APP), ADMIN_KEY).await?;
-    seed_completed_job(&db, "test-user-2", Some(OTHER_APP), OTHER_APP_KEY).await?;
-    seed_completed_job(&db, "test-user-2", None, FORGED_KEY).await?;
+    // Seed the produced-file jobs (all within the 3h window). The gate's `created_by`
+    // filter uses "anonymous" for an unauthenticated caller.
+    seed_completed_job(&db, "anonymous", Some(FS_APP), OWN_KEY).await?;
+    seed_completed_job(&db, "test-user-2", Some(FS_APP), OTHER_CALLER_KEY).await?;
+    seed_completed_job(&db, "anonymous", Some(OTHER_APP), OTHER_APP_KEY).await?;
+    seed_completed_job(&db, "anonymous", None, FORGED_KEY).await?;
 
-    let get = |route: &str, token: &'static str| {
+    let denied = |body: &str| body.contains("is not accessible from this app");
+    // Anonymous GET (borrows `ws`, reusable across calls: the URL is built before the
+    // `async move` so only the owned `url` is moved into the future, not `ws`).
+    let anon_body = |route: String| {
         let url = format!("{ws}/apps_u/{route}");
-        authed(client().get(url), token).send()
-    };
-    let denied = |body: &str| body.contains("File restricted");
-    let body_of = |route: String, token: &'static str| async move {
-        get(&route, token).await.unwrap().text().await.unwrap()
+        async move {
+            client()
+                .get(url)
+                .send()
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap()
+        }
     };
 
-    // The viewer's own app run's output clears the gate (the case that regressed to
-    // "File restricted").
-    let body = body_of(
-        format!("download_s3_file/{FS_APP}?s3={USER_KEY}"),
-        USER_TOKEN,
-    )
-    .await;
+    // The caller's own app run's output clears the gate (the case that regressed to
+    // a hard denial).
+    let body = anon_body(format!("download_s3_file/{FS_APP}?s3={OWN_KEY}")).await;
     assert!(
         !denied(&body),
-        "viewer's own app-produced key must clear the gate: {body}"
+        "caller's own app-produced key must clear the gate: {body}"
     );
 
-    // The admin viewer's own app run's output clears — the gate has no admin bypass,
-    // it just matches the caller's own runs.
-    let body = body_of(
-        format!("download_s3_file/{FS_APP}?s3={ADMIN_KEY}"),
-        ADMIN_TOKEN,
-    )
-    .await;
-    assert!(
-        !denied(&body),
-        "admin's own app-produced key must clear the gate: {body}"
-    );
-
-    // Cross-viewer isolation: the admin cannot pull test-user-2's result even though
-    // it is a genuine app-marked job of the same app (no admin bypass either).
-    let body = body_of(
-        format!("download_s3_file/{FS_APP}?s3={USER_KEY}"),
-        ADMIN_TOKEN,
-    )
-    .await;
+    // Per-caller isolation: another caller's result stays denied even though it is a
+    // genuine app-marked job of the same app.
+    let body = anon_body(format!("download_s3_file/{FS_APP}?s3={OTHER_CALLER_KEY}")).await;
     assert!(
         denied(&body),
-        "another viewer's app-produced key must stay denied (isolation): {body}"
+        "another caller's app-produced key must stay denied (isolation): {body}"
     );
 
     // A key produced by a direct run (no app marker) stays denied — the forgery the
     // app-origination marker closes.
-    let body = body_of(
-        format!("download_s3_file/{FS_APP}?s3={FORGED_KEY}"),
-        USER_TOKEN,
-    )
-    .await;
+    let body = anon_body(format!("download_s3_file/{FS_APP}?s3={FORGED_KEY}")).await;
     assert!(
         denied(&body),
         "key from a direct run (no app marker) must stay denied: {body}"
@@ -407,11 +485,7 @@ async fn test_deployed_app_s3_onbehalf_flow_script_provenance(
 
     // A key produced by a DIFFERENT app stays denied — provenance is scoped to THIS
     // app's path.
-    let body = body_of(
-        format!("download_s3_file/{FS_APP}?s3={OTHER_APP_KEY}"),
-        USER_TOKEN,
-    )
-    .await;
+    let body = anon_body(format!("download_s3_file/{FS_APP}?s3={OTHER_APP_KEY}")).await;
     assert!(
         denied(&body),
         "key produced by a different app must stay denied: {body}"

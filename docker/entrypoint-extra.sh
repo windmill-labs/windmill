@@ -21,16 +21,29 @@ cleanup() {
 
 trap cleanup SIGTERM SIGINT
 
+# An arbitrary non-root UID gets HOME=/ and cannot write the image's 0700 /root, so
+# redirect $HOME before anything writes under it (netrc below, plus the bun/npm/go
+# caches in the services). Keep the fallback UID-scoped: a leftover dir from a
+# different UID on a shared /tmp is not writable. Root keeps HOME=/root.
+HOME="${HOME:-/root}"
+if [ ! -w "$HOME" ]; then
+    echo "[entrypoint] HOME=$HOME is not writable for UID $(id -u), using HOME=/tmp/windmill-home-$(id -u)"
+    HOME="/tmp/windmill-home-$(id -u)"
+    mkdir -p "$HOME"
+fi
+export HOME
+
 # Setup NETRC if provided (for LSP)
 if [ -n "$NETRC" ]; then
-    echo "$NETRC" > /root/.netrc
-    chmod 600 /root/.netrc
+    echo "$NETRC" > "$HOME/.netrc"
+    chmod 600 "$HOME/.netrc"
 fi
 
-# Setup cache directory for LSP
-if [ -d /root/.cache ]; then
-    export XDG_CACHE_HOME=/root/.cache
-    cp -r /pyls/.cache /root/.cache 2>/dev/null || true
+# Setup cache directory for LSP (falls back to the image's world-writable
+# XDG_CACHE_HOME=/pyls/.cache when $HOME/.cache isn't mounted)
+if [ -d "$HOME/.cache" ]; then
+    export XDG_CACHE_HOME="$HOME/.cache"
+    cp -r /pyls/.cache "$HOME/.cache" 2>/dev/null || true
 fi
 
 # Setup Monaco temp directory for LSP

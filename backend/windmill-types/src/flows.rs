@@ -145,6 +145,57 @@ impl NewFlow {
     }
 }
 
+/// Body for updating an existing flow. Mirrors `NewFlow`, but `path` is optional: the
+/// flow to update is identified by the URL, so the body only needs `path` to rename it.
+/// This matches the `EditVariable` / `EditResource` / `EditApp` convention and lets a
+/// caller update in place without restating the path.
+#[derive(Debug, Deserialize)]
+pub struct EditFlow {
+    #[serde(default)]
+    pub path: Option<String>,
+    pub summary: String,
+    pub description: Option<String>,
+    #[serde(deserialize_with = "validate_flow_value")]
+    pub value: Box<RawValue>,
+    pub schema: Option<Schema>,
+    pub tag: Option<String>,
+    pub dedicated_worker: Option<bool>,
+    pub timeout: Option<i32>,
+    pub deployment_message: Option<String>,
+    pub visible_to_runner_only: Option<bool>,
+    pub on_behalf_of_email: Option<String>,
+    pub preserve_on_behalf_of: Option<bool>,
+    pub ws_error_handler_muted: Option<bool>,
+    #[serde(default)]
+    pub labels: Option<Vec<String>>,
+    #[serde(default)]
+    pub skip_draft_deletion: Option<bool>,
+}
+
+impl EditFlow {
+    /// Resolve into a `NewFlow`, defaulting the target path to `current_path` (the flow's
+    /// URL path) when the body omits it. A body `path` that differs renames the flow.
+    pub fn into_new_flow(self, current_path: &str) -> NewFlow {
+        NewFlow {
+            path: self.path.unwrap_or_else(|| current_path.to_string()),
+            summary: self.summary,
+            description: self.description,
+            value: self.value,
+            schema: self.schema,
+            tag: self.tag,
+            dedicated_worker: self.dedicated_worker,
+            timeout: self.timeout,
+            deployment_message: self.deployment_message,
+            visible_to_runner_only: self.visible_to_runner_only,
+            on_behalf_of_email: self.on_behalf_of_email,
+            preserve_on_behalf_of: self.preserve_on_behalf_of,
+            ws_error_handler_muted: self.ws_error_handler_muted,
+            labels: self.labels,
+            skip_draft_deletion: self.skip_draft_deletion,
+        }
+    }
+}
+
 fn validate_retry(retry: &Retry, module_id: &str) -> anyhow::Result<()> {
     if retry.exponential.attempts > 0 && retry.exponential.seconds == 0 {
         return Err(anyhow::anyhow!(
@@ -1232,6 +1283,20 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn edit_flow_defaults_path_from_url_and_renames_when_given() {
+        // An omitted body path resolves to the URL path; an explicit body path renames.
+        let ef: EditFlow =
+            serde_json::from_value(json!({ "summary": "s", "value": { "modules": [] } })).unwrap();
+        assert_eq!(ef.into_new_flow("f/team/my_flow").path, "f/team/my_flow");
+
+        let ef: EditFlow = serde_json::from_value(
+            json!({ "path": "f/team/renamed", "summary": "s", "value": { "modules": [] } }),
+        )
+        .unwrap();
+        assert_eq!(ef.into_new_flow("f/team/my_flow").path, "f/team/renamed");
+    }
 
     #[test]
     fn flow_value_ignores_notes_and_groups() {

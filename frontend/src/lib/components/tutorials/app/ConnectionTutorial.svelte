@@ -116,7 +116,7 @@
 				title: 'Connection done',
 				description: 'You can now see the email output connected to the text component input',
 				onNextClick: () => {
-					updateProgress(6)
+					updateProgress(index)
 
 					setTimeout(() => {
 						driver.moveNext()

@@ -175,16 +175,16 @@ export function autoOutputAsset(
 		case 'ducklake':
 		case 'materialize':
 			return { kind: 'ducklake', path: `main/${adj}_${pick(TABLE_NOUNS)}_${slug}` }
-		// s3 outputs use the canonical slashless key. `parse_asset_syntax`
-		// normalizes `s3:///<key>` (default storage) and `s3://<key>` to the
-		// bare `<key>`, so the seeded draft asset must be slashless to match the
-		// deploy-time inferred identity — otherwise the post-deploy drift check
-		// would flag the output as a phantom `/`-prefixed node. The generated
-		// bodies still emit the `s3:///<key>` default-storage URI for runtime I/O.
+		// s3 paths carry the canonical leading slash of a default-storage
+		// object (`s3:///<key>` parses to path `/<key>`). The deploy-time
+		// parser stores writes in that form — a slashless seeded path would
+		// never match it, and the post-deploy drift check would report the
+		// output as lost (it isn't; the key differs by one '/'). Bodies emit
+		// the path verbatim after `s3://`, so the slash round-trips.
 		case 's3_parquet':
 			return {
 				kind: 's3object',
-				path: `pipelines/${folder}/${adj}_${pick(DATASET_NOUNS)}_${slug}.parquet`
+				path: `/pipelines/${folder}/${adj}_${pick(DATASET_NOUNS)}_${slug}.parquet`
 			}
 		case 's3_object': {
 			// duckdb's natural output for a generic blob is CSV (one COPY TO
@@ -194,7 +194,7 @@ export function autoOutputAsset(
 			const ext = language === 'duckdb' ? 'csv' : 'json'
 			return {
 				kind: 's3object',
-				path: `pipelines/${folder}/${adj}_${pick(FILE_NOUNS)}_${slug}.${ext}`
+				path: `/pipelines/${folder}/${adj}_${pick(FILE_NOUNS)}_${slug}.${ext}`
 			}
 		}
 		// A macro library produces no asset — its "output" is the registry
@@ -220,13 +220,6 @@ const ASSET_URI_PREFIX: Record<AssetKind, string> = {
 
 export function assetUri(asset: { kind: AssetKind; path: string }): string {
 	return `${ASSET_URI_PREFIX[asset.kind]}${asset.path}`
-}
-
-// Bare object key for the SDK's `{ s3: <key> }` / `s3:///<key>` forms. Asset
-// paths are already canonical slashless keys; strip stray leading slashes
-// defensively so the emitted key never starts with '/'.
-function s3Key(path: string): string {
-	return path.replace(/^\/+/, '')
 }
 
 // Splits a datatable asset path (`<db>/<table>` or `<db>/<schema>.<table>`)
@@ -309,6 +302,7 @@ export type DraftTriggerSource =
 				| 'email'
 				| 'kafka'
 				| 'mqtt'
+				| 'amqp'
 				| 'nats'
 				| 'postgres'
 				| 'sqs'
@@ -437,11 +431,12 @@ function bodyTs(ctx: TemplateContext): string {
 		if (!input) return ''
 		switch (input.kind) {
 			case 's3object':
-				// `s3:///<key>` URI — one spelling shared with the `// on
-				// s3:///…` annotation form (the object literal `{ s3: <key> }`
-				// is equivalent).
+				// `input.path` encodes storage as `<storage>/<key>` (an empty
+				// storage segment — leading slash — is the workspace default).
+				// Emit it verbatim after `s3://` so a named-storage input keeps
+				// its storage; stripping the slash reads the default-storage key.
 				return [
-					`  const buf = await wmill.loadS3File(${JSON.stringify(`s3:///${s3Key(input.path)}`)})`,
+					`  const buf = await wmill.loadS3File(${JSON.stringify(`s3://${input.path}`)})`,
 					`  const rows = JSON.parse(new TextDecoder().decode(buf))`,
 					``
 				].join('\n')
@@ -467,10 +462,10 @@ function bodyTs(ctx: TemplateContext): string {
 		switch (outputKind) {
 			case 's3_parquet':
 			case 's3_object':
-				// `s3:///<key>` URI — see the loadS3File note above.
+				// `s3://<storage>/<key>` URI — see the loadS3File note above.
 				return [
 					`  const payload = new TextEncoder().encode(JSON.stringify(rows))`,
-					`  await wmill.writeS3File(${JSON.stringify(`s3:///${s3Key(output.path)}`)}, payload)`
+					`  await wmill.writeS3File(${JSON.stringify(`s3://${output.path}`)}, payload)`
 				].join('\n')
 			case 'datatable': {
 				const dbName = output.path.split('/')[0] ?? 'main'
@@ -524,11 +519,12 @@ function bodyPython(ctx: TemplateContext): string {
 		if (!input) return ''
 		switch (input.kind) {
 			case 's3object':
-				// `s3:///<key>` URI — SDK string params must be s3:// URIs
-				// (bare keys are rejected), and this form matches the
-				// `# on s3:///…` annotation spelling.
+				// SDK string params must be s3:// URIs (bare keys are rejected).
+				// `input.path` encodes storage as `<storage>/<key>` (empty storage
+				// segment — leading slash — is the workspace default), so emit it
+				// verbatim after `s3://` to preserve a named-storage input.
 				return [
-					`    buf = wmill.load_s3_file(${JSON.stringify(`s3:///${s3Key(input.path)}`)})`,
+					`    buf = wmill.load_s3_file(${JSON.stringify(`s3://${input.path}`)})`,
 					`    import json; rows = json.loads(buf.decode("utf-8"))`
 				].join('\n')
 			case 'datatable':
@@ -551,10 +547,10 @@ function bodyPython(ctx: TemplateContext): string {
 		switch (outputKind) {
 			case 's3_parquet':
 			case 's3_object':
-				// `s3:///<key>` URI — see the load_s3_file note above.
+				// `s3://<storage>/<key>` URI — see the load_s3_file note above.
 				return [
 					`    import json`,
-					`    wmill.write_s3_file(${JSON.stringify(`s3:///${s3Key(output.path)}`)}, json.dumps(rows).encode("utf-8"))`
+					`    wmill.write_s3_file(${JSON.stringify(`s3://${output.path}`)}, json.dumps(rows).encode("utf-8"))`
 				].join('\n')
 			case 'datatable': {
 				const dbName = output.path.split('/')[0] ?? 'main'
@@ -646,7 +642,7 @@ function bodyDuckdb(ctx: TemplateContext): string {
 		if (!input) return null
 		switch (input.kind) {
 			case 's3object':
-				return `read_parquet('s3:///${input.path}')`
+				return `read_parquet('s3://${input.path}')`
 			case 'datatable':
 				// `pg` is the attached Postgres catalog (see ATTACH above).
 				// Use a 2-part `pg.<table>` ref so the asset parser maps it
@@ -669,7 +665,7 @@ function bodyDuckdb(ctx: TemplateContext): string {
 					`COPY (`,
 					`  SELECT *`,
 					`  FROM ${fromExpr}`,
-					`) TO 's3:///${output.path}' (FORMAT 'parquet');`
+					`) TO 's3://${output.path}' (FORMAT 'parquet');`
 				)
 			}
 			break
@@ -680,7 +676,7 @@ function bodyDuckdb(ctx: TemplateContext): string {
 					`COPY (`,
 					`  SELECT *`,
 					`  FROM ${fromExpr}`,
-					`) TO 's3:///${output.path}' (FORMAT 'csv', HEADER);`
+					`) TO 's3://${output.path}' (FORMAT 'csv', HEADER);`
 				)
 			}
 			break

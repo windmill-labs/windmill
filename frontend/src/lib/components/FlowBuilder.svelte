@@ -34,7 +34,7 @@
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import AIChangesWarningModal from '$lib/components/copilot/chat/flow/AIChangesWarningModal.svelte'
 
-	import { createRawSnippet, setContext, untrack } from 'svelte'
+	import { createRawSnippet, getContext, setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Button } from './common'
@@ -201,6 +201,12 @@
 		draftTriggersModalOpen = false
 		confirmDeploymentCallback(selectedTriggers)
 	}
+
+	// Inside an AI session pane (SessionEditorTarget injects an aiChatManager via
+	// context) the collaborator presence badge is spurious: the editor is embedded
+	// in the shared /sessions URL under the session's own workspace identity, so
+	// presence keyed on that URL leaks a phantom self-badge. Hide it here.
+	const inSessionPane = !!getContext('aiChatManager')
 
 	function hasAIChanges(): boolean {
 		return aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false
@@ -413,7 +419,22 @@
 			// loadingSave = false // del
 			// return
 
-			if (newFlow) {
+			// `newFlow` comes from the embedder, and updating a path that has no
+			// deployed flow 404s. Confirm with the server before taking the update
+			// branch so a first deploy still lands.
+			let isNewFlow = newFlow
+			if (!isNewFlow) {
+				try {
+					isNewFlow =
+						initialPath === '' ||
+						!(await FlowService.existsFlowByPath({ workspace: opWorkspace!, path: initialPath }))
+				} catch (err) {
+					// Unreachable check: keep the caller's intent rather than failing the deploy.
+					console.error('Could not check flow existence', err)
+				}
+			}
+
+			if (isNewFlow) {
 				await FlowService.createFlow({
 					workspace: opWorkspace!,
 					requestBody: {
@@ -1129,17 +1150,21 @@
 					: 'max-h-12'}"
 			>
 				<div class="flex flex-row items-center gap-2 min-w-0">
-					<div class="min-w-0 overflow-hidden">
-						<EditorHeader
-							bind:summary={flowStore.val.summary}
-							bind:path={$pathStore}
-							savedPath={initialPath}
-							onBehalfOfEmail={$savedOnBehalfOfEmail}
-							hidePath={condensedHeader}
-							workspaceId={autosaveWorkspace}
-							onNavigate={(item) => onNavigate?.(item)}
-						/>
-					</div>
+					{#if customUi?.topBar?.path != false}
+						<div class="min-w-0 overflow-hidden">
+							<EditorHeader
+								bind:summary={flowStore.val.summary}
+								bind:path={$pathStore}
+								savedPath={initialPath}
+								onBehalfOfEmail={$savedOnBehalfOfEmail}
+								summaryEditable={customUi?.topBar?.editableSummary != false}
+								pathEditable={customUi?.topBar?.editablePath != false}
+								hidePath={condensedHeader}
+								workspaceId={autosaveWorkspace}
+								onNavigate={(item) => onNavigate?.(item)}
+							/>
+						</div>
+					{/if}
 					{#if opWorkspace && indicatorPath !== undefined}
 						<AutosaveIndicator
 							workspace={opWorkspace}
@@ -1154,7 +1179,7 @@
 					{/if}
 				</div>
 				<div class="flex flex-row gap-2 items-center shrink-0">
-					{#if $enterpriseLicense && !newFlow}
+					{#if $enterpriseLicense && !newFlow && !inSessionPane}
 						<Awareness />
 					{/if}
 					<div class="relative">

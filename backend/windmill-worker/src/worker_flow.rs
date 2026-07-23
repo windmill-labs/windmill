@@ -70,7 +70,7 @@ use windmill_common::{
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
-    insert_concurrency_key, interpolate_args,
+    insert_concurrency_key_capped, interpolate_args,
     report_error_to_workspace_handler_or_critical_side_channel, try_schedule_next_job, CanceledBy,
     FlowRunners, MiniCompletedJob, MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload,
     WrappedError,
@@ -107,17 +107,6 @@ lazy_static::lazy_static! {
     static ref RESOLVED_FLOW_ENV_CACHE: quick_cache::sync::Cache<Uuid, Arc<HashMap<String, Box<RawValue>>>> =
         quick_cache::sync::Cache::new(1024);
 }
-
-#[derive(Debug)]
-pub struct SchedulePushZombieError(pub String);
-
-impl std::fmt::Display for SchedulePushZombieError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl std::error::Error for SchedulePushZombieError {}
 
 /// Helper function to write itered data to separate table
 /// Returns None if data was written to separate table, Some(itered) if it should be stored in JSONB
@@ -1563,12 +1552,13 @@ pub async fn update_flow_status_after_job_completion_internal(
             if concurrency_requires_args {
                 let args = PushArgs::from(fetched_args.as_ref().unwrap());
                 if let Some(ck) = concurrency_key {
-                    insert_concurrency_key(
+                    insert_concurrency_key_capped(
                         &flow_job.workspace_id,
                         &args,
                         &flow_job.runnable_path,
                         JobKind::Flow,
                         Some(ck),
+                        concurrent_limit,
                         db,
                         flow,
                     )
@@ -1578,12 +1568,13 @@ pub async fn update_flow_status_after_job_completion_internal(
                     tag = Some(interpolate_args(t, &args, &flow_job.workspace_id));
                 }
             } else if concurrent_limit.is_some() {
-                insert_concurrency_key(
+                insert_concurrency_key_capped(
                     &flow_job.workspace_id,
                     &PushArgs::from(&HashMap::new()),
                     &flow_job.runnable_path,
                     JobKind::Flow,
                     concurrency_key,
+                    concurrent_limit,
                     db,
                     flow,
                 )
@@ -2913,38 +2904,46 @@ pub async fn handle_flow(
             .sleep(tokio::time::sleep)
             .await;
 
-            // Non-retryable errors (QuotaExceeded, NotFound) are handled inside
-            // try_schedule_next_job (schedule disabled, returns None), so they never
-            // reach here. This handles only transient errors after retry exhaustion.
             if let Err(err) = schedule_push_result {
-                tracing::error!(
-                    "Could not push next scheduled job for {} after retries: {err}. Disabling schedule.",
-                    schedule.path
-                );
-                if let Err(disable_err) = sqlx::query!(
-                    "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
-                    err.to_string(),
-                    &flow_job.workspace_id,
-                    &schedule.path
-                )
-                .execute(db)
-                .await
-                {
+                if matches!(err, Error::QuotaExceeded(_) | Error::NotFound(_)) {
+                    // try_schedule_next_job disables on these, so reaching here means
+                    // its own disable write failed. Retry it: rearm_schedule turns
+                    // these into NoOp, so without disabling here the schedule would
+                    // stay enabled yet never run.
+                    if let Err(disable_err) = sqlx::query!(
+                        "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
+                        err.to_string(),
+                        &flow_job.workspace_id,
+                        &schedule.path
+                    )
+                    .execute(db)
+                    .await
+                    {
+                        report_error_to_workspace_handler_or_critical_side_channel(
+                            &mini_job,
+                            db,
+                            format!(
+                                "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
+                                schedule.path,
+                            ),
+                        )
+                        .await;
+                    }
+                } else {
+                    // Transient error (DB contention, timeout) after retry exhaustion:
+                    // not the schedule's fault. Report it but leave the schedule
+                    // enabled; the current occurrence runs to completion and the
+                    // unarmed-schedule reconciler re-arms the next one. Do not
+                    // fail/requeue: a same-worker zombie would be canceled, losing it.
                     report_error_to_workspace_handler_or_critical_side_channel(
                         &mini_job,
                         db,
                         format!(
-                            "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
+                            "Could not push next scheduled job for {} after retries: {err}. Leaving it enabled for the unarmed-schedule reconciler to re-arm.",
                             schedule.path,
                         ),
                     )
                     .await;
-                    return Err(SchedulePushZombieError(
-                        format!(
-                            "Could not push or disable schedule {} after retries",
-                            schedule.path
-                        ),
-                    ).into());
                 }
             }
         } else {
@@ -3399,10 +3398,16 @@ async fn push_next_flow_job(
             // Persist approval user groups conditions, if any. Requires runnning the InputTransform
             let required_events = suspend.required_events.unwrap() as u16;
             let user_auth_required = suspend.user_auth_required.unwrap_or(false);
-            if user_auth_required {
-                let self_approval_disabled = suspend.self_approval_disabled.unwrap_or(false);
+            let self_approval_disabled = suspend.self_approval_disabled.unwrap_or(false);
+            // self_approval_disabled must be persisted even without user_auth_required, otherwise
+            // the resume boundary sees no approval_conditions and the restriction is silently
+            // dropped. user_groups_required only applies together with user_auth_required.
+            if user_auth_required || self_approval_disabled {
                 let user_groups_required: Vec<String>;
-                if let Some(user_groups_required_as_input_transform) = suspend.user_groups_required
+                if !user_auth_required {
+                    user_groups_required = Vec::new();
+                } else if let Some(user_groups_required_as_input_transform) =
+                    suspend.user_groups_required
                 {
                     match user_groups_required_as_input_transform {
                         InputTransform::Static { value } => {
@@ -3567,7 +3572,7 @@ async fn push_next_flow_job(
                         count: required_events,
                         job: last
                     }),
-                    (required_events - resume_messages.len() as u16) as i32,
+                    (required_events.saturating_sub(resume_messages.len() as u16)) as i32,
                     Duration::from_secs(
                         suspend.timeout.map(|t| t.into()).unwrap_or_else(|| 30 * 60)
                     ) as Duration,

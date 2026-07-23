@@ -124,6 +124,15 @@ pub struct ParseAssetsOutput {
     // column-lineage graph view, executes nothing.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub column_lineage: Vec<ColumnLineage>,
+    // `// measure <name> = <agg> [where <pred>]` — table-scoped aggregations of
+    // the produced asset. Accumulating, deduped by name. Catalogued at deploy;
+    // executes nothing.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub measures: Vec<Measure>,
+    // `// dimension <name> = <expr>` — table-scoped slicers any measure can be
+    // grouped by. Accumulating, deduped by name.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub dimensions: Vec<Dimension>,
     // Bare `// macros` (must be alone on the line, like `// pipeline`) —
     // marks this DuckDB script as a workspace *macro library*: its body is
     // CREATE [OR REPLACE] MACRO statements (plus plain setup) registered at
@@ -163,6 +172,7 @@ pub enum TriggerSpec {
     Email,
     Kafka,
     Mqtt,
+    Amqp,
     Nats,
     Postgres,
     Sqs,
@@ -493,6 +503,34 @@ pub struct ColumnRef {
     pub from_column: String,
 }
 
+// The two table-scoped metric primitives, declared on the script that
+// materializes the table (`docs/pipeline-metrics-layer.md`). A *measure* is an
+// aggregation; a *dimension* is a slicer. Table-scoped, not per-measure: a
+// dimension belongs to the table, so every measure can be sliced by every
+// dimension. Metadata only: these are catalogued at deploy and read back by
+// editors and agents, which write their own SQL. Names are validated at deploy
+// against the producer's captured schema, the same machinery as `// column`.
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub struct Measure {
+    pub name: String,
+    // Aggregate SQL over the table's columns (`sum(amount)`). Trusted author text.
+    pub expr: String,
+    // Optional row predicate from a trailing `where`. Kept separate from `expr`
+    // so a reader can render it as an aggregate `FILTER (WHERE …)`, letting two
+    // measures with different filters share one GROUP BY (a shared `WHERE`
+    // cannot express that).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filter: Option<String>,
+}
+
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub struct Dimension {
+    pub name: String,
+    // Slicing expression over the table's columns (`region`,
+    // `date_trunc('month', ordered_at)`). Trusted author text.
+    pub expr: String,
+}
+
 // `// trigger any` (default) vs `// trigger all`. `Any` = OR: any trigger
 // firing runs the script (current behaviour). `All` = AND: the script
 // runs only once every partition-bearing input has materialized at the
@@ -526,6 +564,8 @@ pub struct PipelineAnnotations {
     pub materialize: Option<MaterializeSpec>,
     pub data_tests: Vec<DataTest>,
     pub column_lineage: Vec<ColumnLineage>,
+    pub measures: Vec<Measure>,
+    pub dimensions: Vec<Dimension>,
     pub macros: bool,
     pub use_libs: Vec<String>,
     // `// mute <asset>` — suppress the auto-derived cascade edge for a read
@@ -564,6 +604,8 @@ impl ParseAssetsOutput {
             materialize: pipeline.materialize,
             data_tests: pipeline.data_tests,
             column_lineage: pipeline.column_lineage,
+            measures: pipeline.measures,
+            dimensions: pipeline.dimensions,
             macros: pipeline.macros,
             use_libs: pipeline.use_libs,
         }
@@ -680,26 +722,13 @@ pub fn parse_asset_syntax(s: &str, enable_default_syntax: bool) -> Option<(Asset
     }
     for (prefix, kind) in ASSET_KINDS.iter() {
         if s.starts_with(prefix) {
-            let path = &s[prefix.len()..];
-            // Canonicalize S3 keys to a single asset identity. The SDK object
-            // form (`{ s3: "key" }` / `S3Object(s3="key")`, default storage)
-            // resolves to `s3:///key`, whose path is `/key`, while DuckDB
-            // `s3://key` and `// on s3://key` yield the bare `key`. Strip every
-            // leading slash so the triple-slash default-storage form and the
-            // `s3://storage/key` form share one path — otherwise a TS/Python
-            // writer and a DuckDB reader of the same object become disconnected
-            // nodes in the pipeline graph. Stripping ALL leading slashes (not
-            // just one) keeps the identity stable through URI reconstruction:
-            // `trigger_spec_to_row` rebuilds `s3://<path>`, so a canonical path
-            // must never itself start with `/` or the rebuilt ref would parse
-            // back to a different key. Only leading slashes are touched, so
-            // Hive-partition keys (`s3://b/y=2024/f.parquet`) are untouched.
-            let path = if matches!(kind, AssetKind::S3Object) {
-                path.trim_start_matches('/')
-            } else {
-                path
-            };
-            return Some((*kind, path));
+            // The suffix is kept verbatim. For S3 the path encodes the storage:
+            // `s3://<storage>/<key>`, with an EMPTY storage segment for the
+            // workspace default — so `s3:///key` yields `/key` (leading slash
+            // significant, default storage) while `s3://secondary/key` yields
+            // `secondary/key`. Stripping leading slashes here would conflate a
+            // default-storage object with a named-storage one.
+            return Some((*kind, &s[prefix.len()..]));
         }
     }
     None
@@ -1006,6 +1035,28 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
             continue;
         }
 
+        // `// measure <name> = <agg> [where <pred>]` / `// dimension <name> =
+        // <expr>` — metrics primitives. Complete words (checked before the
+        // `on`/asset shorthands), accumulating, deduped by name (first wins).
+        // Malformed lines drop fail-safe like the rest of the annotation family.
+        if let Some(after_kw) = consume_keyword(rest, "measure") {
+            if let Some(spec) = parse_measure_spec(after_kw.trim()) {
+                if !out.measures.iter().any(|m| m.name == spec.name) {
+                    out.measures.push(spec);
+                }
+            }
+            continue;
+        }
+
+        if let Some(after_kw) = consume_keyword(rest, "dimension") {
+            if let Some(spec) = parse_dimension_spec(after_kw.trim()) {
+                if !out.dimensions.iter().any(|d| d.name == spec.name) {
+                    out.dimensions.push(spec);
+                }
+            }
+            continue;
+        }
+
         if let Some(after_kw) = consume_keyword(rest, "on") {
             let spec_text = after_kw.trim();
             if spec_text.is_empty() {
@@ -1064,6 +1115,42 @@ pub fn count_malformed_data_tests(code: &str) -> usize {
         }
     }
     malformed
+}
+
+// Count `// measure` / `// dimension` header lines whose right-hand side fails
+// to parse, returning `(malformed_measures, malformed_dimensions)`. Same
+// fail-safe drop as the rest of the family (a typo silently omits the metric),
+// so the deploy path warns off this count. Same leading-block boundary and
+// grammar as `parse_pipeline_annotations`, so "malformed" means exactly what the
+// parser rejects.
+pub fn count_malformed_metric_annotations(code: &str) -> (usize, usize) {
+    let (mut measures, mut dimensions) = (0, 0);
+    for raw_line in code.lines() {
+        let line = raw_line.trim_start();
+        if line.is_empty() {
+            continue;
+        }
+        let rest = if let Some(r) = line.strip_prefix("//") {
+            r
+        } else if let Some(r) = line.strip_prefix("--") {
+            r
+        } else if let Some(r) = line.strip_prefix('#') {
+            r
+        } else {
+            break;
+        };
+        let rest = rest.trim_start();
+        if let Some(after_kw) = consume_keyword(rest, "measure") {
+            if parse_measure_spec(after_kw.trim()).is_none() {
+                measures += 1;
+            }
+        } else if let Some(after_kw) = consume_keyword(rest, "dimension") {
+            if parse_dimension_spec(after_kw.trim()).is_none() {
+                dimensions += 1;
+            }
+        }
+    }
+    (measures, dimensions)
 }
 
 // Parse a `// retry <count> [<delay>]` right-hand side. `<count>` is a
@@ -1268,6 +1355,104 @@ fn parse_column_lineage_spec(s: &str) -> Option<ColumnLineage> {
     Some(ColumnLineage { column, inputs })
 }
 
+// `// measure <name> = <agg> [where <pred>]`. The name is a single identifier;
+// the first `=` separates it from the body (SQL comparison operators live after
+// it, so splitting on the first `=` is unambiguous). A whitespace-bounded
+// ` where ` splits the aggregate from its row filter — a `where` buried in a
+// string literal or subquery would mis-split, at which point the compiled SQL
+// fails at DuckDB parse (fail-loud, not silently wrong). An empty aggregate is
+// rejected. Modifier metadata (format/label/additivity) is deferred: `|` and
+// `||` are valid SQL operators, so a modifier delimiter must not collide with a
+// measure body — that grammar is chosen when the explorer needs the fields.
+fn parse_measure_spec(s: &str) -> Option<Measure> {
+    let (name_part, body) = s.split_once('=')?;
+    let name = single_ident(name_part)?;
+    let (expr, filter) = split_measure_filter(body.trim());
+    let expr = expr.trim();
+    // A bare trailing `where` with no predicate is a typo, not an unfiltered
+    // measure: reject the whole line (counted malformed) rather than emit
+    // `sum(amount) where` as the expression.
+    if expr.is_empty() || matches!(&filter, Some(f) if f.is_empty()) {
+        return None;
+    }
+    Some(Measure { name, expr: expr.to_string(), filter })
+}
+
+// `// dimension <name> = <expr>`. Name is a single identifier; the expression is
+// trusted SQL emitted verbatim into SELECT and GROUP BY. No filter clause.
+fn parse_dimension_spec(s: &str) -> Option<Dimension> {
+    let (name_part, expr) = s.split_once('=')?;
+    let name = single_ident(name_part)?;
+    let expr = expr.trim();
+    if expr.is_empty() {
+        return None;
+    }
+    Some(Dimension { name, expr: expr.to_string() })
+}
+
+// Split a measure body on the first top-level whitespace-bounded ` where` into
+// (aggregate, filter). "Top-level" = outside string/quoted-identifier literals and
+// outside parentheses, so `count_if(note = 'some where value')` is not split on the
+// `where` buried in its string. `to_ascii_lowercase` is byte-length-preserving, so
+// an offset in the lowercased copy indexes the original; the predicate keeps its
+// source casing. A trailing ` where` yields an empty predicate, which the caller
+// rejects, so `sum(amount) where` is not read as a filterless aggregate.
+fn split_measure_filter(body: &str) -> (&str, Option<String>) {
+    // Byte scan, comparing on the ASCII-lowercased bytes: `to_ascii_lowercase` is
+    // byte-length-preserving, and byte-slice matching never panics on a non-UTF-8
+    // boundary the way `lower[i..]` would for a non-ASCII body (`sum(x) + π`).
+    let lower = body.to_ascii_lowercase();
+    let lb = lower.as_bytes();
+    let b = body.as_bytes();
+    let (mut in_single, mut in_double) = (false, false);
+    let mut depth: i32 = 0;
+    let mut i = 0usize;
+    while i < b.len() {
+        let c = b[i];
+        if in_single {
+            if c == b'\'' {
+                // A doubled quote is an escaped one, not the end.
+                if b.get(i + 1) == Some(&b'\'') {
+                    i += 2;
+                    continue;
+                }
+                in_single = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_double {
+            if c == b'"' {
+                if b.get(i + 1) == Some(&b'"') {
+                    i += 2;
+                    continue;
+                }
+                in_double = false;
+            }
+            i += 1;
+            continue;
+        }
+        match c {
+            b'\'' => in_single = true,
+            b'"' => in_double = true,
+            b'(' => depth += 1,
+            b')' => depth -= 1,
+            _ if depth == 0 && lb[i..].starts_with(b" where") => {
+                let after = i + b" where".len();
+                // Whitespace-bounded: end of input, or a space follows (so a token
+                // like ` wherever` is not matched). `i` is the space before `where`
+                // and `after` is just past it — both ASCII, so the slices are valid.
+                if after == b.len() || b[after].is_ascii_whitespace() {
+                    return (&body[..i], Some(body[after..].trim().to_string()));
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    (body, None)
+}
+
 // `<asset-uri>.<col>` — the referenced column is the segment after the final
 // `.`; everything before it is the asset URI (default-syntax shorthands
 // enabled, like `// materialize`). Same shape as `parse_relationships`' target.
@@ -1330,6 +1515,7 @@ fn parse_trigger_spec(s: &str) -> Option<TriggerSpec> {
         ("email", TriggerSpec::Email),
         ("kafka", TriggerSpec::Kafka),
         ("mqtt", TriggerSpec::Mqtt),
+        ("amqp", TriggerSpec::Amqp),
         ("nats", TriggerSpec::Nats),
         ("postgres", TriggerSpec::Postgres),
         ("sqs", TriggerSpec::Sqs),
@@ -1361,52 +1547,43 @@ mod pipeline_annotation_tests {
     use super::*;
 
     #[test]
-    fn s3_key_normalization_unifies_uri_forms() {
-        // A TS/Python SDK write of `{ s3: "exports/x" }` (default storage)
-        // resolves to the URI `s3:///exports/x`, while a DuckDB read of
-        // `s3://exports/x` and the `// on s3://exports/x` trigger form yield the
-        // bare `exports/x`. All three must canonicalize to one asset key so
-        // the writer and reader connect in the pipeline graph.
-        let sdk_write = parse_asset_syntax("s3:///exports/x", false);
-        let duckdb_read = parse_asset_syntax("s3://exports/x", false);
-        assert_eq!(sdk_write, Some((AssetKind::S3Object, "exports/x")));
-        assert_eq!(duckdb_read, Some((AssetKind::S3Object, "exports/x")));
-        assert_eq!(sdk_write, duckdb_read);
+    fn s3_path_keeps_storage_distinction() {
+        // An S3 asset path is `<storage>/<key>` with an empty storage segment
+        // for the workspace default. The default-storage form `s3:///key`
+        // yields `/key` (leading slash significant); the named-storage form
+        // `s3://secondary/key` yields `secondary/key`. The two name DIFFERENT
+        // objects and must never collapse to one identity.
+        assert_eq!(
+            parse_asset_syntax("s3:///exports/x", false),
+            Some((AssetKind::S3Object, "/exports/x"))
+        );
+        assert_eq!(
+            parse_asset_syntax("s3://exports/x", false),
+            Some((AssetKind::S3Object, "exports/x"))
+        );
+        assert_ne!(
+            parse_asset_syntax("s3:///exports/x", false),
+            parse_asset_syntax("s3://exports/x", false)
+        );
 
         // The `// on` trigger annotation goes through the same function.
         assert_eq!(
             parse_asset_syntax("s3:///exports/x", true),
-            parse_asset_syntax("s3://exports/x", true)
+            Some((AssetKind::S3Object, "/exports/x"))
         );
 
-        // Explicit-storage form is unaffected (no leading slash to strip).
         assert_eq!(
-            parse_asset_syntax("s3://mybucket/exports/x", false),
-            Some((AssetKind::S3Object, "mybucket/exports/x"))
+            parse_asset_syntax("s3://secondary_storage/path/to/file.csv", false),
+            Some((AssetKind::S3Object, "secondary_storage/path/to/file.csv"))
         );
 
-        // Hive-partition keys and nested paths under default storage are
-        // preserved verbatim (only leading slashes are stripped).
+        // Hive-partition keys are preserved verbatim.
         assert_eq!(
             parse_asset_syntax("s3:///t/year=2024/month=01/f.parquet", false),
-            Some((AssetKind::S3Object, "t/year=2024/month=01/f.parquet"))
+            Some((AssetKind::S3Object, "/t/year=2024/month=01/f.parquet"))
         );
 
-        // Every leading slash is stripped so a canonical S3 path never starts
-        // with `/`. `S3Object(s3="/x")` resolves to the quad-slash URI
-        // `s3:////x`; the identity must be the bare `x` (not `/x`) so the ref
-        // that `trigger_spec_to_row` rebuilds round-trips back to it.
-        assert_eq!(
-            parse_asset_syntax("s3:////x", false),
-            Some((AssetKind::S3Object, "x"))
-        );
-        assert_eq!(
-            parse_asset_syntax("s3://///deep///", false),
-            Some((AssetKind::S3Object, "deep///"))
-        );
-
-        // Non-S3 kinds keep their leading slash (their paths are workspace-
-        // relative and the slash is significant).
+        // Non-S3 kinds also keep their suffix verbatim.
         assert_eq!(
             parse_asset_syntax("res://f/foo", false),
             Some((AssetKind::Resource, "f/foo"))
@@ -1414,26 +1591,6 @@ mod pipeline_annotation_tests {
         assert_eq!(
             parse_asset_syntax("ducklake://analytics/orders", false),
             Some((AssetKind::Ducklake, "analytics/orders"))
-        );
-    }
-
-    #[test]
-    fn s3_explicit_storage_aliases_default_storage_nested_key() {
-        // Accepted tradeoff of one canonical key: the explicit-storage form
-        // `s3://storage/key` and the default-storage nested-key form
-        // `s3:///storage/key` collapse to the same node `storage/key`, even
-        // though they name different objects. This is a best-effort lineage
-        // graph that does not split the first segment as a storage name; the
-        // collision only happens when a storage config is named to match a
-        // default-storage prefix. Pinned so the aliasing is intentional, not a
-        // latent surprise.
-        assert_eq!(
-            parse_asset_syntax("s3://mybucket/x", false),
-            parse_asset_syntax("s3:///mybucket/x", false)
-        );
-        assert_eq!(
-            parse_asset_syntax("s3://mybucket/x", false),
-            Some((AssetKind::S3Object, "mybucket/x"))
         );
     }
 
@@ -1470,6 +1627,99 @@ mod pipeline_annotation_tests {
         // Trailing prose / keyword variants disqualify the line.
         assert!(!parse_pipeline_annotations("// macros are defined below\n").macros);
         assert!(!parse_pipeline_annotations("// macros_v2\n").macros);
+    }
+
+    #[test]
+    fn measures_and_dimensions_parse() {
+        let out = parse_pipeline_annotations(
+            "-- materialize ducklake://f/finance/orders\n\
+             -- measure revenue = sum(amount) where not is_refund\n\
+             -- measure orders  = count(*)\n\
+             -- dimension region = region\n\
+             -- dimension month  = date_trunc('month', ordered_at)\n\
+             SELECT 1;",
+        );
+        assert_eq!(
+            out.measures,
+            vec![
+                Measure {
+                    name: "revenue".to_string(),
+                    expr: "sum(amount)".to_string(),
+                    filter: Some("not is_refund".to_string()),
+                },
+                Measure { name: "orders".to_string(), expr: "count(*)".to_string(), filter: None },
+            ]
+        );
+        assert_eq!(
+            out.dimensions,
+            vec![
+                Dimension { name: "region".to_string(), expr: "region".to_string() },
+                Dimension {
+                    name: "month".to_string(),
+                    expr: "date_trunc('month', ordered_at)".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_where_inside_a_string_or_parens_is_not_a_filter_delimiter() {
+        // The `where` is inside the aggregate's string argument, so the whole
+        // expression is the measure and there is no filter.
+        assert_eq!(
+            split_measure_filter("count_if(note = 'some where value')"),
+            ("count_if(note = 'some where value')", None)
+        );
+        // A real top-level filter still splits.
+        assert_eq!(
+            split_measure_filter("sum(amount) where not is_refund"),
+            ("sum(amount)", Some("not is_refund".to_string()))
+        );
+        // A `where` inside parens is not the delimiter either.
+        assert_eq!(
+            split_measure_filter("sum(case when x then 1 end)"),
+            ("sum(case when x then 1 end)", None)
+        );
+        // A non-ASCII body must not panic on a byte offset that is not a char
+        // boundary.
+        assert_eq!(
+            split_measure_filter("sum(amount) + π"),
+            ("sum(amount) + π", None)
+        );
+        assert_eq!(
+            split_measure_filter("sum(π) where region = 'π'"),
+            ("sum(π)", Some("region = 'π'".to_string()))
+        );
+    }
+
+    #[test]
+    fn measures_dimensions_fail_safe_and_dedup() {
+        let out = parse_pipeline_annotations(
+            // Malformed (no `=`, empty body, bare trailing `where`) drop; a
+            // duplicate name keeps the first; the body comment after real code
+            // is never scanned.
+            "-- measure broken\n\
+             -- measure empty =   \n\
+             -- measure dangling = sum(amount) where\n\
+             -- measure revenue = sum(amount)\n\
+             -- measure revenue = sum(other)\n\
+             -- dimension region = region\n\
+             SELECT 1;\n\
+             -- measure sneaky = count(*)\n\
+             -- dimension sneaky = x",
+        );
+        assert_eq!(
+            out.measures,
+            vec![Measure {
+                name: "revenue".to_string(),
+                expr: "sum(amount)".to_string(),
+                filter: None,
+            }]
+        );
+        assert_eq!(
+            out.dimensions,
+            vec![Dimension { name: "region".to_string(), expr: "region".to_string() }]
+        );
     }
 
     #[test]

@@ -13,7 +13,7 @@ default = []
 private = ["windmill-worker-volumes/private", "windmill-queue/private", "windmill-common/private", "windmill-dep-map/private", "windmill-runtime-nativets?/private"]
 mcp = ["windmill-ai/mcp", "dep:windmill-mcp"]
 prometheus = ["dep:prometheus", "windmill-common/prometheus"]
-enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker-volumes/enterprise", "windmill-runtime-nativets?/enterprise", "dep:pem", "dep:rsa", "dep:tokio-util", "dep:opentelemetry-proto", "dep:prost", "dep:hudsucker", "dep:rcgen", "dep:hyper-http-proxy", "dep:hyper-tls", "dep:hyper-util"]
+enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker-volumes/enterprise", "windmill-runtime-nativets?/enterprise", "dep:pem", "dep:rsa", "dep:tokio-util", "dep:opentelemetry-proto", "dep:prost", "dep:hudsucker", "dep:rcgen", "dep:hyper-http-proxy", "dep:hyper-rustls", "dep:tokio-rustls", "dep:rustls", "dep:rustls-native-certs", "dep:rustls-pemfile", "dep:hyper-util"]
 mssql = ["dep:tiberius"]
 mssql-kerberos = ["mssql", "tiberius/integrated-auth-gssapi"]  # Linux/Unix integrated auth
 mssql-winauth = ["mssql", "tiberius/winauth"]  # Windows integrated auth
@@ -115,8 +115,11 @@ hmac.workspace = true
 pem = { workspace = true, optional = true }
 rsa = { workspace = true, optional = true }
 urlencoding.workspace = true
-# `fs` adds flock(2) for the cross-process Python install lock (shared cache mounts)
-nix = { workspace = true, features = ["fs"] }
+# `user` adds geteuid(2) to verify ownership of the ansible socket-dir root
+nix = { workspace = true, features = ["user"] }
+# Cross-platform advisory file lock (flock on unix, LockFileEx on windows) for the
+# cross-process Python install lock into shared wheel-cache dirs.
+fs4 = { workspace = true }
 bytes.workspace = true
 reqwest.workspace = true
 reqwest-middleware.workspace = true
@@ -143,7 +146,11 @@ bollard = { workspace = true, optional = true }
 oracle = { workspace = true, optional = true }
 hudsucker = { workspace = true, optional = true }
 hyper-http-proxy = { workspace = true, optional = true }
-hyper-tls = { workspace = true, optional = true }
+hyper-rustls = { workspace = true, optional = true }
+tokio-rustls = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+rustls-native-certs = { workspace = true, optional = true }
+rustls-pemfile = { workspace = true, optional = true }
 hyper-util = { workspace = true, optional = true }
 rcgen = { workspace = true, optional = true }
 

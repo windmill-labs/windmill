@@ -293,6 +293,43 @@ export const mqttTriggerRequestSchema = z.object({
 	"labels": z.array(z.string()).optional()
 })
 
+export const amqpTriggerRequestSchema = z.object({
+	"amqp_resource_path": z.string().describe("Path to the AMQP resource containing broker connection configuration"),
+	"queue_name": z.string().describe("Name of the queue to consume messages from"),
+	"exchange": z.object({
+		"exchange_name": z.string().describe("Name of the exchange to bind the consumed queue to"),
+		"routing_keys": z.array(z.string()).describe("Routing keys used to bind the queue to the exchange").optional()
+	}).describe("Optional exchange binding for the consumed queue").nullable().optional(),
+	"options": z.object({
+		"declare_queue": z.boolean().describe("Declare the queue (durable) before consuming; when false the queue is declared passively and must already exist").optional(),
+		"prefetch_count": z.number().int().gte(1).lte(65535).describe("Maximum number of unacknowledged messages the broker delivers at once (1-65535)").optional()
+	}).describe("Optional consumer options (queue declaration, prefetch)").nullable().optional(),
+	"path": z.string().describe("The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`."),
+	"script_path": z.string().describe("Path to the script or flow to execute when a message is received"),
+	"is_flow": z.boolean().describe("True if script_path points to a flow, false if it points to a script"),
+	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
+	"error_handler_path": z.string().describe("Path to a script or flow to run when the triggered job fails").optional(),
+	"error_handler_args": z.record(z.string(), z.any()).describe("Arguments to pass to the error handler").optional(),
+	"retry": z.object({
+		"constant": z.object({
+			"attempts": z.number().int().describe("Number of retry attempts").optional(),
+			"seconds": z.number().int().describe("Seconds to wait between retries").optional()
+		}).describe("Retry with constant delay between attempts").optional(),
+		"exponential": z.object({
+			"attempts": z.number().int().describe("Number of retry attempts").optional(),
+			"multiplier": z.number().int().describe("Multiplier for exponential backoff").optional(),
+			"seconds": z.number().int().gte(1).describe("Initial delay in seconds").optional(),
+			"random_factor": z.number().int().gte(0).lte(100).describe("Random jitter percentage (0-100) to avoid thundering herd").optional()
+		}).describe("Retry with exponential backoff (delay doubles each time)").optional(),
+		"retry_if": z.object({
+			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
+		}).describe("Conditional retry based on error or result").optional()
+	}).describe("Retry configuration for failed executions").optional(),
+	"permissioned_as": z.string().describe("The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.").optional(),
+	"preserve_permissioned_as": z.boolean().describe("When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it.").optional(),
+	"labels": z.array(z.string()).optional()
+})
+
 export const sqsTriggerRequestSchema = z.object({
 	"queue_url": z.string().describe("The full URL of the AWS SQS queue to poll for messages"),
 	"aws_auth_resource_type": z.enum(["oidc", "credentials"]).describe("Authentication type - 'credentials' for access key/secret, 'oidc' for OpenID Connect"),
@@ -397,6 +434,35 @@ export const azureTriggerRequestSchema = z.object({
 	"labels": z.array(z.string()).optional()
 }).describe("Data for creating or updating an Azure Event Grid trigger.")
 
+export const emailTriggerRequestSchema = z.object({
+	"path": z.string(),
+	"script_path": z.string(),
+	"local_part": z.string(),
+	"workspaced_local_part": z.boolean().optional(),
+	"is_flow": z.boolean(),
+	"error_handler_path": z.string().optional(),
+	"error_handler_args": z.record(z.string(), z.any()).describe("The arguments to pass to the script or flow").optional(),
+	"retry": z.object({
+		"constant": z.object({
+			"attempts": z.number().int().describe("Number of retry attempts").optional(),
+			"seconds": z.number().int().describe("Seconds to wait between retries").optional()
+		}).describe("Retry with constant delay between attempts").optional(),
+		"exponential": z.object({
+			"attempts": z.number().int().describe("Number of retry attempts").optional(),
+			"multiplier": z.number().int().describe("Multiplier for exponential backoff").optional(),
+			"seconds": z.number().int().gte(1).describe("Initial delay in seconds").optional(),
+			"random_factor": z.number().int().gte(0).lte(100).describe("Random jitter percentage (0-100) to avoid thundering herd").optional()
+		}).describe("Retry with exponential backoff (delay doubles each time)").optional(),
+		"retry_if": z.object({
+			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
+		}).describe("Conditional retry based on error or result").optional()
+	}).describe("Retry configuration for failed module executions").optional(),
+	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
+	"permissioned_as": z.string().describe("The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.").optional(),
+	"preserve_permissioned_as": z.boolean().describe("When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it.").optional(),
+	"labels": z.array(z.string()).optional()
+})
+
 export const variableRequestSchema = z.object({
 	"path": z.string().describe("The path to the variable"),
 	"value": z.string().describe("The value of the variable"),
@@ -425,9 +491,11 @@ export const triggerRequestSchemas = {
 	nats: natsTriggerRequestSchema,
 	postgres: postgresTriggerRequestSchema,
 	mqtt: mqttTriggerRequestSchema,
+	amqp: amqpTriggerRequestSchema,
 	sqs: sqsTriggerRequestSchema,
 	gcp: gcpTriggerRequestSchema,
 	azure: azureTriggerRequestSchema,
+	email: emailTriggerRequestSchema,
 } as const
 
 const triggerPathSchema = z.string().min(1).describe("The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.")
@@ -440,9 +508,11 @@ export const createTriggerToolSchema = z.object({
 		"nats",
 		"postgres",
 		"mqtt",
+		"amqp",
 		"sqs",
 		"gcp",
 		"azure",
+		"email",
 	]),
 	path: triggerPathSchema,
 	config: z.union([
@@ -452,8 +522,10 @@ export const createTriggerToolSchema = z.object({
 		natsTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
 		postgresTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
 		mqttTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+		amqpTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
 		sqsTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
 		gcpTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
 		azureTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+		emailTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
 	])
 })

@@ -279,6 +279,15 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
+    info!("Updating amqp_trigger table");
+    sqlx::query!(
+        "UPDATE amqp_trigger SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
     info!("Updating gcp_trigger table");
     sqlx::query!(
         "UPDATE gcp_trigger SET workspace_id = $1 WHERE workspace_id = $2",
@@ -796,7 +805,8 @@ pub(crate) async fn change_workspace_id(
     #[cfg(all(feature = "enterprise", feature = "private"))]
     for (path, hook_id) in stale_webhooks {
         if let Ok(url) =
-            windmill_common::git_sync_ee::resolve_repo_url(&db, &rw.new_id, &path).await
+            windmill_common::git_sync_ee::resolve_repo_url_interpolated(&db, &rw.new_id, &path)
+                .await
         {
             let _ =
                 windmill_common::git_sync_ee::delete_repo_webhook(&db, &rw.new_id, &url, hook_id)

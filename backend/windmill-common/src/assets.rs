@@ -567,11 +567,9 @@ mod trigger_ref_roundtrip_tests {
     // `trigger_spec_to_row` rebuilds a stored ref as `s3://<path>`, and
     // `parse_asset_trigger_ref` parses it back. The two must be inverse for
     // every S3 URI form, or a consumer's `// on` trigger lands on a different
-    // graph node than the producer's inferred write. Because `parse_asset_syntax`
-    // strips ALL leading slashes, a canonical path never starts with `/`, so the
-    // naive `prefix + path` rebuild round-trips — including the `S3Object(s3="/x")`
-    // quad-slash case that previously desynced (path `/x` rebuilt to `s3:///x`,
-    // which re-parsed to `x`).
+    // graph node than the producer's inferred write. `parse_asset_syntax`
+    // keeps the URI suffix verbatim (a default-storage path starts with `/`),
+    // so the naive `prefix + path` rebuild round-trips for every form.
     fn roundtrip(uri: &str) -> String {
         let (pkind, path) = parse_asset_syntax(uri, false).expect("parse uri");
         assert_eq!(pkind, PAssetKind::S3Object);
@@ -590,11 +588,10 @@ mod trigger_ref_roundtrip_tests {
 
     #[test]
     fn s3_trigger_ref_roundtrips_for_every_uri_form() {
-        assert_eq!(roundtrip("s3:///exports/x"), "exports/x"); // SDK default storage
-        assert_eq!(roundtrip("s3://exports/x"), "exports/x"); // DuckDB / bare
+        assert_eq!(roundtrip("s3:///exports/x"), "/exports/x"); // SDK default storage
+        assert_eq!(roundtrip("s3://exports/x"), "exports/x"); // named storage `exports`
         assert_eq!(roundtrip("s3://mybucket/exports/x"), "mybucket/exports/x"); // explicit
-        assert_eq!(roundtrip("s3:////x"), "x"); // S3Object(s3="/x") quad-slash
-        assert_eq!(roundtrip("s3:///y=2024/f.parquet"), "y=2024/f.parquet"); // Hive
+        assert_eq!(roundtrip("s3:///y=2024/f.parquet"), "/y=2024/f.parquet"); // Hive
     }
 }
 
@@ -632,6 +629,7 @@ pub fn trigger_spec_to_row(spec: &TriggerSpec) -> Option<(ScriptTriggerKind, Str
         | TriggerSpec::Email
         | TriggerSpec::Kafka
         | TriggerSpec::Mqtt
+        | TriggerSpec::Amqp
         | TriggerSpec::Nats
         | TriggerSpec::Postgres
         | TriggerSpec::Sqs

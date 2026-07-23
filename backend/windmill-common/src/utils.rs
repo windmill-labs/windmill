@@ -1129,9 +1129,138 @@ pub fn merge_nested_raw_values_to_array<
     serde_json::value::RawValue::from_string(result).unwrap()
 }
 
+/// Remove every U+0000 (NUL) from a serialized JSON document so it is safe to
+/// store in a `jsonb` column, which rejects the `\u0000` escape with 22P05
+/// ("unsupported Unicode escape sequence"). A `json`-typed column accepts the
+/// escape but propagates the same failure to any later `->>`/`to_jsonb`/`json`→
+/// `jsonb` conversion.
+///
+/// A NUL can only appear in JSON text as a backslash-u0000 escape, and a
+/// backslash only ever occurs inside a string, so one backslash-parity-aware
+/// pass removes every real NUL escape — covering values and keys alike — while
+/// leaving a legitimate `\\u0000` (an escaped backslash followed by the literal
+/// text `u0000`, common in minified JS regexes) intact. O(n) over the bytes with
+/// no `serde_json::Value` tree to allocate, and the fast path (no such substring
+/// at all) returns the input borrowed and untouched. The slow path is reached
+/// not only by genuinely poisoned values but by any value that legitimately
+/// contains `u0000` after a backslash (e.g. script source), so it must stay
+/// allocation-light for potentially large documents.
+pub fn strip_json_nul(serialized: &str) -> Cow<'_, str> {
+    // SIMD substring scan (several times faster than `str::contains`'s Two-Way)
+    // for the guard, since this runs on every completed job's serialized result.
+    if memchr::memmem::find(serialized.as_bytes(), b"\\u0000").is_none() {
+        return Cow::Borrowed(serialized);
+    }
+    let bytes = serialized.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    // The substring guard above is satisfied by legitimate `\\u0000` too, so only
+    // an odd-parity NUL escape actually drops bytes. Borrow back out when nothing
+    // was stripped, so `Cow::Owned` reliably means "a NUL was removed" — callers
+    // (e.g. apps.rs) key a warning on that.
+    let mut stripped = false;
+    while i < bytes.len() {
+        if bytes[i] != b'\\' {
+            out.push(bytes[i]);
+            i += 1;
+            continue;
+        }
+        // Consume the whole run of backslashes. An even run is N/2 escaped
+        // backslashes and leaves the next char unescaped; an odd run ends in an
+        // escaping backslash, so a following `u0000` is a real NUL escape.
+        let run_start = i;
+        while i < bytes.len() && bytes[i] == b'\\' {
+            i += 1;
+        }
+        let run = i - run_start;
+        if run % 2 == 1 && bytes[i..].starts_with(b"u0000") {
+            // Drop the escaping backslash + `u0000`; keep the leading literal pairs.
+            out.extend(std::iter::repeat(b'\\').take(run - 1));
+            i += 5;
+            stripped = true;
+        } else {
+            out.extend(std::iter::repeat(b'\\').take(run));
+        }
+    }
+    if !stripped {
+        return Cow::Borrowed(serialized);
+    }
+    // Only whole ASCII backslash-u0000 escapes were removed, so the bytes remain
+    // valid UTF-8 (and valid JSON).
+    Cow::Owned(String::from_utf8(out).expect("removing a NUL escape preserves valid UTF-8"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The 6-char JSON escape for U+0000: backslash + "u0000". Written via an
+    // escaped backslash so no literal NUL byte ever appears in this source.
+    const NUL_ESC: &str = "\\u0000";
+
+    // Parse the (NUL-free) result so assertions read clearly.
+    fn parsed(s: &str) -> serde_json::Value {
+        serde_json::from_str(s).expect("strip_json_nul must return valid JSON")
+    }
+
+    #[test]
+    fn strip_json_nul_clean_value_is_borrowed_byte_for_byte() {
+        let s = r#"{"summary":"all good","n":1}"#;
+        let out = strip_json_nul(s);
+        assert!(matches!(out, Cow::Borrowed(_)));
+        assert_eq!(out, s);
+    }
+
+    #[test]
+    fn strip_json_nul_real_nul_in_value_is_stripped() {
+        let input = format!(r#"{{"summary":"hi{NUL_ESC}there"}}"#);
+        let out = strip_json_nul(&input);
+        assert!(!out.contains(NUL_ESC));
+        assert_eq!(parsed(&out)["summary"], "hithere");
+    }
+
+    #[test]
+    fn strip_json_nul_legit_escaped_backslash_is_a_noop() {
+        // JSON "a\\u0000b" decodes to a,backslash,u,0,0,0,0,b - not a NUL - so
+        // the value is already clean and round-trips byte-for-byte. It hits the
+        // slow path (the substring is present) but strips nothing, so it must
+        // still return Cow::Borrowed - callers key a "stripped NUL" warning on
+        // the Owned variant.
+        let s = r#"{"summary":"a\\u0000b"}"#;
+        let out = strip_json_nul(s);
+        assert!(matches!(out, Cow::Borrowed(_)));
+        assert_eq!(out, s);
+    }
+
+    #[test]
+    fn strip_json_nul_collision_real_and_literal_both_handled() {
+        // "a" carries a real NUL escape; "b" carries the literal text backslash-u0000.
+        let v = parsed(&strip_json_nul(&format!(
+            r#"{{"a":"x{NUL_ESC}y","b":"p\\u0000q"}}"#
+        )));
+        assert_eq!(v["a"], "xy");
+        assert_eq!(v["b"], "p\\u0000q");
+    }
+
+    #[test]
+    fn strip_json_nul_nested_values_and_keys_are_cleaned() {
+        let input =
+            format!(r#"{{"o":{{"k{NUL_ESC}":["a{NUL_ESC}b",{{"deep{NUL_ESC}":"v{NUL_ESC}"}}]}}}}"#);
+        let out = strip_json_nul(&input);
+        assert!(!out.contains(NUL_ESC));
+        let v = parsed(&out);
+        assert_eq!(v["o"]["k"][0], "ab");
+        assert_eq!(v["o"]["k"][1]["deep"], "v");
+    }
+
+    #[test]
+    fn strip_json_nul_odd_backslash_run_keeps_literal_drops_nul() {
+        // JSON "a\\ b" is an escaped backslash (kept) immediately followed
+        // by a real NUL escape (dropped) -> decodes to a,backslash,b.
+        let v = parsed(&strip_json_nul(&format!(r#"{{"x":"a\\{NUL_ESC}b"}}"#)));
+        assert_eq!(v["x"], "a\\b");
+    }
+
     #[test]
     fn test_build_arg_str() {
         let r = build_arg_str(

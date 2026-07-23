@@ -19,6 +19,7 @@ use windmill_common::{
     error::{Error, Result},
     user_drafts::{DraftUserRef, UserDraftItemKind, ENCRYPTED_DRAFT_PREFIX},
     users::resolve_username_to_email,
+    utils::strip_json_nul,
     variables::{build_crypt, encrypt},
 };
 
@@ -64,6 +65,11 @@ pub struct DraftListItem {
     /// so it defaults to `false` when read from the row.
     #[sqlx(default)]
     pub can_write: bool,
+    /// `true` when this draft is identical (jsonb-equal) to the parent's draft at
+    /// the same (path, kind, owner). `None` unless the request passed a valid
+    /// `compare_to_workspace`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unchanged_from_parent: Option<bool>,
     /// The listed row belongs to the authed user (own draft or the legacy
     /// no-owner row) and is therefore actionable by them. Always `true` in the
     /// default (own-drafts) listing; only meaningful with `all_users=true`,
@@ -77,6 +83,10 @@ pub struct ListDraftsQuery {
     /// List every draft in the workspace (all users), not just the authed
     /// user's own + legacy rows. Other users' rows come back with `mine=false`.
     pub all_users: Option<bool>,
+    /// A fork passes its parent workspace id here to have each row flagged with
+    /// `unchanged_from_parent`. Honored only when it is this workspace's actual
+    /// `parent_workspace_id` (enforced in `list_drafts`).
+    pub compare_to_workspace: Option<String>,
 }
 
 /// Every draft the authed user has in this workspace, across all kinds — the
@@ -97,9 +107,31 @@ async fn list_drafts(
         return Ok(Json(vec![]));
     }
     let all_users = query.all_users.unwrap_or(false);
+    // Only honor `compare_to_workspace` when it is genuinely this workspace's
+    // parent (a fork comparing against its source). Any other value is dropped
+    // so the value-equality subquery can't be used to probe an unrelated
+    // workspace's draft contents.
+    let compare_to_workspace = match &query.compare_to_workspace {
+        Some(candidate) => {
+            let parent: Option<String> = sqlx::query_scalar::<_, Option<String>>(
+                "SELECT parent_workspace_id FROM workspace WHERE id = $1",
+            )
+            .bind(&w_id)
+            .fetch_optional(&db)
+            .await?
+            .flatten();
+            if parent.as_deref() == Some(candidate.as_str()) {
+                Some(candidate.clone())
+            } else {
+                None
+            }
+        }
+        None => None,
+    };
     let rows = sqlx::query_as::<_, DraftListItem>(&list_drafts_query(all_users))
         .bind(&w_id)
         .bind(&authed.email)
+        .bind(&compare_to_workspace)
         .fetch_all(&db)
         .await?;
     // Per-row permission gating:
@@ -149,8 +181,10 @@ async fn list_drafts(
 /// `deployed_table()` (shared single source — can't drift from the access
 /// check). Table names come from the closed enum, never user input. Kinds
 /// with no path-keyed table get no arm and fall to `ELSE true`.
-/// `$1` = workspace_id, `$2` = email. With `all_users` the owner filter is
-/// dropped so every workspace draft is listed (others' rows get `mine=false`).
+/// `$1` = workspace_id, `$2` = email, `$3` = the parent workspace to compare
+/// against (nullable; drives `unchanged_from_parent`). With `all_users` the
+/// owner filter is dropped so every workspace draft is listed (others' rows get
+/// `mine=false`).
 fn list_drafts_query(all_users: bool) -> String {
     let mut case = String::from("CASE d.typ::text\n");
     for kind in UserDraftItemKind::ALL {
@@ -221,7 +255,18 @@ fn list_drafts_query(all_users: bool) -> String {
                   ) AS draft_path,
                   (d.email IS NULL) AS legacy_draft,
                   (d.email = $2 OR d.email IS NULL) AS mine,
-                  {case} AS draft_only
+                  {case} AS draft_only,
+                  -- value is a `json` column (no `=` operator), so compare as jsonb.
+                  CASE WHEN $3::text IS NULL THEN NULL::bool
+                       ELSE EXISTS(
+                         SELECT 1 FROM draft pd
+                         WHERE pd.workspace_id = $3
+                           AND pd.path = d.path
+                           AND pd.typ = d.typ
+                           AND pd.email IS NOT DISTINCT FROM d.email
+                           AND pd.value::jsonb = d.value::jsonb
+                       )
+                  END AS unchanged_from_parent
            FROM draft d
            WHERE d.workspace_id = $1{owner_filter}
            ORDER BY d.path, d.typ,
@@ -309,7 +354,7 @@ async fn update_draft(
         // `draft.value` is a `json` column, so a U+0000 (NUL) would persist as an
         // escape and later make any `->>`/`to_jsonb` extraction raise `22P05`.
         // Strip it here so a NUL never reaches the column.
-        let serialized = strip_json_nul(serialized);
+        let serialized = strip_json_nul(&serialized);
         // Upsert. The conflict check rides on the DO UPDATE WHERE clause —
         // when the row is newer than `last_sync`, RETURNING yields nothing.
         // `created_at` defaults to `now()` but the migration overrides it ($8)
@@ -327,7 +372,7 @@ async fn update_draft(
             email,
             path,
             kind as UserDraftItemKind,
-            serialized,
+            serialized.as_ref(),
             req.last_sync,
             req.force,
             req.created_at,
@@ -475,53 +520,6 @@ async fn migrate_legacy_draft(
             Ok(format!("Assigned legacy draft at {path} to you"))
         }
     }
-}
-
-/// Remove every U+0000 (NUL) from a serialized JSON document so it is safe to
-/// store in the `json`-typed `draft.value` (a NUL there would later make any
-/// `->>`/`to_jsonb` extraction raise `22P05`).
-///
-/// A NUL can only appear in JSON text as a backslash-u0000 escape, and a
-/// backslash only ever occurs inside a string, so one backslash-parity-aware
-/// pass removes every real NUL escape — covering values and keys alike — while
-/// leaving a legitimate `\\u0000` (an escaped backslash followed by the literal
-/// text `u0000`) intact. O(n) over the bytes with no `serde_json::Value` tree to
-/// allocate, and the fast path (no such substring at all) returns the input
-/// untouched. The slow path is reached not only by genuinely poisoned values but
-/// by any value that legitimately contains `u0000` after a backslash (e.g. script
-/// source), so it must stay allocation-light for potentially large drafts.
-fn strip_json_nul(serialized: String) -> String {
-    if !serialized.contains("\\u0000") {
-        return serialized;
-    }
-    let bytes = serialized.as_bytes();
-    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] != b'\\' {
-            out.push(bytes[i]);
-            i += 1;
-            continue;
-        }
-        // Consume the whole run of backslashes. An even run is N/2 escaped
-        // backslashes and leaves the next char unescaped; an odd run ends in an
-        // escaping backslash, so a following `u0000` is a real NUL escape.
-        let run_start = i;
-        while i < bytes.len() && bytes[i] == b'\\' {
-            i += 1;
-        }
-        let run = i - run_start;
-        if run % 2 == 1 && bytes[i..].starts_with(b"u0000") {
-            // Drop the escaping backslash + `u0000`; keep the leading literal pairs.
-            out.extend(std::iter::repeat(b'\\').take(run - 1));
-            i += 5;
-        } else {
-            out.extend(std::iter::repeat(b'\\').take(run));
-        }
-    }
-    // Only whole ASCII backslash-u0000 escapes were removed, so the bytes remain
-    // valid UTF-8 (and valid JSON).
-    String::from_utf8(out).expect("removing a NUL escape preserves valid UTF-8")
 }
 
 /// For variable-kind drafts with `variable.is_secret == true`, encrypt
@@ -814,66 +812,4 @@ async fn require_can_read_path(
         }
     }
     Err(Error::NotFound(format!("no draft visible at {path}")))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::strip_json_nul;
-
-    // Parse the (NUL-free) result so assertions read clearly.
-    fn parsed(s: String) -> serde_json::Value {
-        serde_json::from_str(&s).expect("strip_json_nul must return valid JSON")
-    }
-
-    #[test]
-    fn clean_value_is_returned_byte_for_byte() {
-        let s = r#"{"summary":"all good","n":1}"#.to_string();
-        assert_eq!(strip_json_nul(s.clone()), s);
-    }
-
-    #[test]
-    fn real_nul_in_value_is_stripped() {
-        let out = strip_json_nul(r#"{"summary":"hi\u0000there"}"#.to_string());
-        assert!(!out.contains(r"\u0000"));
-        assert_eq!(parsed(out)["summary"], "hithere");
-    }
-
-    #[test]
-    fn legit_escaped_backslash_is_a_noop() {
-        // JSON "a\\u0000b" decodes to the 8-char string a,backslash,u,0,0,0,0,b
-        // — not a NUL — so the value is already clean and round-trips byte-for-byte.
-        let s = r#"{"summary":"a\\u0000b"}"#.to_string();
-        assert_eq!(strip_json_nul(s.clone()), s);
-    }
-
-    #[test]
-    fn collision_real_and_literal_both_handled() {
-        // "a" carries a real NUL; "b" carries the literal text backslash-u0000.
-        // The value walk strips the former and leaves the latter intact — the
-        // pathological case that needed a fallback in SQL is trivial in Rust.
-        let v = parsed(strip_json_nul(
-            r#"{"a":"x\u0000y","b":"p\\u0000q"}"#.to_string(),
-        ));
-        assert_eq!(v["a"], "xy");
-        assert_eq!(v["b"], "p\\u0000q");
-    }
-
-    #[test]
-    fn nested_values_and_keys_are_cleaned() {
-        let out = strip_json_nul(
-            r#"{"o":{"k\u0000":["a\u0000b",{"deep\u0000":"v\u0000"}]}}"#.to_string(),
-        );
-        assert!(!out.contains(r"\u0000"));
-        let v = parsed(out);
-        assert_eq!(v["o"]["k"][0], "ab");
-        assert_eq!(v["o"]["k"][1]["deep"], "v");
-    }
-
-    #[test]
-    fn odd_backslash_run_keeps_literal_drops_nul() {
-        // JSON "a\\\u0000b" is an escaped backslash (kept) immediately followed by
-        // a real NUL escape (dropped) -> decodes to a,backslash,b.
-        let v = parsed(strip_json_nul(r#"{"x":"a\\\u0000b"}"#.to_string()));
-        assert_eq!(v["x"], "a\\b");
-    }
 }

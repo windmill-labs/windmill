@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.760.1
+  version: 1.767.0
   title: Windmill API
 
   contact:
@@ -847,7 +847,7 @@ paths:
 
   /w/{workspace}/users/delete/{username}:
     delete:
-      summary: delete user (require admin privilege)
+      summary: delete user (require admin privilege, except for the creator of a fork removing a non-admin member of the fork)
       operationId: deleteUser
       tags:
         - user
@@ -3026,7 +3026,7 @@ paths:
 
   /w/{workspace}/workspaces/add_user:
     post:
-      summary: add user to workspace
+      summary: add user to workspace (require admin privilege, except for the creator of a fork adding a developer/admin of its parent workspace as a developer of the fork)
       operationId: addUser
       tags:
         - workspace
@@ -4465,6 +4465,94 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/data_metrics/list:
+    get:
+      summary: list declared measures and dimensions on DuckLake tables
+      description: >
+        Call this before writing any aggregate query over a DuckLake table. A
+        declared measure is the canonical definition of that number, and
+        reproducing it yourself will silently disagree with it (a `revenue`
+        measure typically excludes refunds or test rows). Filter by `table` for
+        one table's declarations, or by `path_prefix` (e.g. `f/analytics`) for
+        everything declared under a folder; omit both to browse the whole
+        catalog. Results are keyset-paged: a full page may mean more remain, so
+        continue with the `cursor_*` params rather than assuming a measure does not exist. Use each returned `expr` verbatim, and when a measure has a
+        `filter` write it as
+        `expr FILTER (WHERE filter)` so measures with different predicates can
+        share one GROUP BY. If a number you need has no declared measure, write
+        your own aggregate as usual. Results are limited to declarations whose
+        producing script the caller can read.
+      operationId: listDataMetrics
+      x-mcp-tool: true
+      tags:
+        - data_metric
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: table
+          in: query
+          description: DuckLake table path, with or without the `ducklake://` scheme
+          schema:
+            type: string
+        - name: path_prefix
+          in: query
+          description: Producing script path prefix, e.g. `f/analytics`
+          schema:
+            type: string
+        - name: per_page
+          in: query
+          description: Results per page, capped at 1000 (default 1000)
+          schema:
+            type: integer
+        - name: cursor_table
+          in: query
+          description: >
+            Keyset cursor. To page, pass the previous response's `next_cursor` fields
+            back as `cursor_*`; all four move together, and are omitted for the first
+            page. Continue whenever `next_cursor` is present. Every returned row is one
+            the caller may read, so the cursor never names a hidden row.
+          schema:
+            type: string
+        - name: cursor_kind
+          in: query
+          schema:
+            type: string
+        - name: cursor_name
+          in: query
+          schema:
+            type: string
+        - name: cursor_script
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: declared measures and dimensions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [metrics]
+                properties:
+                  metrics:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DataMetric"
+                  next_cursor:
+                    description: >
+                      Present when more rows may follow: pass its fields back as the
+                      `cursor_*` params. Absent means the catalog is exhausted.
+                    type: object
+                    required: [table_path, kind, name, script_path]
+                    properties:
+                      table_path:
+                        type: string
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                      script_path:
+                        type: string
+
   /w/{workspace}/workspaces/list_datatables:
     get:
       summary: list Datatables
@@ -5183,6 +5271,45 @@ paths:
                     type: integer
                     nullable: true
 
+  /w/{workspace}/workspaces/git_sync_deploy_mode:
+    get:
+      summary: Get how local changes deploy to this workspace via git sync
+      operationId: getGitSyncDeployMode
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: branch
+          in: query
+          required: false
+          description: The branch the caller would push.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Git sync deploy mode
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - configured
+                  - deploy_on_push
+                properties:
+                  configured:
+                    type: boolean
+                    description: At least one git-sync repository is configured.
+                  deploy_on_push:
+                    type: boolean
+                    description: >-
+                      True means a `git push` is confirmed to deploy via
+                      auto-pull: exactly one licensed, deliverable repository
+                      tracks the branch. False is *not confirmed* rather than a
+                      definite no — it also covers unlicensed, ambiguous
+                      (several repos track it), and conservative false-negatives;
+                      determine the deploy path another way (CI `git push`, or
+                      `wmill sync push`).
+
   /w/{workspace}/workspaces/edit_git_sync_config:
     post:
       summary: edit workspace git sync settings
@@ -5502,6 +5629,8 @@ paths:
                     type: boolean
                   mqtt_used:
                     type: boolean
+                  amqp_used:
+                    type: boolean
                   gcp_used:
                     type: boolean
                   azure_used:
@@ -5523,6 +5652,7 @@ paths:
                   - nats_used
                   - postgres_used
                   - mqtt_used
+                  - amqp_used
                   - gcp_used
                   - azure_used
                   - sqs_used
@@ -6505,10 +6635,10 @@ paths:
         "400":
           description: invalid input or request closed
 
-  /w/{workspace}/workspaces/log_chat:
+  /w/{workspace}/workspaces/log_feature_usage:
     post:
-      summary: log AI chat message
-      operationId: logAiChat
+      summary: log anonymous feature usage telemetry events
+      operationId: logFeatureUsage
       tags:
         - workspace
       parameters:
@@ -6520,19 +6650,26 @@ paths:
             schema:
               type: object
               required:
-                - session_id
-                - provider
-                - model
-                - mode
+                - events
               properties:
-                session_id:
-                  type: string
-                provider:
-                  type: string
-                model:
-                  type: string
-                mode:
-                  type: string
+                events:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - feature
+                      - kind
+                    properties:
+                      feature:
+                        type: string
+                      kind:
+                        type: string
+                      key:
+                        type: string
+                      entity_id:
+                        type: string
+                      value:
+                        type: integer
       responses:
         "204":
           description: logged
@@ -8572,6 +8709,11 @@ paths:
           description: List every draft in the workspace (all users), not just the current user's own + legacy rows. Other users' rows come back with `mine=false` (view-only).
           schema:
             type: boolean
+        - name: compare_to_workspace
+          in: query
+          description: A fork passes its parent workspace id here to have each row flagged with `unchanged_from_parent`. Ignored unless it is exactly this workspace's parent.
+          schema:
+            type: string
       responses:
         "200":
           description: the user's drafts
@@ -8607,6 +8749,9 @@ paths:
                     mine:
                       type: boolean
                       description: The row belongs to the current user (own draft or the legacy no-owner row) and is therefore actionable. Always true in the default listing; with `all_users=true`, other users' rows are false (view-only).
+                    unchanged_from_parent:
+                      type: boolean
+                      description: Only present when `compare_to_workspace` was passed. True when this draft is identical to the parent's draft at the same path/kind/owner (cloned in on fork and never edited here).
                     draft_users:
                       description: |
                         Draft authors at this (path, kind) — the legacy NULL-email row surfaced as a null username.
@@ -10767,7 +10912,7 @@ paths:
           application/json:
             schema:
               allOf:
-                - $ref: "#/components/schemas/OpenFlowWPath"
+                - $ref: "#/components/schemas/EditFlow"
                 - type: object
                   properties:
                     deployment_message:
@@ -17315,6 +17460,211 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/amqp_triggers/create:
+    post:
+      summary: create amqp trigger
+      operationId: createAmqpTrigger
+      tags:
+        - amqp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new amqp trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewAmqpTrigger"
+      responses:
+        "201":
+          description: amqp trigger created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/amqp_triggers/update/{path}:
+    post:
+      summary: update amqp trigger
+      operationId: updateAmqpTrigger
+      tags:
+        - amqp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditAmqpTrigger"
+      responses:
+        "200":
+          description: amqp trigger updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/amqp_triggers/delete/{path}:
+    delete:
+      summary: delete amqp trigger
+      operationId: deleteAmqpTrigger
+      tags:
+        - amqp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: amqp trigger deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/amqp_triggers/get/{path}:
+    get:
+      summary: get amqp trigger
+      operationId: getAmqpTrigger
+      tags:
+        - amqp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/GetDraft"
+      responses:
+        "200":
+          description: amqp trigger retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/AmqpTrigger"
+                  - $ref: "#/components/schemas/UserDraftOverlay"
+
+  /w/{workspace}/amqp_triggers/list:
+    get:
+      summary: list amqp triggers
+      operationId: listAmqpTriggers
+      tags:
+        - amqp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+          required: true
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: path
+          description: filter by path
+          in: query
+          schema:
+            type: string
+        - name: is_flow
+          in: query
+          schema:
+            type: boolean
+        - name: path_start
+          in: query
+          schema:
+            type: string
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
+        - $ref: "#/components/parameters/IncludeDraftOnly"
+      responses:
+        "200":
+          description: amqp trigger list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AmqpTrigger"
+
+  /w/{workspace}/amqp_triggers/exists/{path}:
+    get:
+      summary: does amqp trigger exists
+      operationId: existsAmqpTrigger
+      tags:
+        - amqp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: amqp trigger exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/amqp_triggers/setmode/{path}:
+    post:
+      summary: set enabled amqp trigger
+      operationId: setAmqpTriggerMode
+      tags:
+        - amqp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated amqp trigger enable
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mode:
+                  $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
+              required:
+                - mode
+      responses:
+        "200":
+          description: amqp trigger enabled set
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/amqp_triggers/test:
+    post:
+      summary: test amqp connection
+      operationId: testAmqpConnection
+      tags:
+        - amqp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: test amqp connection
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amqp_resource_path:
+                  type: string
+                  description: Path to the AMQP resource containing broker connection configuration
+              required:
+                - amqp_resource_path
+      responses:
+        "200":
+          description: successfully connected to amqp
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/gcp_triggers/create:
     post:
       summary: create gcp trigger
@@ -19824,6 +20174,7 @@ paths:
                 nats_trigger,
                 postgres_trigger,
                 mqtt_trigger,
+                amqp_trigger,
                 gcp_trigger,
                 azure_trigger,
                 sqs_trigger,
@@ -19871,6 +20222,7 @@ paths:
                 nats_trigger,
                 postgres_trigger,
                 mqtt_trigger,
+                amqp_trigger,
                 gcp_trigger,
                 azure_trigger,
                 sqs_trigger,
@@ -19929,6 +20281,7 @@ paths:
                 nats_trigger,
                 postgres_trigger,
                 mqtt_trigger,
+                amqp_trigger,
                 gcp_trigger,
                 azure_trigger,
                 sqs_trigger,
@@ -22542,6 +22895,438 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/hub/publish_draft:
+    post:
+      summary: create or update a hub project draft
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubDraft
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishDraftBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/scripts:
+    post:
+      summary: publish a script to a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubScript
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishScriptBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/flows:
+    post:
+      summary: publish a flow to a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubFlow
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishFlowBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/apps:
+    post:
+      summary: publish an app to a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubApp
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishAppBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/raw_apps:
+    post:
+      summary: publish a raw app to a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubRawApp
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishRawAppBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/raw_apps/{id}/embed:
+    post:
+      summary: set or clear the embed url of a hub raw app
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubRawAppEmbed
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          description: hub id of the raw app
+          schema:
+            type: integer
+            format: int64
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RawAppEmbedBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/scripts/{ask_id}/recording:
+    post:
+      summary: attach a recording to a hub script
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubScriptRecording
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: ask_id
+          in: path
+          required: true
+          description: hub ask id of the script
+          schema:
+            type: integer
+            format: int64
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordingBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/flows/{flow_id}/recording:
+    post:
+      summary: attach a recording to a hub flow
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubFlowRecording
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: flow_id
+          in: path
+          required: true
+          description: hub id of the flow
+          schema:
+            type: integer
+            format: int64
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordingBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/resource_types:
+    post:
+      summary: publish a resource type to a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubResourceType
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishResourceTypeBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/resources:
+    post:
+      summary: publish resource placeholders to a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubResources
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishResourcesBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/triggers:
+    post:
+      summary: publish triggers to a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubTriggers
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishTriggersBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/migrations:
+    post:
+      summary: publish data table migrations to a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubMigrations
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishMigrationsBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/projects/{slug}/export:
+    get:
+      summary: export a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub and returns the Hub's status code and raw response body.
+        The folder scope is only needed to re-export the caller's own draft;
+        approved projects are public, so it is optional here.
+      operationId: getHubProjectExport
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: slug
+          in: path
+          required: true
+          description: hub project slug (3-50 chars, lowercase alphanumeric and hyphens, no leading/trailing hyphen)
+          schema:
+            type: string
+            minLength: 3
+            maxLength: 50
+            pattern: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+        - name: folder
+          in: query
+          required: false
+          description: folder scoping the Hub project source (`{workspace}:{folder}`)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/projects/{slug}/submit:
+    post:
+      summary: submit a hub project draft for review
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: submitHubProject
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: slug
+          in: path
+          required: true
+          description: hub project slug (3-50 chars, lowercase alphanumeric and hyphens, no leading/trailing hyphen)
+          schema:
+            type: string
+            minLength: 3
+            maxLength: 50
+            pattern: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/project:
+    get:
+      summary: get the hub project linked to a workspace folder
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: getHubProjectBySource
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
 components:
   securitySchemes:
     bearerAuth:
@@ -22588,6 +23373,16 @@ components:
       name: workspace
       in: path
       required: true
+      schema:
+        type: string
+    HubPublishFolder:
+      name: folder
+      in: query
+      required: true
+      description: |
+        workspace folder scoping the Hub publication: a workspace can publish
+        one Hub project per folder and the Hub-side source key is
+        `{workspace}:{folder}`
       schema:
         type: string
     PublicationName:
@@ -23087,6 +23882,7 @@ components:
         - trigger_kafka
         - trigger_nats
         - trigger_mqtt
+        - trigger_amqp
         - trigger_sqs
         - trigger_gcp
         - trigger_azure
@@ -26273,6 +27069,7 @@ components:
         - kafka
         - nats
         - mqtt
+        - amqp
         - sqs
         - gcp
         - azure
@@ -26776,6 +27573,8 @@ components:
         nats_count:
           type: number
         mqtt_count:
+          type: number
+        amqp_count:
           type: number
         gcp_count:
           type: number
@@ -27292,6 +28091,183 @@ components:
         - enabled
         - subscribe_topics
         - mqtt_resource_path
+
+    AmqpExchange:
+      type: object
+      properties:
+        exchange_name:
+          type: string
+          description: Name of the exchange to bind the consumed queue to
+        routing_keys:
+          type: array
+          items:
+            type: string
+          description: Routing keys used to bind the queue to the exchange
+      required:
+        - exchange_name
+
+    AmqpOptions:
+      type: object
+      properties:
+        declare_queue:
+          type: boolean
+          description: Declare the queue (durable) before consuming; when false the queue is declared passively and must already exist
+        prefetch_count:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 65535
+          description: Maximum number of unacknowledged messages the broker delivers at once (1-65535)
+
+    AmqpTrigger:
+      allOf:
+        - $ref: "#/components/schemas/TriggerExtraProperty"
+      type: object
+      properties:
+        amqp_resource_path:
+          type: string
+          description: Path to the AMQP resource containing broker connection configuration
+        queue_name:
+          type: string
+          description: Name of the queue to consume messages from
+        exchange:
+          $ref: "#/components/schemas/AmqpExchange"
+          nullable: true
+          description: Optional exchange binding for the consumed queue
+        options:
+          $ref: "#/components/schemas/AmqpOptions"
+          nullable: true
+          description: Optional consumer options (queue declaration, prefetch)
+        server_id:
+          type: string
+          description: ID of the server currently handling this trigger (internal)
+        last_server_ping:
+          type: string
+          format: date-time
+          description: Timestamp of last server heartbeat (internal)
+        error:
+          type: string
+          description: Last error message if the trigger failed
+        error_handler_path:
+          type: string
+          description: Path to a script or flow to run when the triggered job fails
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
+      required:
+        - amqp_resource_path
+        - queue_name
+
+    NewAmqpTrigger:
+      type: object
+      properties:
+        amqp_resource_path:
+          type: string
+          description: Path to the AMQP resource containing broker connection configuration
+        queue_name:
+          type: string
+          description: Name of the queue to consume messages from
+        exchange:
+          nullable: true
+          $ref: "#/components/schemas/AmqpExchange"
+          description: Optional exchange binding for the consumed queue
+        options:
+          nullable: true
+          $ref: "#/components/schemas/AmqpOptions"
+          description: Optional consumer options (queue declaration, prefetch)
+        path:
+          type: string
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`.
+        script_path:
+          type: string
+          description: Path to the script or flow to execute when a message is received
+        is_flow:
+          type: boolean
+          description: True if script_path points to a flow, false if it points to a script
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
+        error_handler_path:
+          type: string
+          description: Path to a script or flow to run when the triggered job fails
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
+        permissioned_as:
+          type: string
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
+      required:
+        - path
+        - script_path
+        - is_flow
+        - amqp_resource_path
+        - queue_name
+
+    EditAmqpTrigger:
+      type: object
+      properties:
+        amqp_resource_path:
+          type: string
+          description: Path to the AMQP resource containing broker connection configuration
+        queue_name:
+          type: string
+          description: Name of the queue to consume messages from
+        exchange:
+          nullable: true
+          $ref: "#/components/schemas/AmqpExchange"
+          description: Optional exchange binding for the consumed queue
+        options:
+          nullable: true
+          $ref: "#/components/schemas/AmqpOptions"
+          description: Optional consumer options (queue declaration, prefetch)
+        path:
+          type: string
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`.
+        script_path:
+          type: string
+          description: Path to the script or flow to execute when a message is received
+        is_flow:
+          type: boolean
+          description: True if script_path points to a flow, false if it points to a script
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
+        error_handler_path:
+          type: string
+          description: Path to a script or flow to run when the triggered job fails
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
+        permissioned_as:
+          type: string
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
+      required:
+        - path
+        - script_path
+        - is_flow
+        - amqp_resource_path
+        - queue_name
 
     DeliveryType:
       type: string
@@ -29089,6 +30065,37 @@ components:
                 type: string
           required:
             - path
+    # Like OpenFlowWPath but `path` is optional: on update the flow is identified by
+    # the URL, so the body path is only needed to rename it. Kept as a separate schema
+    # (rather than making OpenFlowWPath.path optional) so createFlow still requires path.
+    EditFlow:
+      allOf:
+        - $ref: "../../openflow.openapi.yaml#/components/schemas/OpenFlow"
+        - type: object
+          properties:
+            path:
+              type: string
+            tag:
+              type: string
+            ws_error_handler_muted:
+              type: boolean
+            priority:
+              type: integer
+            dedicated_worker:
+              type: boolean
+            timeout:
+              type: number
+            visible_to_runner_only:
+              type: boolean
+            on_behalf_of_email:
+              type: string
+            preserve_on_behalf_of:
+              type: boolean
+              description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email value instead of overwriting it."
+            labels:
+              type: array
+              items:
+                type: string
 
     FlowPreview:
       type: object
@@ -30220,6 +31227,7 @@ components:
           postgres,
           sqs,
           mqtt,
+          amqp,
           gcp,
           azure,
           email,
@@ -30402,6 +31410,7 @@ components:
               "nats_trigger",
               "postgres_trigger",
               "mqtt_trigger",
+              "amqp_trigger",
               "sqs_trigger",
               "gcp_trigger",
               "azure_trigger",
@@ -30734,6 +31743,33 @@ components:
         kind:
           $ref: "#/components/schemas/AssetKind"
       required: [path, kind]
+    DataMetric:
+      description: |
+        One `// measure` or `// dimension` declaration, as catalogued from the
+        script that materializes the table. `expr` and `filter` are the author's
+        own SQL: a reader renders a measure as `expr` plus, when `filter` is set,
+        a trailing `FILTER (WHERE filter)`.
+      type: object
+      required: [script_path, table_path, kind, name, expr]
+      properties:
+        script_path:
+          type: string
+          description: The declaring script, and the path reads are authorized against
+        table_path:
+          type: string
+          description: Canonical scheme-less DuckLake path, `<lake>/<schema>.<table>` (schema defaults to `main`)
+        kind:
+          type: string
+          enum:
+            - measure
+            - dimension
+        name:
+          type: string
+        expr:
+          type: string
+        filter:
+          type: string
+          description: Row predicate from a measure's trailing `where`
     ContractWarning:
       description: |
         One save-time schema-contract warning: a consumer reference that does
@@ -30750,6 +31786,9 @@ components:
             - missing_lineage_source
             - missing_relationship_column
             - relationship_type_mismatch
+            - missing_measure_column
+            - missing_dimension_column
+            - non_aggregate_measure
             - suppressed
         asset_path:
           type: string
@@ -31242,3 +32281,276 @@ components:
         - name
         - owner
         - private
+
+    HubProjectSlug:
+      type: string
+      description: hub project slug (3-50 chars, lowercase alphanumeric and hyphens, no leading/trailing hyphen)
+      minLength: 3
+      maxLength: 50
+      pattern: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+
+    PublishDraftBody:
+      type: object
+      properties:
+        slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+        name:
+          type: string
+        summary:
+          type: string
+        readme:
+          type: string
+      required:
+        - slug
+        - name
+        - summary
+
+    PublishScriptBody:
+      type: object
+      properties:
+        summary:
+          type: string
+        app:
+          type: string
+        description:
+          type: string
+        kind:
+          type: string
+        content:
+          type: string
+        language:
+          type: string
+        schema:
+          type: object
+        lockfile:
+          type: string
+        path:
+          type: string
+        source_path:
+          type: string
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - summary
+        - app
+        - content
+        - language
+        - project_slug
+
+    PublishFlowInner:
+      type: object
+      properties:
+        summary:
+          type: string
+        description:
+          type: string
+        value:
+          type: object
+        schema:
+          type: object
+      required:
+        - summary
+        - value
+
+    PublishFlowBody:
+      type: object
+      properties:
+        flow:
+          $ref: "#/components/schemas/PublishFlowInner"
+        apps:
+          type: array
+          items:
+            type: string
+        path:
+          type: string
+        source_path:
+          type: string
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - flow
+        - apps
+        - project_slug
+
+    PublishAppBody:
+      type: object
+      properties:
+        app:
+          type: object
+        apps:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+        summary:
+          type: string
+        path:
+          type: string
+        source_path:
+          type: string
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - app
+        - apps
+        - summary
+        - project_slug
+
+    PublishRawAppBody:
+      type: object
+      properties:
+        raw:
+          type: string
+        apps:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+        summary:
+          type: string
+        path:
+          type: string
+        source_path:
+          type: string
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - raw
+        - apps
+        - summary
+        - project_slug
+
+    RawAppEmbedBody:
+      type: object
+      properties:
+        external_embed_url:
+          type: string
+          nullable: true
+          description: explicit `null` clears the embed (unpublish)
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - project_slug
+
+    RecordingBody:
+      type: object
+      properties:
+        recording:
+          type: object
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - project_slug
+
+    PublishResourceTypeBody:
+      type: object
+      properties:
+        name:
+          type: string
+        schema:
+          type: object
+        description:
+          type: string
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - name
+        - project_slug
+
+    PublishResourceBody:
+      type: object
+      properties:
+        path:
+          type: string
+        resource_type:
+          type: string
+      required:
+        - path
+        - resource_type
+
+    PublishResourcesBody:
+      type: object
+      properties:
+        resources:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublishResourceBody"
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - resources
+        - project_slug
+
+    PublishTriggerBody:
+      type: object
+      properties:
+        path:
+          type: string
+        kind:
+          type: string
+        summary:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        config:
+          type: object
+        script_ask_id:
+          type: integer
+          format: int64
+          nullable: true
+        flow_id:
+          type: integer
+          format: int64
+          nullable: true
+      required:
+        - path
+        - kind
+        - config
+
+    PublishTriggersBody:
+      type: object
+      properties:
+        triggers:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublishTriggerBody"
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - triggers
+        - project_slug
+
+    PublishMigrationBody:
+      type: object
+      description: one best-effort data table migration attached to a project (per data table)
+      properties:
+        datatable_name:
+          type: string
+        sql:
+          type: string
+        sql_down:
+          type: string
+          description: defaults to an empty string when omitted
+        enabled:
+          type: boolean
+      required:
+        - datatable_name
+        - sql
+        - enabled
+
+    PublishMigrationsBody:
+      type: object
+      properties:
+        migrations:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublishMigrationBody"
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - migrations
+        - project_slug

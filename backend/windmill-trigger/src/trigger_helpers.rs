@@ -140,7 +140,7 @@ fn runnable_format_from_schema_without_preprocessor(
     schema: Option<sqlx::types::Json<PartialSchema>>,
 ) -> RunnableFormat {
     match trigger_kind {
-        TriggerKind::Mqtt
+        TriggerKind::Mqtt | TriggerKind::Amqp
             if schema.as_ref().is_some_and(|schema| {
                 schema.properties.as_ref().is_some_and(|properties| {
                     properties.iter().any(|(key, def)| {

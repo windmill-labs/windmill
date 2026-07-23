@@ -15,7 +15,7 @@ use axum::{
 };
 use lazy_static::lazy_static;
 use regex::Regex;
-use windmill_api_auth::{check_scopes, ApiAuthed, AuthCache, Tokened};
+use windmill_api_auth::{build_scope_path_predicate, check_scopes, ApiAuthed, AuthCache, Tokened};
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::DB;
@@ -109,6 +109,7 @@ async fn list_folders(
     let (per_page, offset) = paginate(pagination);
     let mut tx = user_db.begin(&authed).await?;
 
+    let allowed = build_scope_path_predicate(&authed, "folders", "read");
     let rows = sqlx::query_as!(
         Folder,
         "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as, labels FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
@@ -117,7 +118,10 @@ async fn list_folders(
         offset as i64
     )
     .fetch_all(&mut *tx)
-    .await?;
+    .await?
+    .into_iter()
+    .filter(|r| allowed(&format!("f/{}", r.name)))
+    .collect::<Vec<_>>();
     tx.commit().await?;
 
     Ok(Json(rows))
@@ -131,6 +135,7 @@ async fn list_foldernames(
     let (per_page, offset) = paginate(pagination);
     let mut tx = user_db.begin(&authed).await?;
 
+    let allowed = build_scope_path_predicate(&authed, "folders", "read");
     let rows = sqlx::query_scalar!(
         "SELECT name FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
         w_id,
@@ -138,7 +143,10 @@ async fn list_foldernames(
         offset as i64
     )
     .fetch_all(&mut *tx)
-    .await?;
+    .await?
+    .into_iter()
+    .filter(|name| allowed(&format!("f/{}", name)))
+    .collect::<Vec<_>>();
 
     tx.commit().await?;
 
@@ -235,6 +243,7 @@ async fn create_folder(
     Path(w_id): Path<String>,
     Json(mut ng): Json<NewFolder>,
 ) -> Result<String> {
+    crate::check_demo_workspace_restriction(&authed, &w_id, "Folder creation")?;
     if let Some(labels) = ng.labels.as_mut() {
         dedup_labels(labels);
     }
@@ -408,6 +417,12 @@ async fn update_folder(
     .await?
     {
         return Err(Error::PermissionDenied(msg));
+    }
+
+    // update_folder can also grant permissions (owners / extra_perms / default_permissioned_as),
+    // so it is a sharing path and must honor the demo-workspace sharing restriction.
+    if ng.owners.is_some() || ng.extra_perms.is_some() || ng.default_permissioned_as.is_some() {
+        crate::check_demo_workspace_restriction(&authed, &w_id, "Sharing")?;
     }
 
     let mut sqlb = SqlBuilder::update_table("folder");
@@ -812,6 +827,7 @@ async fn add_owner(
     Path((w_id, name)): Path<(String, String)>,
     Json(Owner { owner, .. }): Json<Owner>,
 ) -> Result<String> {
+    crate::check_demo_workspace_restriction(&authed, &w_id, "Sharing")?;
     let mut tx = user_db.begin(&authed).await?;
 
     not_found_if_none(get_folderopt(&mut tx, &w_id, &name).await?, "Folder", &name)?;
@@ -876,6 +892,13 @@ async fn remove_owner(
     Path((w_id, name)): Path<(String, String)>,
     Json(Owner { owner, write }): Json<Owner>,
 ) -> Result<String> {
+    // remove_owner with a `write` value is a grant path: it jsonb_set's the owner's
+    // permission level into extra_perms (only write=None is a pure revoke), so the
+    // demo-workspace sharing restriction must apply when a level is being set.
+    if write.is_some() {
+        crate::check_demo_workspace_restriction(&authed, &w_id, "Sharing")?;
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
     not_found_if_none(get_folderopt(&mut tx, &w_id, &name).await?, "Folder", &name)?;

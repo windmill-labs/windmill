@@ -121,6 +121,7 @@ fn native_str(t: &TriggerSpec) -> Option<&'static str> {
         TriggerSpec::Email => "email",
         TriggerSpec::Kafka => "kafka",
         TriggerSpec::Mqtt => "mqtt",
+        TriggerSpec::Amqp => "amqp",
         TriggerSpec::Nats => "nats",
         TriggerSpec::Postgres => "postgres",
         TriggerSpec::Sqs => "sqs",

@@ -10,6 +10,7 @@ import type {
 import type {
 	DataTableTables,
 	DataTableTableSchema,
+	EndpointTool,
 	GetDraftForUserResponse,
 	GetOwnDraftResponse,
 	ListDraftsResponse,
@@ -303,13 +304,20 @@ export function getBenchmarkJobLogs(workspace: string, jobId: string): string {
  */
 const benchmarkDrafts = new Map<
 	string,
-	{ workspace: string; kind: UserDraftItemKind; path: string; value: unknown }
+	{ workspace: string; kind: UserDraftItemKind; path: string; value: unknown; createdAt: string }
 >()
 
-// Fixed timestamp so artifacts stay deterministic. No eval simulates a
-// concurrent writer, so every save is accepted and the conflict branch is
-// never taken — the syncer just records this as its `last_sync` baseline.
-const BENCHMARK_DRAFT_TIMESTAMP = '1970-01-01T00:00:00.000Z'
+// Counter-based timestamps: deterministic run-to-run (same event order → same
+// values) but MONOTONIC per update, because production bumps a draft row's
+// created_at on every upsert and the diff snapshot cache keys patch reuse on
+// it — a fixed timestamp would serve stale patches after an edit. No eval
+// simulates a concurrent writer, so every save is accepted and the conflict
+// branch is never taken.
+let benchmarkDraftClock = 0
+function nextBenchmarkDraftTimestamp(): string {
+	benchmarkDraftClock += 1
+	return new Date(benchmarkDraftClock * 1000).toISOString()
+}
 
 function benchmarkDraftKey(workspace: string, kind: string, path: string): string {
 	return `${workspace}::${kind}::${path}`
@@ -340,7 +348,8 @@ export function seedBenchmarkDraft(
 		workspace,
 		kind,
 		path,
-		value
+		value,
+		createdAt: nextBenchmarkDraftTimestamp()
 	})
 }
 
@@ -353,6 +362,7 @@ export function updateBenchmarkDraft(input: {
 }): UpdateDraftResponse {
 	const key = benchmarkDraftKey(input.workspace, input.kind, input.path)
 	const value = input.requestBody?.value
+	const createdAt = nextBenchmarkDraftTimestamp()
 	if (value == null) {
 		benchmarkDrafts.delete(key)
 	} else {
@@ -360,10 +370,11 @@ export function updateBenchmarkDraft(input: {
 			workspace: input.workspace,
 			kind: input.kind,
 			path: input.path,
-			value
+			value,
+			createdAt
 		})
 	}
-	return { status: 'saved', current_timestamp: BENCHMARK_DRAFT_TIMESTAMP }
+	return { status: 'saved', current_timestamp: createdAt }
 }
 
 /** Mirror `DraftService.getDraftForUser`: 404-shaped throw when absent so the
@@ -377,7 +388,7 @@ export function getBenchmarkDraftForUser(input: {
 	if (!entry) {
 		throw Object.assign(new Error(`no draft for "${input.path}"`), { status: 404 })
 	}
-	return { value: entry.value, created_at: BENCHMARK_DRAFT_TIMESTAMP }
+	return { value: entry.value, created_at: entry.createdAt }
 }
 
 /** Mirror `DraftService.getOwnDraft`: `null` (200) when absent — unlike
@@ -391,7 +402,18 @@ export function getBenchmarkOwnDraft(input: {
 	if (!entry) {
 		return null
 	}
-	return { value: entry.value, created_at: BENCHMARK_DRAFT_TIMESTAMP }
+	return { value: entry.value, created_at: entry.createdAt }
+}
+
+/** Whether a deployed benchmark item exists for a draft row's kind+path —
+ * drives `draft_only`, which production computes against the deployed tables. */
+function benchmarkDeployedExists(workspace: string, kind: UserDraftItemKind, path: string): boolean {
+	if (kind === 'script') return Boolean(getBenchmarkScriptByPath(workspace, path))
+	if (kind === 'flow') return Boolean(getBenchmarkFlowByPath(workspace, path))
+	if (kind === 'app' || kind === 'raw_app') return Boolean(getBenchmarkAppByPath(workspace, path))
+	// Drawer kinds (variables/resources/schedules/triggers) have no deployed
+	// benchmark stores today.
+	return false
 }
 
 /** Mirror `DraftService.listDrafts`: metadata rows (no value) for a workspace. */
@@ -402,9 +424,9 @@ export function listBenchmarkDrafts(workspace: string): ListDraftsResponse {
 			kind: entry.kind,
 			path: entry.path,
 			summary: (entry.value as { summary?: string } | null)?.summary,
-			draft_only: true,
+			draft_only: !benchmarkDeployedExists(workspace, entry.kind, entry.path),
 			legacy_draft: false,
-			created_at: BENCHMARK_DRAFT_TIMESTAMP
+			created_at: entry.createdAt
 		}))
 }
 
@@ -693,4 +715,139 @@ function buildBenchmarkApp(app: BenchmarkWorkspaceApp): AppWithLastVersion {
 		custom_path: app.value.custom_path as string | undefined,
 		raw_app: true
 	}
+}
+
+// ============= API endpoint catalog (McpService.listMcpTools + raw fetch) =============
+// The global chat's API catalog tools list endpoints via McpService and execute
+// them with a plain relative fetch('/api/...'), which has no meaning in the
+// vitest environment. A representative slice of the real catalog is served here,
+// and `handleBenchmarkApiFetch` answers the executed calls.
+
+const BENCHMARK_MCP_TOOLS: EndpointTool[] = [
+	{
+		name: 'listWorkers',
+		description: 'List workers',
+		instructions: 'List all workers with their last ping and job counts.',
+		path: '/workers/list',
+		method: 'GET',
+		query_params_schema: {
+			type: 'object',
+			properties: { page: { type: 'integer' }, per_page: { type: 'integer' } }
+		}
+	},
+	{
+		name: 'listQueue',
+		description: 'List queued jobs',
+		instructions: '',
+		path: '/w/{workspace}/jobs/queue/list',
+		method: 'GET',
+		path_params_schema: {
+			type: 'object',
+			properties: { workspace: { type: 'string' } },
+			required: ['workspace']
+		}
+	},
+	{
+		name: 'runScriptByPath',
+		description: 'Run the deployed version of a script by path',
+		instructions: '',
+		path: '/w/{workspace}/jobs/run/p/{path}',
+		method: 'POST',
+		path_params_schema: {
+			type: 'object',
+			properties: { workspace: { type: 'string' }, path: { type: 'string' } },
+			required: ['workspace', 'path']
+		},
+		body_schema: { type: 'object', properties: {} }
+	},
+	{
+		name: 'runFlowByPath',
+		description: 'Run the deployed version of a flow by path',
+		instructions: '',
+		path: '/w/{workspace}/jobs/run/f/{path}',
+		method: 'POST',
+		path_params_schema: {
+			type: 'object',
+			properties: { workspace: { type: 'string' }, path: { type: 'string' } },
+			required: ['workspace', 'path']
+		},
+		body_schema: { type: 'object', properties: {} }
+	},
+	// Draft-covered endpoints, present so steering cases exercise the guard the
+	// way production does (hidden from search, refused at call time).
+	{
+		name: 'getScriptByPath',
+		description: 'Get a script by path',
+		instructions: '',
+		path: '/w/{workspace}/scripts/get/p/{path}',
+		method: 'GET'
+	},
+	{
+		name: 'createFlow',
+		description: 'Create a flow',
+		instructions: '',
+		path: '/w/{workspace}/flows/create',
+		method: 'POST'
+	},
+	{
+		name: 'deleteSchedule',
+		description: 'Delete a schedule',
+		instructions: '',
+		path: '/w/{workspace}/schedules/delete/{path}',
+		method: 'DELETE'
+	},
+	{
+		name: 'getVariable',
+		description: 'Get a variable',
+		instructions: '',
+		path: '/w/{workspace}/variables/get/{path}',
+		method: 'GET'
+	}
+]
+
+export function listBenchmarkMcpTools(): EndpointTool[] {
+	return BENCHMARK_MCP_TOOLS
+}
+
+const BENCHMARK_WORKERS = [
+	{
+		worker: 'wk-benchmark-1',
+		worker_instance: 'benchmark-host',
+		last_ping: 2,
+		started_at: BENCHMARK_TIMESTAMP,
+		jobs_executed: 42,
+		custom_tags: null,
+		worker_group: 'default',
+		wm_version: 'benchmark'
+	},
+	{
+		worker: 'wk-benchmark-2',
+		worker_instance: 'benchmark-host',
+		last_ping: 5,
+		started_at: BENCHMARK_TIMESTAMP,
+		jobs_executed: 17,
+		custom_tags: null,
+		worker_group: 'default',
+		wm_version: 'benchmark'
+	}
+]
+
+/** True when `handleBenchmarkApiFetch` has an answer for this `/api/...` url.
+ * Any other relative fetch must keep its normal (non-benchmark) behavior —
+ * intercepting it with a synthetic 404 sends the model into retry loops. */
+export function hasBenchmarkApiHandler(url: string): boolean {
+	const path = url.split('?')[0]
+	return path === '/api/workers/list' || /^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path)
+}
+
+/** Answer a relative `/api/...` fetch issued by the API catalog executor. */
+export function handleBenchmarkApiFetch(url: string): Response {
+	const path = url.split('?')[0]
+	if (path === '/api/workers/list') {
+		return Response.json(BENCHMARK_WORKERS)
+	}
+	if (/^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path)) {
+		return Response.json([])
+	}
+	return Response.json({ error: `no benchmark handler for ${path}` }, { status: 404 })
 }

@@ -137,6 +137,11 @@ export type RawAppRunSummary = {
 }
 export type RawAppRunsProvider = () => RawAppRunSummary[] | undefined
 
+/** Capture the live raw-app preview as a PNG data URL. Rejects when the preview
+ * isn't ready. Registered by the editor, dispatched by the session runtime for the
+ * global `take_screenshot` tool. */
+export type RawAppScreenshotRequester = () => Promise<string>
+
 export function formatAppRunsForChat(runs: RawAppRunSummary[]): string {
 	return JSON.stringify(runs, null, 2)
 }
