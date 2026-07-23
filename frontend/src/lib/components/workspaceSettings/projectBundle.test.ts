@@ -14,7 +14,7 @@ import {
 	buildProjectBundle,
 	retargetProjectExport,
 	extractTriggerConfigResourceRefs,
-	extractVarRefs,
+	extractVarRefsFromValue,
 	type ProjectExport,
 	type FetchedItem,
 	type ItemRef
@@ -489,14 +489,29 @@ describe('buildProjectBundle', () => {
 	})
 })
 
-describe('extractVarRefs', () => {
-	it('finds unique `$var:` paths anywhere in the text', () => {
-		expect(
-			extractVarRefs('a "$var:f/proj/token" b "$var:u/admin/key" c "$var:f/proj/token"').sort()
-		).toEqual(['f/proj/token', 'u/admin/key'])
+describe('extractVarRefsFromValue', () => {
+	it('collects whole-value `$var:`/`$jsonvar:` refs, deduped, walking nested JSON', () => {
+		const value = {
+			flow_env: { API: '$var:u/admin/key' },
+			modules: [
+				{ value: { input_transforms: { a: { type: 'static', value: '$var:f/proj/token' } } } },
+				{ value: { input_transforms: { b: { type: 'static', value: '$jsonvar:u/admin/cfg' } } } },
+				{ value: { input_transforms: { c: { type: 'static', value: '$var:u/admin/key' } } } }
+			]
+		}
+		expect(extractVarRefsFromValue(value).sort()).toEqual([
+			'f/proj/token',
+			'u/admin/cfg',
+			'u/admin/key'
+		])
 	})
-	it('returns nothing when there are no var tokens', () => {
-		expect(extractVarRefs('const x = "$res:f/proj/db"')).toEqual([])
+	it('ignores a `$var:` token embedded in inline code (not a whole value)', () => {
+		// The worker only substitutes a value that *is* the reference, so an inline
+		// script literal must not be treated as a variable arg.
+		const value = {
+			modules: [{ value: { type: 'rawscript', content: 'return "$var:u/example/template"' } }]
+		}
+		expect(extractVarRefsFromValue(value)).toEqual([])
 	})
 })
 

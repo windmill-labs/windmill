@@ -28,7 +28,7 @@ import {
 	extractRawAppRefs,
 	extractScriptRefs,
 	extractTriggerConfigResourceRefs,
-	extractVarRefs,
+	extractVarRefsFromValue,
 	retargetProjectExport,
 	type ExportItem,
 	type ProjectExport,
@@ -58,12 +58,13 @@ export function refContainmentViolation(refs: Ref[], folder: string): string | u
 	return undefined
 }
 
-// `$var:` references (in flow static inputs, flow_env, app values, trigger config)
-// are resolved at runtime under the imported runnable's permissions and are never
-// hub-hosted. Retargeting doesn't rewrite them, so reject any that don't live in
-// the target folder rather than let an item bind a variable in another namespace.
-export function varContainmentViolation(text: string, folder: string): string | undefined {
-	for (const p of extractVarRefs(text)) {
+// `$var:`/`$jsonvar:` references (in flow static inputs, flow_env, app runnable
+// inputs, trigger config) are resolved at runtime under the imported runnable's
+// permissions and are never hub-hosted. Retargeting doesn't rewrite them, so reject
+// any that don't live in the target folder rather than bind a variable in another
+// namespace. Takes the parsed value so inline code carrying a literal is ignored.
+export function varContainmentViolation(value: any, folder: string): string | undefined {
+	for (const p of extractVarRefsFromValue(value)) {
 		if (classifyPath(p, folder) !== 'internal') {
 			return `variable '${p}' escapes the target folder f/${folder}/ — skipped`
 		}
@@ -283,18 +284,13 @@ export async function installProject(args: {
 			: record(String(path), run())
 	}
 
-	// `refs` catches structured runnable/`$res:` refs; `varText` is the serialized
-	// item scanned for `$var:` tokens (which the extractors don't surface).
-	const checkedItem = (
-		path: unknown,
-		refs: Ref[],
-		varText: string,
-		run: () => Promise<unknown>
-	) => {
+	// `refs` catches structured runnable/`$res:` refs; `varValue` is the parsed item
+	// walked for `$var:`/`$jsonvar:` argument refs (which the ref extractors miss).
+	const checkedItem = (path: unknown, refs: Ref[], varValue: any, run: () => Promise<unknown>) => {
 		const violation =
 			guard(path) ??
 			refContainmentViolation(refs, folder) ??
-			varContainmentViolation(varText, folder)
+			varContainmentViolation(varValue, folder)
 		return violation
 			? record(String(path), Promise.reject(new Error(violation)))
 			: record(String(path), run())
@@ -302,15 +298,13 @@ export async function installProject(args: {
 
 	for (const s of proj.scripts) {
 		// `$var:` is resolved in job args (flow inputs, schedule args, trigger config),
-		// not in script source, so a literal in code is inert — don't scan it here.
-		await checkedItem(s.path, extractScriptRefs(s.content ?? ''), '', () =>
+		// not in script source, so there is no variable arg to contain here.
+		await checkedItem(s.path, extractScriptRefs(s.content ?? ''), undefined, () =>
 			importScript(workspace, s)
 		)
 	}
 	for (const f of proj.flows) {
-		await checkedItem(f.path, extractFlowRefs(f.value), JSON.stringify(f.value ?? {}), () =>
-			importFlow(workspace, f)
-		)
+		await checkedItem(f.path, extractFlowRefs(f.value), f.value, () => importFlow(workspace, f))
 	}
 	for (const r of proj.resources) {
 		await checked(r.path, () => importResourceStub(workspace, r))
@@ -318,8 +312,17 @@ export async function installProject(args: {
 	for (const a of proj.apps) {
 		const isRaw = a.app_type === 'raw'
 		const refs = isRaw ? extractRawAppRefs(a.value?.raw ?? '') : extractAppRefs(a.value)
-		const varText = isRaw ? (a.value?.raw ?? '') : JSON.stringify(a.value ?? {})
-		await checkedItem(a.path, refs, varText, () => importApp(workspace, a))
+		// Raw apps hold their runnables in the `value.raw` JSON string; parse it so the
+		// walk sees the same structure the backend resolves. Malformed raw fails at import.
+		let varValue: any = a.value
+		if (isRaw) {
+			try {
+				varValue = JSON.parse(a.value?.raw ?? '{}')
+			} catch {
+				varValue = undefined
+			}
+		}
+		await checkedItem(a.path, refs, varValue, () => importApp(workspace, a))
 	}
 	// A trigger's config is a live binding, not inert content: resource fields,
 	// handler runnables and $res: refs it names are acted on by the backend, so
@@ -342,8 +345,8 @@ export async function installProject(args: {
 				return `resource '${p}' escapes the target folder ${prefix} — skipped`
 			}
 		}
-		// Config fields (e.g. SQS queue_url) can carry `$var:` refs too.
-		return varContainmentViolation(JSON.stringify(cfg), folder)
+		// Config fields (e.g. SQS queue_url) can carry `$var:`/`$jsonvar:` refs too.
+		return varContainmentViolation(cfg, folder)
 	}
 	for (const t of proj.triggers) {
 		const violation = guard(t.path, t.runnable_path) ?? triggerConfigViolation(t)

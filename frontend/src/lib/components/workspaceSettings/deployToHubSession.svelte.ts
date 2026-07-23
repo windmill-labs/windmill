@@ -1018,6 +1018,7 @@ export class DeployToHubSession {
 		const triggersSnapshot = this.relevantTriggers.slice()
 		const migrationsSnapshot = this.migrationDrafts.slice()
 		this.hubItemIds = {}
+		this.deploymentStatus = {}
 		let failures = 0
 		try {
 			const seed: ItemRef[] = [
@@ -1147,6 +1148,17 @@ export class DeployToHubSession {
 
 			await sleep(150)
 			if (this.#disposed) return
+			// An incomplete push must never become submittable: a failed transitive item
+			// can leave a pushed runnable pointing at content that never landed. Stay in
+			// predeploy (deploymentStatus keeps the failed items visible) so re-publishing
+			// retries every write — createDraft and the item pushes are idempotent.
+			if (failures > 0) {
+				sendUserToast(
+					`Publish incomplete: ${failures} write(s) failed. Nothing was submitted — fix them and re-publish.`,
+					true
+				)
+				return
+			}
 			this.deploymentStatus = {}
 			this.recordings = {}
 			// Deterministic baseline so a transient Hub read failure can't leave the
@@ -1154,11 +1166,7 @@ export class DeployToHubSession {
 			this.draftItems = itemsSnapshot.map((i) => ({ ...i, rec: 'none' }))
 			this.phase = 'draft'
 			await this.rehydrateFromHub()
-			if (failures > 0) {
-				sendUserToast(`Draft pushed with ${failures} failed item(s).`, true)
-			} else {
-				sendUserToast(`Draft created on the Hub. Add recordings before submitting for review.`)
-			}
+			sendUserToast(`Draft created on the Hub. Add recordings before submitting for review.`)
 		} finally {
 			this.deploying = false
 		}
@@ -1447,25 +1455,39 @@ export class DeployToHubSession {
 	// the Hub raw-app iframe in sync. Returns the resolved public URL when shared.
 	async #setAppShared(it: DeployItem, shared: boolean): Promise<string | null> {
 		const workspace = this.workspace
-		const app = await AppService.getAppByPath({ workspace, path: it.path })
-		const policy = {
-			...(app.policy ?? {}),
-			execution_mode: (shared ? 'anonymous' : 'publisher') as 'anonymous' | 'publisher'
+		const hubId = it.kind === 'raw_app' ? this.hubItemIds[it.key] : undefined
+		// Sharing a raw app as an iframe needs its Hub item to wire the embed. Fail
+		// before flipping the app public so it can't be left anonymous with no embed.
+		if (shared && it.kind === 'raw_app' && !hubId) {
+			throw new Error('Push the bundle to the Hub first to share the live iframe')
 		}
+		const app = await AppService.getAppByPath({ workspace, path: it.path })
+		const prevMode = (app.policy?.execution_mode ?? 'publisher') as 'anonymous' | 'publisher'
+		const nextMode = (shared ? 'anonymous' : 'publisher') as 'anonymous' | 'publisher'
 		await AppService.updateApp({
 			workspace,
 			path: it.path,
-			requestBody: { policy, deployment_message: shared ? 'Share as iframe' : 'Unshare iframe' }
+			requestBody: {
+				policy: { ...(app.policy ?? {}), execution_mode: nextMode },
+				deployment_message: shared ? 'Share as iframe' : 'Unshare iframe'
+			}
 		})
 		const url = shared ? ((await this.#resolvePublicUrl(it.path)) ?? null) : null
-		if (it.kind === 'raw_app') {
-			const hubId = this.hubItemIds[it.key]
-			if (!hubId) {
-				if (shared) sendUserToast('Push the bundle to the Hub first to share the live iframe', true)
-			} else if (!shared) {
-				await this.#pushRawAppEmbed(hubId, null)
-			} else if (url) {
-				await this.#pushRawAppEmbed(hubId, url)
+		if (hubId && it.kind === 'raw_app' && (!shared || url)) {
+			try {
+				await this.#pushRawAppEmbed(hubId, shared ? url : null)
+			} catch (e) {
+				// The embed sync failed after the policy flip; roll the policy back so the
+				// app's public state stays consistent with the (unchanged) Hub embed.
+				await AppService.updateApp({
+					workspace,
+					path: it.path,
+					requestBody: {
+						policy: { ...(app.policy ?? {}), execution_mode: prevMode },
+						deployment_message: 'Revert iframe share'
+					}
+				}).catch(() => {})
+				throw e
 			}
 		}
 		return url

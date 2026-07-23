@@ -20,17 +20,27 @@ export type PathClass = 'internal' | 'hub' | 'external'
 /** A single `$res:PATH` / `res://PATH` token (path captured in group 1). */
 const RES_TOKEN_RE = /(?:\$res:|res:\/\/)([\w\-./]+)/g
 
-/** A single `$var:PATH` token (path captured in group 1). */
-const VAR_TOKEN_RE = /\$var:([\w\-./]+)/g
+// A whole-string `$var:PATH` / `$jsonvar:PATH` value. The worker substitutes these
+// only when an argument value *is* the reference (walking nested JSON), never a
+// token embedded in inline code, so the whole value must match.
+const VAR_VALUE_RE = /^\$(?:json)?var:([\w\-./]+)$/
 
-// `$var:` references appear as whole or nested string values in flow static
-// inputs, flow_env, app values, schedule args and trigger config fields. Scan a
-// serialized item/config for the variable paths it will resolve at runtime.
-export function extractVarRefs(text: string): string[] {
+// Variable paths a value will resolve at runtime (flow static inputs, flow_env,
+// app runnable inputs, trigger config fields). Walk the parsed structure and match
+// whole string values so inline code carrying a literal `$var:` string is ignored.
+export function extractVarRefsFromValue(value: any): string[] {
 	const out = new Set<string>()
-	let m: RegExpExecArray | null
-	VAR_TOKEN_RE.lastIndex = 0
-	while ((m = VAR_TOKEN_RE.exec(text)) !== null) out.add(m[1])
+	const walk = (v: any) => {
+		if (typeof v === 'string') {
+			const m = VAR_VALUE_RE.exec(v)
+			if (m) out.add(m[1])
+		} else if (Array.isArray(v)) {
+			for (const x of v) walk(x)
+		} else if (v && typeof v === 'object') {
+			for (const k of Object.keys(v)) walk(v[k])
+		}
+	}
+	walk(value)
 	return [...out]
 }
 
