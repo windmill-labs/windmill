@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import ScriptAdvancedSettings from '$lib/components/ScriptAdvancedSettings.svelte'
 	import ScriptSettingsBadges from '$lib/components/ScriptSettingsBadges.svelte'
 	import { ScriptService, type Script } from '$lib/gen'
@@ -17,8 +18,10 @@
 	// ScriptAdvancedSettings still edits it, so widen the local type to keep it.
 	let script: (Script & { cache_ignore_s3_path?: boolean }) | undefined = $state(undefined)
 	let loading = $state(false)
+	let loadError = $state<string | undefined>(undefined)
 	let saving = $state(false)
 	let callback: (() => void) | undefined = undefined
+	let current: { path: string; hash: string | undefined } | undefined = undefined
 	// Guards against a slow load for a previously-opened script resolving after
 	// the drawer was reopened for a different one and overwriting its target.
 	let openSeq = 0
@@ -30,10 +33,16 @@
 		hash: string | undefined,
 		cb?: () => void
 	): Promise<void> {
-		const seq = ++openSeq
-		script = undefined
 		callback = cb
 		drawer?.openDrawer?.()
+		await load(path, hash)
+	}
+
+	async function load(path: string, hash: string | undefined): Promise<void> {
+		const seq = ++openSeq
+		script = undefined
+		loadError = undefined
+		current = { path, hash }
 		loading = true
 		try {
 			const loaded = hash
@@ -42,7 +51,7 @@
 			if (seq !== openSeq) return
 			script = loaded
 		} catch (e) {
-			if (seq === openSeq) sendUserToast(`Could not load script settings: ${e}`, true)
+			if (seq === openSeq) loadError = `${e?.body ?? e}`
 		} finally {
 			if (seq === openSeq) loading = false
 		}
@@ -67,7 +76,6 @@
 					summary: script.summary ?? '',
 					description: script.description ?? '',
 					parent_hash: script.hash,
-					is_template: false,
 					lock: script.lock,
 					concurrency_key: emptyString(script.concurrency_key) ? undefined : script.concurrency_key,
 					debounce_key: emptyString(script.debounce_key) ? undefined : script.debounce_key,
@@ -88,10 +96,25 @@
 
 <Drawer bind:this={drawer} size="600px">
 	<DrawerContent title="Script settings" on:close={() => drawer?.closeDrawer()}>
-		{#if loading || !script}
+		{#if loading}
 			<div class="center-center flex-col h-full text-tertiary">
 				<Loader2 class="animate-spin" size={16} />
 				<span class="text-xs mt-1">Loading</span>
+			</div>
+		{:else if loadError || !script}
+			<div class="center-center flex-col h-full gap-3">
+				<Alert type="error" title="Could not load script settings" size="xs">
+					{loadError ?? 'Script not found.'}
+				</Alert>
+				{#if current}
+					<Button
+						size="xs"
+						variant="border"
+						on:click={() => current && load(current.path, current.hash)}
+					>
+						Retry
+					</Button>
+				{/if}
 			</div>
 		{:else}
 			<div class="flex flex-col gap-4">

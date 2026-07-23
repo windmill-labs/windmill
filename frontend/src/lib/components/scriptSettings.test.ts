@@ -27,6 +27,14 @@ describe('getActiveScriptSettingsBadges', () => {
 		expect(keys).toEqual([])
 	})
 
+	it('treats non-positive concurrency limits and timeouts as inactive (legacy zero rows)', () => {
+		const keys = getActiveScriptSettingsBadges({
+			concurrent_limit: 0,
+			timeout: 0
+		}).map((b) => b.key)
+		expect(keys).toEqual([])
+	})
+
 	it('keeps delete_after_secs of 0 active (immediate deletion is a real setting)', () => {
 		const badge = getActiveScriptSettingsBadges({ delete_after_secs: 0 })
 		expect(badge.map((b) => b.key)).toEqual(['delete_after_use'])

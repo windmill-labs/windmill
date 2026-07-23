@@ -201,6 +201,13 @@
 			flowModule.value.hash == undefined &&
 			customUi?.scriptEdit != false
 	)
+	// Non-positive concurrent_limit is treated as unset by the runtime (legacy rows).
+	let referencedConcurrentLimit = $derived(
+		referencedScriptSettings.settings?.concurrent_limit != undefined &&
+			referencedScriptSettings.settings.concurrent_limit > 0
+			? referencedScriptSettings.settings.concurrent_limit
+			: undefined
+	)
 	function openWorkspaceScriptSettings() {
 		if (flowModule.value.type !== 'script') return
 		$workspaceScriptSettingsDrawer?.openDrawer(
@@ -1300,16 +1307,12 @@
 													{:else if flowModule.value.type == 'script'}
 														<WorkspaceScriptSettingInfo
 															label="Concurrency limit"
-															active={referencedScriptSettings.settings?.concurrent_limit !=
-																undefined}
-															valueText={referencedScriptSettings.settings?.concurrent_limit !=
-															undefined
-																? `Max ${referencedScriptSettings.settings.concurrent_limit} execution${
-																		referencedScriptSettings.settings.concurrent_limit === 1
-																			? ''
-																			: 's'
+															active={referencedConcurrentLimit != undefined}
+															valueText={referencedConcurrentLimit != undefined
+																? `Max ${referencedConcurrentLimit} execution${
+																		referencedConcurrentLimit === 1 ? '' : 's'
 																	}${
-																		referencedScriptSettings.settings.concurrency_time_window_s !=
+																		referencedScriptSettings.settings?.concurrency_time_window_s !=
 																		undefined
 																			? ` within ${referencedScriptSettings.settings.concurrency_time_window_s}s`
 																			: ''

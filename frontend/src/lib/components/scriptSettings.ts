@@ -50,7 +50,9 @@ export function getActiveScriptSettingsBadges(
 ): ScriptSettingsBadge[] {
 	if (!settings) return []
 	const badges: ScriptSettingsBadge[] = []
-	if (settings.concurrent_limit != undefined) {
+	// Non-positive concurrent_limit / timeout are treated as unset by the runtime
+	// (legacy zero rows), so don't surface them as active settings.
+	if (settings.concurrent_limit != undefined && settings.concurrent_limit > 0) {
 		badges.push({
 			key: 'concurrency',
 			label: 'Concurrency',
@@ -72,7 +74,7 @@ export function getActiveScriptSettingsBadges(
 			detail: `Cached for ${settings.cache_ttl}s`
 		})
 	}
-	if (settings.timeout != undefined) {
+	if (settings.timeout != undefined && settings.timeout > 0) {
 		badges.push({
 			key: 'timeout',
 			label: 'Timeout',
