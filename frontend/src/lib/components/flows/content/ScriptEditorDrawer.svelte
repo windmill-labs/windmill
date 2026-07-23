@@ -12,6 +12,7 @@
 	import {
 		cleanValueProperties,
 		emptySchema,
+		emptyString,
 		orderedJsonStringify,
 		sendUserToast
 	} from '$lib/utils'
@@ -132,6 +133,11 @@
 						is_template: false,
 						tag: script.tag,
 						kind: script.kind as Script['kind'] | undefined,
+						// Empty keys are shared global keys server-side; treat cleared inputs as unset.
+						concurrency_key: emptyString(script.concurrency_key)
+							? undefined
+							: script.concurrency_key,
+						debounce_key: emptyString(script.debounce_key) ? undefined : script.debounce_key,
 						lock: undefined
 					}
 				})

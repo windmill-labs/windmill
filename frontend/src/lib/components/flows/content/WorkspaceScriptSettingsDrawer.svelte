@@ -4,7 +4,7 @@
 	import ScriptSettingsBadges from '$lib/components/ScriptSettingsBadges.svelte'
 	import { ScriptService, type Script } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/utils'
+	import { emptyString, sendUserToast } from '$lib/utils'
 	import { Loader2, Save } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
@@ -48,8 +48,10 @@
 		saving = true
 		try {
 			// Spread the full loaded script so fields we don't edit here (codebase,
-			// assets, labels, envs, on_behalf_of_email, ...) survive the new version;
-			// only override lineage and the edited settings live on `script`.
+			// labels, envs, on_behalf_of_email, ...) survive the new version; only
+			// override lineage and normalize the edited settings.
+			// preserve_on_behalf_of/skip_draft_deletion keep a settings-only save from
+			// hijacking the execution identity or discarding the author's code draft.
 			await ScriptService.createScript({
 				workspace: opWs!,
 				requestBody: {
@@ -59,7 +61,11 @@
 					parent_hash: script.hash,
 					auto_parent: true,
 					is_template: false,
-					lock: script.lock
+					lock: script.lock,
+					concurrency_key: emptyString(script.concurrency_key) ? undefined : script.concurrency_key,
+					debounce_key: emptyString(script.debounce_key) ? undefined : script.debounce_key,
+					preserve_on_behalf_of: true,
+					skip_draft_deletion: true
 				}
 			})
 			sendUserToast('Script settings saved')

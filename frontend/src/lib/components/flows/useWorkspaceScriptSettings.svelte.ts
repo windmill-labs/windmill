@@ -12,12 +12,16 @@ export function useWorkspaceScriptSettings(
 ) {
 	let settings = $state<ScriptAdvancedSettingsFields | undefined>(undefined)
 	let loading = $state(false)
+	// Guards against an older in-flight load resolving after a newer one and
+	// clobbering the displayed settings when path/hash change quickly.
+	let loadSeq = 0
 
 	async function load(
 		path: string | undefined,
 		hash: string | undefined,
 		workspace: string | undefined
 	) {
+		const seq = ++loadSeq
 		if (!path || !workspace || path.startsWith('hub/')) {
 			settings = undefined
 			return
@@ -27,12 +31,13 @@ export function useWorkspaceScriptSettings(
 			const script = hash
 				? await ScriptService.getScriptByHash({ workspace, hash })
 				: await ScriptService.getScriptByPath({ workspace, path })
+			if (seq !== loadSeq) return
 			settings = script as ScriptAdvancedSettingsFields
 		} catch (e) {
 			console.error('Could not load referenced script settings', e)
-			settings = undefined
+			if (seq === loadSeq) settings = undefined
 		} finally {
-			loading = false
+			if (seq === loadSeq) loading = false
 		}
 	}
 

@@ -193,11 +193,13 @@
 		() => (flowModule.value.type === 'script' ? flowModule.value.hash : undefined),
 		() => opWs
 	)
-	// Hub scripts and hash-pinned steps can't have their settings edited from here.
+	// Hub scripts, hash-pinned steps, and embeddings that disable script editing
+	// can't have their settings edited from here.
 	let canEditWorkspaceScriptSettings = $derived(
 		flowModule.value.type === 'script' &&
 			!flowModule.value.path?.startsWith('hub/') &&
-			flowModule.value.hash == undefined
+			flowModule.value.hash == undefined &&
+			customUi?.scriptEdit != false
 	)
 	function openWorkspaceScriptSettings() {
 		if (flowModule.value.type !== 'script') return
@@ -801,6 +803,9 @@
 								flowModule.value.hash = await getLatestHashForScript(flowModule.value.path, opWs)
 							}
 							forceReload++
+							// Keep the surfaced concurrency/cache values and badges in sync after
+							// a settings/code save from the header (path/hash may be unchanged).
+							await referencedScriptSettings.reload()
 							await reload(flowModule)
 						}
 						if (flowModule.value.type == 'flow') {
