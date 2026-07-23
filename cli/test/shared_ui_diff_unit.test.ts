@@ -70,6 +70,20 @@ describe("diffSharedUi", () => {
     expect(changes).toEqual([]);
   });
 
+  test("diffs files named after Object.prototype members (e.g. toString)", async () => {
+    // Own-property check, not `in`: a local-only ui/toString is an add, and a
+    // remote-only ui/toString is a delete, despite Object.prototype.toString.
+    writeUi("toString", "x");
+    let changes = await diffSharedUi(ws);
+    expect(changes).toEqual([{ type: "added", path: "ui/toString" }]);
+
+    fs.rmSync(path.join(tmpDir, "ui", "toString"));
+    fs.mkdirSync(path.join(tmpDir, "ui"), { recursive: true });
+    remoteFiles = { toString: "x" };
+    changes = await diffSharedUi(ws);
+    expect(changes).toEqual([{ type: "deleted", path: "ui/toString" }]);
+  });
+
   test("emits nothing when there is no local ui/ folder (apply is a no-op)", async () => {
     remoteFiles = { "theme.json": "{}" };
     const changes = await diffSharedUi(ws);

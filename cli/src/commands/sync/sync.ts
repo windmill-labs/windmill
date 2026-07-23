@@ -4136,6 +4136,33 @@ export async function push(
 
   await fetchRemoteVersion(workspace);
 
+  // Shared UI (the ui/ folder) is pushed out-of-band via pushSharedUi on apply
+  // and is excluded from the file diff (isNotWmillFile), so surface its diff in
+  // the dry-run preview. Without this the "Pull from repo" preview reads "no
+  // changes" even when the apply will overwrite the shared-UI store. Folded in
+  // only for dry-run (before the count/summary below) so the apply path is
+  // unchanged (pushSharedUi still runs) and the summary count includes ui/.
+  if (opts.dryRun) {
+    try {
+      for (const c of await diffSharedUi(workspace.workspaceId)) {
+        if (c.type === "added") {
+          changes.push({ name: "added", path: c.path, content: "" });
+        } else if (c.type === "deleted") {
+          changes.push({ name: "deleted", path: c.path });
+        } else {
+          changes.push({
+            name: "edited",
+            path: c.path,
+            before: c.before,
+            after: c.after,
+          });
+        }
+      }
+    } catch (e) {
+      log.warn(`Failed to compute shared UI diff for dry-run preview: ${e}`);
+    }
+  }
+
   log.info(
     `remote (${workspace.name}) <- local: ${changes.length} changes to apply`,
   );
@@ -4198,32 +4225,6 @@ export async function push(
     }
     if (!opts.jsonOutput) {
       log.warn(msg);
-    }
-  }
-
-  // Shared UI (the ui/ folder) is pushed out-of-band via pushSharedUi on apply
-  // and is excluded from the file diff (isNotWmillFile), so surface its diff in
-  // the dry-run preview. Without this the "Pull from repo" preview reads "no
-  // changes" even when the apply will overwrite the shared-UI store. Folded in
-  // only for dry-run so the apply path is unchanged (pushSharedUi still runs).
-  if (opts.dryRun) {
-    try {
-      for (const c of await diffSharedUi(workspace.workspaceId)) {
-        if (c.type === "added") {
-          changes.push({ name: "added", path: c.path, content: "" });
-        } else if (c.type === "deleted") {
-          changes.push({ name: "deleted", path: c.path });
-        } else {
-          changes.push({
-            name: "edited",
-            path: c.path,
-            before: c.before,
-            after: c.after,
-          });
-        }
-      }
-    } catch (e) {
-      log.warn(`Failed to compute shared UI diff for dry-run preview: ${e}`);
     }
   }
 

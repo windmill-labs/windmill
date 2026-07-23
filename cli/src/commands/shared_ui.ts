@@ -57,17 +57,20 @@ export async function diffSharedUi(workspace: string): Promise<SharedUiChange[]>
     // would attempt the PUT anyway).
   }
 
+  // Use Object.hasOwn, not `in`: a file named after an Object.prototype member
+  // (e.g. ui/toString) would otherwise register as always-present and be
+  // misdiffed.
   const changes: SharedUiChange[] = [];
   for (const [rel, content] of Object.entries(files)) {
     const p = `${SHARED_UI_DIR}/${rel}`;
-    if (!(rel in remote)) {
+    if (!Object.hasOwn(remote, rel)) {
       changes.push({ type: "added", path: p });
     } else if (remote[rel] !== content) {
       changes.push({ type: "edited", path: p, before: remote[rel], after: content });
     }
   }
   for (const rel of Object.keys(remote)) {
-    if (!(rel in files)) {
+    if (!Object.hasOwn(files, rel)) {
       changes.push({ type: "deleted", path: `${SHARED_UI_DIR}/${rel}` });
     }
   }
