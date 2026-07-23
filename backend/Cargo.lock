@@ -15305,6 +15305,7 @@ dependencies = [
  "lazy_static",
  "magic-crypt",
  "mail-send",
+ "memchr",
  "native-tls",
  "once_cell",
  "openidconnect",
