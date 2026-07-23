@@ -426,12 +426,9 @@
 				for (const event of recorded.events) {
 					const delay = Math.max(0, event.t - elapsed)
 					const timeout = setTimeout(async () => {
-						// A recording is caller-controlled (upload / `?src=` fetch); a
-						// malformed delayed event throwing here would be an uncaught timer
-						// error no boundary can catch, so swallow it — the replay just
-						// skips that event. `onJobCompleted` is awaited so its async
-						// rejection (it yields at `tick()`) is caught too, not only the
-						// synchronous throws.
+						// A malformed replayed event (recordings are caller-controlled) would
+						// throw in this timer where no boundary can catch it, so skip it.
+						// `onJobCompleted` is awaited so its async rejection is caught too.
 						try {
 							if (job) {
 								updateJobFromProgress(event.data, job, callbacks)

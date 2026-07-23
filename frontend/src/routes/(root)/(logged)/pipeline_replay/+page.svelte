@@ -18,6 +18,10 @@
 	let scriptRecording: ScriptRecording | undefined = $state(undefined)
 	let pipelineRecording: PipelineRecording | undefined = $state(undefined)
 
+	// Upper bound on a `?src=` fetched recording (JSON with capped samples/logs) so
+	// an arbitrary origin can't OOM the tab with an endless/huge response.
+	const MAX_RECORDING_BYTES = 100 * 1024 * 1024
+
 	// Auto-download state: when the page is opened with `?src=<url>` it fetches
 	// the recording JSON at that URL (with progress) instead of showing the
 	// drag-and-drop. Lets a recording be shared as a deep link.
@@ -145,6 +149,15 @@
 			const res = await fetch(url)
 			if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`)
 			const total = Number(res.headers.get('content-length')) || 0
+			// `?src=` is an arbitrary (possibly permissive-CORS) origin, so cap the
+			// download: reject an oversized advertised length up front and abort the
+			// stream once the running total exceeds the limit, so an endless/huge
+			// response can't exhaust the tab before validation runs.
+			if (total > MAX_RECORDING_BYTES) {
+				throw new Error(
+					`Recording is too large (${fmtBytes(total)}, max ${fmtBytes(MAX_RECORDING_BYTES)})`
+				)
+			}
 			const reader = res.body?.getReader()
 			let text: string
 			if (reader) {
@@ -155,12 +168,19 @@
 					if (value) {
 						chunks.push(value)
 						downloadedBytes += value.length
+						if (downloadedBytes > MAX_RECORDING_BYTES) {
+							await reader.cancel()
+							throw new Error(`Recording exceeded the ${fmtBytes(MAX_RECORDING_BYTES)} limit`)
+						}
 						if (total) downloadPercent = Math.round((downloadedBytes / total) * 100)
 					}
 				}
 				text = await new Blob(chunks as BlobPart[]).text()
 			} else {
 				text = await res.text()
+				if (text.length > MAX_RECORDING_BYTES) {
+					throw new Error(`Recording exceeded the ${fmtBytes(MAX_RECORDING_BYTES)} limit`)
+				}
 			}
 			if (!loadRecordingFromText(text)) {
 				downloadError = 'The downloaded file is not a valid recording.'
