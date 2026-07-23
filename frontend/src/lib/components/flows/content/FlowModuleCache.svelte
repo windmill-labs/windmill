@@ -16,6 +16,7 @@
 		loadingWorkspaceScript?: boolean
 		workspaceScriptError?: string | undefined
 		canEditWorkspaceScript?: boolean
+		workspaceScriptNoEditReason?: string | undefined
 		onEditWorkspaceScript?: () => void
 	}
 
@@ -25,6 +26,7 @@
 		loadingWorkspaceScript = false,
 		workspaceScriptError = undefined,
 		canEditWorkspaceScript = false,
+		workspaceScriptNoEditReason = undefined,
 		onEditWorkspaceScript
 	}: Props = $props()
 
@@ -50,6 +52,7 @@
 			loading={loadingWorkspaceScript}
 			error={workspaceScriptError}
 			canEdit={canEditWorkspaceScript}
+			noEditReason={workspaceScriptNoEditReason}
 			onEdit={onEditWorkspaceScript}
 		/>
 	{:else if flowModule.value.type != 'rawscript'}

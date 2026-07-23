@@ -204,6 +204,16 @@
 			customUi?.scriptEdit != false &&
 			$workspaceScriptSettingsDrawer != undefined
 	)
+	// Explains why settings can't be edited from here, matching the specific gate that failed.
+	let workspaceScriptNoEditReason = $derived(
+		flowModule.value.type !== 'script' || canEditWorkspaceScriptSettings
+			? undefined
+			: flowModule.value.path?.startsWith('hub/')
+				? 'Hub scripts cannot be edited from here.'
+				: flowModule.value.hash != undefined
+					? 'Steps pinned to a specific version cannot be edited from here.'
+					: 'Editing script settings is not available in this editor.'
+	)
 	// Non-positive concurrent_limit / cache_ttl are treated as unset by the runtime (legacy rows).
 	let referencedConcurrentLimit = $derived(
 		referencedScriptSettings.settings?.concurrent_limit != undefined &&
@@ -1330,6 +1340,7 @@
 															loading={referencedScriptSettings.loading}
 															error={referencedScriptSettings.error}
 															canEdit={canEditWorkspaceScriptSettings}
+															noEditReason={workspaceScriptNoEditReason}
 															onEdit={openWorkspaceScriptSettings}
 														/>
 													{:else}
@@ -1408,6 +1419,7 @@
 														loadingWorkspaceScript={referencedScriptSettings.loading}
 														workspaceScriptError={referencedScriptSettings.error}
 														canEditWorkspaceScript={canEditWorkspaceScriptSettings}
+														{workspaceScriptNoEditReason}
 														onEditWorkspaceScript={openWorkspaceScriptSettings}
 													/>
 												</div>

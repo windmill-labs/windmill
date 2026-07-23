@@ -286,6 +286,7 @@
 					variant="default"
 					iconOnly
 					startIcon={{ icon: Settings }}
+					aria-label="Runtime settings"
 					on:click={() => settingsDrawer?.openDrawer()}
 				/>
 				{#snippet text()}Runtime settings (concurrency, cache, timeout, ...){/snippet}

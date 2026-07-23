@@ -31,6 +31,7 @@
 					icon={{ icon: badge.icon, position: 'left' }}
 					clickable={Boolean(onclick)}
 					onclick={onclick ? () => onclick?.(badge.key) : undefined}
+					aria-label={`${badge.label}: ${badge.detail}`}
 				/>
 				{#snippet text()}
 					<span class="font-semibold">{badge.label}</span> — {badge.detail}

@@ -125,6 +125,7 @@
 					}}
 					startIcon={{ icon: Pen }}
 					iconOnly
+					aria-label="Edit the script's code"
 					disabled={module.value.hash != undefined}
 				/>
 				{#snippet text()}Edit the script's code{/snippet}
@@ -149,6 +150,7 @@
 						}}
 						startIcon={{ icon: Settings }}
 						iconOnly
+						aria-label="Edit the script's runtime settings"
 						disabled={module.value.hash != undefined}
 					/>
 					{#snippet text()}Edit the script's runtime settings (concurrency, cache, timeout, ...){/snippet}
@@ -173,6 +175,7 @@
 					on:click={() => dispatch('fork')}
 					startIcon={{ icon: GitFork }}
 					iconOnly
+					aria-label="Fork into an inline script"
 				/>
 				{#snippet text()}Fork into an inline script{/snippet}
 			</Popover>

@@ -14,6 +14,8 @@
 		error?: string | undefined
 		// Editing is possible only for non-hub, non-hash-pinned workspace scripts.
 		canEdit: boolean
+		// Explanation shown when editing isn't possible (varies: hub, pinned, dev editor).
+		noEditReason?: string | undefined
 		onEdit?: () => void
 	}
 
@@ -24,6 +26,7 @@
 		loading = false,
 		error = undefined,
 		canEdit,
+		noEditReason = undefined,
 		onEdit
 	}: Props = $props()
 </script>
@@ -52,9 +55,7 @@
 			<span class="text-tertiary">Not set on the script.</span>
 		{/if}
 	</div>
-	{#if !canEdit}
-		<span class="text-2xs text-tertiary">
-			Hub scripts and steps pinned to a specific version cannot be edited from here.
-		</span>
+	{#if !canEdit && noEditReason}
+		<span class="text-2xs text-tertiary">{noEditReason}</span>
 	{/if}
 </div>
