@@ -398,11 +398,39 @@ async fn connect_target(pg: &PgDatabase, db: &DB) -> Result<tokio_postgres::Clie
     Ok(client)
 }
 
+fn pg_err(context: &str, e: tokio_postgres::Error) -> Error {
+    // `Display` for tokio_postgres errors is just "db error" — the actual
+    // Postgres message lives in the DbError.
+    let detail = e
+        .as_db_error()
+        .map(|d| d.message().to_string())
+        .unwrap_or_else(|| e.to_string());
+    Error::internal_err(format!("{context}: {detail}"))
+}
+
+/// The revoke half of an instance-type role drop: database-level CONNECT was
+/// granted by the main pool's user (the database owner), and only the grantor
+/// (or a superuser) can revoke a privilege — `DROP OWNED` executed by
+/// `custom_instance_user` fails on it. Best-effort: the grant may not exist.
+async fn revoke_instance_connect(db: &DB, dbname: &str, role: &str) {
+    if let Err(e) = sqlx::query(&format!(
+        "REVOKE CONNECT ON DATABASE {} FROM {}",
+        quote_ident(dbname),
+        quote_ident(role)
+    ))
+    .execute(db)
+    .await
+    {
+        tracing::warn!("revoking connect on {dbname} from {role}: {e:#}");
+    }
+}
+
 /// `DROP OWNED BY` + `DROP ROLE`, refusing to drop anything without the
 /// reserved prefix. `DROP OWNED` is required even though ephemeral roles own
 /// no objects: `DROP ROLE` fails while any privilege (or default-privilege
 /// entry) is still granted to the role. The membership self-grant makes
 /// `DROP OWNED` work on PG16+ where CREATEROLE no longer implies it.
+/// Instance-type callers must run [`revoke_instance_connect`] first.
 async fn guarded_drop_role(client: &tokio_postgres::Client, role: &str) -> Result<()> {
     if !role.starts_with(DATATABLE_EPHEMERAL_ROLE_PREFIX) {
         return Err(Error::internal_err(format!(
@@ -416,11 +444,11 @@ async fn guarded_drop_role(client: &tokio_postgres::Client, role: &str) -> Resul
     client
         .batch_execute(&format!("DROP OWNED BY {role_q}"))
         .await
-        .map_err(|e| Error::internal_err(format!("dropping privileges of role {role}: {e:#}")))?;
+        .map_err(|e| pg_err(&format!("dropping privileges of role {role}"), e))?;
     client
         .batch_execute(&format!("DROP ROLE {role_q}"))
         .await
-        .map_err(|e| Error::internal_err(format!("dropping role {role}: {e:#}")))?;
+        .map_err(|e| pg_err(&format!("dropping role {role}"), e))?;
     Ok(())
 }
 
@@ -435,7 +463,14 @@ async fn role_exists(client: &tokio_postgres::Client, role: &str) -> Result<bool
     Ok(row.get(0))
 }
 
-async fn create_role(client: &tokio_postgres::Client, role: &str, password: &str) -> Result<()> {
+async fn create_role(
+    db: &DB,
+    client: &tokio_postgres::Client,
+    role: &str,
+    password: &str,
+    is_instance: bool,
+    dbname: &str,
+) -> Result<()> {
     let create_sql = format!(
         "CREATE ROLE {} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION CONNECTION LIMIT {EPHEMERAL_ROLE_CONNECTION_LIMIT} PASSWORD {}",
         quote_ident(role),
@@ -446,13 +481,16 @@ async fn create_role(client: &tokio_postgres::Client, role: &str, password: &str
         // No `CREATE ROLE IF NOT EXISTS` exists — an out-of-band concurrent
         // creation surfaces as duplicate_object; drop it and retry once.
         Err(e) if e.code() == Some(&tokio_postgres::error::SqlState::DUPLICATE_OBJECT) => {
+            if is_instance {
+                revoke_instance_connect(db, dbname, role).await;
+            }
             guarded_drop_role(client, role).await?;
             client
                 .batch_execute(&create_sql)
                 .await
-                .map_err(|e| Error::internal_err(format!("creating role {role}: {e:#}")))
+                .map_err(|e| pg_err(&format!("creating role {role}"), e))
         }
-        Err(e) => Err(Error::internal_err(format!("creating role {role}: {e:#}"))),
+        Err(e) => Err(pg_err(&format!("creating role {role}"), e)),
     }
 }
 
@@ -559,9 +597,12 @@ pub async fn ensure_ephemeral_role(
 
     let client = connect_target(owner, db).await?;
     if role_exists(&client, &role).await? {
+        if is_instance {
+            revoke_instance_connect(db, &owner.dbname, &role).await;
+        }
         guarded_drop_role(&client, &role).await?;
     }
-    create_role(&client, &role, &password).await?;
+    create_role(db, &client, &role, &password, is_instance, &owner.dbname).await?;
 
     if is_instance {
         harden_instance_databases(db, &owner.dbname).await?;
@@ -601,11 +642,14 @@ pub async fn ensure_ephemeral_role(
     let owner_role = owner.user.as_deref().unwrap_or("postgres");
     for stmt in grant_sql_statements(&role, owner_role, matched) {
         client.batch_execute(&stmt).await.map_err(|e| {
-            Error::internal_err(format!(
-                "applying data table grant `{stmt}` failed. The data table's owner role \
-                 ('{owner_role}') must own the target schemas and tables — tables created \
-                 through Windmill migrations are. Original error: {e:#}"
-            ))
+            pg_err(
+                &format!(
+                    "applying data table grant `{stmt}` failed. The data table's owner role \
+                     ('{owner_role}') must own the target schemas and tables — tables created \
+                     through Windmill migrations are. Error"
+                ),
+                e,
+            )
         })?;
     }
     drop(client);
@@ -713,12 +757,15 @@ async fn cleanup_one_expired_role(db: &DB, role: &str, w_id: &str, datatable: &s
                     &[&role],
                 )
                 .await
-                .map_err(|e| Error::internal_err(format!("checking active sessions: {e:#}")))?
+                .map_err(|e| pg_err("checking active sessions", e))?
                 .get(0);
             if active > 0 {
                 return Ok(());
             }
             if role_exists(&client, role).await? {
+                if config.database.resource_type == DataTableCatalogResourceType::Instance {
+                    revoke_instance_connect(db, &owner.dbname, role).await;
+                }
                 guarded_drop_role(&client, role).await?;
             }
         }
@@ -791,9 +838,12 @@ async fn teardown_role(db: &DB, w_id: &str, datatable: &str, role: &str) -> Resu
                 &[&role],
             )
             .await
-            .map_err(|e| Error::internal_err(format!("checking active sessions: {e:#}")))?
+            .map_err(|e| pg_err("checking active sessions", e))?
             .get(0);
         if active == 0 && role_exists(&client, role).await? {
+            if config.database.resource_type == DataTableCatalogResourceType::Instance {
+                revoke_instance_connect(db, &owner.dbname, role).await;
+            }
             guarded_drop_role(&client, role).await?;
         }
     }
