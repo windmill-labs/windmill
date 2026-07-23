@@ -426,22 +426,32 @@
 				for (const event of recorded.events) {
 					const delay = Math.max(0, event.t - elapsed)
 					const timeout = setTimeout(() => {
-						if (job) {
-							updateJobFromProgress(event.data, job, callbacks)
-						}
-						if (event.data.completed) {
-							const njob = (event.data as any).job as Job & { result_stream?: string }
-							if (njob) {
-								// Use whichever logs are more complete (longer), but never
-								// let the WM_LOGS_SKIPPED sentinel win over real logs.
-								njob.logs = pickMoreCompleteLogs(job?.logs, njob.logs)
-								const streamedResult = job?.result_stream ?? ''
-								const completedResult = njob.result_stream ?? ''
-								njob.result_stream =
-									streamedResult.length >= completedResult.length ? streamedResult : completedResult
-								job = njob
-								onJobCompleted(testId, job, callbacks)
+						// A recording is caller-controlled (upload / `?src=` fetch); a
+						// malformed delayed event throwing here would be an uncaught timer
+						// error no boundary can catch, so swallow it — the replay just
+						// skips that event.
+						try {
+							if (job) {
+								updateJobFromProgress(event.data, job, callbacks)
 							}
+							if (event.data.completed) {
+								const njob = (event.data as any).job as Job & { result_stream?: string }
+								if (njob) {
+									// Use whichever logs are more complete (longer), but never
+									// let the WM_LOGS_SKIPPED sentinel win over real logs.
+									njob.logs = pickMoreCompleteLogs(job?.logs, njob.logs)
+									const streamedResult = job?.result_stream ?? ''
+									const completedResult = njob.result_stream ?? ''
+									njob.result_stream =
+										streamedResult.length >= completedResult.length
+											? streamedResult
+											: completedResult
+									job = njob
+									onJobCompleted(testId, job, callbacks)
+								}
+							}
+						} catch (err) {
+							console.error('replay event failed', err)
 						}
 					}, delay)
 					replayTimeouts.push(timeout)
