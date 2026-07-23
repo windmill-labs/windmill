@@ -13,6 +13,7 @@ import {
 	rewriteRawAppContent,
 	buildProjectBundle,
 	retargetProjectExport,
+	collectExportVarPaths,
 	extractTriggerConfigResourceRefs,
 	extractVarRefsFromValue,
 	type ProjectExport,
@@ -590,6 +591,42 @@ describe('retargetProjectExport', () => {
 		const out = retargetProjectExport(bundle, 'proj', 'dest')
 		expect(out.scripts[0].content).toContain('$res:u/admin/db')
 		expect(out.scripts[0].content).toContain('$res:hub/1/x')
+	})
+
+	it('retargets internal $var:/$jsonvar: refs but leaves external ones', () => {
+		const bundle = baseExport()
+		bundle.flows[0].value.modules[0].value.input_transforms = {
+			key: { type: 'static', value: '$var:f/proj/api_key' },
+			ext: { type: 'static', value: '$var:u/admin/personal' }
+		}
+		bundle.flows[0].value.flow_env = { CFG: '$jsonvar:f/proj/cfg' }
+		bundle.triggers[1].config.queue_url = '$var:f/proj/sqs'
+		const out = retargetProjectExport(bundle, 'proj', 'dest')
+		const it = out.flows[0].value.modules[0].value.input_transforms
+		expect(it.key.value).toBe('$var:f/dest/api_key')
+		expect(it.ext.value).toBe('$var:u/admin/personal')
+		expect(out.flows[0].value.flow_env.CFG).toBe('$jsonvar:f/dest/cfg')
+		expect(out.triggers[1].config.queue_url).toBe('$var:f/dest/sqs')
+	})
+})
+
+describe('collectExportVarPaths', () => {
+	it('gathers variable refs from flows, apps, and triggers (deduped)', () => {
+		const bundle: ProjectExport = {
+			project: { slug: 'proj', name: 'P', summary: '', readme: null },
+			scripts: [],
+			flows: [{ path: 'f/proj/f', value: { flow_env: { A: '$var:f/proj/a' }, modules: [] } }],
+			apps: [
+				{
+					path: 'f/proj/raw',
+					app_type: 'raw',
+					value: { raw: JSON.stringify({ runnables: { r: { fields: { x: '$var:u/admin/b' } } } }) }
+				}
+			],
+			triggers: [{ path: 'f/proj/t', kind: 'sqs', config: { queue_url: '$jsonvar:f/proj/a' } }],
+			resources: []
+		}
+		expect(collectExportVarPaths(bundle).sort()).toEqual(['f/proj/a', 'u/admin/b'])
 	})
 })
 

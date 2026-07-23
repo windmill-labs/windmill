@@ -25,6 +25,9 @@ const RES_TOKEN_RE = /(?:\$res:|res:\/\/)([\w\-./]+)/g
 // token embedded in inline code, so the whole value must match.
 const VAR_VALUE_RE = /^\$(?:json)?var:([\w\-./]+)$/
 
+// The same tokens for in-place rewriting (kind captured to preserve `var`/`jsonvar`).
+const VAR_TOKEN_RE = /\$(var|jsonvar):([\w\-./]+)/g
+
 // Variable paths a value will resolve at runtime (flow static inputs, flow_env,
 // app runnable inputs, trigger config fields). Walk the parsed structure and match
 // whole string values so inline code carrying a literal `$var:` string is ignored.
@@ -196,12 +199,19 @@ export function buildPathMap(paths: Iterable<string>, slug: string): Map<string,
 	return map
 }
 
-// Both ref forms normalize to `$res:` on rewrite.
+// `$res:`/`res://` normalize to `$res:`; `$var:`/`$jsonvar:` keep their kind. Only
+// paths present in the map are rewritten, so the map decides what is a real ref
+// (the retarget map carries variable paths; the publish map does not).
 export function rewriteContent(content: string, map: Map<string, string>): string {
-	return content.replace(RES_TOKEN_RE, (whole, path) => {
-		const next = map.get(path)
-		return next ? `$res:${next}` : whole
-	})
+	return content
+		.replace(RES_TOKEN_RE, (whole, path) => {
+			const next = map.get(path)
+			return next ? `$res:${next}` : whole
+		})
+		.replace(VAR_TOKEN_RE, (whole, kind, path) => {
+			const next = map.get(path)
+			return next ? `$${kind}:${next}` : whole
+		})
 }
 
 /**
@@ -374,7 +384,34 @@ export function buildRetargetMap(
 		add(t.path)
 		add(t.runnable_path)
 	}
+	// Variables aren't enumerated in the export; their `$var:`/`$jsonvar:` refs live
+	// inside item values. Relocate the internal ones so a renamed-folder import
+	// rewrites them into the target folder instead of retaining the old prefix.
+	for (const p of collectExportVarPaths(bundle)) add(p)
 	return map
+}
+
+// Internal-or-external variable paths referenced by the export's flows, apps and
+// triggers. Scripts carry no variable args. Raw apps hold their structure in the
+// `value.raw` JSON string.
+export function collectExportVarPaths(bundle: ProjectExport): string[] {
+	const out = new Set<string>()
+	const collect = (value: any) => {
+		for (const p of extractVarRefsFromValue(value)) out.add(p)
+	}
+	for (const f of bundle.flows) collect(f.value)
+	for (const a of bundle.apps) collect(a.app_type === 'raw' ? safeParseRaw(a.value?.raw) : a.value)
+	for (const t of bundle.triggers) collect(t.config)
+	return [...out]
+}
+
+function safeParseRaw(raw: unknown): any {
+	if (typeof raw !== 'string') return undefined
+	try {
+		return JSON.parse(raw)
+	} catch {
+		return undefined
+	}
 }
 
 // Structural retarget: rewrite each item's path and its internal refs,

@@ -8,6 +8,7 @@ import {
 	FolderService,
 	ResourceService,
 	ScriptService,
+	VariableService,
 	WorkspaceService
 } from '$lib/gen'
 import {
@@ -23,6 +24,7 @@ import type { App } from '$lib/components/apps/types'
 import { runScriptAndPollResult } from '$lib/components/jobs/utils'
 import {
 	classifyPath,
+	collectExportVarPaths,
 	extractAppRefs,
 	extractFlowRefs,
 	extractRawAppRefs,
@@ -140,6 +142,23 @@ function importResourceStub(workspace: string, r: ExportItem): Promise<unknown> 
 			resource_type: r.resource_type,
 			value: {},
 			description: 'Imported stub — fill in the value.'
+		}
+	})
+}
+
+// Variables hold secrets/config, so their values are never shipped. Create an empty
+// secret placeholder for a project variable the importer must fill, mirroring the
+// resource stubs. Conflict-safe: an already-present variable (the importer filled it,
+// or a re-import) is left untouched rather than clobbered.
+async function importVariablePlaceholder(workspace: string, path: string): Promise<void> {
+	if (await VariableService.existsVariable({ workspace, path })) return
+	await VariableService.createVariable({
+		workspace,
+		requestBody: {
+			path,
+			value: '',
+			is_secret: true,
+			description: 'Imported placeholder — fill in the value.'
 		}
 	})
 }
@@ -308,6 +327,13 @@ export async function installProject(args: {
 	}
 	for (const r of proj.resources) {
 		await checked(r.path, () => importResourceStub(workspace, r))
+	}
+	// Placeholders for the project's internal `$var:`/`$jsonvar:` refs (retargeted
+	// into this folder). External refs are rejected per-item, so only stub in-folder
+	// ones; guard again in case an out-of-folder ref slipped through retargeting.
+	for (const p of collectExportVarPaths(proj)) {
+		if (!p.startsWith(prefix)) continue
+		await record(`variable: ${p}`, importVariablePlaceholder(workspace, p))
 	}
 	for (const a of proj.apps) {
 		const isRaw = a.app_type === 'raw'
