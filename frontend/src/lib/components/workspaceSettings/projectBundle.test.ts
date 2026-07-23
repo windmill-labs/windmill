@@ -439,6 +439,32 @@ describe('buildProjectBundle', () => {
 		expect(bundle.items[0].value.modules[0].value.path).toBe('hub/1/x/y')
 		expect(bundle.unresolved).toEqual([])
 	})
+
+	it('reports a missing item and an unresolvable resource as unresolved', async () => {
+		const root: FetchedItem = {
+			kind: 'flow',
+			path: 'u/admin/root',
+			value: {
+				modules: [
+					{ id: 'a', value: { type: 'script', path: 'u/admin/gone' } },
+					{
+						id: 'b',
+						value: {
+							type: 'rawscript',
+							content: 'const x = "$res:u/admin/untyped"',
+							input_transforms: {}
+						}
+					}
+				]
+			}
+		}
+		const d = {
+			fetchItem: async (ref: ItemRef) => (ref.path === 'u/admin/root' ? root : undefined),
+			resolveResourceType: async () => undefined
+		}
+		const bundle = await buildProjectBundle([{ kind: 'flow', path: 'u/admin/root' }], 'proj', d)
+		expect(bundle.unresolved.sort()).toEqual(['u/admin/gone', 'u/admin/untyped'])
+	})
 })
 
 describe('retargetProjectExport', () => {

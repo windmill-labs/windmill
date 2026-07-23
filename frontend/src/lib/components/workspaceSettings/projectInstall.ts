@@ -22,17 +22,39 @@ import { updateRawAppPolicy } from '$lib/sharedUtils'
 import type { App } from '$lib/components/apps/types'
 import { runScriptAndPollResult } from '$lib/components/jobs/utils'
 import {
+	classifyPath,
+	extractAppRefs,
+	extractFlowRefs,
+	extractRawAppRefs,
+	extractScriptRefs,
 	extractTriggerConfigResourceRefs,
 	retargetProjectExport,
 	type ExportItem,
 	type ProjectExport,
-	type ProjectMigration
+	type ProjectMigration,
+	type Ref
 } from './projectBundle'
 
 export interface InstallResult {
 	path: string
 	ok: boolean
 	error?: string
+}
+
+// Guarding an item's own path is not enough: the `$res:`/script/flow refs baked
+// into its content are live bindings the backend acts on. A well-formed export
+// relocates them all into f/<folder>/ (hub/ script refs stay external); anything
+// else points a runnable at an existing asset in another namespace, so refuse the
+// item rather than bind it there. Resources are never hub-hosted, so a hub/ path
+// there is not a valid escape hatch. Mirrors the trigger-config containment.
+export function refContainmentViolation(refs: Ref[], folder: string): string | undefined {
+	for (const r of refs) {
+		const cls = classifyPath(r.path, folder)
+		if (cls === 'internal') continue
+		if (cls === 'hub' && r.kind !== 'resource') continue
+		return `reference '${r.path}' escapes the target folder f/${folder}/ — skipped`
+	}
+	return undefined
 }
 
 // Surface the backend's explanation: API errors carry the real message in
@@ -247,17 +269,26 @@ export async function installProject(args: {
 			: record(String(path), run())
 	}
 
+	const checkedItem = (path: unknown, refs: Ref[], run: () => Promise<unknown>) => {
+		const violation = guard(path) ?? refContainmentViolation(refs, folder)
+		return violation
+			? record(String(path), Promise.reject(new Error(violation)))
+			: record(String(path), run())
+	}
+
 	for (const s of proj.scripts) {
-		await checked(s.path, () => importScript(workspace, s))
+		await checkedItem(s.path, extractScriptRefs(s.content ?? ''), () => importScript(workspace, s))
 	}
 	for (const f of proj.flows) {
-		await checked(f.path, () => importFlow(workspace, f))
+		await checkedItem(f.path, extractFlowRefs(f.value), () => importFlow(workspace, f))
 	}
 	for (const r of proj.resources) {
 		await checked(r.path, () => importResourceStub(workspace, r))
 	}
 	for (const a of proj.apps) {
-		await checked(a.path, () => importApp(workspace, a))
+		const refs =
+			a.app_type === 'raw' ? extractRawAppRefs(a.value?.raw ?? '') : extractAppRefs(a.value)
+		await checkedItem(a.path, refs, () => importApp(workspace, a))
 	}
 	// A trigger's config is a live binding, not inert content: resource fields,
 	// handler runnables and $res: refs it names are acted on by the backend, so

@@ -1032,11 +1032,17 @@ export class DeployToHubSession {
 			// relocated — never leaks the publisher's original private path to the Hub.
 			const resourcePathMap = bundle.pathMap
 
+			// A dangling reference (a selected root or transitive runnable that failed
+			// to fetch, or a resource whose type can't be resolved) means the bundle
+			// doesn't close: the root would silently vanish, or a published item would
+			// still point at the publisher's private source-workspace path. Refuse to
+			// publish until every reference resolves rather than ship a broken project.
 			if (bundle.unresolved.length > 0) {
 				sendUserToast(
-					`Skipped ${bundle.unresolved.length} unresolved reference(s): ${bundle.unresolved.join(', ')}`,
+					`Cannot publish: ${bundle.unresolved.length} unresolved reference(s): ${bundle.unresolved.join(', ')}. Deselect or fix them, then retry.`,
 					true
 				)
+				return
 			}
 
 			// Bundle building is slow — bail before the first Hub write if the session

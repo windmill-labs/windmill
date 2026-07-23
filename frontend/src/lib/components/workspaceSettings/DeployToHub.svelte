@@ -900,6 +900,24 @@
 						Name and document your bundle. The readme can be updated later, but a clear one speeds
 						up the Windmill team's review.
 					</p>
+					{#if s.bundlePreview && s.bundlePreview.unresolved.length > 0}
+						<div
+							class="flex flex-col gap-1 rounded-md border border-red-300 bg-red-50 p-3 text-xs text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200"
+						>
+							<span class="font-semibold"
+								>{s.bundlePreview.unresolved.length} unresolved reference(s) — cannot publish</span
+							>
+							<span class="text-[11px]">
+								These items or resources couldn't be resolved, so the bundle would ship broken
+								references. Deselect or fix them, then retry:
+							</span>
+							<ul class="list-disc pl-4 font-mono text-[11px]">
+								{#each s.bundlePreview.unresolved as u (u)}
+									<li class="break-all">{u}</li>
+								{/each}
+							</ul>
+						</div>
+					{/if}
 					<label class="flex flex-col gap-1 text-xs">
 						<span class="font-semibold text-primary">Name</span>
 						<TextInput
@@ -987,7 +1005,8 @@
 							(!s.effectiveSlug && !isValidSlug(sanitizeSlug(s.hubName))) ||
 							s.migrationsGenerating ||
 							s.triggersLoading ||
-							s.triggerDiscoveryFailed}
+							s.triggerDiscoveryFailed ||
+							(s.bundlePreview?.unresolved.length ?? 0) > 0}
 						startIcon={{ icon: Cloud }}
 						onclick={confirmBundle}
 					>
