@@ -1,6 +1,7 @@
 import {
 	AppService,
 	AzureTriggerService,
+	EmailTriggerService,
 	FlowService,
 	FolderService,
 	GcpTriggerService,
@@ -96,6 +97,7 @@ import { searchDocsTool, readDocsPageTool } from '../docs/core'
 import { createDbSchemaTool } from '../script/core'
 import type { ContextElement } from '../context'
 import { getDatatableTools } from '../datatableTools'
+import { getDucklakeTools } from '../ducklakeTools'
 import { fileTools } from '../files/fileTools'
 import type { AttachedFilesStore } from '../files/attachedFiles.svelte'
 import { artifactTools } from '../artifacts/artifactTools'
@@ -200,7 +202,6 @@ const VARIABLE_MASKED_NOTE =
 const SECRET_UNCOMPARABLE_NOTE =
 	'Note: this is a SECRET variable — its value is never shown and cannot be compared, so it may ALSO have changed beyond what this diff shows.\n\n'
 import { apiCatalogTools } from './apiCatalogTools'
-import { isSessionPipelinesEnabled, SESSION_PIPELINES_GATED_MESSAGE } from './pipelineGate'
 
 const ITEM_TYPES = [
 	'script',
@@ -561,7 +562,8 @@ const writeTriggerSchema = z.object({
 			triggerRequestSchemas.amqp,
 			triggerRequestSchemas.sqs,
 			triggerRequestSchemas.gcp,
-			triggerRequestSchemas.azure
+			triggerRequestSchemas.azure,
+			triggerRequestSchemas.email
 		])
 		.describe(
 			'Full trigger configuration. Must include path, script_path, is_flow plus the kind-specific fields.'
@@ -574,7 +576,11 @@ const writeResourceSchema = resourceRequestSchema.extend({ override: draftOverri
 const writeVariableSchema = variableRequestSchema.extend({ override: draftOverrideField })
 
 const searchResourceTypesSchema = z.object({
-	query: z.string().describe('Substring to match against resource type names.'),
+	query: z
+		.string()
+		.describe(
+			'Natural-language description of the integration or capability you need, e.g. "stripe", "postgres database", or "send emails". Matched semantically against resource type names and descriptions, so describe the intent rather than guessing the exact name.'
+		),
 	limit: z
 		.number()
 		.int()
@@ -1130,11 +1136,13 @@ const buildGlobalSystemPrompt = (
 	const folderGuidance = buildFolderGuidance(username, folderCtx)
 	const folderGuidanceBlock = folderGuidance ? `\n${folderGuidance}` : ''
 	// `previewTools` doubles as "this is a session chat" — sessions are the only
-	// chats that get the preview tool set, and the only surface the gate covers.
-	const pipelinesGated = previewTools && !isSessionPipelinesEnabled()
-	const pipelineBullet = pipelinesGated
-		? `- Data pipelines are in alpha and NOT yet available in this chat. A "data pipeline" is a DAG of independent annotated scripts wired by storage assets — it is not a flow. If the user asks for a data pipeline (or to ingest/transform/materialize data across steps in one), tell them that data pipelines are in alpha and will be handled by the chat soon — do not build one (no annotated pipeline scripts, no get_instructions with subject "pipeline"), and do not build a flow as a substitute.`
-		: `- A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.`
+	// chats that get the preview tool set. The alpha heads-up only makes sense
+	// there, where the chat actively builds the pipeline on the canvas; the
+	// standalone global chat keeps its plain guidance.
+	const pipelineAlphaNote = previewTools
+		? ' Data pipeline support in this chat is in ALPHA: the first time the user asks for a data pipeline in this session, briefly tell them it is an alpha feature before you start building.'
+		: ''
+	const pipelineBullet = `- A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.${pipelineAlphaNote}`
 	return `You are Windmill's global workspace assistant.
 
 The current user's workspace username is "${username}".
@@ -1177,12 +1185,8 @@ ${pipelineBullet}
 - Keep context targeted.${
 		previewTools
 			? `
-- After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.${
-					pipelinesGated
-						? ''
-						: `
-- Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty or not-yet-created folder is fine (create_folder first if needed, then open it). Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.`
-				}
+- After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.
+- Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty or not-yet-created folder is fine (create_folder first if needed, then open it). Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.
 - When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
 - To inspect what actually rendered in a running raw app (verify an edit landed on screen, diagnose a blank/empty or wrong view, answer "what's showing"), use search_dom (regex over the live HTML) and read_dom (a line-numbered window). Pass a \`selector\` to scope to an element — prefer the selector from a DOM element chip the user attached — or omit it for the whole page. When a chip lists an \`app_path\`, pass it too so the RIGHT app is read (several previews can be open; a query without \`app_path\` hits the visible one). The DOM is read live and is never in context; no match means the element isn't rendered. Both need the raw app preview open.
 - get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.
@@ -1750,6 +1754,14 @@ const triggerServices: Record<TriggerKind, TriggerService> = {
 		create: (a) => AzureTriggerService.createAzureTrigger(a),
 		update: (a) => AzureTriggerService.updateAzureTrigger(a),
 		delete: (a) => AzureTriggerService.deleteAzureTrigger(a)
+	},
+	email: {
+		exists: (a) => EmailTriggerService.existsEmailTrigger(a),
+		get: (a) => EmailTriggerService.getEmailTrigger(a),
+		list: (a) => EmailTriggerService.listEmailTriggers(a),
+		create: (a) => EmailTriggerService.createEmailTrigger(a),
+		update: (a) => EmailTriggerService.updateEmailTrigger(a),
+		delete: (a) => EmailTriggerService.deleteEmailTrigger(a)
 	}
 }
 
@@ -1859,12 +1871,22 @@ async function listWorkspaceItems(
 
 	if (types.includes('trigger')) {
 		for (const kind of TRIGGER_KINDS) {
-			const triggers = await triggerServices[kind].list({
-				workspace,
-				pathStart: pathPrefix,
-				perPage,
-				page
-			})
+			let triggers: Awaited<ReturnType<(typeof triggerServices)[typeof kind]['list']>>
+			try {
+				triggers = await triggerServices[kind].list({
+					workspace,
+					pathStart: pathPrefix,
+					perPage,
+					page
+				})
+			} catch (err) {
+				// A trigger kind whose backend routes aren't compiled in (e.g. email
+				// without smtp+private, or an EE kind on CE) 404s here; skip only that
+				// so one unavailable kind doesn't drop the whole listing. Any other
+				// failure (auth, 5xx, network) is real and must surface.
+				if ((err as { status?: number } | undefined)?.status === 404) continue
+				throw err
+			}
 			for (const trigger of triggers) items.push(triggerToItem(kind, trigger, false))
 		}
 	}
@@ -2537,16 +2559,6 @@ export const globalTools: Tool<{}>[] = [
 		fn: async (ctx) => {
 			const { args, toolId, toolCallbacks } = ctx
 			const parsed = getInstructionsSchema.parse(args)
-			// Session chats (explicit isSessionChat helper) don't get pipeline
-			// authoring while pipelines are gated; the standalone global chat keeps it.
-			if (
-				parsed.subject === 'pipeline' &&
-				isSessionChatFromCtx(ctx) &&
-				!isSessionPipelinesEnabled()
-			) {
-				toolCallbacks.setToolStatus(toolId, { content: 'Data pipelines are in alpha' })
-				return SESSION_PIPELINES_GATED_MESSAGE
-			}
 			const label =
 				parsed.subject === 'script' && parsed.language
 					? `${parsed.subject} (${parsed.language})`
@@ -3493,6 +3505,8 @@ export const globalTools: Tool<{}>[] = [
 	},
 	// Workspace-scoped datatable tools (unrestricted: no whitelist, no creation policy)
 	...getDatatableTools(),
+	// Workspace DuckLake readiness (storage prerequisite check for pipelines)
+	...getDucklakeTools(),
 	// Read-only tools over files the user attached to the conversation
 	...fileTools,
 	// Search + call access to the backend API endpoint catalog, for operations
@@ -3581,18 +3595,10 @@ export type GlobalToolHelpers = SessionToolHelpers & {
 	// side-panel chat). Backs open_page's compare-page default preselection.
 	getModifiedItems?: () => string[] | undefined
 	openArtifact?: (artifactId: string, name: string) => void
-	// Explicit "this chat is an AI session" marker for session-scoped gating
-	// (the pipeline gate). Do NOT infer it from `sessionId`: the eval harness
-	// passes a sessionId to its standalone (non-session) chats too.
-	isSessionChat?: boolean
 }
 
 function sessionIdFromCtx(ctx: { helpers?: unknown }): string | undefined {
 	return (ctx.helpers as GlobalToolHelpers | undefined)?.sessionId
-}
-
-function isSessionChatFromCtx(ctx: { helpers?: unknown }): boolean {
-	return (ctx.helpers as GlobalToolHelpers | undefined)?.isSessionChat === true
 }
 
 function operatingWorkspaceFromHelpers(helpers: unknown): string | undefined {
@@ -3614,7 +3620,7 @@ export type OpenPreviewHandler = (req: {
 	sessionId: string | undefined
 	kind: 'script' | 'flow' | 'raw_app' | 'pipeline'
 	path: string
-}) => string
+}) => string | Promise<string>
 
 let openPreviewHandler: OpenPreviewHandler | undefined
 
@@ -3622,18 +3628,17 @@ export function setOpenPreviewHandler(handler: OpenPreviewHandler | undefined): 
 	openPreviewHandler = handler
 }
 
-function openSessionPreview(
+async function openSessionPreview(
 	args: { kind: 'script' | 'flow' | 'raw_app' | 'pipeline'; path: string },
 	sessionId: string | undefined
-): string {
+): Promise<string> {
 	if (!openPreviewHandler) {
 		return 'Error: open_preview is only available inside an AI session. Tell the user to switch to a session to view the preview, or describe the item textually.'
 	}
 	// open_preview only exists in sessions, so no sessionId check is needed here.
-	if (args.kind === 'pipeline' && !isSessionPipelinesEnabled()) {
-		return SESSION_PIPELINES_GATED_MESSAGE
-	}
-	return openPreviewHandler({ ...args, sessionId })
+	// For a pipeline the handler awaits the editor's tool registration, so the
+	// model's next build_pipeline_node call can't race the async canvas mount.
+	return await openPreviewHandler({ ...args, sessionId })
 }
 
 // Opens a workspace *page* (Runs, Schedules, …) as a page tab in the session's
@@ -4226,7 +4231,17 @@ function triggerWriteSpec(kind: TriggerKind): WriteSpec<TriggerDraftConfig, Trig
 		probe: (workspace, path) => service.exists({ workspace, path }),
 		fetchDeployed: async (workspace, path) =>
 			(await service.get({ workspace, path })) as TriggerDraftConfig,
-		buildDraft: (base, config, path) => mergeDraftConfig<TriggerDraftConfig>(base, config, path)
+		buildDraft: (base, config, path) => {
+			const draft = mergeDraftConfig<TriggerDraftConfig>(base, config, path)
+			if (kind === 'email') {
+				// workspaced_local_part maps to a NOT NULL column but is optional in the
+				// tool schema. Default on the merged draft (not the incoming config) so an
+				// omitted field keeps the existing trigger's value instead of resetting it.
+				const email = draft as TriggerDraftConfig & { workspaced_local_part?: boolean }
+				email.workspaced_local_part = email.workspaced_local_part ?? false
+			}
+			return draft
+		}
 	}
 }
 
@@ -5147,7 +5162,8 @@ const triggerLabels: Record<TriggerKind, string> = {
 	amqp: 'AMQP trigger',
 	sqs: 'SQS trigger',
 	gcp: 'GCP Pub/Sub trigger',
-	azure: 'Azure Event Grid trigger'
+	azure: 'Azure Event Grid trigger',
+	email: 'Email trigger'
 }
 
 function createOpenScheduleAction(path: string, targetKind: 'script' | 'flow'): ToolDisplayAction {

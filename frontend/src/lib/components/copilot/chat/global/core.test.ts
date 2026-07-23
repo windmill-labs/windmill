@@ -141,8 +141,47 @@ vi.mock('$lib/gen', async () => {
 			getHttpTrigger: vi.fn(async () => {
 				throw new Error('getHttpTrigger mock not configured')
 			}),
+			listHttpTriggers: vi.fn(async () => []),
 			createHttpTrigger: vi.fn(async () => 'created'),
 			updateHttpTrigger: vi.fn(async () => 'updated')
+		}),
+		EmailTriggerService: wrapService(actual.EmailTriggerService, {
+			existsEmailTrigger: vi.fn(async () => false),
+			getEmailTrigger: vi.fn(async () => {
+				throw new Error('getEmailTrigger mock not configured')
+			}),
+			listEmailTriggers: vi.fn(async () => []),
+			createEmailTrigger: vi.fn(async () => 'created'),
+			updateEmailTrigger: vi.fn(async () => 'updated')
+		}),
+		// The remaining trigger kinds only need a list() stub so list_workspace_items
+		// treats them as available-but-empty (a real instance answers, not rejects).
+		WebsocketTriggerService: wrapService(actual.WebsocketTriggerService, {
+			listWebsocketTriggers: vi.fn(async () => [])
+		}),
+		KafkaTriggerService: wrapService(actual.KafkaTriggerService, {
+			listKafkaTriggers: vi.fn(async () => [])
+		}),
+		NatsTriggerService: wrapService(actual.NatsTriggerService, {
+			listNatsTriggers: vi.fn(async () => [])
+		}),
+		PostgresTriggerService: wrapService(actual.PostgresTriggerService, {
+			listPostgresTriggers: vi.fn(async () => [])
+		}),
+		MqttTriggerService: wrapService(actual.MqttTriggerService, {
+			listMqttTriggers: vi.fn(async () => [])
+		}),
+		AmqpTriggerService: wrapService(actual.AmqpTriggerService, {
+			listAmqpTriggers: vi.fn(async () => [])
+		}),
+		SqsTriggerService: wrapService(actual.SqsTriggerService, {
+			listSqsTriggers: vi.fn(async () => [])
+		}),
+		GcpTriggerService: wrapService(actual.GcpTriggerService, {
+			listGcpTriggers: vi.fn(async () => [])
+		}),
+		AzureTriggerService: wrapService(actual.AzureTriggerService, {
+			listAzureTriggers: vi.fn(async () => [])
 		}),
 		AppService: wrapService(actual.AppService, {
 			existsApp: vi.fn(async () => false),
@@ -279,6 +318,7 @@ import {
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
 	AppService,
+	EmailTriggerService,
 	FlowService,
 	FolderService,
 	HttpTriggerService,
@@ -1367,6 +1407,106 @@ describe('global AI tools', () => {
 		expect(
 			getBackendDraft('trigger_http', 'u/admin/fresh_route', { workspace: WORKSPACE })
 		).toBeUndefined()
+	})
+
+	// Email is the kind an implicit "run when an email is received" request maps to;
+	// guards the full draft->read->deploy wiring for it end to end.
+	it('reads and deploys an email trigger draft written by the chat', async () => {
+		await callGlobalTool('write_trigger', {
+			kind: 'email',
+			config: {
+				path: 'u/admin/fresh_inbox',
+				script_path: 'f/scripts/handler',
+				is_flow: false,
+				local_part: 'support'
+			}
+		})
+
+		const readRaw = await callGlobalTool('read_workspace_item', {
+			type: 'trigger',
+			trigger_kind: 'email',
+			path: 'u/admin/fresh_inbox'
+		})
+		expect(JSON.parse(readRaw)).toMatchObject({
+			type: 'trigger',
+			triggerKind: 'email',
+			path: 'u/admin/fresh_inbox',
+			isDraft: true
+		})
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'trigger',
+			trigger_kind: 'email',
+			path: 'u/admin/fresh_inbox'
+		})
+		expect(EmailTriggerService.createEmailTrigger).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: expect.objectContaining({
+				path: 'u/admin/fresh_inbox',
+				local_part: 'support',
+				script_path: 'f/scripts/handler',
+				// Omitted by the caller above; defaulted so the NOT NULL column is satisfied.
+				workspaced_local_part: false
+			})
+		})
+		expect(
+			getBackendDraft('trigger_email', 'u/admin/fresh_inbox', { workspace: WORKSPACE })
+		).toBeUndefined()
+	})
+
+	// Editing an existing email trigger whose workspaced_local_part is true while
+	// omitting the optional field must not reset it to false (that would change the
+	// receiving address). The default applies only to a genuinely new draft.
+	it('preserves workspaced_local_part when editing an existing email trigger', async () => {
+		vi.mocked(EmailTriggerService.existsEmailTrigger).mockResolvedValueOnce(true)
+		vi.mocked(EmailTriggerService.getEmailTrigger).mockResolvedValueOnce({
+			path: 'u/admin/ws_inbox',
+			script_path: 'f/scripts/handler',
+			local_part: 'support',
+			is_flow: false,
+			workspaced_local_part: true
+		} as any)
+
+		await callGlobalTool('write_trigger', {
+			kind: 'email',
+			config: {
+				path: 'u/admin/ws_inbox',
+				script_path: 'f/scripts/handler',
+				is_flow: false,
+				local_part: 'support'
+			}
+		})
+
+		const readRaw = await callGlobalTool('read_workspace_item', {
+			type: 'trigger',
+			trigger_kind: 'email',
+			path: 'u/admin/ws_inbox'
+		})
+		expect(JSON.parse(readRaw).value).toMatchObject({ workspaced_local_part: true })
+	})
+
+	// A trigger kind whose backend routes aren't compiled in (email without
+	// smtp+private, EE kinds on CE) 404s on list; that must not drop the whole listing.
+	it('skips unavailable trigger kinds when listing', async () => {
+		vi.mocked(HttpTriggerService.listHttpTriggers).mockResolvedValueOnce([
+			{ path: 'u/admin/live_route', script_path: 'f/scripts/handler', is_flow: false }
+		] as any)
+		vi.mocked(EmailTriggerService.listEmailTriggers).mockRejectedValueOnce(
+			Object.assign(new Error('not found'), { status: 404 })
+		)
+
+		const raw = await callGlobalTool('list_workspace_items', { types: ['trigger'] })
+		const paths = JSON.parse(raw).map((i: any) => i.path)
+		expect(paths).toContain('u/admin/live_route')
+	})
+
+	// Only a 404 means "route not compiled in". A real failure (auth, 5xx) must not
+	// be swallowed into a successful-but-incomplete listing.
+	it('propagates a non-404 trigger-list failure', async () => {
+		vi.mocked(HttpTriggerService.listHttpTriggers).mockRejectedValueOnce(
+			Object.assign(new Error('server error'), { status: 500 })
+		)
+		await expect(callGlobalTool('list_workspace_items', { types: ['trigger'] })).rejects.toThrow()
 	})
 
 	// Same private-owner read path as schedules, for the resource drawer kind.
@@ -3722,65 +3862,63 @@ describe('folder tools', () => {
 	})
 })
 
-describe('session pipeline gate', () => {
-	const FLAG = 'wm_dev_session_pipelines'
-	afterEach(() => {
-		localStorage.removeItem(FLAG)
-	})
-
-	it('replaces the session prompt pipeline guidance with the alpha notice by default', () => {
-		const content = prepareGlobalSystemMessage(undefined, { previewTools: true }).content as string
-		expect(content).toContain('Data pipelines are in alpha and NOT yet available in this chat')
-		expect(content).not.toContain('call get_instructions with subject "pipeline"')
-		expect(content).not.toContain('Building a data pipeline: call open_preview')
-	})
-
-	it('restores the session pipeline guidance when the dev flag is set', () => {
-		localStorage.setItem(FLAG, '1')
+describe('session pipeline surface (alpha)', () => {
+	it('gives the session prompt pipeline guidance plus an alpha heads-up', () => {
 		const content = prepareGlobalSystemMessage(undefined, { previewTools: true }).content as string
 		expect(content).toContain('call get_instructions with subject "pipeline"')
 		expect(content).toContain('Building a data pipeline: call open_preview')
-		expect(content).not.toContain('Data pipelines are in alpha and NOT yet available in this chat')
+		expect(content).toContain('Data pipeline support in this chat is in ALPHA')
 	})
 
-	it('leaves the standalone (non-session) chat pipeline guidance ungated', () => {
+	it('leaves the standalone (non-session) chat pipeline guidance alpha-free', () => {
 		const content = prepareGlobalSystemMessage(undefined, { previewTools: false }).content as string
 		expect(content).toContain('call get_instructions with subject "pipeline"')
-		expect(content).not.toContain('Data pipelines are in alpha and NOT yet available in this chat')
+		expect(content).not.toContain('Data pipeline support in this chat is in ALPHA')
 	})
 
-	it('refuses get_instructions(pipeline) in a session but not outside one', async () => {
+	it('serves the real pipeline instructions for get_instructions(pipeline) inside a session', async () => {
 		const inSession = await callGlobalTool('get_instructions', { subject: 'pipeline' }, undefined, {
-			isSessionChat: true,
 			sessionId: 'session-1'
 		})
-		expect(inSession).toContain('data pipelines are in alpha')
-
-		const outsideSession = await callGlobalTool('get_instructions', { subject: 'pipeline' })
-		expect(outsideSession).not.toContain('data pipelines are in alpha')
-
-		// The eval harness passes a sessionId to standalone (non-session) chats;
-		// only the explicit isSessionChat marker may engage the gate.
-		const standaloneWithSessionId = await callGlobalTool(
-			'get_instructions',
-			{ subject: 'pipeline' },
-			undefined,
-			{ sessionId: 'eval-session' }
-		)
-		expect(standaloneWithSessionId).not.toContain('data pipelines are in alpha')
+		// Assert the real authoring guidance is returned, not merely a non-error.
+		expect(inSession).toContain('Data pipeline authoring')
 	})
 
-	it('refuses open_preview(kind=pipeline) while gated', async () => {
+	it('opens open_preview(kind=pipeline) inside a session', async () => {
 		const handler = vi.fn(() => 'opened')
 		setOpenPreviewHandler(handler)
 		try {
-			const gated = await callGlobalTool('open_preview', { kind: 'pipeline', path: 'my_folder' })
-			expect(gated).toContain('data pipelines are in alpha')
-			expect(handler).not.toHaveBeenCalled()
-
-			localStorage.setItem(FLAG, '1')
 			const opened = await callGlobalTool('open_preview', { kind: 'pipeline', path: 'my_folder' })
 			expect(opened).toBe('opened')
+			expect(handler).toHaveBeenCalled()
+		} finally {
+			setOpenPreviewHandler(undefined)
+		}
+	})
+
+	// The pipeline preview handler awaits the editor's async tool registration
+	// (sessionRuntime -> AIChatManager.waitForPipelineHelpers) before resolving.
+	// open_preview must not settle until then, or the model's next turn races the
+	// mount and hits "Unknown tool call". A Promise-returning handler proves the
+	// tool awaits it rather than returning as soon as the tab opens.
+	it('keeps open_preview(kind=pipeline) pending until the async handler resolves', async () => {
+		let release!: (v: string) => void
+		const handler = vi.fn(() => new Promise<string>((resolve) => (release = resolve)))
+		setOpenPreviewHandler(handler)
+		try {
+			let settled = false
+			const call = callGlobalTool('open_preview', { kind: 'pipeline', path: 'my_folder' }).then(
+				(r) => {
+					settled = true
+					return r
+				}
+			)
+			await Promise.resolve()
+			expect(handler).toHaveBeenCalled()
+			expect(settled).toBe(false)
+			release('opened')
+			expect(await call).toBe('opened')
+			expect(settled).toBe(true)
 		} finally {
 			setOpenPreviewHandler(undefined)
 		}

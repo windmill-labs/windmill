@@ -69,7 +69,7 @@ use windmill_common::{
     users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
-        Pagination, RunnableKind, StripPath,
+        strip_json_nul, Pagination, RunnableKind, StripPath,
     },
     variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
     worker::{to_raw_value, CLOUD_HOSTED},
@@ -1828,50 +1828,6 @@ fn custom_path_conflict_error(
     }
 }
 
-/// App values live in a `json` column, which — unlike `jsonb` — accepts the
-/// `\u0000` escape. Any later `json`→`jsonb` conversion (a workspace fork's
-/// `clone_apps`, search indexing, …) then aborts with "unsupported Unicode
-/// escape sequence". Strip genuine NULs so the value is jsonb-safe before it
-/// lands in the DB; the usual source is a binary file such as `.DS_Store`
-/// accidentally bundled into a raw app's file map. A real NUL is unstorable
-/// either way, and frontend code that needs the character writes it as the
-/// source escape `\u0000`, which JSON-encodes to `\\u0000` (an escaped
-/// backslash — the even-parity case below) and is left untouched.
-///
-/// Returns `Cow::Borrowed` (no allocation) when the value is already clean.
-fn strip_null_chars(raw: &str) -> Cow<'_, str> {
-    let bytes = raw.as_bytes();
-    let mut out: Option<String> = None;
-    let mut copied_to = 0;
-    let mut search_from = 0;
-    // A genuine NUL is `\u0000`: a `u0000` introduced by an *odd* run of
-    // backslashes. An even run (`\\u0000`) is an escaped backslash then the
-    // literal text "u0000" (common in minified JS regexes) and is preserved.
-    while let Some(rel) = raw[search_from..].find("u0000") {
-        let at = search_from + rel;
-        let mut backslashes = 0;
-        let mut j = at;
-        while j > 0 && bytes[j - 1] == b'\\' {
-            backslashes += 1;
-            j -= 1;
-        }
-        if backslashes % 2 == 1 {
-            // Drop the escaping backslash + `u0000` — the 6 chars in [at-1, at+5).
-            let out = out.get_or_insert_with(String::new);
-            out.push_str(&raw[copied_to..at - 1]);
-            copied_to = at + 5;
-        }
-        search_from = at + 5;
-    }
-    match out {
-        Some(mut out) => {
-            out.push_str(&raw[copied_to..]);
-            Cow::Owned(out)
-        }
-        None => Cow::Borrowed(raw),
-    }
-}
-
 async fn create_app_internal<'a>(
     authed: ApiAuthed,
     db: sqlx::Pool<sqlx::Postgres>,
@@ -2017,7 +1973,7 @@ async fn create_app_internal<'a>(
     .await?;
     // `.get()` keeps the raw text (and thus key order); strip any NUL so the
     // `json`→`jsonb` conversion downstream (fork, indexing) can't choke on it.
-    let value = strip_null_chars(app.value.0.get());
+    let value = strip_json_nul(app.value.0.get());
     if matches!(value, Cow::Owned(_)) {
         tracing::warn!(path = %app.path, "stripped NUL character(s) from app value on create");
     }
@@ -2602,7 +2558,7 @@ async fn update_app_internal<'a>(
 
         // `.get()` keeps the raw text (and thus key order); strip any NUL so the
         // `json`→`jsonb` conversion downstream (fork, indexing) can't choke on it.
-        let value = strip_null_chars(nvalue.0.get());
+        let value = strip_json_nul(nvalue.0.get());
         if matches!(value, Cow::Owned(_)) {
             tracing::warn!(path = %npath, "stripped NUL character(s) from app value on update");
         }
@@ -4839,64 +4795,5 @@ mod embed_token_tests {
 
         // Invalid JSON still errors.
         assert!(parse_embed_policy("not json").is_err());
-    }
-}
-
-#[cfg(test)]
-mod strip_null_chars_tests {
-    use super::strip_null_chars;
-    use std::borrow::Cow;
-
-    // Build `{"k":"<n backslashes>u0000"}` without writing the escape literally
-    // (a real NUL can't live in Rust source). Odd n => the trailing `u0000` is a
-    // genuine NUL escape; even n => an escaped backslash then the text "u0000".
-    fn doc(backslashes: usize) -> String {
-        format!(r#"{{"k":"{}u0000"}}"#, "\\".repeat(backslashes))
-    }
-
-    #[test]
-    fn strips_genuine_null_escape() {
-        // 1 backslash: the NUL escape is dropped, the string value becomes "".
-        assert_eq!(strip_null_chars(&doc(1)).as_ref(), r#"{"k":""}"#);
-        // 3 backslashes: escaped backslash + NUL -> keep the escaped backslash.
-        let three = doc(3);
-        let out = strip_null_chars(&three);
-        assert_eq!(out.as_ref(), r#"{"k":"\\"}"#);
-        // Result is now valid, NUL-free JSON (i.e. jsonb-safe).
-        let v: serde_json::Value = serde_json::from_str(out.as_ref()).unwrap();
-        assert!(!v["k"].as_str().unwrap().as_bytes().contains(&0u8));
-    }
-
-    #[test]
-    fn preserves_escaped_backslash_then_literal_u0000() {
-        // Even runs are the literal text "u0000" (e.g. a minified JS regex char
-        // class) and must be returned untouched, with no allocation.
-        for n in [2usize, 4] {
-            let s = doc(n);
-            let out = strip_null_chars(&s);
-            assert_eq!(out.as_ref(), s.as_str());
-            assert!(matches!(out, Cow::Borrowed(_)), "n={n} should be borrowed");
-        }
-    }
-
-    #[test]
-    fn preserves_clean_values() {
-        // Plain value, and the bare token "u0000" with no preceding backslash.
-        for s in [r#"{"files":{"/index.tsx":"hello"}}"#, r#"{"k":"u0000"}"#] {
-            let out = strip_null_chars(s);
-            assert_eq!(out.as_ref(), s);
-            assert!(matches!(out, Cow::Borrowed(_)));
-        }
-        // The escape for a literal backslash char (`u005c`) then text "u0000":
-        // the only "u0000" match is preceded by `c` (0 backslashes) -> no NUL.
-        let s = format!(r#"{{"k":"{}u005cu0000"}}"#, "\\");
-        assert!(matches!(strip_null_chars(&s), Cow::Borrowed(_)));
-    }
-
-    #[test]
-    fn strips_multiple_and_preserves_surrounding() {
-        // Mirrors the .DS_Store case: several NULs interleaved with real text.
-        let s = format!(r#"{{"a":"x{b}u0000{b}u0000y","b":"ok"}}"#, b = "\\");
-        assert_eq!(strip_null_chars(&s).as_ref(), r#"{"a":"xy","b":"ok"}"#);
     }
 }
