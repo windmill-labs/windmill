@@ -7049,6 +7049,75 @@ fn create_restarted_module(
     }
 }
 
+/// A between-steps-zombie step: an `InProgress` module (in an otherwise terminal,
+/// reaped flow) whose every child is recorded as a `success` completion. Only the
+/// module's final state transition was lost, so the whole step is derivable and
+/// safe to reuse on restart. Children incomplete/failed/cancelled ⟹ not a zombie.
+async fn is_derivable_between_steps_zombie(
+    db: &Pool<Postgres>,
+    workspace_id: &str,
+    module: &FlowStatusModule,
+) -> Result<bool, Error> {
+    if !matches!(module, FlowStatusModule::InProgress { .. }) {
+        return Ok(false);
+    }
+    let child_ids: Vec<Uuid> = module
+        .flow_jobs()
+        .filter(|v| !v.is_empty())
+        .or_else(|| module.job().map(|j| vec![j]))
+        .unwrap_or_default();
+    if child_ids.is_empty() {
+        return Ok(false);
+    }
+    let success_children = sqlx::query_scalar!(
+        "SELECT count(*) FROM v2_job_completed
+         WHERE workspace_id = $1 AND id = ANY($2) AND status = 'success'",
+        workspace_id,
+        &child_ids,
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(0);
+    Ok(success_children == child_ids.len() as i64)
+}
+
+/// Convert a between-steps-zombie `InProgress` module (validated by
+/// [`is_derivable_between_steps_zombie`]) into the `Success` it would have become
+/// had its dropped transition landed, reusing all completed children. Downstream
+/// steps re-derive this step's result from `flow_jobs`/`job` on demand
+/// (`get_previous_job_result`), so no aggregate needs recomputing here.
+fn reuse_completed_zombie_module(module: FlowStatusModule) -> FlowStatusModule {
+    match module {
+        FlowStatusModule::InProgress {
+            id,
+            job,
+            flow_jobs,
+            flow_jobs_success,
+            flow_jobs_duration,
+            branch_chosen,
+            agent_actions,
+            agent_actions_success,
+            ..
+        } => FlowStatusModule::Success {
+            id,
+            job,
+            // Every child was verified successful, so normalise the success
+            // vector (the dropped transition may have left the last entry unset).
+            flow_jobs_success: flow_jobs_success
+                .map(|v| v.into_iter().map(|_| Some(true)).collect()),
+            flow_jobs,
+            flow_jobs_duration,
+            branch_chosen,
+            approvers: vec![],
+            failed_retries: vec![],
+            skipped: false,
+            agent_actions,
+            agent_actions_success,
+        },
+        other => other,
+    }
+}
+
 async fn restarted_flows_resolution(
     db: &Pool<Postgres>,
     workspace_id: &str,
@@ -7178,9 +7247,19 @@ async fn restarted_flows_resolution(
                 continue;
             };
             if module.id() == restart_step_id {
-                // if the module ID is the one we want to restart the flow at, or if it's past it in the flow,
-                // set the module as WaitingForPriorSteps as it needs to be re-run
-                if branch_or_iteration_n.is_none() || branch_or_iteration_n.unwrap() == 0 {
+                if branch_or_iteration_n.is_none()
+                    && is_derivable_between_steps_zombie(db, workspace_id, &module).await?
+                {
+                    // Between-steps-zombie recovery: this step's children all
+                    // completed but its final state transition was dropped (the
+                    // flow was reaped by the zombie monitor). Reuse the completed
+                    // step verbatim and restart from the NEXT step, so no child
+                    // re-runs and only the dropped transition is replayed onward.
+                    step_n += 1;
+                    truncated_modules.push(reuse_completed_zombie_module(module));
+                } else if branch_or_iteration_n.is_none() || branch_or_iteration_n.unwrap() == 0 {
+                    // if the module ID is the one we want to restart the flow at, or if it's past it in the flow,
+                    // set the module as WaitingForPriorSteps as it needs to be re-run
                     // The module as WaitingForPriorSteps as the entire module (i.e. all the branches) need to be re-run
                     truncated_modules
                         .push(FlowStatusModule::WaitingForPriorSteps { id: module.id() });

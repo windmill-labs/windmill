@@ -4865,11 +4865,13 @@ WHERE concurrency_id IN (SELECT concurrency_id FROM rows_to_delete)  RETURNING c
 }
 
 async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
+    // flow_status is cast ::text on purpose: decoding the jsonb column directly as Box<str>
+    // yields its binary form (leading version byte) and fails serde_json parsing at column 1.
     let flows = sqlx::query!(
         r#"
         SELECT
             j.id AS "id!", j.workspace_id AS "workspace_id!", j.parent_job, j.flow_step_id IS NOT NULL AS "is_flow_step?",
-            COALESCE(s.flow_status, s.workflow_as_code_status) AS "flow_status: Box<str>", r.ping AS last_ping, j.same_worker AS "same_worker?",
+            COALESCE(s.flow_status, s.workflow_as_code_status)::text AS "flow_status: Box<str>", r.ping AS last_ping, j.same_worker AS "same_worker?",
             q.worker AS "worker?",
             wp.ping_at AS "worker_last_ping?",
             wp.memory_usage AS "worker_memory_usage?",
@@ -4898,7 +4900,7 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             .as_deref()
             .and_then(|x| serde_json::from_str::<FlowStatus>(x).ok());
         if !flow.same_worker.unwrap_or(false)
-            && status.is_some_and(|s| {
+            && status.as_ref().is_some_and(|s| {
                 s.modules
                     .get(0)
                     .is_some_and(|x| matches!(x, FlowStatusModule::WaitingForPriorSteps { .. }))
@@ -5125,6 +5127,18 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
                     format!("Flow {id} ({base_url}/run/{id}?workspace={workspace_id}) was cancelled because it")
                 }
             );
+            let reason = match between_steps_recovery_guidance(
+                db,
+                status.as_ref(),
+                id,
+                &workspace_id,
+                &base_url,
+            )
+            .await
+            {
+                Some(guidance) => format!("{reason}\n\n{guidance}"),
+                None => reason,
+            };
             report_critical_error(reason.clone(), db.clone(), Some(&flow.workspace_id), None).await;
             cancel_zombie_flow_job(db, flow.id, &flow.workspace_id,
                 format!(r#"{reason}
@@ -5169,6 +5183,79 @@ Please check your worker logs for more details and feel free to report it to the
         }
     }
     Ok(())
+}
+
+/// When a between-steps zombie's stuck step has every child recorded as a
+/// `success` completion, the flow's state is fully derivable: only the final
+/// state transition was lost to the worker failure, not any real work. In that
+/// case return concrete restart-from-step recovery guidance to append to the
+/// cancellation reason / critical alert. Returns `None` when the state isn't
+/// derivable (some child missing or not successful), so the existing wording is
+/// left untouched. Auto-recovery is deliberately not attempted (a re-driven
+/// transition can OOM again on the same aggregated state; a human raises the
+/// memory limit first, then restarts).
+async fn between_steps_recovery_guidance(
+    db: &DB,
+    status: Option<&FlowStatus>,
+    flow_id: Uuid,
+    workspace_id: &str,
+    base_url: &str,
+) -> Option<String> {
+    // The stuck module is the current step, left InProgress because the
+    // transition that would have marked it Success was dropped.
+    let status = status?;
+    let idx = usize::try_from(status.step).ok()?;
+    let module = status.modules.get(idx)?;
+    if !matches!(module, FlowStatusModule::InProgress { .. }) {
+        return None;
+    }
+    let step_id = module.id();
+
+    // Children whose completion the lost transition would have aggregated: the
+    // loop/branchall iterations, or the single leaf/subflow child.
+    let child_ids: Vec<Uuid> = module
+        .flow_jobs()
+        .filter(|v| !v.is_empty())
+        .or_else(|| module.job().map(|j| vec![j]))?;
+
+    // Derivable only when every child is recorded as a success completion.
+    let success_children = sqlx::query_scalar!(
+        "SELECT count(*) FROM v2_job_completed
+         WHERE workspace_id = $1 AND id = ANY($2) AND status = 'success'",
+        workspace_id,
+        &child_ids,
+    )
+    .fetch_one(db)
+    .await
+    .ok()?
+    .unwrap_or(0);
+    if success_children != child_ids.len() as i64 {
+        return None;
+    }
+    let n = child_ids.len();
+
+    // For loop/branchall, name the completed iteration/branch count so the
+    // operator can confirm the whole fan-out is intact.
+    let iteration_hint = match module {
+        FlowStatusModule::InProgress { iterator: Some(_), .. } => {
+            format!(" (loop step, all {n} iterations completed)")
+        }
+        FlowStatusModule::InProgress { branchall: Some(_), .. } => {
+            format!(" (branchall step, all {n} branches completed)")
+        }
+        _ => String::new(),
+    };
+
+    Some(format!(
+        "RECOVERY: all {n} child job(s) of step `{step_id}`{iteration_hint} completed successfully; \
+only the flow's final state transition was lost to the worker failure above (not any genuine failure), so \
+the completed work is intact and fully derivable. To recover WITHOUT re-running it: first change the failure \
+condition (raise the worker memory limit, e.g. k8s `resources.limits.memory`, or move the flow to a larger \
+worker group), then restart from step `{step_id}`, which reuses every completed child and only replays the \
+dropped transition onward.\n\
+  UI:  open {base_url}/run/{flow_id}?workspace={workspace_id} and use \"Re-start from {step_id}\".\n\
+  API: POST {base_url}/api/w/{workspace_id}/jobs/restart/f/{flow_id} with body {{\"step_id\":\"{step_id}\"}}."
+    ))
 }
 
 async fn cancel_zombie_flow_job(
