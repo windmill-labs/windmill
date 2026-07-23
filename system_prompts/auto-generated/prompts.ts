@@ -761,7 +761,16 @@ A script joins the pipeline when its source begins with the \`pipeline\` annotat
 
 - \`// on <ref>\` — declares an execution-DAG **input** (what triggers/feeds this node). \`<ref>\` is either:
   - an **asset URI** (the node runs when that asset is produced upstream): \`ducklake://main/orders\`, \`datatable://main/users\`, \`$res:f/folder/my_resource\`, \`volume://name/path\`, or an S3 object (see the S3 storage-form rule below).
-  - a **native trigger kind**: \`schedule\`, \`webhook\`, \`email\`, \`kafka\`, \`mqtt\`, \`amqp\`, \`nats\`, \`postgres\`, \`sqs\`, \`gcp\`, or \`data_upload\` (a user-uploaded S3 file). For these the actual trigger row (cron, topic, …) is created separately; the annotation only declares the binding.
+  - a **native trigger kind**: \`schedule\`, \`webhook\`, \`email\`, \`kafka\`, \`mqtt\`, \`amqp\`, \`nats\`, \`postgres\`, \`sqs\`, \`gcp\`, or \`data_upload\` (a user-uploaded S3 file). For these the actual trigger row (cron, topic, …) is created separately; the annotation only declares the binding. **\`data_upload\` is special**: there is no trigger row — the node instead declares an **\`S3Object\` input parameter** fed by the auto-generated upload picker; it never hard-codes a key. Any language can be the \`data_upload\` node:
+    - Python \`def main(file: S3Object):\` then \`wmill.load_s3_file(file)\`; TS \`export async function main(file: S3Object)\`.
+    - **DuckDB** takes the s3object arg via a \`-- $<name> (s3object)\` declaration and reads it directly, so a single DuckDB node can ingest **and** materialize:
+      \`\`\`
+      -- pipeline
+      -- on data_upload
+      -- materialize ducklake://main/raw_uploads
+      -- $file (s3object)
+      SELECT * FROM read_csv($file)
+      \`\`\`
 - **Outputs** are inferred from what the body writes — a \`CREATE TABLE\`, a \`wmill.writeS3File(...)\`, a DuckLake/datatable write. To declare a managed output explicitly, use \`// materialize <asset-uri>\`.
 - Optional badges: \`// partitioned <daily|hourly|weekly|monthly|dynamic>\`, \`// freshness <duration>\` (e.g. \`1h\`), \`// tag <worker-tag>\`, \`// retry <count> [delay]\`, \`// data_test <kind> ...\`.
 
