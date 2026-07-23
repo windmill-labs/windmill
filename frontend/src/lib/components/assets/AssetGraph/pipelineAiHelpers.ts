@@ -7,7 +7,7 @@ import {
 	type AssetWithAltAccessType
 } from '$lib/components/assets/lib'
 import { assetUri, autoOutputAsset, type PipelineOutputKind } from './pipelineTemplates'
-import { parsePipelineAnnotations } from './parsePipelineAnnotations'
+import { parsePipelineAnnotations, scd2CurrentTargetPath } from './parsePipelineAnnotations'
 import type { AssetGraphResponse } from './types'
 import type {
 	PipelineAIChatHelpers,
@@ -105,6 +105,31 @@ async function inferDraftAssets(
 	} catch {
 		return { writes: [], reads: [] }
 	}
+}
+
+// `inferAssets` returns body reads/writes but NOT the `// materialize` target,
+// which the parser surfaces separately (resolveGraph adds it the same way).
+// A managed materialize node's output is real and deployable, so fold its
+// target(s) into the detected writes.
+function materializeWrites(content: string): Array<{ kind: AssetKind; path: string }> {
+	const m = parsePipelineAnnotations(content).materialize
+	if (!m) return []
+	const out = [{ kind: m.targetKind, path: m.targetPath }]
+	const current = scd2CurrentTargetPath(m)
+	if (current) out.push({ kind: m.targetKind, path: current })
+	return out
+}
+
+function dedupeAssets(
+	assets: Array<{ kind: AssetKind; path: string }>
+): Array<{ kind: AssetKind; path: string }> {
+	const seen = new Set<string>()
+	return assets.filter((a) => {
+		const key = `${a.kind}:${a.path}`
+		if (seen.has(key)) return false
+		seen.add(key)
+		return true
+	})
 }
 
 export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIChatHelpers {
@@ -254,15 +279,15 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 			deps.setDrafts(next)
 			deps.onShowDrafts?.()
 			deps.onProposeNode?.(path)
-			// Report ONLY body/annotation-inferred lineage — the deployable truth. The
-			// output_kind `seeded` value above is a random canvas placeholder that live
-			// inference overwrites and deploy re-derives from the body, so it must NOT be
-			// reported as a detected edge: an empty list correctly means the model's
-			// write (e.g. a variable/dynamic path) produced no real edge.
+			// Report deployable lineage only (body writes + `// materialize` target),
+			// never the random `seeded` placeholder — else a dynamic/unwritten output
+			// reads as wired when the deployed script has no such edge.
 			return {
 				path,
 				detectedReads: inferred.reads.map(assetUri),
-				detectedWrites: inferred.writes.map(assetUri)
+				detectedWrites: dedupeAssets([...inferred.writes, ...materializeWrites(content)]).map(
+					assetUri
+				)
 			}
 		},
 		editNode: async (path, content) => {
@@ -297,11 +322,12 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 			deps.setDrafts(next)
 			deps.onShowDrafts?.()
 			deps.onProposeNode?.(path)
-			// Report only body/annotation-inferred lineage (the deployable truth), not a
-			// carried-over seed placeholder — see the note in proposeNode.
+			// Deployable lineage only (see proposeNode): body writes + materialize target.
 			return {
 				detectedReads: inferred.reads.map(assetUri),
-				detectedWrites: inferred.writes.map(assetUri)
+				detectedWrites: dedupeAssets([...inferred.writes, ...materializeWrites(content)]).map(
+					assetUri
+				)
 			}
 		},
 		removeProposedNode: async (path) => {
