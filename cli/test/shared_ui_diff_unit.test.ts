@@ -1,14 +1,8 @@
 /**
- * Unit tests for diffSharedUi in shared_ui.ts.
- *
- * Regression guard: the git-sync "Pull from repo" preview (wmill sync push
- * --dry-run --json) folds diffSharedUi into its `changes` list so pending
- * shared-UI (ui/) changes show up in the preview instead of reading as
- * "no changes". The apply already syncs ui/ out-of-band via pushSharedUi;
- * only the dry-run was blind.
- *
- * Asserts diffSharedUi emits ui/<rel> entries when the local ui/ folder
- * differs from the remote shared-UI store, and nothing when they match.
+ * diffSharedUi must mirror pushSharedUi's apply semantics so the git-sync
+ * dry-run preview and the real apply never diverge: it emits ui/<rel> entries
+ * exactly when the local ui/ folder differs from the remote store, and nothing
+ * (including no local folder) when the apply would be a no-op.
  */
 
 import { expect, test, describe, beforeEach, afterEach, mock } from "bun:test";
