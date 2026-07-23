@@ -1784,10 +1784,18 @@
 			// Hold the run guard until finalization finishes: finalize keeps writing
 			// jobs/samples/code through the recorder store, and a second run's
 			// `start()` would reset those maps mid-write, corrupting both recordings.
-			if (pipelineRecording.active) {
-				lastPipelineRecording = await finalizePipelineRecording(pipelineRecording, $workspaceStore)
+			// The nested finally still clears the guard if finalize ever rejects, so
+			// Run can't wedge permanently.
+			try {
+				if (pipelineRecording.active) {
+					lastPipelineRecording = await finalizePipelineRecording(
+						pipelineRecording,
+						$workspaceStore
+					)
+				}
+			} finally {
+				cascadeRunningRoot = undefined
 			}
-			cascadeRunningRoot = undefined
 		}
 	}
 

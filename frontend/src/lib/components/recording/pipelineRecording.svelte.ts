@@ -307,21 +307,29 @@ export async function capturePipelineRecording(opts: {
 }): Promise<{ recording: PipelineRecording; result: CascadeRunResult & { cyclic: string[] } }> {
 	const store = createPipelineRecording()
 	store.start(opts.folder, opts.graph)
-	const result = await runBoundedCascade({
-		graph: opts.graph,
-		scripts: opts.scriptPaths,
-		launch: async (path) => {
-			const jobId = await opts.launch(path)
-			// No-op unless the store is active; captures the node's stream.
-			store.watchJob(jobId, opts.workspace)
-			return jobId
-		},
-		waitTerminal: opts.waitTerminal,
-		onUpdate: (statuses) => {
-			store.recordStatuses(statuses)
-			opts.onUpdate?.(statuses)
-		}
-	})
+	let result: CascadeRunResult & { cyclic: string[] }
+	try {
+		result = await runBoundedCascade({
+			graph: opts.graph,
+			scripts: opts.scriptPaths,
+			launch: async (path) => {
+				const jobId = await opts.launch(path)
+				// No-op unless the store is active; captures the node's stream.
+				store.watchJob(jobId, opts.workspace)
+				return jobId
+			},
+			waitTerminal: opts.waitTerminal,
+			onUpdate: (statuses) => {
+				store.recordStatuses(statuses)
+				opts.onUpdate?.(statuses)
+			}
+		})
+	} catch (e) {
+		// The cascade threw before finalize could `stop()` the store: close the
+		// per-node SSE streams `watchJob` opened so they don't dangle.
+		store.stop()
+		throw e
+	}
 	const recording = await finalizePipelineRecording(store, opts.workspace)
 	return { recording, result }
 }

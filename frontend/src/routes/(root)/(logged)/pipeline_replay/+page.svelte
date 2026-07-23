@@ -54,9 +54,11 @@
 			reset()
 			scriptRecording = data as ScriptRecording
 		} else if (data.type === 'pipeline') {
-			// `jobs` is required — the player indexes it (Object.keys) on mount, so a
-			// payload missing it must fail here, not crash the page.
-			if (!data.graph || !data.timeline || !data.jobs) {
+			// Validate the shapes the player relies on — `graph`/`jobs` are indexed as
+			// objects and `timeline` is iterated as an array — so a structurally wrong
+			// payload (e.g. `timeline: {}`) hits the toast instead of crashing on mount.
+			const isObject = (v: unknown) => typeof v === 'object' && v !== null && !Array.isArray(v)
+			if (!isObject(data.graph) || !Array.isArray(data.timeline) || !isObject(data.jobs)) {
 				sendUserToast('Invalid pipeline recording format', true)
 				return false
 			}
