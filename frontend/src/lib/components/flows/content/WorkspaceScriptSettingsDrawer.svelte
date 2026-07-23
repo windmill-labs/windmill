@@ -19,27 +19,32 @@
 	let loading = $state(false)
 	let saving = $state(false)
 	let callback: (() => void) | undefined = undefined
+	// Guards against a slow load for a previously-opened script resolving after
+	// the drawer was reopened for a different one and overwriting its target.
+	let openSeq = 0
 
 	// Open the settings drawer for the workspace script referenced by `path`.
-	// A specific `hash` may be passed to load that version, but saving always
-	// creates a new version whose parent is resolved to the current deployed head.
+	// A specific `hash` may be passed to load that version.
 	export async function openDrawer(
 		path: string,
 		hash: string | undefined,
 		cb?: () => void
 	): Promise<void> {
+		const seq = ++openSeq
 		script = undefined
 		callback = cb
 		drawer?.openDrawer?.()
 		loading = true
 		try {
-			script = hash
+			const loaded = hash
 				? await ScriptService.getScriptByHash({ workspace: opWs!, hash })
 				: await ScriptService.getScriptByPath({ workspace: opWs!, path })
+			if (seq !== openSeq) return
+			script = loaded
 		} catch (e) {
-			sendUserToast(`Could not load script settings: ${e}`, true)
+			if (seq === openSeq) sendUserToast(`Could not load script settings: ${e}`, true)
 		} finally {
-			loading = false
+			if (seq === openSeq) loading = false
 		}
 	}
 
@@ -50,6 +55,9 @@
 			// Spread the full loaded script so fields we don't edit here (codebase,
 			// labels, envs, on_behalf_of_email, ...) survive the new version; only
 			// override lineage and normalize the edited settings.
+			// parent_hash without auto_parent is an optimistic-concurrency guard: if the
+			// script was deployed elsewhere while the drawer was open, the save fails
+			// loudly (non-linear lineage) instead of silently reverting that deploy.
 			// preserve_on_behalf_of/skip_draft_deletion keep a settings-only save from
 			// hijacking the execution identity or discarding the author's code draft.
 			await ScriptService.createScript({
@@ -59,7 +67,6 @@
 					summary: script.summary ?? '',
 					description: script.description ?? '',
 					parent_hash: script.hash,
-					auto_parent: true,
 					is_template: false,
 					lock: script.lock,
 					concurrency_key: emptyString(script.concurrency_key) ? undefined : script.concurrency_key,

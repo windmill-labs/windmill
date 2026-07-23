@@ -1973,12 +1973,17 @@
 						/>
 					{/if}
 					{#if !condensedHeader}
+						{@const canOpenRuntime =
+							customUi?.topBar?.settings != false &&
+							customUi?.settingsPanel?.disableRuntime !== true}
 						<ScriptSettingsBadges
 							settings={script}
-							onclick={() => {
-								selectedTab = 'runtime'
-								metadataOpen = true
-							}}
+							onclick={canOpenRuntime
+								? () => {
+										selectedTab = 'runtime'
+										metadataOpen = true
+									}
+								: undefined}
 						/>
 					{/if}
 				</div>

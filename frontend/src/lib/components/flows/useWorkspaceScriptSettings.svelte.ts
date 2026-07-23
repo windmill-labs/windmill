@@ -24,6 +24,9 @@ export function useWorkspaceScriptSettings(
 		const seq = ++loadSeq
 		if (!path || !workspace || path.startsWith('hub/')) {
 			settings = undefined
+			// Clear here too: this supersedes any in-flight load, whose guarded
+			// finally can no longer reset loading, else the card spins forever.
+			loading = false
 			return
 		}
 		loading = true
