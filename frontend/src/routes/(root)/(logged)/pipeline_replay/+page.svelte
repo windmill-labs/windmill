@@ -54,22 +54,27 @@
 			reset()
 			scriptRecording = data as ScriptRecording
 		} else if (data.type === 'pipeline') {
-			// Validate the nested shapes the player/canvas iterate — the graph's
-			// `runnables`/`assets` arrays and each timeline frame's `statuses` object —
-			// not just the top-level containers. This input is caller-controlled
-			// (file upload or a `?src=` fetch), so a structurally wrong payload must
-			// hit the toast rather than crash AssetGraphCanvas or the timeline stepper.
+			// Validate down to the elements the player/canvas dereference — array
+			// members and per-node status/job values, not just the containers — so a
+			// payload like `runnables:[null]` or `statuses:{a:null}` hits the toast
+			// instead of crashing. This input is caller-controlled (file upload or a
+			// `?src=` fetch), so nothing here can be assumed well-formed.
 			const isObject = (v: unknown): v is Record<string, unknown> =>
 				typeof v === 'object' && v !== null && !Array.isArray(v)
+			const objectArray = (v: unknown) => Array.isArray(v) && v.every(isObject)
 			const g = data.graph
 			const validPipeline =
 				isObject(g) &&
-				Array.isArray(g.runnables) &&
-				Array.isArray(g.assets) &&
-				Array.isArray(g.edges) &&
+				objectArray(g.runnables) &&
+				objectArray(g.assets) &&
+				objectArray(g.edges) &&
 				Array.isArray(data.timeline) &&
-				data.timeline.every((f: unknown) => isObject(f) && isObject(f.statuses)) &&
-				isObject(data.jobs)
+				data.timeline.every(
+					(f: unknown) =>
+						isObject(f) && isObject(f.statuses) && Object.values(f.statuses).every(isObject)
+				) &&
+				isObject(data.jobs) &&
+				Object.values(data.jobs).every(isObject)
 			if (!validPipeline) {
 				sendUserToast('Invalid pipeline recording format', true)
 				return false

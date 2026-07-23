@@ -360,8 +360,9 @@
 									</div>
 								</div>
 								<span class="text-xs text-secondary">
-									Runs the whole <span class="font-mono">{s.selectedFolder}/</span> cascade ({s
-										.pipelineScriptPaths.length} step{s.pipelineScriptPaths.length === 1
+									Runs this project's <span class="font-mono">{s.selectedFolder}/</span> pipeline
+									cascade ({s.recordablePipelineScriptPaths.length} step{s
+										.recordablePipelineScriptPaths.length === 1
 										? ''
 										: 's'}) and captures the asset graph, per-step logs/results and table samples
 									into one interactive replay for the project page.

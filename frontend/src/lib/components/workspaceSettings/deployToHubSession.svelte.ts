@@ -291,12 +291,19 @@ export class DeployToHubSession {
 	allRecorded = $derived(
 		this.recordableItems.length > 0 && this.recordableItems.every((i) => i.rec === 'recorded')
 	)
-	// Pipeline members of this project's folder (`// pipeline` scripts), the set
-	// the whole-folder cascade runs — mirrors the pipeline editor's selection.
+	// Pipeline members of this project's folder (`// pipeline` scripts).
 	pipelineScriptPaths = $derived(
 		(this.pipelineGraph?.runnables ?? [])
 			.filter((r) => r.usage_kind === 'script' && r.in_pipeline)
 			.map((r) => r.path)
+	)
+	// The subset actually in the Hub project — so a member the user deselected from
+	// the bundle is neither executed nor embedded (with its code/logs/samples) in
+	// the recording. In the draft phase `items` is the project's membership.
+	recordablePipelineScriptPaths = $derived(
+		this.pipelineScriptPaths.filter((p) =>
+			this.items.some((i) => i.kind === 'script' && i.path === p)
+		)
 	)
 	isPipelineProject = $derived(this.pipelineScriptPaths.length > 0)
 	hubSlug = $derived(this.effectiveSlug || sanitizeSlug(this.hubName))
@@ -1537,7 +1544,7 @@ export class DeployToHubSession {
 	 * payload records a failure the user can see and fix rather than a green run. */
 	runPipelineRecording = async () => {
 		const graph = this.pipelineGraph
-		const scripts = this.pipelineScriptPaths
+		const scripts = this.recordablePipelineScriptPaths
 		if (!graph || scripts.length === 0) return
 		const tok = ++this.#pipelineRunTok
 		this.pipelineRunState = 'running'
@@ -1564,15 +1571,14 @@ export class DeployToHubSession {
 			})
 			if (tok !== this.#pipelineRunTok) return
 			this.pipelineRecordingResult = recording
-			// Scripts on a dependency cycle are dropped by the scheduler; warn so a
-			// recording isn't silently missing steps (parity with the editor).
+			// A dependency cycle drops its members from the schedule, so an all- or
+			// partially-cyclic run leaves the recording missing steps (and an empty
+			// schedule reports `ok`). Treat any dropped cyclic member as a failure so
+			// an incomplete pipeline can't be saved as a successful recording.
 			if (result.cyclic.length > 0) {
-				sendUserToast(
-					`Skipped ${result.cyclic.length} script(s) on a dependency cycle: ${result.cyclic.join(', ')}`,
-					true
-				)
-			}
-			if (result.ok) {
+				this.pipelineRunState = 'failed'
+				this.pipelineRunError = `Cannot record — ${result.cyclic.length} script(s) on a dependency cycle: ${result.cyclic.join(', ')}`
+			} else if (result.ok) {
 				this.pipelineRunState = 'success'
 			} else {
 				this.pipelineRunState = 'failed'
