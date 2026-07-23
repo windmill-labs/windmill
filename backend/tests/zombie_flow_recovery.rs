@@ -489,7 +489,6 @@ async fn test_raw_flow_restart_does_not_reuse_edited_step(
         .unwrap()
     };
 
-    // Original run: inner returns the bare value.
     let full_run =
         RunJob::from(JobPayload::RawFlow { value: flow_of(""), path: None, restarted_from: None })
             .run_until_complete(&db, false, port)
@@ -525,7 +524,6 @@ async fn test_raw_flow_restart_does_not_reuse_edited_step(
     .execute(&db)
     .await?;
 
-    // Restart from `fanout` with an EDITED definition (inner now appends "X").
     let restarted = RunJob::from(JobPayload::RawFlow {
         value: flow_of("X"),
         path: None,
