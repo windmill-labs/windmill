@@ -54,11 +54,23 @@
 			reset()
 			scriptRecording = data as ScriptRecording
 		} else if (data.type === 'pipeline') {
-			// Validate the shapes the player relies on — `graph`/`jobs` are indexed as
-			// objects and `timeline` is iterated as an array — so a structurally wrong
-			// payload (e.g. `timeline: {}`) hits the toast instead of crashing on mount.
-			const isObject = (v: unknown) => typeof v === 'object' && v !== null && !Array.isArray(v)
-			if (!isObject(data.graph) || !Array.isArray(data.timeline) || !isObject(data.jobs)) {
+			// Validate the nested shapes the player/canvas iterate — the graph's
+			// `runnables`/`assets` arrays and each timeline frame's `statuses` object —
+			// not just the top-level containers. This input is caller-controlled
+			// (file upload or a `?src=` fetch), so a structurally wrong payload must
+			// hit the toast rather than crash AssetGraphCanvas or the timeline stepper.
+			const isObject = (v: unknown): v is Record<string, unknown> =>
+				typeof v === 'object' && v !== null && !Array.isArray(v)
+			const g = data.graph
+			const validPipeline =
+				isObject(g) &&
+				Array.isArray(g.runnables) &&
+				Array.isArray(g.assets) &&
+				Array.isArray(g.edges) &&
+				Array.isArray(data.timeline) &&
+				data.timeline.every((f: unknown) => isObject(f) && isObject(f.statuses)) &&
+				isObject(data.jobs)
+			if (!validPipeline) {
 				sendUserToast('Invalid pipeline recording format', true)
 				return false
 			}
