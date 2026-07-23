@@ -10,18 +10,28 @@
 		// Rendered summary of the current value (only shown when active).
 		valueText?: string | undefined
 		loading?: boolean
+		// Set when loading the referenced script failed, to distinguish that from "not set".
+		error?: string | undefined
 		// Editing is possible only for non-hub, non-hash-pinned workspace scripts.
 		canEdit: boolean
 		onEdit?: () => void
 	}
 
-	let { label, active, valueText, loading = false, canEdit, onEdit }: Props = $props()
+	let {
+		label,
+		active,
+		valueText,
+		loading = false,
+		error = undefined,
+		canEdit,
+		onEdit
+	}: Props = $props()
 </script>
 
 <div class="flex flex-col gap-2 rounded-md border p-3 bg-surface-secondary">
 	<div class="flex flex-row items-center justify-between gap-2">
 		<span class="text-xs text-secondary">
-			{label} is configured on the referenced workspace script.
+			{label} is managed on the referenced workspace script.
 		</span>
 		{#if canEdit}
 			<Button size="xs" variant="border" startIcon={{ icon: Settings }} on:click={() => onEdit?.()}>
@@ -34,6 +44,8 @@
 			<span class="text-tertiary inline-flex items-center gap-1">
 				<Loader2 class="animate-spin" size={12} /> Loading current value…
 			</span>
+		{:else if error}
+			<span class="text-red-500">Could not load the current value: {error}</span>
 		{:else if active}
 			<span class="font-semibold text-emphasis">{valueText}</span>
 		{:else}

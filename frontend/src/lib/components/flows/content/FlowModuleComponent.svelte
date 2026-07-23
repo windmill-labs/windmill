@@ -201,11 +201,17 @@
 			flowModule.value.hash == undefined &&
 			customUi?.scriptEdit != false
 	)
-	// Non-positive concurrent_limit is treated as unset by the runtime (legacy rows).
+	// Non-positive concurrent_limit / cache_ttl are treated as unset by the runtime (legacy rows).
 	let referencedConcurrentLimit = $derived(
 		referencedScriptSettings.settings?.concurrent_limit != undefined &&
 			referencedScriptSettings.settings.concurrent_limit > 0
 			? referencedScriptSettings.settings.concurrent_limit
+			: undefined
+	)
+	let referencedCacheTtl = $derived(
+		referencedScriptSettings.settings?.cache_ttl != undefined &&
+			referencedScriptSettings.settings.cache_ttl > 0
+			? referencedScriptSettings.settings.cache_ttl
 			: undefined
 	)
 	function openWorkspaceScriptSettings() {
@@ -1319,6 +1325,7 @@
 																	}`
 																: undefined}
 															loading={referencedScriptSettings.loading}
+															error={referencedScriptSettings.error}
 															canEdit={canEditWorkspaceScriptSettings}
 															onEdit={openWorkspaceScriptSettings}
 														/>
@@ -1394,8 +1401,9 @@
 												<div>
 													<FlowModuleCache
 														bind:flowModule
-														workspaceScriptCacheTtl={referencedScriptSettings.settings?.cache_ttl}
+														workspaceScriptCacheTtl={referencedCacheTtl}
 														loadingWorkspaceScript={referencedScriptSettings.loading}
+														workspaceScriptError={referencedScriptSettings.error}
 														canEditWorkspaceScript={canEditWorkspaceScriptSettings}
 														onEditWorkspaceScript={openWorkspaceScriptSettings}
 													/>

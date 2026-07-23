@@ -12,6 +12,7 @@ export function useWorkspaceScriptSettings(
 ) {
 	let settings = $state<ScriptAdvancedSettingsFields | undefined>(undefined)
 	let loading = $state(false)
+	let error = $state<string | undefined>(undefined)
 	// Guards against an older in-flight load resolving after a newer one and
 	// clobbering the displayed settings when path/hash change quickly.
 	let loadSeq = 0
@@ -24,12 +25,14 @@ export function useWorkspaceScriptSettings(
 		const seq = ++loadSeq
 		if (!path || !workspace || path.startsWith('hub/')) {
 			settings = undefined
+			error = undefined
 			// Clear here too: this supersedes any in-flight load, whose guarded
 			// finally can no longer reset loading, else the card spins forever.
 			loading = false
 			return
 		}
 		loading = true
+		error = undefined
 		try {
 			const script = hash
 				? await ScriptService.getScriptByHash({ workspace, hash })
@@ -38,7 +41,11 @@ export function useWorkspaceScriptSettings(
 			settings = script as ScriptAdvancedSettingsFields
 		} catch (e) {
 			console.error('Could not load referenced script settings', e)
-			if (seq === loadSeq) settings = undefined
+			if (seq === loadSeq) {
+				settings = undefined
+				// Surface failure so cards distinguish "load failed" from "not set".
+				error = `${(e as { body?: string })?.body ?? e}`
+			}
 		} finally {
 			if (seq === loadSeq) loading = false
 		}
@@ -54,6 +61,9 @@ export function useWorkspaceScriptSettings(
 		},
 		get loading() {
 			return loading
+		},
+		get error() {
+			return error
 		},
 		reload() {
 			return load(pathGetter(), hashGetter(), workspaceGetter())

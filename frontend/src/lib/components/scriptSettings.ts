@@ -66,7 +66,7 @@ export function getActiveScriptSettingsBadges(
 			}`
 		})
 	}
-	if (settings.cache_ttl != undefined) {
+	if (settings.cache_ttl != undefined && settings.cache_ttl > 0) {
 		badges.push({
 			key: 'cache',
 			label: 'Cache',

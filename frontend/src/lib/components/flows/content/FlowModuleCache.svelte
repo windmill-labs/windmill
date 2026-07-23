@@ -14,6 +14,7 @@
 		// script, and a shortcut to edit it. Undefined for inline/subflow steps.
 		workspaceScriptCacheTtl?: number | undefined
 		loadingWorkspaceScript?: boolean
+		workspaceScriptError?: string | undefined
 		canEditWorkspaceScript?: boolean
 		onEditWorkspaceScript?: () => void
 	}
@@ -22,6 +23,7 @@
 		flowModule = $bindable(),
 		workspaceScriptCacheTtl = undefined,
 		loadingWorkspaceScript = false,
+		workspaceScriptError = undefined,
 		canEditWorkspaceScript = false,
 		onEditWorkspaceScript
 	}: Props = $props()
@@ -46,6 +48,7 @@
 				? `Cached for ${workspaceScriptCacheTtl}s`
 				: undefined}
 			loading={loadingWorkspaceScript}
+			error={workspaceScriptError}
 			canEdit={canEditWorkspaceScript}
 			onEdit={onEditWorkspaceScript}
 		/>

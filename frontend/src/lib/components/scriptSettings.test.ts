@@ -27,10 +27,11 @@ describe('getActiveScriptSettingsBadges', () => {
 		expect(keys).toEqual([])
 	})
 
-	it('treats non-positive concurrency limits and timeouts as inactive (legacy zero rows)', () => {
+	it('treats non-positive concurrency limits, timeouts and cache ttl as inactive (legacy zero rows)', () => {
 		const keys = getActiveScriptSettingsBadges({
 			concurrent_limit: 0,
-			timeout: 0
+			timeout: 0,
+			cache_ttl: 0
 		}).map((b) => b.key)
 		expect(keys).toEqual([])
 	})
