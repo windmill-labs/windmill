@@ -231,7 +231,7 @@
 		>No corresponding resource type found in your workspace for {resourceType}. Define the value in
 		JSON directly</p
 	>
-	<SyncResourceTypes {onSynced} />
+	<SyncResourceTypes {resourceType} {onSynced} />
 {/if}
 {#if notFound || viewJsonSchema}
 	{#if !emptyString(error)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"
