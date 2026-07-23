@@ -1484,9 +1484,15 @@
       - deploy_workspace_item
       - delete_workspace_item
   judgeChecklist:
+    # A pipeline node is DECLARATIVE: triggers are declared by `-- on <ref>`
+    # annotations (the trigger row is created separately) and a `-- materialize`
+    # output is a MANAGED write where the body is a bare SELECT that the runtime
+    # wraps in the create/replace. Do not expect a separate trigger config or a
+    # hand-written CREATE TABLE / INSERT — those would be wrong for a materialize node.
     - builds a data pipeline node as a script (not a flow)
     - marks the script as a pipeline member with the pipeline annotation in the script's comment syntax (`-- pipeline` for a DuckDB/SQL node, not `// pipeline`)
-    - declares a schedule trigger and writes its output to a managed DuckLake table
+    - declares the schedule trigger with the `-- on schedule` annotation comment (this annotation is the correct and complete way a pipeline node binds a schedule; no separate trigger configuration is expected)
+    - declares the managed DuckLake output with `-- materialize ducklake://<table>` and writes the body as a bare SELECT (materialize is a managed write, so the node correctly does NOT hand-write its own CREATE TABLE / INSERT)
     - leaves the result as an AI draft and does not deploy or save it
 
 - id: global-test-pipeline-two-node-chain
@@ -1500,6 +1506,12 @@
     maxTurns: 14
   validate:
     draftCountAtLeast: 2
+    requiredDrafts:
+      - type: script
+        pathStartsWith: f/evals/global/
+        valueIncludes:
+          - pipeline
+          - ducklake
     forbiddenDrafts:
       - type: flow
         pathStartsWith: f/evals/global/
@@ -1511,11 +1523,64 @@
       - deploy_workspace_item
       - delete_workspace_item
   judgeChecklist:
+    # Pipeline nodes are declarative: `-- on <ref>` binds inputs/triggers and
+    # `-- materialize ducklake://<table>` is a managed write whose body is a bare
+    # SELECT. Do not expect hand-written CREATE TABLE / INSERT on a materialize node.
     - creates two data pipeline nodes as scripts (not a flow) in f/evals/global
     - both scripts carry the pipeline annotation in their comment syntax (`-- pipeline` for DuckDB/SQL nodes, not `// pipeline`)
-    - the first ingests orders into a DuckLake table
-    - the second reads that same table and writes a daily rollup, wired to the first step's output asset
+    - the first ingests orders into a DuckLake table (a `-- materialize ducklake://<table>` output with a bare SELECT body is correct; no hand-written CREATE TABLE / INSERT is expected)
+    - the second reads that same table via `-- on ducklake://<that-table>` and materializes a daily rollup table, wiring it to the first step's output asset
     - leaves both as AI drafts without deploying
+
+- id: global-test-pipeline-complex-incremental
+  prompt: |-
+    Build a data pipeline in the `f/evals/global` folder for our web shop's
+    orders. It has three steps:
+    1. On a schedule, ingest the raw order CSVs under `s3://raw/orders/` into a
+       managed DuckLake table.
+    2. An incremental daily rollup: read that raw orders table and, on each run,
+       append just the current day's order count and total revenue into a second
+       DuckLake table. It should process one day at a time, not rebuild the whole
+       table every run.
+    3. A final step that reads the daily rollup table and exports the latest data
+       as a Parquet file to `s3://reports/` for the BI team.
+    Wire each step to the previous step's output so they form one pipeline. Keep
+    everything as AI drafts — don't deploy or save.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 18
+  validate:
+    draftCountAtLeast: 3
+    requiredDrafts:
+      - type: script
+        pathStartsWith: f/evals/global/
+        valueIncludes:
+          - pipeline
+          - ducklake
+    forbiddenDrafts:
+      - type: flow
+        pathStartsWith: f/evals/global/
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+    forbiddenToolsUsed:
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    # Pipeline nodes are declarative: `-- on <ref>` binds inputs/triggers, and a
+    # DuckLake `-- materialize` output is a managed write whose body is a bare SELECT
+    # (the runtime performs the create/replace/append/merge). Do not expect a
+    # separate trigger config or hand-written CREATE TABLE / INSERT on a
+    # materialize node. S3/Parquet output is NOT materialize: the body writes it.
+    - builds the pipeline as three independent scripts (not a flow) in f/evals/global
+    - every node carries the pipeline annotation in its own comment syntax (`-- pipeline` for DuckDB/SQL nodes, not `// pipeline`)
+    - step 1 binds a schedule with `-- on schedule` and declares a managed DuckLake output with `-- materialize ducklake://<table>` and a bare SELECT body (no separate trigger config or hand-written CREATE TABLE is expected)
+    - "step 2 is incremental: each run adds only that day's rows to a second DuckLake table rather than rebuilding the whole table every run (e.g. an `append` or `key=<col>` merge materialize mode, not a full replace). Selecting the day via the `-- partitioned daily` + `{partition}` / `wm_partition(...)` idiom is the idiomatic form, but an equivalent current-day filter also satisfies this; a full-refresh/replace of the whole table does not"
+    - step 2 reads the same DuckLake table step 1 writes (via `-- on ducklake://<that-table>`), wiring it to step 1's output asset
+    - step 3 reads the daily rollup table and exports it as a Parquet file to S3
+    - does not misuse `-- materialize` for the S3 Parquet export (materialize is DuckLake-only; the S3 output is written by the script body, e.g. a DuckDB COPY or an SDK write)
+    - leaves all three nodes as AI drafts without deploying or saving
 
 - id: global-path5-create-folder-then-draft
   prompt: |-
