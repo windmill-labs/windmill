@@ -10,7 +10,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { Button } from '$lib/components/common'
 	import FileInput from '$lib/components/common/fileInput/FileInput.svelte'
-	import { Loader2, Upload } from 'lucide-svelte'
+	import { Loader2, TriangleAlert, Upload } from 'lucide-svelte'
 	import { setActiveReplay } from '$lib/components/recording/flowRecording.svelte'
 	import { onMount } from 'svelte'
 
@@ -62,15 +62,11 @@
 			reset()
 			scriptRecording = data as ScriptRecording
 		} else if (data.type === 'pipeline') {
-			// Validate every shape the player/canvas dereference — array members, each
-			// event, per-node status values, and the optional sample/code maps — not
-			// just the top-level containers, so a payload like `runnables:[null]`,
-			// `events:[null]` or `assetSamples:{a:{rows:null}}` hits the toast instead
-			// of crashing. This input is caller-controlled (file upload or a `?src=`
-			// fetch), so nothing here can be assumed well-formed.
+			// Load-time check on caller-controlled input (upload / `?src=` fetch) so the
+			// common malformed shapes toast here; the render boundary below is the
+			// catch-all for anything deeper.
 			const objectArray = (v: unknown) => Array.isArray(v) && v.every(isObject)
 			const optionalObjectArray = (v: unknown) => v === undefined || objectArray(v)
-			// An optional `{ [k]: V }` map whose present values all satisfy `valid`.
 			const optionalRecord = (v: unknown, valid: (x: Record<string, unknown>) => boolean) =>
 				v === undefined || (isObject(v) && Object.values(v).every((x) => isObject(x) && valid(x)))
 			const g = data.graph as Record<string, unknown> | null
@@ -79,7 +75,8 @@
 				objectArray(g.runnables) &&
 				objectArray(g.assets) &&
 				objectArray(g.edges) &&
-				objectArray(g.triggers) &&
+				Array.isArray(g.triggers) &&
+				g.triggers.every((t) => isObject(t) && typeof t.trigger_kind === 'string') &&
 				optionalObjectArray(g.macro_edges) &&
 				optionalObjectArray(g.test_edges)
 			const validTimeline =
@@ -93,11 +90,12 @@
 				Object.values(data.jobs).every(
 					(j) => isObject(j) && isObject(j.initial_job) && objectArray(j.events)
 				)
-			// Optional maps the player reads on asset/node selection. A non-error
-			// sample renders `rows`/`columns`; an error sample renders only `error`.
+			// A sample renders `rows`/`columns` unless it carries a non-empty `error`.
 			const validSamples = optionalRecord(
 				data.assetSamples,
-				(s) => typeof s.error === 'string' || (objectArray(s.rows) && objectArray(s.columns))
+				(s) =>
+					(typeof s.error === 'string' && s.error !== '') ||
+					(objectArray(s.rows) && objectArray(s.columns))
 			)
 			const validCodes = optionalRecord(
 				data.codes,
@@ -210,7 +208,23 @@
 			</Button>
 		</div>
 		<div class="flex-1 min-h-0">
-			<PipelineRecordingReplay recording={pipelineRecording} />
+			<!-- Catch-all for a malformed recording that slips past load-time validation:
+			     a render/effect crash shows the failed state instead of a blank page. -->
+			<svelte:boundary onerror={() => setActiveReplay(undefined)}>
+				<PipelineRecordingReplay recording={pipelineRecording} />
+				{#snippet failed()}
+					<div class="flex flex-col items-center justify-center h-full gap-2 text-center">
+						<TriangleAlert class="text-red-500" size={28} />
+						<p class="max-w-md text-sm text-secondary">
+							This recording could not be replayed — it may be malformed or from an incompatible
+							version.
+						</p>
+						<Button variant="border" size="xs" onclick={quit} startIcon={{ icon: Upload }}>
+							Load another recording
+						</Button>
+					</div>
+				{/snippet}
+			</svelte:boundary>
 		</div>
 	{:else if downloading}
 		<div class="flex flex-col items-center justify-center min-h-[60vh]">
