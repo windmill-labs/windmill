@@ -7058,7 +7058,10 @@ async fn is_derivable_between_steps_zombie(
     workspace_id: &str,
     module: &FlowStatusModule,
 ) -> Result<bool, Error> {
-    if !matches!(module, FlowStatusModule::InProgress { .. }) {
+    // The module's own cursor must prove it reached the end (a serial loop/branch-all reaped
+    // mid-fan-out has an all-success prefix but unrun remaining iterations); while-loops are
+    // never derivable. Children-success is verified below.
+    if !module.is_between_steps_complete() {
         return Ok(false);
     }
     let child_ids: Vec<Uuid> = module
@@ -7247,7 +7250,20 @@ async fn restarted_flows_resolution(
                 continue;
             };
             if module.id() == restart_step_id {
+                // Reuse is only safe when there is a NEXT step to advance into (advancing past the
+                // last module lands on the failure step) and the step's completion transition has no
+                // stop_after_if / stop_after_all_iters_if to replay: those predicates decide whether
+                // downstream steps run at all, so a step carrying them must re-run, not be synthesized
+                // as Success.
+                let has_next_step = flow_value
+                    .modules
+                    .last()
+                    .is_none_or(|m| m.id != restart_step_id);
+                let no_stop_predicate = module_definition.stop_after_if.is_none()
+                    && module_definition.stop_after_all_iters_if.is_none();
                 if branch_or_iteration_n.is_none()
+                    && has_next_step
+                    && no_stop_predicate
                     && is_derivable_between_steps_zombie(db, workspace_id, &module).await?
                 {
                     // Between-steps-zombie recovery: this step's children all

@@ -5202,11 +5202,14 @@ async fn between_steps_recovery_guidance(
     base_url: &str,
 ) -> Option<String> {
     // The stuck module is the current step, left InProgress because the
-    // transition that would have marked it Success was dropped.
+    // transition that would have marked it Success was dropped. It is only
+    // derivable when its own cursor reached the end (a serial fan-out reaped
+    // mid-iteration has unrun work left; while-loops are never derivable), and
+    // recovery via restart-from-next-step needs a next step to advance into.
     let status = status?;
     let idx = usize::try_from(status.step).ok()?;
     let module = status.modules.get(idx)?;
-    if !matches!(module, FlowStatusModule::InProgress { .. }) {
+    if !module.is_between_steps_complete() || idx + 1 >= status.modules.len() {
         return None;
     }
     let step_id = module.id();

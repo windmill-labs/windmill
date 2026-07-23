@@ -475,6 +475,33 @@ impl FlowStatusModule {
         }
     }
 
+    /// For a still-`InProgress` module (a between-steps zombie), whether the module's own
+    /// iteration/branch cursor proves it actually reached the end, so the only thing left is
+    /// the final state transition (children-success is a separate, DB-side check).
+    ///
+    /// A serial for-loop / branch-all grows `flow_jobs` one entry at a time, so an all-success
+    /// prefix does NOT mean the module finished: the cursor must sit on the last element. Parallel
+    /// containers preallocate every child up front, so a full success set is conclusive. While-loops
+    /// are never derivable here (continuation depends on a condition evaluated after each iteration,
+    /// which a reaped zombie never persisted). Non-`InProgress` modules return false.
+    pub fn is_between_steps_complete(&self) -> bool {
+        match self {
+            FlowStatusModule::InProgress { while_loop: true, .. } => false,
+            // Parallel loop/branch-all: all children exist up front, so children-success suffices.
+            FlowStatusModule::InProgress { parallel: true, .. } => true,
+            FlowStatusModule::InProgress { iterator: Some(it), .. } => {
+                let total = it
+                    .itered_len
+                    .or_else(|| it.itered.as_ref().map(|v| v.len()));
+                total.is_some_and(|t| t > 0 && it.index + 1 == t)
+            }
+            FlowStatusModule::InProgress { branchall: Some(ba), .. } => ba.branch + 1 == ba.len,
+            // Single-child leaf / subflow / branch-one: the child ran, nothing else to advance.
+            FlowStatusModule::InProgress { .. } => true,
+            _ => false,
+        }
+    }
+
     pub fn agent_actions(&self) -> Option<Vec<AgentAction>> {
         match self {
             FlowStatusModule::InProgress { agent_actions, .. } => agent_actions.clone(),
@@ -548,5 +575,81 @@ impl FlowStatus {
     pub fn current_step(&self) -> Option<&FlowStatusModule> {
         let i = usize::try_from(self.step).ok()?;
         self.modules.get(i)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FlowStatusModule;
+
+    fn module(json: serde_json::Value) -> FlowStatusModule {
+        serde_json::from_value(json).unwrap()
+    }
+
+    #[test]
+    fn between_steps_complete_serial_loop() {
+        // Cursor on the last iteration => complete.
+        assert!(module(serde_json::json!({
+            "type": "InProgress", "id": "a", "job": "00000000-0000-0000-0000-000000000000",
+            "iterator": { "index": 1, "itered_len": 2 }, "flow_jobs": []
+        }))
+        .is_between_steps_complete());
+        // Reaped mid-iteration (iteration 1 of 2 never scheduled) => NOT complete.
+        assert!(!module(serde_json::json!({
+            "type": "InProgress", "id": "a", "job": "00000000-0000-0000-0000-000000000000",
+            "iterator": { "index": 0, "itered_len": 2 }, "flow_jobs": []
+        }))
+        .is_between_steps_complete());
+        // Legacy shape: itered array present, itered_len absent.
+        assert!(module(serde_json::json!({
+            "type": "InProgress", "id": "a", "job": "00000000-0000-0000-0000-000000000000",
+            "iterator": { "index": 1, "itered": ["x", "y"] }
+        }))
+        .is_between_steps_complete());
+    }
+
+    #[test]
+    fn between_steps_complete_while_loop_never() {
+        assert!(!module(serde_json::json!({
+            "type": "InProgress", "id": "a", "job": "00000000-0000-0000-0000-000000000000",
+            "while_loop": true, "iterator": { "index": 1, "itered_len": 2 }
+        }))
+        .is_between_steps_complete());
+    }
+
+    #[test]
+    fn between_steps_complete_branchall_and_parallel() {
+        // Serial branch-all on the last branch => complete; earlier branch => not.
+        assert!(module(serde_json::json!({
+            "type": "InProgress", "id": "a", "job": "00000000-0000-0000-0000-000000000000",
+            "branchall": { "branch": 1, "len": 2 }
+        }))
+        .is_between_steps_complete());
+        assert!(!module(serde_json::json!({
+            "type": "InProgress", "id": "a", "job": "00000000-0000-0000-0000-000000000000",
+            "branchall": { "branch": 0, "len": 2 }
+        }))
+        .is_between_steps_complete());
+        // Parallel loop: children preallocated, so any cursor is fine (success is checked elsewhere).
+        assert!(module(serde_json::json!({
+            "type": "InProgress", "id": "a", "job": "00000000-0000-0000-0000-000000000000",
+            "parallel": true, "iterator": { "index": 0, "itered_len": 3 }
+        }))
+        .is_between_steps_complete());
+    }
+
+    #[test]
+    fn between_steps_complete_leaf_and_non_inprogress() {
+        // Single-child leaf: the child ran, nothing to advance.
+        assert!(module(serde_json::json!({
+            "type": "InProgress", "id": "a", "job": "00000000-0000-0000-0000-000000000000"
+        }))
+        .is_between_steps_complete());
+        // A Success module is not a between-steps zombie.
+        assert!(!module(serde_json::json!({
+            "type": "Success", "id": "a", "job": "00000000-0000-0000-0000-000000000000",
+            "skipped": false
+        }))
+        .is_between_steps_complete());
     }
 }

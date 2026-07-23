@@ -183,3 +183,102 @@ async fn test_between_steps_zombie_restart_reuses_all_children(
 
     Ok(())
 }
+
+/// A serial for-loop reaped *between* iterations (an all-success prefix, but the
+/// cursor not yet at the last iteration) must NOT be treated as complete: reuse
+/// would silently drop the remaining iterations. Restart-from-step must re-run
+/// the whole loop instead, so the flow still reaches success with every iteration.
+#[sqlx::test(fixtures("base", "hello"))]
+async fn test_mid_iteration_zombie_not_reused(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let flow_value: FlowValue = serde_json::from_value(json!({
+        "modules": [{
+            "id": "fanout",
+            "value": {
+                "type": "forloopflow",
+                "iterator": { "type": "javascript", "expr": "['a', 'b', 'c']" },
+                "skip_failures": false,
+                "parallel": false,
+                "modules": [{
+                    "id": "inner",
+                    "value": {
+                        "type": "rawscript",
+                        "language": "deno",
+                        "input_transforms": {
+                            "v": { "type": "javascript", "expr": "flow_input.iter.value" }
+                        },
+                        "content": "export function main(v: string) { return v }"
+                    }
+                }]
+            }
+        }]
+    }))
+    .unwrap();
+
+    let full_run = RunJob::from(JobPayload::RawFlow {
+        value: flow_value.clone(),
+        path: None,
+        restarted_from: None,
+    })
+    .run_until_complete(&db, false, port)
+    .await;
+    assert!(full_run.success);
+    let orig_iter0 = child_job_id_for_step(&db, full_run.id, "fanout", Some(0)).await;
+
+    // Reap after iteration 0: the loop is InProgress with the cursor still on
+    // iteration 0 (of 3), only iteration 0 recorded.
+    let mut flow_status: serde_json::Value = sqlx::query_scalar!(
+        "SELECT flow_status FROM v2_job_completed WHERE id = $1",
+        full_run.id
+    )
+    .fetch_one(&db)
+    .await?
+    .expect("flow_status");
+    for m in flow_status["modules"].as_array_mut().unwrap() {
+        if m["id"] == "fanout" {
+            m["type"] = json!("InProgress");
+            m["iterator"] = json!({ "index": 0, "itered_len": 3 });
+            m["flow_jobs"] = json!([m["flow_jobs"][0]]);
+            m["flow_jobs_success"] = json!([true]);
+        }
+    }
+    flow_status["step"] = json!(0);
+    sqlx::query!(
+        "UPDATE v2_job_completed SET status = 'canceled', canceled_by = 'monitor',
+         flow_status = $2 WHERE id = $1",
+        full_run.id,
+        flow_status,
+    )
+    .execute(&db)
+    .await?;
+
+    let restarted = RunJob::from(JobPayload::RestartedFlow {
+        completed_job_id: full_run.id,
+        step_id: "fanout".into(),
+        branch_or_iteration_n: None,
+        flow_version: None,
+        branch_chosen: None,
+        nested: None,
+    })
+    .run_until_complete(&db, false, port)
+    .await;
+
+    // The loop re-runs from scratch: all three iterations execute and iteration 0
+    // is a fresh job (not the wrongly-reused original).
+    assert!(
+        restarted.success,
+        "restart should re-run the loop and succeed: {:?}",
+        restarted.json_result()
+    );
+    assert_eq!(restarted.json_result().unwrap(), json!(["a", "b", "c"]));
+    let new_iter0 = child_job_id_for_step(&db, restarted.id, "fanout", Some(0)).await;
+    assert_ne!(
+        new_iter0, orig_iter0,
+        "iteration 0 must re-run, not be reused"
+    );
+
+    Ok(())
+}
