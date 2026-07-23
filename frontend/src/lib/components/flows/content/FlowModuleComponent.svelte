@@ -194,12 +194,15 @@
 		() => opWs
 	)
 	// Hub scripts, hash-pinned steps, and embeddings that disable script editing
-	// can't have their settings edited from here.
+	// can't have their settings edited from here. The drawer must also be mounted:
+	// local-dev editors (Dev.svelte / flows/dev) provide the context store but never
+	// render the drawer, so editing there would be a no-op — keep values read-only.
 	let canEditWorkspaceScriptSettings = $derived(
 		flowModule.value.type === 'script' &&
 			!flowModule.value.path?.startsWith('hub/') &&
 			flowModule.value.hash == undefined &&
-			customUi?.scriptEdit != false
+			customUi?.scriptEdit != false &&
+			$workspaceScriptSettingsDrawer != undefined
 	)
 	// Non-positive concurrent_limit / cache_ttl are treated as unset by the runtime (legacy rows).
 	let referencedConcurrentLimit = $derived(

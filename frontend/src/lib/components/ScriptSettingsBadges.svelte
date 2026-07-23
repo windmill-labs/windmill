@@ -22,18 +22,18 @@
 {#if badges.length > 0}
 	<div class="flex flex-row flex-wrap gap-1 items-center">
 		{#each badges as badge (badge.key)}
-			<Popover placement="bottom">
+			<!-- Icon-only chips to save space in crowded top bars; the label and current
+				value are shown in the hover popover. -->
+			<Popover notClickable placement="bottom">
 				<Badge
 					color="blue"
 					{small}
 					icon={{ icon: badge.icon, position: 'left' }}
 					clickable={Boolean(onclick)}
 					onclick={onclick ? () => onclick?.(badge.key) : undefined}
-				>
-					{badge.label}
-				</Badge>
+				/>
 				{#snippet text()}
-					{badge.detail}
+					<span class="font-semibold">{badge.label}</span> — {badge.detail}
 				{/snippet}
 			</Popover>
 		{/each}

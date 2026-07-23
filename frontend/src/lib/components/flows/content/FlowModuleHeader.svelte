@@ -108,43 +108,52 @@
 	{/if}
 	{#if module.value.type === 'script'}
 		{#if !module.value.path.startsWith('hub/') && customUi?.scriptEdit != false}
-			<Button
-				unifiedSize="sm"
-				variant="subtle"
-				onClick={async () => {
-					if (module.value.type == 'script') {
-						const hash =
-							module.value.hash ??
-							(await getLatestHashForScript(module.value.path, opWorkspace?.()))
-						$scriptEditorDrawer?.openDrawer(hash, () => {
-							dispatch('reload')
-							sendUserToast('Script has been updated')
-						})
-					}
-				}}
-				startIcon={{ icon: Pen }}
-				iconOnly={false}
-				disabled={module.value.hash != undefined}
-			>
-				Edit
-			</Button>
-			<Button
-				unifiedSize="sm"
-				variant="subtle"
-				onClick={() => {
-					if (module.value.type == 'script') {
-						$workspaceScriptSettingsDrawer?.openDrawer(module.value.path, module.value.hash, () => {
-							dispatch('reload')
-						})
-					}
-				}}
-				startIcon={{ icon: Settings }}
-				iconOnly={false}
-				disabled={module.value.hash != undefined}
-				title="Edit the workspace script's runtime settings (concurrency, cache, timeout, ...)"
-			>
-				Settings
-			</Button>
+			<Popover notClickable placement="bottom">
+				<Button
+					unifiedSize="sm"
+					variant="subtle"
+					onClick={async () => {
+						if (module.value.type == 'script') {
+							const hash =
+								module.value.hash ??
+								(await getLatestHashForScript(module.value.path, opWorkspace?.()))
+							$scriptEditorDrawer?.openDrawer(hash, () => {
+								dispatch('reload')
+								sendUserToast('Script has been updated')
+							})
+						}
+					}}
+					startIcon={{ icon: Pen }}
+					iconOnly
+					disabled={module.value.hash != undefined}
+				/>
+				{#snippet text()}Edit the script's code{/snippet}
+			</Popover>
+			<!-- Only when the settings drawer is actually mounted (not in the local-dev
+				editors, which provide the context store but never render it). -->
+			{#if $workspaceScriptSettingsDrawer}
+				<Popover notClickable placement="bottom">
+					<Button
+						unifiedSize="sm"
+						variant="subtle"
+						onClick={() => {
+							if (module.value.type == 'script') {
+								$workspaceScriptSettingsDrawer?.openDrawer(
+									module.value.path,
+									module.value.hash,
+									() => {
+										dispatch('reload')
+									}
+								)
+							}
+						}}
+						startIcon={{ icon: Settings }}
+						iconOnly
+						disabled={module.value.hash != undefined}
+					/>
+					{#snippet text()}Edit the script's runtime settings (concurrency, cache, timeout, ...){/snippet}
+				</Popover>
+			{/if}
 		{/if}
 		{#if customUi?.tagEdit != false}
 			<FlowModuleWorkerTagSelect
@@ -157,15 +166,16 @@
 			/>
 		{/if}
 		{#if customUi?.scriptFork != false}
-			<Button
-				unifiedSize="sm"
-				variant="subtle"
-				on:click={() => dispatch('fork')}
-				startIcon={{ icon: GitFork }}
-				iconOnly={false}
-			>
-				Fork
-			</Button>
+			<Popover notClickable placement="bottom">
+				<Button
+					unifiedSize="sm"
+					variant="subtle"
+					on:click={() => dispatch('fork')}
+					startIcon={{ icon: GitFork }}
+					iconOnly
+				/>
+				{#snippet text()}Fork into an inline script{/snippet}
+			</Popover>
 		{/if}
 	{:else if module.value.type === 'flow'}
 		<Button

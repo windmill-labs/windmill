@@ -9,6 +9,7 @@
 	import { Loader2, Save, DiffIcon, Settings } from 'lucide-svelte'
 	import ScriptAdvancedSettings from '$lib/components/ScriptAdvancedSettings.svelte'
 	import ScriptSettingsBadges from '$lib/components/ScriptSettingsBadges.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 	import {
 		cleanValueProperties,
 		emptySchema,
@@ -279,14 +280,16 @@
 			{#if script}
 				<ScriptSettingsBadges settings={script} onclick={() => settingsDrawer?.openDrawer()} />
 			{/if}
-			<Button
-				disabled={!script}
-				variant="default"
-				startIcon={{ icon: Settings }}
-				on:click={() => settingsDrawer?.openDrawer()}
-			>
-				Settings
-			</Button>
+			<Popover notClickable placement="bottom">
+				<Button
+					disabled={!script}
+					variant="default"
+					iconOnly
+					startIcon={{ icon: Settings }}
+					on:click={() => settingsDrawer?.openDrawer()}
+				/>
+				{#snippet text()}Runtime settings (concurrency, cache, timeout, ...){/snippet}
+			</Popover>
 			<Button
 				disabled={!savedScript || !script}
 				variant="default"
