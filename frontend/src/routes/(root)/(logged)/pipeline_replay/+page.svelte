@@ -189,6 +189,20 @@
 	}
 </script>
 
+<!-- Shown by every player's boundary when a malformed recording crashes on
+     render/effect (the load-time validation and JobLoader guards cover the rest). -->
+{#snippet replayFailed()}
+	<div class="flex flex-col items-center justify-center h-full gap-2 text-center">
+		<TriangleAlert class="text-red-500" size={28} />
+		<p class="max-w-md text-sm text-secondary">
+			This recording could not be replayed — it may be malformed or from an incompatible version.
+		</p>
+		<Button variant="border" size="xs" onclick={quit} startIcon={{ icon: Upload }}>
+			Load another recording
+		</Button>
+	</div>
+{/snippet}
+
 <!-- The pipeline player fills the viewport (graph left, detail right, like the
      pipeline editor); the flow/script players keep the centered scrolling page. -->
 <div
@@ -202,14 +216,20 @@
 				Load another recording
 			</Button>
 		</div>
-		<FlowRecordingReplay recording={flowRecording} />
+		<svelte:boundary onerror={() => setActiveReplay(undefined)}>
+			<FlowRecordingReplay recording={flowRecording} />
+			{#snippet failed()}{@render replayFailed()}{/snippet}
+		</svelte:boundary>
 	{:else if scriptRecording}
 		<div class="flex justify-end mb-4">
 			<Button variant="border" size="xs" onclick={quit} startIcon={{ icon: Upload }}>
 				Load another recording
 			</Button>
 		</div>
-		<ScriptRecordingReplay recording={scriptRecording} />
+		<svelte:boundary onerror={() => setActiveReplay(undefined)}>
+			<ScriptRecordingReplay recording={scriptRecording} />
+			{#snippet failed()}{@render replayFailed()}{/snippet}
+		</svelte:boundary>
 	{:else if pipelineRecording}
 		<div class="flex justify-end mb-2 shrink-0">
 			<Button variant="border" size="xs" onclick={quit} startIcon={{ icon: Upload }}>
@@ -217,22 +237,9 @@
 			</Button>
 		</div>
 		<div class="flex-1 min-h-0">
-			<!-- Catch-all for a malformed recording that slips past load-time validation:
-			     a render/effect crash shows the failed state instead of a blank page. -->
 			<svelte:boundary onerror={() => setActiveReplay(undefined)}>
 				<PipelineRecordingReplay recording={pipelineRecording} />
-				{#snippet failed()}
-					<div class="flex flex-col items-center justify-center h-full gap-2 text-center">
-						<TriangleAlert class="text-red-500" size={28} />
-						<p class="max-w-md text-sm text-secondary">
-							This recording could not be replayed — it may be malformed or from an incompatible
-							version.
-						</p>
-						<Button variant="border" size="xs" onclick={quit} startIcon={{ icon: Upload }}>
-							Load another recording
-						</Button>
-					</div>
-				{/snippet}
+				{#snippet failed()}{@render replayFailed()}{/snippet}
 			</svelte:boundary>
 		</div>
 	{:else if downloading}
