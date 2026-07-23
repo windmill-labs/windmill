@@ -1882,11 +1882,13 @@ async function listWorkspaceItems(
 					perPage,
 					page
 				})
-			} catch {
+			} catch (err) {
 				// A trigger kind whose backend routes aren't compiled in (e.g. email
-				// without smtp+private, or an EE kind on CE) 404s here; skip it so one
-				// unavailable kind doesn't drop the whole listing.
-				continue
+				// without smtp+private, or an EE kind on CE) 404s here; skip only that
+				// so one unavailable kind doesn't drop the whole listing. Any other
+				// failure (auth, 5xx, network) is real and must surface.
+				if ((err as { status?: number } | undefined)?.status === 404) continue
+				throw err
 			}
 			for (const trigger of triggers) items.push(triggerToItem(kind, trigger, false))
 		}

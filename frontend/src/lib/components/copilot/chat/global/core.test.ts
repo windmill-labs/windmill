@@ -154,6 +154,35 @@ vi.mock('$lib/gen', async () => {
 			createEmailTrigger: vi.fn(async () => 'created'),
 			updateEmailTrigger: vi.fn(async () => 'updated')
 		}),
+		// The remaining trigger kinds only need a list() stub so list_workspace_items
+		// treats them as available-but-empty (a real instance answers, not rejects).
+		WebsocketTriggerService: wrapService(actual.WebsocketTriggerService, {
+			listWebsocketTriggers: vi.fn(async () => [])
+		}),
+		KafkaTriggerService: wrapService(actual.KafkaTriggerService, {
+			listKafkaTriggers: vi.fn(async () => [])
+		}),
+		NatsTriggerService: wrapService(actual.NatsTriggerService, {
+			listNatsTriggers: vi.fn(async () => [])
+		}),
+		PostgresTriggerService: wrapService(actual.PostgresTriggerService, {
+			listPostgresTriggers: vi.fn(async () => [])
+		}),
+		MqttTriggerService: wrapService(actual.MqttTriggerService, {
+			listMqttTriggers: vi.fn(async () => [])
+		}),
+		AmqpTriggerService: wrapService(actual.AmqpTriggerService, {
+			listAmqpTriggers: vi.fn(async () => [])
+		}),
+		SqsTriggerService: wrapService(actual.SqsTriggerService, {
+			listSqsTriggers: vi.fn(async () => [])
+		}),
+		GcpTriggerService: wrapService(actual.GcpTriggerService, {
+			listGcpTriggers: vi.fn(async () => [])
+		}),
+		AzureTriggerService: wrapService(actual.AzureTriggerService, {
+			listAzureTriggers: vi.fn(async () => [])
+		}),
 		AppService: wrapService(actual.AppService, {
 			existsApp: vi.fn(async () => false),
 			createAppRaw: vi.fn(async () => 'created'),
@@ -1469,6 +1498,15 @@ describe('global AI tools', () => {
 		const raw = await callGlobalTool('list_workspace_items', { types: ['trigger'] })
 		const paths = JSON.parse(raw).map((i: any) => i.path)
 		expect(paths).toContain('u/admin/live_route')
+	})
+
+	// Only a 404 means "route not compiled in". A real failure (auth, 5xx) must not
+	// be swallowed into a successful-but-incomplete listing.
+	it('propagates a non-404 trigger-list failure', async () => {
+		vi.mocked(HttpTriggerService.listHttpTriggers).mockRejectedValueOnce(
+			Object.assign(new Error('server error'), { status: 500 })
+		)
+		await expect(callGlobalTool('list_workspace_items', { types: ['trigger'] })).rejects.toThrow()
 	})
 
 	// Same private-owner read path as schedules, for the resource drawer kind.
