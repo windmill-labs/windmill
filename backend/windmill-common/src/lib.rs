@@ -40,6 +40,7 @@ pub mod db;
 mod db_entra_ee;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 mod db_iam_ee;
+pub mod datatable_permissions;
 pub mod db_params;
 #[cfg(feature = "private")]
 pub mod deployment_requests_ee;

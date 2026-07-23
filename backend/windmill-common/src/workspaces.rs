@@ -989,6 +989,56 @@ pub struct DataTable {
     /// when migrations already exist (see `datatable_migrations_enabled`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub migrations_enabled: Option<bool>,
+    /// Fine-grained access control (EE). Absent = disabled: every workspace
+    /// member connects through the shared role, as before the feature existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<DataTablePermissions>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+pub struct DataTablePermissions {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub grants: Vec<DataTableGrant>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "lowercase")]
+pub enum DataTableFolderAccess {
+    Read,
+    Write,
+}
+
+/// Postgres privileges grantable on data table tables. Deliberately limited to
+/// DML: DDL is owner-only in Postgres and goes through migrations, and
+/// CREATE/REFERENCES/TRIGGER would let ephemeral roles own or wire objects,
+/// fragmenting ownership away from the shared owner role.
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "UPPERCASE")]
+#[derive(AsRefStr)]
+#[strum(serialize_all = "UPPERCASE")]
+pub enum DataTableOperation {
+    Select,
+    Insert,
+    Update,
+    Delete,
+    Truncate,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct DataTableGrant {
+    /// `u/<username>`, `g/<group>` or `f/<folder>`.
+    pub tenant: String,
+    /// Minimum folder access level required for the grant to apply.
+    /// Only meaningful (and required) when `tenant` is a folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder_access: Option<DataTableFolderAccess>,
+    pub operations: Vec<DataTableOperation>,
+    pub schema: String,
+    /// Empty = the whole schema, including future tables (via default privileges).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tables: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -1040,11 +1090,8 @@ fn datatable_not_found_error(name: &str, datatables: Option<&serde_json::Value>)
     ))
 }
 
-pub async fn get_datatable_resource_from_db_unchecked(
-    db: &DB,
-    w_id: &str,
-    name: &str,
-) -> Result<serde_json::Value> {
+/// Load a data table's config from workspace settings.
+pub async fn get_datatable_config(db: &DB, w_id: &str, name: &str) -> Result<DataTable> {
     let datatables = sqlx::query_scalar!(
         r#"
             SELECT ws.datatable->'datatables' AS datatables
@@ -1062,8 +1109,16 @@ pub async fn get_datatable_resource_from_db_unchecked(
         .and_then(|d| d.get(name))
         .filter(|v| !v.is_null())
         .ok_or_else(|| datatable_not_found_error(name, datatables.as_ref()))?;
-    let datatable = serde_json::from_value::<DataTable>(datatable.clone())?;
+    Ok(serde_json::from_value::<DataTable>(datatable.clone())?)
+}
 
+/// Credentials of the shared owner role for a data table: `custom_instance_user`
+/// for instance-type, the resource's own credentials for external ones.
+pub async fn datatable_shared_resource(
+    db: &DB,
+    w_id: &str,
+    datatable: &DataTable,
+) -> Result<serde_json::Value> {
     let db_resource = if datatable.database.resource_type == DataTableCatalogResourceType::Instance
     {
         let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
@@ -1082,6 +1137,15 @@ pub async fn get_datatable_resource_from_db_unchecked(
     };
 
     Ok(db_resource)
+}
+
+pub async fn get_datatable_resource_from_db_unchecked(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+) -> Result<serde_json::Value> {
+    let datatable = get_datatable_config(db, w_id, name).await?;
+    datatable_shared_resource(db, w_id, &datatable).await
 }
 
 #[derive(Deserialize, Serialize, Debug)]
