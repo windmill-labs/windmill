@@ -1,6 +1,7 @@
 import {
 	AppService,
 	AzureTriggerService,
+	EmailTriggerService,
 	FlowService,
 	FolderService,
 	GcpTriggerService,
@@ -561,7 +562,8 @@ const writeTriggerSchema = z.object({
 			triggerRequestSchemas.amqp,
 			triggerRequestSchemas.sqs,
 			triggerRequestSchemas.gcp,
-			triggerRequestSchemas.azure
+			triggerRequestSchemas.azure,
+			triggerRequestSchemas.email
 		])
 		.describe(
 			'Full trigger configuration. Must include path, script_path, is_flow plus the kind-specific fields.'
@@ -1750,6 +1752,14 @@ const triggerServices: Record<TriggerKind, TriggerService> = {
 		create: (a) => AzureTriggerService.createAzureTrigger(a),
 		update: (a) => AzureTriggerService.updateAzureTrigger(a),
 		delete: (a) => AzureTriggerService.deleteAzureTrigger(a)
+	},
+	email: {
+		exists: (a) => EmailTriggerService.existsEmailTrigger(a),
+		get: (a) => EmailTriggerService.getEmailTrigger(a),
+		list: (a) => EmailTriggerService.listEmailTriggers(a),
+		create: (a) => EmailTriggerService.createEmailTrigger(a),
+		update: (a) => EmailTriggerService.updateEmailTrigger(a),
+		delete: (a) => EmailTriggerService.deleteEmailTrigger(a)
 	}
 }
 
@@ -5147,7 +5157,8 @@ const triggerLabels: Record<TriggerKind, string> = {
 	amqp: 'AMQP trigger',
 	sqs: 'SQS trigger',
 	gcp: 'GCP Pub/Sub trigger',
-	azure: 'Azure Event Grid trigger'
+	azure: 'Azure Event Grid trigger',
+	email: 'Email trigger'
 }
 
 function createOpenScheduleAction(path: string, targetKind: 'script' | 'flow'): ToolDisplayAction {

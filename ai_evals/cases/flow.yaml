@@ -480,3 +480,21 @@
   judgeChecklist:
     - "the flow includes a final top-level step named `webhook_response`"
     - "`webhook_response` returns `ok: true` and the order summary"
+
+- id: flow-test17-create-current-flow-email-trigger
+  prompt: |-
+    Set up the current flow so it runs whenever an email is received at the inbox `order-intake`.
+    Name the trigger `order_intake_email`. Do not ask me for the flow path.
+  initial: ai_evals/fixtures/frontend/flow/initial/scheduled_order_flow.json
+  toolExpect:
+    requiredToolsUsed:
+      - create_trigger
+    toolCallArgs:
+      # An "email is received" intent must resolve to the native email trigger kind,
+      # never a faked HTTP webhook. Existential (includes): at least one create_trigger
+      # call picks email, tolerating partial streamed captures and retries.
+      - tool: create_trigger
+        field: kind
+        stringIncludesAnyOf:
+          - email
+  skipJudge: true

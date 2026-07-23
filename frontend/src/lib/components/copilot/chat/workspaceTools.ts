@@ -1,5 +1,6 @@
 import {
 	AzureTriggerService,
+	EmailTriggerService,
 	GcpTriggerService,
 	HttpTriggerService,
 	KafkaTriggerService,
@@ -12,6 +13,7 @@ import {
 	WebsocketTriggerService,
 	type AzureTriggerData,
 	type GcpTriggerData,
+	type NewEmailTrigger,
 	type NewHttpTrigger,
 	type NewKafkaTrigger,
 	type NewMqttTrigger,
@@ -51,6 +53,7 @@ type TriggerRequestByKind = {
 	sqs: NewSqsTrigger
 	gcp: GcpTriggerData
 	azure: AzureTriggerData
+	email: NewEmailTrigger
 }
 type TriggerRequestBody = TriggerRequestByKind[TriggerKind]
 
@@ -181,6 +184,12 @@ const triggerConfigs = {
 		requestSchema: triggerRequestSchemas.azure as z.ZodType<AzureTriggerData>,
 		create: (data: { workspace: string; requestBody: AzureTriggerData }) =>
 			AzureTriggerService.createAzureTrigger(data)
+	},
+	email: {
+		label: 'Email trigger',
+		requestSchema: triggerRequestSchemas.email as z.ZodType<NewEmailTrigger>,
+		create: (data: { workspace: string; requestBody: NewEmailTrigger }) =>
+			EmailTriggerService.createEmailTrigger(data)
 	}
 } satisfies {
 	[K in TriggerKind]: {

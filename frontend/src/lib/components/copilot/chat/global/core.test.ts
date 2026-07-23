@@ -144,6 +144,14 @@ vi.mock('$lib/gen', async () => {
 			createHttpTrigger: vi.fn(async () => 'created'),
 			updateHttpTrigger: vi.fn(async () => 'updated')
 		}),
+		EmailTriggerService: wrapService(actual.EmailTriggerService, {
+			existsEmailTrigger: vi.fn(async () => false),
+			getEmailTrigger: vi.fn(async () => {
+				throw new Error('getEmailTrigger mock not configured')
+			}),
+			createEmailTrigger: vi.fn(async () => 'created'),
+			updateEmailTrigger: vi.fn(async () => 'updated')
+		}),
 		AppService: wrapService(actual.AppService, {
 			existsApp: vi.fn(async () => false),
 			createAppRaw: vi.fn(async () => 'created'),
@@ -279,6 +287,7 @@ import {
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
 	AppService,
+	EmailTriggerService,
 	FlowService,
 	FolderService,
 	HttpTriggerService,
@@ -1366,6 +1375,49 @@ describe('global AI tools', () => {
 		})
 		expect(
 			getBackendDraft('trigger_http', 'u/admin/fresh_route', { workspace: WORKSPACE })
+		).toBeUndefined()
+	})
+
+	// Email is the kind an implicit "run when an email is received" request maps to;
+	// guards the full draft->read->deploy wiring for it end to end.
+	it('reads and deploys an email trigger draft written by the chat', async () => {
+		await callGlobalTool('write_trigger', {
+			kind: 'email',
+			config: {
+				path: 'u/admin/fresh_inbox',
+				script_path: 'f/scripts/handler',
+				is_flow: false,
+				local_part: 'support'
+			}
+		})
+
+		const readRaw = await callGlobalTool('read_workspace_item', {
+			type: 'trigger',
+			trigger_kind: 'email',
+			path: 'u/admin/fresh_inbox'
+		})
+		expect(JSON.parse(readRaw)).toMatchObject({
+			type: 'trigger',
+			triggerKind: 'email',
+			path: 'u/admin/fresh_inbox',
+			isDraft: true
+		})
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'trigger',
+			trigger_kind: 'email',
+			path: 'u/admin/fresh_inbox'
+		})
+		expect(EmailTriggerService.createEmailTrigger).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: expect.objectContaining({
+				path: 'u/admin/fresh_inbox',
+				local_part: 'support',
+				script_path: 'f/scripts/handler'
+			})
+		})
+		expect(
+			getBackendDraft('trigger_email', 'u/admin/fresh_inbox', { workspace: WORKSPACE })
 		).toBeUndefined()
 	})
 

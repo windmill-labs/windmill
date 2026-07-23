@@ -1780,3 +1780,35 @@
     - creates a postgres resource draft at f/evals/global/prod_db with the provided host, port, database, and user
     - the password is left for the user to provide (empty, a placeholder, or a secret variable reference) — no invented password value presented as real
     - does not deploy or save anything to the workspace
+
+- id: global-test29-email-trigger-draft
+  prompt: |-
+    Set up a draft auto-reply job.
+    Create a Bun script at `f/evals/global/email_pong` that returns the string "pong".
+    Then set it up so it runs whenever an email is received at the inbox `pong`.
+    Leave everything as AI drafts only; do not deploy or save anything to the workspace.
+  runtime:
+    maxTurns: 10
+  validate:
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/email_pong
+        language: bun
+        valueIncludes:
+          - pong
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+      - write_trigger
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      # "Runs when an email is received" must resolve to the native email trigger kind,
+      # never a faked HTTP webhook. Assert the recorded tool-call kind (not the draft):
+      # it holds even on a CE backend where email trigger routes (smtp+private) 404.
+      - tool: write_trigger
+        field: kind
+        stringIncludesAnyOf:
+          - email
+  skipJudge: true
