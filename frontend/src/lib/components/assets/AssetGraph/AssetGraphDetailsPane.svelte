@@ -493,6 +493,10 @@
 	// restores its input. Guarded on the path so a staging round-trip
 	// (emit → page → runFormInitialArgs) doesn't re-seed and loop. The read-only
 	// branch uses PipelineScriptView's own onArgsChange instead.
+	// Declared before the pre-effect that seeds it: a `$state` referenced by an
+	// earlier-registered `$effect.pre` hits a TDZ ("Cannot access 'args' before
+	// initialization") when the pane remounts and the pre-effect runs before this
+	// line executes.
 	let args = $state<Record<string, any>>({})
 	let argsSeedPath: string | undefined = undefined
 	$effect.pre(() => {

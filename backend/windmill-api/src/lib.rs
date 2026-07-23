@@ -94,6 +94,7 @@ mod granular_acls;
 mod group_history;
 mod groups;
 mod health;
+mod hub_publish;
 #[cfg(feature = "private")]
 pub mod indexer_ee;
 mod indexer_oss;
@@ -656,6 +657,7 @@ pub async fn run_server(
                         .nest("/volumes", volumes_oss::workspaced_service())
                         .nest("/workers", windmill_api_workers::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
+                        .nest("/hub", hub_publish::workspaced_service())
                         .nest(
                             "/data_metrics",
                             windmill_api_workspaces::data_metrics::workspaced_service(),
