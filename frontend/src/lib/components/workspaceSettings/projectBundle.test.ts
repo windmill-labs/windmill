@@ -468,6 +468,41 @@ describe('buildProjectBundle', () => {
 		expect(bundle.unresolved.sort()).toEqual(['u/admin/gone', 'u/admin/untyped'])
 	})
 
+	it('relocates $var:/$jsonvar: refs into the slug when it differs from the source folder', async () => {
+		const flow: FetchedItem = {
+			kind: 'flow',
+			path: 'f/source_folder/main',
+			value: {
+				flow_env: { CFG: '$jsonvar:f/source_folder/cfg' },
+				modules: [
+					{
+						id: 'a',
+						value: {
+							type: 'rawscript',
+							// Whole-value ref is relocated; the inline literal is not.
+							content: 'return "$var:f/source_folder/key"',
+							input_transforms: { k: { type: 'static', value: '$var:f/source_folder/key' } }
+						}
+					}
+				]
+			}
+		}
+		const d = {
+			fetchItem: async (ref: ItemRef) => (ref.path === 'f/source_folder/main' ? flow : undefined),
+			resolveResourceType: async () => undefined
+		}
+		const bundle = await buildProjectBundle(
+			[{ kind: 'flow', path: 'f/source_folder/main' }],
+			'kit',
+			d
+		)
+		const v = bundle.items[0].value
+		expect(v.modules[0].value.input_transforms.k.value).toBe('$var:f/kit/key')
+		expect(v.flow_env.CFG).toBe('$jsonvar:f/kit/cfg')
+		// Inline code literal is untouched.
+		expect(v.modules[0].value.content).toBe('return "$var:f/source_folder/key"')
+	})
+
 	it('dedupes a path missing as both a script and a flow', async () => {
 		// A missing script + flow sharing a path each push the bare path once; the
 		// list must stay unique so a keyed UI render of it can't collide.

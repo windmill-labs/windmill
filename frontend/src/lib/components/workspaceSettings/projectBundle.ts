@@ -540,6 +540,14 @@ function refsForFetched(item: FetchedItem): Ref[] {
 	return []
 }
 
+// Whole-string `$var:`/`$jsonvar:` paths an item resolves at runtime. Scripts carry
+// no variable args; raw apps hold their structure in the `content` JSON string.
+function varRefsForFetched(item: FetchedItem): string[] {
+	if (item.kind === 'flow' || item.kind === 'app') return extractVarRefsFromValue(item.value)
+	if (item.kind === 'raw_app') return extractVarRefsFromValue(safeParseRaw(item.content))
+	return []
+}
+
 // Walks the transitive closure: scripts referenced by path are pulled in
 // recursively, resources become empty stubs, hub refs stay external.
 export async function buildProjectBundle(
@@ -551,6 +559,7 @@ export async function buildProjectBundle(
 	const fetched = new Map<string, FetchedItem>()
 	const queued = new Set<string>()
 	const resourcePaths = new Set<string>()
+	const varPaths = new Set<string>()
 	const unresolved: string[] = []
 
 	// Resources referenced by triggers (by config path, not `$res:` in code).
@@ -594,24 +603,28 @@ export async function buildProjectBundle(
 					}
 				}
 			}
+			// Relocate the item's runtime variable refs into the project folder too, so
+			// the export is slug-relative regardless of the source folder (import then
+			// materializes them as placeholders). Variables are never hub-hosted.
+			for (const p of varRefsForFetched(item)) varPaths.add(p)
 		}
 		level = next
 	}
 
 	const fetchedItems = [...fetched.values()]
 	const itemPaths = fetchedItems.map((it) => it.path)
-	const map = buildPathMap([...itemPaths, ...resourcePaths], slug)
+	const map = buildPathMap([...itemPaths, ...resourcePaths, ...varPaths], slug)
 
 	const items: BundledItem[] = fetchedItems.map((it) => {
 		const rewritten: BundledItem = { ...it, newPath: map.get(it.path) ?? it.path }
 		if (it.kind === 'script') {
 			rewritten.content = rewriteContent(it.content ?? '', map)
 		} else if (it.kind === 'raw_app') {
-			rewritten.content = rewriteRawAppContent(it.content ?? '', map)
+			rewritten.content = rewriteRawVarRefs(rewriteRawAppContent(it.content ?? '', map), map)
 		} else if (it.kind === 'flow') {
-			rewritten.value = rewriteFlowValue(it.value, map)
+			rewritten.value = rewriteVarRefsInValue(rewriteFlowValue(it.value, map), map)
 		} else if (it.kind === 'app') {
-			rewritten.value = rewriteAppValue(it.value, map)
+			rewritten.value = rewriteVarRefsInValue(rewriteAppValue(it.value, map), map)
 		}
 		return rewritten
 	})
