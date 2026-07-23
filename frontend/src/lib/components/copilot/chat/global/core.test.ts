@@ -141,6 +141,7 @@ vi.mock('$lib/gen', async () => {
 			getHttpTrigger: vi.fn(async () => {
 				throw new Error('getHttpTrigger mock not configured')
 			}),
+			listHttpTriggers: vi.fn(async () => []),
 			createHttpTrigger: vi.fn(async () => 'created'),
 			updateHttpTrigger: vi.fn(async () => 'updated')
 		}),
@@ -149,6 +150,7 @@ vi.mock('$lib/gen', async () => {
 			getEmailTrigger: vi.fn(async () => {
 				throw new Error('getEmailTrigger mock not configured')
 			}),
+			listEmailTriggers: vi.fn(async () => []),
 			createEmailTrigger: vi.fn(async () => 'created'),
 			updateEmailTrigger: vi.fn(async () => 'updated')
 		}),
@@ -1421,6 +1423,52 @@ describe('global AI tools', () => {
 		expect(
 			getBackendDraft('trigger_email', 'u/admin/fresh_inbox', { workspace: WORKSPACE })
 		).toBeUndefined()
+	})
+
+	// Editing an existing email trigger whose workspaced_local_part is true while
+	// omitting the optional field must not reset it to false (that would change the
+	// receiving address). The default applies only to a genuinely new draft.
+	it('preserves workspaced_local_part when editing an existing email trigger', async () => {
+		vi.mocked(EmailTriggerService.existsEmailTrigger).mockResolvedValueOnce(true)
+		vi.mocked(EmailTriggerService.getEmailTrigger).mockResolvedValueOnce({
+			path: 'u/admin/ws_inbox',
+			script_path: 'f/scripts/handler',
+			local_part: 'support',
+			is_flow: false,
+			workspaced_local_part: true
+		} as any)
+
+		await callGlobalTool('write_trigger', {
+			kind: 'email',
+			config: {
+				path: 'u/admin/ws_inbox',
+				script_path: 'f/scripts/handler',
+				is_flow: false,
+				local_part: 'support'
+			}
+		})
+
+		const readRaw = await callGlobalTool('read_workspace_item', {
+			type: 'trigger',
+			trigger_kind: 'email',
+			path: 'u/admin/ws_inbox'
+		})
+		expect(JSON.parse(readRaw).value).toMatchObject({ workspaced_local_part: true })
+	})
+
+	// A trigger kind whose backend routes aren't compiled in (email without
+	// smtp+private, EE kinds on CE) 404s on list; that must not drop the whole listing.
+	it('skips unavailable trigger kinds when listing', async () => {
+		vi.mocked(HttpTriggerService.listHttpTriggers).mockResolvedValueOnce([
+			{ path: 'u/admin/live_route', script_path: 'f/scripts/handler', is_flow: false }
+		] as any)
+		vi.mocked(EmailTriggerService.listEmailTriggers).mockRejectedValueOnce(
+			Object.assign(new Error('not found'), { status: 404 })
+		)
+
+		const raw = await callGlobalTool('list_workspace_items', { types: ['trigger'] })
+		const paths = JSON.parse(raw).map((i: any) => i.path)
+		expect(paths).toContain('u/admin/live_route')
 	})
 
 	// Same private-owner read path as schedules, for the resource drawer kind.
