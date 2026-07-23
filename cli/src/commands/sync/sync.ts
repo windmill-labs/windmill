@@ -28,7 +28,7 @@ import {
 } from "../../types.ts";
 import { downloadZip } from "./pull.ts";
 import { runLint, printReport, checkMissingLocks } from "../lint/lint.ts";
-import { pullSharedUi, pushSharedUi } from "../shared_ui.ts";
+import { diffSharedUi, pullSharedUi, pushSharedUi } from "../shared_ui.ts";
 import {
   pushMigrationFromDisk,
   offerToRunNewMigrations,
@@ -3494,6 +3494,9 @@ export async function gitDeploy(
 // are self-describing via their `migrations/datatable/...` path, so they get no
 // label prefix.
 function changeTypeLabel(p: string): string {
+  // Shared UI files (ui/…) are not wmill items — getTypeStrFromPath throws on
+  // them (e.g. ui/config.json). Label them directly.
+  if (p === "ui" || p.startsWith("ui/")) return "shared UI ";
   const t = getTypeStrFromPath(p);
   return t === "datatable_migration" ? "" : `${t} `;
 }
@@ -3543,7 +3546,6 @@ function prettyChanges(
         ),
       );
     } else if (change.name === "edited") {
-      const changeType = getTypeStrFromPath(change.path);
       log.info(
         colors.yellow(
           `~ ${changeTypeLabel(change.path)}` +
@@ -3553,6 +3555,12 @@ function prettyChanges(
         ),
       );
       if (change.before != change.after) {
+        // Shared UI files (ui/…) aren't wmill items; getTypeStrFromPath throws
+        // on them, so fall back to a plain diff.
+        const changeType =
+          change.path === "ui" || change.path.startsWith("ui/")
+            ? "shared_ui"
+            : getTypeStrFromPath(change.path);
         if (changeType === "encryption_key") {
           showDiff(
             redactEncryptionKey(change.before),
@@ -4190,6 +4198,32 @@ export async function push(
     }
     if (!opts.jsonOutput) {
       log.warn(msg);
+    }
+  }
+
+  // Shared UI (the ui/ folder) is pushed out-of-band via pushSharedUi on apply
+  // and is excluded from the file diff (isNotWmillFile), so surface its diff in
+  // the dry-run preview. Without this the "Pull from repo" preview reads "no
+  // changes" even when the apply will overwrite the shared-UI store. Folded in
+  // only for dry-run so the apply path is unchanged (pushSharedUi still runs).
+  if (opts.dryRun) {
+    try {
+      for (const c of await diffSharedUi(workspace.workspaceId)) {
+        if (c.type === "added") {
+          changes.push({ name: "added", path: c.path, content: "" });
+        } else if (c.type === "deleted") {
+          changes.push({ name: "deleted", path: c.path });
+        } else {
+          changes.push({
+            name: "edited",
+            path: c.path,
+            before: c.before,
+            after: c.after,
+          });
+        }
+      }
+    } catch (e) {
+      log.warn(`Failed to compute shared UI diff for dry-run preview: ${e}`);
     }
   }
 
@@ -5170,10 +5204,14 @@ export async function push(
       );
     }
   } else {
-    try {
-      await pushSharedUi(workspace.workspaceId);
-    } catch (e) {
-      log.warn(`Failed to push shared UI folder: ${e}`);
+    // Dry-run with no changes reaches here (a ui/ diff would have made changes
+    // non-empty and returned above); never mutate the remote in that case.
+    if (!opts.dryRun) {
+      try {
+        await pushSharedUi(workspace.workspaceId);
+      } catch (e) {
+        log.warn(`Failed to push shared UI folder: ${e}`);
+      }
     }
     // No changes pushed, so no new datatable migrations to run.
     if (opts.jsonOutput) {

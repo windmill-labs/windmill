@@ -26,6 +26,54 @@ async function readDirRecursive(
   return out;
 }
 
+export type SharedUiChange =
+  | { type: "added"; path: string }
+  | { type: "edited"; path: string; before: string; after: string }
+  | { type: "deleted"; path: string };
+
+/**
+ * Diff the local <cwd>/ui/ folder against the workspace's shared UI store in
+ * the push direction (local -> remote), returning entries whose `path` is
+ * prefixed with `ui/`. This is the same comparison pushSharedUi applies, so the
+ * dry-run preview and the real push never diverge.
+ *
+ * Mirrors pushSharedUi's no-op: with no local ui/ folder there is nothing to
+ * push, so the apply is a no-op and the preview must be empty (even when the
+ * remote store is non-empty) to avoid phantom diffs the apply won't perform.
+ */
+export async function diffSharedUi(workspace: string): Promise<SharedUiChange[]> {
+  const localDir = path.join(process.cwd(), SHARED_UI_DIR);
+  if (!fs.existsSync(localDir)) {
+    return [];
+  }
+  const files = await readDirRecursive(localDir);
+
+  let remote: Record<string, string> = {};
+  try {
+    const got = await wmill.getSharedUi({ workspace });
+    remote = got.files ?? {};
+  } catch {
+    // If endpoint missing or unauthorized, treat remote as empty (the push
+    // would attempt the PUT anyway).
+  }
+
+  const changes: SharedUiChange[] = [];
+  for (const [rel, content] of Object.entries(files)) {
+    const p = `${SHARED_UI_DIR}/${rel}`;
+    if (!(rel in remote)) {
+      changes.push({ type: "added", path: p });
+    } else if (remote[rel] !== content) {
+      changes.push({ type: "edited", path: p, before: remote[rel], after: content });
+    }
+  }
+  for (const rel of Object.keys(remote)) {
+    if (!(rel in files)) {
+      changes.push({ type: "deleted", path: `${SHARED_UI_DIR}/${rel}` });
+    }
+  }
+  return changes;
+}
+
 /**
  * Push the local <cwd>/ui/ folder to the workspace's shared UI store.
  * Returns true if a push was performed, false if the folder is missing or empty.
@@ -35,25 +83,15 @@ export async function pushSharedUi(workspace: string): Promise<boolean> {
   if (!fs.existsSync(localDir)) {
     return false;
   }
-  const files = await readDirRecursive(localDir);
 
-  // Skip if no change
-  let remote: Record<string, string> = {};
-  try {
-    const got = await wmill.getSharedUi({ workspace });
-    remote = got.files ?? {};
-  } catch {
-    // If endpoint missing or unauthorized, just attempt the PUT
-  }
-
-  if (
-    Object.keys(remote).length === Object.keys(files).length &&
-    Object.entries(files).every(([k, v]) => remote[k] === v)
-  ) {
+  // Skip if no change — reuse diffSharedUi so preview and push never diverge.
+  const diff = await diffSharedUi(workspace);
+  if (diff.length === 0) {
     log.info(colors.gray("Shared UI folder up to date"));
     return false;
   }
 
+  const files = await readDirRecursive(localDir);
   await wmill.updateSharedUi({
     workspace,
     requestBody: { files },
