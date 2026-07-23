@@ -84,7 +84,7 @@ Node `f/sales/orders_ingest` (runs on a schedule, materializes a DuckLake table)
 -- pipeline
 -- on schedule
 -- materialize ducklake://main/orders
-SELECT * FROM read_csv('s3://raw/orders/*.csv')
+SELECT * FROM read_csv('s3:///raw/orders/*.csv')
 ```
 
 Node `f/sales/orders_daily` (runs when `orders` is produced, writes a rollup):
