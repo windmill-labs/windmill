@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT (runnable_path IS NOT NULL AND parent_job IS NULL) AS \"restartable!\"\n           FROM v2_job WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "restartable!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "c2b6fed7975676b3100e591f7ababbbdec0ec92e671b13b177109615238014aa"
+}
