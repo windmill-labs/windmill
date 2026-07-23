@@ -102,7 +102,7 @@ async fn test_between_steps_zombie_restart_reuses_all_children(
     }))
     .unwrap();
 
-    // 1. Run to completion to obtain real, successful child jobs.
+    // Run to completion to obtain real, successful child jobs.
     let full_run = RunJob::from(JobPayload::RawFlow {
         value: flow_value.clone(),
         path: None,
@@ -117,9 +117,9 @@ async fn test_between_steps_zombie_restart_reuses_all_children(
     let orig_iter1 = child_job_id_for_step(&db, full_run.id, "fanout", Some(1)).await;
     let orig_after = child_job_id_for_step(&db, full_run.id, "after", None).await;
 
-    // 2. Reproduce the zombie-reaper's terminal state: cancelled by `monitor`
-    //    with `flow_status` frozen mid-transition: `fanout` still `InProgress`
-    //    (all iterations done), `after` never reached.
+    // Reproduce the zombie-reaper's terminal state: cancelled by `monitor` with
+    // `flow_status` frozen mid-transition: `fanout` still `InProgress` (all
+    // iterations done), `after` never reached.
     let mut flow_status: serde_json::Value = sqlx::query_scalar!(
         "SELECT flow_status FROM v2_job_completed WHERE id = $1",
         full_run.id
@@ -150,9 +150,9 @@ async fn test_between_steps_zombie_restart_reuses_all_children(
     .execute(&db)
     .await?;
 
-    // 3. Hand-restart from the stuck step. `fanout` is recognised as a derivable
-    //    between-steps zombie (all children succeeded), so it is reused verbatim
-    //    and only the dropped transition onward is replayed.
+    // Hand-restart from the stuck step. `fanout` is recognised as a derivable
+    // between-steps zombie (all children succeeded), so it is reused verbatim and
+    // only the dropped transition onward is replayed.
     let restarted = RunJob::from(JobPayload::RestartedFlow {
         completed_job_id: full_run.id,
         step_id: "fanout".into(),
@@ -164,7 +164,7 @@ async fn test_between_steps_zombie_restart_reuses_all_children(
     .run_until_complete(&db, false, port)
     .await;
 
-    // 4. Flow reaches success, reusing the loop's aggregated result.
+    // Flow reaches success, reusing the loop's aggregated result.
     assert!(
         restarted.success,
         "restarted zombie flow should succeed: {:?}",

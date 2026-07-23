@@ -576,14 +576,65 @@ impl FlowStatus {
         let i = usize::try_from(self.step).ok()?;
         self.modules.get(i)
     }
+
+    /// Whether no step has begun executing yet: the preprocessor (if any) and the first
+    /// module are both still `WaitingForPriorSteps`. A reaped flow in this state can be
+    /// safely re-queued because nothing ran. A preprocessor that is `InProgress` means its
+    /// child already ran (only the parent transition was lost), so re-queuing would
+    /// re-run the preprocessor and duplicate its side effects.
+    pub fn is_not_yet_started(&self) -> bool {
+        self.preprocessor_module
+            .as_ref()
+            .is_none_or(|p| matches!(p, FlowStatusModule::WaitingForPriorSteps { .. }))
+            && self
+                .modules
+                .first()
+                .is_some_and(|m| matches!(m, FlowStatusModule::WaitingForPriorSteps { .. }))
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::FlowStatusModule;
+    use super::{FlowStatus, FlowStatusModule};
 
     fn module(json: serde_json::Value) -> FlowStatusModule {
         serde_json::from_value(json).unwrap()
+    }
+
+    fn status(json: serde_json::Value) -> FlowStatus {
+        serde_json::from_value(json).unwrap()
+    }
+
+    #[test]
+    fn is_not_yet_started_distinguishes_preprocessor_zombie() {
+        let nil = "00000000-0000-0000-0000-000000000000";
+        let waiting = serde_json::json!({ "type": "WaitingForPriorSteps", "id": "a" });
+        let failure = serde_json::json!({ "type": "WaitingForPriorSteps", "id": "failure" });
+        // No preprocessor, first module waiting: genuinely unstarted.
+        assert!(status(serde_json::json!({
+            "step": 0, "modules": [waiting], "failure_module": failure
+        }))
+        .is_not_yet_started());
+        // First module already InProgress: started.
+        assert!(!status(serde_json::json!({
+            "step": 0,
+            "modules": [{ "type": "InProgress", "id": "a", "job": nil }],
+            "failure_module": failure
+        }))
+        .is_not_yet_started());
+        // Preprocessor still waiting, first module waiting: unstarted.
+        assert!(status(serde_json::json!({
+            "step": -1, "modules": [waiting], "failure_module": failure,
+            "preprocessor_module": { "type": "WaitingForPriorSteps", "id": "pre" }
+        }))
+        .is_not_yet_started());
+        // Preprocessor InProgress (its child ran) while modules[0] still waits: a
+        // preprocessor zombie, NOT unstarted, so it must not be auto-requeued.
+        assert!(!status(serde_json::json!({
+            "step": -1, "modules": [waiting], "failure_module": failure,
+            "preprocessor_module": { "type": "InProgress", "id": "pre", "job": nil }
+        }))
+        .is_not_yet_started());
     }
 
     #[test]

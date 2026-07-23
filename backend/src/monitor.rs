@@ -4900,11 +4900,7 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             .as_deref()
             .and_then(|x| serde_json::from_str::<FlowStatus>(x).ok());
         if !flow.same_worker.unwrap_or(false)
-            && status.as_ref().is_some_and(|s| {
-                s.modules
-                    .get(0)
-                    .is_some_and(|x| matches!(x, FlowStatusModule::WaitingForPriorSteps { .. }))
-            })
+            && status.as_ref().is_some_and(|s| s.is_not_yet_started())
         {
             let error_message = format!(
                 "Zombie flow detected: {} in workspace {}. It hasn't started yet, restarting it.",
