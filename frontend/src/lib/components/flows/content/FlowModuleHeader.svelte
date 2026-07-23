@@ -13,7 +13,8 @@
 		Repeat,
 		Square,
 		Pin,
-		Save
+		Save,
+		Settings
 	} from 'lucide-svelte'
 	import Popover from '../../Popover.svelte'
 	import type { FlowEditorContext } from '../types'
@@ -28,7 +29,7 @@
 	}
 
 	let { module, tag }: Props = $props()
-	const { scriptEditorDrawer, flowEditorDrawer, opWorkspace } =
+	const { scriptEditorDrawer, workspaceScriptSettingsDrawer, flowEditorDrawer, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
@@ -126,6 +127,23 @@
 				disabled={module.value.hash != undefined}
 			>
 				Edit
+			</Button>
+			<Button
+				unifiedSize="sm"
+				variant="subtle"
+				onClick={() => {
+					if (module.value.type == 'script') {
+						$workspaceScriptSettingsDrawer?.openDrawer(module.value.path, module.value.hash, () => {
+							dispatch('reload')
+						})
+					}
+				}}
+				startIcon={{ icon: Settings }}
+				iconOnly={false}
+				disabled={module.value.hash != undefined}
+				title="Edit the workspace script's runtime settings (concurrency, cache, timeout, ...)"
+			>
+				Settings
 			</Button>
 		{/if}
 		{#if customUi?.tagEdit != false}

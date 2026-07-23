@@ -87,6 +87,7 @@
 	import DefaultScripts from './DefaultScripts.svelte'
 	import { getContext, onMount, setContext, tick, untrack } from 'svelte'
 	import EditorHeader from './EditorHeader.svelte'
+	import ScriptSettingsBadges from './ScriptSettingsBadges.svelte'
 	import AutosaveIndicator from './AutosaveIndicator.svelte'
 	import LabelsInput from './LabelsInput.svelte'
 
@@ -1969,6 +1970,15 @@
 							{loadedFromDraft}
 							{othersDraftsCount}
 							{onOpenOthersDrafts}
+						/>
+					{/if}
+					{#if !condensedHeader}
+						<ScriptSettingsBadges
+							settings={script}
+							onclick={() => {
+								selectedTab = 'runtime'
+								metadataOpen = true
+							}}
 						/>
 					{/if}
 				</div>

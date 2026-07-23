@@ -6,12 +6,25 @@
 
 	import type { FlowModule } from '$lib/gen'
 	import { SecondsInput } from '../../common'
+	import WorkspaceScriptSettingInfo from './WorkspaceScriptSettingInfo.svelte'
 
 	interface Props {
 		flowModule: FlowModule
+		// For workspace-script steps: the cache_ttl currently set on the referenced
+		// script, and a shortcut to edit it. Undefined for inline/subflow steps.
+		workspaceScriptCacheTtl?: number | undefined
+		loadingWorkspaceScript?: boolean
+		canEditWorkspaceScript?: boolean
+		onEditWorkspaceScript?: () => void
 	}
 
-	let { flowModule = $bindable() }: Props = $props()
+	let {
+		flowModule = $bindable(),
+		workspaceScriptCacheTtl = undefined,
+		loadingWorkspaceScript = false,
+		canEditWorkspaceScript = false,
+		onEditWorkspaceScript
+	}: Props = $props()
 
 	let isCacheEnabled = $derived(Boolean(flowModule.cache_ttl))
 </script>
@@ -25,10 +38,20 @@
 		</Tooltip>
 	{/snippet}
 
-	{#if flowModule.value.type != 'rawscript'}
+	{#if flowModule.value.type == 'script'}
+		<WorkspaceScriptSettingInfo
+			label="Cache"
+			active={workspaceScriptCacheTtl != undefined}
+			valueText={workspaceScriptCacheTtl != undefined
+				? `Cached for ${workspaceScriptCacheTtl}s`
+				: undefined}
+			loading={loadingWorkspaceScript}
+			canEdit={canEditWorkspaceScript}
+			onEdit={onEditWorkspaceScript}
+		/>
+	{:else if flowModule.value.type != 'rawscript'}
 		<p class="text-xs text-secondary">
-			The cache settings need to be set in the referenced script/flow settings directly. Cache for
-			hub scripts is not available yet.
+			The cache settings need to be set in the referenced flow settings directly.
 		</p>
 	{:else}
 		<Toggle
