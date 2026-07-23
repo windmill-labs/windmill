@@ -5206,18 +5206,27 @@ export async function push(
   } else {
     // Dry-run with no changes reaches here (a ui/ diff would have made changes
     // non-empty and returned above); never mutate the remote in that case.
+    let sharedUiPushed = false;
     if (!opts.dryRun) {
       try {
-        await pushSharedUi(workspace.workspaceId);
+        sharedUiPushed = await pushSharedUi(workspace.workspaceId);
       } catch (e) {
         log.warn(`Failed to push shared UI folder: ${e}`);
       }
     }
     // No changes pushed, so no new datatable migrations to run.
     if (opts.jsonOutput) {
+      // Shared UI is out-of-band from the file diff (total counts diffed
+      // files), but don't claim "No changes" when the ui/ store was written.
       console.log(
         JSON.stringify(
-          { success: true, message: "No changes to push", total: 0 },
+          {
+            success: true,
+            message: sharedUiPushed
+              ? "Pushed shared UI changes"
+              : "No changes to push",
+            total: 0,
+          },
           null,
           2,
         ),

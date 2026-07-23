@@ -76,7 +76,9 @@ export async function diffSharedUi(workspace: string): Promise<SharedUiChange[]>
 
 /**
  * Push the local <cwd>/ui/ folder to the workspace's shared UI store.
- * Returns true if a push was performed, false if the folder is missing or empty.
+ * Returns true if a push was performed, false if the folder is missing or
+ * already matches the remote store. Note an empty-but-existing folder still
+ * pushes an empty map (clearing the remote store) if the remote is non-empty.
  */
 export async function pushSharedUi(workspace: string): Promise<boolean> {
   const localDir = path.join(process.cwd(), SHARED_UI_DIR);
