@@ -38,6 +38,11 @@ import {
 } from './projectMigrations'
 import type { Kind } from '$lib/utils_deployable'
 import type { AssetGraphResponse } from '$lib/components/assets/AssetGraph/types'
+import {
+	CASCADE_JOB_TIMEOUT_MS,
+	CASCADE_POLL_INTERVAL_MS,
+	DATA_ASSET_KINDS
+} from '$lib/components/assets/AssetGraph/cascadeRun'
 import { capturePipelineRecording } from '$lib/components/recording/pipelineRecording.svelte'
 import type { PipelineRecording } from '$lib/components/recording/types'
 import {
@@ -118,11 +123,6 @@ const ITEM_KIND_ROUTE: Record<ItemKind, string> = {
 }
 
 const HIDDEN_RESOURCE_TYPES = new Set(['app_theme', 'state', 'cache'])
-
-// Data-asset kinds the pipeline graph resolves (mirrors the pipeline editor's
-// `DATA_KINDS`) so the recorder's graph carries the same nodes/edges the player
-// renders.
-const PIPELINE_ASSET_KINDS = ['s3object', 'ducklake', 'datatable', 'volume']
 
 function typesFromSchema(schema: any): string[] {
 	const out = new Set<string>()
@@ -256,6 +256,9 @@ export class DeployToHubSession {
 
 	dispose() {
 		this.#disposed = true
+		// Invalidate any in-flight pipeline cascade poll so it stops on the next
+		// tick instead of polling to the timeout against a discarded session.
+		this.#pipelineRunTok++
 	}
 
 	load() {
@@ -1514,7 +1517,7 @@ export class DeployToHubSession {
 		try {
 			const params = new URLSearchParams({
 				folder: this.folder,
-				asset_kinds: PIPELINE_ASSET_KINDS.join(',')
+				asset_kinds: DATA_ASSET_KINDS.join(',')
 			})
 			const res = await fetch(`/api/w/${this.workspace}/assets/graph?${params}`, {
 				credentials: 'include'
@@ -1529,8 +1532,9 @@ export class DeployToHubSession {
 	}
 
 	/** Run the whole-folder cascade and capture it into a single PipelineRecording.
-	 * Deployed-only (no drafts) and arg-less: entry nodes needing uploaded data
-	 * won't have it, so those pipelines record a failure the user can see and fix. */
+	 * Deployed-only (no drafts) and arg-less — unlike the editor it seeds no
+	 * per-node input, so a root that needs uploaded data or a schedule's static
+	 * payload records a failure the user can see and fix rather than a green run. */
 	runPipelineRecording = async () => {
 		const graph = this.pipelineGraph
 		const scripts = this.pipelineScriptPaths
@@ -1539,6 +1543,8 @@ export class DeployToHubSession {
 		this.pipelineRunState = 'running'
 		this.pipelineRecordingResult = undefined
 		this.pipelineRunError = undefined
+		// A previous save's badge must not linger over a fresh, unsaved re-run.
+		this.pipelineRecorded = false
 		const workspace = this.workspace
 		try {
 			const { recording, result } = await capturePipelineRecording({
@@ -1558,6 +1564,14 @@ export class DeployToHubSession {
 			})
 			if (tok !== this.#pipelineRunTok) return
 			this.pipelineRecordingResult = recording
+			// Scripts on a dependency cycle are dropped by the scheduler; warn so a
+			// recording isn't silently missing steps (parity with the editor).
+			if (result.cyclic.length > 0) {
+				sendUserToast(
+					`Skipped ${result.cyclic.length} script(s) on a dependency cycle: ${result.cyclic.join(', ')}`,
+					true
+				)
+			}
 			if (result.ok) {
 				this.pipelineRunState = 'success'
 			} else {
@@ -1575,8 +1589,11 @@ export class DeployToHubSession {
 		}
 	}
 
+	// Poll a launched step to terminal, matching the pipeline editor's cascade
+	// timeout (DuckLake/DuckDB steps routinely exceed a few minutes). Adds the
+	// `#pipelineRunTok` cancellation the shared `makeWaitJobTerminal` lacks.
 	async #waitJobTerminal(jobId: string, tok: number): Promise<'success' | 'failure'> {
-		const deadline = Date.now() + 5 * 60_000
+		const deadline = Date.now() + CASCADE_JOB_TIMEOUT_MS
 		while (Date.now() < deadline) {
 			if (tok !== this.#pipelineRunTok) throw new Error('cancelled')
 			try {
@@ -1589,7 +1606,7 @@ export class DeployToHubSession {
 			} catch {
 				// transient — retry on the next tick
 			}
-			await sleep(2000)
+			await sleep(CASCADE_POLL_INTERVAL_MS)
 		}
 		throw new Error(`Timed out waiting for job ${jobId}`)
 	}

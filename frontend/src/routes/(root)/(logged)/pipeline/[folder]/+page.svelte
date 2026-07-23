@@ -43,6 +43,7 @@
 		assetProducers
 	} from '$lib/components/assets/AssetGraph/graphTraversal'
 	import { runCascade, runSelection } from '$lib/components/assets/AssetGraph/cascadeOrchestrator'
+	import { DATA_ASSET_KINDS } from '$lib/components/assets/AssetGraph/cascadeRun'
 	import {
 		boundedSet,
 		buildLineageDag,
@@ -120,7 +121,7 @@
 	// Variables and resources are declarative config, not pipeline assets —
 	// they're hub-shaped (referenced by most runnables) and would swamp the
 	// layout without adding lineage information.
-	const DATA_KINDS = ['s3object', 'ducklake', 'datatable', 'volume']
+	const DATA_KINDS = DATA_ASSET_KINDS
 
 	let folder = $derived(page.params.folder as string)
 
