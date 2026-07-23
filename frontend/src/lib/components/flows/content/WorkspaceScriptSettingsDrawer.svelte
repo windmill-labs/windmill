@@ -47,42 +47,19 @@
 		if (!script) return
 		saving = true
 		try {
+			// Spread the full loaded script so fields we don't edit here (codebase,
+			// assets, labels, envs, on_behalf_of_email, ...) survive the new version;
+			// only override lineage and the edited settings live on `script`.
 			await ScriptService.createScript({
 				workspace: opWs!,
 				requestBody: {
-					path: script.path,
+					...script,
 					summary: script.summary ?? '',
 					description: script.description ?? '',
-					content: script.content,
-					schema: script.schema,
-					language: script.language,
-					kind: script.kind,
 					parent_hash: script.hash,
 					auto_parent: true,
 					is_template: false,
-					lock: script.lock,
-					tag: script.tag,
-					envs: script.envs,
-					concurrent_limit: script.concurrent_limit,
-					concurrency_time_window_s: script.concurrency_time_window_s,
-					concurrency_key: script.concurrency_key,
-					cache_ttl: script.cache_ttl,
-					cache_ignore_s3_path: script.cache_ignore_s3_path,
-					dedicated_worker: script.dedicated_worker,
-					priority: script.priority,
-					restart_unless_cancelled: script.restart_unless_cancelled,
-					timeout: script.timeout,
-					delete_after_secs: script.delete_after_secs,
-					debounce_key: script.debounce_key,
-					debounce_delay_s: script.debounce_delay_s,
-					debounce_args_to_accumulate: script.debounce_args_to_accumulate,
-					max_total_debouncing_time: script.max_total_debouncing_time,
-					max_total_debounces_amount: script.max_total_debounces_amount,
-					visible_to_runner_only: script.visible_to_runner_only,
-					ws_error_handler_muted: script.ws_error_handler_muted,
-					on_behalf_of_email: script.on_behalf_of_email,
-					has_preprocessor: script.has_preprocessor,
-					auto_kind: script.auto_kind
+					lock: script.lock
 				}
 			})
 			sendUserToast('Script settings saved')
