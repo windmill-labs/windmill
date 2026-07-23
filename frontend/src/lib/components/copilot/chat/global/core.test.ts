@@ -3755,6 +3755,34 @@ describe('session pipeline surface (alpha)', () => {
 			setOpenPreviewHandler(undefined)
 		}
 	})
+
+	// The pipeline preview handler awaits the editor's async tool registration
+	// (sessionRuntime -> AIChatManager.waitForPipelineHelpers) before resolving.
+	// open_preview must not settle until then, or the model's next turn races the
+	// mount and hits "Unknown tool call". A Promise-returning handler proves the
+	// tool awaits it rather than returning as soon as the tab opens.
+	it('keeps open_preview(kind=pipeline) pending until the async handler resolves', async () => {
+		let release!: (v: string) => void
+		const handler = vi.fn(() => new Promise<string>((resolve) => (release = resolve)))
+		setOpenPreviewHandler(handler)
+		try {
+			let settled = false
+			const call = callGlobalTool('open_preview', { kind: 'pipeline', path: 'my_folder' }).then(
+				(r) => {
+					settled = true
+					return r
+				}
+			)
+			await Promise.resolve()
+			expect(handler).toHaveBeenCalled()
+			expect(settled).toBe(false)
+			release('opened')
+			expect(await call).toBe('opened')
+			expect(settled).toBe(true)
+		} finally {
+			setOpenPreviewHandler(undefined)
+		}
+	})
 })
 
 describe('getSessionContextPromptSection', () => {
