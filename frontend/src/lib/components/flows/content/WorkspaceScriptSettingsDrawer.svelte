@@ -44,6 +44,9 @@
 		loadError = undefined
 		current = { path, hash }
 		loading = true
+		// A save still in flight for the previous target no longer clears this flag
+		// (it is seq-guarded), so reset it here or the new target's Save stays disabled.
+		saving = false
 		try {
 			const loaded = hash
 				? await ScriptService.getScriptByHash({ workspace: opWs!, hash })
@@ -59,6 +62,11 @@
 
 	async function save(): Promise<void> {
 		if (!script) return
+		// The drawer is a singleton: bind this save to the target that started it, so a
+		// reopen for another script can't receive its callback or get closed under the
+		// user. The captured callback still fires — it refreshes the script it belongs to.
+		const seq = openSeq
+		const cb = callback
 		saving = true
 		try {
 			// Spread the full loaded script so fields we don't edit here (codebase,
@@ -84,12 +92,12 @@
 				}
 			})
 			sendUserToast('Script settings saved')
-			callback?.()
-			drawer?.closeDrawer()
+			cb?.()
+			if (seq === openSeq) drawer?.closeDrawer()
 		} catch (e) {
-			sendUserToast(`Could not save script settings: ${e.body ?? e}`, true)
+			if (seq === openSeq) sendUserToast(`Could not save script settings: ${e.body ?? e}`, true)
 		} finally {
-			saving = false
+			if (seq === openSeq) saving = false
 		}
 	}
 </script>
