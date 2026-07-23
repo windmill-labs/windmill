@@ -263,6 +263,31 @@ export function main(): number[] {
         );
     }
 
+    // -- result carrying a NUL: must complete and store a jsonb-safe value --
+    {
+        // `\u0000` here is 6 literal chars in the raw string; the JS runtime emits
+        // a real U+0000, whose `\u0000` result escape the jsonb column rejects with
+        // 22P05. `nul` must come back stripped; `literal` (escaped backslash + text
+        // "u0000", no real NUL) must survive untouched.
+        let result = push_and_wait(
+            &db,
+            RunJob::from(nativets_code(
+                r#"//native
+
+export function main(): {nul: string, literal: string} {
+    return { nul: "a\u0000b", literal: "a\\u0000b" };
+}
+"#,
+            )),
+            &mut listener,
+        )
+        .await;
+        assert!(result.success, "nul_result failed: {:?}", result.result);
+        let val = result.json_result().unwrap();
+        assert_eq!(val["nul"], serde_json::json!("ab"));
+        assert_eq!(val["literal"], serde_json::json!("a\\u0000b"));
+    }
+
     killpill.send();
     Ok(())
 }

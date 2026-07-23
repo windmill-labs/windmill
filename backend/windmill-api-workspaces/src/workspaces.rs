@@ -6495,7 +6495,7 @@ async fn enforce_fork_depth(
 
 /// True if `raw` (the text form of a `json` value) contains a genuine `\u0000`
 /// NUL escape: a `u0000` preceded by an ODD run of backslashes. Mirrors the
-/// parity rule in `strip_null_chars` (windmill-api `apps.rs`) — an even run
+/// parity rule in `windmill_common::utils::strip_json_nul` — an even run
 /// (`\\u0000`) is an escaped backslash then the literal text "u0000" (common in
 /// minified JS) and is jsonb-safe. A genuine NUL is exactly what the
 /// `json`→`jsonb` re-encode in `clone_apps` / `clone_flows` rejects with

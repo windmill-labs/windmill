@@ -25,6 +25,7 @@ use serde::{ser::SerializeMap, Serialize};
 use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, Acquire, Pool, Postgres, Transaction};
 use sqlx::{Encode, PgExecutor};
+use std::borrow::Cow;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -49,7 +50,7 @@ use windmill_common::runnable_settings::{
     RunnableSettings, RunnableSettingsTrait,
 };
 use windmill_common::triggers::TriggerMetadata;
-use windmill_common::utils::{calculate_hash, configure_client, now_from_db};
+use windmill_common::utils::{calculate_hash, configure_client, now_from_db, strip_json_nul};
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
 
 use windmill_common::otel_oss::{
@@ -634,6 +635,12 @@ pub trait ValidableJson {
     fn wm_failure(&self) -> Option<String>;
     fn result_metadata(&self) -> ResultMetadata;
     fn size(&self) -> usize;
+    /// The result as JSON text, for binding into the `jsonb` `result` column.
+    /// `Box<RawValue>` is already serialized and returns a zero-cost borrow;
+    /// other impls serialize on demand. Callers pass this through
+    /// `strip_json_nul` before the INSERT, since a genuine NUL escape would
+    /// abort the write with 22P05.
+    fn serialized_json(&self) -> Cow<'_, str>;
 }
 
 /// The Windmill-specific markers we look for inside a job's result.
@@ -692,6 +699,10 @@ impl ValidableJson for WrappedError {
     fn size(&self) -> usize {
         0
     }
+
+    fn serialized_json(&self) -> Cow<'_, str> {
+        Cow::Owned(to_raw_value(self).get().to_string())
+    }
 }
 
 impl ValidableJson for Box<RawValue> {
@@ -713,6 +724,11 @@ impl ValidableJson for Box<RawValue> {
 
     fn size(&self) -> usize {
         self.get().len()
+    }
+
+    fn serialized_json(&self) -> Cow<'_, str> {
+        // Already serialized JSON text — borrow it, no re-serialization.
+        Cow::Borrowed(self.get())
     }
 }
 
@@ -736,6 +752,10 @@ impl<T: ValidableJson> ValidableJson for Arc<T> {
     fn size(&self) -> usize {
         T::size(&self)
     }
+
+    fn serialized_json(&self) -> Cow<'_, str> {
+        T::serialized_json(&self)
+    }
 }
 
 impl ValidableJson for serde_json::Value {
@@ -758,6 +778,10 @@ impl ValidableJson for serde_json::Value {
     fn size(&self) -> usize {
         self.size_hint()
     }
+
+    fn serialized_json(&self) -> Cow<'_, str> {
+        Cow::Owned(to_raw_value(self).get().to_string())
+    }
 }
 
 impl<T: ValidableJson> ValidableJson for Json<T> {
@@ -779,6 +803,10 @@ impl<T: ValidableJson> ValidableJson for Json<T> {
 
     fn size(&self) -> usize {
         self.0.size()
+    }
+
+    fn serialized_json(&self) -> Cow<'_, str> {
+        self.0.serialized_json()
     }
 }
 
@@ -1089,6 +1117,14 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         .concurrent_limit
         .is_some();
 
+    // A genuine NUL (U+0000) in the result serializes to a `\u0000` escape that
+    // the jsonb `result` column rejects with 22P05 ("unsupported Unicode escape
+    // sequence"), which would abort the whole completion INSERT. Strip it before
+    // binding — near-zero cost when clean: a single scan, and for an
+    // already-serialized `RawValue` result the serialization itself is a borrow.
+    let serialized_result = result.serialized_json();
+    let sanitized_result = strip_json_nul(serialized_result.as_ref());
+
     let mut tx = db.begin().warn_after_seconds(10).await?;
 
     let duration =  sqlx::query_scalar!(
@@ -1107,7 +1143,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     , status
                     , worker
                     )
-                SELECT q.workspace_id, q.id, started_at, COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000), $3, $10, $5, $6,
+                SELECT q.workspace_id, q.id, started_at, COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000), $3::text::jsonb, $10, $5, $6,
                         flow_status, workflow_as_code_status,
                         $8, CASE WHEN $4::BOOL THEN 'canceled'::job_status
                         WHEN $7::BOOL THEN 'skipped'::job_status
@@ -1115,10 +1151,10 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         ELSE 'failure'::job_status END AS status,
                         q.worker
                 FROM v2_job_queue q LEFT JOIN v2_job_status USING (id) WHERE q.id = $1
-            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3 RETURNING duration_ms AS \"duration_ms!\"",
+            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3::text::jsonb RETURNING duration_ms AS \"duration_ms!\"",
             /* $1 */ completed_job.id,
             /* $2 */ success,
-            /* $3 */ result as Json<&T>,
+            /* $3 */ sanitized_result.as_ref(),
             /* $4 */ canceled_by.is_some(),
             /* $5 */ canceled_by.clone().map(|cb| cb.username).flatten(),
             /* $6 */ canceled_by.clone().map(|cb| cb.reason).flatten(),
