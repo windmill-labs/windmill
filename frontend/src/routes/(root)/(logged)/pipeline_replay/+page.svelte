@@ -54,28 +54,37 @@
 			reset()
 			scriptRecording = data as ScriptRecording
 		} else if (data.type === 'pipeline') {
-			// Validate down to the elements the player/canvas dereference — array
-			// members and per-node status/job values, not just the containers — so a
-			// payload like `runnables:[null]` or `statuses:{a:null}` hits the toast
-			// instead of crashing. This input is caller-controlled (file upload or a
-			// `?src=` fetch), so nothing here can be assumed well-formed.
+			// Validate every shape the player/canvas dereference — array members,
+			// per-node status values, and each job's `initial_job`/`events` — not just
+			// the top-level containers, so a payload like `runnables:[null]`,
+			// `triggers:{}` or a job without `events` hits the toast instead of
+			// crashing. This input is caller-controlled (file upload or a `?src=`
+			// fetch), so nothing here can be assumed well-formed.
 			const isObject = (v: unknown): v is Record<string, unknown> =>
 				typeof v === 'object' && v !== null && !Array.isArray(v)
 			const objectArray = (v: unknown) => Array.isArray(v) && v.every(isObject)
-			const g = data.graph
-			const validPipeline =
+			const optionalObjectArray = (v: unknown) => v === undefined || objectArray(v)
+			const g = data.graph as Record<string, unknown> | null
+			const validGraph =
 				isObject(g) &&
 				objectArray(g.runnables) &&
 				objectArray(g.assets) &&
 				objectArray(g.edges) &&
+				objectArray(g.triggers) &&
+				optionalObjectArray(g.macro_edges) &&
+				optionalObjectArray(g.test_edges)
+			const validTimeline =
 				Array.isArray(data.timeline) &&
 				data.timeline.every(
 					(f: unknown) =>
 						isObject(f) && isObject(f.statuses) && Object.values(f.statuses).every(isObject)
-				) &&
+				)
+			const validJobs =
 				isObject(data.jobs) &&
-				Object.values(data.jobs).every(isObject)
-			if (!validPipeline) {
+				Object.values(data.jobs).every(
+					(j) => isObject(j) && isObject(j.initial_job) && Array.isArray(j.events)
+				)
+			if (!(validGraph && validTimeline && validJobs)) {
 				sendUserToast('Invalid pipeline recording format', true)
 				return false
 			}
