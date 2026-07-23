@@ -372,10 +372,10 @@ impl PyV {
     }
 
     /// Parse lockfile for assigned python version.
-    /// If not found returns 3.11
+    /// If not found returns the default version (`PyVAlias::default()`).
     pub fn parse_from_requirements<S: AsRef<str>>(requirements_lines: &[S]) -> Self {
         Self::try_parse_from_requirements(requirements_lines).unwrap_or(
-            // If there is no assigned version in lockfile we automatically fallback to 3.11
+            // If there is no assigned version in lockfile we automatically fallback to the default version
             // In this case we have dependencies or other metadata, but no associated python version
             // This is the case for old deployed scripts
             PyVAlias::default().into(),
