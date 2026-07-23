@@ -204,7 +204,6 @@
 			customUi?.scriptEdit != false &&
 			$workspaceScriptSettingsDrawer != undefined
 	)
-	// Explains why settings can't be edited from here, matching the specific gate that failed.
 	let workspaceScriptNoEditReason = $derived(
 		flowModule.value.type !== 'script' || canEditWorkspaceScriptSettings
 			? undefined
