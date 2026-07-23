@@ -442,26 +442,38 @@
 						{/if}
 					{/if}
 					{#if s.phase !== 'predeploy' && canShareAsIframe(it)}
-						{#if it.published && it.publicUrl}
+						{#if it.published}
 							<Badge color="green" size="xs">
 								<Globe size={10} class="mr-0.5" />Public
 							</Badge>
-							<a
-								href={it.publicUrl}
-								target="_blank"
-								rel="noopener noreferrer"
-								class="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
-							>
-								<ExternalLink size={12} /> Open
-							</a>
-							<Button
-								size="xs"
-								variant="subtle"
-								startIcon={{ icon: Copy }}
-								onclick={() => copyIframeSnippet(it.publicUrl!)}
-							>
-								Copy iframe
-							</Button>
+							{#if it.publicUrl}
+								<a
+									href={it.publicUrl}
+									target="_blank"
+									rel="noopener noreferrer"
+									class="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+								>
+									<ExternalLink size={12} /> Open
+								</a>
+								<Button
+									size="xs"
+									variant="subtle"
+									startIcon={{ icon: Copy }}
+									onclick={() => copyIframeSnippet(it.publicUrl!)}
+								>
+									Copy iframe
+								</Button>
+							{:else if s.phase !== 'under_review'}
+								<!-- Public but its URL didn't resolve: offer a retry, keep Unpublish. -->
+								<Button
+									size="xs"
+									variant="subtle"
+									startIcon={{ icon: RotateCcw }}
+									onclick={() => openPublish(it)}
+								>
+									Retry link
+								</Button>
+							{/if}
 							{#if s.phase !== 'under_review'}
 								<Button size="xs" variant="subtle" onclick={() => s.unpublishApp(it)}
 									>Unpublish</Button
