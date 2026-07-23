@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT ws.workspace_id AS \"workspace_id!\", dt.key AS \"name!\",\n               COALESCE((dt.value->'permissions'->>'enabled')::boolean, false) AS \"perms_enabled!\"\n        FROM workspace_settings ws\n        CROSS JOIN LATERAL jsonb_each(\n            CASE WHEN jsonb_typeof(ws.datatable->'datatables') = 'object'\n                THEN ws.datatable->'datatables'\n                ELSE '{}'::jsonb END\n        ) AS dt(key, value)\n        WHERE dt.value->'database'->>'resource_type' = $1\n          AND dt.value->'database'->>'resource_path' = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "perms_enabled!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "143ced277e1b7563f0993db4645b226f5e516d2b2929fc68291a3f82621ec8ed"
+}

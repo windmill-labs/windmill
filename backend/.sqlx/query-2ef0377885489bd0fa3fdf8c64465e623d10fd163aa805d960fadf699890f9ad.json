@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings\n         SET datatable = jsonb_set(datatable, ARRAY['datatables', $2, 'permissions'], $3)\n         WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2ef0377885489bd0fa3fdf8c64465e623d10fd163aa805d960fadf699890f9ad"
+}

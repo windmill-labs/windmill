@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT role_name, datatable FROM datatable_ephemeral_role\n         WHERE workspace_id = $1 AND ($2::text IS NULL OR datatable = $2)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "role_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "datatable",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "e5c2eb0b1303e0310d1002562fabcdb68b75a2a86141a6b2911f4c4625f2d075"
+}

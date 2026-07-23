@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT role_name, workspace_id, datatable FROM datatable_ephemeral_role\n         WHERE expires_at < now() LIMIT $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "role_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "datatable",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "193d932a32d6dda9ba1580bf75cc117e7f8d932dd74f1d76cd001459afd49acb"
+}
