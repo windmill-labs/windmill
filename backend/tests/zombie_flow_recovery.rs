@@ -17,7 +17,7 @@
 
 use serde_json::json;
 use sqlx::{Pool, Postgres};
-use windmill_common::flow_status::FlowStatus;
+use windmill_common::flow_status::{BranchChosen, FlowStatus, RestartedFrom};
 use windmill_common::flows::FlowValue;
 use windmill_common::jobs::JobPayload;
 use windmill_test_utils::*;
@@ -297,6 +297,144 @@ async fn test_mid_iteration_zombie_not_reused(db: Pool<Postgres>) -> anyhow::Res
     assert_ne!(
         new_iter0, orig_iter0,
         "iteration 0 must re-run, not be reused"
+    );
+
+    Ok(())
+}
+
+/// A nested restart request targets an inner step of the restart-step container.
+/// Even when that container is an eligible between-steps zombie, reuse must NOT
+/// fire (it would skip the whole container and ignore the explicit nested target).
+/// The inner step must re-run.
+#[sqlx::test(fixtures("base", "hello"))]
+async fn test_nested_restart_not_swallowed_by_zombie_reuse(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // `branch` is a BranchOne (single child, so branch_or_iteration_n is None on
+    // restart: the exact shape that would trip zombie reuse) with two inner steps,
+    // followed by a downstream `after`.
+    let flow_value: FlowValue = serde_json::from_value(json!({
+        "modules": [
+            {
+                "id": "branch",
+                "value": {
+                    "type": "branchone",
+                    "default": [],
+                    "branches": [{
+                        "expr": "true",
+                        "modules": [
+                            {
+                                "id": "inner_first",
+                                "value": {
+                                    "type": "rawscript", "language": "deno",
+                                    "input_transforms": {},
+                                    "content": "export function main() { return 'first' }"
+                                }
+                            },
+                            {
+                                "id": "inner_second",
+                                "value": {
+                                    "type": "rawscript", "language": "deno",
+                                    "input_transforms": {
+                                        "first": { "type": "javascript", "expr": "results.inner_first" }
+                                    },
+                                    "content": "export function main(first: string) { return `${first}|second` }"
+                                }
+                            }
+                        ]
+                    }]
+                }
+            },
+            {
+                "id": "after",
+                "value": {
+                    "type": "rawscript", "language": "deno",
+                    "input_transforms": {
+                        "b": { "type": "javascript", "expr": "results.branch" }
+                    },
+                    "content": "export function main(b: string) { return `after:${b}` }"
+                }
+            }
+        ]
+    }))
+    .unwrap();
+
+    let full_run = RunJob::from(JobPayload::RawFlow {
+        value: flow_value.clone(),
+        path: None,
+        restarted_from: None,
+    })
+    .run_until_complete(&db, false, port)
+    .await;
+    assert!(full_run.success);
+    assert_eq!(full_run.json_result().unwrap(), json!("after:first|second"));
+    let branch_child = child_job_id_for_step(&db, full_run.id, "branch", None).await;
+    let orig_inner_second = child_job_id_for_step(&db, branch_child, "inner_second", None).await;
+
+    // Reap `branch` as a between-steps zombie (its child completed, transition lost);
+    // `after` never reached.
+    let mut flow_status: serde_json::Value = sqlx::query_scalar!(
+        "SELECT flow_status FROM v2_job_completed WHERE id = $1",
+        full_run.id
+    )
+    .fetch_one(&db)
+    .await?
+    .expect("flow_status");
+    for m in flow_status["modules"].as_array_mut().unwrap() {
+        match m["id"].as_str() {
+            Some("branch") => m["type"] = json!("InProgress"),
+            Some("after") => *m = json!({ "type": "WaitingForPriorSteps", "id": "after" }),
+            _ => {}
+        }
+    }
+    flow_status["step"] = json!(0);
+    sqlx::query!(
+        "UPDATE v2_job_completed SET status = 'canceled', canceled_by = 'monitor',
+         flow_status = $2 WHERE id = $1",
+        full_run.id,
+        flow_status,
+    )
+    .execute(&db)
+    .await?;
+
+    // Nested restart: re-run `inner_second` inside `branch`. Zombie reuse must step
+    // aside so the nested chain is honored.
+    let restarted = RunJob::from(JobPayload::RestartedFlow {
+        completed_job_id: full_run.id,
+        step_id: "branch".into(),
+        branch_or_iteration_n: None,
+        flow_version: None,
+        branch_chosen: Some(BranchChosen::Branch { branch: 0 }),
+        nested: Some(Box::new(RestartedFrom {
+            flow_job_id: branch_child,
+            step_id: "inner_second".into(),
+            branch_or_iteration_n: None,
+            flow_version: None,
+            branch_chosen: None,
+            nested: None,
+        })),
+    })
+    .run_until_complete(&db, false, port)
+    .await;
+
+    assert!(
+        restarted.success,
+        "nested restart of a zombie container should succeed: {:?}",
+        restarted.json_result()
+    );
+    assert_eq!(
+        restarted.json_result().unwrap(),
+        json!("after:first|second")
+    );
+    let new_branch_child = child_job_id_for_step(&db, restarted.id, "branch", None).await;
+    let new_inner_second = child_job_id_for_step(&db, new_branch_child, "inner_second", None).await;
+    assert_ne!(
+        new_inner_second, orig_inner_second,
+        "the nested target inner_second must re-run, not be skipped by zombie reuse"
     );
 
     Ok(())

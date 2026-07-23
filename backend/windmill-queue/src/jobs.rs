@@ -5657,6 +5657,7 @@ async fn push_inner<'c, 'd>(
                             restarted_from_val.step_id.as_str(),
                             restarted_from_val.branch_or_iteration_n,
                             restarted_from_val.flow_version,
+                            restarted_from_val.nested.is_some(),
                         )
                         .await?;
                     FlowStatus {
@@ -6046,6 +6047,7 @@ async fn push_inner<'c, 'd>(
                 step_id.as_str(),
                 branch_or_iteration_n,
                 flow_version,
+                nested.is_some(),
             )
             .await?;
 
@@ -7128,6 +7130,9 @@ async fn restarted_flows_resolution(
     restart_step_id: &str,
     branch_or_iteration_n: Option<usize>,
     flow_version: Option<i64>,
+    // A nested restart chain (RestartedFrom.nested) descends into the restart step's child to
+    // re-run an inner step; zombie reuse would skip the whole container and ignore it.
+    nested_restart: bool,
 ) -> Result<
     (
         Option<i64>,
@@ -7259,6 +7264,7 @@ async fn restarted_flows_resolution(
                     .last()
                     .is_none_or(|m| m.id != restart_step_id);
                 if branch_or_iteration_n.is_none()
+                    && !nested_restart
                     && has_next_step
                     && module_definition.allows_zombie_reuse()
                     && is_derivable_between_steps_zombie(db, workspace_id, &module).await?
