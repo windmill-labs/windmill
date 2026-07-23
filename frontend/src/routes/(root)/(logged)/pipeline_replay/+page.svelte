@@ -42,6 +42,14 @@
 			sendUserToast('Failed to load recording: ' + err, true)
 			return false
 		}
+		const isObject = (v: unknown): v is Record<string, unknown> =>
+			typeof v === 'object' && v !== null && !Array.isArray(v)
+		// A non-object payload (JSON `null`, an array, a scalar) has no `.version`
+		// to read — guard before dereferencing so it toasts instead of throwing.
+		if (!isObject(data)) {
+			sendUserToast('Invalid recording format', true)
+			return false
+		}
 		if (data.version !== 1) {
 			sendUserToast('Invalid recording format', true)
 			return false
@@ -54,16 +62,17 @@
 			reset()
 			scriptRecording = data as ScriptRecording
 		} else if (data.type === 'pipeline') {
-			// Validate every shape the player/canvas dereference — array members,
-			// per-node status values, and each job's `initial_job`/`events` — not just
-			// the top-level containers, so a payload like `runnables:[null]`,
-			// `triggers:{}` or a job without `events` hits the toast instead of
-			// crashing. This input is caller-controlled (file upload or a `?src=`
+			// Validate every shape the player/canvas dereference — array members, each
+			// event, per-node status values, and the optional sample/code maps — not
+			// just the top-level containers, so a payload like `runnables:[null]`,
+			// `events:[null]` or `assetSamples:{a:{rows:null}}` hits the toast instead
+			// of crashing. This input is caller-controlled (file upload or a `?src=`
 			// fetch), so nothing here can be assumed well-formed.
-			const isObject = (v: unknown): v is Record<string, unknown> =>
-				typeof v === 'object' && v !== null && !Array.isArray(v)
 			const objectArray = (v: unknown) => Array.isArray(v) && v.every(isObject)
 			const optionalObjectArray = (v: unknown) => v === undefined || objectArray(v)
+			// An optional `{ [k]: V }` map whose present values all satisfy `valid`.
+			const optionalRecord = (v: unknown, valid: (x: Record<string, unknown>) => boolean) =>
+				v === undefined || (isObject(v) && Object.values(v).every((x) => isObject(x) && valid(x)))
 			const g = data.graph as Record<string, unknown> | null
 			const validGraph =
 				isObject(g) &&
@@ -82,9 +91,19 @@
 			const validJobs =
 				isObject(data.jobs) &&
 				Object.values(data.jobs).every(
-					(j) => isObject(j) && isObject(j.initial_job) && Array.isArray(j.events)
+					(j) => isObject(j) && isObject(j.initial_job) && objectArray(j.events)
 				)
-			if (!(validGraph && validTimeline && validJobs)) {
+			// Optional maps the player reads on asset/node selection. A non-error
+			// sample renders `rows`/`columns`; an error sample renders only `error`.
+			const validSamples = optionalRecord(
+				data.assetSamples,
+				(s) => typeof s.error === 'string' || (objectArray(s.rows) && objectArray(s.columns))
+			)
+			const validCodes = optionalRecord(
+				data.codes,
+				(c) => typeof c.content === 'string' && typeof c.language === 'string'
+			)
+			if (!(validGraph && validTimeline && validJobs && validSamples && validCodes)) {
 				sendUserToast('Invalid pipeline recording format', true)
 				return false
 			}
