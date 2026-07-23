@@ -186,8 +186,10 @@ async fn test_between_steps_zombie_restart_reuses_all_children(
 
 /// A serial for-loop reaped *between* iterations (an all-success prefix, but the
 /// cursor not yet at the last iteration) must NOT be treated as complete: reuse
-/// would silently drop the remaining iterations. Restart-from-step must re-run
-/// the whole loop instead, so the flow still reaches success with every iteration.
+/// would silently drop the remaining iterations. A downstream `after` step makes
+/// the loop non-final, so the ONLY thing that can prevent reuse here is the
+/// cursor-completeness guard; if it regresses, `after` would consume a truncated
+/// loop result and this test fails. Restart must re-run the whole loop instead.
 #[sqlx::test(fixtures("base", "hello"))]
 async fn test_mid_iteration_zombie_not_reused(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -195,26 +197,39 @@ async fn test_mid_iteration_zombie_not_reused(db: Pool<Postgres>) -> anyhow::Res
     let port = server.addr.port();
 
     let flow_value: FlowValue = serde_json::from_value(json!({
-        "modules": [{
-            "id": "fanout",
-            "value": {
-                "type": "forloopflow",
-                "iterator": { "type": "javascript", "expr": "['a', 'b', 'c']" },
-                "skip_failures": false,
-                "parallel": false,
-                "modules": [{
-                    "id": "inner",
-                    "value": {
-                        "type": "rawscript",
-                        "language": "deno",
-                        "input_transforms": {
-                            "v": { "type": "javascript", "expr": "flow_input.iter.value" }
-                        },
-                        "content": "export function main(v: string) { return v }"
-                    }
-                }]
+        "modules": [
+            {
+                "id": "fanout",
+                "value": {
+                    "type": "forloopflow",
+                    "iterator": { "type": "javascript", "expr": "['a', 'b', 'c']" },
+                    "skip_failures": false,
+                    "parallel": false,
+                    "modules": [{
+                        "id": "inner",
+                        "value": {
+                            "type": "rawscript",
+                            "language": "deno",
+                            "input_transforms": {
+                                "v": { "type": "javascript", "expr": "flow_input.iter.value" }
+                            },
+                            "content": "export function main(v: string) { return v }"
+                        }
+                    }]
+                }
+            },
+            {
+                "id": "after",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "input_transforms": {
+                        "loop_res": { "type": "javascript", "expr": "results.fanout" }
+                    },
+                    "content": "export function main(loop_res: string[]) { return loop_res.join(',') }"
+                }
             }
-        }]
+        ]
     }))
     .unwrap();
 
@@ -229,7 +244,7 @@ async fn test_mid_iteration_zombie_not_reused(db: Pool<Postgres>) -> anyhow::Res
     let orig_iter0 = child_job_id_for_step(&db, full_run.id, "fanout", Some(0)).await;
 
     // Reap after iteration 0: the loop is InProgress with the cursor still on
-    // iteration 0 (of 3), only iteration 0 recorded.
+    // iteration 0 (of 3), only iteration 0 recorded; `after` never reached.
     let mut flow_status: serde_json::Value = sqlx::query_scalar!(
         "SELECT flow_status FROM v2_job_completed WHERE id = $1",
         full_run.id
@@ -238,11 +253,15 @@ async fn test_mid_iteration_zombie_not_reused(db: Pool<Postgres>) -> anyhow::Res
     .await?
     .expect("flow_status");
     for m in flow_status["modules"].as_array_mut().unwrap() {
-        if m["id"] == "fanout" {
-            m["type"] = json!("InProgress");
-            m["iterator"] = json!({ "index": 0, "itered_len": 3 });
-            m["flow_jobs"] = json!([m["flow_jobs"][0]]);
-            m["flow_jobs_success"] = json!([true]);
+        match m["id"].as_str() {
+            Some("fanout") => {
+                m["type"] = json!("InProgress");
+                m["iterator"] = json!({ "index": 0, "itered_len": 3 });
+                m["flow_jobs"] = json!([m["flow_jobs"][0]]);
+                m["flow_jobs_success"] = json!([true]);
+            }
+            Some("after") => *m = json!({ "type": "WaitingForPriorSteps", "id": "after" }),
+            _ => {}
         }
     }
     flow_status["step"] = json!(0);
@@ -266,14 +285,14 @@ async fn test_mid_iteration_zombie_not_reused(db: Pool<Postgres>) -> anyhow::Res
     .run_until_complete(&db, false, port)
     .await;
 
-    // The loop re-runs from scratch: all three iterations execute and iteration 0
-    // is a fresh job (not the wrongly-reused original).
+    // The loop re-runs from scratch: all three iterations execute (so `after` sees
+    // "a,b,c", not a truncated "a"), and iteration 0 is a fresh job.
     assert!(
         restarted.success,
         "restart should re-run the loop and succeed: {:?}",
         restarted.json_result()
     );
-    assert_eq!(restarted.json_result().unwrap(), json!(["a", "b", "c"]));
+    assert_eq!(restarted.json_result().unwrap(), json!("a,b,c"));
     let new_iter0 = child_job_id_for_step(&db, restarted.id, "fanout", Some(0)).await;
     assert_ne!(
         new_iter0, orig_iter0,

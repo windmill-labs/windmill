@@ -5204,12 +5204,15 @@ async fn between_steps_recovery_guidance(
     // The stuck module is the current step, left InProgress because the
     // transition that would have marked it Success was dropped. It is only
     // derivable when its own cursor reached the end (a serial fan-out reaped
-    // mid-iteration has unrun work left; while-loops are never derivable), and
-    // recovery via restart-from-next-step needs a next step to advance into.
+    // mid-iteration has unrun work left; while-loops are never derivable). Whether
+    // restart reuses the children or re-runs the step (final step, or one carrying a
+    // stop/skip/approval/sleep) is decided by the restart path against the flow
+    // definition, which the reaper doesn't load; the guidance states both outcomes
+    // rather than promising reuse the restart might decline.
     let status = status?;
     let idx = usize::try_from(status.step).ok()?;
     let module = status.modules.get(idx)?;
-    if !module.is_between_steps_complete() || idx + 1 >= status.modules.len() {
+    if !module.is_between_steps_complete() {
         return None;
     }
     let step_id = module.id();
@@ -5252,10 +5255,11 @@ async fn between_steps_recovery_guidance(
     Some(format!(
         "RECOVERY: all {n} child job(s) of step `{step_id}`{iteration_hint} completed successfully; \
 only the flow's final state transition was lost to the worker failure above (not any genuine failure), so \
-the completed work is intact and fully derivable. To recover WITHOUT re-running it: first change the failure \
-condition (raise the worker memory limit, e.g. k8s `resources.limits.memory`, or move the flow to a larger \
-worker group), then restart from step `{step_id}`, which reuses every completed child and only replays the \
-dropped transition onward.\n\
+the completed work is intact. To recover: first change the failure condition (raise the worker memory limit, \
+e.g. k8s `resources.limits.memory`, or move the flow to a larger worker group), then restart from step \
+`{step_id}`. Restart replays only the dropped transition and reuses the completed children where the step's \
+result is fully derivable; a step that is the flow's last, or carries a stop/skip condition, an approval, or a \
+sleep, is re-run instead (re-evaluating those on the larger worker).\n\
   UI:  open {base_url}/run/{flow_id}?workspace={workspace_id} and use \"Re-start from {step_id}\".\n\
   API: POST {base_url}/api/w/{workspace_id}/jobs/restart/f/{flow_id} with body {{\"step_id\":\"{step_id}\"}}."
     ))

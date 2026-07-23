@@ -7251,19 +7251,16 @@ async fn restarted_flows_resolution(
             };
             if module.id() == restart_step_id {
                 // Reuse is only safe when there is a NEXT step to advance into (advancing past the
-                // last module lands on the failure step) and the step's completion transition has no
-                // stop_after_if / stop_after_all_iters_if to replay: those predicates decide whether
-                // downstream steps run at all, so a step carrying them must re-run, not be synthesized
-                // as Success.
+                // last module lands on the failure step) and the step's definition carries no
+                // completion/arming semantics that reuse would skip (stop predicates, skip_if,
+                // suspend, sleep); such a step must re-run, not be synthesized as Success.
                 let has_next_step = flow_value
                     .modules
                     .last()
                     .is_none_or(|m| m.id != restart_step_id);
-                let no_stop_predicate = module_definition.stop_after_if.is_none()
-                    && module_definition.stop_after_all_iters_if.is_none();
                 if branch_or_iteration_n.is_none()
                     && has_next_step
-                    && no_stop_predicate
+                    && module_definition.allows_zombie_reuse()
                     && is_derivable_between_steps_zombie(db, workspace_id, &module).await?
                 {
                     // Between-steps-zombie recovery: this step's children all
