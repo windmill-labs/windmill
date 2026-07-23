@@ -4281,7 +4281,16 @@ async fn edit_error_handler(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
-        Some([("error_handler", &format!("{:?}", ee.path)[..])].into()),
+        Some(
+            [
+                ("error_handler", &format!("{:?}", ee.path)[..]),
+                (
+                    "fallback_to_instance_alerts",
+                    &format!("{:?}", ee.fallback_to_instance_alerts)[..],
+                ),
+            ]
+            .into(),
+        ),
     )
     .await?;
     tx.commit().await?;
@@ -7051,8 +7060,12 @@ async fn attach_dev_workspace(
     )
     .execute(&mut *tx)
     .await?;
+    // Clearing the instance-alert opt-in here keeps the stored setting truthful for a workspace
+    // that becomes parent-managed: dispatch enforces the fork boundary on its own, but a lingering
+    // `true` would survive a later detach and would make the settings page submit a value the API
+    // rejects on a fork.
     sqlx::query!(
-        "UPDATE workspace_settings SET deploy_to = $1 WHERE workspace_id = $2",
+        "UPDATE workspace_settings SET deploy_to = $1, error_handler_fallback_to_instance_alerts = false WHERE workspace_id = $2",
         &prod_w_id,
         &dev_w_id
     )

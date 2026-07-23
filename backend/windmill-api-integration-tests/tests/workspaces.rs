@@ -946,6 +946,16 @@ async fn test_error_handler_instance_alerts_fallback(db: Pool<Postgres>) -> anyh
         .unwrap();
     assert_eq!(resp.status(), 400, "fork must be rejected");
 
+    // The settings page stops offering the option once the workspace is a fork, so its next save
+    // sends `false`: that must go through rather than lock the whole error handler behind a 400.
+    let resp = authed(client().post(format!("{base}/edit_error_handler")))
+        .json(&json!({"path": null, "fallback_to_instance_alerts": false}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "disable on fork: {}", resp.text().await?);
+    assert!(!stored().await?);
+
     Ok(())
 }
 

@@ -567,7 +567,7 @@ pub async fn report_critical_error(
 /// recording an `alerts` row: job failures are workspace noise and would otherwise flood
 /// the instance-wide feed superadmins triage. The channels belong to the instance operator,
 /// who on cloud is not the workspace owner, hence the hard stop there. Callers own the
-/// per-workspace opt-in and mute checks.
+/// per-workspace opt-in.
 pub async fn send_workspace_error_to_instance_channels(_error_message: String, _db: &DB) -> () {
     if *CLOUD_HOSTED {
         return;

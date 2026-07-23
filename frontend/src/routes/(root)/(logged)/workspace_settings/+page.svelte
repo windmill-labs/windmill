@@ -180,7 +180,6 @@
 	let errorHandlerExtraArgs: Record<string, any> = $state({})
 	let errorHandlerMutedOnCancel: boolean | undefined = $state(undefined)
 	let errorHandlerMutedOnUserPath: boolean | undefined = $state(undefined)
-	let errorHandlerFallbackToInstanceAlerts: boolean = $state(false)
 	let successHandlerScriptPath: string | undefined = $state(undefined)
 	let criticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let initialCriticalAlertUIMuted: boolean | undefined = $state(undefined)
@@ -232,7 +231,6 @@
 	let initialErrorHandlerExtraArgs: Record<string, any> = $state({})
 	let initialErrorHandlerMutedOnCancel: boolean | undefined = $state(undefined)
 	let initialErrorHandlerMutedOnUserPath: boolean | undefined = $state(undefined)
-	let initialErrorHandlerFallbackToInstanceAlerts: boolean = $state(false)
 
 	// Track initial success handler for unsaved changes detection
 	let initialSuccessHandlerScriptPath: string | undefined = $state(undefined)
@@ -348,6 +346,12 @@
 	// their `usr` row is copied from the parent, so forking as an ordinary developer leaves them
 	// unable to bring anyone in to collaborate. Nothing else on this page opens up — the backend
 	// only grants them developer memberships on the fork they created.
+	// A workspace that was attached as a fork/dev after opting in keeps the stored flag until its
+	// next save; never select a tab the group does not render, or saving would submit a value the
+	// API rejects on a fork.
+	const canUseInstanceAlerts = $derived(
+		!isCloudHosted() && !currentWorkspace?.parent_workspace_id
+	)
 	const isForkOwner = $derived(
 		Boolean(currentWorkspace?.parent_workspace_id) &&
 			currentWorkspace?.created_by === $userStore?.email
@@ -605,14 +609,18 @@
 		errorHandlerScriptPath = errorHandlerPath.split('/').slice(1).join('/')
 		errorHandlerMutedOnCancel = errorHandler?.muted_on_cancel
 		errorHandlerMutedOnUserPath = errorHandler?.muted_on_user_path
-		errorHandlerFallbackToInstanceAlerts =
-			settings.error_handler_fallback_to_instance_alerts ?? false
 		criticalAlertUIMuted = settings.mute_critical_alerts
 		initialCriticalAlertUIMuted = settings.mute_critical_alerts
 		publicAppRateLimitPerMinute = settings.public_app_execution_limit_per_minute ?? undefined
 		initialPublicAppRateLimitPerMinute = settings.public_app_execution_limit_per_minute ?? undefined
 		if (emptyString($enterpriseLicense)) {
 			errorHandlerSelected = 'custom'
+		} else if (
+			canUseInstanceAlerts &&
+			!errorHandlerPath &&
+			settings.error_handler_fallback_to_instance_alerts
+		) {
+			errorHandlerSelected = 'instance_alerts'
 		} else {
 			errorHandlerSelected = getHandlerType(errorHandlerScriptPath)
 		}
@@ -668,7 +676,6 @@
 		initialErrorHandlerExtraArgs = clone(errorHandlerExtraArgs)
 		initialErrorHandlerMutedOnCancel = errorHandlerMutedOnCancel
 		initialErrorHandlerMutedOnUserPath = errorHandlerMutedOnUserPath
-		initialErrorHandlerFallbackToInstanceAlerts = errorHandlerFallbackToInstanceAlerts
 
 		// Store initial success handler state for unsaved changes detection
 		initialSuccessHandlerScriptPath = successHandlerScriptPath
@@ -811,7 +818,7 @@
 					extra_args: errorHandlerExtraArgs,
 					muted_on_cancel: errorHandlerMutedOnCancel,
 					muted_on_user_path: errorHandlerMutedOnUserPath,
-					fallback_to_instance_alerts: errorHandlerFallbackToInstanceAlerts
+					fallback_to_instance_alerts: false
 				}
 			})
 			sendUserToast(`workspace error handler set to ${errorHandlerScriptPath}`)
@@ -823,13 +830,15 @@
 					extra_args: undefined,
 					muted_on_cancel: undefined,
 					muted_on_user_path: undefined,
-					fallback_to_instance_alerts: errorHandlerFallbackToInstanceAlerts
+					fallback_to_instance_alerts: errorHandlerSelected === 'instance_alerts'
 				}
 			})
 			sendUserToast(
-				initialErrorHandlerScriptPath
-					? `workspace error handler removed`
-					: `error handler settings saved`
+				errorHandlerSelected === 'instance_alerts'
+					? `failed jobs will be reported to the instance critical alert channels`
+					: initialErrorHandlerScriptPath
+						? `workspace error handler removed`
+						: `error handler settings saved`
 			)
 		}
 
@@ -840,7 +849,6 @@
 		initialErrorHandlerExtraArgs = clone(errorHandlerExtraArgs)
 		initialErrorHandlerMutedOnCancel = errorHandlerMutedOnCancel
 		initialErrorHandlerMutedOnUserPath = errorHandlerMutedOnUserPath
-		initialErrorHandlerFallbackToInstanceAlerts = errorHandlerFallbackToInstanceAlerts
 	}
 
 	async function editSuccessHandler() {
@@ -1041,8 +1049,7 @@
 			errorHandlerItemKind: initialErrorHandlerItemKind,
 			errorHandlerExtraArgs: normalizeHandlerExtraArgs(initialErrorHandlerExtraArgs),
 			errorHandlerMutedOnCancel: initialErrorHandlerMutedOnCancel,
-			errorHandlerMutedOnUserPath: initialErrorHandlerMutedOnUserPath,
-			errorHandlerFallbackToInstanceAlerts: initialErrorHandlerFallbackToInstanceAlerts
+			errorHandlerMutedOnUserPath: initialErrorHandlerMutedOnUserPath
 		}
 
 		const modifiedValue = {
@@ -1051,8 +1058,7 @@
 			errorHandlerItemKind: errorHandlerItemKind,
 			errorHandlerExtraArgs: normalizeHandlerExtraArgs(errorHandlerExtraArgs),
 			errorHandlerMutedOnCancel: errorHandlerMutedOnCancel,
-			errorHandlerMutedOnUserPath: errorHandlerMutedOnUserPath,
-			errorHandlerFallbackToInstanceAlerts: errorHandlerFallbackToInstanceAlerts
+			errorHandlerMutedOnUserPath: errorHandlerMutedOnUserPath
 		}
 
 		return { savedValue, modifiedValue }
@@ -1066,7 +1072,6 @@
 		errorHandlerExtraArgs = clone(initialErrorHandlerExtraArgs)
 		errorHandlerMutedOnCancel = initialErrorHandlerMutedOnCancel
 		errorHandlerMutedOnUserPath = initialErrorHandlerMutedOnUserPath
-		errorHandlerFallbackToInstanceAlerts = initialErrorHandlerFallbackToInstanceAlerts
 	}
 
 	// Combined function to check for unsaved changes across all tabs
@@ -1824,6 +1829,7 @@
 										customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
 										bind:customHandlerKind={errorHandlerItemKind}
 										bind:handlerExtraArgs={errorHandlerExtraArgs}
+										showInstanceAlerts={canUseInstanceAlerts}
 									>
 										{#snippet customTabTooltip()}
 											<Tooltip>
@@ -1853,49 +1859,24 @@
 										{/snippet}
 									</ErrorOrRecoveryHandler>
 
-									<SettingCard class="gap-2">
-										<Toggle
-											disabled={!$enterpriseLicense ||
-												((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-													!emptyString(errorHandlerScriptPath) &&
-													emptyString(errorHandlerExtraArgs['channel']))}
-											bind:checked={errorHandlerMutedOnCancel}
-											options={{ right: 'Do not run error handler for canceled jobs' }}
-										/>
-										<Toggle
-											disabled={!$enterpriseLicense ||
-												((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-													!emptyString(errorHandlerScriptPath) &&
-													emptyString(errorHandlerExtraArgs['channel']))}
-											bind:checked={errorHandlerMutedOnUserPath}
-											options={{ right: 'Do not run error handler for u/ scripts and flows' }}
-										/>
-									</SettingCard>
-
-									{#if !isCloudHosted() && !currentWorkspace?.parent_workspace_id}
-										<SettingCard
-											label="Fall back to the instance critical alert channels"
-											description="When this workspace has no error handler, failed jobs are reported to the Slack, Teams and email channels configured at the instance level. Those channels are managed in instance settings by a superadmin, not here, and the report is sent without adding an entry to the instance critical alert feed."
-											ee_only="Critical alert channels are only available in the EE version"
-											class="gap-2"
-										>
+									{#if errorHandlerSelected !== 'instance_alerts'}
+										<SettingCard class="gap-2">
 											<Toggle
-												disabled={!$enterpriseLicense}
-												bind:checked={errorHandlerFallbackToInstanceAlerts}
-												options={{
-													right: 'Report failed jobs to the instance critical alert channels'
-												}}
+												disabled={!$enterpriseLicense ||
+													((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
+														!emptyString(errorHandlerScriptPath) &&
+														emptyString(errorHandlerExtraArgs['channel']))}
+												bind:checked={errorHandlerMutedOnCancel}
+												options={{ right: 'Do not run error handler for canceled jobs' }}
 											/>
-											{#if errorHandlerFallbackToInstanceAlerts && !emptyString(errorHandlerScriptPath)}
-												<div class="text-xs text-secondary">
-													Inactive as long as the error handler above is set: it takes precedence.
-												</div>
-											{/if}
-											{#if $superadmin}
-												<a class="text-xs w-fit" href="{base}/?workspace=admins#superadmin-settings">
-													Configure the instance critical alert channels
-												</a>
-											{/if}
+											<Toggle
+												disabled={!$enterpriseLicense ||
+													((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
+														!emptyString(errorHandlerScriptPath) &&
+														emptyString(errorHandlerExtraArgs['channel']))}
+												bind:checked={errorHandlerMutedOnUserPath}
+												options={{ right: 'Do not run error handler for u/ scripts and flows' }}
+											/>
 										</SettingCard>
 									{/if}
 								</div>

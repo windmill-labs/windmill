@@ -956,12 +956,18 @@ lazy_static::lazy_static! {
     // Key: workspace_id, Value: (error_handler, error_handler_extra_args, error_handler_muted_on_cancel, error_handler_muted_on_user_path, report_to_instance_alerts, expiry_timestamp)
     static ref WORKSPACE_ERROR_HANDLER_CACHE: Cache<String, (Option<String>, Option<Json<Box<RawValue>>>, bool, bool, bool, i64)> = Cache::new(1000);
 
+    // Best-effort per-worker throttle for the instance-channel fallback: a flapping runnable
+    // would otherwise turn every failure into outbound Slack/SMTP traffic on channels shared by
+    // the whole instance. Key: workspace_id, Value: (last_sent_epoch, failures suppressed since)
+    static ref INSTANCE_ALERT_THROTTLE: Cache<String, (i64, u64)> = Cache::new(1000);
+
     // Cache for workspace success handler settings with 60s TTL
     // Key: workspace_id, Value: (success_handler, success_handler_extra_args, expiry_timestamp)
     static ref WORKSPACE_SUCCESS_HANDLER_CACHE: Cache<String, (Option<String>, Option<Json<Box<RawValue>>>, i64)> = Cache::new(1000);
 }
 
 const WORKSPACE_HANDLER_CACHE_TTL_SECONDS: i64 = 60;
+const INSTANCE_ALERT_COOLDOWN_SECONDS: i64 = 60;
 
 pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     db: &Pool<Postgres>,
@@ -2142,10 +2148,10 @@ async fn fetch_error_handler_from_db(
             (error_handler->'extra_args')::text::json,
             (error_handler->>'muted_on_cancel')::boolean,
             (error_handler->>'muted_on_user_path')::boolean,
-            error_handler_fallback_to_instance_alerts
-                AND NOT coalesce(mute_critical_alerts, false)
-        FROM workspace_settings
-        WHERE workspace_id = $1
+            ws.error_handler_fallback_to_instance_alerts AND w.parent_workspace_id IS NULL
+        FROM workspace_settings ws
+        JOIN workspace w ON w.id = ws.workspace_id
+        WHERE ws.workspace_id = $1
         "#,
     )
     .bind(w_id)
@@ -2275,17 +2281,44 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
             None,
         )
         .await?;
-    } else {
-        let base_url = windmill_common::BASE_URL.load();
-        windmill_common::utils::send_workspace_error_to_instance_channels(
-            format!(
-                "Job {} failed in workspace {w_id} ({base_url}/run/{}?workspace={w_id})",
-                queued_job.runnable_path.as_deref().unwrap_or("preview"),
-                queued_job.id
-            ),
-            db,
-        )
-        .await;
+    } else if !is_canceled {
+        // A cancellation is a human action rather than an operational failure, and unlike the
+        // handler path this one has no per-workspace toggle to opt out of reporting them.
+        let suppressed = match INSTANCE_ALERT_THROTTLE.get(w_id) {
+            Some((last_sent, suppressed))
+                if now - last_sent < INSTANCE_ALERT_COOLDOWN_SECONDS =>
+            {
+                INSTANCE_ALERT_THROTTLE.insert(w_id.clone(), (last_sent, suppressed + 1));
+                None
+            }
+            entry => {
+                INSTANCE_ALERT_THROTTLE.insert(w_id.clone(), (now, 0));
+                Some(entry.map(|(_, suppressed)| suppressed).unwrap_or(0))
+            }
+        };
+        if let Some(suppressed) = suppressed {
+            tracing::info!(
+                "reporting failed job {} to the instance critical alert channels",
+                &queued_job.id
+            );
+            let base_url = windmill_common::BASE_URL.load();
+            let rollup = if suppressed > 0 {
+                format!(
+                    " (and {suppressed} more failure(s) in the preceding {INSTANCE_ALERT_COOLDOWN_SECONDS}s)"
+                )
+            } else {
+                String::new()
+            };
+            windmill_common::utils::send_workspace_error_to_instance_channels(
+                format!(
+                    "Job {} failed in workspace {w_id} ({base_url}/run/{}?workspace={w_id}){rollup}",
+                    queued_job.runnable_path.as_deref().unwrap_or("preview"),
+                    queued_job.id
+                ),
+                db,
+            )
+            .await;
+        }
     }
     Ok(())
 }

@@ -26889,6 +26889,7 @@ components:
         - slack
         - teams
         - email
+        - instance_alerts
 
     NewSchedule:
       type: object
