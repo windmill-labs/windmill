@@ -297,6 +297,34 @@ describe('AIChatManager global skills', () => {
 
 		expect(manager.displayMessages[0]?.content).toBe('/review-code find bugs')
 	})
+
+	it('expands a mid-sentence slash skill command inline while preserving the displayed text', async () => {
+		mocks.listAiSkills.mockResolvedValue([
+			{ name: 'review-code', description: 'review code for bugs' }
+		])
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			const userMessage = config.messages[config.messages.length - 1]
+			expect(userMessage.content).toContain('please use the "review-code" skill on this')
+			expect(userMessage.content).not.toContain('/review-code')
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages?.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+
+		await manager.sendRequest({
+			instructions: 'please /review-code on this',
+			mode: AIMode.GLOBAL
+		})
+
+		expect(manager.displayMessages[0]?.content).toBe('please /review-code on this')
+	})
 })
 
 describe('AIChatManager autonomy mode', () => {

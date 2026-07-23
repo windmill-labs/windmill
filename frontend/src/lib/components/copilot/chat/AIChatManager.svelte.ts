@@ -1890,19 +1890,21 @@ export class AIChatManager {
 	}
 
 	private expandGlobalSkillCommand = (instructions: string): string => {
-		if (!this.isSessionChat || this.mode !== AIMode.GLOBAL || !instructions.startsWith('/')) {
+		if (!this.isSessionChat || this.mode !== AIMode.GLOBAL || this.globalSkills.length === 0) {
 			return instructions
 		}
-		const match = /^\/([a-z0-9-]+)(?:\s+([\s\S]*))?$/.exec(instructions)
-		if (!match) {
-			return instructions
-		}
-		const skill = this.globalSkills.find((s) => s.name === match[1])
-		if (!skill) {
-			return instructions
-		}
-		const rest = match[2]?.trim()
-		return rest ? `Use the "${skill.name}" skill. ${rest}` : `Use the "${skill.name}" skill.`
+		// A skill call is `/name` at input start or after whitespace (so paths like
+		// `a/b` are left untouched). Expanded wherever it appears, not just the
+		// leading token: a bare leading call reads as a directive ("Use the ...
+		// skill."), mid-sentence calls splice in inline so the surrounding text
+		// keeps its word order.
+		return instructions.replace(/(^|\s)\/([a-z0-9-]+)/g, (whole, pre, name, offset) => {
+			const skill = this.globalSkills.find((s) => s.name === name)
+			if (!skill) {
+				return whole
+			}
+			return offset === 0 ? `Use the "${skill.name}" skill.` : `${pre}use the "${skill.name}" skill`
+		})
 	}
 
 	canApplyCode = $derived(this.allowedModes.script && this.mode === AIMode.SCRIPT)

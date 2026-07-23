@@ -81,6 +81,9 @@
 	let contextTooltipWord = $state('')
 	let showCommandTooltip = $state(false)
 	let commandTooltipWord = $state('')
+	// Index of the `/` that opened the command picker, so insertion and the
+	// picker anchor target the in-progress token wherever it sits in the input.
+	let commandSlashIndex = $state(0)
 	let textarea = $state<HTMLTextAreaElement | undefined>(undefined)
 	let tooltipElement = $state<HTMLDivElement | undefined>(undefined)
 	let chatContextPicker: ChatContextPicker | undefined = $state()
@@ -573,10 +576,16 @@
 		})
 	}
 
-	function getCommandFilter(text: string): string | undefined {
-		if (aiChatManager.mode !== AIMode.GLOBAL || !aiChatManager.isSessionChat) return undefined
-		const match = /^\/([a-z0-9-]*)$/.exec(text)
-		return match?.[1]
+	// Detect a slash-command token ending at the caret. The `/` must sit at input
+	// start or right after whitespace, so file paths like `foo/bar` never trigger
+	// — but the token can appear anywhere in the input, not just the beginning.
+	function getCommandTrigger(): { query: string; slashIndex: number } | undefined {
+		if (aiChatManager.mode !== AIMode.GLOBAL || !aiChatManager.isSessionChat || !textarea)
+			return undefined
+		const caret = textarea.selectionStart ?? value.length
+		const match = /(^|\s)\/([a-z0-9-]*)$/.exec(value.slice(0, caret))
+		if (!match) return undefined
+		return { query: match[2], slashIndex: match.index + match[1].length }
 	}
 
 	function updateAnchorRect() {
@@ -584,9 +593,11 @@
 		const triggerWord = activeTooltipWord
 		if (!triggerWord) return
 		try {
-			// Inline `@` anchors to the last word; slash commands only open when
-			// `/...` is the whole input, so the trigger sits at index 0.
-			const triggerIndex = triggerWord.startsWith('/') ? 0 : value.length - triggerWord.length
+			// Inline `@` anchors to the last word; a slash command anchors to its
+			// `/`, which may sit anywhere in the input.
+			const triggerIndex = showCommandTooltip
+				? commandSlashIndex
+				: value.length - triggerWord.length
 			const coords = getCaretCoordinates(textarea, triggerIndex)
 			const rect = textarea.getBoundingClientRect()
 			// getCaretCoordinates returns content-relative coords; subtract the
@@ -611,11 +622,12 @@
 	function handleInput(e: Event) {
 		textarea = e.target as HTMLTextAreaElement
 
-		const commandFilter = getCommandFilter(value)
-		if (commandFilter !== undefined) {
+		const commandTrigger = getCommandTrigger()
+		if (commandTrigger !== undefined) {
 			const wasShowing = showCommandTooltip
 			showCommandTooltip = true
-			commandTooltipWord = `/${commandFilter}`
+			commandTooltipWord = `/${commandTrigger.query}`
+			commandSlashIndex = commandTrigger.slashIndex
 			showContextTooltip = false
 			contextTooltipWord = ''
 			if (!wasShowing) refreshCommandSkills()
@@ -641,9 +653,19 @@
 	}
 
 	function handleCommandSelection(skill: { name: string }) {
-		value = `/${skill.name} `
+		// Replace the in-progress `/query` token (from its `/` to the caret) with the
+		// chosen command, keeping any text on either side so a skill can be inserted
+		// mid-sentence. A trailing space is appended only when nothing follows.
+		const caret = textarea?.selectionStart ?? value.length
+		const after = value.slice(caret)
+		const insert = `/${skill.name}` + (after.startsWith(' ') ? '' : ' ')
+		value = value.slice(0, commandSlashIndex) + insert + after
 		showCommandTooltip = false
-		setTimeout(() => textarea?.focus(), 0)
+		const newCaret = commandSlashIndex + insert.length
+		setTimeout(() => {
+			textarea?.focus()
+			textarea?.setSelectionRange(newCaret, newCaret)
+		}, 0)
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
