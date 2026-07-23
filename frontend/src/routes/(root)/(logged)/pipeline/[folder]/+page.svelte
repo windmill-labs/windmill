@@ -72,8 +72,10 @@
 		type PipelineDraft
 	} from '$lib/components/assets/AssetGraph/pipelineAiHelpers'
 	import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
-	import { createPipelineRecording } from '$lib/components/recording/pipelineRecording.svelte'
-	import { capturePipelineAssetSample } from '$lib/components/recording/pipelineAssetSample'
+	import {
+		createPipelineRecording,
+		finalizePipelineRecording
+	} from '$lib/components/recording/pipelineRecording.svelte'
 	import type { PipelineRecording } from '$lib/components/recording/types'
 	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
 	import { onMount, tick, untrack } from 'svelte'
@@ -1419,67 +1421,6 @@
 	let recordingMode = $state(false)
 	let lastPipelineRecording = $state<PipelineRecording | undefined>(undefined)
 
-	// Fetch each node's completed job so the recording carries its final
-	// logs/result even when the SSE stream opened after a fast job had finished.
-	async function finalizePipelineRecording(): Promise<PipelineRecording> {
-		const rec = pipelineRecording.stop()
-		const ws = $workspaceStore
-		if (ws) {
-			const jobIds = new Set<string>()
-			for (const frame of rec.timeline) {
-				for (const st of Object.values(frame.statuses)) {
-					if (st.jobId) jobIds.add(st.jobId)
-				}
-			}
-			await Promise.all(
-				[...jobIds].map(async (jobId) => {
-					if (rec.jobs[jobId]?.events.some((e) => e.data.completed)) return
-					try {
-						const j = await JobService.getJob({ workspace: ws, id: jobId })
-						// Mutates the same jobs object `rec.jobs` references.
-						pipelineRecording.addCompletedJob(jobId, j)
-					} catch {
-						// best-effort — a job we can't fetch just replays from its stream
-					}
-				})
-			)
-			// Sample each ducklake/datatable asset so the player can show what the
-			// tables held after the run, offline. Reuses the live preview query
-			// path (getRows); errors are captured, not thrown, per asset.
-			await Promise.all(
-				(rec.graph.assets ?? [])
-					.filter((a) => a.kind === 'ducklake' || a.kind === 'datatable')
-					.map(async (a) => {
-						const sample = await capturePipelineAssetSample(ws, a.kind, a.path)
-						// Mutates the same assetSamples object `rec.assetSamples` references.
-						pipelineRecording.recordAssetSample(sample)
-					})
-			)
-			// Capture each script step's source (by the exact hash that ran) so the
-			// player can show a node's code offline. Best-effort per node.
-			const codeByPath = new Map<string, string>()
-			for (const r of Object.values(rec.jobs)) {
-				const j = r.events.find((e) => e.data.completed)?.data.job as
-					| { job_kind?: string; script_path?: string; script_hash?: string }
-					| undefined
-				if (j?.job_kind === 'script' && j.script_path && j.script_hash) {
-					codeByPath.set(j.script_path, j.script_hash)
-				}
-			}
-			await Promise.all(
-				[...codeByPath].map(async ([path, hash]) => {
-					try {
-						const s = await ScriptService.getScriptByHash({ workspace: ws, hash })
-						pipelineRecording.recordCode(path, { content: s.content, language: s.language })
-					} catch {
-						// best-effort — a step we can't fetch just has no code in the player
-					}
-				})
-			)
-		}
-		return rec
-	}
-
 	function downloadPipelineRecording() {
 		if (lastPipelineRecording) {
 			pipelineRecording.download(lastPipelineRecording)
@@ -1841,7 +1782,7 @@
 		} finally {
 			cascadeRunningRoot = undefined
 			if (pipelineRecording.active) {
-				lastPipelineRecording = await finalizePipelineRecording()
+				lastPipelineRecording = await finalizePipelineRecording(pipelineRecording, $workspaceStore)
 			}
 		}
 	}

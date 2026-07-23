@@ -37,6 +37,9 @@ import {
 	type GeneratedMigration
 } from './projectMigrations'
 import type { Kind } from '$lib/utils_deployable'
+import type { AssetGraphResponse } from '$lib/components/assets/AssetGraph/types'
+import { capturePipelineRecording } from '$lib/components/recording/pipelineRecording.svelte'
+import type { PipelineRecording } from '$lib/components/recording/types'
 import {
 	TRIGGER_KINDS,
 	listAllWorkspaceTriggers,
@@ -116,6 +119,11 @@ const ITEM_KIND_ROUTE: Record<ItemKind, string> = {
 
 const HIDDEN_RESOURCE_TYPES = new Set(['app_theme', 'state', 'cache'])
 
+// Data-asset kinds the pipeline graph resolves (mirrors the pipeline editor's
+// `DATA_KINDS`) so the recorder's graph carries the same nodes/edges the player
+// renders.
+const PIPELINE_ASSET_KINDS = ['s3object', 'ducklake', 'datatable', 'volume']
+
 function typesFromSchema(schema: any): string[] {
 	const out = new Set<string>()
 	const props = schema?.properties
@@ -190,6 +198,16 @@ export class DeployToHubSession {
 	runError = $state<string | undefined>(undefined)
 	recordings = $state<Record<string, string>>({})
 
+	// Project-level data-pipeline recording. Unlike script/flow recordings (one
+	// job per item) a pipeline is the whole folder cascade, so it gets a single
+	// recording: the resolved asset graph, per-node status timeline, per-node job
+	// streams and asset samples — replayed by PipelineRecordingReplay.
+	pipelineGraph = $state<AssetGraphResponse | undefined>(undefined)
+	pipelineRunState = $state<RunState>('idle')
+	pipelineRecordingResult = $state<PipelineRecording | undefined>(undefined)
+	pipelineRunError = $state<string | undefined>(undefined)
+	pipelineRecorded = $state(false)
+
 	publishTarget = $state<DeployItem | undefined>()
 	publishing = $state(false)
 
@@ -221,6 +239,7 @@ export class DeployToHubSession {
 	// Intra-session tokens: latest call wins among competing calls on this session.
 	#triggerLoadTok = 0
 	#recordRunTok = 0
+	#pipelineRunTok = 0
 	#migrationsTok = 0
 	#schedulePreviewsInFlight = new Set<string>()
 	// Preview-only cache: toggling checkboxes re-runs the closure walk, but item
@@ -243,6 +262,7 @@ export class DeployToHubSession {
 		void this.#loadWorkspace()
 		void this.#loadTriggers()
 		void this.rehydrateFromHub()
+		void this.#loadPipelineGraph()
 	}
 
 	filteredWorkspaceItems = $derived(
@@ -268,6 +288,14 @@ export class DeployToHubSession {
 	allRecorded = $derived(
 		this.recordableItems.length > 0 && this.recordableItems.every((i) => i.rec === 'recorded')
 	)
+	// Pipeline members of this project's folder (`// pipeline` scripts), the set
+	// the whole-folder cascade runs — mirrors the pipeline editor's selection.
+	pipelineScriptPaths = $derived(
+		(this.pipelineGraph?.runnables ?? [])
+			.filter((r) => r.usage_kind === 'script' && r.in_pipeline)
+			.map((r) => r.path)
+	)
+	isPipelineProject = $derived(this.pipelineScriptPaths.length > 0)
 	hubSlug = $derived(this.effectiveSlug || sanitizeSlug(this.hubName))
 
 	relevantTriggers = $derived.by(() => {
@@ -1475,6 +1503,114 @@ export class DeployToHubSession {
 			return true
 		} catch (e: any) {
 			sendUserToast(`Failed to save recording: ${e?.message ?? e}`, true)
+			return false
+		}
+	}
+
+	/** Resolve the project folder's asset graph so a data-pipeline project can be
+	 * detected and its whole-folder cascade recorded. Best-effort — a project
+	 * with no pipeline just never shows the pipeline record card. */
+	async #loadPipelineGraph() {
+		try {
+			const params = new URLSearchParams({
+				folder: this.folder,
+				asset_kinds: PIPELINE_ASSET_KINDS.join(',')
+			})
+			const res = await fetch(`/api/w/${this.workspace}/assets/graph?${params}`, {
+				credentials: 'include'
+			})
+			if (!res.ok) throw new Error(`GET /assets/graph → ${res.status}`)
+			const graph = (await res.json()) as AssetGraphResponse
+			if (this.#disposed) return
+			this.pipelineGraph = graph
+		} catch {
+			// No pipeline graph — the pipeline record card simply stays hidden.
+		}
+	}
+
+	/** Run the whole-folder cascade and capture it into a single PipelineRecording.
+	 * Deployed-only (no drafts) and arg-less: entry nodes needing uploaded data
+	 * won't have it, so those pipelines record a failure the user can see and fix. */
+	runPipelineRecording = async () => {
+		const graph = this.pipelineGraph
+		const scripts = this.pipelineScriptPaths
+		if (!graph || scripts.length === 0) return
+		const tok = ++this.#pipelineRunTok
+		this.pipelineRunState = 'running'
+		this.pipelineRecordingResult = undefined
+		this.pipelineRunError = undefined
+		const workspace = this.workspace
+		try {
+			const { recording, result } = await capturePipelineRecording({
+				workspace,
+				folder: this.folder,
+				graph,
+				scriptPaths: new Set(scripts),
+				launch: (path) =>
+					JobService.runScriptByPath({
+						workspace,
+						path,
+						// Skip the backend asset-trigger dispatcher: the cascade engine owns
+						// the whole closure (parity with the pipeline editor's bounded run).
+						requestBody: { _wmill_skip_asset_dispatch: true }
+					}),
+				waitTerminal: (jobId) => this.#waitJobTerminal(jobId, tok)
+			})
+			if (tok !== this.#pipelineRunTok) return
+			this.pipelineRecordingResult = recording
+			if (result.ok) {
+				this.pipelineRunState = 'success'
+			} else {
+				this.pipelineRunState = 'failed'
+				const failed = [...result.statuses.entries()]
+					.filter(([, s]) => s.status === 'failure')
+					.map(([p]) => p)
+				this.pipelineRunError =
+					failed.length > 0 ? `Failed at ${failed.join(', ')}` : 'Cascade did not complete'
+			}
+		} catch (e: any) {
+			if (tok !== this.#pipelineRunTok) return
+			this.pipelineRunState = 'failed'
+			this.pipelineRunError = `Failed to run pipeline: ${e?.message ?? e}`
+		}
+	}
+
+	async #waitJobTerminal(jobId: string, tok: number): Promise<'success' | 'failure'> {
+		const deadline = Date.now() + 5 * 60_000
+		while (Date.now() < deadline) {
+			if (tok !== this.#pipelineRunTok) throw new Error('cancelled')
+			try {
+				const r = await JobService.getCompletedJobResultMaybe({
+					workspace: this.workspace,
+					id: jobId,
+					getStarted: false
+				})
+				if (r.completed) return r.success ? 'success' : 'failure'
+			} catch {
+				// transient — retry on the next tick
+			}
+			await sleep(2000)
+		}
+		throw new Error(`Timed out waiting for job ${jobId}`)
+	}
+
+	/** Save the captured pipeline recording to the Hub, scoped to the project
+	 * (a pipeline is the whole folder, not a single Hub item). Returns true on
+	 * success. */
+	async savePipelineRecording(): Promise<boolean> {
+		const recording = this.pipelineRecordingResult
+		if (!recording || this.pipelineRunState !== 'success') return false
+		if (this.phase === 'predeploy') {
+			sendUserToast(`Push the project to the Hub first before saving its pipeline recording`, true)
+			return false
+		}
+		try {
+			await this.#postHub(`/hub/projects/${this.hubSlug}/pipeline_recording`, { recording })
+			this.pipelineRecorded = true
+			sendUserToast(`Pipeline recording saved`)
+			return true
+		} catch (e: any) {
+			sendUserToast(`Failed to save pipeline recording: ${e?.message ?? e}`, true)
 			return false
 		}
 	}

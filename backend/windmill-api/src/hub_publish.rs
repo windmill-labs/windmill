@@ -28,6 +28,10 @@ pub fn workspaced_service() -> Router {
             post(publish_script_recording),
         )
         .route("/flows/{flow_id}/recording", post(publish_flow_recording))
+        .route(
+            "/projects/{slug}/pipeline_recording",
+            post(publish_pipeline_recording),
+        )
         .route("/resource_types", post(publish_resource_type))
         .route("/resources", post(publish_resources))
         .route("/triggers", post(publish_triggers))
@@ -334,6 +338,24 @@ async fn publish_flow_recording(
     Json(body): Json<RecordingBody>,
 ) -> Result<impl IntoResponse, Error> {
     ctx.post(&format!("/flows/{}/recording", flow_id), &body)
+        .await
+}
+
+// A data-pipeline recording is scoped to the whole project (a folder cascade),
+// not a single Hub item, so the slug comes from the path (validated by
+// construction) and only the opaque recording is forwarded.
+#[derive(Deserialize, Serialize)]
+struct PipelineRecordingBody {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    recording: Option<serde_json::Value>,
+}
+
+async fn publish_pipeline_recording(
+    ctx: HubPublishCtx,
+    Path((_workspace, slug)): Path<(String, ProjectSlug)>,
+    Json(body): Json<PipelineRecordingBody>,
+) -> Result<impl IntoResponse, Error> {
+    ctx.post(&format!("/projects/{}/pipeline_recording", slug), &body)
         .await
 }
 

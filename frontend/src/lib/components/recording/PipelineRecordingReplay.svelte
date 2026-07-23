@@ -382,8 +382,8 @@
 											on:selected={(e) => (runnableTab = e.detail)}
 										>
 											{#snippet children({ item })}
-												<ToggleButton size="xs" value="output" label="Output" {item} />
-												<ToggleButton size="xs" value="code" label="Code" {item} />
+												<ToggleButton size="sm" value="output" label="Output" {item} />
+												<ToggleButton size="sm" value="code" label="Code" {item} />
 											{/snippet}
 										</ToggleButtonGroup>
 									</div>

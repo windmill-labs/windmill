@@ -23132,6 +23132,40 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/hub/projects/{slug}/pipeline_recording:
+    post:
+      summary: attach a data-pipeline recording to a hub project
+      description: |
+        Requires the caller to be a workspace admin. A data-pipeline recording is
+        scoped to the whole project (a folder cascade), not a single item. Forwards
+        the request to the configured Hub scoped to the `{workspace}:{folder}`
+        source and returns the Hub's status code and raw response body.
+      operationId: publishHubPipelineRecording
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: slug
+          in: path
+          required: true
+          description: hub project slug
+          schema:
+            $ref: "#/components/schemas/HubProjectSlug"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PipelineRecordingBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/hub/resource_types:
     post:
       summary: publish a resource type to a hub project
@@ -32443,6 +32477,12 @@ components:
           $ref: "#/components/schemas/HubProjectSlug"
       required:
         - project_slug
+
+    PipelineRecordingBody:
+      type: object
+      properties:
+        recording:
+          type: object
 
     PublishResourceTypeBody:
       type: object

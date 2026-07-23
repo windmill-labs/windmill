@@ -1,6 +1,12 @@
-import type { Job } from '$lib/gen'
+import { JobService, ScriptService, type Job } from '$lib/gen'
 import type { AssetGraphResponse } from '$lib/components/assets/AssetGraph/types'
+import { runBoundedCascade } from '$lib/components/assets/AssetGraph/cascadeRun'
+import type {
+	CascadeNodeState,
+	CascadeRunResult
+} from '$lib/components/assets/AssetGraph/cascadeOrchestrator'
 import { truncateUuids } from './flowRecording.svelte'
+import { capturePipelineAssetSample } from './pipelineAssetSample'
 import type {
 	ActiveReplayData,
 	PipelineAssetSample,
@@ -208,4 +214,104 @@ export type PipelineRecordingStore = {
 	stop(): PipelineRecording
 	toReplayData(recording: PipelineRecording): ActiveReplayData
 	download(recording: PipelineRecording): void
+}
+
+/**
+ * Stop the recorder and enrich the recording with data the live SSE streams
+ * can't guarantee: each node's completed job (a fast job may finish before its
+ * stream opens), a data-sample per ducklake/datatable asset (offline table
+ * preview), and each step's source (by the exact hash that ran). Every fetch is
+ * best-effort — a step we can't resolve just replays with less detail. Shared by
+ * the pipeline editor's recorder and deploy-to-hub so both produce identical
+ * recordings.
+ */
+export async function finalizePipelineRecording(
+	store: PipelineRecordingStore,
+	workspace: string | undefined
+): Promise<PipelineRecording> {
+	const rec = store.stop()
+	if (!workspace) return rec
+	const ws = workspace
+	const jobIds = new Set<string>()
+	for (const frame of rec.timeline) {
+		for (const st of Object.values(frame.statuses)) {
+			if (st.jobId) jobIds.add(st.jobId)
+		}
+	}
+	await Promise.all(
+		[...jobIds].map(async (jobId) => {
+			if (rec.jobs[jobId]?.events.some((e) => e.data.completed)) return
+			try {
+				const j = await JobService.getJob({ workspace: ws, id: jobId })
+				store.addCompletedJob(jobId, j)
+			} catch {
+				// best-effort — a job we can't fetch just replays from its stream
+			}
+		})
+	)
+	await Promise.all(
+		(rec.graph.assets ?? [])
+			.filter((a) => a.kind === 'ducklake' || a.kind === 'datatable')
+			.map(async (a) => {
+				const sample = await capturePipelineAssetSample(ws, a.kind, a.path)
+				store.recordAssetSample(sample)
+			})
+	)
+	const codeByPath = new Map<string, string>()
+	for (const r of Object.values(rec.jobs)) {
+		const j = r.events.find((e) => e.data.completed)?.data.job as
+			| { job_kind?: string; script_path?: string; script_hash?: string }
+			| undefined
+		if (j?.job_kind === 'script' && j.script_path && j.script_hash) {
+			codeByPath.set(j.script_path, j.script_hash)
+		}
+	}
+	await Promise.all(
+		[...codeByPath].map(async ([path, hash]) => {
+			try {
+				const s = await ScriptService.getScriptByHash({ workspace: ws, hash })
+				store.recordCode(path, { content: s.content, language: s.language })
+			} catch {
+				// best-effort — a step we can't fetch just has no code in the player
+			}
+		})
+	)
+	return rec
+}
+
+/**
+ * Run a folder's pipeline cascade end-to-end and capture it into a
+ * PipelineRecording — the self-contained path used by deploy-to-hub, where
+ * there is no editor page orchestrating the run. `launch`/`waitTerminal` are
+ * supplied by the caller (deployed-only launch, poll-based wait); this wires
+ * status/job capture around them and finalizes.
+ */
+export async function capturePipelineRecording(opts: {
+	workspace: string
+	folder: string
+	graph: AssetGraphResponse
+	scriptPaths: Set<string>
+	launch: (path: string) => Promise<string>
+	waitTerminal: (jobId: string) => Promise<'success' | 'failure'>
+	onUpdate?: (statuses: Map<string, CascadeNodeState>) => void
+}): Promise<{ recording: PipelineRecording; result: CascadeRunResult & { cyclic: string[] } }> {
+	const store = createPipelineRecording()
+	store.start(opts.folder, opts.graph)
+	const result = await runBoundedCascade({
+		graph: opts.graph,
+		scripts: opts.scriptPaths,
+		launch: async (path) => {
+			const jobId = await opts.launch(path)
+			// No-op unless the store is active; captures the node's stream.
+			store.watchJob(jobId, opts.workspace)
+			return jobId
+		},
+		waitTerminal: opts.waitTerminal,
+		onUpdate: (statuses) => {
+			store.recordStatuses(statuses)
+			opts.onUpdate?.(statuses)
+		}
+	})
+	const recording = await finalizePipelineRecording(store, opts.workspace)
+	return { recording, result }
 }

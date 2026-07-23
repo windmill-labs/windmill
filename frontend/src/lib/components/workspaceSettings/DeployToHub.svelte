@@ -19,12 +19,14 @@
 	import { TRIGGER_KINDS, triggerDetails } from '$lib/components/triggers/workspaceTriggersList'
 	import Toggle from '../Toggle.svelte'
 	import MigrationSqlEditor from './MigrationSqlEditor.svelte'
+	import PipelineRecordingReplay from '$lib/components/recording/PipelineRecordingReplay.svelte'
 	import {
 		Check,
 		Cloud,
 		Code2,
 		Copy,
 		Database,
+		Eye,
 		ExternalLink,
 		Globe,
 		Info,
@@ -52,6 +54,7 @@
 	})
 
 	let recordDrawer = $state<Drawer | undefined>()
+	let pipelinePreviewDrawer = $state<Drawer | undefined>()
 	let publishDrawer = $state<Drawer | undefined>()
 	let resourceDrawer = $state<Drawer | undefined>()
 	let triggerDrawer = $state<Drawer | undefined>()
@@ -78,6 +81,9 @@
 	}
 	async function saveRecording() {
 		if (await deployHub.session?.saveRecording()) recordDrawer?.closeDrawer()
+	}
+	async function savePipelineRecording() {
+		await deployHub.session?.savePipelineRecording()
 	}
 	function openPublish(it: DeployItem) {
 		const s = deployHub.session
@@ -140,7 +146,8 @@
 							>
 								<span class="font-mono text-emphasis">{stepNum > 2 ? '✓' : '2.'}</span>
 								<span class="font-semibold text-primary">Generate iframes &amp; recordings</span> — share
-								public apps as iframes and capture one execution per script/flow.
+								public apps as iframes, capture one execution per script/flow, and record the whole data-pipeline
+								cascade as one interactive replay.
 							</li>
 							<li
 								class={stepNum === 3 ? 'text-primary' : stepNum > 3 ? 'opacity-60' : 'opacity-40'}
@@ -307,6 +314,72 @@
 									and result — replayable on the Hub so visitors see it work before forking. Public
 									apps can also be shared as live iframes. Optional, but recommended.
 								</span>
+							</div>
+						{/if}
+						{#if s.phase === 'draft' && s.isPipelineProject}
+							<div
+								class="flex flex-col gap-2 rounded-md border border-blue-300 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-950/40"
+							>
+								<div class="flex flex-wrap items-center gap-2">
+									<BarsStaggered class="text-blue-600 dark:text-blue-400" />
+									<span class="text-sm font-semibold text-primary">Data pipeline recording</span>
+									{#if s.pipelineRecorded}
+										<Badge color="green" size="xs">
+											<Check size={10} class="mr-0.5" />Recorded
+										</Badge>
+									{/if}
+									<div class="ml-auto flex items-center gap-2">
+										<Button
+											size="xs"
+											variant="subtle"
+											loading={s.pipelineRunState === 'running'}
+											startIcon={{ icon: s.pipelineRecordingResult ? RotateCcw : Play }}
+											onclick={() => s.runPipelineRecording()}
+										>
+											{s.pipelineRecordingResult ? 'Re-run' : 'Record pipeline run'}
+										</Button>
+										{#if s.pipelineRecordingResult}
+											<Button
+												size="xs"
+												variant="subtle"
+												startIcon={{ icon: Eye }}
+												onclick={() => pipelinePreviewDrawer?.openDrawer()}
+											>
+												Preview
+											</Button>
+											<Button
+												size="xs"
+												variant="accent"
+												disabled={s.pipelineRunState !== 'success'}
+												startIcon={{ icon: Check }}
+												onclick={savePipelineRecording}
+											>
+												Save as recording
+											</Button>
+										{/if}
+									</div>
+								</div>
+								<span class="text-xs text-secondary">
+									Runs the whole <span class="font-mono">{s.selectedFolder}/</span> cascade ({s
+										.pipelineScriptPaths.length} step{s.pipelineScriptPaths.length === 1
+										? ''
+										: 's'}) and captures the asset graph, per-step logs/results and table samples
+									into one interactive replay for the project page.
+								</span>
+								{#if s.pipelineRunState === 'running'}
+									<div class="flex items-center gap-2 text-xs text-secondary">
+										<Loader2 size={12} class="animate-spin" /> Running the pipeline cascade…
+									</div>
+								{:else if s.pipelineRunState === 'success'}
+									<div class="flex items-center gap-2 text-xs text-green-700 dark:text-green-400">
+										<Check size={12} /> Cascade succeeded — preview it, then save as the recording.
+									</div>
+								{:else if s.pipelineRunState === 'failed'}
+									<div class="flex items-center gap-2 text-xs text-red-600 dark:text-red-400">
+										<TriangleAlert size={12} />
+										{s.pipelineRunError ?? 'Cascade failed'}
+									</div>
+								{/if}
 							</div>
 						{/if}
 						{#if s.phase === 'predeploy'}
@@ -629,6 +702,19 @@
 						</Button>
 					{/if}
 				{/snippet}
+			</DrawerContent>
+		</Drawer>
+
+		<Drawer bind:this={pipelinePreviewDrawer} size="1100px">
+			<DrawerContent
+				title="Pipeline recording preview"
+				on:close={() => pipelinePreviewDrawer?.closeDrawer()}
+			>
+				{#if s.pipelineRecordingResult}
+					<div class="h-full min-h-[600px]">
+						<PipelineRecordingReplay recording={s.pipelineRecordingResult} />
+					</div>
+				{/if}
 			</DrawerContent>
 		</Drawer>
 
