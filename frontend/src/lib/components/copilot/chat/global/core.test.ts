@@ -3862,65 +3862,63 @@ describe('folder tools', () => {
 	})
 })
 
-describe('session pipeline gate', () => {
-	const FLAG = 'wm_dev_session_pipelines'
-	afterEach(() => {
-		localStorage.removeItem(FLAG)
-	})
-
-	it('replaces the session prompt pipeline guidance with the alpha notice by default', () => {
-		const content = prepareGlobalSystemMessage(undefined, { previewTools: true }).content as string
-		expect(content).toContain('Data pipelines are in alpha and NOT yet available in this chat')
-		expect(content).not.toContain('call get_instructions with subject "pipeline"')
-		expect(content).not.toContain('Building a data pipeline: call open_preview')
-	})
-
-	it('restores the session pipeline guidance when the dev flag is set', () => {
-		localStorage.setItem(FLAG, '1')
+describe('session pipeline surface (alpha)', () => {
+	it('gives the session prompt pipeline guidance plus an alpha heads-up', () => {
 		const content = prepareGlobalSystemMessage(undefined, { previewTools: true }).content as string
 		expect(content).toContain('call get_instructions with subject "pipeline"')
 		expect(content).toContain('Building a data pipeline: call open_preview')
-		expect(content).not.toContain('Data pipelines are in alpha and NOT yet available in this chat')
+		expect(content).toContain('Data pipeline support in this chat is in ALPHA')
 	})
 
-	it('leaves the standalone (non-session) chat pipeline guidance ungated', () => {
+	it('leaves the standalone (non-session) chat pipeline guidance alpha-free', () => {
 		const content = prepareGlobalSystemMessage(undefined, { previewTools: false }).content as string
 		expect(content).toContain('call get_instructions with subject "pipeline"')
-		expect(content).not.toContain('Data pipelines are in alpha and NOT yet available in this chat')
+		expect(content).not.toContain('Data pipeline support in this chat is in ALPHA')
 	})
 
-	it('refuses get_instructions(pipeline) in a session but not outside one', async () => {
+	it('serves the real pipeline instructions for get_instructions(pipeline) inside a session', async () => {
 		const inSession = await callGlobalTool('get_instructions', { subject: 'pipeline' }, undefined, {
-			isSessionChat: true,
 			sessionId: 'session-1'
 		})
-		expect(inSession).toContain('data pipelines are in alpha')
-
-		const outsideSession = await callGlobalTool('get_instructions', { subject: 'pipeline' })
-		expect(outsideSession).not.toContain('data pipelines are in alpha')
-
-		// The eval harness passes a sessionId to standalone (non-session) chats;
-		// only the explicit isSessionChat marker may engage the gate.
-		const standaloneWithSessionId = await callGlobalTool(
-			'get_instructions',
-			{ subject: 'pipeline' },
-			undefined,
-			{ sessionId: 'eval-session' }
-		)
-		expect(standaloneWithSessionId).not.toContain('data pipelines are in alpha')
+		// Assert the real authoring guidance is returned, not merely a non-error.
+		expect(inSession).toContain('Data pipeline authoring')
 	})
 
-	it('refuses open_preview(kind=pipeline) while gated', async () => {
+	it('opens open_preview(kind=pipeline) inside a session', async () => {
 		const handler = vi.fn(() => 'opened')
 		setOpenPreviewHandler(handler)
 		try {
-			const gated = await callGlobalTool('open_preview', { kind: 'pipeline', path: 'my_folder' })
-			expect(gated).toContain('data pipelines are in alpha')
-			expect(handler).not.toHaveBeenCalled()
-
-			localStorage.setItem(FLAG, '1')
 			const opened = await callGlobalTool('open_preview', { kind: 'pipeline', path: 'my_folder' })
 			expect(opened).toBe('opened')
+			expect(handler).toHaveBeenCalled()
+		} finally {
+			setOpenPreviewHandler(undefined)
+		}
+	})
+
+	// The pipeline preview handler awaits the editor's async tool registration
+	// (sessionRuntime -> AIChatManager.waitForPipelineHelpers) before resolving.
+	// open_preview must not settle until then, or the model's next turn races the
+	// mount and hits "Unknown tool call". A Promise-returning handler proves the
+	// tool awaits it rather than returning as soon as the tab opens.
+	it('keeps open_preview(kind=pipeline) pending until the async handler resolves', async () => {
+		let release!: (v: string) => void
+		const handler = vi.fn(() => new Promise<string>((resolve) => (release = resolve)))
+		setOpenPreviewHandler(handler)
+		try {
+			let settled = false
+			const call = callGlobalTool('open_preview', { kind: 'pipeline', path: 'my_folder' }).then(
+				(r) => {
+					settled = true
+					return r
+				}
+			)
+			await Promise.resolve()
+			expect(handler).toHaveBeenCalled()
+			expect(settled).toBe(false)
+			release('opened')
+			expect(await call).toBe('opened')
+			expect(settled).toBe(true)
 		} finally {
 			setOpenPreviewHandler(undefined)
 		}

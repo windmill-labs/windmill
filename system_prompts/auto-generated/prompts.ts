@@ -778,10 +778,30 @@ Never hand back a DuckLake pipeline that cannot run without flagging the missing
 A script joins the pipeline when its source begins with the \`pipeline\` annotation as a top-of-file comment, **written in the script's own comment syntax** — \`//\` for TS/JS (bun), \`--\` for SQL (DuckDB/Postgres), \`#\` for Python/Bash. So it's \`-- pipeline\` in a DuckDB node, \`# pipeline\` in a Python node, \`// pipeline\` in a bun node. Every annotation below uses that same prefix (the \`//\` shown is the TS form). All other wiring is expressed as annotation comments near the top of the file:
 
 - \`// on <ref>\` — declares an execution-DAG **input** (what triggers/feeds this node). \`<ref>\` is either:
-  - an **asset URI** (the node runs when that asset is produced upstream): \`ducklake://main/orders\`, \`datatable://main/users\`, \`s3://<key>\`, \`$res:f/folder/my_resource\`, \`volume://name/path\`.
-  - a **native trigger kind**: \`schedule\`, \`webhook\`, \`email\`, \`kafka\`, \`mqtt\`, \`amqp\`, \`nats\`, \`postgres\`, \`sqs\`, \`gcp\`, or \`data_upload\` (a user-uploaded S3 file). For these the actual trigger row (cron, topic, …) is created separately; the annotation only declares the binding.
+  - an **asset URI** (the node runs when that asset is produced upstream): \`ducklake://main/orders\`, \`datatable://main/users\`, \`$res:f/folder/my_resource\`, \`volume://name/path\`, or an S3 object (see the S3 storage-form rule below).
+  - a **native trigger kind**: \`schedule\`, \`webhook\`, \`email\`, \`kafka\`, \`mqtt\`, \`amqp\`, \`nats\`, \`postgres\`, \`sqs\`, \`gcp\`, or \`data_upload\` (a user-uploaded S3 file). For these the actual trigger row (cron, topic, …) is created separately; the annotation only declares the binding. **\`data_upload\` is special**: there is no trigger row — the node instead declares an **\`S3Object\` input parameter** fed by the auto-generated upload picker; it never hard-codes a key. Any language can be the \`data_upload\` node:
+    - Python (has \`import wmill\`): \`def main(file: wmill.S3Object):\` then \`wmill.load_s3_file(file)\`; TS (has \`import * as wmill from "windmill-client"\`): \`export async function main(file: wmill.S3Object)\`. Qualify the type as \`wmill.S3Object\` (or add \`from wmill import S3Object\` / \`import { S3Object } from "windmill-client"\`) — a bare \`S3Object\` is undefined.
+    - **DuckDB** takes the s3object arg via a \`-- $<name> (s3object)\` declaration and reads it directly, so a single DuckDB node can ingest **and** materialize:
+      \`\`\`
+      -- pipeline
+      -- on data_upload
+      -- materialize ducklake://main/raw_uploads
+      -- $file (s3object)
+      SELECT * FROM read_csv($file)
+      \`\`\`
 - **Outputs** are inferred from what the body writes — a \`CREATE TABLE\`, a \`wmill.writeS3File(...)\`, a DuckLake/datatable write. To declare a managed output explicitly, use \`// materialize <asset-uri>\`.
 - Optional badges: \`// partitioned <daily|hourly|weekly|monthly|dynamic>\`, \`// freshness <duration>\` (e.g. \`1h\`), \`// tag <worker-tag>\`, \`// retry <count> [delay]\`, \`// data_test <kind> ...\`.
+
+## S3 object wiring (storage form matters)
+
+An \`s3://\` URI's first slashes select the **storage**, not part of the key — get this wrong and the producer/consumer edge silently won't connect:
+
+- \`s3:///<key>\` (**triple** slash, empty first segment) = the **default** workspace storage. A downstream node reading or triggering on that object uses \`s3:///<key>\` — e.g. DuckDB \`-- on s3:///orders/2024.parquet\` and \`read_parquet('s3:///orders/2024.parquet')\`.
+- \`s3://<storage>/<key>\` (**double** slash, non-empty first segment) = a **named secondary** storage called \`<storage>\` — so \`s3://ingest/x\` means storage \`ingest\`, key \`x\`, NOT key \`ingest/x\`. Only use this when the object genuinely lives in a configured secondary storage; never invent a bucket/storage name for a default-storage object (it breaks the edge).
+
+To make the producer side visible to lineage, a Python/TS node MUST pass the **\`S3Object\` form**, not a bare key string: Python \`wmill.write_s3_file(wmill.S3Object(s3="<key>"), data)\` (or the import-free dict \`{"s3": "<key>"}\`), TS \`wmill.writeS3File({ s3: "<key>" }, data)\`. That records the default-storage asset \`/<key>\`, which a downstream \`s3:///<key>\` reader connects to (same key both sides). A bare \`write_s3_file("<key>", ...)\` records **no** asset and produces **no** edge. Add \`storage="<name>"\` only for a named secondary storage.
+
+The key must be a **string literal** — the graph parser is static and cannot follow a variable, f-string, or computed path, so \`write_s3_file(wmill.S3Object(s3=key_var), ...)\` records no edge. Inline the literal (\`s3="events/user_events.parquet"\`) on both the writing and reading node. The same rule applies to every asset URI in an annotation or SDK call (\`ducklake://\`, \`datatable://\`, \`s3://\`): write them literally, not via a variable.
 
 ## Materialize (the managed output)
 
@@ -817,7 +837,7 @@ Node \`f/sales/orders_ingest\` (runs on a schedule, materializes a DuckLake tabl
 -- pipeline
 -- on schedule
 -- materialize ducklake://main/orders
-SELECT * FROM read_csv('s3://raw/orders/*.csv')
+SELECT * FROM read_csv('s3:///raw/orders/*.csv')
 \`\`\`
 
 Node \`f/sales/orders_daily\` (runs when \`orders\` is produced, writes a rollup):

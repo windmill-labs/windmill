@@ -114,6 +114,37 @@ describe('pipeline AI direct-draft helpers', () => {
 		expect(drafts().size).toBe(0)
 	})
 
+	// The output_kind seed is a random placeholder that live inference overwrites
+	// and deploy re-derives, so it must not read as detected lineage — else a
+	// dynamic/unwritten output looks wired when the deployed script has no edge.
+	it('does not report the output_kind seed as detected lineage', async () => {
+		vi.spyOn(ScriptService, 'getScriptByPath').mockRejectedValue(new Error('404'))
+		const { handle, drafts } = makeHandle()
+		const res = await handle.proposeNode({
+			path: 'f/x/seeded',
+			language: 'duckdb' as any,
+			content: '-- pipeline\n-- on schedule\nSELECT 1',
+			outputKind: 'ducklake' as any
+		})
+		expect(drafts().get('f/x/seeded')?.outputAssets?.length).toBeGreaterThan(0)
+		expect(res.detectedWrites).toEqual([])
+	})
+
+	// `inferAssets` returns the `// materialize` target separately from body
+	// writes, so it must be folded into detectedWrites or a canonical materialize
+	// node would falsely read as having no output.
+	it('reports the `-- materialize` target as a detected write', async () => {
+		vi.spyOn(ScriptService, 'getScriptByPath').mockRejectedValue(new Error('404'))
+		const { handle } = makeHandle()
+		const res = await handle.proposeNode({
+			path: 'f/x/mat',
+			language: 'duckdb' as any,
+			content: '-- pipeline\n-- on schedule\n-- materialize ducklake://main/out\nSELECT 1',
+			outputKind: 'ducklake' as any
+		})
+		expect(res.detectedWrites).toEqual(['ducklake://main/out'])
+	})
+
 	it('editNode rejects a path outside the open folder', async () => {
 		const { handle, drafts } = makeHandle()
 		await expect(handle.editNode('f/other/foo', '-- pipeline')).rejects.toThrow(/open folder/)
