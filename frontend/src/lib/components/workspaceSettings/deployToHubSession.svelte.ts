@@ -124,6 +124,26 @@ const ITEM_KIND_ROUTE: Record<ItemKind, string> = {
 
 const HIDDEN_RESOURCE_TYPES = new Set(['app_theme', 'state', 'cache'])
 
+// Prune a folder's asset graph to a set of scripts so a pipeline recording only
+// runs, renders and samples the project's included members — a deselected branch
+// (its nodes, code, logs/results and table samples) never enters the recording.
+// Assets kept are only those an included script touches; edges/triggers only
+// those anchored on an included runnable.
+function pruneGraphToScripts(graph: AssetGraphResponse, scripts: Set<string>): AssetGraphResponse {
+	const runnables = graph.runnables.filter((r) => scripts.has(r.path))
+	const edges = graph.edges.filter((e) => scripts.has(e.runnable_path))
+	const keptAssets = new Set(edges.map((e) => `${e.asset_kind}:${e.asset_path}`))
+	const assets = graph.assets.filter((a) => keptAssets.has(`${a.kind}:${a.path}`))
+	const triggers = graph.triggers.filter((t) => scripts.has(t.runnable_path))
+	const macro_edges = graph.macro_edges?.filter(
+		(m) => scripts.has(m.consumer_path) && scripts.has(m.lib_path)
+	)
+	const test_edges = graph.test_edges?.filter(
+		(t) => scripts.has(t.runnable_path) && scripts.has(t.producer_path)
+	)
+	return { assets, runnables, edges, triggers, macro_edges, test_edges }
+}
+
 function typesFromSchema(schema: any): string[] {
 	const out = new Set<string>()
 	const props = schema?.properties
@@ -1543,9 +1563,14 @@ export class DeployToHubSession {
 	 * per-node input, so a root that needs uploaded data or a schedule's static
 	 * payload records a failure the user can see and fix rather than a green run. */
 	runPipelineRecording = async () => {
-		const graph = this.pipelineGraph
+		const fullGraph = this.pipelineGraph
 		const scripts = this.recordablePipelineScriptPaths
-		if (!graph || scripts.length === 0) return
+		if (!fullGraph || scripts.length === 0) return
+		const scriptSet = new Set(scripts)
+		// Scope the graph to the project's members so the run, the recorded graph
+		// (rendered by the player) and the asset samples all exclude deselected
+		// branches.
+		const graph = pruneGraphToScripts(fullGraph, scriptSet)
 		const tok = ++this.#pipelineRunTok
 		this.pipelineRunState = 'running'
 		this.pipelineRecordingResult = undefined
@@ -1558,7 +1583,7 @@ export class DeployToHubSession {
 				workspace,
 				folder: this.folder,
 				graph,
-				scriptPaths: new Set(scripts),
+				scriptPaths: scriptSet,
 				launch: (path) =>
 					JobService.runScriptByPath({
 						workspace,
