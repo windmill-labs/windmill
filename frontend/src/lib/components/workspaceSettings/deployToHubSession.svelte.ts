@@ -940,7 +940,6 @@ export class DeployToHubSession {
 		resourcePathMap: Map<string, string>,
 		relevant: WorkspaceTrigger[]
 	): Promise<void> {
-		if (relevant.length === 0) return
 		const pathMap = buildPathMap(
 			relevant.map((t) => t.path),
 			slug
@@ -974,7 +973,8 @@ export class DeployToHubSession {
 				true
 			)
 		}
-		if (triggers.length === 0) return
+		// Full-set sync: always push (an empty list clears the Hub's triggers on a
+		// re-deploy), so removing every trigger doesn't leave stale ones on the Hub.
 		await this.#postHub('/hub/triggers', { triggers, project_slug: slug })
 	}
 
@@ -1105,7 +1105,7 @@ export class DeployToHubSession {
 			// A re-bundle clears the Hub-side embed (idempotent replace), so re-push it
 			// for any raw app that is already public — keeps the live iframe in sync
 			// without forcing an unpublish/share round-trip. Updates by hub id, safe in parallel.
-			await Promise.all(
+			const embedResults = await Promise.all(
 				bundle.items
 					.filter((it) => it.kind === 'raw_app')
 					.map(async (it) => {
@@ -1115,11 +1115,16 @@ export class DeployToHubSession {
 							try {
 								await this.#pushRawAppEmbed(hubId, src.publicUrl)
 							} catch (e: any) {
+								// A public raw app whose iframe didn't re-sync is an incomplete
+								// publish — count it so the draft can't become submit-ready.
 								sendUserToast(`Failed to sync iframe for ${it.path}: ${e?.message ?? e}`, true)
+								return 1
 							}
 						}
+						return 0
 					})
 			)
+			failures += embedResults.reduce((a: number, b) => a + b, 0)
 			if (this.#disposed) return
 			try {
 				await this.#pushTriggers(slug, resourcePathMap, triggersSnapshot)
@@ -1464,29 +1469,31 @@ export class DeployToHubSession {
 		const app = await AppService.getAppByPath({ workspace, path: it.path })
 		const prevMode = (app.policy?.execution_mode ?? 'publisher') as 'anonymous' | 'publisher'
 		const nextMode = (shared ? 'anonymous' : 'publisher') as 'anonymous' | 'publisher'
-		await AppService.updateApp({
-			workspace,
-			path: it.path,
-			requestBody: {
-				policy: { ...(app.policy ?? {}), execution_mode: nextMode },
-				deployment_message: shared ? 'Share as iframe' : 'Unshare iframe'
-			}
-		})
+		const setMode = (mode: 'anonymous' | 'publisher', message: string) =>
+			AppService.updateApp({
+				workspace,
+				path: it.path,
+				requestBody: {
+					policy: { ...(app.policy ?? {}), execution_mode: mode },
+					deployment_message: message
+				}
+			})
+		// Undo the policy flip so the app's public state stays consistent when a later
+		// step of the share fails. Best-effort: a revert failure must not mask the cause.
+		const rollback = () => setMode(prevMode, 'Revert iframe share').catch(() => {})
+		await setMode(nextMode, shared ? 'Share as iframe' : 'Unshare iframe')
 		const url = shared ? ((await this.#resolvePublicUrl(it.path)) ?? null) : null
+		// A share with no resolvable public URL is incomplete (no embeddable link, no
+		// Unpublish control); don't leave the app anonymous while reporting success.
+		if (shared && url === null) {
+			await rollback()
+			throw new Error(`Could not resolve the public URL for ${it.path}`)
+		}
 		if (hubId && it.kind === 'raw_app' && (!shared || url)) {
 			try {
 				await this.#pushRawAppEmbed(hubId, shared ? url : null)
 			} catch (e) {
-				// The embed sync failed after the policy flip; roll the policy back so the
-				// app's public state stays consistent with the (unchanged) Hub embed.
-				await AppService.updateApp({
-					workspace,
-					path: it.path,
-					requestBody: {
-						policy: { ...(app.policy ?? {}), execution_mode: prevMode },
-						deployment_message: 'Revert iframe share'
-					}
-				}).catch(() => {})
+				await rollback()
 				throw e
 			}
 		}
