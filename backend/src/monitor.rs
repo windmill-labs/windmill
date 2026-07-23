@@ -5214,11 +5214,12 @@ async fn between_steps_recovery_guidance(
     let step_id = module.id();
 
     // Only a top-level deployed flow exposes a working restart-from-step: the run page's
-    // "Re-start from" button requires job_kind == 'flow' and the restart API requires a
-    // flow path, so a preview (no path) or a subflow child (has a parent) would be told to
-    // use a button / endpoint that isn't there. Leave the existing wording for those.
+    // "Re-start from" button is rendered only for job_kind == 'flow' (a flowpreview, even a
+    // pathful editor preview, or a singlestepflow does not qualify), and a subflow child
+    // restarts via its root. Match that surface exactly so the guidance never points at a
+    // button / endpoint that isn't there; leave the existing wording otherwise.
     let restartable = sqlx::query_scalar!(
-        r#"SELECT (runnable_path IS NOT NULL AND parent_job IS NULL) AS "restartable!"
+        r#"SELECT (kind = 'flow' AND parent_job IS NULL) AS "restartable!"
            FROM v2_job WHERE id = $1"#,
         flow_id,
     )

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT (runnable_path IS NOT NULL AND parent_job IS NULL) AS \"restartable!\"\n           FROM v2_job WHERE id = $1",
+  "query": "SELECT (kind = 'flow' AND parent_job IS NULL) AS \"restartable!\"\n           FROM v2_job WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -18,5 +18,5 @@
       null
     ]
   },
-  "hash": "c2b6fed7975676b3100e591f7ababbbdec0ec92e671b13b177109615238014aa"
+  "hash": "4371e59b85cc279dba03800aacde8a4b96c9629cdc785edc7a389c3eb7269608"
 }
