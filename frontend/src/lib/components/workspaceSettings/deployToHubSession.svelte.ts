@@ -61,6 +61,35 @@ export interface DeployItem {
 export const canRecord = (k: Kind) => k === 'script' || k === 'flow'
 export const canPublishApp = (k: Kind) => k === 'app' || k === 'raw_app'
 
+// Legacy raw apps live only in the `raw_app` table, but the iframe share flow
+// drives AppService (the `app` table), so it can only target apps stored there.
+export const canShareAsIframe = (it: DeployItem): boolean =>
+	it.kind === 'app' || (it.kind === 'raw_app' && it.appTable === true)
+
+// Hub rehydration only carries draft membership, not the live share state of an
+// app. Copy the public-execution flag, public URL, and app-table origin from the
+// loaded workspace items onto matching draft items so a still-public app keeps its
+// Public badge, Unpublish, and iframe controls after its draft is reopened. Returns
+// the original array unchanged when nothing needs merging (stable reference).
+export function mergeShareState(
+	draftItems: DeployItem[],
+	workspaceItems: DeployItem[]
+): DeployItem[] {
+	if (draftItems.length === 0 || workspaceItems.length === 0) return draftItems
+	const byKey = new Map(workspaceItems.map((w) => [w.key, w]))
+	let changed = false
+	const merged = draftItems.map((d) => {
+		const w = byKey.get(d.key)
+		if (!w) return d
+		if (w.published !== d.published || w.publicUrl !== d.publicUrl || w.appTable !== d.appTable) {
+			changed = true
+			return { ...d, published: w.published, publicUrl: w.publicUrl, appTable: w.appTable }
+		}
+		return d
+	})
+	return changed ? merged : draftItems
+}
+
 export function sanitizeSlug(s: string): string {
 	return s
 		.toLowerCase()
@@ -436,6 +465,7 @@ export class DeployToHubSession {
 			}
 			if (this.#disposed) return
 			this.workspaceItems = next
+			this.draftItems = mergeShareState(this.draftItems, this.workspaceItems)
 		} catch (e: any) {
 			if (!this.#disposed) {
 				sendUserToast(`Failed to load project items: ${e?.message ?? e}`, true)
@@ -507,6 +537,8 @@ export class DeployToHubSession {
 				} satisfies DeployItem
 			})
 			this.hubItemIds = ids
+			// Runs after both #loadWorkspace and rehydrateFromHub since they race.
+			this.draftItems = mergeShareState(this.draftItems, this.workspaceItems)
 		} catch {}
 	}
 

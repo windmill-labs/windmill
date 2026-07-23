@@ -11,7 +11,7 @@
 	import {
 		useDeployToHubSession,
 		canRecord,
-		canPublishApp,
+		canShareAsIframe,
 		sanitizeSlug,
 		isValidSlug,
 		type DeployItem
@@ -441,7 +441,7 @@
 							<Badge color="yellow" size="xs">No recording</Badge>
 						{/if}
 					{/if}
-					{#if s.phase !== 'predeploy' && canPublishApp(it.kind)}
+					{#if s.phase !== 'predeploy' && canShareAsIframe(it)}
 						{#if it.published && it.publicUrl}
 							<Badge color="green" size="xs">
 								<Globe size={10} class="mr-0.5" />Public
