@@ -914,6 +914,13 @@ async fn create_script_internal<'c>(
     }
     check_scopes(&authed, || format!("scripts:write:{}", ns.path))?;
 
+    // Normalize positive-only settings so a `<= 0` value (e.g. a CLI-pushed `0`) persists as
+    // disabled rather than as a zero-slot concurrency cap or a 0-second timeout. Deserialization
+    // already normalizes the concurrency fields; re-applying here also covers `timeout` and any
+    // NewScript built in-process rather than from a request body.
+    ns.timeout = windmill_common::runnable_settings::none_if_non_positive(ns.timeout);
+    ns.concurrency_settings = ns.concurrency_settings.normalized();
+
     guard_script_from_debounce_data(&ns).await?;
 
     let codebase = ns.codebase.as_ref();

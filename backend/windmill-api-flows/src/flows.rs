@@ -527,6 +527,11 @@ async fn create_flow(
     }
     check_scopes(&authed, || format!("flows:write:{}", nf.path))?;
 
+    // A `<= 0` flow timeout is "unset", not a 0-second limit that kills every run instantly.
+    // (The concurrency settings inside the flow value are normalized on deserialization; see
+    // ConcurrencySettings.) Runtime guards also protect already-stored rows.
+    nf.timeout = windmill_common::runnable_settings::none_if_non_positive(nf.timeout);
+
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
@@ -1012,7 +1017,9 @@ async fn update_flow(
     }
     let flow_path = flow_path.to_path();
     // The URL identifies the flow being updated; the body path is only needed to rename.
-    let nf = ef.into_new_flow(flow_path);
+    let mut nf = ef.into_new_flow(flow_path);
+    // A `<= 0` flow timeout is "unset", not a 0-second limit (see create_flow).
+    nf.timeout = windmill_common::runnable_settings::none_if_non_positive(nf.timeout);
     check_scopes(&authed, || format!("flows:write:{}", flow_path))?;
 
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
