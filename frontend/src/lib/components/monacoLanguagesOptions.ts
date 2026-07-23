@@ -34,6 +34,10 @@ export function setMonacoJsonOptions() {
 
 let typescriptInitialized = false
 
+// Codes Monaco is told to drop before publishing markers. Anything reasoning about how
+// many markers a model should end up with has to apply the same filter.
+export const TS_DIAGNOSTIC_CODES_TO_IGNORE = [1108, 7006, 7034, 7019, 7005]
+
 export function setMonacoTypescriptOptions() {
 	if (typescriptInitialized) return
 	typescriptInitialized = true
@@ -71,7 +75,7 @@ export function setMonacoTypescriptOptions() {
 		noSyntaxValidation: false,
 
 		noSuggestionDiagnostics: false,
-		diagnosticCodesToIgnore: [1108, 7006, 7034, 7019, 7005]
+		diagnosticCodesToIgnore: TS_DIAGNOSTIC_CODES_TO_IGNORE
 	})
 
 	typescriptDefaults.setCompilerOptions({
@@ -100,7 +104,11 @@ export function setMonacoTypescriptOptions() {
 		allowImportingTsExtensions: true,
 		allowSyntheticDefaultImports: true,
 		moduleResolution: ModuleResolutionKind.NodeJs,
-		jsx: JsxEmit.React
+		jsx: JsxEmit.React,
+		// React's types declare it as a UMD global. Without this, every JSX line in a file
+		// that doesn't import React is reported as an error, which is how raw app files and
+		// anything using the automatic JSX runtime are written.
+		allowUmdGlobalAccess: true
 	})
 }
 

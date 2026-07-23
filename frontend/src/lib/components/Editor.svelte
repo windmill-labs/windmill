@@ -7,7 +7,6 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 
-	import { buildWsUrl } from '$lib/wsUrl'
 	import { sendUserToast } from '$lib/toast'
 
 	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
@@ -33,7 +32,6 @@
 		dbSchemas,
 		type DBSchema,
 		codeCompletionSessionEnabled,
-		lspTokenStore,
 		formatOnSave,
 		vimMode,
 		relativeLineNumbers
@@ -41,16 +39,9 @@
 
 	import { editorConfig, registerWebviewPaste, updateOptions } from '$lib/editorUtils'
 	import { editorFontSize } from '$lib/editorFontSize.svelte'
-	import { createHash as randomHash } from '$lib/editorLangUtils'
 	import { workspaceStore } from '$lib/stores'
 	import DdlMigrationGuard from './DdlMigrationGuard.svelte'
-	import {
-		type Preview,
-		ResourceService,
-		type ScriptLang,
-		UserService,
-		WorkspaceService
-	} from '$lib/gen'
+	import { type Preview, type ScriptLang } from '$lib/gen'
 	import type { Text } from 'yjs'
 	import {
 		initializeVscode,
@@ -81,11 +72,10 @@
 		POSTGRES_TYPES,
 		SNOWFLAKE_TYPES
 	} from '$lib/consts'
-	import { setupTypeAcquisition, type DepsToGet } from '$lib/ata/index'
-	import { initWasmTs, type InferAssetsSqlQueryDetails } from '$lib/infer'
+	import { type DepsToGet } from '$lib/ata/index'
+	import { type InferAssetsSqlQueryDetails } from '$lib/infer'
 	import { initVim } from './monaco_keybindings'
 	import { updateSqlQueriesInWorker, waitForWorkerInitialization } from './sqlTypeService'
-	import { parseTypescriptDeps } from '$lib/relative_imports'
 
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import {
@@ -105,11 +95,20 @@
 	import GlobalReviewButtons from './copilot/chat/GlobalReviewButtons.svelte'
 	import AIChatInlineWidget from './copilot/chat/AIChatInlineWidget.svelte'
 	import { writable } from 'svelte/store'
-	import { formatResourceTypes } from './copilot/chat/script/core'
 	import type { ScriptLintResult } from './copilot/chat/shared'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { editorPositionMap } from '$lib/utils'
-	import { extToLang, langToExt } from '$lib/editorLangUtils'
+	import { extToLang } from '$lib/editorLangUtils'
+	import { computeModelPath, computeModelUri } from './lint/monacoUri'
+	import {
+		applyCustomWmillTypes,
+		ensureResourceTypeNamespace,
+		fetchCustomWmillTypesData
+	} from './lint/typescriptExtraLibs'
+	import { ataSeedImport, createWindmillAta, genAtaRoot } from './lint/typescriptAta'
+	import { readModelMarkers } from './lint/markers'
+	import { registerEditor as registerLintEditor } from './lint/headlessModelHost'
+	import { buildDenoImportMap, hasLanguageServers, lspServersFor } from './lint/lspLanguageConfig'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { Selection } from 'monaco-editor'
 	import { canHavePreprocessor, getPreprocessorModuleCode } from '$lib/script_helpers'
@@ -252,7 +251,12 @@
 		cmdEnterAction?.()
 	}
 
-	let filePath = $state(computePath(untrack(() => path)))
+	let filePath = $state(
+		computeModelPath(
+			untrack(() => path),
+			untrack(() => scriptLang)
+		)
+	)
 
 	let initialPath: string | undefined = $state(untrack(() => path))
 
@@ -269,40 +273,13 @@
 	let dbSchema: DBSchema | undefined = $state(undefined)
 
 	let destroyed = false
-	const uri = computeUri(
+	const uri = computeModelUri(
 		untrack(() => filePath),
-		untrack(() => scriptLang)
+		untrack(() => scriptLang),
+		untrack(() => lang)
 	)
 
 	console.log('uri', uri)
-
-	function computeUri(filePath: string, scriptLang: string | undefined) {
-		let file
-		if (filePath.includes('.')) {
-			file = filePath
-		} else {
-			file = `${filePath}.${scriptLang == 'tsx' ? 'tsx' : langToExt(lang)}`
-		}
-		if (file.startsWith('/')) {
-			file = file.slice(1)
-		}
-		return !['deno', 'go', 'python3'].includes(scriptLang ?? '')
-			? `file:///${file}`
-			: `file:///tmp/monaco/${file}`
-	}
-
-	function computePath(path: string | undefined): string {
-		if (
-			['deno', 'go', 'python3'].includes(scriptLang ?? '') ||
-			path == '' ||
-			path == undefined //||path.startsWith('/')
-		) {
-			return randomHash()
-		} else {
-			// console.log('path', path)
-			return path as string
-		}
-	}
 
 	export function switchToFile(path: string, value: string, lang: string) {
 		if (editor) {
@@ -561,17 +538,7 @@
 		if (!model) {
 			return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
 		}
-
-		const markers = meditor.getModelMarkers({ resource: model.uri })
-		const errors = markers.filter((m) => m.severity === MarkerSeverity.Error)
-		const warnings = markers.filter((m) => m.severity === MarkerSeverity.Warning)
-
-		return {
-			errorCount: errors.length,
-			warningCount: warnings.length,
-			errors,
-			warnings
-		}
+		return readModelMarkers(model.uri)
 	}
 
 	let command: IDisposable | undefined = undefined
@@ -1014,15 +981,7 @@
 	export async function reloadWebsocket() {
 		await closeWebsockets()
 
-		if (
-			!useWebsockets ||
-			!(
-				(lang == 'typescript' && scriptLang === 'deno') ||
-				lang == 'python' ||
-				lang == 'go' ||
-				lang == 'shell'
-			)
-		) {
+		if (!useWebsockets || !hasLanguageServers(lang, scriptLang)) {
 			return
 		}
 		console.log('reloadWebsocket')
@@ -1173,153 +1132,20 @@
 			}
 		}
 
-		const hostname = getHostname()
-
-		let encodedImportMap = ''
-
 		if (useWebsockets) {
+			let denoImportMap: string | undefined = undefined
 			if (lang == 'typescript' && scriptLang === 'deno') {
 				ata = undefined
-				let root = await genRoot(hostname)
-				const importMap = {
-					imports: {
-						'file:///': root + '/'
-					}
-				}
-				if (filePath && filePath.split('/').length > 2) {
-					let path_splitted = filePath.split('/')
-					for (let c = 0; c < path_splitted.length; c++) {
-						let key = 'file://./'
-						for (let i = 0; i < c; i++) {
-							key += '../'
-						}
-						let url = path_splitted.slice(0, -c - 1).join('/')
-						let ending = c == path_splitted.length - 1 ? '' : '/'
-						importMap['imports'][key] = `${root}/${url}${ending}`
-					}
-				}
-				encodedImportMap = 'data:text/plain;base64,' + btoa(JSON.stringify(importMap))
-				await connectToLanguageServer(
-					buildWsUrl('/ws/deno'),
-					'deno',
-					{
-						certificateStores: null,
-						enablePaths: [],
-						config: null,
-						importMap: encodedImportMap,
-						internalDebug: false,
-						lint: false,
-						path: null,
-						tlsCertificate: null,
-						unsafelyIgnoreCertificateErrors: null,
-						unstable: true,
-						enable: true,
-						codeLens: {
-							implementations: true,
-							references: true,
-							referencesAllFunction: false
-						},
-						suggest: {
-							autoImports: true,
-							completeFunctionCalls: false,
-							names: true,
-							paths: true,
-							imports: {
-								autoDiscover: true,
-								hosts: {
-									'https://deno.land': true
-								}
-							}
-						}
-					},
-					() => {
-						return [
-							{
-								enable: true
-							}
-						]
-					}
-				)
-			} else if (lang === 'python') {
-				await connectToLanguageServer(
-					buildWsUrl('/ws/pyright'),
-					'pyright',
-					{},
-					(params, token, next) => {
-						if (params.items.find((x) => x.section === 'python')) {
-							return [
-								{
-									analysis: {
-										useLibraryCodeForTypes: true,
-										autoImportCompletions: true,
-										diagnosticSeverityOverrides: { reportMissingImports: 'none' },
-										typeCheckingMode: 'basic'
-									}
-								}
-							]
-						}
-						if (params.items.find((x) => x.section === 'python.analysis')) {
-							return [
-								{
-									useLibraryCodeForTypes: true,
-									autoImportCompletions: true,
-									diagnosticSeverityOverrides: { reportMissingImports: 'none' },
-									typeCheckingMode: 'basic'
-								}
-							]
-						}
-						return next(params, token)
-					}
-				)
+				denoImportMap = buildDenoImportMap(await genAtaRoot($workspaceStore ?? ''), filePath)
+			}
 
-				connectToLanguageServer(buildWsUrl('/ws/ruff'), 'ruff', {}, undefined)
-			} else if (lang === 'go') {
-				connectToLanguageServer(
-					buildWsUrl('/ws/go'),
-					'go',
-					{
-						'build.allowImplicitNetworkAccess': true
-					},
-					undefined
+			for (const server of lspServersFor({ editorLang: lang, scriptLang, denoImportMap })) {
+				await connectToLanguageServer(
+					server.url,
+					server.name,
+					server.initOptions,
+					server.middleware
 				)
-			} else if (lang === 'shell') {
-				connectToLanguageServer(
-					buildWsUrl('/ws/diagnostic'),
-					'shellcheck',
-					{
-						linters: {
-							shellcheck: {
-								command: 'shellcheck',
-								debounce: 100,
-								args: ['--format=gcc', '-'],
-								offsetLine: 0,
-								offsetColumn: 0,
-								sourceName: 'shellcheck',
-								formatLines: 1,
-								formatPattern: [
-									'^[^:]+:(\\d+):(\\d+):\\s+([^:]+):\\s+(.*)$',
-									{
-										line: 1,
-										column: 2,
-										message: 4,
-										security: 3
-									}
-								],
-								securities: {
-									error: 'error',
-									warning: 'warning',
-									note: 'info'
-								}
-							}
-						},
-						filetypes: {
-							shell: 'shellcheck'
-						}
-					},
-					undefined
-				)
-			} else {
-				closeWebsockets()
 			}
 
 			websocketInterval && clearInterval(websocketInterval)
@@ -1357,10 +1183,6 @@
 	let pathTimeout: number | undefined = undefined
 
 	let yPadding = MONACO_Y_PADDING
-
-	function getHostname() {
-		return BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'
-	}
 
 	function handlePathChange() {
 		console.log('path changed, reloading language server', initialPath, path)
@@ -1525,6 +1347,13 @@
 			const nmodel = meditor.getModel(mUri.parse(uri))
 			if (!nmodel) {
 				throw err
+			}
+			// Headless linting creates models at this same canonical URI, so an unattached
+			// one holds whatever was last linted rather than this editor's content. Only
+			// adopt-and-overwrite in that case: a model another editor is showing may hold
+			// edits the user has not saved.
+			if (!nmodel.isAttachedToEditor() && nmodel.getValue() !== (code ?? '')) {
+				nmodel.setValue(code ?? '')
 			}
 			model = nmodel
 		}
@@ -1755,61 +1584,16 @@
 
 	let customTsTypesData = resource([() => lang], async () => {
 		if (lang !== 'typescript') return undefined
-		let datatables = (
-			await WorkspaceService.listDataTables({ workspace: $workspaceStore ?? '' })
-		).map((d) => d.name)
-		let ducklakes = await WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? '' })
-		return { datatables, ducklakes }
+		return await fetchCustomWmillTypesData($workspaceStore ?? '')
 	})
 	function setTypescriptCustomTypes() {
 		if (!customTsTypesData.current) return
 		if (lang !== 'typescript') return
-
-		const ducklakeNames = customTsTypesData.current.ducklakes
-		const datatableNames = customTsTypesData.current.datatables
-
-		const ducklakeNameType = ducklakeNames.length
-			? ducklakeNames.map((name) => JSON.stringify(name)).join(' | ')
-			: 'string'
-		const datatableNameType = datatableNames.length
-			? datatableNames.map((name) => JSON.stringify(name)).join(' | ')
-			: 'string'
-		const isDucklakeOptional = ducklakeNames.includes('main')
-		const isDataTableOptional = datatableNames.includes('main')
-
-		let disposeTs = typescriptDefaults.addExtraLib(
-			`export {};
-			declare module 'windmill-client' {
-				import { type DatatableSqlTemplateFunction, type SqlTemplateFunction } from 'windmill-client';
-				export function ducklake(name${isDucklakeOptional ? '?' : ''}: ${ducklakeNameType}): SqlTemplateFunction;
-				export function datatable(name${isDataTableOptional ? '?' : ''}: ${datatableNameType}): DatatableSqlTemplateFunction;
-			}`,
-			'file:///custom_wmill_types.d.ts'
-		)
-		return () => {
-			disposeTs.dispose()
-		}
+		return applyCustomWmillTypes(customTsTypesData.current)
 	}
 
 	async function setTypescriptRTNamespace() {
-		if (
-			scriptLang &&
-			(scriptLang === 'bun' ||
-				scriptLang === 'deno' ||
-				scriptLang === 'bunnative' ||
-				scriptLang === 'nativets')
-		) {
-			const resourceTypes = await ResourceService.listResourceType({
-				workspace: $workspaceStore ?? ''
-			})
-
-			const namespace = formatResourceTypes(
-				resourceTypes,
-				scriptLang === 'bunnative' ? 'bun' : scriptLang
-			)
-
-			typescriptDefaults.addExtraLib(namespace, 'rt.d.ts')
-		}
+		await ensureResourceTypeNamespace($workspaceStore ?? '', scriptLang)
 	}
 
 	async function setTypescriptExtraLibs() {
@@ -1825,77 +1609,27 @@
 		) {
 			absolutePathExtraLibs.forEach((d) => d.dispose())
 			absolutePathExtraLibs.clear()
-			const hostname = getHostname()
 
-			const addLibraryToRuntime = async (code: string, _path: string) => {
-				const path = 'file://' + _path
-				let uri = mUri.parse(path)
-				console.log('adding library to runtime', path)
-				typescriptDefaults.addExtraLib(code, path)
-				try {
-					await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code))
-				} catch (e) {
-					console.log('error writing file', e)
-				}
-			}
-
-			const addLocalFile = async (code: string, _path: string) => {
-				if (destroyed) return
-				let p = new URL(_path, uri).href
-				let nuri = mUri.parse(p)
-				console.log('adding local file', _path, nuri.toString())
-				// Monaco's TS service resolves relative imports against the importer's URI (finding the
-				// model), but absolute paths like "/u/admin/foo" are looked up as raw paths and miss the
-				// `file://` model. Register them as extra libs so TS can resolve them.
-				if (_path.startsWith('/')) {
-					absolutePathExtraLibs.get(_path)?.dispose()
-					absolutePathExtraLibs.set(_path, typescriptDefaults.addExtraLib(code, _path))
-				}
-				if (editor) {
-					let localModel = meditor.getModel(nuri)
-					if (localModel) {
-						localModel.setValue(code)
-					} else {
-						meditor.createModel(code, 'typescript', nuri)
-					}
+			ata = await createWindmillAta({
+				root: await genAtaRoot($workspaceStore ?? ''),
+				scriptPath: path,
+				modelUri: uri,
+				absolutePathExtraLibs,
+				isCancelled: () => destroyed,
+				registerLocalModels: () => editor != undefined,
+				onLocalFileRegistered: () => {
 					try {
-						if (model) {
-							model?.setValue(model.getValue())
-						}
+						model?.setValue(model.getValue())
 					} catch (e) {
 						console.log('error resetting model', e)
 					}
 				}
-			}
-			await initWasmTs()
-			const root = await genRoot(hostname)
-			console.log('SETUP TYPE ACQUISITION', { root, path })
-			ata = setupTypeAcquisition({
-				projectName: 'Windmill',
-				depsParser: (c) => {
-					return parseTypescriptDeps(c)
-				},
-				root,
-				scriptPath: path,
-				logger: console,
-				delegate: {
-					receivedFile: addLibraryToRuntime,
-					localFile: addLocalFile,
-					progress: (downloaded: number, total: number) => {
-						// console.log({ dl, ttl })
-					},
-					started: () => {
-						console.log('ATA start')
-					},
-					finished: (f) => {
-						console.log('ATA done')
-					}
-				}
 			})
-			if (scriptLang == 'bun') {
-				ata?.('import "bun-types"')
+			const seed = ataSeedImport(scriptLang)
+			if (seed) {
+				ata?.(seed)
 			}
-			if (scriptLang == 'bunnative' || scriptLang == 'bun') {
+			if (scriptLang == 'bunnative' || scriptLang == 'bun' || scriptLang == 'tsx') {
 				ata?.(code ?? '')
 			}
 			dispatch('ataReady')
@@ -1951,8 +1685,16 @@
 	})
 
 	let loadTimeout: number | undefined = undefined
+	// Announce this editor to the headless lint host: when the AI chat lints the same item
+	// in the same workspace, it reads these markers instead of touching this model.
+	let unregisterFromLintHost: (() => void) | undefined = undefined
+
 	onMount(async () => {
 		if (BROWSER) {
+			unregisterFromLintHost = registerLintEditor(uri, $workspaceStore ?? '', () => ({
+				markers: getLintErrors(),
+				content: getCode()
+			}))
 			if (loadAsync) {
 				loadTimeout = setTimeout(() => loadMonaco().then((x) => (disposeMethod = x)), 0)
 			} else {
@@ -1964,6 +1706,7 @@
 
 	onDestroy(() => {
 		console.log('destroying editor')
+		unregisterFromLintHost?.()
 		valueAfterDispose = getCode()
 		pasteCleanup?.()
 		destroyed = true
@@ -1983,21 +1726,6 @@
 		absolutePathExtraLibs.forEach((d) => d.dispose())
 		absolutePathExtraLibs.clear()
 	})
-
-	async function genRoot(hostname: string) {
-		let token = $lspTokenStore
-		if (!token) {
-			let expiration = new Date()
-			expiration.setHours(expiration.getHours() + 72)
-			const newToken = await UserService.createToken({
-				requestBody: { label: 'Ephemeral lsp token', expiration: expiration.toISOString() }
-			})
-			$lspTokenStore = newToken
-			token = newToken
-		}
-		let root = hostname + '/api/scripts_u/tokened_raw/' + $workspaceStore + '/' + token
-		return root
-	}
 
 	function acceptCodeChanges() {
 		const mode = aiChatEditorHandler?.getReviewMode?.()
@@ -2035,7 +1763,7 @@
 	})
 
 	$effect(() => {
-		filePath = computePath(path)
+		filePath = computeModelPath(path, scriptLang)
 	})
 	$effect(() => {
 		path != initialPath &&

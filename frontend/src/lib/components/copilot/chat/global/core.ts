@@ -87,12 +87,14 @@ import {
 	executeFlowStepTestRun,
 	executeTestRun,
 	findAndReplace,
+	formatScriptLintResult,
 	type CreatedResourceTriggerKind,
 	type PreviewCardKind,
 	type Tool,
 	type ToolCallbacks,
 	type ToolDisplayAction
 } from '../shared'
+import { findModuleInFlow } from '$lib/components/flows/flowTree'
 import { searchDocsTool, readDocsPageTool } from '../docs/core'
 import { createDbSchemaTool } from '../script/core'
 import type { ContextElement } from '../context'
@@ -354,6 +356,23 @@ const listWorkspaceItemsSchema = z.object({
 		.optional()
 		.describe(
 			'Page number, starting at 1. Each item type pages independently: request the next page while any type still returns a full page. Drafts appear on page 1 only, capped at limit per type.'
+		)
+})
+
+const getLintErrorsSchema = z.object({
+	kind: z
+		.enum(['script', 'flow', 'raw_app'])
+		.describe('What holds the code: a script, a flow module, or a raw app backend runnable.'),
+	path: z.string().describe('Workspace path of the script, flow, or raw app.'),
+	module_id: z
+		.string()
+		.optional()
+		.describe('Required when kind is flow. Id of the inline rawscript module to lint.'),
+	runnable_key: z
+		.string()
+		.optional()
+		.describe(
+			'Used when kind is raw_app: key of the inline backend runnable to lint. Omit it to instead check that the app frontend compiles.'
 		)
 })
 
@@ -1169,6 +1188,7 @@ Rules:
 - Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
 ${pipelineBullet}
+- After writing or editing code — a script, an inline flow module, or a raw app backend runnable — call get_lint_errors on it and fix what it reports before moving on. It checks the draft without opening an editor, so it catches what the editor would flag. It covers TypeScript, JavaScript, Python, Go, Deno and Bash; for other languages it says so and you should test-run instead. For a raw app, call it with the runnable key to check one backend runnable, or without one to check that the frontend still compiles after editing app files.
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
@@ -3220,6 +3240,20 @@ export const globalTools: Tool<{}>[] = [
 	},
 	{
 		def: createToolDef(
+			getLintErrorsSchema,
+			'get_lint_errors',
+			'Type-check a script, flow module, or raw app backend runnable and report its errors and warnings. Supports TypeScript, JavaScript, Python, Go, Deno and Bash.'
+		),
+		// The header carries the counts; the individual problems are worth a look but not
+		// worth the vertical space by default.
+		showDetails: true,
+		fn: async (ctx) => {
+			const parsed = getLintErrorsSchema.parse(ctx.args)
+			return getLintErrors(parsed, ctx)
+		}
+	},
+	{
+		def: createToolDef(
 			setFlowModuleCodeSchema,
 			'set_flow_module_code',
 			'Overwrite inline script code in one flow module and save a draft.'
@@ -4459,6 +4493,226 @@ async function readFlowModuleCode(
 		content: `Read inline script for "${args.module_id}"`
 	})
 	return content
+}
+
+type LintTargetArgs = {
+	kind: 'script' | 'flow' | 'raw_app'
+	path: string
+	module_id?: string
+	runnable_key?: string
+}
+
+async function resolveLintTarget(
+	args: LintTargetArgs,
+	workspace: string
+): Promise<{
+	content: string
+	language: string
+	itemKind: string
+	storagePath: string
+	subPath?: string
+	label: string
+}> {
+	if (args.kind === 'script') {
+		const script = await loadScriptForEdit(args.path, workspace).catch(() => {
+			throw new Error(`No draft or deployed script found at "${args.path}".`)
+		})
+		return {
+			content: script.content,
+			language: script.language,
+			itemKind: 'script',
+			storagePath: args.path,
+			label: `script "${args.path}"`
+		}
+	}
+
+	if (args.kind === 'flow') {
+		if (!args.module_id) {
+			throw new Error('module_id is required when kind is flow.')
+		}
+		const { flow } = await loadFlowDraftValue(args.path, workspace)
+		const module = findModuleInFlow(flow.value, args.module_id)
+		if (!module) {
+			throw new Error(`Module "${args.module_id}" not found in flow "${args.path}".`)
+		}
+		if (module.value.type !== 'rawscript') {
+			throw new Error(
+				`Module "${args.module_id}" in flow "${args.path}" is not an inline rawscript, so it has no code to lint.`
+			)
+		}
+		return {
+			content: module.value.content,
+			language: module.value.language,
+			// The editor mounts a flow module at "<flow path>/<module id>"; the owned model
+			// mirrors that under the flow's draft cell.
+			itemKind: 'flow',
+			storagePath: args.path,
+			subPath: args.module_id,
+			label: `module "${args.module_id}" of flow "${args.path}"`
+		}
+	}
+
+	const runnableKey = args.runnable_key
+	if (!runnableKey) {
+		throw new Error('runnable_key is required when kind is raw_app.')
+	}
+	const value = await loadAppValueForRead(args.path, workspace)
+	const runnable = value.runnables[runnableKey] as PersistedRunnable | undefined
+	if (!runnable) {
+		throw new Error(`Backend runnable "${runnableKey}" not found in app "${args.path}".`)
+	}
+	if (!runnable.inlineScript) {
+		throw new Error(
+			`Runnable "${runnableKey}" in app "${args.path}" has no inline script, so it has no code to lint.`
+		)
+	}
+	return {
+		content: runnable.inlineScript.content ?? '',
+		language: runnable.inlineScript.language,
+		itemKind: 'app',
+		storagePath: args.path,
+		subPath: runnableKey,
+		label: `runnable "${runnableKey}" of app "${args.path}"`
+	}
+}
+
+/**
+ * Two passes, because neither alone is enough: the bundler resolves the whole import
+ * graph but strips types without checking them, and the type checker catches what that
+ * misses but does not link the app together.
+ */
+async function checkAppFrontend(path: string, ctx: WriteDraftCtx): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	toolCallbacks.setToolStatus(toolId, { content: `Checking frontend of app "${path}"...` })
+	const value = await loadAppValueForRead(path, workspace)
+
+	const { lintAppFrontend } = await import('$lib/components/lint/headlessLint')
+	const [buildError, fileResults] = await Promise.all([
+		bundleRawAppDraft({ workspace, files: value.files }).then(
+			() => undefined,
+			(e) => (e instanceof Error ? e.message : String(e))
+		),
+		lintAppFrontend({ appPath: path, files: value.files, workspace }).catch((e) => {
+			console.error('get_lint_errors: app frontend type check failed', e)
+			return undefined
+		})
+	])
+
+	// The type check reports nothing when the whole call rejected, and separately flags when
+	// some files could not be checked though others were — both mean "not a clean bill".
+	const typeCheckFailed = fileResults === undefined
+	const files = fileResults?.files ?? []
+	const partial = fileResults?.status === 'incomplete'
+
+	const sections: string[] = []
+	if (buildError) {
+		sections.push(`❌ The app frontend failed to build:\n\n${buildError}`)
+	}
+	if (typeCheckFailed) {
+		sections.push('⚠️ The frontend could not be type-checked, so type errors may be missing.')
+	} else {
+		if (files.length > 0) {
+			const total = files.reduce((n, f) => n + f.result.errorCount + f.result.warningCount, 0)
+			sections.push(
+				`❌ **${total} problem(s)** found by the type checker:\n` +
+					files
+						.map(
+							(f) =>
+								`\n**${f.filePath}**\n` +
+								[...f.result.errors, ...f.result.warnings]
+									.map((m) => `- Line ${m.startLineNumber}: ${m.message}`)
+									.join('\n')
+						)
+						.join('\n')
+			)
+		}
+		if (partial) {
+			sections.push('⚠️ Some files could not be type-checked, so type errors may be missing.')
+		}
+	}
+	if (sections.length === 0) {
+		sections.push('✅ The app frontend builds and type-checks with no errors.')
+	}
+
+	const hasProblems = buildError !== undefined || files.length > 0
+	const inconclusive = typeCheckFailed || partial
+	const response = sections.join('\n\n')
+	toolCallbacks.setToolStatus(toolId, {
+		content: hasProblems
+			? `Frontend of app "${path}" has problems`
+			: inconclusive
+				? `Frontend of app "${path}" could not be fully checked`
+				: `Frontend of app "${path}" is clean`,
+		result: response
+	})
+	return response
+}
+
+async function getLintErrors(args: LintTargetArgs, ctx: WriteDraftCtx): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+
+	if (args.kind === 'raw_app' && !args.runnable_key) {
+		return checkAppFrontend(args.path, ctx)
+	}
+
+	const target = await resolveLintTarget(args, workspace)
+
+	// Loaded on demand: it pulls in Monaco, which must stay out of this module's
+	// import graph so the chat tools remain importable outside a browser.
+	const { canLintHeadless, lintCode } = await import('$lib/components/lint/headlessLint')
+
+	if (!canLintHeadless(target.language)) {
+		const response = `Linting ${target.language} is not supported. Do not retry; verify the code by test-running it instead.`
+		toolCallbacks.setToolStatus(toolId, {
+			content: `Lint unavailable for ${target.language}`,
+			result: response
+		})
+		return response
+	}
+
+	toolCallbacks.setToolStatus(toolId, { content: `Linting ${target.label}...` })
+	const outcome = await lintCode({
+		content: target.content,
+		scriptLang: target.language,
+		workspace,
+		itemKind: target.itemKind,
+		storagePath: target.storagePath,
+		subPath: target.subPath
+	})
+	const result = outcome.result
+	const incomplete = outcome.status === 'incomplete'
+
+	const summary =
+		result.errorCount > 0
+			? `${result.errorCount} error(s)`
+			: result.warningCount > 0
+				? `${result.warningCount} warning(s)`
+				: // No errors, but a checker didn't answer — not the same as clean.
+					incomplete
+					? 'inconclusive'
+					: 'no issues'
+	const hasIssues = result.errorCount > 0 || result.warningCount > 0
+	// Only a completed analysis with no markers is "clean" — an incomplete one with no
+	// markers found nothing because it never finished, which formatScriptLintResult would
+	// otherwise print as a green all-clear.
+	let response = hasIssues
+		? formatScriptLintResult(result)
+		: incomplete
+			? ''
+			: '✅ No lint issues found.'
+	if (incomplete) {
+		const note = `${outcome.missing.join(' and ')} did not respond, so some problems may not be listed. Treat a clean result as inconclusive.`
+		response += response ? `\n\nNote: ${note}` : `⚠️ ${note}`
+	}
+	if (outcome.contentMismatch) {
+		response += `\n\nNote: an editor is currently open on this code and its buffer differs from the draft. The results above are for what that editor shows.`
+	}
+	// The result has to reach the tool display, or its details panel reads "No result yet".
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Linted ${target.label}: ${summary}`,
+		result: response
+	})
+	return response
 }
 
 async function setFlowModuleCode(
