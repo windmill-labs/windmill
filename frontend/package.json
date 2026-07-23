@@ -304,6 +304,11 @@
 			"svelte": "./package/components/recording/ScriptRecordingReplay.svelte",
 			"default": "./package/components/recording/ScriptRecordingReplay.svelte"
 		},
+		"./components/PipelineRecordingReplay.svelte": {
+			"types": "./package/components/recording/PipelineRecordingReplay.svelte.d.ts",
+			"svelte": "./package/components/recording/PipelineRecordingReplay.svelte",
+			"default": "./package/components/recording/PipelineRecordingReplay.svelte"
+		},
 		"./components/recording/types": {
 			"types": "./package/components/recording/types.d.ts",
 			"default": "./package/components/recording/types.js"
@@ -531,6 +536,9 @@
 			],
 			"components/ScriptRecordingReplay.svelte": [
 				"./package/components/recording/ScriptRecordingReplay.svelte.d.ts"
+			],
+			"components/PipelineRecordingReplay.svelte": [
+				"./package/components/recording/PipelineRecordingReplay.svelte.d.ts"
 			],
 			"components/recording/types": [
 				"./package/components/recording/types.d.ts"

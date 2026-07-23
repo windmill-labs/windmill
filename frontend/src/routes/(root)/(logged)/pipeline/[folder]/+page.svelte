@@ -43,6 +43,7 @@
 		assetProducers
 	} from '$lib/components/assets/AssetGraph/graphTraversal'
 	import { runCascade, runSelection } from '$lib/components/assets/AssetGraph/cascadeOrchestrator'
+	import { DATA_ASSET_KINDS } from '$lib/components/assets/AssetGraph/cascadeRun'
 	import {
 		boundedSet,
 		buildLineageDag,
@@ -72,6 +73,11 @@
 		type PipelineDraft
 	} from '$lib/components/assets/AssetGraph/pipelineAiHelpers'
 	import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
+	import {
+		createPipelineRecording,
+		finalizePipelineRecording
+	} from '$lib/components/recording/pipelineRecording.svelte'
+	import type { PipelineRecording } from '$lib/components/recording/types'
 	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
 	import { onMount, tick, untrack } from 'svelte'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
@@ -79,6 +85,8 @@
 		AlertTriangle,
 		ArrowLeft,
 		ChevronDown,
+		Circle,
+		Download,
 		Folder,
 		FolderSearch,
 		History,
@@ -113,7 +121,7 @@
 	// Variables and resources are declarative config, not pipeline assets —
 	// they're hub-shaped (referenced by most runnables) and would swamp the
 	// layout without adding lineage information.
-	const DATA_KINDS = ['s3object', 'ducklake', 'datatable', 'volume']
+	const DATA_KINDS = DATA_ASSET_KINDS
 
 	let folder = $derived(page.params.folder as string)
 
@@ -1404,6 +1412,22 @@
 	// other's storage writes.
 	let cascadeRunningRoot = $state<string | undefined>(undefined)
 
+	// Recorder: when armed, the next cascade run captures the resolved graph, the
+	// per-node status timeline and each node's job stream into a downloadable
+	// recording that the /pipeline_replay player can rerun offline (parity with the
+	// flow/script recorders). Job capture (`watchJob`) and status capture
+	// (`recordStatuses`) no-op unless the store is active, so the cascade run
+	// paths call them unconditionally.
+	let pipelineRecording = createPipelineRecording()
+	let recordingMode = $state(false)
+	let lastPipelineRecording = $state<PipelineRecording | undefined>(undefined)
+
+	function downloadPipelineRecording() {
+		if (lastPipelineRecording) {
+			pipelineRecording.download(lastPipelineRecording)
+		}
+	}
+
 	// Script path → its schedule's configured args, so a manual "Run pipeline"
 	// launches a schedule-triggered script with the same payload a real tick
 	// would (rather than empty args). Schedule is the only trigger that stores a
@@ -1711,6 +1735,10 @@
 		// Claim the running-guard BEFORE the first await so a rapid second click
 		// (which reads `cascadeRunningRoot`) can't slip through and double-launch.
 		cascadeRunningRoot = schedule.roots[0] ?? scripts[0]
+		if (recordingMode) {
+			lastPipelineRecording = undefined
+			pipelineRecording.start(folder, displayGraph)
+		}
 		let firstJobId: string | undefined
 		try {
 			// Seed schedule-triggered roots with their configured payload.
@@ -1720,6 +1748,8 @@
 				launch: async (path) => {
 					const jobId = await launchCascadeScript(path)
 					activeRunnables.arm(`script:${path}`)
+					// No-op unless a recording is active; captures the node's stream.
+					if ($workspaceStore) pipelineRecording.watchJob(jobId, $workspaceStore)
 					if (firstJobId === undefined) {
 						firstJobId = jobId
 						runsPendingJobId = jobId
@@ -1727,7 +1757,8 @@
 					}
 					return jobId
 				},
-				waitTerminal: waitJobTerminal
+				waitTerminal: waitJobTerminal,
+				onUpdate: (statuses) => pipelineRecording.recordStatuses(statuses)
 			})
 			const n = res.statuses.size
 			if (res.ok) {
@@ -1750,7 +1781,21 @@
 				)
 			}
 		} finally {
-			cascadeRunningRoot = undefined
+			// Hold the run guard until finalization finishes: finalize keeps writing
+			// jobs/samples/code through the recorder store, and a second run's
+			// `start()` would reset those maps mid-write, corrupting both recordings.
+			// The nested finally still clears the guard if finalize ever rejects, so
+			// Run can't wedge permanently.
+			try {
+				if (pipelineRecording.active) {
+					lastPipelineRecording = await finalizePipelineRecording(
+						pipelineRecording,
+						$workspaceStore
+					)
+				}
+			} finally {
+				cascadeRunningRoot = undefined
+			}
 		}
 	}
 
@@ -2326,6 +2371,40 @@
 		{/if}
 		<div class="flex flex-row items-center gap-2 flex-1 justify-end">
 			{#if !isOperator && allPipelineScripts.length > 0}
+				<!-- Recorder: arm to capture the next pipeline run into a
+				     downloadable recording the /pipeline_replay player can rerun offline
+				     (parity with the flow/script recorders). -->
+				{#if lastPipelineRecording && !cascadeRunningRoot}
+					<Button
+						variant="subtle"
+						unifiedSize="sm"
+						startIcon={{ icon: Download }}
+						onclick={downloadPipelineRecording}
+						title="Download the last recorded pipeline run"
+					>
+						Download recording
+					</Button>
+				{/if}
+				<button
+					type="button"
+					onclick={() => (recordingMode = !recordingMode)}
+					disabled={!!cascadeRunningRoot}
+					class={twMerge(
+						'flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium transition-colors disabled:opacity-50',
+						recordingMode
+							? 'bg-red-50 dark:bg-red-900/30 border-red-300 dark:border-red-700 text-red-700 dark:text-red-400'
+							: 'bg-surface border-gray-300 dark:border-gray-600 text-secondary hover:bg-surface-hover'
+					)}
+					title={recordingMode
+						? 'Recording armed — the next pipeline run will be captured. Click to disarm.'
+						: 'Arm the recorder so the next pipeline run is captured for offline replay'}
+				>
+					<Circle
+						size={12}
+						class={recordingMode ? 'fill-red-600 text-red-600 animate-pulse' : ''}
+					/>
+					{recordingMode ? 'Recording' : 'Record'}
+				</button>
 				<!-- Pipeline-level run: always visible in both View and Edit so a
 				     run never requires hunting for a specific node's play button
 				     (dbt `build` / Dagster "Materialize all"). Runs every script in

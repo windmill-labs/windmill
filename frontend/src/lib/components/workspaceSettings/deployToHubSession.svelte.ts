@@ -37,6 +37,14 @@ import {
 	type GeneratedMigration
 } from './projectMigrations'
 import type { Kind } from '$lib/utils_deployable'
+import type { AssetGraphResponse } from '$lib/components/assets/AssetGraph/types'
+import {
+	CASCADE_JOB_TIMEOUT_MS,
+	CASCADE_POLL_INTERVAL_MS,
+	DATA_ASSET_KINDS
+} from '$lib/components/assets/AssetGraph/cascadeRun'
+import { capturePipelineRecording } from '$lib/components/recording/pipelineRecording.svelte'
+import type { PipelineRecording } from '$lib/components/recording/types'
 import {
 	TRIGGER_KINDS,
 	listAllWorkspaceTriggers,
@@ -116,6 +124,26 @@ const ITEM_KIND_ROUTE: Record<ItemKind, string> = {
 
 const HIDDEN_RESOURCE_TYPES = new Set(['app_theme', 'state', 'cache'])
 
+// Prune a folder's asset graph to a set of scripts so a pipeline recording only
+// runs, renders and samples the project's included members — a deselected branch
+// (its nodes, code, logs/results and table samples) never enters the recording.
+// Assets kept are only those an included script touches; edges/triggers only
+// those anchored on an included runnable.
+function pruneGraphToScripts(graph: AssetGraphResponse, scripts: Set<string>): AssetGraphResponse {
+	const runnables = graph.runnables.filter((r) => scripts.has(r.path))
+	const edges = graph.edges.filter((e) => scripts.has(e.runnable_path))
+	const keptAssets = new Set(edges.map((e) => `${e.asset_kind}:${e.asset_path}`))
+	const assets = graph.assets.filter((a) => keptAssets.has(`${a.kind}:${a.path}`))
+	const triggers = graph.triggers.filter((t) => scripts.has(t.runnable_path))
+	const macro_edges = graph.macro_edges?.filter(
+		(m) => scripts.has(m.consumer_path) && scripts.has(m.lib_path)
+	)
+	const test_edges = graph.test_edges?.filter(
+		(t) => scripts.has(t.runnable_path) && scripts.has(t.producer_path)
+	)
+	return { assets, runnables, edges, triggers, macro_edges, test_edges }
+}
+
 function typesFromSchema(schema: any): string[] {
 	const out = new Set<string>()
 	const props = schema?.properties
@@ -190,6 +218,16 @@ export class DeployToHubSession {
 	runError = $state<string | undefined>(undefined)
 	recordings = $state<Record<string, string>>({})
 
+	// Project-level data-pipeline recording. Unlike script/flow recordings (one
+	// job per item) a pipeline is the whole folder cascade, so it gets a single
+	// recording: the resolved asset graph, per-node status timeline, per-node job
+	// streams and asset samples — replayed by PipelineRecordingReplay.
+	pipelineGraph = $state<AssetGraphResponse | undefined>(undefined)
+	pipelineRunState = $state<RunState>('idle')
+	pipelineRecordingResult = $state<PipelineRecording | undefined>(undefined)
+	pipelineRunError = $state<string | undefined>(undefined)
+	pipelineRecorded = $state(false)
+
 	publishTarget = $state<DeployItem | undefined>()
 	publishing = $state(false)
 
@@ -221,6 +259,7 @@ export class DeployToHubSession {
 	// Intra-session tokens: latest call wins among competing calls on this session.
 	#triggerLoadTok = 0
 	#recordRunTok = 0
+	#pipelineRunTok = 0
 	#migrationsTok = 0
 	#schedulePreviewsInFlight = new Set<string>()
 	// Preview-only cache: toggling checkboxes re-runs the closure walk, but item
@@ -237,12 +276,16 @@ export class DeployToHubSession {
 
 	dispose() {
 		this.#disposed = true
+		// Invalidate any in-flight pipeline cascade poll so it stops on the next
+		// tick instead of polling to the timeout against a discarded session.
+		this.#pipelineRunTok++
 	}
 
 	load() {
 		void this.#loadWorkspace()
 		void this.#loadTriggers()
 		void this.rehydrateFromHub()
+		void this.#loadPipelineGraph()
 	}
 
 	filteredWorkspaceItems = $derived(
@@ -268,6 +311,21 @@ export class DeployToHubSession {
 	allRecorded = $derived(
 		this.recordableItems.length > 0 && this.recordableItems.every((i) => i.rec === 'recorded')
 	)
+	// Pipeline members of this project's folder (`// pipeline` scripts).
+	pipelineScriptPaths = $derived(
+		(this.pipelineGraph?.runnables ?? [])
+			.filter((r) => r.usage_kind === 'script' && r.in_pipeline)
+			.map((r) => r.path)
+	)
+	// The subset actually in the Hub project — so a member the user deselected from
+	// the bundle is neither executed nor embedded (with its code/logs/samples) in
+	// the recording. In the draft phase `items` is the project's membership.
+	recordablePipelineScriptPaths = $derived(
+		this.pipelineScriptPaths.filter((p) =>
+			this.items.some((i) => i.kind === 'script' && i.path === p)
+		)
+	)
+	isPipelineProject = $derived(this.pipelineScriptPaths.length > 0)
 	hubSlug = $derived(this.effectiveSlug || sanitizeSlug(this.hubName))
 
 	relevantTriggers = $derived.by(() => {
@@ -1475,6 +1533,132 @@ export class DeployToHubSession {
 			return true
 		} catch (e: any) {
 			sendUserToast(`Failed to save recording: ${e?.message ?? e}`, true)
+			return false
+		}
+	}
+
+	/** Resolve the project folder's asset graph so a data-pipeline project can be
+	 * detected and its whole-folder cascade recorded. Best-effort — a project
+	 * with no pipeline just never shows the pipeline record card. */
+	async #loadPipelineGraph() {
+		try {
+			const params = new URLSearchParams({
+				folder: this.folder,
+				asset_kinds: DATA_ASSET_KINDS.join(',')
+			})
+			const res = await fetch(`/api/w/${this.workspace}/assets/graph?${params}`, {
+				credentials: 'include'
+			})
+			if (!res.ok) throw new Error(`GET /assets/graph → ${res.status}`)
+			const graph = (await res.json()) as AssetGraphResponse
+			if (this.#disposed) return
+			this.pipelineGraph = graph
+		} catch {
+			// No pipeline graph — the pipeline record card simply stays hidden.
+		}
+	}
+
+	/** Run the whole-folder cascade and capture it into a single PipelineRecording.
+	 * Deployed-only (no drafts) and arg-less — unlike the editor it seeds no
+	 * per-node input, so a root that needs uploaded data or a schedule's static
+	 * payload records a failure the user can see and fix rather than a green run. */
+	runPipelineRecording = async () => {
+		const fullGraph = this.pipelineGraph
+		const scripts = this.recordablePipelineScriptPaths
+		if (!fullGraph || scripts.length === 0) return
+		const scriptSet = new Set(scripts)
+		// Scope the graph to the project's members so the run, the recorded graph
+		// (rendered by the player) and the asset samples all exclude deselected
+		// branches.
+		const graph = pruneGraphToScripts(fullGraph, scriptSet)
+		const tok = ++this.#pipelineRunTok
+		this.pipelineRunState = 'running'
+		this.pipelineRecordingResult = undefined
+		this.pipelineRunError = undefined
+		// A previous save's badge must not linger over a fresh, unsaved re-run.
+		this.pipelineRecorded = false
+		const workspace = this.workspace
+		try {
+			const { recording, result } = await capturePipelineRecording({
+				workspace,
+				folder: this.folder,
+				graph,
+				scriptPaths: scriptSet,
+				launch: (path) =>
+					JobService.runScriptByPath({
+						workspace,
+						path,
+						// Skip the backend asset-trigger dispatcher: the cascade engine owns
+						// the whole closure (parity with the pipeline editor's bounded run).
+						requestBody: { _wmill_skip_asset_dispatch: true }
+					}),
+				waitTerminal: (jobId) => this.#waitJobTerminal(jobId, tok)
+			})
+			if (tok !== this.#pipelineRunTok) return
+			this.pipelineRecordingResult = recording
+			// A dependency cycle drops its members from the schedule, so an all- or
+			// partially-cyclic run leaves the recording missing steps (and an empty
+			// schedule reports `ok`). Treat any dropped cyclic member as a failure so
+			// an incomplete pipeline can't be saved as a successful recording.
+			if (result.cyclic.length > 0) {
+				this.pipelineRunState = 'failed'
+				this.pipelineRunError = `Cannot record — ${result.cyclic.length} script(s) on a dependency cycle: ${result.cyclic.join(', ')}`
+			} else if (result.ok) {
+				this.pipelineRunState = 'success'
+			} else {
+				this.pipelineRunState = 'failed'
+				const failed = [...result.statuses.entries()]
+					.filter(([, s]) => s.status === 'failure')
+					.map(([p]) => p)
+				this.pipelineRunError =
+					failed.length > 0 ? `Failed at ${failed.join(', ')}` : 'Cascade did not complete'
+			}
+		} catch (e: any) {
+			if (tok !== this.#pipelineRunTok) return
+			this.pipelineRunState = 'failed'
+			this.pipelineRunError = `Failed to run pipeline: ${e?.message ?? e}`
+		}
+	}
+
+	// Poll a launched step to terminal, matching the pipeline editor's cascade
+	// timeout (DuckLake/DuckDB steps routinely exceed a few minutes). Adds the
+	// `#pipelineRunTok` cancellation the shared `makeWaitJobTerminal` lacks.
+	async #waitJobTerminal(jobId: string, tok: number): Promise<'success' | 'failure'> {
+		const deadline = Date.now() + CASCADE_JOB_TIMEOUT_MS
+		while (Date.now() < deadline) {
+			if (tok !== this.#pipelineRunTok) throw new Error('cancelled')
+			try {
+				const r = await JobService.getCompletedJobResultMaybe({
+					workspace: this.workspace,
+					id: jobId,
+					getStarted: false
+				})
+				if (r.completed) return r.success ? 'success' : 'failure'
+			} catch {
+				// transient — retry on the next tick
+			}
+			await sleep(CASCADE_POLL_INTERVAL_MS)
+		}
+		throw new Error(`Timed out waiting for job ${jobId}`)
+	}
+
+	/** Save the captured pipeline recording to the Hub, scoped to the project
+	 * (a pipeline is the whole folder, not a single Hub item). Returns true on
+	 * success. */
+	async savePipelineRecording(): Promise<boolean> {
+		const recording = this.pipelineRecordingResult
+		if (!recording || this.pipelineRunState !== 'success') return false
+		if (this.phase === 'predeploy') {
+			sendUserToast(`Push the project to the Hub first before saving its pipeline recording`, true)
+			return false
+		}
+		try {
+			await this.#postHub(`/hub/projects/${this.hubSlug}/pipeline_recording`, { recording })
+			this.pipelineRecorded = true
+			sendUserToast(`Pipeline recording saved`)
+			return true
+		} catch (e: any) {
+			sendUserToast(`Failed to save pipeline recording: ${e?.message ?? e}`, true)
 			return false
 		}
 	}
