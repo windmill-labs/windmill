@@ -6,6 +6,7 @@
 	import GitSyncRepositoryCard from './GitSyncRepositoryCard.svelte'
 	import GitSyncModalManager from './GitSyncModalManager.svelte'
 	import { enterpriseLicense, workspaceStore, userWorkspaces } from '$lib/stores'
+	import { base } from '$lib/base'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { untrack } from 'svelte'
@@ -86,6 +87,22 @@
 	const devSingleRepo = $derived(isDevWorkspace && (gitSyncContext?.repositories?.length ?? 0) <= 1)
 	const secondarySync = $derived(gitSyncContext?.getSecondarySyncRepositories() || [])
 	const secondaryPromotion = $derived(gitSyncContext?.getSecondaryPromotionRepositories() || [])
+	// Fork creation keeps only sync-mode repositories and a fork is refused a
+	// promotion one, so the single way a fork holds one is a dev workspace
+	// detached back into a plain fork. Deploys still sync through it (only the
+	// promotion branching is dropped), so name it instead of showing nothing.
+	const promotionModeRepos = $derived(
+		showPromotion ? [] : [primaryPromotion, ...secondaryPromotion].filter((r) => r != null)
+	)
+	// Promotion is what a dev workspace does, so a fork that wants it can be
+	// re-designated as one. Pairing is prod-scoped and admin-gated there, so this
+	// only links to the parent's screen, and only when the parent is a workspace
+	// the user actually has.
+	const devPairingHref = $derived.by(() => {
+		const parent = currentWorkspace?.parent_workspace_id
+		if (!parent || !$userWorkspaces?.some((w) => w.id === parent)) return undefined
+		return `${base}/workspace_settings?workspace=${parent}&tab=dev_workspace`
+	})
 
 	// State for collapsible sections
 	let secondarySyncExpanded = $state(false)
@@ -302,6 +319,30 @@
 								{/if}
 							{/if}
 						{/if}
+					</div>
+				{:else if !showPromotion}
+					<div class="mt-6">
+						<Alert
+							type="info"
+							title="Promotion does not apply to a fork"
+							documentationLink="https://www.windmill.dev/docs/advanced/workspace_forks"
+						>
+							Deploys in a fork always commit to the fork's own wm-fork/** branch, so a promotion
+							repository would never take effect here. Promote this fork's work by merging that
+							branch into the tracked branch instead.
+							{#if devPairingHref}
+								<div class="mt-2">
+									To promote per item from this workspace, pair it with its parent as a
+									<a href={devPairingHref} class="text-blue-500 hover:underline">dev workspace</a>.
+								</div>
+							{/if}
+							{#if promotionModeRepos.length > 0}
+								<div class="mt-2">
+									Still set to promotion mode here, and still syncing deploys to the fork's branch:
+									{promotionModeRepos.map((r) => r.repo.git_repo_resource_path).join(', ')}
+								</div>
+							{/if}
+						</Alert>
 					</div>
 				{/if}
 			{/if}
