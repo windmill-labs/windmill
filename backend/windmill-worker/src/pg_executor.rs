@@ -22,12 +22,12 @@ use tokio_postgres::{
     Column,
 };
 use uuid::Uuid;
+use windmill_common::datatable_permissions::get_datatable_resource_from_db_checked;
 use windmill_common::error::to_anyhow;
 use windmill_common::error::{self, Error};
 use windmill_common::worker::{
     to_raw_value, Connection, SqlResultCollectionStrategy, CLOUD_HOSTED,
 };
-use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
 use windmill_common::{PgDatabase, PrepareQueryColumnInfo, PrepareQueryResult, DB};
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
@@ -599,8 +599,14 @@ pub async fn do_postgresql(
                             .await?
                     }
                     Connection::Sql(db) => {
-                        get_datatable_resource_from_db_unchecked(db, &job.workspace_id, &db_str)
-                            .await?
+                        get_datatable_resource_from_db_checked(
+                            db,
+                            &job.workspace_id,
+                            &db_str,
+                            &job.permissioned_as,
+                            Some(&job.permissioned_as_email),
+                        )
+                        .await?
                     }
                 })
             }

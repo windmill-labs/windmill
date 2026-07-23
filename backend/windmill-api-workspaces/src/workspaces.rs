@@ -2398,7 +2398,8 @@ mod tests {
 }
 
 /// Resolve a source string to PgDatabase credentials with user-scoped permission checks.
-/// For `datatable://name`: accessible to everyone (variables are resolved internally).
+/// For `datatable://name`: fine-grained data table permissions apply when enabled
+/// (admins and permission-disabled data tables resolve to the shared role).
 /// For `$res:path`: uses UserDB (row-level security) to verify the user can see the resource,
 /// then interpolates `$var:` references in the resource value.
 pub(crate) async fn resolve_pg_source_checked(
@@ -2409,7 +2410,14 @@ pub(crate) async fn resolve_pg_source_checked(
     source: &str,
 ) -> Result<PgDatabase> {
     let db_resource = if let Some(name) = source.strip_prefix("datatable://") {
-        get_datatable_resource_from_db_unchecked(db, w_id, name).await?
+        windmill_common::datatable_permissions::get_datatable_resource_from_db_checked(
+            db,
+            w_id,
+            name,
+            &username_to_permissioned_as(&authed.username),
+            Some(&authed.email),
+        )
+        .await?
     } else if let Some(path) = source.strip_prefix("$res:") {
         let db_with_authed = windmill_common::db::DbWithOptAuthed::from_authed(
             authed,
