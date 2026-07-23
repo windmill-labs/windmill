@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { refContainmentViolation } from './projectInstall'
+import { refContainmentViolation, varContainmentViolation } from './projectInstall'
 import type { Ref } from './projectBundle'
 
 describe('refContainmentViolation', () => {
@@ -49,5 +49,30 @@ describe('refContainmentViolation', () => {
 				folder
 			)
 		).toContain('u/admin/secret')
+	})
+})
+
+describe('varContainmentViolation', () => {
+	const folder = 'proj'
+
+	it('allows in-folder variable references', () => {
+		expect(varContainmentViolation('token = "$var:f/proj/token"', folder)).toBeUndefined()
+		expect(varContainmentViolation('no refs here', folder)).toBeUndefined()
+	})
+
+	it('rejects a variable bound to another namespace', () => {
+		// The crux: a `$var:` the extractors miss, resolved under the runnable's perms.
+		expect(varContainmentViolation('{"queue_url":"$var:u/admin/token"}', folder)).toContain(
+			'u/admin/token'
+		)
+		expect(varContainmentViolation('$var:f/other/secret', folder)).toContain('escapes')
+	})
+
+	it('finds a `$var:` nested anywhere in the serialized item', () => {
+		const flowValue = JSON.stringify({
+			flow_env: { API: '$var:u/admin/api_key' },
+			modules: []
+		})
+		expect(varContainmentViolation(flowValue, folder)).toContain('u/admin/api_key')
 	})
 })

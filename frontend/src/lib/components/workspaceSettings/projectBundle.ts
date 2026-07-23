@@ -20,6 +20,20 @@ export type PathClass = 'internal' | 'hub' | 'external'
 /** A single `$res:PATH` / `res://PATH` token (path captured in group 1). */
 const RES_TOKEN_RE = /(?:\$res:|res:\/\/)([\w\-./]+)/g
 
+/** A single `$var:PATH` token (path captured in group 1). */
+const VAR_TOKEN_RE = /\$var:([\w\-./]+)/g
+
+// `$var:` references appear as whole or nested string values in flow static
+// inputs, flow_env, app values, schedule args and trigger config fields. Scan a
+// serialized item/config for the variable paths it will resolve at runtime.
+export function extractVarRefs(text: string): string[] {
+	const out = new Set<string>()
+	let m: RegExpExecArray | null
+	VAR_TOKEN_RE.lastIndex = 0
+	while ((m = VAR_TOKEN_RE.exec(text)) !== null) out.add(m[1])
+	return [...out]
+}
+
 export function classifyPath(path: string, slug: string): PathClass {
 	if (path.startsWith(`f/${slug}/`) || path === `f/${slug}`) return 'internal'
 	if (path.startsWith('hub/')) return 'hub'
@@ -542,5 +556,9 @@ export async function buildProjectBundle(
 		resourceStubs.push({ originalPath: path, newPath: map.get(path) ?? path, resource_type: type })
 	}
 
-	return { items, resourceStubs, pathMap: map, unresolved }
+	// `unresolved` keys missing items by kind:path but stores the bare path, so a
+	// missing script and flow (or a runnable and resource) sharing a path can push
+	// the same string twice. Dedupe: callers use it as a display/blocker list where
+	// duplicate keys would break keyed rendering.
+	return { items, resourceStubs, pathMap: map, unresolved: [...new Set(unresolved)] }
 }

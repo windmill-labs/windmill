@@ -14,6 +14,7 @@ import {
 	buildProjectBundle,
 	retargetProjectExport,
 	extractTriggerConfigResourceRefs,
+	extractVarRefs,
 	type ProjectExport,
 	type FetchedItem,
 	type ItemRef
@@ -464,6 +465,38 @@ describe('buildProjectBundle', () => {
 		}
 		const bundle = await buildProjectBundle([{ kind: 'flow', path: 'u/admin/root' }], 'proj', d)
 		expect(bundle.unresolved.sort()).toEqual(['u/admin/gone', 'u/admin/untyped'])
+	})
+
+	it('dedupes a path missing as both a script and a flow', async () => {
+		// A missing script + flow sharing a path each push the bare path once; the
+		// list must stay unique so a keyed UI render of it can't collide.
+		const root: FetchedItem = {
+			kind: 'flow',
+			path: 'u/admin/root',
+			value: {
+				modules: [
+					{ id: 'a', value: { type: 'script', path: 'u/admin/dup' } },
+					{ id: 'b', value: { type: 'flow', path: 'u/admin/dup' } }
+				]
+			}
+		}
+		const d = {
+			fetchItem: async (ref: ItemRef) => (ref.path === 'u/admin/root' ? root : undefined),
+			resolveResourceType: async () => undefined
+		}
+		const bundle = await buildProjectBundle([{ kind: 'flow', path: 'u/admin/root' }], 'proj', d)
+		expect(bundle.unresolved).toEqual(['u/admin/dup'])
+	})
+})
+
+describe('extractVarRefs', () => {
+	it('finds unique `$var:` paths anywhere in the text', () => {
+		expect(
+			extractVarRefs('a "$var:f/proj/token" b "$var:u/admin/key" c "$var:f/proj/token"').sort()
+		).toEqual(['f/proj/token', 'u/admin/key'])
+	})
+	it('returns nothing when there are no var tokens', () => {
+		expect(extractVarRefs('const x = "$res:f/proj/db"')).toEqual([])
 	})
 })
 
