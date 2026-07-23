@@ -141,8 +141,47 @@ vi.mock('$lib/gen', async () => {
 			getHttpTrigger: vi.fn(async () => {
 				throw new Error('getHttpTrigger mock not configured')
 			}),
+			listHttpTriggers: vi.fn(async () => []),
 			createHttpTrigger: vi.fn(async () => 'created'),
 			updateHttpTrigger: vi.fn(async () => 'updated')
+		}),
+		EmailTriggerService: wrapService(actual.EmailTriggerService, {
+			existsEmailTrigger: vi.fn(async () => false),
+			getEmailTrigger: vi.fn(async () => {
+				throw new Error('getEmailTrigger mock not configured')
+			}),
+			listEmailTriggers: vi.fn(async () => []),
+			createEmailTrigger: vi.fn(async () => 'created'),
+			updateEmailTrigger: vi.fn(async () => 'updated')
+		}),
+		// The remaining trigger kinds only need a list() stub so list_workspace_items
+		// treats them as available-but-empty (a real instance answers, not rejects).
+		WebsocketTriggerService: wrapService(actual.WebsocketTriggerService, {
+			listWebsocketTriggers: vi.fn(async () => [])
+		}),
+		KafkaTriggerService: wrapService(actual.KafkaTriggerService, {
+			listKafkaTriggers: vi.fn(async () => [])
+		}),
+		NatsTriggerService: wrapService(actual.NatsTriggerService, {
+			listNatsTriggers: vi.fn(async () => [])
+		}),
+		PostgresTriggerService: wrapService(actual.PostgresTriggerService, {
+			listPostgresTriggers: vi.fn(async () => [])
+		}),
+		MqttTriggerService: wrapService(actual.MqttTriggerService, {
+			listMqttTriggers: vi.fn(async () => [])
+		}),
+		AmqpTriggerService: wrapService(actual.AmqpTriggerService, {
+			listAmqpTriggers: vi.fn(async () => [])
+		}),
+		SqsTriggerService: wrapService(actual.SqsTriggerService, {
+			listSqsTriggers: vi.fn(async () => [])
+		}),
+		GcpTriggerService: wrapService(actual.GcpTriggerService, {
+			listGcpTriggers: vi.fn(async () => [])
+		}),
+		AzureTriggerService: wrapService(actual.AzureTriggerService, {
+			listAzureTriggers: vi.fn(async () => [])
 		}),
 		AppService: wrapService(actual.AppService, {
 			existsApp: vi.fn(async () => false),
@@ -279,6 +318,7 @@ import {
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
 	AppService,
+	EmailTriggerService,
 	FlowService,
 	FolderService,
 	HttpTriggerService,
@@ -1367,6 +1407,106 @@ describe('global AI tools', () => {
 		expect(
 			getBackendDraft('trigger_http', 'u/admin/fresh_route', { workspace: WORKSPACE })
 		).toBeUndefined()
+	})
+
+	// Email is the kind an implicit "run when an email is received" request maps to;
+	// guards the full draft->read->deploy wiring for it end to end.
+	it('reads and deploys an email trigger draft written by the chat', async () => {
+		await callGlobalTool('write_trigger', {
+			kind: 'email',
+			config: {
+				path: 'u/admin/fresh_inbox',
+				script_path: 'f/scripts/handler',
+				is_flow: false,
+				local_part: 'support'
+			}
+		})
+
+		const readRaw = await callGlobalTool('read_workspace_item', {
+			type: 'trigger',
+			trigger_kind: 'email',
+			path: 'u/admin/fresh_inbox'
+		})
+		expect(JSON.parse(readRaw)).toMatchObject({
+			type: 'trigger',
+			triggerKind: 'email',
+			path: 'u/admin/fresh_inbox',
+			isDraft: true
+		})
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'trigger',
+			trigger_kind: 'email',
+			path: 'u/admin/fresh_inbox'
+		})
+		expect(EmailTriggerService.createEmailTrigger).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: expect.objectContaining({
+				path: 'u/admin/fresh_inbox',
+				local_part: 'support',
+				script_path: 'f/scripts/handler',
+				// Omitted by the caller above; defaulted so the NOT NULL column is satisfied.
+				workspaced_local_part: false
+			})
+		})
+		expect(
+			getBackendDraft('trigger_email', 'u/admin/fresh_inbox', { workspace: WORKSPACE })
+		).toBeUndefined()
+	})
+
+	// Editing an existing email trigger whose workspaced_local_part is true while
+	// omitting the optional field must not reset it to false (that would change the
+	// receiving address). The default applies only to a genuinely new draft.
+	it('preserves workspaced_local_part when editing an existing email trigger', async () => {
+		vi.mocked(EmailTriggerService.existsEmailTrigger).mockResolvedValueOnce(true)
+		vi.mocked(EmailTriggerService.getEmailTrigger).mockResolvedValueOnce({
+			path: 'u/admin/ws_inbox',
+			script_path: 'f/scripts/handler',
+			local_part: 'support',
+			is_flow: false,
+			workspaced_local_part: true
+		} as any)
+
+		await callGlobalTool('write_trigger', {
+			kind: 'email',
+			config: {
+				path: 'u/admin/ws_inbox',
+				script_path: 'f/scripts/handler',
+				is_flow: false,
+				local_part: 'support'
+			}
+		})
+
+		const readRaw = await callGlobalTool('read_workspace_item', {
+			type: 'trigger',
+			trigger_kind: 'email',
+			path: 'u/admin/ws_inbox'
+		})
+		expect(JSON.parse(readRaw).value).toMatchObject({ workspaced_local_part: true })
+	})
+
+	// A trigger kind whose backend routes aren't compiled in (email without
+	// smtp+private, EE kinds on CE) 404s on list; that must not drop the whole listing.
+	it('skips unavailable trigger kinds when listing', async () => {
+		vi.mocked(HttpTriggerService.listHttpTriggers).mockResolvedValueOnce([
+			{ path: 'u/admin/live_route', script_path: 'f/scripts/handler', is_flow: false }
+		] as any)
+		vi.mocked(EmailTriggerService.listEmailTriggers).mockRejectedValueOnce(
+			Object.assign(new Error('not found'), { status: 404 })
+		)
+
+		const raw = await callGlobalTool('list_workspace_items', { types: ['trigger'] })
+		const paths = JSON.parse(raw).map((i: any) => i.path)
+		expect(paths).toContain('u/admin/live_route')
+	})
+
+	// Only a 404 means "route not compiled in". A real failure (auth, 5xx) must not
+	// be swallowed into a successful-but-incomplete listing.
+	it('propagates a non-404 trigger-list failure', async () => {
+		vi.mocked(HttpTriggerService.listHttpTriggers).mockRejectedValueOnce(
+			Object.assign(new Error('server error'), { status: 500 })
+		)
+		await expect(callGlobalTool('list_workspace_items', { types: ['trigger'] })).rejects.toThrow()
 	})
 
 	// Same private-owner read path as schedules, for the resource drawer kind.
