@@ -4,6 +4,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
 		AssetService,
+		FolderService,
 		type ListableApp,
 		type Script,
 		ScriptService,
@@ -116,6 +117,22 @@
 		new Set<string>([...(pipelineFoldersRes.current ?? []), ...pipelineMemberFolders])
 	)
 
+	// The workspace's full folder list, independent of which items are paged in,
+	// so the owner facet and tree show every folder even when its items sit far
+	// down the sorted stream. Cheap and cached per workspace.
+	let folderNamesRes = resource(
+		() => $workspaceStore,
+		async (ws) => {
+			if (!ws) return [] as string[]
+			try {
+				return await FolderService.listFolderNames({ workspace: ws })
+			} catch {
+				return [] as string[]
+			}
+		}
+	)
+	let allFolderOwners = $derived((folderNamesRes.current ?? []).map((f) => `f/${f}`))
+
 	let scripts: TableScript[] | undefined = $state()
 	let flows: TableFlow[] | undefined = $state()
 	let apps: TableApp[] | undefined = $state()
@@ -199,6 +216,10 @@
 				orderDesc,
 				showArchived: archived ? true : undefined,
 				includeWithoutMain: includeWithoutMain ? true : undefined,
+				// Selecting an owner/folder scopes the paged stream to it server-side,
+				// so a folder's full contents load on demand rather than relying on the
+				// folder happening to be within the loaded browse window.
+				pathStart: ownerFilter ? ownerFilter + '/' : undefined,
 				perPage: 100,
 				cursor
 			})
@@ -471,19 +492,25 @@
 	}
 
 	let collapseAll = $state(true)
+	// Complete owner list: every folder (from the folder list, not just loaded
+	// pages) plus the user prefixes present in the loaded/filtered items. So a
+	// folder whose items are far down the stream is still a selectable chip.
 	let owners = $derived(
 		Array.from(
-			new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
+			new Set([
+				...allFolderOwners,
+				...(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
+			])
 		).sort()
 	)
-	// Reload the first page from the server whenever an input that the endpoint
-	// resolves changes: order, archived/library scope, or entering/leaving search
-	// (leaving drops the augmented matches below). Owner/label/kind filtering and
-	// fuzzy ranking stay client-side over the loaded pages, so they don't reload here.
+	// Reload the first page from the server whenever an input the endpoint resolves
+	// changes: order, archived/library scope, the selected owner/folder, or
+	// entering/leaving search. Label/kind filtering and fuzzy ranking stay
+	// client-side over the loaded pages, so they don't reload here.
 	let searching = $derived(filter !== '')
 	$effect(() => {
 		if ($userStore && $workspaceStore) {
-			;[archived, includeWithoutMain, sortOrder, searching]
+			;[archived, includeWithoutMain, sortOrder, searching, ownerFilter]
 			untrack(() => {
 				loadRunnables(true)
 			})
@@ -498,9 +525,10 @@
 		const term = filter
 		const ws = $workspaceStore
 		// Same view scope as the browse list, so a search can't surface archived /
-		// library items the current view excludes.
+		// library items the current view excludes, and stays within the selected folder.
 		const showArchived = archived
 		const withoutMain = includeWithoutMain
+		const owner = ownerFilter
 		if (term === '' || !ws || !$userStore) return
 		const handle = setTimeout(async () => {
 			let res: { items: RunnableItem[] }
@@ -510,6 +538,7 @@
 					search: term,
 					showArchived: showArchived ? true : undefined,
 					includeWithoutMain: withoutMain ? true : undefined,
+					pathStart: owner ? owner + '/' : undefined,
 					perPage: 1000
 				})
 			} catch {
@@ -522,7 +551,8 @@
 				untrack(() => $workspaceStore) !== ws ||
 				untrack(() => filter) !== term ||
 				untrack(() => archived) !== showArchived ||
-				untrack(() => includeWithoutMain) !== withoutMain
+				untrack(() => includeWithoutMain) !== withoutMain ||
+				untrack(() => ownerFilter) !== owner
 			)
 				return
 			mergeRunnables(res.items ?? [])
@@ -574,21 +604,15 @@
 		}
 		prevWorkspace = ws
 	})
+	// The owner/folder filter is resolved server-side (path_start), so only the
+	// kind, user-folder toggle and label filters run client-side here.
 	let preFilteredItems = $derived(
-		ownerFilter != undefined
-			? combinedItems?.filter(
-					(x) =>
-						x.path.startsWith(ownerFilter + '/') &&
-						(x.type == itemKind || itemKind == 'all') &&
-						filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType) &&
-						(labelFilter == undefined || itemLabels(x).includes(labelFilter))
-				)
-			: combinedItems?.filter(
-					(x) =>
-						(x.type == itemKind || itemKind == 'all') &&
-						filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType) &&
-						(labelFilter == undefined || itemLabels(x).includes(labelFilter))
-				)
+		combinedItems?.filter(
+			(x) =>
+				(x.type == itemKind || itemKind == 'all') &&
+				filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType) &&
+				(labelFilter == undefined || itemLabels(x).includes(labelFilter))
+		)
 	)
 	let items = $derived(filter !== '' ? filteredItems : preFilteredItems)
 	let displayedItems = $derived((items ?? []).slice(0, nbDisplayed))
