@@ -3,14 +3,13 @@
 	import { Badge, Button, Skeleton } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
-		AppService,
 		AssetService,
-		FlowService,
 		type ListableApp,
 		type Script,
 		ScriptService,
 		type Flow,
-		type ListableRawApp
+		type ListableRawApp,
+		type RunnableItem
 	} from '$lib/gen'
 	import { resource } from 'runed'
 	import { getDraftItems } from '$lib/workspaceDrafts.svelte'
@@ -18,7 +17,6 @@
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
 		ArrowDownUp,
-		ChevronDown,
 		ChevronsDownUp,
 		ChevronsUpDown,
 		Code2,
@@ -132,76 +130,119 @@
 
 	let nbDisplayed = $state(15)
 
-	async function loadScripts(includeWithoutMain: boolean): Promise<void> {
-		const loadedScripts = await ScriptService.listScripts({
-			workspace: $workspaceStore!,
-			showArchived: archived ? true : undefined,
-			includeWithoutMain: includeWithoutMain ? true : undefined,
-			includeDraftOnly: true,
-			withoutDescription: true
-		})
+	// Keyset cursor for the next browse page; null once the stream is exhausted.
+	let serverCursor: string | undefined = undefined
+	let hasMoreServer = $state(false)
 
-		// Pipeline-member scripts (`auto_kind='pipeline'`) are represented by their
-		// pipeline's entry, not listed individually — but capture their folders so
-		// the pipeline entry still surfaces (incl. a members-only / draft-only folder).
-		const memberFolders = new Set<string>()
-		scripts = loadedScripts
-			.filter((script: Script) => {
-				if (script.auto_kind === 'pipeline') {
-					const m = script.path.match(/^f\/([^/]+)\//)
+	// Sort selector value -> merged-endpoint order params.
+	function sortToParams(o: SortOrder): { orderBy: 'updated' | 'name'; orderDesc: boolean } {
+		switch (o) {
+			case 'updated_asc':
+				return { orderBy: 'updated', orderDesc: false }
+			case 'name_asc':
+				return { orderBy: 'name', orderDesc: false }
+			case 'name_desc':
+				return { orderBy: 'name', orderDesc: true }
+			case 'updated_desc':
+			default:
+				return { orderBy: 'updated', orderDesc: true }
+		}
+	}
+
+	function mapRunnable(it: RunnableItem): TableScript | TableFlow | TableApp {
+		// The endpoint serializes absent optional fields as null; the per-kind list
+		// contract omits them, so strip nulls to keep `undefined` (a null draft_users
+		// / labels would otherwise crash the row components on `.length`).
+		const clean: Record<string, unknown> = {}
+		for (const [k, v] of Object.entries(it)) {
+			if (v !== null) clean[k] = v
+		}
+		const base = {
+			...clean,
+			canWrite:
+				canWrite(it.path, (it.extra_perms ?? {}) as any, $userStore) &&
+				(it.type === 'script' || it.workspace_id == $workspaceStore) &&
+				!$userStore?.operator
+		}
+		// combinedItems reads a script's time from `created_at`; the endpoint's
+		// unified `edited_at` holds exactly that for scripts.
+		if (it.type === 'script') return { ...base, created_at: it.edited_at } as unknown as TableScript
+		return base as unknown as TableFlow | TableApp
+	}
+
+	// The merged, server-ordered, keyset-paginated source. `reset` reloads from
+	// the first page (order/filter change or workspace switch); otherwise it
+	// appends the next page. All three kinds arrive interleaved and are split into
+	// the existing per-kind arrays so the downstream pipeline is unchanged.
+	async function loadRunnables(reset: boolean): Promise<void> {
+		const ws = $workspaceStore
+		if (!ws || !$userStore) return
+		if (reset) {
+			loading = true
+			serverCursor = undefined
+		}
+		const { orderBy, orderDesc } = sortToParams(sortOrder)
+		const searching = filter !== ''
+		let res: { items: RunnableItem[]; next_cursor?: string }
+		try {
+			res = await ScriptService.listRunnables({
+				workspace: ws,
+				orderBy,
+				orderDesc,
+				showArchived: archived ? true : undefined,
+				includeWithoutMain: includeWithoutMain ? true : undefined,
+				// A large page while searching so client fuzzy-match and facets see
+				// enough; browse pages are small and extended via the cursor.
+				perPage: searching ? 1000 : 100,
+				cursor: reset ? undefined : serverCursor
+			})
+		} catch (e) {
+			loading = false
+			return
+		}
+		serverCursor = res.next_cursor ?? undefined
+		hasMoreServer = !!res.next_cursor
+
+		const s: TableScript[] = reset ? [] : [...(scripts ?? [])]
+		const f: TableFlow[] = reset ? [] : [...(flows ?? [])]
+		const a: TableApp[] = reset ? [] : [...(apps ?? [])]
+		const memberFolders = reset ? new Set<string>() : new Set(pipelineMemberFolders)
+		for (const it of res.items ?? []) {
+			if (it.type === 'script') {
+				// Pipeline-member scripts are folded into their pipeline entry.
+				if (it.auto_kind === 'pipeline') {
+					const m = it.path.match(/^f\/([^/]+)\//)
 					if (m) memberFolders.add(m[1])
-					return false
+					continue
 				}
-				return true
-			})
-			.map((script: Script) => {
-				return {
-					canWrite: canWrite(script.path, script.extra_perms, $userStore) && !$userStore?.operator,
-					...script
-				}
-			})
+				s.push(mapRunnable(it) as TableScript)
+			} else if (it.type === 'flow') {
+				f.push(mapRunnable(it) as TableFlow)
+			} else if (it.type === 'app') {
+				a.push(mapRunnable(it) as TableApp)
+			}
+		}
+		scripts = s
+		flows = f
+		apps = a
+		raw_apps = []
 		pipelineMemberFolders = memberFolders
 		loading = false
 	}
 
+	// Item edits/deletes trigger a full reload; the merged endpoint returns every
+	// kind, so any change reloads the whole list.
+	async function loadScripts(_?: boolean): Promise<void> {
+		await loadRunnables(true)
+	}
 	async function loadFlows(): Promise<void> {
-		flows = (
-			await FlowService.listFlows({
-				workspace: $workspaceStore!,
-				showArchived: archived ? true : undefined,
-				includeDraftOnly: true,
-				withoutDescription: true
-			})
-		).map((x: Flow) => {
-			return {
-				canWrite:
-					canWrite(x.path, x.extra_perms, $userStore) &&
-					x.workspace_id == $workspaceStore &&
-					!$userStore?.operator,
-				...x
-			}
-		})
-		loading = false
+		await loadRunnables(true)
 	}
-
 	async function loadApps(): Promise<void> {
-		apps = (await AppService.listApps({ workspace: $workspaceStore!, includeDraftOnly: true })).map(
-			(app: ListableApp) => {
-				return {
-					canWrite:
-						canWrite(app.path!, app.extra_perms!, $userStore) &&
-						app.workspace_id == $workspaceStore &&
-						!$userStore?.operator,
-					...app
-				}
-			}
-		)
-		loading = false
+		await loadRunnables(true)
 	}
-
 	async function loadRawApps(): Promise<void> {
 		raw_apps = []
-		loading = false
 	}
 
 	function filterItemsPathsBaseOnUserFilters(
@@ -389,19 +430,16 @@
 			new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
 		).sort()
 	)
+	// Reload the first page from the server whenever an input that the endpoint
+	// resolves changes: order, archived/library scope, or entering/leaving search
+	// (which switches page size). Owner/label/kind filtering and fuzzy ranking stay
+	// client-side over the loaded pages, so they don't reload here.
+	let searching = $derived(filter !== '')
 	$effect(() => {
 		if ($userStore && $workspaceStore) {
-			;[archived, includeWithoutMain]
+			;[archived, includeWithoutMain, sortOrder, searching]
 			untrack(() => {
-				loadScripts(includeWithoutMain)
-				loadFlows()
-				if (!archived) {
-					loadApps()
-					loadRawApps()
-				} else {
-					apps = []
-					raw_apps = []
-				}
+				loadRunnables(true)
 			})
 		}
 	})
@@ -473,7 +511,12 @@
 	})
 
 	let selectedIndex: number = $state(-1)
-	let hasMore = $derived(items != undefined && items.length > nbDisplayed)
+	// More to show: either loaded items not yet sliced in, or the server has
+	// further browse pages (not while searching — search loads one large page and
+	// filters client-side).
+	let hasMore = $derived(
+		items != undefined && (items.length > nbDisplayed || (hasMoreServer && !searching))
+	)
 	let loadMoreIndex = $derived(displayedItems.length)
 	let loadMoreEl: HTMLButtonElement | undefined = $state()
 	let pendingAutoSelect = $state(true)
@@ -539,9 +582,17 @@
 		return () => window.removeEventListener('keydown', handleGlobalKeydown, true)
 	})
 
-	function loadMoreAndPreselectFirstNew() {
-		const previousNbDisplayed = nbDisplayed
+	async function loadMore() {
+		// Fetch the next server page once all loaded items are already sliced in.
+		if (items && nbDisplayed >= items.length && hasMoreServer && !searching) {
+			await loadRunnables(false)
+		}
 		nbDisplayed += 30
+	}
+
+	async function loadMoreAndPreselectFirstNew() {
+		const previousNbDisplayed = nbDisplayed
+		await loadMore()
 		selectedIndex = previousNbDisplayed
 	}
 
@@ -919,18 +970,16 @@
 						<Button
 							nonCaptureEvent
 							disabled={filter !== ''}
-							unifiedSize="xs"
+							iconOnly
+							size="xs"
 							color="light"
 							variant="default"
+							spacingSize="xs2"
 							startIcon={{ icon: ArrowDownUp }}
-							endIcon={{ icon: ChevronDown }}
-							btnClasses="font-normal"
 							title={filter !== ''
 								? 'Sorting is disabled while searching (results are ranked by relevance)'
-								: 'Sort'}
-						>
-							{sortOptions.find((o) => o.value === sortOrder)?.label ?? 'Sort'}
-						</Button>
+								: `Sort: ${sortOptions.find((o) => o.value === sortOrder)?.label ?? ''}`}
+						/>
 					{/snippet}
 				</DropdownV2>
 				{#if treeView}
@@ -1016,16 +1065,18 @@
 					/>
 				{/each}
 			</div>
-			{#if items && items?.length > 15 && nbDisplayed < items.length}
+			{#if items && items?.length > 15 && hasMore}
 				<span class="text-xs font-normal text-secondary"
-					>{nbDisplayed} items out of {items.length}
+					>{Math.min(nbDisplayed, items.length)} items{hasMoreServer && !searching
+						? ''
+						: ` out of ${items.length}`}
 					<button
 						bind:this={loadMoreEl}
 						class="ml-4 text-xs font-normal text-primary hover:text-emphasis rounded px-1 {selectedIndex ===
 						loadMoreIndex
 							? 'bg-gray-200 dark:bg-gray-700 underline'
 							: ''}"
-						onclick={() => (nbDisplayed += 30)}>load 30 more</button
+						onclick={loadMore}>load 30 more</button
 					></span
 				>
 			{/if}

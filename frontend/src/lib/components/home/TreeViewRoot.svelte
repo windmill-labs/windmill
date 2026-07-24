@@ -30,7 +30,10 @@
 		isSearching
 		sortCompare
 		untrack(() => {
-			const grouped = groupItems(items, sortCompare)
+			// While searching, `items` is already relevance-ranked and the sort
+			// selector is disabled, so keep that order: a no-op leaf comparator
+			// preserves insertion order within each group (Array.sort is stable).
+			const grouped = groupItems(items, isSearching ? () => 0 : sortCompare)
 			// Ensure every pipeline folder is present at the top level so its
 			// "Pipeline" entry shows even when it has no listed items — a bundle-phase
 			// pipeline (only a draft so far) or a folder whose only scripts are
