@@ -3657,7 +3657,6 @@ async fn resume_suspended_job_internal(
     // Get flow info - works for step-level, flow-level, and WAC approval
     let (flow_info, is_flow_level, is_wac) = get_flow_info_for_resume(job_id, &db).await?;
 
-
     // HMAC secret = full capability. Skip approval_conditions checks: possession of the full
     // resume URL is the authorization (it is only disclosed to intended approvers, e.g. when a
     // step returns it). Identity-based rules, including self_approval_disabled, are enforced by
@@ -3715,15 +3714,17 @@ async fn resume_suspended_job_internal(
         .execute(&mut *tx)
         .await?;
     } else if is_wac {
-        // WAC approval: decrement suspend counter directly on the WAC parent job
-        if flow_info.suspend > 0 {
-            sqlx::query!(
-                "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) WHERE id = $1",
-                flow_info.id,
-            )
-            .execute(&mut *tx)
-            .await?;
-        }
+        // WAC approval: decrement suspend counter directly on the WAC parent job.
+        // `flow_info.suspend` was read before this transaction took the queue-row
+        // lock, so gating on it would skip the decrement for a workflow that
+        // suspended in between and leave the approval parked until timeout.
+        sqlx::query!(
+            "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) \
+             WHERE id = $1 AND suspend > 0",
+            flow_info.id,
+        )
+        .execute(&mut *tx)
+        .await?;
     } else if is_flow_level {
         // For flow-level resumes, decrement the suspend counter if the flow is currently suspended
         // The approval will be matched when the worker checks for resumes (both step-level and flow-level)
