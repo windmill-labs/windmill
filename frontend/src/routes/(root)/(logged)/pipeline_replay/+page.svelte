@@ -88,7 +88,8 @@
 			// The viewport is interpolated into the snapshot iframe's `style`, so a
 			// non-numeric value would escape the property and let a remote recording
 			// restyle the player around itself.
-			const isSize = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 20000
+			const isSize = (v: unknown) =>
+				typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 20000
 			const validViewport =
 				isObject(data.viewport) && isSize(data.viewport.width) && isSize(data.viewport.height)
 			const isIndex = (v: unknown) => v === undefined || typeof v === 'number'

@@ -204,16 +204,16 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		return !interactive || interactive === control
 	}
 
-	/** Whether this key can change `el`'s value. Printable characters and the
-	 * editing keys for a field; activation and option-picking keys for a control. */
-	function mutatingKey(e: KeyboardEvent, el: Element): boolean {
+	/** Whether this key can change a control: activation, option picking, or the
+	 * first letter of a `<select>` typeahead. */
+	function mutatingKey(e: KeyboardEvent, _el: Element): boolean {
 		if (e.ctrlKey || e.metaKey || e.altKey) return false
-		if (isControl(el)) {
-			return [' ', 'Enter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(
+		return (
+			e.key.length === 1 ||
+			[' ', 'Enter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(
 				e.key
-			) || e.key.length === 1
-		}
-		return e.key.length === 1 || ['Backspace', 'Delete', 'Enter'].includes(e.key)
+			)
+		)
 	}
 
 	/** A control whose value `change` reports: toggled or picked, never typed. */
@@ -269,13 +269,13 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		const { el, before } = pendingFill
 		clearTimeout(pendingFill.timer)
 		pendingFill = undefined
-		// The pointerdown that started this edit is spent, so a later burst in the
-		// same field snapshots from its own keydown instead of rewinding to the
-		// pre-typing DOM. A pointerdown on something ELSE (the control the user just
-		// moved to) is that control's pre-change frame and must survive.
-		if (pendingPointer && (pendingPointer.el === el || el.contains(pendingPointer.el))) {
-			pendingPointer = undefined
-		}
+		// The frames that fed this edit are spent: a later burst in the same field
+		// must snapshot itself instead of rewinding to the pre-typing DOM. A
+		// pointerdown on something ELSE (the control the user just moved to) is that
+		// control's pre-change frame and must survive — `pointerFrameFor` decides,
+		// so the label and ancestor cases it accepts are cleared here too.
+		if (pointerFrameFor(el) !== undefined) pendingPointer = undefined
+		if (pendingKey?.el === el) pendingKey = undefined
 		pushStep('fill', el, before, currentValue(el))
 	}
 
@@ -314,6 +314,14 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			// the control's own `change`, which needs the same pre-click frame. The
 			// next pointerdown replaces it.
 			pushStep('click', el, pointerFrameFor(el) ?? capture(el))
+		})
+
+		// Fires before the DOM changes for every edit, including the ones no keydown
+		// describes: paste, cut, undo, drag-and-drop, IME composition.
+		on('beforeinput', (e: Event) => {
+			const el = isElementNode(e.target) ? e.target : undefined
+			if (!el || !isTextEntry(el) || pendingFill) return
+			if (pointerFrameFor(el) === undefined) pendingKey = { el, html: capture(el) }
 		})
 
 		on('input', (e: Event) => {
@@ -376,13 +384,12 @@ export function createRawAppRecording(): RawAppRecordingStore {
 
 		on('keydown', (e: KeyboardEvent) => {
 			const el = isElementNode(e.target) ? e.target : undefined
-			// Space on a checkbox, arrows on a select, the first character typed into a
-			// field reached by Tab: the key is about to change the element, and this is
-			// the last moment the pre-change DOM exists. Snapshotting the document is
-			// expensive and runs on the app's own event path, so keys that cannot
-			// change anything (Tab, modifiers, navigation keys) must not trigger it.
-			if (el && mutatingKey(e, el) && (isControl(el) || (isTextEntry(el) && !pendingFill)))
-				pendingKey = { el, html: capture(el) }
+			// Space on a checkbox, arrows on a select: the key is about to change the
+			// control, and this is the last moment the pre-change DOM exists. Text
+			// fields are covered by `beforeinput` instead, which also sees paste and
+			// undo. Snapshotting is expensive and runs on the app's own event path, so
+			// keys that change nothing (Tab, modifiers, navigation) must not trigger it.
+			if (el && isControl(el) && mutatingKey(e, el)) pendingKey = { el, html: capture(el) }
 			if (e.key !== 'Enter' && e.key !== 'Escape') return
 			// Enter in a field ends the edit: the fill step must land before the key.
 			commitFill()

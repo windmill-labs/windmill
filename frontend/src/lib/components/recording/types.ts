@@ -126,7 +126,8 @@ export type RawAppRecording = {
 	/** Deduplicated, self-contained DOM snapshots referenced by the steps. */
 	frames: string[]
 	steps: RawAppStep[]
-	/** Set when the snapshot budget was hit and later frames were dropped. */
+	/** Set when a limit cut the recording short: the snapshot budget (later steps
+	 * ship without frames) or the step cap (later interactions are absent). */
 	truncated?: boolean
 }
 

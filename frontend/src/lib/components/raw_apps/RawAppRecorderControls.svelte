@@ -33,7 +33,7 @@
 			return
 		}
 		sendUserToast(
-			'Recording started. The app\'s DOM and the values you type are captured (passwords are ' +
+			"Recording started. The app's DOM and the values you type are captured (passwords are " +
 				'masked; add data-wm-no-record to an element to leave it out).'
 		)
 	}

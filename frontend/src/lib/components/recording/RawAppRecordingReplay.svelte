@@ -59,7 +59,9 @@
 	// Belt and braces with the loader's validation: these numbers land in a `style`
 	// string, and the player also renders recordings handed to it directly.
 	function size(v: unknown, fallback: number): number {
-		return typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 20000 ? Math.round(v) : fallback
+		return typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 20000
+			? Math.round(v)
+			: fallback
 	}
 	let frameWidth = $derived(size(recording.viewport?.width, 1280))
 	let frameHeight = $derived(size(recording.viewport?.height, 800))

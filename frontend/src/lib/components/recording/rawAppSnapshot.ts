@@ -356,10 +356,15 @@ export function withHighlightStyles(frame: string): string {
 			if (NAVIGATION_ATTRS.has(attr.localName.toLowerCase())) el.removeAttributeNode(attr)
 		}
 	})
+	// SVG animation is declarative — it runs without scripts — and `<set
+	// attributeName="href">` would put back the link just stripped.
+	doc.querySelectorAll('set, animate, animateTransform, animateMotion').forEach((n) => n.remove())
 	// Resource hints exist only to fetch; the CSP already refuses them, so this is
 	// about not asking rather than not getting.
 	doc
-		.querySelectorAll('link[rel~="preload" i], link[rel~="prefetch" i], link[rel~="preconnect" i], link[rel~="dns-prefetch" i]')
+		.querySelectorAll(
+			'link[rel~="preload" i], link[rel~="prefetch" i], link[rel~="preconnect" i], link[rel~="dns-prefetch" i]'
+		)
 		.forEach((n) => n.remove())
 	const style = doc.createElement('style')
 	style.textContent = HIGHLIGHT_CSS
@@ -367,8 +372,16 @@ export function withHighlightStyles(frame: string): string {
 	return `<!DOCTYPE html>${doc.documentElement.outerHTML}`
 }
 
+/** Visible text of an element, with any no-record subtree left out: the element
+ * itself may be recordable while something inside it is not. */
 function textOf(el: Element | null | undefined, max = 40): string {
-	const text = (el?.textContent ?? '').replace(/\s+/g, ' ').trim()
+	if (!el) return ''
+	let source: Element = el
+	if (el.querySelector(`[${NO_RECORD_ATTR}]`)) {
+		source = el.cloneNode(true) as Element
+		source.querySelectorAll(`[${NO_RECORD_ATTR}]`).forEach((n) => n.remove())
+	}
+	const text = (source.textContent ?? '').replace(/\s+/g, ' ').trim()
 	return text.length > max ? `${text.slice(0, max)}…` : text
 }
 
@@ -377,10 +390,12 @@ function textOf(el: Element | null | undefined, max = 40): string {
 export function describeElement(el: Element): string {
 	const tag = el.tagName.toLowerCase()
 	const role = tag === 'input' ? `input[${(el.getAttribute('type') ?? 'text').toLowerCase()}]` : tag
-	const labels = (el as HTMLInputElement).labels
+	// An element can be recordable while its associated label is not (the label is
+	// where a form usually puts the sensitive wording).
+	const label = (el as HTMLInputElement).labels?.[0]
 	const name =
 		el.getAttribute('aria-label') ||
-		textOf(labels?.[0]) ||
+		(label && !isRedacted(label) ? textOf(label) : '') ||
 		el.getAttribute('placeholder') ||
 		el.getAttribute('title') ||
 		textOf(el) ||
