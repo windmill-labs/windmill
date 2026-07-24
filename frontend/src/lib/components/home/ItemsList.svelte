@@ -17,6 +17,8 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
+		ArrowDownUp,
+		Check,
 		ChevronsDownUp,
 		ChevronsUpDown,
 		Code2,
@@ -217,6 +219,46 @@
 
 	const cmp = new Intl.Collator('en').compare
 
+	// Sort options are computed entirely client-side over the already-loaded item
+	// fields (`time`, `path`, `summary`), so adding options costs the backend
+	// nothing even on very large workspaces. Starred items stay pinned on top of
+	// every order, matching the previous behavior.
+	type SortOrder = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc'
+	const SORT_SETTING_NAME = 'homeSort'
+	const sortOptions: { value: SortOrder; label: string }[] = [
+		{ value: 'updated_desc', label: 'Recently updated' },
+		{ value: 'updated_asc', label: 'Oldest updated' },
+		{ value: 'name_asc', label: 'Name (A-Z)' },
+		{ value: 'name_desc', label: 'Name (Z-A)' }
+	]
+	let sortOrder = $state<SortOrder>(
+		(sortOptions.find((o) => o.value === getLocalSetting(SORT_SETTING_NAME))?.value as SortOrder) ??
+			'updated_desc'
+	)
+	$effect(() => {
+		storeLocalSetting(SORT_SETTING_NAME, sortOrder === 'updated_desc' ? undefined : sortOrder)
+	})
+	function sortName(x: { summary?: string; path: string }): string {
+		return x.summary && x.summary !== '' ? x.summary : x.path
+	}
+	function compareItems(
+		a: { starred?: boolean; time?: number; summary?: string; path: string },
+		b: { starred?: boolean; time?: number; summary?: string; path: string }
+	): number {
+		if (a.starred != b.starred) return a.starred ? -1 : 1
+		switch (sortOrder) {
+			case 'updated_asc':
+				return (a.time ?? 0) - (b.time ?? 0)
+			case 'name_asc':
+				return cmp(sortName(a), sortName(b))
+			case 'name_desc':
+				return cmp(sortName(b), sortName(a))
+			case 'updated_desc':
+			default:
+				return (b.time ?? 0) - (a.time ?? 0)
+		}
+	}
+
 	const opts: uFuzzy.Options = {
 		sort: (info, haystack, needle) => {
 			let {
@@ -374,9 +416,7 @@
 						type: 'raw_app' as 'raw_app',
 						time: new Date(x.edited_at).getTime()
 					}))
-				].sort((a, b) =>
-					a.starred != b.starred ? (a.starred ? -1 : 1) : a.time - b.time > 0 ? -1 : 1
-				)
+				].sort(compareItems)
 	)
 	function itemLabels(x: { labels?: string[]; inherited_labels?: string[] }): string[] {
 		return [...(x.labels ?? []), ...(x.inherited_labels ?? [])]
@@ -855,6 +895,44 @@
 					/>
 				{/if}
 				<Toggle size="xs" bind:checked={treeView} options={{ right: 'Tree view' }} />
+				<Popover floatingConfig={{ placement: 'bottom-end' }}>
+					{#snippet trigger()}
+						<Button
+							startIcon={{ icon: ArrowDownUp }}
+							nonCaptureEvent
+							size="xs"
+							color="light"
+							variant="default"
+							spacingSize="xs2"
+							title="Sort"
+							disabled={filter !== ''}
+						>
+							{sortOptions.find((o) => o.value === sortOrder)?.label ?? 'Sort'}
+						</Button>
+					{/snippet}
+					{#snippet content({ close })}
+						<div class="p-1 flex flex-col">
+							{#each sortOptions as option (option.value)}
+								<button
+									class="text-left text-xs px-2 py-1.5 rounded hover:bg-surface-hover flex items-center gap-2 {option.value ===
+									sortOrder
+										? 'font-semibold text-emphasis'
+										: 'text-secondary'}"
+									onclick={() => {
+										sortOrder = option.value
+										close()
+									}}
+								>
+									<Check
+										size={14}
+										class={option.value === sortOrder ? 'opacity-100' : 'opacity-0'}
+									/>
+									{option.label}
+								</button>
+							{/each}
+						</div>
+					{/snippet}
+				</Popover>
 				{#if treeView}
 					<Button
 						unifiedSize="sm"
