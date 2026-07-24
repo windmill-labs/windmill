@@ -3127,13 +3127,9 @@ pub async fn handle_wac_v2_output(
 
             // Generate resume URLs for the inline approval buttons.
             // Use a hash of the step key as resume_id so each waitForApproval()
-            // in the same workflow gets a unique resume_job record.
-            let resume_id: u32 = {
-                use std::hash::{Hash, Hasher};
-                let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                key.hash(&mut hasher);
-                (hasher.finish() & 0xFFFF_FFFF) as u32
-            };
+            // in the same workflow gets a unique resume_job record. The resume-side
+            // matching in prepare_checkpoint_for_resume derives the same id from the key.
+            let resume_id: u32 = crate::wac_executor::approval_resume_id(&key);
             // Generate stateless approval token using shared utility
             let approval_token =
                 windmill_common::variables::generate_approval_token(&job.workspace_id, job.id, db)

@@ -49,6 +49,17 @@ pub enum WacOutput {
     Sleep { key: String, seconds: u32 },
 }
 
+/// Derive the per-approval `resume_id` from the step key. This MUST stay in sync with the
+/// resume/cancel URL generation in `handle_wac_v2_output` so that the resume endpoint and the
+/// checkpoint-resume matching agree on which `resume_job` row belongs to which
+/// `waitForApproval()` call within a workflow.
+pub fn approval_resume_id(key: &str) -> u32 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    key.hash(&mut hasher);
+    (hasher.finish() & 0xFFFF_FFFF) as u32
+}
+
 /// A step dispatched by the WAC SDK.
 ///
 /// `dispatch_type` determines how the child job is created:
@@ -143,10 +154,18 @@ pub async fn prepare_checkpoint_for_resume(
                 .and_then(|p| p.keys.first().cloned())
                 .unwrap_or_default();
 
+            // Match the resume event to *this* approval step by its resume_id. Every
+            // waitForApproval() in the same workflow shares the parent job_id, so keying
+            // only on `job` (and taking the oldest row) made every step after the first
+            // re-inject the first approval's value. A canceled step then carries approved=false
+            // on its own row, and a timed-out step has no row at all -> the None branch below
+            // yields the approved=false default.
+            let resume_id = approval_resume_id(&approval_key) as i32;
             let resume_row = sqlx::query_as::<_, (sqlx::types::Json<Box<serde_json::value::RawValue>>, Option<String>, bool)>(
-                "SELECT value, approver, approved FROM resume_job WHERE job = $1 ORDER BY created_at ASC LIMIT 1",
+                "SELECT value, approver, approved FROM resume_job WHERE job = $1 AND resume_id = $2 ORDER BY created_at DESC LIMIT 1",
             )
             .bind(job_id)
+            .bind(resume_id)
             .fetch_optional(db)
             .await?;
 
