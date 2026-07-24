@@ -90,6 +90,7 @@
 	let allLabels: string[] = $state([])
 
 	let resourceTypeViewer: Drawer | undefined = $state(undefined)
+	let resourceTypeDrawerMode: 'view' | 'edit' = $state('view')
 	let resourceTypeViewerObj = $state({
 		rt: '',
 		description: '',
@@ -99,7 +100,6 @@
 	})
 
 	let resourceTypeDrawer: Drawer | undefined = $state(undefined)
-	let editResourceTypeDrawer: Drawer | undefined = $state(undefined)
 	let newResourceType = $state({
 		name: '',
 		schema: emptySchema(),
@@ -109,14 +109,6 @@
 	})
 	let isNewResourceTypeNameValid: boolean = $state(false)
 	let resourceTypeNameExists: boolean = $state(false)
-
-	let editResourceType = $state({
-		name: '',
-		schema: emptySchema(),
-		description: '',
-		formatExtension: undefined as string | undefined,
-		isFileset: false
-	})
 	let resourceEditor: ResourceEditorDrawer | undefined = $state(undefined)
 	let shareModal: ShareModal | undefined = $state(undefined)
 	let appConnect: AppConnect | undefined = $state(undefined)
@@ -323,13 +315,14 @@
 	async function updateResourceType(): Promise<void> {
 		await ResourceService.updateResourceType({
 			workspace: $workspaceStore!,
-			path: editResourceType.name,
+			path: resourceTypeViewerObj.rt,
 			requestBody: {
-				schema: editResourceType.schema,
-				description: editResourceType.description
+				schema: resourceTypeViewerObj.schema,
+				description: resourceTypeViewerObj.description
 			}
 		})
-		editResourceTypeDrawer?.closeDrawer?.()
+		resourceTypeViewer?.closeDrawer?.()
+		resourceTypeDrawerMode = 'view'
 		sendUserToast('Resource type updated')
 		loadResourceTypes()
 	}
@@ -383,15 +376,27 @@
 
 	async function startEditResourceType(name: string) {
 		const rt = await ResourceService.getResourceType({ workspace: $workspaceStore!, path: name })
-		editResourceType = {
-			name: rt.name,
+		resourceTypeViewerObj = {
+			rt: rt.name,
 			schema: rt.schema as any,
 			description: rt.description ?? '',
 			formatExtension: rt.format_extension,
 			isFileset: rt.is_fileset ?? false
 		}
-		editResourceTypeDrawer?.openDrawer?.()
+		resourceTypeDrawerMode = 'edit'
+		resourceTypeViewer?.openDrawer?.()
 	}
+
+	let canEditCurrentResourceType = $derived.by(() => {
+		if (!resourceTypeViewerObj.rt) return false
+		const rt = resourceTypes?.find((r) => r.name === resourceTypeViewerObj.rt)
+		if (!rt) return false
+		return (
+			rt.canWrite &&
+			showCreateButtons &&
+			($userStore?.is_admin === true || $userStore?.is_super_admin === true)
+		)
+	})
 
 	onMount(() => {
 		const callback = page.url.searchParams.get('callback')
@@ -678,7 +683,30 @@
 </Drawer>
 
 <Drawer bind:this={resourceTypeViewer} size="800px">
-	<DrawerContent title={resourceTypeViewerObj.rt} on:close={resourceTypeViewer.closeDrawer}>
+	<DrawerContent
+		title={resourceTypeViewerObj.rt}
+		on:close={() => {
+			resourceTypeDrawerMode = 'view'
+			resourceTypeViewer?.closeDrawer?.()
+		}}
+	>
+		{#snippet actions()}
+			{#if resourceTypeDrawerMode === 'edit'}
+				<Button
+					startIcon={{ icon: Save }}
+					on:click={updateResourceType}
+					unifiedSize="md"
+					variant="accent">Update</Button
+				>
+			{:else if canEditCurrentResourceType}
+				<Button
+					startIcon={{ icon: Pen }}
+					on:click={() => startEditResourceType(resourceTypeViewerObj.rt)}
+					unifiedSize="md"
+					variant="default">Edit</Button
+				>
+			{/if}
+		{/snippet}
 		<div>
 			<h1 class="mb-8 mt-4"
 				><IconedResourceType
@@ -687,87 +715,62 @@
 					isFileset={resourceTypeViewerObj.isFileset}
 				/></h1
 			>
-			{#if resourceTypeViewerObj.description}
-				<div class="py-2 box prose mb-8 text-secondary">
-					<GfmMarkdown md={resourceTypeViewerObj.description ?? ''} />
-				</div>
-			{/if}
-			{#if resourceTypeViewerObj.isFileset}
-				<Alert type="info" title="Fileset resource type">
-					This resource type represents a collection of files. Each file is identified by its
-					relative path and contains text content. In the CLI, filesets are stored as directories.
-				</Alert>
-			{:else if resourceTypeViewerObj.formatExtension}
-				<Alert
-					type="info"
-					title="Plain text file resource (.{resourceTypeViewerObj.formatExtension})"
-				>
-					This resource type represents a plain text file with a <b
-						>.{resourceTypeViewerObj.formatExtension}</b
-					>
-					extension. (e.g. <b>my_file.{resourceTypeViewerObj.formatExtension}</b>)
-				</Alert>
-			{:else}
-				<SchemaViewer schema={resourceTypeViewerObj.schema} />
-			{/if}
-		</div>
-	</DrawerContent>
-</Drawer>
-
-<Drawer bind:this={editResourceTypeDrawer} size="800px">
-	<DrawerContent title="Edit resource type" on:close={editResourceTypeDrawer.closeDrawer}>
-		{#snippet actions()}
-			<Button
-				startIcon={{ icon: Save }}
-				on:click={updateResourceType}
-				unifiedSize="md"
-				variant="accent">Update</Button
-			>
-		{/snippet}
-		<div class="flex flex-col gap-6">
-			<label for="inp">
-				<div class="mb-1 font-semibold text-emphasis text-xs gap-1 flex flex-row items-center"
-					>Name
-					<div class="flex flex-row items-center gap-x-4">
-						<div class="flex flex-row items-center">
-							<div class="inline-block">
-								<input
-									disabled
-									id="inp"
-									type="text"
-									bind:value={editResourceType.name}
-									class={classNames('!h-8  !border !border-gray-200')}
-								/>
-							</div>
-						</div>
-					</div>
-				</div></label
-			>
-			<label>
-				<div class="mb-1 font-semibold text-emphasis text-xs">Description</div>
-				<textarea use:autosize autocomplete="off" bind:value={editResourceType.description}
-				></textarea></label
-			>
-			<div>
-				{#if editResourceType.isFileset}
-					<Alert type="info" title="Fileset resource type">
-						This resource type represents a collection of files. The schema cannot be edited.
-					</Alert>
-				{:else if editResourceType.formatExtension}
-					<Alert type="info" title="Plain text file resource (.{editResourceType.formatExtension})">
-						This resource type represents a plain text file with a <b
-							>.{editResourceType.formatExtension}</b
-						>
-						extension. (e.g. <b>my_file.{editResourceType.formatExtension}</b>). The schema only
-						contains a `content` field and thus cannot be edited.
-					</Alert>
-				{:else}
-					<div class="mb-1 font-semibold text-emphasis text-xs">Schema</div>
-					<div class="flex flex-col gap-2">
-						<EditableSchemaWrapper bind:schema={editResourceType.schema} noPreview />
+			{#if resourceTypeDrawerMode === 'view'}
+				{#if resourceTypeViewerObj.description}
+					<div class="py-2 box prose mb-8 text-secondary">
+						<GfmMarkdown md={resourceTypeViewerObj.description ?? ''} />
 					</div>
 				{/if}
-			</div>
+				{#if resourceTypeViewerObj.isFileset}
+					<Alert type="info" title="Fileset resource type">
+						This resource type represents a collection of files. Each file is identified by its
+						relative path and contains text content. In the CLI, filesets are stored as directories.
+					</Alert>
+				{:else if resourceTypeViewerObj.formatExtension}
+					<Alert
+						type="info"
+						title="Plain text file resource (.{resourceTypeViewerObj.formatExtension})"
+					>
+						This resource type represents a plain text file with a <b
+							>.{resourceTypeViewerObj.formatExtension}</b
+						>
+						extension. (e.g. <b>my_file.{resourceTypeViewerObj.formatExtension}</b>)
+					</Alert>
+				{:else}
+					<SchemaViewer schema={resourceTypeViewerObj.schema} />
+				{/if}
+			{:else}
+				<div class="flex flex-col gap-6">
+					<label>
+						<div class="mb-1 font-semibold text-emphasis text-xs">Description</div>
+						<textarea use:autosize autocomplete="off" bind:value={resourceTypeViewerObj.description}
+						></textarea></label
+					>
+					<div>
+						{#if resourceTypeViewerObj.isFileset}
+							<Alert type="info" title="Fileset resource type">
+								This resource type represents a collection of files. The schema cannot be edited.
+							</Alert>
+						{:else if resourceTypeViewerObj.formatExtension}
+							<Alert
+								type="info"
+								title="Plain text file resource (.{resourceTypeViewerObj.formatExtension})"
+							>
+								This resource type represents a plain text file with a <b
+									>.{resourceTypeViewerObj.formatExtension}</b
+								>
+								extension. (e.g. <b>my_file.{resourceTypeViewerObj.formatExtension}</b>). The schema
+								only contains a `content` field and thus cannot be edited.
+							</Alert>
+						{:else}
+							<div class="mb-1 font-semibold text-emphasis text-xs">Schema</div>
+							<div class="flex flex-col gap-2">
+								<EditableSchemaWrapper bind:schema={resourceTypeViewerObj.schema} noPreview />
+							</div>
+						{/if}
+					</div>
+				</div>
+			{/if}
 		</div>
 	</DrawerContent>
 </Drawer>
@@ -1078,6 +1081,7 @@
 															formatExtension: linkedRt.format_extension,
 															isFileset: linkedRt.is_fileset ?? false
 														}
+														resourceTypeDrawerMode = 'view'
 														resourceTypeViewer?.openDrawer?.()
 													} else {
 														sendUserToast(
@@ -1299,7 +1303,7 @@
 														formatExtension: format_extension,
 														isFileset: is_fileset ?? false
 													}
-
+													resourceTypeDrawerMode = 'view'
 													resourceTypeViewer?.openDrawer?.()
 												}}
 											>
