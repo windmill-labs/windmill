@@ -72,8 +72,12 @@ while [ "$i" -lt "${#toks[@]}" ]; do
   case "$t" in -*[*?[]*) exit 0 ;; esac
   if [ "$end_opts" = 0 ]; then
     [ "$t" = "--" ] && { end_opts=1; continue; }
-    # A bare `-` is a filename to rm, not an option — only skip real `-x`/`--long` options.
-    case "$t" in -?*) continue ;; esac
+    # Skip real options only before the first operand. A bare `-` is a filename, and under
+    # POSIXLY_CORRECT GNU rm stops option parsing at the first operand, so a later `-name`
+    # is a filename too — validate it rather than skipping it.
+    if [ "$had_operand" = 0 ]; then
+      case "$t" in -?*) continue ;; esac
+    fi
   fi
   had_operand=1
   # No wildcard in a non-final path segment (`a/*/b`): it can expand through a symlink
@@ -84,8 +88,12 @@ while [ "$i" -lt "${#toks[@]}" ]; do
     *)  canon=$(realpath -m -- "${cwd:-$PWD}/$t" 2>/dev/null) ;;
   esac
   [ -n "$canon" ] || exit 0
+  # A glob may auto-allow only under /tmp, where everything is deletable. Elsewhere its
+  # expansion could match `.git`, a dotfile like `.*`, or a nested checkout root that the
+  # literal-path checks never see — so require literal operands in git repos.
+  case "$t" in *[*?[]*) case "$canon" in /tmp/?*) ;; *) exit 0 ;; esac ;; esac
   allowed_target "$canon" || exit 0
 done
 
 [ "$had_operand" = 1 ] || exit 0
-jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"allow",permissionDecisionReason:"rm operands are under /tmp or inside a windmill git checkout in $HOME"}}'
+jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"allow",permissionDecisionReason:"rm operands are under /tmp or inside a git checkout in $HOME"}}'
