@@ -38,6 +38,9 @@ while [ "$i" -lt "${#toks[@]}" ]; do
   [ -n "$(printf '%s' "$t" | tr -d 'A-Za-z0-9._/*?[]-')" ] && exit 0
   # Only skip `-`-prefixed tokens as flags BEFORE `--`; after it every token (even `-rf`,
   # which then names the cwd file ./-rf) is an operand and must pass the /tmp checks.
+  # A glob in an option-looking token (`-[-]`) can expand to `--` and turn a later
+  # `-name` into an operand — never a real option, so defer.
+  case "$t" in -*[*?[]*) exit 0 ;; esac
   if [ "$end_opts" = 0 ]; then
     [ "$t" = "--" ] && { end_opts=1; continue; }
     # A bare `-` is a filename to rm, not an option — only skip real `-x`/`--long` options.
