@@ -176,6 +176,16 @@ async fn test_runnables_archived_versions_paginate_via_hash(
         .await?;
     }
 
+    // Favorite the path: a path-based favorite marks *every* archived version
+    // starred. The archived view must not pin/cap starred (that would drop
+    // versions past the cap from every page), so all three must still page once.
+    sqlx::query(
+        "INSERT INTO favorite (usr, workspace_id, path, favorite_kind) VALUES ('test-user', 'test-workspace', 'u/test-user/av', 'script')",
+    )
+    .execute(&db)
+    .await?;
+
+    // paginate_all pages one at a time, so every version crosses a page boundary.
     let items = paginate_all(port, "order_by=name&order_desc=false&show_archived=true").await;
     let av = items
         .iter()
@@ -183,7 +193,7 @@ async fn test_runnables_archived_versions_paginate_via_hash(
         .count();
     assert_eq!(
         av, 3,
-        "all three archived versions must page exactly once, got {items:?}"
+        "all three favorited archived versions must page exactly once, got {items:?}"
     );
     Ok(())
 }

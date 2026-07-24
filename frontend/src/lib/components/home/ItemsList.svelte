@@ -176,9 +176,15 @@
 		// Only the very first load shows the skeleton; reorder/filter reloads keep
 		// the toolbar and current items visible (they're replaced on arrival) so the
 		// sort control itself doesn't flicker out when you use it.
+		// An append (load-more) needs a live cursor. If there isn't one — the stream
+		// is exhausted, or a reset just cleared it and its page-1 response hasn't
+		// landed — bail so a load-more can't append a fresh page-1 onto the old
+		// arrays (mixing streams) or clobber the pending reset's generation.
+		if (!reset && serverCursor === undefined) return
 		if (scripts === undefined) loading = true
 		if (reset) {
 			serverCursor = undefined
+			hasMoreServer = false
 		}
 		const { orderBy, orderDesc } = sortToParams(sortOrder)
 		const gen = ++loadGen

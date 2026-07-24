@@ -12,11 +12,14 @@
 //! across all three kinds at any workspace size, instead of client-sorting a
 //! per-kind capped window.
 //!
-//! Efficiency: each kind is a UNION ALL branch ordered by an index
-//! (`(workspace_id, created_at)` / `(workspace_id, edited_at)` / `(workspace_id,
-//! path)`); Postgres merges the ordered branches and stops at the page limit.
-//! Pagination is keyset (a `(sort_key, path, kind)` cursor), so deep pages don't
-//! re-scan. Visibility is enforced in-SQL by RLS via the `user_db` transaction.
+//! Efficiency: each kind is a UNION ALL branch ordered by an index on
+//! `(workspace_id, archived, <sort key>)` (created_at / edited_at, or the lowered
+//! summary-or-path expression for name orders); Postgres merges the ordered
+//! branches and stops at the page limit. Pagination is keyset — a
+//! `(sort_key, path, kind, tiebreak)` cursor, where `tiebreak` is a script's hash
+//! (0 for the one-row-per-path flow/app) so archived versions sharing a name and
+//! path stay individually reachable — so deep pages don't re-scan. Visibility is
+//! enforced in-SQL by RLS via the `user_db` transaction.
 
 use crate::db::{ApiAuthed, DB};
 use crate::utils::{build_scope_path_filter, ScopePathFilter};
@@ -393,10 +396,13 @@ async fn list_runnables(
         app_extras.push(s.clone());
     }
 
+    // Favorite filter for a branch: Some(true) = starred only, Some(false) =
+    // non-starred only, None = no filter (the archived view doesn't pin starred,
+    // so its single stream includes both — see the query assembly below).
     let build_branch = |base: &str,
                         kind: &str,
                         extras: &[String],
-                        starred_only: bool,
+                        fav: Option<bool>,
                         keyset: Option<&str>,
                         limit: Option<usize>|
      -> String {
@@ -405,11 +411,11 @@ async fn list_runnables(
         // sits in the wrapper WHERE where those aliases are visible.
         let mut w = vec![common_where.clone()];
         w.extend(extras.iter().cloned());
-        w.push(if starred_only {
-            "favorite.path IS NOT NULL".to_string()
-        } else {
-            "favorite.path IS NULL".to_string()
-        });
+        match fav {
+            Some(true) => w.push("favorite.path IS NOT NULL".to_string()),
+            Some(false) => w.push("favorite.path IS NULL".to_string()),
+            None => {}
+        }
         let keyset_clause = keyset
             .map(|ks| format!(" WHERE {}", ks))
             .unwrap_or_default();
@@ -425,7 +431,7 @@ async fn list_runnables(
     };
 
     let branch_for = |kind: &str,
-                      starred_only: bool,
+                      fav: Option<bool>,
                       keyset: Option<&str>,
                       limit: Option<usize>|
      -> Option<String> {
@@ -438,14 +444,7 @@ async fn list_runnables(
             "app" => (&branches.app, &app_extras),
             _ => return None,
         };
-        Some(build_branch(
-            base,
-            kind,
-            extras,
-            starred_only,
-            keyset,
-            limit,
-        ))
+        Some(build_branch(base, kind, extras, fav, keyset, limit))
     };
 
     let run_union = |branches_sql: Vec<String>, limit: Option<usize>| -> String {
@@ -461,19 +460,20 @@ async fn list_runnables(
     let mut items: Vec<RunnableItem> = vec![];
     let first_page = q.cursor.is_none();
 
-    // Starred items pinned on top of the first page, ordered; later pages are
-    // non-starred only. Uncapped in the default view — a user's favorites are
-    // one row per path and few, and capping there would make favorites past the
-    // cap vanish entirely (they are excluded from the non-starred stream). Only
-    // the archived view fans a favorite into many versions, so bound it there.
-    let starred_limit = if show_archived { Some(per_page) } else { None };
-    if first_page {
+    // Pin starred on the first page only in the browse (non-archived) view, where
+    // favorites are one row per path and few. The archived view lists every
+    // version, so a path-based favorite marks all of them starred: pinning there
+    // would either fan into an unbounded first page or (if capped) drop starred
+    // versions past the cap from every page. So in the archived view we don't pin
+    // at all — a single ordered stream includes starred and non-starred alike.
+    let pin_starred = !show_archived;
+    if first_page && pin_starred {
         let starred_branches: Vec<String> = ["script", "flow", "app"]
             .iter()
-            .filter_map(|k| branch_for(k, true, None, starred_limit))
+            .filter_map(|k| branch_for(k, Some(true), None, None))
             .collect();
         if !starred_branches.is_empty() {
-            let sql = run_union(starred_branches, starred_limit);
+            let sql = run_union(starred_branches, None);
             let mut query = sqlx::query_as::<_, RunnableItem>(&sql)
                 .bind(&w_id)
                 .bind(&authed.username)
@@ -485,10 +485,12 @@ async fn list_runnables(
         }
     }
 
-    // Non-starred page.
+    // Main paged stream: non-starred when we pinned starred above, otherwise
+    // (archived view) every row.
+    let main_fav = if pin_starred { Some(false) } else { None };
     let ns_branches: Vec<String> = ["script", "flow", "app"]
         .iter()
-        .filter_map(|k| branch_for(k, false, keyset_sql.as_deref(), Some(per_page)))
+        .filter_map(|k| branch_for(k, main_fav, keyset_sql.as_deref(), Some(per_page)))
         .collect();
 
     let mut next_cursor: Option<String> = None;
