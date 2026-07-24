@@ -139,9 +139,10 @@ async fn list_foldernames(
     let mut tx = user_db.begin(&authed).await?;
 
     // Push the token's scope grant into the query so LIMIT/OFFSET page over the
-    // AUTHORIZED folders. Post-filtering the page in Rust (the previous approach) made
-    // the returned count smaller than per_page even when more authorized folders remain
-    // on later DB pages, so a paginating caller would stop early and miss them.
+    // AUTHORIZED folders — the returned count then reflects the authorized set, so a
+    // paginating caller can rely on `< per_page` meaning exhaustion. (Filtering after the
+    // LIMIT would let a page return fewer than per_page while authorized folders remain
+    // on later DB pages, stopping such a caller early.)
     let mut sql = String::from("SELECT name FROM folder WHERE workspace_id = $1");
     let restricted = match build_scope_path_filter(&authed, "folders", "read") {
         ScopePathFilter::AllowAll => None,
