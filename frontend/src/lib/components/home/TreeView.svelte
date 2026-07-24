@@ -88,17 +88,22 @@
 	$effect(() => {
 		const willOpen = !collapseAll
 		opened = willOpen
-		// "Collapse all" closes this node without a manual click, so untrack the owner
-		// here too — otherwise it lingers in openOwners and a later reload re-fetches
-		// every hidden owner, recreating the fan-out openOwners exists to prevent.
 		untrack(() => {
-			if (!willOpen && ownerKey != undefined) onCollapseOwner?.(ownerKey)
+			if (ownerKey == undefined) return
+			if (willOpen) {
+				// "Expand all" opens this owner; load it too so it isn't opened empty.
+				// Bounded: only the nbDisplayed root owners are rendered (TreeViewRoot
+				// slices to it), so this is a handful of requests — not one per workspace
+				// folder — and each renders a capped slice (see effectiveMax).
+				onExpandOwner?.(ownerKey)
+			} else {
+				// "Collapse all" closes without a manual click, so untrack the owner here
+				// too — otherwise it lingers in openOwners and a later reload re-fetches
+				// every hidden owner, recreating the fan-out openOwners exists to prevent.
+				onCollapseOwner?.(ownerKey)
+			}
 		})
 	})
-	// Deliberately NOT auto-loading an owner's items when it opens via collapseAll:
-	// with every folder and user injected as a top-level node, "expand all" would
-	// otherwise fire one request per owner (thousands on a large workspace). An owner
-	// loads only on an explicit click (see toggleOwner).
 	let lastToggle = 0
 	function toggleOwner() {
 		// A double-click would otherwise toggle twice — expand then immediately collapse,
