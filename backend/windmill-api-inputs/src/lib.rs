@@ -190,8 +190,16 @@ async fn get_input_history(
         kind @ JobKind::Script if g.include_preview.unwrap_or(false) => {
             vec![kind, JobKind::Preview]
         }
-        kind @ JobKind::Flow if g.include_preview.unwrap_or(false) => {
-            vec![kind, JobKind::FlowPreview]
+        // A scheduled/triggered flow is wrapped in a synthetic SingleStepFlow when the
+        // schedule has a dynamic-skip handler (or a scheduled script has native retry),
+        // so its runs land under `singlestepflow`, not `flow` (see schedule.rs). Include
+        // it here or those runs never surface in the run-history sidebar.
+        JobKind::Flow => {
+            let mut kinds = vec![JobKind::Flow, JobKind::SingleStepFlow];
+            if g.include_preview.unwrap_or(false) {
+                kinds.push(JobKind::FlowPreview);
+            }
+            kinds
         }
         kind => vec![kind],
     };

@@ -74,3 +74,53 @@ async fn test_inputs_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+// A scheduled/triggered flow whose schedule has a dynamic-skip handler runs as a
+// `singlestepflow`, not `flow` (see windmill-queue schedule.rs). The run-history
+// sidebar must surface those runs, so `get_input_history` includes that kind for
+// flow runnables.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_input_history_includes_singlestepflow(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let job_id = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO v2_job (id, workspace_id, tag, created_by, permissioned_as, \
+         permissioned_as_email, kind, runnable_path, same_worker, visible_to_owner) \
+         VALUES ($1, 'test-workspace', 'flow', 'test-user', 'u/test-user', \
+         'test@windmill.dev', 'singlestepflow', 'f/test/scheduled_flow', false, true)",
+    )
+    .bind(job_id)
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO v2_job_completed (id, workspace_id, duration_ms, deleted, status) \
+         VALUES ($1, 'test-workspace', 1, false, 'success')",
+    )
+    .bind(job_id)
+    .execute(&db)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/inputs");
+
+    let resp = authed(client().get(format!(
+        "{base}/history?runnable_id=f/test/scheduled_flow&runnable_type=FlowPath"
+    )))
+    .send()
+    .await?;
+    let status = resp.status().as_u16();
+    let body = resp.text().await?;
+    assert_2xx(status, &body, "GET /inputs/history");
+
+    let inputs: Vec<serde_json::Value> = serde_json::from_str(&body)?;
+    assert!(
+        inputs
+            .iter()
+            .any(|i| i.get("id").and_then(|v| v.as_str()) == Some(&job_id.to_string())),
+        "singlestepflow run missing from flow input history: {body}",
+    );
+
+    Ok(())
+}
