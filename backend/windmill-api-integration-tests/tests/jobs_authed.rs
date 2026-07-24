@@ -402,6 +402,18 @@ async fn test_resolve_completed_jobs_scoping(db: Pool<Postgres>) -> anyhow::Resu
         .await?;
     assert_eq!(after, 0, "a rejected note must not write any row");
 
+    // The limit is characters, not bytes, so a multi-byte note the client accepted must
+    // not fail server-side: 1000 4-byte chars is well over 2000 bytes but under the cap.
+    let resp = member(client().post(format!("{base}/completed/resolve")))
+        .json(&json!({ "job_ids": [mine], "note": "😀".repeat(1000) }))
+        .send()
+        .await?;
+    assert_2xx(
+        resp.status().as_u16(),
+        &resp.text().await?,
+        "resolve with a multi-byte note",
+    );
+
     Ok(())
 }
 

@@ -320,7 +320,9 @@
 	}
 
 	async function setJobsResolution(jobIds: string[], resolved: boolean, note?: string) {
-		if ((note?.length ?? 0) > MAX_RESOLUTION_NOTE_LEN) {
+		// Spread-count code points so this matches the server's `chars().count()` exactly;
+		// `.length` counts UTF-16 units and would reject valid astral-plane notes.
+		if (note !== undefined && [...note].length > MAX_RESOLUTION_NOTE_LEN) {
 			sendUserToast(`Note cannot exceed ${MAX_RESOLUTION_NOTE_LEN} characters`, true)
 			return
 		}

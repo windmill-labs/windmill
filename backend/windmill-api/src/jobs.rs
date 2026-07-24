@@ -9671,6 +9671,8 @@ struct ResolveJobsRequest {
 const MAX_RESOLUTION_BATCH: usize = 1000;
 /// The note is copied onto every row the request resolves, so its size multiplies by the
 /// batch size. Bounded to keep a single call from writing an outsized amount of TOAST/WAL.
+/// Counted in characters, not bytes, so the limit matches what the client and the OpenAPI
+/// `maxLength` count and a non-ASCII note never fails a check it appeared to pass.
 const MAX_RESOLUTION_NOTE_LEN: usize = 2000;
 
 fn check_resolution_request(
@@ -9690,10 +9692,10 @@ fn check_resolution_request(
         )));
     }
     if let Some(note) = note {
-        if note.len() > MAX_RESOLUTION_NOTE_LEN {
+        let len = note.chars().count();
+        if len > MAX_RESOLUTION_NOTE_LEN {
             return Err(error::Error::BadRequest(format!(
-                "Resolution note cannot exceed {MAX_RESOLUTION_NOTE_LEN} bytes, got {}",
-                note.len()
+                "Resolution note cannot exceed {MAX_RESOLUTION_NOTE_LEN} characters, got {len}"
             )));
         }
     }
