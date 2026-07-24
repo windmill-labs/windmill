@@ -37,6 +37,7 @@
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './FlowIcon.svelte'
 	import { canWrite, getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 	import { page } from '$app/state'
 	import { setQuery } from '$lib/navigation'
 	import Drawer from '../common/drawer/Drawer.svelte'
@@ -199,8 +200,9 @@
 				perPage: searching ? 1000 : 100,
 				cursor: reset ? undefined : serverCursor
 			})
-		} catch (e) {
+		} catch (e: any) {
 			loading = false
+			sendUserToast(`Failed to load items: ${e?.body ?? e?.message ?? e}`, true)
 			return
 		}
 		serverCursor = res.next_cursor ?? undefined
@@ -265,10 +267,10 @@
 
 	const cmp = new Intl.Collator('en').compare
 
-	// Sorting is done client-side over fields the list already holds (`time`,
-	// `path`, `summary`): the list fetches every item up front, so no per-order
-	// backend query or index is needed even on very large workspaces. Starred
-	// items are pinned on top in every order.
+	// The selected order maps to the endpoint's order_by/order_desc (see
+	// sortToParams) so it is applied server-side and stays correct across the
+	// whole workspace, not just loaded pages. Starred items are pinned on top of
+	// the first page.
 	type SortOrder = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc'
 	const SORT_SETTING_NAME = 'homeSort'
 	const sortOptions: { value: SortOrder; label: string }[] = [
