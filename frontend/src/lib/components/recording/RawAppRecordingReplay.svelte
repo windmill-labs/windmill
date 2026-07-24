@@ -36,6 +36,7 @@
 	let phase = $state<'before' | 'after'>('before')
 	let playing = $state(false)
 	let paneWidth = $state(0)
+	let stepList: HTMLElement | undefined = $state(undefined)
 
 	const KIND_ICONS: Record<RawAppInteractionKind, any> = {
 		click: MousePointerClick,
@@ -58,6 +59,27 @@
 	let scale = $derived(
 		recording.viewport?.width && paneWidth ? Math.min(1, paneWidth / recording.viewport.width) : 1
 	)
+
+	/** Left offset (%) of each step's checkpoint on the timeline: its recorded
+	 * time, then a spreading pass so bursts of fast interactions stay clickable. */
+	let marks = $derived.by(() => {
+		const total = recording.total_duration_ms || steps[steps.length - 1]?.t || 1
+		const min = steps.length > 1 ? Math.min(6, 92 / (steps.length - 1)) : 0
+		let last = -Infinity
+		return steps.map((s) => {
+			const at = Math.max(0, Math.min(96, (s.t / total) * 92 + 4))
+			const pos = Math.max(at, last + min)
+			last = pos
+			return Math.min(99, pos)
+		})
+	})
+
+	// Keep the playing step visible: during playback the list scrolls past the
+	// viewport within a few steps.
+	$effect(() => {
+		const row = stepList?.querySelector(`[data-step="${stepIndex}"]`)
+		row?.scrollIntoView({ block: 'nearest' })
+	})
 
 	function goto(index: number, at: 'before' | 'after' = 'before') {
 		stepIndex = Math.max(0, Math.min(steps.length, index))
@@ -184,6 +206,9 @@
 					<ToggleButtonGroup
 						selected={phase}
 						on:selected={(e) => {
+							// The group also fires when playback advances the phase itself;
+							// only a real click (a phase we are not already on) pauses.
+							if (e.detail === phase) return
 							playing = false
 							clearTimer()
 							phase = e.detail
@@ -199,9 +224,51 @@
 		</div>
 	</div>
 
-	<div class="flex flex-1 min-h-0 gap-2">
-		<div class="w-72 shrink-0 overflow-auto border rounded-md bg-surface-secondary">
+	<!-- Timeline: one checkpoint per interaction, placed at the time it happened.
+	     Clicking a checkpoint jumps the player to that step. -->
+	<div class="shrink-0 px-2 pt-1 pb-4">
+		<div class="relative h-6">
+			<div class="absolute inset-x-0 top-3 h-px bg-surface-selected"></div>
+			<div
+				class="absolute left-0 top-3 h-px bg-blue-500 transition-all"
+				style="width: {stepIndex === 0 ? 0 : (marks[stepIndex - 1] ?? 0)}%"
+			></div>
 			<button
+				class="absolute top-1.5 -translate-x-1/2 size-3 rounded-full border-2 {stepIndex === 0
+					? 'bg-blue-500 border-blue-500'
+					: 'bg-surface border-surface-selected hover:border-blue-400'}"
+				style="left: 0%"
+				title="Initial state"
+				aria-label="Initial state"
+				onclick={() => step_(0)}
+			></button>
+			{#each steps as s, i (i)}
+				{@const active = stepIndex === i + 1}
+				<button
+					class="absolute -translate-x-1/2 rounded-full border-2 {active
+						? 'top-1 size-4 bg-blue-500 border-blue-500'
+						: 'top-1.5 size-3 border-surface-selected hover:border-blue-400 ' +
+							(stepIndex > i + 1 ? 'bg-blue-200 dark:bg-blue-900' : 'bg-surface')}"
+					style="left: {marks[i]}%"
+					title="{i + 1}. {s.label} (+{fmtTime(s.t)})"
+					aria-label="Step {i + 1}: {s.label}"
+					onclick={() => step_(i + 1)}
+				></button>
+			{/each}
+		</div>
+		<div class="flex justify-between text-2xs text-tertiary">
+			<span>0s</span>
+			<span>{fmtTime(recording.total_duration_ms)}</span>
+		</div>
+	</div>
+
+	<div class="flex flex-1 min-h-0 gap-2">
+		<div
+			bind:this={stepList}
+			class="w-72 shrink-0 overflow-auto border rounded-md bg-surface-secondary"
+		>
+			<button
+				data-step="0"
 				class="w-full text-left px-3 py-2 border-b border-l-2 flex items-center gap-2 {stepIndex ===
 				0
 					? 'bg-surface border-l-blue-500'
@@ -214,6 +281,7 @@
 			{#each steps as s, i (i)}
 				{@const Icon = KIND_ICONS[s.kind] ?? MousePointerClick}
 				<button
+					data-step={i + 1}
 					class="w-full text-left px-3 py-2 border-b border-l-2 flex items-start gap-2 {stepIndex ===
 					i + 1
 						? 'bg-surface border-l-blue-500'
