@@ -3193,6 +3193,14 @@ pub async fn monitor_db(
         if !initial_load {
             verify_license_key(conn.as_sql()).await;
             refetch_license_key_if_invalid(conn).await;
+            // Server-side only: the alert writes to the alerts table and notifies
+            // the critical channels, so gate it like enforce_offline_caps rather
+            // than have every worker re-report the same expiry.
+            if server_mode {
+                if let Some(db) = conn.as_sql() {
+                    windmill_common::ee_oss::alert_on_online_license_expired(db).await;
+                }
+            }
         }
     };
 
