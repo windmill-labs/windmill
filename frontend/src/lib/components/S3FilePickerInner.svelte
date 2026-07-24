@@ -808,6 +808,7 @@
 				fileKey={fileMetadata?.fileKey}
 				{storage}
 				{s3ResourcePath}
+				workspace={ws}
 				{loadFilePreviewRequest}
 				{loadFileMetadataRequest}
 				class="h-full"
