@@ -345,7 +345,13 @@
 	// first page happens to be all folder rows. `treeGen` ties every request to the
 	// active scope (order/archived/library/kind/workspace); a reset bumps it so an
 	// in-flight response from a stale scope is discarded.
-	type OwnerLoadState = { cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean }
+	type OwnerLoadState = {
+		cursor?: string
+		hasMore: boolean
+		loading: boolean
+		loaded: boolean
+		gen: number
+	}
 	let ownerLoad = $state<Record<string, OwnerLoadState>>({})
 	let treeOwnerItems = $state<ItemType[]>([])
 	let treeGen = 0
@@ -370,16 +376,22 @@
 	async function loadOwnerItems(owner: string, more = false, force = false): Promise<void> {
 		const ws = $workspaceStore
 		if (!ws || !$userStore) return
-		const st = ownerLoad[owner]
-		if (st?.loading) return
-		if (!force && (more ? !st?.hasMore : st?.loaded)) return
+		// Track the owner as open first — even a no-op call (re-expanding a cached owner)
+		// means it's expanded, so later reloads must refresh it.
 		openOwners.add(owner)
+		const st = ownerLoad[owner]
+		// Only a load for the CURRENT generation blocks a new one. A load left in flight
+		// by a superseded generation (treeGen bumped on a sort/filter reload) has already
+		// been invalidated, so it must not wedge the owner as permanently loading.
+		if (st?.loading && st.gen === treeGen) return
+		if (!force && (more ? !st?.hasMore : st?.loaded)) return
 		const gen = treeGen
 		ownerLoad[owner] = {
 			cursor: st?.cursor,
 			hasMore: st?.hasMore ?? false,
 			loading: true,
-			loaded: st?.loaded ?? false
+			loaded: st?.loaded ?? false,
+			gen
 		}
 		const { orderBy, orderDesc } = sortToParams(sortOrder)
 		let res: { items: RunnableItem[]; next_cursor?: string }
@@ -424,7 +436,8 @@
 			cursor: res.next_cursor,
 			hasMore: !!res.next_cursor,
 			loading: false,
-			loaded: true
+			loaded: true,
+			gen
 		}
 	}
 
@@ -473,11 +486,13 @@
 	// the first page.
 	type SortOrder = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc'
 	const SORT_SETTING_NAME = 'homeSort'
-	const sortOptions: { value: SortOrder; label: string }[] = [
-		{ value: 'updated_desc', label: 'Recently updated' },
-		{ value: 'updated_asc', label: 'Oldest updated' },
-		{ value: 'name_asc', label: 'Name (A-Z)' },
-		{ value: 'name_desc', label: 'Name (Z-A)' }
+	// `short` labels the trigger button for non-default sorts; the default (recently
+	// updated) shows the icon only, so its short label is empty.
+	const sortOptions: { value: SortOrder; label: string; short: string }[] = [
+		{ value: 'updated_desc', label: 'Recently updated', short: '' },
+		{ value: 'updated_asc', label: 'Oldest updated', short: 'Oldest' },
+		{ value: 'name_asc', label: 'Name (A-Z)', short: 'A-Z' },
+		{ value: 'name_desc', label: 'Name (Z-A)', short: 'Z-A' }
 	]
 	let sortOrder = $state<SortOrder>(
 		sortOptions.find((o) => o.value === getLocalSetting(SORT_SETTING_NAME))?.value ?? 'updated_desc'
@@ -632,6 +647,27 @@
 	}
 
 	let collapseAll = $state(true)
+	// Human-readable list of the filters currently narrowing the list. Empty means no
+	// filter is active, so an empty result then means the workspace itself has no items
+	// (NoItemFound shows the welcome message); otherwise the filters are just too narrow
+	// and NoItemFound lists them.
+	let activeFilters = $derived.by(() => {
+		const f: string[] = []
+		if (filter !== '') f.push(`search “${filter}”`)
+		if (itemKind !== 'all')
+			f.push(itemKind === 'script' ? 'Scripts' : itemKind === 'flow' ? 'Flows' : 'Apps')
+		if (ownerFilter != undefined) f.push(ownerFilter)
+		if (labelFilter != undefined) f.push(`label “${labelFilter}”`)
+		if (archived) f.push('archived only')
+		if (filterUserFolders)
+			f.push(
+				filterUserFoldersType === 'only f/*'
+					? 'only f/* folders'
+					: `only f/* and u/${$userStore?.username}`
+			)
+		if (!includeWithoutMain) f.push('library scripts hidden')
+		return f
+	})
 	// Complete owner list: every folder (from the folder list, not just loaded
 	// pages) plus the user prefixes present in the loaded/filtered items. So a
 	// folder whose items are far down the stream is still a selectable chip.
@@ -1283,10 +1319,12 @@
 					fixedHeight={false}
 				>
 					{#snippet buttonReplacement()}
+						{@const active = sortOptions.find((o) => o.value === sortOrder)}
+						{@const short = filter !== '' ? '' : (active?.short ?? '')}
 						<Button
 							nonCaptureEvent
 							disabled={filter !== ''}
-							iconOnly
+							iconOnly={short === ''}
 							size="xs"
 							color="light"
 							variant="default"
@@ -1294,8 +1332,10 @@
 							startIcon={{ icon: ArrowDownUp }}
 							title={filter !== ''
 								? 'Sorting is disabled while searching (results are ranked by relevance)'
-								: `Sort: ${sortOptions.find((o) => o.value === sortOrder)?.label ?? ''}`}
-						/>
+								: `Sort: ${active?.label ?? ''}`}
+						>
+							{#if short !== ''}{short}{/if}
+						</Button>
 					{/snippet}
 				</DropdownV2>
 				{#if treeView}
@@ -1328,7 +1368,7 @@
 			<!-- Pipelines aren't part of the text filter, so only fall through to show
 			     them (list rows / injected tree folders) when not actively searching;
 			     a no-match search still reads as empty. -->
-			<NoItemFound hasFilters={filter !== '' || archived || filterUserFolders} />
+			<NoItemFound {activeFilters} />
 			{#if hasMoreServer && !searching}
 				<!-- The active filter matched nothing on the loaded pages, but the server
 				     has more: keep paging reachable so matches on later pages aren't lost. -->

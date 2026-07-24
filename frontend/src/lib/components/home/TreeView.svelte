@@ -1,5 +1,6 @@
 <script lang="ts">
 	import TreeView from './TreeView.svelte'
+	import { untrack } from 'svelte'
 
 	import { ChevronDown, ChevronUp, Folder, FolderTree, NetworkIcon, User } from 'lucide-svelte'
 	import Item from './Item.svelte'
@@ -81,7 +82,14 @@
 	)
 
 	$effect(() => {
-		opened = !collapseAll
+		const willOpen = !collapseAll
+		opened = willOpen
+		// "Collapse all" closes this node without a manual click, so untrack the owner
+		// here too — otherwise it lingers in openOwners and a later reload re-fetches
+		// every hidden owner, recreating the fan-out openOwners exists to prevent.
+		untrack(() => {
+			if (!willOpen && ownerKey != undefined) onCollapseOwner?.(ownerKey)
+		})
 	})
 	// Deliberately NOT auto-loading an owner's items when it opens via collapseAll:
 	// with every folder and user injected as a top-level node, "expand all" would
