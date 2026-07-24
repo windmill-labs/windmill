@@ -85,6 +85,8 @@
       "Edit(**/.env.*)"
     ],
     "ask": [
+      "Bash(rm:*)",
+      "Bash(rmdir:*)",
       "Bash(mv:*)",
       "Bash(chmod:*)",
       "Bash(chown:*)",

@@ -1,17 +1,15 @@
 #!/usr/bin/env bash
-# PreToolUse guard for `rm`: auto-allow only when the command is a single plain `rm`
-# whose every operand canonicalizes under /tmp; force a prompt for anything else.
+# PreToolUse guard for `rm`: auto-allow ONLY a single, plain, single-line `rm` whose every
+# operand canonicalizes under /tmp. Anything else makes no decision (exit 0) and falls back
+# to the normal permission flow — the `Bash(rm:*)` ask rule prompts, with the auto-mode
+# classifier as a further backstop.
 #
-# Why a hook and not glob allow-rules: Bash `*` in a permission pattern spans spaces and
-# `..`, so `Bash(rm /tmp/*)` would also auto-approve `rm /tmp/a backend/x`. And because we
-# inspect the *unexpanded* command string, we must refuse any shell syntax that could
-# retarget the deletion after this check runs — newlines (command separators, which a
-# single-line tokenizer misses) and expansion metacharacters `$ ` ~ { } ( )` (e.g. brace
-# expansion `/tmp/{a,../etc/b}`), plus control/redirect operators `; & | < >`. Only literal
-# paths and in-directory globs (`* ? [ ]`) are ever auto-allowed.
+# Deliberately allow-only: a PreToolUse `allow` overrides the ask rule, so the safe /tmp
+# case runs without a prompt, while the hook never has to enumerate the unbounded set of
+# unsafe forms (wrappers like `timeout rm` / `command rm` / env prefixes, brace/glob/command
+# expansion, multi-line). It recognizes just the narrow safe case and lets the rest prompt.
 #
-# Assumes GNU `realpath` (-m) and `jq`, both present in this repo's Linux dev env. If jq is
-# absent the hook makes no decision and rm falls back to the normal permission flow.
+# Assumes GNU `realpath` (-m) and `jq`, both present in this repo's Linux dev env.
 set -uo pipefail
 
 input=$(cat)
@@ -19,26 +17,14 @@ command -v jq >/dev/null 2>&1 || exit 0
 cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null)
 [ -z "$cmd" ] && exit 0
 
-emit() {
-  jq -nc --arg d "$1" --arg r "$2" \
-    '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:$d,permissionDecisionReason:$r}}'
-  exit 0
-}
+# Multi-line commands, shell operators/redirection, or expansion metacharacters
+# ($ ` ~ { } ( )): the post-expansion targets can't be proven from the raw string — defer.
+case "$cmd" in *$'\n'*) exit 0 ;; esac
+printf '%s' "$cmd" | grep -Eq '[;&|<>`(){}$~]' && exit 0
 
-# Only weigh in when an `rm` invocation is present (line start or after a shell operator).
-printf '%s' "$cmd" | grep -Eq '(^|[;&|(]|&&|\|\|)[[:space:]]*rm([[:space:]]|$)' || exit 0
-
-# Multi-line: a newline separates commands like `;`, so refuse rather than validate one line.
-case "$cmd" in *$'\n'*) emit ask "multi-line rm command; confirm manually" ;; esac
-
-# Any operator, redirection, or expansion metacharacter: refuse — we can't prove the
-# post-expansion targets stay under /tmp.
-printf '%s' "$cmd" | grep -Eq '[;&|<>`(){}$~]|\bxargs\b|\bfind\b' \
-  && emit ask "shell operators or expansion in rm command; confirm manually"
-
-# rm must be the sole leading command (no sudo/env/cd prefixes).
+# Must be a bare, leading `rm` — no sudo/env/timeout/command wrappers, no `/bin/rm` path.
 read -r -a toks <<< "$cmd"
-[ "${toks[0]:-}" = "rm" ] || emit ask "rm is not the leading command; confirm manually"
+[ "${toks[0]:-}" = "rm" ] || exit 0
 
 had_operand=0
 i=1
@@ -48,12 +34,16 @@ while [ "$i" -lt "${#toks[@]}" ]; do
   [ "$t" = "--" ] && continue
   case "$t" in -*) continue ;; esac
   had_operand=1
-  canon=$(realpath -m -- "$t" 2>/dev/null) || emit ask "cannot resolve operand '$t'; confirm manually"
+  # A wildcard in a non-final segment (`/tmp/*/x`) can expand through a symlink that
+  # realpath can't see on the unexpanded token — defer those.
+  case "${t%/*}" in *[*?[]*) exit 0 ;; esac
+  canon=$(realpath -m -- "$t" 2>/dev/null) || exit 0
   case "$canon" in
     /tmp/?*) ;;
-    *) emit ask "operand '$t' is not under /tmp; confirm manually" ;;
+    *) exit 0 ;;
   esac
 done
 
-[ "$had_operand" = 1 ] || emit ask "rm without a path operand; confirm manually"
-emit allow "all rm operands are under /tmp"
+[ "$had_operand" = 1 ] || exit 0
+
+jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"allow",permissionDecisionReason:"all rm operands are under /tmp"}}'
