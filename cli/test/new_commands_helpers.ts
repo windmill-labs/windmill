@@ -105,14 +105,9 @@ export async function waitForJob(
 }
 
 /**
- * A `sync push` of a script/flow/app returns as soon as the version is committed,
- * then enqueues an async dependency job (relock + raw-app bundle) that rewrites
- * that same version's value. Pulling or pushing again before it finishes races
- * the worker: an early pull reads pre-relock content, and a second push can be
- * clobbered by the earlier job's write-back, which reverts the deploy. Drain
- * those jobs after each push. The test workspace is isolated per test, so
- * waiting for the whole dependency queue to empty is both sufficient and
- * path-agnostic.
+ * `sync push` returns before its async dependency job (relock + raw-app bundle)
+ * rewrites the deployed version; pulling or re-pushing meanwhile races that
+ * write-back. Call after each push to let the isolated workspace's queue drain.
  */
 export async function waitForDeploymentJobs(
   backend: TestBackend,
