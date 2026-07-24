@@ -9,6 +9,9 @@ use windmill_common::wac::approval_resume_id;
 use windmill_test_utils::*;
 
 const WAC_JOB: &str = "a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1";
+// Distinct keys whose SHA-256 prefixes collide in the u32 the resume routes take.
+const APPROVAL_COLLISION_A: &str = "approval-12509";
+const APPROVAL_COLLISION_B: &str = "approval-81661";
 
 /// The minted URLs point at `BASE_URL`, not the ephemeral test server.
 fn to_test_url(base: &str, url: &str) -> String {
@@ -183,6 +186,49 @@ async fn wac_approval_url_for_another_step_is_rejected(db: Pool<Postgres>) -> an
         "the pending step's url must still resume: {}",
         resp.text().await.unwrap_or_default()
     );
+
+    Ok(())
+}
+
+/// The guards around minting: a step key must be non-empty, the job must be in the
+/// caller's workspace and be WAC-shaped, and two keys may not share a resume id.
+#[sqlx::test(fixtures("base", "wac_approval_urls"))]
+async fn wac_approval_urls_mint_guards(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!("http://localhost:{}/api", server.addr.port());
+    let client = reqwest::Client::new();
+    let mint = |ws: &str, job: &str, key: &str| {
+        let url = format!("{base}/w/{ws}/jobs/wac_approval_urls/{job}/{key}");
+        client.get(url).header("Authorization", "Bearer SECRET_TOKEN").send()
+    };
+
+    assert_eq!(
+        mint("test-workspace", WAC_JOB, "%20").await?.status(),
+        reqwest::StatusCode::BAD_REQUEST,
+        "a blank step key must be refused rather than silently meaning `approval`"
+    );
+
+    // `v2_job_status` is keyed by job id alone, so the mint must not accept a job
+    // from another workspace and stamp its status row.
+    assert_eq!(
+        mint("test-workspace-2", WAC_JOB, "manager").await?.status(),
+        reqwest::StatusCode::NOT_FOUND,
+        "a job outside the caller's workspace must not be mintable"
+    );
+
+    // APPROVAL_COLLISION_A and _B hash to the same 32-bit resume id, so they would
+    // share one resume_job row and one capability.
+    assert!(mint("test-workspace", WAC_JOB, APPROVAL_COLLISION_A)
+        .await?
+        .status()
+        .is_success());
+    let resp = mint("test-workspace", WAC_JOB, APPROVAL_COLLISION_B).await?;
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    assert_eq!(status, reqwest::StatusCode::BAD_REQUEST, "colliding key: {body}");
+    assert!(body.contains(APPROVAL_COLLISION_A), "error must name the other key: {body}");
 
     Ok(())
 }

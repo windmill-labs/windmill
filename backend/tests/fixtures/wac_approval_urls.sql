@@ -11,3 +11,13 @@ INSERT INTO public.v2_job (
 );
 INSERT INTO public.v2_job_queue (id, workspace_id, scheduled_for, running, suspend, tag) VALUES
     ('a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1', 'test-workspace', '2023-01-01 00:00:00', true, 1, 'bun');
+
+-- A second workspace the caller also administers, so a cross-workspace mint is
+-- rejected by the job's workspace check rather than by workspace authorization.
+INSERT INTO workspace (id, name, owner) VALUES
+    ('test-workspace-2', 'test-workspace-2', 'test-user');
+INSERT INTO usr(workspace_id, email, username, is_admin, role) VALUES
+    ('test-workspace-2', 'test@windmill.dev', 'test-user', true, 'Admin');
+INSERT INTO workspace_key(workspace_id, kind, key) VALUES
+    ('test-workspace-2', 'cloud', 'test-key-2');
+INSERT INTO workspace_settings (workspace_id) VALUES ('test-workspace-2');
