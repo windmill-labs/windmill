@@ -1260,6 +1260,7 @@ export class DeployToHubSession {
 						logo: this.hubLogo ? { b64: this.hubLogo.b64, mime: this.hubLogo.mime } : null
 					})
 					this.hubHasRemoteLogo = this.hubLogo !== null
+					this.hubLogo = undefined
 				} catch (e: any) {
 					sendUserToast(`Logo ${this.hubLogo ? 'upload' : 'removal'} failed: ${e?.message ?? e}`, true)
 					failures++
