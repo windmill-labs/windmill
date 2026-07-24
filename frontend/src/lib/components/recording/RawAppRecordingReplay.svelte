@@ -23,11 +23,7 @@
 		TriangleAlert
 	} from 'lucide-svelte'
 	import { onDestroy } from 'svelte'
-	import {
-		REC_TARGET_ATTR,
-		withHighlightStyles,
-		type RawAppInteractionKind
-	} from './rawAppSnapshot'
+	import { withHighlightStyles, type RawAppInteractionKind } from './rawAppSnapshot'
 	import type { RawAppRecording } from './types'
 
 	let { recording }: { recording: RawAppRecording } = $props()
@@ -38,7 +34,6 @@
 	let phase = $state<'before' | 'after'>('before')
 	let playing = $state(false)
 	let paneWidth = $state(0)
-	let frameEl: HTMLIFrameElement | undefined = $state(undefined)
 
 	const KIND_ICONS: Record<RawAppInteractionKind, any> = {
 		click: MousePointerClick,
@@ -53,23 +48,10 @@
 	let steps = $derived(recording.steps ?? [])
 	let step = $derived(stepIndex > 0 ? steps[stepIndex - 1] : undefined)
 	let frameIdx = $derived(
-		step ? (phase === 'after' ? (step.after ?? step.before) : step.before) : 0
+		step ? (phase === 'after' ? (step.after ?? step.before) : (step.before ?? step.after)) : 0
 	)
 	let html = $derived(frameIdx !== undefined ? recording.frames?.[frameIdx] : undefined)
 	let srcdoc = $derived(html !== undefined ? withHighlightStyles(html) : undefined)
-
-	/** Bring the highlighted element into view. The snapshot iframe is
-	 * same-origin (srcdoc) but script-less, so the scroll is driven from here —
-	 * on the frame's own window only, never `scrollIntoView` (which would also
-	 * scroll this page). */
-	function onFrameLoad() {
-		const win = frameEl?.contentWindow
-		const el = frameEl?.contentDocument?.querySelector(`[${REC_TARGET_ATTR}]`)
-		if (!win || !el) return
-		const rect = el.getBoundingClientRect()
-		if (rect.top >= 0 && rect.bottom <= win.innerHeight) return
-		win.scrollTo({ top: Math.max(0, win.scrollY + rect.top - win.innerHeight / 2), left: 0 })
-	}
 
 	let scale = $derived(
 		recording.viewport?.width && paneWidth ? Math.min(1, paneWidth / recording.viewport.width) : 1
@@ -155,7 +137,9 @@
 				<InfoIcon size={16} class="text-tertiary" />
 				{#snippet text()}
 					<span class="text-2xs">
-						Recorded {new Date(recording.recorded_at).toLocaleString()} ·
+						{recording.workspace ? `${recording.workspace} · ` : ''}Recorded {new Date(
+							recording.recorded_at
+						).toLocaleString()} ·
 						{fmtTime(recording.total_duration_ms)} ·
 						{recording.viewport?.width}×{recording.viewport?.height}
 					</span>
@@ -217,7 +201,8 @@
 	<div class="flex flex-1 min-h-0 gap-2">
 		<div class="w-72 shrink-0 overflow-auto border rounded-md bg-surface-secondary">
 			<button
-				class="w-full text-left px-3 py-2 border-b border-l-2 flex items-center gap-2 {stepIndex === 0
+				class="w-full text-left px-3 py-2 border-b border-l-2 flex items-center gap-2 {stepIndex ===
+				0
 					? 'bg-surface border-l-blue-500'
 					: 'border-l-transparent hover:bg-surface-hover'}"
 				onclick={() => step_(0)}
@@ -249,19 +234,24 @@
 			bind:clientWidth={paneWidth}
 		>
 			{#if srcdoc !== undefined}
-				<!-- Snapshots are untrusted markup from a recording file: no
-				     `allow-scripts`, so nothing in them executes. `allow-same-origin`
-				     is what lets the player scroll the highlighted element into view. -->
-				<iframe
-					bind:this={frameEl}
-					title="app-snapshot"
-					{srcdoc}
-					sandbox="allow-same-origin"
-					onload={onFrameLoad}
-					class="bg-white border-none block"
-					style="width: {recording.viewport?.width || 1280}px; height: {recording.viewport
-						?.height || 800}px; transform: scale({scale}); transform-origin: top left;"
-				></iframe>
+				<!-- A recording is untrusted markup, and `?src=` loads one from any URL,
+				     so the snapshot renders under the empty sandbox: no scripting, and an
+				     opaque origin that can't reach the viewer's Windmill session. -->
+				<!-- The wrapper carries the scaled-down box; the iframe keeps the recorded
+				     viewport size so the app lays out exactly as it did. -->
+				<div
+					style="width: {(recording.viewport?.width || 1280) * scale}px; height: {(recording
+						.viewport?.height || 800) * scale}px;"
+				>
+					<iframe
+						title="app-snapshot"
+						{srcdoc}
+						sandbox=""
+						class="bg-white border-none block"
+						style="width: {recording.viewport?.width || 1280}px; height: {recording.viewport
+							?.height || 800}px; transform: scale({scale}); transform-origin: top left;"
+					></iframe>
+				</div>
 			{:else}
 				<div class="h-full flex items-center justify-center text-sm text-secondary p-4 text-center">
 					No snapshot was captured for this step.

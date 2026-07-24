@@ -32,7 +32,10 @@
 			)
 			return
 		}
-		sendUserToast('Recording started — interact with the app, then stop to download it')
+		sendUserToast(
+			'Recording started. The app\'s DOM and the values you type are captured (passwords are ' +
+				'masked; add data-wm-no-record to an element to leave it out).'
+		)
 	}
 
 	function stop() {
@@ -44,7 +47,9 @@
 	}
 
 	onDestroy(() => {
-		if (recorder.active) recorder.stop()
+		// Leaving the page ends the session — hand over what was recorded rather
+		// than drop minutes of it on a stray navigation.
+		if (recorder.active) recorder.download(recorder.stop())
 	})
 </script>
 

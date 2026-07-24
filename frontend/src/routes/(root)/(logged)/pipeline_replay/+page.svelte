@@ -3,6 +3,7 @@
 	import ScriptRecordingReplay from '$lib/components/recording/ScriptRecordingReplay.svelte'
 	import PipelineRecordingReplay from '$lib/components/recording/PipelineRecordingReplay.svelte'
 	import RawAppRecordingReplay from '$lib/components/recording/RawAppRecordingReplay.svelte'
+	import { MAX_RECORDED_STEPS } from '$lib/components/recording/rawAppSnapshot'
 	import type {
 		FlowRecording,
 		PipelineRecording,
@@ -74,17 +75,24 @@
 		}
 		if (data.type === 'app') {
 			// Raw-app session recording: the player indexes `frames` by each step's
-			// before/after, so both must be well-formed before it mounts.
+			// before/after and renders a row per step, so both must be well-formed —
+			// and the step count bounded — before it mounts. A `?src=` payload is
+			// caller-controlled and can pack millions of tiny valid steps under the
+			// download cap, which would freeze the tab on render.
 			const validFrames =
 				Array.isArray(data.frames) && data.frames.every((f) => typeof f === 'string')
+			const isIndex = (v: unknown) => v === undefined || typeof v === 'number'
 			const validSteps =
 				Array.isArray(data.steps) &&
+				data.steps.length <= MAX_RECORDED_STEPS &&
 				data.steps.every(
 					(s: unknown) =>
 						isObject(s) &&
 						typeof s.t === 'number' &&
 						typeof s.kind === 'string' &&
-						typeof s.label === 'string'
+						typeof s.label === 'string' &&
+						isIndex(s.before) &&
+						isIndex(s.after)
 				)
 			if (!validFrames || !validSteps) {
 				sendUserToast('Invalid app recording format', true)

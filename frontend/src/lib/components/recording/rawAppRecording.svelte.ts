@@ -13,7 +13,9 @@ import {
 	cssSelectorFor,
 	describeElement,
 	isElementNode,
+	isRedacted,
 	isTag,
+	MAX_RECORDED_STEPS,
 	maskValue,
 	serializeDocument,
 	stepLabel,
@@ -27,7 +29,6 @@ const SETTLE_QUIET_MS = 400
 const SETTLE_MAX_MS = 3000
 /** Typing is one step per field, committed after this much inactivity. */
 const FILL_DEBOUNCE_MS = 800
-const MAX_STEPS = 500
 /** Snapshots are full documents; stop storing them (steps keep coming) rather
  * than let a long session grow the tab's memory without bound. */
 const MAX_TOTAL_FRAME_BYTES = 40 * 1024 * 1024
@@ -145,13 +146,18 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		before: number | undefined,
 		value?: string
 	) {
-		if (!active || steps.length >= MAX_STEPS) return
-		// The frame the new step starts from IS the previous step's outcome, so a
-		// still-pending settle resolves to it instead of snapshotting twice.
+		if (!active) return
+		if (steps.length >= MAX_RECORDED_STEPS) {
+			truncated = true
+			return
+		}
+		// A step's outcome must be settled before the next one starts; the pending
+		// snapshot can't be deferred past this point. It can't reuse `before`
+		// either: that frame carries the NEW step's target stamp.
 		if (settle) {
 			const pending = settle.step
 			clearSettle()
-			if (before !== undefined) pending.after = before
+			pending.after = capture()
 		}
 		const target = el ? describeElement(el) : 'the app'
 		const step: RawAppStep = {
@@ -180,12 +186,14 @@ export function createRawAppRecording(): RawAppRecordingStore {
 	}
 
 	function currentValue(el: Element): string {
-		if (isTag(el, 'INPUT')) {
-			const input = el as HTMLInputElement
-			return input.type === 'password' ? maskValue(input.value) : input.value
-		}
-		if (isTag(el, 'TEXTAREA')) return (el as HTMLTextAreaElement).value
-		return (el.textContent ?? '').trim()
+		const raw = isTag(el, 'INPUT')
+			? (el as HTMLInputElement).value
+			: isTag(el, 'TEXTAREA')
+				? (el as HTMLTextAreaElement).value
+				: (el.textContent ?? '').trim()
+		const secret =
+			(isTag(el, 'INPUT') && (el as HTMLInputElement).type === 'password') || isRedacted(el)
+		return secret ? maskValue(raw) : raw
 	}
 
 	function commitFill() {
@@ -214,7 +222,10 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			// Controls report their own semantic step on `change`; a click on a text
 			// field is just focus. Recording those too would double every step.
 			if (isTextEntry(el)) return
-			if (isTag(el, 'INPUT') && ['checkbox', 'radio', 'file'].includes((el as HTMLInputElement).type))
+			if (
+				isTag(el, 'INPUT') &&
+				['checkbox', 'radio', 'file'].includes((el as HTMLInputElement).type)
+			)
 				return
 			if (isTag(el, 'SELECT') || isTag(el, 'OPTION')) return
 			commitFill()
@@ -279,9 +290,8 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			if (e.key !== 'Enter' && e.key !== 'Escape') return
 			const el = isElementNode(e.target) ? e.target : undefined
 			// Enter in a field ends the edit: the fill step must land before the key.
-			const before = pendingFill ? undefined : capture(el)
 			commitFill()
-			pushStep('key', el, before ?? capture(el), e.key)
+			pushStep('key', el, capture(el), e.key)
 		})
 	}
 
@@ -290,12 +300,43 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		detachers = []
 	}
 
+	/** Every pointerdown snapshots the app, but only the ones a step turned out to
+	 * need are worth downloading — drop the rest and renumber the references. */
+	function compactFrames(): { frames: string[]; steps: RawAppStep[] } {
+		const remap = new Map<number, number>()
+		const kept: string[] = []
+		const keep = (i: number | undefined) => {
+			if (i === undefined) return undefined
+			const existing = remap.get(i)
+			if (existing !== undefined) return existing
+			const next = kept.length
+			kept.push(frames[i])
+			remap.set(i, next)
+			return next
+		}
+		// Frame 0 is the app as it was when recording started; the player opens on it.
+		keep(0)
+		for (const step of steps) {
+			step.before = keep(step.before)
+			step.after = keep(step.after)
+		}
+		return { frames: kept, steps }
+	}
+
+	/** A reload replaces the document the listeners are bound to. Anything the old
+	 * one had in flight (a debounced fill, a pending outcome) refers to detached
+	 * nodes and must be dropped, not carried into the new page's timeline. */
 	function onIframeLoad() {
 		detach()
+		if (pendingFill) clearTimeout(pendingFill.timer)
+		pendingFill = undefined
+		pendingPointer = undefined
+		clearSettle()
 		const d = doc()
 		if (!d) return
 		attach(d)
-		pushStep('navigate', undefined, capture(), d.location?.href)
+		// The wrapper is a blob: URL, so only the in-app hash is meaningful here.
+		pushStep('navigate', undefined, capture(), d.location?.hash || undefined)
 	}
 
 	return {
@@ -329,8 +370,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			}
 			capture()
 			attach(d)
+			// NOT in `detachers`: onIframeLoad calls detach(), which would otherwise
+			// remove the very listener that rebinds the recorder on the next reload.
 			iframe.addEventListener('load', onIframeLoad)
-			detachers.push(() => iframe.removeEventListener('load', onIframeLoad))
 			return true
 		},
 		stop(): RawAppRecording {
@@ -343,10 +385,11 @@ export function createRawAppRecording(): RawAppRecordingStore {
 				step.after = capture()
 			}
 			detach()
+			iframeEl?.removeEventListener('load', onIframeLoad)
 			active = false
 			pendingPointer = undefined
 			iframeEl = undefined
-			return {
+			const recording: RawAppRecording = {
 				version: 1,
 				type: 'app',
 				recorded_at: new Date().toISOString(),
@@ -354,10 +397,15 @@ export function createRawAppRecording(): RawAppRecordingStore {
 				workspace,
 				total_duration_ms: Date.now() - startTime,
 				viewport,
-				frames,
-				steps,
+				...compactFrames(),
 				truncated: truncated || undefined
 			}
+			// Multi-MB snapshots must not outlive the recording they were taken for.
+			steps = []
+			frames = []
+			frameIndexes = new Map()
+			framesBytes = 0
+			return recording
 		},
 		download(recording: RawAppRecording) {
 			const blob = new Blob([JSON.stringify(recording)], { type: 'application/json' })

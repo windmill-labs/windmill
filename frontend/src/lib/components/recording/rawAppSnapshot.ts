@@ -9,6 +9,14 @@
  * without re-running a selector against a snapshot the app may have re-rendered. */
 export const REC_TARGET_ATTR = 'data-wm-rec-target'
 
+/** App authors mark sensitive nodes with this attribute: their content is left
+ * out of every snapshot and their values never reach a step. */
+export const NO_RECORD_ATTR = 'data-wm-no-record'
+
+/** Hard cap on the steps a recording may hold. The player renders a row per
+ * step, so the loader enforces it too on recordings it did not produce. */
+export const MAX_RECORDED_STEPS = 500
+
 export type RawAppInteractionKind =
 	| 'click'
 	| 'fill'
@@ -76,8 +84,14 @@ function resolvePath(root: Element, path: number[]): Element | undefined {
 	return cur
 }
 
+/** True when the element sits under an app-declared no-record subtree. */
+export function isRedacted(el: Element): boolean {
+	return !!el.closest(`[${NO_RECORD_ATTR}]`)
+}
+
 /** Copy live form state (which lives in properties, not attributes, so
- * `outerHTML` would lose it) onto the clone. Password values are masked. */
+ * `outerHTML` would lose it) onto the clone. Passwords and anything the app
+ * marked no-record are masked. */
 function freezeFormState(doc: Document, clone: Element) {
 	const selector = 'input, textarea, select'
 	const live = doc.querySelectorAll(selector)
@@ -93,7 +107,7 @@ function freezeFormState(doc: Document, clone: Element) {
 			if (input.type === 'checkbox' || input.type === 'radio') {
 				if (input.checked) copyInput.setAttribute('checked', '')
 				else copyInput.removeAttribute('checked')
-			} else if (input.type === 'password') {
+			} else if (input.type === 'password' || isRedacted(input)) {
 				copyInput.setAttribute('value', maskValue(input.value))
 			} else if (input.type !== 'file') {
 				copyInput.setAttribute('value', input.value)
@@ -113,6 +127,27 @@ function freezeFormState(doc: Document, clone: Element) {
 	}
 }
 
+/** Re-stringifying every rule of a framework stylesheet costs more than the rest
+ * of a snapshot combined, and snapshots are taken several times per interaction
+ * on the app's own event path. A sheet's text only changes when its rules do, so
+ * cache it and re-derive on a rule-count change. */
+const sheetCssCache = new WeakMap<CSSStyleSheet, { count: number; css: string }>()
+
+function sheetCss(sheet: CSSStyleSheet, rules: CSSRuleList): string {
+	const cached = sheetCssCache.get(sheet)
+	if (cached && cached.count === rules.length) return cached.css
+	let css = Array.from(rules)
+		.map((r) => r.cssText)
+		.join('\n')
+	if (sheet.href) css = rewriteCssUrls(css, sheet.href)
+	// `cssRules` drops the sheet-level media condition the `<link media>` carried,
+	// so an unwrapped inline copy would apply print-only CSS to every replay.
+	const media = sheet.media?.mediaText
+	if (media) css = `@media ${media} {\n${css}\n}`
+	sheetCssCache.set(sheet, { count: rules.length, css })
+	return css
+}
+
 /** Inline what the browser has actually parsed: rules of linked stylesheets (so
  * the snapshot renders without the API being reachable) and of CSS-in-JS sheets
  * built with `insertRule` (whose `<style>` node clones out empty). Sheets we
@@ -120,7 +155,7 @@ function freezeFormState(doc: Document, clone: Element) {
 function inlineStyleSheets(doc: Document, root: Element, clone: Element) {
 	for (const sheet of Array.from(doc.styleSheets)) {
 		const owner = sheet.ownerNode
-		if (!isElementNode(owner)) continue
+		if (!isElementNode(owner) || sheet.disabled) continue
 		let rules: CSSRuleList
 		try {
 			const cssRules = (sheet as CSSStyleSheet).cssRules
@@ -133,11 +168,7 @@ function inlineStyleSheets(doc: Document, root: Element, clone: Element) {
 		if (!path) continue
 		const target = resolvePath(clone, path)
 		if (!target) continue
-		const href = (sheet as CSSStyleSheet).href
-		let css = Array.from(rules)
-			.map((r) => r.cssText)
-			.join('\n')
-		if (href) css = rewriteCssUrls(css, href)
+		const css = sheetCss(sheet as CSSStyleSheet, rules)
 		if (owner.tagName === 'LINK') {
 			const style = doc.createElement('style')
 			style.textContent = css
@@ -164,6 +195,11 @@ export function serializeDocument(doc: Document, opts: SnapshotOptions = {}): st
 	freezeFormState(doc, clone)
 	inlineStyleSheets(doc, root, clone)
 	clone.querySelectorAll('script').forEach((n) => n.remove())
+	// The app declared these subtrees off-limits: keep the node (so the layout
+	// still replays) but never carry their content into the recording.
+	clone.querySelectorAll(`[${NO_RECORD_ATTR}]`).forEach((n) => {
+		n.replaceChildren(doc.createTextNode('•••'))
+	})
 	clone.querySelectorAll('meta[http-equiv="refresh" i]').forEach((n) => n.remove())
 	clone.querySelectorAll('*').forEach((el) => {
 		for (const attr of Array.from(el.attributes)) {
@@ -265,6 +301,6 @@ export function stepLabel(kind: RawAppInteractionKind, target: string, value?: s
 		case 'key':
 			return `Pressed ${value ?? 'key'} in ${target}`
 		case 'navigate':
-			return `Navigated to ${value ?? ''}`
+			return value ? `Navigated to ${value}` : 'Reloaded the app'
 	}
 }
