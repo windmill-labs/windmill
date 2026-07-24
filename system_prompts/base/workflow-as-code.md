@@ -21,7 +21,7 @@ import {
   step,
   sleep,
   waitForApproval,
-  getResumeUrls,
+  getApprovalUrls,
   parallel,
   workflow,
 } from "windmill-client";
@@ -39,7 +39,7 @@ export const main = workflow(async (x: string) => {
 Python:
 
 ```python
-from wmill import task, task_script, task_flow, step, sleep, wait_for_approval, get_resume_urls, parallel, workflow
+from wmill import task, task_script, task_flow, step, sleep, wait_for_approval, get_approval_urls, parallel, workflow
 
 @task()
 async def process(x: str) -> str:
@@ -123,12 +123,11 @@ output = await pipeline(input=data)
 Use `step()` for lightweight inline values that must not change during replay:
 
 ```typescript
-const urls = await step("get_urls", () => getResumeUrls());
 const startedAt = await step("started_at", () => new Date().toISOString());
 ```
 
 ```python
-urls = await step("get_urls", lambda: get_resume_urls())
+started_at = await step("started_at", lambda: datetime.now().isoformat())
 ```
 
 Use stable, descriptive step names. Do not generate step names dynamically.
@@ -153,19 +152,25 @@ Only parallelize independent steps. Do not read the result of a task before it i
 
 ## Approvals
 
-Generate resume URLs inside `step()` before sending them:
+Name the approval step and generate its URLs inside `step()` before sending them.
+`getApprovalUrls` / `get_approval_urls` returns the URLs bound to that step, the same
+ones its built-in approve/reject buttons use:
 
 ```typescript
-const urls = await step("get_urls", () => getResumeUrls());
-await step("notify", () => sendApprovalEmail(urls.approvalPage));
-const approval = await waitForApproval({ timeout: 3600 });
+const urls = await step("urls", () => getApprovalUrls("manager"));
+await step("notify", () => sendApprovalEmail(urls.resume, urls.cancel));
+const approval = await waitForApproval({ key: "manager", timeout: 3600 });
 ```
 
 ```python
-urls = await step("get_urls", lambda: get_resume_urls())
-await step("notify", lambda: send_approval_email(urls["approvalPage"]))
-approval = await wait_for_approval(timeout=3600)
+urls = await step("urls", lambda: get_approval_urls("manager"))
+await step("notify", lambda: send_approval_email(urls["resume"], urls["cancel"]))
+approval = await wait_for_approval(key="manager", timeout=3600)
 ```
+
+With several approvals in one workflow, give each its own key so each notification
+resumes its own step. `getResumeUrls()` / `get_resume_urls()` still works but signs a
+random nonce, so its URLs are not tied to any particular approval step.
 
 `selfApproval: false` and `self_approval=False` are Enterprise-only approval behavior. Do not use them unless the user asks for that behavior.
 

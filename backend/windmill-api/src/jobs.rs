@@ -343,6 +343,10 @@ pub fn workspaced_service() -> Router {
             get(get_resume_urls).layer(cors.clone()),
         )
         .route(
+            "/wac_approval_urls/{job_id}/{step_key}",
+            get(get_wac_approval_urls).layer(cors.clone()),
+        )
+        .route(
             "/result_by_id/{job_id}/{node_id}",
             get(get_result_by_id).layer(cors.clone()),
         )
@@ -4300,6 +4304,28 @@ pub async fn get_resume_urls(
     // get_resume_urls_internal directly and are unaffected.
     let flow_path = resume_target_flow_path(&db, &w_id, job_id).await?;
     check_scopes(&authed, || format!("jobs:run:flows:{}", flow_path))?;
+    get_resume_urls_internal(
+        Extension(db),
+        Path((w_id, job_id, resume_id)),
+        Query(approver),
+    )
+    .await
+}
+
+/// Resume URLs bound to one `wait_for_approval(key=...)` step of a running
+/// Workflow-as-Code job, so the workflow can route the request through its own
+/// channel instead of the built-in ones. Same authority as `get_resume_urls`:
+/// only the `resume_id` derivation differs, and it is the one the worker will
+/// use when that step suspends.
+pub async fn get_wac_approval_urls(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, job_id, step_key)): Path<(String, Uuid, String)>,
+    Query(approver): Query<QueryApprover>,
+) -> error::JsonResult<ResumeUrls> {
+    let flow_path = resume_target_flow_path(&db, &w_id, job_id).await?;
+    check_scopes(&authed, || format!("jobs:run:flows:{}", flow_path))?;
+    let resume_id = windmill_common::wac::approval_resume_id(&step_key);
     get_resume_urls_internal(
         Extension(db),
         Path((w_id, job_id, resume_id)),
