@@ -14771,6 +14771,44 @@ paths:
                   - resume
                   - cancel
 
+  /w/{workspace}/jobs/wac_approval_urls/{id}/{step_key}:
+    get:
+      summary: get the resume urls bound to a specific wait_for_approval step of a workflow-as-code job
+      operationId: getWacApprovalUrls
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: step_key
+          in: path
+          required: true
+          description: checkpoint key of the wait_for_approval step, as passed to `wait_for_approval(key=...)`
+          schema:
+            type: string
+        - name: approver
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: url endpoints
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  approvalPage:
+                    type: string
+                  resume:
+                    type: string
+                  cancel:
+                    type: string
+                required:
+                  - approvalPage
+                  - resume
+                  - cancel
+
   /w/{workspace}/jobs/slack_approval/{id}:
     get:
       summary: generate interactive slack approval for suspended job

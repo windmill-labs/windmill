@@ -1274,6 +1274,25 @@ class Windmill:
             params=params,
         ).json()
 
+    def get_approval_urls(self, step_key: str = "approval", approver: str = None) -> dict:
+        """Get the resume URLs bound to one ``wait_for_approval`` step of this workflow.
+
+        Args:
+            step_key: Checkpoint key of the approval step, as passed to
+                ``wait_for_approval(key=...)``
+            approver: Optional approver name
+
+        Returns:
+            Dictionary with approvalPage, resume, and cancel URLs
+        """
+        from urllib.parse import quote
+
+        job_id = os.environ.get("WM_JOB_ID") or "NO_ID"
+        return self.get(
+            f"/w/{self.workspace}/jobs/wac_approval_urls/{job_id}/{quote(step_key, safe='')}",
+            params={"approver": approver},
+        ).json()
+
     def request_interactive_slack_approval(
         self,
         slack_resource_path: str,
@@ -2028,6 +2047,26 @@ def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict:
 
 
 @init_global_client
+def get_approval_urls(step_key: str = "approval", approver: str = None) -> dict:
+    """Get the resume/cancel/approval-page URLs bound to one ``wait_for_approval`` step.
+
+    Unlike :func:`get_resume_urls`, which signs a random nonce, these address the
+    very ``resume_job`` record the step's built-in approval buttons use, so they
+    are stable across replays and safe to embed in a custom notification.
+
+    Args:
+        step_key: Checkpoint key of the approval step, as passed to
+            ``wait_for_approval(key=...)``. Includes the ``_2``, ``_3`` suffixes
+            the SDK appends when the same key is used more than once.
+        approver: Optional approver name
+
+    Returns:
+        Dictionary with approvalPage, resume, and cancel URLs
+    """
+    return _client.get_approval_urls(step_key, approver)
+
+
+@init_global_client
 def request_interactive_slack_approval(
     slack_resource_path: str,
     channel_id: str,
@@ -2724,9 +2763,13 @@ class WorkflowCtx:
         )
 
     async def _wait_for_approval(
-        self, timeout: int = 1800, form: dict | None = None, self_approval: bool = True
+        self,
+        timeout: int = 1800,
+        form: dict | None = None,
+        self_approval: bool = True,
+        key: str | None = None,
     ):
-        key = self._alloc_key("approval")
+        key = self._alloc_key(key or "approval")
 
         if key in self._completed:
             return self._completed[key]
@@ -3073,11 +3116,13 @@ async def wait_for_approval(
     timeout: int = 1800,
     form: dict | None = None,
     self_approval: bool = True,
+    key: str | None = None,
 ) -> dict:
     """Suspend the workflow and wait for an external approval.
 
-    Use ``get_resume_urls()`` (wrapped in ``step()``) to obtain
-    resume/cancel/approval URLs before calling this function.
+    Pass ``key`` to name the step, then ``get_approval_urls(key)`` yields the URLs
+    that resume exactly this approval — route them through your own channel.
+    Without a key the steps are named ``approval``, ``approval_2``, ...
 
     Returns a dict with ``value`` (form data), ``approver``, and ``approved``.
 
@@ -3085,16 +3130,19 @@ async def wait_for_approval(
         timeout: Approval timeout in seconds (default 1800).
         form: Optional form schema for the approval page.
         self_approval: Whether the user who triggered the flow can approve it (default True).
+        key: Optional checkpoint key naming this approval step.
 
     Example::
 
-        urls = await step("urls", lambda: get_resume_urls())
-        await step("notify", lambda: send_email(urls["approvalPage"]))
-        result = await wait_for_approval(timeout=3600)
+        urls = await step("urls", lambda: get_approval_urls("manager"))
+        await step("notify", lambda: send_email(urls["resume"], urls["cancel"]))
+        result = await wait_for_approval(key="manager", timeout=3600)
     """
     ctx: WorkflowCtx | None = _workflow_ctx.get(None)
     if ctx is not None:
-        return await ctx._wait_for_approval(timeout=timeout, form=form, self_approval=self_approval)
+        return await ctx._wait_for_approval(
+            timeout=timeout, form=form, self_approval=self_approval, key=key
+        )
     raise RuntimeError("wait_for_approval can only be called inside a @workflow")
 
 

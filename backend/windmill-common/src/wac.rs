@@ -50,6 +50,22 @@ pub struct WacPendingSteps {
     pub job_ids: serde_json::Map<String, Value>,
 }
 
+/// `resume_id` bound to a WAC `wait_for_approval` step key.
+///
+/// Two callers must agree on it — the worker minting the inline resume/cancel
+/// buttons at suspend time, and the API signing URLs the workflow asked for
+/// ahead of time — so the derivation must be stable across processes and
+/// releases. `DefaultHasher` is explicitly not (std makes no cross-release
+/// guarantee), hence SHA-256 truncated to the `u32` the resume routes take.
+/// Distinctness per key is what matters: `resume_job`'s primary key is
+/// `job_id ^ resume_id`, so two steps sharing a resume_id would collide on
+/// one row.
+pub fn approval_resume_id(step_key: &str) -> u32 {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(step_key.as_bytes());
+    u32::from_be_bytes([digest[0], digest[1], digest[2], digest[3]])
+}
+
 /// Load the WAC checkpoint from `v2_job_status.workflow_as_code_status._checkpoint`.
 pub async fn load_checkpoint(db: &DB, job_id: &Uuid) -> error::Result<WacCheckpoint> {
     let row: Option<Option<Value>> = sqlx::query_scalar(
