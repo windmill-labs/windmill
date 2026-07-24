@@ -109,7 +109,7 @@
 		type ScriptLang
 	} from '$lib/gen'
 	import { resource } from 'runed'
-	import { emptySchema, sendUserToast } from '$lib/utils'
+	import { emptySchema, sendUserToast, type Item } from '$lib/utils'
 	import type { Schema } from '$lib/common'
 	import { beforeNavigate, goto } from '$app/navigation'
 	import { fade } from 'svelte/transition'
@@ -1422,11 +1422,50 @@
 	let recordingMode = $state(false)
 	let lastPipelineRecording = $state<PipelineRecording | undefined>(undefined)
 
+	// Shared by the overflow-menu Record item and the inline armed pill so their
+	// wording can't drift — both describe the same armed recorder.
+	const RECORDING_ARMED_HINT =
+		'Recording armed — the next pipeline run will be captured. Click to disarm.'
+
 	function downloadPipelineRecording() {
 		if (lastPipelineRecording) {
 			pipelineRecording.download(lastPipelineRecording)
 		}
 	}
+
+	// Secondary top-bar controls (recorder, macros) collapse into a single
+	// overflow (⋮) menu so the bar stays legible on small screens; only primary
+	// actions stay inline. Recording lives here rather than on the bar at all
+	// times — while armed it surfaces a compact inline pill (below) instead.
+	let overflowMenuItems = $derived.by<Item[]>(() => {
+		const items: Item[] = []
+		if (!isOperator && allPipelineScripts.length > 0) {
+			items.push({
+				displayName: recordingMode ? 'Disarm recorder' : 'Record next run',
+				icon: Circle,
+				iconColor: recordingMode ? 'rgb(220 38 38)' : undefined,
+				disabled: !!cascadeRunningRoot,
+				tooltip: recordingMode
+					? RECORDING_ARMED_HINT
+					: 'Arm the recorder so the next pipeline run is captured for offline replay',
+				action: () => (recordingMode = !recordingMode)
+			})
+			if (lastPipelineRecording && !cascadeRunningRoot) {
+				items.push({
+					displayName: 'Download last recording',
+					icon: Download,
+					action: () => downloadPipelineRecording()
+				})
+			}
+		}
+		items.push({
+			displayName: 'Macros',
+			icon: SquareFunction,
+			tooltip: "Browse the workspace's DuckDB macros (deployed // macros libraries)",
+			action: () => macroDrawer?.openDrawer()
+		})
+		return items
+	})
 
 	// Script path → its schedule's configured args, so a manual "Run pipeline"
 	// launches a schedule-triggered script with the same payload a real tick
@@ -2371,40 +2410,20 @@
 		{/if}
 		<div class="flex flex-row items-center gap-2 flex-1 justify-end">
 			{#if !isOperator && allPipelineScripts.length > 0}
-				<!-- Recorder: arm to capture the next pipeline run into a
-				     downloadable recording the /pipeline_replay player can rerun offline
-				     (parity with the flow/script recorders). -->
-				{#if lastPipelineRecording && !cascadeRunningRoot}
-					<Button
-						variant="subtle"
-						unifiedSize="sm"
-						startIcon={{ icon: Download }}
-						onclick={downloadPipelineRecording}
-						title="Download the last recorded pipeline run"
+				<!-- Only the armed state surfaces on the bar (arming lives in the ⋮
+				     menu) — a compact disarm pill. -->
+				{#if recordingMode}
+					<button
+						type="button"
+						onclick={() => (recordingMode = false)}
+						disabled={!!cascadeRunningRoot}
+						class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium transition-colors disabled:opacity-50 bg-red-50 dark:bg-red-900/30 border-red-300 dark:border-red-700 text-red-700 dark:text-red-400"
+						title={RECORDING_ARMED_HINT}
 					>
-						Download recording
-					</Button>
+						<Circle size={12} class="fill-red-600 text-red-600 animate-pulse" />
+						Recording
+					</button>
 				{/if}
-				<button
-					type="button"
-					onclick={() => (recordingMode = !recordingMode)}
-					disabled={!!cascadeRunningRoot}
-					class={twMerge(
-						'flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium transition-colors disabled:opacity-50',
-						recordingMode
-							? 'bg-red-50 dark:bg-red-900/30 border-red-300 dark:border-red-700 text-red-700 dark:text-red-400'
-							: 'bg-surface border-gray-300 dark:border-gray-600 text-secondary hover:bg-surface-hover'
-					)}
-					title={recordingMode
-						? 'Recording armed — the next pipeline run will be captured. Click to disarm.'
-						: 'Arm the recorder so the next pipeline run is captured for offline replay'}
-				>
-					<Circle
-						size={12}
-						class={recordingMode ? 'fill-red-600 text-red-600 animate-pulse' : ''}
-					/>
-					{recordingMode ? 'Recording' : 'Record'}
-				</button>
 				<!-- Pipeline-level run: always visible in both View and Edit so a
 				     run never requires hunting for a specific node's play button
 				     (dbt `build` / Dagster "Materialize all"). Runs every script in
@@ -2502,21 +2521,13 @@
 			<Button
 				variant="subtle"
 				unifiedSize="sm"
-				startIcon={{ icon: SquareFunction }}
-				onclick={() => macroDrawer?.openDrawer()}
-				title="Browse the workspace's DuckDB macros (deployed // macros libraries)"
-			>
-				Macros
-			</Button>
-			<Button
-				variant="subtle"
-				unifiedSize="sm"
 				startIcon={{ icon: RefreshCw }}
 				onclick={() => graphRes.refetch()}
 				disabled={graphRes.loading}
 				iconOnly
 				title="Refresh"
 			/>
+			<DropdownV2 size="sm" items={overflowMenuItems} />
 		</div>
 	</div>
 
