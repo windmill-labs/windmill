@@ -111,15 +111,17 @@
 		// must be treated as PNG or the Hub's content sniff rejects it later.
 		const lower = file.name.toLowerCase()
 		const mime =
-			file.type === 'image/png'
-				? 'image/png'
-				: file.type === 'image/svg+xml'
-					? 'image/svg+xml'
-					: lower.endsWith('.png')
-						? 'image/png'
-						: lower.endsWith('.svg')
-							? 'image/svg+xml'
-							: undefined
+			file.type
+				? file.type === 'image/png'
+					? 'image/png'
+					: file.type === 'image/svg+xml'
+						? 'image/svg+xml'
+						: undefined
+				: lower.endsWith('.png')
+					? 'image/png'
+					: lower.endsWith('.svg')
+						? 'image/svg+xml'
+						: undefined
 		if (!mime) {
 			sendUserToast('Logo must be a PNG or SVG file', true)
 			return
