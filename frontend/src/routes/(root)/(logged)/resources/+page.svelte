@@ -1008,7 +1008,7 @@
 								<Cell head>Resource type</Cell>
 								<Cell head>Description</Cell>
 								<Cell head />
-								<Cell head last />
+								<Cell head last stickyEnd />
 							</Row>
 						</Head>
 						<tbody class="divide-y bg-surface">
@@ -1176,7 +1176,7 @@
 												{/if}
 											</div>
 										</Cell>
-										<Cell class="flex justify-end">
+										<Cell stickyEnd class="flex justify-end">
 											{#if path && assetCanBeExplored({ kind: 'resource', path }, { resource_type }) && !$userStore?.operator}
 												<ExploreAssetButton
 													asset={{ kind: 'resource', path }}
@@ -1280,7 +1280,7 @@
 							<Row>
 								<Cell head first>Name</Cell>
 								<Cell head>Description</Cell>
-								<Cell head last />
+								<Cell head last stickyEnd />
 							</Row>
 						</Head>
 						<tbody class="divide-y bg-surface">
@@ -1316,7 +1316,7 @@
 												{removeMarkdown(truncate(description ?? '', 200))}
 											</span>
 										</Cell>
-										<Cell last>
+										<Cell last stickyEnd>
 											{#if !canWrite}
 												<Badge>
 													Shared globally
