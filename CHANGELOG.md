@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.769.0](https://github.com/windmill-labs/windmill/compare/v1.768.0...v1.769.0) (2026-07-24)
+
+
+### Features
+
+* **hub:** surface data pipelines in deploy-to-hub drawer ([#10299](https://github.com/windmill-labs/windmill/issues/10299)) ([010059a](https://github.com/windmill-labs/windmill/commit/010059a449f4d0cde0656086f1b3f03a02a1c78c))
+* **pipeline:** collapse secondary top-bar controls into an overflow menu ([#10300](https://github.com/windmill-labs/windmill/issues/10300)) ([1d25d75](https://github.com/windmill-labs/windmill/commit/1d25d7539ed7fb17c47a732d6b1cd7fc19202a04))
+
+
+### Bug Fixes
+
+* pin table actions column so it stays visible on narrow screens ([#10301](https://github.com/windmill-labs/windmill/issues/10301)) ([75acf72](https://github.com/windmill-labs/windmill/commit/75acf7207b151f0227600be555bfa5e14dfa8dd1))
+* pin validated DNS address to close SSRF DNS-rebinding TOCTOU ([#10303](https://github.com/windmill-labs/windmill/issues/10303)) ([3cf7a39](https://github.com/windmill-labs/windmill/commit/3cf7a390a37c07a818248c95defa4ecf5bf262e5))
+
+
+### Performance Improvements
+
+* optimize get_datatable_full_schema to avoid timeout on large catalogs ([#10304](https://github.com/windmill-labs/windmill/issues/10304)) ([1478d12](https://github.com/windmill-labs/windmill/commit/1478d12eb352b1b7906ccfe3ab5eaafe60ffbe4f))
+
 ## [1.768.0](https://github.com/windmill-labs/windmill/compare/v1.767.0...v1.768.0) (2026-07-24)
 
 
