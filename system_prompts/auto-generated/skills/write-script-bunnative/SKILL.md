@@ -683,7 +683,12 @@ waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: bool
  * stable across replays and safe to embed in a custom notification.
  * 
  * `stepKey` must match the `key` given to `waitForApproval`. Keys must be unique
- * within a workflow; reusing one throws rather than silently renaming it.
+ * within a workflow; reusing one throws rather than silently renaming it. The URL
+ * only resumes while that step is awaiting approval — using it earlier or later is
+ * rejected rather than resolving a different approval.
+ * 
+ * `resume` and `cancel` are step-bound; `approvalPage` is not — it opens the job's
+ * approval page, which acts on whichever approval is pending when it is used.
  * 
  * @example
  * const urls = await step("urls", () => getApprovalUrls("manager"));
