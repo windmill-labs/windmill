@@ -1433,11 +1433,10 @@
 		}
 	}
 
-	// Secondary top-bar controls collapsed into a single overflow (⋮) menu so the
-	// bar stays legible on small screens — only the primary actions (mode toggle,
-	// Run pipeline, Save, Activity) stay inline. Recording lives here rather than
-	// on the bar at all times; while armed it also surfaces a compact inline pill
-	// (below) so its state stays visible.
+	// Secondary top-bar controls (recorder, macros) collapse into a single
+	// overflow (⋮) menu so the bar stays legible on small screens; only primary
+	// actions stay inline. Recording lives here rather than on the bar at all
+	// times — while armed it surfaces a compact inline pill (below) instead.
 	let overflowMenuItems = $derived.by<Item[]>(() => {
 		const items: Item[] = []
 		if (!isOperator && allPipelineScripts.length > 0) {
@@ -2411,9 +2410,8 @@
 		{/if}
 		<div class="flex flex-row items-center gap-2 flex-1 justify-end">
 			{#if !isOperator && allPipelineScripts.length > 0}
-				<!-- Recorder arming lives in the overflow (⋮) menu; only its armed
-				     state surfaces on the bar, as a compact disarm pill, so "Record"
-				     no longer occupies the bar at all times. -->
+				<!-- Only the armed state surfaces on the bar (arming lives in the ⋮
+				     menu) — a compact disarm pill. -->
 				{#if recordingMode}
 					<button
 						type="button"
@@ -2529,8 +2527,6 @@
 				iconOnly
 				title="Refresh"
 			/>
-			<!-- Overflow menu for secondary controls (recorder, macros) — keeps the
-			     bar to primary actions and prevents crowding on small screens. -->
 			<DropdownV2 size="sm" items={overflowMenuItems} />
 		</div>
 	</div>
