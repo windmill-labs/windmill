@@ -110,7 +110,7 @@
 		}
 	)
 	// Folders of pipeline-member scripts present in the current listing (captured
-	// in loadScripts before they're filtered out). Unioned in so a folder whose
+	// in loadRunnables before they're filtered out). Unioned in so a folder whose
 	// only pipeline node is a never-deployed `// pipeline` script draft — not in
 	// listPipelineFolders (deployed-only) nor a `data_pipeline` bundle — still gets
 	// a pipeline entry instead of vanishing.
@@ -414,19 +414,16 @@
 		}
 	}
 
-	// Item edits/deletes trigger a full reload; the merged endpoint returns every
-	// kind, so any change reloads the whole list.
-	async function loadScripts(_?: boolean): Promise<void> {
+	// A row was created/edited/archived/moved/shared. The merged endpoint returns
+	// every kind, so ONE reload refreshes the whole list — the per-kind change events
+	// all route here rather than each firing its own identical query. loadRunnables
+	// clears the lazy folder store, so re-fetch whatever folders were expanded (this
+	// is a same-scope reload: treeKey is unchanged, so those TreeView nodes stay open
+	// and would otherwise go blank).
+	async function reloadItems(): Promise<void> {
+		const openFolders = Object.keys(folderLoad)
 		await loadRunnables(true)
-	}
-	async function loadFlows(): Promise<void> {
-		await loadRunnables(true)
-	}
-	async function loadApps(): Promise<void> {
-		await loadRunnables(true)
-	}
-	async function loadRawApps(): Promise<void> {
-		raw_apps = []
+		for (const f of openFolders) loadFolderItems(f)
 	}
 
 	function filterItemsPathsBaseOnUserFilters(
@@ -1316,16 +1313,11 @@
 					folderLoad={treeLazyMode ? folderLoad : undefined}
 					onExpandFolder={treeLazyMode ? loadFolderItems : undefined}
 					isSearching={filter !== ''}
-					on:scriptChanged={() => loadScripts(includeWithoutMain)}
-					on:flowChanged={loadFlows}
-					on:appChanged={loadApps}
-					on:rawAppChanged={loadRawApps}
-					on:reload={() => {
-						loadScripts(includeWithoutMain)
-						loadFlows()
-						loadApps()
-						loadRawApps()
-					}}
+					on:scriptChanged={reloadItems}
+					on:flowChanged={reloadItems}
+					on:appChanged={reloadItems}
+					on:rawAppChanged={reloadItems}
+					on:reload={reloadItems}
 					{showCode}
 				/>
 			{/key}
@@ -1345,16 +1337,11 @@
 				{#each displayedItems as item, i (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
 					<Item
 						{item}
-						on:scriptChanged={() => loadScripts(includeWithoutMain)}
-						on:flowChanged={loadFlows}
-						on:appChanged={loadApps}
-						on:rawAppChanged={loadRawApps}
-						on:reload={() => {
-							loadScripts(includeWithoutMain)
-							loadFlows()
-							loadApps()
-							loadRawApps()
-						}}
+						on:scriptChanged={reloadItems}
+						on:flowChanged={reloadItems}
+						on:appChanged={reloadItems}
+						on:rawAppChanged={reloadItems}
+						on:reload={reloadItems}
 						{showCode}
 						showEditButton={showEditButtons}
 						keyboardSelected={selectedIndex === i}

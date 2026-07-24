@@ -51,6 +51,11 @@
 
 	let opened: boolean = $state(true)
 
+	// A top-level folder in lazy mode: its items are loaded on demand into a separate
+	// store (folderLoad tracks per-folder load state), so counts/pagination differ
+	// from a folder whose items are already grouped from the loaded window.
+	let isLazyFolder = $derived(depth === 0 && isFolderItem(item) && folderLoad != undefined)
+
 	let showMax = $state(15)
 	// A lazy top-level folder paginates server-side ("Load more in this folder"),
 	// so show all of its already-loaded items rather than the tight client slice
@@ -66,7 +71,19 @@
 	// Deliberately NOT auto-loading a folder's items when it opens via collapseAll:
 	// with every workspace folder injected as a top-level node, "expand all" would
 	// otherwise fire one request per folder (thousands on a large workspace). A
-	// folder loads only on an explicit click (see the onclick handler below).
+	// folder loads only on an explicit click (see toggleFolder).
+	let lastFolderToggle = 0
+	function toggleFolder() {
+		// A double-click would otherwise toggle twice — expand then immediately
+		// collapse, and for a lazy folder waste the fetch the first click kicked off,
+		// which reads as the folder "expanding and collapsing at once". Swallow a
+		// second toggle landing within 300ms so a rapid double-click settles open.
+		const now = Date.now()
+		if (now - lastFolderToggle < 300) return
+		lastFolderToggle = now
+		opened = !opened
+		if (opened && depth === 0 && isFolder(item)) onExpandFolder?.(item.folderName)
+	}
 </script>
 
 {#if isFolder(item)}
@@ -74,11 +91,7 @@
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			onclick={() => {
-				opened = !opened
-				// Top-level folder: load its items on demand the first time it opens.
-				if (opened && depth === 0 && isFolder(item)) onExpandFolder?.(item.folderName)
-			}}
+			onclick={toggleFolder}
 			class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer"
 		>
 			<div
@@ -98,7 +111,15 @@
 						>{#if depth === 0}f/{/if}{item.folderName}</span
 					>
 					<div class="text-2xs font-normal text-secondary whitespace-nowrap">
-						({pluralize(item.items.length, ' item')})
+						{#if isLazyFolder && !folderLoad?.[item.folderName]?.loaded}
+							<!-- Lazy folder not expanded yet: its true item count is unknown until
+							     loaded, so showing "(0 items)" would be misleading. -->
+							&nbsp;
+						{:else if isLazyFolder && folderLoad?.[item.folderName]?.hasMore}
+							({item.items.length}+ items)
+						{:else}
+							({pluralize(item.items.length, ' item')})
+						{/if}
 					</div>
 				</div>
 			</div>
