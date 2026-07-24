@@ -229,14 +229,15 @@
 		if (reset) {
 			serverCursor = undefined
 			hasMoreServer = false
-			// The scope changed, so the lazily-loaded folder store and its per-folder
-			// cursors are stale. Bump treeGen first so any in-flight folder request is
+			// The scope changed, so the lazily-loaded owner store and its per-owner
+			// cursors are stale. Bump treeGen first so any in-flight owner request is
 			// discarded on return, then clear. The tree remounts on the same scope key
-			// (see the {#key} around TreeViewRoot), collapsing folders so they re-load
+			// (see the {#key} around TreeViewRoot), collapsing owners so they re-load
 			// fresh on the next expand rather than lingering with old-scope rows.
 			treeGen++
-			folderLoad = {}
-			treeFolderItems = []
+			ownerLoad = {}
+			treeOwnerItems = []
+			openOwners = new Set()
 		}
 		const { orderBy, orderDesc } = sortToParams(sortOrder)
 		const gen = ++loadGen
@@ -338,20 +339,28 @@
 	// instead of relying on the global browse window. Keyed by folder name (the
 	// `f/<name>` node).
 	//
-	// Folder items live in their OWN store (`treeFolderItems`), never merged into the
-	// global browse arrays: those advance by a single `serverCursor`, so injecting
-	// out-of-window folder rows there would make the flat stream non-contiguous and,
-	// once pagination reached those rows, duplicate them. `treeGen` ties every folder
-	// request to the active query scope (order/archived/library/kind/workspace); a
-	// reset bumps it so an in-flight response from a stale scope is discarded.
-	type FolderLoadState = { cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean }
-	let folderLoad = $state<Record<string, FolderLoadState>>({})
-	let treeFolderItems = $state<ItemType[]>([])
+	// Every top-level namespace — a folder (`f/<name>`) OR a user (`u/<name>`) — is a
+	// lazily-loaded owner, keyed here by its full path prefix. Its items live in their
+	// OWN store (`treeOwnerItems`), never merged into the global browse arrays: those
+	// advance by a single `serverCursor`, so injecting out-of-window rows there would
+	// make the flat stream non-contiguous and, once pagination reached those rows,
+	// duplicate them. Loading users lazily too (rather than sourcing them from the
+	// loaded window) is why a user node no longer vanishes under a name sort whose
+	// first page happens to be all folder rows. `treeGen` ties every request to the
+	// active scope (order/archived/library/kind/workspace); a reset bumps it so an
+	// in-flight response from a stale scope is discarded.
+	type OwnerLoadState = { cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean }
+	let ownerLoad = $state<Record<string, OwnerLoadState>>({})
+	let treeOwnerItems = $state<ItemType[]>([])
 	let treeGen = 0
+	// Owners the user currently has expanded (full path prefixes). A reload re-fetches
+	// only these: ownerLoad also retains collapsed owners as a cache, so keying reloads
+	// off its entries would re-request every owner ever opened in this scope.
+	let openOwners = new Set<string>()
 
 	// The endpoint returns a unified `edited_at` per row; combinedItems derives every
 	// kind's sort time from it (scripts read it as `created_at`, see mapRunnable), so
-	// the folder store mirrors that to keep tree ordering consistent with the list.
+	// the owner store mirrors that to keep tree ordering consistent with the list.
 	function toTreeItem(it: RunnableItem): ItemType {
 		return {
 			...mapRunnable(it),
@@ -359,14 +368,16 @@
 		} as unknown as ItemType
 	}
 
-	async function loadFolderItems(folder: string, more = false): Promise<void> {
+	// `owner` is the full prefix: `f/<folder>` or `u/<username>`.
+	async function loadOwnerItems(owner: string, more = false): Promise<void> {
 		const ws = $workspaceStore
 		if (!ws || !$userStore) return
-		const st = folderLoad[folder]
+		const st = ownerLoad[owner]
 		if (st?.loading) return
 		if (more ? !st?.hasMore : st?.loaded) return
+		openOwners.add(owner)
 		const gen = treeGen
-		folderLoad[folder] = {
+		ownerLoad[owner] = {
 			cursor: st?.cursor,
 			hasMore: st?.hasMore ?? false,
 			loading: true,
@@ -382,22 +393,22 @@
 				showArchived: archived ? true : undefined,
 				includeWithoutMain: includeWithoutMain ? true : undefined,
 				kinds: itemKind !== 'all' ? itemKind : undefined,
-				pathStart: `f/${folder}/`,
+				pathStart: `${owner}/`,
 				perPage: 100,
 				cursor: more ? st?.cursor : undefined
 			})
 		} catch (e: any) {
 			if (gen !== treeGen) return
-			folderLoad[folder] = { ...folderLoad[folder], loading: false }
-			sendUserToast(`Failed to load folder ${folder}: ${e?.body ?? e?.message ?? e}`, true)
+			ownerLoad[owner] = { ...ownerLoad[owner], loading: false }
+			sendUserToast(`Failed to load ${owner}: ${e?.body ?? e?.message ?? e}`, true)
 			return
 		}
 		// The scope moved on while this was in flight (order/archive/library/kind/
 		// workspace changed and reset the tree); drop the response so stale rows from
 		// another scope can't appear under the current one.
 		if (gen !== treeGen) return
-		const have = new Set(treeFolderItems.map(itemKey))
-		const merged = [...treeFolderItems]
+		const have = new Set(treeOwnerItems.map(itemKey))
+		const merged = [...treeOwnerItems]
 		for (const it of res.items ?? []) {
 			// Pipeline-member scripts are folded into their folder's Pipeline entry, so
 			// they never render as their own tree leaf (visiblePipelineFolders drives it).
@@ -405,8 +416,8 @@
 			if (have.has(itemKey(it))) continue
 			merged.push(toTreeItem(it))
 		}
-		treeFolderItems = merged
-		folderLoad[folder] = {
+		treeOwnerItems = merged
+		ownerLoad[owner] = {
 			cursor: res.next_cursor,
 			hasMore: !!res.next_cursor,
 			loading: false,
@@ -417,13 +428,16 @@
 	// A row was created/edited/archived/moved/shared. The merged endpoint returns
 	// every kind, so ONE reload refreshes the whole list — the per-kind change events
 	// all route here rather than each firing its own identical query. loadRunnables
-	// clears the lazy folder store, so re-fetch whatever folders were expanded (this
-	// is a same-scope reload: treeKey is unchanged, so those TreeView nodes stay open
-	// and would otherwise go blank).
+	// clears the lazy owner store, so re-fetch whatever owners were expanded (this is
+	// a same-scope reload: treeKey is unchanged, so those TreeView nodes stay open and
+	// would otherwise go blank).
+	function collapseOwner(owner: string): void {
+		openOwners.delete(owner)
+	}
 	async function reloadItems(): Promise<void> {
-		const openFolders = Object.keys(folderLoad)
+		const toReload = [...openOwners]
 		await loadRunnables(true)
-		for (const f of openFolders) loadFolderItems(f)
+		for (const o of toReload) loadOwnerItems(o)
 	}
 
 	function filterItemsPathsBaseOnUserFilters(
@@ -471,22 +485,18 @@
 	function sortName(x: { summary?: string; path: string }): string {
 		return x.summary && x.summary !== '' ? x.summary : x.path
 	}
-	// A $derived closure so its identity changes with `sortOrder`/`archived`, which
-	// both re-runs `combinedItems` (flat view) and re-groups the tree (TreeViewRoot
-	// depends on this prop). Starred items are pinned on top — but NOT in archived
-	// mode: there the endpoint deliberately leaves favorites in the single keyset
-	// stream (an archived path can span many versions), so re-pinning them client-side
-	// would make a favorited row on a later page jump above earlier rows when it loads,
-	// breaking both starred-first and the selected order. Mirror the backend's
-	// pin_starred = !show_archived.
+	// A $derived closure so its identity changes with `sortOrder`, which both re-runs
+	// `combinedItems` (flat view) and re-groups the tree (TreeViewRoot depends on this
+	// prop). Starred items are pinned on top in every order and view — the endpoint
+	// pins starred on the first page for both browse and archived (each is one row per
+	// path), so the client mirrors that.
 	let compareItems = $derived.by(() => {
 		const order = sortOrder
-		const pinStarred = !archived
 		return (
 			a: { starred?: boolean; time?: number; summary?: string; path: string },
 			b: { starred?: boolean; time?: number; summary?: string; path: string }
 		): number => {
-			if (pinStarred && !!a.starred !== !!b.starred) return a.starred ? -1 : 1
+			if (!!a.starred !== !!b.starred) return a.starred ? -1 : 1
 			switch (order) {
 				case 'updated_asc':
 					return (a.time ?? 0) - (b.time ?? 0)
@@ -629,13 +639,22 @@
 	// entering/leaving search. Label/kind filtering and fuzzy ranking stay
 	// client-side over the loaded pages, so they don't reload here.
 	let searching = $derived(filter !== '')
-	// Lazy folder tree is active when browsing all (no owner selected, no search, no
-	// label filter): every folder shows as a top-level node and paginates on expand,
-	// its items coming from the separate `treeFolderItems` store. A selected owner,
-	// an active search, or a label filter instead groups the global loaded window
-	// (label filtering is client-side over loaded rows, so it must see that window).
+	// Lazy owner tree is active when browsing all (no owner selected, no search, no
+	// label filter): every folder AND user shows as a top-level node and paginates on
+	// expand, its items coming from the separate `treeOwnerItems` store. A selected
+	// owner, an active search, or a label filter instead groups the global loaded
+	// window (label filtering is client-side over loaded rows, so it must see it).
 	let treeLazyMode = $derived(!searching && ownerFilter == undefined && labelFilter == undefined)
 	let treeInjectFolders = $derived(treeLazyMode ? (folderNamesRes.current ?? []) : [])
+	let treeInjectUsers = $derived.by(() => {
+		if (!treeLazyMode) return []
+		const s = new Set(usernamesRes.current ?? [])
+		// Always inject your own personal space (u/<you>): list_usernames can be empty
+		// (you may not be a listed workspace member) yet u/<you> still holds runnables,
+		// and it must not vanish under a name sort whose first page is all folders.
+		if ($userStore?.username) s.add($userStore.username)
+		return [...s]
+	})
 	// The bottom "load more" only pages the *global* stream, which in lazy mode holds
 	// folder rows the tree ignores (folders come from the store and are all injected
 	// already) — so surfacing it there is confusing. Restrict it to scoped mode, where
@@ -753,16 +772,11 @@
 		)
 	)
 	let items = $derived(filter !== '' ? filteredItems : preFilteredItems)
-	// Source the tree groups. In lazy mode, folder rows come from the on-demand
-	// `treeFolderItems` store while user/loose top-level rows come from the global
-	// window (its folder rows are dropped here so they don't double the store); every
-	// folder is injected as a node (see treeInjectFolders) whether or not it's loaded.
+	// Source the tree groups. In lazy mode every top-level owner (folder and user) is
+	// injected as a node and its rows come from the on-demand `treeOwnerItems` store,
+	// so the tree never depends on which owners happen to be in the loaded window.
 	// Otherwise (scoped/search/label) the tree just groups the global `items`.
-	let treeSource = $derived(
-		treeLazyMode
-			? [...treeFolderItems, ...(preFilteredItems ?? []).filter((x) => !x.path.startsWith('f/'))]
-			: items
-	)
+	let treeSource = $derived(treeLazyMode ? treeOwnerItems : items)
 	// Scope identity for the tree: any change here means folders must re-load fresh,
 	// so it keys a {#key} remount that collapses expanded folders (searching is a
 	// boolean so per-keystroke query changes don't remount — search updates in place).
@@ -1310,8 +1324,10 @@
 					onLoadMore={fetchMoreServer}
 					pipelineFolders={visiblePipelineFolders}
 					allFolders={treeInjectFolders}
-					folderLoad={treeLazyMode ? folderLoad : undefined}
-					onExpandFolder={treeLazyMode ? loadFolderItems : undefined}
+					allUsers={treeInjectUsers}
+					ownerLoad={treeLazyMode ? ownerLoad : undefined}
+					onExpandOwner={treeLazyMode ? loadOwnerItems : undefined}
+					onCollapseOwner={treeLazyMode ? collapseOwner : undefined}
 					isSearching={filter !== ''}
 					on:scriptChanged={reloadItems}
 					on:flowChanged={reloadItems}

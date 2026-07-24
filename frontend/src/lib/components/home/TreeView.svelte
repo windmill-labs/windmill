@@ -15,13 +15,15 @@
 		showCode: (path: string, summary: string) => void
 		isSearching?: boolean
 		pipelineFolders?: Set<string>
-		// Lazy per-folder loading (top-level folders only): expanding a folder loads
-		// its items on demand and paginates within it.
-		folderLoad?: Record<
+		// Lazy per-owner loading (top-level folders and users only): expanding an owner
+		// loads its items on demand and paginates within it. `ownerLoad` keys are full
+		// path prefixes (`f/<name>` / `u/<name>`).
+		ownerLoad?: Record<
 			string,
 			{ cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean }
 		>
-		onExpandFolder?: (folder: string, more?: boolean) => void
+		onExpandOwner?: (owner: string, more?: boolean) => void
+		onCollapseOwner?: (owner: string) => void
 	}
 
 	let {
@@ -31,11 +33,15 @@
 		showCode,
 		isSearching = false,
 		pipelineFolders,
-		folderLoad,
-		onExpandFolder
+		ownerLoad,
+		onExpandOwner,
+		onCollapseOwner
 	}: Props = $props()
 
 	const isFolderItem = (i: typeof item): i is FolderItem => i && 'folderName' in i
+	const isFolder = isFolderItem
+	const isUser = (i: typeof item): i is UserItem => i && 'username' in i
+
 	// Hidden while searching: pipelines aren't part of the text filter (the list
 	// view hides their rows on a query too), so a folder matching the search
 	// shouldn't surface an unrelated Pipeline row.
@@ -46,52 +52,64 @@
 			(pipelineFolders?.has(item.folderName) ?? false)
 	)
 
-	const isFolder = isFolderItem
-	const isUser = (i: typeof item): i is UserItem => i && 'username' in i
-
 	let opened: boolean = $state(true)
 
-	// A top-level folder in lazy mode: its items are loaded on demand into a separate
-	// store (folderLoad tracks per-folder load state), so counts/pagination differ
-	// from a folder whose items are already grouped from the loaded window.
-	let isLazyFolder = $derived(depth === 0 && isFolderItem(item) && folderLoad != undefined)
+	// Full path prefix of this node when it's a top-level owner (folder or user).
+	let ownerKey = $derived(
+		depth === 0
+			? isFolder(item)
+				? `f/${item.folderName}`
+				: isUser(item)
+					? `u/${item.username}`
+					: undefined
+			: undefined
+	)
+	// A top-level owner in lazy mode: its items load on demand into a separate store
+	// (ownerLoad tracks per-owner state), so its count/pagination differ from a node
+	// whose items are already grouped from the loaded window.
+	let isLazyOwner = $derived(ownerKey != undefined && ownerLoad != undefined)
+	let ownerState = $derived(ownerKey != undefined ? ownerLoad?.[ownerKey] : undefined)
 
 	let showMax = $state(15)
-	// A lazy top-level folder paginates server-side ("Load more in this folder"),
-	// so show all of its already-loaded items rather than the tight client slice
-	// (which would add a second, confusing "Show more" button).
+	// A lazy owner paginates server-side ("Load more"), so show all its already-loaded
+	// items rather than the tight client slice (which would add a second, confusing
+	// "Show more" button).
 	let effectiveMax = $derived(
-		depth === 0 && isFolderItem(item) && folderLoad?.[item.folderName] != undefined
+		isLazyOwner && ownerState != undefined && (isFolder(item) || isUser(item))
 			? item.items.length
 			: showMax
 	)
+
 	$effect(() => {
 		opened = !collapseAll
 	})
-	// Deliberately NOT auto-loading a folder's items when it opens via collapseAll:
-	// with every workspace folder injected as a top-level node, "expand all" would
-	// otherwise fire one request per folder (thousands on a large workspace). A
-	// folder loads only on an explicit click (see toggleFolder).
-	let lastFolderToggle = 0
-	function toggleFolder() {
-		// A double-click would otherwise toggle twice — expand then immediately
-		// collapse, and for a lazy folder waste the fetch the first click kicked off,
-		// which reads as the folder "expanding and collapsing at once". Swallow a
-		// second toggle landing within 300ms so a rapid double-click settles open.
+	// Deliberately NOT auto-loading an owner's items when it opens via collapseAll:
+	// with every folder and user injected as a top-level node, "expand all" would
+	// otherwise fire one request per owner (thousands on a large workspace). An owner
+	// loads only on an explicit click (see toggleOwner).
+	let lastToggle = 0
+	function toggleOwner() {
+		// A double-click would otherwise toggle twice — expand then immediately collapse,
+		// and for a lazy owner waste the fetch the first click kicked off, which reads as
+		// the node "expanding and collapsing at once". Swallow a second toggle landing
+		// within 300ms so a rapid double-click settles open.
 		const now = Date.now()
-		if (now - lastFolderToggle < 300) return
-		lastFolderToggle = now
+		if (now - lastToggle < 300) return
+		lastToggle = now
 		opened = !opened
-		if (opened && depth === 0 && isFolder(item)) onExpandFolder?.(item.folderName)
+		if (ownerKey != undefined) {
+			if (opened) onExpandOwner?.(ownerKey)
+			else onCollapseOwner?.(ownerKey)
+		}
 	}
 </script>
 
-{#if isFolder(item)}
+{#if isFolder(item) || isUser(item)}
 	<div>
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			onclick={toggleFolder}
+			onclick={toggleOwner}
 			class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer"
 		>
 			<div
@@ -99,7 +117,9 @@
 				style={depth > 0 ? `padding-left: ${depth * 16}px;` : ''}
 			>
 				<div class="flex justify-center items-center">
-					{#if depth === 0}
+					{#if isUser(item)}
+						<User size={16} class="text-secondary" />
+					{:else if depth === 0}
 						<Folder size={16} class="text-secondary" />
 					{:else}
 						<FolderTree size={16} class="text-secondary" />
@@ -107,15 +127,15 @@
 				</div>
 
 				<div>
-					<span class="whitespace-nowrap text-xs text-emphasis font-semibold"
-						>{#if depth === 0}f/{/if}{item.folderName}</span
-					>
+					<span class="whitespace-nowrap text-xs text-emphasis font-semibold">
+						{#if isUser(item)}u/{item.username}{:else}{#if depth === 0}f/{/if}{item.folderName}{/if}
+					</span>
 					<div class="text-2xs font-normal text-secondary whitespace-nowrap">
-						{#if isLazyFolder && !folderLoad?.[item.folderName]?.loaded}
-							<!-- Lazy folder not expanded yet: its true item count is unknown until
+						{#if isLazyOwner && !ownerState?.loaded}
+							<!-- Lazy owner not expanded yet: its true item count is unknown until
 							     loaded, so showing "(0 items)" would be misleading. -->
 							&nbsp;
-						{:else if isLazyFolder && folderLoad?.[item.folderName]?.hasMore}
+						{:else if isLazyOwner && ownerState?.hasMore}
 							({item.items.length}+ items)
 						{:else}
 							({pluralize(item.items.length, ' item')})
@@ -167,93 +187,25 @@
 					<div
 						class="text-center text-xs py-2 text-secondary cursor-pointer hover:text-primary"
 						onclick={() => {
-							if (isFolder(item)) {
-								showMax += Math.min(30, item.items.length - showMax)
-								showMax = showMax
-							}
+							showMax += Math.min(30, item.items.length - showMax)
 						}}
 					>
 						Show more ({showMax}/{item.items.length})
 					</div>
 				{/if}
-				{#if depth === 0 && isFolder(item)}
-					{#if folderLoad?.[item.folderName]?.loading}
+				{#if ownerKey != undefined}
+					{#if ownerState?.loading}
 						<div class="text-center text-xs py-2 text-secondary">Loading…</div>
-					{:else if folderLoad?.[item.folderName]?.hasMore}
+					{:else if ownerState?.hasMore}
 						<!-- svelte-ignore a11y_click_events_have_key_events -->
 						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
 							class="text-center text-xs py-2 text-primary cursor-pointer hover:text-emphasis"
-							onclick={() => isFolder(item) && onExpandFolder?.(item.folderName, true)}
+							onclick={() => ownerKey != undefined && onExpandOwner?.(ownerKey, true)}
 						>
-							Load more in this folder
+							Load more
 						</div>
 					{/if}
-				{/if}
-			</div>
-		{/if}
-	</div>
-{:else if isUser(item)}
-	<div>
-		<!-- svelte-ignore a11y_click_events_have_key_events -->
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div
-			onclick={() => (opened = !opened)}
-			class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer"
-		>
-			<div
-				class={twMerge('flex flex-row items-center gap-4 text-sm font-semibold')}
-				style={depth > 0 ? `padding-left: ${depth * 16}px;` : ''}
-			>
-				<div class="flex justify-center items-center">
-					<User size={16} class="text-secondary" />
-				</div>
-
-				<div>
-					<span class="whitespace-nowrap text-xs text-emphasis font-semibold"
-						>u/{item.username}</span
-					>
-					<div class="text-2xs font-normal text-secondary whitespace-nowrap"
-						>({pluralize(item.items.length, ' item')})</div
-					>
-				</div>
-			</div>
-			<div class="w-full flex flex-row-reverse">
-				{#if opened}
-					<ChevronUp size={16} />
-				{:else}
-					<ChevronDown size={16} />
-				{/if}
-			</div>
-		</div>
-		{#if opened || isSearching}
-			<div>
-				{#each item.items.slice(0, effectiveMax) as subItem, index ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] + '__' + index : undefined) ?? 'folder__' + subItem['folderName'] + '__' + index)}
-					<TreeView
-						{collapseAll}
-						item={subItem}
-						on:scriptChanged
-						on:flowChanged
-						on:appChanged
-						on:rawAppChanged
-						on:reload
-						{showCode}
-						depth={depth + 1}
-					/>
-				{/each}
-				{#if effectiveMax < item.items.length}
-					<!-- svelte-ignore a11y_click_events_have_key_events -->
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div
-						class="text-center text-xs text-secondary cursor-pointer py-2 hover:text-primary"
-						onclick={() => {
-							if (isUser(item)) {
-								showMax += Math.min(30, item.items.length - showMax)
-							}
-						}}
-					>
-						Show more ({showMax}/{item.items.length})
-					</div>
 				{/if}
 			</div>
 		{/if}

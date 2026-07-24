@@ -15,15 +15,18 @@
 		// the next one (grouping only reorders what's already loaded).
 		hasMoreServer?: boolean
 		onLoadMore?: () => void
-		// Lazy per-folder loading: every folder shows as a top-level node regardless
-		// of the loaded window; expanding one loads its items on demand, paginated
-		// within the folder. `folderLoad` keys are folder names.
+		// Lazy per-owner loading: every folder and every user shows as a top-level node
+		// regardless of the loaded window; expanding one loads its items on demand,
+		// paginated within it. `ownerLoad` keys are full path prefixes (`f/<name>` /
+		// `u/<name>`).
 		allFolders?: string[]
-		folderLoad?: Record<
+		allUsers?: string[]
+		ownerLoad?: Record<
 			string,
 			{ cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean }
 		>
-		onExpandFolder?: (folder: string, more?: boolean) => void
+		onExpandOwner?: (owner: string, more?: boolean) => void
+		onCollapseOwner?: (owner: string) => void
 	}
 
 	let {
@@ -37,8 +40,10 @@
 		hasMoreServer = false,
 		onLoadMore,
 		allFolders = [],
-		folderLoad,
-		onExpandFolder
+		allUsers = [],
+		ownerLoad,
+		onExpandOwner,
+		onCollapseOwner
 	}: Props = $props()
 
 	let groupedItems: ReturnType<typeof groupItems> | 'loading' = $state('loading')
@@ -48,6 +53,7 @@
 		isSearching
 		sortCompare
 		allFolders
+		allUsers
 		untrack(() => {
 			// While searching, `items` is already relevance-ranked and the sort
 			// selector is disabled, so keep that order: a no-op leaf comparator
@@ -62,33 +68,47 @@
 			// folders in the results.
 			if (!isSearching) {
 				// Inject a top-level node for every pipeline folder (so its Pipeline entry
-				// shows even with no listed items) and every workspace folder (so folders
-				// whose items sit outside the loaded window still appear; expanding one
-				// loads its items on demand — see onExpandFolder).
-				const present = new Set(
+				// shows even with no listed items), every workspace folder, and every user
+				// — so an owner whose items sit outside the loaded window still appears;
+				// expanding one loads its items on demand (see onExpandOwner). Injecting
+				// users too is what stops a user node from vanishing under a name sort whose
+				// first page is all folder rows.
+				const presentFolders = new Set(
 					grouped
 						.filter((g) => 'folderName' in g)
 						.map((g) => (g as { folderName: string }).folderName)
 				)
-				const missing: { folderName: string; items: [] }[] = []
+				const missingFolders: { folderName: string; items: [] }[] = []
 				for (const folderName of [...(pipelineFolders ?? []), ...allFolders]) {
-					if (present.has(folderName)) continue
-					present.add(folderName)
-					missing.push({ folderName, items: [] })
+					if (presentFolders.has(folderName)) continue
+					presentFolders.add(folderName)
+					missingFolders.push({ folderName, items: [] })
 				}
-				if (missing.length) {
+				const presentUsers = new Set(
+					grouped.filter((g) => 'username' in g).map((g) => (g as { username: string }).username)
+				)
+				const missingUsers: { username: string; items: [] }[] = []
+				for (const username of allUsers) {
+					if (presentUsers.has(username)) continue
+					presentUsers.add(username)
+					missingUsers.push({ username, items: [] })
+				}
+				if (missingFolders.length || missingUsers.length) {
 					// `groupItems` returns user groups first, then folders alphabetically.
-					// Append the missing folder nodes and sort the folder section once
-					// (O(n log n)) rather than splicing each in with findIndex (O(n²) — at
-					// 10k folders that was ~50M comparisons on every page merge).
-					const users = grouped.filter((g) => 'username' in g)
-					const folders = grouped.filter((g) => 'folderName' in g) as {
-						folderName: string
-					}[]
-					folders.push(...missing)
+					// Append the missing nodes and sort each section once (O(n log n)) rather
+					// than splicing each in with findIndex (O(n²) — at 10k owners that was
+					// ~50M comparisons on every page merge).
+					const users = grouped.filter((g) => 'username' in g) as { username: string }[]
+					const folders = grouped.filter((g) => 'folderName' in g) as { folderName: string }[]
+					users.push(...missingUsers)
+					folders.push(...missingFolders)
+					users.sort((a, b) => a.username.localeCompare(b.username))
 					folders.sort((a, b) => a.folderName.localeCompare(b.folderName))
 					grouped.length = 0
-					grouped.push(...(users as typeof grouped), ...(folders as unknown as typeof grouped))
+					grouped.push(
+						...(users as unknown as typeof grouped),
+						...(folders as unknown as typeof grouped)
+					)
 				}
 			}
 			groupedItems = grouped
@@ -114,8 +134,9 @@
 					{collapseAll}
 					{item}
 					{pipelineFolders}
-					{folderLoad}
-					{onExpandFolder}
+					{ownerLoad}
+					{onExpandOwner}
+					{onCollapseOwner}
 					on:scriptChanged
 					on:flowChanged
 					on:appChanged
