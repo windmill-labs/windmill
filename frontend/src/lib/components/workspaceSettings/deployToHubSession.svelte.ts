@@ -234,6 +234,9 @@ export class DeployToHubSession {
 	hubName = $state('')
 	hubSummary = $state('')
 	hubReadme = $state('')
+	// Custom logo chosen this session (png/svg, base64 without the data: prefix).
+	// undefined = untouched: publishing leaves whatever logo the Hub already has.
+	hubLogo = $state<{ b64: string; mime: string; name: string } | undefined>(undefined)
 	effectiveSlug = $state('')
 	hubItemIds = $state<Record<string, number>>({})
 
@@ -1240,6 +1243,20 @@ export class DeployToHubSession {
 			} catch (e: any) {
 				sendUserToast(`Data table migration sync failed: ${e?.message ?? e}`, true)
 				failures++
+			}
+
+			// Push the custom logo only when one was chosen this session — absent
+			// means "leave the Hub's current logo alone" (re-publishing a bundle
+			// must not clear it).
+			if (this.hubLogo) {
+				try {
+					await this.#postHub(`/hub/projects/${encodeURIComponent(slug)}/logo`, {
+						logo: { b64: this.hubLogo.b64, mime: this.hubLogo.mime }
+					})
+				} catch (e: any) {
+					sendUserToast(`Logo upload failed: ${e?.message ?? e}`, true)
+					failures++
+				}
 			}
 
 			await sleep(150)

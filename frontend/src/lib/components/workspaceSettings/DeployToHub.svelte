@@ -31,6 +31,7 @@
 		Eye,
 		ExternalLink,
 		Globe,
+		Image as ImageIcon,
 		Info,
 		LayoutDashboard,
 		Loader2,
@@ -99,6 +100,48 @@
 	async function confirmPublish() {
 		if (await deployHub.session?.confirmPublish()) publishDrawer?.closeDrawer()
 	}
+	// Client-side mirror of the Hub's logo constraints (it re-validates server-side).
+	const MAX_LOGO_BYTES = 512 * 1024
+	let logoDragOver = $state(false)
+	let logoFileInput = $state<HTMLInputElement | undefined>()
+	async function handleLogoFile(file: File | undefined) {
+		const s = deployHub.session
+		if (!s || !file) return
+		const lower = file.name.toLowerCase()
+		const mime =
+			file.type === 'image/svg+xml' || lower.endsWith('.svg')
+				? 'image/svg+xml'
+				: file.type === 'image/png' || lower.endsWith('.png')
+					? 'image/png'
+					: undefined
+		if (!mime) {
+			sendUserToast('Logo must be a PNG or SVG file', true)
+			return
+		}
+		if (file.size > MAX_LOGO_BYTES) {
+			sendUserToast('Logo too large (max 512KB)', true)
+			return
+		}
+		const buf = new Uint8Array(await file.arrayBuffer())
+		let bin = ''
+		for (let i = 0; i < buf.length; i += 0x8000) {
+			bin += String.fromCharCode(...buf.subarray(i, i + 0x8000))
+		}
+		s.hubLogo = { b64: btoa(bin), mime, name: file.name }
+	}
+	async function onLogoPicked(e: Event) {
+		const input = e.currentTarget as HTMLInputElement
+		const file = input.files?.[0]
+		// Reset so re-picking the same file re-fires `change`.
+		input.value = ''
+		await handleLogoFile(file)
+	}
+	async function onLogoDrop(e: DragEvent) {
+		e.preventDefault()
+		logoDragOver = false
+		await handleLogoFile(e.dataTransfer?.files?.[0])
+	}
+
 	async function copyIframeSnippet(url: string) {
 		const snippet = `<iframe src="${url}" width="100%" height="600" frameborder="0"></iframe>`
 		try {
@@ -1114,6 +1157,94 @@
 							inputProps={{ placeholder: 'Short one-liner shown on the Hub card' }}
 						/>
 					</label>
+					<div class="flex flex-col gap-1 text-xs">
+						<span class="font-semibold text-primary">{s.hubLogo ? 'Preview' : 'Logo'}</span>
+						{#if s.hubLogo}
+							<!-- Live replica of the Hub project card so the user can judge the
+							     logo in its real context before publishing. -->
+							<span class="text-[11px] text-hint">
+								This is how your project card will look on the Hub.
+							</span>
+							<div class="mt-1 flex flex-col items-center gap-2">
+								<div class="w-64 overflow-hidden rounded-2xl border shadow-sm">
+									<div
+										class="flex h-32 items-center justify-center bg-surface-secondary/50 px-4"
+									>
+										<img
+											src={`data:${s.hubLogo.mime};base64,${s.hubLogo.b64}`}
+											alt="Project logo preview"
+											class="max-h-16 max-w-36 object-contain"
+										/>
+									</div>
+									<div class="border-t bg-surface p-3">
+										<div class="truncate text-xs font-medium text-primary">
+											{s.hubName.trim() || 'Project name'}
+										</div>
+										<p class="mt-0.5 line-clamp-2 text-[11px] text-secondary">
+											{s.hubSummary.trim() || s.hubName.trim() || 'Short one-liner shown on the Hub card'}
+										</p>
+									</div>
+								</div>
+								<div class="flex items-center gap-2">
+									<Button
+										size="xs"
+										variant="default"
+										startIcon={{ icon: ImageIcon }}
+										onclick={() => logoFileInput?.click()}
+									>
+										Replace
+									</Button>
+									<Button
+										size="xs"
+										variant="default"
+										startIcon={{ icon: X }}
+										onclick={() => (s.hubLogo = undefined)}
+									>
+										Remove
+									</Button>
+								</div>
+							</div>
+						{:else}
+							<button
+								type="button"
+								class={`group flex w-full cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed px-4 py-6 text-center transition-colors ${
+									logoDragOver
+										? 'border-blue-400 bg-blue-50 dark:bg-blue-950/30'
+										: 'text-secondary hover:border-blue-300 hover:bg-surface-secondary/50'
+								}`}
+								onclick={() => logoFileInput?.click()}
+								ondragover={(e) => {
+									e.preventDefault()
+									logoDragOver = true
+								}}
+								ondragleave={() => (logoDragOver = false)}
+								ondrop={onLogoDrop}
+							>
+								<ImageIcon
+									size={20}
+									class="text-tertiary transition-colors group-hover:text-secondary"
+								/>
+								<span class="font-medium text-primary">
+									Drop an image or <span class="text-blue-500">browse</span>
+								</span>
+								<span class="text-[11px] text-hint">PNG or SVG, max 512KB</span>
+							</button>
+						{/if}
+						<!-- Single hidden input shared by the dropzone and the Replace button. -->
+						<input
+							bind:this={logoFileInput}
+							type="file"
+							accept=".png,.svg,image/png,image/svg+xml"
+							style="display: none"
+							onchange={onLogoPicked}
+						/>
+						{#if !s.hubLogo}
+							<span class="text-[11px] text-hint">
+								Optional. Shown on the Hub project card and page. Leaving it empty keeps the
+								project's current logo.
+							</span>
+						{/if}
+					</div>
 					<label class="flex flex-col gap-1 text-xs">
 						<span class="font-semibold text-primary">Readme</span>
 						<textarea

@@ -32,6 +32,7 @@ pub fn workspaced_service() -> Router {
             "/projects/{slug}/pipeline_recording",
             post(publish_pipeline_recording),
         )
+        .route("/projects/{slug}/logo", post(publish_project_logo))
         .route("/resource_types", post(publish_resource_type))
         .route("/resources", post(publish_resources))
         .route("/triggers", post(publish_triggers))
@@ -357,6 +358,27 @@ async fn publish_pipeline_recording(
 ) -> Result<impl IntoResponse, Error> {
     ctx.post(&format!("/projects/{}/pipeline_recording", slug), &body)
         .await
+}
+
+#[derive(Deserialize, Serialize)]
+struct ProjectLogoInner {
+    b64: String,
+    mime: String,
+}
+
+// Custom project logo (png/svg, base64). `logo: null` must reach the Hub to
+// clear it, so no skip_serializing_if.
+#[derive(Deserialize, Serialize)]
+struct ProjectLogoBody {
+    logo: Option<ProjectLogoInner>,
+}
+
+async fn publish_project_logo(
+    ctx: HubPublishCtx,
+    Path((_workspace, slug)): Path<(String, ProjectSlug)>,
+    Json(body): Json<ProjectLogoBody>,
+) -> Result<impl IntoResponse, Error> {
+    ctx.post(&format!("/projects/{}/logo", slug), &body).await
 }
 
 #[derive(Deserialize, Serialize)]
