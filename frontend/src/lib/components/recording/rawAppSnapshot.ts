@@ -142,15 +142,20 @@ function freezeFormState(doc: Document, clone: Element) {
  * theme toggle can change a rule without changing the rule count). */
 const sheetCssCache = new WeakMap<CSSStyleSheet, { probe: string; css: string }>()
 
-/** Cheap stand-in for "have these rules changed": the count plus the text of a
- * few sampled rules. Catches an in-place `setProperty` that leaves the count
- * untouched, without re-stringifying the whole sheet to find out. */
+/** Cheap stand-in for "have these rules changed": the count plus the text of up
+ * to 16 rules spread across the sheet (every rule, for a small one). Reading a
+ * rule stringifies it, so probing all of a framework sheet would cost as much as
+ * the re-serialization this cache exists to avoid — a mutation to an unsampled
+ * rule of a *linked* sheet can therefore be missed, which is why only linked
+ * sheets (fetched once, rarely rewritten) are cached at all. */
 function rulesProbe(rules: CSSRuleList): string {
 	const n = rules.length
+	const samples = Math.min(16, n)
 	const parts = [String(n)]
-	for (let i = 0; i < 8 && i < n; i++) {
-		const rule = rules[Math.floor((i * n) / 8)]
-		parts.push(String(rule?.cssText?.length ?? 0), rule?.cssText?.slice(0, 40) ?? '')
+	for (let i = 0; i < samples; i++) {
+		const index = samples === 1 ? 0 : Math.round((i * (n - 1)) / (samples - 1))
+		const text = rules[index]?.cssText ?? ''
+		parts.push(String(text.length), text.slice(0, 64))
 	}
 	return parts.join('|')
 }
@@ -258,23 +263,47 @@ export function serializeDocument(doc: Document, opts: SnapshotOptions = {}): st
  * Injected at the very top of <head> so it applies before anything is fetched. */
 const REPLAY_CSP = `default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:`
 
-/** Add the player's target highlight to a snapshot. Snapshots are replayed with
- * scripting disabled, so the highlight has to ride along in the document. Lives
- * here rather than in the player because a literal `<style>` inside a .svelte
- * file is parsed as the component's own style block. */
-export function withHighlightStyles(frame: string): string {
-	const style = `<style>[${REC_TARGET_ATTR}] {
+const HIGHLIGHT_CSS = `[${REC_TARGET_ATTR}] {
 	outline: 3px solid #ef4444 !important;
 	outline-offset: 2px !important;
 	box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.25) !important;
-}</style>`
-	const csp = `<meta http-equiv="Content-Security-Policy" content="${REPLAY_CSP}">`
-	const withCsp = /<head[^>]*>/i.test(frame)
-		? frame.replace(/<head[^>]*>/i, (open) => `${open}${csp}`)
-		: csp + frame
-	return withCsp.includes('</head>')
-		? withCsp.replace('</head>', `${style}</head>`)
-		: withCsp + style
+}`
+
+/** Prepare a recorded frame for replay: the policy first in <head>, then the
+ * target highlight, and anything executable dropped.
+ *
+ * Goes through a real parser rather than string surgery — a recording can come
+ * from an arbitrary `?src=` URL, and markup like `<body><img src=/probe><header>`
+ * defeats a `<head>` regex, putting the policy after the request it must prevent.
+ * DOMParser does not fetch subresources or run scripts, so parsing is inert; the
+ * document only becomes live when the player hands it to a sandboxed iframe.
+ *
+ * Lives here rather than in the player because a literal `<style>` tag inside a
+ * .svelte file is parsed as the component's own style block. */
+export function withHighlightStyles(frame: string): string {
+	let doc: Document
+	try {
+		doc = new DOMParser().parseFromString(frame, 'text/html')
+	} catch (_) {
+		return ''
+	}
+	const head = doc.head ?? doc.documentElement.insertBefore(doc.createElement('head'), doc.body)
+	const csp = doc.createElement('meta')
+	csp.setAttribute('http-equiv', 'Content-Security-Policy')
+	csp.setAttribute('content', REPLAY_CSP)
+	head.prepend(csp)
+	// The recorder strips these at capture time; a hand-made or hostile recording
+	// has not been through it.
+	doc.querySelectorAll('script, meta[http-equiv="refresh" i]').forEach((n) => n.remove())
+	doc.querySelectorAll('*').forEach((el) => {
+		for (const attr of Array.from(el.attributes)) {
+			if (attr.name.toLowerCase().startsWith('on')) el.removeAttribute(attr.name)
+		}
+	})
+	const style = doc.createElement('style')
+	style.textContent = HIGHLIGHT_CSS
+	head.appendChild(style)
+	return `<!DOCTYPE html>${doc.documentElement.outerHTML}`
 }
 
 function textOf(el: Element | null | undefined, max = 40): string {
