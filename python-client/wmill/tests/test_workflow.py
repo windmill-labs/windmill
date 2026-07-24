@@ -1135,6 +1135,19 @@ class TestApprovalKeys:
         with pytest.raises(RuntimeError, match="already used"):
             _run_workflow(wf, {"completed_steps": {"manager": {"approved": True}}}, {})
 
+    def test_explicit_key_colliding_with_a_suffixed_step_key_raises(self):
+        """`step("dup")` twice yields `dup`/`dup_2`, so an approval explicitly named
+        `dup_2` would alias the second step's key."""
+
+        @workflow
+        async def wf():
+            await step("dup", lambda: 1)
+            await step("dup", lambda: 2)
+            await wait_for_approval(key="dup_2")
+
+        with pytest.raises(RuntimeError, match="already used"):
+            _run_workflow(wf, {"completed_steps": {"dup": 1, "dup_2": 2}}, {})
+
     def test_unnamed_approvals_still_auto_number(self):
         @workflow
         async def wf():

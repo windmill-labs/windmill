@@ -1058,8 +1058,9 @@ waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: bool
  * 
  * \`stepKey\` must match the \`key\` given to \`waitForApproval\`. Keys must be unique
  * within a workflow; reusing one throws rather than silently renaming it. The URL
- * only resumes while that step is awaiting approval — using it earlier or later is
- * rejected rather than resolving a different approval.
+ * only resumes while that step is awaiting approval; used at any other moment it is
+ * rejected rather than banking a row a different approval would consume. Send it
+ * ahead of time — approvers just cannot act before the workflow reaches the step.
  * 
  * \`resume\` and \`cancel\` are step-bound; \`approvalPage\` is not — it opens the job's
  * approval page, which acts on whichever approval is pending when it is used.
@@ -1849,8 +1850,9 @@ waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: bool
  * 
  * \`stepKey\` must match the \`key\` given to \`waitForApproval\`. Keys must be unique
  * within a workflow; reusing one throws rather than silently renaming it. The URL
- * only resumes while that step is awaiting approval — using it earlier or later is
- * rejected rather than resolving a different approval.
+ * only resumes while that step is awaiting approval; used at any other moment it is
+ * rejected rather than banking a row a different approval would consume. Send it
+ * ahead of time — approvers just cannot act before the workflow reaches the step.
  * 
  * \`resume\` and \`cancel\` are step-bound; \`approvalPage\` is not — it opens the job's
  * approval page, which acts on whichever approval is pending when it is used.
@@ -2734,8 +2736,9 @@ waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: bool
  * 
  * \`stepKey\` must match the \`key\` given to \`waitForApproval\`. Keys must be unique
  * within a workflow; reusing one throws rather than silently renaming it. The URL
- * only resumes while that step is awaiting approval — using it earlier or later is
- * rejected rather than resolving a different approval.
+ * only resumes while that step is awaiting approval; used at any other moment it is
+ * rejected rather than banking a row a different approval would consume. Send it
+ * ahead of time — approvers just cannot act before the workflow reaches the step.
  * 
  * \`resume\` and \`cancel\` are step-bound; \`approvalPage\` is not — it opens the job's
  * approval page, which acts on whichever approval is pending when it is used.
@@ -6423,7 +6426,7 @@ approval = await wait_for_approval(key="manager", timeout=3600)
 With several approvals in one workflow, give each its own key so each notification
 resumes its own step. Keys must be unique — reusing one raises an error rather than
 silently renaming the step. A minted URL only resumes while its own step is awaiting
-approval; clicking another step's link is rejected rather than resuming the wrong one. \`getResumeUrls()\` / \`get_resume_urls()\` still works but signs a
+approval; used at any other moment it is rejected rather than resuming the wrong one. \`getResumeUrls()\` / \`get_resume_urls()\` still works but signs a
 random nonce, so its URLs are not tied to any particular approval step.
 
 \`selfApproval: false\` and \`self_approval=False\` are Enterprise-only approval behavior. Do not use them unless the user asks for that behavior.
@@ -6529,8 +6532,9 @@ export function waitForApproval(options?: { timeout?: number; form?: object; sel
  *
  * \`stepKey\` must match the \`key\` given to \`waitForApproval\`. Keys must be unique
  * within a workflow; reusing one throws rather than silently renaming it. The URL
- * only resumes while that step is awaiting approval — using it earlier or later is
- * rejected rather than resolving a different approval.
+ * only resumes while that step is awaiting approval; used at any other moment it is
+ * rejected rather than banking a row a different approval would consume. Send it
+ * ahead of time — approvers just cannot act before the workflow reaches the step.
  *
  * \`resume\` and \`cancel\` are step-bound; \`approvalPage\` is not — it opens the job's
  * approval page, which acts on whichever approval is pending when it is used.
@@ -6675,8 +6679,10 @@ async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_
 #     step_key: Checkpoint key of the approval step, as passed to
 #         \`\`wait_for_approval(key=...)\`\`. Keys must be unique within a workflow;
 #         reusing one raises rather than silently renaming it. The URL only
-#         resumes while that step is awaiting approval — using it earlier or
-#         later is rejected rather than resolving a different approval.
+#         resumes while that step is awaiting approval; used at any other moment
+#         it is rejected rather than banking a row a different approval would
+#         consume. Send it ahead of time — approvers just cannot act before the
+#         workflow reaches the step.
 #         \`\`resume\`\` and \`\`cancel\`\` are step-bound; \`\`approvalPage\`\` is not — it
 #         opens the job's approval page, which acts on whichever approval is
 #         pending when it is used.

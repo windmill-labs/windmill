@@ -1540,6 +1540,8 @@ export function setWorkflowCtx(ctx: WorkflowCtx | null) {
 export class WorkflowCtx {
   private completed: Record<string, any>;
   private counters: Record<string, number> = {};
+  /** Every key handed out by `_allocKey`, so distinct names can't alias one key. */
+  private _usedKeys = new Set<string>();
   private pending: Array<{
     name: string;
     script: string;
@@ -1567,11 +1569,20 @@ export class WorkflowCtx {
     this._executingKey = checkpoint?._executing_key ?? null;
   }
 
-  /** Name-based key: `double` for first call, `double_2`, `double_3` for subsequent. */
+  /** Name-based key: `double` for first call, `double_2`, `double_3` for subsequent.
+   *  Suffixing alone can alias — a second `step("x")` and a first `step("x_2")` both
+   *  want `x_2` — so keep bumping past keys already handed out. Allocation order is
+   *  fixed by the workflow body, so replays reproduce the same keys. */
   _allocKey(name: string): string {
-    const n = (this.counters[name] ?? 0) + 1;
+    let n = (this.counters[name] ?? 0) + 1;
+    let key = n === 1 ? name : `${name}_${n}`;
+    while (this._usedKeys.has(key)) {
+      n++;
+      key = `${name}_${n}`;
+    }
     this.counters[name] = n;
-    return n === 1 ? name : `${name}_${n}`;
+    this._usedKeys.add(key);
+    return key;
   }
 
   _nextStep(
@@ -2013,8 +2024,9 @@ export function waitForApproval(options?: {
  *
  * `stepKey` must match the `key` given to `waitForApproval`. Keys must be unique
  * within a workflow; reusing one throws rather than silently renaming it. The URL
- * only resumes while that step is awaiting approval — using it earlier or later is
- * rejected rather than resolving a different approval.
+ * only resumes while that step is awaiting approval; used at any other moment it is
+ * rejected rather than banking a row a different approval would consume. Send it
+ * ahead of time — approvers just cannot act before the workflow reaches the step.
  *
  * `resume` and `cancel` are step-bound; `approvalPage` is not — it opens the job's
  * approval page, which acts on whichever approval is pending when it is used.
