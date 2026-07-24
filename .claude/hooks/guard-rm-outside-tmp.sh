@@ -11,10 +11,11 @@
 # and existing symlinks (so a symlink out of the allowed roots is caught), and a wildcard in a
 # non-final path segment is refused because it can expand through a symlink realpath can't see.
 #
-# The git-repo allowance requires the target to sit strictly INSIDE a git working tree under
-# $HOME — not the repo root folder itself and never a `.git` path, since those aren't
-# git-recoverable. Relative operands resolve against the command's cwd (from the hook input).
-# A PreToolUse `allow` overrides the ask rule.
+# The git-repo allowance covers targets inside a git working tree under $HOME, and the tree's
+# own root folder only when it is a linked worktree (`.git` is a pointer file, so history in
+# the main repo survives); a primary checkout's root (`.git` is a history dir) and any `.git`
+# path are never auto-allowed. Relative operands resolve against the command's cwd (from the
+# hook input). A PreToolUse `allow` overrides the ask rule.
 #
 # Assumes GNU `realpath` (-m) and `jq`, both present in this repo's Linux dev env.
 set -uo pipefail
@@ -47,7 +48,13 @@ allowed_target() {
     d=$(dirname "$d")
   done
   [ -n "$root" ] || return 1              # not inside a git working tree under $HOME
-  [ "$canon" = "$root" ] && return 1      # the repo root folder itself — deleting it isn't "in" the repo
+  if [ "$canon" = "$root" ]; then
+    # Deleting the repo root folder itself: allow only for a linked worktree, whose `.git` is
+    # a file/pointer so the history lives in the main repo and survives. A primary checkout's
+    # `.git` is a directory holding the history, so deleting it is unrecoverable — defer.
+    [ -f "$root/.git" ] && return 0
+    return 1
+  fi
   return 0
 }
 
