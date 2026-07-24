@@ -30,7 +30,7 @@ use crate::{
         par_install_language_dependencies_seq, DependencyGraph, InstallDeps, RequiredDependency,
     },
     DISABLE_NUSER, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, R_CACHE_DIR,
-    TRACING_PROXY_CA_CERT_PATH,
+    TRACING_PROXY_CA_CERT_PATH, WIN_ENVS,
 };
 use windmill_common::scripts::ScriptLang;
 
@@ -518,6 +518,9 @@ async fn install<'a>(
             cmd.env_clear()
                 .current_dir(&job_dir)
                 .env("PATH", PATH_ENV.as_str())
+                // On Windows, renv needs SystemRoot (winsock init — without it DNS
+                // and sockets fail) and LOCALAPPDATA (its cache root) to install.
+                .envs(WIN_ENVS.to_vec())
                 .envs(R_PROXY_ENVS.clone());
             cmd
                 .args(&[
@@ -694,15 +697,7 @@ async fn run<'a>(
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        #[cfg(windows)]
-        {
-            cmd.env("SystemRoot", crate::SYSTEM_ROOT.as_str())
-                .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
-                .env(
-                    "TMP",
-                    std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
-                );
-        }
+        cmd.envs(WIN_ENVS.to_vec());
         start_child_process(cmd, rscript_executable, false).await?
     };
     handle_child::handle_child(
