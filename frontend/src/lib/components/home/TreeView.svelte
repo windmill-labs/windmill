@@ -1,6 +1,5 @@
 <script lang="ts">
 	import TreeView from './TreeView.svelte'
-	import { untrack } from 'svelte'
 
 	import { ChevronDown, ChevronUp, Folder, FolderTree, NetworkIcon, User } from 'lucide-svelte'
 	import Item from './Item.svelte'
@@ -63,13 +62,11 @@
 	)
 	$effect(() => {
 		opened = !collapseAll
-		// Expand-all opens folders; lazy-load a top-level folder's items when it
-		// opens. untrack so this only re-runs on collapseAll (not on item reloads,
-		// which would otherwise re-open a manually collapsed folder).
-		untrack(() => {
-			if (opened && depth === 0 && isFolder(item)) onExpandFolder?.(item.folderName)
-		})
 	})
+	// Deliberately NOT auto-loading a folder's items when it opens via collapseAll:
+	// with every workspace folder injected as a top-level node, "expand all" would
+	// otherwise fire one request per folder (thousands on a large workspace). A
+	// folder loads only on an explicit click (see the onclick handler below).
 </script>
 
 {#if isFolder(item)}

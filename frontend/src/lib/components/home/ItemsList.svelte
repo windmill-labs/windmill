@@ -5,6 +5,7 @@
 	import {
 		AssetService,
 		FolderService,
+		UserService,
 		type ListableApp,
 		type Script,
 		ScriptService,
@@ -46,6 +47,7 @@
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import Item from './Item.svelte'
 	import TreeViewRoot from './TreeViewRoot.svelte'
+	import type { ItemType } from './treeViewUtils'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { getContext, tick, untrack } from 'svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
@@ -141,6 +143,22 @@
 		}
 	)
 	let allFolderOwners = $derived((folderNamesRes.current ?? []).map((f) => `f/${f}`))
+	// Every workspace username, so a user whose items sit beyond the loaded browse
+	// window is still a selectable owner chip (scoping the stream to `u/<user>/`).
+	// Without this, user owners would derive only from loaded rows and a user past
+	// the first page would be unreachable in the tree without searching.
+	let usernamesRes = resource(
+		() => $workspaceStore,
+		async (ws) => {
+			if (!ws) return [] as string[]
+			try {
+				return await UserService.listUsernames({ workspace: ws })
+			} catch {
+				return [] as string[] // best-effort facet
+			}
+		}
+	)
+	let allUserOwners = $derived((usernamesRes.current ?? []).map((u) => `u/${u}`))
 
 	let scripts: TableScript[] | undefined = $state()
 	let flows: TableFlow[] | undefined = $state()
@@ -211,9 +229,14 @@
 		if (reset) {
 			serverCursor = undefined
 			hasMoreServer = false
-			// The shared arrays are about to be replaced, so per-folder loaded state
-			// is stale; the tree will re-lazy-load folders on expand.
+			// The scope changed, so the lazily-loaded folder store and its per-folder
+			// cursors are stale. Bump treeGen first so any in-flight folder request is
+			// discarded on return, then clear. The tree remounts on the same scope key
+			// (see the {#key} around TreeViewRoot), collapsing folders so they re-load
+			// fresh on the next expand rather than lingering with old-scope rows.
+			treeGen++
 			folderLoad = {}
+			treeFolderItems = []
 		}
 		const { orderBy, orderDesc } = sortToParams(sortOrder)
 		const gen = ++loadGen
@@ -228,6 +251,7 @@
 				orderDesc,
 				showArchived: archived ? true : undefined,
 				includeWithoutMain: includeWithoutMain ? true : undefined,
+				kinds: itemKind !== 'all' ? itemKind : undefined,
 				// Selecting an owner/folder scopes the paged stream to it server-side,
 				// so a folder's full contents load on demand rather than relying on the
 				// folder happening to be within the loaded browse window.
@@ -312,9 +336,28 @@
 	// Per-top-level-folder lazy loading for tree view: expanding a folder loads its
 	// items on demand (server-scoped to that folder), paginated within the folder,
 	// instead of relying on the global browse window. Keyed by folder name (the
-	// `f/<name>` node). Loaded items are merged into the shared arrays.
+	// `f/<name>` node).
+	//
+	// Folder items live in their OWN store (`treeFolderItems`), never merged into the
+	// global browse arrays: those advance by a single `serverCursor`, so injecting
+	// out-of-window folder rows there would make the flat stream non-contiguous and,
+	// once pagination reached those rows, duplicate them. `treeGen` ties every folder
+	// request to the active query scope (order/archived/library/kind/workspace); a
+	// reset bumps it so an in-flight response from a stale scope is discarded.
 	type FolderLoadState = { cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean }
 	let folderLoad = $state<Record<string, FolderLoadState>>({})
+	let treeFolderItems = $state<ItemType[]>([])
+	let treeGen = 0
+
+	// The endpoint returns a unified `edited_at` per row; combinedItems derives every
+	// kind's sort time from it (scripts read it as `created_at`, see mapRunnable), so
+	// the folder store mirrors that to keep tree ordering consistent with the list.
+	function toTreeItem(it: RunnableItem): ItemType {
+		return {
+			...mapRunnable(it),
+			time: new Date(it.edited_at ?? 0).getTime()
+		} as unknown as ItemType
+	}
 
 	async function loadFolderItems(folder: string, more = false): Promise<void> {
 		const ws = $workspaceStore
@@ -322,6 +365,7 @@
 		const st = folderLoad[folder]
 		if (st?.loading) return
 		if (more ? !st?.hasMore : st?.loaded) return
+		const gen = treeGen
 		folderLoad[folder] = {
 			cursor: st?.cursor,
 			hasMore: st?.hasMore ?? false,
@@ -337,16 +381,31 @@
 				orderDesc,
 				showArchived: archived ? true : undefined,
 				includeWithoutMain: includeWithoutMain ? true : undefined,
+				kinds: itemKind !== 'all' ? itemKind : undefined,
 				pathStart: `f/${folder}/`,
 				perPage: 100,
 				cursor: more ? st?.cursor : undefined
 			})
 		} catch (e: any) {
+			if (gen !== treeGen) return
 			folderLoad[folder] = { ...folderLoad[folder], loading: false }
 			sendUserToast(`Failed to load folder ${folder}: ${e?.body ?? e?.message ?? e}`, true)
 			return
 		}
-		mergeRunnables(res.items ?? [])
+		// The scope moved on while this was in flight (order/archive/library/kind/
+		// workspace changed and reset the tree); drop the response so stale rows from
+		// another scope can't appear under the current one.
+		if (gen !== treeGen) return
+		const have = new Set(treeFolderItems.map(itemKey))
+		const merged = [...treeFolderItems]
+		for (const it of res.items ?? []) {
+			// Pipeline-member scripts are folded into their folder's Pipeline entry, so
+			// they never render as their own tree leaf (visiblePipelineFolders drives it).
+			if (it.type === 'script' && it.auto_kind === 'pipeline') continue
+			if (have.has(itemKey(it))) continue
+			merged.push(toTreeItem(it))
+		}
+		treeFolderItems = merged
 		folderLoad[folder] = {
 			cursor: res.next_cursor,
 			hasMore: !!res.next_cursor,
@@ -557,6 +616,7 @@
 		Array.from(
 			new Set([
 				...allFolderOwners,
+				...allUserOwners,
 				...(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
 			])
 		).sort()
@@ -566,17 +626,21 @@
 	// entering/leaving search. Label/kind filtering and fuzzy ranking stay
 	// client-side over the loaded pages, so they don't reload here.
 	let searching = $derived(filter !== '')
-	// Lazy folder tree is active when browsing all (no owner, no search): show every
-	// folder as a top-level node and paginate each on expand. When a folder is
-	// selected or searching, the tree groups the (already-scoped) loaded items and
-	// the global "load more" applies within that scope.
-	let treeInjectFolders = $derived(
-		!searching && ownerFilter == undefined ? (folderNamesRes.current ?? []) : []
-	)
-	let treeGlobalHasMore = $derived(ownerFilter != undefined && !searching ? hasMoreServer : false)
+	// Lazy folder tree is active when browsing all (no owner selected, no search, no
+	// label filter): every folder shows as a top-level node and paginates on expand,
+	// its items coming from the separate `treeFolderItems` store. A selected owner,
+	// an active search, or a label filter instead groups the global loaded window
+	// (label filtering is client-side over loaded rows, so it must see that window).
+	let treeLazyMode = $derived(!searching && ownerFilter == undefined && labelFilter == undefined)
+	let treeInjectFolders = $derived(treeLazyMode ? (folderNamesRes.current ?? []) : [])
+	// Keep the global "load more" outside search: in lazy mode it advances the browse
+	// stream to surface more user/loose top-level items (folder rows from it are
+	// ignored by treeSource — folders come from the store); in scoped mode it pages
+	// within the selected owner.
+	let treeGlobalHasMore = $derived(!searching ? hasMoreServer : false)
 	$effect(() => {
 		if ($userStore && $workspaceStore) {
-			;[archived, includeWithoutMain, sortOrder, searching, ownerFilter]
+			;[archived, includeWithoutMain, sortOrder, searching, ownerFilter, itemKind]
 			untrack(() => {
 				loadRunnables(true)
 			})
@@ -595,6 +659,7 @@
 		const showArchived = archived
 		const withoutMain = includeWithoutMain
 		const owner = ownerFilter
+		const kind = itemKind
 		if (term === '' || !ws || !$userStore) return
 		const handle = setTimeout(async () => {
 			let res: { items: RunnableItem[] }
@@ -604,6 +669,7 @@
 					search: term,
 					showArchived: showArchived ? true : undefined,
 					includeWithoutMain: withoutMain ? true : undefined,
+					kinds: kind !== 'all' ? kind : undefined,
 					pathStart: owner ? owner + '/' : undefined,
 					perPage: 1000
 				})
@@ -618,7 +684,8 @@
 				untrack(() => filter) !== term ||
 				untrack(() => archived) !== showArchived ||
 				untrack(() => includeWithoutMain) !== withoutMain ||
-				untrack(() => ownerFilter) !== owner
+				untrack(() => ownerFilter) !== owner ||
+				untrack(() => itemKind) !== kind
 			)
 				return
 			mergeRunnables(res.items ?? [])
@@ -670,17 +737,32 @@
 		}
 		prevWorkspace = ws
 	})
-	// The owner/folder filter is resolved server-side (path_start), so only the
-	// kind, user-folder toggle and label filters run client-side here.
+	// The kind and owner/folder filters are resolved server-side (kinds, path_start),
+	// so only the user-folder toggle and label filters run client-side here.
 	let preFilteredItems = $derived(
 		combinedItems?.filter(
 			(x) =>
-				(x.type == itemKind || itemKind == 'all') &&
 				filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType) &&
 				(labelFilter == undefined || itemLabels(x).includes(labelFilter))
 		)
 	)
 	let items = $derived(filter !== '' ? filteredItems : preFilteredItems)
+	// Source the tree groups. In lazy mode, folder rows come from the on-demand
+	// `treeFolderItems` store while user/loose top-level rows come from the global
+	// window (its folder rows are dropped here so they don't double the store); every
+	// folder is injected as a node (see treeInjectFolders) whether or not it's loaded.
+	// Otherwise (scoped/search/label) the tree just groups the global `items`.
+	let treeSource = $derived(
+		treeLazyMode
+			? [...treeFolderItems, ...(preFilteredItems ?? []).filter((x) => !x.path.startsWith('f/'))]
+			: items
+	)
+	// Scope identity for the tree: any change here means folders must re-load fresh,
+	// so it keys a {#key} remount that collapses expanded folders (searching is a
+	// boolean so per-keystroke query changes don't remount — search updates in place).
+	let treeKey = $derived(
+		`${$workspaceStore}|${sortOrder}|${archived}|${includeWithoutMain}|${itemKind}|${ownerFilter}|${searching}|${labelFilter}`
+	)
 	let displayedItems = $derived((items ?? []).slice(0, nbDisplayed))
 	$effect(() => {
 		items && resetScroll()
@@ -1209,30 +1291,35 @@
 				</div>
 			{/if}
 		{:else if treeView}
-			<TreeViewRoot
-				{items}
-				{nbDisplayed}
-				{collapseAll}
-				sortCompare={compareItems}
-				hasMoreServer={treeGlobalHasMore}
-				onLoadMore={fetchMoreServer}
-				pipelineFolders={visiblePipelineFolders}
-				allFolders={treeInjectFolders}
-				{folderLoad}
-				onExpandFolder={loadFolderItems}
-				isSearching={filter !== ''}
-				on:scriptChanged={() => loadScripts(includeWithoutMain)}
-				on:flowChanged={loadFlows}
-				on:appChanged={loadApps}
-				on:rawAppChanged={loadRawApps}
-				on:reload={() => {
-					loadScripts(includeWithoutMain)
-					loadFlows()
-					loadApps()
-					loadRawApps()
-				}}
-				{showCode}
-			/>
+			<!-- Remount the tree on any scope change so expanded folders (their `opened`
+			     state is local to each TreeView) collapse and re-load fresh under the new
+			     order/archive/library/kind/owner rather than lingering with stale rows. -->
+			{#key treeKey}
+				<TreeViewRoot
+					items={treeSource}
+					{nbDisplayed}
+					{collapseAll}
+					sortCompare={compareItems}
+					hasMoreServer={treeGlobalHasMore}
+					onLoadMore={fetchMoreServer}
+					pipelineFolders={visiblePipelineFolders}
+					allFolders={treeInjectFolders}
+					{folderLoad}
+					onExpandFolder={loadFolderItems}
+					isSearching={filter !== ''}
+					on:scriptChanged={() => loadScripts(includeWithoutMain)}
+					on:flowChanged={loadFlows}
+					on:appChanged={loadApps}
+					on:rawAppChanged={loadRawApps}
+					on:reload={() => {
+						loadScripts(includeWithoutMain)
+						loadFlows()
+						loadApps()
+						loadRawApps()
+					}}
+					{showCode}
+				/>
+			{/key}
 		{:else}
 			<div class="border rounded-md bg-surface-tertiary">
 				{#if filter === ''}

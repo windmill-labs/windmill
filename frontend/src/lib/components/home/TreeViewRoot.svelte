@@ -61,44 +61,34 @@
 			// hides them on `filter !== ''`), so injecting them would surface unrelated
 			// folders in the results.
 			if (!isSearching) {
+				// Inject a top-level node for every pipeline folder (so its Pipeline entry
+				// shows even with no listed items) and every workspace folder (so folders
+				// whose items sit outside the loaded window still appear; expanding one
+				// loads its items on demand — see onExpandFolder).
 				const present = new Set(
 					grouped
 						.filter((g) => 'folderName' in g)
 						.map((g) => (g as { folderName: string }).folderName)
 				)
-				// Insert each missing pipeline folder among the existing folders in name
-				// order — `groupItems` already sorts user groups first then folders
-				// alphabetically, so inserting before the first greater-named folder
-				// keeps that ordering (rather than prepending out of order).
-				for (const folderName of [...(pipelineFolders ?? [])]
-					.filter((f) => !present.has(f))
-					.sort()) {
-					const item = { folderName, items: [] }
-					const idx = grouped.findIndex(
-						(g) =>
-							'folderName' in g &&
-							(g as { folderName: string }).folderName.localeCompare(folderName) > 0
-					)
-					if (idx < 0) grouped.push(item)
-					else grouped.splice(idx, 0, item)
+				const missing: { folderName: string; items: [] }[] = []
+				for (const folderName of [...(pipelineFolders ?? []), ...allFolders]) {
+					if (present.has(folderName)) continue
+					present.add(folderName)
+					missing.push({ folderName, items: [] })
 				}
-				// Inject every workspace folder as a top-level node so folders whose
-				// items sit outside the loaded window still appear; expanding one loads
-				// its items on demand (see onExpandFolder).
-				const present2 = new Set(
-					grouped
-						.filter((g) => 'folderName' in g)
-						.map((g) => (g as { folderName: string }).folderName)
-				)
-				for (const folderName of allFolders.filter((f) => !present2.has(f)).sort()) {
-					const item = { folderName, items: [] }
-					const idx = grouped.findIndex(
-						(g) =>
-							'folderName' in g &&
-							(g as { folderName: string }).folderName.localeCompare(folderName) > 0
-					)
-					if (idx < 0) grouped.push(item)
-					else grouped.splice(idx, 0, item)
+				if (missing.length) {
+					// `groupItems` returns user groups first, then folders alphabetically.
+					// Append the missing folder nodes and sort the folder section once
+					// (O(n log n)) rather than splicing each in with findIndex (O(n²) — at
+					// 10k folders that was ~50M comparisons on every page merge).
+					const users = grouped.filter((g) => 'username' in g)
+					const folders = grouped.filter((g) => 'folderName' in g) as {
+						folderName: string
+					}[]
+					folders.push(...missing)
+					folders.sort((a, b) => a.folderName.localeCompare(b.folderName))
+					grouped.length = 0
+					grouped.push(...(users as typeof grouped), ...(folders as unknown as typeof grouped))
 				}
 			}
 			groupedItems = grouped
