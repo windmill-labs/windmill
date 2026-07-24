@@ -366,11 +366,19 @@ struct ProjectLogoInner {
     mime: String,
 }
 
-// Custom project logo (png/svg, base64). `logo: null` must reach the Hub to
-// clear it, so no skip_serializing_if.
+// Custom project logo (png/svg, base64). Double-Option so a missing `logo`
+// key is distinguishable from an explicit `logo: null` (which clears the
+// logo on the Hub) — otherwise POSTing `{}` would silently delete it.
 #[derive(Deserialize, Serialize)]
 struct ProjectLogoBody {
-    logo: Option<ProjectLogoInner>,
+    #[serde(default, deserialize_with = "deserialize_explicit")]
+    logo: Option<Option<ProjectLogoInner>>,
+}
+
+fn deserialize_explicit<'de, D: Deserializer<'de>>(
+    d: D,
+) -> Result<Option<Option<ProjectLogoInner>>, D::Error> {
+    Option::<ProjectLogoInner>::deserialize(d).map(Some)
 }
 
 async fn publish_project_logo(
@@ -378,7 +386,16 @@ async fn publish_project_logo(
     Path((_workspace, slug)): Path<(String, ProjectSlug)>,
     Json(body): Json<ProjectLogoBody>,
 ) -> Result<impl IntoResponse, Error> {
-    ctx.post(&format!("/projects/{}/logo", slug), &body).await
+    let Some(logo) = body.logo else {
+        return Err(Error::BadRequest(
+            "logo field is required: an object to set it, or null to clear it".to_string(),
+        ));
+    };
+    ctx.post(
+        &format!("/projects/{}/logo", slug),
+        &serde_json::json!({ "logo": logo }),
+    )
+    .await
 }
 
 #[derive(Deserialize, Serialize)]

@@ -234,9 +234,14 @@ export class DeployToHubSession {
 	hubName = $state('')
 	hubSummary = $state('')
 	hubReadme = $state('')
-	// Custom logo chosen this session (png/svg, base64 without the data: prefix).
-	// undefined = untouched: publishing leaves whatever logo the Hub already has.
-	hubLogo = $state<{ b64: string; mime: string; name: string } | undefined>(undefined)
+	// Custom logo state for the next publish (png/svg, base64 without the
+	// data: prefix). Three-state: undefined = untouched (publishing leaves the
+	// Hub's current logo alone), null = clear the Hub's logo on publish,
+	// object = upload this image.
+	hubLogo = $state<{ b64: string; mime: string; name: string } | null | undefined>(undefined)
+	// Whether the Hub currently has a custom logo for this project (from
+	// rehydration) — drives the "Remove current logo" affordance.
+	hubHasRemoteLogo = $state(false)
 	effectiveSlug = $state('')
 	hubItemIds = $state<Record<string, number>>({})
 
@@ -589,6 +594,7 @@ export class DeployToHubSession {
 			this.hubName = p.name ?? ''
 			this.hubSummary = p.summary ?? ''
 			this.hubReadme = p.readme ?? ''
+			this.hubHasRemoteLogo = p.has_logo === true
 			this.phase =
 				p.status === 'live' ? 'live' : p.status === 'under_review' ? 'under_review' : 'draft'
 			const ids: Record<string, number> = {}
@@ -1245,16 +1251,17 @@ export class DeployToHubSession {
 				failures++
 			}
 
-			// Push the custom logo only when one was chosen this session — absent
-			// means "leave the Hub's current logo alone" (re-publishing a bundle
-			// must not clear it).
-			if (this.hubLogo) {
+			// Push the logo only when touched this session: an object uploads it,
+			// null clears the Hub's current logo, undefined leaves it alone
+			// (re-publishing a bundle must not clear it).
+			if (this.hubLogo !== undefined) {
 				try {
 					await this.#postHub(`/hub/projects/${encodeURIComponent(slug)}/logo`, {
-						logo: { b64: this.hubLogo.b64, mime: this.hubLogo.mime }
+						logo: this.hubLogo ? { b64: this.hubLogo.b64, mime: this.hubLogo.mime } : null
 					})
+					this.hubHasRemoteLogo = this.hubLogo !== null
 				} catch (e: any) {
-					sendUserToast(`Logo upload failed: ${e?.message ?? e}`, true)
+					sendUserToast(`Logo ${this.hubLogo ? 'upload' : 'removal'} failed: ${e?.message ?? e}`, true)
 					failures++
 				}
 			}

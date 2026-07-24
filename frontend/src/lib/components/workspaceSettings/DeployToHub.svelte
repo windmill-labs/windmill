@@ -107,13 +107,19 @@
 	async function handleLogoFile(file: File | undefined) {
 		const s = deployHub.session
 		if (!s || !file) return
+		// Browser-reported type wins over the extension: a PNG misnamed *.svg
+		// must be treated as PNG or the Hub's content sniff rejects it later.
 		const lower = file.name.toLowerCase()
 		const mime =
-			file.type === 'image/svg+xml' || lower.endsWith('.svg')
-				? 'image/svg+xml'
-				: file.type === 'image/png' || lower.endsWith('.png')
-					? 'image/png'
-					: undefined
+			file.type === 'image/png'
+				? 'image/png'
+				: file.type === 'image/svg+xml'
+					? 'image/svg+xml'
+					: lower.endsWith('.png')
+						? 'image/png'
+						: lower.endsWith('.svg')
+							? 'image/svg+xml'
+							: undefined
 		if (!mime) {
 			sendUserToast('Logo must be a PNG or SVG file', true)
 			return
@@ -1205,6 +1211,34 @@
 								</div>
 							</div>
 						{:else}
+							{#if s.hubLogo === null}
+								<div
+									class="flex items-center justify-between gap-2 rounded border border-orange-300 bg-orange-50 px-3 py-2 dark:border-orange-800 dark:bg-orange-950/30"
+								>
+									<span class="text-orange-700 dark:text-orange-300">
+										The project's current logo will be removed when you publish.
+									</span>
+									<Button size="xs" variant="default" onclick={() => (s.hubLogo = undefined)}>
+										Undo
+									</Button>
+								</div>
+							{:else if s.hubHasRemoteLogo}
+								<div
+									class="flex items-center justify-between gap-2 rounded border bg-surface-secondary/50 px-3 py-2"
+								>
+									<span class="text-secondary">
+										This project already has a custom logo on the Hub.
+									</span>
+									<Button
+										size="xs"
+										variant="default"
+										startIcon={{ icon: X }}
+										onclick={() => (s.hubLogo = null)}
+									>
+										Remove on publish
+									</Button>
+								</div>
+							{/if}
 							<button
 								type="button"
 								class={`group flex w-full cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed px-4 py-6 text-center transition-colors ${
@@ -1238,7 +1272,7 @@
 							style="display: none"
 							onchange={onLogoPicked}
 						/>
-						{#if !s.hubLogo}
+						{#if s.hubLogo === undefined}
 							<span class="text-[11px] text-hint">
 								Optional. Shown on the Hub project card and page. Leaving it empty keeps the
 								project's current logo.
