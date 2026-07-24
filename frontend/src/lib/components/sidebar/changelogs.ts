@@ -6,6 +6,12 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: '10GiB workspace storage quota replaces 50MB upload cap on Community Edition',
+		href: 'https://www.windmill.dev/changelog/ce-workspace-storage-quota',
+		date: '2026-07-02'
+	},
+
+	{
 		label: 'AWS Bedrock support for Windmill AI',
 		href: 'https://www.windmill.dev/changelog/aws-bedrock',
 		date: '2025-11-19'
