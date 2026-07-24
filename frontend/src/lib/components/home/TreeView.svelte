@@ -44,8 +44,8 @@
 	}: Props = $props()
 
 	// Bounds the request burst from "expand all": however many root owners are rendered
-	// (nbDisplayed can grow via "load 30 more"), it fetches at most this many. Owners
-	// past the cap open empty and load on an explicit click.
+	// (nbDisplayed can grow via "load 30 more"), it fetches at most this many. Lazy
+	// owners past the cap stay collapsed and load on a single click (see the effect).
 	const EXPAND_ALL_LOAD_LIMIT = 20
 
 	const isFolderItem = (i: typeof item): i is FolderItem => i && 'folderName' in i
@@ -95,23 +95,29 @@
 	)
 
 	$effect(() => {
-		// "Expand all" opens every node — EXCEPT top-level owners past the request cap:
-		// opening those without loading would leave them empty and, worse, take two
-		// clicks to load (first click just collapses). Keep them closed so one click
-		// opens+loads them. The cap bounds the request burst at a large nbDisplayed.
-		const cappedOwner =
-			!collapseAll && depth === 0 && ownerKey != undefined && rootIndex >= EXPAND_ALL_LOAD_LIMIT
-		const shouldOpen = !collapseAll && !cappedOwner
-		opened = shouldOpen
+		const expandAll = !collapseAll
 		untrack(() => {
+			// "Expand all" opens every node — EXCEPT LAZY top-level owners past the request
+			// cap: opening those without loading would leave them empty and take two clicks
+			// to load (the first would just collapse). Keep them closed so one click
+			// opens+loads them. Only lazy owners (ownerLoad present) issue requests, so a
+			// non-lazy owner (e.g. label-filtered mode, already loaded) is never capped.
+			const cappedOwner =
+				expandAll &&
+				depth === 0 &&
+				ownerKey != undefined &&
+				ownerLoad != undefined &&
+				rootIndex >= EXPAND_ALL_LOAD_LIMIT
+			const shouldOpen = expandAll && !cappedOwner
+			opened = shouldOpen
 			if (ownerKey == undefined) return
 			if (shouldOpen) {
-				// Expand all opened+loads this in-cap owner.
+				// Open+load this owner (onExpandOwner is a no-op for non-lazy owners).
 				onExpandOwner?.(ownerKey)
 			} else {
-				// Closed here (collapse all, or a capped owner under expand all): untrack it
-				// so a later reload doesn't re-fetch a hidden owner, recreating the fan-out
-				// openOwners exists to prevent.
+				// Closed here (collapse all, or a capped lazy owner): untrack it so a later
+				// reload doesn't re-fetch a hidden owner, recreating the fan-out openOwners
+				// exists to prevent.
 				onCollapseOwner?.(ownerKey)
 			}
 		})

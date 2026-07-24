@@ -528,17 +528,34 @@
 			b: { starred?: boolean; time?: number; summary?: string; path: string }
 		): number => {
 			if (!!a.starred !== !!b.starred) return a.starred ? -1 : 1
+			// Match the endpoint's ordering exactly so a row on a later server page can't
+			// jump above already-shown rows on "load more": names compare case-insensitively
+			// (the endpoint sorts on `lower(summary-or-path)`), and the secondary key is the
+			// path in the SAME direction as the primary (server: `<col> <dir>, path <dir>`).
+			let primary: number
+			let asc: boolean
 			switch (order) {
 				case 'updated_asc':
-					return (a.time ?? 0) - (b.time ?? 0)
+					primary = (a.time ?? 0) - (b.time ?? 0)
+					asc = true
+					break
 				case 'name_asc':
-					return cmp(sortName(a), sortName(b))
+					primary = cmp(sortName(a).toLowerCase(), sortName(b).toLowerCase())
+					asc = true
+					break
 				case 'name_desc':
-					return cmp(sortName(b), sortName(a))
+					primary = cmp(sortName(b).toLowerCase(), sortName(a).toLowerCase())
+					asc = false
+					break
 				case 'updated_desc':
 				default:
-					return (b.time ?? 0) - (a.time ?? 0)
+					primary = (b.time ?? 0) - (a.time ?? 0)
+					asc = false
+					break
 			}
+			if (primary !== 0) return primary
+			const p = a.path.localeCompare(b.path)
+			return asc ? p : -p
 		}
 	})
 
@@ -686,10 +703,10 @@
 			])
 		).sort()
 	)
-	// Reload the first page from the server whenever an input the endpoint resolves
-	// changes: order, archived/library scope, the selected owner/folder, or
-	// entering/leaving search. Label/kind filtering and fuzzy ranking stay
-	// client-side over the loaded pages, so they don't reload here.
+	// Reload from the server whenever an input the endpoint resolves changes: order,
+	// archived/library scope, kind, the selected owner/folder, or entering/leaving
+	// search (see the reload effect below). Only the label filter and fuzzy ranking
+	// stay client-side over the loaded pages, so they don't reload here.
 	let searching = $derived(filter !== '')
 	// Lazy owner tree is active only in the tree view when browsing all (no owner
 	// selected, no search, no label filter): every folder AND user shows as a top-level
@@ -737,9 +754,12 @@
 	})
 
 	// Debounced server-side search augmentation. Instant filtering stays fully
-	// client-side (SearchItems over the loaded pages) for reactivity; this only
-	// fills in matches that live beyond the loaded browse window on large
-	// workspaces, so search stays complete without a request per keystroke.
+	// client-side (SearchItems over the loaded pages) for reactivity; this fetches ONE
+	// page of matches beyond the loaded browse window and, if the server has more,
+	// exposes them through an explicit "load more results" control (searchCursor) rather
+	// than auto-downloading the whole workspace for a broad term.
+	let searchCursor = $state<string | undefined>(undefined)
+	let searchLoadingMore = $state(false)
 	$effect(() => {
 		const term = filter
 		const ws = $workspaceStore
@@ -749,45 +769,73 @@
 		const withoutMain = includeWithoutMain
 		const owner = ownerFilter
 		const kind = itemKind
+		// Any term/scope change restarts search paging.
+		searchCursor = undefined
 		if (term === '' || !ws || !$userStore) return
-		// Stale if workspace, term, or view scope moved on (the debounce cancels
-		// superseded timers; this also guards each in-flight page so an old scope can't
-		// merge into the new one and aborts the paging loop mid-way).
-		const stale = () =>
-			untrack(() => $workspaceStore) !== ws ||
-			untrack(() => filter) !== term ||
-			untrack(() => archived) !== showArchived ||
-			untrack(() => includeWithoutMain) !== withoutMain ||
-			untrack(() => ownerFilter) !== owner ||
-			untrack(() => itemKind) !== kind
 		const handle = setTimeout(async () => {
-			// Page the search cursor to exhaustion so it stays workspace-complete at any
-			// match count; the debounce + stale() guard abort as soon as the term/scope
-			// changes, so a broad term never keeps paging an abandoned query.
-			let cursor: string | undefined = undefined
-			do {
-				let res: { items: RunnableItem[]; next_cursor?: string }
-				try {
-					res = await ScriptService.listRunnables({
-						workspace: ws,
-						search: term,
-						showArchived: showArchived ? true : undefined,
-						includeWithoutMain: withoutMain ? true : undefined,
-						kinds: kind !== 'all' ? kind : undefined,
-						pathStart: owner ? owner + '/' : undefined,
-						perPage: 1000,
-						cursor
-					})
-				} catch {
-					return
-				}
-				if (stale()) return
-				mergeRunnables(res.items ?? [])
-				cursor = res.next_cursor
-			} while (cursor)
+			let res: { items: RunnableItem[]; next_cursor?: string }
+			try {
+				res = await ScriptService.listRunnables({
+					workspace: ws,
+					search: term,
+					showArchived: showArchived ? true : undefined,
+					includeWithoutMain: withoutMain ? true : undefined,
+					kinds: kind !== 'all' ? kind : undefined,
+					pathStart: owner ? owner + '/' : undefined,
+					perPage: 1000
+				})
+			} catch {
+				return
+			}
+			// Drop a stale response: workspace, term, or view scope moved on while it was
+			// in flight (the debounce cancels superseded timers; this guards the request).
+			if (
+				untrack(() => $workspaceStore) !== ws ||
+				untrack(() => filter) !== term ||
+				untrack(() => archived) !== showArchived ||
+				untrack(() => includeWithoutMain) !== withoutMain ||
+				untrack(() => ownerFilter) !== owner ||
+				untrack(() => itemKind) !== kind
+			)
+				return
+			mergeRunnables(res.items ?? [])
+			searchCursor = res.next_cursor
 		}, 300)
 		return () => clearTimeout(handle)
 	})
+
+	// Fetch the next page of search matches on demand — one page per click, so a broad
+	// search stays complete without auto-loading the entire workspace into memory.
+	async function loadMoreSearchResults(): Promise<void> {
+		const ws = $workspaceStore
+		const cursor = searchCursor
+		if (!cursor || !ws || filter === '' || searchLoadingMore) return
+		searchLoadingMore = true
+		let res: { items: RunnableItem[]; next_cursor?: string }
+		try {
+			res = await ScriptService.listRunnables({
+				workspace: ws,
+				search: filter,
+				showArchived: archived ? true : undefined,
+				includeWithoutMain: includeWithoutMain ? true : undefined,
+				kinds: itemKind !== 'all' ? itemKind : undefined,
+				pathStart: ownerFilter ? ownerFilter + '/' : undefined,
+				perPage: 1000,
+				cursor
+			})
+		} catch {
+			searchLoadingMore = false
+			return
+		}
+		searchLoadingMore = false
+		// The term/scope may have moved on (which reset searchCursor); only merge and
+		// advance if this page is still the current one.
+		if (untrack(() => $workspaceStore) !== ws || filter === '' || searchCursor !== cursor) return
+		mergeRunnables(res.items ?? [])
+		searchCursor = res.next_cursor
+		// Reveal the freshly fetched matches instead of leaving them behind the display cap.
+		nbDisplayed += 30
+	}
 
 	let combinedItems = $derived(
 		flows == undefined || scripts == undefined || apps == undefined || raw_apps == undefined
@@ -1478,6 +1526,20 @@
 					></span
 				>
 			{/if}
+		{/if}
+		{#if searching && searchCursor}
+			<!-- The server has further search matches beyond the page already merged in;
+			     fetch them one page at a time on demand rather than auto-downloading a
+			     broad query's entire result set. -->
+			<div class="text-center text-xs text-secondary mt-2">
+				{#if searchLoadingMore}
+					Loading more results…
+				{:else}
+					<button class="text-primary hover:text-emphasis underline" onclick={loadMoreSearchResults}
+						>Load more results</button
+					>
+				{/if}
+			</div>
 		{/if}
 	</div>
 </CenteredPage>
