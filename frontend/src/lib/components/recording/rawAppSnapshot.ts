@@ -84,6 +84,23 @@ function resolvePath(root: Element, path: number[]): Element | undefined {
 	return cur
 }
 
+/** Attributes that carry content rather than presentation, and so must not
+ * survive on a no-record element. */
+const REDACTED_ATTRS = new Set([
+	'alt',
+	'action',
+	'download',
+	'formaction',
+	'href',
+	'placeholder',
+	'poster',
+	'src',
+	'srcset',
+	'style',
+	'title',
+	'value'
+])
+
 /** True when the element sits under an app-declared no-record subtree. */
 export function isRedacted(el: Element): boolean {
 	return !!el.closest(`[${NO_RECORD_ATTR}]`)
@@ -236,9 +253,18 @@ export function serializeDocument(doc: Document, opts: SnapshotOptions = {}): st
 	}
 	clone.querySelectorAll('script').forEach((n) => n.remove())
 	// The app declared these subtrees off-limits: keep the node (so the layout
-	// still replays) but never carry their content into the recording.
+	// still replays) but never carry their content into the recording — neither
+	// their descendants nor the attributes that are content themselves (a signed
+	// `src`, a `title`, a `data-*` payload).
 	clone.querySelectorAll(`[${NO_RECORD_ATTR}]`).forEach((n) => {
 		n.replaceChildren(doc.createTextNode('•••'))
+		for (const attr of Array.from(n.attributes)) {
+			const name = attr.name.toLowerCase()
+			if (name === NO_RECORD_ATTR || name === REC_TARGET_ATTR) continue
+			if (REDACTED_ATTRS.has(name) || name.startsWith('data-') || name.startsWith('aria-')) {
+				n.removeAttribute(attr.name)
+			}
+		}
 	})
 	clone.querySelectorAll('meta[http-equiv="refresh" i]').forEach((n) => n.remove())
 	clone.querySelectorAll('*').forEach((el) => {
@@ -246,6 +272,16 @@ export function serializeDocument(doc: Document, opts: SnapshotOptions = {}): st
 			if (attr.name.toLowerCase().startsWith('on')) el.removeAttribute(attr.name)
 		}
 	})
+	// A snapshot clones out scrolled back to the top, which can leave the
+	// interaction target off-screen on replay. Shifting the root reproduces the
+	// scrolled view (and leaves `position: fixed` chrome where it belongs). Scroll
+	// inside nested overflow containers has no static-CSS equivalent and is lost.
+	const scrollY = Math.round(doc.defaultView?.scrollY ?? doc.documentElement.scrollTop ?? 0)
+	if (scrollY > 0) {
+		const scrolled = doc.createElement('style')
+		scrolled.textContent = `html { margin-top: -${scrollY}px !important; }`
+		clone.querySelector('head')?.appendChild(scrolled)
+	}
 	const head = clone.querySelector('head')
 	if (opts.baseHref && head && !head.querySelector('base')) {
 		const base = doc.createElement('base')
@@ -298,6 +334,14 @@ export function withHighlightStyles(frame: string): string {
 	doc.querySelectorAll('*').forEach((el) => {
 		for (const attr of Array.from(el.attributes)) {
 			if (attr.name.toLowerCase().startsWith('on')) el.removeAttribute(attr.name)
+		}
+	})
+	// A replay is a static picture, so nothing in it may navigate: the sandbox
+	// stops a *top-level* navigation and the CSP governs fetches, but neither stops
+	// a link from navigating the snapshot frame itself — which is a request.
+	doc.querySelectorAll('a, area, form, button, input').forEach((el) => {
+		for (const attr of ['href', 'action', 'formaction', 'ping', 'target', 'download']) {
+			el.removeAttribute(attr)
 		}
 	})
 	const style = doc.createElement('style')

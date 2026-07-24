@@ -192,12 +192,28 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		scheduleSettle(step)
 	}
 
-	/** True for a <label> (or a node inside one) whose control reports a `change`
-	 * step of its own. */
+	/** True when this click will be forwarded to a label's control, which then
+	 * reports the step itself. A label does NOT forward a click that landed on
+	 * interactive content inside it (a link, a button, another field), so those
+	 * stay ordinary click steps. */
 	function labelDrivesControl(el: Element): boolean {
 		const label = el.closest('label') as HTMLLabelElement | null
 		const control = label?.control
-		return !!control && isControl(control)
+		if (!control || !isControl(control)) return false
+		const interactive = el.closest('a, button, input, select, textarea')
+		return !interactive || interactive === control
+	}
+
+	/** Whether this key can change `el`'s value. Printable characters and the
+	 * editing keys for a field; activation and option-picking keys for a control. */
+	function mutatingKey(e: KeyboardEvent, el: Element): boolean {
+		if (e.ctrlKey || e.metaKey || e.altKey) return false
+		if (isControl(el)) {
+			return [' ', 'Enter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(
+				e.key
+			) || e.key.length === 1
+		}
+		return e.key.length === 1 || ['Backspace', 'Delete', 'Enter'].includes(e.key)
 	}
 
 	/** A control whose value `change` reports: toggled or picked, never typed. */
@@ -253,6 +269,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		const { el, before } = pendingFill
 		clearTimeout(pendingFill.timer)
 		pendingFill = undefined
+		// The pointerdown that started this edit is spent: a later burst in the same
+		// field must snapshot from its own keydown, not rewind to the pre-typing DOM.
+		pendingPointer = undefined
 		pushStep('fill', el, before, currentValue(el))
 	}
 
@@ -271,6 +290,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		on('click', (e: MouseEvent) => {
 			const el = isElementNode(e.target) ? e.target : undefined
 			if (!el) return
+			// Before any early return: a fill still inside its debounce belongs before
+			// whatever this click records, and the control paths below never commit it.
+			if (pendingFill && pendingFill.el !== el) commitFill()
 			// Controls report their own semantic step on `change`; a click on a text
 			// field is just focus. Recording those too would double every step.
 			if (isTextEntry(el)) return
@@ -284,7 +306,6 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			// real step on `change`. Recording the label click too would double one
 			// physical action, with the second step appearing to rewind the state.
 			if (labelDrivesControl(el)) return
-			commitFill()
 			// `pendingPointer` is NOT cleared here: a click on a <label> is followed by
 			// the control's own `change`, which needs the same pre-click frame. The
 			// next pointerdown replaces it.
@@ -314,6 +335,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 				commitFill()
 				return
 			}
+			if (pendingFill) commitFill()
 			// `change` fires after the control already holds its new value, so a
 			// snapshot taken here is the outcome, not the interaction. Only a frame
 			// taken before the key or pointer that caused it will do.
@@ -352,8 +374,10 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			const el = isElementNode(e.target) ? e.target : undefined
 			// Space on a checkbox, arrows on a select, the first character typed into a
 			// field reached by Tab: the key is about to change the element, and this is
-			// the last moment the pre-change DOM exists.
-			if (el && (isControl(el) || (isTextEntry(el) && !pendingFill)))
+			// the last moment the pre-change DOM exists. Snapshotting the document is
+			// expensive and runs on the app's own event path, so keys that cannot
+			// change anything (Tab, modifiers, navigation keys) must not trigger it.
+			if (el && mutatingKey(e, el) && (isControl(el) || (isTextEntry(el) && !pendingFill)))
 				pendingKey = { el, html: capture(el) }
 			if (e.key !== 'Enter' && e.key !== 'Escape') return
 			// Enter in a field ends the edit: the fill step must land before the key.
