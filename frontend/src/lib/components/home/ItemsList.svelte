@@ -1304,8 +1304,8 @@
 					onLoadMore={fetchMoreServer}
 					pipelineFolders={visiblePipelineFolders}
 					allFolders={treeInjectFolders}
-					{folderLoad}
-					onExpandFolder={loadFolderItems}
+					folderLoad={treeLazyMode ? folderLoad : undefined}
+					onExpandFolder={treeLazyMode ? loadFolderItems : undefined}
 					isSearching={filter !== ''}
 					on:scriptChanged={() => loadScripts(includeWithoutMain)}
 					on:flowChanged={loadFlows}
