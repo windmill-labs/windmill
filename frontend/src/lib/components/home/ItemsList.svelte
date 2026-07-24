@@ -491,16 +491,28 @@
 	$effect(() => {
 		const term = filter
 		const ws = $workspaceStore
+		// Same view scope as the browse list, so a search can't surface archived /
+		// library items the current view excludes.
+		const showArchived = archived
+		const withoutMain = includeWithoutMain
 		if (term === '' || !ws || !$userStore) return
 		const handle = setTimeout(async () => {
 			let res: { items: RunnableItem[] }
 			try {
-				res = await ScriptService.listRunnables({ workspace: ws, search: term, perPage: 1000 })
+				res = await ScriptService.listRunnables({
+					workspace: ws,
+					search: term,
+					showArchived: showArchived ? true : undefined,
+					includeWithoutMain: withoutMain ? true : undefined,
+					perPage: 1000
+				})
 			} catch {
 				return
 			}
-			// Discard if the search moved on while the request was in flight.
-			if (untrack(() => filter) !== term) return
+			// Drop a stale response: the workspace or term moved on while it was in
+			// flight (debounce already cancels superseded timers; this guards the
+			// in-flight request so it never merges into a different workspace's list).
+			if (untrack(() => $workspaceStore) !== ws || untrack(() => filter) !== term) return
 			mergeRunnables(res.items ?? [])
 		}, 300)
 		return () => clearTimeout(handle)
