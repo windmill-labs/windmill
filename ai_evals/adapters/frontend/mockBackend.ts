@@ -304,13 +304,20 @@ export function getBenchmarkJobLogs(workspace: string, jobId: string): string {
  */
 const benchmarkDrafts = new Map<
 	string,
-	{ workspace: string; kind: UserDraftItemKind; path: string; value: unknown }
+	{ workspace: string; kind: UserDraftItemKind; path: string; value: unknown; createdAt: string }
 >()
 
-// Fixed timestamp so artifacts stay deterministic. No eval simulates a
-// concurrent writer, so every save is accepted and the conflict branch is
-// never taken — the syncer just records this as its `last_sync` baseline.
-const BENCHMARK_DRAFT_TIMESTAMP = '1970-01-01T00:00:00.000Z'
+// Counter-based timestamps: deterministic run-to-run (same event order → same
+// values) but MONOTONIC per update, because production bumps a draft row's
+// created_at on every upsert and the diff snapshot cache keys patch reuse on
+// it — a fixed timestamp would serve stale patches after an edit. No eval
+// simulates a concurrent writer, so every save is accepted and the conflict
+// branch is never taken.
+let benchmarkDraftClock = 0
+function nextBenchmarkDraftTimestamp(): string {
+	benchmarkDraftClock += 1
+	return new Date(benchmarkDraftClock * 1000).toISOString()
+}
 
 function benchmarkDraftKey(workspace: string, kind: string, path: string): string {
 	return `${workspace}::${kind}::${path}`
@@ -341,7 +348,8 @@ export function seedBenchmarkDraft(
 		workspace,
 		kind,
 		path,
-		value
+		value,
+		createdAt: nextBenchmarkDraftTimestamp()
 	})
 }
 
@@ -354,6 +362,7 @@ export function updateBenchmarkDraft(input: {
 }): UpdateDraftResponse {
 	const key = benchmarkDraftKey(input.workspace, input.kind, input.path)
 	const value = input.requestBody?.value
+	const createdAt = nextBenchmarkDraftTimestamp()
 	if (value == null) {
 		benchmarkDrafts.delete(key)
 	} else {
@@ -361,10 +370,11 @@ export function updateBenchmarkDraft(input: {
 			workspace: input.workspace,
 			kind: input.kind,
 			path: input.path,
-			value
+			value,
+			createdAt
 		})
 	}
-	return { status: 'saved', current_timestamp: BENCHMARK_DRAFT_TIMESTAMP }
+	return { status: 'saved', current_timestamp: createdAt }
 }
 
 /** Mirror `DraftService.getDraftForUser`: 404-shaped throw when absent so the
@@ -378,7 +388,7 @@ export function getBenchmarkDraftForUser(input: {
 	if (!entry) {
 		throw Object.assign(new Error(`no draft for "${input.path}"`), { status: 404 })
 	}
-	return { value: entry.value, created_at: BENCHMARK_DRAFT_TIMESTAMP }
+	return { value: entry.value, created_at: entry.createdAt }
 }
 
 /** Mirror `DraftService.getOwnDraft`: `null` (200) when absent — unlike
@@ -392,7 +402,18 @@ export function getBenchmarkOwnDraft(input: {
 	if (!entry) {
 		return null
 	}
-	return { value: entry.value, created_at: BENCHMARK_DRAFT_TIMESTAMP }
+	return { value: entry.value, created_at: entry.createdAt }
+}
+
+/** Whether a deployed benchmark item exists for a draft row's kind+path —
+ * drives `draft_only`, which production computes against the deployed tables. */
+function benchmarkDeployedExists(workspace: string, kind: UserDraftItemKind, path: string): boolean {
+	if (kind === 'script') return Boolean(getBenchmarkScriptByPath(workspace, path))
+	if (kind === 'flow') return Boolean(getBenchmarkFlowByPath(workspace, path))
+	if (kind === 'app' || kind === 'raw_app') return Boolean(getBenchmarkAppByPath(workspace, path))
+	// Drawer kinds (variables/resources/schedules/triggers) have no deployed
+	// benchmark stores today.
+	return false
 }
 
 /** Mirror `DraftService.listDrafts`: metadata rows (no value) for a workspace. */
@@ -403,9 +424,9 @@ export function listBenchmarkDrafts(workspace: string): ListDraftsResponse {
 			kind: entry.kind,
 			path: entry.path,
 			summary: (entry.value as { summary?: string } | null)?.summary,
-			draft_only: true,
+			draft_only: !benchmarkDeployedExists(workspace, entry.kind, entry.path),
 			legacy_draft: false,
-			created_at: BENCHMARK_DRAFT_TIMESTAMP
+			created_at: entry.createdAt
 		}))
 }
 

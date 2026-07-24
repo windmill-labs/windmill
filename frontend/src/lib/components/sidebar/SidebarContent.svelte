@@ -102,7 +102,13 @@
 		}
 	}
 
-	loadAvailableNativeTriggers()
+	// Native triggers are EE-only; on CE the `/exists` checks just 404. Gate the
+	// load by license (reactive, since the license loads asynchronously).
+	$effect(() => {
+		if ($enterpriseLicense && $workspaceStore) {
+			loadAvailableNativeTriggers()
+		}
+	})
 
 	const triggersCollapsed = useLocalStorageValue(
 		'windmill_triggers_section_collapsed',

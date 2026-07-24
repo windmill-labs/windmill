@@ -3892,15 +3892,16 @@ pub async fn handle_queued_job(
 
         #[cfg(not(feature = "enterprise"))]
         if let Connection::Sql(db) = conn {
-            if (job.concurrent_limit.is_some()
-                || windmill_common::runnable_settings::prefetch_cached_from_handle(
-                    job.runnable_settings_handle,
-                    db,
-                )
-                .await?
-                .1
-                .concurrent_limit
-                .is_some())
+            if (windmill_queue::jobs::has_active_concurrency_limit(job.concurrent_limit)
+                || windmill_queue::jobs::has_active_concurrency_limit(
+                    windmill_common::runnable_settings::prefetch_cached_from_handle(
+                        job.runnable_settings_handle,
+                        db,
+                    )
+                    .await?
+                    .1
+                    .concurrent_limit,
+                ))
                 && !job.kind.is_dependency()
             {
                 logs.push_str("---\n");

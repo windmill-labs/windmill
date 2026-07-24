@@ -910,22 +910,18 @@
 	// Trigger and schedule rows now flow through `comparison.diffs` like every
 	// other deployable kind — the backend's `compareWorkspaces` populates them
 	// from `workspace_diff`, with runtime fields ignored by `compare_two_*`.
-	let deployableItems = $derived.by(() => {
-		return (comparison?.diffs ?? [])
-			.filter((diff) => {
-				const key = getItemKey(diff)
-				const isSelectable = selectableDiffs.includes(diff)
-				const isDeployedAndIrrelevant =
-					deploymentStatus[key]?.status === 'deployed' && !isSelectable
-				return !isDeployedAndIrrelevant
-			})
-			.map((diff) => ({
-				key: getItemKey(diff),
-				path: diff.path,
-				kind: diff.kind as Kind,
-				diff
-			}))
-	})
+	// Rows are limited to the active direction (conflicts are ahead AND behind,
+	// so they show in both): an opposite-direction-only row would render as an
+	// unexplained disabled line. The other direction stays visible through the
+	// toggle badge counts and the behind/hidden alerts.
+	let deployableItems = $derived(
+		selectableDiffs.map((diff) => ({
+			key: getItemKey(diff),
+			path: diff.path,
+			kind: diff.kind as Kind,
+			diff
+		}))
+	)
 
 	let ciTestResults = $state<Record<string, CiTestResult[]>>({})
 
@@ -1050,10 +1046,9 @@
 	<div class="flex flex-col gap-4">
 		<div class="bg-surface-tertiary p-4 rounded-md border">
 			<WorkspaceDeployLayout
-				items={nothingToAct ? [] : deployableItems}
+				items={deployableItems}
 				{selectedItems}
 				{deploymentStatus}
-				selectablePredicate={(item) => selectableDiffs.some((d) => getItemKey(d) === item.key)}
 				{allSelected}
 				onToggleItem={(item) => toggleKey(item.key)}
 				onSelectAll={selectAll}
@@ -1110,9 +1105,6 @@
 									</div>
 								{/if}
 								<div class="flex items-center gap-2 text-sm">
-									<Badge color="transparent">
-										{comparison.summary.total_diffs} total items
-									</Badge>
 									<Badge color="transparent">
 										{selectableDiffs.length}
 										{mergeIntoParent ? 'deployable' : 'updateable'}
@@ -1278,7 +1270,6 @@
 						<span class="text-tertiary mx-1">&rarr;</span>
 						<span class="text-secondary">{diff.path}</span>
 					{:else}
-						{@const isSelectable = selectableDiffs.includes(diff)}
 						{@const oldSummary = mergeIntoParent
 							? summaryCache[key]?.parent
 							: summaryCache[key]?.current}
@@ -1294,7 +1285,7 @@
 							{editUrl}
 							{oldSummary}
 							{newSummary}
-							renamed={oldSummary != newSummary && isSelectable && existsInBothWorkspaces}
+							renamed={oldSummary != newSummary && existsInBothWorkspaces}
 						/>
 					{/if}
 				{/snippet}

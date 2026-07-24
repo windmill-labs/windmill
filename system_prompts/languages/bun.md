@@ -1,6 +1,6 @@
 # TypeScript (Bun)
 
-Bun runtime with full npm ecosystem and fastest execution.
+Bun runtime with full npm ecosystem and fastest execution. **Bun is the default and preferred TypeScript runtime** — choose it for any TypeScript script unless there is a major reason to use Deno for that specific use-case.
 
 ## Structure
 

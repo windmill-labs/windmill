@@ -47,6 +47,9 @@ export interface DraftItem {
 	 * `allUsers` listing surfaces other users' rows as `false` (view-only).
 	 * Defaults to true when the field is absent (older backend). */
 	mine: boolean
+	/** Server timestamp of the draft row, bumped on every draft update — a
+	 * reliable per-row change marker for caches keyed on draft content. */
+	created_at: string
 	/** Only set when listed with a `compareToWorkspace` (a fork comparing against
 	 * its parent): true when this draft is identical to the parent's — cloned in
 	 * on fork and never edited here. Undefined when no comparison was requested. */
@@ -74,6 +77,7 @@ export async function getDraftItems(
 		can_write: r.can_write ?? true,
 		draft_users: r.draft_users,
 		mine: r.mine ?? true,
+		created_at: r.created_at,
 		unchanged_from_parent: r.unchanged_from_parent
 	}))
 }
@@ -85,6 +89,13 @@ const versions: Record<string, number> = $state({})
 export function invalidateWorkspaceDrafts(workspace: string | undefined): void {
 	if (!workspace) return
 	versions[workspace] = (versions[workspace] ?? 0) + 1
+}
+
+/** Current invalidation version for a workspace. Non-reactive read — callers
+ * compare it against a value captured earlier to detect Server-Draft mutations
+ * (any deploy/discard/draft write that called `invalidateWorkspaceDrafts`). */
+export function getWorkspaceDraftsVersion(workspace: string): number {
+	return versions[workspace] ?? 0
 }
 
 export interface WorkspaceDraftsHandle {

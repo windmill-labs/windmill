@@ -9,6 +9,7 @@
 	import { slide } from 'svelte/transition'
 	import ToolContentDisplay from './ToolContentDisplay.svelte'
 	import ToolMessageActions from './ToolMessageActions.svelte'
+	import ToolPreviewCard from './ToolPreviewCard.svelte'
 	import AskUserQuestionDisplay from './AskUserQuestionDisplay.svelte'
 	import WebSearchSourcesDisplay from './WebSearchSourcesDisplay.svelte'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
@@ -50,6 +51,14 @@
 	const activeUserQuestion = $derived(
 		isActiveUserQuestion(message) ? message.userQuestion : undefined
 	)
+
+	// The preview chip sits on the header row (to the right of the tool-call text);
+	// shown once the tool settled, never while loading/erroring/awaiting confirmation.
+	const showPreviewChip = $derived(
+		Boolean(
+			message.previewCard && !message.isLoading && !message.error && !message.needsConfirmation
+		)
+	)
 </script>
 
 {#if activeUserQuestion}
@@ -57,32 +66,48 @@
 {:else}
 	<div class="font-mono text-xs">
 		<!-- Collapsible Header -->
-		<button
-			class={twMerge(
-				'py-0.5 my-0.5 rounded-md hover:bg-surface-hover transition-colors inline-flex items-center text-left',
-				message.needsConfirmation ? 'opacity-80' : ''
-			)}
-			onclick={() => (isExpanded = !isExpanded)}
-			disabled={!detailsAvailable && !message.isStreamingArguments}
-		>
-			<div class="flex items-center gap-2">
-				{#if message.isLoading && !message.needsConfirmation}
-					<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500" />
-				{/if}
-				<span class="text-primary font-medium text-2xs">
-					{message.content}
-				</span>
+		{#snippet headerButton()}
+			<button
+				class={twMerge(
+					'min-w-0 py-0.5 my-0.5 rounded-md hover:bg-surface-hover transition-colors inline-flex items-center text-left',
+					message.needsConfirmation ? 'opacity-80' : ''
+				)}
+				onclick={() => (isExpanded = !isExpanded)}
+				disabled={!detailsAvailable && !message.isStreamingArguments}
+			>
+				<div class="flex items-center gap-2 min-w-0">
+					{#if message.isLoading && !message.needsConfirmation}
+						<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500 shrink-0" />
+					{/if}
+					<span
+						class={twMerge('text-primary font-medium text-2xs', showPreviewChip ? 'truncate' : '')}
+					>
+						{message.content}
+					</span>
 
-				{#if detailsAvailable || message.isStreamingArguments}
-					<ChevronRight
-						class={twMerge(
-							'w-3 h-3 text-secondary transition-transform duration-150',
-							isExpanded ? 'rotate-90' : ''
-						)}
-					/>
-				{/if}
+					{#if detailsAvailable || message.isStreamingArguments}
+						<ChevronRight
+							class={twMerge(
+								'w-3 h-3 text-secondary transition-transform duration-150 shrink-0',
+								isExpanded ? 'rotate-90' : ''
+							)}
+						/>
+					{/if}
+				</div>
+			</button>
+		{/snippet}
+
+		<!-- Discrete preview chip for an item a tool created/updated, pinned to
+		     the right of the header row. Rendered inline (not gated on expand) so it
+		     stays visible after the tool collapses. -->
+		{#if showPreviewChip && message.previewCard}
+			<div class="flex items-center justify-between gap-2">
+				{@render headerButton()}
+				<ToolPreviewCard card={message.previewCard} />
 			</div>
-		</button>
+		{:else}
+			{@render headerButton()}
+		{/if}
 
 		<!-- Image a tool produced (e.g. take_screenshot) — shown inline, not gated on expand. -->
 		{#if message.imageUrl}

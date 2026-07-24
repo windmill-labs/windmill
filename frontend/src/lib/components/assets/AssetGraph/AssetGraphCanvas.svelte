@@ -171,6 +171,19 @@
 		 * initial viewport fit re-arms when it changes, so switching folders
 		 * in-place gets a fresh fit. */
 		viewportFitKey?: string
+		/** Tint the currently-running runnable nodes amber (the compute is
+		 * happening now). Opt-in — the recorder's replay player turns it on so
+		 * the active transform stands out; the live editor stays calm. */
+		highlightActiveRun?: boolean
+		/** Asset node id (`asset:${kind}:${path}`) → a monotonic "recompute" nonce.
+		 * When a node's nonce changes, it flashes a fading green background — its
+		 * producer just recomputed it. Driven by the replay player frame-by-frame. */
+		recomputedAssetIds?: ReadonlyMap<string, number>
+		/** Let the wheel zoom the canvas (and swallow the page scroll while doing
+		 * so). Default true for the full-height editor/player. Set false when the
+		 * canvas is embedded inline inside a scrollable container, so a wheel
+		 * gesture over it scrolls the container instead of being captured. */
+		scrollZoom?: boolean
 	}
 	let {
 		graph,
@@ -199,7 +212,10 @@
 		boundPick,
 		onPickEnd,
 		showMinimap = true,
-		viewportFitKey = ''
+		viewportFitKey = '',
+		highlightActiveRun = false,
+		recomputedAssetIds,
+		scrollZoom = true
 	}: Props = $props()
 
 	// `${kind}:${path}` ids for the hovered / pinned runs (both script and flow
@@ -385,7 +401,10 @@
 					producers: producersByAsset.get(`${a.kind}:${a.path}`) ?? [],
 					onRunProducer,
 					dataTestGuarded,
-					producerFailed
+					producerFailed,
+					// Bumped by the replay player when this asset's producer just
+					// recomputed it — the node flashes green and fades.
+					recomputePulse: recomputedAssetIds?.get(assetId)
 				}
 			})
 		}
@@ -474,6 +493,9 @@
 					downstreamCount: downstreamByScript.get(r.path) ?? 0,
 					downstreamUnsavedCount: downstreamUnsavedByScript.get(r.path) ?? 0,
 					runState,
+					// Amber-tint this node while it's the transform actively running
+					// (replay player only — the live editor keeps its calm styling).
+					highlightRunning: highlightActiveRun,
 					// Bounded-cascade entrypoint: only valid starts (schedule /
 					// manual roots) with downstream get the "Run downstream up
 					// to…" menu item.
@@ -1172,6 +1194,8 @@
 		nodesDraggable={false}
 		nodesConnectable={false}
 		elementsSelectable
+		zoomOnScroll={scrollZoom}
+		preventScrolling={scrollZoom}
 		zoomOnDoubleClick={false}
 		connectionLineType={ConnectionLineType.SmoothStep}
 		defaultEdgeOptions={{ type: 'asset' }}

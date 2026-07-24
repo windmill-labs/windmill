@@ -381,18 +381,19 @@ test("derived triggers dedup against explicit `// on` and never self-trigger a m
 
 test("parseMuteAnnotations mirrors the canonical annotation grammar", () => {
   // Any comment prefix regardless of language, header-only scan, complete-word
-  // keyword, s3 leading-slash canonicalization — in lockstep with the Rust
+  // keyword, verbatim s3 paths — in lockstep with the Rust
   // `parse_pipeline_annotations` / frontend parsePipelineAnnotations.ts.
   const all3 = parseMuteAnnotations(
     `// mute ducklake://main/a\n-- mute datatable://main/b\n# mute s3:///lead/slash\nSELECT 1;\n// mute ducklake://main/body\n`,
   );
   expect(all3.muteAll).toBe(false);
-  // all three prefixes accepted; s3 triple-slash canonicalizes to the bare key;
-  // the line PAST the first non-comment line is ignored (header-only)
+  // all three prefixes accepted; the s3 triple-slash default-storage path keeps
+  // its leading slash; the line PAST the first non-comment line is ignored
+  // (header-only)
   expect([...all3.muted].sort()).toEqual([
     "datatable:main/b",
     "ducklake:main/a",
-    "s3object:lead/slash",
+    "s3object:/lead/slash",
   ]);
 
   // `mute` must be a complete word, and prose args are not asset URIs
@@ -478,11 +479,11 @@ test("go/bash fallback: leading-header `// on` only, options stripped, no body p
   );
 });
 
-test("go/bash fallback: `// on s3:///key` canonicalizes to the slashless key", async () => {
-  // Mirror of the Rust/wasm `parse_asset_syntax` S3 strip: a fallback consumer's
-  // triple-slash default-storage trigger must resolve to the bare key `exports/x`
-  // — the same identity a wasm-inferred SDK/DuckDB producer uses — or the local
-  // graph shows a disconnected `/exports/x` node. Explicit storage is untouched.
+test("go/bash fallback: `// on s3:///key` keeps its default-storage leading slash", async () => {
+  // Mirror of the Rust/wasm `parse_asset_syntax`: the suffix is kept verbatim.
+  // A triple-slash default-storage trigger resolves to `/exports/x` — the same
+  // identity a wasm-inferred SDK write of `{ s3: "exports/x" }` uses — while the
+  // bare `s3://exports/x` names storage `exports` (a different object/node).
   await withFolder(
     {
       "triple.go": `// pipeline\n// on s3:///exports/x\npackage inner\nfunc main() {}\n`,
@@ -495,10 +496,8 @@ test("go/bash fallback: `// on s3:///key` canonicalizes to the slashless key", a
         graph.triggers.find(
           (t) => t.trigger_kind === "asset" && t.runnable_path === p
         ) as Extract<(typeof graph.triggers)[number], { trigger_kind: "asset" }> | undefined;
-      // triple-slash and bare both canonicalize to `exports/x` → same node
-      expect(pathFor("f/mypipe/triple")?.asset_path).toBe("exports/x");
+      expect(pathFor("f/mypipe/triple")?.asset_path).toBe("/exports/x");
       expect(pathFor("f/mypipe/bare")?.asset_path).toBe("exports/x");
-      // explicit storage keeps its `storage/key` path (no leading slash to strip)
       expect(pathFor("f/mypipe/storage")?.asset_path).toBe("mybucket/exports/x");
     },
   );

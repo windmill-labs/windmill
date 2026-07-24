@@ -101,6 +101,30 @@ export function isRawAppBackendPath(filePath: string): boolean {
 }
 
 /**
+ * The positive-only runnable settings (concurrent_limit, timeout, ...) treat any `<= 0`
+ * value as "unset": the backend coerces it to null (a 0-slot concurrency limit bricks the
+ * runnable, a 0s timeout kills every run). Coerce to undefined so it is serialized as
+ * omitted, never as 0, and redeploys don't churn against the backend-normalized value.
+ */
+export function nonePositiveInt(
+  v: number | undefined | null
+): number | undefined {
+  return v != null && v > 0 ? v : undefined;
+}
+
+/**
+ * Normalize a concurrent_limit + its time window together: when the limit is disabled
+ * (<= 0) the window is dropped too. Returns [concurrent_limit, concurrency_time_window_s].
+ */
+export function normalizeConcurrency(
+  concurrentLimit: number | undefined | null,
+  concurrencyTimeWindowS?: number | undefined | null
+): [number | undefined, number | undefined] {
+  const limit = nonePositiveInt(concurrentLimit);
+  return limit === undefined ? [undefined, undefined] : [limit, concurrencyTimeWindowS ?? undefined];
+}
+
+/**
  * Checks if a path is inside a normal app folder (inline script).
  * Matches patterns like: .../myApp.app/... or .../myApp__app/...
  */
@@ -469,6 +493,15 @@ export async function handleFile(
     const moduleFolderPath = scriptBasePath + getModuleFolderSuffix();
     const modules = await readModulesFromDisk(moduleFolderPath, opts?.defaultTs, moduleEntryPoint);
 
+    // A concurrent_limit of <= 0 means "concurrency disabled", not "zero slots" (which
+    // would brick the runnable at the queue's concurrency gate). Emit it as omitted rather
+    // than 0 so a redeploy never re-persists a zero-slot limit, and drop the now-meaningless
+    // time window alongside it. Mirrors the backend's ConcurrencySettings::normalized.
+    const [normConcurrentLimit, normConcurrencyTimeWindowS] = normalizeConcurrency(
+      typed?.concurrent_limit,
+      typed?.concurrency_time_window_s
+    );
+
     const requestBodyCommon: NewScript = {
       content,
       description: typed?.description ?? "",
@@ -482,8 +515,8 @@ export async function handleFile(
       ws_error_handler_muted: typed?.ws_error_handler_muted,
       dedicated_worker: typed?.dedicated_worker,
       cache_ttl: typed?.cache_ttl,
-      concurrency_time_window_s: typed?.concurrency_time_window_s,
-      concurrent_limit: typed?.concurrent_limit,
+      concurrency_time_window_s: normConcurrencyTimeWindowS,
+      concurrent_limit: normConcurrentLimit,
       deployment_message: message,
       restart_unless_cancelled: typed?.restart_unless_cancelled,
       visible_to_runner_only: typed?.visible_to_runner_only,
@@ -493,7 +526,7 @@ export async function handleFile(
       debounce_key: typed?.debounce_key,
       debounce_delay_s: typed?.debounce_delay_s,
       codebase: await codebase?.getDigest(forceTar),
-      timeout: typed?.timeout,
+      timeout: nonePositiveInt(typed?.timeout),
       on_behalf_of_email: typed?.on_behalf_of_email,
       envs: typed?.envs,
       modules: modules,
@@ -530,9 +563,13 @@ export async function handleFile(
               remote.ws_error_handler_muted &&
             typed.dedicated_worker == remote.dedicated_worker &&
             typed.cache_ttl == remote.cache_ttl &&
-            typed.concurrency_time_window_s ==
-              remote.concurrency_time_window_s &&
-            typed.concurrent_limit == remote.concurrent_limit &&
+            normConcurrencyTimeWindowS ==
+              normalizeConcurrency(
+                remote.concurrent_limit,
+                remote.concurrency_time_window_s
+              )[1] &&
+            normConcurrentLimit ==
+              normalizeConcurrency(remote.concurrent_limit)[0] &&
             Boolean(typed.restart_unless_cancelled) ==
               Boolean(remote.restart_unless_cancelled) &&
             Boolean(typed.visible_to_runner_only) ==
@@ -540,7 +577,7 @@ export async function handleFile(
             Boolean(typed.has_preprocessor) ==
               Boolean(remote.has_preprocessor) &&
             typed.priority == Boolean(remote.priority) &&
-            typed.timeout == remote.timeout &&
+            nonePositiveInt(typed.timeout) == nonePositiveInt(remote.timeout) &&
             //@ts-ignore
             typed.concurrency_key == remote["concurrency_key"] &&
             typed.debounce_key == remote["debounce_key"] &&

@@ -215,7 +215,7 @@ being buffered, bypassing the 10000-row return cap.
 
 # TypeScript (Bun)
 
-Bun runtime with full npm ecosystem and fastest execution.
+Bun runtime with full npm ecosystem and fastest execution. **Bun is the default and preferred TypeScript runtime** — choose it for any TypeScript script unless there is a major reason to use Deno for that specific use-case.
 
 ## Structure
 
@@ -501,6 +501,8 @@ public class Script
 # TypeScript (Deno)
 
 Deno runtime with npm support via `npm:` prefix and native Deno libraries.
+
+**Prefer Bun (`write-script-bun`) for TypeScript.** Only use Deno when the script specifically requires the Deno runtime — Deno's standard library or `deno.land` URL imports that have no npm equivalent. For all other TypeScript, use Bun instead.
 
 ## Structure
 

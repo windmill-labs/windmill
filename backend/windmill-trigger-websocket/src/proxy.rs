@@ -15,6 +15,7 @@
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use std::io;
+use std::net::SocketAddr;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::TcpStream,
@@ -33,19 +34,28 @@ use windmill_common::{HTTPS_PROXY, HTTP_PROXY, NO_PROXY};
 
 /// Drop-in replacement for `tokio_tungstenite::connect_async` that routes
 /// the underlying TCP connection through `HTTPS_PROXY` / `HTTP_PROXY`
-/// (with `NO_PROXY` exclusions) when those env vars are set. When none
-/// is set we short-circuit straight to `connect_async`, keeping the
-/// behaviour for non-proxied deployments unchanged.
+/// (with `NO_PROXY` exclusions) when those env vars are set, and — for direct
+/// (non-proxied) connections — pins DNS to `pinned_addrs`.
+///
+/// `pinned_addrs` are the addresses the SSRF guard already resolved and
+/// validated for this URL (see `validate_websocket_url_for_ssrf`). Connecting
+/// straight to them, rather than letting `connect_async` re-resolve the host,
+/// closes the DNS-rebinding window between the check and the connect: a rebinder
+/// cannot answer a public IP at validation time and an internal one here. When
+/// `pinned_addrs` is empty (IP-literal host, or the SSRF guard opted out via
+/// `ALLOW_PRIVATE_WEBSOCKET_URLS`) there is nothing to pin and we fall back to
+/// `connect_async`, keeping the behaviour for those cases unchanged.
+///
+/// When a proxy applies, the proxy itself resolves the target host, so DNS
+/// rebinding at this hop is not the worker's concern and `pinned_addrs` is
+/// unused for that path.
 pub async fn connect_async_with_proxy<R>(
     request: R,
+    pinned_addrs: &[SocketAddr],
 ) -> Result<(WebSocketStream<MaybeTlsStream<TcpStream>>, Response), WsError>
 where
     R: IntoClientRequest + Unpin,
 {
-    if HTTPS_PROXY.is_none() && HTTP_PROXY.is_none() {
-        return connect_async(request).await;
-    }
-
     let request = request.into_client_request()?;
     let uri = request.uri().clone();
     let scheme = uri.scheme_str().unwrap_or_default().to_ascii_lowercase();
@@ -62,26 +72,49 @@ where
         })
         .ok_or(WsError::Url(UrlError::UnsupportedUrlScheme))?;
 
-    let proxy = proxy_url_for(&scheme, &host).and_then(|raw| parse_proxy_target(&raw));
-
-    let Some(proxy) = proxy else {
-        // Proxy env was set but doesn't apply to this host (NO_PROXY hit
-        // or unparseable URL): preserve the original connect path.
-        return connect_async(request).await;
+    let proxy = if HTTPS_PROXY.is_none() && HTTP_PROXY.is_none() {
+        None
+    } else {
+        proxy_url_for(&scheme, &host).and_then(|raw| parse_proxy_target(&raw))
     };
 
-    tracing::debug!(
-        "Connecting to WebSocket {}:{} through HTTP proxy {}:{}",
-        host,
-        port,
-        proxy.host,
-        proxy.port,
-    );
-    let socket = http_connect_tunnel(&proxy, &host, port)
-        .await
-        .map_err(WsError::Io)?;
+    if let Some(proxy) = proxy {
+        tracing::debug!(
+            "Connecting to WebSocket {}:{} through HTTP proxy {}:{}",
+            host,
+            port,
+            proxy.host,
+            proxy.port,
+        );
+        let socket = http_connect_tunnel(&proxy, &host, port)
+            .await
+            .map_err(WsError::Io)?;
+        return client_async_tls_with_config(request, socket, None, None).await;
+    }
 
-    client_async_tls_with_config(request, socket, None, None).await
+    // Direct connection. Nothing to pin (IP literal or SSRF guard opted out):
+    // preserve the original resolve-and-connect path.
+    if pinned_addrs.is_empty() {
+        return connect_async(request).await;
+    }
+
+    // Pin to a validated address so this connect targets the same IP the SSRF
+    // guard checked. Try each in order (e.g. IPv6 then IPv4) until one connects.
+    let mut last_err: Option<io::Error> = None;
+    for addr in pinned_addrs {
+        match TcpStream::connect(addr).await {
+            Ok(socket) => {
+                return client_async_tls_with_config(request, socket, None, None).await;
+            }
+            Err(e) => last_err = Some(e),
+        }
+    }
+    Err(WsError::Io(last_err.unwrap_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::AddrNotAvailable,
+            "no pinned address to connect",
+        )
+    })))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -191,7 +191,7 @@ impl Listener for WebsocketTrigger {
             Cow::Borrowed(&url)
         };
 
-        validate_websocket_url_for_ssrf(&connect_url).await?;
+        let validated = validate_websocket_url_for_ssrf(&connect_url).await?;
 
         // Gateway endpoints are often fronted by an edge proxy (e.g. Cloudflare)
         // that sporadically answers the upgrade request with a transient 5xx
@@ -203,7 +203,7 @@ impl Listener for WebsocketTrigger {
         let mut attempt = 0;
         loop {
             attempt += 1;
-            match connect_async_with_proxy(&*connect_url).await {
+            match connect_async_with_proxy(&*connect_url, validated.pinned_addrs()).await {
                 Ok(conn) => return Ok(Some(conn)),
                 // Only retry in trigger mode: a failed connect there disables the
                 // trigger until a human re-enables it, while capture mode is an

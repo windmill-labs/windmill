@@ -2586,15 +2586,57 @@ async fn transform_attach_datatable(
             .await?
         }
     };
-    let db_type = "postgres";
 
     if let Some(pwd) = db_resource.get("password").and_then(|p| p.as_str()) {
         hidden_passwords.lock().unwrap().push(pwd.to_string());
     }
 
-    Ok(Some(
-        db_resource_to_attach_statements(db_resource, alias_name, db_type, None).await?,
-    ))
+    Ok(Some(pg_secret_attach_statements(db_resource, alias_name)?))
+}
+
+// Secret names must be plain identifiers; the hash keeps two aliases distinct even
+// when sanitizing maps them to the same string.
+fn datatable_secret_name(alias: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let sanitized: String = alias
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    let hash = &Sha256::digest(alias.as_bytes())[..4];
+    format!(
+        "__wm_datatable_{sanitized}_{:08x}",
+        u32::from_be_bytes([hash[0], hash[1], hash[2], hash[3]])
+    )
+}
+
+/// ATTACH a datatable's postgres database through a DuckDB TEMPORARY SECRET holding
+/// the connection parameters; only sslmode rides in the ATTACH string.
+fn pg_secret_attach_statements(db_resource: Value, alias_name: &str) -> Result<Vec<String>> {
+    let res: PgDatabase = serde_json::from_value(db_resource)?;
+    // Escape single quotes: each field is embedded in a single-quoted DuckDB literal,
+    // so an unescaped quote would break out of the CREATE SECRET statement.
+    let esc = |s: &str| s.replace('\'', "''");
+    // The postgres secret type has no sslmode parameter, so it goes in the ATTACH
+    // string; only the libpq values PgDatabase::to_uri collapses to are forwarded.
+    let sslmode = match res.sslmode.as_deref() {
+        Some("disable") => "disable",
+        Some("require") | Some("verify-ca") | Some("verify-full") => "require",
+        _ => "prefer",
+    };
+    let secret_name = datatable_secret_name(alias_name);
+    Ok(vec![
+        "INSTALL postgres;".to_string(),
+        "LOAD postgres;".to_string(),
+        format!(
+            "CREATE OR REPLACE TEMPORARY SECRET {secret_name} (TYPE postgres, HOST '{}', PORT {}, DATABASE '{}', USER '{}', PASSWORD '{}');",
+            esc(&res.host),
+            res.port.unwrap_or(5432),
+            esc(&res.dbname),
+            esc(res.user.as_deref().unwrap_or("postgres")),
+            esc(res.password.as_deref().unwrap_or("")),
+        ),
+        format!("ATTACH 'sslmode={sslmode}' AS {alias_name} (TYPE postgres, SECRET {secret_name});"),
+    ])
 }
 
 async fn transform_s3_uris(query: &str) -> Result<String> {
@@ -3729,6 +3771,63 @@ mod tests {
         assert!(result.starts_with("postgres://"));
         assert!(result.contains("@localhost:5432/test"));
         assert!(result.contains("sslmode=prefer"));
+    }
+
+    #[test]
+    fn test_pg_secret_attach_statements() {
+        let db_resource = json!({
+            "host": "localhost",
+            "port": 5433,
+            "user": "custom_instance_user",
+            "password": "it's-secret",
+            "dbname": "wm_datatables",
+            "sslmode": "require"
+        });
+        let stmts = pg_secret_attach_statements(db_resource, "dt").unwrap();
+        assert_eq!(stmts[0], "INSTALL postgres;");
+        assert_eq!(stmts[1], "LOAD postgres;");
+        let secret_name = datatable_secret_name("dt");
+        assert_eq!(
+            stmts[2],
+            format!(
+                "CREATE OR REPLACE TEMPORARY SECRET {secret_name} (TYPE postgres, HOST 'localhost', PORT 5433, DATABASE 'wm_datatables', USER 'custom_instance_user', PASSWORD 'it''s-secret');"
+            )
+        );
+        assert_eq!(
+            stmts[3],
+            format!("ATTACH 'sslmode=require' AS dt (TYPE postgres, SECRET {secret_name});")
+        );
+    }
+
+    #[test]
+    fn test_pg_secret_attach_statements_sslmode_whitelist() {
+        for (input, expected) in [
+            (Some("allow"), "prefer"),
+            (Some("verify-full"), "require"),
+            (Some("disable"), "disable"),
+            (Some("unknown-value"), "prefer"),
+            (None, "prefer"),
+        ] {
+            let mut db_resource = json!({ "host": "h", "dbname": "d" });
+            if let Some(s) = input {
+                db_resource["sslmode"] = json!(s);
+            }
+            let stmts = pg_secret_attach_statements(db_resource, "dt").unwrap();
+            assert!(
+                stmts[3].starts_with(&format!("ATTACH 'sslmode={expected}'")),
+                "sslmode {input:?} → {}",
+                stmts[3]
+            );
+        }
+    }
+
+    #[test]
+    fn test_datatable_secret_name_sanitizes_and_disambiguates() {
+        let a = datatable_secret_name("a.b");
+        let b = datatable_secret_name("a_b");
+        assert!(a.starts_with("__wm_datatable_a_b_"));
+        assert_ne!(a, b);
+        assert!(a.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
     }
 
     #[test]

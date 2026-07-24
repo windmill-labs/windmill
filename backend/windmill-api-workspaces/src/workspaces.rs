@@ -303,6 +303,7 @@ pub struct WorkspaceSettings {
     pub success_handler: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_app_execution_limit_per_minute: Option<i32>,
+    pub error_handler_fallback_to_instance_alerts: bool,
 }
 
 /// Subset of `WorkspaceSettings` that is safe to return to any workspace
@@ -452,6 +453,8 @@ struct CreateWorkspace {
     name: String,
     username: Option<String>,
     color: Option<String>,
+    #[serde(default)]
+    error_handler_fallback_to_instance_alerts: bool,
 }
 
 #[derive(Deserialize)]
@@ -559,6 +562,9 @@ pub struct EditErrorHandlerNew {
     pub muted_on_cancel: bool,
     #[serde(default)]
     pub muted_on_user_path: bool,
+    /// Left as `None` by clients that predate the setting (the CLI among them), which must
+    /// keep the stored value rather than silently reset it on every settings push.
+    pub fallback_to_instance_alerts: Option<bool>,
 }
 
 // Legacy format for error handler (flat fields from old CLI)
@@ -587,6 +593,7 @@ impl EditErrorHandler {
                 extra_args: legacy.error_handler_extra_args,
                 muted_on_cancel: legacy.error_handler_muted_on_cancel,
                 muted_on_user_path: false, // Old format doesn't have this field
+                fallback_to_instance_alerts: None,
             },
         }
     }
@@ -827,21 +834,37 @@ async fn reject_dev_label_matching_tracked_branch(
     Ok(())
 }
 
-/// Reject parent-only git-sync settings on a fork workspace. Auto-pull, fork
-/// PRs, and promotion mode are all configured at the parent: repo → fork sync is
-/// routed by the parent's webhook/poller (`sync_forks`), a fork-owned auto-pull
-/// would register a second webhook on the same GitHub repo per fork, and a
-/// fork's deploys always go to its `wm-fork/**` branch so a promotion repo could
-/// never take effect there.
+/// Reject parent-only git-sync settings on a fork workspace. Auto-pull and fork
+/// PRs are configured at the parent: repo → fork sync is routed by the parent's
+/// webhook/poller (`sync_forks`), and a fork-owned auto-pull would register a
+/// second webhook on the same GitHub repo per fork. Promotion mode is rejected
+/// on throwaway forks (their deploys always go to their `wm-fork/**` branch, so
+/// a promotion repo could never take effect) but allowed on a **dev workspace**,
+/// which deploys per-item `wm_deploy/**` branches that promote into the parent.
 async fn reject_parent_only_git_sync_settings_on_fork<'a>(
     db: &DB,
     w_id: &str,
-    mut repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
+    repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
 ) -> Result<()> {
-    let offending = repos.find_map(|r| {
+    let row = sqlx::query!(
+        "SELECT parent_workspace_id, is_dev_workspace FROM workspace WHERE id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?;
+    let is_fork = row
+        .as_ref()
+        .and_then(|r| r.parent_workspace_id.as_ref())
+        .is_some()
+        || w_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX);
+    if !is_fork {
+        return Ok(());
+    }
+    let is_dev = row.map(|r| r.is_dev_workspace).unwrap_or(false);
+    let offending = repos.into_iter().find_map(|r| {
         if r.auto_pull.as_ref().is_some_and(|a| a.enabled) {
             Some("Auto-pull")
-        } else if r.use_individual_branch.unwrap_or(false) {
+        } else if r.use_individual_branch.unwrap_or(false) && !is_dev {
             Some("Promotion mode")
         } else if r.fork_open_prs {
             Some("Opening PRs for fork deploys")
@@ -849,17 +872,7 @@ async fn reject_parent_only_git_sync_settings_on_fork<'a>(
             None
         }
     });
-    let Some(offending) = offending else {
-        return Ok(());
-    };
-    let parent = sqlx::query_scalar!(
-        "SELECT parent_workspace_id FROM workspace WHERE id = $1",
-        w_id
-    )
-    .fetch_optional(db)
-    .await?
-    .flatten();
-    if parent.is_some() || w_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX) {
+    if let Some(offending) = offending {
         return Err(Error::BadRequest(format!(
             "{offending} cannot be configured on a fork workspace: it is managed from the parent workspace's git sync settings"
         )));
@@ -968,7 +981,8 @@ async fn get_settings(
             auto_invite,
             error_handler,
             success_handler,
-            public_app_execution_limit_per_minute
+            public_app_execution_limit_per_minute,
+            error_handler_fallback_to_instance_alerts
         FROM
             workspace_settings
         WHERE
@@ -3314,6 +3328,95 @@ async fn check_open_prs_license<'a>(
     Ok(())
 }
 
+/// Promotion mode (`use_individual_branch`: per-item `wm_deploy/**` deploy
+/// branches) is an EE feature; runtime-gate it like auto-pull and PR creation
+/// so an enterprise binary without an active plan can't enable it via either
+/// git-sync edit endpoint.
+#[cfg(feature = "enterprise")]
+async fn check_promotion_license<'a>(
+    mut repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
+) -> Result<()> {
+    if repos.any(|r| r.use_individual_branch.unwrap_or(false)) {
+        check_git_sync_ee_license("Promotion mode").await?;
+    }
+    Ok(())
+}
+
+/// Promotion on a dev workspace needs the dev-aware sync script (hub >= 28796):
+/// an older pinned script bundles a CLI that force-disables per-item branches
+/// on every fork, so enabling promotion would silently keep deploying to the
+/// env-label branch. Reject with an actionable error instead (the dispatcher
+/// demotes inherited configs the same way). Roots run promotion on any script
+/// version, and auto-managed repositories (no pin) always use the latest.
+#[cfg(feature = "enterprise")]
+async fn check_dev_promotion_script_version<'a>(
+    db: &DB,
+    w_id: &str,
+    repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
+) -> Result<()> {
+    let mut offending: Option<String> = None;
+    for r in repos {
+        if !r.use_individual_branch.unwrap_or(false) {
+            continue;
+        }
+        if !r.is_script_meets_min_version(28796)? {
+            offending = Some(r.effective_script_path().to_string());
+            break;
+        }
+    }
+    let Some(offending) = offending else {
+        return Ok(());
+    };
+    let is_dev = sqlx::query!(
+        "SELECT parent_workspace_id, is_dev_workspace FROM workspace WHERE id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .map(|r| r.is_dev_workspace)
+    .unwrap_or(false);
+    if !is_dev {
+        return Ok(());
+    }
+    Err(Error::BadRequest(format!(
+        "Promotion mode on a dev workspace requires git sync script version 28796 or newer, \
+         but this repository pins '{offending}'. Update the pinned sync script (or reset it to \
+         auto-managed) first."
+    )))
+}
+
+/// A dev workspace's promotion must target its parent ("prod") workspace's own
+/// git repository (same URL and branch) — that is what "promote to prod" means.
+/// A fork-created dev inherits prod's repo; an **attached** dev keeps its own,
+/// which may be unrelated. Reject enabling promotion on a repo the parent does
+/// not track so the UI can't present an unrelated repo as prod's target. The
+/// deploy path re-checks the same invariant (a resource edit could break it
+/// after save), via the shared `dev_promotion_target_matches_parent`.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn check_dev_promotion_targets_parent_repo<'a>(
+    db: &DB,
+    w_id: &str,
+    repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
+) -> Result<()> {
+    for r in repos.filter(|r| r.use_individual_branch.unwrap_or(false)) {
+        if !windmill_common::git_sync_ee::dev_promotion_target_matches_parent(
+            db,
+            w_id,
+            &r.git_repo_resource_path,
+        )
+        .await?
+        {
+            return Err(Error::BadRequest(
+                "Promotion mode on a dev workspace must reuse the parent workspace's git repository \
+                 (same URL and branch), but this repository is not one the parent tracks — promotion \
+                 would target a repository the parent does not sync with."
+                    .to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(feature = "enterprise")]
 async fn check_git_sync_access(_db: &DB, _w_id: &str) -> Result<()> {
     Ok(())
@@ -3458,6 +3561,25 @@ async fn edit_git_sync_config(
         }
         #[cfg(feature = "enterprise")]
         check_open_prs_license(git_sync_settings.repositories.iter()).await?;
+        #[cfg(feature = "enterprise")]
+        check_promotion_license(git_sync_settings.repositories.iter()).await?;
+        #[cfg(feature = "enterprise")]
+        check_dev_promotion_script_version(&db, &w_id, git_sync_settings.repositories.iter())
+            .await?;
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        check_dev_promotion_targets_parent_repo(&db, &w_id, git_sync_settings.repositories.iter())
+            .await?;
+        // Promotion mode: EE only (mirrors edit_git_sync_repository).
+        #[cfg(not(feature = "enterprise"))]
+        if git_sync_settings
+            .repositories
+            .iter()
+            .any(|r| r.use_individual_branch.unwrap_or(false))
+        {
+            return Err(Error::BadRequest(
+                "Promotion mode is an Enterprise Edition feature".to_string(),
+            ));
+        }
         // Preserve server-owned auto-pull state (webhook id/secret, synced sha, last
         // status) that the redacted GET response omits — otherwise a whole-config
         // save from the UI would drop the webhook secret (breaking delivery) or
@@ -3593,7 +3715,8 @@ async fn edit_git_sync_config(
             tracing::warn!("git auto-pull: webhook field persist error: {}", e);
         }
         for (path, hook_id) in removed_webhooks {
-            if let Ok(url) = windmill_common::git_sync_ee::resolve_repo_url(&db, &w_id, &path).await
+            if let Ok(url) =
+                windmill_common::git_sync_ee::resolve_repo_url_interpolated(&db, &w_id, &path).await
             {
                 let _ =
                     windmill_common::git_sync_ee::delete_repo_webhook(&db, &w_id, &url, hook_id)
@@ -3670,6 +3793,13 @@ async fn edit_git_sync_repository(
     }
     #[cfg(feature = "enterprise")]
     check_open_prs_license(std::iter::once(&new_config.repository)).await?;
+    #[cfg(feature = "enterprise")]
+    check_promotion_license(std::iter::once(&new_config.repository)).await?;
+    #[cfg(feature = "enterprise")]
+    check_dev_promotion_script_version(&db, &w_id, std::iter::once(&new_config.repository)).await?;
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    check_dev_promotion_targets_parent_repo(&db, &w_id, std::iter::once(&new_config.repository))
+        .await?;
 
     // Promotion mode: EE only
     #[cfg(not(feature = "enterprise"))]
@@ -3945,7 +4075,7 @@ async fn delete_git_sync_repository(
     // Removal is durable now — best-effort delete the GitHub webhook.
     #[cfg(all(feature = "enterprise", feature = "private"))]
     if let Some(hook_id) = webhook_to_delete {
-        if let Ok(url) = windmill_common::git_sync_ee::resolve_repo_url(
+        if let Ok(url) = windmill_common::git_sync_ee::resolve_repo_url_interpolated(
             &db,
             &w_id,
             &request.git_repo_resource_path,
@@ -4244,6 +4374,19 @@ async fn edit_error_handler(
 
     let mut tx = db.begin().await?;
 
+    if let Some(fallback_to_instance_alerts) = ee.fallback_to_instance_alerts {
+        if fallback_to_instance_alerts {
+            ensure_instance_alert_fallback_allowed(&mut tx, &w_id).await?;
+        }
+        sqlx::query!(
+            "UPDATE workspace_settings SET error_handler_fallback_to_instance_alerts = $1 WHERE workspace_id = $2",
+            fallback_to_instance_alerts,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
     sqlx::query_as!(
         Group,
         "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
@@ -4322,7 +4465,16 @@ async fn edit_error_handler(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
-        Some([("error_handler", &format!("{:?}", ee.path)[..])].into()),
+        Some(
+            [
+                ("error_handler", &format!("{:?}", ee.path)[..]),
+                (
+                    "fallback_to_instance_alerts",
+                    &format!("{:?}", ee.fallback_to_instance_alerts)[..],
+                ),
+            ]
+            .into(),
+        ),
     )
     .await?;
     tx.commit().await?;
@@ -4799,6 +4951,36 @@ async fn session_workspace_status(
     Ok(Json(statuses))
 }
 
+/// The instance critical alert channels belong to the instance operator, who on cloud is
+/// not the workspace owner and never opted into a tenant's job failures. Fork workspaces run
+/// throwaway copies of their parent's runnables, so instance-wide operational alerting must
+/// stay a property of the real workspace.
+async fn ensure_instance_alert_fallback_allowed<'c>(
+    tx: &mut Transaction<'c, Postgres>,
+    w_id: &str,
+) -> Result<()> {
+    if *CLOUD_HOSTED {
+        return Err(Error::BadRequest(
+            "Reporting to the instance critical alert channels is not available on cloud"
+                .to_string(),
+        ));
+    }
+    let is_fork = sqlx::query_scalar!(
+        r#"SELECT (parent_workspace_id IS NOT NULL) AS "is_fork!" FROM workspace WHERE id = $1"#,
+        w_id
+    )
+    .fetch_optional(&mut **tx)
+    .await?
+    .unwrap_or(false);
+    if is_fork {
+        return Err(Error::BadRequest(
+            "Reporting to the instance critical alert channels cannot be enabled on a fork workspace"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
 pub async fn check_w_id_conflict<'c>(tx: &mut Transaction<'c, Postgres>, w_id: &str) -> Result<()> {
     if w_id == "global" {
         return Err(windmill_common::error::Error::BadRequest(
@@ -4975,12 +5157,16 @@ async fn create_workspace(
     )
     .execute(&mut *tx)
     .await?;
+    if nw.error_handler_fallback_to_instance_alerts {
+        ensure_instance_alert_fallback_allowed(&mut tx, &nw.id).await?;
+    }
     sqlx::query!(
         "INSERT INTO workspace_settings
-            (workspace_id, color)
-            VALUES ($1, $2)",
+            (workspace_id, color, error_handler_fallback_to_instance_alerts)
+            VALUES ($1, $2, $3)",
         nw.id,
         nw.color,
+        nw.error_handler_fallback_to_instance_alerts,
     )
     .execute(&mut *tx)
     .await?;
@@ -6557,7 +6743,7 @@ async fn enforce_fork_depth(
 
 /// True if `raw` (the text form of a `json` value) contains a genuine `\u0000`
 /// NUL escape: a `u0000` preceded by an ODD run of backslashes. Mirrors the
-/// parity rule in `strip_null_chars` (windmill-api `apps.rs`) — an even run
+/// parity rule in `windmill_common::utils::strip_json_nul` — an even run
 /// (`\\u0000`) is an escaped backslash then the literal text "u0000" (common in
 /// minified JS) and is jsonb-safe. A genuine NUL is exactly what the
 /// `json`→`jsonb` re-encode in `clone_apps` / `clone_flows` rejects with
@@ -7097,8 +7283,12 @@ async fn attach_dev_workspace(
     )
     .execute(&mut *tx)
     .await?;
+    // Clearing the instance-alert opt-in here keeps the stored setting truthful for a workspace
+    // that becomes parent-managed: dispatch enforces the fork boundary on its own, but a lingering
+    // `true` would survive a later detach and would make the settings page submit a value the API
+    // rejects on a fork.
     sqlx::query!(
-        "UPDATE workspace_settings SET deploy_to = $1 WHERE workspace_id = $2",
+        "UPDATE workspace_settings SET deploy_to = $1, error_handler_fallback_to_instance_alerts = false WHERE workspace_id = $2",
         &prod_w_id,
         &dev_w_id
     )
@@ -7173,7 +7363,8 @@ async fn attach_dev_workspace(
     // (their auto_pull is gone), so remove them from GitHub.
     #[cfg(all(feature = "enterprise", feature = "private"))]
     for (path, hook_id) in stripped_webhooks {
-        if let Ok(url) = windmill_common::git_sync_ee::resolve_repo_url(&db, &dev_w_id, &path).await
+        if let Ok(url) =
+            windmill_common::git_sync_ee::resolve_repo_url_interpolated(&db, &dev_w_id, &path).await
         {
             let _ =
                 windmill_common::git_sync_ee::delete_repo_webhook(&db, &dev_w_id, &url, hook_id)
@@ -7210,7 +7401,8 @@ async fn attach_dev_workspace(
 }
 
 /// Reverse [`attach_dev_workspace`] / clear the dev designation: unset the dev flag and remove the
-/// prod lock. The workspace keeps its `parent_workspace_id` (it remains an ordinary fork).
+/// prod lock. Whether `parent_workspace_id` is kept depends on the workspace's origin (see the
+/// UPDATE below): a genuine fork stays a fork, a standalone workspace returns to standalone.
 async fn detach_dev_workspace(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -10109,6 +10301,8 @@ const FEATURE_USAGE_KINDS: &[(&str, &str)] = &[
     ("ai_session", "deployed"),
     ("ai_session", "archived"),
     ("ai_session", "deleted"),
+    ("ai_session", "beta_optout"),
+    ("ai_session", "beta_optin"),
     ("ai_chat", "message"),
     ("ai_chat", "model"),
     ("ai_chat", "tool"),
