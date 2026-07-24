@@ -473,14 +473,11 @@ async fn list_runnables(
     let mut items: Vec<RunnableItem> = vec![];
     let first_page = q.cursor.is_none();
 
-    // Pin starred on the first page only in the browse (non-archived) view, where
-    // favorites are one row per path and few. The archived view lists every
-    // version, so a path-based favorite marks all of them starred: pinning there
-    // would either fan into an unbounded first page or (if capped) drop starred
-    // versions past the cap from every page. So in the archived view we don't pin
-    // at all — a single ordered stream includes starred and non-starred alike.
-    let pin_starred = !show_archived;
-    if first_page && pin_starred {
+    // Pin starred on the first page. Both views are now one row per path (the
+    // archived view filters to each path's latest row, see archived_pred), so a
+    // favorite is a single row in either — the starred-first contract holds in the
+    // archived view too, and the pinned first page stays bounded.
+    if first_page {
         let starred_branches: Vec<String> = ["script", "flow", "app"]
             .iter()
             .filter_map(|k| branch_for(k, Some(true), None, None))
@@ -498,9 +495,8 @@ async fn list_runnables(
         }
     }
 
-    // Main paged stream: non-starred when we pinned starred above, otherwise
-    // (archived view) every row.
-    let main_fav = if pin_starred { Some(false) } else { None };
+    // Main paged stream: non-starred rows (starred were pinned on the first page above).
+    let main_fav = Some(false);
     let ns_branches: Vec<String> = ["script", "flow", "app"]
         .iter()
         .filter_map(|k| branch_for(k, main_fav, keyset_sql.as_deref(), Some(per_page)))

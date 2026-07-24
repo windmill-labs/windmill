@@ -224,6 +224,48 @@ async fn test_runnables_archived_shows_only_paths_whose_latest_is_archived(
     Ok(())
 }
 
+#[sqlx::test(fixtures("base"))]
+async fn test_runnables_archived_favorite_is_pinned_first(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // Three fully-archived paths whose names sort aaa < mmm < zzz. Favorite the
+    // last-sorting one; the archived view pins starred first (each path is one row
+    // now), so it must lead under name-ascending order despite its late sort key.
+    for (h, name) in [
+        (911111111i64, "aaa"),
+        (922222222, "mmm"),
+        (933333333, "zzz"),
+    ] {
+        sqlx::query(
+            "INSERT INTO script (workspace_id, hash, path, summary, description, content, created_by, created_at, language, archived)
+             VALUES ('test-workspace', $1, $2, $3, '', 'x', 'test-user', '2026-07-19 10:00:00'::timestamptz, 'deno', true)",
+        )
+        .bind(h).bind(format!("u/test-user/{name}")).bind(name)
+        .execute(&db)
+        .await?;
+    }
+    sqlx::query(
+        "INSERT INTO favorite (usr, workspace_id, path, favorite_kind) VALUES ('test-user', 'test-workspace', 'u/test-user/zzz', 'script')",
+    )
+    .execute(&db)
+    .await?;
+
+    let items = paginate_all(port, "order_by=name&order_desc=false&show_archived=true").await;
+    let pos = |p: &str| items.iter().position(|i| i == p);
+    let zzz = pos("script:u/test-user/zzz").expect("favorited archived path present");
+    let aaa = pos("script:u/test-user/aaa").expect("aaa present");
+    let mmm = pos("script:u/test-user/mmm").expect("mmm present");
+    assert!(
+        zzz < aaa && zzz < mmm,
+        "favorited archived path must be pinned ahead of earlier-named non-favorites, got {items:?}"
+    );
+    Ok(())
+}
+
 fn new_app(path: &str, summary: &str) -> serde_json::Value {
     json!({
         "path": path,
