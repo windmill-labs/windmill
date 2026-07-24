@@ -217,9 +217,11 @@ export async function pushWorkspaceSettings(
     throw new Error(`Failed to get workspace settings: ${err}`);
   }
 
-  // Exclude read-only fields from comparison (slack_team_id and slack_name are set via OAuth only)
-  const { slack_team_id: _lst, slack_name: _lsn, ...comparableLocal } = localSettings;
-  const { slack_team_id: _rst, slack_name: _rsn, ...comparableRemote } = settings;
+  // Exclude read-only fields from comparison (slack_team_id and slack_name are set via OAuth only).
+  // name is excluded too: the workspace display name is per-instance UX, not applied on pull (see below),
+  // so a name-only diff must not force the rest of the settings to re-apply.
+  const { slack_team_id: _lst, slack_name: _lsn, name: _ln, ...comparableLocal } = localSettings;
+  const { slack_team_id: _rst, slack_name: _rsn, name: _rn, ...comparableRemote } = settings;
   if (isSuperset(comparableLocal, comparableRemote)) {
     log.debug(`Workspace settings are up to date`);
     return;
@@ -364,15 +366,11 @@ export async function pushWorkspaceSettings(
     });
   }
 
-  if (localSettings.name != settings.name) {
-    log.debug(`Updating workspace name...`);
-    await wmill.changeWorkspaceName({
-      workspace,
-      requestBody: {
-        new_name: localSettings.name,
-      },
-    });
-  }
+  // The workspace display name is intentionally not applied on pull. It is a
+  // per-instance property, and settings.yaml is shared across the branches of a
+  // repo, so applying it would let one workspace's name overwrite another's when
+  // two workspaces sync the same repo. name stays in settings.yaml for reference
+  // (written on push), but only the workspace owner renames a live workspace.
 
   if (localSettings.mute_critical_alerts != settings.mute_critical_alerts) {
     log.debug(`Updating mute critical alerts...`);
