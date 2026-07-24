@@ -1055,6 +1055,23 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         return Ok((job_id, duration, None));
     }
 
+    // The Rust guard keeps flow steps and plain top-level jobs off the query entirely.
+    if success && !skipped && !completed_job.is_flow_step() {
+        if let (JobKind::Script, Some(root)) = (completed_job.kind, completed_job.parent_job) {
+            if let Err(e) = resolve_superseded_retry_attempts(
+                db,
+                root,
+                &completed_job.workspace_id,
+                completed_job.id,
+                completed_job.runnable_id,
+            )
+            .await
+            {
+                tracing::error!("Error auto-resolving native retry chain {root}: {e:#}");
+            }
+        }
+    }
+
     #[cfg(feature = "cloud")]
     apply_completed_job_cloud_usage(db, completed_job, duration);
 
@@ -1694,6 +1711,71 @@ async fn restart_job_if_perpetual_inner(
     Ok(())
 }
 
+/// Marks the failures a succeeding native retry attempt superseded as resolved, so
+/// triage surfaces stop showing red for a chain that ultimately worked. `resolved_by`
+/// stays NULL to mark the resolution as automatic, and `ON CONFLICT DO NOTHING` keeps a
+/// human's note intact.
+///
+/// Membership of the chain must be *proven* per row, never inferred from `parent_job`
+/// alone: `root` is `job.parent_job.unwrap_or(job.id)`, so for a job launched with an
+/// explicit `parent_job` (WAC inline children, SDK-launched children) `root` is the
+/// *calling* job, and its other failed children are unrelated. Resolving those would hide
+/// exactly the failures this feature exists to surface, so each row must be either
+/// - a job carrying a `native_retry_attempt` marker under `root` (provably an attempt), or
+/// - `root` itself as the original attempt, which is only provable when `root` is
+///   parentless and unmarked.
+///
+/// Both arms also require the same `runnable_id` as the succeeding attempt, since every
+/// attempt in a chain runs the same runnable. The deliberate cost is a miss, not an
+/// over-reach: when the original attempt had a parent it is an unmarked sibling
+/// indistinguishable from any other child of the caller, so it stays red.
+///
+/// The arguments' relationship is verified in SQL rather than assumed of the caller, since
+/// this writes through a privileged pool: `succeeded_id` must name a job that actually
+/// succeeded, in `workspace_id`, parented to `root`, running `runnable_id`, and carrying a
+/// `native_retry_attempt` marker. Mismatched arguments resolve nothing.
+pub async fn resolve_superseded_retry_attempts(
+    db: &Pool<Postgres>,
+    root: Uuid,
+    workspace_id: &str,
+    succeeded_id: Uuid,
+    runnable_id: Option<ScriptHash>,
+) -> Result<(), Error> {
+    sqlx::query!(
+        "INSERT INTO job_resolution (job_id, workspace_id, resolved_by, note)
+            SELECT c.id, c.workspace_id, NULL, NULL
+                FROM v2_job_completed c
+                JOIN v2_job j ON j.id = c.id
+                WHERE c.status = 'failure'
+                    AND c.workspace_id = $2
+                    AND j.runnable_id IS NOT DISTINCT FROM $4
+                    AND EXISTS (
+                        SELECT 1 FROM v2_job_completed sc
+                        JOIN v2_job sj ON sj.id = sc.id
+                        JOIN native_retry_attempt nra ON nra.job_id = sc.id
+                        WHERE sc.id = $3
+                            AND sc.status = 'success'
+                            AND sc.workspace_id = $2
+                            AND sj.parent_job = $1
+                            AND sj.runnable_id IS NOT DISTINCT FROM $4
+                    )
+                    AND (
+                        (j.parent_job = $1
+                            AND EXISTS (SELECT 1 FROM native_retry_attempt WHERE job_id = c.id))
+                        OR (c.id = $1 AND j.parent_job IS NULL
+                            AND NOT EXISTS (SELECT 1 FROM native_retry_attempt WHERE job_id = c.id))
+                    )
+            ON CONFLICT (job_id) DO NOTHING",
+        root,
+        workspace_id,
+        succeeded_id,
+        runnable_id.map(|h| h.0),
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 /// Evaluate a `retry_if` JS expression. `result`/`previous_result` are the
 /// failure output and `flow_input` the job args. Defaults to retrying on eval
 /// error (an unevaluable gate shouldn't silently swallow retries).
@@ -2131,7 +2213,16 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel(
 async fn fetch_error_handler_from_db(
     db: &Pool<Postgres>,
     w_id: &str,
-) -> Result<(Option<String>, Option<Json<Box<RawValue>>>, bool, bool, bool), Error> {
+) -> Result<
+    (
+        Option<String>,
+        Option<Json<Box<RawValue>>>,
+        bool,
+        bool,
+        bool,
+    ),
+    Error,
+> {
     sqlx::query_as::<
         _,
         (
@@ -2285,9 +2376,7 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
         // A cancellation is a human action rather than an operational failure, and unlike the
         // handler path this one has no per-workspace toggle to opt out of reporting them.
         let suppressed = match INSTANCE_ALERT_THROTTLE.get(w_id) {
-            Some((last_sent, suppressed))
-                if now - last_sent < INSTANCE_ALERT_COOLDOWN_SECONDS =>
-            {
+            Some((last_sent, suppressed)) if now - last_sent < INSTANCE_ALERT_COOLDOWN_SECONDS => {
                 INSTANCE_ALERT_THROTTLE.insert(w_id.clone(), (last_sent, suppressed + 1));
                 None
             }

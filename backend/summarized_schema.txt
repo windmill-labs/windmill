@@ -106,6 +106,7 @@ input: id(uuid), workspace_id(char), runnable_id(char), runnable_type(runnable_t
 instance_group: name(char), summary(char), id(char), scim_display_name(char), external_id(char)
 job_logs: job_id(uuid), workspace_id(char), created_at(ts), logs(text), log_offset(int), log_file_index(text[])
 job_perms: job_id(uuid), email(char), username(char), is_admin(bool), is_operator(bool), created_at(ts), workspace_id(char), groups(text[]), folders(jsonb[]), end_user_email(char)
+job_resolution: job_id(uuid), workspace_id(char), resolved_at(ts), resolved_by(char), note(text)
 job_result_stream: job_id(uuid), workspace_id(text), stream(text)
 job_result_stream_v2: job_id(uuid), workspace_id(text), stream(text), idx(int)
 job_settings: job_id(uuid), runnable_settings(bigint)

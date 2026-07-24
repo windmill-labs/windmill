@@ -38,7 +38,7 @@
 		containsLabel?: boolean
 		showTag?: boolean
 		activeLabel: string | null
-		manualSelectionMode?: undefined | 'cancel' | 'rerun'
+		manualSelectionMode?: undefined | 'cancel' | 'rerun' | 'resolve'
 	}
 
 	let {
@@ -69,7 +69,8 @@
 	class={twMerge(
 		'cursor-pointer',
 		selected ? 'bg-surface-accent-selected' : 'hover:bg-surface-hover',
-		'grid items-center h-full'
+		'grid items-center h-full',
+		'success' in job && job.resolved && 'opacity-60'
 	)}
 	class:grid-runs-table={!containsLabel && !manualSelectionMode && showTag}
 	class:grid-runs-table-with-labels={containsLabel && !manualSelectionMode && showTag}

@@ -1,12 +1,13 @@
 <script lang="ts">
-	import { type Job } from '$lib/gen'
+	import { JobService, type Job } from '$lib/gen'
 	import { base } from '$lib/base'
-	import { displayDate, truncateRev, truncateHash } from '$lib/utils'
+	import { displayDate, truncateRev, truncateHash, isJobResolvable } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
-	import { ExternalLink, ListFilter, ChevronDown, Share2, Link, Copy } from 'lucide-svelte'
+	import { ExternalLink, ListFilter, ChevronDown, Share2, Link, Copy, Wrench } from 'lucide-svelte'
 	import JobStatus from '$lib/components/JobStatus.svelte'
 	import JobStatusIcon from '$lib/components/runs/JobStatusIcon.svelte'
 	import RunBadges from '$lib/components/runs/RunBadges.svelte'
@@ -34,6 +35,8 @@
 		onFilterByConcurrencyKey?: (key: string) => void
 		onFilterByWorker?: (worker: string) => void
 		showScriptHashInBadges?: boolean
+		/** Lets a surrounding list refetch, since it holds its own copy of the job. */
+		onResolutionChanged?: () => void
 	}
 
 	let {
@@ -46,8 +49,38 @@
 		extraCompact = false,
 		onFilterByConcurrencyKey,
 		onFilterByWorker,
-		showScriptHashInBadges = false
+		showScriptHashInBadges = false,
+		onResolutionChanged
 	}: Props = $props()
+
+	let togglingResolution = $state(false)
+
+	// `job` comes from a $state holder in every caller, so writing the resolution back
+	// onto it is what refreshes the status badge without a refetch.
+	async function toggleResolution() {
+		if (!isJobResolvable(job)) return
+		const resolve = !job.resolved
+		togglingResolution = true
+		try {
+			const body = {
+				workspace: job.workspace_id ?? $workspaceStore ?? '',
+				requestBody: { job_ids: [job.id] }
+			}
+			const affected = resolve
+				? await JobService.resolveCompletedJobs(body)
+				: await JobService.unresolveCompletedJobs(body)
+			if (affected.length === 0) {
+				sendUserToast('Could not change the resolution of this run', true)
+				return
+			}
+			job.resolved = resolve
+			job.resolved_by = resolve ? ($userStore?.username ?? undefined) : undefined
+			job.resolution_note = undefined
+			onResolutionChanged?.()
+		} finally {
+			togglingResolution = false
+		}
+	}
 
 	// Get adaptive field configuration based on job type
 	const relevantFields = $derived(() => getRelevantFields(job))
@@ -439,6 +472,21 @@
 						<!-- Job Status -->
 						<div class="flex items-baseline flex-wrap gap-x-2 gap-y-1">
 							<JobStatus {job} />
+
+							{#if isJobResolvable(job)}
+								<Button
+									size="xs2"
+									variant="subtle"
+									startIcon={{ icon: Wrench }}
+									disabled={togglingResolution}
+									onClick={toggleResolution}
+									title={job.resolved
+										? 'Show this run as a failure again'
+										: 'Mark this failure as handled'}
+								>
+									{job.resolved ? 'Unresolve' : 'Mark resolved'}
+								</Button>
+							{/if}
 
 							<RunBadges
 								{job}

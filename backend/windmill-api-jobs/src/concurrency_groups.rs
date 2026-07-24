@@ -196,6 +196,7 @@ async fn get_concurrent_intervals(
             running: None,
             parent_job: None,
             is_skipped: None | Some(false),
+            resolved: None,
             suspended: None,
             schedule_path: None,
             args: None,
@@ -266,7 +267,7 @@ async fn get_concurrent_intervals(
         // This first transaction uses the user_db to know which uuids are
         // accessible to the user.
         let mut tx = user_db.begin(&authed).await?;
-        let running_jobs_user: Vec<Uuid> = if lq.success.is_none() {
+        let running_jobs_user: Vec<Uuid> = if lq.success.is_none() && lq.resolved != Some(true) {
             sqlx::query_scalar(&sql_q_user).fetch_all(&mut *tx).await?
         } else {
             vec![]
@@ -281,7 +282,7 @@ async fn get_concurrent_intervals(
         // This second transaction uses the db, so it will fetch information
         // potentially forbidden to the user. It must be obscured before
         // returning it
-        let running_jobs_db: Vec<UnifiedJob> = if lq.success.is_none() {
+        let running_jobs_db: Vec<UnifiedJob> = if lq.success.is_none() && lq.resolved != Some(true) {
             sqlx::query_as(&sql_q).fetch_all(&db).await?
         } else {
             vec![]
@@ -330,7 +331,7 @@ async fn get_concurrent_intervals(
         let sql_c = sqlb_c.query()?;
 
         let mut tx = user_db.begin(&authed).await?;
-        let running_jobs: Vec<UnifiedJob> = if lq.success.is_none() {
+        let running_jobs: Vec<UnifiedJob> = if lq.success.is_none() && lq.resolved != Some(true) {
             sqlx::query_as(&sql_q).fetch_all(&mut *tx).await?
         } else {
             vec![]

@@ -8,8 +8,24 @@ import {
 	isDynamicTag,
 	isTagTemplate,
 	getQueryStmtCountHeuristic,
+	isJobResolvable,
 	parseDbInputFromAssetSyntax
 } from './utils'
+
+// Mirrors the backend invariant that only `status = 'failure'` rows can carry a
+// resolution; loosening this to `!success` would offer the action on queued and
+// canceled runs the API then silently skips.
+describe('isJobResolvable', () => {
+	const completed = (o: object) => ({ type: 'CompletedJob', ...o }) as any
+	it('accepts a plain failure', () => {
+		expect(isJobResolvable(completed({ success: false, canceled: false }))).toBe(true)
+	})
+	it('rejects success, cancellation and jobs still queued', () => {
+		expect(isJobResolvable(completed({ success: true, canceled: false }))).toBe(false)
+		expect(isJobResolvable(completed({ success: false, canceled: true }))).toBe(false)
+		expect(isJobResolvable({ type: 'QueuedJob', running: true } as any)).toBe(false)
+	})
+})
 
 describe('parseDbInputFromAssetSyntax', () => {
 	it('parses a table path', () => {

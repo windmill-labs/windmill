@@ -9,7 +9,8 @@
 		CircleXIcon,
 		Code2Icon,
 		ExternalLinkIcon,
-		RefreshCwIcon
+		RefreshCwIcon,
+		Wrench
 	} from 'lucide-svelte'
 	import Popover from '../Popover.svelte'
 	import { workspaceStore } from '$lib/stores'
@@ -18,7 +19,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import RightClickPopover from '../RightClickPopover.svelte'
 	import DropdownMenu, { type Props as DropdownMenuProps } from '../DropdownMenu.svelte'
-	import { clickOutside, isJobCancelable, isJobReRunnable } from '$lib/utils'
+	import { clickOutside, isJobCancelable, isJobReRunnable, isJobResolvable } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import BarsStaggered from '../icons/BarsStaggered.svelte'
 
@@ -35,8 +36,9 @@
 		lastFetchWentToEnd?: boolean
 		perPage?: number
 		batchRerunOptionsIsOpen?: boolean
-		manualSelectionMode: undefined | 'cancel' | 'rerun'
+		manualSelectionMode: undefined | 'cancel' | 'rerun' | 'resolve'
 		onCancelJobs: (jobIds: string[]) => void
+		onSetJobsResolution: (jobIds: string[], resolved: boolean) => void
 		loadingExtra?: boolean
 	}
 
@@ -52,6 +54,7 @@
 		perPage = 1000,
 		manualSelectionMode,
 		onCancelJobs,
+		onSetJobsResolution,
 		batchRerunOptionsIsOpen = $bindable(),
 		loadingExtra = false
 	}: Props = $props()
@@ -241,6 +244,8 @@
 	let selectedIdsPossibleActions = $derived.by(() => {
 		const cancellableJobIds: string[] = []
 		const rerunnableJobIds: string[] = []
+		const resolvableJobIds: string[] = []
+		const unresolvableJobIds: string[] = []
 		for (const jobId of selectedIds) {
 			const job = flatJobs?.find(
 				(jobOrDate) => jobOrDate.type === 'job' && jobOrDate.job.id === jobId
@@ -248,11 +253,15 @@
 			if (job?.type === 'job') {
 				if (isJobCancelable(job.job)) cancellableJobIds.push(job.job.id)
 				if (isJobReRunnable(job.job)) rerunnableJobIds.push(job.job.id)
+				if (isJobResolvable(job.job)) {
+					if (job.job.resolved) unresolvableJobIds.push(job.job.id)
+					else resolvableJobIds.push(job.job.id)
+				}
 			}
 		}
-		return { cancellableJobIds, rerunnableJobIds }
+		return { cancellableJobIds, rerunnableJobIds, resolvableJobIds, unresolvableJobIds }
 	})
-	let hoveredDropdownAction: 'cancel' | 'rerun' | null = $state(null)
+	let hoveredDropdownAction: 'cancel' | 'rerun' | 'resolve' | null = $state(null)
 
 	let dropdownActions: DropdownMenuProps['items'] = $derived.by(() => {
 		let rerunnable = selectedIdsPossibleActions.rerunnableJobIds.length
@@ -303,6 +312,24 @@
 				onClick: () => onCancelJobs?.(selectedIdsPossibleActions.cancellableJobIds),
 				onHover: (hover) => (hoveredDropdownAction = hover ? 'cancel' : null)
 			})
+		const resolvable = selectedIdsPossibleActions.resolvableJobIds.length
+		const unresolvable = selectedIdsPossibleActions.unresolvableJobIds.length
+		if (resolvable)
+			actions.push({
+				label: 'Mark resolved',
+				icon: Wrench,
+				right: selectedIds.length >= 2 ? `${resolvable}` : undefined,
+				onClick: () => onSetJobsResolution?.(selectedIdsPossibleActions.resolvableJobIds, true),
+				onHover: (hover) => (hoveredDropdownAction = hover ? 'resolve' : null)
+			})
+		if (unresolvable)
+			actions.push({
+				label: 'Unresolve',
+				icon: Wrench,
+				right: selectedIds.length >= 2 ? `${unresolvable}` : undefined,
+				onClick: () => onSetJobsResolution?.(selectedIdsPossibleActions.unresolvableJobIds, false),
+				onHover: (hover) => (hoveredDropdownAction = hover ? 'resolve' : null)
+			})
 		return actions
 	})
 
@@ -318,6 +345,11 @@
 			batchRerunOptionsIsOpen
 		)
 			return isJobReRunnable(job)
+		if (
+			(rightClickPopover?.isOpen() && hoveredDropdownAction === 'resolve') ||
+			manualSelectionMode === 'resolve'
+		)
+			return isJobResolvable(job)
 		return true
 	}
 

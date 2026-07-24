@@ -307,3 +307,154 @@ async fn test_jobs_authed_reachability(db: Pool<Postgres>) -> anyhow::Result<()>
 
     Ok(())
 }
+
+/// Resolving is authorized by row-level security on `v2_job` alone: `v2_job_completed`
+/// has RLS disabled, so a regression here silently lets any member annotate any run.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_resolve_completed_jobs_scoping(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/jobs");
+
+    async fn seed(db: &Pool<Postgres>, owner: &str, status: &str) -> Uuid {
+        let id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, permissioned_as_email,
+                                 kind, tag, runnable_path, visible_to_owner)
+             VALUES ($1, 'test-workspace', $2, $3, $4, 'script', 'deno', $5, true)",
+        )
+        .bind(id)
+        .bind(owner)
+        .bind(format!("u/{owner}"))
+        .bind(format!("{owner}@windmill.dev"))
+        .bind(format!("u/{owner}/some_script"))
+        .execute(db)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO v2_job_completed (id, workspace_id, duration_ms, result, status)
+             VALUES ($1, 'test-workspace', 100, '42'::jsonb, $2::job_status)",
+        )
+        .bind(id)
+        .bind(status)
+        .execute(db)
+        .await
+        .unwrap();
+        id
+    }
+
+    let mine = seed(&db, "test-user-2", "failure").await;
+    let theirs = seed(&db, "test-user", "failure").await;
+    let mine_succeeded = seed(&db, "test-user-2", "success").await;
+
+    // test-user-2 is a plain non-admin, non-operator member of the workspace.
+    let member = |b: reqwest::RequestBuilder| b.header("Authorization", "Bearer SECRET_TOKEN_2");
+
+    let resp = member(client().post(format!("{base}/completed/resolve")))
+        .json(&json!({ "job_ids": [mine, theirs, mine_succeeded], "note": "expected" }))
+        .send()
+        .await?;
+    let status = resp.status().as_u16();
+    let body = resp.text().await?;
+    assert_2xx(status, &body, "POST /jobs/completed/resolve");
+    let resolved: Vec<Uuid> = serde_json::from_str(&body)?;
+    assert_eq!(
+        resolved,
+        vec![mine],
+        "only the caller's own failed run may be resolved"
+    );
+
+    let row: (String, Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT c.status::text, r.resolved_by, r.note
+           FROM v2_job_completed c JOIN job_resolution r ON r.job_id = c.id
+          WHERE c.id = $1",
+    )
+    .bind(mine)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(row.0, "failure", "resolving must not change job status");
+    assert_eq!(row.1.as_deref(), Some("test-user-2"));
+    assert_eq!(row.2.as_deref(), Some("expected"));
+
+    let resp = member(client().post(format!("{base}/completed/unresolve")))
+        .json(&json!({ "job_ids": [mine, theirs] }))
+        .send()
+        .await?;
+    let body = resp.text().await?;
+    let unresolved: Vec<Uuid> = serde_json::from_str(&body)?;
+    assert_eq!(unresolved, vec![mine]);
+
+    let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM job_resolution")
+        .fetch_one(&db)
+        .await?;
+    assert_eq!(remaining, 0);
+
+    // The note is copied onto every resolved row, so an unbounded one multiplies by the
+    // batch size; the cap must reject before any row is written.
+    let resp = member(client().post(format!("{base}/completed/resolve")))
+        .json(&json!({ "job_ids": [mine], "note": "x".repeat(2001) }))
+        .send()
+        .await?;
+    assert_eq!(resp.status().as_u16(), 400, "{}", resp.text().await?);
+    let after: i64 = sqlx::query_scalar("SELECT count(*) FROM job_resolution")
+        .fetch_one(&db)
+        .await?;
+    assert_eq!(after, 0, "a rejected note must not write any row");
+
+    // The limit is characters, not bytes, so a multi-byte note the client accepted must
+    // not fail server-side: 1000 4-byte chars is well over 2000 bytes but under the cap.
+    let resp = member(client().post(format!("{base}/completed/resolve")))
+        .json(&json!({ "job_ids": [mine], "note": "😀".repeat(1000) }))
+        .send()
+        .await?;
+    assert_2xx(
+        resp.status().as_u16(),
+        &resp.text().await?,
+        "resolve with a multi-byte note",
+    );
+
+    Ok(())
+}
+
+/// "Resolved only" is a completed-jobs concept, so the bulk-action id list must not union
+/// the queue: re-running "all jobs matching filters" under it would hit live jobs.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_list_filtered_job_uuids_resolved_excludes_queue(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let queued = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, permissioned_as_email,
+                             kind, tag, runnable_path, visible_to_owner)
+         VALUES ($1, 'test-workspace', 'test-user', 'u/test-user', 'test@windmill.dev',
+                 'script', 'deno', 'u/test-user/queued', true)",
+    )
+    .bind(queued)
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag)
+         VALUES ($1, 'test-workspace', now(), 'deno')",
+    )
+    .bind(queued)
+    .execute(&db)
+    .await?;
+
+    let url = format!(
+        "http://localhost:{port}/api/w/test-workspace/jobs/list_filtered_uuids?resolved=true"
+    );
+    let resp = authed(client().get(&url)).send().await?;
+    let body = resp.text().await?;
+    let ids: Vec<Uuid> = serde_json::from_str(&body)?;
+    assert!(
+        !ids.contains(&queued),
+        "a queued job must not match resolved=true, got: {body}"
+    );
+
+    Ok(())
+}

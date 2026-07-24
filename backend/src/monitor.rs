@@ -1396,6 +1396,17 @@ pub async fn delete_expired_items(db: &DB) -> () {
         tracing::error!("Error reaping orphaned native retry markers: {:?}", e);
     }
 
+    // Same story for job_resolution: no FK, so a job deleted outside delete_jobs
+    // would leave its resolution behind.
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM job_resolution jr WHERE NOT EXISTS (SELECT 1 FROM v2_job WHERE id = jr.job_id)"
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Error reaping orphaned job resolutions: {:?}", e);
+    }
+
     if let Err(e) = windmill_queue::cascade::reap_stale_join_slots(db).await {
         tracing::error!("Error reaping stale join_pending_inputs slots: {:?}", e);
     }

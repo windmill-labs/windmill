@@ -703,6 +703,17 @@ pub async fn delete_jobs(
     .await?
     .rows_affected();
 
+    // Resolutions are not exported, so a delete-then-reimport of the same UUID would
+    // otherwise resurrect the old annotation on a job that never carried one.
+    let resolution_deleted = sqlx::query!(
+        "DELETE FROM job_resolution WHERE workspace_id = $1 AND job_id = ANY($2)",
+        &w_id,
+        &job_ids
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
     let jobs_deleted = sqlx::query!(
         "DELETE FROM v2_job WHERE workspace_id = $1 AND id = ANY($2)",
         &w_id,
@@ -726,6 +737,7 @@ pub async fn delete_jobs(
         + zombie_deleted
         + dispatch_event_deleted
         + conversation_message_deleted
+        + resolution_deleted
         + jobs_deleted;
 
     tracing::info!(
