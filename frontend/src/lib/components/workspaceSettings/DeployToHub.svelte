@@ -1266,7 +1266,6 @@
 								<span class="text-[11px] text-hint">PNG or SVG, max 512KB</span>
 							</button>
 						{/if}
-						<!-- Single hidden input shared by the dropzone and the Replace button. -->
 						<input
 							bind:this={logoFileInput}
 							type="file"

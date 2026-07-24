@@ -23313,6 +23313,42 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/hub/projects/{slug}/logo:
+    post:
+      summary: set or clear a hub project's custom logo
+      description: |
+        Requires the caller to be a workspace admin. Sets the project's custom
+        logo (base64 png/svg, decoded size max 512KB) or clears it when `logo`
+        is null; the `logo` field itself is required so an empty body cannot
+        clear the logo by accident. Forwards the request to the configured Hub
+        scoped to the `{workspace}:{folder}` source and returns the Hub's
+        status code and raw response body.
+      operationId: publishHubProjectLogo
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: slug
+          in: path
+          required: true
+          description: hub project slug
+          schema:
+            $ref: "#/components/schemas/HubProjectSlug"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectLogoBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/hub/projects/{slug}/submit:
     post:
       summary: submit a hub project draft for review
@@ -32494,6 +32530,26 @@ components:
       properties:
         recording:
           type: object
+
+    ProjectLogoBody:
+      type: object
+      properties:
+        logo:
+          description: the logo to set, or null to clear the project's current logo
+          nullable: true
+          type: object
+          properties:
+            b64:
+              description: base64-encoded image bytes (decoded size max 512KB)
+              type: string
+            mime:
+              type: string
+              enum: [image/png, image/svg+xml]
+          required:
+            - b64
+            - mime
+      required:
+        - logo
 
     PublishResourceTypeBody:
       type: object
