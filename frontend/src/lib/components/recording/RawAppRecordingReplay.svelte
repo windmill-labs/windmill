@@ -5,6 +5,8 @@
 	 * iframe with the element the user acted on highlighted.
 	 */
 	import { Button } from '$lib/components/common'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import {
 		ChevronLeft,
@@ -147,7 +149,7 @@
 			</Tooltip>
 			{#if recording.truncated}
 				<span class="flex items-center gap-1 text-2xs text-yellow-600 dark:text-yellow-400">
-					<TriangleAlert size={14} /> snapshots truncated
+					<TriangleAlert size={14} /> recording truncated
 				</span>
 			{/if}
 		</div>
@@ -178,21 +180,20 @@
 				onclick={() => step_(stepIndex + 1)}
 			/>
 			{#if step}
-				<div class="flex rounded-md border overflow-hidden ml-1">
-					{#each ['before', 'after'] as const as p (p)}
-						<button
-							class="px-2 py-1 text-2xs {phase === p
-								? 'bg-surface-selected text-primary'
-								: 'text-secondary hover:bg-surface-hover'}"
-							onclick={() => {
-								playing = false
-								clearTimer()
-								phase = p
-							}}
-						>
-							{p === 'before' ? 'Interaction' : 'Result'}
-						</button>
-					{/each}
+				<div class="ml-1">
+					<ToggleButtonGroup
+						selected={phase}
+						on:selected={(e) => {
+							playing = false
+							clearTimer()
+							phase = e.detail
+						}}
+					>
+						{#snippet children({ item })}
+							<ToggleButton size="sm" value="before" label="Interaction" {item} />
+							<ToggleButton size="sm" value="after" label="Result" {item} />
+						{/snippet}
+					</ToggleButtonGroup>
 				</div>
 			{/if}
 		</div>

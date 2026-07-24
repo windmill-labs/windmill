@@ -129,12 +129,14 @@ function freezeFormState(doc: Document, clone: Element) {
 
 /** Re-stringifying every rule of a framework stylesheet costs more than the rest
  * of a snapshot combined, and snapshots are taken several times per interaction
- * on the app's own event path. A sheet's text only changes when its rules do, so
- * cache it and re-derive on a rule-count change. */
+ * on the app's own event path. Only linked sheets are cached: their text is
+ * fixed once fetched, whereas a CSS-in-JS `<style>` is rewritten in place (a
+ * theme toggle can change a rule without changing the rule count). */
 const sheetCssCache = new WeakMap<CSSStyleSheet, { count: number; css: string }>()
 
 function sheetCss(sheet: CSSStyleSheet, rules: CSSRuleList): string {
-	const cached = sheetCssCache.get(sheet)
+	const cacheable = !!sheet.href
+	const cached = cacheable ? sheetCssCache.get(sheet) : undefined
 	if (cached && cached.count === rules.length) return cached.css
 	let css = Array.from(rules)
 		.map((r) => r.cssText)
@@ -144,14 +146,16 @@ function sheetCss(sheet: CSSStyleSheet, rules: CSSRuleList): string {
 	// so an unwrapped inline copy would apply print-only CSS to every replay.
 	const media = sheet.media?.mediaText
 	if (media) css = `@media ${media} {\n${css}\n}`
-	sheetCssCache.set(sheet, { count: rules.length, css })
+	if (cacheable) sheetCssCache.set(sheet, { count: rules.length, css })
 	return css
 }
 
 /** Inline what the browser has actually parsed: rules of linked stylesheets (so
  * the snapshot renders without the API being reachable) and of CSS-in-JS sheets
  * built with `insertRule` (whose `<style>` node clones out empty). Sheets we
- * can't read (cross-origin) keep their `<link>`. */
+ * can't read (cross-origin) keep their `<link>`, and ones with no owner node
+ * (`adoptedStyleSheets`) are out of reach entirely — as is anything inside a
+ * shadow root, which `outerHTML` does not serialize. */
 function inlineStyleSheets(doc: Document, root: Element, clone: Element) {
 	for (const sheet of Array.from(doc.styleSheets)) {
 		const owner = sheet.ownerNode
@@ -194,6 +198,15 @@ export function serializeDocument(doc: Document, opts: SnapshotOptions = {}): st
 	const clone = root.cloneNode(true) as Element
 	freezeFormState(doc, clone)
 	inlineStyleSheets(doc, root, clone)
+	// Stamp the target BEFORE anything is removed from the clone: the live tree is
+	// what `nodePath` indexes against, so a single removed node (a data `<script>`
+	// preceding the target, say) would shift every later sibling and stamp the
+	// wrong element. Freezing and inlining above only mutate nodes in place.
+	if (opts.target) {
+		const path = nodePath(root, opts.target)
+		const target = path ? resolvePath(clone, path) : undefined
+		target?.setAttribute(REC_TARGET_ATTR, '')
+	}
 	clone.querySelectorAll('script').forEach((n) => n.remove())
 	// The app declared these subtrees off-limits: keep the node (so the layout
 	// still replays) but never carry their content into the recording.
@@ -206,11 +219,6 @@ export function serializeDocument(doc: Document, opts: SnapshotOptions = {}): st
 			if (attr.name.toLowerCase().startsWith('on')) el.removeAttribute(attr.name)
 		}
 	})
-	if (opts.target) {
-		const path = nodePath(root, opts.target)
-		const target = path ? resolvePath(clone, path) : undefined
-		target?.setAttribute(REC_TARGET_ATTR, '')
-	}
 	const head = clone.querySelector('head')
 	if (opts.baseHref && head && !head.querySelector('base')) {
 		const base = doc.createElement('base')

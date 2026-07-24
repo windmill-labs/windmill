@@ -48,8 +48,11 @@
 
 	onDestroy(() => {
 		// Leaving the page ends the session — hand over what was recorded rather
-		// than drop minutes of it on a stray navigation.
-		if (recorder.active) recorder.download(recorder.stop())
+		// than drop minutes of it on a stray navigation, and say so, since the
+		// download is one the user did not click for.
+		if (!recorder.active) return
+		recorder.download(recorder.stop())
+		sendUserToast('Left the app — the recording so far was downloaded')
 	})
 </script>
 

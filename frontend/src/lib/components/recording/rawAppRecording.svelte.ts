@@ -88,8 +88,15 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		const existing = frameIndexes.get(html)
 		if (existing !== undefined) return existing
 		if (framesBytes + html.length > MAX_TOTAL_FRAME_BYTES) {
-			truncated = true
-			return undefined
+			// Most of the budget is usually held by pointerdown snapshots no step
+			// ended up needing. Reclaim those before declaring the recording full,
+			// otherwise a styling-heavy app runs out mid-session and every later
+			// step ships without snapshots.
+			gcFrames()
+			if (framesBytes + html.length > MAX_TOTAL_FRAME_BYTES) {
+				truncated = true
+				return undefined
+			}
 		}
 		const index = frames.length
 		frames.push(html)
@@ -301,12 +308,12 @@ export function createRawAppRecording(): RawAppRecordingStore {
 	}
 
 	/** Every pointerdown snapshots the app, but only the ones a step turned out to
-	 * need are worth downloading — drop the rest and renumber the references. */
-	function compactFrames(): { frames: string[]; steps: RawAppStep[] } {
+	 * need are worth keeping — drop the rest and renumber the references. */
+	function compactFrames(): string[] {
 		const remap = new Map<number, number>()
 		const kept: string[] = []
 		const keep = (i: number | undefined) => {
-			if (i === undefined) return undefined
+			if (i === undefined || frames[i] === undefined) return undefined
 			const existing = remap.get(i)
 			if (existing !== undefined) return existing
 			const next = kept.length
@@ -320,7 +327,14 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			step.before = keep(step.before)
 			step.after = keep(step.after)
 		}
-		return { frames: kept, steps }
+		return kept
+	}
+
+	/** Drop unreferenced frames in place, freeing their share of the byte budget. */
+	function gcFrames() {
+		frames = compactFrames()
+		frameIndexes = new Map(frames.map((html, i) => [html, i]))
+		framesBytes = frames.reduce((sum, html) => sum + html.length, 0)
 	}
 
 	/** A reload replaces the document the listeners are bound to. Anything the old
@@ -397,7 +411,8 @@ export function createRawAppRecording(): RawAppRecordingStore {
 				workspace,
 				total_duration_ms: Date.now() - startTime,
 				viewport,
-				...compactFrames(),
+				frames: compactFrames(),
+				steps,
 				truncated: truncated || undefined
 			}
 			// Multi-MB snapshots must not outlive the recording they were taken for.
