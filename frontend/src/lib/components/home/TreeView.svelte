@@ -1,5 +1,6 @@
 <script lang="ts">
 	import TreeView from './TreeView.svelte'
+	import { untrack } from 'svelte'
 
 	import { ChevronDown, ChevronUp, Folder, FolderTree, NetworkIcon, User } from 'lucide-svelte'
 	import Item from './Item.svelte'
@@ -15,6 +16,13 @@
 		showCode: (path: string, summary: string) => void
 		isSearching?: boolean
 		pipelineFolders?: Set<string>
+		// Lazy per-folder loading (top-level folders only): expanding a folder loads
+		// its items on demand and paginates within it.
+		folderLoad?: Record<
+			string,
+			{ cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean }
+		>
+		onExpandFolder?: (folder: string, more?: boolean) => void
 	}
 
 	let {
@@ -23,7 +31,9 @@
 		depth = 0,
 		showCode,
 		isSearching = false,
-		pipelineFolders
+		pipelineFolders,
+		folderLoad,
+		onExpandFolder
 	}: Props = $props()
 
 	const isFolderItem = (i: typeof item): i is FolderItem => i && 'folderName' in i
@@ -45,6 +55,12 @@
 	let showMax = $state(15)
 	$effect(() => {
 		opened = !collapseAll
+		// Expand-all opens folders; lazy-load a top-level folder's items when it
+		// opens. untrack so this only re-runs on collapseAll (not on item reloads,
+		// which would otherwise re-open a manually collapsed folder).
+		untrack(() => {
+			if (opened && depth === 0 && isFolder(item)) onExpandFolder?.(item.folderName)
+		})
 	})
 </script>
 
@@ -53,7 +69,11 @@
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			onclick={() => (opened = !opened)}
+			onclick={() => {
+				opened = !opened
+				// Top-level folder: load its items on demand the first time it opens.
+				if (opened && depth === 0 && isFolder(item)) onExpandFolder?.(item.folderName)
+			}}
 			class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer"
 		>
 			<div
@@ -129,6 +149,20 @@
 					>
 						Show more ({showMax}/{item.items.length})
 					</div>
+				{/if}
+				{#if depth === 0 && isFolder(item)}
+					{#if folderLoad?.[item.folderName]?.loading}
+						<div class="text-center text-xs py-2 text-secondary">Loading…</div>
+					{:else if folderLoad?.[item.folderName]?.hasMore}
+						<!-- svelte-ignore a11y_click_events_have_key_events -->
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<div
+							class="text-center text-xs py-2 text-primary cursor-pointer hover:text-emphasis"
+							onclick={() => isFolder(item) && onExpandFolder?.(item.folderName, true)}
+						>
+							Load more in this folder
+						</div>
+					{/if}
 				{/if}
 			</div>
 		{/if}

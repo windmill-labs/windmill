@@ -15,6 +15,15 @@
 		// the next one (grouping only reorders what's already loaded).
 		hasMoreServer?: boolean
 		onLoadMore?: () => void
+		// Lazy per-folder loading: every folder shows as a top-level node regardless
+		// of the loaded window; expanding one loads its items on demand, paginated
+		// within the folder. `folderLoad` keys are folder names.
+		allFolders?: string[]
+		folderLoad?: Record<
+			string,
+			{ cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean }
+		>
+		onExpandFolder?: (folder: string, more?: boolean) => void
 	}
 
 	let {
@@ -26,7 +35,10 @@
 		pipelineFolders,
 		sortCompare,
 		hasMoreServer = false,
-		onLoadMore
+		onLoadMore,
+		allFolders = [],
+		folderLoad,
+		onExpandFolder
 	}: Props = $props()
 
 	let groupedItems: ReturnType<typeof groupItems> | 'loading' = $state('loading')
@@ -35,6 +47,7 @@
 		pipelineFolders
 		isSearching
 		sortCompare
+		allFolders
 		untrack(() => {
 			// While searching, `items` is already relevance-ranked and the sort
 			// selector is disabled, so keep that order: a no-op leaf comparator
@@ -69,6 +82,24 @@
 					if (idx < 0) grouped.push(item)
 					else grouped.splice(idx, 0, item)
 				}
+				// Inject every workspace folder as a top-level node so folders whose
+				// items sit outside the loaded window still appear; expanding one loads
+				// its items on demand (see onExpandFolder).
+				const present2 = new Set(
+					grouped
+						.filter((g) => 'folderName' in g)
+						.map((g) => (g as { folderName: string }).folderName)
+				)
+				for (const folderName of allFolders.filter((f) => !present2.has(f)).sort()) {
+					const item = { folderName, items: [] }
+					const idx = grouped.findIndex(
+						(g) =>
+							'folderName' in g &&
+							(g as { folderName: string }).folderName.localeCompare(folderName) > 0
+					)
+					if (idx < 0) grouped.push(item)
+					else grouped.splice(idx, 0, item)
+				}
 			}
 			groupedItems = grouped
 		})
@@ -93,6 +124,8 @@
 					{collapseAll}
 					{item}
 					{pipelineFolders}
+					{folderLoad}
+					{onExpandFolder}
 					on:scriptChanged
 					on:flowChanged
 					on:appChanged

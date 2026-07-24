@@ -211,6 +211,9 @@
 		if (reset) {
 			serverCursor = undefined
 			hasMoreServer = false
+			// The shared arrays are about to be replaced, so per-folder loaded state
+			// is stale; the tree will re-lazy-load folders on expand.
+			folderLoad = {}
 		}
 		const { orderBy, orderDesc } = sortToParams(sortOrder)
 		const gen = ++loadGen
@@ -303,6 +306,52 @@
 			flows = f
 			apps = a
 			pipelineMemberFolders = memberFolders
+		}
+	}
+
+	// Per-top-level-folder lazy loading for tree view: expanding a folder loads its
+	// items on demand (server-scoped to that folder), paginated within the folder,
+	// instead of relying on the global browse window. Keyed by folder name (the
+	// `f/<name>` node). Loaded items are merged into the shared arrays.
+	type FolderLoadState = { cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean }
+	let folderLoad = $state<Record<string, FolderLoadState>>({})
+
+	async function loadFolderItems(folder: string, more = false): Promise<void> {
+		const ws = $workspaceStore
+		if (!ws || !$userStore) return
+		const st = folderLoad[folder]
+		if (st?.loading) return
+		if (more ? !st?.hasMore : st?.loaded) return
+		folderLoad[folder] = {
+			cursor: st?.cursor,
+			hasMore: st?.hasMore ?? false,
+			loading: true,
+			loaded: st?.loaded ?? false
+		}
+		const { orderBy, orderDesc } = sortToParams(sortOrder)
+		let res: { items: RunnableItem[]; next_cursor?: string }
+		try {
+			res = await ScriptService.listRunnables({
+				workspace: ws,
+				orderBy,
+				orderDesc,
+				showArchived: archived ? true : undefined,
+				includeWithoutMain: includeWithoutMain ? true : undefined,
+				pathStart: `f/${folder}/`,
+				perPage: 100,
+				cursor: more ? st?.cursor : undefined
+			})
+		} catch (e: any) {
+			folderLoad[folder] = { ...folderLoad[folder], loading: false }
+			sendUserToast(`Failed to load folder ${folder}: ${e?.body ?? e?.message ?? e}`, true)
+			return
+		}
+		mergeRunnables(res.items ?? [])
+		folderLoad[folder] = {
+			cursor: res.next_cursor,
+			hasMore: !!res.next_cursor,
+			loading: false,
+			loaded: true
 		}
 	}
 
@@ -517,6 +566,14 @@
 	// entering/leaving search. Label/kind filtering and fuzzy ranking stay
 	// client-side over the loaded pages, so they don't reload here.
 	let searching = $derived(filter !== '')
+	// Lazy folder tree is active when browsing all (no owner, no search): show every
+	// folder as a top-level node and paginate each on expand. When a folder is
+	// selected or searching, the tree groups the (already-scoped) loaded items and
+	// the global "load more" applies within that scope.
+	let treeInjectFolders = $derived(
+		!searching && ownerFilter == undefined ? (folderNamesRes.current ?? []) : []
+	)
+	let treeGlobalHasMore = $derived(ownerFilter != undefined && !searching ? hasMoreServer : false)
 	$effect(() => {
 		if ($userStore && $workspaceStore) {
 			;[archived, includeWithoutMain, sortOrder, searching, ownerFilter]
@@ -1157,9 +1214,12 @@
 				{nbDisplayed}
 				{collapseAll}
 				sortCompare={compareItems}
-				hasMoreServer={hasMoreServer && !searching}
+				hasMoreServer={treeGlobalHasMore}
 				onLoadMore={fetchMoreServer}
 				pipelineFolders={visiblePipelineFolders}
+				allFolders={treeInjectFolders}
+				{folderLoad}
+				onExpandFolder={loadFolderItems}
 				isSearching={filter !== ''}
 				on:scriptChanged={() => loadScripts(includeWithoutMain)}
 				on:flowChanged={loadFlows}
