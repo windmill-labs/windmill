@@ -523,9 +523,17 @@
 	// path), so the client mirrors that.
 	let compareItems = $derived.by(() => {
 		const order = sortOrder
+		// Compare the endpoint's unified sort timestamp as a STRING, not a JS Date: the
+		// response carries microseconds (…​.375007Z) but Date.getTime() truncates to ms,
+		// so two rows in the same millisecond would tie client-side and be re-ordered,
+		// letting a later server page jump above shown rows. Lexicographic order on the
+		// fixed ISO format is chronological. (Every kind's sort time is `edited_at` — for
+		// scripts mapRunnable sets it from the endpoint's value.)
+		const tcmp = (x?: string, y?: string) =>
+			(x ?? '') < (y ?? '') ? -1 : (x ?? '') > (y ?? '') ? 1 : 0
 		return (
-			a: { starred?: boolean; time?: number; summary?: string; path: string; type?: string },
-			b: { starred?: boolean; time?: number; summary?: string; path: string; type?: string }
+			a: { starred?: boolean; edited_at?: string; summary?: string; path: string; type?: string },
+			b: { starred?: boolean; edited_at?: string; summary?: string; path: string; type?: string }
 		): number => {
 			if (!!a.starred !== !!b.starred) return a.starred ? -1 : 1
 			// Match the endpoint's ordering exactly so a row on a later server page can't
@@ -537,7 +545,7 @@
 			let asc: boolean
 			switch (order) {
 				case 'updated_asc':
-					primary = (a.time ?? 0) - (b.time ?? 0)
+					primary = tcmp(a.edited_at, b.edited_at)
 					asc = true
 					break
 				case 'name_asc':
@@ -550,7 +558,7 @@
 					break
 				case 'updated_desc':
 				default:
-					primary = (b.time ?? 0) - (a.time ?? 0)
+					primary = tcmp(b.edited_at, a.edited_at)
 					asc = false
 					break
 			}
@@ -808,19 +816,27 @@
 	// Fetch the next page of search matches on demand — one page per click, so a broad
 	// search stays complete without auto-loading the entire workspace into memory.
 	async function loadMoreSearchResults(): Promise<void> {
+		// Capture the full scope: a cursor only encodes the last row's sort keys, so two
+		// different scopes can mint the same cursor — the response must be rejected unless
+		// EVERY scope input still matches, not just workspace + cursor.
 		const ws = $workspaceStore
+		const term = filter
+		const showArchived = archived
+		const withoutMain = includeWithoutMain
+		const owner = ownerFilter
+		const kind = itemKind
 		const cursor = searchCursor
-		if (!cursor || !ws || filter === '' || searchLoadingMore) return
+		if (!cursor || !ws || term === '' || searchLoadingMore) return
 		searchLoadingMore = true
 		let res: { items: RunnableItem[]; next_cursor?: string }
 		try {
 			res = await ScriptService.listRunnables({
 				workspace: ws,
-				search: filter,
-				showArchived: archived ? true : undefined,
-				includeWithoutMain: includeWithoutMain ? true : undefined,
-				kinds: itemKind !== 'all' ? itemKind : undefined,
-				pathStart: ownerFilter ? ownerFilter + '/' : undefined,
+				search: term,
+				showArchived: showArchived ? true : undefined,
+				includeWithoutMain: withoutMain ? true : undefined,
+				kinds: kind !== 'all' ? kind : undefined,
+				pathStart: owner ? owner + '/' : undefined,
 				perPage: 1000,
 				cursor
 			})
@@ -829,9 +845,17 @@
 			return
 		}
 		searchLoadingMore = false
-		// The term/scope may have moved on (which reset searchCursor); only merge and
-		// advance if this page is still the current one.
-		if (untrack(() => $workspaceStore) !== ws || filter === '' || searchCursor !== cursor) return
+		// Discard unless the term AND every view scope are still the ones we fetched for.
+		if (
+			untrack(() => $workspaceStore) !== ws ||
+			untrack(() => filter) !== term ||
+			untrack(() => archived) !== showArchived ||
+			untrack(() => includeWithoutMain) !== withoutMain ||
+			untrack(() => ownerFilter) !== owner ||
+			untrack(() => itemKind) !== kind ||
+			untrack(() => searchCursor) !== cursor
+		)
+			return
 		mergeRunnables(res.items ?? [])
 		searchCursor = res.next_cursor
 		// Reveal the freshly fetched matches instead of leaving them behind the display cap.
