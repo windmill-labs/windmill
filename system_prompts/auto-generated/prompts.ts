@@ -1022,7 +1022,8 @@ approval = await wait_for_approval(key="manager", timeout=3600)
 \`\`\`
 
 With several approvals in one workflow, give each its own key so each notification
-resumes its own step. \`getResumeUrls()\` / \`get_resume_urls()\` still works but signs a
+resumes its own step. Keys must be unique — reusing one raises an error rather than
+silently renaming the step. \`getResumeUrls()\` / \`get_resume_urls()\` still works but signs a
 random nonce, so its URLs are not tied to any particular approval step.
 
 \`selfApproval: false\` and \`self_approval=False\` are Enterprise-only approval behavior. Do not use them unless the user asks for that behavior.
@@ -1589,8 +1590,8 @@ waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: bool
  * \`resume_job\` record the step's built-in approval buttons use, so they are
  * stable across replays and safe to embed in a custom notification.
  * 
- * \`stepKey\` must match the \`key\` given to \`waitForApproval\` — including the
- * \`_2\`, \`_3\` suffixes the SDK appends when the same key is used more than once.
+ * \`stepKey\` must match the \`key\` given to \`waitForApproval\`. Keys must be unique
+ * within a workflow; reusing one throws rather than silently renaming it.
  * 
  * @example
  * const urls = await step("urls", () => getApprovalUrls("manager"));
@@ -2514,8 +2515,8 @@ export function waitForApproval(options?: { timeout?: number; form?: object; sel
  * \`resume_job\` record the step's built-in approval buttons use, so they are
  * stable across replays and safe to embed in a custom notification.
  *
- * \`stepKey\` must match the \`key\` given to \`waitForApproval\` — including the
- * \`_2\`, \`_3\` suffixes the SDK appends when the same key is used more than once.
+ * \`stepKey\` must match the \`key\` given to \`waitForApproval\`. Keys must be unique
+ * within a workflow; reusing one throws rather than silently renaming it.
  *
  * @example
  * const urls = await step("urls", () => getApprovalUrls("manager"));
@@ -2655,8 +2656,8 @@ async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_
 #
 # Args:
 #     step_key: Checkpoint key of the approval step, as passed to
-#         \`\`wait_for_approval(key=...)\`\`. Includes the \`\`_2\`\`, \`\`_3\`\` suffixes
-#         the SDK appends when the same key is used more than once.
+#         \`\`wait_for_approval(key=...)\`\`. Keys must be unique within a workflow;
+#         reusing one raises rather than silently renaming it.
 #     approver: Optional approver name
 #
 # Returns:

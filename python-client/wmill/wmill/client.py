@@ -2056,8 +2056,8 @@ def get_approval_urls(step_key: str = "approval", approver: str = None) -> dict:
 
     Args:
         step_key: Checkpoint key of the approval step, as passed to
-            ``wait_for_approval(key=...)``. Includes the ``_2``, ``_3`` suffixes
-            the SDK appends when the same key is used more than once.
+            ``wait_for_approval(key=...)``. Keys must be unique within a workflow;
+            reusing one raises rather than silently renaming it.
         approver: Optional approver name
 
     Returns:
@@ -2769,7 +2769,17 @@ class WorkflowCtx:
         self_approval: bool = True,
         key: str | None = None,
     ):
-        key = self._alloc_key(key or "approval")
+        requested_key, key = key, self._alloc_key(key or "approval")
+
+        # An explicit key is an identifier callers mint URLs against, so silently
+        # renaming a duplicate to ``<key>_2`` would hand them a URL for the *first*
+        # step — which then fails with "resume request already sent" and parks the
+        # workflow until timeout. Unnamed approvals keep auto-numbering.
+        if requested_key and key != requested_key:
+            raise RuntimeError(
+                f'WAC step key "{requested_key}" is already used in this workflow. '
+                "Give each wait_for_approval() its own key so get_approval_urls() can address it."
+            )
 
         if key in self._completed:
             return self._completed[key]

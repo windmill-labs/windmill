@@ -169,7 +169,8 @@ approval = await wait_for_approval(key="manager", timeout=3600)
 ```
 
 With several approvals in one workflow, give each its own key so each notification
-resumes its own step. `getResumeUrls()` / `get_resume_urls()` still works but signs a
+resumes its own step. Keys must be unique — reusing one raises an error rather than
+silently renaming the step. `getResumeUrls()` / `get_resume_urls()` still works but signs a
 random nonce, so its URLs are not tied to any particular approval step.
 
 `selfApproval: false` and `self_approval=False` are Enterprise-only approval behavior. Do not use them unless the user asks for that behavior.
