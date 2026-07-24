@@ -3,7 +3,7 @@
 import asyncio
 import pytest
 
-from wmill.client import WorkflowCtx, _StepSuspend, TaskError, workflow, task, step, sleep, parallel, _run_workflow
+from wmill.client import WorkflowCtx, _StepSuspend, TaskError, workflow, task, step, sleep, parallel, wait_for_approval, _run_workflow
 
 
 @task
@@ -1112,3 +1112,57 @@ class TestParallel:
         r = _run_workflow(wf, {}, {})
         assert r["type"] == "complete"
         assert r["result"] == []
+
+
+class TestApprovalKeys:
+    """`key` names the step that get_approval_urls() mints URLs against, so a
+    duplicate must fail rather than silently become `<key>_2` and leave the
+    caller holding a URL for the earlier step."""
+
+    def test_explicit_key_is_used_verbatim(self):
+        @workflow
+        async def wf():
+            return await wait_for_approval(key="manager")
+
+        assert _run_workflow(wf, {}, {})["key"] == "manager"
+
+    def test_duplicate_explicit_key_raises(self):
+        @workflow
+        async def wf():
+            await wait_for_approval(key="manager")
+            await wait_for_approval(key="manager")
+
+        with pytest.raises(RuntimeError, match="already used"):
+            _run_workflow(wf, {"completed_steps": {"manager": {"approved": True}}}, {})
+
+    def test_explicit_key_colliding_with_a_suffixed_step_key_raises(self):
+        """`step("dup")` twice yields `dup`/`dup_2`, so an approval explicitly named
+        `dup_2` would alias the second step's key."""
+
+        @workflow
+        async def wf():
+            await step("dup", lambda: 1)
+            await step("dup", lambda: 2)
+            await wait_for_approval(key="dup_2")
+
+        with pytest.raises(RuntimeError, match="already used"):
+            _run_workflow(wf, {"completed_steps": {"dup": 1, "dup_2": 2}}, {})
+
+    def test_empty_key_raises(self):
+        """`""` must not quietly mean `approval` here while `get_approval_urls("")`
+        would mint a different (broken) URL."""
+
+        @workflow
+        async def wf():
+            await wait_for_approval(key="")
+
+        with pytest.raises(RuntimeError, match="non-empty"):
+            _run_workflow(wf, {}, {})
+
+    def test_unnamed_approvals_still_auto_number(self):
+        @workflow
+        async def wf():
+            await wait_for_approval()
+            await wait_for_approval()
+
+        assert _run_workflow(wf, {"completed_steps": {"approval": {}}}, {})["key"] == "approval_2"

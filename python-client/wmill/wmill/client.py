@@ -1274,6 +1274,27 @@ class Windmill:
             params=params,
         ).json()
 
+    def get_approval_urls(self, step_key: str = "approval", approver: str = None) -> dict:
+        """Get the resume URLs bound to one ``wait_for_approval`` step of this workflow.
+
+        Args:
+            step_key: Checkpoint key of the approval step, as passed to
+                ``wait_for_approval(key=...)``
+            approver: Optional approver name
+
+        Returns:
+            Dictionary with approvalPage, resume, and cancel URLs
+        """
+        from urllib.parse import quote
+
+        if not step_key.strip():
+            raise RuntimeError("get_approval_urls step_key must be a non-empty step name")
+        job_id = os.environ.get("WM_JOB_ID") or "NO_ID"
+        return self.get(
+            f"/w/{self.workspace}/jobs/wac_approval_urls/{job_id}/{quote(step_key, safe='')}",
+            params={"approver": approver},
+        ).json()
+
     def request_interactive_slack_approval(
         self,
         slack_resource_path: str,
@@ -2028,6 +2049,33 @@ def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict:
 
 
 @init_global_client
+def get_approval_urls(step_key: str = "approval", approver: str = None) -> dict:
+    """Get the resume/cancel/approval-page URLs bound to one ``wait_for_approval`` step.
+
+    Unlike :func:`get_resume_urls`, which signs a random nonce, these address the
+    very ``resume_job`` record the step's built-in approval buttons use, so they
+    are stable across replays and safe to embed in a custom notification.
+
+    Args:
+        step_key: Checkpoint key of the approval step, as passed to
+            ``wait_for_approval(key=...)``. Keys must be unique within a workflow;
+            reusing one raises rather than silently renaming it. The URL only
+            resumes while that step is awaiting approval; used at any other moment
+            it is rejected rather than banking a row a different approval would
+            consume. Send it ahead of time — approvers just cannot act before the
+            workflow reaches the step.
+            ``resume`` and ``cancel`` are step-bound; ``approvalPage`` is not — it
+            opens the job's approval page, which acts on whichever approval is
+            pending when it is used.
+        approver: Optional approver name
+
+    Returns:
+        Dictionary with approvalPage, resume, and cancel URLs
+    """
+    return _client.get_approval_urls(step_key, approver)
+
+
+@init_global_client
 def request_interactive_slack_approval(
     slack_resource_path: str,
     channel_id: str,
@@ -2645,6 +2693,8 @@ class WorkflowCtx:
         checkpoint = checkpoint or {}
         self._completed: dict = checkpoint.get("completed_steps", {})
         self._counters: dict[str, int] = {}
+        # Every key handed out by _alloc_key, so distinct names can't alias one key.
+        self._used_keys: set[str] = set()
         self._pending: list = []
         self._executing_key: str | None = checkpoint.get("_executing_key")
         # Reuse a single httpx.AsyncClient across all fast-path step() calls
@@ -2666,10 +2716,20 @@ class WorkflowCtx:
         self._inline_lock: "_asyncio.Lock | None" = None
 
     def _alloc_key(self, name: str = "step") -> str:
-        """Name-based key: ``double`` for first call, ``double_2``, ``double_3`` for subsequent."""
+        """Name-based key: ``double`` for first call, ``double_2``, ``double_3`` for subsequent.
+
+        Suffixing alone can alias — a second ``step("x")`` and a first ``step("x_2")``
+        both want ``x_2`` — so keep bumping past keys already handed out. Allocation
+        order is fixed by the workflow body, so replays reproduce the same keys.
+        """
         n = self._counters.get(name, 0) + 1
+        key = name if n == 1 else f"{name}_{n}"
+        while key in self._used_keys:
+            n += 1
+            key = f"{name}_{n}"
         self._counters[name] = n
-        return name if n == 1 else f"{name}_{n}"
+        self._used_keys.add(key)
+        return key
 
     def _next_step(self, name: str, script: str, func=None, dispatch_type: str = "inline", _task_options: Optional[dict] = None, **kwargs):
         """Return an awaitable that either resolves from cache or suspends."""
@@ -2724,9 +2784,25 @@ class WorkflowCtx:
         )
 
     async def _wait_for_approval(
-        self, timeout: int = 1800, form: dict | None = None, self_approval: bool = True
+        self,
+        timeout: int = 1800,
+        form: dict | None = None,
+        self_approval: bool = True,
+        key: str | None = None,
     ):
-        key = self._alloc_key("approval")
+        if key is not None and not key.strip():
+            raise RuntimeError("wait_for_approval key must be a non-empty step name")
+        requested_key, key = key, self._alloc_key(key or "approval")
+
+        # An explicit key is an identifier callers mint URLs against, so silently
+        # renaming a duplicate to ``<key>_2`` would hand them a URL for the *first*
+        # step — which then fails with "resume request already sent" and parks the
+        # workflow until timeout. Unnamed approvals keep auto-numbering.
+        if requested_key and key != requested_key:
+            raise RuntimeError(
+                f'WAC step key "{requested_key}" is already used in this workflow. '
+                "Give each wait_for_approval() its own key so get_approval_urls() can address it."
+            )
 
         if key in self._completed:
             return self._completed[key]
@@ -3073,11 +3149,13 @@ async def wait_for_approval(
     timeout: int = 1800,
     form: dict | None = None,
     self_approval: bool = True,
+    key: str | None = None,
 ) -> dict:
     """Suspend the workflow and wait for an external approval.
 
-    Use ``get_resume_urls()`` (wrapped in ``step()``) to obtain
-    resume/cancel/approval URLs before calling this function.
+    Pass ``key`` to name the step, then ``get_approval_urls(key)`` yields the URLs
+    that resume exactly this approval — route them through your own channel.
+    Without a key the steps are named ``approval``, ``approval_2``, ...
 
     Returns a dict with ``value`` (form data), ``approver``, and ``approved``.
 
@@ -3085,16 +3163,19 @@ async def wait_for_approval(
         timeout: Approval timeout in seconds (default 1800).
         form: Optional form schema for the approval page.
         self_approval: Whether the user who triggered the flow can approve it (default True).
+        key: Optional checkpoint key naming this approval step.
 
     Example::
 
-        urls = await step("urls", lambda: get_resume_urls())
-        await step("notify", lambda: send_email(urls["approvalPage"]))
-        result = await wait_for_approval(timeout=3600)
+        urls = await step("urls", lambda: get_approval_urls("manager"))
+        await step("notify", lambda: send_email(urls["resume"], urls["cancel"]))
+        result = await wait_for_approval(key="manager", timeout=3600)
     """
     ctx: WorkflowCtx | None = _workflow_ctx.get(None)
     if ctx is not None:
-        return await ctx._wait_for_approval(timeout=timeout, form=form, self_approval=self_approval)
+        return await ctx._wait_for_approval(
+            timeout=timeout, form=form, self_approval=self_approval, key=key
+        )
     raise RuntimeError("wait_for_approval can only be called inside a @workflow")
 
 

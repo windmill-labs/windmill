@@ -1539,7 +1539,11 @@ export function setWorkflowCtx(ctx: WorkflowCtx | null) {
 
 export class WorkflowCtx {
   private completed: Record<string, any>;
-  private counters: Record<string, number> = {};
+  /** Null-prototype: step keys are caller-supplied, and a plain object would
+   *  resolve `toString`/`constructor`/`__proto__` off `Object.prototype`. */
+  private counters: Record<string, number> = Object.create(null);
+  /** Every key handed out by `_allocKey`, so distinct names can't alias one key. */
+  private _usedKeys = new Set<string>();
   private pending: Array<{
     name: string;
     script: string;
@@ -1563,15 +1567,24 @@ export class WorkflowCtx {
   private _inlineChain: Promise<void> = Promise.resolve();
 
   constructor(checkpoint: Record<string, any> = {}) {
-    this.completed = checkpoint?.completed_steps ?? {};
+    this.completed = Object.assign(Object.create(null), checkpoint?.completed_steps ?? {});
     this._executingKey = checkpoint?._executing_key ?? null;
   }
 
-  /** Name-based key: `double` for first call, `double_2`, `double_3` for subsequent. */
+  /** Name-based key: `double` for first call, `double_2`, `double_3` for subsequent.
+   *  Suffixing alone can alias — a second `step("x")` and a first `step("x_2")` both
+   *  want `x_2` — so keep bumping past keys already handed out. Allocation order is
+   *  fixed by the workflow body, so replays reproduce the same keys. */
   _allocKey(name: string): string {
-    const n = (this.counters[name] ?? 0) + 1;
+    let n = (this.counters[name] ?? 0) + 1;
+    let key = n === 1 ? name : `${name}_${n}`;
+    while (this._usedKeys.has(key)) {
+      n++;
+      key = `${name}_${n}`;
+    }
     this.counters[name] = n;
-    return n === 1 ? name : `${name}_${n}`;
+    this._usedKeys.add(key);
+    return key;
   }
 
   _nextStep(
@@ -1649,8 +1662,23 @@ export class WorkflowCtx {
     timeout?: number;
     form?: object;
     selfApproval?: boolean;
+    key?: string;
   }): PromiseLike<{ value: any; approver: string; approved: boolean }> {
-    const key = this._allocKey("approval");
+    if (options?.key !== undefined && options.key.trim() === "") {
+      throw new Error("waitForApproval key must be a non-empty step name");
+    }
+    const key = this._allocKey(options?.key || "approval");
+
+    // An explicit key is an identifier callers mint URLs against, so silently
+    // renaming a duplicate to `<key>_2` would hand them a URL for the *first*
+    // step — which then fails with "resume request already sent" and parks the
+    // workflow until timeout. Unnamed approvals keep auto-numbering.
+    if (options?.key && key !== options.key) {
+      throw new Error(
+        `WAC step key "${options.key}" is already used in this workflow. ` +
+          `Give each waitForApproval() its own key so getApprovalUrls() can address it.`,
+      );
+    }
 
     if (key in this.completed) {
       const value = this.completed[key];
@@ -1970,24 +1998,67 @@ export function workflow<T>(fn: (...args: any[]) => Promise<T>) {
 /**
  * Suspend the workflow and wait for an external approval.
  *
- * Use `getResumeUrls()` (wrapped in `step()`) to obtain resume/cancel/approvalPage
- * URLs before calling this function.
+ * Pass `key` to name the step, then `getApprovalUrls(key)` yields the URLs that
+ * resume exactly this approval — route them through your own channel. Without a
+ * key the steps are named `approval`, `approval_2`, ...
  *
  * @example
- * const urls = await step("urls", () => getResumeUrls());
- * await step("notify", () => sendEmail(urls.approvalPage));
- * const { value, approver } = await waitForApproval({ timeout: 3600 });
+ * const urls = await step("urls", () => getApprovalUrls("manager"));
+ * await step("notify", () => sendEmail(urls.resume, urls.cancel));
+ * const { value, approver } = await waitForApproval({ key: "manager", timeout: 3600 });
  */
 export function waitForApproval(options?: {
   timeout?: number;
   form?: object;
   selfApproval?: boolean;
+  key?: string;
 }): PromiseLike<{ value: any; approver: string; approved: boolean }> {
   const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
   if (!ctx) {
     throw new Error("waitForApproval can only be called inside a workflow()");
   }
   return ctx._waitForApproval(options);
+}
+
+/**
+ * Resume/cancel/approval-page URLs bound to one `waitForApproval` step.
+ *
+ * Unlike `getResumeUrls()`, which signs a random nonce, these address the very
+ * `resume_job` record the step's built-in approval buttons use, so they are
+ * stable across replays and safe to embed in a custom notification.
+ *
+ * `stepKey` must match the `key` given to `waitForApproval`. Keys must be unique
+ * within a workflow; reusing one throws rather than silently renaming it. The URL
+ * only resumes while that step is awaiting approval; used at any other moment it is
+ * rejected rather than banking a row a different approval would consume. Send it
+ * ahead of time — approvers just cannot act before the workflow reaches the step.
+ *
+ * `resume` and `cancel` are step-bound; `approvalPage` is not — it opens the job's
+ * approval page, which acts on whichever approval is pending when it is used.
+ *
+ * @example
+ * const urls = await step("urls", () => getApprovalUrls("manager"));
+ * await step("notify", () => sendEmail(urls.resume, urls.cancel));
+ * await waitForApproval({ key: "manager" });
+ */
+export async function getApprovalUrls(
+  stepKey: string = "approval",
+  approver?: string
+): Promise<{
+  approvalPage: string;
+  resume: string;
+  cancel: string;
+}> {
+  if (stepKey.trim() === "") {
+    throw new Error("getApprovalUrls stepKey must be a non-empty step name");
+  }
+  const workspace = getWorkspace();
+  return await JobService.getWacApprovalUrls({
+    workspace,
+    stepKey,
+    approver,
+    id: getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
+  });
 }
 
 /**

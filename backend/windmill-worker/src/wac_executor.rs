@@ -149,6 +149,26 @@ pub async fn prepare_checkpoint_for_resume(
             // page, in-run button, Slack, Teams and resume-as-owner store a
             // random id. A timed-out step matches no row -> else branch below.
             let consumed = checkpoint.consumed_resume_row_ids.clone();
+
+            // A row carrying another step's bound resume_id answers that step, not
+            // this one, so it must never be picked up here however it got in — the
+            // API rejects such resumes but cannot do so atomically with the insert.
+            // Only keys this workflow minted a URL for are known to be bound; every
+            // other resume_id stays eligible, preserving WIN-2241 for the channels
+            // that sign random ids.
+            let foreign_bound_ids: Vec<i32> = sqlx::query_scalar::<_, String>(
+                "SELECT jsonb_object_keys(
+                        COALESCE(workflow_as_code_status->'_minted_approval_keys', '{}'::jsonb))
+                     FROM v2_job_status WHERE id = $1",
+            )
+            .bind(job_id)
+            .fetch_all(db)
+            .await?
+            .into_iter()
+            .filter(|k| *k != approval_key)
+            .map(|k| windmill_common::wac::approval_resume_id(&k) as i32)
+            .collect();
+
             let resume_row = sqlx::query_as::<
                 _,
                 (
@@ -159,10 +179,12 @@ pub async fn prepare_checkpoint_for_resume(
                 ),
             >(
                 "SELECT id, value, approver, approved FROM resume_job \
-                 WHERE job = $1 AND id <> ALL($2) ORDER BY created_at ASC LIMIT 1",
+                 WHERE job = $1 AND id <> ALL($2) AND resume_id <> ALL($3) \
+                 ORDER BY created_at ASC LIMIT 1",
             )
             .bind(job_id)
             .bind(&consumed)
+            .bind(&foreign_bound_ids)
             .fetch_optional(db)
             .await?;
 

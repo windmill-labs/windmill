@@ -50,6 +50,38 @@ pub struct WacPendingSteps {
     pub job_ids: serde_json::Map<String, Value>,
 }
 
+/// `resume_id` bound to a WAC `wait_for_approval` step key.
+///
+/// Two callers must agree on it — the worker minting the inline resume/cancel
+/// buttons at suspend time, and the API signing URLs the workflow asked for
+/// ahead of time — so the derivation must be stable across processes and
+/// releases. `DefaultHasher` is explicitly not (std makes no cross-release
+/// guarantee), hence SHA-256 truncated to the `u32` the resume routes take.
+/// Distinctness per key is what matters: `resume_job`'s primary key is
+/// `job_id ^ resume_id`, so two steps sharing a resume_id would collide on
+/// one row.
+pub fn approval_resume_id(step_key: &str) -> u32 {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(step_key.as_bytes());
+    u32::from_be_bytes([digest[0], digest[1], digest[2], digest[3]])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::approval_resume_id;
+
+    /// Golden values: worker and API must agree on this mapping, and they can run
+    /// different builds during a rolling deploy. Changing it strands every resume
+    /// URL already in the hands of an approver, so a diff here is a deliberate
+    /// break, not a refactor.
+    #[test]
+    fn approval_resume_id_is_a_stable_cross_process_contract() {
+        assert_eq!(approval_resume_id("approval"), 0x9deb_65b8);
+        assert_eq!(approval_resume_id("approval_2"), 0x50d1_eeca);
+        assert_eq!(approval_resume_id("manager"), 0x6ee4_a469);
+    }
+}
+
 /// Load the WAC checkpoint from `v2_job_status.workflow_as_code_status._checkpoint`.
 pub async fn load_checkpoint(db: &DB, job_id: &Uuid) -> error::Result<WacCheckpoint> {
     let row: Option<Option<Value>> = sqlx::query_scalar(
