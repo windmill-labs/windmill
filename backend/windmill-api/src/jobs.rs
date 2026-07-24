@@ -3657,9 +3657,6 @@ async fn resume_suspended_job_internal(
     // Get flow info - works for step-level, flow-level, and WAC approval
     let (flow_info, is_flow_level, is_wac) = get_flow_info_for_resume(job_id, &db).await?;
 
-    if is_wac {
-        reject_mismatched_wac_approval(&db, job_id, resume_id).await?;
-    }
 
     // HMAC secret = full capability. Skip approval_conditions checks: possession of the full
     // resume URL is the authorization (it is only disclosed to intended approvers, e.g. when a
@@ -3691,6 +3688,13 @@ async fn resume_suspended_job_internal(
         authed.as_ref().map(|x| x.username.clone())
     };
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+
+    // Inside the transaction that inserts the row and moves the suspend counter:
+    // validating earlier would let the workflow resolve this step and suspend on the
+    // next one in between, so a stale request would wake that later step instead.
+    if is_wac {
+        reject_mismatched_wac_approval(&mut tx, flow_info.id, resume_id).await?;
+    }
 
     insert_resume_job(
         resume_id,
@@ -4355,9 +4359,10 @@ pub async fn get_wac_approval_urls(
     // URL still targets the workflow that will suspend.
     let job_id = get_flow_id_for_job(&db, job_id).await.unwrap_or(job_id);
 
-    // Only a WAC parent can host a wait_for_approval step, and the write below is
-    // what the run page keys its WAC timeline off — stamping it on a plain script
-    // or a flow renders an empty timeline on a job that has none.
+    // The write below is what the run page keys its WAC timeline off, so it must not
+    // land on a job that has no WAC status. Rules out flows and step/child jobs; a
+    // WAC parent is itself a script job, so a plain script is indistinguishable here
+    // and still passes — it simply never mints, since only the SDK calls this.
     let is_wac = sqlx::query_scalar!(
         r#"SELECT (kind::text NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow')
                    AND parent_job IS NULL) AS "is_wac!"
@@ -4375,33 +4380,18 @@ pub async fn get_wac_approval_urls(
 
     let resume_id = windmill_common::wac::approval_resume_id(&step_key);
 
-    // Two keys sharing a resume_id share one resume_job row and one capability, and
-    // the resume path could not tell which of them a link was minted for. Refuse the
-    // second rather than hand out an ambiguous URL.
-    if let Some(other) = sqlx::query_scalar::<_, String>(
-        "SELECT jsonb_object_keys(
-            COALESCE(workflow_as_code_status->'_minted_approval_keys', '{}'::jsonb))
-         FROM v2_job_status WHERE id = $1",
-    )
-    .bind(job_id)
-    .fetch_all(&db)
-    .await?
-    .into_iter()
-    .find(|k| *k != step_key && windmill_common::wac::approval_resume_id(k) == resume_id)
-    {
-        return Err(Error::BadRequest(format!(
-            "step key `{step_key}` collides with `{other}` on the same resume id; rename one"
-        )));
-    }
-
     // Remember which steps have a minted URL in circulation. A workflow may mint
     // several up front, and the resume path uses this to tell "URL for the step
     // awaiting approval" apart from "URL for some other step of this workflow",
     // which it otherwise cannot: the interactive channels sign random resume_ids
     // and must keep resuming whatever step is pending.
-    // Upsert: a workflow can mint URLs before any step has checkpointed, so the
-    // status row may not exist yet — an UPDATE would silently match nothing and
-    // leave the link unbound.
+    //
+    // Record first, then look for a collision, both in one transaction: the upsert
+    // takes the row lock, so a concurrent mint of a colliding key is serialized
+    // behind it and sees this key rather than racing past an earlier read. Upsert
+    // because a workflow can mint before any step has checkpointed, and a bare
+    // UPDATE would silently match nothing and leave the link unbound.
+    let mut tx = db.begin().await?;
     sqlx::query(
         "INSERT INTO v2_job_status (id, workflow_as_code_status)
          VALUES ($1, jsonb_build_object('_minted_approval_keys',
@@ -4415,8 +4405,28 @@ pub async fn get_wac_approval_urls(
     )
     .bind(job_id)
     .bind(&step_key)
-    .execute(&db)
+    .execute(&mut *tx)
     .await?;
+
+    // Two keys sharing a resume_id share one resume_job row and one capability, and
+    // the binding check could not tell which of them a link was minted for.
+    if let Some(other) = sqlx::query_scalar::<_, String>(
+        "SELECT jsonb_object_keys(
+            COALESCE(workflow_as_code_status->'_minted_approval_keys', '{}'::jsonb))
+         FROM v2_job_status WHERE id = $1",
+    )
+    .bind(job_id)
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .find(|k| *k != step_key && windmill_common::wac::approval_resume_id(k) == resume_id)
+    {
+        tx.rollback().await?;
+        return Err(Error::BadRequest(format!(
+            "step key `{step_key}` collides with `{other}` on the same resume id; rename one"
+        )));
+    }
+    tx.commit().await?;
 
     get_resume_urls_internal(
         Extension(db),
@@ -4433,10 +4443,17 @@ pub async fn get_wac_approval_urls(
 /// other moment is picked up by whichever approval is reached first, silently
 /// answering it with this approver's response. Unbound resume_ids are untouched.
 async fn reject_mismatched_wac_approval(
-    db: &DB,
+    tx: &mut Transaction<'_, Postgres>,
     job_id: Uuid,
     resume_id: u32,
 ) -> Result<(), Error> {
+    // Lock the queue row the worker also writes when it suspends on the next step,
+    // so the pending step read below cannot change before this transaction commits.
+    sqlx::query("SELECT 1 FROM v2_job_queue WHERE id = $1 FOR UPDATE")
+        .bind(job_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+
     let status: Option<sqlx::types::Json<WacApprovalBinding>> = sqlx::query_scalar(
         "SELECT jsonb_build_object(
             'minted', COALESCE(workflow_as_code_status->'_minted_approval_keys', '{}'::jsonb),
@@ -4444,7 +4461,7 @@ async fn reject_mismatched_wac_approval(
          ) FROM v2_job_status WHERE id = $1",
     )
     .bind(job_id)
-    .fetch_optional(db)
+    .fetch_optional(&mut **tx)
     .await?;
 
     let Some(sqlx::types::Json(binding)) = status else {
