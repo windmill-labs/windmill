@@ -17,7 +17,7 @@ use windmill_common::db::DB;
 use windmill_common::error;
 use windmill_common::variables::{build_crypt, decrypt, encrypt};
 
-use crate::oauth::{no_redirect_http_client, AuthorizationManager};
+use crate::oauth::{no_redirect_http_client_pinned, AuthorizationManager};
 
 /// MCP client credentials returned by [`get_or_refresh_mcp_client`].
 pub struct McpClientCredentials {
@@ -77,13 +77,15 @@ async fn register_client(
     redirect_uri: &str,
     client_name: &str,
 ) -> Result<DcrResponse, error::Error> {
-    windmill_common::ssrf::validate_mcp_server_url_for_bad_request(
+    let validated = windmill_common::ssrf::validate_mcp_server_url_for_bad_request(
         registration_endpoint,
         "MCP server registration endpoint URL",
     )
     .await?;
 
-    let client = no_redirect_http_client()
+    // Pin to the validated address: DCR posts to an author-controlled endpoint,
+    // so the connect must not rebind to an internal IP after the check.
+    let client = no_redirect_http_client_pinned(&validated)
         .map_err(|e| error::Error::BadRequest(format!("Failed to build DCR client: {e}")))?;
     let request = DcrRequest {
         client_name: client_name.to_string(),
@@ -128,7 +130,7 @@ pub async fn get_or_refresh_mcp_client(
     let base_url = (**windmill_common::BASE_URL.load()).clone();
     let redirect_uri = format!("{}/api/mcp/oauth/callback", base_url);
 
-    windmill_common::ssrf::validate_mcp_server_url_for_bad_request(
+    let validated_server = windmill_common::ssrf::validate_mcp_server_url_for_bad_request(
         mcp_server_url,
         "MCP server URL",
     )
@@ -166,7 +168,13 @@ pub async fn get_or_refresh_mcp_client(
     let mut manager = AuthorizationManager::new(mcp_server_url)
         .await
         .map_err(|e| error::Error::BadRequest(format!("Failed to create auth manager: {e}")))?;
-    let discovery_client = no_redirect_http_client().map_err(|e| {
+    // Discovery hits the well-known endpoint on the MCP server host validated
+    // above; pin to that address so it cannot rebind between check and connect.
+    // Limitation: rmcp's discover_metadata may additionally follow server-supplied
+    // metadata URLs (resource_metadata / authorization_servers) on other hosts,
+    // which this per-host pin does not cover — a pre-existing gap in rmcp discovery
+    // that a validating resolver would need to close, out of scope for this pin.
+    let discovery_client = no_redirect_http_client_pinned(&validated_server).map_err(|e| {
         error::Error::BadRequest(format!("Failed to build MCP OAuth discovery client: {e}"))
     })?;
     manager
