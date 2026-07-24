@@ -40,7 +40,8 @@ while [ "$i" -lt "${#toks[@]}" ]; do
   # which then names the cwd file ./-rf) is an operand and must pass the /tmp checks.
   if [ "$end_opts" = 0 ]; then
     [ "$t" = "--" ] && { end_opts=1; continue; }
-    case "$t" in -*) continue ;; esac
+    # A bare `-` is a filename to rm, not an option — only skip real `-x`/`--long` options.
+    case "$t" in -?*) continue ;; esac
   fi
   had_operand=1
   case "$t" in /tmp/*) ;; *) exit 0 ;; esac      # must be an absolute /tmp path
