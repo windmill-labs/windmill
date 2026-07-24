@@ -81,3 +81,49 @@ async fn wac_sequential_approvals_read_own_row(db: Pool<Postgres>) -> anyhow::Re
 
     Ok(())
 }
+
+/// A row carrying another step's bound resume_id belongs to that step. The API
+/// refuses such resumes but cannot do so atomically with the insert, so
+/// consumption must skip them however they got in — while leaving the random ids
+/// the interactive channels sign fully eligible.
+#[sqlx::test]
+async fn wac_approval_skips_another_steps_bound_row(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let job_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for) VALUES ($1, 'test-workspace', now())",
+    )
+    .bind(job_id)
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO v2_job_status (id, workflow_as_code_status) VALUES ($1, $2)",
+    )
+    .bind(job_id)
+    .bind(sqlx::types::Json(json!({
+        "_minted_approval_keys": { "legal": true, "finance": true }
+    })))
+    .execute(&db)
+    .await?;
+
+    // Oldest row is bound to `finance`; the later one is a plain Slack-style resume.
+    insert_resume_row(
+        &db,
+        job_id,
+        windmill_common::wac::approval_resume_id("finance") as i32,
+        "bob",
+        true,
+        json!({"n": "finance"}),
+    )
+    .await?;
+    insert_resume_row(&db, job_id, 4242, "alice", true, json!({"n": "slack"})).await?;
+
+    let ckpt = pending_approval(WacCheckpoint::default(), "legal");
+    let ckpt = prepare_checkpoint_for_resume(&db, &job_id, ckpt).await?;
+    assert_eq!(
+        ckpt.completed_steps["legal"]["approver"],
+        json!("alice"),
+        "`legal` must skip finance's bound row and take the unbound one"
+    );
+
+    Ok(())
+}

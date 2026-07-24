@@ -4354,7 +4354,45 @@ pub async fn get_wac_approval_urls(
     // this is called from inside a task() rather than a step(). Resolve up so the
     // URL still targets the workflow that will suspend.
     let job_id = get_flow_id_for_job(&db, job_id).await.unwrap_or(job_id);
+
+    // Only a WAC parent can host a wait_for_approval step, and the write below is
+    // what the run page keys its WAC timeline off — stamping it on a plain script
+    // or a flow renders an empty timeline on a job that has none.
+    let is_wac = sqlx::query_scalar!(
+        r#"SELECT (kind::text NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow')
+                   AND parent_job IS NULL) AS "is_wac!"
+           FROM v2_job WHERE id = $1"#,
+        job_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .unwrap_or(false);
+    if !is_wac {
+        return Err(Error::BadRequest(format!(
+            "job {job_id} is not a workflow-as-code job"
+        )));
+    }
+
     let resume_id = windmill_common::wac::approval_resume_id(&step_key);
+
+    // Two keys sharing a resume_id share one resume_job row and one capability, and
+    // the resume path could not tell which of them a link was minted for. Refuse the
+    // second rather than hand out an ambiguous URL.
+    if let Some(other) = sqlx::query_scalar::<_, String>(
+        "SELECT jsonb_object_keys(
+            COALESCE(workflow_as_code_status->'_minted_approval_keys', '{}'::jsonb))
+         FROM v2_job_status WHERE id = $1",
+    )
+    .bind(job_id)
+    .fetch_all(&db)
+    .await?
+    .into_iter()
+    .find(|k| *k != step_key && windmill_common::wac::approval_resume_id(k) == resume_id)
+    {
+        return Err(Error::BadRequest(format!(
+            "step key `{step_key}` collides with `{other}` on the same resume id; rename one"
+        )));
+    }
 
     // Remember which steps have a minted URL in circulation. A workflow may mint
     // several up front, and the resume path uses this to tell "URL for the step
