@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.770.0](https://github.com/windmill-labs/windmill/compare/v1.769.0...v1.770.0) (2026-07-24)
+
+
+### Features
+
+* add explore button for object storage resources ([#10306](https://github.com/windmill-labs/windmill/issues/10306)) ([28a79ce](https://github.com/windmill-labs/windmill/commit/28a79ced155e6bb3540ab76feb5415ea8f3d8f8f))
+* Add image when publishing a project ([#10310](https://github.com/windmill-labs/windmill/issues/10310)) ([48618cf](https://github.com/windmill-labs/windmill/commit/48618cff8c35a345babd12844653f83addbcd7e8))
+
+
+### Bug Fixes
+
+* do not apply workspace display name on git-sync pull ([#10308](https://github.com/windmill-labs/windmill/issues/10308)) ([992ed01](https://github.com/windmill-labs/windmill/commit/992ed0124492f5c6b9e3dcc6a309caeda8d6a7b1))
+* pass Windows system env vars to R renv install subprocess ([#10313](https://github.com/windmill-labs/windmill/issues/10313)) ([85008e4](https://github.com/windmill-labs/windmill/commit/85008e47b4a21313ec66496d3c68eb746fc8a151))
+* show scheduled singlestepflow runs in flow history sidebar ([#10312](https://github.com/windmill-labs/windmill/issues/10312)) ([f00fcb2](https://github.com/windmill-labs/windmill/commit/f00fcb2d1b1030b47c824bdefc9f0d12499bc6b6))
+* WAC wait_for_approval reads its own approval result, not the first ([#10314](https://github.com/windmill-labs/windmill/issues/10314)) ([2143d45](https://github.com/windmill-labs/windmill/commit/2143d45815af7a95182721aeb0dc937a12c5759f))
+
 ## [1.769.0](https://github.com/windmill-labs/windmill/compare/v1.768.0...v1.769.0) (2026-07-24)
 
 
