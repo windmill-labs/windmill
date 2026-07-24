@@ -1539,7 +1539,9 @@ export function setWorkflowCtx(ctx: WorkflowCtx | null) {
 
 export class WorkflowCtx {
   private completed: Record<string, any>;
-  private counters: Record<string, number> = {};
+  /** Null-prototype: step keys are caller-supplied, and a plain object would
+   *  resolve `toString`/`constructor`/`__proto__` off `Object.prototype`. */
+  private counters: Record<string, number> = Object.create(null);
   /** Every key handed out by `_allocKey`, so distinct names can't alias one key. */
   private _usedKeys = new Set<string>();
   private pending: Array<{
@@ -1565,7 +1567,7 @@ export class WorkflowCtx {
   private _inlineChain: Promise<void> = Promise.resolve();
 
   constructor(checkpoint: Record<string, any> = {}) {
-    this.completed = checkpoint?.completed_steps ?? {};
+    this.completed = Object.assign(Object.create(null), checkpoint?.completed_steps ?? {});
     this._executingKey = checkpoint?._executing_key ?? null;
   }
 
