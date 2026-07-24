@@ -4192,15 +4192,19 @@ async fn app_load_file_metadata(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Query(query): Query<LoadFileMetadataQuery>,
+    Query(mut query): Query<LoadFileMetadataQuery>,
     Query(sig): Query<AppS3Sig>,
 ) -> Result<Response> {
     let path = path.to_path();
     let file_query = app_s3_file_query(query.file_key.clone(), query.storage.clone(), sig);
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
+    // On-behalf app reads are confined to the workspace storage; a
+    // viewer-supplied custom resource must not be honored.
+    query.s3_resource_path = None;
     let resp =
-        crate::job_helpers_oss::load_file_metadata_internal(job_authed, &db, &w_id, query).await?;
+        crate::job_helpers_oss::load_file_metadata_internal(job_authed, &db, None, &w_id, query)
+            .await?;
     Ok(Json(resp).into_response())
 }
 
@@ -4209,15 +4213,19 @@ async fn app_load_file_preview(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Query(query): Query<LoadFilePreviewQuery>,
+    Query(mut query): Query<LoadFilePreviewQuery>,
     Query(sig): Query<AppS3Sig>,
 ) -> Result<Response> {
     let path = path.to_path();
     let file_query = app_s3_file_query(query.file_key.clone(), query.storage.clone(), sig);
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
+    // On-behalf app reads are confined to the workspace storage; a
+    // viewer-supplied custom resource must not be honored.
+    query.s3_resource_path = None;
     let resp =
-        crate::job_helpers_oss::load_file_preview_internal(job_authed, &db, &w_id, query).await?;
+        crate::job_helpers_oss::load_file_preview_internal(job_authed, &db, None, &w_id, query)
+            .await?;
     Ok(Json(resp).into_response())
 }
 

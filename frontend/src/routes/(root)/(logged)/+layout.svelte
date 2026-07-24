@@ -38,7 +38,8 @@
 		devopsRole,
 		whitelabelNameStore,
 		globalDbManagerDrawer,
-		globalForkModal
+		globalForkModal,
+		globalS3FilePickerExplorer
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
@@ -83,6 +84,7 @@
 	import WorkspaceScopeHeader from '$lib/components/sidebar/WorkspaceScopeHeader.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
 	import DBManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
+	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
 	import { useDbManagerUriState } from '$lib/components/dbManagerDrawerModel.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
@@ -778,6 +780,13 @@
 	})
 
 	globalDbManagerDrawer.val = useDbManagerUriState()
+
+	let globalS3FilePicker: S3FilePicker | undefined = $state()
+	$effect(() => {
+		// `as any`: the component instance type is opaque in svelte2tsx context
+		// and does not match the store's structural type.
+		globalS3FilePickerExplorer.val = globalS3FilePicker as any
+	})
 </script>
 
 <svelte:window bind:innerWidth />
@@ -1321,6 +1330,10 @@
 
 {#if $workspaceStore && globalDbManagerDrawer.val}
 	<DBManagerDrawer uriState={globalDbManagerDrawer.val} />
+{/if}
+
+{#if $workspaceStore}
+	<S3FilePicker bind:this={globalS3FilePicker} readOnlyMode allowDelete />
 {/if}
 
 <ForkConflictModal />

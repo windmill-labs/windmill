@@ -45,6 +45,7 @@
 
 	let workspaceSettingsInitialized = $state(true)
 	let storage: string | undefined = $state(undefined)
+	let s3ResourcePath: string | undefined = $state(undefined)
 	let uploadModalOpen = $state(false)
 
 	let allFilesByKey: Record<
@@ -66,8 +67,14 @@
 		{ lazy: true }
 	)
 
-	export async function open(_preSelectedFileKey: S3Object | undefined = undefined) {
-		secondaryStorageNames.refetch()
+	export async function open(
+		_preSelectedFileKey: S3Object | undefined = undefined,
+		opts: { s3ResourcePath?: string } = {}
+	) {
+		s3ResourcePath = opts.s3ResourcePath
+		if (!s3ResourcePath) {
+			secondaryStorageNames.refetch()
+		}
 		drawer?.openDrawer?.()
 
 		await tick()
@@ -86,7 +93,7 @@
 	size="1200px"
 >
 	<DrawerContent
-		title="S3 file browser"
+		title={s3ResourcePath ? `Exploring ${s3ResourcePath}` : 'S3 file browser'}
 		on:close={() => {
 			s3FilePickerInner?.exit?.()
 			drawer?.closeDrawer?.()
@@ -109,13 +116,14 @@
 			bind:storage
 			bind:allFilesByKey
 			bind:uploadModalOpen
+			{s3ResourcePath}
 			{folderOnly}
 			{regexFilter}
 			{workspace}
 		/>
 		{#snippet actions()}
 			<div class="flex gap-1">
-				{#if secondaryStorageNames.current?.length}
+				{#if !s3ResourcePath && secondaryStorageNames.current?.length}
 					<Select
 						inputClass="h-10 min-w-44 !placeholder-secondary"
 						items={[

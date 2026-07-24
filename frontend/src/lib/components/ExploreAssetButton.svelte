@@ -1,4 +1,16 @@
 <script module lang="ts">
+	const OBJECT_STORAGE_RESOURCE_TYPES = [
+		's3',
+		'azure_blob',
+		's3_aws_oidc',
+		'azure_workload_identity',
+		'gcloud_storage'
+	]
+
+	export function isObjectStorageResourceType(resourceType: string | undefined): boolean {
+		return resourceType !== undefined && OBJECT_STORAGE_RESOURCE_TYPES.includes(resourceType)
+	}
+
 	export function assetCanBeExplored(
 		asset: Asset,
 		_resourceMetadata?: { resource_type?: string }
@@ -8,7 +20,9 @@
 			asset.kind === 'datatable' ||
 			asset.kind === 's3object' ||
 			asset.kind === 'volume' ||
-			(asset.kind === 'resource' && isDbType(_resourceMetadata?.resource_type))
+			(asset.kind === 'resource' &&
+				(isDbType(_resourceMetadata?.resource_type) ||
+					isObjectStorageResourceType(_resourceMetadata?.resource_type)))
 		)
 	}
 </script>
@@ -19,7 +33,12 @@
 	import { Button, ButtonType } from '$lib/components/common'
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import { VolumeService } from '$lib/gen'
-	import { globalDbManagerDrawer, userStore, workspaceStore } from '$lib/stores'
+	import {
+		globalDbManagerDrawer,
+		globalS3FilePickerExplorer,
+		userStore,
+		workspaceStore
+	} from '$lib/stores'
 	import { isS3Uri } from '$lib/utils'
 	import { Database, File, HardDriveIcon } from 'lucide-svelte'
 	import DucklakeIcon from './icons/DucklakeIcon.svelte'
@@ -52,6 +71,12 @@
 	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
 	let ws = $derived(workspace ?? $workspaceStore)
 	const assetUri = $derived(formatAsset(asset))
+	// Contexts with a select/upload flow pass their own picker; everything else
+	// (e.g. the resources list) falls back to the global read-only explorer.
+	let effectiveS3FilePicker = $derived(s3FilePicker ?? globalS3FilePickerExplorer.val)
+	let isStorageResource = $derived(
+		asset.kind === 'resource' && isObjectStorageResourceType(_resourceMetadata?.resource_type)
+	)
 </script>
 
 <Button
@@ -73,11 +98,13 @@
 				},
 				ws
 			)
+		} else if (isStorageResource) {
+			effectiveS3FilePicker?.open(undefined, { s3ResourcePath: asset.path })
 		} else if (asset.kind === 's3object' && isS3Uri(assetUri)) {
-			s3FilePicker?.open(assetUri)
+			effectiveS3FilePicker?.open(assetUri)
 		} else if (asset.kind === 'volume') {
 			const storage = (await VolumeService.getVolumeStorage({ workspace: ws! })) ?? undefined
-			s3FilePicker?.open({ s3: `volumes/${ws}/${asset.path}/`, storage })
+			effectiveS3FilePicker?.open({ s3: `volumes/${ws}/${asset.path}/`, storage })
 		} else if (asset.kind === 'ducklake') {
 			let ducklake = asset.path.split('/')[0]
 			let specificTableSplit = asset.path.split('/')[1]?.split('.') as string[] | undefined
@@ -106,7 +133,7 @@
 		}
 		onClick?.()
 	}}
-	endIcon={asset.kind === 's3object'
+	endIcon={asset.kind === 's3object' || isStorageResource
 		? { icon: File }
 		: asset.kind === 'resource' || asset.kind === 'datatable'
 			? { icon: Database }
@@ -116,7 +143,7 @@
 					? { icon: HardDriveIcon }
 					: undefined}
 >
-	{#if asset.kind === 's3object' || asset.kind === 'volume'}
+	{#if asset.kind === 's3object' || asset.kind === 'volume' || isStorageResource}
 		<span class:hidden={noText}>Explore</span>
 	{:else if asset.kind === 'resource' || asset.kind === 'ducklake' || asset.kind === 'datatable'}
 		<span class:hidden={noText}>Manage</span>

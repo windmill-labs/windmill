@@ -26,6 +26,9 @@
 		// Optional override of the storage backend (matches the picker's
 		// `storage` prop). Empty/undefined uses the workspace default.
 		storage?: string | undefined
+		// Browse this object storage resource directly instead of the
+		// workspace storage (matches the picker's `s3ResourcePath` prop).
+		s3ResourcePath?: string | undefined
 		// Override hooks for non-default backends (e.g. workspace settings
 		// preview before the storage is committed). Default to the standard
 		// helpers service — same defaults as S3FilePickerInner.
@@ -48,6 +51,7 @@
 	let {
 		fileKey,
 		storage = undefined,
+		s3ResourcePath = undefined,
 		loadFilePreviewRequest = HelpersService.loadFilePreview,
 		loadFileMetadataRequest = HelpersService.loadFileMetadata,
 		showMetadata = false,
@@ -131,7 +135,8 @@
 			const meta = await loadFileMetadataRequest({
 				workspace: $workspaceStore!,
 				fileKey: key,
-				storage
+				storage,
+				s3ResourcePath
 			})
 			if (meta !== undefined) {
 				fileMetadata = {
@@ -166,7 +171,8 @@
 				csvHasHeader: csvHasHeader,
 				readBytesFrom: 0,
 				readBytesLength: 128 * 1024,
-				storage
+				storage,
+				s3ResourcePath
 			})
 			let content = raw.content
 			if (content !== null && content !== undefined && content.length >= 128 * 1024) {
@@ -191,8 +197,12 @@
 	}
 
 	// `storage` is keyed by the workspace's S3 storage config name — used as
-	// a query-string suffix on the image/PDF preview URLs.
-	let storageQS = $derived(storage ? `&storage=${storage}` : '')
+	// a query-string suffix on the image/PDF preview URLs, together with the
+	// optional custom resource override.
+	let storageQS = $derived(
+		(storage ? `&storage=${storage}` : '') +
+			(s3ResourcePath ? `&s3_resource_path=${encodeURIComponent(s3ResourcePath)}` : '')
+	)
 
 	function onCsvControlsChanged() {
 		if (fileMetadata?.fileKey) {
