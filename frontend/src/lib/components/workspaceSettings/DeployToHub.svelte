@@ -20,8 +20,10 @@
 	import Toggle from '../Toggle.svelte'
 	import MigrationSqlEditor from './MigrationSqlEditor.svelte'
 	import PipelineRecordingReplay from '$lib/components/recording/PipelineRecordingReplay.svelte'
+	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
 	import {
 		Check,
+		ChevronDown,
 		Cloud,
 		Code2,
 		Copy,
@@ -55,6 +57,9 @@
 
 	let recordDrawer = $state<Drawer | undefined>()
 	let pipelinePreviewDrawer = $state<Drawer | undefined>()
+	// Inline pipeline graph above the item list, collapsed by default so the
+	// selection list stays the first thing in view.
+	let pipelineGraphOpen = $state(false)
 	let publishDrawer = $state<Drawer | undefined>()
 	let resourceDrawer = $state<Drawer | undefined>()
 	let triggerDrawer = $state<Drawer | undefined>()
@@ -464,13 +469,73 @@
 								</span>
 							</div>
 						{/if}
+						{#if s.phase === 'predeploy' && s.isPipelineProject}
+							<div
+								class="flex flex-col rounded-md border border-blue-300 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/40"
+							>
+								<button
+									type="button"
+									class="flex items-center gap-2 px-3 py-2 text-left"
+									aria-expanded={pipelineGraphOpen}
+									onclick={() => (pipelineGraphOpen = !pipelineGraphOpen)}
+								>
+									<BarsStaggered class="text-blue-600 dark:text-blue-400" />
+									<span class="text-sm font-semibold text-primary">Data pipeline</span>
+									<span class="text-xs text-hint">
+										({s.pipelineScriptPaths.length} step{s.pipelineScriptPaths.length === 1
+											? ''
+											: 's'})
+									</span>
+									<Tooltip>
+										Scripts in this folder form a data-pipeline cascade (each reads or writes data
+										tables consumed by the next). Bundle the whole folder, then record the cascade
+										as one interactive replay in step 2.
+									</Tooltip>
+									<ChevronDown
+										size={16}
+										class="ml-auto shrink-0 text-tertiary transition-transform {pipelineGraphOpen
+											? 'rotate-180'
+											: ''}"
+									/>
+								</button>
+								{#if pipelineGraphOpen}
+									<div
+										class="flex flex-col gap-2 border-t border-blue-200 p-3 dark:border-blue-900"
+									>
+										<span class="text-xs text-secondary">
+											The <span class="font-mono">{s.selectedFolder}/</span> scripts and the data tables
+											they read and write, as a single pipeline. This whole cascade can be captured as
+											an interactive replay once the project is bundled.
+										</span>
+										{#if s.pipelineGraph}
+											<div class="h-[420px] overflow-hidden rounded-md border bg-surface">
+												<AssetGraphCanvas
+													graph={s.pipelineGraph}
+													viewportFitKey={s.folder}
+													scrollZoom={false}
+												/>
+											</div>
+										{:else}
+											<span class="text-xs text-hint">Loading pipeline graph…</span>
+										{/if}
+									</div>
+								{/if}
+							</div>
+						{/if}
 					</div>
 				{/snippet}
 
 				{#snippet itemSummary(item)}
 					{@const it = item as DeployItem}
-					<span class="truncate">
-						{it.summary?.trim() || it.path}
+					<span class="flex min-w-0 items-center gap-1.5">
+						<span class="truncate">
+							{it.summary?.trim() || it.path}
+						</span>
+						{#if it.kind === 'script' && s.pipelineScriptPathSet.has(it.path)}
+							<Badge color="blue" size="xs" wrapperClass="shrink-0">
+								<BarsStaggered size={10} class="mr-0.5" />Pipeline
+							</Badge>
+						{/if}
 					</span>
 				{/snippet}
 
