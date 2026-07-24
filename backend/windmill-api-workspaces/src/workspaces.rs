@@ -302,6 +302,7 @@ pub struct WorkspaceSettings {
     pub success_handler: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_app_execution_limit_per_minute: Option<i32>,
+    pub error_handler_fallback_to_instance_alerts: bool,
 }
 
 /// Subset of `WorkspaceSettings` that is safe to return to any workspace
@@ -451,6 +452,8 @@ struct CreateWorkspace {
     name: String,
     username: Option<String>,
     color: Option<String>,
+    #[serde(default)]
+    error_handler_fallback_to_instance_alerts: bool,
 }
 
 #[derive(Deserialize)]
@@ -558,6 +561,9 @@ pub struct EditErrorHandlerNew {
     pub muted_on_cancel: bool,
     #[serde(default)]
     pub muted_on_user_path: bool,
+    /// Left as `None` by clients that predate the setting (the CLI among them), which must
+    /// keep the stored value rather than silently reset it on every settings push.
+    pub fallback_to_instance_alerts: Option<bool>,
 }
 
 // Legacy format for error handler (flat fields from old CLI)
@@ -586,6 +592,7 @@ impl EditErrorHandler {
                 extra_args: legacy.error_handler_extra_args,
                 muted_on_cancel: legacy.error_handler_muted_on_cancel,
                 muted_on_user_path: false, // Old format doesn't have this field
+                fallback_to_instance_alerts: None,
             },
         }
     }
@@ -973,7 +980,8 @@ async fn get_settings(
             auto_invite,
             error_handler,
             success_handler,
-            public_app_execution_limit_per_minute
+            public_app_execution_limit_per_minute,
+            error_handler_fallback_to_instance_alerts
         FROM
             workspace_settings
         WHERE
@@ -4182,6 +4190,19 @@ async fn edit_error_handler(
 
     let mut tx = db.begin().await?;
 
+    if let Some(fallback_to_instance_alerts) = ee.fallback_to_instance_alerts {
+        if fallback_to_instance_alerts {
+            ensure_instance_alert_fallback_allowed(&mut tx, &w_id).await?;
+        }
+        sqlx::query!(
+            "UPDATE workspace_settings SET error_handler_fallback_to_instance_alerts = $1 WHERE workspace_id = $2",
+            fallback_to_instance_alerts,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
     sqlx::query_as!(
         Group,
         "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
@@ -4260,7 +4281,16 @@ async fn edit_error_handler(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
-        Some([("error_handler", &format!("{:?}", ee.path)[..])].into()),
+        Some(
+            [
+                ("error_handler", &format!("{:?}", ee.path)[..]),
+                (
+                    "fallback_to_instance_alerts",
+                    &format!("{:?}", ee.fallback_to_instance_alerts)[..],
+                ),
+            ]
+            .into(),
+        ),
     )
     .await?;
     tx.commit().await?;
@@ -4737,6 +4767,36 @@ async fn session_workspace_status(
     Ok(Json(statuses))
 }
 
+/// The instance critical alert channels belong to the instance operator, who on cloud is
+/// not the workspace owner and never opted into a tenant's job failures. Fork workspaces run
+/// throwaway copies of their parent's runnables, so instance-wide operational alerting must
+/// stay a property of the real workspace.
+async fn ensure_instance_alert_fallback_allowed<'c>(
+    tx: &mut Transaction<'c, Postgres>,
+    w_id: &str,
+) -> Result<()> {
+    if *CLOUD_HOSTED {
+        return Err(Error::BadRequest(
+            "Reporting to the instance critical alert channels is not available on cloud"
+                .to_string(),
+        ));
+    }
+    let is_fork = sqlx::query_scalar!(
+        r#"SELECT (parent_workspace_id IS NOT NULL) AS "is_fork!" FROM workspace WHERE id = $1"#,
+        w_id
+    )
+    .fetch_optional(&mut **tx)
+    .await?
+    .unwrap_or(false);
+    if is_fork {
+        return Err(Error::BadRequest(
+            "Reporting to the instance critical alert channels cannot be enabled on a fork workspace"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
 pub async fn check_w_id_conflict<'c>(tx: &mut Transaction<'c, Postgres>, w_id: &str) -> Result<()> {
     if w_id == "global" {
         return Err(windmill_common::error::Error::BadRequest(
@@ -4913,12 +4973,16 @@ async fn create_workspace(
     )
     .execute(&mut *tx)
     .await?;
+    if nw.error_handler_fallback_to_instance_alerts {
+        ensure_instance_alert_fallback_allowed(&mut tx, &nw.id).await?;
+    }
     sqlx::query!(
         "INSERT INTO workspace_settings
-            (workspace_id, color)
-            VALUES ($1, $2)",
+            (workspace_id, color, error_handler_fallback_to_instance_alerts)
+            VALUES ($1, $2, $3)",
         nw.id,
         nw.color,
+        nw.error_handler_fallback_to_instance_alerts,
     )
     .execute(&mut *tx)
     .await?;
@@ -6996,8 +7060,12 @@ async fn attach_dev_workspace(
     )
     .execute(&mut *tx)
     .await?;
+    // Clearing the instance-alert opt-in here keeps the stored setting truthful for a workspace
+    // that becomes parent-managed: dispatch enforces the fork boundary on its own, but a lingering
+    // `true` would survive a later detach and would make the settings page submit a value the API
+    // rejects on a fork.
     sqlx::query!(
-        "UPDATE workspace_settings SET deploy_to = $1 WHERE workspace_id = $2",
+        "UPDATE workspace_settings SET deploy_to = $1, error_handler_fallback_to_instance_alerts = false WHERE workspace_id = $2",
         &prod_w_id,
         &dev_w_id
     )

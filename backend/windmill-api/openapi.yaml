@@ -3617,6 +3617,9 @@ paths:
                   public_app_execution_limit_per_minute:
                     type: integer
                     description: Rate limit for public app executions per minute per server. NULL or 0 means disabled.
+                  error_handler_fallback_to_instance_alerts:
+                    type: boolean
+                    description: Report failed jobs to the instance critical alert channels when no workspace error handler is set.
 
   /w/{workspace}/workspaces/get_deploy_to:
     get:
@@ -24232,6 +24235,9 @@ components:
         muted_on_user_path:
           type: boolean
           default: false
+        fallback_to_instance_alerts:
+          type: boolean
+          description: Report failed jobs to the instance critical alert channels when no workspace error handler is set. Omit to leave the stored value untouched.
 
     EditErrorHandlerLegacy:
       type: object
@@ -26883,6 +26889,7 @@ components:
         - slack
         - teams
         - email
+        - instance_alerts
 
     NewSchedule:
       type: object
@@ -29811,6 +29818,10 @@ components:
           type: string
         color:
           type: string
+        error_handler_fallback_to_instance_alerts:
+          type: boolean
+          default: false
+          description: Report failed jobs to the instance critical alert channels when no workspace error handler is set. Not available on cloud or on fork workspaces.
       required:
         - id
         - name

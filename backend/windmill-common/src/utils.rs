@@ -563,6 +563,20 @@ pub async fn report_critical_error(
     }
 }
 
+/// Route a workspace-level failure to the instance critical alert channels without
+/// recording an `alerts` row: job failures are workspace noise and would otherwise flood
+/// the instance-wide feed superadmins triage. The channels belong to the instance operator,
+/// who on cloud is not the workspace owner, hence the hard stop there. Callers own the
+/// per-workspace opt-in.
+pub async fn send_workspace_error_to_instance_channels(_error_message: String, _db: &DB) -> () {
+    if *CLOUD_HOSTED {
+        return;
+    }
+
+    #[cfg(feature = "enterprise")]
+    send_critical_alert(_error_message, _db, CriticalAlertKind::CriticalError, None).await;
+}
+
 pub async fn report_recovered_critical_error(
     message: String,
     _db: DB,
