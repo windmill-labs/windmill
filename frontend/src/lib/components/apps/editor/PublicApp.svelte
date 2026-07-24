@@ -147,6 +147,7 @@
 				secret={app.bundle_secret}
 				path={app.path}
 				runnables={(app.value?.runnables ?? {}) as Record<string, Runnable>}
+				recordable={inWorkspace}
 			/>
 		{:else if app.raw_app && !effectiveWorkspace}
 			<div class="px-4 mt-20">

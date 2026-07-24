@@ -1,5 +1,6 @@
 import type { AssetKind, Job, OpenFlow } from '$lib/gen'
 import type { AssetGraphResponse } from '$lib/components/assets/AssetGraph/types'
+import type { RawAppInteractionKind } from './rawAppSnapshot'
 
 export type RecordedEvent = {
 	t: number
@@ -95,6 +96,38 @@ export type PipelineRecording = {
 export type PipelineRecordedCode = {
 	content: string
 	language: string
+}
+
+/** One user interaction in a raw-app session recording. `before`/`after` index
+ * into {@link RawAppRecording.frames}: the DOM the user acted on, and the DOM
+ * once the app settled. Either may be absent when the snapshot budget ran out. */
+export type RawAppStep = {
+	t: number
+	kind: RawAppInteractionKind
+	/** One-line description shown in the player, e.g. `Clicked button "Save"`. */
+	label: string
+	/** The element as a user would name it, e.g. `button "Save"`. */
+	target: string
+	selector?: string
+	value?: string
+	before?: number
+	after?: number
+}
+
+export type RawAppRecording = {
+	version: 1
+	type: 'app'
+	recorded_at: string
+	app_path: string
+	workspace?: string
+	total_duration_ms: number
+	/** Size of the app viewport at record time, replayed at the same scale. */
+	viewport: { width: number; height: number }
+	/** Deduplicated, self-contained DOM snapshots referenced by the steps. */
+	frames: string[]
+	steps: RawAppStep[]
+	/** Set when the snapshot budget was hit and later frames were dropped. */
+	truncated?: boolean
 }
 
 /** Minimal interface that both flow and script recording stores implement */

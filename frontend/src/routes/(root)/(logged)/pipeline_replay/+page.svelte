@@ -2,9 +2,11 @@
 	import FlowRecordingReplay from '$lib/components/recording/FlowRecordingReplay.svelte'
 	import ScriptRecordingReplay from '$lib/components/recording/ScriptRecordingReplay.svelte'
 	import PipelineRecordingReplay from '$lib/components/recording/PipelineRecordingReplay.svelte'
+	import RawAppRecordingReplay from '$lib/components/recording/RawAppRecordingReplay.svelte'
 	import type {
 		FlowRecording,
 		PipelineRecording,
+		RawAppRecording,
 		ScriptRecording
 	} from '$lib/components/recording/types'
 	import { sendUserToast } from '$lib/toast'
@@ -17,6 +19,7 @@
 	let flowRecording: FlowRecording | undefined = $state(undefined)
 	let scriptRecording: ScriptRecording | undefined = $state(undefined)
 	let pipelineRecording: PipelineRecording | undefined = $state(undefined)
+	let appRecording: RawAppRecording | undefined = $state(undefined)
 
 	// Upper bound on a `?src=` fetched recording (JSON with capped samples/logs) so
 	// an arbitrary origin can't OOM the tab with an endless/huge response.
@@ -34,6 +37,7 @@
 		flowRecording = undefined
 		scriptRecording = undefined
 		pipelineRecording = undefined
+		appRecording = undefined
 	}
 
 	/** Parse recording JSON text and route it to the right player. Returns false
@@ -68,7 +72,27 @@
 			sendUserToast('Invalid recording format', true)
 			return false
 		}
-		if (data.type === 'script') {
+		if (data.type === 'app') {
+			// Raw-app session recording: the player indexes `frames` by each step's
+			// before/after, so both must be well-formed before it mounts.
+			const validFrames =
+				Array.isArray(data.frames) && data.frames.every((f) => typeof f === 'string')
+			const validSteps =
+				Array.isArray(data.steps) &&
+				data.steps.every(
+					(s: unknown) =>
+						isObject(s) &&
+						typeof s.t === 'number' &&
+						typeof s.kind === 'string' &&
+						typeof s.label === 'string'
+				)
+			if (!validFrames || !validSteps) {
+				sendUserToast('Invalid app recording format', true)
+				return false
+			}
+			reset()
+			appRecording = data as unknown as RawAppRecording
+		} else if (data.type === 'script') {
 			if (!isRecordedJob(data.job)) {
 				sendUserToast('Invalid script recording format', true)
 				return false
@@ -223,10 +247,10 @@
 	</div>
 {/snippet}
 
-<!-- The pipeline player fills the viewport (graph left, detail right, like the
-     pipeline editor); the flow/script players keep the centered scrolling page. -->
+<!-- The pipeline and app players fill the viewport (steps left, detail right,
+     like their editors); the flow/script players keep the centered scrolling page. -->
 <div
-	class={pipelineRecording
+	class={pipelineRecording || appRecording
 		? 'flex flex-col h-full w-full px-4 py-4 min-h-0'
 		: 'max-w-7xl mx-auto px-4 py-8 w-full'}
 >
@@ -262,6 +286,18 @@
 				{#snippet failed()}{@render replayFailed()}{/snippet}
 			</svelte:boundary>
 		</div>
+	{:else if appRecording}
+		<div class="flex justify-end mb-2 shrink-0">
+			<Button variant="border" size="xs" onclick={quit} startIcon={{ icon: Upload }}>
+				Load another recording
+			</Button>
+		</div>
+		<div class="flex-1 min-h-0">
+			<svelte:boundary>
+				<RawAppRecordingReplay recording={appRecording} />
+				{#snippet failed()}{@render replayFailed()}{/snippet}
+			</svelte:boundary>
+		</div>
 	{:else if downloading}
 		<div class="flex flex-col items-center justify-center min-h-[60vh]">
 			<div class="flex flex-col items-center gap-3 max-w-md w-full">
@@ -282,7 +318,8 @@
 			<div class="flex flex-col items-center gap-2 max-w-md w-full">
 				<h2 class="text-lg font-semibold text-emphasis">Replay a recording</h2>
 				<p class="text-xs text-secondary mb-2">
-					Upload a recording JSON file to replay a flow, script or data-pipeline execution offline.
+					Upload a recording JSON file to replay a flow, script or data-pipeline execution — or a
+					raw-app session — offline.
 				</p>
 				{#if downloadError}
 					<p class="text-xs text-red-600 dark:text-red-400 mb-1 text-center">{downloadError}</p>
