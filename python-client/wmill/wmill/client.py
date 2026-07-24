@@ -1287,6 +1287,8 @@ class Windmill:
         """
         from urllib.parse import quote
 
+        if not step_key.strip():
+            raise RuntimeError("get_approval_urls step_key must be a non-empty step name")
         job_id = os.environ.get("WM_JOB_ID") or "NO_ID"
         return self.get(
             f"/w/{self.workspace}/jobs/wac_approval_urls/{job_id}/{quote(step_key, safe='')}",
@@ -2788,6 +2790,8 @@ class WorkflowCtx:
         self_approval: bool = True,
         key: str | None = None,
     ):
+        if key is not None and not key.strip():
+            raise RuntimeError("wait_for_approval key must be a non-empty step name")
         requested_key, key = key, self._alloc_key(key or "approval")
 
         # An explicit key is an identifier callers mint URLs against, so silently

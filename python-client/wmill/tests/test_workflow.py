@@ -1148,6 +1148,17 @@ class TestApprovalKeys:
         with pytest.raises(RuntimeError, match="already used"):
             _run_workflow(wf, {"completed_steps": {"dup": 1, "dup_2": 2}}, {})
 
+    def test_empty_key_raises(self):
+        """`""` must not quietly mean `approval` here while `get_approval_urls("")`
+        would mint a different (broken) URL."""
+
+        @workflow
+        async def wf():
+            await wait_for_approval(key="")
+
+        with pytest.raises(RuntimeError, match="non-empty"):
+            _run_workflow(wf, {}, {})
+
     def test_unnamed_approvals_still_auto_number(self):
         @workflow
         async def wf():

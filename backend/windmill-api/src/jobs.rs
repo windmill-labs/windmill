@@ -4327,8 +4327,28 @@ pub async fn get_wac_approval_urls(
     Path((w_id, job_id, step_key)): Path<(String, Uuid, String)>,
     Query(approver): Query<QueryApprover>,
 ) -> error::JsonResult<ResumeUrls> {
+    if step_key.trim().is_empty() {
+        return Err(Error::BadRequest(
+            "step_key must be the key of a wait_for_approval step".to_string(),
+        ));
+    }
     let flow_path = resume_target_flow_path(&db, &w_id, job_id).await?;
     check_scopes(&authed, || format!("jobs:run:flows:{}", flow_path))?;
+
+    // This handler writes to the job's status row, so the job must actually be in
+    // the caller's workspace — `v2_job_status` is keyed by job id alone and would
+    // otherwise take a write aimed at another workspace's job.
+    let in_workspace = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM v2_job WHERE id = $1 AND workspace_id = $2)",
+        job_id,
+        w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+    if !in_workspace {
+        return Err(Error::NotFound(format!("job {job_id} not found")));
+    }
 
     // The approval belongs to the WAC parent, but WM_JOB_ID is the child job when
     // this is called from inside a task() rather than a step(). Resolve up so the
@@ -4368,12 +4388,12 @@ pub async fn get_wac_approval_urls(
     .await
 }
 
-/// A WAC resume URL minted for a named `wait_for_approval` step must only resume
-/// *that* step. Approval rows are consumed oldest-first regardless of resume_id
-/// (WIN-2241 — required so Slack/Teams/the approval page, which sign random ids,
-/// keep working), so a step-bound URL clicked while a different step is awaiting
-/// approval would silently resolve that other step with this approver's answer.
-/// Reject it instead; unbound resume_ids are untouched.
+/// A WAC resume URL minted for a named `wait_for_approval` step is accepted only
+/// while that step is the one awaiting approval. Approval rows are consumed
+/// oldest-first regardless of resume_id (WIN-2241 — required so Slack/Teams/the
+/// approval page, which sign random ids, keep working), so a row banked at any
+/// other moment is picked up by whichever approval is reached first, silently
+/// answering it with this approver's response. Unbound resume_ids are untouched.
 async fn reject_mismatched_wac_approval(
     db: &DB,
     job_id: Uuid,

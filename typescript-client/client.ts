@@ -1662,6 +1662,9 @@ export class WorkflowCtx {
     selfApproval?: boolean;
     key?: string;
   }): PromiseLike<{ value: any; approver: string; approved: boolean }> {
+    if (options?.key !== undefined && options.key.trim() === "") {
+      throw new Error("waitForApproval key must be a non-empty step name");
+    }
     const key = this._allocKey(options?.key || "approval");
 
     // An explicit key is an identifier callers mint URLs against, so silently
@@ -2044,6 +2047,9 @@ export async function getApprovalUrls(
   resume: string;
   cancel: string;
 }> {
+  if (stepKey.trim() === "") {
+    throw new Error("getApprovalUrls stepKey must be a non-empty step name");
+  }
   const workspace = getWorkspace();
   return await JobService.getWacApprovalUrls({
     workspace,
