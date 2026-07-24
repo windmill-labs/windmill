@@ -179,6 +179,11 @@
 		 * When a node's nonce changes, it flashes a fading green background — its
 		 * producer just recomputed it. Driven by the replay player frame-by-frame. */
 		recomputedAssetIds?: ReadonlyMap<string, number>
+		/** Let the wheel zoom the canvas (and swallow the page scroll while doing
+		 * so). Default true for the full-height editor/player. Set false when the
+		 * canvas is embedded inline inside a scrollable container, so a wheel
+		 * gesture over it scrolls the container instead of being captured. */
+		scrollZoom?: boolean
 	}
 	let {
 		graph,
@@ -209,7 +214,8 @@
 		showMinimap = true,
 		viewportFitKey = '',
 		highlightActiveRun = false,
-		recomputedAssetIds
+		recomputedAssetIds,
+		scrollZoom = true
 	}: Props = $props()
 
 	// `${kind}:${path}` ids for the hovered / pinned runs (both script and flow
@@ -1188,6 +1194,8 @@
 		nodesDraggable={false}
 		nodesConnectable={false}
 		elementsSelectable
+		zoomOnScroll={scrollZoom}
+		preventScrolling={scrollZoom}
 		zoomOnDoubleClick={false}
 		connectionLineType={ConnectionLineType.SmoothStep}
 		defaultEdgeOptions={{ type: 'asset' }}

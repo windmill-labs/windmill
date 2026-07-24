@@ -509,7 +509,11 @@
 										</span>
 										{#if s.pipelineGraph}
 											<div class="h-[420px] overflow-hidden rounded-md border bg-surface">
-												<AssetGraphCanvas graph={s.pipelineGraph} viewportFitKey={s.folder} />
+												<AssetGraphCanvas
+													graph={s.pipelineGraph}
+													viewportFitKey={s.folder}
+													scrollZoom={false}
+												/>
 											</div>
 										{:else}
 											<span class="text-xs text-hint">Loading pipeline graph…</span>
