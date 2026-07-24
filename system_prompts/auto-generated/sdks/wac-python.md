@@ -115,8 +115,8 @@ async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_
 #
 # Args:
 #     step_key: Checkpoint key of the approval step, as passed to
-#         ``wait_for_approval(key=...)``. Includes the ``_2``, ``_3`` suffixes
-#         the SDK appends when the same key is used more than once.
+#         ``wait_for_approval(key=...)``. Keys must be unique within a workflow;
+#         reusing one raises rather than silently renaming it.
 #     approver: Optional approver name
 #
 # Returns:

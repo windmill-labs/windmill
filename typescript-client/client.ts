@@ -1653,6 +1653,17 @@ export class WorkflowCtx {
   }): PromiseLike<{ value: any; approver: string; approved: boolean }> {
     const key = this._allocKey(options?.key || "approval");
 
+    // An explicit key is an identifier callers mint URLs against, so silently
+    // renaming a duplicate to `<key>_2` would hand them a URL for the *first*
+    // step — which then fails with "resume request already sent" and parks the
+    // workflow until timeout. Unnamed approvals keep auto-numbering.
+    if (options?.key && key !== options.key) {
+      throw new Error(
+        `WAC step key "${options.key}" is already used in this workflow. ` +
+          `Give each waitForApproval() its own key so getApprovalUrls() can address it.`,
+      );
+    }
+
     if (key in this.completed) {
       const value = this.completed[key];
       return { then: (resolve: any) => resolve(value) };
@@ -2000,8 +2011,8 @@ export function waitForApproval(options?: {
  * `resume_job` record the step's built-in approval buttons use, so they are
  * stable across replays and safe to embed in a custom notification.
  *
- * `stepKey` must match the `key` given to `waitForApproval` — including the
- * `_2`, `_3` suffixes the SDK appends when the same key is used more than once.
+ * `stepKey` must match the `key` given to `waitForApproval`. Keys must be unique
+ * within a workflow; reusing one throws rather than silently renaming it.
  *
  * @example
  * const urls = await step("urls", () => getApprovalUrls("manager"));

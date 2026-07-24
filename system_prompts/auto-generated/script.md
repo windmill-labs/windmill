@@ -1946,8 +1946,8 @@ waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: bool
  * `resume_job` record the step's built-in approval buttons use, so they are
  * stable across replays and safe to embed in a custom notification.
  * 
- * `stepKey` must match the `key` given to `waitForApproval` — including the
- * `_2`, `_3` suffixes the SDK appends when the same key is used more than once.
+ * `stepKey` must match the `key` given to `waitForApproval`. Keys must be unique
+ * within a workflow; reusing one throws rather than silently renaming it.
  * 
  * @example
  * const urls = await step("urls", () => getApprovalUrls("manager"));
