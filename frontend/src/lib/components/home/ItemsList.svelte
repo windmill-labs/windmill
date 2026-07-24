@@ -177,8 +177,11 @@
 	async function loadRunnables(reset: boolean): Promise<void> {
 		const ws = $workspaceStore
 		if (!ws || !$userStore) return
+		// Only the very first load shows the skeleton; reorder/filter reloads keep
+		// the toolbar and current items visible (they're replaced on arrival) so the
+		// sort control itself doesn't flicker out when you use it.
+		if (scripts === undefined) loading = true
 		if (reset) {
-			loading = true
 			serverCursor = undefined
 		}
 		const { orderBy, orderDesc } = sortToParams(sortOrder)
