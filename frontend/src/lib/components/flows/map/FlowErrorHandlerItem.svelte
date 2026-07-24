@@ -7,7 +7,7 @@
 	import { insertNewFailureModule } from '$lib/components/flows/flowStateUtils.svelte'
 	import type { RawScript, ScriptLang } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
-	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+	import { refreshFlowStateStore } from '$lib/components/flows/agentEditStore.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DiffActionBar from './DiffActionBar.svelte'
 	import { getNodeColorClasses, aiActionToNodeState } from '$lib/components/graph'
@@ -58,7 +58,7 @@
 		}
 
 		selectionManager.selectId('failure')
-		refreshStateStore(flowStore)
+		refreshFlowStateStore(flowStore)
 	}
 
 	const smallFailureModule = $derived(!(failureModuleId && diffManager && moduleAction) && compact)

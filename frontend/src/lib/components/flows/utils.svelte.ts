@@ -48,9 +48,9 @@ export function evalValue(
 	let v: any
 	let t = inputTransforms?.[k]
 
-	if (t.type == 'static') {
+	if (t?.type == 'static') {
 		v = t.value
-	} else if (t.type == 'javascript') {
+	} else if (t?.type == 'javascript') {
 		try {
 			let context = {
 				flow_input: pickableProperties?.flow_input,

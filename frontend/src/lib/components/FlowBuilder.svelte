@@ -11,6 +11,11 @@
 	} from '$lib/gen'
 	import { initHistory, redo, undo } from '$lib/history.svelte'
 	import {
+		linkedToolsScope,
+		linkedAgentToolsVersion,
+		migrateLinkedAgentToolsScope
+	} from '$lib/components/flows/linkedAgentToolsStore.svelte'
+	import {
 		enterpriseLicense,
 		userStore,
 		userWorkspaces,
@@ -547,6 +552,29 @@
 	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
 	const history = initHistory(untrack(() => flowStore).val)
 	const pathStore = writable<string>(untrack(() => pathStoreInit) ?? initialPath)
+
+	// Linked-agent tool resolutions are scoped by workspace + flow path, but publishers key by the
+	// flow doc's own path while readers use the live-edited $pathStore — which diverge for renames
+	// and renamed drafts. Sweep the doc-path bucket into the live scope on every rename and every
+	// publish (initFlowState re-runs on session-draft sync and republishes under the doc path).
+	let prevLinkedToolsScope = untrack(() => linkedToolsScope(opWorkspace, $pathStore))
+	$effect(() => {
+		linkedAgentToolsVersion()
+		const scope = linkedToolsScope(opWorkspace, $pathStore)
+		const docScope = linkedToolsScope(
+			opWorkspace,
+			(flowStore.val as { path?: string }).path ?? $pathStore
+		)
+		untrack(() => {
+			if (scope !== prevLinkedToolsScope) {
+				migrateLinkedAgentToolsScope(prevLinkedToolsScope, scope)
+				prevLinkedToolsScope = scope
+			}
+			if (docScope !== scope) {
+				migrateLinkedAgentToolsScope(docScope, scope)
+			}
+		})
+	})
 
 	// "Open in AI session" target: the URL draft path the editor loads/saves by
 	// (which for a new flow differs from the live-edited friendly `$pathStore`),

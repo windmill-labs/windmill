@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT value FROM resource WHERE workspace_id = $1 AND path = $2 AND resource_type = 'ai_agent'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "8c08eb619da44fd89d5f6f787b96f6a9252200e32280b2c6fa49a58ae2cb676f"
+}

@@ -36,7 +36,7 @@
 	import { findModuleInFlow } from '../flowTree'
 	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
 	import { MoveManager } from '$lib/components/graph/moveManager.svelte'
-	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+	import { refreshFlowStateStore } from '../agentEditStore.svelte'
 	import type { GraphModuleState } from '$lib/components/graph'
 	import FlowStickyNode from './FlowStickyNode.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
@@ -76,7 +76,6 @@
 		disableSettings?: boolean
 		newFlow?: boolean
 		smallErrorHandler?: boolean
-		workspace?: string | undefined
 		onTestUpTo?: ((id: string) => void) | undefined
 		onEditInput?: (moduleId: string, key: string) => void
 		localModuleStates?: Record<string, GraphModuleState>
@@ -108,7 +107,6 @@
 		disableSettings = false,
 		newFlow = false,
 		smallErrorHandler = false,
-		workspace = $workspaceStore,
 		onTestUpTo,
 		onEditInput,
 		localModuleStates = {},
@@ -426,7 +424,7 @@
 			parentArr.splice(lastIndex + 1, 0, ...clones)
 		}
 
-		refreshStateStore(flowStore)
+		refreshFlowStateStore(flowStore)
 		selectionManager.selectByIds(allCloneIds)
 	}
 
@@ -599,7 +597,7 @@
 			failureModule={flowStore.val.value?.failure_module}
 			currentInputSchema={flowStore.val.schema}
 			{selectionManager}
-			{workspace}
+			workspace={opWs}
 			editMode
 			{onTestUpTo}
 			{onEditInput}
@@ -686,7 +684,7 @@
 							selectionManager.selectId(movingId)
 						}
 						moveManager.clearMoving()
-						refreshStateStore(flowStore)
+						refreshFlowStateStore(flowStore)
 						dispatch('change')
 					}
 
@@ -720,7 +718,7 @@
 							instructions: detail.inlineScript?.instructions
 						})
 					}
-					refreshStateStore(flowStore)
+					refreshFlowStateStore(flowStore)
 					dispatch('change')
 					return
 				}
@@ -751,7 +749,7 @@
 						const id = tools[tools.length - 1].id
 						selectionManager.selectId(id)
 					}
-					refreshStateStore(flowStore)
+					refreshFlowStateStore(flowStore)
 					dispatch('change')
 					return
 				}
@@ -829,13 +827,13 @@
 				if (['branchone', 'branchall'].includes(detail.kind)) {
 					await addBranch(module.id)
 				}
-				refreshStateStore(flowStore)
+				refreshFlowStateStore(flowStore)
 				dispatch('change')
 			}}
 			onNewBranch={async (id) => {
 				if (id) {
 					await addBranch(id)
-					refreshStateStore(flowStore)
+					refreshFlowStateStore(flowStore)
 				}
 			}}
 			onSelect={(id) => {
@@ -889,13 +887,13 @@
 				}
 				flowStateStore.val[newId] = flowStateStore.val[id]
 				delete flowStateStore.val[id]
-				refreshStateStore(flowStore)
+				refreshFlowStateStore(flowStore)
 				selectionManager.selectId(newId)
 			}}
 			onDeleteBranch={async ({ id, index }) => {
 				if (id) {
 					await removeBranch(id, index)
-					refreshStateStore(flowStore)
+					refreshFlowStateStore(flowStore)
 					selectionManager.selectId(id)
 				}
 			}}
@@ -934,7 +932,7 @@
 				})
 
 				targetModules.splice(targetIndex + 1, 0, clone)
-				refreshStateStore(flowStore)
+				refreshFlowStateStore(flowStore)
 				selectionManager.selectId(clone.id)
 			}}
 			onUpdateMock={(detail) => {
@@ -943,7 +941,7 @@
 					throw new Error(`Node ${detail.id} not found`)
 				}
 				module.mock = $state.snapshot(detail.mock)
-				refreshStateStore(flowStore)
+				refreshFlowStateStore(flowStore)
 			}}
 			{onTestFlow}
 			{isRunning}

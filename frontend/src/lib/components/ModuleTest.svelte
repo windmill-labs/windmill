@@ -137,6 +137,8 @@
 				])
 			)
 
+			const agentVal = val
+
 			await jobLoader?.runFlowPreview(
 				args,
 				{
@@ -144,11 +146,16 @@
 						modules: [
 							{
 								id: mod.id,
+								// `agent`/`tool_inputs` aren't in the generated FlowModuleValue type; cast to
+								// carry them through. A linked step has no tools of its own, so the resource's
+								// tools and their host bindings are resolved server-side from these.
 								value: {
 									type: 'aiagent',
-									tools: mod.value.type == 'aiagent' ? mod.value.tools : [],
+									...(agentVal.agent
+										? { agent: agentVal.agent, tool_inputs: agentVal.tool_inputs }
+										: { tools: agentVal.tools ?? [] }),
 									input_transforms: inputTransforms as AiAgent['input_transforms']
-								}
+								} as Extract<FlowModule['value'], { type: 'aiagent' }>
 							}
 						]
 					},

@@ -36,6 +36,10 @@
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowPathViewer from './FlowPathViewer.svelte'
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
+	import AgentResourceBar from './AgentResourceBar.svelte'
+	import AgentToolBindings from './AgentToolBindings.svelte'
+	import { getLinkedAgentTools, linkedToolsScope } from '../linkedAgentToolsStore.svelte'
+	import { flowLocalAgentSchema } from '../agentResourceUtils'
 	import FlowModuleMockTransitionMessage from './FlowModuleMockTransitionMessage.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { SecondsInput } from '$lib/components/common'
@@ -62,7 +66,7 @@
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+	import { refreshFlowStateStore } from '$lib/components/flows/agentEditStore.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import AssetsDropdownButton from '$lib/components/assets/AssetsDropdownButton.svelte'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
@@ -173,6 +177,7 @@
 			flowModule.value.type === 'aiagent'
 	)
 	let visibleSelected = $derived(selected === 'chat' && !canShowChatTab ? 'inputs' : selected)
+	let agentLinked = $derived(flowModule.value.type === 'aiagent' && Boolean(flowModule.value.agent))
 	let advancedSelected = $state('retries')
 	let advancedRuntimeSelected = $state('concurrency')
 	let s3Kind = $state('s3_client')
@@ -1119,11 +1124,65 @@
 														class="absolute left-2 top-2 rounded-full w-2 h-2 bg-red-300"
 													></div>
 												{/if}
+												{#if flowModule.value.type === 'aiagent'}
+													<!-- Inside the wrapper so the card scrolls with the inputs (a single
+													scroll region) instead of stacking a second scrollbar above it. -->
+													<AgentResourceBar
+														moduleId={flowModule.id}
+														opWorkspace={opWs}
+														flowPath={$pathStore}
+														bind:agent={
+															() =>
+																flowModule.value.type === 'aiagent'
+																	? flowModule.value.agent
+																	: undefined,
+															(v) => {
+																if (flowModule.value.type === 'aiagent') {
+																	flowModule.value.agent = v
+																}
+															}
+														}
+														bind:inputTransforms={
+															() => (flowModule.value as any).input_transforms,
+															(v) => {
+																if (flowModule.value.type === 'aiagent') {
+																	;(flowModule.value as any).input_transforms = v
+																}
+															}
+														}
+														bind:tools={
+															() =>
+																flowModule.value.type === 'aiagent'
+																	? (flowModule.value.tools ?? [])
+																	: [],
+															(v) => {
+																if (flowModule.value.type === 'aiagent') {
+																	flowModule.value.tools = v
+																}
+															}
+														}
+														bind:toolInputs={
+															() =>
+																flowModule.value.type === 'aiagent'
+																	? (flowModule.value.tool_inputs ?? {})
+																	: {},
+															(v) => {
+																if (flowModule.value.type === 'aiagent') {
+																	// An emptied map reverts to absent so the doc matches its pre-override state.
+																	flowModule.value.tool_inputs =
+																		Object.keys(v).length > 0 ? v : undefined
+																}
+															}
+														}
+													/>
+												{/if}
 												<InputTransformSchemaForm
 													class="px-2 xl:px-4 pb-8"
 													bind:this={inputTransformSchemaForm}
 													pickableProperties={stepPropPicker.pickableProperties}
-													schema={flowStateStore.val[selectedId]?.schema ?? {}}
+													schema={agentLinked
+														? flowLocalAgentSchema(flowStateStore.val[selectedId]?.schema ?? {})
+														: (flowStateStore.val[selectedId]?.schema ?? {})}
 													previousModuleId={previousModule?.id}
 													bind:args={
 														() => {
@@ -1149,6 +1208,32 @@
 													helperScript={retrieveDynCodeAndLang(flowModule.value)}
 													chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 												/>
+												{#if agentLinked}
+													<!-- Linked agent: the resource's tools with their inputs rebindable to this
+													flow; overrides persist on the step as tool_inputs (diff from the resource). -->
+													<AgentToolBindings
+														tools={getLinkedAgentTools(
+															linkedToolsScope(opWs, $pathStore),
+															flowModule.id
+														)}
+														pickableProperties={stepPropPicker.pickableProperties}
+														extraLib={stepPropPicker.extraLib}
+														workspace={opWs}
+														bind:toolInputs={
+															() =>
+																flowModule.value.type === 'aiagent'
+																	? (flowModule.value.tool_inputs ?? {})
+																	: {},
+															(v) => {
+																if (flowModule.value.type === 'aiagent') {
+																	// An emptied map reverts to absent so the doc matches its pre-override state.
+																	flowModule.value.tool_inputs =
+																		Object.keys(v).length > 0 ? v : undefined
+																}
+															}
+														}
+													/>
+												{/if}
 											</PropPickerWrapper>
 										</div>
 									{:else if visibleSelected === 'test'}
@@ -1176,7 +1261,9 @@
 											bind:this={modulePreview}
 											mod={flowModule}
 											{noEditor}
-											schema={flowStateStore.val[selectedId]?.schema ?? {}}
+											schema={agentLinked
+												? flowLocalAgentSchema(flowStateStore.val[selectedId]?.schema ?? {})
+												: (flowStateStore.val[selectedId]?.schema ?? {})}
 											bind:testJob
 											bind:testIsLoading
 											bind:scriptProgress
@@ -1586,7 +1673,7 @@
 											onUpdateMock={(detail) => {
 												flowModule.mock = detail
 												flowModule = flowModule
-												refreshStateStore(flowStore)
+												refreshFlowStateStore(flowStore)
 											}}
 											{testJob}
 											{scriptProgress}

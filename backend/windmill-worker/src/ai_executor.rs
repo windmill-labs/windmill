@@ -35,7 +35,7 @@ use windmill_common::{
     error::{self, Error},
     flow_conversations::MessageType,
     flow_status::AgentAction,
-    flows::{FlowModule, FlowModuleValue, ToolValue},
+    flows::{AgentTool, FlowModule, FlowModuleValue, InputTransform, ToolValue},
     get_latest_hash_for_path,
     jobs::JobKind,
     scripts::get_full_hub_script_by_path,
@@ -113,17 +113,52 @@ fn find_module_by_id(
     Ok(found)
 }
 
-fn find_ai_agent_tool_module_in_parent_agent(
+async fn find_ai_agent_tool_module_in_parent_agent(
     modules: &Vec<FlowModule>,
     parent_agent_step_id: &str,
     tool_module_id: &str,
+    client: &AuthedClient,
+    job_id: uuid::Uuid,
 ) -> Result<Option<FlowModule>, Error> {
     let Some(parent_agent_module) = find_module_by_id(modules, parent_agent_step_id)? else {
         return Ok(None);
     };
 
-    let FlowModuleValue::AIAgent { tools, .. } = parent_agent_module.get_value()? else {
+    let FlowModuleValue::AIAgent { tools, agent, .. } = parent_agent_module.get_value()? else {
         return Ok(None);
+    };
+
+    // A linked parent carries no tools on the module (they live in the resource, resolved only in
+    // the main execution branch). Resolve them from the resource here too, so a nested agent tool
+    // of a saved+linked agent can still be located when it runs as its own job.
+    let tools = if let Some(agent_ref) = agent.as_deref() {
+        let agent_path = agent_ref
+            .trim_start_matches("$res:")
+            .trim_start_matches("res://");
+        let resource_value = client
+            .get_resource_value_interpolated::<serde_json::Value>(
+                agent_path,
+                Some(job_id.to_string()),
+            )
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "failed to load ai_agent resource {agent_path}: {e}"
+                ))
+            })?;
+        match resource_value {
+            serde_json::Value::Object(mut map) => match map.remove("tools") {
+                Some(t) => serde_json::from_value::<Vec<AgentTool>>(t).map_err(|e| {
+                    Error::internal_err(format!(
+                        "invalid tools in ai_agent resource {agent_path}: {e}"
+                    ))
+                })?,
+                None => Vec::new(),
+            },
+            _ => Vec::new(),
+        }
+    } else {
+        tools
     };
 
     for tool in tools {
@@ -172,6 +207,36 @@ async fn fetch_script_description(db: &DB, w_id: &str, hash: i64) -> Option<Stri
     .filter(|d| !d.is_empty())
 }
 
+/// Overlay a linked step's host-local tool wiring onto the agent resource's tools. For each tool
+/// id present in `tool_inputs`, merge its per-input transforms into that tool's `input_transforms`
+/// (step wins). Only `FlowModule` tools carry input transforms; MCP/websearch tools are skipped.
+fn overlay_tool_inputs(
+    tools: &mut [AgentTool],
+    tool_inputs: &HashMap<String, HashMap<String, InputTransform>>,
+) {
+    if tool_inputs.is_empty() {
+        return;
+    }
+    for tool in tools.iter_mut() {
+        let Some(overrides) = tool_inputs.get(&tool.id) else {
+            continue;
+        };
+        let ToolValue::FlowModule(fmv) = &mut tool.value else {
+            continue;
+        };
+        let input_transforms = match fmv {
+            FlowModuleValue::Script { input_transforms, .. }
+            | FlowModuleValue::RawScript { input_transforms, .. }
+            | FlowModuleValue::FlowScript { input_transforms, .. }
+            | FlowModuleValue::AIAgent { input_transforms, .. } => input_transforms,
+            _ => continue,
+        };
+        for (key, transform) in overrides {
+            input_transforms.insert(key.clone(), transform.clone());
+        }
+    }
+}
+
 pub async fn handle_ai_agent_job(
     // connection
     conn: &Connection,
@@ -193,14 +258,20 @@ pub async fn handle_ai_agent_job(
     has_stream: &mut bool,
 ) -> Result<Box<RawValue>, Error> {
     // build_args_map returns None if no $res:/$var: transforms needed, in which case use original args
-    let args = match build_args_map(job, client, conn).await? {
+    let local_args = match build_args_map(job, client, conn).await? {
         Some(transformed) => transformed,
         None => job.args.as_ref().map(|a| a.0.clone()).unwrap_or_default(),
     };
-    let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&args)?)?;
 
-    // Handle dry_run mode - check credentials without making API calls
-    if args.credentials_check {
+    // Handle dry_run mode - check credentials without making API calls.
+    // The credentials check is always invoked inline (provider present, no agent link and no
+    // parent flow), so it resolves before any flow/agent-resource context is fetched.
+    let is_credentials_check = local_args
+        .get("credentials_check")
+        .map(|v| v.get().trim() == "true")
+        .unwrap_or(false);
+    if is_credentials_check {
+        let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&local_args)?)?;
         return handle_credentials_check(&args.provider).await;
     }
 
@@ -273,7 +344,10 @@ pub async fn handle_ai_agent_job(
             &value.modules,
             parent_agent_step_id,
             flow_step_id,
-        )?
+            client,
+            job.id,
+        )
+        .await?
     } else {
         find_module_by_id(&value.modules, flow_step_id)?
     };
@@ -286,12 +360,99 @@ pub async fn handle_ai_agent_job(
 
     let summary = module.summary.clone();
 
-    let FlowModuleValue::AIAgent { tools, omit_output_from_conversation, .. } =
-        module.get_value()?
+    let FlowModuleValue::AIAgent {
+        tools: module_tools,
+        omit_output_from_conversation,
+        agent,
+        tool_inputs,
+        ..
+    } = module.get_value()?
     else {
         return Err(Error::internal_err(
             "AI agent module is not an AI agent".to_string(),
         ));
+    };
+
+    // Hybrid linking: when the step references a saved `ai_agent` resource, the brain config
+    // (provider/model/system prompt/etc.) and the tool set come from that resource; only the
+    // flow-local inputs (user_message/user_attachments) come from the step. When not linked, the
+    // brain is the step's resolved input_transforms and the tools are the module's own.
+    // A linked agent's brain and tool set stay rigid (edit the resource to change them), but the
+    // step may bind those tools' inputs to *this* flow's context via `tool_inputs` — overlaid
+    // onto the resource tools below so the referenced agent is reusable across flows with
+    // different step graphs.
+    let (args, tools): (AIAgentArgs, Vec<AgentTool>) = if let Some(agent_ref) = agent.as_deref() {
+        let agent_path = agent_ref
+            .trim_start_matches("$res:")
+            .trim_start_matches("res://");
+        let resource_value = client
+            .get_resource_value_interpolated::<serde_json::Value>(
+                agent_path,
+                Some(job.id.to_string()),
+            )
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "failed to load ai_agent resource {agent_path}: {e}"
+                ))
+            })?;
+        let mut config = match resource_value {
+            serde_json::Value::Object(map) => map,
+            _ => {
+                return Err(Error::internal_err(format!(
+                    "ai_agent resource {agent_path} must be a JSON object"
+                )))
+            }
+        };
+        // Overlay flow-local inputs onto the agent brain.
+        for key in ["user_message", "user_attachments"] {
+            if let Some(v) = local_args.get(key) {
+                config.insert(
+                    key.to_string(),
+                    serde_json::from_str(v.get()).unwrap_or(serde_json::Value::Null),
+                );
+            }
+        }
+        let mut tools = match config.remove("tools") {
+            Some(t) => serde_json::from_value::<Vec<AgentTool>>(t).map_err(|e| {
+                Error::internal_err(format!(
+                    "invalid tools in ai_agent resource {agent_path}: {e}"
+                ))
+            })?,
+            None => Vec::new(),
+        };
+        // Bind the resource's tools to this flow's context. Only the step's transforms are
+        // applied; the resource keeps whatever the agent author saved (which references the
+        // authoring flow and is meaningless here). Unmatched tool ids / input keys are ignored.
+        overlay_tool_inputs(&mut tools, &tool_inputs);
+        let args = serde_json::from_value::<AIAgentArgs>(serde_json::Value::Object(config))
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "invalid ai_agent resource config {agent_path}: {e}"
+                ))
+            })?;
+        (args, tools)
+    } else {
+        let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&local_args)?)?;
+        (args, module_tools)
+    };
+
+    // Nesting is capped at flow → agent → nested agent. When this job is itself a nested tool,
+    // a linked resource's tool set may still contain AIAgent tools (the editor can't constrain a
+    // shared resource); don't advertise them — invoking one would only fail the depth check as a
+    // third-level agent.
+    let tools = if direct_parent_job_kind == JobKind::AIAgent {
+        tools
+            .into_iter()
+            .filter(|t| {
+                !matches!(
+                    &t.value,
+                    ToolValue::FlowModule(FlowModuleValue::AIAgent { .. })
+                )
+            })
+            .collect()
+    } else {
+        tools
     };
 
     // Separate Windmill tools from MCP tools, websearch, and extract MCP resource configs
@@ -1432,6 +1593,85 @@ mod tests {
             content: Some(OpenAIContent::Text(content.to_string())),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn overlay_tool_inputs_binds_matching_flowmodule_tool_only() {
+        fn js(expr: &str) -> InputTransform {
+            InputTransform::Javascript { expr: expr.to_string() }
+        }
+        fn script_tool(id: &str, key: &str, expr: &str) -> AgentTool {
+            let mut its = HashMap::new();
+            its.insert(key.to_string(), js(expr));
+            AgentTool {
+                id: id.to_string(),
+                summary: None,
+                description: None,
+                value: ToolValue::FlowModule(FlowModuleValue::Script {
+                    input_transforms: its,
+                    path: "u/test/tool".to_string(),
+                    hash: None,
+                    tag_override: None,
+                    is_trigger: None,
+                    pass_flow_input_directly: None,
+                }),
+            }
+        }
+        fn script_its(tool: &AgentTool) -> &HashMap<String, InputTransform> {
+            let ToolValue::FlowModule(FlowModuleValue::Script { input_transforms, .. }) =
+                &tool.value
+            else {
+                panic!("expected script tool")
+            };
+            input_transforms
+        }
+
+        // "a" gets rebound, "b" is left alone, the MCP tool is skipped even though it has an override.
+        let mut tools = vec![
+            script_tool("a", "x", "authoring_flow_expr"),
+            script_tool("b", "y", "keep_me"),
+            AgentTool {
+                id: "m".to_string(),
+                summary: None,
+                description: None,
+                value: ToolValue::Mcp(windmill_common::flows::McpToolValue {
+                    resource_path: "u/test/mcp".to_string(),
+                    include_tools: vec![],
+                    exclude_tools: vec![],
+                }),
+            },
+        ];
+
+        let mut tool_inputs: HashMap<String, HashMap<String, InputTransform>> = HashMap::new();
+        tool_inputs.insert(
+            "a".to_string(),
+            HashMap::from([
+                ("x".to_string(), js("flow_input.tenant")),
+                ("z".to_string(), js("results.step1")),
+            ]),
+        );
+        tool_inputs.insert(
+            "m".to_string(),
+            HashMap::from([("q".to_string(), js("ignored"))]),
+        );
+
+        overlay_tool_inputs(&mut tools, &tool_inputs);
+
+        // "a": existing key replaced, new key added.
+        let a = script_its(&tools[0]);
+        assert!(
+            matches!(a.get("x"), Some(InputTransform::Javascript { expr }) if expr == "flow_input.tenant")
+        );
+        assert!(
+            matches!(a.get("z"), Some(InputTransform::Javascript { expr }) if expr == "results.step1")
+        );
+        // "b": no override for it, untouched.
+        let b = script_its(&tools[1]);
+        assert!(
+            matches!(b.get("y"), Some(InputTransform::Javascript { expr }) if expr == "keep_me")
+        );
+        // MCP tool: not a FlowModule, left as-is.
+        assert!(matches!(&tools[2].value, ToolValue::Mcp(_)));
     }
 
     #[test]

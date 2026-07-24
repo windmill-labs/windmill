@@ -11,6 +11,9 @@
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 	import { dfs } from './flows/dfs'
 	import { workspaceStore } from '$lib/stores'
+	import { untrack } from 'svelte'
+	import { resolveLinkedAgentTools } from './flows/flowState'
+	import { linkedToolsScope, setLinkedAgentTools } from './flows/linkedAgentToolsStore.svelte'
 
 	interface Props {
 		flow: {
@@ -63,6 +66,26 @@
 	}
 
 	const dispatch = createEventDispatcher()
+
+	// This read-only viewer doesn't run initFlowState, so linked agents' tools would otherwise never
+	// resolve. Resolve them for display, keyed by module id. Best-effort: resolveLinkedAgentTools
+	// swallows access errors and returns [], so an inaccessible agent simply shows no tool nodes
+	// (its label still names the link) — this never affects a run.
+	$effect(() => {
+		const modules = dfs(flow?.value?.modules ?? [], (m) => m)
+		const ws = workspace
+		untrack(() => {
+			for (const m of modules) {
+				const value = m?.value as { type?: string; agent?: string } | undefined
+				if (value?.type === 'aiagent' && value.agent) {
+					const scope = linkedToolsScope(ws, flow?.path)
+					resolveLinkedAgentTools(value.agent, ws).then((tools) =>
+						setLinkedAgentTools(scope, m.id, tools)
+					)
+				}
+			}
+		})
+	})
 </script>
 
 <div bind:clientHeight={availableHeight} class="grid grid-cols-3 w-full h-full min-h-0">
@@ -113,7 +136,7 @@
 				noGraph ? 'border-0 w-max' : ''
 			)}
 		>
-			<FlowGraphViewerStep schema={flow?.schema} {stepDetail} {hideDefaultInputs} />
+			<FlowGraphViewerStep schema={flow?.schema} {stepDetail} {hideDefaultInputs} {workspace} />
 		</div>
 	{/if}
 </div>

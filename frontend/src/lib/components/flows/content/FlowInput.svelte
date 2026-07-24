@@ -43,7 +43,7 @@
 	import SideBarTab from '$lib/components/meltComponents/SideBarTab.svelte'
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 	import { isObjectTooBig, readFieldsRecursively } from '$lib/utils'
-	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+	import { refreshFlowStateStore } from '$lib/components/flows/agentEditStore.svelte'
 	import type { AiAgent, ScriptLang } from '$lib/gen'
 	import { deepEqual } from 'fast-equals'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -867,7 +867,7 @@
 									onAddNew={(argName) => {
 										handleEditSchema('inputEditor')
 										editableSchemaForm?.openField(argName)
-										refreshStateStore(flowStore)
+										refreshFlowStateStore(flowStore)
 									}}
 								>
 									{#snippet trigger()}
