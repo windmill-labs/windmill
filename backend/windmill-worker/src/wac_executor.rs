@@ -154,12 +154,10 @@ pub async fn prepare_checkpoint_for_resume(
                 .and_then(|p| p.keys.first().cloned())
                 .unwrap_or_default();
 
-            // Match the resume event to *this* approval step by its resume_id. Every
-            // waitForApproval() in the same workflow shares the parent job_id, so keying
-            // only on `job` (and taking the oldest row) made every step after the first
-            // re-inject the first approval's value. A canceled step then carries approved=false
-            // on its own row, and a timed-out step has no row at all -> the None branch below
-            // yields the approved=false default.
+            // Match the resume event to *this* approval step by its resume_id: every
+            // waitForApproval() in a workflow shares the parent job_id, so filtering only on
+            // `job` would let one step read another's approval. A timed-out step matches no
+            // row and falls through to the approved=false default in the None branch below.
             let resume_id = approval_resume_id(&approval_key) as i32;
             let resume_row = sqlx::query_as::<_, (sqlx::types::Json<Box<serde_json::value::RawValue>>, Option<String>, bool)>(
                 "SELECT value, approver, approved FROM resume_job WHERE job = $1 AND resume_id = $2 ORDER BY created_at DESC LIMIT 1",
