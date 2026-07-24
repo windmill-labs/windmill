@@ -24827,8 +24827,8 @@ components:
           type: string
           format: date-time
         hash:
-          type: integer
-          format: int64
+          type: string
+          description: script version hash as a 16-char hex string
         language:
           type: string
         kind:

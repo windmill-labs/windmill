@@ -509,10 +509,16 @@
 			} catch {
 				return
 			}
-			// Drop a stale response: the workspace or term moved on while it was in
-			// flight (debounce already cancels superseded timers; this guards the
-			// in-flight request so it never merges into a different workspace's list).
-			if (untrack(() => $workspaceStore) !== ws || untrack(() => filter) !== term) return
+			// Drop a stale response: workspace, term, or view scope moved on while it
+			// was in flight (debounce cancels superseded timers; this guards the
+			// in-flight request so an old scope/workspace can't merge into the new one).
+			if (
+				untrack(() => $workspaceStore) !== ws ||
+				untrack(() => filter) !== term ||
+				untrack(() => archived) !== showArchived ||
+				untrack(() => includeWithoutMain) !== withoutMain
+			)
+				return
 			mergeRunnables(res.items ?? [])
 		}, 300)
 		return () => clearTimeout(handle)

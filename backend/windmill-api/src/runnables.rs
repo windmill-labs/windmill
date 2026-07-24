@@ -31,6 +31,7 @@ use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult},
 };
+use windmill_types::scripts::ScriptHash;
 use windmill_types::user_drafts::DraftUserRef;
 
 pub fn workspaced_service() -> Router {
@@ -87,9 +88,10 @@ struct RunnableItem {
     ws_error_handler_muted: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     edited_at: Option<chrono::DateTime<chrono::Utc>>,
-    // script-only
+    // script-only. ScriptHash serializes as the 16-char hex string that
+    // /scripts/get/{hash} parses (a raw i64 would produce a broken link).
     #[serde(skip_serializing_if = "Option::is_none")]
-    hash: Option<i64>,
+    hash: Option<ScriptHash>,
     #[serde(skip_serializing_if = "Option::is_none")]
     language: Option<String>,
     #[serde(rename = "kind", skip_serializing_if = "Option::is_none")]
@@ -459,15 +461,17 @@ async fn list_runnables(
     let mut items: Vec<RunnableItem> = vec![];
     let first_page = q.cursor.is_none();
 
-    // Starred items pinned on top of the first page (a user's favorites are few),
-    // ordered; later pages are non-starred only.
+    // Starred items pinned on top of the first page, ordered; later pages are
+    // non-starred only. Bound each branch (like the non-starred ones) so a
+    // heavily-versioned favorite in the archived view can't fan into an unbounded
+    // set of correlated-subquery evaluations.
     if first_page {
         let starred_branches: Vec<String> = ["script", "flow", "app"]
             .iter()
-            .filter_map(|k| branch_for(k, true, None, None))
+            .filter_map(|k| branch_for(k, true, None, Some(per_page)))
             .collect();
         if !starred_branches.is_empty() {
-            let sql = run_union(starred_branches, None);
+            let sql = run_union(starred_branches, Some(per_page));
             let mut query = sqlx::query_as::<_, RunnableItem>(&sql)
                 .bind(&w_id)
                 .bind(&authed.username)
