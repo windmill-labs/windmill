@@ -13790,6 +13790,13 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: resolved
+          description: >-
+            filter on whether a failure has been marked as handled. true keeps only
+            resolved failures, false hides them
+          in: query
+          schema:
+            type: boolean
         - name: is_flow_step
           description: is the job a flow step
           in: query
@@ -14508,6 +14515,79 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CompletedJob"
+
+  /w/{workspace}/jobs/completed/resolve:
+    post:
+      summary: mark failed jobs as resolved
+      description: >-
+        Marks failed jobs as handled so triage surfaces stop showing them as failures.
+        The job status itself is unchanged. Returns the ids actually resolved: ids that
+        are not visible to the caller or did not fail are silently skipped.
+      operationId: resolveCompletedJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                job_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                note:
+                  type: string
+                  description: why the failure is considered handled
+              required:
+                - job_ids
+      responses:
+        "200":
+          description: ids of the jobs that were resolved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  format: uuid
+
+  /w/{workspace}/jobs/completed/unresolve:
+    post:
+      summary: remove the resolution of failed jobs
+      operationId: unresolveCompletedJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                job_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+              required:
+                - job_ids
+      responses:
+        "200":
+          description: ids of the jobs that were unresolved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  format: uuid
 
   /w/{workspace}/jobs_u/queue/cancel/{id}:
     post:
@@ -25262,6 +25342,17 @@ components:
           type: boolean
         is_retry:
           type: boolean
+        resolved:
+          type: boolean
+          description: whether this failure has been marked as handled
+        resolved_by:
+          type: string
+          description: absent when Windmill resolved the failure automatically
+        resolved_at:
+          type: string
+          format: date-time
+        resolution_note:
+          type: string
         worker:
           type: string
       required:

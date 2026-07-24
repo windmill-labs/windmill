@@ -20,6 +20,7 @@
 		Tab,
 		Tabs
 	} from '$lib/components/common'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import RunChart from '$lib/components/RunChart.svelte'
 
 	import JobRunsPreview from '$lib/components/runs/JobRunsPreview.svelte'
@@ -271,6 +272,12 @@
 						? false
 						: undefined,
 			isSkipped: filters.val.show_skipped ? undefined : false,
+			resolved:
+				filters.val.resolved === 'resolved'
+					? true
+					: filters.val.resolved === 'unresolved'
+						? false
+						: undefined,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			hasNullParent:
 				filters.val.path != undefined ||
@@ -310,6 +317,23 @@
 		selectedIds = []
 		jobsLoader?.loadJobs(true, true)
 		sendUserToast(`Canceled ${uuids.length} jobs`)
+	}
+
+	async function setJobsResolution(jobIds: string[], resolved: boolean, note?: string) {
+		const workspace = $workspaceStore ?? ''
+		const affected = resolved
+			? await JobService.resolveCompletedJobs({
+					workspace,
+					requestBody: { job_ids: jobIds, note: note || undefined }
+				})
+			: await JobService.unresolveCompletedJobs({ workspace, requestBody: { job_ids: jobIds } })
+		selectedIds = []
+		manualSelectionMode = undefined
+		resolutionNote = ''
+		jobsLoader?.loadJobs(true, true)
+		sendUserToast(
+			`${resolved ? 'Resolved' : 'Unresolved'} ${affected.length} ${affected.length === 1 ? 'job' : 'jobs'}`
+		)
 	}
 
 	async function onCancelAllJobsMatchingFilters() {
@@ -495,7 +519,8 @@
 		`The exact number of concurrent jobs at the beginning of the time range may be incorrect as only the last ${perPage.val} jobs are taken into account: a job that was started earlier than this limit will not be taken into account`
 	)
 
-	let manualSelectionMode: undefined | 'cancel' | 'rerun' = $state()
+	let manualSelectionMode: undefined | 'cancel' | 'rerun' | 'resolve' = $state()
+	let resolutionNote = $state('')
 </script>
 
 <ConfirmationModal
@@ -902,6 +927,7 @@
 										perPage={perPage.val}
 										bind:batchRerunOptionsIsOpen
 										onCancelJobs={onCancelSelectedJobs}
+										onSetJobsResolution={setJobsResolution}
 										{manualSelectionMode}
 									></RunsTable>
 								{:else}
@@ -931,6 +957,14 @@
 													selectedIds = []
 													batchRerunOptionsIsOpen = true
 												}
+											},
+											{
+												displayName: 'Resolve failed jobs',
+												action: () => (
+													(manualSelectionMode = 'resolve'),
+													(selectedIds = []),
+													(resolutionNote = '')
+												)
 											},
 											{
 												displayName: 'Cancel all jobs matching filters',
@@ -1004,6 +1038,35 @@
 									Cancel {selectedIds.length} jobs
 								</Button>
 							</div>
+						{:else if manualSelectionMode === 'resolve'}
+							<div
+								class="rounded-md bg-surface-tertiary border absolute inset-0 mb-4 flex flex-col items-center justify-center gap-3 p-4"
+							>
+								<p class="text-xs text-secondary text-center max-w-xs">
+									Resolving keeps the run a failure but stops it showing as one in the runs list.
+								</p>
+								<TextInput
+									bind:value={resolutionNote}
+									inputProps={{ placeholder: 'Why is this handled? (optional)' }}
+									size="sm"
+								/>
+								<div class="flex flex-row gap-2">
+									<Button
+										variant="accent"
+										disabled={!selectedIds.length}
+										onClick={() => setJobsResolution(selectedIds, true, resolutionNote)}
+									>
+										Mark {selectedIds.length} resolved
+									</Button>
+									<Button
+										variant="default"
+										disabled={!selectedIds.length}
+										onClick={() => setJobsResolution(selectedIds, false)}
+									>
+										Unresolve {selectedIds.length}
+									</Button>
+								</div>
+							</div>
 						{:else if batchRerunOptionsIsOpen}
 							<BatchReRunOptionsPane
 								{selectedIds}
@@ -1024,6 +1087,7 @@
 									workspace={selectedWorkspace}
 									on:filterByConcurrencyKey={filterByConcurrencyKey}
 									on:filterByWorker={filterByWorker}
+									onResolutionChanged={() => jobsLoader?.loadJobs(true, true)}
 								/>
 							{/if}
 						{:else if selectedIds.length > 1}

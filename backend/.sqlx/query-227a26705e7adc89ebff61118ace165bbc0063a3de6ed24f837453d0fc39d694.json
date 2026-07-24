@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO job_resolution (job_id, workspace_id, resolved_by, note)\n            SELECT c.id, c.workspace_id, $4, $5\n                FROM v2_job_completed c\n                JOIN v2_job j ON j.id = c.id\n                WHERE c.id = ANY($1)\n                    AND c.workspace_id = $2\n                    AND ($3::TEXT[] IS NULL OR j.tag = ANY($3))\n                    AND c.status = 'failure'\n            ON CONFLICT (job_id) DO UPDATE SET\n                resolved_at = now(),\n                resolved_by = EXCLUDED.resolved_by,\n                note = EXCLUDED.note\n            RETURNING job_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Text",
+        "TextArray",
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "227a26705e7adc89ebff61118ace165bbc0063a3de6ed24f837453d0fc39d694"
+}

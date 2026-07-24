@@ -10,7 +10,7 @@ import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import { type UserExt } from './stores'
 import { sendUserToast } from './toast'
-import type { Job, RunnableKind, Script, ScriptLang, Retry } from './gen'
+import type { CompletedJob, Job, RunnableKind, Script, ScriptLang, Retry } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
@@ -82,6 +82,11 @@ export function isJobCancelable(j: Job): boolean {
 
 export function isJobReRunnable(j: Job): boolean {
 	return (j.job_kind === 'script' || j.job_kind === 'flow') && j.parent_job === undefined
+}
+
+// Only a failure can carry a resolution, so cancellations and skipped steps are out.
+export function isJobResolvable(j: Job): j is CompletedJob {
+	return j.type === 'CompletedJob' && !j.success && !j.canceled
 }
 
 export const WORKER_NAME_PREFIX = 'wk'

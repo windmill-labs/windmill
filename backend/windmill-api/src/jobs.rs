@@ -325,6 +325,14 @@ pub fn workspaced_service() -> Router {
             post(delete_completed_job).layer(cors.clone()),
         )
         .route(
+            "/completed/resolve",
+            post(resolve_completed_jobs).layer(cors.clone()),
+        )
+        .route(
+            "/completed/unresolve",
+            post(unresolve_completed_jobs).layer(cors.clone()),
+        )
+        .route(
             "/flow/resume/{id}",
             post(resume_suspended_flow_as_owner).layer(cors.clone()),
         )
@@ -1424,6 +1432,10 @@ macro_rules! get_job_query {
             "v2_job_completed.duration_ms, v2_job_completed.completed_at, CASE WHEN status = 'success' OR status = 'skipped' THEN true ELSE false END as success, result_columns, deleted, status = 'skipped' as is_skipped, \
             v2_job.labels, \
             EXISTS(SELECT 1 FROM native_retry_attempt WHERE job_id = v2_job.id) as is_retry, \
+            EXISTS(SELECT 1 FROM job_resolution WHERE job_id = v2_job_completed.id) as resolved, \
+            (SELECT resolved_by FROM job_resolution WHERE job_id = v2_job_completed.id) as resolved_by, \
+            (SELECT resolved_at FROM job_resolution WHERE job_id = v2_job_completed.id) as resolved_at, \
+            (SELECT note FROM job_resolution WHERE job_id = v2_job_completed.id) as resolution_note, \
             CASE WHEN result is null or pg_column_size(result) < 90000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result",
             "",
         )
@@ -3012,6 +3024,10 @@ async fn list_jobs(
         && lq.label.is_none()
         && lq.result.is_none()
         && !lq.is_skipped.unwrap_or(false)
+        // Only "resolved = true" forces completed-only: queued jobs would otherwise leak
+        // into a resolved-only view. "resolved = false" (hide resolved) must keep them,
+        // since a running job has no resolution to hide.
+        && lq.resolved != Some(true)
         && lq.created_before.is_none()
         && lq.started_before.is_none()
         && lq.created_or_started_before.is_none()
@@ -9640,6 +9656,127 @@ async fn delete_completed_job<'a>(
         Path((w_id, id)),
     )
     .await;
+}
+
+#[derive(Deserialize)]
+struct ResolveJobsRequest {
+    job_ids: Vec<Uuid>,
+    note: Option<String>,
+}
+
+/// Bounded so the per-id audit rows written below stay bounded too.
+const MAX_RESOLUTION_BATCH: usize = 1000;
+
+fn check_resolution_request(authed: &ApiAuthed, job_ids: &[Uuid]) -> error::Result<()> {
+    if authed.is_operator {
+        return Err(error::Error::NotAuthorized(
+            "Operators cannot resolve jobs".to_string(),
+        ));
+    }
+    if job_ids.len() > MAX_RESOLUTION_BATCH {
+        return Err(error::Error::BadRequest(format!(
+            "Cannot resolve more than {MAX_RESOLUTION_BATCH} jobs at once, got {}",
+            job_ids.len()
+        )));
+    }
+    Ok(())
+}
+
+/// Marks failed jobs as handled. Returns the ids actually affected: an id that is not
+/// visible to the caller, carries an out-of-scope tag, or did not fail is silently
+/// absent rather than an error, so a bulk selection never fails as a whole.
+async fn resolve_completed_jobs(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<ResolveJobsRequest>,
+) -> error::JsonResult<Vec<Uuid>> {
+    check_resolution_request(&authed, &req.job_ids)?;
+    let mut tx = user_db.begin(&authed).await?;
+    let tags = get_scope_tags(&authed);
+    // The join on v2_job is what authorizes this write: v2_job_completed has RLS
+    // disabled, so v2_job's policies are the only thing scoping rows to the caller.
+    // `status = 'failure'` keeps the invariant that only a failure can be resolved.
+    let resolved = sqlx::query_scalar!(
+        "INSERT INTO job_resolution (job_id, workspace_id, resolved_by, note)
+            SELECT c.id, c.workspace_id, $4, $5
+                FROM v2_job_completed c
+                JOIN v2_job j ON j.id = c.id
+                WHERE c.id = ANY($1)
+                    AND c.workspace_id = $2
+                    AND ($3::TEXT[] IS NULL OR j.tag = ANY($3))
+                    AND c.status = 'failure'
+            ON CONFLICT (job_id) DO UPDATE SET
+                resolved_at = now(),
+                resolved_by = EXCLUDED.resolved_by,
+                note = EXCLUDED.note
+            RETURNING job_id",
+        &req.job_ids,
+        &w_id,
+        tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
+        &authed.username,
+        req.note.as_deref(),
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for id in &resolved {
+        audit_log(
+            &mut *tx,
+            &authed,
+            "jobs.resolve",
+            ActionKind::Update,
+            &w_id,
+            Some(&id.to_string()),
+            None,
+        )
+        .await?;
+    }
+
+    tx.commit().await?;
+    Ok(Json(resolved))
+}
+
+async fn unresolve_completed_jobs(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<ResolveJobsRequest>,
+) -> error::JsonResult<Vec<Uuid>> {
+    check_resolution_request(&authed, &req.job_ids)?;
+    let mut tx = user_db.begin(&authed).await?;
+    let tags = get_scope_tags(&authed);
+    let unresolved = sqlx::query_scalar!(
+        "DELETE FROM job_resolution r
+            USING v2_job_completed c
+            JOIN v2_job j ON j.id = c.id
+            WHERE r.job_id = c.id
+                AND c.id = ANY($1)
+                AND c.workspace_id = $2
+                AND ($3::TEXT[] IS NULL OR j.tag = ANY($3))
+            RETURNING r.job_id",
+        &req.job_ids,
+        &w_id,
+        tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for id in &unresolved {
+        audit_log(
+            &mut *tx,
+            &authed,
+            "jobs.unresolve",
+            ActionKind::Update,
+            &w_id,
+            Some(&id.to_string()),
+            None,
+        )
+        .await?;
+    }
+
+    tx.commit().await?;
+    Ok(Json(unresolved))
 }
 
 async fn get_otel_traces(

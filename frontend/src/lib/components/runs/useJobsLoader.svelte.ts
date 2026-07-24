@@ -76,6 +76,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let worker = $derived(filters?.worker ?? null)
 	let success = $derived(filters?.status ?? null)
 	let showSkipped = $derived(filters?.show_skipped ?? false)
+	let resolutionFilter = $derived(filters?.resolved ?? 'all')
 	let showSchedules = $derived(!filters?.job_trigger_kind?.includes('!schedule'))
 	let showFutureJobs = $derived(filters?.show_future_jobs ?? true)
 	let resultFilter = $derived(filters?.result)
@@ -256,6 +257,12 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 						? false
 						: undefined,
 			isSkipped: showSkipped ? undefined : false,
+			resolved:
+				resolutionFilter === 'resolved'
+					? true
+					: resolutionFilter === 'unresolved'
+						? false
+						: undefined,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			hasNullParent: jobKindsCat != 'all' ? true : undefined,
 			label: label == null || label === '' ? undefined : label,

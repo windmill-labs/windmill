@@ -391,6 +391,23 @@ pub struct CompletedJob {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub is_retry: Option<bool>,
+    // True when this failure has been marked handled (has a job_resolution row), so
+    // triage surfaces stop rendering it red. `status` stays 'failure' either way.
+    // The details are only selected by the single-job GET; the runs list carries
+    // `resolved` alone to keep its payload small.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub resolved: Option<bool>,
+    // None means it was resolved automatically by a succeeding retry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub resolved_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub resolved_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub resolution_note: Option<String>,
 }
 
 impl CompletedJob {
