@@ -639,11 +639,14 @@
 	// (label filtering is client-side over loaded rows, so it must see that window).
 	let treeLazyMode = $derived(!searching && ownerFilter == undefined && labelFilter == undefined)
 	let treeInjectFolders = $derived(treeLazyMode ? (folderNamesRes.current ?? []) : [])
-	// Keep the global "load more" outside search: in lazy mode it advances the browse
-	// stream to surface more user/loose top-level items (folder rows from it are
-	// ignored by treeSource — folders come from the store); in scoped mode it pages
-	// within the selected owner.
-	let treeGlobalHasMore = $derived(!searching ? hasMoreServer : false)
+	// The bottom "load more" only pages the *global* stream, which in lazy mode holds
+	// folder rows the tree ignores (folders come from the store and are all injected
+	// already) — so surfacing it there is confusing. Restrict it to scoped mode, where
+	// it pages within the selected owner. In lazy mode the footer instead reveals more
+	// root nodes purely client-side (nbDisplayed) when there are more than are shown,
+	// and each folder paginates within itself; users past the window are reached via
+	// their owner chip.
+	let treeGlobalHasMore = $derived(ownerFilter != undefined && !searching ? hasMoreServer : false)
 	$effect(() => {
 		if ($userStore && $workspaceStore) {
 			;[archived, includeWithoutMain, sortOrder, searching, ownerFilter, itemKind]
