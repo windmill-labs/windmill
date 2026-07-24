@@ -72,12 +72,16 @@
 	let ownerState = $derived(ownerKey != undefined ? ownerLoad?.[ownerKey] : undefined)
 
 	let showMax = $state(15)
-	// A lazy owner paginates server-side ("Load more"), so show all its already-loaded
-	// items rather than the tight client slice (which would add a second, confusing
-	// "Show more" button).
+	// A lazy owner paginates server-side ("Load more"), so when opened on its own it
+	// shows all its already-loaded rows (no second, confusing client "Show more").
+	// EXCEPT under "expand all" (collapseAll=false), which opens every visible owner at
+	// once — rendering all of each would be thousands of rows and freeze the tab — so
+	// there we cap to the client slice and let "Show more" reveal the rest per owner.
 	let effectiveMax = $derived(
 		isLazyOwner && ownerState != undefined && (isFolder(item) || isUser(item))
-			? item.items.length
+			? collapseAll
+				? item.items.length
+				: Math.min(item.items.length, showMax)
 			: showMax
 	)
 
@@ -207,7 +211,9 @@
 						     re-sort/re-filter re-fetch keeps the old rows visible and swaps them
 						     in place, so flashing "Loading…" under them would just be noise. -->
 						<div class="text-center text-xs py-2 text-secondary">Loading…</div>
-					{:else if !ownerState?.loading && ownerState?.hasMore}
+					{:else if !ownerState?.loading && ownerState?.hasMore && effectiveMax >= item.items.length}
+						<!-- Fetch the next server page only once every already-loaded row is shown
+						     (in "expand all" the client "Show more" above reveals those first). -->
 						<!-- svelte-ignore a11y_click_events_have_key_events -->
 						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
