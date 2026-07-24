@@ -2,14 +2,15 @@
 //! (`GET /w/{workspace}/runnables/list`), which UNION-ALLs scripts, flows and
 //! apps into one keyset-paginated, globally-ordered stream.
 //!
-//! The delicate part is the keyset cursor `(sort_key, path, kind, tiebreak)`.
-//! These tests pin two properties a naive cursor would break:
+//! The delicate parts:
 //!   1. Cross-kind ties — a script and a flow sharing the exact same
 //!      `(sort_key, path)` must each appear exactly once across pages, never
-//!      duplicated or skipped, in every order.
-//!   2. Archived versions — several archived script versions at one path share
-//!      `(name, path, kind)`; the `hash` tiebreak keeps them individually
-//!      reachable when a group crosses a page boundary.
+//!      duplicated or skipped, in every order (the keyset cursor
+//!      `(sort_key, path, kind, tiebreak)`).
+//!   2. Archived view semantics — scripts keep every version as a row (old ones
+//!      archived=true), so "Only archived" must key off the LATEST row per path:
+//!      an active path's superseded version must not leak in, and a fully-archived
+//!      path appears exactly once.
 
 use serde_json::json;
 use sqlx::{Pool, Postgres};
@@ -156,44 +157,69 @@ async fn test_runnables_keyset_no_dupes_across_kind_ties(db: Pool<Postgres>) -> 
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn test_runnables_archived_versions_paginate_via_hash(
+async fn test_runnables_archived_shows_only_paths_whose_latest_is_archived(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
-    // Three archived script versions at one path with identical summary — they
-    // share (name, path, kind); only the `hash` tiebreak keeps them distinct.
-    for (h, sec) in [(811111111i64, 0), (822222222, 1), (833333333, 2)] {
+    // Scripts keep every version as its own row; superseded ones are archived=true.
+    // "Only archived" must key off the LATEST row per path, not every row.
+
+    // Path A: an archived predecessor, then an active latest version. The path is
+    // active, so it must NOT appear in the archived view (the old version leaking in
+    // was the bug).
+    for (h, sec, archived) in [(811111111i64, 0, true), (822222222, 1, false)] {
         sqlx::query(
             "INSERT INTO script (workspace_id, hash, path, summary, description, content, created_by, created_at, language, archived)
-             VALUES ('test-workspace', $1, 'u/test-user/av', 'AV', '', 'x', 'test-user', ('2026-07-19 10:00:0' || $2)::timestamptz, 'deno', true)",
+             VALUES ('test-workspace', $1, 'u/test-user/active_hist', 'AH', '', 'x', 'test-user', ('2026-07-19 10:00:0' || $2)::timestamptz, 'deno', $3)",
         )
-        .bind(h)
-        .bind(sec.to_string())
+        .bind(h).bind(sec.to_string()).bind(archived)
         .execute(&db)
         .await?;
     }
 
-    // Favorite the path: a path-based favorite marks *every* archived version
-    // starred. The archived view must not pin/cap starred (that would drop
-    // versions past the cap from every page), so all three must still page once.
-    sqlx::query(
-        "INSERT INTO favorite (usr, workspace_id, path, favorite_kind) VALUES ('test-user', 'test-workspace', 'u/test-user/av', 'script')",
-    )
-    .execute(&db)
-    .await?;
+    // Path B: fully archived — an older archived version plus a latest archived one.
+    // The archived view must surface it exactly once (its latest row), not per version.
+    for (h, sec) in [(833333333i64, 0), (844444444, 1)] {
+        sqlx::query(
+            "INSERT INTO script (workspace_id, hash, path, summary, description, content, created_by, created_at, language, archived)
+             VALUES ('test-workspace', $1, 'u/test-user/archived_path', 'AP', '', 'x', 'test-user', ('2026-07-19 10:00:0' || $2)::timestamptz, 'deno', true)",
+        )
+        .bind(h).bind(sec.to_string())
+        .execute(&db)
+        .await?;
+    }
 
-    // paginate_all pages one at a time, so every version crosses a page boundary.
+    // Path-based favorites mark every version starred. The archived view must not
+    // pin/cap starred (that would drop rows), and each archived path still pages once.
+    for p in ["u/test-user/active_hist", "u/test-user/archived_path"] {
+        sqlx::query(
+            "INSERT INTO favorite (usr, workspace_id, path, favorite_kind) VALUES ('test-user', 'test-workspace', $1, 'script')",
+        )
+        .bind(p)
+        .execute(&db)
+        .await?;
+    }
+
+    // paginate_all pages one at a time, so a path crossing a page boundary is caught.
     let items = paginate_all(port, "order_by=name&order_desc=false&show_archived=true").await;
-    let av = items
-        .iter()
-        .filter(|i| *i == "script:u/test-user/av")
-        .count();
     assert_eq!(
-        av, 3,
-        "all three favorited archived versions must page exactly once, got {items:?}"
+        items
+            .iter()
+            .filter(|i| *i == "script:u/test-user/active_hist")
+            .count(),
+        0,
+        "an active path's archived predecessor must not leak into the archived view, got {items:?}"
+    );
+    assert_eq!(
+        items
+            .iter()
+            .filter(|i| *i == "script:u/test-user/archived_path")
+            .count(),
+        1,
+        "a fully-archived path must appear exactly once (its latest row), got {items:?}"
     );
     Ok(())
 }

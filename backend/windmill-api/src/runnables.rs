@@ -384,6 +384,19 @@ async fn list_runnables(
         script_extras.push("(o.auto_kind IS NULL OR o.auto_kind <> 'lib')".to_string());
     }
     script_extras.push(archived_pred.to_string());
+    if show_archived {
+        // The script table keeps every version as its own row and marks superseded
+        // ones archived=true, so a bare `archived = true` would surface an active
+        // path's old versions and repeat a genuinely archived path once per version.
+        // Match the canonical script listing: only a path whose LATEST row is archived
+        // belongs in the archived view. (Flows/apps are one row per path, so this only
+        // applies to scripts.)
+        script_extras.push(
+            "o.ctid = (SELECT ctid FROM script s2 WHERE s2.path = o.path \
+             AND s2.workspace_id = o.workspace_id ORDER BY s2.created_at DESC LIMIT 1)"
+                .to_string(),
+        );
+    }
     if let Some(s) = &script_scope {
         script_extras.push(s.clone());
     }
