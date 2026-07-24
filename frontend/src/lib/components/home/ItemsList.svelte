@@ -351,6 +351,9 @@
 		loading: boolean
 		loaded: boolean
 		gen: number
+		// Total rows fetched for this owner so far (leaves + subfolder rows) — the tree
+		// node's own children count undercounts because rows nest into subfolders.
+		count: number
 	}
 	let ownerLoad = $state<Record<string, OwnerLoadState>>({})
 	let treeOwnerItems = $state<ItemType[]>([])
@@ -391,7 +394,9 @@
 			hasMore: st?.hasMore ?? false,
 			loading: true,
 			loaded: st?.loaded ?? false,
-			gen
+			gen,
+			// A fresh (non-more) load replaces this owner's rows, so its count restarts.
+			count: more ? (st?.count ?? 0) : 0
 		}
 		const { orderBy, orderDesc } = sortToParams(sortOrder)
 		let res: { items: RunnableItem[]; next_cursor?: string }
@@ -437,7 +442,8 @@
 			hasMore: !!res.next_cursor,
 			loading: false,
 			loaded: true,
-			gen
+			gen,
+			count: merged.filter((x) => x.path.startsWith(prefix)).length
 		}
 	}
 
@@ -685,20 +691,27 @@
 	// entering/leaving search. Label/kind filtering and fuzzy ranking stay
 	// client-side over the loaded pages, so they don't reload here.
 	let searching = $derived(filter !== '')
-	// Lazy owner tree is active when browsing all (no owner selected, no search, no
-	// label filter): every folder AND user shows as a top-level node and paginates on
-	// expand, its items coming from the separate `treeOwnerItems` store. A selected
-	// owner, an active search, or a label filter instead groups the global loaded
-	// window (label filtering is client-side over loaded rows, so it must see it).
-	let treeLazyMode = $derived(!searching && ownerFilter == undefined && labelFilter == undefined)
+	// Lazy owner tree is active only in the tree view when browsing all (no owner
+	// selected, no search, no label filter): every folder AND user shows as a top-level
+	// node and paginates on expand, its items coming from the separate `treeOwnerItems`
+	// store. In the flat view, or a selected owner / active search / label filter, the
+	// lazy store is unused (the flat list and reloadItems must not touch it), so this is
+	// false and those views group the global loaded window instead.
+	let treeLazyMode = $derived(
+		treeView && !searching && ownerFilter == undefined && labelFilter == undefined
+	)
 	let treeInjectFolders = $derived(treeLazyMode ? (folderNamesRes.current ?? []) : [])
 	let treeInjectUsers = $derived.by(() => {
+		// "Only f/*" hides every user namespace; "u/<you> and f/*" keeps just your own.
 		if (!treeLazyMode) return []
-		const s = new Set(usernamesRes.current ?? [])
+		if (filterUserFolders && filterUserFoldersType === 'only f/*') return []
+		const s = new Set<string>()
 		// Always inject your own personal space (u/<you>): list_usernames can be empty
 		// (you may not be a listed workspace member) yet u/<you> still holds runnables,
 		// and it must not vanish under a name sort whose first page is all folders.
 		if ($userStore?.username) s.add($userStore.username)
+		// Other users only when no user-folder restriction is active.
+		if (!filterUserFolders) for (const u of usernamesRes.current ?? []) s.add(u)
 		return [...s]
 	})
 	// The bottom "load more" only pages the *global* stream, which in lazy mode holds
@@ -737,34 +750,41 @@
 		const owner = ownerFilter
 		const kind = itemKind
 		if (term === '' || !ws || !$userStore) return
+		// Stale if workspace, term, or view scope moved on (the debounce cancels
+		// superseded timers; this also guards each in-flight page so an old scope can't
+		// merge into the new one and aborts the paging loop mid-way).
+		const stale = () =>
+			untrack(() => $workspaceStore) !== ws ||
+			untrack(() => filter) !== term ||
+			untrack(() => archived) !== showArchived ||
+			untrack(() => includeWithoutMain) !== withoutMain ||
+			untrack(() => ownerFilter) !== owner ||
+			untrack(() => itemKind) !== kind
 		const handle = setTimeout(async () => {
-			let res: { items: RunnableItem[] }
-			try {
-				res = await ScriptService.listRunnables({
-					workspace: ws,
-					search: term,
-					showArchived: showArchived ? true : undefined,
-					includeWithoutMain: withoutMain ? true : undefined,
-					kinds: kind !== 'all' ? kind : undefined,
-					pathStart: owner ? owner + '/' : undefined,
-					perPage: 1000
-				})
-			} catch {
-				return
+			let cursor: string | undefined = undefined
+			// Page to exhaustion so search stays workspace-complete beyond the first
+			// 1000 matches; the page cap bounds a pathologically broad term.
+			for (let page = 0; page < 20; page++) {
+				let res: { items: RunnableItem[]; next_cursor?: string }
+				try {
+					res = await ScriptService.listRunnables({
+						workspace: ws,
+						search: term,
+						showArchived: showArchived ? true : undefined,
+						includeWithoutMain: withoutMain ? true : undefined,
+						kinds: kind !== 'all' ? kind : undefined,
+						pathStart: owner ? owner + '/' : undefined,
+						perPage: 1000,
+						cursor
+					})
+				} catch {
+					return
+				}
+				if (stale()) return
+				mergeRunnables(res.items ?? [])
+				cursor = res.next_cursor
+				if (!cursor) break
 			}
-			// Drop a stale response: workspace, term, or view scope moved on while it
-			// was in flight (debounce cancels superseded timers; this guards the
-			// in-flight request so an old scope/workspace can't merge into the new one).
-			if (
-				untrack(() => $workspaceStore) !== ws ||
-				untrack(() => filter) !== term ||
-				untrack(() => archived) !== showArchived ||
-				untrack(() => includeWithoutMain) !== withoutMain ||
-				untrack(() => ownerFilter) !== owner ||
-				untrack(() => itemKind) !== kind
-			)
-				return
-			mergeRunnables(res.items ?? [])
 		}, 300)
 		return () => clearTimeout(handle)
 	})
@@ -827,13 +847,21 @@
 	// injected as a node and its rows come from the on-demand `treeOwnerItems` store,
 	// so the tree never depends on which owners happen to be in the loaded window.
 	// Otherwise (scoped/search/label) the tree just groups the global `items`.
-	let treeSource = $derived(treeLazyMode ? treeOwnerItems : items)
+	let treeSource = $derived(
+		treeLazyMode
+			? treeOwnerItems.filter((x) =>
+					filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType)
+				)
+			: items
+	)
 	// Remount identity: only a *mode* change (workspace, selected owner, entering/leaving
 	// search, label filter) restructures the tree, so only those key the {#key} remount.
 	// A sort/archive/library/kind change keeps the same lazy tree and is applied in place
 	// by reloadItems re-fetching the open owners — so expanded folders don't collapse when
 	// you re-sort (searching is a boolean so per-keystroke query changes don't remount).
-	let treeKey = $derived(`${$workspaceStore}|${ownerFilter}|${searching}|${labelFilter}`)
+	let treeKey = $derived(
+		`${treeView}|${$workspaceStore}|${ownerFilter}|${searching}|${labelFilter}`
+	)
 	// A mode change restructures the tree (it remounts on treeKey), so the lazy owner
 	// store is stale — clear it here (the global reset no longer does). An in-place
 	// sort/filter change leaves treeKey unchanged, so the store survives and its owners

@@ -26,7 +26,7 @@
 		allUsers?: string[]
 		ownerLoad?: Record<
 			string,
-			{ cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean }
+			{ cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean; count: number }
 		>
 		onExpandOwner?: (owner: string, more?: boolean) => void
 		onCollapseOwner?: (owner: string) => void
@@ -133,9 +133,10 @@
 	</div>
 {:else}
 	<div class="border rounded-md bg-surface-tertiary">
-		{#each groupedItems.slice(0, nbDisplayed) as item ('folderName' in item ? `f__${item.folderName}` : 'username' in item ? `u__${item.username}` : `i__${item.type}__${item.path}`)}
+		{#each groupedItems.slice(0, nbDisplayed) as item, rootIndex ('folderName' in item ? `f__${item.folderName}` : 'username' in item ? `u__${item.username}` : `i__${item.type}__${item.path}`)}
 			{#if item}
 				<TreeView
+					{rootIndex}
 					{isSearching}
 					{collapseAll}
 					{item}

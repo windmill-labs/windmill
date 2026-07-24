@@ -21,10 +21,13 @@
 		// path prefixes (`f/<name>` / `u/<name>`).
 		ownerLoad?: Record<
 			string,
-			{ cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean }
+			{ cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean; count: number }
 		>
 		onExpandOwner?: (owner: string, more?: boolean) => void
 		onCollapseOwner?: (owner: string) => void
+		// Position of this node among the rendered root nodes; "expand all" only
+		// auto-loads the first EXPAND_ALL_LOAD_LIMIT of them (see the effect below).
+		rootIndex?: number
 	}
 
 	let {
@@ -36,8 +39,14 @@
 		pipelineFolders,
 		ownerLoad,
 		onExpandOwner,
-		onCollapseOwner
+		onCollapseOwner,
+		rootIndex = 0
 	}: Props = $props()
+
+	// Bounds the request burst from "expand all": however many root owners are rendered
+	// (nbDisplayed can grow via "load 30 more"), it fetches at most this many. Owners
+	// past the cap open empty and load on an explicit click.
+	const EXPAND_ALL_LOAD_LIMIT = 20
 
 	const isFolderItem = (i: typeof item): i is FolderItem => i && 'folderName' in i
 	const isFolder = isFolderItem
@@ -91,11 +100,11 @@
 		untrack(() => {
 			if (ownerKey == undefined) return
 			if (willOpen) {
-				// "Expand all" opens this owner; load it too so it isn't opened empty.
-				// Bounded: only the nbDisplayed root owners are rendered (TreeViewRoot
-				// slices to it), so this is a handful of requests — not one per workspace
-				// folder — and each renders a capped slice (see effectiveMax).
-				onExpandOwner?.(ownerKey)
+				// "Expand all" opens this owner; load it too so it isn't opened empty — but
+				// only for the first EXPAND_ALL_LOAD_LIMIT rendered roots, so a large
+				// nbDisplayed can't launch a request per owner. Beyond the cap, opening is
+				// visual only; the owner loads when clicked.
+				if (depth === 0 && rootIndex < EXPAND_ALL_LOAD_LIMIT) onExpandOwner?.(ownerKey)
 			} else {
 				// "Collapse all" closes without a manual click, so untrack the owner here
 				// too — otherwise it lingers in openOwners and a later reload re-fetches
@@ -225,7 +234,7 @@
 							class="text-center text-xs py-2 text-primary cursor-pointer hover:text-emphasis"
 							onclick={() => ownerKey != undefined && onExpandOwner?.(ownerKey, true)}
 						>
-							Load more
+							Load more in {ownerKey} ({ownerState?.count ?? item.items.length} loaded)
 						</div>
 					{/if}
 				{/if}
