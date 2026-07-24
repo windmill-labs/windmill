@@ -19,6 +19,7 @@
 //! re-scan. Visibility is enforced in-SQL by RLS via the `user_db` transaction.
 
 use crate::db::{ApiAuthed, DB};
+use crate::utils::{build_scope_path_filter, ScopePathFilter};
 use axum::{
     extract::{Extension, Path, Query},
     routing::get,
@@ -58,36 +59,55 @@ struct ListRunnablesQuery {
     cursor: Option<String>,
 }
 
+// Absent optional fields are omitted (not serialized as null) to match the
+// per-kind list contract; the frontend row components expect `undefined`.
 #[derive(Serialize, sqlx::FromRow)]
 struct RunnableItem {
     #[serde(rename = "type")]
     kind: String, // 'script' | 'flow' | 'app'
     path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     summary: Option<String>,
     workspace_id: String,
     extra_perms: serde_json::Value,
     starred: bool,
     archived: bool,
     is_draft: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     draft_only: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     draft_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     draft_users: Option<sqlx::types::Json<Vec<DraftUserRef>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     labels: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     inherited_labels: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     ws_error_handler_muted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     edited_at: Option<chrono::DateTime<chrono::Utc>>,
     // script-only
+    #[serde(skip_serializing_if = "Option::is_none")]
     hash: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     language: Option<String>,
-    #[serde(rename = "kind")]
+    #[serde(rename = "kind", skip_serializing_if = "Option::is_none")]
     script_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     auto_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     use_codebase: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     has_deploy_errors: Option<bool>,
     // app-only
+    #[serde(skip_serializing_if = "Option::is_none")]
     raw_app: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     execution_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     version: Option<i64>,
     // sort keys, echoed into the cursor (not serialized to the client)
     #[serde(skip)]
@@ -99,6 +119,7 @@ struct RunnableItem {
 #[derive(Serialize)]
 struct ListRunnablesResponse {
     items: Vec<RunnableItem>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     next_cursor: Option<String>,
 }
 
@@ -290,6 +311,44 @@ async fn list_runnables(
         None => None,
     };
 
+    // Fine-grained scoped tokens (e.g. `scripts:read:f/foo/*`) must be confined to
+    // their granted paths. RLS alone doesn't honor token scopes, so push the
+    // per-domain path grant into SQL (empty grant -> the branch matches nothing).
+    // Unscoped sessions -> AllowAll -> no predicate.
+    let scope_where = |filter: ScopePathFilter, binds: &mut Vec<String>| -> Option<String> {
+        match filter {
+            ScopePathFilter::AllowAll => None,
+            ScopePathFilter::Restricted { exact, prefix } => {
+                let mut terms: Vec<String> = vec![];
+                for e in exact {
+                    binds.push(e);
+                    terms.push(format!("o.path = ${}", 3 + binds.len()));
+                }
+                for pre in prefix {
+                    binds.push(pre.clone());
+                    let pe = format!("${}", 3 + binds.len());
+                    binds.push(format!("{}/%", pre));
+                    let pl = format!("${}", 3 + binds.len());
+                    terms.push(format!("(o.path = {} OR o.path LIKE {})", pe, pl));
+                }
+                Some(if terms.is_empty() {
+                    "false".to_string()
+                } else {
+                    format!("({})", terms.join(" OR "))
+                })
+            }
+        }
+    };
+    let script_scope = scope_where(
+        build_scope_path_filter(&authed, "scripts", "read"),
+        &mut binds,
+    );
+    let flow_scope = scope_where(
+        build_scope_path_filter(&authed, "flows", "read"),
+        &mut binds,
+    );
+    let app_scope = scope_where(build_scope_path_filter(&authed, "apps", "read"), &mut binds);
+
     // Per-kind archived predicate (scripts/flows have the column; apps don't and
     // are excluded from the archived view).
     let archived_pred = if show_archived {
@@ -302,8 +361,17 @@ async fn list_runnables(
         script_extras.push("(o.auto_kind IS NULL OR o.auto_kind <> 'lib')".to_string());
     }
     script_extras.push(archived_pred.to_string());
-    let flow_extras: Vec<String> = vec![archived_pred.to_string()];
-    let app_extras: Vec<String> = vec![];
+    if let Some(s) = &script_scope {
+        script_extras.push(s.clone());
+    }
+    let mut flow_extras: Vec<String> = vec![archived_pred.to_string()];
+    if let Some(s) = &flow_scope {
+        flow_extras.push(s.clone());
+    }
+    let mut app_extras: Vec<String> = vec![];
+    if let Some(s) = &app_scope {
+        app_extras.push(s.clone());
+    }
 
     let build_branch = |base: &str,
                         kind: &str,

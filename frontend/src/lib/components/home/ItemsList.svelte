@@ -134,6 +134,8 @@
 	// Keyset cursor for the next browse page; null once the stream is exhausted.
 	let serverCursor: string | undefined = undefined
 	let hasMoreServer = $state(false)
+	// Guards against out-of-order responses: only the latest request applies.
+	let loadGen = 0
 
 	// Sort selector value -> merged-endpoint order params.
 	function sortToParams(o: SortOrder): { orderBy: 'updated' | 'name'; orderDesc: boolean } {
@@ -151,15 +153,8 @@
 	}
 
 	function mapRunnable(it: RunnableItem): TableScript | TableFlow | TableApp {
-		// The endpoint serializes absent optional fields as null; the per-kind list
-		// contract omits them, so strip nulls to keep `undefined` (a null draft_users
-		// / labels would otherwise crash the row components on `.length`).
-		const clean: Record<string, unknown> = {}
-		for (const [k, v] of Object.entries(it)) {
-			if (v !== null) clean[k] = v
-		}
 		const base = {
-			...clean,
+			...it,
 			canWrite:
 				canWrite(it.path, (it.extra_perms ?? {}) as any, $userStore) &&
 				(it.type === 'script' || it.workspace_id == $workspaceStore) &&
@@ -187,6 +182,10 @@
 		}
 		const { orderBy, orderDesc } = sortToParams(sortOrder)
 		const searching = filter !== ''
+		const gen = ++loadGen
+		// Snapshot the cursor now: a later request must not consume a cursor minted
+		// by an order/filter that has since changed.
+		const cursor = reset ? undefined : serverCursor
 		let res: { items: RunnableItem[]; next_cursor?: string }
 		try {
 			res = await ScriptService.listRunnables({
@@ -198,13 +197,17 @@
 				// A large page while searching so client fuzzy-match and facets see
 				// enough; browse pages are small and extended via the cursor.
 				perPage: searching ? 1000 : 100,
-				cursor: reset ? undefined : serverCursor
+				cursor
 			})
 		} catch (e: any) {
+			if (gen !== loadGen) return
 			loading = false
 			sendUserToast(`Failed to load items: ${e?.body ?? e?.message ?? e}`, true)
 			return
 		}
+		// A newer request superseded this one (e.g. order changed mid-flight); drop
+		// this response so a stale page/cursor can't be mixed with the new order.
+		if (gen !== loadGen) return
 		serverCursor = res.next_cursor ?? undefined
 		hasMoreServer = !!res.next_cursor
 
@@ -1024,6 +1027,8 @@
 				{nbDisplayed}
 				{collapseAll}
 				sortCompare={compareItems}
+				hasMoreServer={hasMoreServer && !searching}
+				onLoadMore={loadMore}
 				pipelineFolders={visiblePipelineFolders}
 				isSearching={filter !== ''}
 				on:scriptChanged={() => loadScripts(includeWithoutMain)}
@@ -1070,7 +1075,7 @@
 					/>
 				{/each}
 			</div>
-			{#if items && items?.length > 15 && hasMore}
+			{#if items && hasMore}
 				<span class="text-xs font-normal text-secondary"
 					>{Math.min(nbDisplayed, items.length)} items{hasMoreServer && !searching
 						? ''

@@ -11,6 +11,10 @@
 		isSearching?: boolean
 		pipelineFolders?: Set<string>
 		sortCompare?: (a: ItemType, b: ItemType) => number
+		// The server has further pages beyond the loaded items; `onLoadMore` fetches
+		// the next one (grouping only reorders what's already loaded).
+		hasMoreServer?: boolean
+		onLoadMore?: () => void
 	}
 
 	let {
@@ -20,7 +24,9 @@
 		items,
 		isSearching = false,
 		pipelineFolders,
-		sortCompare
+		sortCompare,
+		hasMoreServer = false,
+		onLoadMore
 	}: Props = $props()
 
 	let groupedItems: ReturnType<typeof groupItems> | 'loading' = $state('loading')
@@ -97,12 +103,17 @@
 			{/if}
 		{/each}
 	</div>
-	{#if groupedItems.length > 15 && nbDisplayed < groupedItems.length}
+	{#if nbDisplayed < groupedItems.length || hasMoreServer}
 		<span class="text-xs font-normal text-secondary"
-			>{nbDisplayed} root nodes out of {groupedItems.length}
+			>{Math.min(nbDisplayed, groupedItems.length)} root nodes{hasMoreServer
+				? ''
+				: ` out of ${groupedItems.length}`}
 			<button
 				class="ml-4 text-xs font-normal text-primary hover:text-emphasis"
-				onclick={() => (nbDisplayed += 30)}>load 30 more</button
+				onclick={() => {
+					if (nbDisplayed < groupedItems.length) nbDisplayed += 30
+					else onLoadMore?.()
+				}}>load 30 more</button
 			></span
 		>
 	{/if}
