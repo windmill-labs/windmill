@@ -5,6 +5,9 @@ type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 	type?: U
 	time?: number
 	starred?: boolean
+	// Server fetch ordinal (see ItemsList) — the tree sorts leaves by it to preserve
+	// the endpoint's order rather than re-deriving it.
+	ord?: number
 }
 
 type TableScript = TableItem<Script, 'script'>

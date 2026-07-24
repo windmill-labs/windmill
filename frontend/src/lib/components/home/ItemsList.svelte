@@ -73,6 +73,11 @@
 		time?: number
 		starred?: boolean
 		hash?: string
+		// Fetch ordinal: the position this row arrived in from the server (which already
+		// applied the chosen order + starred-first). Sorting by it reproduces the server's
+		// global order EXACTLY — no client re-derivation that could disagree on collation
+		// or sub-millisecond ties and make a later page jump above shown rows.
+		ord?: number
 	}
 
 	type TableScript = TableItem<Script, 'script'>
@@ -164,6 +169,8 @@
 	let flows: TableFlow[] | undefined = $state()
 	let apps: TableApp[] | undefined = $state()
 	let raw_apps: TableRawApp[] | undefined = $state()
+	// Monotonic fetch-order counter stamped onto each row as it arrives (see TableItem.ord).
+	let fetchOrd = 0
 
 	let filteredItems: (TableScript | TableFlow | TableApp | TableRawApp)[] = $state([])
 
@@ -272,6 +279,7 @@
 		const f: TableFlow[] = reset ? [] : [...(flows ?? [])]
 		const a: TableApp[] = reset ? [] : [...(apps ?? [])]
 		const memberFolders = reset ? new Set<string>() : new Set(pipelineMemberFolders)
+		if (reset) fetchOrd = 0
 		for (const it of res.items ?? []) {
 			if (it.type === 'script') {
 				// Pipeline-member scripts are folded into their pipeline entry.
@@ -280,11 +288,11 @@
 					if (m) memberFolders.add(m[1])
 					continue
 				}
-				s.push(mapRunnable(it) as TableScript)
+				s.push({ ...mapRunnable(it), ord: fetchOrd++ } as TableScript)
 			} else if (it.type === 'flow') {
-				f.push(mapRunnable(it) as TableFlow)
+				f.push({ ...mapRunnable(it), ord: fetchOrd++ } as TableFlow)
 			} else if (it.type === 'app') {
-				a.push(mapRunnable(it) as TableApp)
+				a.push({ ...mapRunnable(it), ord: fetchOrd++ } as TableApp)
 			}
 		}
 		scripts = s
@@ -316,7 +324,9 @@
 				continue
 			}
 			if (have.has(itemKey(it))) continue
-			const mapped = mapRunnable(it)
+			// Appended after the browse window; a higher ord keeps them after it (search
+			// itself ranks by relevance, so this ordinal only matters if sort resumes).
+			const mapped = { ...mapRunnable(it), ord: fetchOrd++ }
 			if (it.type === 'script') s.push(mapped as TableScript)
 			else if (it.type === 'flow') f.push(mapped as TableFlow)
 			else if (it.type === 'app') a.push(mapped as TableApp)
@@ -434,7 +444,7 @@
 			// they never render as their own tree leaf (visiblePipelineFolders drives it).
 			if (it.type === 'script' && it.auto_kind === 'pipeline') continue
 			if (have.has(itemKey(it))) continue
-			merged.push(toTreeItem(it))
+			merged.push({ ...toTreeItem(it), ord: fetchOrd++ })
 		}
 		treeOwnerItems = merged
 		ownerLoad[owner] = {
@@ -513,59 +523,17 @@
 			action: () => (sortOrder = o.value)
 		}))
 	)
-	function sortName(x: { summary?: string; path: string }): string {
-		return x.summary && x.summary !== '' ? x.summary : x.path
-	}
-	// A $derived closure so its identity changes with `sortOrder`, which both re-runs
-	// `combinedItems` (flat view) and re-groups the tree (TreeViewRoot depends on this
-	// prop). Starred items are pinned on top in every order and view — the endpoint
-	// pins starred on the first page for both browse and archived (each is one row per
-	// path), so the client mirrors that.
+	// Preserve the endpoint's exact order rather than re-deriving it on the client:
+	// each row carries its server fetch ordinal (`ord`), which already reflects the
+	// chosen order, the (path, kind) tiebreaks, full-precision timestamps, the database
+	// collation, and starred-first pinning. Sorting by it can never disagree with the
+	// server, so a later page never jumps above shown rows on "load more". Depends on
+	// `sortOrder` only so its identity changes when the order does (re-grouping the tree,
+	// whose leaves also sort by ord); the actual reordering comes from the reload that
+	// restamps ord.
 	let compareItems = $derived.by(() => {
-		const order = sortOrder
-		// Compare the endpoint's unified sort timestamp as a STRING, not a JS Date: the
-		// response carries microseconds (…​.375007Z) but Date.getTime() truncates to ms,
-		// so two rows in the same millisecond would tie client-side and be re-ordered,
-		// letting a later server page jump above shown rows. Lexicographic order on the
-		// fixed ISO format is chronological. (Every kind's sort time is `edited_at` — for
-		// scripts mapRunnable sets it from the endpoint's value.)
-		const tcmp = (x?: string, y?: string) =>
-			(x ?? '') < (y ?? '') ? -1 : (x ?? '') > (y ?? '') ? 1 : 0
-		return (
-			a: { starred?: boolean; edited_at?: string; summary?: string; path: string; type?: string },
-			b: { starred?: boolean; edited_at?: string; summary?: string; path: string; type?: string }
-		): number => {
-			if (!!a.starred !== !!b.starred) return a.starred ? -1 : 1
-			// Match the endpoint's ordering exactly so a row on a later server page can't
-			// jump above already-shown rows on "load more". The server orders by
-			// `<col> <dir>, path <dir>, kind <dir>`: names compare case-insensitively (it
-			// sorts on `lower(summary-or-path)`), then path, then kind ('app' < 'flow' <
-			// 'script'), each in the same direction as the primary.
-			let primary: number
-			let asc: boolean
-			switch (order) {
-				case 'updated_asc':
-					primary = tcmp(a.edited_at, b.edited_at)
-					asc = true
-					break
-				case 'name_asc':
-					primary = cmp(sortName(a).toLowerCase(), sortName(b).toLowerCase())
-					asc = true
-					break
-				case 'name_desc':
-					primary = cmp(sortName(b).toLowerCase(), sortName(a).toLowerCase())
-					asc = false
-					break
-				case 'updated_desc':
-				default:
-					primary = tcmp(b.edited_at, a.edited_at)
-					asc = false
-					break
-			}
-			if (primary !== 0) return primary
-			const p = a.path.localeCompare(b.path) || (a.type ?? '').localeCompare(b.type ?? '')
-			return asc ? p : -p
-		}
+		sortOrder
+		return (a: { ord?: number }, b: { ord?: number }): number => (a.ord ?? 0) - (b.ord ?? 0)
 	})
 
 	const opts: uFuzzy.Options = {
