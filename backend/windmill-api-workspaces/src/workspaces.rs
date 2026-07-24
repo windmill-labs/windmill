@@ -7178,7 +7178,8 @@ async fn attach_dev_workspace(
 }
 
 /// Reverse [`attach_dev_workspace`] / clear the dev designation: unset the dev flag and remove the
-/// prod lock. The workspace keeps its `parent_workspace_id` (it remains an ordinary fork).
+/// prod lock. Whether `parent_workspace_id` is kept depends on the workspace's origin (see the
+/// UPDATE below): a genuine fork stays a fork, a standalone workspace returns to standalone.
 async fn detach_dev_workspace(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
