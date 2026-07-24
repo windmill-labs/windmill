@@ -1,6 +1,12 @@
 import preprocess from 'svelte-preprocess'
 import adapter from '@sveltejs/adapter-static'
 import { preprocessMeltUI, sequence } from '@melt-ui/pp'
+import { readFileSync } from 'fs'
+import { fileURLToPath } from 'url'
+
+const pkg = JSON.parse(
+	readFileSync(fileURLToPath(new URL('package.json', import.meta.url)), 'utf8')
+)
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
@@ -23,6 +29,11 @@ const config = {
 						assets: 'build',
 						fallback: '200.html'
 					}),
+		// Must stay deterministic: SvelteKit defaults this to Date.now(), which differs
+		// between the per-architecture builds of the same commit and cascades into
+		// different content-hashed chunk filenames. Those assets are embedded in the
+		// binary, so mixed-arch clusters would 404 on each other's chunks.
+		version: { name: process.env.WM_BUILD_VERSION || pkg.version },
 		prerender: { entries: [] },
 		paths: {
 			base: process.env.VITE_BASE_URL ?? ''
