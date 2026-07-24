@@ -73,14 +73,6 @@ impl Display for RunnableType {
 }
 
 impl RunnableType {
-    fn job_kind(&self) -> JobKind {
-        match self {
-            RunnableType::ScriptHash => JobKind::Script,
-            RunnableType::ScriptPath => JobKind::Script,
-            RunnableType::FlowPath => JobKind::Flow,
-        }
-    }
-
     fn column_name(&self) -> &'static str {
         match self {
             RunnableType::ScriptHash => "runnable_id",
@@ -160,18 +152,25 @@ async fn get_input_history(
     };
 
     // A scheduled runnable with a dynamic-skip handler (or a scheduled script with
-    // native retry) is wrapped in a synthetic `singlestepflow`, so its runs land
-    // under that kind rather than `flow`/`script` (see windmill-queue schedule.rs).
-    // singlestepflow wraps either a script or a flow, and the two may share a
-    // runnable_path, so in a flow's history only match flow-wrapped rows. The wrapped
-    // runnable type lives in raw_flow.modules[id in ('a','main')].value.type (mirrors
-    // the projection in windmill-api jobs.rs).
-    let singlestepflow_filter = if matches!(r.runnable_type, RunnableType::FlowPath) {
-        "AND (kind <> 'singlestepflow' OR EXISTS (\
-            SELECT 1 FROM jsonb_array_elements(v2_job.raw_flow->'modules') m \
-            WHERE m->>'id' IN ('a', 'main') AND m->'value'->>'type' = 'flow'))"
-    } else {
-        ""
+    // native retry) is wrapped in a synthetic `singlestepflow`, so its runs land under
+    // that kind rather than `flow`/`script` (see windmill-queue schedule.rs). Such a
+    // wrapper holds either a script or a flow, and the two may share a runnable_path, so
+    // match only the wrapped kind that belongs to the queried runnable. The wrapped type
+    // lives in raw_flow.modules[id in ('a','main')].value.type (mirrors the projection in
+    // windmill-api jobs.rs). runnable_id is NULL on these rows, so ScriptHash never matches.
+    let singlestepflow_filter = match r.runnable_type {
+        RunnableType::FlowPath => {
+            "AND (kind <> 'singlestepflow' OR EXISTS (\
+                SELECT 1 FROM jsonb_array_elements(v2_job.raw_flow->'modules') m \
+                WHERE m->>'id' IN ('a', 'main') AND m->'value'->>'type' = 'flow'))"
+        }
+        RunnableType::ScriptPath => {
+            "AND (kind <> 'singlestepflow' OR EXISTS (\
+                SELECT 1 FROM jsonb_array_elements(v2_job.raw_flow->'modules') m \
+                WHERE m->>'id' IN ('a', 'main') \
+                  AND COALESCE(m->'value'->>'type', 'script') <> 'flow'))"
+        }
+        RunnableType::ScriptHash => "",
     };
 
     // Two-step approach: first fetch 2*(per_page+offset) rows using created_at ordering
@@ -201,20 +200,32 @@ async fn get_input_history(
         _ => query.bind(&r.runnable_id),
     };
 
-    let job_kinds = match r.runnable_type.job_kind() {
-        kind @ JobKind::Script if g.include_preview.unwrap_or(false) => {
-            vec![kind, JobKind::Preview]
+    // Include SingleStepFlow so scheduled runs surface (see `singlestepflow_filter`
+    // above, which restricts it to the wrapped kind matching the runnable). ScriptHash
+    // is omitted: those wrappers carry no runnable_id, so it can never match.
+    let include_preview = g.include_preview.unwrap_or(false);
+    let job_kinds = match r.runnable_type {
+        RunnableType::ScriptHash => {
+            let mut kinds = vec![JobKind::Script];
+            if include_preview {
+                kinds.push(JobKind::Preview);
+            }
+            kinds
         }
-        // Include SingleStepFlow so scheduled flow runs surface (see
-        // `singlestepflow_filter` above); flow-wrapped rows are matched there.
-        JobKind::Flow => {
+        RunnableType::ScriptPath => {
+            let mut kinds = vec![JobKind::Script, JobKind::SingleStepFlow];
+            if include_preview {
+                kinds.push(JobKind::Preview);
+            }
+            kinds
+        }
+        RunnableType::FlowPath => {
             let mut kinds = vec![JobKind::Flow, JobKind::SingleStepFlow];
-            if g.include_preview.unwrap_or(false) {
+            if include_preview {
                 kinds.push(JobKind::FlowPreview);
             }
             kinds
         }
-        kind => vec![kind],
     };
 
     let rows = query

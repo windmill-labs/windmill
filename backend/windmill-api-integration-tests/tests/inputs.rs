@@ -75,17 +75,18 @@ async fn test_inputs_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
-// A scheduled runnable with a dynamic-skip handler runs as a `singlestepflow`, not
-// `flow`/`script` (see windmill-queue schedule.rs). A flow's history must surface its
-// flow-wrapped singlestepflow runs, but a script and flow may share a path, so a
-// script-wrapped singlestepflow at the same path must NOT leak into the flow's history.
+// A scheduled runnable with a dynamic-skip handler (or a scheduled script with native
+// retry) runs as a `singlestepflow`, not `flow`/`script` (see windmill-queue schedule.rs).
+// Both a flow's and a script's history must surface their own singlestepflow runs, but a
+// script and flow may share a path, so each side must match only the wrapped kind that
+// belongs to it — the other must not leak in.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_input_history_singlestepflow_flow_vs_script(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
     initialize_tracing().await;
 
-    // Both rows share runnable_path; only the flow-wrapped one belongs in flow history.
+    // Both rows share runnable_path 'f/test/scheduled'.
     let flow_job = insert_singlestepflow(&db, "flow").await?;
     let script_job = insert_singlestepflow(&db, "script").await?;
 
@@ -93,28 +94,45 @@ async fn test_input_history_singlestepflow_flow_vs_script(
     let port = server.addr.port();
     let base = format!("http://localhost:{port}/api/w/test-workspace/inputs");
 
-    let resp = authed(client().get(format!(
-        "{base}/history?runnable_id=f/test/scheduled&runnable_type=FlowPath"
-    )))
-    .send()
-    .await?;
-    let status = resp.status().as_u16();
-    let body = resp.text().await?;
-    assert_2xx(status, &body, "GET /inputs/history");
-
-    let inputs: Vec<serde_json::Value> = serde_json::from_str(&body)?;
-    let has = |id: &uuid::Uuid| {
-        inputs
-            .iter()
-            .any(|i| i.get("id").and_then(|v| v.as_str()) == Some(&id.to_string()))
+    let history_ids = |runnable_type: &'static str| {
+        let base = base.clone();
+        async move {
+            let resp = authed(client().get(format!(
+                "{base}/history?runnable_id=f/test/scheduled&runnable_type={runnable_type}"
+            )))
+            .send()
+            .await?;
+            let status = resp.status().as_u16();
+            let body = resp.text().await?;
+            assert_2xx(status, &body, "GET /inputs/history");
+            let inputs: Vec<serde_json::Value> = serde_json::from_str(&body)?;
+            anyhow::Ok(
+                inputs
+                    .iter()
+                    .filter_map(|i| i.get("id").and_then(|v| v.as_str()).map(String::from))
+                    .collect::<std::collections::HashSet<_>>(),
+            )
+        }
     };
+
+    let flow_hist = history_ids("FlowPath").await?;
     assert!(
-        has(&flow_job),
-        "flow-wrapped singlestepflow missing: {body}"
+        flow_hist.contains(&flow_job.to_string()),
+        "flow-wrapped singlestepflow missing from flow history: {flow_hist:?}",
     );
     assert!(
-        !has(&script_job),
-        "script-wrapped singlestepflow leaked into flow history: {body}",
+        !flow_hist.contains(&script_job.to_string()),
+        "script-wrapped singlestepflow leaked into flow history: {flow_hist:?}",
+    );
+
+    let script_hist = history_ids("ScriptPath").await?;
+    assert!(
+        script_hist.contains(&script_job.to_string()),
+        "script-wrapped singlestepflow missing from script history: {script_hist:?}",
+    );
+    assert!(
+        !script_hist.contains(&flow_job.to_string()),
+        "flow-wrapped singlestepflow leaked into script history: {script_hist:?}",
     );
 
     Ok(())
