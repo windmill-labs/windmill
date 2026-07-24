@@ -54,11 +54,10 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     cargo build --release -p windmill_duckdb_ffi_internal
 
-# Pinned to a single platform: rollup picks platform-specific native binaries that
-# emit different content-hashed chunk filenames for identical sources. The assets are
-# embedded in the binary via rust_embed, so an unpinned stage makes the amd64 and arm64
-# images serve HTML referencing assets the other arch does not have (404s on mixed-arch
-# clusters). The output is JS/CSS/HTML/WASM only, so the build platform does not leak in.
+# Pinned: the bundler's per-architecture native bindings (@rolldown/binding-linux-*) can
+# hash chunk filenames differently, and the build output is embedded in the binary via
+# rust_embed, so an unpinned stage makes each arch's image serve HTML referencing chunks
+# the other arch lacks (404s on mixed-arch clusters). Output is JS/CSS/HTML/WASM only.
 FROM --platform=linux/amd64 node:24-alpine as frontend
 
 # install dependencies
