@@ -269,9 +269,13 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		const { el, before } = pendingFill
 		clearTimeout(pendingFill.timer)
 		pendingFill = undefined
-		// The pointerdown that started this edit is spent: a later burst in the same
-		// field must snapshot from its own keydown, not rewind to the pre-typing DOM.
-		pendingPointer = undefined
+		// The pointerdown that started this edit is spent, so a later burst in the
+		// same field snapshots from its own keydown instead of rewinding to the
+		// pre-typing DOM. A pointerdown on something ELSE (the control the user just
+		// moved to) is that control's pre-change frame and must survive.
+		if (pendingPointer && (pendingPointer.el === el || el.contains(pendingPointer.el))) {
+			pendingPointer = undefined
+		}
 		pushStep('fill', el, before, currentValue(el))
 	}
 

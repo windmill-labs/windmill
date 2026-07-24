@@ -56,9 +56,15 @@
 	let html = $derived(frameIdx !== undefined ? recording.frames?.[frameIdx] : undefined)
 	let srcdoc = $derived(html !== undefined ? withHighlightStyles(html) : undefined)
 
-	let scale = $derived(
-		recording.viewport?.width && paneWidth ? Math.min(1, paneWidth / recording.viewport.width) : 1
-	)
+	// Belt and braces with the loader's validation: these numbers land in a `style`
+	// string, and the player also renders recordings handed to it directly.
+	function size(v: unknown, fallback: number): number {
+		return typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 20000 ? Math.round(v) : fallback
+	}
+	let frameWidth = $derived(size(recording.viewport?.width, 1280))
+	let frameHeight = $derived(size(recording.viewport?.height, 800))
+
+	let scale = $derived(paneWidth ? Math.min(1, paneWidth / frameWidth) : 1)
 
 	/** Left offset (%) of each step's checkpoint on the timeline: its recorded
 	 * time, then a spreading pass so bursts of fast interactions stay clickable. */
@@ -308,17 +314,13 @@
 				     opaque origin that can't reach the viewer's Windmill session. -->
 				<!-- The wrapper carries the scaled-down box; the iframe keeps the recorded
 				     viewport size so the app lays out exactly as it did. -->
-				<div
-					style="width: {(recording.viewport?.width || 1280) * scale}px; height: {(recording
-						.viewport?.height || 800) * scale}px;"
-				>
+				<div style="width: {frameWidth * scale}px; height: {frameHeight * scale}px;">
 					<iframe
 						title="app-snapshot"
 						{srcdoc}
 						sandbox=""
 						class="bg-white border-none block"
-						style="width: {recording.viewport?.width || 1280}px; height: {recording.viewport
-							?.height || 800}px; transform: scale({scale}); transform-origin: top left;"
+						style="width: {frameWidth}px; height: {frameHeight}px; transform: scale({scale}); transform-origin: top left;"
 					></iframe>
 				</div>
 			{:else}

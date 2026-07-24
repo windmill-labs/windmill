@@ -79,8 +79,18 @@
 			// and the step count bounded — before it mounts. A `?src=` payload is
 			// caller-controlled and can pack millions of tiny valid steps under the
 			// download cap, which would freeze the tab on render.
+			// A legitimate recording holds at most the initial frame plus a before and
+			// an after per step; anything beyond that is a payload, not a recording.
 			const validFrames =
-				Array.isArray(data.frames) && data.frames.every((f) => typeof f === 'string')
+				Array.isArray(data.frames) &&
+				data.frames.length <= 2 * MAX_RECORDED_STEPS + 1 &&
+				data.frames.every((f) => typeof f === 'string')
+			// The viewport is interpolated into the snapshot iframe's `style`, so a
+			// non-numeric value would escape the property and let a remote recording
+			// restyle the player around itself.
+			const isSize = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 20000
+			const validViewport =
+				isObject(data.viewport) && isSize(data.viewport.width) && isSize(data.viewport.height)
 			const isIndex = (v: unknown) => v === undefined || typeof v === 'number'
 			const validSteps =
 				Array.isArray(data.steps) &&
@@ -94,7 +104,7 @@
 						isIndex(s.before) &&
 						isIndex(s.after)
 				)
-			if (!validFrames || !validSteps) {
+			if (!validFrames || !validSteps || !validViewport) {
 				sendUserToast('Invalid app recording format', true)
 				return false
 			}

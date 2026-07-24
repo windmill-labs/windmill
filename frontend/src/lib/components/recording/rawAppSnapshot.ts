@@ -56,9 +56,10 @@ export function isTag(el: Element, tagName: string): boolean {
 	return el.tagName === tagName
 }
 
-/** Never carry a typed secret into a recording that gets downloaded and shared. */
+/** Never carry a typed secret into a recording that gets downloaded and shared.
+ * Fixed width: the length of a masked value is itself information. */
 export function maskValue(value: string): string {
-	return '•'.repeat(Math.min(value.length, 12))
+	return value ? '••••••••' : ''
 }
 
 /** Index path from `root` down to `el` (element children only), so a node can be
@@ -85,7 +86,8 @@ function resolvePath(root: Element, path: number[]): Element | undefined {
 }
 
 /** Attributes that carry content rather than presentation, and so must not
- * survive on a no-record element. */
+ * survive on a no-record element. `style` is not among them — it is stripped
+ * only when it embeds a `url()`, which can be a signed asset URL. */
 const REDACTED_ATTRS = new Set([
 	'alt',
 	'action',
@@ -96,7 +98,6 @@ const REDACTED_ATTRS = new Set([
 	'poster',
 	'src',
 	'srcset',
-	'style',
 	'title',
 	'value'
 ])
@@ -261,7 +262,13 @@ export function serializeDocument(doc: Document, opts: SnapshotOptions = {}): st
 		for (const attr of Array.from(n.attributes)) {
 			const name = attr.name.toLowerCase()
 			if (name === NO_RECORD_ATTR || name === REC_TARGET_ATTR) continue
-			if (REDACTED_ATTRS.has(name) || name.startsWith('data-') || name.startsWith('aria-')) {
+			const styleWithUrl = name === 'style' && /url\(/i.test(attr.value)
+			if (
+				REDACTED_ATTRS.has(name) ||
+				styleWithUrl ||
+				name.startsWith('data-') ||
+				name.startsWith('aria-')
+			) {
 				n.removeAttribute(attr.name)
 			}
 		}
@@ -276,10 +283,12 @@ export function serializeDocument(doc: Document, opts: SnapshotOptions = {}): st
 	// interaction target off-screen on replay. Shifting the root reproduces the
 	// scrolled view (and leaves `position: fixed` chrome where it belongs). Scroll
 	// inside nested overflow containers has no static-CSS equivalent and is lost.
-	const scrollY = Math.round(doc.defaultView?.scrollY ?? doc.documentElement.scrollTop ?? 0)
-	if (scrollY > 0) {
+	const view = doc.defaultView
+	const scrollY = Math.round(view?.scrollY ?? doc.documentElement.scrollTop ?? 0)
+	const scrollX = Math.round(view?.scrollX ?? doc.documentElement.scrollLeft ?? 0)
+	if (scrollY > 0 || scrollX > 0) {
 		const scrolled = doc.createElement('style')
-		scrolled.textContent = `html { margin-top: -${scrollY}px !important; }`
+		scrolled.textContent = `html { margin-top: -${scrollY}px !important; margin-left: -${scrollX}px !important; }`
 		clone.querySelector('head')?.appendChild(scrolled)
 	}
 	const head = clone.querySelector('head')
@@ -290,6 +299,8 @@ export function serializeDocument(doc: Document, opts: SnapshotOptions = {}): st
 	}
 	return `<!DOCTYPE html>${clone.outerHTML}`
 }
+
+const NAVIGATION_ATTRS = new Set(['href', 'action', 'formaction', 'ping', 'target', 'download'])
 
 /** Locked-down policy for a replayed snapshot. The player's empty sandbox stops
  * scripting, but not subresource loads: without this, markup inside a recording
@@ -339,11 +350,17 @@ export function withHighlightStyles(frame: string): string {
 	// A replay is a static picture, so nothing in it may navigate: the sandbox
 	// stops a *top-level* navigation and the CSP governs fetches, but neither stops
 	// a link from navigating the snapshot frame itself — which is a request.
+	// Matched on the attribute's local name, so an SVG `xlink:href` goes too.
 	doc.querySelectorAll('a, area, form, button, input').forEach((el) => {
-		for (const attr of ['href', 'action', 'formaction', 'ping', 'target', 'download']) {
-			el.removeAttribute(attr)
+		for (const attr of Array.from(el.attributes)) {
+			if (NAVIGATION_ATTRS.has(attr.localName.toLowerCase())) el.removeAttributeNode(attr)
 		}
 	})
+	// Resource hints exist only to fetch; the CSP already refuses them, so this is
+	// about not asking rather than not getting.
+	doc
+		.querySelectorAll('link[rel~="preload" i], link[rel~="prefetch" i], link[rel~="preconnect" i], link[rel~="dns-prefetch" i]')
+		.forEach((n) => n.remove())
 	const style = doc.createElement('style')
 	style.textContent = HIGHLIGHT_CSS
 	head.appendChild(style)
