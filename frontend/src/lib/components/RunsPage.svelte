@@ -320,6 +320,10 @@
 	}
 
 	async function setJobsResolution(jobIds: string[], resolved: boolean, note?: string) {
+		if ((note?.length ?? 0) > MAX_RESOLUTION_NOTE_LEN) {
+			sendUserToast(`Note cannot exceed ${MAX_RESOLUTION_NOTE_LEN} characters`, true)
+			return
+		}
 		// The endpoint scopes rows to the path workspace, so in the admins all-workspaces
 		// view a selection spanning workspaces has to be dispatched per workspace or the
 		// out-of-workspace ids are silently skipped. Same reason cancel_selection groups.
@@ -328,9 +332,17 @@
 			const ws = jobs?.find((j) => j.id === id)?.workspace_id ?? $workspaceStore ?? ''
 			byWorkspace.set(ws, [...(byWorkspace.get(ws) ?? []), id])
 		}
+		// The table selects up to 10k rows but the endpoint caps a call at MAX_RESOLUTION_BATCH,
+		// so chunk rather than let an oversized selection reject the whole action.
+		const requests: { workspace: string; ids: string[] }[] = []
+		for (const [workspace, ids] of byWorkspace) {
+			for (let i = 0; i < ids.length; i += MAX_RESOLUTION_BATCH) {
+				requests.push({ workspace, ids: ids.slice(i, i + MAX_RESOLUTION_BATCH) })
+			}
+		}
 		const affected = (
 			await Promise.all(
-				[...byWorkspace].map(([workspace, ids]) =>
+				requests.map(({ workspace, ids }) =>
 					resolved
 						? JobService.resolveCompletedJobs({
 								workspace,
@@ -534,6 +546,9 @@
 
 	let manualSelectionMode: undefined | 'cancel' | 'rerun' | 'resolve' = $state()
 	let resolutionNote = $state('')
+	// Mirrors the caps enforced by /jobs/completed/resolve.
+	const MAX_RESOLUTION_BATCH = 1000
+	const MAX_RESOLUTION_NOTE_LEN = 2000
 </script>
 
 <ConfirmationModal
@@ -1060,7 +1075,10 @@
 								</p>
 								<TextInput
 									bind:value={resolutionNote}
-									inputProps={{ placeholder: 'Why is this handled? (optional)' }}
+									inputProps={{
+										placeholder: 'Why is this handled? (optional)',
+										maxlength: MAX_RESOLUTION_NOTE_LEN
+									}}
 									size="sm"
 								/>
 								<div class="flex flex-row gap-2">

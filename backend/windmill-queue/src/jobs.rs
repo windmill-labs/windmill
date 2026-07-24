@@ -1729,6 +1729,11 @@ async fn restart_job_if_perpetual_inner(
 /// attempt in a chain runs the same runnable. The deliberate cost is a miss, not an
 /// over-reach: when the original attempt had a parent it is an unmarked sibling
 /// indistinguishable from any other child of the caller, so it stays red.
+///
+/// The arguments' relationship is verified in SQL rather than assumed of the caller, since
+/// this writes through a privileged pool: `succeeded_id` must name a job that actually
+/// succeeded, in `workspace_id`, parented to `root`, running `runnable_id`, and carrying a
+/// `native_retry_attempt` marker. Mismatched arguments resolve nothing.
 pub async fn resolve_superseded_retry_attempts(
     db: &Pool<Postgres>,
     root: Uuid,
@@ -1744,7 +1749,16 @@ pub async fn resolve_superseded_retry_attempts(
                 WHERE c.status = 'failure'
                     AND c.workspace_id = $2
                     AND j.runnable_id IS NOT DISTINCT FROM $4
-                    AND EXISTS (SELECT 1 FROM native_retry_attempt WHERE job_id = $3)
+                    AND EXISTS (
+                        SELECT 1 FROM v2_job_completed sc
+                        JOIN v2_job sj ON sj.id = sc.id
+                        JOIN native_retry_attempt nra ON nra.job_id = sc.id
+                        WHERE sc.id = $3
+                            AND sc.status = 'success'
+                            AND sc.workspace_id = $2
+                            AND sj.parent_job = $1
+                            AND sj.runnable_id IS NOT DISTINCT FROM $4
+                    )
                     AND (
                         (j.parent_job = $1
                             AND EXISTS (SELECT 1 FROM native_retry_attempt WHERE job_id = c.id))

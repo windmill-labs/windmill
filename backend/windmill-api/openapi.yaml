@@ -14551,11 +14551,13 @@ paths:
               properties:
                 job_ids:
                   type: array
+                  maxItems: 1000
                   items:
                     type: string
                     format: uuid
                 note:
                   type: string
+                  maxLength: 2000
                   description: why the failure is considered handled
               required:
                 - job_ids
@@ -14587,6 +14589,7 @@ paths:
               properties:
                 job_ids:
                   type: array
+                  maxItems: 1000
                   items:
                     type: string
                     format: uuid

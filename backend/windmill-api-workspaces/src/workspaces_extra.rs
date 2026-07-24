@@ -960,6 +960,7 @@ pub(crate) async fn delete_workspace(
     sqlx::query!(
         "WITH ids AS (SELECT id FROM v2_job WHERE workspace_id = $1),
               _de AS (DELETE FROM dispatch_event WHERE workspace_id = $1),
+              _jr AS (DELETE FROM job_resolution WHERE workspace_id = $1),
               _fc AS (DELETE FROM flow_conversation_message WHERE job_id IN (SELECT id FROM ids))
          DELETE FROM zombie_job_counter WHERE job_id IN (SELECT id FROM ids)",
         &w_id

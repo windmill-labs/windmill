@@ -455,6 +455,23 @@ mod native_retry {
             "an unmarked child succeeding must not resolve its parent"
         );
 
+        // The helper writes through a privileged pool, so it must verify its own arguments
+        // rather than trust the caller: a job that did not succeed resolves nothing.
+        let (g, g_attempt) = (Uuid::new_v4(), Uuid::new_v4());
+        seed_job(&db, g, None, false, "failure").await;
+        seed_job(&db, g_attempt, Some(g), true, "failure").await;
+        windmill_queue::jobs::resolve_superseded_retry_attempts(&db, g, WS, g_attempt, None)
+            .await
+            .unwrap();
+        let g_resolved: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM job_resolution WHERE job_id IN ($1, $2)")
+                .bind(g)
+                .bind(g_attempt)
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert_eq!(g_resolved, 0, "a failed attempt must not resolve its chain");
+
         // Resolution is orthogonal: the run is still recorded as a failure.
         let status: String =
             sqlx::query_scalar("SELECT status::text FROM v2_job_completed WHERE id = $1")
