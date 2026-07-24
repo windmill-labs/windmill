@@ -15,6 +15,7 @@ import {
 	isElementNode,
 	isRedacted,
 	isTag,
+	redactedDescription,
 	MAX_RECORDED_STEPS,
 	maskValue,
 	serializeDocument,
@@ -68,6 +69,8 @@ export function createRawAppRecording(): RawAppRecordingStore {
 	let pendingFill: PendingFill | undefined = undefined
 	/** Pre-interaction snapshot taken on pointerdown, before a click handler runs. */
 	let pendingPointer: { el: Element; frame: number | undefined } | undefined = undefined
+	/** Same, taken on keydown for a control whose value the key is about to change. */
+	let pendingKey: { el: Element; frame: number | undefined } | undefined = undefined
 	type Settle = {
 		step: RawAppStep
 		observer: MutationObserver
@@ -166,19 +169,33 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			clearSettle()
 			pending.after = capture()
 		}
-		const target = el ? describeElement(el) : 'the app'
+		// A no-record subtree opted out of the recording entirely: its text is what
+		// names the element and what a select/file step carries as a value, so the
+		// step metadata has to be redacted here too — snapshot scrubbing can't
+		// reach into `steps`.
+		const redacted = !!el && isRedacted(el)
+		const target = el ? (redacted ? redactedDescription(el) : describeElement(el)) : 'the app'
+		const shown = redacted && value ? maskValue(value) : value
 		const step: RawAppStep = {
 			t: Date.now() - startTime,
 			kind,
-			label: stepLabel(kind, target, value),
+			label: stepLabel(kind, target, shown),
 			target,
-			selector: el ? cssSelectorFor(el) : undefined,
-			value,
+			selector: el && !redacted ? cssSelectorFor(el) : undefined,
+			value: shown,
 			before
 		}
 		steps.push(step)
 		stepCount = steps.length
 		scheduleSettle(step)
+	}
+
+	/** A control whose value `change` reports: toggled or picked, never typed. */
+	function isControl(el: Element): boolean {
+		return (
+			isTag(el, 'SELECT') ||
+			(isTag(el, 'INPUT') && ['checkbox', 'radio'].includes((el as HTMLInputElement).type))
+		)
 	}
 
 	function isTextEntry(el: Element): boolean {
@@ -201,6 +218,19 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		const secret =
 			(isTag(el, 'INPUT') && (el as HTMLInputElement).type === 'password') || isRedacted(el)
 		return secret ? maskValue(raw) : raw
+	}
+
+	/** The pre-interaction frame for `el`, if the pointerdown that started this
+	 * interaction landed on it — or on its label / an ancestor, which is what a
+	 * click on `<label>Urgent</label>` looks like. */
+	function pointerFrameFor(el: Element): number | undefined {
+		const from = pendingPointer?.el
+		if (!from) return undefined
+		if (from === el || from.contains(el)) return pendingPointer?.frame
+		const labels = (el as HTMLInputElement).labels
+		if (labels && Array.from(labels).some((l) => l === from || l.contains(from)))
+			return pendingPointer?.frame
+		return undefined
 	}
 
 	function commitFill() {
@@ -236,9 +266,10 @@ export function createRawAppRecording(): RawAppRecordingStore {
 				return
 			if (isTag(el, 'SELECT') || isTag(el, 'OPTION')) return
 			commitFill()
-			const before = pendingPointer?.el === el ? pendingPointer.frame : capture(el)
-			pendingPointer = undefined
-			pushStep('click', el, before)
+			// `pendingPointer` is NOT cleared here: a click on a <label> is followed by
+			// the control's own `change`, which needs the same pre-click frame. The
+			// next pointerdown replaces it.
+			pushStep('click', el, pointerFrameFor(el) ?? capture(el))
 		})
 
 		on('input', (e: Event) => {
@@ -248,7 +279,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			if (!pendingFill) {
 				// The pre-keystroke DOM is gone by the first `input`; the pointerdown
 				// snapshot of the same field is the closest pre-typing state.
-				const before = pendingPointer?.el === el ? pendingPointer.frame : capture(el)
+				const before = pointerFrameFor(el) ?? capture(el)
 				pendingFill = { el, before, timer: setTimeout(commitFill, FILL_DEBOUNCE_MS) }
 			} else {
 				clearTimeout(pendingFill.timer)
@@ -263,8 +294,12 @@ export function createRawAppRecording(): RawAppRecordingStore {
 				commitFill()
 				return
 			}
-			const before = pendingPointer?.el === el ? pendingPointer.frame : capture(el)
+			// `change` fires after the control already holds its new value, so a
+			// snapshot taken here is the outcome, not the interaction. Only a frame
+			// taken before the key or pointer that caused it will do.
+			const before = pointerFrameFor(el) ?? (pendingKey?.el === el ? pendingKey.frame : undefined)
 			pendingPointer = undefined
+			pendingKey = undefined
 			if (isTag(el, 'SELECT')) {
 				const selected = Array.from((el as HTMLSelectElement).selectedOptions)
 					.map((o) => o.label || o.value)
@@ -294,8 +329,11 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		})
 
 		on('keydown', (e: KeyboardEvent) => {
-			if (e.key !== 'Enter' && e.key !== 'Escape') return
 			const el = isElementNode(e.target) ? e.target : undefined
+			// Space on a checkbox, arrows on a select: the key is about to change the
+			// control, and this is the last moment the pre-change DOM exists.
+			if (el && isControl(el)) pendingKey = { el, frame: capture(el) }
+			if (e.key !== 'Enter' && e.key !== 'Escape') return
 			// Enter in a field ends the edit: the fill step must land before the key.
 			commitFill()
 			pushStep('key', el, capture(el), e.key)
@@ -345,6 +383,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		if (pendingFill) clearTimeout(pendingFill.timer)
 		pendingFill = undefined
 		pendingPointer = undefined
+		pendingKey = undefined
 		clearSettle()
 		const d = doc()
 		if (!d) return
@@ -402,6 +441,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			iframeEl?.removeEventListener('load', onIframeLoad)
 			active = false
 			pendingPointer = undefined
+			pendingKey = undefined
 			iframeEl = undefined
 			const recording: RawAppRecording = {
 				version: 1,

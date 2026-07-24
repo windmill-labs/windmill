@@ -89,6 +89,14 @@ export function isRedacted(el: Element): boolean {
 	return !!el.closest(`[${NO_RECORD_ATTR}]`)
 }
 
+/** Name a no-record element by its kind alone — its text, label and placeholder
+ * are exactly what the app asked to keep out of the recording. */
+export function redactedDescription(el: Element): string {
+	const tag = el.tagName.toLowerCase()
+	const role = tag === 'input' ? `input[${(el.getAttribute('type') ?? 'text').toLowerCase()}]` : tag
+	return `${role} (redacted)`
+}
+
 /** Copy live form state (which lives in properties, not attributes, so
  * `outerHTML` would lose it) onto the clone. Passwords and anything the app
  * marked no-record are masked. */
@@ -132,12 +140,26 @@ function freezeFormState(doc: Document, clone: Element) {
  * on the app's own event path. Only linked sheets are cached: their text is
  * fixed once fetched, whereas a CSS-in-JS `<style>` is rewritten in place (a
  * theme toggle can change a rule without changing the rule count). */
-const sheetCssCache = new WeakMap<CSSStyleSheet, { count: number; css: string }>()
+const sheetCssCache = new WeakMap<CSSStyleSheet, { probe: string; css: string }>()
+
+/** Cheap stand-in for "have these rules changed": the count plus the text of a
+ * few sampled rules. Catches an in-place `setProperty` that leaves the count
+ * untouched, without re-stringifying the whole sheet to find out. */
+function rulesProbe(rules: CSSRuleList): string {
+	const n = rules.length
+	const parts = [String(n)]
+	for (let i = 0; i < 8 && i < n; i++) {
+		const rule = rules[Math.floor((i * n) / 8)]
+		parts.push(String(rule?.cssText?.length ?? 0), rule?.cssText?.slice(0, 40) ?? '')
+	}
+	return parts.join('|')
+}
 
 function sheetCss(sheet: CSSStyleSheet, rules: CSSRuleList): string {
 	const cacheable = !!sheet.href
+	const probe = cacheable ? rulesProbe(rules) : ''
 	const cached = cacheable ? sheetCssCache.get(sheet) : undefined
-	if (cached && cached.count === rules.length) return cached.css
+	if (cached && cached.probe === probe) return cached.css
 	let css = Array.from(rules)
 		.map((r) => r.cssText)
 		.join('\n')
@@ -146,7 +168,7 @@ function sheetCss(sheet: CSSStyleSheet, rules: CSSRuleList): string {
 	// so an unwrapped inline copy would apply print-only CSS to every replay.
 	const media = sheet.media?.mediaText
 	if (media) css = `@media ${media} {\n${css}\n}`
-	if (cacheable) sheetCssCache.set(sheet, { count: rules.length, css })
+	if (cacheable) sheetCssCache.set(sheet, { probe, css })
 	return css
 }
 
@@ -228,6 +250,14 @@ export function serializeDocument(doc: Document, opts: SnapshotOptions = {}): st
 	return `<!DOCTYPE html>${clone.outerHTML}`
 }
 
+/** Locked-down policy for a replayed snapshot. The player's empty sandbox stops
+ * scripting, but not subresource loads: without this, markup inside a recording
+ * fetched from an arbitrary `?src=` URL could still beacon the viewer or issue
+ * same-site GETs against their Windmill session. The cost is that images and
+ * fonts the recorder could not inline (remote URLs) do not render on replay.
+ * Injected at the very top of <head> so it applies before anything is fetched. */
+const REPLAY_CSP = `default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:`
+
 /** Add the player's target highlight to a snapshot. Snapshots are replayed with
  * scripting disabled, so the highlight has to ride along in the document. Lives
  * here rather than in the player because a literal `<style>` inside a .svelte
@@ -238,7 +268,13 @@ export function withHighlightStyles(frame: string): string {
 	outline-offset: 2px !important;
 	box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.25) !important;
 }</style>`
-	return frame.includes('</head>') ? frame.replace('</head>', `${style}</head>`) : frame + style
+	const csp = `<meta http-equiv="Content-Security-Policy" content="${REPLAY_CSP}">`
+	const withCsp = /<head[^>]*>/i.test(frame)
+		? frame.replace(/<head[^>]*>/i, (open) => `${open}${csp}`)
+		: csp + frame
+	return withCsp.includes('</head>')
+		? withCsp.replace('</head>', `${style}</head>`)
+		: withCsp + style
 }
 
 function textOf(el: Element | null | undefined, max = 40): string {
