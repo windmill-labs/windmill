@@ -1176,7 +1176,7 @@
 												{/if}
 											</div>
 										</Cell>
-										<Cell stickyEnd>
+										<Cell last stickyEnd>
 											<div class="flex justify-end">
 												{#if path && assetCanBeExplored({ kind: 'resource', path }, { resource_type }) && !$userStore?.operator}
 													<ExploreAssetButton
