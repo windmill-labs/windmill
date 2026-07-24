@@ -58,7 +58,12 @@ const defaultLeafCompare = (a: ItemType, b: ItemType): number => {
 
 export function groupItems(
 	items: ItemType[] | undefined,
-	leafCompare: (a: ItemType, b: ItemType) => number = defaultLeafCompare
+	leafCompare: (a: ItemType, b: ItemType) => number = defaultLeafCompare,
+	// Folders/users have only a name, so the sort key is always name; `groupDesc`
+	// flips its direction (Z-A) to follow a name-descending sort, like a file explorer
+	// reordering folders when you reverse the name sort. Time sorts pass false (no
+	// folder timestamp to order by, so folders stay alphabetical).
+	groupDesc: boolean = false
 ): (ItemType | FolderItem | UserItem)[] {
 	if (!items) {
 		return []
@@ -89,30 +94,37 @@ export function groupItems(
 		}
 	})
 
+	const dir = groupDesc ? -1 : 1
 	root.sort((a, b) => {
+		// Users always group before folders regardless of direction; only the name
+		// comparison within each kind follows `groupDesc`.
 		if ('username' in a && 'folderName' in b) {
 			return -1
 		}
 		if ('folderName' in a && 'username' in b) {
 			return 1
 		}
-		return (a['username'] ?? a['folderName'] ?? '').localeCompare(b['username'] ?? b['folderName'])
+		return (
+			dir * (a['username'] ?? a['folderName'] ?? '').localeCompare(b['username'] ?? b['folderName'])
+		)
 	})
 
-	sortGroup(root, leafCompare)
+	sortGroup(root, leafCompare, dir)
 
 	return root
 }
 
 function sortGroup(
 	group: (ItemType | FolderItem | UserItem)[],
-	leafCompare: (a: ItemType, b: ItemType) => number
+	leafCompare: (a: ItemType, b: ItemType) => number,
+	dir: number = 1
 ) {
 	group.forEach((item) => {
 		if ('items' in item) {
 			item.items.sort((a, b) => {
+				// Nested subfolders sort before leaves and follow the group direction.
 				if ('folderName' in a && 'folderName' in b) {
-					return a.folderName.localeCompare(b.folderName)
+					return dir * a.folderName.localeCompare(b.folderName)
 				}
 				if ('folderName' in a) {
 					return -1
@@ -126,7 +138,7 @@ function sortGroup(
 				return 0
 			})
 
-			sortGroup(item.items, leafCompare)
+			sortGroup(item.items, leafCompare, dir)
 		}
 	})
 }

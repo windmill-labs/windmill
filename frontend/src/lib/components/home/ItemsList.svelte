@@ -425,17 +425,18 @@
 		}
 	}
 
-	// A row was created/edited/archived/moved/shared. The merged endpoint returns
-	// every kind, so ONE reload refreshes the whole list — the per-kind change events
-	// all route here rather than each firing its own identical query. loadRunnables
-	// clears the lazy owner store, so re-fetch whatever owners were expanded (this is
-	// a same-scope reload: treeKey is unchanged, so those TreeView nodes stay open and
-	// would otherwise go blank).
 	function collapseOwner(owner: string): void {
 		openOwners.delete(owner)
 	}
+	// Reload the merged list once and re-fetch the owners that are currently expanded so
+	// they don't go blank. Used both for row mutations (create/edit/archive/move/share)
+	// and for in-place scope changes (sort/archive/library/kind): those keep the tree in
+	// lazy mode (treeKey unchanged, so folders stay open like a file explorer), and the
+	// re-fetch reloads each open owner's items in the new order/filter. When a mode
+	// change (owner/search) has switched the tree out of lazy mode, there's nothing to
+	// re-fetch — the tree remounts and groups the global stream instead.
 	async function reloadItems(): Promise<void> {
-		const toReload = [...openOwners]
+		const toReload = treeLazyMode ? [...openOwners] : []
 		await loadRunnables(true)
 		for (const o of toReload) loadOwnerItems(o)
 	}
@@ -666,8 +667,13 @@
 	$effect(() => {
 		if ($userStore && $workspaceStore) {
 			;[archived, includeWithoutMain, sortOrder, searching, ownerFilter, itemKind]
+			// reloadItems (not a bare loadRunnables) so an in-place change — sort, archive,
+			// library, kind — reloads the global stream AND re-fetches the currently-open
+			// owners in the new order/filter, keeping folders expanded (file-explorer style)
+			// rather than collapsing them. Mode changes (owner/search) flip treeLazyMode, so
+			// reloadItems skips the re-fetch and the {#key} remount handles the reset.
 			untrack(() => {
-				loadRunnables(true)
+				reloadItems()
 			})
 		}
 	})
@@ -777,12 +783,12 @@
 	// so the tree never depends on which owners happen to be in the loaded window.
 	// Otherwise (scoped/search/label) the tree just groups the global `items`.
 	let treeSource = $derived(treeLazyMode ? treeOwnerItems : items)
-	// Scope identity for the tree: any change here means folders must re-load fresh,
-	// so it keys a {#key} remount that collapses expanded folders (searching is a
-	// boolean so per-keystroke query changes don't remount — search updates in place).
-	let treeKey = $derived(
-		`${$workspaceStore}|${sortOrder}|${archived}|${includeWithoutMain}|${itemKind}|${ownerFilter}|${searching}|${labelFilter}`
-	)
+	// Remount identity: only a *mode* change (workspace, selected owner, entering/leaving
+	// search, label filter) restructures the tree, so only those key the {#key} remount.
+	// A sort/archive/library/kind change keeps the same lazy tree and is applied in place
+	// by reloadItems re-fetching the open owners — so expanded folders don't collapse when
+	// you re-sort (searching is a boolean so per-keystroke query changes don't remount).
+	let treeKey = $derived(`${$workspaceStore}|${ownerFilter}|${searching}|${labelFilter}`)
 	let displayedItems = $derived((items ?? []).slice(0, nbDisplayed))
 	$effect(() => {
 		items && resetScroll()
@@ -1320,6 +1326,7 @@
 					{nbDisplayed}
 					{collapseAll}
 					sortCompare={compareItems}
+					groupDesc={sortOrder === 'name_desc'}
 					hasMoreServer={treeGlobalHasMore}
 					onLoadMore={fetchMoreServer}
 					pipelineFolders={visiblePipelineFolders}

@@ -11,6 +11,9 @@
 		isSearching?: boolean
 		pipelineFolders?: Set<string>
 		sortCompare?: (a: ItemType, b: ItemType) => number
+		// Order of the top-level folder/user nodes: Z-A when the active sort is
+		// name-descending (like a file explorer), alphabetical otherwise.
+		groupDesc?: boolean
 		// The server has further pages beyond the loaded items; `onLoadMore` fetches
 		// the next one (grouping only reorders what's already loaded).
 		hasMoreServer?: boolean
@@ -37,6 +40,7 @@
 		isSearching = false,
 		pipelineFolders,
 		sortCompare,
+		groupDesc = false,
 		hasMoreServer = false,
 		onLoadMore,
 		allFolders = [],
@@ -52,13 +56,14 @@
 		pipelineFolders
 		isSearching
 		sortCompare
+		groupDesc
 		allFolders
 		allUsers
 		untrack(() => {
 			// While searching, `items` is already relevance-ranked and the sort
 			// selector is disabled, so keep that order: a no-op leaf comparator
 			// preserves insertion order within each group (Array.sort is stable).
-			const grouped = groupItems(items, isSearching ? () => 0 : sortCompare)
+			const grouped = groupItems(items, isSearching ? () => 0 : sortCompare, groupDesc)
 			// Ensure every pipeline folder is present at the top level so its
 			// "Pipeline" entry shows even when it has no listed items — a bundle-phase
 			// pipeline (only a draft so far) or a folder whose only scripts are
@@ -98,12 +103,13 @@
 					// Append the missing nodes and sort each section once (O(n log n)) rather
 					// than splicing each in with findIndex (O(n²) — at 10k owners that was
 					// ~50M comparisons on every page merge).
+					const dir = groupDesc ? -1 : 1
 					const users = grouped.filter((g) => 'username' in g) as { username: string }[]
 					const folders = grouped.filter((g) => 'folderName' in g) as { folderName: string }[]
 					users.push(...missingUsers)
 					folders.push(...missingFolders)
-					users.sort((a, b) => a.username.localeCompare(b.username))
-					folders.sort((a, b) => a.folderName.localeCompare(b.folderName))
+					users.sort((a, b) => dir * a.username.localeCompare(b.username))
+					folders.sort((a, b) => dir * a.folderName.localeCompare(b.folderName))
 					grouped.length = 0
 					grouped.push(
 						...(users as unknown as typeof grouped),
