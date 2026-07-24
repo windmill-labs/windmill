@@ -34,6 +34,13 @@ pub struct WacCheckpoint {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub _executing_key: Option<String>,
+    /// `resume_job.id` values already consumed by earlier approval steps (the
+    /// row primary key, not the distinct integer `resume_id` column). Rows are
+    /// never deleted, so a workflow with several sequential wait_for_approval()
+    /// calls accumulates one per approval; excluding these lets each step read
+    /// its own row rather than the oldest.
+    #[serde(default)]
+    pub consumed_resume_row_ids: Vec<Uuid>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
