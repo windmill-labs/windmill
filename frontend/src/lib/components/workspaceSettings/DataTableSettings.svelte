@@ -12,6 +12,12 @@
 				resource_type: 'postgresql' | 'instance'
 				resource_path?: string | undefined
 			}
+			// Read-only here (owned by the permissions endpoints); used to keep
+			// the Permissions button reachable without an EE license so admins
+			// can disable the feature after a downgrade.
+			permissions?: {
+				enabled?: boolean
+			}
 		}[]
 	}
 
@@ -305,6 +311,7 @@
 							workspace={$workspaceStore ?? ''}
 							datatable={dataTable.name}
 							disabled={!!dirtyMap[dataTable.name]}
+							permissionsEnabled={dataTable.permissions?.enabled ?? false}
 						/>
 						<DataTableMigrationsButton
 							workspace={$workspaceStore ?? ''}

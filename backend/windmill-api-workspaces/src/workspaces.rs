@@ -3022,6 +3022,7 @@ async fn edit_datatable_config(
     // table). Check every data table whose database is new or changed, against
     // both the stored global state and the other entries of this request.
     let mut default_disabled: Vec<String> = vec![];
+    let mut database_changed_names: Vec<String> = vec![];
     for (name, dt) in new_config.settings.datatables.iter() {
         let lookup = rename_src
             .get(name.as_str())
@@ -3036,6 +3037,9 @@ async fn edit_datatable_config(
         };
         if !database_changed {
             continue;
+        }
+        if old_datatables.contains_key(lookup) {
+            database_changed_names.push(lookup.to_string());
         }
         let self_enabled = dt.permissions.as_ref().is_some_and(|p| p.enabled);
         let in_request_conflict = new_config.settings.datatables.iter().find(|(n2, dt2)| {
@@ -3128,13 +3132,16 @@ async fn edit_datatable_config(
     )
     .await?;
 
-    // Tear down ephemeral roles of deleted/renamed data tables while the old
-    // config (needed to reach their database) is still readable outside this
-    // transaction. Renames get fresh roles under the new name on next access.
+    // Tear down ephemeral roles of deleted/renamed/re-pointed data tables
+    // while the old config (needed to reach their previous database) is still
+    // readable outside this transaction — after the switch the cleanup sweep
+    // would look for the roles on the wrong cluster. Renames and database
+    // changes get fresh roles on next access.
     for name in new_config
         .deleted_datatables
         .iter()
         .chain(new_config.renames.iter().map(|r| &r.from))
+        .chain(database_changed_names.iter())
     {
         windmill_common::datatable_permissions::drop_datatable_ephemeral_roles_best_effort(
             &db,
@@ -6648,13 +6655,23 @@ async fn create_workspace_fork(
         )
         .unwrap_or_default();
         for (name, dt) in parent_datatables {
-            if dt.permissions.as_ref().is_some_and(|p| p.enabled)
-                && !nw.forked_datatables.iter().any(|f| f.name == name)
-            {
+            if !dt.permissions.as_ref().is_some_and(|p| p.enabled) {
+                continue;
+            }
+            if !nw.forked_datatables.iter().any(|f| f.name == name) {
                 return Err(Error::BadRequest(format!(
                     "Data table '{name}' has fine-grained permissions enabled and cannot keep \
                      pointing at the original database in a fork; fork its database \
                      (schema-only or schema and data) instead."
+                )));
+            }
+            // Forking copies the schema (and possibly data) through the shared
+            // role, sidestepping per-caller grants — admin-only, like every
+            // other whole-database operation on a permissions-enabled table.
+            if !authed.is_admin {
+                return Err(Error::PermissionDenied(format!(
+                    "Data table '{name}' has fine-grained permissions enabled: forking a \
+                     workspace containing it requires workspace admin."
                 )));
             }
         }

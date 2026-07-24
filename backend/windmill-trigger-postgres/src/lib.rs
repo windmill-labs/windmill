@@ -11,7 +11,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::value::RawValue;
 use sqlx::FromRow;
 use windmill_api_auth::ApiAuthed;
-use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
 use windmill_common::{
     db::UserDB,
     error::{to_anyhow, Error, Result},
@@ -382,8 +381,24 @@ pub async fn resolve_postgres_resource(
     w_id: &str,
 ) -> Result<Postgres> {
     if let Some(datatable_name) = postgres_resource_path.strip_prefix("datatable://") {
+        // Every trigger-side surface (capture, publication/slot management,
+        // the CDC listener itself) connects through the shared owner role and
+        // reads or manages all change data — so on a permissions-enabled data
+        // table this whole resolution is admin-only, mirroring the
+        // create/edit gate.
+        let config =
+            windmill_common::workspaces::get_datatable_config(db, w_id, datatable_name).await?;
+        if windmill_common::datatable_permissions::datatable_permissions_enabled(&config)
+            && !authed.is_admin
+        {
+            return Err(Error::PermissionDenied(format!(
+                "Data table '{datatable_name}' has fine-grained permissions enabled: Postgres \
+                 trigger and replication operations on it require workspace admin, because they \
+                 read all database changes through the shared role."
+            )));
+        }
         let resource_value =
-            get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
+            windmill_common::workspaces::datatable_shared_resource(db, w_id, &config).await?;
         serde_json::from_value::<Postgres>(resource_value).map_err(|e| Error::SerdeJson {
             error: e,
             location: "resolve_postgres_resource".to_string(),

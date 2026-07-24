@@ -24,17 +24,24 @@
 	let {
 		workspace,
 		datatable,
-		disabled = false
+		disabled = false,
+		permissionsEnabled = false
 	}: {
 		workspace: string
 		datatable: string
 		disabled?: boolean
+		/// Whether the data table currently has permissions enabled: keeps the
+		/// button visible without an EE license so admins can still disable the
+		/// feature after a license downgrade (non-admin access fails closed).
+		permissionsEnabled?: boolean
 	} = $props()
 
 	const OPERATIONS = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE'] as const
 
-	// EE + admin only: the config is admin-gated server-side and meaningless on CE.
-	const visible = $derived(!!$enterpriseLicense && (!!$userStore?.is_admin || !!$superadmin))
+	// Admin only; EE-gated except as an escape hatch when already enabled.
+	const visible = $derived(
+		(!!$enterpriseLicense || permissionsEnabled) && (!!$userStore?.is_admin || !!$superadmin)
+	)
 
 	let drawer: Drawer | undefined = $state()
 	let loading = $state(false)

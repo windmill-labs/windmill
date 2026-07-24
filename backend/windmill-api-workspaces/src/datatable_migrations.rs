@@ -512,7 +512,7 @@ pub struct DatatableMigration {
 }
 
 async fn list_datatable_migrations(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<DatatableMigration>> {
@@ -525,7 +525,32 @@ async fn list_datatable_migrations(
     .fetch_all(&db)
     .await?;
 
-    Ok(Json(migrations))
+    // Migration SQL is the data table's full DDL history: apply the same
+    // per-datatable introspection gate as the schema listing endpoints.
+    let mut allowed: HashMap<String, bool> = HashMap::new();
+    let mut visible = Vec::with_capacity(migrations.len());
+    for m in migrations {
+        let entry = match allowed.get(&m.datatable) {
+            Some(ok) => *ok,
+            None => {
+                let ok = crate::datatable_permissions_api::check_datatable_introspection_access(
+                    &db,
+                    &authed,
+                    &w_id,
+                    &m.datatable,
+                )
+                .await
+                .is_ok();
+                allowed.insert(m.datatable.clone(), ok);
+                ok
+            }
+        };
+        if entry {
+            visible.push(m);
+        }
+    }
+
+    Ok(Json(visible))
 }
 
 #[derive(Serialize)]
@@ -626,10 +651,19 @@ async fn read_applied_datatable_versions(
 
 /// List a data table's migrations annotated with whether each has been applied.
 async fn datatable_migrations_status(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name)): Path<(String, String)>,
 ) -> JsonResult<DatatableMigrationsStatusResult> {
+    // Migration SQL is the data table's full DDL history: apply the same
+    // per-datatable introspection gate as the schema listing endpoints.
+    crate::datatable_permissions_api::check_datatable_introspection_access(
+        &db,
+        &authed,
+        &w_id,
+        &datatable_name,
+    )
+    .await?;
     let enabled = datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
     if !enabled {
         return Ok(Json(DatatableMigrationsStatusResult {

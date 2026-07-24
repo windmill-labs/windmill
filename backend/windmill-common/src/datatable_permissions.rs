@@ -694,7 +694,7 @@ pub async fn ensure_ephemeral_role(
 pub async fn cleanup_expired_datatable_roles(db: &DB, limit: i64) {
     let rows = match sqlx::query!(
         "SELECT role_name, workspace_id, datatable FROM datatable_ephemeral_role
-         WHERE expires_at < now() LIMIT $1",
+         WHERE expires_at < now() ORDER BY expires_at LIMIT $1",
         limit
     )
     .fetch_all(db)
@@ -714,6 +714,17 @@ pub async fn cleanup_expired_datatable_roles(db: &DB, limit: i64) {
                 "cleaning up expired datatable ephemeral role {}: {e:#}",
                 row.role_name
             );
+            // Push the row's expiry forward so a persistently failing target
+            // (e.g. an unreachable external database) doesn't monopolize every
+            // sweep batch and starve other expired roles — each failure costs
+            // at most one attempt per backoff window.
+            let _ = sqlx::query!(
+                "UPDATE datatable_ephemeral_role SET expires_at = now() + interval '5 minutes'
+                 WHERE role_name = $1 AND expires_at < now()",
+                &row.role_name
+            )
+            .execute(db)
+            .await;
         }
     }
 }
@@ -840,7 +851,15 @@ async fn teardown_role(db: &DB, w_id: &str, datatable: &str, role: &str) -> Resu
             .await
             .map_err(|e| pg_err("checking active sessions", e))?
             .get(0);
-        if active == 0 && role_exists(&client, role).await? {
+        if active > 0 {
+            // Keep the bookkeeping row: this teardown runs on grant revocation,
+            // and deleting the row would permanently orphan a live role that
+            // still holds its old grants (and whose password the caller
+            // already has). With the row intact, the expiry sweep retries the
+            // drop once the sessions are gone.
+            return Ok(());
+        }
+        if role_exists(&client, role).await? {
             if config.database.resource_type == DataTableCatalogResourceType::Instance {
                 revoke_instance_connect(db, &owner.dbname, role).await;
             }
