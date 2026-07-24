@@ -563,6 +563,15 @@
 				<p class="text-clip grow min-w-0"> Double check the S3 resource fields and try again. </p>
 			</div>
 		</Alert>
+	{:else if s3ResourcePath}
+		<Alert type="error" title="Could not connect to the object storage of {s3ResourcePath}">
+			<div class="flex flex-row gap-x-1 w-full items-center">
+				<p class="text-clip grow min-w-0">
+					Double check the resource fields and that its object storage is reachable, then try again.
+				</p>
+				<Button variant="default" on:click={reloadContent} startIcon={{ icon: RotateCw }} />
+			</div>
+		</Alert>
 	{:else}
 		<Alert type="error" title="Workspace not connected to any S3 storage">
 			<div class="flex flex-row gap-x-1 w-full items-center">

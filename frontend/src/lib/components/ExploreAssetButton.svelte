@@ -99,12 +99,15 @@
 				ws
 			)
 		} else if (isStorageResource) {
-			effectiveS3FilePicker?.open(undefined, { s3ResourcePath: asset.path })
+			effectiveS3FilePicker?.open(undefined, { s3ResourcePath: asset.path, workspace: ws })
 		} else if (asset.kind === 's3object' && isS3Uri(assetUri)) {
-			effectiveS3FilePicker?.open(assetUri)
+			effectiveS3FilePicker?.open(assetUri, { workspace: ws })
 		} else if (asset.kind === 'volume') {
 			const storage = (await VolumeService.getVolumeStorage({ workspace: ws! })) ?? undefined
-			effectiveS3FilePicker?.open({ s3: `volumes/${ws}/${asset.path}/`, storage })
+			effectiveS3FilePicker?.open(
+				{ s3: `volumes/${ws}/${asset.path}/`, storage },
+				{ workspace: ws }
+			)
 		} else if (asset.kind === 'ducklake') {
 			let ducklake = asset.path.split('/')[0]
 			let specificTableSplit = asset.path.split('/')[1]?.split('.') as string[] | undefined

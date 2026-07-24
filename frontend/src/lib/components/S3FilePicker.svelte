@@ -38,14 +38,17 @@
 		onSelectAndClose
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
-
 	let drawer: Drawer | undefined = $state()
 	let s3FilePickerInner: S3FilePickerInner | undefined = $state()
 
 	let workspaceSettingsInitialized = $state(true)
 	let storage: string | undefined = $state(undefined)
 	let s3ResourcePath: string | undefined = $state(undefined)
+	/** Per-open workspace override, for callers (e.g. the global explorer) whose
+	 * asset lives in a different workspace than this picker was mounted for. */
+	let workspaceOverride: string | undefined = $state(undefined)
+	let effectiveWorkspace = $derived(workspaceOverride ?? workspace)
+	let ws = $derived(effectiveWorkspace ?? $workspaceStore)
 	let uploadModalOpen = $state(false)
 
 	let allFilesByKey: Record<
@@ -69,9 +72,10 @@
 
 	export async function open(
 		_preSelectedFileKey: S3Object | undefined = undefined,
-		opts: { s3ResourcePath?: string } = {}
+		opts: { s3ResourcePath?: string; workspace?: string } = {}
 	) {
 		s3ResourcePath = opts.s3ResourcePath
+		workspaceOverride = opts.workspace
 		if (!s3ResourcePath) {
 			secondaryStorageNames.refetch()
 		}
@@ -121,7 +125,7 @@
 			{s3ResourcePath}
 			{folderOnly}
 			{regexFilter}
-			{workspace}
+			workspace={effectiveWorkspace}
 		/>
 		{#snippet actions()}
 			<div class="flex gap-1">
