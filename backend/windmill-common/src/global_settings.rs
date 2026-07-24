@@ -165,6 +165,11 @@ pub const AGENT_WORKER_BLOCKED_SETTINGS: &[&str] = &[
     INSTANCE_EVENTS_WEBHOOK_SETTING,
     OTEL_SETTING,
     OTEL_TRACING_PROXY_SETTING,
+    // Custom-instance DB credentials: `custom_instance_pg_databases` holds `user_pwd`,
+    // `custom_instance_replication_pwd` holds the REPLICATION-role password. Agent workers
+    // resolve datatable connections through the dedicated datatable endpoints, never these.
+    "custom_instance_pg_databases",
+    "custom_instance_replication_pwd",
 ];
 
 /// Whether an agent worker may read the given global setting over HTTP.
@@ -381,6 +386,8 @@ mod tests {
             INSTANCE_EVENTS_WEBHOOK_SETTING,
             OTEL_SETTING,
             OTEL_TRACING_PROXY_SETTING,
+            "custom_instance_pg_databases",
+            "custom_instance_replication_pwd",
         ] {
             assert!(
                 !is_setting_readable_by_agent_worker(key),

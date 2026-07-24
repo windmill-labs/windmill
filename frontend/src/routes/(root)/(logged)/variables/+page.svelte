@@ -43,7 +43,7 @@
 		EyeOff,
 		Circle
 	} from 'lucide-svelte'
-	import { onMount, untrack } from 'svelte'
+	import { untrack } from 'svelte'
 	import { page } from '$app/stores'
 
 	type ListableVariableW = ListableVariable & { canWrite: boolean }
@@ -244,12 +244,22 @@
 		}, 5000)
 	}
 
-	onMount(() => {
-		let hash = $page.url.hash
-		if (hash.length > 1) {
-			let path = hash.slice(1)
-			variableEditor?.editVariable(path)
+	// Deep link: #<path> opens that variable's edit drawer. Reactive rather than
+	// onMount so a hash change on the already-mounted page (e.g. the AI session
+	// preview re-pointing its tab) opens the drawer too. Row links pre-set
+	// handledHash: their onclick already opens the drawer.
+	let handledHash = ''
+	$effect(() => {
+		const hash = $page.url.hash
+		if (hash.length <= 1) {
+			// Navigating away from a drawer target must clear the tracker, or
+			// re-targeting the same item later would be skipped as already handled.
+			handledHash = ''
+			return
 		}
+		if (hash === handledHash || !variableEditor) return
+		handledHash = hash
+		variableEditor.editVariable(hash.slice(1))
 	})
 </script>
 
@@ -352,7 +362,7 @@
 								<Cell head>Value</Cell>
 								<Cell head>Description</Cell>
 								<Cell head />
-								<Cell head last />
+								<Cell head last stickyEnd />
 							</tr>
 						</Head>
 						<tbody class="divide-y">
@@ -366,10 +376,15 @@
 											<a
 												class="break-all"
 												id="edit-{path}"
-												onclick={() => variableEditor?.editVariable(path)}
+												onclick={() => {
+													handledHash = `#${path}`
+													variableEditor?.editVariable(path)
+												}}
 												href="#{path}"
 											>
-												{path}{(getLocalDraftHint($workspaceStore, 'variable', path) ?? is_draft) ? '*' : ''}
+												{path}{(getLocalDraftHint($workspaceStore, 'variable', path) ?? is_draft)
+													? '*'
+													: ''}
 											</a>
 											{#if draft_only}
 												<DraftBadge draft_only is_draft={false} />
@@ -450,7 +465,11 @@
 												<div class="">
 													{#if refresh_error}
 														<Popover notClickable>
-															<div class="relative inline-flex justify-center items-center w-4 h-4">
+															<!-- isolate: confine the ping indicator's z-50 to a local stacking context
+											     so it can't paint over a sticky-pinned actions column scrolling past it -->
+															<div
+																class="relative inline-flex justify-center items-center w-4 h-4 isolate"
+															>
 																<Circle
 																	class="text-red-600 animate-ping absolute z-50 w-4 h-4 fill-current"
 																	size={12}
@@ -499,7 +518,7 @@
 											{/if}
 										</div>
 									</Cell>
-									<Cell last shouldStopPropagation>
+									<Cell last stickyEnd shouldStopPropagation>
 										<Dropdown
 											items={() => {
 												let owner = isOwner(path, $userStore, $workspaceStore)

@@ -34,6 +34,7 @@
 		deploymentStatus: Record<string, { status: 'loading' | 'deployed' | 'failed'; error?: string }>
 		allSelected?: boolean
 		emptyMessage?: string
+		hideSelection?: boolean
 		children?: Snippet
 
 		// Snippets for customization
@@ -64,6 +65,7 @@
 		deploymentStatus,
 		allSelected = false,
 		emptyMessage = 'No items to deploy',
+		hideSelection = false,
 		header,
 		alerts,
 		selectAllActions,
@@ -150,12 +152,13 @@
 		{@render alerts()}
 	{/if}
 
-	<!-- Controls row: "Select all" (when there are items) + optional right-side
-	     actions (e.g. a filter toggle). Renders when there are items OR actions are
-	     provided, so a filter that empties the list doesn't take its own toggle with it. -->
+	<!-- Controls row: "Select all" (when there are items and selection is enabled) +
+	     optional right-side actions (e.g. a filter toggle). Renders when there are
+	     items OR actions are provided, so a filter that empties the list doesn't take
+	     its own toggle with it. -->
 	{#if items.length > 0 || selectAllActions}
 		<div class="px-4 py-2 flex items-center justify-between">
-			{#if items.length > 0}
+			{#if items.length > 0 && !hideSelection}
 				<label
 					class="flex items-center gap-2 text-secondary text-xs"
 					class:opacity-50={!hasSelectableItems}
@@ -190,15 +193,17 @@
 							class="sticky top-0 z-10 flex items-center gap-2 px-4 py-1.5 bg-surface-secondary border-b first:rounded-t-md"
 							title={selectable.length === 0 ? 'No selectable items in this group' : undefined}
 						>
-							<Checkbox
-								checked={selectable.length > 0 && selectedCount === selectable.length}
-								indeterminate={selectedCount > 0 && selectedCount < selectable.length}
-								disabled={selectable.length === 0}
-								title={selectedCount === selectable.length
-									? `Deselect all in ${group.label}`
-									: `Select all in ${group.label}`}
-								onChange={() => toggleGroup(group)}
-							/>
+							{#if !hideSelection}
+								<Checkbox
+									checked={selectable.length > 0 && selectedCount === selectable.length}
+									indeterminate={selectedCount > 0 && selectedCount < selectable.length}
+									disabled={selectable.length === 0}
+									title={selectedCount === selectable.length
+										? `Deselect all in ${group.label}`
+										: `Select all in ${group.label}`}
+									onChange={() => toggleGroup(group)}
+								/>
+							{/if}
 							{#if group.groupKind === 'folder'}
 								<Folder size={14} class="text-tertiary shrink-0" />
 							{:else if group.groupKind === 'user'}
@@ -234,11 +239,11 @@
 								: item.path}
 
 						<Row
-							isSelectable={isSelectable && !isDeployed}
+							isSelectable={!hideSelection && isSelectable && !isDeployed}
 							selectDisabledReason={blockedReason}
-							selectOnRowClick={true}
-							alignWithSelectable={true}
-							disabled={blockedReason ? false : !isSelectable}
+							selectOnRowClick={!hideSelection}
+							alignWithSelectable={!hideSelection}
+							disabled={!hideSelection && (blockedReason ? false : !isSelectable)}
 							selected={isSelected && !isDeployed}
 							onSelect={() => handleSelect(item)}
 							path={showPath ? item.path : ''}

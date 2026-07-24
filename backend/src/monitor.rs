@@ -3193,6 +3193,14 @@ pub async fn monitor_db(
         if !initial_load {
             verify_license_key(conn.as_sql()).await;
             refetch_license_key_if_invalid(conn).await;
+            // Server-side only: the alert writes to the alerts table and notifies
+            // the critical channels, so gate it like enforce_offline_caps rather
+            // than have every worker re-report the same expiry.
+            if server_mode {
+                if let Some(db) = conn.as_sql() {
+                    windmill_common::ee_oss::alert_on_online_license_expired(db).await;
+                }
+            }
         }
     };
 
@@ -4864,12 +4872,95 @@ WHERE concurrency_id IN (SELECT concurrency_id FROM rows_to_delete)  RETURNING c
     Ok(())
 }
 
+/// Memory usage at a worker's last ping as a fraction of its cgroup limit.
+/// Takes the larger of the cgroup-wide reading and the windmill process's
+/// jemalloc resident — if only one is present, that value wins; if both are
+/// present, the larger is the more conservative (higher-signal) choice.
+fn zombie_worker_memory_pct(
+    usage: Option<i64>,
+    wm_usage: Option<i64>,
+    total: Option<i64>,
+) -> Option<f64> {
+    let total = total?;
+    if total <= 0 {
+        return None;
+    }
+    let used = usage.max(wm_usage)?;
+    Some(used as f64 / total as f64)
+}
+
+struct ZombieFlowCulprit {
+    worker: String,
+    ping_at: DateTime<Utc>,
+    memory_usage: Option<i64>,
+    wm_memory_usage: Option<i64>,
+    memory_total: Option<i64>,
+    worker_group: Option<String>,
+    worker_instance: Option<String>,
+    ping_delta_secs: Option<f64>,
+}
+
+/// Finds the worker that likely performed and dropped the flow's final state
+/// transition when `q.worker` (the outer queue-row worker) looks healthy — a
+/// different worker on the same pod/group whose *latest* ping is frozen in the
+/// `[last_ping-5s, +15s]` window (a live worker would have advanced its in-place
+/// ping past that old window, so a frozen ping there proves it has gone silent),
+/// nearest the transition. Diagnostics-only: fails soft to `None`.
+async fn find_zombie_flow_culprit_worker(
+    db: &DB,
+    q_worker: &str,
+    last_ping: DateTime<Utc>,
+) -> Option<ZombieFlowCulprit> {
+    let res = sqlx::query_as!(
+        ZombieFlowCulprit,
+        r#"
+        WITH ref AS (
+            SELECT worker_instance, worker_group FROM worker_ping WHERE worker = $1 LIMIT 1
+        )
+        SELECT
+            wp.worker AS "worker!",
+            wp.ping_at AS "ping_at!",
+            wp.memory_usage,
+            wp.wm_memory_usage,
+            wp.memory AS memory_total,
+            wp.worker_group,
+            wp.worker_instance,
+            EXTRACT(EPOCH FROM (wp.ping_at - $2::timestamptz))::float8 AS ping_delta_secs
+        FROM worker_ping wp, ref
+        WHERE wp.worker <> $1
+            AND (
+                (ref.worker_instance IS NOT NULL AND wp.worker_instance = ref.worker_instance)
+                OR (ref.worker_group IS NOT NULL AND wp.worker_group = ref.worker_group)
+            )
+            AND wp.ping_at >= $2::timestamptz - interval '5 seconds'
+            AND wp.ping_at <= $2::timestamptz + interval '15 seconds'
+        ORDER BY ABS(EXTRACT(EPOCH FROM (wp.ping_at - $2::timestamptz))) ASC
+        LIMIT 1
+        "#,
+        q_worker,
+        last_ping,
+    )
+    .fetch_optional(db)
+    .await;
+    match res {
+        Ok(culprit) => culprit,
+        Err(e) => {
+            tracing::warn!(
+                "failed to query for zombie-flow culprit worker (q_worker={q_worker}): {e:#}"
+            );
+            None
+        }
+    }
+}
+
 async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
+    // flow_status is cast ::text on purpose: decoding the jsonb column directly as Box<str>
+    // yields its binary form (leading version byte) and fails serde_json parsing at column 1.
     let flows = sqlx::query!(
         r#"
         SELECT
             j.id AS "id!", j.workspace_id AS "workspace_id!", j.parent_job, j.flow_step_id IS NOT NULL AS "is_flow_step?",
-            COALESCE(s.flow_status, s.workflow_as_code_status) AS "flow_status: Box<str>", r.ping AS last_ping, j.same_worker AS "same_worker?",
+            COALESCE(s.flow_status, s.workflow_as_code_status)::text AS "flow_status: Box<str>", r.ping AS last_ping, j.same_worker AS "same_worker?",
             q.worker AS "worker?",
             wp.ping_at AS "worker_last_ping?",
             wp.memory_usage AS "worker_memory_usage?",
@@ -4898,11 +4989,7 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             .as_deref()
             .and_then(|x| serde_json::from_str::<FlowStatus>(x).ok());
         if !flow.same_worker.unwrap_or(false)
-            && status.is_some_and(|s| {
-                s.modules
-                    .get(0)
-                    .is_some_and(|x| matches!(x, FlowStatusModule::WaitingForPriorSteps { .. }))
-            })
+            && status.as_ref().is_some_and(|s| s.is_not_yet_started())
         {
             let error_message = format!(
                 "Zombie flow detected: {} in workspace {}. It hasn't started yet, restarting it.",
@@ -4963,18 +5050,35 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             // worker name; this flow's recorded worker name still points at the
             // dead process whose last ping can be under 60s old, and the memory
             // signal is what lets us catch that window.
-            let memory_pct: Option<f64> = flow.worker_memory_total.and_then(|total| {
-                if total <= 0 {
-                    return None;
-                }
-                let used = flow.worker_memory_usage.max(flow.worker_wm_memory_usage)?;
-                Some(used as f64 / total as f64)
-            });
+            let memory_pct: Option<f64> = zombie_worker_memory_pct(
+                flow.worker_memory_usage,
+                flow.worker_wm_memory_usage,
+                flow.worker_memory_total,
+            );
             let oom_strong = memory_pct.is_some_and(|p| p >= 0.85);
             let oom_moderate = memory_pct.is_some_and(|p| p >= 0.60);
             let mem_pct_str = memory_pct
                 .map(|p| format!("{:.1}% of container limit", (p * 100.0).min(100.0)))
                 .unwrap_or_else(|| "memory unknown at last ping".to_string());
+
+            // When q.worker itself already shows OOM evidence the diagnosis below is
+            // already correct. Otherwise q.worker is likely a bystander (the outer
+            // queue-row worker) and the dropped transition was performed by a
+            // different worker on the same pod/group that OOM-died — go find it.
+            let q_worker_shows_oom = oom_moderate || worker_ping_stale == Some(true);
+            let culprit = if q_worker_shows_oom {
+                None
+            } else if let (Some(qw), Some(lp)) = (flow.worker.as_deref(), flow.last_ping) {
+                find_zombie_flow_culprit_worker(db, qw, lp).await
+            } else {
+                None
+            };
+            let culprit_pct = culprit.as_ref().and_then(|c| {
+                zombie_worker_memory_pct(c.memory_usage, c.wm_memory_usage, c.memory_total)
+            });
+            let culprit_pct_str =
+                culprit_pct.map(|p| format!("{:.1}% of its memory limit", (p * 100.0).min(100.0)));
+
             let worker_info = if let Some(worker_name) = flow.worker.as_deref() {
                 let mut s = format!("\nWorker handling the flow: {worker_name}");
                 match (flow.worker_group.as_deref(), flow.worker_version.as_deref()) {
@@ -5005,8 +5109,11 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
                         (false, false, true) => format!(
                             "LIKELY OOM-KILLED — {mem_pct_str} at last ping (a replacement worker process may have started in the same pod under a new windmill worker name)"
                         ),
+                        (false, false, false) if culprit.is_some() => {
+                            "still pinging with healthy memory — this is NOT the worker that performed the flow's final state transition (see likely culprit worker below)".to_string()
+                        }
                         (false, false, false) => {
-                            "worker still pinging with healthy memory — likely deadlocked or blocking on the state transition".to_string()
+                            "worker still pinging with healthy memory — most likely a different worker performed and dropped the final transition (see hint); less likely: this worker deadlocked or is blocking on the state transition".to_string()
                         }
                     };
                     s.push_str(&format!("\nWorker last ping: {wp} ({age}s ago) — {status}"));
@@ -5051,20 +5158,88 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
                     .to_string()
             };
 
-            let hint: String = match (worker_ping_stale, oom_moderate) {
-                (Some(_), true) => format!(
-                    "\nThis is almost certainly an OOM-kill: container memory at the worker's last ping was at {mem_pct_str}. Raise the worker memory limit (e.g. k8s `resources.limits.memory`) or reduce per-flow memory usage. Confirm via pod restart count (`kubectl describe pod` / `kube_pod_container_status_last_terminated_reason`)."
-                ),
-                (Some(true), false) => {
-                    "\nWorker stopped pinging and its last memory snapshot did not look high — in practice the overwhelmingly common cause here is still OOM-kill (memory may have spiked between the last ping and the kill, or never been reported). First check pod restart count (`kubectl describe pod` / `kube_pod_container_status_last_terminated_reason`). Less likely: host failure, network partition, or a panic — check worker logs / k8s events around the last ping time.".to_string()
-                }
-                (Some(false), false) => {
-                    "\nWorker is still pinging and memory looked healthy at its last ping — most likely a deadlock or blocking call during the state transition. Capture a stack trace (e.g. via SIGQUIT) from the worker process. As a sanity check, also verify pod restart count in case a replacement worker process in the same pod has silently taken over.".to_string()
-                }
-                (None, _) => String::new(),
+            let culprit_info = if let Some(c) = culprit.as_ref() {
+                let age = (now - c.ping_at).num_seconds();
+                let rel = match c.ping_delta_secs {
+                    Some(d) if d >= 0.0 => format!("{d:.0}s after"),
+                    Some(d) => format!("{:.0}s before", -d),
+                    None => "around".to_string(),
+                };
+                let loc =
+                    if c.worker_instance.is_some() && c.worker_instance == flow.worker_instance {
+                        format!(
+                            "same pod/instance '{}'",
+                            c.worker_instance.as_deref().unwrap()
+                        )
+                    } else if let Some(g) = c.worker_group.as_deref() {
+                        format!("worker group '{g}'")
+                    } else if let Some(inst) = c.worker_instance.as_deref() {
+                        format!("instance '{inst}'")
+                    } else {
+                        "same pod/group".to_string()
+                    };
+                let mem = match culprit_pct_str.as_deref() {
+                    Some(p) => format!("was at {p}"),
+                    None => "did not report memory".to_string(),
+                };
+                let mem_detail = match (c.memory_usage, c.wm_memory_usage, c.memory_total) {
+                    (host, wm, Some(total)) => {
+                        let used = host.max(wm);
+                        match used {
+                            Some(u) => format!(
+                                " (memory at last ping: {} of {})",
+                                fmt_mb(u),
+                                fmt_mb(total)
+                            ),
+                            None => format!(" (total available: {})", fmt_mb(total)),
+                        }
+                    }
+                    _ => String::new(),
+                };
+                let q_name = flow.worker.as_deref().unwrap_or("the recorded worker");
+                format!(
+                    "\nLikely culprit worker (on {loc}): {} — last pinged {} ({age}s ago, {rel} this flow's last ping) and then stopped pinging; it {mem} at that last ping{mem_detail}. This flow's dropped state transition was most likely performed by this worker and lost to its death (most likely OOM-kill), not a deadlock on {q_name}.",
+                    c.worker, c.ping_at,
+                )
+            } else {
+                String::new()
             };
 
-            let service_logs_info = match (flow.worker_instance.as_deref(), flow.worker_last_ping) {
+            let hint: String = if let Some(c) = culprit.as_ref() {
+                let q_name = flow.worker.as_deref().unwrap_or("the recorded worker");
+                match culprit_pct {
+                    Some(p) if p >= 0.60 => format!(
+                        "\nThis is almost certainly an OOM-kill on a *different* worker: {} (on the same pod/worker group) was at {} at its last ping right around this flow's transition, then stopped pinging. The flow's recorded worker ({q_name}) looks healthy because it is not the worker that performed the dropped transition. Raise the worker memory limit (e.g. k8s `resources.limits.memory`) or reduce per-flow memory usage. Confirm via that pod's restart count (`kubectl describe pod` / `kube_pod_container_status_last_terminated_reason`).",
+                        c.worker,
+                        culprit_pct_str.as_deref().unwrap_or("a high fraction of its limit"),
+                    ),
+                    _ => format!(
+                        "\nMost likely an OOM-kill on a *different* worker: {} (on the same pod/worker group) stopped pinging right around this flow's transition ({last_ping:?}); its memory may have spiked after its last ping or not been reported. The flow's recorded worker ({q_name}) looks healthy because it did not perform the dropped transition. First check that pod's restart count (`kubectl describe pod` / `kube_pod_container_status_last_terminated_reason`). Only if that worker was not OOM-killed, consider a deadlock on {q_name} and capture a stack trace (e.g. via SIGQUIT).",
+                        c.worker,
+                    ),
+                }
+            } else {
+                match (worker_ping_stale, oom_moderate) {
+                    (Some(_), true) => format!(
+                        "\nThis is almost certainly an OOM-kill: container memory at the worker's last ping was at {mem_pct_str}. Raise the worker memory limit (e.g. k8s `resources.limits.memory`) or reduce per-flow memory usage. Confirm via pod restart count (`kubectl describe pod` / `kube_pod_container_status_last_terminated_reason`)."
+                    ),
+                    (Some(true), false) => {
+                        "\nWorker stopped pinging and its last memory snapshot did not look high — in practice the overwhelmingly common cause here is still OOM-kill (memory may have spiked between the last ping and the kill, or never been reported). First check pod restart count (`kubectl describe pod` / `kube_pod_container_status_last_terminated_reason`). Less likely: host failure, network partition, or a panic — check worker logs / k8s events around the last ping time.".to_string()
+                    }
+                    (Some(false), false) => {
+                        format!("\nThe flow's recorded worker is still pinging with healthy memory, but that worker is often NOT the one that performed the final state transition (in nested/subflow/forloop cases the last iteration runs on another worker). First check whether a different worker on the same pod / worker group was OOM-killed around {last_ping:?} (`kubectl describe pod` / `kube_pod_container_status_last_terminated_reason`, and that pod's worker memory metrics). Only if no such worker died, treat this as a deadlock or blocking call on the recorded worker during the state transition and capture a stack trace (e.g. via SIGQUIT).")
+                    }
+                    (None, _) => String::new(),
+                }
+            };
+
+            // Pull logs for the worker (and around the time) we actually blame: the
+            // culprit's instance/last-ping when one was found, else q.worker's.
+            let (log_instance, log_ping) = match culprit.as_ref() {
+                Some(c) => (c.worker_instance.as_deref(), Some(c.ping_at)),
+                None => (flow.worker_instance.as_deref(), flow.worker_last_ping),
+            };
+            let service_logs_info = match (log_instance, log_ping) {
                 (Some(host), Some(wlp)) => {
                     let after = (wlp - chrono::Duration::seconds(90))
                         .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
@@ -5118,13 +5293,25 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             };
 
             let reason = format!(
-                "{} was hanging in between 2 steps. Last ping: {last_ping:?} (now: {now}){worker_info}{hint}{service_logs_info}",
+                "{} was hanging in between 2 steps. Last ping: {last_ping:?} (now: {now}){worker_info}{culprit_info}{hint}{service_logs_info}",
                 if flow.is_flow_step.unwrap_or(false) && flow.parent_job.is_some() {
                     format!("Flow was cancelled because subflow {id} ({base_url}/run/{id}?workspace={workspace_id})")
                 } else {
                     format!("Flow {id} ({base_url}/run/{id}?workspace={workspace_id}) was cancelled because it")
                 }
             );
+            let reason = match between_steps_recovery_guidance(
+                db,
+                status.as_ref(),
+                id,
+                &workspace_id,
+                &base_url,
+            )
+            .await
+            {
+                Some(guidance) => format!("{reason}\n\n{guidance}"),
+                None => reason,
+            };
             report_critical_error(reason.clone(), db.clone(), Some(&flow.workspace_id), None).await;
             cancel_zombie_flow_job(db, flow.id, &flow.workspace_id,
                 format!(r#"{reason}
@@ -5169,6 +5356,103 @@ Please check your worker logs for more details and feel free to report it to the
         }
     }
     Ok(())
+}
+
+/// When a between-steps zombie's stuck step has every child recorded as a
+/// `success` completion, the flow's state is fully derivable: only the final
+/// state transition was lost to the worker failure, not any real work. In that
+/// case return concrete restart-from-step recovery guidance to append to the
+/// cancellation reason / critical alert. Returns `None` when the state isn't
+/// derivable (some child missing or not successful), so the existing wording is
+/// left untouched. Auto-recovery is deliberately not attempted (a re-driven
+/// transition can OOM again on the same aggregated state; a human raises the
+/// memory limit first, then restarts).
+async fn between_steps_recovery_guidance(
+    db: &DB,
+    status: Option<&FlowStatus>,
+    flow_id: Uuid,
+    workspace_id: &str,
+    base_url: &str,
+) -> Option<String> {
+    // The stuck module is the current step, left InProgress because the
+    // transition that would have marked it Success was dropped. It is only
+    // derivable when its own cursor reached the end (a serial fan-out reaped
+    // mid-iteration has unrun work left; while-loops are never derivable). Whether
+    // restart reuses the children or re-runs the step (final step, or one carrying a
+    // stop/skip/approval/sleep) is decided by the restart path against the flow
+    // definition, which the reaper doesn't load; the guidance states both outcomes
+    // rather than promising reuse the restart might decline.
+    let status = status?;
+    let idx = usize::try_from(status.step).ok()?;
+    let module = status.modules.get(idx)?;
+    if !module.is_between_steps_complete() {
+        return None;
+    }
+    let step_id = module.id();
+
+    // Only a top-level deployed flow exposes a working restart-from-step: the run page's
+    // "Re-start from" button is rendered only for job_kind == 'flow' (a flowpreview, even a
+    // pathful editor preview, or a singlestepflow does not qualify), and a subflow child
+    // restarts via its root. Match that surface exactly so the guidance never points at a
+    // button / endpoint that isn't there; leave the existing wording otherwise.
+    let restartable = sqlx::query_scalar!(
+        r#"SELECT (kind = 'flow' AND parent_job IS NULL) AS "restartable!"
+           FROM v2_job WHERE id = $1"#,
+        flow_id,
+    )
+    .fetch_one(db)
+    .await
+    .ok()?;
+    if !restartable {
+        return None;
+    }
+
+    // Children whose completion the lost transition would have aggregated: the
+    // loop/branchall iterations, or the single leaf/subflow child.
+    let child_ids: Vec<Uuid> = module
+        .flow_jobs()
+        .filter(|v| !v.is_empty())
+        .or_else(|| module.job().map(|j| vec![j]))?;
+
+    // Derivable only when every child is recorded as a success completion.
+    let success_children = sqlx::query_scalar!(
+        "SELECT count(*) FROM v2_job_completed
+         WHERE workspace_id = $1 AND id = ANY($2) AND status = 'success'",
+        workspace_id,
+        &child_ids,
+    )
+    .fetch_one(db)
+    .await
+    .ok()?
+    .unwrap_or(0);
+    if success_children != child_ids.len() as i64 {
+        return None;
+    }
+    let n = child_ids.len();
+
+    // For loop/branchall, name the completed iteration/branch count so the
+    // operator can confirm the whole fan-out is intact.
+    let iteration_hint = match module {
+        FlowStatusModule::InProgress { iterator: Some(_), .. } => {
+            format!(" (loop step, all {n} iterations completed)")
+        }
+        FlowStatusModule::InProgress { branchall: Some(_), .. } => {
+            format!(" (branchall step, all {n} branches completed)")
+        }
+        _ => String::new(),
+    };
+
+    Some(format!(
+        "RECOVERY: all {n} child job(s) of step `{step_id}`{iteration_hint} completed successfully; \
+only the flow's final state transition was lost to the worker failure above (not any genuine failure), so \
+the completed work is intact. To recover: first change the failure condition (raise the worker memory limit, \
+e.g. k8s `resources.limits.memory`, or move the flow to a larger worker group), then restart from step \
+`{step_id}`. Restart replays only the dropped transition and reuses the completed children where the step's \
+result is fully derivable; a step that is the flow's last, or carries a stop/skip condition, an approval, or a \
+sleep, is re-run instead (re-evaluating those on the larger worker).\n\
+  UI:  open {base_url}/run/{flow_id}?workspace={workspace_id} and use \"Re-start from {step_id}\".\n\
+  API: POST {base_url}/api/w/{workspace_id}/jobs/restart/f/{flow_id} with body {{\"step_id\":\"{step_id}\"}}."
+    ))
 }
 
 async fn cancel_zombie_flow_job(
@@ -5786,5 +6070,41 @@ mod strike_unarmed_tests {
         assert!(strike_unarmed(&mut seen, set(&["a"])).is_empty());
         assert_eq!(strike_unarmed(&mut seen, set(&["a", "b"])), vec![key("a")]);
         assert_eq!(strike_unarmed(&mut seen, set(&["b"])), vec![key("b")]);
+    }
+}
+
+#[cfg(test)]
+mod zombie_worker_memory_pct_tests {
+    use super::zombie_worker_memory_pct;
+
+    #[test]
+    fn takes_the_larger_of_the_two_readings() {
+        // Both present: the larger (higher-signal) reading wins, not either
+        // one unconditionally — a "simplify to `usage.or(wm_usage)`" refactor
+        // would silently under-report and miss OOMs.
+        let p = zombie_worker_memory_pct(Some(600), Some(900), Some(1000)).unwrap();
+        assert!((p - 0.9).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn falls_back_to_whichever_reading_is_present() {
+        assert_eq!(
+            zombie_worker_memory_pct(Some(700), None, Some(1000)),
+            Some(0.7)
+        );
+        assert_eq!(
+            zombie_worker_memory_pct(None, Some(800), Some(1000)),
+            Some(0.8)
+        );
+    }
+
+    #[test]
+    fn none_when_no_usage_or_no_valid_total() {
+        assert_eq!(zombie_worker_memory_pct(None, None, Some(1000)), None);
+        assert_eq!(zombie_worker_memory_pct(Some(500), Some(500), None), None);
+        assert_eq!(
+            zombie_worker_memory_pct(Some(500), Some(500), Some(0)),
+            None
+        );
     }
 }

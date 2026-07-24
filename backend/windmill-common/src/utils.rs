@@ -563,6 +563,20 @@ pub async fn report_critical_error(
     }
 }
 
+/// Route a workspace-level failure to the instance critical alert channels without
+/// recording an `alerts` row: job failures are workspace noise and would otherwise flood
+/// the instance-wide feed superadmins triage. The channels belong to the instance operator,
+/// who on cloud is not the workspace owner, hence the hard stop there. Callers own the
+/// per-workspace opt-in.
+pub async fn send_workspace_error_to_instance_channels(_error_message: String, _db: &DB) -> () {
+    if *CLOUD_HOSTED {
+        return;
+    }
+
+    #[cfg(feature = "enterprise")]
+    send_critical_alert(_error_message, _db, CriticalAlertKind::CriticalError, None).await;
+}
+
 pub async fn report_recovered_critical_error(
     message: String,
     _db: DB,
@@ -1044,6 +1058,92 @@ pub async fn get_custom_pg_instance_password(db: &DB) -> Result<String> {
     )
 }
 
+const REFRESH_CUSTOM_INSTANCE_REPLICATION_USER_SQL: &str = r#"
+    DO $$
+        DECLARE
+            pwd text;
+        BEGIN
+            SELECT gen_random_uuid()::text INTO pwd;
+
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'custom_instance_replication_user') THEN
+                EXECUTE format('ALTER USER custom_instance_replication_user WITH PASSWORD %L REPLICATION', pwd);
+            ELSE
+                EXECUTE format('CREATE USER custom_instance_replication_user WITH PASSWORD %L REPLICATION', pwd);
+            END IF;
+
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'custom_instance_user') THEN
+                GRANT custom_instance_user TO custom_instance_replication_user;
+                ALTER ROLE custom_instance_user NOREPLICATION;
+            END IF;
+
+            INSERT INTO global_settings (name, value)
+            VALUES ('custom_instance_replication_pwd', to_jsonb(pwd::text))
+            ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value;
+        END
+        $$;
+"#;
+
+const REPLICATION_PWD_READ_SQL: &str =
+    "SELECT value #>> '{}' FROM global_settings WHERE name = 'custom_instance_replication_pwd'";
+
+/// (Re)create `custom_instance_replication_user` with a fresh password. This role is
+/// used by postgres trigger connections on custom-instance datatables; membership in
+/// `custom_instance_user` lets it manage publications on the datatable tables.
+///
+/// Authorization: rotates a stored database credential and performs no authorization
+/// itself — callers MUST restrict this to superadmin or internal server paths.
+pub async fn refresh_custom_instance_replication_user_pwd(db: &DB) -> Result<()> {
+    sqlx::query(REFRESH_CUSTOM_INSTANCE_REPLICATION_USER_SQL)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
+/// Authorization: returns a stored database credential and performs no authorization
+/// itself — callers MUST restrict this to superadmin or internal server paths (mirrors
+/// [`get_custom_pg_instance_password`]).
+pub async fn get_custom_pg_instance_replication_password(db: &DB) -> Result<String> {
+    // Fast path: already provisioned by the migration.
+    if let Some(pwd) = sqlx::query_scalar::<_, Option<String>>(REPLICATION_PWD_READ_SQL)
+        .fetch_optional(db)
+        .await?
+        .flatten()
+    {
+        return Ok(pwd);
+    }
+    // Self-heal when the role-creating migration was swallowed. The advisory lock + re-check
+    // serialize concurrent workers: otherwise two callers both rotate, and the second
+    // rotation invalidates the password the first already returned. Rotating and reading in
+    // one locked transaction keeps the decision atomic.
+    let mut tx = db.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('custom_instance_replication_pwd'))")
+        .execute(&mut *tx)
+        .await?;
+    if let Some(pwd) = sqlx::query_scalar::<_, Option<String>>(REPLICATION_PWD_READ_SQL)
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten()
+    {
+        tx.commit().await?;
+        return Ok(pwd);
+    }
+    sqlx::query(REFRESH_CUSTOM_INSTANCE_REPLICATION_USER_SQL)
+        .execute(&mut *tx)
+        .await?;
+    let pwd = sqlx::query_scalar::<_, Option<String>>(REPLICATION_PWD_READ_SQL)
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten()
+        .ok_or_else(|| {
+            Error::BadRequest(
+                "Custom instance replication user password not found, did you run migrations ?"
+                    .to_string(),
+            )
+        })?;
+    tx.commit().await?;
+    Ok(pwd)
+}
+
 /// Convert a JSON string to a `Box<RawValue>` without validation.
 ///
 /// # Safety
@@ -1129,9 +1229,138 @@ pub fn merge_nested_raw_values_to_array<
     serde_json::value::RawValue::from_string(result).unwrap()
 }
 
+/// Remove every U+0000 (NUL) from a serialized JSON document so it is safe to
+/// store in a `jsonb` column, which rejects the `\u0000` escape with 22P05
+/// ("unsupported Unicode escape sequence"). A `json`-typed column accepts the
+/// escape but propagates the same failure to any later `->>`/`to_jsonb`/`json`→
+/// `jsonb` conversion.
+///
+/// A NUL can only appear in JSON text as a backslash-u0000 escape, and a
+/// backslash only ever occurs inside a string, so one backslash-parity-aware
+/// pass removes every real NUL escape — covering values and keys alike — while
+/// leaving a legitimate `\\u0000` (an escaped backslash followed by the literal
+/// text `u0000`, common in minified JS regexes) intact. O(n) over the bytes with
+/// no `serde_json::Value` tree to allocate, and the fast path (no such substring
+/// at all) returns the input borrowed and untouched. The slow path is reached
+/// not only by genuinely poisoned values but by any value that legitimately
+/// contains `u0000` after a backslash (e.g. script source), so it must stay
+/// allocation-light for potentially large documents.
+pub fn strip_json_nul(serialized: &str) -> Cow<'_, str> {
+    // SIMD substring scan (several times faster than `str::contains`'s Two-Way)
+    // for the guard, since this runs on every completed job's serialized result.
+    if memchr::memmem::find(serialized.as_bytes(), b"\\u0000").is_none() {
+        return Cow::Borrowed(serialized);
+    }
+    let bytes = serialized.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    // The substring guard above is satisfied by legitimate `\\u0000` too, so only
+    // an odd-parity NUL escape actually drops bytes. Borrow back out when nothing
+    // was stripped, so `Cow::Owned` reliably means "a NUL was removed" — callers
+    // (e.g. apps.rs) key a warning on that.
+    let mut stripped = false;
+    while i < bytes.len() {
+        if bytes[i] != b'\\' {
+            out.push(bytes[i]);
+            i += 1;
+            continue;
+        }
+        // Consume the whole run of backslashes. An even run is N/2 escaped
+        // backslashes and leaves the next char unescaped; an odd run ends in an
+        // escaping backslash, so a following `u0000` is a real NUL escape.
+        let run_start = i;
+        while i < bytes.len() && bytes[i] == b'\\' {
+            i += 1;
+        }
+        let run = i - run_start;
+        if run % 2 == 1 && bytes[i..].starts_with(b"u0000") {
+            // Drop the escaping backslash + `u0000`; keep the leading literal pairs.
+            out.extend(std::iter::repeat(b'\\').take(run - 1));
+            i += 5;
+            stripped = true;
+        } else {
+            out.extend(std::iter::repeat(b'\\').take(run));
+        }
+    }
+    if !stripped {
+        return Cow::Borrowed(serialized);
+    }
+    // Only whole ASCII backslash-u0000 escapes were removed, so the bytes remain
+    // valid UTF-8 (and valid JSON).
+    Cow::Owned(String::from_utf8(out).expect("removing a NUL escape preserves valid UTF-8"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The 6-char JSON escape for U+0000: backslash + "u0000". Written via an
+    // escaped backslash so no literal NUL byte ever appears in this source.
+    const NUL_ESC: &str = "\\u0000";
+
+    // Parse the (NUL-free) result so assertions read clearly.
+    fn parsed(s: &str) -> serde_json::Value {
+        serde_json::from_str(s).expect("strip_json_nul must return valid JSON")
+    }
+
+    #[test]
+    fn strip_json_nul_clean_value_is_borrowed_byte_for_byte() {
+        let s = r#"{"summary":"all good","n":1}"#;
+        let out = strip_json_nul(s);
+        assert!(matches!(out, Cow::Borrowed(_)));
+        assert_eq!(out, s);
+    }
+
+    #[test]
+    fn strip_json_nul_real_nul_in_value_is_stripped() {
+        let input = format!(r#"{{"summary":"hi{NUL_ESC}there"}}"#);
+        let out = strip_json_nul(&input);
+        assert!(!out.contains(NUL_ESC));
+        assert_eq!(parsed(&out)["summary"], "hithere");
+    }
+
+    #[test]
+    fn strip_json_nul_legit_escaped_backslash_is_a_noop() {
+        // JSON "a\\u0000b" decodes to a,backslash,u,0,0,0,0,b - not a NUL - so
+        // the value is already clean and round-trips byte-for-byte. It hits the
+        // slow path (the substring is present) but strips nothing, so it must
+        // still return Cow::Borrowed - callers key a "stripped NUL" warning on
+        // the Owned variant.
+        let s = r#"{"summary":"a\\u0000b"}"#;
+        let out = strip_json_nul(s);
+        assert!(matches!(out, Cow::Borrowed(_)));
+        assert_eq!(out, s);
+    }
+
+    #[test]
+    fn strip_json_nul_collision_real_and_literal_both_handled() {
+        // "a" carries a real NUL escape; "b" carries the literal text backslash-u0000.
+        let v = parsed(&strip_json_nul(&format!(
+            r#"{{"a":"x{NUL_ESC}y","b":"p\\u0000q"}}"#
+        )));
+        assert_eq!(v["a"], "xy");
+        assert_eq!(v["b"], "p\\u0000q");
+    }
+
+    #[test]
+    fn strip_json_nul_nested_values_and_keys_are_cleaned() {
+        let input =
+            format!(r#"{{"o":{{"k{NUL_ESC}":["a{NUL_ESC}b",{{"deep{NUL_ESC}":"v{NUL_ESC}"}}]}}}}"#);
+        let out = strip_json_nul(&input);
+        assert!(!out.contains(NUL_ESC));
+        let v = parsed(&out);
+        assert_eq!(v["o"]["k"][0], "ab");
+        assert_eq!(v["o"]["k"][1]["deep"], "v");
+    }
+
+    #[test]
+    fn strip_json_nul_odd_backslash_run_keeps_literal_drops_nul() {
+        // JSON "a\\ b" is an escaped backslash (kept) immediately followed
+        // by a real NUL escape (dropped) -> decodes to a,backslash,b.
+        let v = parsed(&strip_json_nul(&format!(r#"{{"x":"a\\{NUL_ESC}b"}}"#)));
+        assert_eq!(v["x"], "a\\b");
+    }
+
     #[test]
     fn test_build_arg_str() {
         let r = build_arg_str(

@@ -35,9 +35,23 @@ export const DEFAULT_BUILD_OPTIONS = {
   loader: {
     ".css": "css" as const,
   },
+  // esbuild export conditions safe for any app: "style" resolves tailwindcss v4's CSS
+  // entry (@import "tailwindcss"); "module" is re-added because esbuild drops its
+  // auto-included "module" default once any custom condition is set. The Svelte-only
+  // "svelte" condition is gated per-app in conditionsFor().
+  conditions: ["style", "module"],
   logLevel: "info" as const,
   write: true,
 };
+
+// "svelte" points at raw .svelte sources that only compile with the Svelte plugin, so
+// enable it only for Svelte apps — for a plain app a Svelte-dual-published import would
+// otherwise resolve to .svelte and hard-fail with no loader configured.
+function conditionsFor(svelte: boolean): string[] {
+  return svelte
+    ? [...DEFAULT_BUILD_OPTIONS.conditions, "svelte"]
+    : DEFAULT_BUILD_OPTIONS.conditions;
+}
 
 /**
  * Detects which frontend frameworks are present in package.json
@@ -284,6 +298,7 @@ export async function createBundle(
 
   const buildOptions = {
     ...DEFAULT_BUILD_OPTIONS,
+    conditions: conditionsFor(frameworks.svelte),
     entryPoints: [entryPoint],
     outfile,
     sourcemap,
@@ -337,11 +352,13 @@ export async function createBundle(
 /**
  * Gets the esbuild build options for use in watch mode (dev server)
  * @param entryPoint Entry point file
+ * @param svelte Whether the app is a Svelte app (enables the "svelte" condition)
  * @returns esbuild build options
  */
-export function getDevBuildOptions(entryPoint: string = "index.tsx") {
+export function getDevBuildOptions(entryPoint: string = "index.tsx", svelte = false) {
   return {
     ...DEFAULT_BUILD_OPTIONS,
+    conditions: conditionsFor(svelte),
     entryPoints: [entryPoint],
     outfile: "dist/bundle.js",
     sourcemap: true,

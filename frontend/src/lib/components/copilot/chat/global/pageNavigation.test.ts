@@ -39,18 +39,32 @@ describe('pageNavigation builders', () => {
 
 	it('resources keeps resource_type + path, drops runs-only keys', () => {
 		const u = parse(
-			buildResourcesUrl({ resource_type: 'postgres', path: 'f/x', status: 'failure' })
+			buildResourcesUrl({ filters: { resource_type: 'postgres', path: 'f/x', status: 'failure' } })
 		)
 		expect(u.searchParams.get('resource_type')).toBe('postgres')
 		expect(u.searchParams.get('path')).toBe('f/x')
 		expect(u.searchParams.has('status')).toBe(false)
 	})
 
+	it('resources opens a specific resource via the #/resource/ hash', () => {
+		const u = parse(buildResourcesUrl({ open: 'f/x/db' }))
+		expect(u.pathname).toBe('/resources')
+		expect(u.hash).toBe('#/resource/f/x/db')
+	})
+
 	it('variables keeps path + owner only', () => {
-		const u = parse(buildVariablesUrl({ path: 'f/x', owner: 'u/alice', resource_type: 'postgres' }))
+		const u = parse(
+			buildVariablesUrl({ filters: { path: 'f/x', owner: 'u/alice', resource_type: 'postgres' } })
+		)
 		expect(u.searchParams.get('path')).toBe('f/x')
 		expect(u.searchParams.get('owner')).toBe('u/alice')
 		expect(u.searchParams.has('resource_type')).toBe(false)
+	})
+
+	it('variables opens a specific variable via hash', () => {
+		const u = parse(buildVariablesUrl({ open: 'u/alice/token' }))
+		expect(u.pathname).toBe('/variables')
+		expect(u.hash).toBe('#u/alice/token')
 	})
 
 	it('triggers route to the kind page, opening a specific trigger via hash', () => {

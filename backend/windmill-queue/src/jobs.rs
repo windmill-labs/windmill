@@ -25,6 +25,7 @@ use serde::{ser::SerializeMap, Serialize};
 use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, Acquire, Pool, Postgres, Transaction};
 use sqlx::{Encode, PgExecutor};
+use std::borrow::Cow;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -49,7 +50,7 @@ use windmill_common::runnable_settings::{
     RunnableSettings, RunnableSettingsTrait,
 };
 use windmill_common::triggers::TriggerMetadata;
-use windmill_common::utils::{calculate_hash, configure_client, now_from_db};
+use windmill_common::utils::{calculate_hash, configure_client, now_from_db, strip_json_nul};
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
 
 use windmill_common::otel_oss::{
@@ -634,6 +635,12 @@ pub trait ValidableJson {
     fn wm_failure(&self) -> Option<String>;
     fn result_metadata(&self) -> ResultMetadata;
     fn size(&self) -> usize;
+    /// The result as JSON text, for binding into the `jsonb` `result` column.
+    /// `Box<RawValue>` is already serialized and returns a zero-cost borrow;
+    /// other impls serialize on demand. Callers pass this through
+    /// `strip_json_nul` before the INSERT, since a genuine NUL escape would
+    /// abort the write with 22P05.
+    fn serialized_json(&self) -> Cow<'_, str>;
 }
 
 /// The Windmill-specific markers we look for inside a job's result.
@@ -692,6 +699,10 @@ impl ValidableJson for WrappedError {
     fn size(&self) -> usize {
         0
     }
+
+    fn serialized_json(&self) -> Cow<'_, str> {
+        Cow::Owned(serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string()))
+    }
 }
 
 impl ValidableJson for Box<RawValue> {
@@ -713,6 +724,11 @@ impl ValidableJson for Box<RawValue> {
 
     fn size(&self) -> usize {
         self.get().len()
+    }
+
+    fn serialized_json(&self) -> Cow<'_, str> {
+        // Already serialized JSON text — borrow it, no re-serialization.
+        Cow::Borrowed(self.get())
     }
 }
 
@@ -736,6 +752,10 @@ impl<T: ValidableJson> ValidableJson for Arc<T> {
     fn size(&self) -> usize {
         T::size(&self)
     }
+
+    fn serialized_json(&self) -> Cow<'_, str> {
+        T::serialized_json(&self)
+    }
 }
 
 impl ValidableJson for serde_json::Value {
@@ -758,6 +778,10 @@ impl ValidableJson for serde_json::Value {
     fn size(&self) -> usize {
         self.size_hint()
     }
+
+    fn serialized_json(&self) -> Cow<'_, str> {
+        Cow::Owned(serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string()))
+    }
 }
 
 impl<T: ValidableJson> ValidableJson for Json<T> {
@@ -779,6 +803,10 @@ impl<T: ValidableJson> ValidableJson for Json<T> {
 
     fn size(&self) -> usize {
         self.0.size()
+    }
+
+    fn serialized_json(&self) -> Cow<'_, str> {
+        self.0.serialized_json()
     }
 }
 
@@ -925,8 +953,13 @@ lazy_static::lazy_static! {
     static ref RESTART_UNLESS_CANCELLED_CACHE: Cache<(i64, String), (bool, Option<i32>)> = Cache::new(10000);
 
     // Cache for workspace error handler settings with 60s TTL
-    // Key: workspace_id, Value: (error_handler, error_handler_extra_args, error_handler_muted_on_cancel, error_handler_muted_on_user_path, expiry_timestamp)
-    static ref WORKSPACE_ERROR_HANDLER_CACHE: Cache<String, (Option<String>, Option<Json<Box<RawValue>>>, bool, bool, i64)> = Cache::new(1000);
+    // Key: workspace_id, Value: (error_handler, error_handler_extra_args, error_handler_muted_on_cancel, error_handler_muted_on_user_path, report_to_instance_alerts, expiry_timestamp)
+    static ref WORKSPACE_ERROR_HANDLER_CACHE: Cache<String, (Option<String>, Option<Json<Box<RawValue>>>, bool, bool, bool, i64)> = Cache::new(1000);
+
+    // Best-effort per-worker throttle for the instance-channel fallback: a flapping runnable
+    // would otherwise turn every failure into outbound Slack/SMTP traffic on channels shared by
+    // the whole instance. Key: workspace_id, Value: (last_sent_epoch, failures suppressed since)
+    static ref INSTANCE_ALERT_THROTTLE: Cache<String, (i64, u64)> = Cache::new(1000);
 
     // Cache for workspace success handler settings with 60s TTL
     // Key: workspace_id, Value: (success_handler, success_handler_extra_args, expiry_timestamp)
@@ -934,6 +967,7 @@ lazy_static::lazy_static! {
 }
 
 const WORKSPACE_HANDLER_CACHE_TTL_SECONDS: i64 = 60;
+const INSTANCE_ALERT_COOLDOWN_SECONDS: i64 = 60;
 
 pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     db: &Pool<Postgres>,
@@ -1079,15 +1113,24 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // Resolve the concurrency-limit settings on the pool *before* opening the
     // completion transaction: doing it inside the tx would hold a second
     // simultaneous connection from the small per-worker pool.
-    let has_concurrent_limit = completed_job.concurrent_limit.is_some()
-        || windmill_common::runnable_settings::prefetch_cached_from_handle(
-            completed_job.runnable_settings_handle,
-            db,
-        )
-        .await?
-        .1
-        .concurrent_limit
-        .is_some();
+    let has_concurrent_limit = has_active_concurrency_limit(completed_job.concurrent_limit)
+        || has_active_concurrency_limit(
+            windmill_common::runnable_settings::prefetch_cached_from_handle(
+                completed_job.runnable_settings_handle,
+                db,
+            )
+            .await?
+            .1
+            .concurrent_limit,
+        );
+
+    // A genuine NUL (U+0000) in the result serializes to a `\u0000` escape that
+    // the jsonb `result` column rejects with 22P05 ("unsupported Unicode escape
+    // sequence"), which would abort the whole completion INSERT. Strip it before
+    // binding — near-zero cost when clean: a single scan, and for an
+    // already-serialized `RawValue` result the serialization itself is a borrow.
+    let serialized_result = result.serialized_json();
+    let sanitized_result = strip_json_nul(serialized_result.as_ref());
 
     let mut tx = db.begin().warn_after_seconds(10).await?;
 
@@ -1107,7 +1150,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     , status
                     , worker
                     )
-                SELECT q.workspace_id, q.id, started_at, COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000), $3, $10, $5, $6,
+                SELECT q.workspace_id, q.id, started_at, COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000), $3::text::jsonb, $10, $5, $6,
                         flow_status, workflow_as_code_status,
                         $8, CASE WHEN $4::BOOL THEN 'canceled'::job_status
                         WHEN $7::BOOL THEN 'skipped'::job_status
@@ -1115,10 +1158,10 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         ELSE 'failure'::job_status END AS status,
                         q.worker
                 FROM v2_job_queue q LEFT JOIN v2_job_status USING (id) WHERE q.id = $1
-            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3 RETURNING duration_ms AS \"duration_ms!\"",
+            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3::text::jsonb RETURNING duration_ms AS \"duration_ms!\"",
             /* $1 */ completed_job.id,
             /* $2 */ success,
-            /* $3 */ result as Json<&T>,
+            /* $3 */ sanitized_result.as_ref(),
             /* $4 */ canceled_by.is_some(),
             /* $5 */ canceled_by.clone().map(|cb| cb.username).flatten(),
             /* $6 */ canceled_by.clone().map(|cb| cb.reason).flatten(),
@@ -1156,7 +1199,14 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         }
     };
 
-    if let Some(labels) = result.wm_labels() {
+    if let Some(mut labels) = result.wm_labels() {
+        // A `\u0000` inside a wm_labels entry decodes to a real NUL that the
+        // `text[]` column rejects, which would abort this same transaction (and
+        // roll back the sanitized result insert) exactly like an unsanitized
+        // result. Strip it so the labels match the sanitized result.
+        for label in &mut labels {
+            label.retain(|c| c != '\0');
+        }
         sqlx::query!(
             "UPDATE v2_job SET labels = (
                     SELECT array_agg(DISTINCT all_labels)
@@ -2081,7 +2131,7 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel(
 async fn fetch_error_handler_from_db(
     db: &Pool<Postgres>,
     w_id: &str,
-) -> Result<(Option<String>, Option<Json<Box<RawValue>>>, bool, bool), Error> {
+) -> Result<(Option<String>, Option<Json<Box<RawValue>>>, bool, bool, bool), Error> {
     sqlx::query_as::<
         _,
         (
@@ -2089,6 +2139,7 @@ async fn fetch_error_handler_from_db(
             Option<Json<Box<RawValue>>>,
             Option<bool>,
             Option<bool>,
+            bool,
         ),
     >(
         r#"
@@ -2096,23 +2147,28 @@ async fn fetch_error_handler_from_db(
             error_handler->>'path',
             (error_handler->'extra_args')::text::json,
             (error_handler->>'muted_on_cancel')::boolean,
-            (error_handler->>'muted_on_user_path')::boolean
-        FROM workspace_settings
-        WHERE workspace_id = $1
+            (error_handler->>'muted_on_user_path')::boolean,
+            ws.error_handler_fallback_to_instance_alerts AND w.parent_workspace_id IS NULL
+        FROM workspace_settings ws
+        JOIN workspace w ON w.id = ws.workspace_id
+        WHERE ws.workspace_id = $1
         "#,
     )
     .bind(w_id)
     .fetch_optional(db)
     .await
     .context("fetching error handler info from workspace_settings")?
-    .map(|(path, extra_args, muted_on_cancel, muted_on_user_path)| {
-        (
-            path,
-            extra_args,
-            muted_on_cancel.unwrap_or(false),
-            muted_on_user_path.unwrap_or(false),
-        )
-    })
+    .map(
+        |(path, extra_args, muted_on_cancel, muted_on_user_path, report_to_instance_alerts)| {
+            (
+                path,
+                extra_args,
+                muted_on_cancel.unwrap_or(false),
+                muted_on_user_path.unwrap_or(false),
+                report_to_instance_alerts,
+            )
+        },
+    )
     .ok_or_else(|| Error::internal_err(format!("no workspace settings for id {w_id}")))
 }
 
@@ -2130,15 +2186,22 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
         error_handler_extra_args,
         error_handler_muted_on_cancel,
         error_handler_muted_on_user_path,
+        report_to_instance_alerts,
     ) = if let Some(cached) = WORKSPACE_ERROR_HANDLER_CACHE.get(w_id) {
-        if cached.4 > now {
-            (cached.0.clone(), cached.1.clone(), cached.2, cached.3)
+        if cached.5 > now {
+            (
+                cached.0.clone(),
+                cached.1.clone(),
+                cached.2,
+                cached.3,
+                cached.4,
+            )
         } else {
             let row = fetch_error_handler_from_db(db, w_id).await?;
             let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
             WORKSPACE_ERROR_HANDLER_CACHE.insert(
                 w_id.clone(),
-                (row.0.clone(), row.1.clone(), row.2, row.3, expiry),
+                (row.0.clone(), row.1.clone(), row.2, row.3, row.4, expiry),
             );
             row
         }
@@ -2147,10 +2210,16 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
         let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
         WORKSPACE_ERROR_HANDLER_CACHE.insert(
             w_id.clone(),
-            (row.0.clone(), row.1.clone(), row.2, row.3, expiry),
+            (row.0.clone(), row.1.clone(), row.2, row.3, row.4, expiry),
         );
         row
     };
+
+    // Nothing to do for the vast majority of workspaces, and returning here keeps the
+    // per-runnable mute lookup below off the path of every failed job.
+    if error_handler.is_none() && !report_to_instance_alerts {
+        return Ok(());
+    }
 
     if is_canceled && error_handler_muted_on_cancel {
         return Ok(());
@@ -2165,51 +2234,90 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
         }
     }
 
-    if let Some(error_handler) = error_handler {
-        let ws_error_handler_muted: Option<bool> = match queued_job.kind {
-            JobKind::Script => {
-                sqlx::query_scalar!(
+    let ws_error_handler_muted: Option<bool> = match queued_job.kind {
+        JobKind::Script => {
+            sqlx::query_scalar!(
                 "SELECT ws_error_handler_muted FROM script WHERE workspace_id = $1 AND hash = $2",
                 queued_job.workspace_id,
                 queued_job.runnable_id.map(|x| x.0),
             )
-                .fetch_optional(db)
-                .await?
-            }
-            JobKind::Flow => {
-                sqlx::query_scalar!(
-                    "SELECT ws_error_handler_muted FROM flow WHERE workspace_id = $1 AND path = $2",
-                    queued_job.workspace_id,
-                    queued_job.runnable_path.clone(),
-                )
-                .fetch_optional(db)
-                .await?
-            }
-            _ => None,
-        };
-
-        let muted = ws_error_handler_muted.unwrap_or(false);
-        if !muted {
-            tracing::info!("workspace error handled for job {}", &queued_job.id);
-
-            push_error_handler(
-                db,
-                queued_job.id,
-                queued_job.schedule_path(),
+            .fetch_optional(db)
+            .await?
+        }
+        JobKind::Flow => {
+            sqlx::query_scalar!(
+                "SELECT ws_error_handler_muted FROM flow WHERE workspace_id = $1 AND path = $2",
+                queued_job.workspace_id,
                 queued_job.runnable_path.clone(),
-                queued_job.is_flow(),
-                &queued_job.workspace_id,
-                &error_handler,
-                result,
-                None,
-                queued_job.started_at,
-                error_handler_extra_args,
-                &queued_job.permissioned_as_email,
-                false,
-                false,
-                None,
             )
-            .await?;
+            .fetch_optional(db)
+            .await?
+        }
+        _ => None,
+    };
+
+    if ws_error_handler_muted.unwrap_or(false) {
+        return Ok(());
+    }
+
+    if let Some(error_handler) = error_handler {
+        tracing::info!("workspace error handled for job {}", &queued_job.id);
+
+        push_error_handler(
+            db,
+            queued_job.id,
+            queued_job.schedule_path(),
+            queued_job.runnable_path.clone(),
+            queued_job.is_flow(),
+            &queued_job.workspace_id,
+            &error_handler,
+            result,
+            None,
+            queued_job.started_at,
+            error_handler_extra_args,
+            &queued_job.permissioned_as_email,
+            false,
+            false,
+            None,
+        )
+        .await?;
+    } else if !is_canceled {
+        // A cancellation is a human action rather than an operational failure, and unlike the
+        // handler path this one has no per-workspace toggle to opt out of reporting them.
+        let suppressed = match INSTANCE_ALERT_THROTTLE.get(w_id) {
+            Some((last_sent, suppressed))
+                if now - last_sent < INSTANCE_ALERT_COOLDOWN_SECONDS =>
+            {
+                INSTANCE_ALERT_THROTTLE.insert(w_id.clone(), (last_sent, suppressed + 1));
+                None
+            }
+            entry => {
+                INSTANCE_ALERT_THROTTLE.insert(w_id.clone(), (now, 0));
+                Some(entry.map(|(_, suppressed)| suppressed).unwrap_or(0))
+            }
+        };
+        if let Some(suppressed) = suppressed {
+            tracing::info!(
+                "reporting failed job {} to the instance critical alert channels",
+                &queued_job.id
+            );
+            let base_url = windmill_common::BASE_URL.load();
+            let rollup = if suppressed > 0 {
+                format!(
+                    " (and {suppressed} more failure(s) in the preceding {INSTANCE_ALERT_COOLDOWN_SECONDS}s)"
+                )
+            } else {
+                String::new()
+            };
+            windmill_common::utils::send_workspace_error_to_instance_channels(
+                format!(
+                    "Job {} failed in workspace {w_id} ({base_url}/run/{}?workspace={w_id}){rollup}",
+                    queued_job.runnable_path.as_deref().unwrap_or("preview"),
+                    queued_job.id
+                ),
+                db,
+            )
+            .await;
         }
     }
     Ok(())
@@ -3878,7 +3986,7 @@ pub async fn pull(
                 let pulled_job_result = match job {
                     #[cfg(feature = "private")]
                     Some(job)
-                        if concurrency_settings.concurrent_limit.is_some()
+                        if has_active_concurrency_limit(concurrency_settings.concurrent_limit)
                             // Concurrency limit is available for either enterprise job or dependency job
                             && (cfg!(feature = "enterprise") || (job.is_dependency() && !*WMDEBUG_NO_DEBOUNCING)) =>
                     {
@@ -3942,7 +4050,8 @@ pub async fn pull(
         .1
         .maybe_fallback(None, job.concurrent_limit, job.concurrency_time_window_s);
 
-        let has_concurent_limit = concurrency_settings.concurrent_limit.is_some();
+        let has_concurent_limit =
+            has_active_concurrency_limit(concurrency_settings.concurrent_limit);
 
         #[cfg(not(feature = "enterprise"))]
         if has_concurent_limit && !job.is_dependency() {
@@ -3951,7 +4060,7 @@ pub async fn pull(
 
         #[cfg(not(feature = "enterprise"))]
         let has_concurent_limit = job.is_dependency()
-            && job.concurrent_limit.is_some()
+            && has_active_concurrency_limit(job.concurrent_limit)
             && cfg!(feature = "private")
             && !*WMDEBUG_NO_DEBOUNCING;
         // if we don't have private flag, we don't have concurrency limit
@@ -4117,6 +4226,13 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
         }
     };
     Ok(job_and_suspended)
+}
+
+/// A concurrency limit is only active when it caps at 1+ slots. `Some(0)` (or negative) is
+/// a disabled limit, not a zero-slot one — see [`ConcurrencySettings::normalized`]. The gate
+/// checks must use this instead of `.is_some()` so a legacy stored `0` behaves as disabled.
+pub fn has_active_concurrency_limit(concurrent_limit: Option<i32>) -> bool {
+    concurrent_limit.is_some_and(|n| n > 0)
 }
 
 pub async fn custom_concurrency_key(
@@ -5614,6 +5730,10 @@ async fn push_inner<'c, 'd>(
                             restarted_from_val.step_id.as_str(),
                             restarted_from_val.branch_or_iteration_n,
                             restarted_from_val.flow_version,
+                            restarted_from_val.nested.is_some(),
+                            // RawFlow queues the request's (possibly edited) definition, not the
+                            // stored one, so zombie reuse of the stored step is unsafe here.
+                            false,
                         )
                         .await?;
                     FlowStatus {
@@ -6003,6 +6123,10 @@ async fn push_inner<'c, 'd>(
                 step_id.as_str(),
                 branch_or_iteration_n,
                 flow_version,
+                nested.is_some(),
+                // RestartedFlow resolves and queues the completed job's stored definition, so the
+                // step validated for reuse is the one that will run.
+                true,
             )
             .await?;
 
@@ -6097,6 +6221,11 @@ async fn push_inner<'c, 'd>(
             ..Default::default()
         },
     };
+
+    // Guard against an already-stored `concurrent_limit <= 0` reaching the queue: it would
+    // register a zero-slot concurrency key and permanently block the job. Coerce it to
+    // disabled before it is persisted onto the job row / concurrency key here.
+    concurrency_settings = concurrency_settings.normalized();
 
     // Enforce concurrency limit on all dependency jobs.
     // TODO: We can ignore this for scripts djobs. The main reason we need all djobs to be sequential is because we have
@@ -6285,7 +6414,7 @@ async fn push_inner<'c, 'd>(
         check_workspace_queue_cap(&mut *tx, workspace_id).await?;
     }
 
-    if concurrency_settings.concurrent_limit.is_some() {
+    if has_active_concurrency_limit(concurrency_settings.concurrent_limit) {
         let concurrency_key = resolve_concurrency_key(
             workspace_id,
             &args,
@@ -6689,7 +6818,7 @@ pub async fn insert_concurrency_key_capped<'d, 'c, E: PgExecutor<'c> + Copy>(
         custom_concurrency_key,
     );
     #[cfg(feature = "cloud")]
-    if *CLOUD_HOSTED && concurrent_limit.is_some() {
+    if *CLOUD_HOSTED && has_active_concurrency_limit(concurrent_limit) {
         check_concurrency_key_queue_cap(db, &concurrency_key).await?;
     }
     #[cfg(not(feature = "cloud"))]
@@ -7006,6 +7135,78 @@ fn create_restarted_module(
     }
 }
 
+/// A between-steps-zombie step: an `InProgress` module (in an otherwise terminal,
+/// reaped flow) whose every child is recorded as a `success` completion. Only the
+/// module's final state transition was lost, so the whole step is derivable and
+/// safe to reuse on restart. Children incomplete/failed/cancelled ⟹ not a zombie.
+async fn is_derivable_between_steps_zombie(
+    db: &Pool<Postgres>,
+    workspace_id: &str,
+    module: &FlowStatusModule,
+) -> Result<bool, Error> {
+    // The module's own cursor must prove it reached the end (a serial loop/branch-all reaped
+    // mid-fan-out has an all-success prefix but unrun remaining iterations); while-loops are
+    // never derivable. Children-success is verified below.
+    if !module.is_between_steps_complete() {
+        return Ok(false);
+    }
+    let child_ids: Vec<Uuid> = module
+        .flow_jobs()
+        .filter(|v| !v.is_empty())
+        .or_else(|| module.job().map(|j| vec![j]))
+        .unwrap_or_default();
+    if child_ids.is_empty() {
+        return Ok(false);
+    }
+    let success_children = sqlx::query_scalar!(
+        "SELECT count(*) FROM v2_job_completed
+         WHERE workspace_id = $1 AND id = ANY($2) AND status = 'success'",
+        workspace_id,
+        &child_ids,
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(0);
+    Ok(success_children == child_ids.len() as i64)
+}
+
+/// Convert a between-steps-zombie `InProgress` module (validated by
+/// [`is_derivable_between_steps_zombie`]) into the `Success` it would have become
+/// had its dropped transition landed, reusing all completed children. Downstream
+/// steps re-derive this step's result from `flow_jobs`/`job` on demand
+/// (`get_previous_job_result`), so no aggregate needs recomputing here.
+fn reuse_completed_zombie_module(module: FlowStatusModule) -> FlowStatusModule {
+    match module {
+        FlowStatusModule::InProgress {
+            id,
+            job,
+            flow_jobs,
+            flow_jobs_success,
+            flow_jobs_duration,
+            branch_chosen,
+            agent_actions,
+            agent_actions_success,
+            ..
+        } => FlowStatusModule::Success {
+            id,
+            job,
+            // Every child was verified successful, so normalise the success
+            // vector (the dropped transition may have left the last entry unset).
+            flow_jobs_success: flow_jobs_success
+                .map(|v| v.into_iter().map(|_| Some(true)).collect()),
+            flow_jobs,
+            flow_jobs_duration,
+            branch_chosen,
+            approvers: vec![],
+            failed_retries: vec![],
+            skipped: false,
+            agent_actions,
+            agent_actions_success,
+        },
+        other => other,
+    }
+}
+
 async fn restarted_flows_resolution(
     db: &Pool<Postgres>,
     workspace_id: &str,
@@ -7013,6 +7214,15 @@ async fn restarted_flows_resolution(
     restart_step_id: &str,
     branch_or_iteration_n: Option<usize>,
     flow_version: Option<i64>,
+    // A nested restart chain (RestartedFrom.nested) descends into the restart step's child to
+    // re-run an inner step; zombie reuse would skip the whole container and ignore it.
+    nested_restart: bool,
+    // Zombie reuse validates the restart step against the completed job's STORED definition and
+    // synthesizes Success from its recorded children. That is only sound when the run being queued
+    // uses that same definition (JobPayload::RestartedFlow). A JobPayload::RawFlow restart queues
+    // the editor's current, possibly EDITED, definition instead, so reuse would skip the edited
+    // step and reuse the old child result; disable it there.
+    allow_zombie_reuse: bool,
 ) -> Result<
     (
         Option<i64>,
@@ -7029,7 +7239,7 @@ async fn restarted_flows_resolution(
     let row = sqlx::query!(
         "SELECT
             j.runnable_path as script_path, j.runnable_id AS \"script_hash: ScriptHash\",
-            j.kind AS \"job_kind!: JobKind\",
+            j.kind AS \"job_kind!: JobKind\", c.canceled_by,
             COALESCE(c.flow_status, c.workflow_as_code_status) AS \"flow_status: Json<Box<RawValue>>\",
             j.raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
         FROM v2_job_completed c JOIN v2_job j USING (id) WHERE j.id = $1 and j.workspace_id = $2",
@@ -7044,6 +7254,12 @@ async fn restarted_flows_resolution(
             completed_flow_id, workspace_id, err
         ))
     })?;
+
+    // Zombie reuse must only apply to flows the zombie monitor reaped (canceled_by = 'monitor').
+    // An ordinary force-cancel copies the same live flow_status, so a user canceling after a child
+    // succeeds but before the parent transition lands produces the identical InProgress/all-success
+    // shape; those must retain restart-from-step semantics (the step re-runs).
+    let reaped_by_monitor = row.canceled_by.as_deref() == Some("monitor");
 
     let current_flow_version = row.script_hash.map(|x| x.0);
     let is_version_change = flow_version.is_some()
@@ -7135,9 +7351,36 @@ async fn restarted_flows_resolution(
                 continue;
             };
             if module.id() == restart_step_id {
-                // if the module ID is the one we want to restart the flow at, or if it's past it in the flow,
-                // set the module as WaitingForPriorSteps as it needs to be re-run
-                if branch_or_iteration_n.is_none() || branch_or_iteration_n.unwrap() == 0 {
+                // Reuse is only safe when there is a NEXT step to advance into (advancing past the
+                // last module lands on the failure step) and the step's definition carries no
+                // completion/arming semantics that reuse would skip (stop predicates, skip_if,
+                // suspend, sleep); such a step must re-run, not be synthesized as Success.
+                let has_next_step = flow_value
+                    .modules
+                    .last()
+                    .is_none_or(|m| m.id != restart_step_id);
+                // A whole-step restart is `None` (restart API with the field omitted) or `Some(0)`
+                // (the run page's "Re-start from" button always sends 0); both mean "redo this step",
+                // which for a monitor-reaped zombie means reuse it. `Some(n>=1)` is an explicit
+                // partial container restart and keeps its existing reuse-0..n-1 / rerun-from-n path.
+                if allow_zombie_reuse
+                    && reaped_by_monitor
+                    && branch_or_iteration_n.unwrap_or(0) == 0
+                    && !nested_restart
+                    && has_next_step
+                    && module_definition.allows_zombie_reuse()
+                    && is_derivable_between_steps_zombie(db, workspace_id, &module).await?
+                {
+                    // Between-steps-zombie recovery: this step's children all
+                    // completed but its final state transition was dropped (the
+                    // flow was reaped by the zombie monitor). Reuse the completed
+                    // step verbatim and restart from the NEXT step, so no child
+                    // re-runs and only the dropped transition is replayed onward.
+                    step_n += 1;
+                    truncated_modules.push(reuse_completed_zombie_module(module));
+                } else if branch_or_iteration_n.is_none() || branch_or_iteration_n.unwrap() == 0 {
+                    // if the module ID is the one we want to restart the flow at, or if it's past it in the flow,
+                    // set the module as WaitingForPriorSteps as it needs to be re-run
                     // The module as WaitingForPriorSteps as the entire module (i.e. all the branches) need to be re-run
                     truncated_modules
                         .push(FlowStatusModule::WaitingForPriorSteps { id: module.id() });

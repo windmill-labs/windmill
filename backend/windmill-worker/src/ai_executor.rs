@@ -26,7 +26,7 @@ use windmill_ai::{
     providers::create_query_builder,
     query_builder::{BuildRequestArgs, ParsedResponse},
     types::*,
-    utils::{should_use_structured_output_tool, AI_HTTP_CLIENT, AI_HTTP_HEADERS},
+    utils::{pinned_ai_client_for, should_use_structured_output_tool, AI_HTTP_HEADERS},
 };
 use windmill_common::{
     cache,
@@ -984,11 +984,14 @@ pub async fn run_agent(
 
             let resource_headers = &credentials.custom_headers;
 
+            // `endpoint` derives from the user-controlled provider base_url, so pin
+            // DNS to the SSRF-validated address: the connect must not rebind to an
+            // internal IP between the check and the request (TOCTOU).
+            let pinned_ai_client = pinned_ai_client_for(base_url).await?;
+
             // Helper to build HTTP request with headers
             let build_http_request = |body: String| {
-                // `endpoint` derives from the user-controlled provider base_url: use
-                // AI_HTTP_CLIENT, not the shared HTTP_CLIENT. See AI_HTTP_CLIENT.
-                let mut req = AI_HTTP_CLIENT
+                let mut req = pinned_ai_client
                     .post(&endpoint)
                     .timeout(timeout)
                     .header("Content-Type", "application/json");

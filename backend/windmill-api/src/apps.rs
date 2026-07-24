@@ -69,7 +69,7 @@ use windmill_common::{
     users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
-        Pagination, RunnableKind, StripPath,
+        strip_json_nul, Pagination, RunnableKind, StripPath,
     },
     variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
     worker::{to_raw_value, CLOUD_HOSTED},
@@ -383,11 +383,7 @@ async fn list_search_apps(
     // apps' definitions. `check_scopes` uses ScopeDefinition::includes, where run
     // does NOT include read, so it correctly denies such tokens.
     check_scopes(&authed, || "apps:read".to_string())?;
-    #[cfg(feature = "enterprise")]
     let n = 1000;
-
-    #[cfg(not(feature = "enterprise"))]
-    let n = 3;
     let mut tx = user_db.begin(&authed).await?;
 
     let allowed = build_scope_path_predicate(&authed, "apps", "read");
@@ -1832,50 +1828,6 @@ fn custom_path_conflict_error(
     }
 }
 
-/// App values live in a `json` column, which — unlike `jsonb` — accepts the
-/// `\u0000` escape. Any later `json`→`jsonb` conversion (a workspace fork's
-/// `clone_apps`, search indexing, …) then aborts with "unsupported Unicode
-/// escape sequence". Strip genuine NULs so the value is jsonb-safe before it
-/// lands in the DB; the usual source is a binary file such as `.DS_Store`
-/// accidentally bundled into a raw app's file map. A real NUL is unstorable
-/// either way, and frontend code that needs the character writes it as the
-/// source escape `\u0000`, which JSON-encodes to `\\u0000` (an escaped
-/// backslash — the even-parity case below) and is left untouched.
-///
-/// Returns `Cow::Borrowed` (no allocation) when the value is already clean.
-fn strip_null_chars(raw: &str) -> Cow<'_, str> {
-    let bytes = raw.as_bytes();
-    let mut out: Option<String> = None;
-    let mut copied_to = 0;
-    let mut search_from = 0;
-    // A genuine NUL is `\u0000`: a `u0000` introduced by an *odd* run of
-    // backslashes. An even run (`\\u0000`) is an escaped backslash then the
-    // literal text "u0000" (common in minified JS regexes) and is preserved.
-    while let Some(rel) = raw[search_from..].find("u0000") {
-        let at = search_from + rel;
-        let mut backslashes = 0;
-        let mut j = at;
-        while j > 0 && bytes[j - 1] == b'\\' {
-            backslashes += 1;
-            j -= 1;
-        }
-        if backslashes % 2 == 1 {
-            // Drop the escaping backslash + `u0000` — the 6 chars in [at-1, at+5).
-            let out = out.get_or_insert_with(String::new);
-            out.push_str(&raw[copied_to..at - 1]);
-            copied_to = at + 5;
-        }
-        search_from = at + 5;
-    }
-    match out {
-        Some(mut out) => {
-            out.push_str(&raw[copied_to..]);
-            Cow::Owned(out)
-        }
-        None => Cow::Borrowed(raw),
-    }
-}
-
 async fn create_app_internal<'a>(
     authed: ApiAuthed,
     db: sqlx::Pool<sqlx::Postgres>,
@@ -2021,7 +1973,7 @@ async fn create_app_internal<'a>(
     .await?;
     // `.get()` keeps the raw text (and thus key order); strip any NUL so the
     // `json`→`jsonb` conversion downstream (fork, indexing) can't choke on it.
-    let value = strip_null_chars(app.value.0.get());
+    let value = strip_json_nul(app.value.0.get());
     if matches!(value, Cow::Owned(_)) {
         tracing::warn!(path = %app.path, "stripped NUL character(s) from app value on create");
     }
@@ -2606,7 +2558,7 @@ async fn update_app_internal<'a>(
 
         // `.get()` keeps the raw text (and thus key order); strip any NUL so the
         // `json`→`jsonb` conversion downstream (fork, indexing) can't choke on it.
-        let value = strip_null_chars(nvalue.0.get());
+        let value = strip_json_nul(nvalue.0.get());
         if matches!(value, Cow::Owned(_)) {
             tracing::warn!(path = %npath, "stripped NUL character(s) from app value on update");
         }
@@ -3883,6 +3835,18 @@ async fn get_on_behalf_authed_from_app(
     Ok((on_behalf_authed, policy))
 }
 
+/// Which identity a deployed `apps_u/*` S3 read runs as.
+#[cfg(feature = "parquet")]
+enum AppS3ReadIdentity {
+    /// The gate passed: read with the policy's on-behalf identity (the app author in
+    /// author-mode, the viewer in viewer-mode).
+    OnBehalf,
+    /// The gate did not pass but a logged-in, non-embed viewer is present: read with
+    /// the viewer's OWN identity so the downstream S3 permission check self-enforces
+    /// their entitlement (never the author's).
+    AsViewer(ApiAuthed),
+}
+
 #[cfg(feature = "parquet")]
 async fn check_if_allowed_to_access_s3_file_from_app(
     db: &DB,
@@ -3891,7 +3855,7 @@ async fn check_if_allowed_to_access_s3_file_from_app(
     w_id: &str,
     path: &str,
     policy: &Policy,
-) -> Result<()> {
+) -> Result<AppS3ReadIdentity> {
     let is_app_embed = opt_authed.as_ref().is_some_and(|authed| {
         windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref())
     });
@@ -3912,7 +3876,7 @@ async fn check_if_allowed_to_access_s3_file_from_app(
                 &db,
             )
             .await?;
-            return Ok(());
+            return Ok(AppS3ReadIdentity::OnBehalf);
         }
     }
 
@@ -3921,24 +3885,25 @@ async fn check_if_allowed_to_access_s3_file_from_app(
         // get_workspace_s3_resource_and_check_paths already bounds the read by
         // their own perms — no provenance gate (it would over-restrict). Embed
         // tokens are excluded (untrusted app JS stays confined below).
-        Ok(())
-    } else {
-        // Author-mode/embed: confine reads to the app's declared keys or files THIS
-        // app produced, else a viewer could launder the author's S3 perms via an
-        // arbitrary file_key (confused deputy). Provenance is the un-forgeable
-        // app-origination marker (`trigger_kind='app'` + `trigger=<this app>`);
-        // `created_by=<caller>` is ANDed only as a per-viewer isolation filter (it
-        // can narrow — one viewer can't read another's result — never forge).
-        let creator = opt_authed
-            .as_ref()
-            .map(|authed| authed.username.clone())
-            .unwrap_or_else(|| "anonymous".to_string());
-        let allowed = policy.allowed_s3_keys.as_ref().is_some_and(|keys| {
-            keys.iter()
-                .any(|key| key.s3_path == file_query.s3 && key.storage == file_query.storage)
-        }) || {
-            sqlx::query_scalar!(
-                r#"SELECT EXISTS (
+        return Ok(AppS3ReadIdentity::OnBehalf);
+    }
+
+    // Author-mode/embed: confine reads to the app's declared keys or files THIS
+    // app produced, else a viewer could launder the author's S3 perms via an
+    // arbitrary file_key (confused deputy). Provenance is the un-forgeable
+    // app-origination marker (`trigger_kind='app'` + `trigger=<this app>`);
+    // `created_by=<caller>` is ANDed only as a per-viewer isolation filter (it
+    // can narrow — one viewer can't read another's result — never forge).
+    let creator = opt_authed
+        .as_ref()
+        .map(|authed| authed.username.clone())
+        .unwrap_or_else(|| "anonymous".to_string());
+    let allowed = policy.allowed_s3_keys.as_ref().is_some_and(|keys| {
+        keys.iter()
+            .any(|key| key.s3_path == file_query.s3 && key.storage == file_query.storage)
+    }) || {
+        sqlx::query_scalar!(
+            r#"SELECT EXISTS (
                 SELECT 1 FROM v2_job_completed c JOIN v2_job j USING (id)
                 WHERE j.workspace_id = $2
                     AND c.started_at > now() - interval '3 hours'
@@ -3947,21 +3912,45 @@ async fn check_if_allowed_to_access_s3_file_from_app(
                     AND j.trigger = $3
                     AND j.created_by = $4
             )"#,
-                file_query.s3,
-                w_id,
-                path,
-                creator,
-            )
-            .fetch_one(db)
-            .await?
-            .unwrap_or(false)
-        };
+            file_query.s3,
+            w_id,
+            path,
+            creator,
+        )
+        .fetch_one(db)
+        .await?
+        .unwrap_or(false)
+    };
 
-        if !allowed {
-            Err(Error::BadRequest("File restricted".to_string()))
-        } else {
-            Ok(())
+    if allowed {
+        return Ok(AppS3ReadIdentity::OnBehalf);
+    }
+
+    // Gate denied. A viewer whose token is effectively unscoped falls back to reading
+    // as THEMSELVES: the file is still bounded by their own S3 perms downstream, and
+    // such a token can already fetch it via `job_helpers/download_s3_file`, so the
+    // fallback adds zero capability. `is_effectively_unscoped` (the same predicate the
+    // route-scope middleware uses) is what makes that true: a genuinely scope-restricted
+    // token (e.g. `apps:read:<path>`) is allowed on `apps_u/*` but REJECTED on
+    // `job_helpers/*`, so serving it the file here WOULD be a new capability — it stays
+    // gated. `!is_app_embed` keeps that confinement explicit (embed tokens carry the
+    // `app_embed` scope, so they are already scope-restricted). Anonymous callers (no
+    // identity) also have no viewer to fall back to. Only the confused-deputy denial
+    // reaches the message below.
+    match opt_authed.as_ref() {
+        Some(viewer)
+            if !is_app_embed
+                && windmill_api_auth::is_effectively_unscoped(viewer.scopes.as_deref()) =>
+        {
+            Ok(AppS3ReadIdentity::AsViewer(viewer.clone()))
         }
+        _ => Err(Error::BadRequest(format!(
+            "S3 file \"{}\" is not accessible from this app. A deployed app running on \
+             behalf of its author only serves files it generated, files in its declared \
+             allowlist, or presigned files. To expose a pre-existing file, sign it \
+             (signS3Object / sign_s3_object) or set the app's execution mode to \"viewer\".",
+            file_query.s3
+        ))),
     }
 }
 
@@ -4029,7 +4018,7 @@ async fn download_s3_file_from_app(
         get_on_behalf_authed_from_app(&db, &path, &w_id, &opt_authed, force_viewer_allowed_s3_keys)
             .await?;
 
-    check_if_allowed_to_access_s3_file_from_app(
+    let read_authed = match check_if_allowed_to_access_s3_file_from_app(
         &db,
         &opt_authed,
         &query.file_query,
@@ -4037,10 +4026,14 @@ async fn download_s3_file_from_app(
         &path,
         &policy,
     )
-    .await?;
+    .await?
+    {
+        AppS3ReadIdentity::OnBehalf => on_behalf_authed,
+        AppS3ReadIdentity::AsViewer(viewer) => viewer,
+    };
 
     download_s3_file_internal(
-        OptJobAuthed { authed: on_behalf_authed, job_id: None },
+        OptJobAuthed { authed: read_authed, job_id: None },
         &db,
         None,
         &w_id,
@@ -4092,9 +4085,15 @@ async fn app_s3_on_behalf_and_provenance(
     }
     let (on_behalf_authed, policy) =
         get_on_behalf_authed_from_app(db, path, w_id, opt_authed, None).await?;
-    check_if_allowed_to_access_s3_file_from_app(db, opt_authed, file_query, w_id, path, &policy)
-        .await?;
-    Ok(crate::db::OptJobAuthed { authed: on_behalf_authed, job_id: None })
+    let read_authed = match check_if_allowed_to_access_s3_file_from_app(
+        db, opt_authed, file_query, w_id, path, &policy,
+    )
+    .await?
+    {
+        AppS3ReadIdentity::OnBehalf => on_behalf_authed,
+        AppS3ReadIdentity::AsViewer(viewer) => viewer,
+    };
+    Ok(crate::db::OptJobAuthed { authed: read_authed, job_id: None })
 }
 
 // The app-scoped display ops carry the app path in the URL and everything else
@@ -4804,64 +4803,5 @@ mod embed_token_tests {
 
         // Invalid JSON still errors.
         assert!(parse_embed_policy("not json").is_err());
-    }
-}
-
-#[cfg(test)]
-mod strip_null_chars_tests {
-    use super::strip_null_chars;
-    use std::borrow::Cow;
-
-    // Build `{"k":"<n backslashes>u0000"}` without writing the escape literally
-    // (a real NUL can't live in Rust source). Odd n => the trailing `u0000` is a
-    // genuine NUL escape; even n => an escaped backslash then the text "u0000".
-    fn doc(backslashes: usize) -> String {
-        format!(r#"{{"k":"{}u0000"}}"#, "\\".repeat(backslashes))
-    }
-
-    #[test]
-    fn strips_genuine_null_escape() {
-        // 1 backslash: the NUL escape is dropped, the string value becomes "".
-        assert_eq!(strip_null_chars(&doc(1)).as_ref(), r#"{"k":""}"#);
-        // 3 backslashes: escaped backslash + NUL -> keep the escaped backslash.
-        let three = doc(3);
-        let out = strip_null_chars(&three);
-        assert_eq!(out.as_ref(), r#"{"k":"\\"}"#);
-        // Result is now valid, NUL-free JSON (i.e. jsonb-safe).
-        let v: serde_json::Value = serde_json::from_str(out.as_ref()).unwrap();
-        assert!(!v["k"].as_str().unwrap().as_bytes().contains(&0u8));
-    }
-
-    #[test]
-    fn preserves_escaped_backslash_then_literal_u0000() {
-        // Even runs are the literal text "u0000" (e.g. a minified JS regex char
-        // class) and must be returned untouched, with no allocation.
-        for n in [2usize, 4] {
-            let s = doc(n);
-            let out = strip_null_chars(&s);
-            assert_eq!(out.as_ref(), s.as_str());
-            assert!(matches!(out, Cow::Borrowed(_)), "n={n} should be borrowed");
-        }
-    }
-
-    #[test]
-    fn preserves_clean_values() {
-        // Plain value, and the bare token "u0000" with no preceding backslash.
-        for s in [r#"{"files":{"/index.tsx":"hello"}}"#, r#"{"k":"u0000"}"#] {
-            let out = strip_null_chars(s);
-            assert_eq!(out.as_ref(), s);
-            assert!(matches!(out, Cow::Borrowed(_)));
-        }
-        // The escape for a literal backslash char (`u005c`) then text "u0000":
-        // the only "u0000" match is preceded by `c` (0 backslashes) -> no NUL.
-        let s = format!(r#"{{"k":"{}u005cu0000"}}"#, "\\");
-        assert!(matches!(strip_null_chars(&s), Cow::Borrowed(_)));
-    }
-
-    #[test]
-    fn strips_multiple_and_preserves_surrounding() {
-        // Mirrors the .DS_Store case: several NULs interleaved with real text.
-        let s = format!(r#"{{"a":"x{b}u0000{b}u0000y","b":"ok"}}"#, b = "\\");
-        assert_eq!(strip_null_chars(&s).as_ref(), r#"{"a":"xy","b":"ok"}"#);
     }
 }

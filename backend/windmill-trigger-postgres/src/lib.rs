@@ -11,7 +11,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::value::RawValue;
 use sqlx::FromRow;
 use windmill_api_auth::ApiAuthed;
-use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
+use windmill_common::workspaces::get_datatable_replication_resource_from_db_unchecked;
 use windmill_common::{
     db::UserDB,
     error::{to_anyhow, Error, Result},
@@ -382,8 +382,10 @@ pub async fn resolve_postgres_resource(
     w_id: &str,
 ) -> Result<Postgres> {
     if let Some(datatable_name) = postgres_resource_path.strip_prefix("datatable://") {
+        // Trigger connections (publication/slot management + logical replication) run
+        // as the dedicated replication user on custom-instance databases.
         let resource_value =
-            get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
+            get_datatable_replication_resource_from_db_unchecked(db, w_id, datatable_name).await?;
         serde_json::from_value::<Postgres>(resource_value).map_err(|e| Error::SerdeJson {
             error: e,
             location: "resolve_postgres_resource".to_string(),

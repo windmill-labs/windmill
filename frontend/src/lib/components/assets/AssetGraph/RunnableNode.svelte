@@ -48,6 +48,9 @@
 			// Last-run status + run count observed this session (from the
 			// folder queue poll). Undefined until the first observed run.
 			runState?: RunnableRunState
+			// Opt-in (replay player): when this node is the transform actively
+			// running, tint its whole surface amber so the compute is unmissable.
+			highlightRunning?: boolean
 			// True for nodes synthesized from local drafts (script not yet
 			// persisted). Same convention as `unsaved` on triggers/edges.
 			unsaved?: boolean
@@ -103,6 +106,9 @@
 	let hover = $state(false)
 	let menuOpen = $state(false)
 	let running = $state(false)
+
+	// Amber "computing now" surface, gated so only the replay player lights it up.
+	let computingNow = $derived(data.highlightRunning === true && data.runState?.status === 'running')
 	// Popover state for the on-node Run-button caret. Sticky while open so
 	// `showRun` (which gates the whole pill) stays true even after the
 	// pointer leaves the node — otherwise picking an option would unmount
@@ -195,7 +201,9 @@
 			'flex items-center rounded-md drop-shadow-sm overflow-hidden border transition-colors',
 			'bg-surface border-gray-400 dark:border-gray-600 hover:border-gray-500 dark:hover:border-gray-500',
 			selected && 'bg-surface-accent-selected border-border-selected',
-			data.unsaved && 'border-2 border-dashed border-gray-400 dark:border-gray-500'
+			data.unsaved && 'border-2 border-dashed border-gray-400 dark:border-gray-500',
+			computingNow &&
+				'bg-amber-50 dark:bg-amber-900/30 border-amber-400 dark:border-amber-600 animate-pulse'
 		)}
 		style="width: {NODE.width}px; min-height: {NODE.height}px;"
 		title={nodeTooltip}

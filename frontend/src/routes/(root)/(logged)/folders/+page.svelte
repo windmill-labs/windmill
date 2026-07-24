@@ -14,17 +14,25 @@
 	import { sendUserToast } from '$lib/utils'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
-	import { Pen, Trash, Plus } from 'lucide-svelte'
+	import { Pen, Trash, Plus, UploadCloud } from 'lucide-svelte'
+	import DeployToHub from '$lib/components/workspaceSettings/DeployToHub.svelte'
 	import Head from '$lib/components/table/Head.svelte'
 	import Row from '$lib/components/table/Row.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { untrack } from 'svelte'
+	import { DEMO_RESTRICTION_HINT, isDemoWorkspaceRestricted } from '$lib/cloud'
 
 	type FolderW = Folder & { canWrite: boolean }
+
+	let restricted = $derived(
+		isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
+	)
 
 	let newFolderName: string = $state('')
 	let folders: FolderW[] | undefined = $state(undefined)
 	let folderDrawer: Drawer | undefined = $state()
+	let hubDrawer: Drawer | undefined = $state()
+	let publishFolderName: string = $state('')
 
 	async function loadFolders(): Promise<void> {
 		folders = (await FolderService.listFolders({ workspace: $workspaceStore! })).map((x) => {
@@ -83,6 +91,22 @@
 	</DrawerContent>
 </Drawer>
 
+<Drawer bind:this={hubDrawer} size="1100px">
+	<DrawerContent
+		title="Publish {publishFolderName} to Hub"
+		on:close={() => {
+			hubDrawer?.closeDrawer()
+			publishFolderName = ''
+		}}
+	>
+		{#if publishFolderName}
+			{#key publishFolderName}
+				<DeployToHub folder={publishFolderName} />
+			{/key}
+		{/if}
+	</DrawerContent>
+</Drawer>
+
 {#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.folders}
 	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
 		<p class="font-bold">Unauthorized</p>
@@ -96,38 +120,50 @@
 			documentationLink="https://www.windmill.dev/docs/core_concepts/groups_and_folders"
 		>
 			<div class="flex flex-row">
-				<Popover
-					floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-					contentClasses="flex flex-col gap-2 p-4"
-				>
-					{#snippet trigger()}
-						<Button variant="accent" unifiedSize="md" startIcon={{ icon: Plus }} nonCaptureEvent
-							>New folder</Button
-						>
-					{/snippet}
-					{#snippet content({ close })}
-						<input
-							class="mr-2"
-							onkeyup={(e) => handleKeyUp(e, () => close())}
-							placeholder="New folder name"
-							bind:value={newFolderName}
-						/>
-
-						<div>
-							<Button
-								variant="accent"
-								startIcon={{ icon: Plus }}
-								disabled={!newFolderName}
-								on:click={() => {
-									addFolder()
-									close()
-								}}
+				{#if restricted}
+					<Button
+						variant="accent"
+						unifiedSize="md"
+						startIcon={{ icon: Plus }}
+						disabled
+						title={DEMO_RESTRICTION_HINT}
+					>
+						New folder
+					</Button>
+				{:else}
+					<Popover
+						floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+						contentClasses="flex flex-col gap-2 p-4"
+					>
+						{#snippet trigger()}
+							<Button variant="accent" unifiedSize="md" startIcon={{ icon: Plus }} nonCaptureEvent
+								>New folder</Button
 							>
-								Create
-							</Button>
-						</div>
-					{/snippet}
-				</Popover>
+						{/snippet}
+						{#snippet content({ close })}
+							<input
+								class="mr-2"
+								onkeyup={(e) => handleKeyUp(e, () => close())}
+								placeholder="New folder name"
+								bind:value={newFolderName}
+							/>
+
+							<div>
+								<Button
+									variant="accent"
+									startIcon={{ icon: Plus }}
+									disabled={!newFolderName}
+									on:click={() => {
+										addFolder()
+										close()
+									}}
+								>
+									Create
+								</Button>
+							</div>
+						{/snippet}
+					</Popover>
+				{/if}
 			</div>
 		</PageHeader>
 
@@ -144,7 +180,7 @@
 						<Cell head class="w-20">Variables</Cell>
 						<Cell head class="w-20">Resources</Cell>
 						<Cell head class="w-20">Participants</Cell>
-						<Cell head last />
+						<Cell head last stickyEnd />
 					</tr>
 				</Head>
 				<tbody class="divide-y">
@@ -206,7 +242,7 @@
 								<FolderUsageInfo {name} tabular />
 
 								<Cell><FolderInfo members={computeMembers(owners, extra_perms)} /></Cell>
-								<Cell shouldStopPropagation>
+								<Cell last stickyEnd shouldStopPropagation>
 									<Dropdown
 										items={[
 											{
@@ -216,6 +252,15 @@
 												action: () => {
 													editFolderName = name
 													folderDrawer?.openDrawer()
+												}
+											},
+											{
+												displayName: 'Publish to Hub',
+												icon: UploadCloud,
+												disabled: !($userStore?.is_admin || $userStore?.is_super_admin),
+												action: () => {
+													publishFolderName = name
+													hubDrawer?.openDrawer()
 												}
 											},
 											{

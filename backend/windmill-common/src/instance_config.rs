@@ -776,7 +776,10 @@ pub enum DucklakeCatalogResourceType {
 // Custom instance PG databases
 // ---------------------------------------------------------------------------
 
-/// Custom PostgreSQL databases managed by the instance.
+/// Custom PostgreSQL databases managed by the instance. `user_pwd` is operator-configurable
+/// (resolved from a Kubernetes secretKeyRef by the EE operator); `databases` is runtime
+/// setup status. The replication-role password lives in a separate hidden setting
+/// (`custom_instance_replication_pwd`), never in this operator-facing config row.
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
 pub struct CustomInstancePgDatabases {
@@ -945,6 +948,7 @@ pub const PROTECTED_SETTINGS: &[&str] = &[
     "ducklake_user_pg_pwd",
     "ducklake_settings",
     "custom_instance_pg_databases",
+    "custom_instance_replication_pwd",
     "uid",
     "rsa_keys",
     "jwt_secret",
@@ -966,6 +970,10 @@ pub const HIDDEN_SETTINGS: &[&str] = &[
     // every bulk InstanceSettings save via `GlobalSettings::extra`. Hiding it
     // on read + rejecting it in `diff_global_settings` breaks that loop.
     "worker_configs",
+    // Auto-generated password for the REPLICATION role used by postgres triggers.
+    // Server-only (written by setup/refresh via direct SQL), never operator-authored —
+    // hidden so the config machinery can't read, rewrite, or drop it.
+    "custom_instance_replication_pwd",
 ];
 
 /// Top-level settings whose entire value is sensitive and must be fully redacted in logs.
@@ -976,6 +984,7 @@ const SENSITIVE_SETTINGS: &[&str] = &[
     "hub_api_secret",
     "license_key",
     "ducklake_user_pg_pwd",
+    "custom_instance_replication_pwd",
     "pip_index_url",
     "pip_extra_index_url",
     "npm_config_registry",
@@ -1000,6 +1009,7 @@ const NESTED_SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
         "object_store_cache_config",
         &["secret_key", "serviceAccountKey"],
     ),
+    ("custom_instance_pg_databases", &["user_pwd"]),
 ];
 
 fn redact_json_value(value: &serde_json::Value) -> serde_json::Value {
@@ -1024,10 +1034,7 @@ fn mask_nested_sensitive(key: &str, value: &serde_json::Value) -> serde_json::Va
         }
     }
     // Settings that are maps-of-objects where each child has a sensitive sub-field.
-    const NESTED_MAP_SENSITIVE: &[(&str, &str)] = &[
-        ("oauths", "secret"),
-        ("custom_instance_pg_databases", "user_pwd"),
-    ];
+    const NESTED_MAP_SENSITIVE: &[(&str, &str)] = &[("oauths", "secret")];
     for &(parent_key, child_field) in NESTED_MAP_SENSITIVE {
         if key == parent_key {
             if let serde_json::Value::Object(entries) = value {
@@ -1142,14 +1149,13 @@ pub fn diff_global_settings(
     let mut previous_values = BTreeMap::new();
     let mut unchanged_count: usize = 0;
     for (key, desired_value) in desired {
-        // `worker_configs` is a legacy ghost: worker configs belong in the
-        // `config` table with a `worker__` prefix. If a client PUT carries a
-        // top-level `worker_configs` key (it flattens into
-        // `GlobalSettings::extra` on deserialize), drop it here instead of
-        // letting it resurrect a stale `global_settings` row.
-        if key == "worker_configs" {
+        // Hidden settings are server-managed and never driven by config: they are
+        // filtered out on read (`from_db`) and must be ignored on write too, so a client
+        // PUT that flattened one into `GlobalSettings::extra` can't resurrect or clobber
+        // the row (e.g. `worker_configs`, or the custom-instance credentials/status).
+        if HIDDEN_SETTINGS.contains(&key.as_str()) {
             tracing::warn!(
-                "Ignoring 'worker_configs' in global_settings diff: worker configs must be written to the config table (worker__ prefix), not global_settings"
+                "Ignoring hidden setting '{key}' in global_settings diff (server-managed, not configurable)"
             );
             continue;
         }
@@ -2367,34 +2373,63 @@ mod tests {
     }
 
     #[test]
-    fn custom_instance_pg_databases_roundtrips() {
+    fn custom_instance_replication_pwd_is_isolated_from_config() {
+        // The replication-role password is server-only: written by setup/refresh via direct
+        // SQL, never operator-authored. It must stay out of the declarative config surface
+        // (hidden on read) and be undeletable, so config sync can't read, rewrite, or drop it.
+        assert!(HIDDEN_SETTINGS.contains(&"custom_instance_replication_pwd"));
+        assert!(PROTECTED_SETTINGS.contains(&"custom_instance_replication_pwd"));
+        assert!(SENSITIVE_SETTINGS.contains(&"custom_instance_replication_pwd"));
+
+        // A stray desired value (e.g. flattened into `extra`) is ignored, not upserted.
+        let mut desired = BTreeMap::new();
+        desired.insert(
+            "custom_instance_replication_pwd".to_string(),
+            serde_json::json!("attacker-set"),
+        );
+        let diff = diff_global_settings(&BTreeMap::new(), &desired, ApplyMode::Merge);
+        assert!(
+            diff.upserts.is_empty(),
+            "hidden setting must not be upserted"
+        );
+
+        // A current value is never deleted by a Replace that omits it.
+        let mut current = BTreeMap::new();
+        current.insert(
+            "custom_instance_replication_pwd".to_string(),
+            serde_json::json!("live"),
+        );
+        let diff = diff_global_settings(&current, &BTreeMap::new(), ApplyMode::Replace);
+        assert!(
+            !diff
+                .deletes
+                .contains(&"custom_instance_replication_pwd".to_string()),
+            "hidden setting must not be deleted"
+        );
+    }
+
+    #[test]
+    fn custom_instance_pg_databases_roundtrips_and_redacts_user_pwd() {
+        // user_pwd stays operator-configurable (EE secretKeyRef); databases is runtime status.
         let json = r#"{
             "user_pwd": "secret123",
-            "databases": {
-                "mydb": {
-                    "logs": {
-                        "super_admin": "OK",
-                        "database_credentials": "OK",
-                        "valid_dbname": "OK",
-                        "created_database": "OK",
-                        "db_connect": "OK",
-                        "grant_permissions": "OK"
-                    },
-                    "success": true,
-                    "tag": "production"
-                }
-            }
+            "databases": { "mydb": { "success": true, "tag": "production" } }
         }"#;
         let pg: CustomInstancePgDatabases = serde_json::from_str(json).unwrap();
         assert_eq!(
             pg.user_pwd.as_ref().and_then(|v| v.as_literal()),
             Some("secret123")
         );
-        let db = &pg.databases["mydb"];
-        assert!(db.success);
-        assert_eq!(db.tag.as_deref(), Some("production"));
-        assert_eq!(db.logs.super_admin, "OK");
-        assert_eq!(db.logs.grant_permissions, "OK");
+        assert!(pg.databases["mydb"].success);
+
+        let out = format_setting_value(
+            "custom_instance_pg_databases",
+            &serde_json::json!({ "user_pwd": "user-plaintext-password" }),
+        );
+        assert!(
+            !out.contains("user-plaintext-password"),
+            "user_pwd leaked: {out}"
+        );
     }
 
     #[test]
