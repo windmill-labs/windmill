@@ -7,7 +7,11 @@ const { zIndexes } = require('./src/lib/zIndexes')
 const figmaTokens = makeRgb(require('./src/lib/assets/tokens/tokens.json'))
 const { darkModeName, lightModeName } = require('./src/lib/assets/tokens/colorTokensConfig')
 
-const tokens = { dark: figmaTokens.tokens[darkModeName], light: figmaTokens.tokens[lightModeName] }
+const tokens = {
+	dark: figmaTokens.tokens[darkModeName],
+	light: figmaTokens.tokens[lightModeName],
+	githubDark: figmaTokens.tokens['github-dark']
+}
 const primitives = figmaTokens.primitives.light
 
 // Helper function to create color definition based on whether the value contains alpha
@@ -571,6 +575,12 @@ const config = {
 				...Object.entries(tokens.dark).map(([key, value]) => [`--color-${key}`, value]),
 				...Object.entries(tokens.light).map(([key, value]) => [`--color-${key}-inverse`, value])
 			])
+			// GitHub dark variant: overrides the default dark variables when the
+			// `github-dark` class is present alongside `dark` (see html.&.dark.github-dark below).
+			let githubDarkColorVariables = Object.fromEntries([
+				...Object.entries(tokens.githubDark).map(([key, value]) => [`--color-${key}`, value]),
+				...Object.entries(tokens.light).map(([key, value]) => [`--color-${key}-inverse`, value])
+			])
 
 			addBase({
 				html: {
@@ -600,10 +610,24 @@ const config = {
 
 						...darkColorVariables,
 
+						// Sidebar rail chrome — consumed via var(--sidebar-bg-dark) (see sidebarChrome.ts).
+						'--sidebar-bg-dark': '#1e232e',
+
 						'--vscode-editorSuggestWidget-background': '#252526',
 						'--vscode-editorHoverWidget-foreground': '#cccccc',
 						'--vscode-editorHoverWidget-border': '#454545',
 						'--vscode-editorHoverWidget-statusBarBackground': '#2c2c2d'
+					},
+					'&.dark.github-dark': {
+						backgroundColor: `rgb(${tokens.githubDark['surface-primary']})`,
+						color: `rgb(${tokens.githubDark['text-primary']})`,
+
+						...githubDarkColorVariables,
+
+						// GitHub's canvas.inset — the authentic recessed surface, sitting below
+						// the canvas (#0d1117) like the sidebar-vs-primary relationship in the
+						// default dark theme.
+						'--sidebar-bg-dark': '#010409'
 					}
 				},
 				h1: {
@@ -842,20 +866,20 @@ const config = {
 						'colors.gray.600'
 					)})`
 				},
+				// Drive pane/splitter chrome off the theme CSS variables (not literal token
+				// values) so every theme — light, dark, and the GitHub dark variant — is
+				// covered by a single rule. A `.dark`-specific literal here would freeze the
+				// default dark color and ignore the variant.
 				'.splitpanes__pane': {
-					backgroundColor: `rgb(${tokens.light['surface-primary']})` + ' !important',
-					overflow: 'auto !important'
-				},
-				'.dark .splitpanes__pane': {
-					backgroundColor: `rgb(${tokens.dark['surface-primary']})` + ' !important',
+					backgroundColor: 'rgb(var(--color-surface-primary)) !important',
 					overflow: 'auto !important'
 				},
 				'.splitpanes__splitter': {
-					backgroundColor: `rgb(${tokens.light['border-light']})` + ' !important',
+					backgroundColor: 'rgb(var(--color-border-light)) !important',
 					margin: '0 !important',
 					border: 'none !important',
 					'&::after': {
-						backgroundColor: `rgb(${tokens.light['border-light']})` + ' !important',
+						backgroundColor: 'rgb(var(--color-border-light)) !important',
 						margin: '0 !important',
 						transform: 'none !important',
 						transition: 'opacity 200ms !important',
@@ -866,12 +890,6 @@ const config = {
 					'&:hover::after': {
 						opacity: '1',
 						zIndex: '1001 !important'
-					}
-				},
-				'.dark .splitpanes__splitter': {
-					backgroundColor: `rgb(${tokens.dark['border-light']})` + ' !important',
-					'&::after': {
-						backgroundColor: `rgb(${tokens.dark['border-light']})` + ' !important'
 					}
 				},
 				'.splitpanes--vertical>.splitpanes__splitter': {
