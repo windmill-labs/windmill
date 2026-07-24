@@ -462,16 +462,18 @@ async fn list_runnables(
     let first_page = q.cursor.is_none();
 
     // Starred items pinned on top of the first page, ordered; later pages are
-    // non-starred only. Bound each branch (like the non-starred ones) so a
-    // heavily-versioned favorite in the archived view can't fan into an unbounded
-    // set of correlated-subquery evaluations.
+    // non-starred only. Uncapped in the default view — a user's favorites are
+    // one row per path and few, and capping there would make favorites past the
+    // cap vanish entirely (they are excluded from the non-starred stream). Only
+    // the archived view fans a favorite into many versions, so bound it there.
+    let starred_limit = if show_archived { Some(per_page) } else { None };
     if first_page {
         let starred_branches: Vec<String> = ["script", "flow", "app"]
             .iter()
-            .filter_map(|k| branch_for(k, true, None, Some(per_page)))
+            .filter_map(|k| branch_for(k, true, None, starred_limit))
             .collect();
         if !starred_branches.is_empty() {
-            let sql = run_union(starred_branches, Some(per_page));
+            let sql = run_union(starred_branches, starred_limit);
             let mut query = sqlx::query_as::<_, RunnableItem>(&sql)
                 .bind(&w_id)
                 .bind(&authed.username)
