@@ -74,6 +74,7 @@ import AzureIcon from './AzureIcon.svelte'
 import OktaIcon from './OktaIcon.svelte'
 import OutreachIcon from './OutreachIcon.svelte'
 import Auth0Icon from './Auth0Icon.svelte'
+import AkeylessIcon from './AkeylessIcon.svelte'
 import MsSqlServerIcon from './MSSqlServerIcon.svelte'
 import AuthentikIcon from './AuthentikIcon.svelte'
 import AutheliaIcon from './AutheliaIcon.svelte'
@@ -302,6 +303,7 @@ export const APP_TO_ICON_COMPONENT = {
 	okta: OktaIcon,
 	outreach: OutreachIcon,
 	auth0: Auth0Icon,
+	akeyless: AkeylessIcon,
 	authentik: AuthentikIcon,
 	authelia: AutheliaIcon,
 	kanidm: KanidmIcon,
