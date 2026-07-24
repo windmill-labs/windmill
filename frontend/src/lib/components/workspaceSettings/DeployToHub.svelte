@@ -759,8 +759,8 @@
 				<div class="flex h-full flex-col gap-3 min-h-0">
 					<p class="text-xs text-secondary shrink-0">
 						The <span class="font-mono">{s.selectedFolder}/</span> scripts and the data tables they read
-						and write, as a single pipeline. Click a node to inspect it. This whole cascade can be captured
-						as an interactive replay once the project is bundled.
+						and write, as a single pipeline. This whole cascade can be captured as an interactive replay
+						once the project is bundled.
 					</p>
 					{#if s.pipelineGraph}
 						<div class="flex-1 min-h-[600px] rounded-md border bg-surface overflow-hidden">
