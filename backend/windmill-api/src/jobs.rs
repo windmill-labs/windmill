@@ -4398,14 +4398,15 @@ async fn reject_mismatched_wac_approval(
         .keys()
         .find(|k| windmill_common::wac::approval_resume_id(k) == resume_id);
 
-    // Only a *different* pending approval is a misroute. A link clicked before its
-    // step suspends is merely early — the row is picked up when that step is
-    // reached — so it must still be accepted.
+    // A bound link is only ever valid while its own step is the one awaiting
+    // approval. Accepting it at any other time — including while the workflow is
+    // still running toward that step — leaves a row that the next approval to be
+    // reached consumes, whichever step that is.
     match (bound_to, awaiting) {
-        (Some(step), Some(pending)) if !pending.keys.iter().any(|k| k == step) => {
+        (Some(step), pending) if !pending.is_some_and(|p| p.keys.iter().any(|k| k == step)) => {
             Err(Error::BadRequest(format!(
-                "this approval link is bound to step `{step}`, but the workflow is currently \
-                 awaiting approval on a different step"
+                "this approval link is bound to step `{step}`, which is not currently awaiting \
+                 approval"
             )))
         }
         _ => Ok(()),

@@ -16,6 +16,22 @@ fn to_test_url(base: &str, url: &str) -> String {
     format!("{base}/{path}")
 }
 
+/// Park the job on `step_key`, as the worker does when that approval suspends.
+async fn awaiting_approval(db: &Pool<Postgres>, step_key: &str) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT INTO v2_job_status (id, workflow_as_code_status) VALUES ($1::uuid, $2)
+         ON CONFLICT (id) DO UPDATE SET workflow_as_code_status =
+            v2_job_status.workflow_as_code_status || EXCLUDED.workflow_as_code_status",
+    )
+    .bind(WAC_JOB)
+    .bind(sqlx::types::Json(serde_json::json!({
+        "_checkpoint": { "pending_steps": { "mode": "approval", "keys": [step_key], "job_ids": {} } }
+    })))
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 #[sqlx::test(fixtures("base", "wac_approval_urls"))]
 async fn wac_approval_urls_bind_to_step_key(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -72,6 +88,7 @@ async fn wac_approval_urls_bind_to_step_key(db: Pool<Postgres>) -> anyhow::Resul
 
     // The genuine URL resumes without any credential — possession of the
     // signature is the authority, as for the built-in approval buttons.
+    awaiting_approval(&db, "manager").await?;
     let resp = client
         .post(to_test_url(&base, &resume))
         .json(&serde_json::json!({ "ok": true }))
@@ -123,17 +140,20 @@ async fn wac_approval_url_for_another_step_is_rejected(db: Pool<Postgres>) -> an
             .await?;
         minted.push(urls["resume"].as_str().expect("resume url").to_string());
     }
-    sqlx::query(
-        "INSERT INTO v2_job_status (id, workflow_as_code_status) VALUES ($1::uuid, $2)
-         ON CONFLICT (id) DO UPDATE SET workflow_as_code_status =
-            v2_job_status.workflow_as_code_status || EXCLUDED.workflow_as_code_status",
-    )
-    .bind(WAC_JOB)
-    .bind(sqlx::types::Json(serde_json::json!({
-        "_checkpoint": { "pending_steps": { "mode": "approval", "keys": ["legal"], "job_ids": {} } }
-    })))
-    .execute(&db)
-    .await?;
+    // Nothing pending yet: the link must not bank a row that the next approval
+    // to be reached would consume, whichever step that turns out to be.
+    let resp = client
+        .post(to_test_url(&base, &minted[1]))
+        .json(&serde_json::json!({}))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        reqwest::StatusCode::BAD_REQUEST,
+        "a bound link must not be bankable before its step awaits approval"
+    );
+
+    awaiting_approval(&db, "legal").await?;
 
     let resp = client
         .post(to_test_url(&base, &minted[1]))

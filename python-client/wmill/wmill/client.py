@@ -2058,8 +2058,10 @@ def get_approval_urls(step_key: str = "approval", approver: str = None) -> dict:
         step_key: Checkpoint key of the approval step, as passed to
             ``wait_for_approval(key=...)``. Keys must be unique within a workflow;
             reusing one raises rather than silently renaming it. The URL only
-            resumes while that step is awaiting approval — using it earlier or
-            later is rejected rather than resolving a different approval.
+            resumes while that step is awaiting approval; used at any other moment
+            it is rejected rather than banking a row a different approval would
+            consume. Send it ahead of time — approvers just cannot act before the
+            workflow reaches the step.
             ``resume`` and ``cancel`` are step-bound; ``approvalPage`` is not — it
             opens the job's approval page, which acts on whichever approval is
             pending when it is used.
@@ -2689,6 +2691,8 @@ class WorkflowCtx:
         checkpoint = checkpoint or {}
         self._completed: dict = checkpoint.get("completed_steps", {})
         self._counters: dict[str, int] = {}
+        # Every key handed out by _alloc_key, so distinct names can't alias one key.
+        self._used_keys: set[str] = set()
         self._pending: list = []
         self._executing_key: str | None = checkpoint.get("_executing_key")
         # Reuse a single httpx.AsyncClient across all fast-path step() calls
@@ -2710,10 +2714,20 @@ class WorkflowCtx:
         self._inline_lock: "_asyncio.Lock | None" = None
 
     def _alloc_key(self, name: str = "step") -> str:
-        """Name-based key: ``double`` for first call, ``double_2``, ``double_3`` for subsequent."""
+        """Name-based key: ``double`` for first call, ``double_2``, ``double_3`` for subsequent.
+
+        Suffixing alone can alias — a second ``step("x")`` and a first ``step("x_2")``
+        both want ``x_2`` — so keep bumping past keys already handed out. Allocation
+        order is fixed by the workflow body, so replays reproduce the same keys.
+        """
         n = self._counters.get(name, 0) + 1
+        key = name if n == 1 else f"{name}_{n}"
+        while key in self._used_keys:
+            n += 1
+            key = f"{name}_{n}"
         self._counters[name] = n
-        return name if n == 1 else f"{name}_{n}"
+        self._used_keys.add(key)
+        return key
 
     def _next_step(self, name: str, script: str, func=None, dispatch_type: str = "inline", _task_options: Optional[dict] = None, **kwargs):
         """Return an awaitable that either resolves from cache or suspends."""

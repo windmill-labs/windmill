@@ -117,8 +117,10 @@ async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_
 #     step_key: Checkpoint key of the approval step, as passed to
 #         ``wait_for_approval(key=...)``. Keys must be unique within a workflow;
 #         reusing one raises rather than silently renaming it. The URL only
-#         resumes while that step is awaiting approval — using it earlier or
-#         later is rejected rather than resolving a different approval.
+#         resumes while that step is awaiting approval; used at any other moment
+#         it is rejected rather than banking a row a different approval would
+#         consume. Send it ahead of time — approvers just cannot act before the
+#         workflow reaches the step.
 #         ``resume`` and ``cancel`` are step-bound; ``approvalPage`` is not — it
 #         opens the job's approval page, which acts on whichever approval is
 #         pending when it is used.
