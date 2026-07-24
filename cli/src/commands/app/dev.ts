@@ -538,7 +538,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
     });
   }
 
-  const buildOptions = getDevBuildOptions(entryPoint);
+  const buildOptions = getDevBuildOptions(entryPoint, frameworks.svelte);
 
   // Load framework-specific plugins (svelte, vue) based on package.json
   const frameworkPlugins = await createFrameworkPlugins(appDir);
