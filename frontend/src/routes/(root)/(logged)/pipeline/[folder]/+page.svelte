@@ -1422,6 +1422,11 @@
 	let recordingMode = $state(false)
 	let lastPipelineRecording = $state<PipelineRecording | undefined>(undefined)
 
+	// Shared by the overflow-menu Record item and the inline armed pill so their
+	// wording can't drift — both describe the same armed recorder.
+	const RECORDING_ARMED_HINT =
+		'Recording armed — the next pipeline run will be captured. Click to disarm.'
+
 	function downloadPipelineRecording() {
 		if (lastPipelineRecording) {
 			pipelineRecording.download(lastPipelineRecording)
@@ -1442,7 +1447,7 @@
 				iconColor: recordingMode ? 'rgb(220 38 38)' : undefined,
 				disabled: !!cascadeRunningRoot,
 				tooltip: recordingMode
-					? 'Recording armed — the next pipeline run will be captured. Click to disarm.'
+					? RECORDING_ARMED_HINT
 					: 'Arm the recorder so the next pipeline run is captured for offline replay',
 				action: () => (recordingMode = !recordingMode)
 			})
@@ -2415,7 +2420,7 @@
 						onclick={() => (recordingMode = false)}
 						disabled={!!cascadeRunningRoot}
 						class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium transition-colors disabled:opacity-50 bg-red-50 dark:bg-red-900/30 border-red-300 dark:border-red-700 text-red-700 dark:text-red-400"
-						title="Recording armed — the next pipeline run will be captured. Click to disarm."
+						title={RECORDING_ARMED_HINT}
 					>
 						<Circle size={12} class="fill-red-600 text-red-600 animate-pulse" />
 						Recording
