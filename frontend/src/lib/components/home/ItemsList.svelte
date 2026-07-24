@@ -474,16 +474,22 @@
 	function sortName(x: { summary?: string; path: string }): string {
 		return x.summary && x.summary !== '' ? x.summary : x.path
 	}
-	// A $derived closure so its identity changes with `sortOrder`, which both
-	// re-runs `combinedItems` (flat view) and re-groups the tree (TreeViewRoot
-	// depends on this prop). Starred items are pinned on top in every order.
+	// A $derived closure so its identity changes with `sortOrder`/`archived`, which
+	// both re-runs `combinedItems` (flat view) and re-groups the tree (TreeViewRoot
+	// depends on this prop). Starred items are pinned on top — but NOT in archived
+	// mode: there the endpoint deliberately leaves favorites in the single keyset
+	// stream (an archived path can span many versions), so re-pinning them client-side
+	// would make a favorited row on a later page jump above earlier rows when it loads,
+	// breaking both starred-first and the selected order. Mirror the backend's
+	// pin_starred = !show_archived.
 	let compareItems = $derived.by(() => {
 		const order = sortOrder
+		const pinStarred = !archived
 		return (
 			a: { starred?: boolean; time?: number; summary?: string; path: string },
 			b: { starred?: boolean; time?: number; summary?: string; path: string }
 		): number => {
-			if (!!a.starred !== !!b.starred) return a.starred ? -1 : 1
+			if (pinStarred && !!a.starred !== !!b.starred) return a.starred ? -1 : 1
 			switch (order) {
 				case 'updated_asc':
 					return (a.time ?? 0) - (b.time ?? 0)
