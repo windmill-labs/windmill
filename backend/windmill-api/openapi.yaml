@@ -20889,6 +20889,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: s3_resource_path
+          in: query
+          description: When set, test the connection of this object storage resource instead of the workspace storage
+          schema:
+            type: string
       responses:
         "200":
           description: Connection settings
@@ -20970,6 +20975,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: s3_resource_path
+          in: query
+          description: When set, list the files of this object storage resource instead of the workspace storage
+          schema:
+            type: string
       responses:
         "200":
           description: List of file keys
@@ -21004,6 +21014,11 @@ paths:
             type: string
         - name: storage
           in: query
+          schema:
+            type: string
+        - name: s3_resource_path
+          in: query
+          description: When set, load the file metadata from this object storage resource instead of the workspace storage
           schema:
             type: string
       responses:
@@ -21053,6 +21068,11 @@ paths:
             type: integer
         - name: storage
           in: query
+          schema:
+            type: string
+        - name: s3_resource_path
+          in: query
+          description: When set, load the file preview from this object storage resource instead of the workspace storage
           schema:
             type: string
       responses:
@@ -21365,6 +21385,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: s3_resource_path
+          in: query
+          description: When set, delete the file from this object storage resource instead of the workspace storage
+          schema:
+            type: string
       responses:
         "200":
           description: Confirmation
@@ -21392,6 +21417,11 @@ paths:
             type: string
         - name: storage
           in: query
+          schema:
+            type: string
+        - name: s3_resource_path
+          in: query
+          description: When set, move the file within this object storage resource instead of the workspace storage
           schema:
             type: string
       responses:

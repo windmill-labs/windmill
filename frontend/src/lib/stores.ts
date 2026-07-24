@@ -146,6 +146,15 @@ export const aiUserDisabled = writable<boolean>(
 export const usedTriggerKinds = writable<string[]>([])
 
 export let globalDbManagerDrawer: StateStore<DbManagerUriState | undefined> = { val: undefined }
+/** Read-only S3 file browser (S3FilePicker instance) mounted in the logged
+ * layout, used by Explore buttons in contexts that don't wire their own picker
+ * instance. Typed loosely because the component instance type resolves
+ * differently in .ts and .svelte contexts. */
+export let globalS3FilePickerExplorer: StateStore<
+	{ open: (fileKey?: any, opts?: { s3ResourcePath?: string }) => Promise<void> } | undefined
+> = createState({
+	val: undefined
+})
 export let globalForkModal: StateStore<GlobalForkModalState | undefined> = createState({
 	val: undefined
 })

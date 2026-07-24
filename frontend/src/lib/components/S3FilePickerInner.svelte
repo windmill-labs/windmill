@@ -69,6 +69,8 @@
 		workspace?: string | undefined
 		workspaceSettingsInitialized?: boolean
 		storage?: string | undefined
+		/** Browse this object storage resource directly instead of the workspace storage. */
+		s3ResourcePath?: string | undefined
 		uploadModalOpen?: boolean
 		allFilesByKey?: Record<
 			string,
@@ -108,6 +110,7 @@
 		workspace = undefined,
 		workspaceSettingsInitialized = $bindable(true),
 		storage = $bindable(undefined),
+		s3ResourcePath = undefined,
 		uploadModalOpen = $bindable(false),
 		allFilesByKey = $bindable({}),
 		allowDelete = false,
@@ -192,7 +195,8 @@
 			maxKeys: maxKeys, // fixed pages of 1000 files for now
 			marker: page == 0 ? undefined : listMarkers[page - 1],
 			prefix: rootPath ?? (filter.trim() != '' ? filter : undefined),
-			storage: storage
+			storage: storage,
+			s3ResourcePath
 		})
 		if (
 			availableFiles.restricted_access === null ||
@@ -287,7 +291,8 @@
 		let fileMetadataRaw = await loadFileMetadataRequest({
 			workspace: ws!,
 			fileKey: fileKey,
-			storage: storage
+			storage: storage,
+			s3ResourcePath
 		})
 
 		if (fileMetadataRaw !== undefined) {
@@ -313,7 +318,8 @@
 			csvHasHeader: csvHasHeader,
 			readBytesFrom: 0,
 			readBytesLength: 128 * 1024, // For now static limit of 128Kb per file,
-			storage: storage
+			storage: storage,
+			s3ResourcePath
 		})
 
 		let filePreviewContent = filePreviewRaw.content
@@ -356,7 +362,8 @@
 			await deleteS3FileRequest({
 				workspace: ws!,
 				fileKey: fileKey,
-				storage: storage
+				storage: storage,
+				s3ResourcePath
 			})
 		} finally {
 			fileDeletionInProgress = false
@@ -417,7 +424,8 @@
 				workspace: ws!,
 				srcFileKey: srcFileKey,
 				destFileKey: destFileKey!,
-				storage: storage
+				storage: storage,
+				s3ResourcePath
 			})
 		} finally {
 			fileMoveInProgress = false
@@ -463,7 +471,8 @@
 		try {
 			await testConnectionRequest({
 				workspace: ws!,
-				storage: storage
+				storage: storage,
+				s3ResourcePath
 			})
 			workspaceSettingsInitialized = true
 		} catch (e) {
@@ -552,6 +561,15 @@
 		<Alert type="error" title="Connection to remote S3 bucket unsuccessful">
 			<div class="flex flex-row gap-x-1 w-full items-center">
 				<p class="text-clip grow min-w-0"> Double check the S3 resource fields and try again. </p>
+			</div>
+		</Alert>
+	{:else if s3ResourcePath}
+		<Alert type="error" title="Could not connect to the object storage of {s3ResourcePath}">
+			<div class="flex flex-row gap-x-1 w-full items-center">
+				<p class="text-clip grow min-w-0">
+					Double check the resource fields and that its object storage is reachable, then try again.
+				</p>
+				<Button variant="default" on:click={reloadContent} startIcon={{ icon: RotateCw }} />
 			</div>
 		</Alert>
 	{:else}
@@ -721,7 +739,7 @@
 						{#if filePreview !== undefined && (!hideS3SpecificDetails || !readOnlyMode || allowDelete)}
 							<div class="flex gap-2 shrink-0">
 								{#if !hideS3SpecificDetails}
-									{@const downloadApiPath = `/w/${ws}/job_helpers/download_s3_file?file_key=${encodeURIComponent(fileMetadata?.fileKey ?? '')}${storage ? `&storage=${storage}` : ''}`}
+									{@const downloadApiPath = `/w/${ws}/job_helpers/download_s3_file?file_key=${encodeURIComponent(fileMetadata?.fileKey ?? '')}${storage ? `&storage=${storage}` : ''}${s3ResourcePath ? `&s3_resource_path=${encodeURIComponent(s3ResourcePath)}` : ''}`}
 									{@const downloadName =
 										fileMetadata?.fileKey.split('/').pop() ?? 'unnamed_download.file'}
 									{#if shouldDownloadViaClient()}
@@ -789,6 +807,8 @@
 			<S3FilePreview
 				fileKey={fileMetadata?.fileKey}
 				{storage}
+				{s3ResourcePath}
+				workspace={ws}
 				{loadFilePreviewRequest}
 				{loadFileMetadataRequest}
 				class="h-full"
