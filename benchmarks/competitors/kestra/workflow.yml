@@ -1,0 +1,20 @@
+id: benchmark-3step
+namespace: benchmark
+
+tasks:
+  - id: step_a
+    type: io.kestra.plugin.core.debug.Return
+    format: "1"
+
+  - id: step_b
+    type: io.kestra.plugin.core.debug.Return
+    format: "2"
+
+  - id: step_c
+    type: io.kestra.plugin.core.debug.Return
+    format: "3"
+
+triggers:
+  - id: benchmark_webhook
+    type: io.kestra.plugin.core.trigger.Webhook
+    key: benchmark-key
