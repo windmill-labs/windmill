@@ -325,6 +325,7 @@ export class DeployToHubSession {
 			this.items.some((i) => i.kind === 'script' && i.path === p)
 		)
 	)
+	pipelineScriptPathSet = $derived(new Set(this.pipelineScriptPaths))
 	isPipelineProject = $derived(this.pipelineScriptPaths.length > 0)
 	hubSlug = $derived(this.effectiveSlug || sanitizeSlug(this.hubName))
 
