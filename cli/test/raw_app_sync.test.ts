@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { withTestBackend } from "./test_backend.ts";
+import { waitForDeploymentJobs } from "./new_commands_helpers.ts";
 import { addWorkspace } from "../workspace.ts";
 import * as path from "node:path";
 import { writeFile, readFile, stat, rm, mkdir, readdir } from "node:fs/promises";
@@ -174,6 +175,7 @@ excludes: []`, "utf-8");
       ], tempDir, "raw_app_test");
 
       expect(pushResult1.code).toEqual(0);
+      await waitForDeploymentJobs(backend);
 
       // =========================================================================
       // STEP 2: Clear disk and pull - verify raw app is pulled correctly
@@ -240,6 +242,7 @@ excludes: []`, "utf-8");
       ], tempDir, "raw_app_test");
 
       expect(pushResult2.code).toEqual(0);
+      await waitForDeploymentJobs(backend);
 
       // =========================================================================
       // STEP 5: Clear disk (delete the app directory)
@@ -349,6 +352,7 @@ excludes: []`, "utf-8");
       ], tempDir, "raw_app_new_file_test");
 
       expect(pushResult1.code).toEqual(0);
+      await waitForDeploymentJobs(backend);
 
       // Add a new file
       const newFilePath = path.join(appDir, "utils.ts");
@@ -364,6 +368,7 @@ excludes: []`, "utf-8");
       ], tempDir, "raw_app_new_file_test");
 
       expect(pushResult2.code).toEqual(0);
+      await waitForDeploymentJobs(backend);
 
       // Clear and pull again
       await rm(appDir, { recursive: true });
@@ -420,6 +425,7 @@ excludes: []`, "utf-8");
         tempDir, "raw_app_ts_first_test"
       );
       expect(pushResult1.code).toEqual(0);
+      await waitForDeploymentJobs(backend);
 
       // Edit App.tsx (and the .ts file that sorts first) and push again.
       const appTsxPath = path.join(appDir, "App.tsx");
@@ -436,6 +442,7 @@ excludes: []`, "utf-8");
         tempDir, "raw_app_ts_first_test"
       );
       expect(pushResult2.code).toEqual(0);
+      await waitForDeploymentJobs(backend);
 
       // The App.tsx edit must have landed on the remote app's bundled files.
       const appResp = await backend.apiRequest!(
@@ -486,6 +493,7 @@ excludes: []`, "utf-8");
       ], tempDir, "raw_app_delete_file_test");
 
       expect(pushResult1.code).toEqual(0);
+      await waitForDeploymentJobs(backend);
 
       const indexCssPath = path.join(appDir, "index.css");
       const appTsxPath = path.join(appDir, "App.tsx");
@@ -507,6 +515,7 @@ excludes: []`, "utf-8");
       ], tempDir, "raw_app_delete_file_test");
 
       expect(pushResult2.code).toEqual(0);
+      await waitForDeploymentJobs(backend);
 
       // Clear and pull again
       await rm(appDir, { recursive: true });
@@ -620,6 +629,7 @@ excludes: []`, "utf-8");
         tempDir, "raw_app_camelcase_test"
       );
       expect(pushResult1.code).toEqual(0);
+      await waitForDeploymentJobs(backend);
 
       await rm(appDir, { recursive: true });
 

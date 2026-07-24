@@ -104,6 +104,36 @@ export async function waitForJob(
   throw new Error(`Job ${jobId} did not complete within ${timeoutMs}ms`);
 }
 
+/**
+ * A `sync push` of a script/flow/app returns as soon as the version is committed,
+ * then enqueues an async dependency job (relock + raw-app bundle) that rewrites
+ * that same version's value. Pulling or pushing again before it finishes races
+ * the worker: an early pull reads pre-relock content, and a second push can be
+ * clobbered by the earlier job's write-back, which reverts the deploy. Drain
+ * those jobs after each push. The test workspace is isolated per test, so
+ * waiting for the whole dependency queue to empty is both sufficient and
+ * path-agnostic.
+ */
+export async function waitForDeploymentJobs(
+  backend: TestBackend,
+  timeoutMs: number = 30000
+): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const resp = await backend.apiRequest!(
+      `/api/w/${backend.workspace}/jobs/queue/list?job_kinds=dependencies,flowdependencies,appdependencies`
+    );
+    if (!resp.ok) {
+      await resp.text().catch(() => {});
+      throw new Error(`Failed to list queued dependency jobs: ${resp.status}`);
+    }
+    const jobs = await resp.json();
+    if (Array.isArray(jobs) && jobs.length === 0) return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`Dependency jobs did not drain within ${timeoutMs}ms`);
+}
+
 export async function createRemoteFlow(
   backend: TestBackend,
   flowPath: string
