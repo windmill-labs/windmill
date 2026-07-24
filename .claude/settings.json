@@ -48,13 +48,6 @@
       "Read(/tmp/**)",
       "Write(/tmp/**)",
       "Edit(/tmp/**)",
-      "Bash(rm /tmp/*)",
-      "Bash(rm -r /tmp/*)",
-      "Bash(rm -rf /tmp/*)",
-      "Bash(rm -f /tmp/*)",
-      "Bash(rm -fr /tmp/*)",
-      "Bash(rm -rf -- /tmp/*)",
-      "Bash(rmdir /tmp/*)",
       "Bash(mkdir:/tmp/*)",
       "Bash(mkdir:/tmp/**)",
       "Bash(cp:/tmp/*)",
@@ -92,28 +85,6 @@
       "Edit(**/.env.*)"
     ],
     "ask": [
-      "Bash(rm -rf /)",
-      "Bash(rm -fr /)",
-      "Bash(rm -rf / *)",
-      "Bash(rm -rf /bin*)",
-      "Bash(rm -rf /boot*)",
-      "Bash(rm -rf /dev*)",
-      "Bash(rm -rf /etc*)",
-      "Bash(rm -rf /home*)",
-      "Bash(rm -rf /lib*)",
-      "Bash(rm -rf /opt*)",
-      "Bash(rm -rf /proc*)",
-      "Bash(rm -rf /root*)",
-      "Bash(rm -rf /sbin*)",
-      "Bash(rm -rf /srv*)",
-      "Bash(rm -rf /sys*)",
-      "Bash(rm -rf /usr*)",
-      "Bash(rm -rf /var*)",
-      "Bash(rm -rf ~*)",
-      "Bash(rm -rf $HOME*)",
-      "Bash(rm * /home/*)",
-      "Bash(rm * ~/*)",
-      "Bash(rm * ../*)",
       "Bash(mv:*)",
       "Bash(chmod:*)",
       "Bash(chown:*)",
@@ -121,6 +92,8 @@
       "Bash(shred:*)",
       "Bash(unlink:*)",
       "mcp__claude_ai_Stripe",
+      "mcp__claude_ai_Gmail__create_draft",
+      "mcp__claude_ai_Gmail__update_draft",
       "mcp__claude_ai_Gmail__create_label",
       "mcp__claude_ai_Gmail__label_message",
       "mcp__claude_ai_Gmail__label_thread",
@@ -143,6 +116,11 @@
           {
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-main-branch.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-rm-outside-tmp.sh",
             "timeout": 5
           }
         ]
