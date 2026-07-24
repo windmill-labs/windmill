@@ -180,7 +180,7 @@
 						<Cell head class="w-20">Variables</Cell>
 						<Cell head class="w-20">Resources</Cell>
 						<Cell head class="w-20">Participants</Cell>
-						<Cell head last />
+						<Cell head last stickyEnd />
 					</tr>
 				</Head>
 				<tbody class="divide-y">
@@ -242,7 +242,7 @@
 								<FolderUsageInfo {name} tabular />
 
 								<Cell><FolderInfo members={computeMembers(owners, extra_perms)} /></Cell>
-								<Cell shouldStopPropagation>
+								<Cell last stickyEnd shouldStopPropagation>
 									<Dropdown
 										items={[
 											{

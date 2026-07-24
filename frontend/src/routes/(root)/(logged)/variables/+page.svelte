@@ -362,7 +362,7 @@
 								<Cell head>Value</Cell>
 								<Cell head>Description</Cell>
 								<Cell head />
-								<Cell head last />
+								<Cell head last stickyEnd />
 							</tr>
 						</Head>
 						<tbody class="divide-y">
@@ -465,7 +465,11 @@
 												<div class="">
 													{#if refresh_error}
 														<Popover notClickable>
-															<div class="relative inline-flex justify-center items-center w-4 h-4">
+															<!-- isolate: confine the ping indicator's z-50 to a local stacking context
+											     so it can't paint over a sticky-pinned actions column scrolling past it -->
+															<div
+																class="relative inline-flex justify-center items-center w-4 h-4 isolate"
+															>
 																<Circle
 																	class="text-red-600 animate-ping absolute z-50 w-4 h-4 fill-current"
 																	size={12}
@@ -514,7 +518,7 @@
 											{/if}
 										</div>
 									</Cell>
-									<Cell last shouldStopPropagation>
+									<Cell last stickyEnd shouldStopPropagation>
 										<Dropdown
 											items={() => {
 												let owner = isOwner(path, $userStore, $workspaceStore)
