@@ -75,38 +75,26 @@ async fn test_inputs_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
-// A scheduled/triggered flow whose schedule has a dynamic-skip handler runs as a
-// `singlestepflow`, not `flow` (see windmill-queue schedule.rs). The run-history
-// sidebar must surface those runs, so `get_input_history` includes that kind for
-// flow runnables.
+// A scheduled runnable with a dynamic-skip handler runs as a `singlestepflow`, not
+// `flow`/`script` (see windmill-queue schedule.rs). A flow's history must surface its
+// flow-wrapped singlestepflow runs, but a script and flow may share a path, so a
+// script-wrapped singlestepflow at the same path must NOT leak into the flow's history.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_input_history_includes_singlestepflow(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_input_history_singlestepflow_flow_vs_script(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
     initialize_tracing().await;
 
-    let job_id = uuid::Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO v2_job (id, workspace_id, tag, created_by, permissioned_as, \
-         permissioned_as_email, kind, runnable_path, same_worker, visible_to_owner) \
-         VALUES ($1, 'test-workspace', 'flow', 'test-user', 'u/test-user', \
-         'test@windmill.dev', 'singlestepflow', 'f/test/scheduled_flow', false, true)",
-    )
-    .bind(job_id)
-    .execute(&db)
-    .await?;
-    sqlx::query(
-        "INSERT INTO v2_job_completed (id, workspace_id, duration_ms, deleted, status) \
-         VALUES ($1, 'test-workspace', 1, false, 'success')",
-    )
-    .bind(job_id)
-    .execute(&db)
-    .await?;
+    // Both rows share runnable_path; only the flow-wrapped one belongs in flow history.
+    let flow_job = insert_singlestepflow(&db, "flow").await?;
+    let script_job = insert_singlestepflow(&db, "script").await?;
 
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
     let base = format!("http://localhost:{port}/api/w/test-workspace/inputs");
 
     let resp = authed(client().get(format!(
-        "{base}/history?runnable_id=f/test/scheduled_flow&runnable_type=FlowPath"
+        "{base}/history?runnable_id=f/test/scheduled&runnable_type=FlowPath"
     )))
     .send()
     .await?;
@@ -115,12 +103,47 @@ async fn test_input_history_includes_singlestepflow(db: Pool<Postgres>) -> anyho
     assert_2xx(status, &body, "GET /inputs/history");
 
     let inputs: Vec<serde_json::Value> = serde_json::from_str(&body)?;
-    assert!(
+    let has = |id: &uuid::Uuid| {
         inputs
             .iter()
-            .any(|i| i.get("id").and_then(|v| v.as_str()) == Some(&job_id.to_string())),
-        "singlestepflow run missing from flow input history: {body}",
+            .any(|i| i.get("id").and_then(|v| v.as_str()) == Some(&id.to_string()))
+    };
+    assert!(
+        has(&flow_job),
+        "flow-wrapped singlestepflow missing: {body}"
+    );
+    assert!(
+        !has(&script_job),
+        "script-wrapped singlestepflow leaked into flow history: {body}",
     );
 
     Ok(())
+}
+
+// Insert a completed root singlestepflow at path f/test/scheduled wrapping `wrapped_type`
+// ('flow' or 'script') as its single module — mirrors the schedule.rs wrapper shape.
+async fn insert_singlestepflow(
+    db: &Pool<Postgres>,
+    wrapped_type: &str,
+) -> anyhow::Result<uuid::Uuid> {
+    let id = uuid::Uuid::new_v4();
+    let raw_flow = json!({ "modules": [{ "id": "a", "value": { "type": wrapped_type } }] });
+    sqlx::query(
+        "INSERT INTO v2_job (id, workspace_id, tag, created_by, permissioned_as, \
+         permissioned_as_email, kind, runnable_path, raw_flow, same_worker, visible_to_owner) \
+         VALUES ($1, 'test-workspace', 'flow', 'test-user', 'u/test-user', \
+         'test@windmill.dev', 'singlestepflow', 'f/test/scheduled', $2, false, true)",
+    )
+    .bind(id)
+    .bind(sqlx::types::Json(&raw_flow))
+    .execute(db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO v2_job_completed (id, workspace_id, duration_ms, deleted, status) \
+         VALUES ($1, 'test-workspace', 1, false, 'success')",
+    )
+    .bind(id)
+    .execute(db)
+    .await?;
+    Ok(id)
 }
