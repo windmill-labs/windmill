@@ -2057,7 +2057,12 @@ def get_approval_urls(step_key: str = "approval", approver: str = None) -> dict:
     Args:
         step_key: Checkpoint key of the approval step, as passed to
             ``wait_for_approval(key=...)``. Keys must be unique within a workflow;
-            reusing one raises rather than silently renaming it.
+            reusing one raises rather than silently renaming it. The URL only
+            resumes while that step is awaiting approval — using it earlier or
+            later is rejected rather than resolving a different approval.
+            ``resume`` and ``cancel`` are step-bound; ``approvalPage`` is not — it
+            opens the job's approval page, which acts on whichever approval is
+            pending when it is used.
         approver: Optional approver name
 
     Returns:

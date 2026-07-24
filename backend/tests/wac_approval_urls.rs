@@ -96,3 +96,73 @@ async fn wac_approval_urls_bind_to_step_key(db: Pool<Postgres>) -> anyhow::Resul
 
     Ok(())
 }
+
+/// Approval rows are consumed oldest-first regardless of resume_id (WIN-2241), so
+/// a URL minted for a later step and clicked while an earlier one is pending would
+/// otherwise resolve the earlier step with this approver's answer.
+#[sqlx::test(fixtures("base", "wac_approval_urls"))]
+async fn wac_approval_url_for_another_step_is_rejected(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!("http://localhost:{}/api", server.addr.port());
+    let client = reqwest::Client::new();
+
+    // The workflow mints both approvals' URLs up front, then suspends on `legal`.
+    let mut minted = Vec::new();
+    for step_key in ["legal", "finance"] {
+        let urls: serde_json::Value = client
+            .get(format!(
+                "{base}/w/test-workspace/jobs/wac_approval_urls/{WAC_JOB}/{step_key}"
+            ))
+            .header("Authorization", "Bearer SECRET_TOKEN")
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        minted.push(urls["resume"].as_str().expect("resume url").to_string());
+    }
+    sqlx::query(
+        "INSERT INTO v2_job_status (id, workflow_as_code_status) VALUES ($1::uuid, $2)
+         ON CONFLICT (id) DO UPDATE SET workflow_as_code_status =
+            v2_job_status.workflow_as_code_status || EXCLUDED.workflow_as_code_status",
+    )
+    .bind(WAC_JOB)
+    .bind(sqlx::types::Json(serde_json::json!({
+        "_checkpoint": { "pending_steps": { "mode": "approval", "keys": ["legal"], "job_ids": {} } }
+    })))
+    .execute(&db)
+    .await?;
+
+    let resp = client
+        .post(to_test_url(&base, &minted[1]))
+        .json(&serde_json::json!({}))
+        .send()
+        .await?;
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    assert_eq!(
+        status,
+        reqwest::StatusCode::BAD_REQUEST,
+        "finance's url must not resume the pending `legal` step: {body}"
+    );
+    assert!(
+        body.contains("finance"),
+        "error must name the bound step: {body}"
+    );
+
+    // The pending step's own url still works.
+    let resp = client
+        .post(to_test_url(&base, &minted[0]))
+        .json(&serde_json::json!({}))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "the pending step's url must still resume: {}",
+        resp.text().await.unwrap_or_default()
+    );
+
+    Ok(())
+}

@@ -3657,6 +3657,10 @@ async fn resume_suspended_job_internal(
     // Get flow info - works for step-level, flow-level, and WAC approval
     let (flow_info, is_flow_level, is_wac) = get_flow_info_for_resume(job_id, &db).await?;
 
+    if is_wac {
+        reject_mismatched_wac_approval(&db, job_id, resume_id).await?;
+    }
+
     // HMAC secret = full capability. Skip approval_conditions checks: possession of the full
     // resume URL is the authorization (it is only disclosed to intended approvers, e.g. when a
     // step returns it). Identity-based rules, including self_approval_disabled, are enforced by
@@ -4325,13 +4329,93 @@ pub async fn get_wac_approval_urls(
 ) -> error::JsonResult<ResumeUrls> {
     let flow_path = resume_target_flow_path(&db, &w_id, job_id).await?;
     check_scopes(&authed, || format!("jobs:run:flows:{}", flow_path))?;
+
+    // The approval belongs to the WAC parent, but WM_JOB_ID is the child job when
+    // this is called from inside a task() rather than a step(). Resolve up so the
+    // URL still targets the workflow that will suspend.
+    let job_id = get_flow_id_for_job(&db, job_id).await.unwrap_or(job_id);
     let resume_id = windmill_common::wac::approval_resume_id(&step_key);
+
+    // Remember which steps have a minted URL in circulation. A workflow may mint
+    // several up front, and the resume path uses this to tell "URL for the step
+    // awaiting approval" apart from "URL for some other step of this workflow",
+    // which it otherwise cannot: the interactive channels sign random resume_ids
+    // and must keep resuming whatever step is pending.
+    // Upsert: a workflow can mint URLs before any step has checkpointed, so the
+    // status row may not exist yet — an UPDATE would silently match nothing and
+    // leave the link unbound.
+    sqlx::query(
+        "INSERT INTO v2_job_status (id, workflow_as_code_status)
+         VALUES ($1, jsonb_build_object('_minted_approval_keys',
+                    jsonb_build_object($2::text, true)))
+         ON CONFLICT (id) DO UPDATE SET workflow_as_code_status = jsonb_set(
+            COALESCE(v2_job_status.workflow_as_code_status, '{}'::jsonb),
+            ARRAY['_minted_approval_keys'],
+            COALESCE(v2_job_status.workflow_as_code_status->'_minted_approval_keys', '{}'::jsonb)
+                || jsonb_build_object($2::text, true)
+        )",
+    )
+    .bind(job_id)
+    .bind(&step_key)
+    .execute(&db)
+    .await?;
+
     get_resume_urls_internal(
         Extension(db),
         Path((w_id, job_id, resume_id)),
         Query(approver),
     )
     .await
+}
+
+/// A WAC resume URL minted for a named `wait_for_approval` step must only resume
+/// *that* step. Approval rows are consumed oldest-first regardless of resume_id
+/// (WIN-2241 — required so Slack/Teams/the approval page, which sign random ids,
+/// keep working), so a step-bound URL clicked while a different step is awaiting
+/// approval would silently resolve that other step with this approver's answer.
+/// Reject it instead; unbound resume_ids are untouched.
+async fn reject_mismatched_wac_approval(
+    db: &DB,
+    job_id: Uuid,
+    resume_id: u32,
+) -> Result<(), Error> {
+    let status: Option<sqlx::types::Json<WacApprovalBinding>> = sqlx::query_scalar(
+        "SELECT jsonb_build_object(
+            'minted', COALESCE(workflow_as_code_status->'_minted_approval_keys', '{}'::jsonb),
+            'pending', workflow_as_code_status->'_checkpoint'->'pending_steps'
+         ) FROM v2_job_status WHERE id = $1",
+    )
+    .bind(job_id)
+    .fetch_optional(db)
+    .await?;
+
+    let Some(sqlx::types::Json(binding)) = status else {
+        return Ok(());
+    };
+    let awaiting = binding.pending.as_ref().filter(|p| p.mode == "approval");
+    let bound_to = binding
+        .minted
+        .keys()
+        .find(|k| windmill_common::wac::approval_resume_id(k) == resume_id);
+
+    // Only a *different* pending approval is a misroute. A link clicked before its
+    // step suspends is merely early — the row is picked up when that step is
+    // reached — so it must still be accepted.
+    match (bound_to, awaiting) {
+        (Some(step), Some(pending)) if !pending.keys.iter().any(|k| k == step) => {
+            Err(Error::BadRequest(format!(
+                "this approval link is bound to step `{step}`, but the workflow is currently \
+                 awaiting approval on a different step"
+            )))
+        }
+        _ => Ok(()),
+    }
+}
+
+#[derive(Deserialize)]
+struct WacApprovalBinding {
+    minted: std::collections::HashMap<String, serde_json::Value>,
+    pending: Option<windmill_common::wac::WacPendingSteps>,
 }
 
 pub async fn get_resume_urls_internal(
