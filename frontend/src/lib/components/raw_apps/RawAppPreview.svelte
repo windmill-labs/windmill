@@ -4,6 +4,7 @@
 	import type { Runnable } from './rawAppPolicy'
 	import { getContext, onMount, untrack } from 'svelte'
 	import { unsandboxedRawAppHtml } from './utils'
+	import RawAppRecorderControls from './RawAppRecorderControls.svelte'
 
 	interface Props {
 		workspace: string
@@ -11,9 +12,12 @@
 		secret: string | undefined
 		path: string
 		runnables: Record<string, Runnable>
+		/** Offer the session recorder (in-workspace viewer only — it reads the
+		 * bundle's DOM, which is only possible on the unsandboxed path). */
+		recordable?: boolean
 	}
 
-	let { workspace, user, secret, path, runnables }: Props = $props()
+	let { workspace, user, secret, path, runnables, recordable = false }: Props = $props()
 
 	let iframe = $state() as HTMLIFrameElement | undefined
 
@@ -237,4 +241,7 @@
 		referrerpolicy={unsandboxed ? undefined : 'no-referrer'}
 		class="w-full h-full min-h-screen bg-white border-none"
 	></iframe>
+	{#if recordable && unsandboxed}
+		<RawAppRecorderControls {iframe} {workspace} {path} />
+	{/if}
 {/if}
