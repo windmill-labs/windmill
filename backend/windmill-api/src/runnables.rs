@@ -16,9 +16,9 @@
 //! `(workspace_id, archived, <sort key>)` (created_at / edited_at, or the lowered
 //! summary-or-path expression for name orders); Postgres merges the ordered
 //! branches and stops at the page limit. Pagination is keyset — a
-//! `(sort_key, path, kind, tiebreak)` cursor, where `tiebreak` is a script's hash
-//! (0 for the one-row-per-path flow/app) so archived versions sharing a name and
-//! path stay individually reachable — so deep pages don't re-scan. Visibility is
+//! `(sort_key, path, kind, tiebreak)` cursor, where `tiebreak` (a script's hash,
+//! 0 for flow/app) is a stable final key that keeps the order total even when rows
+//! tie on (sort_key, path, kind) — so deep pages don't re-scan. Visibility is
 //! enforced in-SQL by RLS via the `user_db` transaction.
 
 use crate::db::{ApiAuthed, DB};
@@ -119,10 +119,9 @@ struct RunnableItem {
     sort_time: chrono::DateTime<chrono::Utc>,
     #[serde(skip)]
     sort_name: String,
-    // Final tiebreaker making the sort total: a script's hash (the archived view
-    // lists several versions sharing path+summary), 0 for the one-row-per-path
-    // flow/app. Without it a group of same-(name,path) versions crossing a page
-    // boundary would be skipped by the strict keyset.
+    // Final tiebreaker making the sort total: a script's hash, 0 for flow/app. A stable
+    // last key so rows that tie on (sort_key, path, kind) still have a strict order and
+    // none is skipped when a tie crosses a page boundary.
     #[serde(skip)]
     tiebreak: i64,
 }
