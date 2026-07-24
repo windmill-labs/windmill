@@ -1689,7 +1689,11 @@ async fn setup_custom_instance_pg_database_inner(
     // SAFETY: `dbname` has been validated by the VALID_NAME regex and length checks above.
     client
         .batch_execute(&format!(
-            "GRANT CONNECT ON DATABASE \"{dbname}\" TO custom_instance_user;
+            // REVOKE PUBLIC CONNECT keeps data table ephemeral roles (and any
+            // other non-granted role on the cluster) from connecting to this
+            // database; explicit grants below are unaffected.
+            "REVOKE CONNECT ON DATABASE \"{dbname}\" FROM PUBLIC;
+             GRANT CONNECT ON DATABASE \"{dbname}\" TO custom_instance_user;
              GRANT USAGE ON SCHEMA public TO custom_instance_user;
              GRANT CREATE ON SCHEMA public TO custom_instance_user;
              GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user;

@@ -17,6 +17,7 @@
 	} from 'lucide-svelte'
 	import DBManagerContent from './DBManagerContent.svelte'
 	import DataTableMigrationsButton from './workspaceSettings/DataTableMigrationsButton.svelte'
+	import DataTablePermissionsButton from './workspaceSettings/DataTablePermissionsButton.svelte'
 	import { resource } from 'runed'
 	import { untrack } from 'svelte'
 	import type { DbManagerUriState } from './dbManagerDrawerModel.svelte'
@@ -211,6 +212,7 @@
 		{/if}
 		{#snippet actions()}
 			{#if uriState.isDatatableInput && uriState.selectedDatatable && ws}
+				<DataTablePermissionsButton workspace={ws} datatable={uriState.selectedDatatable} />
 				<DataTableMigrationsButton
 					workspace={ws}
 					datatable={uriState.selectedDatatable}

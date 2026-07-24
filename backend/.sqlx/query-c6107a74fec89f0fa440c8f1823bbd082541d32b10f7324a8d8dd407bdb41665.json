@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO datatable_ephemeral_role\n            (role_name, workspace_id, datatable, permissioned_as, password, perms_hash, expires_at)\n         VALUES ($1, $2, $3, $4, $5, $6, now() + interval '5 minutes')\n         ON CONFLICT (role_name) DO UPDATE SET\n            workspace_id = EXCLUDED.workspace_id,\n            datatable = EXCLUDED.datatable,\n            permissioned_as = EXCLUDED.permissioned_as,\n            password = EXCLUDED.password,\n            perms_hash = EXCLUDED.perms_hash,\n            expires_at = EXCLUDED.expires_at,\n            created_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c6107a74fec89f0fa440c8f1823bbd082541d32b10f7324a8d8dd407bdb41665"
+}

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT group_ FROM usr_to_group WHERE workspace_id = $1 AND usr = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "group_",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5d6f377ed2c128b1445c5fd740a9924b492d793cf743beeb0f790bc25f338cc3"
+}
