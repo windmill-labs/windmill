@@ -21933,6 +21933,13 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: resolved
+          description: >-
+            filter on whether a failure has been marked as handled. true keeps only
+            resolved failures, false hides them
+          in: query
+          schema:
+            type: boolean
         - name: is_flow_step
           description: is the job a flow step
           in: query

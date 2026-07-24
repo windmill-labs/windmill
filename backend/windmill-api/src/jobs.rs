@@ -2795,7 +2795,10 @@ async fn list_filtered_job_uuids(
         false,
         get_scope_tags(&authed),
     );
-    let query = if lq.status.is_some() {
+    // Same reasoning as the runs-list union gate: "resolved only" is a completed-jobs
+    // concept, so unioning the queue would feed queued jobs into bulk actions taken
+    // under that filter. "hide resolved" must still keep them.
+    let query = if lq.status.is_some() || lq.resolved == Some(true) {
         sqlb.subquery()?
     } else {
         let sqlb2 = list_queue_jobs_query(
@@ -9666,8 +9669,15 @@ struct ResolveJobsRequest {
 
 /// Bounded so the per-id audit rows written below stay bounded too.
 const MAX_RESOLUTION_BATCH: usize = 1000;
+/// The note is copied onto every row the request resolves, so its size multiplies by the
+/// batch size. Bounded to keep a single call from writing an outsized amount of TOAST/WAL.
+const MAX_RESOLUTION_NOTE_LEN: usize = 2000;
 
-fn check_resolution_request(authed: &ApiAuthed, job_ids: &[Uuid]) -> error::Result<()> {
+fn check_resolution_request(
+    authed: &ApiAuthed,
+    job_ids: &[Uuid],
+    note: Option<&str>,
+) -> error::Result<()> {
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot resolve jobs".to_string(),
@@ -9678,6 +9688,14 @@ fn check_resolution_request(authed: &ApiAuthed, job_ids: &[Uuid]) -> error::Resu
             "Cannot resolve more than {MAX_RESOLUTION_BATCH} jobs at once, got {}",
             job_ids.len()
         )));
+    }
+    if let Some(note) = note {
+        if note.len() > MAX_RESOLUTION_NOTE_LEN {
+            return Err(error::Error::BadRequest(format!(
+                "Resolution note cannot exceed {MAX_RESOLUTION_NOTE_LEN} bytes, got {}",
+                note.len()
+            )));
+        }
     }
     Ok(())
 }
@@ -9691,7 +9709,7 @@ async fn resolve_completed_jobs(
     Path(w_id): Path<String>,
     Json(req): Json<ResolveJobsRequest>,
 ) -> error::JsonResult<Vec<Uuid>> {
-    check_resolution_request(&authed, &req.job_ids)?;
+    check_resolution_request(&authed, &req.job_ids, req.note.as_deref())?;
     let mut tx = user_db.begin(&authed).await?;
     let tags = get_scope_tags(&authed);
     // The join on v2_job is what authorizes this write: v2_job_completed has RLS
@@ -9743,7 +9761,7 @@ async fn unresolve_completed_jobs(
     Path(w_id): Path<String>,
     Json(req): Json<ResolveJobsRequest>,
 ) -> error::JsonResult<Vec<Uuid>> {
-    check_resolution_request(&authed, &req.job_ids)?;
+    check_resolution_request(&authed, &req.job_ids, None)?;
     let mut tx = user_db.begin(&authed).await?;
     let tags = get_scope_tags(&authed);
     let unresolved = sqlx::query_scalar!(

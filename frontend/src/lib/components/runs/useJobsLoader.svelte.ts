@@ -325,6 +325,12 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			status: success == 'failure' || success == 'canceled' ? success : undefined,
 			running: success == 'running' ? true : undefined,
 			isSkipped: showSkipped ? undefined : false,
+			resolved:
+				resolutionFilter === 'resolved'
+					? true
+					: resolutionFilter === 'unresolved'
+						? false
+						: undefined,
 			isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			label: label == null || label === '' ? undefined : label,
 			tag: tag == null || tag === '' ? undefined : tag,

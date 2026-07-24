@@ -390,5 +390,59 @@ async fn test_resolve_completed_jobs_scoping(db: Pool<Postgres>) -> anyhow::Resu
         .await?;
     assert_eq!(remaining, 0);
 
+    // The note is copied onto every resolved row, so an unbounded one multiplies by the
+    // batch size; the cap must reject before any row is written.
+    let resp = member(client().post(format!("{base}/completed/resolve")))
+        .json(&json!({ "job_ids": [mine], "note": "x".repeat(2001) }))
+        .send()
+        .await?;
+    assert_eq!(resp.status().as_u16(), 400, "{}", resp.text().await?);
+    let after: i64 = sqlx::query_scalar("SELECT count(*) FROM job_resolution")
+        .fetch_one(&db)
+        .await?;
+    assert_eq!(after, 0, "a rejected note must not write any row");
+
+    Ok(())
+}
+
+/// "Resolved only" is a completed-jobs concept, so the bulk-action id list must not union
+/// the queue: re-running "all jobs matching filters" under it would hit live jobs.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_list_filtered_job_uuids_resolved_excludes_queue(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let queued = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, permissioned_as_email,
+                             kind, tag, runnable_path, visible_to_owner)
+         VALUES ($1, 'test-workspace', 'test-user', 'u/test-user', 'test@windmill.dev',
+                 'script', 'deno', 'u/test-user/queued', true)",
+    )
+    .bind(queued)
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag)
+         VALUES ($1, 'test-workspace', now(), 'deno')",
+    )
+    .bind(queued)
+    .execute(&db)
+    .await?;
+
+    let url = format!(
+        "http://localhost:{port}/api/w/test-workspace/jobs/list_filtered_uuids?resolved=true"
+    );
+    let resp = authed(client().get(&url)).send().await?;
+    let body = resp.text().await?;
+    let ids: Vec<Uuid> = serde_json::from_str(&body)?;
+    assert!(
+        !ids.contains(&queued),
+        "a queued job must not match resolved=true, got: {body}"
+    );
+
     Ok(())
 }
