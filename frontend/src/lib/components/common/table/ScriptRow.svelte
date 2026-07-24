@@ -9,7 +9,7 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 
 	import { ScriptService, type Script } from '$lib/gen'
-	import { hubBaseUrlStore, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 
 	import { createEventDispatcher } from 'svelte'
@@ -36,7 +36,6 @@
 		Shield,
 		Trash,
 		History,
-		Globe2,
 		FileText
 	} from 'lucide-svelte'
 	import ScriptVersionHistory from '$lib/components/ScriptVersionHistory.svelte'
@@ -47,7 +46,6 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
-	import { scriptToHubUrl } from '$lib/hub'
 	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 
@@ -404,29 +402,6 @@
 						icon: Copy,
 						action: () => {
 							copyToClipboard(script.path)
-						}
-					},
-					{
-						displayName: 'Publish to Hub',
-						icon: Globe2,
-						action: async () => {
-							const scriptData = await ScriptService.getScriptByPath({
-								workspace: $workspaceStore!,
-								path: script.path
-							})
-							window.open(
-								scriptToHubUrl(
-									scriptData.content,
-									scriptData.summary,
-									scriptData.description ?? '',
-									scriptData.kind,
-									scriptData.language,
-									scriptData.schema,
-									scriptData.lock ?? '',
-									$hubBaseUrlStore
-								).toString(),
-								'_blank'
-							)
 						}
 					},
 					{

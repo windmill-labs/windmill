@@ -10,22 +10,17 @@
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { discardDraftAfterDeploy } from '$lib/userDraftToast'
-	import { rawAppToHubUrl } from '$lib/hub'
 	import {
 		enterpriseLicense,
-		hubBaseUrlStore,
 		userStore,
 		userWorkspaces,
 		workspaceStore
 	} from '$lib/stores'
-	import YAML from 'yaml'
 	import {
 		Bug,
 		DiffIcon,
-		Download,
 		EllipsisVertical,
 		FileJson,
-		Globe,
 		History,
 		PanelLeft,
 		PanelLeftClose,
@@ -295,8 +290,6 @@
 
 	let saveDrawerOpen = $state(false)
 	let historyBrowserDrawerOpen = $state(false)
-	let publishToHubDrawerOpen = $state(false)
-	let publishingToHub = $state(false)
 	let deploymentMsg: string | undefined = $state(undefined)
 
 	// Top-bar responsive collapse — container width, not viewport.
@@ -306,37 +299,6 @@
 	// Top-bar button size + bar height. Condensed (session preview) uses the
 	// smallest well-supported unified size (`sm`) so the bar is thinner.
 	const headerBtnSize = $derived(condensedHeader ? 'sm' : 'md')
-
-	async function publishToHub() {
-		if (!app) return
-		publishingToHub = true
-		try {
-			const { default: JSZip } = await import('jszip')
-			const { js, css } = await getBundle()
-			const zip = new JSZip()
-			zip.file('app.yaml', YAML.stringify(app))
-			zip.file('bundle.js', js)
-			zip.file('bundle.css', css)
-			const blob = await zip.generateAsync({ type: 'blob' })
-
-			// Download the zip
-			const url = window.URL.createObjectURL(blob)
-			const a = document.createElement('a')
-			a.href = url
-			a.download = `${(appPath || 'raw-app').replaceAll('/', '__')}.zip`
-			a.click()
-			setTimeout(() => URL.revokeObjectURL(url), 100)
-
-			// Open hub page
-			const hubUrl = rawAppToHubUrl(
-				$hubBaseUrlStore,
-				summary || appPath.split('/').pop()?.replace('_', ' ') || 'my raw app'
-			)
-			window.open(hubUrl.toString(), '_blank')
-		} finally {
-			publishingToHub = false
-		}
-	}
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
@@ -615,13 +577,6 @@
 			displayName: 'Edit in YAML',
 			icon: FileJson,
 			action: () => onOpenYamlEditor?.()
-		},
-		{
-			displayName: 'Publish to Hub',
-			icon: Globe,
-			action: () => {
-				publishToHubDrawerOpen = true
-			}
 		}
 	])
 
@@ -741,42 +696,6 @@
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
 	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
 		<DeploymentHistory on:restore={(e) => onRestore?.(e.detail)} {appPath} />
-	</DrawerContent>
-</Drawer>
-
-<Drawer bind:open={publishToHubDrawerOpen} size="600px">
-	<DrawerContent title="Publish to Hub" on:close={() => (publishToHubDrawerOpen = false)}>
-		{#snippet actions()}
-			<Button
-				loading={publishingToHub}
-				disabled={!app}
-				on:click={publishToHub}
-				variant="accent"
-				startIcon={{ icon: Download }}
-			>
-				Download & open hub
-			</Button>
-		{/snippet}
-		<div class="flex flex-col gap-4">
-			<p class="text-secondary text-sm">
-				This will download a zip file containing your raw app bundle and open the Windmill Hub
-				submission page.
-			</p>
-			<div class="text-sm">
-				<p class="font-semibold mb-2">The zip file will contain:</p>
-				<ul class="list-disc list-inside text-secondary space-y-1">
-					<li
-						><code class="text-xs bg-surface-secondary px-1 rounded">app.yaml</code> - App configuration</li
-					>
-					<li
-						><code class="text-xs bg-surface-secondary px-1 rounded">bundle.js</code> - JavaScript bundle</li
-					>
-					<li
-						><code class="text-xs bg-surface-secondary px-1 rounded">bundle.css</code> - CSS styles</li
-					>
-				</ul>
-			</div>
-		</div>
 	</DrawerContent>
 </Drawer>
 
