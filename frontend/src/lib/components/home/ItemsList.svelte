@@ -18,7 +18,7 @@
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
 		ArrowDownUp,
-		Check,
+		ChevronDown,
 		ChevronsDownUp,
 		ChevronsUpDown,
 		Code2,
@@ -27,6 +27,8 @@
 		SearchCode,
 		Tag
 	} from 'lucide-svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import type { Item as MenuItem } from '$lib/utils'
 
 	import { HOME_SEARCH_SHOW_FLOW, HOME_SEARCH_PLACEHOLDER } from '$lib/consts'
 
@@ -220,9 +222,9 @@
 	const cmp = new Intl.Collator('en').compare
 
 	// Sort options are computed entirely client-side over the already-loaded item
-	// fields (`time`, `path`, `summary`), so adding options costs the backend
-	// nothing even on very large workspaces. Starred items stay pinned on top of
-	// every order, matching the previous behavior.
+	// fields (`time`, `path`, `summary`), so the backend query is unchanged and
+	// adding options costs it nothing even on very large workspaces. Starred items
+	// stay pinned on top of every order.
 	type SortOrder = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc'
 	const SORT_SETTING_NAME = 'homeSort'
 	const sortOptions: { value: SortOrder; label: string }[] = [
@@ -232,12 +234,18 @@
 		{ value: 'name_desc', label: 'Name (Z-A)' }
 	]
 	let sortOrder = $state<SortOrder>(
-		(sortOptions.find((o) => o.value === getLocalSetting(SORT_SETTING_NAME))?.value as SortOrder) ??
-			'updated_desc'
+		sortOptions.find((o) => o.value === getLocalSetting(SORT_SETTING_NAME))?.value ?? 'updated_desc'
 	)
 	$effect(() => {
 		storeLocalSetting(SORT_SETTING_NAME, sortOrder === 'updated_desc' ? undefined : sortOrder)
 	})
+	let sortItems: MenuItem[] = $derived(
+		sortOptions.map((o) => ({
+			displayName: o.label,
+			selected: o.value === sortOrder,
+			action: () => (sortOrder = o.value)
+		}))
+	)
 	function sortName(x: { summary?: string; path: string }): string {
 		return x.summary && x.summary !== '' ? x.summary : x.path
 	}
@@ -895,44 +903,30 @@
 					/>
 				{/if}
 				<Toggle size="xs" bind:checked={treeView} options={{ right: 'Tree view' }} />
-				<Popover floatingConfig={{ placement: 'bottom-end' }}>
-					{#snippet trigger()}
+				<DropdownV2
+					items={sortItems}
+					disabled={filter !== ''}
+					placement="bottom-end"
+					fixedHeight={false}
+				>
+					{#snippet buttonReplacement()}
 						<Button
-							startIcon={{ icon: ArrowDownUp }}
 							nonCaptureEvent
-							size="xs"
+							disabled={filter !== ''}
+							unifiedSize="xs"
 							color="light"
 							variant="default"
-							spacingSize="xs2"
-							title="Sort"
-							disabled={filter !== ''}
+							startIcon={{ icon: ArrowDownUp }}
+							endIcon={{ icon: ChevronDown }}
+							btnClasses="font-normal"
+							title={filter !== ''
+								? 'Sorting is disabled while searching (results are ranked by relevance)'
+								: 'Sort'}
 						>
 							{sortOptions.find((o) => o.value === sortOrder)?.label ?? 'Sort'}
 						</Button>
 					{/snippet}
-					{#snippet content({ close })}
-						<div class="p-1 flex flex-col">
-							{#each sortOptions as option (option.value)}
-								<button
-									class="text-left text-xs px-2 py-1.5 rounded hover:bg-surface-hover flex items-center gap-2 {option.value ===
-									sortOrder
-										? 'font-semibold text-emphasis'
-										: 'text-secondary'}"
-									onclick={() => {
-										sortOrder = option.value
-										close()
-									}}
-								>
-									<Check
-										size={14}
-										class={option.value === sortOrder ? 'opacity-100' : 'opacity-0'}
-									/>
-									{option.label}
-								</button>
-							{/each}
-						</div>
-					{/snippet}
-				</Popover>
+				</DropdownV2>
 				{#if treeView}
 					<Button
 						unifiedSize="sm"
