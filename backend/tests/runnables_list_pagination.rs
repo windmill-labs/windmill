@@ -197,3 +197,153 @@ async fn test_runnables_archived_versions_paginate_via_hash(
     );
     Ok(())
 }
+
+fn new_app(path: &str, summary: &str) -> serde_json::Value {
+    json!({
+        "path": path,
+        "summary": summary,
+        "value": {},
+        "policy": { "execution_mode": "publisher", "triggerables": {} }
+    })
+}
+
+/// A single list request; returns the ordered `type:path` identifiers.
+async fn list_once(port: u16, query: &str) -> Vec<String> {
+    let url = format!("http://localhost:{port}/api/w/test-workspace/runnables/list?{query}");
+    let resp = authed(client().get(&url), "SECRET_TOKEN")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "list should succeed for {query}");
+    let body: serde_json::Value = resp.json().await.unwrap();
+    body["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|it| {
+            format!(
+                "{}:{}",
+                it["type"].as_str().unwrap(),
+                it["path"].as_str().unwrap()
+            )
+        })
+        .collect()
+}
+
+async fn seed_mixed(base: &str, db: &Pool<Postgres>) -> anyhow::Result<()> {
+    for (p, s) in [
+        ("f/alpha/one", "Deploy tool"),
+        ("f/alpha/two", "Cleanup job"),
+        ("f/beta/one", "Beta thing"),
+        ("u/test-user/solo", "Solo script"),
+    ] {
+        let r = authed(
+            client().post(format!("{base}/scripts/create")),
+            "SECRET_TOKEN",
+        )
+        .json(&new_script(p, s))
+        .send()
+        .await?;
+        assert_eq!(r.status(), 201, "create script {p}: {}", r.text().await?);
+    }
+    let r = authed(
+        client().post(format!("{base}/flows/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&new_flow("f/alpha/flowy", "Alpha flow"))
+    .send()
+    .await?;
+    assert_eq!(r.status(), 201, "create flow: {}", r.text().await?);
+    let r = authed(client().post(format!("{base}/apps/create")), "SECRET_TOKEN")
+        .json(&new_app("f/beta/appy", "Beta app"))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 201, "create app: {}", r.text().await?);
+    // Silence unused warnings on db in case future assertions drop it.
+    let _ = db;
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_runnables_path_start_scopes_to_folder(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+    seed_mixed(&base, &db).await?;
+
+    // path_start scopes to exactly one folder subtree (the folder-navigation path).
+    let mut alpha = list_once(port, "path_start=f/alpha/").await;
+    alpha.sort();
+    assert_eq!(
+        alpha,
+        vec![
+            "flow:f/alpha/flowy".to_string(),
+            "script:f/alpha/one".to_string(),
+            "script:f/alpha/two".to_string(),
+        ],
+        "path_start=f/alpha/ must return only that folder's items"
+    );
+
+    // A prefix that matches nothing returns an empty list, not an error.
+    let empty = list_once(port, "path_start=f/nope/").await;
+    assert!(
+        empty.is_empty(),
+        "unknown folder must be empty, got {empty:?}"
+    );
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_runnables_search_and_kind_filters(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+    seed_mixed(&base, &db).await?;
+
+    // Case-insensitive substring search over summary/path.
+    let deploy = list_once(port, "search=deploy").await;
+    assert_eq!(
+        deploy,
+        vec!["script:f/alpha/one".to_string()],
+        "search must substring-match the summary only"
+    );
+
+    // kinds filter selects a single kind.
+    let flows = list_once(port, "kinds=flow").await;
+    assert_eq!(flows, vec!["flow:f/alpha/flowy".to_string()], "kinds=flow");
+    let apps = list_once(port, "kinds=app").await;
+    assert_eq!(apps, vec!["app:f/beta/appy".to_string()], "kinds=app");
+    let scripts = list_once(port, "kinds=script").await;
+    assert_eq!(
+        scripts.len(),
+        4,
+        "kinds=script -> 4 scripts, got {scripts:?}"
+    );
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_runnables_starred_pinned_first(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+    seed_mixed(&base, &db).await?;
+
+    // Favorite a path that would otherwise sort last (name Z-ish); it must lead.
+    sqlx::query(
+        "INSERT INTO favorite (usr, workspace_id, path, favorite_kind) VALUES ('test-user','test-workspace','u/test-user/solo','script')",
+    )
+    .execute(&db)
+    .await?;
+
+    let items = list_once(port, "order_by=name&order_desc=false").await;
+    assert_eq!(
+        items.first().map(String::as_str),
+        Some("script:u/test-user/solo"),
+        "starred item pins to the top of the browse view regardless of order, got {items:?}"
+    );
+    Ok(())
+}

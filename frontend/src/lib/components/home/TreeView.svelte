@@ -53,6 +53,14 @@
 	let opened: boolean = $state(true)
 
 	let showMax = $state(15)
+	// A lazy top-level folder paginates server-side ("Load more in this folder"),
+	// so show all of its already-loaded items rather than the tight client slice
+	// (which would add a second, confusing "Show more" button).
+	let effectiveMax = $derived(
+		depth === 0 && isFolderItem(item) && folderLoad?.[item.folderName] != undefined
+			? item.items.length
+			: showMax
+	)
 	$effect(() => {
 		opened = !collapseAll
 		// Expand-all opens folders; lazy-load a top-level folder's items when it
@@ -120,7 +128,7 @@
 						<span class="text-xs font-medium text-emphasis">Pipeline</span>
 					</a>
 				{/if}
-				{#each item.items.slice(0, showMax) as subItem, index ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] + '__' + index : undefined) ?? 'folder__' + subItem['folderName'] + '__' + index)}
+				{#each item.items.slice(0, effectiveMax) as subItem, index ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] + '__' + index : undefined) ?? 'folder__' + subItem['folderName'] + '__' + index)}
 					<TreeView
 						{isSearching}
 						{collapseAll}
@@ -135,7 +143,7 @@
 						depth={depth + 1}
 					/>
 				{/each}
-				{#if showMax < item.items.length}
+				{#if effectiveMax < item.items.length}
 					<!-- svelte-ignore a11y_click_events_have_key_events -->
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
@@ -202,7 +210,7 @@
 		</div>
 		{#if opened || isSearching}
 			<div>
-				{#each item.items.slice(0, showMax) as subItem, index ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] + '__' + index : undefined) ?? 'folder__' + subItem['folderName'] + '__' + index)}
+				{#each item.items.slice(0, effectiveMax) as subItem, index ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] + '__' + index : undefined) ?? 'folder__' + subItem['folderName'] + '__' + index)}
 					<TreeView
 						{collapseAll}
 						item={subItem}
@@ -215,7 +223,7 @@
 						depth={depth + 1}
 					/>
 				{/each}
-				{#if showMax < item.items.length}
+				{#if effectiveMax < item.items.length}
 					<!-- svelte-ignore a11y_click_events_have_key_events -->
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
