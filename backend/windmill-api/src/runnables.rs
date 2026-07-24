@@ -114,6 +114,12 @@ struct RunnableItem {
     sort_time: chrono::DateTime<chrono::Utc>,
     #[serde(skip)]
     sort_name: String,
+    // Final tiebreaker making the sort total: a script's hash (the archived view
+    // lists several versions sharing path+summary), 0 for the one-row-per-path
+    // flow/app. Without it a group of same-(name,path) versions crossing a page
+    // boundary would be skipped by the strict keyset.
+    #[serde(skip)]
+    tiebreak: i64,
 }
 
 #[derive(Serialize)]
@@ -129,6 +135,9 @@ struct Cursor {
     k: String,
     p: String,
     t: String,
+    /// tiebreak (script hash / 0) of the last row.
+    #[serde(default)]
+    tb: i64,
 }
 
 fn encode_cursor(item: &RunnableItem, order_by_name: bool) -> String {
@@ -137,7 +146,7 @@ fn encode_cursor(item: &RunnableItem, order_by_name: bool) -> String {
     } else {
         item.sort_time.to_rfc3339()
     };
-    let c = Cursor { k, p: item.path.clone(), t: item.kind.clone() };
+    let c = Cursor { k, p: item.path.clone(), t: item.kind.clone(), tb: item.tiebreak };
     URL_SAFE_NO_PAD.encode(serde_json::to_vec(&c).unwrap_or_default())
 }
 
@@ -146,6 +155,14 @@ fn decode_cursor(raw: &str) -> Result<Cursor, Error> {
         .decode(raw)
         .map_err(|_| Error::BadRequest("invalid cursor".to_string()))?;
     serde_json::from_slice(&bytes).map_err(|_| Error::BadRequest("invalid cursor".to_string()))
+}
+
+/// Escape LIKE/ILIKE wildcards so a caller value (search term, path/scope
+/// prefix) matches literally. Relies on the default `\` escape character.
+fn escape_like(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 /// The three UNION-ALL branch SELECTs, each projecting the shared `RunnableItem`
@@ -181,7 +198,7 @@ fn branch_sqls() -> Branches {
                 o.codebase IS NOT NULL as use_codebase, \
                 (o.lock_error_logs IS NOT NULL) as has_deploy_errors, \
                 NULL::bool as raw_app, NULL::text as execution_mode, NULL::bigint as id, NULL::bigint as version, \
-                o.created_at as sort_time, lower(COALESCE(NULLIF(o.summary, ''), o.path)) as sort_name \
+                o.created_at as sort_time, lower(COALESCE(NULLIF(o.summary, ''), o.path)) as sort_name, o.hash as tiebreak \
          FROM script o \
          LEFT JOIN favorite ON favorite.favorite_kind = 'script' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = $2 \
          LEFT JOIN draft ON draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'script' AND draft.email = $3",
@@ -197,7 +214,7 @@ fn branch_sqls() -> Branches {
                 NULL::bigint as hash, NULL::text as language, NULL::text as script_kind, NULL::text as auto_kind, \
                 NULL::bool as use_codebase, NULL::bool as has_deploy_errors, \
                 NULL::bool as raw_app, NULL::text as execution_mode, NULL::bigint as id, NULL::bigint as version, \
-                o.edited_at as sort_time, lower(COALESCE(NULLIF(o.summary, ''), o.path)) as sort_name \
+                o.edited_at as sort_time, lower(COALESCE(NULLIF(o.summary, ''), o.path)) as sort_name, 0::bigint as tiebreak \
          FROM flow o \
          LEFT JOIN favorite ON favorite.favorite_kind = 'flow' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = $2 \
          LEFT JOIN draft ON draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'flow' AND draft.email = $3",
@@ -214,7 +231,7 @@ fn branch_sqls() -> Branches {
                 NULL::bool as use_codebase, NULL::bool as has_deploy_errors, \
                 av.raw_app, o.policy->>'execution_mode' as execution_mode, o.id, \
                 o.versions[array_upper(o.versions, 1)] as version, \
-                COALESCE(av.created_at, 'epoch'::timestamptz) as sort_time, lower(COALESCE(NULLIF(o.summary, ''), o.path)) as sort_name \
+                COALESCE(av.created_at, 'epoch'::timestamptz) as sort_time, lower(COALESCE(NULLIF(o.summary, ''), o.path)) as sort_name, 0::bigint as tiebreak \
          FROM app o \
          LEFT JOIN favorite ON favorite.favorite_kind = 'app' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = $2 \
          LEFT JOIN (SELECT DISTINCT path, workspace_id FROM draft WHERE typ IN ('app', 'raw_app') AND email = $3) draft ON draft.path = o.path AND draft.workspace_id = o.workspace_id \
@@ -272,11 +289,11 @@ async fn list_runnables(
 
     let mut common: Vec<String> = vec!["o.workspace_id = $1".to_string()];
     if let Some(ps) = q.path_start.as_ref().filter(|s| !s.is_empty()) {
-        let p = add_bind(&mut binds, format!("{}%", ps));
+        let p = add_bind(&mut binds, format!("{}%", escape_like(ps)));
         common.push(format!("o.path LIKE {}", p));
     }
     if let Some(search) = q.search.as_ref().filter(|s| !s.is_empty()) {
-        let p = add_bind(&mut binds, format!("%{}%", search));
+        let p = add_bind(&mut binds, format!("%{}%", escape_like(search)));
         common.push(format!("(o.summary ILIKE {p} OR o.path ILIKE {p})"));
     }
     if let Some(label) = q.label.as_ref().filter(|s| !s.is_empty()) {
@@ -298,6 +315,7 @@ async fn list_runnables(
             let kp = add_bind(&mut binds, cur.k);
             let pp = add_bind(&mut binds, cur.p);
             let tp = add_bind(&mut binds, cur.t);
+            let tbp = add_bind(&mut binds, cur.tb.to_string());
             let cmp = if desc { "<" } else { ">" };
             let key_cast = if order_by_name {
                 format!("{}::text", kp)
@@ -305,7 +323,7 @@ async fn list_runnables(
                 format!("{}::timestamptz", kp)
             };
             Some(format!(
-                "({sort_col}, path, kind) {cmp} ({key_cast}, {pp}::text, {tp}::text)"
+                "({sort_col}, path, kind, tiebreak) {cmp} ({key_cast}, {pp}::text, {tp}::text, {tbp}::bigint)"
             ))
         }
         None => None,
@@ -327,7 +345,7 @@ async fn list_runnables(
                 for pre in prefix {
                     binds.push(pre.clone());
                     let pe = format!("${}", 3 + binds.len());
-                    binds.push(format!("{}/%", pre));
+                    binds.push(format!("{}/%", escape_like(&pre)));
                     let pl = format!("${}", 3 + binds.len());
                     terms.push(format!("(o.path = {} OR o.path LIKE {})", pe, pl));
                 }
@@ -398,7 +416,7 @@ async fn list_runnables(
         // table; the outer union re-limits to the global page.
         let limit_clause = limit.map(|n| format!(" LIMIT {}", n)).unwrap_or_default();
         format!(
-            "(SELECT * FROM ({base} WHERE {where_}) {kind}_b{keyset_clause} ORDER BY {sort_col} {dir}, path {dir}, kind {dir}{limit_clause})",
+            "(SELECT * FROM ({base} WHERE {where_}) {kind}_b{keyset_clause} ORDER BY {sort_col} {dir}, path {dir}, kind {dir}, tiebreak {dir}{limit_clause})",
             where_ = w.join(" AND "),
             dir = order_dir,
         )
@@ -432,7 +450,7 @@ async fn list_runnables(
         let unioned = branches_sql.join(" UNION ALL ");
         let limit_clause = limit.map(|n| format!(" LIMIT {}", n)).unwrap_or_default();
         format!(
-            "SELECT * FROM ({unioned}) q ORDER BY {sort_col} {dir}, path {dir}, kind {dir}{limit_clause}",
+            "SELECT * FROM ({unioned}) q ORDER BY {sort_col} {dir}, path {dir}, kind {dir}, tiebreak {dir}{limit_clause}",
             dir = order_dir,
         )
     };

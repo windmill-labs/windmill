@@ -181,7 +181,6 @@
 			serverCursor = undefined
 		}
 		const { orderBy, orderDesc } = sortToParams(sortOrder)
-		const searching = filter !== ''
 		const gen = ++loadGen
 		// Snapshot the cursor now: a later request must not consume a cursor minted
 		// by an order/filter that has since changed.
@@ -194,9 +193,7 @@
 				orderDesc,
 				showArchived: archived ? true : undefined,
 				includeWithoutMain: includeWithoutMain ? true : undefined,
-				// A large page while searching so client fuzzy-match and facets see
-				// enough; browse pages are small and extended via the cursor.
-				perPage: searching ? 1000 : 100,
+				perPage: 100,
 				cursor
 			})
 		} catch (e: any) {
@@ -236,6 +233,41 @@
 		raw_apps = []
 		pipelineMemberFolders = memberFolders
 		loading = false
+	}
+
+	function itemKey(x: { type?: string; path: string; hash?: unknown }): string {
+		return `${x.type}/${x.path}${x.hash ? '/' + x.hash : ''}`
+	}
+
+	// Merge server rows (from the search-augmentation pass) into the loaded arrays,
+	// skipping ones already present. Lets a search reach matches outside the loaded
+	// browse window without re-fetching the whole list.
+	function mergeRunnables(newItems: RunnableItem[]) {
+		const have = new Set([...(scripts ?? []), ...(flows ?? []), ...(apps ?? [])].map(itemKey))
+		const s = [...(scripts ?? [])]
+		const f = [...(flows ?? [])]
+		const a = [...(apps ?? [])]
+		const memberFolders = new Set(pipelineMemberFolders)
+		let changed = false
+		for (const it of newItems) {
+			if (it.type === 'script' && it.auto_kind === 'pipeline') {
+				const m = it.path.match(/^f\/([^/]+)\//)
+				if (m) memberFolders.add(m[1])
+				continue
+			}
+			if (have.has(itemKey(it))) continue
+			const mapped = mapRunnable(it)
+			if (it.type === 'script') s.push(mapped as TableScript)
+			else if (it.type === 'flow') f.push(mapped as TableFlow)
+			else if (it.type === 'app') a.push(mapped as TableApp)
+			changed = true
+		}
+		if (changed) {
+			scripts = s
+			flows = f
+			apps = a
+			pipelineMemberFolders = memberFolders
+		}
 	}
 
 	// Item edits/deletes trigger a full reload; the merged endpoint returns every
@@ -440,8 +472,8 @@
 	)
 	// Reload the first page from the server whenever an input that the endpoint
 	// resolves changes: order, archived/library scope, or entering/leaving search
-	// (which switches page size). Owner/label/kind filtering and fuzzy ranking stay
-	// client-side over the loaded pages, so they don't reload here.
+	// (leaving drops the augmented matches below). Owner/label/kind filtering and
+	// fuzzy ranking stay client-side over the loaded pages, so they don't reload here.
 	let searching = $derived(filter !== '')
 	$effect(() => {
 		if ($userStore && $workspaceStore) {
@@ -450,6 +482,28 @@
 				loadRunnables(true)
 			})
 		}
+	})
+
+	// Debounced server-side search augmentation. Instant filtering stays fully
+	// client-side (SearchItems over the loaded pages) for reactivity; this only
+	// fills in matches that live beyond the loaded browse window on large
+	// workspaces, so search stays complete without a request per keystroke.
+	$effect(() => {
+		const term = filter
+		const ws = $workspaceStore
+		if (term === '' || !ws || !$userStore) return
+		const handle = setTimeout(async () => {
+			let res: { items: RunnableItem[] }
+			try {
+				res = await ScriptService.listRunnables({ workspace: ws, search: term, perPage: 1000 })
+			} catch {
+				return
+			}
+			// Discard if the search moved on while the request was in flight.
+			if (untrack(() => filter) !== term) return
+			mergeRunnables(res.items ?? [])
+		}, 300)
+		return () => clearTimeout(handle)
 	})
 
 	let combinedItems = $derived(
@@ -596,6 +650,16 @@
 			await loadRunnables(false)
 		}
 		nbDisplayed += 30
+	}
+
+	// Fetch the next server page directly (tree view and the empty-state control
+	// use this — their "all shown" threshold is on a different scale than the flat
+	// list's, so they must not route through loadMore's item-count check).
+	async function fetchMoreServer() {
+		if (hasMoreServer && !searching) {
+			await loadRunnables(false)
+			nbDisplayed += 30
+		}
 	}
 
 	async function loadMoreAndPreselectFirstNew() {
@@ -1021,6 +1085,15 @@
 			     them (list rows / injected tree folders) when not actively searching;
 			     a no-match search still reads as empty. -->
 			<NoItemFound hasFilters={filter !== '' || archived || filterUserFolders} />
+			{#if hasMoreServer && !searching}
+				<!-- The active filter matched nothing on the loaded pages, but the server
+				     has more: keep paging reachable so matches on later pages aren't lost. -->
+				<div class="text-center text-xs text-secondary mt-2">
+					<button class="text-primary hover:text-emphasis underline" onclick={fetchMoreServer}
+						>Load more to search further</button
+					>
+				</div>
+			{/if}
 		{:else if treeView}
 			<TreeViewRoot
 				{items}
@@ -1028,7 +1101,7 @@
 				{collapseAll}
 				sortCompare={compareItems}
 				hasMoreServer={hasMoreServer && !searching}
-				onLoadMore={loadMore}
+				onLoadMore={fetchMoreServer}
 				pipelineFolders={visiblePipelineFolders}
 				isSearching={filter !== ''}
 				on:scriptChanged={() => loadScripts(includeWithoutMain)}
