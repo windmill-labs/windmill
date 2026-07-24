@@ -194,9 +194,12 @@
 					</div>
 				{/if}
 				{#if ownerKey != undefined}
-					{#if ownerState?.loading}
+					{#if ownerState?.loading && item.items.length === 0}
+						<!-- Show the spinner only on the first load, when there's nothing yet. A
+						     re-sort/re-filter re-fetch keeps the old rows visible and swaps them
+						     in place, so flashing "Loading…" under them would just be noise. -->
 						<div class="text-center text-xs py-2 text-secondary">Loading…</div>
-					{:else if ownerState?.hasMore}
+					{:else if !ownerState?.loading && ownerState?.hasMore}
 						<!-- svelte-ignore a11y_click_events_have_key_events -->
 						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div

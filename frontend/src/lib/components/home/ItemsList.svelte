@@ -229,15 +229,11 @@
 		if (reset) {
 			serverCursor = undefined
 			hasMoreServer = false
-			// The scope changed, so the lazily-loaded owner store and its per-owner
-			// cursors are stale. Bump treeGen first so any in-flight owner request is
-			// discarded on return, then clear. The tree remounts on the same scope key
-			// (see the {#key} around TreeViewRoot), collapsing owners so they re-load
-			// fresh on the next expand rather than lingering with old-scope rows.
-			treeGen++
-			ownerLoad = {}
-			treeOwnerItems = []
-			openOwners = new Set()
+			// Note: this resets only the global/flat stream. The lazy tree's own store
+			// (treeOwnerItems/ownerLoad/openOwners) is managed separately — a mode change
+			// clears it (see the treeKey effect), while an in-place sort/filter change
+			// replaces each open owner's rows atomically as they re-load (see
+			// loadOwnerItems), so expanded folders don't blank out mid-reorder.
 		}
 		const { orderBy, orderDesc } = sortToParams(sortOrder)
 		const gen = ++loadGen
@@ -369,12 +365,14 @@
 	}
 
 	// `owner` is the full prefix: `f/<folder>` or `u/<username>`.
-	async function loadOwnerItems(owner: string, more = false): Promise<void> {
+	// `force` re-fetches an owner's first page even if already loaded (a re-sort /
+	// re-filter reload uses it to refresh the loaded rows in place).
+	async function loadOwnerItems(owner: string, more = false, force = false): Promise<void> {
 		const ws = $workspaceStore
 		if (!ws || !$userStore) return
 		const st = ownerLoad[owner]
 		if (st?.loading) return
-		if (more ? !st?.hasMore : st?.loaded) return
+		if (!force && (more ? !st?.hasMore : st?.loaded)) return
 		openOwners.add(owner)
 		const gen = treeGen
 		ownerLoad[owner] = {
@@ -407,8 +405,13 @@
 		// workspace changed and reset the tree); drop the response so stale rows from
 		// another scope can't appear under the current one.
 		if (gen !== treeGen) return
-		const have = new Set(treeOwnerItems.map(itemKey))
-		const merged = [...treeOwnerItems]
+		// A fresh load REPLACES this owner's rows (drop its previous ones, keep every
+		// other owner's untouched) so a re-sort/re-filter swaps its items atomically
+		// without blanking the whole tree; load-more appends to what's already shown.
+		const prefix = `${owner}/`
+		const base = more ? treeOwnerItems : treeOwnerItems.filter((x) => !x.path.startsWith(prefix))
+		const have = new Set(base.map(itemKey))
+		const merged = [...base]
 		for (const it of res.items ?? []) {
 			// Pipeline-member scripts are folded into their folder's Pipeline entry, so
 			// they never render as their own tree leaf (visiblePipelineFolders drives it).
@@ -436,9 +439,15 @@
 	// change (owner/search) has switched the tree out of lazy mode, there's nothing to
 	// re-fetch — the tree remounts and groups the global stream instead.
 	async function reloadItems(): Promise<void> {
+		// Invalidate any in-flight owner loads from the previous sort/filter so their
+		// late responses can't overwrite the fresh ones.
+		treeGen++
 		const toReload = treeLazyMode ? [...openOwners] : []
 		await loadRunnables(true)
-		for (const o of toReload) loadOwnerItems(o)
+		// force: the owners are still marked loaded, so re-fetch their first page and
+		// swap it in place (loadOwnerItems replaces each owner's rows atomically — the
+		// old rows stay visible until the new ones arrive, so nothing blanks mid-reorder).
+		for (const o of toReload) loadOwnerItems(o, false, true)
 	}
 
 	function filterItemsPathsBaseOnUserFilters(
@@ -789,6 +798,19 @@
 	// by reloadItems re-fetching the open owners — so expanded folders don't collapse when
 	// you re-sort (searching is a boolean so per-keystroke query changes don't remount).
 	let treeKey = $derived(`${$workspaceStore}|${ownerFilter}|${searching}|${labelFilter}`)
+	// A mode change restructures the tree (it remounts on treeKey), so the lazy owner
+	// store is stale — clear it here (the global reset no longer does). An in-place
+	// sort/filter change leaves treeKey unchanged, so the store survives and its owners
+	// are refreshed in place instead of blanking.
+	$effect(() => {
+		treeKey
+		untrack(() => {
+			treeGen++
+			ownerLoad = {}
+			treeOwnerItems = []
+			openOwners = new Set()
+		})
+	})
 	let displayedItems = $derived((items ?? []).slice(0, nbDisplayed))
 	$effect(() => {
 		items && resetScroll()
