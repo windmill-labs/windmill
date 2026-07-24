@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.768.0](https://github.com/windmill-labs/windmill/compare/v1.767.0...v1.768.0) (2026-07-24)
+
+
+### Features
+
+* Add section to deploy projects to hub ([#9332](https://github.com/windmill-labs/windmill/issues/9332)) ([30eedf9](https://github.com/windmill-labs/windmill/commit/30eedf9ee1754cb2bbf46e82d2b3eac766bd3e6d))
+* **ai-chat:** let the session/global chat create email triggers ([#10282](https://github.com/windmill-labs/windmill/issues/10282)) ([248c875](https://github.com/windmill-labs/windmill/commit/248c8751b1fd5d6f7506a7c3fc8f500dd98af26e))
+* **ai:** enable data pipelines in AI sessions with alpha notice ([#10273](https://github.com/windmill-labs/windmill/issues/10273)) ([1f912f4](https://github.com/windmill-labs/windmill/commit/1f912f410401ec68789d43973d6e0a1f8e595f86))
+* alert on expired online license key ([#10295](https://github.com/windmill-labs/windmill/issues/10295)) ([30d8104](https://github.com/windmill-labs/windmill/commit/30d8104edcbdb7f0c63f186d22ac03000e0d4f07))
+* data-pipeline recorder, interactive player, and deploy-to-hub recording (WIN-2156) ([#10055](https://github.com/windmill-labs/windmill/issues/10055)) ([65e5041](https://github.com/windmill-labs/windmill/commit/65e504146d832b105603ceec89c6de0ad1d66e32))
+* let a workspace fall back to the instance critical alert channels ([#10292](https://github.com/windmill-labs/windmill/issues/10292)) ([717e38a](https://github.com/windmill-labs/windmill/commit/717e38a0c6b5bb2340e236a9d49645a4cebf4849))
+* **monitor:** make between-steps zombie flows hand-recoverable ([#10287](https://github.com/windmill-labs/windmill/issues/10287)) ([f02df7f](https://github.com/windmill-labs/windmill/commit/f02df7fc454b0c2a2afa9ae9848e26af0e379246))
+* surface workspace-script advanced settings in flow editor ([#10289](https://github.com/windmill-labs/windmill/issues/10289)) ([bf16e7d](https://github.com/windmill-labs/windmill/commit/bf16e7d49a7486d37cf9eb1907e80abae47a78a7))
+* **windows:** enable ruby and rlang on the windows worker ([#10279](https://github.com/windmill-labs/windmill/issues/10279)) ([0f1b864](https://github.com/windmill-labs/windmill/commit/0f1b8641f26f0eda8a8517db1a37efafdb173464))
+
+
+### Bug Fixes
+
+* **ci:** make /review idempotent per head commit, re-run cancelled reviews in place ([#10283](https://github.com/windmill-labs/windmill/issues/10283)) ([3aaceb7](https://github.com/windmill-labs/windmill/commit/3aaceb7efb3bd232da73b79fcdcf4c712caad7d3))
+* **cli:** surface shared UI changes in sync push dry-run preview ([#10278](https://github.com/windmill-labs/windmill/issues/10278)) ([14c29b7](https://github.com/windmill-labs/windmill/commit/14c29b77e90842b8c3d4395ce50cb44666cd998c))
+* **jobs:** sanitize NUL in completed job result before jsonb insert ([#10274](https://github.com/windmill-labs/windmill/issues/10274)) ([c50a2ab](https://github.com/windmill-labs/windmill/commit/c50a2abad0c222bf8f76ff10b864450120ee9ee7))
+* **monitor:** diagnose zombie-flow OOM on the transition worker, not q.worker ([#10286](https://github.com/windmill-labs/windmill/issues/10286)) ([fa36442](https://github.com/windmill-labs/windmill/commit/fa3644281f30d90aa0c4ca86520a38db5d8b91f0))
+* resolve svelte/style export conditions in raw-app CLI bundler ([#10294](https://github.com/windmill-labs/windmill/issues/10294)) ([9713e60](https://github.com/windmill-labs/windmill/commit/9713e6074d2df55db1331cf31ee1357606b1dbe9))
+* **resources:** apply resource_type changes on update (git-sync pull) — Fixes GIT-932 ([#10277](https://github.com/windmill-labs/windmill/issues/10277)) ([d7a0078](https://github.com/windmill-labs/windmill/commit/d7a0078b58f74f1ffecc03b348e8935a70f02e55))
+* surface workspace ids on duplicate names and explain fork promotion ([#10291](https://github.com/windmill-labs/windmill/issues/10291)) ([9b182aa](https://github.com/windmill-labs/windmill/commit/9b182aaf3879d4d81b6a785222dca75f085e6fb7))
+* treat concurrent_limit/timeout &lt;= 0 as unset instead of a zero cap ([#10288](https://github.com/windmill-labs/windmill/issues/10288)) ([8eb36ce](https://github.com/windmill-labs/windmill/commit/8eb36ce008b4efe2be9a9bfebc91af68070f7a6c))
+
 ## [1.767.0](https://github.com/windmill-labs/windmill/compare/v1.766.2...v1.767.0) (2026-07-22)
 
 
