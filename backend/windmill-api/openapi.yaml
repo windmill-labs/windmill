@@ -19431,6 +19431,8 @@ paths:
         - folder
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
         - name: only_member_of
           in: query
           description: only list the folders the user is member of (default false)

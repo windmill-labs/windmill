@@ -124,11 +124,20 @@
 		() => $workspaceStore,
 		async (ws) => {
 			if (!ws) return [] as string[]
+			// Page to exhaustion: listFolderNames is capped per page, so a workspace
+			// with more folders than the cap would otherwise be truncated.
+			const perPage = 1000
+			const all: string[] = []
 			try {
-				return await FolderService.listFolderNames({ workspace: ws })
+				for (let page = 1; ; page++) {
+					const batch = await FolderService.listFolderNames({ workspace: ws, page, perPage })
+					all.push(...batch)
+					if (batch.length < perPage) break
+				}
 			} catch {
-				return [] as string[]
+				// Best-effort facet; return whatever we gathered.
 			}
+			return all
 		}
 	)
 	let allFolderOwners = $derived((folderNamesRes.current ?? []).map((f) => `f/${f}`))
