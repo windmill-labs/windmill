@@ -761,10 +761,11 @@
 			untrack(() => ownerFilter) !== owner ||
 			untrack(() => itemKind) !== kind
 		const handle = setTimeout(async () => {
+			// Page the search cursor to exhaustion so it stays workspace-complete at any
+			// match count; the debounce + stale() guard abort as soon as the term/scope
+			// changes, so a broad term never keeps paging an abandoned query.
 			let cursor: string | undefined = undefined
-			// Page to exhaustion so search stays workspace-complete beyond the first
-			// 1000 matches; the page cap bounds a pathologically broad term.
-			for (let page = 0; page < 20; page++) {
+			do {
 				let res: { items: RunnableItem[]; next_cursor?: string }
 				try {
 					res = await ScriptService.listRunnables({
@@ -783,8 +784,7 @@
 				if (stale()) return
 				mergeRunnables(res.items ?? [])
 				cursor = res.next_cursor
-				if (!cursor) break
-			}
+			} while (cursor)
 		}, 300)
 		return () => clearTimeout(handle)
 	})
@@ -1407,9 +1407,11 @@
 				</div>
 			{/if}
 		{:else if treeView}
-			<!-- Remount the tree on any scope change so expanded folders (their `opened`
-			     state is local to each TreeView) collapse and re-load fresh under the new
-			     order/archive/library/kind/owner rather than lingering with stale rows. -->
+			<!-- Remount the tree on a MODE change only (treeKey = view/owner/search/label):
+			     expanded folders (their `opened` state is local to each TreeView) collapse
+			     and re-load fresh for the new mode. An in-place order/archive/library/kind
+			     change keeps treeKey stable, so folders stay open and refresh via
+			     reloadItems instead (see loadOwnerItems). -->
 			{#key treeKey}
 				<TreeViewRoot
 					items={treeSource}

@@ -192,8 +192,8 @@ async fn test_runnables_archived_shows_only_paths_whose_latest_is_archived(
         .await?;
     }
 
-    // Path-based favorites mark every version starred. The archived view must not
-    // pin/cap starred (that would drop rows), and each archived path still pages once.
+    // Favorite both paths (pinned first now); this test only checks presence/dedup, so
+    // pinning doesn't affect the assertions — favorite-ordering is covered separately.
     for p in ["u/test-user/active_hist", "u/test-user/archived_path"] {
         sqlx::query(
             "INSERT INTO favorite (usr, workspace_id, path, favorite_kind) VALUES ('test-user', 'test-workspace', $1, 'script')",

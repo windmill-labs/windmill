@@ -95,20 +95,23 @@
 	)
 
 	$effect(() => {
-		const willOpen = !collapseAll
-		opened = willOpen
+		// "Expand all" opens every node — EXCEPT top-level owners past the request cap:
+		// opening those without loading would leave them empty and, worse, take two
+		// clicks to load (first click just collapses). Keep them closed so one click
+		// opens+loads them. The cap bounds the request burst at a large nbDisplayed.
+		const cappedOwner =
+			!collapseAll && depth === 0 && ownerKey != undefined && rootIndex >= EXPAND_ALL_LOAD_LIMIT
+		const shouldOpen = !collapseAll && !cappedOwner
+		opened = shouldOpen
 		untrack(() => {
 			if (ownerKey == undefined) return
-			if (willOpen) {
-				// "Expand all" opens this owner; load it too so it isn't opened empty — but
-				// only for the first EXPAND_ALL_LOAD_LIMIT rendered roots, so a large
-				// nbDisplayed can't launch a request per owner. Beyond the cap, opening is
-				// visual only; the owner loads when clicked.
-				if (depth === 0 && rootIndex < EXPAND_ALL_LOAD_LIMIT) onExpandOwner?.(ownerKey)
+			if (shouldOpen) {
+				// Expand all opened+loads this in-cap owner.
+				onExpandOwner?.(ownerKey)
 			} else {
-				// "Collapse all" closes without a manual click, so untrack the owner here
-				// too — otherwise it lingers in openOwners and a later reload re-fetches
-				// every hidden owner, recreating the fan-out openOwners exists to prevent.
+				// Closed here (collapse all, or a capped owner under expand all): untrack it
+				// so a later reload doesn't re-fetch a hidden owner, recreating the fan-out
+				// openOwners exists to prevent.
 				onCollapseOwner?.(ownerKey)
 			}
 		})

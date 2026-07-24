@@ -409,8 +409,8 @@ async fn list_runnables(
     }
 
     // Favorite filter for a branch: Some(true) = starred only, Some(false) =
-    // non-starred only, None = no filter (the archived view doesn't pin starred,
-    // so its single stream includes both — see the query assembly below).
+    // non-starred only, None = no filter. Both views pin starred on the first page
+    // (each is one row per path), so the paged stream always passes Some(false).
     let build_branch = |base: &str,
                         kind: &str,
                         extras: &[String],
