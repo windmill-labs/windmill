@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 # PreToolUse guard for `rm`: auto-allow ONLY a single, plain, single-line `rm` whose every
-# operand is a whitelisted target — under /tmp, or strictly inside a git working tree located
-# in $HOME (git-recoverable). Anything else makes no decision (exit 0) and falls back to the
-# normal permission flow, where the `Bash(rm:*)` ask rule prompts (classifier as a backstop).
+# operand is a whitelisted target — under /tmp, or inside a git working tree located in $HOME
+# (a version-controlled project dir). Anything else makes no decision (exit 0) and falls back
+# to the normal permission flow, where the `Bash(rm:*)` ask rule prompts (classifier as a
+# backstop).
+#
+# The git-tree allowance trades on "this is a project under version control" being lower-stakes
+# than a delete elsewhere — NOT on full recoverability: committed content is restorable via git,
+# but untracked / .gitignore'd / uncommitted content, and an independent nested repo's history
+# under a recursively-deleted parent, are NOT. Accepted as a deliberate convenience tradeoff.
 #
 # Deny-by-default: every token must consist only of a safe character set (alphanumerics,
 # `. _ / -` and glob chars `* ? [ ]`). That set contains none of the characters bash uses for
@@ -14,8 +20,9 @@
 # The git-repo allowance covers targets inside a git working tree under $HOME, and the tree's
 # own root folder only when it is a linked worktree (`.git` is a pointer file, so history in
 # the main repo survives); a primary checkout's root (`.git` is a history dir) and any `.git`
-# path are never auto-allowed. Relative operands resolve against the command's cwd (from the
-# hook input). A PreToolUse `allow` overrides the ask rule.
+# path are never auto-allowed. Globs auto-allow only under /tmp — elsewhere their expansion
+# could reach `.git` or a dotfile the literal checks never see. Relative operands resolve
+# against the command's cwd (from the hook input). A PreToolUse `allow` overrides the ask rule.
 #
 # Assumes GNU `realpath` (-m) and `jq`, both present in this repo's Linux dev env.
 set -uo pipefail
@@ -34,8 +41,8 @@ read -r -a toks <<< "$cmd"
 [ "${toks[0]:-}" = "rm" ] || exit 0
 
 # 0 (allow) iff the canonical path is an auto-allowable rm target: under /tmp, or strictly
-# inside a git working tree located under $HOME (git-recoverable). The walk stops at $HOME, so
-# a dotfiles repo at ~ can't make all of $HOME deletable, and top-level ~ files stay protected.
+# inside a git working tree located under $HOME. The walk stops at $HOME, so a dotfiles repo at
+# ~ can't make all of $HOME deletable, and top-level ~ files stay protected.
 allowed_target() {
   local canon="$1" d root=""
   case "$canon" in /tmp/?*) return 0 ;; esac
