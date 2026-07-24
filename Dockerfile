@@ -79,6 +79,11 @@ COPY /python-client/docs/ /frontend/static/pydocs/
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
 ARG VITE_BASE_URL ""
+# Pass the commit sha: it must be identical across the per-architecture builds of one
+# commit (else the images disagree on asset filenames) and differ between commits (else
+# a client that 404s on a chunk after a redeploy never full-page reloads). See
+# frontend/svelte.config.js.
+ARG WM_BUILD_VERSION ""
 # Read more about macro in docker/dev.nu
 # -- MACRO-SPREAD-WASM-PARSER-DEV-ONLY -- #
 RUN npm run build

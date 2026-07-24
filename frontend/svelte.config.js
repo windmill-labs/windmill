@@ -29,10 +29,10 @@ const config = {
 						assets: 'build',
 						fallback: '200.html'
 					}),
-		// Must stay deterministic: SvelteKit defaults this to Date.now(), which differs
-		// between the per-architecture builds of the same commit and cascades into
-		// different content-hashed chunk filenames. Those assets are embedded in the
-		// binary, so mixed-arch clusters would 404 on each other's chunks.
+		// Same for every build of one revision (SvelteKit's Date.now() default is not, so
+		// the per-architecture images disagreed on content-hashed asset filenames and
+		// mixed-arch clusters 404ed on each other's chunks), and different between
+		// revisions (SvelteKit only full-page reloads on a missing chunk if this changed).
 		version: { name: process.env.WM_BUILD_VERSION || pkg.version },
 		prerender: { entries: [] },
 		paths: {
