@@ -3,20 +3,22 @@
 	import { Badge, Button, Skeleton } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
-		AppService,
 		AssetService,
-		FlowService,
+		FolderService,
+		UserService,
 		type ListableApp,
 		type Script,
 		ScriptService,
 		type Flow,
-		type ListableRawApp
+		type ListableRawApp,
+		type RunnableItem
 	} from '$lib/gen'
 	import { resource } from 'runed'
 	import { getDraftItems } from '$lib/workspaceDrafts.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
+		ArrowDownUp,
 		ChevronsDownUp,
 		ChevronsUpDown,
 		Code2,
@@ -25,6 +27,8 @@
 		SearchCode,
 		Tag
 	} from 'lucide-svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import type { Item as MenuItem } from '$lib/utils'
 
 	import { HOME_SEARCH_SHOW_FLOW, HOME_SEARCH_PLACEHOLDER } from '$lib/consts'
 
@@ -35,6 +39,7 @@
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './FlowIcon.svelte'
 	import { canWrite, getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 	import { page } from '$app/state'
 	import { setQuery } from '$lib/navigation'
 	import Drawer from '../common/drawer/Drawer.svelte'
@@ -42,6 +47,7 @@
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import Item from './Item.svelte'
 	import TreeViewRoot from './TreeViewRoot.svelte'
+	import type { ItemType } from './treeViewUtils'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { getContext, tick, untrack } from 'svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
@@ -67,6 +73,11 @@
 		time?: number
 		starred?: boolean
 		hash?: string
+		// Fetch ordinal: the position this row arrived in from the server (which already
+		// applied the chosen order + starred-first). Sorting by it reproduces the server's
+		// global order EXACTLY — no client re-derivation that could disagree on collation
+		// or sub-millisecond ties and make a later page jump above shown rows.
+		ord?: number
 	}
 
 	type TableScript = TableItem<Script, 'script'>
@@ -104,7 +115,7 @@
 		}
 	)
 	// Folders of pipeline-member scripts present in the current listing (captured
-	// in loadScripts before they're filtered out). Unioned in so a folder whose
+	// in loadRunnables before they're filtered out). Unioned in so a folder whose
 	// only pipeline node is a never-deployed `// pipeline` script draft — not in
 	// listPipelineFolders (deployed-only) nor a `data_pipeline` bundle — still gets
 	// a pipeline entry instead of vanishing.
@@ -113,10 +124,53 @@
 		new Set<string>([...(pipelineFoldersRes.current ?? []), ...pipelineMemberFolders])
 	)
 
+	// The workspace's full folder list, independent of which items are paged in,
+	// so the owner facet and tree show every folder even when its items sit far
+	// down the sorted stream. Cheap and cached per workspace.
+	let folderNamesRes = resource(
+		() => $workspaceStore,
+		async (ws) => {
+			if (!ws) return [] as string[]
+			// Page to exhaustion: listFolderNames is capped per page, so a workspace
+			// with more folders than the cap would otherwise be truncated.
+			const perPage = 1000
+			const all: string[] = []
+			try {
+				for (let page = 1; ; page++) {
+					const batch = await FolderService.listFolderNames({ workspace: ws, page, perPage })
+					all.push(...batch)
+					if (batch.length < perPage) break
+				}
+			} catch {
+				// Best-effort facet; return whatever we gathered.
+			}
+			return all
+		}
+	)
+	let allFolderOwners = $derived((folderNamesRes.current ?? []).map((f) => `f/${f}`))
+	// Every workspace username, so a user whose items sit beyond the loaded browse
+	// window is still a selectable owner chip (scoping the stream to `u/<user>/`).
+	// Without this, user owners would derive only from loaded rows and a user past
+	// the first page would be unreachable in the tree without searching.
+	let usernamesRes = resource(
+		() => $workspaceStore,
+		async (ws) => {
+			if (!ws) return [] as string[]
+			try {
+				return await UserService.listUsernames({ workspace: ws })
+			} catch {
+				return [] as string[] // best-effort facet
+			}
+		}
+	)
+	let allUserOwners = $derived((usernamesRes.current ?? []).map((u) => `u/${u}`))
+
 	let scripts: TableScript[] | undefined = $state()
 	let flows: TableFlow[] | undefined = $state()
 	let apps: TableApp[] | undefined = $state()
 	let raw_apps: TableRawApp[] | undefined = $state()
+	// Monotonic fetch-order counter stamped onto each row as it arrives (see TableItem.ord).
+	let fetchOrd = 0
 
 	let filteredItems: (TableScript | TableFlow | TableApp | TableRawApp)[] = $state([])
 
@@ -128,76 +182,301 @@
 
 	let nbDisplayed = $state(15)
 
-	async function loadScripts(includeWithoutMain: boolean): Promise<void> {
-		const loadedScripts = await ScriptService.listScripts({
-			workspace: $workspaceStore!,
-			showArchived: archived ? true : undefined,
-			includeWithoutMain: includeWithoutMain ? true : undefined,
-			includeDraftOnly: true,
-			withoutDescription: true
-		})
+	// Keyset cursor for the next browse page; null once the stream is exhausted.
+	let serverCursor: string | undefined = undefined
+	let hasMoreServer = $state(false)
+	// Guards against out-of-order responses: only the latest request applies.
+	let loadGen = 0
 
-		// Pipeline-member scripts (`auto_kind='pipeline'`) are represented by their
-		// pipeline's entry, not listed individually — but capture their folders so
-		// the pipeline entry still surfaces (incl. a members-only / draft-only folder).
-		const memberFolders = new Set<string>()
-		scripts = loadedScripts
-			.filter((script: Script) => {
-				if (script.auto_kind === 'pipeline') {
-					const m = script.path.match(/^f\/([^/]+)\//)
+	// Sort selector value -> merged-endpoint order params.
+	function sortToParams(o: SortOrder): { orderBy: 'updated' | 'name'; orderDesc: boolean } {
+		switch (o) {
+			case 'updated_asc':
+				return { orderBy: 'updated', orderDesc: false }
+			case 'name_asc':
+				return { orderBy: 'name', orderDesc: false }
+			case 'name_desc':
+				return { orderBy: 'name', orderDesc: true }
+			case 'updated_desc':
+			default:
+				return { orderBy: 'updated', orderDesc: true }
+		}
+	}
+
+	function mapRunnable(it: RunnableItem): TableScript | TableFlow | TableApp {
+		const base = {
+			...it,
+			canWrite:
+				canWrite(it.path, (it.extra_perms ?? {}) as any, $userStore) &&
+				(it.type === 'script' || it.workspace_id == $workspaceStore) &&
+				!$userStore?.operator
+		}
+		// combinedItems reads a script's time from `created_at`; the endpoint's
+		// unified `edited_at` holds exactly that for scripts.
+		if (it.type === 'script') return { ...base, created_at: it.edited_at } as unknown as TableScript
+		return base as unknown as TableFlow | TableApp
+	}
+
+	// The merged, server-ordered, keyset-paginated source. `reset` reloads from
+	// the first page (order/filter change or workspace switch); otherwise it
+	// appends the next page. All three kinds arrive interleaved and are split into
+	// the existing per-kind arrays so the downstream pipeline is unchanged.
+	async function loadRunnables(reset: boolean): Promise<void> {
+		const ws = $workspaceStore
+		if (!ws || !$userStore) return
+		// Only the very first load shows the skeleton; reorder/filter reloads keep
+		// the toolbar and current items visible (they're replaced on arrival) so the
+		// sort control itself doesn't flicker out when you use it.
+		// An append (load-more) needs a live cursor. If there isn't one — the stream
+		// is exhausted, or a reset just cleared it and its page-1 response hasn't
+		// landed — bail so a load-more can't append a fresh page-1 onto the old
+		// arrays (mixing streams) or clobber the pending reset's generation.
+		if (!reset && serverCursor === undefined) return
+		if (scripts === undefined) loading = true
+		if (reset) {
+			serverCursor = undefined
+			hasMoreServer = false
+			// Note: this resets only the global/flat stream. The lazy tree's own store
+			// (treeOwnerItems/ownerLoad/openOwners) is managed separately — a mode change
+			// clears it (see the treeKey effect), while an in-place sort/filter change
+			// replaces each open owner's rows atomically as they re-load (see
+			// loadOwnerItems), so expanded folders don't blank out mid-reorder.
+		}
+		const { orderBy, orderDesc } = sortToParams(sortOrder)
+		const gen = ++loadGen
+		// Snapshot the cursor now: a later request must not consume a cursor minted
+		// by an order/filter that has since changed.
+		const cursor = reset ? undefined : serverCursor
+		let res: { items: RunnableItem[]; next_cursor?: string }
+		try {
+			res = await ScriptService.listRunnables({
+				workspace: ws,
+				orderBy,
+				orderDesc,
+				showArchived: archived ? true : undefined,
+				includeWithoutMain: includeWithoutMain ? true : undefined,
+				kinds: itemKind !== 'all' ? itemKind : undefined,
+				// Selecting an owner/folder scopes the paged stream to it server-side,
+				// so a folder's full contents load on demand rather than relying on the
+				// folder happening to be within the loaded browse window.
+				pathStart: ownerFilter ? ownerFilter + '/' : undefined,
+				perPage: 100,
+				cursor
+			})
+		} catch (e: any) {
+			if (gen !== loadGen) return
+			loading = false
+			sendUserToast(`Failed to load items: ${e?.body ?? e?.message ?? e}`, true)
+			return
+		}
+		// A newer request superseded this one (e.g. order changed mid-flight); drop
+		// this response so a stale page/cursor can't be mixed with the new order.
+		if (gen !== loadGen) return
+		serverCursor = res.next_cursor ?? undefined
+		hasMoreServer = !!res.next_cursor
+
+		const s: TableScript[] = reset ? [] : [...(scripts ?? [])]
+		const f: TableFlow[] = reset ? [] : [...(flows ?? [])]
+		const a: TableApp[] = reset ? [] : [...(apps ?? [])]
+		const memberFolders = reset ? new Set<string>() : new Set(pipelineMemberFolders)
+		if (reset) fetchOrd = 0
+		for (const it of res.items ?? []) {
+			if (it.type === 'script') {
+				// Pipeline-member scripts are folded into their pipeline entry.
+				if (it.auto_kind === 'pipeline') {
+					const m = it.path.match(/^f\/([^/]+)\//)
 					if (m) memberFolders.add(m[1])
-					return false
+					continue
 				}
-				return true
-			})
-			.map((script: Script) => {
-				return {
-					canWrite: canWrite(script.path, script.extra_perms, $userStore) && !$userStore?.operator,
-					...script
-				}
-			})
+				s.push({ ...mapRunnable(it), ord: fetchOrd++ } as TableScript)
+			} else if (it.type === 'flow') {
+				f.push({ ...mapRunnable(it), ord: fetchOrd++ } as TableFlow)
+			} else if (it.type === 'app') {
+				a.push({ ...mapRunnable(it), ord: fetchOrd++ } as TableApp)
+			}
+		}
+		scripts = s
+		flows = f
+		apps = a
+		raw_apps = []
 		pipelineMemberFolders = memberFolders
 		loading = false
 	}
 
-	async function loadFlows(): Promise<void> {
-		flows = (
-			await FlowService.listFlows({
-				workspace: $workspaceStore!,
+	function itemKey(x: { type?: string; path: string; hash?: unknown }): string {
+		return `${x.type}/${x.path}${x.hash ? '/' + x.hash : ''}`
+	}
+
+	// Merge server rows (from the search-augmentation pass) into the loaded arrays,
+	// skipping ones already present. Lets a search reach matches outside the loaded
+	// browse window without re-fetching the whole list.
+	function mergeRunnables(newItems: RunnableItem[]) {
+		const have = new Set([...(scripts ?? []), ...(flows ?? []), ...(apps ?? [])].map(itemKey))
+		const s = [...(scripts ?? [])]
+		const f = [...(flows ?? [])]
+		const a = [...(apps ?? [])]
+		const memberFolders = new Set(pipelineMemberFolders)
+		let changed = false
+		for (const it of newItems) {
+			if (it.type === 'script' && it.auto_kind === 'pipeline') {
+				const m = it.path.match(/^f\/([^/]+)\//)
+				if (m) memberFolders.add(m[1])
+				continue
+			}
+			if (have.has(itemKey(it))) continue
+			// Appended after the browse window; a higher ord keeps them after it (search
+			// itself ranks by relevance, so this ordinal only matters if sort resumes).
+			const mapped = { ...mapRunnable(it), ord: fetchOrd++ }
+			if (it.type === 'script') s.push(mapped as TableScript)
+			else if (it.type === 'flow') f.push(mapped as TableFlow)
+			else if (it.type === 'app') a.push(mapped as TableApp)
+			changed = true
+		}
+		if (changed) {
+			scripts = s
+			flows = f
+			apps = a
+			pipelineMemberFolders = memberFolders
+		}
+	}
+
+	// Per-top-level-folder lazy loading for tree view: expanding a folder loads its
+	// items on demand (server-scoped to that folder), paginated within the folder,
+	// instead of relying on the global browse window. Keyed by folder name (the
+	// `f/<name>` node).
+	//
+	// Every top-level namespace — a folder (`f/<name>`) OR a user (`u/<name>`) — is a
+	// lazily-loaded owner, keyed here by its full path prefix. Its items live in their
+	// OWN store (`treeOwnerItems`), never merged into the global browse arrays: those
+	// advance by a single `serverCursor`, so injecting out-of-window rows there would
+	// make the flat stream non-contiguous and, once pagination reached those rows,
+	// duplicate them. Loading users lazily too (rather than sourcing them from the
+	// loaded window) is why a user node no longer vanishes under a name sort whose
+	// first page happens to be all folder rows. `treeGen` ties every request to the
+	// active scope (order/archived/library/kind/workspace); a reset bumps it so an
+	// in-flight response from a stale scope is discarded.
+	type OwnerLoadState = {
+		cursor?: string
+		hasMore: boolean
+		loading: boolean
+		loaded: boolean
+		gen: number
+		// Total rows fetched for this owner so far (leaves + subfolder rows) — the tree
+		// node's own children count undercounts because rows nest into subfolders.
+		count: number
+	}
+	let ownerLoad = $state<Record<string, OwnerLoadState>>({})
+	let treeOwnerItems = $state<ItemType[]>([])
+	let treeGen = 0
+	// Owners the user currently has expanded (full path prefixes). A reload re-fetches
+	// only these: ownerLoad also retains collapsed owners as a cache, so keying reloads
+	// off its entries would re-request every owner ever opened in this scope.
+	let openOwners = new Set<string>()
+
+	// The endpoint returns a unified `edited_at` per row; combinedItems derives every
+	// kind's sort time from it (scripts read it as `created_at`, see mapRunnable), so
+	// the owner store mirrors that to keep tree ordering consistent with the list.
+	function toTreeItem(it: RunnableItem): ItemType {
+		return {
+			...mapRunnable(it),
+			time: new Date(it.edited_at ?? 0).getTime()
+		} as unknown as ItemType
+	}
+
+	// `owner` is the full prefix: `f/<folder>` or `u/<username>`.
+	// `force` re-fetches an owner's first page even if already loaded (a re-sort /
+	// re-filter reload uses it to refresh the loaded rows in place).
+	async function loadOwnerItems(owner: string, more = false, force = false): Promise<void> {
+		const ws = $workspaceStore
+		if (!ws || !$userStore) return
+		// Track the owner as open first — even a no-op call (re-expanding a cached owner)
+		// means it's expanded, so later reloads must refresh it.
+		openOwners.add(owner)
+		const st = ownerLoad[owner]
+		// Only a load for the CURRENT generation blocks a new one. A load left in flight
+		// by a superseded generation (treeGen bumped on a sort/filter reload) has already
+		// been invalidated, so it must not wedge the owner as permanently loading.
+		if (st?.loading && st.gen === treeGen) return
+		if (!force && (more ? !st?.hasMore : st?.loaded)) return
+		const gen = treeGen
+		ownerLoad[owner] = {
+			cursor: st?.cursor,
+			hasMore: st?.hasMore ?? false,
+			loading: true,
+			loaded: st?.loaded ?? false,
+			gen,
+			// A fresh (non-more) load replaces this owner's rows, so its count restarts.
+			count: more ? (st?.count ?? 0) : 0
+		}
+		const { orderBy, orderDesc } = sortToParams(sortOrder)
+		let res: { items: RunnableItem[]; next_cursor?: string }
+		try {
+			res = await ScriptService.listRunnables({
+				workspace: ws,
+				orderBy,
+				orderDesc,
 				showArchived: archived ? true : undefined,
-				includeDraftOnly: true,
-				withoutDescription: true
+				includeWithoutMain: includeWithoutMain ? true : undefined,
+				kinds: itemKind !== 'all' ? itemKind : undefined,
+				pathStart: `${owner}/`,
+				perPage: 100,
+				cursor: more ? st?.cursor : undefined
 			})
-		).map((x: Flow) => {
-			return {
-				canWrite:
-					canWrite(x.path, x.extra_perms, $userStore) &&
-					x.workspace_id == $workspaceStore &&
-					!$userStore?.operator,
-				...x
-			}
-		})
-		loading = false
+		} catch (e: any) {
+			if (gen !== treeGen) return
+			ownerLoad[owner] = { ...ownerLoad[owner], loading: false }
+			sendUserToast(`Failed to load ${owner}: ${e?.body ?? e?.message ?? e}`, true)
+			return
+		}
+		// The scope moved on while this was in flight (order/archive/library/kind/
+		// workspace changed and reset the tree); drop the response so stale rows from
+		// another scope can't appear under the current one.
+		if (gen !== treeGen) return
+		// A fresh load REPLACES this owner's rows (drop its previous ones, keep every
+		// other owner's untouched) so a re-sort/re-filter swaps its items atomically
+		// without blanking the whole tree; load-more appends to what's already shown.
+		const prefix = `${owner}/`
+		const base = more ? treeOwnerItems : treeOwnerItems.filter((x) => !x.path.startsWith(prefix))
+		const have = new Set(base.map(itemKey))
+		const merged = [...base]
+		for (const it of res.items ?? []) {
+			// Pipeline-member scripts are folded into their folder's Pipeline entry, so
+			// they never render as their own tree leaf (visiblePipelineFolders drives it).
+			if (it.type === 'script' && it.auto_kind === 'pipeline') continue
+			if (have.has(itemKey(it))) continue
+			merged.push({ ...toTreeItem(it), ord: fetchOrd++ })
+		}
+		treeOwnerItems = merged
+		ownerLoad[owner] = {
+			cursor: res.next_cursor,
+			hasMore: !!res.next_cursor,
+			loading: false,
+			loaded: true,
+			gen,
+			count: merged.filter((x) => x.path.startsWith(prefix)).length
+		}
 	}
 
-	async function loadApps(): Promise<void> {
-		apps = (await AppService.listApps({ workspace: $workspaceStore!, includeDraftOnly: true })).map(
-			(app: ListableApp) => {
-				return {
-					canWrite:
-						canWrite(app.path!, app.extra_perms!, $userStore) &&
-						app.workspace_id == $workspaceStore &&
-						!$userStore?.operator,
-					...app
-				}
-			}
-		)
-		loading = false
+	function collapseOwner(owner: string): void {
+		openOwners.delete(owner)
 	}
-
-	async function loadRawApps(): Promise<void> {
-		raw_apps = []
-		loading = false
+	// Reload the merged list once and re-fetch the owners that are currently expanded so
+	// they don't go blank. Used both for row mutations (create/edit/archive/move/share)
+	// and for in-place scope changes (sort/archive/library/kind): those keep the tree in
+	// lazy mode (treeKey unchanged, so folders stay open like a file explorer), and the
+	// re-fetch reloads each open owner's items in the new order/filter. When a mode
+	// change (owner/search) has switched the tree out of lazy mode, there's nothing to
+	// re-fetch — the tree remounts and groups the global stream instead.
+	async function reloadItems(): Promise<void> {
+		// Invalidate any in-flight owner loads from the previous sort/filter so their
+		// late responses can't overwrite the fresh ones.
+		treeGen++
+		const toReload = treeLazyMode ? [...openOwners] : []
+		await loadRunnables(true)
+		// force: the owners are still marked loaded, so re-fetch their first page and
+		// swap it in place (loadOwnerItems replaces each owner's rows atomically — the
+		// old rows stay visible until the new ones arrive, so nothing blanks mid-reorder).
+		for (const o of toReload) loadOwnerItems(o, false, true)
 	}
 
 	function filterItemsPathsBaseOnUserFilters(
@@ -216,6 +495,46 @@
 	let labelFilter: string | undefined = $state(undefined)
 
 	const cmp = new Intl.Collator('en').compare
+
+	// The selected order maps to the endpoint's order_by/order_desc (see
+	// sortToParams) so it is applied server-side and stays correct across the
+	// whole workspace, not just loaded pages. Starred items are pinned on top of
+	// the first page.
+	type SortOrder = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc'
+	const SORT_SETTING_NAME = 'homeSort'
+	// `short` labels the trigger button next to the sort icon (the button is icon-only
+	// only while searching, when sorting is disabled — see below).
+	const sortOptions: { value: SortOrder; label: string; short: string }[] = [
+		{ value: 'updated_desc', label: 'Recently updated', short: 'Recent' },
+		{ value: 'updated_asc', label: 'Oldest updated', short: 'Oldest' },
+		{ value: 'name_asc', label: 'Name (A-Z)', short: 'A-Z' },
+		{ value: 'name_desc', label: 'Name (Z-A)', short: 'Z-A' }
+	]
+	let sortOrder = $state<SortOrder>(
+		sortOptions.find((o) => o.value === getLocalSetting(SORT_SETTING_NAME))?.value ?? 'updated_desc'
+	)
+	$effect(() => {
+		storeLocalSetting(SORT_SETTING_NAME, sortOrder === 'updated_desc' ? undefined : sortOrder)
+	})
+	let sortItems: MenuItem[] = $derived(
+		sortOptions.map((o) => ({
+			displayName: o.label,
+			selected: o.value === sortOrder,
+			action: () => (sortOrder = o.value)
+		}))
+	)
+	// Preserve the endpoint's exact order rather than re-deriving it on the client:
+	// each row carries its server fetch ordinal (`ord`), which already reflects the
+	// chosen order, the (path, kind) tiebreaks, full-precision timestamps, the database
+	// collation, and starred-first pinning. Sorting by it can never disagree with the
+	// server, so a later page never jumps above shown rows on "load more". Depends on
+	// `sortOrder` only so its identity changes when the order does (re-grouping the tree,
+	// whose leaves also sort by ord); the actual reordering comes from the reload that
+	// restamps ord.
+	let compareItems = $derived.by(() => {
+		sortOrder
+		return (a: { ord?: number }, b: { ord?: number }): number => (a.ord ?? 0) - (b.ord ?? 0)
+	})
 
 	const opts: uFuzzy.Options = {
 		sort: (info, haystack, needle) => {
@@ -328,27 +647,188 @@
 	}
 
 	let collapseAll = $state(true)
+	// Human-readable list of the filters currently narrowing the list. Empty means no
+	// filter is active, so an empty result then means the workspace itself has no items
+	// (NoItemFound shows the welcome message); otherwise the filters are just too narrow
+	// and NoItemFound lists them.
+	let activeFilters = $derived.by(() => {
+		const f: string[] = []
+		if (filter !== '') f.push(`search “${filter}”`)
+		if (itemKind !== 'all')
+			f.push(itemKind === 'script' ? 'Scripts' : itemKind === 'flow' ? 'Flows' : 'Apps')
+		if (ownerFilter != undefined) f.push(ownerFilter)
+		if (labelFilter != undefined) f.push(`label “${labelFilter}”`)
+		if (archived) f.push('archived only')
+		if (filterUserFolders)
+			f.push(
+				filterUserFoldersType === 'only f/*'
+					? 'only f/* folders'
+					: `only f/* and u/${$userStore?.username}`
+			)
+		if (!includeWithoutMain) f.push('library scripts hidden')
+		return f
+	})
+	// Complete owner list: every folder (from the folder list, not just loaded
+	// pages) plus the user prefixes present in the loaded/filtered items. So a
+	// folder whose items are far down the stream is still a selectable chip.
 	let owners = $derived(
 		Array.from(
-			new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
+			new Set([
+				...allFolderOwners,
+				...allUserOwners,
+				...(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
+			])
 		).sort()
 	)
+	// Reload from the server whenever an input the endpoint resolves changes: order,
+	// archived/library scope, kind, the selected owner/folder, or entering/leaving
+	// search (see the reload effect below). Only the label filter and fuzzy ranking
+	// stay client-side over the loaded pages, so they don't reload here.
+	let searching = $derived(filter !== '')
+	// Lazy owner tree is active only in the tree view when browsing all (no owner
+	// selected, no search, no label filter): every folder AND user shows as a top-level
+	// node and paginates on expand, its items coming from the separate `treeOwnerItems`
+	// store. In the flat view, or a selected owner / active search / label filter, the
+	// lazy store is unused (the flat list and reloadItems must not touch it), so this is
+	// false and those views group the global loaded window instead.
+	let treeLazyMode = $derived(
+		treeView && !searching && ownerFilter == undefined && labelFilter == undefined
+	)
+	let treeInjectFolders = $derived(treeLazyMode ? (folderNamesRes.current ?? []) : [])
+	let treeInjectUsers = $derived.by(() => {
+		// "Only f/*" hides every user namespace; "u/<you> and f/*" keeps just your own.
+		if (!treeLazyMode) return []
+		if (filterUserFolders && filterUserFoldersType === 'only f/*') return []
+		const s = new Set<string>()
+		// Always inject your own personal space (u/<you>): list_usernames can be empty
+		// (you may not be a listed workspace member) yet u/<you> still holds runnables,
+		// and it must not vanish under a name sort whose first page is all folders.
+		if ($userStore?.username) s.add($userStore.username)
+		// Other users only when no user-folder restriction is active.
+		if (!filterUserFolders) for (const u of usernamesRes.current ?? []) s.add(u)
+		return [...s]
+	})
+	// The bottom "load more" only pages the *global* stream, which in lazy mode holds
+	// folder rows the tree ignores (folders come from the store and are all injected
+	// already) — so surfacing it there is confusing. Restrict it to scoped mode, where
+	// it pages within the selected owner. In lazy mode the footer instead reveals more
+	// root nodes purely client-side (nbDisplayed) when there are more than are shown,
+	// and each folder paginates within itself; users past the window are reached via
+	// their owner chip.
+	let treeGlobalHasMore = $derived(ownerFilter != undefined && !searching ? hasMoreServer : false)
 	$effect(() => {
 		if ($userStore && $workspaceStore) {
-			;[archived, includeWithoutMain]
+			;[archived, includeWithoutMain, sortOrder, searching, ownerFilter, itemKind]
+			// reloadItems (not a bare loadRunnables) so an in-place change — sort, archive,
+			// library, kind — reloads the global stream AND re-fetches the currently-open
+			// owners in the new order/filter, keeping folders expanded (file-explorer style)
+			// rather than collapsing them. Mode changes (owner/search) flip treeLazyMode, so
+			// reloadItems skips the re-fetch and the {#key} remount handles the reset.
 			untrack(() => {
-				loadScripts(includeWithoutMain)
-				loadFlows()
-				if (!archived) {
-					loadApps()
-					loadRawApps()
-				} else {
-					apps = []
-					raw_apps = []
-				}
+				reloadItems()
 			})
 		}
 	})
+
+	// Debounced server-side search augmentation. Instant filtering stays fully
+	// client-side (SearchItems over the loaded pages) for reactivity; this fetches ONE
+	// page of matches beyond the loaded browse window and, if the server has more,
+	// exposes them through an explicit "load more results" control (searchCursor) rather
+	// than auto-downloading the whole workspace for a broad term.
+	let searchCursor = $state<string | undefined>(undefined)
+	let searchLoadingMore = $state(false)
+	$effect(() => {
+		const term = filter
+		const ws = $workspaceStore
+		// Same view scope as the browse list, so a search can't surface archived /
+		// library items the current view excludes, and stays within the selected folder.
+		const showArchived = archived
+		const withoutMain = includeWithoutMain
+		const owner = ownerFilter
+		const kind = itemKind
+		// Any term/scope change restarts search paging.
+		searchCursor = undefined
+		if (term === '' || !ws || !$userStore) return
+		const handle = setTimeout(async () => {
+			let res: { items: RunnableItem[]; next_cursor?: string }
+			try {
+				res = await ScriptService.listRunnables({
+					workspace: ws,
+					search: term,
+					showArchived: showArchived ? true : undefined,
+					includeWithoutMain: withoutMain ? true : undefined,
+					kinds: kind !== 'all' ? kind : undefined,
+					pathStart: owner ? owner + '/' : undefined,
+					perPage: 1000
+				})
+			} catch {
+				return
+			}
+			// Drop a stale response: workspace, term, or view scope moved on while it was
+			// in flight (the debounce cancels superseded timers; this guards the request).
+			if (
+				untrack(() => $workspaceStore) !== ws ||
+				untrack(() => filter) !== term ||
+				untrack(() => archived) !== showArchived ||
+				untrack(() => includeWithoutMain) !== withoutMain ||
+				untrack(() => ownerFilter) !== owner ||
+				untrack(() => itemKind) !== kind
+			)
+				return
+			mergeRunnables(res.items ?? [])
+			searchCursor = res.next_cursor
+		}, 300)
+		return () => clearTimeout(handle)
+	})
+
+	// Fetch the next page of search matches on demand — one page per click, so a broad
+	// search stays complete without auto-loading the entire workspace into memory.
+	async function loadMoreSearchResults(): Promise<void> {
+		// Capture the full scope: a cursor only encodes the last row's sort keys, so two
+		// different scopes can mint the same cursor — the response must be rejected unless
+		// EVERY scope input still matches, not just workspace + cursor.
+		const ws = $workspaceStore
+		const term = filter
+		const showArchived = archived
+		const withoutMain = includeWithoutMain
+		const owner = ownerFilter
+		const kind = itemKind
+		const cursor = searchCursor
+		if (!cursor || !ws || term === '' || searchLoadingMore) return
+		searchLoadingMore = true
+		let res: { items: RunnableItem[]; next_cursor?: string }
+		try {
+			res = await ScriptService.listRunnables({
+				workspace: ws,
+				search: term,
+				showArchived: showArchived ? true : undefined,
+				includeWithoutMain: withoutMain ? true : undefined,
+				kinds: kind !== 'all' ? kind : undefined,
+				pathStart: owner ? owner + '/' : undefined,
+				perPage: 1000,
+				cursor
+			})
+		} catch {
+			searchLoadingMore = false
+			return
+		}
+		searchLoadingMore = false
+		// Discard unless the term AND every view scope are still the ones we fetched for.
+		if (
+			untrack(() => $workspaceStore) !== ws ||
+			untrack(() => filter) !== term ||
+			untrack(() => archived) !== showArchived ||
+			untrack(() => includeWithoutMain) !== withoutMain ||
+			untrack(() => ownerFilter) !== owner ||
+			untrack(() => itemKind) !== kind ||
+			untrack(() => searchCursor) !== cursor
+		)
+			return
+		mergeRunnables(res.items ?? [])
+		searchCursor = res.next_cursor
+		// Reveal the freshly fetched matches instead of leaving them behind the display cap.
+		nbDisplayed += 30
+	}
 
 	let combinedItems = $derived(
 		flows == undefined || scripts == undefined || apps == undefined || raw_apps == undefined
@@ -374,9 +854,7 @@
 						type: 'raw_app' as 'raw_app',
 						time: new Date(x.edited_at).getTime()
 					}))
-				].sort((a, b) =>
-					a.starred != b.starred ? (a.starred ? -1 : 1) : a.time - b.time > 0 ? -1 : 1
-				)
+				].sort(compareItems)
 	)
 	function itemLabels(x: { labels?: string[]; inherited_labels?: string[] }): string[] {
 		return [...(x.labels ?? []), ...(x.inherited_labels ?? [])]
@@ -396,30 +874,60 @@
 		}
 		prevWorkspace = ws
 	})
+	// The kind and owner/folder filters are resolved server-side (kinds, path_start),
+	// so only the user-folder toggle and label filters run client-side here.
 	let preFilteredItems = $derived(
-		ownerFilter != undefined
-			? combinedItems?.filter(
-					(x) =>
-						x.path.startsWith(ownerFilter + '/') &&
-						(x.type == itemKind || itemKind == 'all') &&
-						filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType) &&
-						(labelFilter == undefined || itemLabels(x).includes(labelFilter))
-				)
-			: combinedItems?.filter(
-					(x) =>
-						(x.type == itemKind || itemKind == 'all') &&
-						filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType) &&
-						(labelFilter == undefined || itemLabels(x).includes(labelFilter))
-				)
+		combinedItems?.filter(
+			(x) =>
+				filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType) &&
+				(labelFilter == undefined || itemLabels(x).includes(labelFilter))
+		)
 	)
 	let items = $derived(filter !== '' ? filteredItems : preFilteredItems)
+	// Source the tree groups. In lazy mode every top-level owner (folder and user) is
+	// injected as a node and its rows come from the on-demand `treeOwnerItems` store,
+	// so the tree never depends on which owners happen to be in the loaded window.
+	// Otherwise (scoped/search/label) the tree just groups the global `items`.
+	let treeSource = $derived(
+		treeLazyMode
+			? treeOwnerItems.filter((x) =>
+					filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType)
+				)
+			: items
+	)
+	// Remount identity: only a *mode* change (workspace, selected owner, entering/leaving
+	// search, label filter) restructures the tree, so only those key the {#key} remount.
+	// A sort/archive/library/kind change keeps the same lazy tree and is applied in place
+	// by reloadItems re-fetching the open owners — so expanded folders don't collapse when
+	// you re-sort (searching is a boolean so per-keystroke query changes don't remount).
+	let treeKey = $derived(
+		`${treeView}|${$workspaceStore}|${ownerFilter}|${searching}|${labelFilter}`
+	)
+	// A mode change restructures the tree (it remounts on treeKey), so the lazy owner
+	// store is stale — clear it here (the global reset no longer does). An in-place
+	// sort/filter change leaves treeKey unchanged, so the store survives and its owners
+	// are refreshed in place instead of blanking.
+	$effect(() => {
+		treeKey
+		untrack(() => {
+			treeGen++
+			ownerLoad = {}
+			treeOwnerItems = []
+			openOwners = new Set()
+		})
+	})
 	let displayedItems = $derived((items ?? []).slice(0, nbDisplayed))
 	$effect(() => {
 		items && resetScroll()
 	})
 
 	let selectedIndex: number = $state(-1)
-	let hasMore = $derived(items != undefined && items.length > nbDisplayed)
+	// More to show: either loaded items not yet sliced in, or the server has further
+	// browse pages (not while searching — the browse cursor is paused then; further
+	// search matches load on demand via searchCursor / "Load more results").
+	let hasMore = $derived(
+		items != undefined && (items.length > nbDisplayed || (hasMoreServer && !searching))
+	)
 	let loadMoreIndex = $derived(displayedItems.length)
 	let loadMoreEl: HTMLButtonElement | undefined = $state()
 	let pendingAutoSelect = $state(true)
@@ -485,9 +993,27 @@
 		return () => window.removeEventListener('keydown', handleGlobalKeydown, true)
 	})
 
-	function loadMoreAndPreselectFirstNew() {
-		const previousNbDisplayed = nbDisplayed
+	async function loadMore() {
+		// Fetch the next server page once all loaded items are already sliced in.
+		if (items && nbDisplayed >= items.length && hasMoreServer && !searching) {
+			await loadRunnables(false)
+		}
 		nbDisplayed += 30
+	}
+
+	// Fetch the next server page directly (tree view and the empty-state control
+	// use this — their "all shown" threshold is on a different scale than the flat
+	// list's, so they must not route through loadMore's item-count check).
+	async function fetchMoreServer() {
+		if (hasMoreServer && !searching) {
+			await loadRunnables(false)
+			nbDisplayed += 30
+		}
+	}
+
+	async function loadMoreAndPreselectFirstNew() {
+		const previousNbDisplayed = nbDisplayed
+		await loadMore()
 		selectedIndex = previousNbDisplayed
 	}
 
@@ -855,6 +1381,32 @@
 					/>
 				{/if}
 				<Toggle size="xs" bind:checked={treeView} options={{ right: 'Tree view' }} />
+				<DropdownV2
+					items={sortItems}
+					disabled={filter !== ''}
+					placement="bottom-end"
+					fixedHeight={false}
+				>
+					{#snippet buttonReplacement()}
+						{@const active = sortOptions.find((o) => o.value === sortOrder)}
+						{@const short = filter !== '' ? '' : (active?.short ?? '')}
+						<Button
+							nonCaptureEvent
+							disabled={filter !== ''}
+							iconOnly={short === ''}
+							size="xs"
+							color="light"
+							variant="default"
+							spacingSize="xs2"
+							startIcon={{ icon: ArrowDownUp }}
+							title={filter !== ''
+								? 'Sorting is disabled while searching (results are ranked by relevance)'
+								: `Sort: ${active?.label ?? ''}`}
+						>
+							{#if short !== ''}{short}{/if}
+						</Button>
+					{/snippet}
+				</DropdownV2>
 				{#if treeView}
 					<Button
 						unifiedSize="sm"
@@ -885,26 +1437,46 @@
 			<!-- Pipelines aren't part of the text filter, so only fall through to show
 			     them (list rows / injected tree folders) when not actively searching;
 			     a no-match search still reads as empty. -->
-			<NoItemFound hasFilters={filter !== '' || archived || filterUserFolders} />
+			<NoItemFound {activeFilters} />
+			{#if hasMoreServer && !searching}
+				<!-- The active filter matched nothing on the loaded pages, but the server
+				     has more: keep paging reachable so matches on later pages aren't lost. -->
+				<div class="text-center text-xs text-secondary mt-2">
+					<button class="text-primary hover:text-emphasis underline" onclick={fetchMoreServer}
+						>Load more to search further</button
+					>
+				</div>
+			{/if}
 		{:else if treeView}
-			<TreeViewRoot
-				{items}
-				{nbDisplayed}
-				{collapseAll}
-				pipelineFolders={visiblePipelineFolders}
-				isSearching={filter !== ''}
-				on:scriptChanged={() => loadScripts(includeWithoutMain)}
-				on:flowChanged={loadFlows}
-				on:appChanged={loadApps}
-				on:rawAppChanged={loadRawApps}
-				on:reload={() => {
-					loadScripts(includeWithoutMain)
-					loadFlows()
-					loadApps()
-					loadRawApps()
-				}}
-				{showCode}
-			/>
+			<!-- Remount the tree on a MODE change only (treeKey = view/owner/search/label):
+			     expanded folders (their `opened` state is local to each TreeView) collapse
+			     and re-load fresh for the new mode. An in-place order/archive/library/kind
+			     change keeps treeKey stable, so folders stay open and refresh via
+			     reloadItems instead (see loadOwnerItems). -->
+			{#key treeKey}
+				<TreeViewRoot
+					items={treeSource}
+					{nbDisplayed}
+					{collapseAll}
+					sortCompare={compareItems}
+					groupDesc={sortOrder === 'name_desc'}
+					hasMoreServer={treeGlobalHasMore}
+					onLoadMore={fetchMoreServer}
+					pipelineFolders={visiblePipelineFolders}
+					allFolders={treeInjectFolders}
+					allUsers={treeInjectUsers}
+					ownerLoad={treeLazyMode ? ownerLoad : undefined}
+					onExpandOwner={treeLazyMode ? loadOwnerItems : undefined}
+					onCollapseOwner={treeLazyMode ? collapseOwner : undefined}
+					isSearching={filter !== ''}
+					on:scriptChanged={reloadItems}
+					on:flowChanged={reloadItems}
+					on:appChanged={reloadItems}
+					on:rawAppChanged={reloadItems}
+					on:reload={reloadItems}
+					{showCode}
+				/>
+			{/key}
 		{:else}
 			<div class="border rounded-md bg-surface-tertiary">
 				{#if filter === ''}
@@ -921,35 +1493,46 @@
 				{#each displayedItems as item, i (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
 					<Item
 						{item}
-						on:scriptChanged={() => loadScripts(includeWithoutMain)}
-						on:flowChanged={loadFlows}
-						on:appChanged={loadApps}
-						on:rawAppChanged={loadRawApps}
-						on:reload={() => {
-							loadScripts(includeWithoutMain)
-							loadFlows()
-							loadApps()
-							loadRawApps()
-						}}
+						on:scriptChanged={reloadItems}
+						on:flowChanged={reloadItems}
+						on:appChanged={reloadItems}
+						on:rawAppChanged={reloadItems}
+						on:reload={reloadItems}
 						{showCode}
 						showEditButton={showEditButtons}
 						keyboardSelected={selectedIndex === i}
 					/>
 				{/each}
 			</div>
-			{#if items && items?.length > 15 && nbDisplayed < items.length}
+			{#if items && hasMore}
 				<span class="text-xs font-normal text-secondary"
-					>{nbDisplayed} items out of {items.length}
+					>{Math.min(nbDisplayed, items.length)} items{hasMoreServer && !searching
+						? ''
+						: ` out of ${items.length}`}
 					<button
 						bind:this={loadMoreEl}
 						class="ml-4 text-xs font-normal text-primary hover:text-emphasis rounded px-1 {selectedIndex ===
 						loadMoreIndex
 							? 'bg-gray-200 dark:bg-gray-700 underline'
 							: ''}"
-						onclick={() => (nbDisplayed += 30)}>load 30 more</button
+						onclick={loadMore}>load 30 more</button
 					></span
 				>
 			{/if}
+		{/if}
+		{#if searching && searchCursor}
+			<!-- The server has further search matches beyond the page already merged in;
+			     fetch them one page at a time on demand rather than auto-downloading a
+			     broad query's entire result set. -->
+			<div class="text-center text-xs text-secondary mt-2">
+				{#if searchLoadingMore}
+					Loading more results…
+				{:else}
+					<button class="text-primary hover:text-emphasis underline" onclick={loadMoreSearchResults}
+						>Load more results</button
+					>
+				{/if}
+			</div>
 		{/if}
 	</div>
 </CenteredPage>

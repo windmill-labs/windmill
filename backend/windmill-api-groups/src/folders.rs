@@ -15,7 +15,10 @@ use axum::{
 };
 use lazy_static::lazy_static;
 use regex::Regex;
-use windmill_api_auth::{build_scope_path_predicate, check_scopes, ApiAuthed, AuthCache, Tokened};
+use windmill_api_auth::{
+    build_scope_path_filter, build_scope_path_predicate, check_scopes, ApiAuthed, AuthCache,
+    ScopePathFilter, Tokened,
+};
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::DB;
@@ -135,18 +138,43 @@ async fn list_foldernames(
     let (per_page, offset) = paginate(pagination);
     let mut tx = user_db.begin(&authed).await?;
 
-    let allowed = build_scope_path_predicate(&authed, "folders", "read");
-    let rows = sqlx::query_scalar!(
-        "SELECT name FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
-        w_id,
-        per_page as i64,
-        offset as i64
-    )
-    .fetch_all(&mut *tx)
-    .await?
-    .into_iter()
-    .filter(|name| allowed(&format!("f/{}", name)))
-    .collect::<Vec<_>>();
+    // Push the token's scope grant into the query so LIMIT/OFFSET page over the
+    // AUTHORIZED folders — the returned count then reflects the authorized set, so a
+    // paginating caller can rely on `< per_page` meaning exhaustion. (Filtering after the
+    // LIMIT would let a page return fewer than per_page while authorized folders remain
+    // on later DB pages, stopping such a caller early.)
+    let mut sql = String::from("SELECT name FROM folder WHERE workspace_id = $1");
+    let restricted = match build_scope_path_filter(&authed, "folders", "read") {
+        ScopePathFilter::AllowAll => None,
+        ScopePathFilter::Restricted { exact, mut prefix } => {
+            // A prefix grant also authorizes the folder at the prefix itself.
+            let mut eq = exact;
+            eq.append(&mut prefix.clone());
+            let like: Vec<String> = prefix
+                .iter()
+                .map(|p| {
+                    format!(
+                        "{}/%",
+                        p.replace('\\', "\\\\")
+                            .replace('%', "\\%")
+                            .replace('_', "\\_")
+                    )
+                })
+                .collect();
+            sql.push_str(" AND (('f/' || name) = ANY($4) OR ('f/' || name) LIKE ANY($5))");
+            Some((eq, like))
+        }
+    };
+    sql.push_str(" ORDER BY name asc LIMIT $2 OFFSET $3");
+
+    let mut query = sqlx::query_scalar::<_, String>(&sql)
+        .bind(&w_id)
+        .bind(per_page as i64)
+        .bind(offset as i64);
+    if let Some((eq, like)) = restricted {
+        query = query.bind(eq).bind(like);
+    }
+    let rows = query.fetch_all(&mut *tx).await?;
 
     tx.commit().await?;
 

@@ -10481,6 +10481,73 @@ paths:
                     - path
                     - value
 
+  /w/{workspace}/runnables/list:
+    get:
+      summary: list runnables (scripts, flows, apps) merged, ordered and keyset-paginated
+      operationId: listRunnables
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: order_by
+          in: query
+          description: "sort key: 'updated' (default) or 'name'"
+          schema:
+            type: string
+            enum:
+              - updated
+              - name
+        - $ref: "#/components/parameters/OrderDesc"
+        - name: kinds
+          in: query
+          description: comma-separated subset of script,flow,app (default all)
+          schema:
+            type: string
+        - name: show_archived
+          in: query
+          schema:
+            type: boolean
+        - name: include_without_main
+          in: query
+          description: include library scripts (no runnable main)
+          schema:
+            type: boolean
+        - name: path_start
+          in: query
+          description: restrict to paths under this prefix
+          schema:
+            type: string
+        - name: label
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          description: case-insensitive substring match on summary or path
+          schema:
+            type: string
+        - $ref: "#/components/parameters/PerPage"
+        - name: cursor
+          in: query
+          description: opaque keyset cursor from a previous page's next_cursor
+          schema:
+            type: string
+      responses:
+        "200":
+          description: a page of merged, ordered runnables
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RunnableItem"
+                  next_cursor:
+                    type: string
   /w/{workspace}/flows/list:
     get:
       summary: list all flows
@@ -19364,6 +19431,8 @@ paths:
         - folder
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
         - name: only_member_of
           in: query
           description: only list the folders the user is member of (default false)
@@ -24771,6 +24840,86 @@ components:
         - workspace_id
         - language
         - content
+
+    RunnableItem:
+      type: object
+      description: |
+        A row in the merged runnables listing. `type` is the discriminator;
+        kind-specific fields (hash/language/kind for scripts, execution_mode/
+        version for apps) are present only for that kind. `edited_at` is the
+        unified last-updated time (a script's created_at, a flow/app's edit
+        time).
+      properties:
+        type:
+          type: string
+          enum:
+            - script
+            - flow
+            - app
+        path:
+          type: string
+        summary:
+          type: string
+        workspace_id:
+          type: string
+        extra_perms:
+          type: object
+          additionalProperties:
+            type: boolean
+        starred:
+          type: boolean
+        archived:
+          type: boolean
+        is_draft:
+          type: boolean
+        draft_only:
+          type: boolean
+          nullable: true
+        draft_path:
+          type: string
+        draft_users:
+          type: array
+          items:
+            type: object
+        labels:
+          type: array
+          items:
+            type: string
+        inherited_labels:
+          type: array
+          items:
+            type: string
+        ws_error_handler_muted:
+          type: boolean
+        edited_at:
+          type: string
+          format: date-time
+        hash:
+          type: string
+          description: script version hash as a 16-char hex string
+        language:
+          type: string
+        kind:
+          type: string
+        auto_kind:
+          type: string
+        use_codebase:
+          type: boolean
+        has_deploy_errors:
+          type: boolean
+        raw_app:
+          type: boolean
+        execution_mode:
+          type: string
+        id:
+          type: integer
+          format: int64
+        version:
+          type: integer
+          format: int64
+      required:
+        - type
+        - path
 
     Script:
       type: object
