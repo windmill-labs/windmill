@@ -98,7 +98,9 @@
 			s3FilePickerInner?.exit?.()
 			drawer?.closeDrawer?.()
 		}}
-		tooltip="Files present in the Workspace S3 bucket. You can set the workspace S3 bucket in the settings."
+		tooltip={s3ResourcePath
+			? `Files present in the bucket of the ${s3ResourcePath} resource.`
+			: 'Files present in the Workspace S3 bucket. You can set the workspace S3 bucket in the settings.'}
 		documentationLink="https://www.windmill.dev/docs/integrations/s3"
 	>
 		<S3FilePickerInner
