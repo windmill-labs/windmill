@@ -3035,6 +3035,11 @@ async fn edit_datatable_config(
     // physical database (enforcement is per database, config is per data
     // table). Check every data table whose database is new or changed, against
     // both the stored global state and the other entries of this request.
+    // Serialized with every other config writer (held until commit) so two
+    // concurrent saves can't both pass the exclusivity scan.
+    sqlx::query(crate::datatable_permissions_api::SHARED_DB_CHECK_LOCK)
+        .execute(&mut *tx)
+        .await?;
     let mut default_disabled: Vec<String> = vec![];
     let mut database_changed_names: Vec<String> = vec![];
     for (name, dt) in new_config.settings.datatables.iter() {

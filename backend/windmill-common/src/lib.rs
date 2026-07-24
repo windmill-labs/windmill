@@ -1203,18 +1203,21 @@ pub async fn create_custom_instance_database(
 
     if let Err(e) = client
         .batch_execute(&format!(
-            // REVOKE PUBLIC CONNECT + CREATEROLE support the fine-grained data
-            // table permissions feature: ephemeral per-user roles must not be
-            // able to hop to other databases on the cluster, and the shared
-            // owner role creates/drops them.
+            // REVOKE PUBLIC CONNECT supports the fine-grained data table
+            // permissions feature: ephemeral per-user roles must not be able
+            // to hop to other databases on the cluster. CREATEROLE for the
+            // shared role is deliberately NOT granted here — this path is
+            // reachable by non-superadmins (fork databases), and on
+            // Postgres < 16 CREATEROLE would let arbitrary user SQL running
+            // as the shared role manage unrelated cluster roles; only the
+            // superadmin settings path grants it.
             "REVOKE CONNECT ON DATABASE \"{dbname}\" FROM PUBLIC;
              GRANT CONNECT ON DATABASE \"{dbname}\" TO custom_instance_user;
              GRANT USAGE ON SCHEMA public TO custom_instance_user;
              GRANT CREATE ON SCHEMA public TO custom_instance_user;
              GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user;
              ALTER DEFAULT PRIVILEGES IN SCHEMA public
-                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;
-             ALTER ROLE custom_instance_user CREATEROLE;"
+                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;"
         ))
         .await
     {

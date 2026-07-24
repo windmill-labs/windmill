@@ -26,6 +26,14 @@ use windmill_common::workspaces::{
 };
 use windmill_common::{PgDatabase, DB};
 
+/// Transaction-scoped advisory lock serializing every shared-database
+/// exclusivity check with the config write it protects. The scan in
+/// [`check_shared_database_forbid`] is a plain read: without mutual exclusion,
+/// two concurrent writers targeting the same physical database could both
+/// observe no conflict and both commit.
+pub(crate) const SHARED_DB_CHECK_LOCK: &str =
+    "SELECT pg_advisory_xact_lock(hashtextextended('wm_dt_shared_db_check', 0))";
+
 pub(crate) fn routes() -> Router {
     Router::new()
         .route(
@@ -212,12 +220,17 @@ async fn set_datatable_permissions(
         check_datatable_permissions_ee_license().await?;
     }
     validate_permissions_config(&perms)?;
+
+    let mut tx = db.begin().await?;
     if perms.enabled {
+        // Serialize the exclusivity scan with every other writer of datatable
+        // configs (same lock in `edit_datatable_config`): two concurrent
+        // enables/creations targeting the same physical database must not both
+        // pass the pre-write check. Held until commit.
+        sqlx::query(SHARED_DB_CHECK_LOCK).execute(&mut *tx).await?;
         check_shared_database_forbid(&db, &w_id, &datatable_name, &config.database, true).await?;
         check_owner_can_create_roles(&db, &w_id, &config).await?;
     }
-
-    let mut tx = db.begin().await?;
     let args_for_audit = format!("{:?}", perms);
     audit_log(
         &mut *tx,

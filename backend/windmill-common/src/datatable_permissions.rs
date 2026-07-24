@@ -547,7 +547,10 @@ async fn harden_instance_databases(db: &DB, target_dbname: &str) -> Result<()> {
 
 /// Ensure the caller's ephemeral role exists with up-to-date grants and a
 /// fresh sliding expiry. Returns `(role_name, cleartext_password)`.
-pub async fn ensure_ephemeral_role(
+/// Deliberately private: live credentials must only flow out through
+/// [`get_datatable_resource_from_db_checked`], which performs the
+/// authorization this function assumes already happened.
+async fn ensure_ephemeral_role(
     db: &DB,
     w_id: &str,
     datatable: &str,
@@ -796,6 +799,7 @@ async fn cleanup_one_expired_role(db: &DB, role: &str, w_id: &str, datatable: &s
                 .map_err(|e| pg_err("checking active sessions", e))?
                 .get(0);
             if active > 0 {
+                disable_role_login(&client, role).await;
                 return Ok(());
             }
             if role_exists(&client, role).await? {
@@ -862,7 +866,37 @@ pub async fn drop_datatable_ephemeral_roles_best_effort(
     }
 }
 
+/// Strip a live role's ability to open new connections. An ordinary role can
+/// `ALTER ROLE CURRENT_USER PASSWORD ...` — so a caller keeping a session open
+/// could otherwise reconnect with a self-chosen password long after
+/// revocation. Only CREATEROLE can restore LOGIN, so this closes the
+/// reconnect vector while letting in-flight queries finish; the kept
+/// bookkeeping row makes the expiry sweep finish the drop later.
+async fn disable_role_login(client: &tokio_postgres::Client, role: &str) {
+    if !role.starts_with(DATATABLE_EPHEMERAL_ROLE_PREFIX) {
+        return;
+    }
+    if let Err(e) = client
+        .batch_execute(&format!(
+            "ALTER ROLE {} NOLOGIN CONNECTION LIMIT 0 PASSWORD NULL",
+            quote_ident(role)
+        ))
+        .await
+    {
+        tracing::warn!("disabling login of ephemeral role {role}: {e:#}");
+    }
+}
+
 async fn teardown_role(db: &DB, w_id: &str, datatable: &str, role: &str) -> Result<()> {
+    // Same per-role lock as role creation and the expiry sweep: without it,
+    // teardown could observe a stale role while a resolver is recreating it
+    // and drop the fresh role right before its bookkeeping row lands, leaving
+    // callers with credentials for a nonexistent role.
+    let mut tx = db.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('wm_dt_role:' || $1, 0))")
+        .bind(role)
+        .execute(&mut *tx)
+        .await?;
     if let Ok(config) = get_datatable_config(db, w_id, datatable).await {
         let owner: PgDatabase =
             serde_json::from_value(datatable_shared_resource(db, w_id, &config).await?)
@@ -881,7 +915,8 @@ async fn teardown_role(db: &DB, w_id: &str, datatable: &str, role: &str) -> Resu
             // and deleting the row would permanently orphan a live role that
             // still holds its old grants (and whose password the caller
             // already has). With the row intact, the expiry sweep retries the
-            // drop once the sessions are gone.
+            // drop once the sessions are gone; meanwhile new logins are cut.
+            disable_role_login(&client, role).await;
             return Ok(());
         }
         if role_exists(&client, role).await? {
@@ -895,8 +930,9 @@ async fn teardown_role(db: &DB, w_id: &str, datatable: &str, role: &str) -> Resu
         "DELETE FROM datatable_ephemeral_role WHERE role_name = $1",
         role
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
     Ok(())
 }
 

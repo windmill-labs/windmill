@@ -1114,6 +1114,11 @@ pub async fn get_datatable_config(db: &DB, w_id: &str, name: &str) -> Result<Dat
 
 /// Credentials of the shared owner role for a data table: `custom_instance_user`
 /// for instance-type, the resource's own credentials for external ones.
+///
+/// Authorization: returns full-access credentials and performs no
+/// authorization — callers MUST have already authorized the caller against
+/// the data table (admin check or
+/// `datatable_permissions::get_datatable_resource_from_db_checked`).
 pub async fn datatable_shared_resource(
     db: &DB,
     w_id: &str,
@@ -1122,11 +1127,12 @@ pub async fn datatable_shared_resource(
     datatable_shared_resource_inner(db, w_id, datatable, false).await
 }
 
-/// Same as [`datatable_shared_resource`] but for postgres trigger connections:
-/// custom-instance datatables resolve to `custom_instance_replication_user`
-/// rather than `custom_instance_user`. BYO-postgres datatables resolve to the
-/// user's own resource unchanged; configuring it for replication there is the
-/// user's responsibility.
+/// Same as [`datatable_shared_resource`] (including its authorization
+/// contract) but for postgres trigger connections: custom-instance datatables
+/// resolve to `custom_instance_replication_user` rather than
+/// `custom_instance_user`. BYO-postgres datatables resolve to the user's own
+/// resource unchanged; configuring it for replication there is the user's
+/// responsibility.
 pub async fn datatable_shared_replication_resource(
     db: &DB,
     w_id: &str,
