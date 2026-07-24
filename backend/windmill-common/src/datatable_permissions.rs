@@ -504,6 +504,31 @@ async fn create_role(
 /// roles, owners or superusers.
 async fn harden_instance_databases(db: &DB, target_dbname: &str) -> Result<()> {
     let main_dbname = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?.dbname;
+    // Also cover legacy instance databases provisioned before the revoke was
+    // added to the setup paths — best-effort (a legacy entry may reference a
+    // since-dropped database), scoped to when the feature is actually in use.
+    let registered: Vec<String> = sqlx::query_scalar::<_, String>(
+        "SELECT jsonb_object_keys(value->'databases') FROM global_settings
+         WHERE name = 'custom_instance_pg_databases'",
+    )
+    .fetch_all(db)
+    .await
+    .unwrap_or_default();
+    for dbname in registered
+        .iter()
+        .map(String::as_str)
+        .filter(|d| *d != target_dbname && *d != main_dbname)
+    {
+        if let Err(e) = sqlx::query(&format!(
+            "REVOKE CONNECT ON DATABASE {} FROM PUBLIC",
+            quote_ident(dbname)
+        ))
+        .execute(db)
+        .await
+        {
+            tracing::warn!("revoking PUBLIC connect on instance database {dbname}: {e:#}");
+        }
+    }
     for dbname in [target_dbname, main_dbname.as_str()] {
         sqlx::query(&format!(
             "REVOKE CONNECT ON DATABASE {} FROM PUBLIC",

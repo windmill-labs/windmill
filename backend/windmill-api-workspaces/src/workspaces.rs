@@ -3041,37 +3041,69 @@ async fn edit_datatable_config(
         if old_datatables.contains_key(lookup) {
             database_changed_names.push(lookup.to_string());
         }
-        let self_enabled = dt.permissions.as_ref().is_some_and(|p| p.enabled);
+        let mut self_enabled = dt.permissions.as_ref().is_some_and(|p| p.enabled);
+        let self_defaulted = self_enabled && old_datatables.get(lookup).is_none();
         let in_request_conflict = new_config.settings.datatables.iter().find(|(n2, dt2)| {
             n2.as_str() != name.as_str()
                 && dt2.database.resource_type == dt.database.resource_type
                 && dt2.database.resource_path == dt.database.resource_path
                 && (self_enabled || dt2.permissions.as_ref().is_some_and(|p| p.enabled))
         });
-        if let Some((n2, _)) = in_request_conflict {
-            return Err(Error::BadRequest(format!(
-                "Data tables '{name}' and '{n2}' point at the same physical database while at \
-                 least one of them has fine-grained permissions enabled; a permissions-enabled \
-                 data table must be the only config using its database."
-            )));
+        if let Some((n2, dt2)) = in_request_conflict {
+            let other_enabled = dt2.permissions.as_ref().is_some_and(|p| p.enabled);
+            let n2_lookup = rename_src.get(n2.as_str()).copied().unwrap_or(n2.as_str());
+            let other_defaulted = other_enabled && old_datatables.get(n2_lookup).is_none();
+            // Same fallback as the global check below: when every enabled side
+            // of the conflict got its enable from the EE new-table default (not
+            // an explicit config), quietly disable instead of blocking the
+            // save. Still fall through to the global check — a stored
+            // permissions-enabled table elsewhere may share this database.
+            if (!self_enabled || self_defaulted) && (!other_enabled || other_defaulted) {
+                if self_defaulted {
+                    default_disabled.push(name.clone());
+                    self_enabled = false;
+                }
+                if other_defaulted {
+                    default_disabled.push(n2.clone());
+                }
+            } else {
+                return Err(Error::BadRequest(format!(
+                    "Data tables '{name}' and '{n2}' point at the same physical database while \
+                     at least one of them has fine-grained permissions enabled; a \
+                     permissions-enabled data table must be the only config using its database."
+                )));
+            }
         }
-        let global_check = crate::datatable_permissions_api::check_shared_database_forbid(
+        // A conflict caused by another (stored) permissions-enabled config is
+        // fatal no matter what this table's own state is — disabling self
+        // would not restore the other table's exclusivity.
+        crate::datatable_permissions_api::check_shared_database_forbid(
             &db,
             &w_id,
             lookup,
             &dt.database,
-            self_enabled,
+            false,
         )
-        .await;
-        if let Err(e) = global_check {
-            let defaulted_new = old_datatables.get(lookup).is_none();
-            if defaulted_new && self_enabled {
-                // The enable came from the EE default, not an explicit request:
-                // fall back to disabled instead of blocking the creation of a
-                // second config on a shared (non-permissioned) database.
-                default_disabled.push(name.clone());
-            } else {
-                return Err(e);
+        .await?;
+        if self_enabled {
+            let global_check = crate::datatable_permissions_api::check_shared_database_forbid(
+                &db,
+                &w_id,
+                lookup,
+                &dt.database,
+                true,
+            )
+            .await;
+            if let Err(e) = global_check {
+                if self_defaulted {
+                    // The enable came from the EE default, not an explicit
+                    // request: fall back to disabled instead of blocking the
+                    // creation of a second config on a shared
+                    // (non-permissioned) database.
+                    default_disabled.push(name.clone());
+                } else {
+                    return Err(e);
+                }
             }
         }
     }
