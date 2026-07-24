@@ -361,15 +361,30 @@ async fn list_runnables(
             }
         }
     };
-    let script_scope = scope_where(
-        build_scope_path_filter(&authed, "scripts", "read"),
-        &mut binds,
-    );
-    let flow_scope = scope_where(
-        build_scope_path_filter(&authed, "flows", "read"),
-        &mut binds,
-    );
-    let app_scope = scope_where(build_scope_path_filter(&authed, "apps", "read"), &mut binds);
+    // Only push scope binds for kinds whose branch is actually included: a scoped token
+    // with e.g. `kinds=script` omits the flow/app branches, so binding their scope values
+    // (which no SQL references) would make the parameter count mismatch and 500.
+    let script_scope = if kinds.contains(&"script") {
+        scope_where(
+            build_scope_path_filter(&authed, "scripts", "read"),
+            &mut binds,
+        )
+    } else {
+        None
+    };
+    let flow_scope = if kinds.contains(&"flow") {
+        scope_where(
+            build_scope_path_filter(&authed, "flows", "read"),
+            &mut binds,
+        )
+    } else {
+        None
+    };
+    let app_scope = if kinds.contains(&"app") {
+        scope_where(build_scope_path_filter(&authed, "apps", "read"), &mut binds)
+    } else {
+        None
+    };
 
     // Per-kind archived predicate (scripts/flows have the column; apps don't and
     // are excluded from the archived view).
