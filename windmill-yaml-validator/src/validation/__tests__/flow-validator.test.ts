@@ -88,6 +88,16 @@ describe("WindmillYamlValidator", () => {
           },
         });
       });
+      it("should validate a flow with default retry and stop_after_if fields (WIN-2048)", () => {
+        // The server serialises unset retry/stop_after_if defaults as
+        // seconds: 0, random_factor: null and error_message: null. These must
+        // round-trip through the linter without errors.
+        const validFlow = readSample("valid-default-retry-stop-after-if.yaml");
+
+        const result = validator.validate(validFlow, { type: "flow" });
+
+        expect(result.errors).toHaveLength(0);
+      });
     });
 
     describe("invalid flows", () => {

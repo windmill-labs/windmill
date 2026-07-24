@@ -152,10 +152,11 @@ components:
               description: Multiplier for exponential backoff
             seconds:
               type: integer
-              minimum: 1
+              minimum: 0
               description: Initial delay in seconds
             random_factor:
               type: integer
+              nullable: true
               minimum: 0
               maximum: 100
               description: Random jitter percentage (0-100) to avoid thundering herd
