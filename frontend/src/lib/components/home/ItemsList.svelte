@@ -221,10 +221,10 @@
 
 	const cmp = new Intl.Collator('en').compare
 
-	// Sort options are computed entirely client-side over the already-loaded item
-	// fields (`time`, `path`, `summary`), so the backend query is unchanged and
-	// adding options costs it nothing even on very large workspaces. Starred items
-	// stay pinned on top of every order.
+	// Sorting is done client-side over fields the list already holds (`time`,
+	// `path`, `summary`): the list fetches every item up front, so no per-order
+	// backend query or index is needed even on very large workspaces. Starred
+	// items are pinned on top in every order.
 	type SortOrder = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc'
 	const SORT_SETTING_NAME = 'homeSort'
 	const sortOptions: { value: SortOrder; label: string }[] = [
@@ -249,23 +249,29 @@
 	function sortName(x: { summary?: string; path: string }): string {
 		return x.summary && x.summary !== '' ? x.summary : x.path
 	}
-	function compareItems(
-		a: { starred?: boolean; time?: number; summary?: string; path: string },
-		b: { starred?: boolean; time?: number; summary?: string; path: string }
-	): number {
-		if (a.starred != b.starred) return a.starred ? -1 : 1
-		switch (sortOrder) {
-			case 'updated_asc':
-				return (a.time ?? 0) - (b.time ?? 0)
-			case 'name_asc':
-				return cmp(sortName(a), sortName(b))
-			case 'name_desc':
-				return cmp(sortName(b), sortName(a))
-			case 'updated_desc':
-			default:
-				return (b.time ?? 0) - (a.time ?? 0)
+	// A $derived closure so its identity changes with `sortOrder`, which both
+	// re-runs `combinedItems` (flat view) and re-groups the tree (TreeViewRoot
+	// depends on this prop). Starred items are pinned on top in every order.
+	let compareItems = $derived.by(() => {
+		const order = sortOrder
+		return (
+			a: { starred?: boolean; time?: number; summary?: string; path: string },
+			b: { starred?: boolean; time?: number; summary?: string; path: string }
+		): number => {
+			if (!!a.starred !== !!b.starred) return a.starred ? -1 : 1
+			switch (order) {
+				case 'updated_asc':
+					return (a.time ?? 0) - (b.time ?? 0)
+				case 'name_asc':
+					return cmp(sortName(a), sortName(b))
+				case 'name_desc':
+					return cmp(sortName(b), sortName(a))
+				case 'updated_desc':
+				default:
+					return (b.time ?? 0) - (a.time ?? 0)
+			}
 		}
-	}
+	})
 
 	const opts: uFuzzy.Options = {
 		sort: (info, haystack, needle) => {
@@ -963,6 +969,7 @@
 				{items}
 				{nbDisplayed}
 				{collapseAll}
+				sortCompare={compareItems}
 				pipelineFolders={visiblePipelineFolders}
 				isSearching={filter !== ''}
 				on:scriptChanged={() => loadScripts(includeWithoutMain)}

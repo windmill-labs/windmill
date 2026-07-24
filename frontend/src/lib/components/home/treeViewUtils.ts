@@ -48,7 +48,18 @@ function insertItemInFolder(
 	})
 }
 
-export function groupItems(items: ItemType[] | undefined): (ItemType | FolderItem | UserItem)[] {
+// Default leaf ordering when the caller doesn't impose one: starred first, then
+// most recently modified. Folders/users always sort alphabetically regardless.
+const defaultLeafCompare = (a: ItemType, b: ItemType): number => {
+	if (a.starred && !b.starred) return -1
+	if (!a.starred && b.starred) return 1
+	return getModifiedAt(b) - getModifiedAt(a)
+}
+
+export function groupItems(
+	items: ItemType[] | undefined,
+	leafCompare: (a: ItemType, b: ItemType) => number = defaultLeafCompare
+): (ItemType | FolderItem | UserItem)[] {
 	if (!items) {
 		return []
 	}
@@ -88,12 +99,15 @@ export function groupItems(items: ItemType[] | undefined): (ItemType | FolderIte
 		return (a['username'] ?? a['folderName'] ?? '').localeCompare(b['username'] ?? b['folderName'])
 	})
 
-	sortGroup(root)
+	sortGroup(root, leafCompare)
 
 	return root
 }
 
-function sortGroup(group: (ItemType | FolderItem | UserItem)[]) {
+function sortGroup(
+	group: (ItemType | FolderItem | UserItem)[],
+	leafCompare: (a: ItemType, b: ItemType) => number
+) {
 	group.forEach((item) => {
 		if ('items' in item) {
 			item.items.sort((a, b) => {
@@ -107,14 +121,12 @@ function sortGroup(group: (ItemType | FolderItem | UserItem)[]) {
 					return 1
 				}
 				if (isItemType(a) && isItemType(b)) {
-					if (a.starred && !b.starred) return -1
-					if (!a.starred && b.starred) return 1
-					return getModifiedAt(b) - getModifiedAt(a)
+					return leafCompare(a, b)
 				}
 				return 0
 			})
 
-			sortGroup(item.items)
+			sortGroup(item.items, leafCompare)
 		}
 	})
 }

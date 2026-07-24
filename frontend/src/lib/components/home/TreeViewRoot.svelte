@@ -10,6 +10,7 @@
 		items: ItemType[] | undefined
 		isSearching?: boolean
 		pipelineFolders?: Set<string>
+		sortCompare?: (a: ItemType, b: ItemType) => number
 	}
 
 	let {
@@ -18,7 +19,8 @@
 		nbDisplayed = $bindable(),
 		items,
 		isSearching = false,
-		pipelineFolders
+		pipelineFolders,
+		sortCompare
 	}: Props = $props()
 
 	let groupedItems: ReturnType<typeof groupItems> | 'loading' = $state('loading')
@@ -26,8 +28,9 @@
 		items
 		pipelineFolders
 		isSearching
+		sortCompare
 		untrack(() => {
-			const grouped = groupItems(items)
+			const grouped = groupItems(items, sortCompare)
 			// Ensure every pipeline folder is present at the top level so its
 			// "Pipeline" entry shows even when it has no listed items — a bundle-phase
 			// pipeline (only a draft so far) or a folder whose only scripts are
