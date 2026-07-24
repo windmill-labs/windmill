@@ -43,7 +43,7 @@ impl McpClient {
         // The resource URL is author-controlled and we send a (potentially
         // secret) bearer token to it, so it must be validated against SSRF
         // before we connect (e.g. cloud metadata endpoints, internal services).
-        windmill_common::ssrf::validate_mcp_server_url(&resource.url)
+        let validated = windmill_common::ssrf::validate_mcp_server_url(&resource.url)
             .await
             .map_err(|e| {
                 anyhow::anyhow!(
@@ -76,14 +76,24 @@ impl McpClient {
             }
         }
 
-        let reqwest_client = reqwest::Client::builder()
+        let mut client_builder = reqwest::Client::builder()
             .default_headers(headers)
             // Don't follow redirects: the SSRF check above only validates the
             // initial (author-controlled) URL, so following a redirect could
             // still reach a private/internal address with the bearer token
             // attached. The MCP streamable-HTTP endpoint is a direct endpoint
             // and does not legitimately rely on redirects.
-            .redirect(reqwest::redirect::Policy::none())
+            .redirect(reqwest::redirect::Policy::none());
+        // Pin DNS to the address validated above so the connect cannot rebind to
+        // an internal IP between the check and the request. `apply_dns_pinning`
+        // lives on windmill-common's reqwest, but this crate resolves a
+        // different reqwest version (via rmcp), so pin directly with the
+        // std-typed host/addrs the validation surfaced. Empty addrs (IP literal
+        // or ALLOW_PRIVATE_MCP_SERVER_URLS) leave resolution untouched.
+        if !validated.addrs.is_empty() {
+            client_builder = client_builder.resolve_to_addrs(&validated.host, &validated.addrs);
+        }
+        let reqwest_client = client_builder
             .build()
             .context("Failed to build HTTP client")?;
 
