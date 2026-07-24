@@ -320,13 +320,26 @@
 	}
 
 	async function setJobsResolution(jobIds: string[], resolved: boolean, note?: string) {
-		const workspace = $workspaceStore ?? ''
-		const affected = resolved
-			? await JobService.resolveCompletedJobs({
-					workspace,
-					requestBody: { job_ids: jobIds, note: note || undefined }
-				})
-			: await JobService.unresolveCompletedJobs({ workspace, requestBody: { job_ids: jobIds } })
+		// The endpoint scopes rows to the path workspace, so in the admins all-workspaces
+		// view a selection spanning workspaces has to be dispatched per workspace or the
+		// out-of-workspace ids are silently skipped. Same reason cancel_selection groups.
+		const byWorkspace = new Map<string, string[]>()
+		for (const id of jobIds) {
+			const ws = jobs?.find((j) => j.id === id)?.workspace_id ?? $workspaceStore ?? ''
+			byWorkspace.set(ws, [...(byWorkspace.get(ws) ?? []), id])
+		}
+		const affected = (
+			await Promise.all(
+				[...byWorkspace].map(([workspace, ids]) =>
+					resolved
+						? JobService.resolveCompletedJobs({
+								workspace,
+								requestBody: { job_ids: ids, note: note || undefined }
+							})
+						: JobService.unresolveCompletedJobs({ workspace, requestBody: { job_ids: ids } })
+				)
+			)
+		).flat()
 		selectedIds = []
 		manualSelectionMode = undefined
 		resolutionNote = ''

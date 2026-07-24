@@ -1063,6 +1063,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 root,
                 &completed_job.workspace_id,
                 completed_job.id,
+                completed_job.runnable_id,
             )
             .await
             {
@@ -1711,20 +1712,29 @@ async fn restart_job_if_perpetual_inner(
 }
 
 /// Marks the failures a succeeding native retry attempt superseded as resolved, so
-/// triage surfaces stop showing red for a chain that ultimately worked. `root` is the
-/// first attempt and the whole chain hangs off it via `parent_job` (see
-/// `maybe_enqueue_native_script_retry`), so `j.id = root OR j.parent_job = root` is the
-/// chain. `resolved_by` stays NULL to mark the resolution as automatic, and
-/// `ON CONFLICT DO NOTHING` keeps a human's note intact.
+/// triage surfaces stop showing red for a chain that ultimately worked. `resolved_by`
+/// stays NULL to mark the resolution as automatic, and `ON CONFLICT DO NOTHING` keeps a
+/// human's note intact.
 ///
-/// `succeeded_id` must be the job that just succeeded: requiring it to carry a
-/// `native_retry_attempt` marker is what keeps other same-parent children (WAC inline
-/// jobs, error handlers) from resolving a chain they are not part of.
+/// Membership of the chain must be *proven* per row, never inferred from `parent_job`
+/// alone: `root` is `job.parent_job.unwrap_or(job.id)`, so for a job launched with an
+/// explicit `parent_job` (WAC inline children, SDK-launched children) `root` is the
+/// *calling* job, and its other failed children are unrelated. Resolving those would hide
+/// exactly the failures this feature exists to surface, so each row must be either
+/// - a job carrying a `native_retry_attempt` marker under `root` (provably an attempt), or
+/// - `root` itself as the original attempt, which is only provable when `root` is
+///   parentless and unmarked.
+///
+/// Both arms also require the same `runnable_id` as the succeeding attempt, since every
+/// attempt in a chain runs the same runnable. The deliberate cost is a miss, not an
+/// over-reach: when the original attempt had a parent it is an unmarked sibling
+/// indistinguishable from any other child of the caller, so it stays red.
 pub async fn resolve_superseded_retry_attempts(
     db: &Pool<Postgres>,
     root: Uuid,
     workspace_id: &str,
     succeeded_id: Uuid,
+    runnable_id: Option<ScriptHash>,
 ) -> Result<(), Error> {
     sqlx::query!(
         "INSERT INTO job_resolution (job_id, workspace_id, resolved_by, note)
@@ -1733,12 +1743,19 @@ pub async fn resolve_superseded_retry_attempts(
                 JOIN v2_job j ON j.id = c.id
                 WHERE c.status = 'failure'
                     AND c.workspace_id = $2
-                    AND (j.id = $1 OR j.parent_job = $1)
+                    AND j.runnable_id IS NOT DISTINCT FROM $4
                     AND EXISTS (SELECT 1 FROM native_retry_attempt WHERE job_id = $3)
+                    AND (
+                        (j.parent_job = $1
+                            AND EXISTS (SELECT 1 FROM native_retry_attempt WHERE job_id = c.id))
+                        OR (c.id = $1 AND j.parent_job IS NULL
+                            AND NOT EXISTS (SELECT 1 FROM native_retry_attempt WHERE job_id = c.id))
+                    )
             ON CONFLICT (job_id) DO NOTHING",
         root,
         workspace_id,
         succeeded_id,
+        runnable_id.map(|h| h.0),
     )
     .execute(db)
     .await?;

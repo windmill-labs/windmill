@@ -377,9 +377,14 @@ mod native_retry {
     #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
     async fn succeeding_retry_resolves_the_attempts_it_superseded(db: Pool<Postgres>) {
         // a: root fails, its marked retry succeeds -> both resolve, status stays 'failure'
+        // a_sibling: an unmarked child of the SAME root that failed on its own (a WAC
+        //   inline job or an SDK-launched child) -> must stay unresolved. `root` is
+        //   `parent_job.unwrap_or(id)`, so sharing a parent proves nothing about chain
+        //   membership; resolving this would hide an unhandled failure.
         // b: an unrelated failure -> must stay unresolved
-        // f: root fails, an unmarked WAC inline child succeeds -> must stay unresolved
-        let (a, a_retry, b, f, f_child) = (
+        // f: root fails, an unmarked child succeeds -> must not trigger any resolution
+        let (a, a_retry, a_sibling, b, f, f_child) = (
+            Uuid::new_v4(),
             Uuid::new_v4(),
             Uuid::new_v4(),
             Uuid::new_v4(),
@@ -388,6 +393,7 @@ mod native_retry {
         );
         seed_job(&db, a, None, false, "failure").await;
         seed_job(&db, a_retry, Some(a), true, "failure").await;
+        seed_job(&db, a_sibling, Some(a), false, "failure").await;
         seed_job(&db, b, None, false, "failure").await;
         seed_job(&db, f, None, false, "failure").await;
         seed_job(&db, f_child, Some(f), false, "success").await;
@@ -403,11 +409,11 @@ mod native_retry {
 
         let succeeded = Uuid::new_v4();
         seed_job(&db, succeeded, Some(a), true, "success").await;
-        windmill_queue::jobs::resolve_superseded_retry_attempts(&db, a, WS, succeeded)
+        windmill_queue::jobs::resolve_superseded_retry_attempts(&db, a, WS, succeeded, None)
             .await
             .unwrap();
         // The unmarked child must not be able to resolve its own chain.
-        windmill_queue::jobs::resolve_superseded_retry_attempts(&db, f, WS, f_child)
+        windmill_queue::jobs::resolve_superseded_retry_attempts(&db, f, WS, f_child, None)
             .await
             .unwrap();
 
@@ -435,6 +441,10 @@ mod native_retry {
             by_id.get(&a_retry),
             Some(&(None, None)),
             "the superseded attempt resolves automatically (resolved_by NULL)"
+        );
+        assert!(
+            !by_id.contains_key(&a_sibling),
+            "an unmarked failed child sharing the root is not part of the chain"
         );
         assert!(
             !by_id.contains_key(&b),
