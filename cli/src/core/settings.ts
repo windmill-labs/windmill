@@ -217,9 +217,8 @@ export async function pushWorkspaceSettings(
     throw new Error(`Failed to get workspace settings: ${err}`);
   }
 
-  // Exclude read-only fields from comparison (slack_team_id and slack_name are set via OAuth only).
-  // name is excluded too: the workspace display name is per-instance UX, not applied on pull (see below),
-  // so a name-only diff must not force the rest of the settings to re-apply.
+  // Exclude fields that are never applied here: slack_team_id/slack_name are OAuth-only,
+  // and name is not applied on pull (see below), so a name-only diff stays a no-op.
   const { slack_team_id: _lst, slack_name: _lsn, name: _ln, ...comparableLocal } = localSettings;
   const { slack_team_id: _rst, slack_name: _rsn, name: _rn, ...comparableRemote } = settings;
   if (isSuperset(comparableLocal, comparableRemote)) {
@@ -366,11 +365,10 @@ export async function pushWorkspaceSettings(
     });
   }
 
-  // The workspace display name is intentionally not applied on pull. It is a
-  // per-instance property, and settings.yaml is shared across the branches of a
-  // repo, so applying it would let one workspace's name overwrite another's when
-  // two workspaces sync the same repo. name stays in settings.yaml for reference
-  // (written on push), but only the workspace owner renames a live workspace.
+  // Workspace display name is intentionally not applied on pull: settings.yaml is shared
+  // across a repo's branches, so applying it would let one workspace's name overwrite
+  // another's when both sync the same repo. It stays in the file (written on push), but a
+  // live workspace is only renamed by its owner.
 
   if (localSettings.mute_critical_alerts != settings.mute_critical_alerts) {
     log.debug(`Updating mute critical alerts...`);

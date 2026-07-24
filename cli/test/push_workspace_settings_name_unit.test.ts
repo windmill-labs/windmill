@@ -1,11 +1,6 @@
 /**
- * Unit tests for workspace-name handling in pushWorkspaceSettings (settings.ts).
- *
- * A pull applies the tracked settings.yaml onto the workspace. The workspace
- * display name lives in settings.yaml but must NOT be applied on pull: it is a
- * per-instance property, and settings.yaml is shared across the branches of a
- * repo, so applying it lets one workspace's name overwrite another's when two
- * workspaces sync the same repo. These tests pin that name is never pushed.
+ * Regression guard: a pull (pushWorkspaceSettings) must not apply the workspace
+ * display name from settings.yaml. Rationale lives at the apply site in settings.ts.
  */
 
 import { expect, test, describe, beforeEach, mock } from "bun:test";
