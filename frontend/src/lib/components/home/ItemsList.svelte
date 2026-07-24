@@ -524,14 +524,15 @@
 	let compareItems = $derived.by(() => {
 		const order = sortOrder
 		return (
-			a: { starred?: boolean; time?: number; summary?: string; path: string },
-			b: { starred?: boolean; time?: number; summary?: string; path: string }
+			a: { starred?: boolean; time?: number; summary?: string; path: string; type?: string },
+			b: { starred?: boolean; time?: number; summary?: string; path: string; type?: string }
 		): number => {
 			if (!!a.starred !== !!b.starred) return a.starred ? -1 : 1
 			// Match the endpoint's ordering exactly so a row on a later server page can't
-			// jump above already-shown rows on "load more": names compare case-insensitively
-			// (the endpoint sorts on `lower(summary-or-path)`), and the secondary key is the
-			// path in the SAME direction as the primary (server: `<col> <dir>, path <dir>`).
+			// jump above already-shown rows on "load more". The server orders by
+			// `<col> <dir>, path <dir>, kind <dir>`: names compare case-insensitively (it
+			// sorts on `lower(summary-or-path)`), then path, then kind ('app' < 'flow' <
+			// 'script'), each in the same direction as the primary.
 			let primary: number
 			let asc: boolean
 			switch (order) {
@@ -554,7 +555,7 @@
 					break
 			}
 			if (primary !== 0) return primary
-			const p = a.path.localeCompare(b.path)
+			const p = a.path.localeCompare(b.path) || (a.type ?? '').localeCompare(b.type ?? '')
 			return asc ? p : -p
 		}
 	})
@@ -929,9 +930,9 @@
 	})
 
 	let selectedIndex: number = $state(-1)
-	// More to show: either loaded items not yet sliced in, or the server has
-	// further browse pages (not while searching — search loads one large page and
-	// filters client-side).
+	// More to show: either loaded items not yet sliced in, or the server has further
+	// browse pages (not while searching — the browse cursor is paused then; further
+	// search matches load on demand via searchCursor / "Load more results").
 	let hasMore = $derived(
 		items != undefined && (items.length > nbDisplayed || (hasMoreServer && !searching))
 	)
