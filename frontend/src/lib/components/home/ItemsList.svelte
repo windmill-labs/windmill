@@ -486,10 +486,10 @@
 	// the first page.
 	type SortOrder = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc'
 	const SORT_SETTING_NAME = 'homeSort'
-	// `short` labels the trigger button for non-default sorts; the default (recently
-	// updated) shows the icon only, so its short label is empty.
+	// `short` labels the trigger button next to the sort icon (the button is icon-only
+	// only while searching, when sorting is disabled — see below).
 	const sortOptions: { value: SortOrder; label: string; short: string }[] = [
-		{ value: 'updated_desc', label: 'Recently updated', short: '' },
+		{ value: 'updated_desc', label: 'Recently updated', short: 'Recent' },
 		{ value: 'updated_asc', label: 'Oldest updated', short: 'Oldest' },
 		{ value: 'name_asc', label: 'Name (A-Z)', short: 'A-Z' },
 		{ value: 'name_desc', label: 'Name (Z-A)', short: 'Z-A' }
