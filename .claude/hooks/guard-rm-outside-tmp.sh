@@ -17,10 +17,15 @@ command -v jq >/dev/null 2>&1 || exit 0
 cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null)
 [ -z "$cmd" ] && exit 0
 
-# Multi-line commands, shell operators/redirection, or expansion metacharacters
-# ($ ` ~ { } ( )): the post-expansion targets can't be proven from the raw string — defer.
-case "$cmd" in *$'\n'*) exit 0 ;; esac
-printf '%s' "$cmd" | grep -Eq '[;&|<>`(){}$~]' && exit 0
+# Defer on anything bash would transform before `rm` sees the operand, so the raw token we
+# canonicalize is exactly what gets deleted: newlines/operators/redirection (new commands),
+# expansion metacharacters ($ ` ~ { } ( )), and quotes/backslash (quote removal can hide a
+# `..` from realpath, e.g. rm /tmp/"../etc/x" or rm /tmp/\../etc/x).
+case "$cmd" in
+  *$'\n'* | *\'* | *\"* | *\\* | *\`* | *\$* | *\~* \
+  | *\;* | *\&* | *\|* | *\<* | *\>* | *\(* | *\)* | *\{* | *\}* )
+    exit 0 ;;
+esac
 
 # Must be a bare, leading `rm` — no sudo/env/timeout/command wrappers, no `/bin/rm` path.
 read -r -a toks <<< "$cmd"
