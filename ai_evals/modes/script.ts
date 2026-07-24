@@ -3,6 +3,7 @@ import type { BackendValidationSettings } from "../core/backendValidation";
 import type { FrontendEvalModelConfig } from "../core/models";
 import { validateScriptState } from "../core/validators";
 import type { BenchmarkArtifactFile, ModeRunner } from "../core/types";
+import { formatPreviewFailureDetails } from "../core/previewFailureDetails";
 import { BackendPreviewClient } from "../adapters/frontend/backendPreview";
 import { runScriptEval } from "../adapters/frontend/core/script/scriptEvalRunner";
 import type { ScriptEvalState } from "../adapters/frontend/core/script/fileHelpers";
@@ -90,7 +91,12 @@ export function createScriptModeRunner(
                 passed: completedJob.success,
                 details: completedJob.success
                   ? `workspace=${workspaceId}`
-                  : `workspace=${workspaceId}; job=${completedJob.id}`,
+                  : formatPreviewFailureDetails({
+                      workspaceId,
+                      jobId: completedJob.id,
+                      logs: completedJob.logs,
+                      result: completedJob.result,
+                    }),
               },
             ],
             artifactFiles: [
