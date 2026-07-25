@@ -148,7 +148,7 @@
 	let dbtTitle = $derived.by(() => {
 		const d = data.dbt
 		if (!d) return ''
-		const lines = [`dbt ${d.resource_type} ${d.unique_id.split('.').pop()} (${d.producer_path})`]
+		const lines = [`dbt ${d.resource_type}: ${d.unique_id}`]
 		if (d.materialized) {
 			const strategy = d.materialize_strategy ? ` -> ${d.materialize_strategy}` : ''
 			lines.push(`materialized: ${d.materialized}${strategy}`)

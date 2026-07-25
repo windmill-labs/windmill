@@ -23,9 +23,11 @@ export interface AssetGraphAssetNode {
 	dbt?: DbtAssetProvenance
 }
 
+// Describes the RELATION, not a producer: several dbt scripts (different
+// selections of one project) can materialize the same model, and the producer
+// edges already name them.
 export interface DbtAssetProvenance {
 	unique_id: string
-	producer_path: string
 	resource_type: 'model' | 'snapshot' | 'seed' | 'source' | (string & {})
 	// dbt's own word (`table`, `view`, `incremental`, `snapshot`). Kept because
 	// `view` and `ephemeral` have no Windmill write-strategy analogue.

@@ -641,7 +641,6 @@ struct GraphAssetNode {
 #[derive(Serialize, Debug, Clone)]
 struct DbtAssetProvenance {
     unique_id: String,
-    producer_path: String,
     // `model` | `snapshot` | `seed` | `source` — a source is read, not written,
     // and the canvas distinguishes them.
     resource_type: String,
@@ -1122,7 +1121,9 @@ async fn asset_graph(
 
     // dbt provenance. A dbt script is one runnable node whose models are many
     // `table://` asset nodes (decision 15), so the per-model metadata has to
-    // hang off the assets, not off the script. Fetched unfiltered for the same
+    // hang off the assets, not off the script. It describes the RELATION, not a
+    // producer: several dbt scripts (different selections of one project) can
+    // materialize the same model, and the producer edges already name them. Fetched unfiltered for the same
     // reason the macro definitions are: an out-of-folder dbt script still has
     // to explain the models an in-scope consumer reads.
     let dbt_rows = sqlx::query!(
@@ -1203,7 +1204,6 @@ async fn asset_graph(
             asset_path.to_string(),
             DbtAssetProvenance {
                 unique_id: r.unique_id.clone(),
-                producer_path: r.script_path.clone(),
                 resource_type: r.resource_type.clone(),
                 materialized: r.materialized.clone(),
                 materialize_strategy: r.materialize_strategy.clone(),
