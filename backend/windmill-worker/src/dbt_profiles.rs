@@ -13,19 +13,53 @@ use windmill_common::error::{self, Error};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DbtAdapter {
     Postgres,
+    Redshift,
+    Mysql,
+    Duckdb,
+    Clickhouse,
     Snowflake,
     Bigquery,
     Databricks,
+    Salesforce,
+    Mssql,
+    OracleDB,
 }
 
 impl DbtAdapter {
     pub fn from_resource_type(rt: &str) -> Option<Self> {
         match rt {
             "postgresql" | "postgres" => Some(DbtAdapter::Postgres),
+            "redshift" => Some(DbtAdapter::Redshift),
+            "mysql" => Some(DbtAdapter::Mysql),
+            "duckdb" => Some(DbtAdapter::Duckdb),
+            "clickhouse" => Some(DbtAdapter::Clickhouse),
             "snowflake" | "snowflake_oauth" => Some(DbtAdapter::Snowflake),
             "bigquery" | "gcp_service_account" => Some(DbtAdapter::Bigquery),
             "databricks" => Some(DbtAdapter::Databricks),
+            "salesforce" => Some(DbtAdapter::Salesforce),
+            "ms_sql_server" | "mssql" | "sqlserver" | "fabric" => Some(DbtAdapter::Mssql),
+            "oracledb" | "oracle" => Some(DbtAdapter::OracleDB),
             _ => None,
+        }
+    }
+
+    /// Whether this adapter needs an enterprise license.
+    ///
+    /// The boundary is not invented for dbt: it mirrors the two native script
+    /// languages that are still enterprise-gated. Every other warehouse dbt can
+    /// reach has a CE `ScriptLang`, so gating its dbt adapter would be stricter
+    /// than running the same query natively.
+    pub fn requires_enterprise(&self) -> bool {
+        matches!(self, DbtAdapter::Mssql | DbtAdapter::OracleDB)
+    }
+
+    /// The name used in the licensing error, matching how the native languages
+    /// name themselves.
+    fn display_name(&self) -> &'static str {
+        match self {
+            DbtAdapter::Mssql => "Microsoft SQL server",
+            DbtAdapter::OracleDB => "Oracle DB",
+            _ => self.dbt_type(),
         }
     }
 
@@ -51,9 +85,16 @@ impl DbtAdapter {
     pub fn dbt_type(&self) -> &'static str {
         match self {
             DbtAdapter::Postgres => "postgres",
+            DbtAdapter::Redshift => "redshift",
+            DbtAdapter::Mysql => "mysql",
+            DbtAdapter::Duckdb => "duckdb",
+            DbtAdapter::Clickhouse => "clickhouse",
             DbtAdapter::Snowflake => "snowflake",
             DbtAdapter::Bigquery => "bigquery",
             DbtAdapter::Databricks => "databricks",
+            DbtAdapter::Salesforce => "salesforce",
+            DbtAdapter::Mssql => "sqlserver",
+            DbtAdapter::OracleDB => "oracle",
         }
     }
 
@@ -62,11 +103,72 @@ impl DbtAdapter {
     pub fn pip_package(&self) -> &'static str {
         match self {
             DbtAdapter::Postgres => "dbt-postgres",
+            DbtAdapter::Redshift => "dbt-redshift",
+            DbtAdapter::Mysql => "dbt-mysql",
+            DbtAdapter::Duckdb => "dbt-duckdb",
+            DbtAdapter::Clickhouse => "dbt-clickhouse",
             DbtAdapter::Snowflake => "dbt-snowflake",
             DbtAdapter::Bigquery => "dbt-bigquery",
             DbtAdapter::Databricks => "dbt-databricks",
+            DbtAdapter::Salesforce => "dbt-salesforce",
+            DbtAdapter::Mssql => "dbt-sqlserver",
+            DbtAdapter::OracleDB => "dbt-oracle",
         }
     }
+
+    /// Only meaningful for the host/port adapters rendered from a resource.
+    fn default_port(&self) -> i64 {
+        match self {
+            DbtAdapter::Mysql => 3306,
+            DbtAdapter::Mssql => 1433,
+            DbtAdapter::OracleDB => 1521,
+            _ => 5432,
+        }
+    }
+
+    /// dbt spells the database differently per adapter.
+    fn database_key(&self) -> &'static str {
+        match self {
+            DbtAdapter::Mysql => "schema",
+            DbtAdapter::Mssql => "database",
+            DbtAdapter::OracleDB => "database",
+            _ => "dbname",
+        }
+    }
+}
+
+/// Whether this build may use the enterprise-only adapters.
+///
+/// Two conditions, both required. `LICENSE_KEY_VALID` alone is not enough: the
+/// OSS variant of `ee_oss` initializes it to `true`, so reading it on a CE
+/// build would wave everything through. The `cfg` establishes it is an
+/// enterprise build; the atomic then reports whether that build's key actually
+/// verified.
+fn enterprise_licensed() -> bool {
+    #[cfg(feature = "enterprise")]
+    {
+        windmill_common::ee_oss::LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    #[cfg(not(feature = "enterprise"))]
+    {
+        false
+    }
+}
+
+/// Reject an enterprise-only adapter on an unlicensed build.
+///
+/// Unlike the native languages, this cannot be a compile-time gate: there is
+/// one dbt executor and the adapter is only known once the profile resolves. So
+/// it is checked at both deploy and run — and it says so plainly, rather than
+/// letting the run fail later with a connection error the user cannot act on.
+pub fn ensure_adapter_licensed(adapter: DbtAdapter) -> error::Result<()> {
+    if adapter.requires_enterprise() && !enterprise_licensed() {
+        return Err(Error::BadRequest(format!(
+            "{} is only available with an enterprise license",
+            adapter.display_name()
+        )));
+    }
+    Ok(())
 }
 
 fn s(v: &Value, k: &str) -> Option<String> {
@@ -108,18 +210,35 @@ pub fn render_profile(
     let database;
 
     match adapter {
-        DbtAdapter::Postgres => {
-            let host = s(resource, "host")
-                .ok_or_else(|| Error::BadRequest("postgres resource has no `host`".to_string()))?;
-            let dbname = s(resource, "dbname").ok_or_else(|| {
-                Error::BadRequest("postgres resource has no `dbname`".to_string())
+        // Redshift, MySQL, SQL Server and Oracle all take the same
+        // host/port/user/password/database shape as Postgres in both dbt and
+        // Windmill's resource types, so one arm renders them; only the default
+        // port and the database key differ.
+        DbtAdapter::Postgres
+        | DbtAdapter::Redshift
+        | DbtAdapter::Mysql
+        | DbtAdapter::Mssql
+        | DbtAdapter::OracleDB => {
+            let host = s(resource, "host").ok_or_else(|| {
+                Error::BadRequest(format!("{} resource has no `host`", adapter.dbt_type()))
             })?;
+            let dbname = s(resource, "dbname")
+                .or_else(|| s(resource, "database"))
+                .or_else(|| s(resource, "service_name"))
+                .ok_or_else(|| {
+                    Error::BadRequest(format!(
+                        "{} resource has no `dbname`/`database`",
+                        adapter.dbt_type()
+                    ))
+                })?;
             out.push(("host".into(), host));
             out.push((
                 "port".into(),
-                n(resource, "port").unwrap_or(5432).to_string(),
+                n(resource, "port")
+                    .unwrap_or(adapter.default_port())
+                    .to_string(),
             ));
-            out.push(("dbname".into(), dbname.clone()));
+            out.push((adapter.database_key().into(), dbname.clone()));
             database = Some(dbname);
             if let Some(u) = s(resource, "user") {
                 out.push(("user".into(), u));
@@ -130,9 +249,23 @@ pub fn render_profile(
             if let Some(m) = s(resource, "sslmode") {
                 out.push(("sslmode".into(), m));
             }
-            schema = schema
-                .or_else(|| s(resource, "schema"))
-                .or(Some("public".into()));
+            schema = schema.or_else(|| s(resource, "schema")).or(Some(
+                match adapter {
+                    DbtAdapter::Mssql => "dbo",
+                    _ => "public",
+                }
+                .into(),
+            ));
+        }
+        // No Windmill resource type carries these; they are reachable through
+        // the project's own `profiles.yml` (`profile.profiles_yml`), which is
+        // the path that exists precisely so an unmodified project runs as-is.
+        DbtAdapter::Duckdb | DbtAdapter::Clickhouse | DbtAdapter::Salesforce => {
+            return Err(Error::BadRequest(format!(
+                "the `{}` adapter has no Windmill resource mapping; point \
+                 `profile.profiles_yml` at the project's own profiles.yml instead",
+                adapter.dbt_type()
+            )));
         }
         DbtAdapter::Snowflake => {
             let account = s(resource, "account_identifier")
@@ -263,13 +396,56 @@ mod tests {
         assert!(p
             .yaml
             .contains(r#"password: "p\"\nhost: evil.example.com\n#""#));
-        assert_eq!(p.yaml.matches("host:").count(), 1);
         let parsed: serde_yml::Value = serde_yml::from_str(&p.yaml).unwrap();
         assert_eq!(
             parsed["wm"]["outputs"]["dev"]["host"].as_str(),
             Some("h"),
             "the injected host must not have won"
         );
+    }
+
+    // The dbt adapter gate mirrors the two native script languages still behind
+    // an enterprise license, and it is a RUNTIME check because one dbt executor
+    // serves every adapter. A refactor that reached for a bare
+    // `LICENSE_KEY_VALID` would silently let CE through, since the OSS variant
+    // initializes it to `true`.
+    #[test]
+    fn only_mssql_and_oracle_are_enterprise_gated() {
+        for a in [
+            DbtAdapter::Postgres,
+            DbtAdapter::Redshift,
+            DbtAdapter::Mysql,
+            DbtAdapter::Duckdb,
+            DbtAdapter::Clickhouse,
+            DbtAdapter::Snowflake,
+            DbtAdapter::Bigquery,
+            DbtAdapter::Databricks,
+            DbtAdapter::Salesforce,
+        ] {
+            assert!(!a.requires_enterprise(), "{a:?}");
+            assert!(ensure_adapter_licensed(a).is_ok(), "{a:?}");
+        }
+        for (a, name) in [
+            (DbtAdapter::Mssql, "Microsoft SQL server"),
+            (DbtAdapter::OracleDB, "Oracle DB"),
+        ] {
+            assert!(a.requires_enterprise(), "{a:?}");
+            match ensure_adapter_licensed(a) {
+                Ok(()) => assert!(
+                    enterprise_licensed(),
+                    "{a:?} was accepted without an enterprise license"
+                ),
+                Err(e) => {
+                    assert!(!enterprise_licensed(), "{a:?} rejected despite a license");
+                    // Naming the adapter is the point: the user must not be left
+                    // with a generic connection failure to diagnose.
+                    assert_eq!(
+                        e.to_string(),
+                        format!("Bad request: {name} is only available with an enterprise license")
+                    );
+                }
+            }
+        }
     }
 
     #[test]

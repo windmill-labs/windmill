@@ -93,11 +93,19 @@ async fn provision_core_1x(
     .await;
     // Build beside the target and rename: two jobs racing on the same worker
     // must not observe a half-installed venv through the `bin.exists()` check.
-    let staging = dir.with_extension(format!("staging-{job_id}"));
+    // `--relocatable` is what makes that rename safe — without it uv bakes the
+    // staging path into every entry point's shebang and the moved venv's `dbt`
+    // fails with ENOENT.
+    let staging = staging_path(&dir, job_id);
     tokio::fs::remove_dir_all(&staging).await.ok();
     run_tool(
         Command::new(UV_PATH.as_str())
-            .args(["venv", "--python", DBT_PYTHON_VERSION.as_str()])
+            .args([
+                "venv",
+                "--relocatable",
+                "--python",
+                DBT_PYTHON_VERSION.as_str(),
+            ])
             .arg(&staging),
         "uv venv",
     )
@@ -216,6 +224,14 @@ async fn fusion_version(dir: &Path) -> String {
         .unwrap_or_else(|_| "unknown".to_string())
 }
 
+/// A sibling of `dir` to build in before renaming into place. Appended to the
+/// whole file name rather than via `with_extension`, which would eat everything
+/// after the version's last dot.
+fn staging_path(dir: &Path, job_id: &Uuid) -> PathBuf {
+    let name = dir.file_name().unwrap_or_default().to_string_lossy();
+    dir.with_file_name(format!("{name}.staging-{job_id}"))
+}
+
 async fn fetch_and_extract(
     url: &str,
     dir: &Path,
@@ -236,7 +252,7 @@ async fn fetch_and_extract(
     tokio::fs::write(&tarball, &bytes)
         .await
         .map_err(|e| Error::internal_err(format!("writing {url}: {e}")))?;
-    let staging = dir.with_extension(format!("staging-{job_id}"));
+    let staging = staging_path(dir, job_id);
     tokio::fs::create_dir_all(&staging)
         .await
         .map_err(|e| Error::internal_err(format!("creating {staging:?}: {e}")))?;

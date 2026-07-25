@@ -28,7 +28,7 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::common::{start_child_process, OccupancyMetrics};
 use crate::dbt_engine::{provision_engine, ProvisionedEngine, DBT_CACHE_DIR};
-use crate::dbt_profiles::{render_profile, DbtAdapter};
+use crate::dbt_profiles::{ensure_adapter_licensed, render_profile, DbtAdapter};
 use crate::git_clone::{
     clone_repo, clone_repo_without_history, get_git_repo_full_head_commit_hash,
 };
@@ -688,6 +688,7 @@ async fn write_profiles(
             Some(a) => a,
             None => adapter_from_profiles_yml(&path).await?,
         };
+        ensure_adapter_licensed(adapter)?;
         return Ok((dir, resource_path, adapter));
     }
 
@@ -709,6 +710,7 @@ async fn write_profiles(
                  set `profile.type` in the descriptor"
             ))
         })?;
+    ensure_adapter_licensed(adapter)?;
     let profile_name = project_profile_name(project_dir).await;
     let target = descriptor.profile.target.as_deref().unwrap_or("default");
     let rendered = render_profile(

@@ -15,8 +15,11 @@ the dominant way dbt is orchestrated today.
   the existing asset graph.
 - **Out**: one Windmill job per dbt model, `state:modified` / slim CI,
   `dbt docs` hosting, semantic layer, dbt platform integration.
-- **CE**: everything here ships in CE. Only private-repo GitHub App auth is EE,
-  and that is inherited from git-sync, not introduced here.
+- **CE**: the runtime, the manifest ingest, the asset graph and every piece of
+  UI ship in CE, as do all adapters except two. Only the `mssql` and `oracle`
+  adapters are EE, mirroring the native `ScriptLang` boundary (decision 21), and
+  private-repo GitHub App auth is EE inherited from git-sync, not introduced
+  here.
 
 ## Decision log
 
@@ -42,7 +45,7 @@ the dominant way dbt is orchestrated today.
 | 18 | Retry | `dbt retry` by default, full re-run available |
 | 19 | Caching | Worker-local global cache, keyed by digest and commit |
 | 20 | Images | Full images only |
-| 21 | Licensing | All CE |
+| 21 | Licensing | CE except the `mssql` / `oracle` adapters. See below |
 | 22 | Naming | Match Cosmos field names; importer deferred |
 
 ## Decision 1: engine toggle, and why the shipped default is not Fusion yet
@@ -84,6 +87,33 @@ flip the instance default to `fusion` once counsel clears the runtime-fetch mode
 and a real project is verified end to end on it. Both bundled engines are
 exercised by the e2e suite, so the flip is a config change, not a port.
 
+## Decision 21: mirror the native warehouse boundary, do not invent one
+
+Everything structural is CE: the executor, both bundled engines, the manifest
+ingest, the `table://` asset graph, live progress, the editor. The only gate is
+on two adapters, and it is not a dbt-specific policy — it is the same boundary
+the native script languages already draw. Since `bigquery` and `snowflake`
+became CE, the only warehouse `ScriptLang`s still behind a license are `mssql`
+and `oracledb`, so those two dbt adapters are EE and every other one (postgres,
+mysql, duckdb, snowflake, bigquery, databricks, redshift, clickhouse,
+salesforce) is CE. Gating any of the others would make reaching a warehouse
+through dbt stricter than reaching it natively, which is backwards.
+
+The gate almost never fires in practice: `dbt-core-2x` supports neither adapter,
+so it can only apply to `dbt-core-1x` with one of those two.
+
+**The mechanism differs from the native languages.** They gate at compile time,
+so a CE binary simply lacks the executor. That is not available here: there is
+one dbt executor and the adapter is only known once the profile resolves. So it
+is a runtime check on the resolved adapter, at both deploy and run, and it must
+say what is wrong — a silent degradation that surfaces later as a connection
+error is worse than no gate at all.
+
+One trap: `ee_oss::LICENSE_KEY_VALID` is initialized to `true` in the OSS
+variant, so reading it alone passes on a CE build. The check is
+`cfg!(feature = "enterprise") && LICENSE_KEY_VALID`, which rejects both a CE
+build and an enterprise build whose key did not verify.
+
 ## Decision 11: `table://`, not `dbt://`
 
 `dbt://` is the intuitive choice and it quietly destroys the reason to build the
@@ -104,7 +134,28 @@ identity.
 `dbt://` stays available as a namespace for dbt nodes that have **no** physical
 relation and therefore cannot collide with anything: ephemeral models (inlined
 CTEs, never written), exposures, and sources not separately modelled. Use it only
-there, and only if those nodes prove worth rendering.
+there, and only if those nodes prove worth rendering. Nothing uses it today.
+
+Two traps, both of which quietly defeat the point if handled wrong.
+
+**Identifier canonicalization.** `manifest.json` gives `relation_name`
+pre-quoted (`"windmill"."Analytics"."Orders"`), an annotation is written by hand,
+and the warehouses disagree on case: Snowflake folds unquoted identifiers up,
+Postgres folds them down, DuckDB compares case-insensitively. Two spellings of
+one table produce two nodes, no edge, and nothing looks broken in isolation. So
+one rule is applied in exactly one place — `parse_asset_syntax`, the single
+point where an asset URI becomes a graph key: strip the quote characters
+(`"`, backtick, `[`/`]`) from the schema and name, then ASCII-lowercase them,
+matching the case-insensitive identifier comparison the DuckDB paths already
+use. The resource-path prefix is a Windmill path and stays case-sensitive.
+
+**Warehouse identity is the Windmill resource path**, exactly as `datatable://`
+and `ducklake://` do it — never the host, account or database. The same
+warehouse is reachable under several hostnames, and credential material has no
+business in an asset key. Accepted limitation, worth knowing before it is
+filed as a bug: **two Windmill resources pointing at the same physical
+warehouse do not unify**, so assets under one will not share edges with assets
+under the other. Point both scripts at one resource to link them.
 
 ## Decision 12: refresh falls out of ref strategy
 
