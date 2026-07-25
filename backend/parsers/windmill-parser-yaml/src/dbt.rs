@@ -35,15 +35,22 @@ impl DbtEngine {
         }
     }
 
-    /// dbt-core 1.x emits `LogModelResult` / `LogTestResult` (the events the
-    /// live per-model status is built from) at `info`. The Rust engines demote
-    /// them to `debug`, so they need the noisier level to report progress at
-    /// all; the executor filters debug lines back out of the job log.
+    /// The level the machine-readable file log is written at. Separate from the
+    /// console log, which always stays human-readable at the default level and
+    /// is what reaches the job log.
     pub fn progress_log_level(&self) -> &'static str {
         match self {
             DbtEngine::DbtCore1x => "info",
             DbtEngine::DbtCore2x | DbtEngine::Fusion => "debug",
         }
+    }
+
+    /// Whether the engine writes per-node events to its JSON file log — the
+    /// only source of *live* per-model status. dbt-core 2.0.0-alpha.5 accepts
+    /// `--log-format-file json` but still writes a text log, so its runs settle
+    /// their models from `run_results.json` when the invocation ends instead.
+    pub fn emits_node_events(&self) -> bool {
+        matches!(self, DbtEngine::DbtCore1x)
     }
 }
 
@@ -120,14 +127,32 @@ pub struct DbtDescriptor {
     pub full_refresh: bool,
     /// Extra environment for the dbt process, for the project's own
     /// `{{ env_var() }}` lookups and for engine flags such as
-    /// `DBT_ALLOW_EXPERIMENTAL_ADAPTERS`. `$var:`/`$res:` values are resolved
-    /// by the worker like any other job env.
+    /// `DBT_ALLOW_EXPERIMENTAL_ADAPTERS`. A `$var:<path>` value is resolved to
+    /// that Windmill variable's value by the worker, so a password never has to
+    /// sit in the descriptor — which is versioned script content.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
+    /// Windmill variables holding private SSH keys for cloning the repo, the
+    /// same shape as Ansible's `git_ssh_identity`. Token auth lives in the
+    /// `git_repository` resource's URL instead, and a GitHub App resource needs
+    /// neither.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub git_ssh_identity: Vec<String>,
 }
 
 /// Sentinel `ref` meaning "resolve HEAD at run time" rather than at deploy.
 pub const REF_LATEST: &str = "latest";
+
+/// The dbt subcommands a run may ask for. Kept here so the signature and the
+/// worker's validation cannot drift apart.
+pub const DBT_COMMANDS: &[&str] = &["build", "run", "test", "retry"];
+
+fn default_command(d: &DbtDescriptor) -> &'static str {
+    match d.test_behavior {
+        DbtTestBehavior::Build => "build",
+        DbtTestBehavior::AfterAll | DbtTestBehavior::None => "run",
+    }
+}
 
 impl DbtDescriptor {
     pub fn engine(&self) -> DbtEngine {
@@ -186,6 +211,20 @@ pub fn parse_dbt_sig(inner_content: &str) -> anyhow::Result<MainArgSignature> {
             typ: Typ::Bool,
             has_default: true,
             default: Some(serde_json::json!(d.full_refresh)),
+            oidx: None,
+            otyp_inferred: false,
+        },
+        // `retry` resumes from the previous run's failure point rather than
+        // rebuilding. Enumerated so the run form offers it and so the value
+        // cannot reach the engine as an arbitrary subcommand.
+        Arg {
+            name: "dbt_command".to_string(),
+            otyp: None,
+            typ: Typ::Str(Some(
+                DBT_COMMANDS.iter().map(|c| c.to_string()).collect(),
+            )),
+            has_default: true,
+            default: Some(serde_json::json!(default_command(&d))),
             oidx: None,
             otyp_inferred: false,
         },
@@ -290,8 +329,24 @@ full_refresh: true
         let names: Vec<&str> = sig.args.iter().map(|a| a.name.as_str()).collect();
         assert_eq!(
             names,
-            vec!["select", "exclude", "vars", "full_refresh", "commit", "day"]
+            vec![
+                "select",
+                "exclude",
+                "vars",
+                "full_refresh",
+                "dbt_command",
+                "commit",
+                "day"
+            ]
         );
+        // Enumerated, so the run form offers `retry` and an arbitrary value
+        // can't reach the engine as a subcommand.
+        let cmd = sig.args.iter().find(|a| a.name == "dbt_command").unwrap();
+        assert_eq!(
+            cmd.typ,
+            Typ::Str(Some(DBT_COMMANDS.iter().map(|c| c.to_string()).collect()))
+        );
+        assert_eq!(cmd.default, Some(serde_json::json!("run")));
         // Defaults come from the descriptor so an untouched run reproduces it.
         let select = sig.args.iter().find(|a| a.name == "select").unwrap();
         assert_eq!(select.default, Some(serde_json::json!(["tag:nightly+"])));

@@ -995,6 +995,12 @@ export async function inferSchema(
   } else if (language === "rlang") {
     const { parse_r } = await loadParser("windmill-parser-wasm-r");
     inferedSchema = JSON.parse(parse_r(content));
+  } else if (language === "dbt") {
+    // `parse_dbt` exists in the Rust parser but reaches this package only with
+    // the next `windmill-parser-wasm-yaml` publish. Until then keep whatever
+    // schema the metadata file already carries: the server recomputes it at
+    // deploy, so a push is not blocked on the local parser.
+    return;
     // for related places search: ADD_NEW_LANG
   } else {
     throw new Error("Invalid language: " + language);

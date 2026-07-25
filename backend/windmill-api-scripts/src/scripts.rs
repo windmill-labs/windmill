@@ -2039,6 +2039,10 @@ async fn create_script_internal<'c>(
         if old != &ns.path {
             clear_script_triggers(&mut *tx, &w_id, old, AssetUsageKind::Script).await?;
             clear_static_asset_usage(&mut *tx, &w_id, old, AssetUsageKind::Script).await?;
+            // Same reason the asset rows go: the dbt sidecar is keyed by path,
+            // so a rename would leave the old path's nodes describing
+            // relations a script later created there does not produce.
+            windmill_common::dbt_manifest::clear_dbt_manifest(&mut tx, &w_id, old).await?;
         }
     }
     for spec in &pipeline_triggers {
@@ -3143,6 +3147,9 @@ async fn archive_script_by_path(
     .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;
 
     clear_static_asset_usage(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
+    // The dbt sidecar is keyed by script path with no FK, so an archived dbt
+    // script would keep supplying provenance for relations it no longer owns.
+    windmill_common::dbt_manifest::clear_dbt_manifest(&mut tx, &w_id, path).await?;
     // Pipeline event hygiene: an archived script must not be triggered by
     // anything. Wipe declared `// on ...` edges (asset-event subscribers
     // look these up).

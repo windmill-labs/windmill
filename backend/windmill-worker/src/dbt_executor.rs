@@ -23,7 +23,9 @@ use windmill_common::materialization::{
     record_materialization, MaterializationStatus, RecordMaterializationRequest,
 };
 use windmill_common::worker::{to_raw_value, write_file, Connection};
-use windmill_parser_yaml::{parse_dbt_descriptor, DbtDescriptor, DbtTestBehavior, GitRepo};
+use windmill_parser_yaml::{
+    parse_dbt_descriptor, DbtDescriptor, DbtTestBehavior, GitRepo, DBT_COMMANDS,
+};
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::common::{start_child_process, OccupancyMetrics};
@@ -42,11 +44,16 @@ use crate::{GIT_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV};
 /// fallback for the (invalid) case where it declares none.
 const FALLBACK_PROFILE_NAME: &str = "windmill";
 
+
+
 /// Written to the script's lockfile at deploy. `commit` is empty under
 /// `ref: latest`, which resolves HEAD per run by design (decision 5/12).
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct DbtDependencyLocks {
-    pub repo_url: String,
+    /// The `git_repository` resource path, never the resolved URL. A token-auth
+    /// URL carries the token, and the lockfile lands in script metadata and
+    /// workspace exports.
+    pub repo_resource: String,
     pub commit: String,
     pub manifest_digest: String,
     pub engine: String,
@@ -124,7 +131,6 @@ pub async fn handle_dbt_job(
     conn: &Connection,
     client: &AuthedClient,
     inner_content: &str,
-    base_internal_url: &str,
     envs: HashMap<String, String>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
@@ -140,21 +146,34 @@ pub async fn handle_dbt_job(
         job_dir,
         &job.id,
         &job.workspace_id,
+        job.runnable_path.as_deref().unwrap_or_default(),
         worker_name,
         conn,
         client,
         mem_peak,
         canceled_by,
         occupancy_metrics,
-        base_internal_url,
     )
     .await?;
 
-    let command = arg_str(&args, "dbt_command").unwrap_or_else(|| match descriptor.test_behavior {
-        DbtTestBehavior::Build => "build".to_string(),
-        DbtTestBehavior::AfterAll => "run".to_string(),
-        DbtTestBehavior::None => "run".to_string(),
-    });
+    let command = match arg_str(&args, "dbt_command") {
+        // Validated against an allowlist rather than passed through: the value
+        // becomes the dbt subcommand, and running a script needs weaker
+        // permission than editing it — an unchecked arg would let a runner
+        // invoke `clean`, `seed` or `source freshness` on the descriptor's
+        // warehouse.
+        Some(c) if DBT_COMMANDS.contains(&c.as_str()) => c,
+        Some(c) => {
+            return Err(Error::BadRequest(format!(
+                "`dbt_command` must be one of {}, got `{c}`",
+                DBT_COMMANDS.join(", ")
+            )))
+        }
+        None => match descriptor.test_behavior {
+            DbtTestBehavior::Build => "build".to_string(),
+            DbtTestBehavior::AfterAll | DbtTestBehavior::None => "run".to_string(),
+        },
+    };
     // `dbt retry` resumes from the previous run's `run_results.json`, which is
     // what makes one-job-per-invocation defensible: a partial failure does not
     // force a full rebuild. Windmill runs each attempt in a fresh job dir, so
@@ -181,7 +200,11 @@ pub async fn handle_dbt_job(
     .await;
 
     // `after_all` is two invocations: models first, then tests, so a test
-    // failure does not stop the models that were going to build anyway.
+    // failure does not stop the models that were going to build anyway. Each
+    // invocation REWRITES `run_results.json`, so the model results have to be
+    // read before the test phase overwrites them — otherwise the job reports
+    // tests only, and nothing settles the models' materializations.
+    let mut results = read_run_results(&prepared.project_dir).await;
     if run.is_ok()
         && matches!(descriptor.test_behavior, DbtTestBehavior::AfterAll)
         && command == "run"
@@ -198,12 +221,15 @@ pub async fn handle_dbt_job(
             occupancy_metrics,
             &envs,
             worker_name,
-            false,
+            // The tests must be scoped exactly like the models were: testing
+            // the whole project would assert against models this script never
+            // builds, the same failure the ingest-side scoping fixes.
+            true,
         )
         .await;
+        results.extend(read_run_results(&prepared.project_dir).await);
     }
 
-    let results = read_run_results(&prepared.project_dir).await;
     save_run_state(&prepared, &job.workspace_id).await.ok();
     reconcile_materializations(&prepared, &results, job, conn).await;
 
@@ -274,23 +300,22 @@ pub async fn dbt_dep(
         token.to_string(),
         None,
     );
-    let mut prepared = prepare_project(
+    let prepared = prepare_project(
         &descriptor,
         None,
         &HashMap::new(),
         job_dir,
         job_id,
         w_id,
+        script_path,
         worker_name,
         &conn,
         &client,
         mem_peak,
         canceled_by,
         occupancy_metrics,
-        base_internal_url,
     )
     .await?;
-    prepared.script_path = script_path.to_string();
 
     let out = dbt_command(&prepared, &["parse"])
         .stdout(Stdio::piped())
@@ -350,11 +375,21 @@ pub async fn dbt_dep(
         )
         .await;
     } else {
+        // No warehouse identity, so nothing can be ingested — but the previous
+        // deploy's rows must still go. Leaving them means a descriptor edited
+        // to use its own profiles.yml keeps claiming ownership of relations it
+        // no longer describes, and keeps cascading from them.
+        let mut tx = db.begin().await?;
+        windmill_common::dbt_manifest::clear_dbt_manifest(&mut tx, w_id, script_path).await?;
+        windmill_common::assets::replace_static_asset_usage(&mut tx, w_id, script_path, &[])
+            .await?;
+        tx.commit().await?;
         append_logs(
             job_id,
             w_id,
-            "\nSkipping asset-graph ingest: the descriptor declares no `profile.resource`, \
-             so there is no warehouse identity to key `table://` assets on\n"
+            "\nNo asset-graph ingest: the descriptor declares no `profile.resource`, so there \
+             is no warehouse identity to key `table://` assets on. Any previously ingested \
+             nodes for this script have been cleared.\n"
                 .to_string(),
             &conn,
         )
@@ -362,7 +397,7 @@ pub async fn dbt_dep(
     }
 
     serde_json::to_string_pretty(&DbtDependencyLocks {
-        repo_url: prepared.repo_url.clone(),
+        repo_resource: prepared.repo_resource.clone(),
         // Empty under `ref: latest` by design: the commit is resolved per run.
         commit: if descriptor.is_latest_ref() {
             String::new()
@@ -381,7 +416,9 @@ pub struct PreparedProject {
     pub profiles_dir: PathBuf,
     pub engine: ProvisionedEngine,
     pub commit: String,
-    pub repo_url: String,
+    /// The `git_repository` resource path. The resolved URL is deliberately not
+    /// kept: it can carry a token, and this ends up in the lockfile.
+    pub repo_resource: String,
     /// Windmill resource path of the warehouse, the `<resource_path>` component
     /// of every `table://` asset this project produces. `None` when the project
     /// brings its own `profiles.yml` and declares no resource, in which case
@@ -399,13 +436,17 @@ pub async fn prepare_project(
     job_dir: &str,
     job_id: &Uuid,
     w_id: &str,
+    // Keys the per-script retry-state cache. Passed in rather than patched onto
+    // the result afterwards: an empty value silently shares one state directory
+    // across every dbt script in the workspace, so a retry resumes another
+    // project's run_results.json.
+    script_path: &str,
     worker_name: &str,
     conn: &Connection,
     client: &AuthedClient,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     occupancy_metrics: &mut OccupancyMetrics,
-    _base_internal_url: &str,
 ) -> error::Result<PreparedProject> {
     let repo_res = descriptor.repo.trim_start_matches("$res:").to_string();
     let repo_value: serde_json::Value = client
@@ -414,7 +455,7 @@ pub async fn prepare_project(
         .map_err(|e| {
             Error::BadRequest(format!("could not read the git repository resource: {e}"))
         })?;
-    let url = repo_value
+    let mut url = repo_value
         .get("url")
         .and_then(|v| v.as_str())
         .ok_or_else(|| {
@@ -423,6 +464,26 @@ pub async fn prepare_project(
             )
         })?
         .to_string();
+    // A GitHub App resource carries no credential of its own — an installation
+    // token is minted per use and prepended to the URL, the same as git-sync and
+    // the Ansible delegate path. Without this those repos fail with a bare auth
+    // error that says nothing about the cause.
+    #[cfg(feature = "enterprise")]
+    if repo_value
+        .get("is_github_app")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        let Connection::Sql(db) = conn else {
+            return Err(Error::BadRequest(
+                "GitHub App authentication is not available for agent workers".to_string(),
+            ));
+        };
+        let token =
+            windmill_common::git_sync_oss::get_github_app_token_internal(db, &client.token).await?;
+        url = windmill_common::git_sync_oss::prepend_token_to_github_url(&url, &token)?;
+    }
+    let git_ssh_cmd = git_ssh_cmd(descriptor, job_dir, client).await?;
     let branch = repo_value
         .get("branch")
         .and_then(|v| v.as_str())
@@ -444,7 +505,7 @@ pub async fn prepare_project(
         target_path: "dbt".to_string(),
     };
     let commit = if descriptor.is_latest_ref() {
-        get_git_repo_full_head_commit_hash(&probe, "ssh").await?
+        get_git_repo_full_head_commit_hash(&probe, &git_ssh_cmd).await?
     } else if let Some(locked) = locks.map(|l| l.commit.clone()).filter(|c| !c.is_empty()) {
         locked
     } else if let Some(r) = interpolated_ref.clone() {
@@ -452,7 +513,7 @@ pub async fn prepare_project(
         // resolved rather than used as-is: a branch name is not a pin, and the
         // clone cache below keys on the commit precisely because commits are
         // immutable and a branch name is not.
-        resolve_git_ref_to_commit(&probe, "ssh", &r).await?
+        resolve_git_ref_to_commit(&probe, &git_ssh_cmd, &r).await?
     } else {
         String::new()
     };
@@ -474,6 +535,7 @@ pub async fn prepare_project(
         mem_peak,
         canceled_by,
         occupancy_metrics,
+        &git_ssh_cmd,
     )
     .await?;
 
@@ -500,11 +562,7 @@ pub async fn prepare_project(
         write_profiles(descriptor, &project_dir, job_dir, client, job_id).await?;
     let engine = provision_engine(descriptor.engine(), adapter, job_id, w_id, conn).await?;
 
-    let mut env: Vec<(String, String)> = descriptor
-        .env
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
+    let mut env = resolve_env(descriptor, client).await?;
     // Both engines write their profile-independent state under the project;
     // pinning it inside the job dir keeps a job from touching a shared $HOME.
     env.push(("HOME".to_string(), job_dir.to_string()));
@@ -514,13 +572,65 @@ pub async fn prepare_project(
         profiles_dir,
         engine,
         commit: checked_out,
-        repo_url: url,
+        repo_resource: repo_res,
         resource_path,
-        script_path: String::new(),
+        script_path: script_path.to_string(),
         env,
     };
     install_packages(&prepared, job_id, w_id, conn).await?;
     Ok(prepared)
+}
+
+/// `GIT_SSH_COMMAND` for the clone, with any descriptor-declared private keys
+/// written into the job dir (torn down with the job). Mirrors the Ansible
+/// executor's identity handling — the clone helpers are shared, so the auth
+/// story should be too.
+async fn git_ssh_cmd(
+    descriptor: &DbtDescriptor,
+    job_dir: &str,
+    client: &AuthedClient,
+) -> error::Result<String> {
+    let mut identities = String::new();
+    for (i, var_path) in descriptor.git_ssh_identity.iter().enumerate() {
+        let name = format!(".ssh_id_priv_dbt_{i}");
+        let loc = windmill_common::worker::is_allowed_file_location(job_dir, &name)?;
+        let mut content = client.get_variable_value(var_path).await.map_err(|e| {
+            Error::NotFound(format!(
+                "variable {var_path} not found for `git_ssh_identity`: {e:#}"
+            ))
+        })?;
+        content.push('\n');
+        let file = write_file(job_dir, &name, &content)?;
+        #[cfg(unix)]
+        file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
+        #[cfg(not(unix))]
+        let _ = file;
+        identities.push_str(&format!(
+            " -i '{}'",
+            loc.to_string_lossy().replace('\'', r"'\''")
+        ));
+    }
+    Ok(format!("ssh -o StrictHostKeyChecking=no{identities}"))
+}
+
+/// Resolve `$var:<path>` values in the descriptor's `env`. This is the only way
+/// a project using its own `profiles.yml` can get a secret into
+/// `{{ env_var() }}` without writing it into versioned script content.
+async fn resolve_env(
+    descriptor: &DbtDescriptor,
+    client: &AuthedClient,
+) -> error::Result<Vec<(String, String)>> {
+    let mut out = Vec::with_capacity(descriptor.env.len());
+    for (k, v) in &descriptor.env {
+        let value = match v.strip_prefix("$var:") {
+            Some(path) => client.get_variable_value(path.trim()).await.map_err(|e| {
+                Error::NotFound(format!("variable {path} not found for `env.{k}`: {e:#}"))
+            })?,
+            None => v.clone(),
+        };
+        out.push((k.clone(), value));
+    }
+    Ok(out)
 }
 
 /// Clone at `commit`, reusing the worker-local cache when the commit is pinned.
@@ -538,6 +648,7 @@ async fn checkout(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     occupancy_metrics: &mut OccupancyMetrics,
+    git_ssh_cmd: &str,
 ) -> error::Result<String> {
     let dest = PathBuf::from(job_dir).join("dbt");
     if !commit.is_empty() {
@@ -568,7 +679,7 @@ async fn checkout(
             canceled_by,
             w_id,
             occupancy_metrics,
-            "ssh",
+            git_ssh_cmd,
         )
         .await?;
         tokio::fs::create_dir_all(cached.parent().unwrap())
@@ -587,7 +698,7 @@ async fn checkout(
         canceled_by,
         w_id,
         occupancy_metrics,
-        "ssh",
+        git_ssh_cmd,
     )
     .await
 }
@@ -1376,6 +1487,17 @@ mod tests {
         );
         // A test node has no relation of its own.
         assert_eq!(asset_path_of_relation(None, "f/prod/wh"), None);
+    }
+
+    // `dbt retry` restores the previous run's target/ from this directory. Two
+    // dbt scripts in one workspace must not share it, or a retry resumes
+    // another project's run_results.json against this project's checkout — and
+    // an empty script_path is exactly how that happened.
+    #[test]
+    fn retry_state_is_per_script() {
+        assert_ne!(state_dir("ws", "f/a/one"), state_dir("ws", "f/a/two"));
+        assert_ne!(state_dir("ws1", "f/a/one"), state_dir("ws2", "f/a/one"));
+        assert_eq!(state_dir("ws", "f/a/one"), state_dir("ws", "f/a/one"));
     }
 
     #[test]

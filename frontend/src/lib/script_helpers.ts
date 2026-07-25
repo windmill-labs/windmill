@@ -1372,6 +1372,10 @@ test_behavior: build
 vars: {}
 threads: 4
 full_refresh: false
+# Extra env for the project's own {{ env_var() }} lookups. A $var: value is
+# resolved to that Windmill variable, so secrets stay out of this file.
+# env:
+#   DBT_PASSWORD: $var:u/user/my_warehouse_password
 `
 // for related places search: ADD_NEW_LANG
 export const INITIAL_CODE = {

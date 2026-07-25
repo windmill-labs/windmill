@@ -521,6 +521,11 @@ export async function inferArgs(
 			} catch {
 				inferedSchema = parseRSignatureFallback(code)
 			}
+			// dbt has no client-side arm: `parse_dbt` exists in the Rust parser but
+			// reaches the browser only with the next `windmill-parser-wasm-yaml`
+			// publish. Until then a dbt script's run arguments come from the schema
+			// the server computes at deploy, which is the authoritative one anyway —
+			// only live-while-typing inference is missing.
 			// for related places search: ADD_NEW_LANG
 		} else {
 			return null

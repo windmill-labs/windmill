@@ -208,19 +208,37 @@ profile:
   # profiles_yml: profiles.yml    # alternative: keep your own file
 select: ["tag:nightly+"]
 exclude: []
-test_behavior: after_each         # after_each | build | after_all | none
+test_behavior: build              # build | after_all | none
 vars:
-  run_date: "${flow_input.date}"
+  run_date: "{{ run_date }}"      # substituted from a job argument
 threads: 8
 full_refresh: false
+env:                              # for the project's own `{{ env_var() }}`
+  DBT_PASSWORD: $var:u/rf/wh_password
+git_ssh_identity: []              # variables holding private keys, for SSH remotes
 ```
+
+`env` values spelled `$var:<path>` are resolved to that Windmill variable, so a
+project keeping its own `profiles.yml` never needs a credential written into the
+descriptor — which is versioned script content. Private repos authenticate the
+same three ways git-sync does: a token in the resource's URL, `git_ssh_identity`
+for SSH remotes, and (EE) a GitHub App resource, whose installation token is
+minted per use.
 
 `select`/`exclude`/`selector` are passed **verbatim** to dbt. Do not reimplement
 the selector grammar; Cosmos's manifest path had to, and it is a recurring source
 of divergence. `select` and `vars` are overridable per run via job args.
 
 `vars` and `ref` interpolate from job args with `interpolate_template`
-(`ansible_executor.rs:249`), which is how Ansible already parameterizes commits.
+(`common.rs`, shared with the Ansible executor, which is how Ansible already
+parameterizes commits). The syntax is `{{ arg_name }}`.
+
+`select`/`exclude` also scope **what the script owns in the graph**, resolved by
+asking dbt (`dbt ls --output json`) rather than by interpreting the selector
+string. Without that a narrowly-selected script registers as the producer of
+every model in the project and its cascade fires downstream of models it never
+builds. Running several scripts against one repo with different selections
+(decision 6) only composes because of this.
 
 ## Deploy path
 
@@ -273,8 +291,12 @@ provides observability.
 5. Structured job result (per-model status, timing, rows, failed tests), not just
    an exit code. Partial failure is dbt's normal case and must be legible without
    reading logs.
-6. Retry invokes `dbt retry`, which resumes from the failure point using
-   `run_results.json`. This is what makes one-job-per-invocation defensible.
+6. `dbt retry` resumes from the failure point using `run_results.json`, which is
+   what makes one-job-per-invocation defensible. It is a run argument
+   (`dbt_command: retry`) rather than the automatic behavior of Windmill's
+   generic retry, which has no per-language hook to change the invoked command.
+   Each attempt gets a fresh job dir, so the previous run's `target/` is cached
+   per (workspace, script) on the worker and restored for a retry.
 7. Test failures honor dbt's `severity`: `error` fails the job, `warn` surfaces
    without failing. Overriding this would make the same project behave differently
    on Windmill than locally, breaking the core promise.

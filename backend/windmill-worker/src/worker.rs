@@ -5775,7 +5775,6 @@ mount {{
                 conn,
                 client,
                 &code,
-                base_internal_url,
                 envs,
                 occupancy_metrics,
             ))

@@ -239,7 +239,7 @@ pub fn render_profile(
                 ProfileValue::Number(n(resource, "port").unwrap_or(adapter.default_port())),
             ));
             out.push((adapter.database_key().into(), quoted(&dbname)));
-            database = Some(dbname);
+            database = Some(dbname.clone());
             if let Some(u) = s(resource, "user") {
                 out.push(("user".into(), quoted(&u)));
             }
@@ -249,13 +249,17 @@ pub fn render_profile(
             if let Some(m) = s(resource, "sslmode") {
                 out.push(("sslmode".into(), quoted(&m)));
             }
-            schema = schema.or_else(|| s(resource, "schema")).or(Some(
-                match adapter {
-                    DbtAdapter::Mssql => "dbo",
-                    _ => "public",
-                }
-                .into(),
-            ));
+            schema = match adapter {
+                // Already emitted as the database key; reported back so the
+                // caller can spell `table://` paths with it.
+                DbtAdapter::Mysql => Some(dbname.clone()),
+                DbtAdapter::Mssql => schema
+                    .or_else(|| s(resource, "schema"))
+                    .or(Some("dbo".into())),
+                _ => schema
+                    .or_else(|| s(resource, "schema"))
+                    .or(Some("public".into())),
+            };
         }
         // No Windmill resource type carries these; they are reachable through
         // the project's own `profiles.yml` (`profile.profiles_yml`), which is
@@ -326,8 +330,14 @@ pub fn render_profile(
         }
     }
 
-    if let Some(sc) = schema.clone() {
-        out.push(("schema".into(), quoted(&sc)));
+    // dbt-mysql has no database/schema distinction: its `schema` key IS the
+    // database, already emitted above. Pushing the generic one too would put
+    // two `schema` keys in one target — an invalid profile, or one silently
+    // pointing at the wrong database.
+    if adapter != DbtAdapter::Mysql {
+        if let Some(sc) = schema.clone() {
+            out.push(("schema".into(), quoted(&sc)));
+        }
     }
     if let Some(t) = threads {
         out.push(("threads".into(), ProfileValue::Number(t as i64)));
@@ -412,6 +422,18 @@ mod tests {
     // unquoted, a `\n` or a `"` in it would close the scalar and let the rest
     // of the value be read as further profile keys (e.g. a different `host`),
     // silently redirecting the run at another warehouse.
+    // dbt-mysql has no database/schema split: one `schema` key is the database.
+    // Emitting the generic one too yields a profile with two `schema` keys.
+    #[test]
+    fn mysql_emits_exactly_one_schema_key() {
+        let r = json!({"host": "h", "dbname": "sales", "user": "u"});
+        let p = render_profile(DbtAdapter::Mysql, &r, "wm", "dev", None, None).unwrap();
+        assert_eq!(p.yaml.matches("      schema:").count(), 1);
+        assert!(p.yaml.contains("      schema: \"sales\"\n"));
+        assert!(p.yaml.contains("      port: 3306\n"));
+        assert_eq!(p.schema.as_deref(), Some("sales"));
+    }
+
     #[test]
     fn credentials_cannot_break_out_of_their_scalar() {
         let r = json!({"host": "h", "dbname": "d",

@@ -10,7 +10,9 @@ pub mod asset_parser;
 pub use asset_parser::parse_assets;
 
 pub mod dbt;
-pub use dbt::{parse_dbt_descriptor, parse_dbt_sig, DbtDescriptor, DbtEngine, DbtTestBehavior};
+pub use dbt::{
+    parse_dbt_descriptor, parse_dbt_sig, DbtDescriptor, DbtEngine, DbtTestBehavior, DBT_COMMANDS,
+};
 
 pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature> {
     let docs = YamlLoader::load_from_str(inner_content)

@@ -970,6 +970,8 @@ export function filePathExtensionFromContentType(
     return ".rb";
   } else if (language === "rlang") {
     return ".r";
+  } else if (language === "dbt") {
+    return ".dbt.yaml";
     // for related places search: ADD_NEW_LANG
   } else {
     throw new Error("Invalid language: " + language);
@@ -1002,6 +1004,7 @@ export const exts = [
   ".java",
   ".rb",
   ".r",
+  ".dbt.yaml",
   // for related places search: ADD_NEW_LANG
 ];
 

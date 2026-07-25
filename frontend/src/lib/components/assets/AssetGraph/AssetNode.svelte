@@ -251,13 +251,10 @@
 				fork
 			</span>
 		{/if}
-		<!-- SCD2 companion marker: this node is the `<dim>_current` "latest row
-		     per key" view its producer maintains alongside the base dimension.
-		     Icon-only (the pill already truncates); the title names the base. -->
+		<!-- dbt chip: names the materialization dbt declares, plus a test count
+		     when the model carries generic tests. Orange keeps it visually
+		     separate from the fork/SCD2 chips, which describe Windmill state. -->
 		{#if data.dbt}
-			<!-- dbt chip: names the materialization dbt declares, plus a test count
-			     when the model carries generic tests. Orange keeps it visually
-			     separate from the fork/SCD2 chips, which describe Windmill state. -->
 			<span
 				class="shrink-0 mr-1.5 flex items-center gap-0.5 rounded px-1 py-px text-3xs font-semibold tracking-wide bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 border border-orange-300 dark:border-orange-700"
 				title={dbtTitle}
@@ -269,6 +266,9 @@
 				{/if}
 			</span>
 		{/if}
+		<!-- SCD2 companion marker: this node is the `<dim>_current` "latest row
+		     per key" view its producer maintains alongside the base dimension.
+		     Icon-only (the pill already truncates); the title names the base. -->
 		{#if data.derived_from}
 			<span
 				class="shrink-0 mr-1.5 text-violet-600 dark:text-violet-400"

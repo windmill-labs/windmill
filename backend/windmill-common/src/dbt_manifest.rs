@@ -208,13 +208,27 @@ pub fn ingest_manifest(
     };
     let mut assets: HashMap<(AssetKind, String), AssetUsageAccessType> = HashMap::new();
 
+    // dbt does not list sources as selected nodes, but a source is only this
+    // script's input if something it actually builds reads it. Keeping every
+    // source would make a narrowly-selected script claim reads on tables it
+    // never touches, and those reads are cascade subscriptions.
+    let selected_sources: Option<std::collections::HashSet<&str>> = selected.map(|sel| {
+        manifest
+            .parent_map
+            .iter()
+            .filter(|(child, _)| sel.contains(child.as_str()))
+            .flat_map(|(_, parents)| parents.iter().map(|p| p.as_str()))
+            .collect()
+    });
     for (unique_id, node) in manifest.nodes.iter().chain(manifest.sources.iter()) {
-        // Sources are inputs of whatever was selected, so dbt does not list
-        // them as selected nodes; keep them, they are how the graph knows what
-        // the project reads.
-        if node.resource_type != "source"
-            && selected.is_some_and(|sel| !sel.contains(unique_id.as_str()))
-        {
+        let keep = match (node.resource_type.as_str(), selected) {
+            (_, None) => true,
+            ("source", Some(_)) => selected_sources
+                .as_ref()
+                .is_some_and(|s| s.contains(unique_id.as_str())),
+            (_, Some(sel)) => sel.contains(unique_id.as_str()),
+        };
+        if !keep {
             continue;
         }
         let asset_path = asset_path_for(node, resource_path);
@@ -316,26 +330,17 @@ pub fn ingest_manifest(
 
 /// Replace the stored manifest of one dbt script. Wipe-and-reinsert per ingest,
 /// so a model deleted upstream disappears from the graph on the next deploy.
+///
+/// Performs no authorization itself: `tx` must already be scoped to a caller
+/// authorized for `workspace_id`/`script_path`, exactly like the sibling
+/// `assets::replace_static_asset_usage` it is always called next to.
 pub async fn replace_dbt_manifest(
     tx: &mut Transaction<'_, Postgres>,
     workspace_id: &str,
     script_path: &str,
     ingested: &IngestedManifest,
 ) -> Result<()> {
-    sqlx::query!(
-        "DELETE FROM dbt_node WHERE workspace_id = $1 AND script_path = $2",
-        workspace_id,
-        script_path
-    )
-    .execute(&mut **tx)
-    .await?;
-    sqlx::query!(
-        "DELETE FROM dbt_edge WHERE workspace_id = $1 AND script_path = $2",
-        workspace_id,
-        script_path
-    )
-    .execute(&mut **tx)
-    .await?;
+    clear_dbt_manifest(tx, workspace_id, script_path).await?;
 
     for n in &ingested.nodes {
         sqlx::query!(
@@ -378,6 +383,30 @@ pub async fn replace_dbt_manifest(
         .execute(&mut **tx)
         .await?;
     }
+    Ok(())
+}
+
+/// Drop everything one script contributed to the graph. Same authorization
+/// contract as `replace_dbt_manifest`.
+pub async fn clear_dbt_manifest(
+    tx: &mut Transaction<'_, Postgres>,
+    workspace_id: &str,
+    script_path: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "DELETE FROM dbt_node WHERE workspace_id = $1 AND script_path = $2",
+        workspace_id,
+        script_path
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM dbt_edge WHERE workspace_id = $1 AND script_path = $2",
+        workspace_id,
+        script_path
+    )
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 
@@ -603,12 +632,16 @@ mod tests {
             .map(|a| a.path.as_str())
             .collect();
         assert_eq!(owned, vec!["f/prod/wh/jaffle_dbt/orders_daily"]);
-        // Its source is still read: that is how the graph knows the input.
-        assert!(i
+        // The source the selected model reads is kept — that is how the graph
+        // knows the input. A source only unselected models read is NOT, or the
+        // script would subscribe to tables it never touches.
+        let reads: Vec<&str> = i
             .assets
             .iter()
-            .any(|a| a.path == "f/prod/wh/jaffle_raw/raw_orders"
-                && a.access_type == Some(AssetUsageAccessType::R)));
+            .filter(|a| a.access_type == Some(AssetUsageAccessType::R))
+            .map(|a| a.path.as_str())
+            .collect();
+        assert_eq!(reads, vec!["f/prod/wh/jaffle_raw/raw_orders"]);
         // Edges to nodes this script does not own are dropped with them.
         assert_eq!(
             i.edges,
