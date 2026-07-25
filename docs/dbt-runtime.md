@@ -263,7 +263,11 @@ git_ssh_identity: []              # variables holding private keys, for SSH remo
 
 `env` values spelled `$var:<path>` are resolved to that Windmill variable, so a
 project keeping its own `profiles.yml` never needs a credential written into the
-descriptor — which is versioned script content. Private repos authenticate two ways: a
+descriptor — which is versioned script content. Use this map, not script-level
+environment variables, for anything an `env_var()` feeds into a schema, alias or
+`enabled`: the descriptor's `env` applies to the deploy-time parse as well as
+the run, so the stored graph and the build agree. Script-level variables reach
+the run only. Private repos authenticate two ways: a
 token in the resource's URL, and `git_ssh_identity` for SSH remotes.
 
 **GitHub App resources are rejected, with that reason.** Decision 10 assumed the

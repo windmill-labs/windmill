@@ -56,14 +56,22 @@ pub struct ProvisionedEngine {
 pub async fn provision_engine(
     engine: DbtEngine,
     adapter: DbtAdapter,
+    // The version the lockfile pinned at deploy. Honoring it is what makes the
+    // lockfile a lockfile: without it a script silently changes dbt version
+    // when the instance upgrades or lands on a differently configured worker.
+    // `None` for a deploy (which is what writes the pin) and for a script whose
+    // lock predates it.
+    pinned_version: Option<&str>,
     job_id: &Uuid,
     w_id: &str,
     conn: &Connection,
 ) -> error::Result<ProvisionedEngine> {
     tokio::fs::create_dir_all(&*DBT_CACHE_DIR).await.ok();
     match engine {
-        DbtEngine::DbtCore1x => provision_core_1x(adapter, job_id, w_id, conn).await,
-        DbtEngine::DbtCore2x => provision_core_2x(job_id, w_id, conn).await,
+        DbtEngine::DbtCore1x => provision_core_1x(adapter, pinned_version, job_id, w_id, conn).await,
+        DbtEngine::DbtCore2x => provision_core_2x(pinned_version, job_id, w_id, conn).await,
+        // Fusion's installer resolves its own version, so there is nothing to
+        // pin; the fetch-at-runtime model is what its license requires.
         DbtEngine::Fusion => provision_fusion(job_id, w_id, conn).await,
     }
 }
@@ -73,11 +81,14 @@ pub async fn provision_engine(
 /// dependency sets fight.
 async fn provision_core_1x(
     adapter: DbtAdapter,
+    pinned_version: Option<&str>,
     job_id: &Uuid,
     w_id: &str,
     conn: &Connection,
 ) -> error::Result<ProvisionedEngine> {
-    let version = DBT_CORE_1X_VERSION.clone();
+    let version = pinned_version
+        .map(str::to_string)
+        .unwrap_or_else(|| DBT_CORE_1X_VERSION.clone());
     let dir =
         PathBuf::from(&*DBT_CACHE_DIR).join(format!("core1x-{version}-{}", adapter.pip_package()));
     let bin = dir.join("bin").join("dbt");
@@ -138,11 +149,14 @@ async fn provision_core_1x(
 }
 
 async fn provision_core_2x(
+    pinned_version: Option<&str>,
     job_id: &Uuid,
     w_id: &str,
     conn: &Connection,
 ) -> error::Result<ProvisionedEngine> {
-    let version = DBT_CORE_2X_VERSION.clone();
+    let version = pinned_version
+        .map(str::to_string)
+        .unwrap_or_else(|| DBT_CORE_2X_VERSION.clone());
     // The full images bake this engine in; only a slim image pays the fetch.
     let bundled = PathBuf::from(&*DBT_BUNDLED_DIR)
         .join(format!("core2x-{version}"))

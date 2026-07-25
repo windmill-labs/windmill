@@ -139,6 +139,12 @@ pub struct DbtDescriptor {
     /// `DBT_ALLOW_EXPERIMENTAL_ADAPTERS`. A `$var:<path>` value is resolved to
     /// that Windmill variable's value by the worker, so a password never has to
     /// sit in the descriptor — which is versioned script content.
+    ///
+    /// This is the map to use for anything the GRAPH depends on — an
+    /// `env_var()` driving a schema, alias or `enabled` — because it applies at
+    /// deploy as well as at run. Script-level environment variables reach the
+    /// run only, so a graph parsed without them would disagree with what the
+    /// build writes.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
     /// Windmill variables holding private SSH keys for cloning the repo, the

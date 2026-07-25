@@ -142,6 +142,7 @@ pub async fn handle_dbt_job(
     let inv = Invocation { args: args.clone(), envs: envs.clone() };
     let prepared = prepare_project(
         &descriptor,
+        inner_content,
         locks.as_ref(),
         &args,
         job_dir,
@@ -346,6 +347,7 @@ pub async fn dbt_dep(
     );
     let prepared = prepare_project(
         &descriptor,
+        content,
         None,
         &HashMap::new(),
         job_dir,
@@ -382,7 +384,8 @@ pub async fn dbt_dep(
             prepared.default_database.as_deref(),
             selected.as_ref(),
         );
-        persist_ingest(db, w_id, script_path, &ingested).await?;
+        persist_ingest(db, w_id, script_path, &ingested, &DescriptorTriggers::parse(content))
+            .await?;
         append_logs(
             job_id,
             w_id,
@@ -462,6 +465,13 @@ pub struct PreparedProject {
     pub default_database: Option<String>,
     pub script_path: String,
     pub env: Vec<(String, String)>,
+    /// The descriptor body, kept so an ingest can re-read its `# on` / `# mute`
+    /// annotations without threading the content through every caller.
+    pub descriptor_content: String,
+    /// The profile file and schema the descriptor named. Part of run identity:
+    /// a redeploy can repoint either while the commit and resource stay put,
+    /// and a retry there would resume one schema's failures in another.
+    pub profile_identity: String,
 }
 
 impl PreparedProject {
@@ -475,13 +485,14 @@ impl PreparedProject {
     /// project's failures inside another.
     fn run_identity(&self) -> String {
         format!(
-            "{}|{}|{}|{}|{}|{}",
+            "{}|{}|{}|{}|{}|{}|{}",
             self.repo_resource,
             self.project_subdir,
             self.commit,
             self.resource_path.as_deref().unwrap_or(""),
             self.target.as_deref().unwrap_or(""),
             self.engine.engine.as_str(),
+            self.profile_identity,
         )
     }
 }
@@ -489,6 +500,7 @@ impl PreparedProject {
 #[allow(clippy::too_many_arguments)]
 pub async fn prepare_project(
     descriptor: &DbtDescriptor,
+    descriptor_content: &str,
     locks: Option<&DbtDependencyLocks>,
     args: &HashMap<String, Box<RawValue>>,
     job_dir: &str,
@@ -656,7 +668,21 @@ pub async fn prepare_project(
 
     let (profiles_dir, resource_path, adapter, default_database) =
         write_profiles(descriptor, &project_dir, job_dir, client, job_id).await?;
-    let engine = provision_engine(descriptor.engine(), adapter, job_id, w_id, conn).await?;
+    // The lockfile's version, when it pinned one for this same engine — a
+    // descriptor edited to another engine invalidates the pin.
+    let pinned_version = locks
+        .filter(|l| l.engine == descriptor.engine().as_str())
+        .map(|l| l.engine_version.as_str())
+        .filter(|v| !v.is_empty());
+    let engine = provision_engine(
+        descriptor.engine(),
+        adapter,
+        pinned_version,
+        job_id,
+        w_id,
+        conn,
+    )
+    .await?;
 
     let mut env = resolve_env(descriptor, client).await?;
     // Both engines write their profile-independent state under the project;
@@ -674,6 +700,12 @@ pub async fn prepare_project(
         repo_resource: repo_res,
         resource_path,
         target: descriptor.profile.target.clone(),
+        descriptor_content: descriptor_content.to_string(),
+        profile_identity: format!(
+            "{}|{}",
+            descriptor.profile.profiles_yml.as_deref().unwrap_or(""),
+            descriptor.profile.schema.as_deref().unwrap_or(""),
+        ),
         default_database,
         script_path: script_path.to_string(),
         env,
@@ -1577,13 +1609,70 @@ async fn ingest_from_run(
         p.default_database.as_deref(),
         selected.as_ref(),
     );
-    persist_ingest(db, &job.workspace_id, script_path, &ingested).await?;
+    persist_ingest(
+        db,
+        &job.workspace_id,
+        script_path,
+        &ingested,
+        &DescriptorTriggers::parse(&p.descriptor_content),
+    )
+    .await?;
     // Synchronously, not through the notify poller: dispatch for THIS job runs
     // in this process once the job completes, and the poll is seconds away, so
     // a fast build would otherwise fan out from the pre-refresh cache. The
     // `notify_event` the transaction emitted still reaches every other process.
     windmill_queue::asset_dispatch::ASSET_PRODUCER_WRITES_CACHE.remove(&job.workspace_id);
     Ok(())
+}
+
+/// The descriptor's own `# on` / `# mute` / `# debounce` / `# retry`, which the
+/// derived subscriptions must respect rather than overwrite.
+pub struct DescriptorTriggers {
+    explicit_refs: std::collections::HashSet<String>,
+    muted_refs: std::collections::HashSet<String>,
+    mute_all: bool,
+    join_all: bool,
+    debounce_s: Option<i32>,
+    retry_count: Option<i16>,
+    retry_delay_s: Option<i32>,
+}
+
+impl DescriptorTriggers {
+    /// Parsed from the descriptor body, which is YAML with `#` comments — the
+    /// same annotation grammar every other language uses.
+    fn parse(content: &str) -> Self {
+        use windmill_common::assets::{trigger_spec_to_row, ScriptTriggerKind};
+        let a = windmill_common::assets::parse_pipeline_annotations(content);
+        let refs = |specs: &[windmill_parser::asset_parser::TriggerSpec]| {
+            specs
+                .iter()
+                .filter_map(|s| {
+                    trigger_spec_to_row(s)
+                        .filter(|(k, _)| *k == ScriptTriggerKind::Asset)
+                        .map(|(_, r)| r)
+                })
+                .collect()
+        };
+        Self {
+            explicit_refs: refs(&a.triggers),
+            muted_refs: refs(&a.mute),
+            mute_all: a.mute_all,
+            join_all: !a.join_mode.is_any(),
+            debounce_s: a
+                .debounce_default
+                .as_deref()
+                .and_then(windmill_common::assets::parse_duration_secs),
+            retry_count: a
+                .retry
+                .as_ref()
+                .map(|r| r.count.min(i16::MAX as u32) as i16),
+            retry_delay_s: a
+                .retry
+                .as_ref()
+                .and_then(|r| r.delay.as_deref())
+                .and_then(windmill_common::assets::parse_duration_secs),
+        }
+    }
 }
 
 /// Write one ingest: the sidecar rows, the `asset` usages, and the cascade
@@ -1600,6 +1689,7 @@ async fn persist_ingest(
     w_id: &str,
     script_path: &str,
     ingested: &windmill_common::dbt_manifest::IngestedManifest,
+    annotations: &DescriptorTriggers,
 ) -> error::Result<()> {
     use windmill_common::assets::{AssetUsageKind, ScriptTriggerKind};
     let mut tx = db.begin().await?;
@@ -1612,22 +1702,35 @@ async fn persist_ingest(
         &ingested.assets,
     )
     .await?;
-    // Wipe-and-reinsert, so a model that stops reading a source loses its edge.
-    // Explicit `# on` annotations in the descriptor were inserted by the deploy
-    // and are re-derived here from the same reads, so nothing is lost.
-    windmill_common::assets::clear_script_triggers(
-        &mut *tx,
+    // Only the manifest-DERIVED subscriptions are replaced. The deploy already
+    // inserted whatever the descriptor authored with `# on`, carrying its
+    // debounce/retry/join opts, and `# mute` opted refs out; wiping every
+    // trigger here would silently discard all of that.
+    let derived = windmill_common::assets::derive_pipeline_asset_trigger_refs(
+        &ingested.assets,
+        &annotations.explicit_refs,
+        &annotations.muted_refs,
+        annotations.mute_all,
+    );
+    let keep: Vec<String> = derived
+        .iter()
+        .cloned()
+        .chain(annotations.explicit_refs.iter().cloned())
+        .collect();
+    // A model that stops reading a source loses its edge, but only among the
+    // `table://` refs this ingest owns.
+    sqlx::query!(
+        "DELETE FROM script_trigger
+          WHERE workspace_id = $1 AND runnable_kind = 'script' AND runnable_path = $2
+            AND trigger_kind = 'asset' AND trigger_ref LIKE 'table://%'
+            AND NOT (trigger_ref = ANY($3))",
         w_id,
         script_path,
-        AssetUsageKind::Script,
+        &keep[..],
     )
+    .execute(&mut *tx)
     .await?;
-    for trigger_ref in windmill_common::assets::derive_pipeline_asset_trigger_refs(
-        &ingested.assets,
-        &Default::default(),
-        &Default::default(),
-        false,
-    ) {
+    for trigger_ref in derived {
         windmill_common::assets::insert_script_trigger(
             &mut *tx,
             w_id,
@@ -1635,10 +1738,10 @@ async fn persist_ingest(
             script_path,
             ScriptTriggerKind::Asset,
             &trigger_ref,
-            false,
-            None,
-            None,
-            None,
+            annotations.join_all,
+            annotations.debounce_s,
+            annotations.retry_count,
+            annotations.retry_delay_s,
         )
         .await?;
     }

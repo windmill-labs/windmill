@@ -275,7 +275,8 @@ pub fn ingest_manifest(
     // and those reads are cascade subscriptions. The same set answers the
     // cross-config question below.
     let direct_parents: Option<std::collections::HashSet<&str>> = selected.map(|sel| {
-        manifest
+        let mut out = std::collections::HashSet::new();
+        let mut queue: Vec<&str> = manifest
             .parent_map
             .iter()
             .filter(|(child, _)| sel.contains(child.as_str()))
@@ -290,7 +291,28 @@ pub fn ingest_manifest(
                     .is_some_and(|n| n.resource_type != "test")
             })
             .flat_map(|(_, parents)| parents.iter().map(|p| p.as_str()))
-            .collect()
+            .collect();
+        let mut seen: std::collections::HashSet<&str> = queue.iter().copied().collect();
+        while let Some(parent) = queue.pop() {
+            // An ephemeral model is inlined as a CTE, so it produces nothing to
+            // depend on — but whatever IT reads is still this script's real
+            // input. Stopping at it loses the subscription entirely, and the
+            // model then never cascades when its actual source changes.
+            let is_ephemeral = manifest
+                .nodes
+                .get(parent)
+                .is_some_and(|n| n.relation_name.is_none());
+            if !is_ephemeral {
+                out.insert(parent);
+                continue;
+            }
+            for grandparent in manifest.parent_map.get(parent).into_iter().flatten() {
+                if seen.insert(grandparent.as_str()) {
+                    queue.push(grandparent.as_str());
+                }
+            }
+        }
+        out
     });
     for (unique_id, node) in manifest.nodes.iter().chain(manifest.sources.iter()) {
         let keep = match (node.resource_type.as_str(), selected) {
@@ -865,6 +887,37 @@ mod tests {
             "a test's dependency must not become a read: {:?}",
             i.assets.iter().map(|a| &a.path).collect::<Vec<_>>()
         );
+    }
+
+    // An ephemeral parent is inlined as a CTE and produces nothing to depend on,
+    // but what IT reads is still the selected model's real input — stopping
+    // there loses the subscription and the model never cascades.
+    #[test]
+    fn dependencies_traverse_through_ephemeral_parents() {
+        let m: Manifest = serde_json::from_str(
+            r#"{"nodes":{
+              "model.p.mart":{"resource_type":"model","name":"mart","alias":"mart",
+                "schema":"s","database":"wh","relation_name":"\"wh\".\"s\".\"mart\"",
+                "config":{"materialized":"table"}},
+              "model.p.helper":{"resource_type":"model","name":"helper","schema":"s",
+                "relation_name":null,"config":{"materialized":"ephemeral"}},
+              "model.p.base":{"resource_type":"model","name":"base","alias":"base",
+                "schema":"s","database":"wh","relation_name":"\"wh\".\"s\".\"base\"",
+                "config":{"materialized":"view"}}},
+              "parent_map":{"model.p.mart":["model.p.helper"],
+                            "model.p.helper":["model.p.base"]}}"#,
+        )
+        .unwrap();
+        let sel: std::collections::HashSet<String> =
+            ["model.p.mart".to_string()].into_iter().collect();
+        let i = ingest_manifest(&m, "f/prod/wh", Some("wh"), Some(&sel));
+        let reads: Vec<&str> = i
+            .assets
+            .iter()
+            .filter(|a| a.access_type == Some(AssetUsageAccessType::R))
+            .map(|a| a.path.as_str())
+            .collect();
+        assert_eq!(reads, vec!["f/prod/wh/s/base"]);
     }
 
     #[test]
