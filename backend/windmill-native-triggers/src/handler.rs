@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
 use std::sync::Arc;
 use windmill_api_auth::{
-    check_scopes, create_token_internal, require_is_writer, ApiAuthed, NewToken,
+    check_scopes, create_token_internal, require_is_writer, ApiAuthed, NewToken, OptJobAuthed,
 };
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
@@ -104,12 +104,14 @@ async fn new_webhook_token(
 async fn create_native_trigger<T: External>(
     Extension(handler): Extension<Arc<T>>,
     Extension(service_name): Extension<ServiceName>,
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(workspace_id): Path<String>,
     Json(data): Json<NativeTriggerData<T::ServiceConfig>>,
 ) -> JsonResult<CreateTriggerResponse> {
+    job_authed.reject_operator_write("create triggers")?;
+    let authed = job_authed.authed;
     check_scopes(&authed, || {
         format!("native_triggers:write:{}", &data.script_path)
     })?;
@@ -208,12 +210,14 @@ async fn create_native_trigger<T: External>(
 async fn update_native_trigger_handler<T: External>(
     Extension(handler): Extension<Arc<T>>,
     Extension(service_name): Extension<ServiceName>,
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((workspace_id, external_id)): Path<(String, String)>,
     Json(data): Json<NativeTriggerData<T::ServiceConfig>>,
 ) -> Result<String> {
+    job_authed.reject_operator_write("update triggers")?;
+    let authed = job_authed.authed;
     check_scopes(&authed, || {
         format!("native_triggers:write:{}", &data.script_path)
     })?;
@@ -423,11 +427,13 @@ async fn get_native_trigger_handler<T: External>(
 async fn delete_native_trigger_handler<T: External>(
     Extension(handler): Extension<Arc<T>>,
     Extension(service_name): Extension<ServiceName>,
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((workspace_id, external_id)): Path<(String, String)>,
 ) -> Result<String> {
+    job_authed.reject_operator_write("delete triggers")?;
+    let authed = job_authed.authed;
     let mut tx = user_db.begin(&authed).await?;
 
     let existing = get_native_trigger(&mut *tx, &workspace_id, service_name, &external_id)

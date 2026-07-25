@@ -7,12 +7,14 @@
 //! credentials.
 //!
 //! This pins the guard on every such write route: an Operator is rejected with
-//! 401 "Operators cannot ...", and a regular member is not caught by it. The
-//! trigger routes share the same guard in `windmill_trigger::handler` but are
-//! feature-gated per trigger kind, so they are not exercised here.
+//! 401 "Operators cannot ...", a regular member is not caught by it, and the
+//! token a job runs with is exempt. The trigger routes share the same guard in
+//! `windmill_trigger::handler` but are feature-gated per trigger kind, so they
+//! are not exercised here.
 
 use serde_json::json;
 use sqlx::{Pool, Postgres};
+use windmill_common::{auth::create_jwt_token, db::Authed};
 use windmill_test_utils::*;
 
 const GUARD_PREFIX: &str = "Operators cannot";
@@ -110,6 +112,11 @@ fn write_routes() -> Vec<(&'static str, String, serde_json::Value)> {
             "schedules/delete/u/test-user/s".into(),
             json!(null),
         ),
+        (
+            "POST",
+            "schedules/setenabled/u/test-user/s".into(),
+            json!({"enabled": false}),
+        ),
     ]
 }
 
@@ -162,6 +169,54 @@ async fn operators_cannot_write_workspace_objects(db: Pool<Postgres>) -> anyhow:
             "{method} {path}: non-operator must not hit the operator guard, got: {resp}"
         );
     }
+
+    Ok(())
+}
+
+/// The token a job runs with carries the operator's `is_operator`, so the guard
+/// must let it through — otherwise `wmill.setState` / `setVariable` /
+/// `setResource`, which hit these very routes, break for every operator-launched
+/// run.
+#[sqlx::test(fixtures("base", "operator_write_guards"))]
+async fn operator_job_token_can_still_write(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    set_jwt_secret().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let job_token = create_jwt_token(
+        Authed {
+            email: "operator@windmill.dev".to_string(),
+            username: "operator-user".to_string(),
+            is_admin: false,
+            is_operator: true,
+            groups: vec!["all".to_string()],
+            folders: vec![],
+            scopes: None,
+            token_prefix: None,
+        },
+        "test-workspace",
+        3600,
+        Some(uuid::Uuid::new_v4()),
+        Some("ephemeral-script".to_string()),
+        None,
+        None,
+    )
+    .await?;
+
+    let (status, resp) = send(
+        port,
+        &job_token,
+        "POST",
+        "resources/create",
+        &json!({"path": "u/operator-user/state", "value": {"n": 1}, "resource_type": "state"}),
+    )
+    .await?;
+    assert_eq!(
+        status, 201,
+        "operator job token must be able to write its own state, got {status}: {resp}"
+    );
 
     Ok(())
 }

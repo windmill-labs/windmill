@@ -12,7 +12,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{FromRow, PgConnection};
 use std::fmt::Debug;
-use windmill_api_auth::{build_scope_path_predicate, check_scopes, ApiAuthed};
+use windmill_api_auth::{build_scope_path_predicate, check_scopes, ApiAuthed, OptJobAuthed};
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
@@ -467,17 +467,14 @@ pub fn trigger_routes<T: TriggerCrud + 'static>() -> Router {
 
 async fn create_trigger<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(workspace_id): Path<String>,
     Json(mut new_trigger): Json<TriggerData<T::TriggerConfigRequest>>,
 ) -> Result<(StatusCode, String)> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot create triggers for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("create triggers")?;
+    let authed = job_authed.authed;
     check_scopes(&authed, || {
         format!(
             "{}:write:{}",
@@ -718,17 +715,14 @@ async fn get_trigger<T: TriggerCrud>(
 
 async fn update_trigger<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((workspace_id, path)): Path<(String, StripPath)>,
     Json(mut edit_trigger): Json<TriggerData<T::TriggerConfigRequest>>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot update triggers for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("update triggers")?;
+    let authed = job_authed.authed;
     let path = path.to_path();
     // A scoped token must be allowed on both the existing path (URL) and the
     // new path (body); checking only the latter would let it move a trigger it
@@ -866,16 +860,13 @@ async fn update_trigger<T: TriggerCrud>(
 
 async fn delete_trigger<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((workspace_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot delete triggers for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("delete triggers")?;
+    let authed = job_authed.authed;
     let path = path.to_path();
     check_scopes(&authed, || {
         format!("{}:write:{}", T::scope_domain_name(), &path)
@@ -1025,12 +1016,15 @@ async fn parent_has_trigger(
 
 async fn set_trigger_mode<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((workspace_id, path)): Path<(String, StripPath)>,
     Json(payload): Json<SetTriggerModePayload>,
 ) -> Result<String> {
+    // Setting the mode also rewrites `permissioned_as`, i.e. who the trigger runs as.
+    job_authed.reject_operator_write("change the mode of triggers")?;
+    let authed = job_authed.authed;
     let path = path.to_path();
     check_scopes(&authed, || format!("{}:write", T::scope_domain_name()))?;
 

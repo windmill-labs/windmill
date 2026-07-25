@@ -8,7 +8,7 @@
 
 use windmill_api_auth::{
     build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
-    ApiAuthed,
+    ApiAuthed, OptJobAuthed,
 };
 use windmill_common::db::DB;
 use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
@@ -566,7 +566,7 @@ fn validate_already_encrypted_secret(path: &str, value: &str) -> Result<()> {
 }
 
 async fn create_variable(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
@@ -574,11 +574,8 @@ async fn create_variable(
     Query(AlreadyEncrypted { already_encrypted }): Query<AlreadyEncrypted>,
     Json(variable): Json<CreateVariable>,
 ) -> Result<(StatusCode, String)> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot create variables for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("create variables")?;
+    let authed = job_authed.authed;
     check_scopes(&authed, || format!("variables:write:{}", variable.path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -706,17 +703,14 @@ async fn encrypt_value(
 }
 
 async fn delete_variable(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot delete variables for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("delete variables")?;
+    let authed = job_authed.authed;
     let path = path.to_path();
 
     check_scopes(&authed, || format!("variables:write:{}", path))?;
@@ -883,18 +877,15 @@ async fn delete_variable(
 }
 
 async fn delete_variables_bulk(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
     Json(request): Json<BulkDeleteRequest>,
 ) -> JsonResult<Vec<String>> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot delete variables for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("delete variables")?;
+    let authed = job_authed.authed;
     for path in &request.paths {
         check_scopes(&authed, || format!("variables:write:{}", path))?;
     }
@@ -1063,7 +1054,7 @@ struct AlreadyEncrypted {
 }
 
 async fn update_variable(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
@@ -1073,11 +1064,8 @@ async fn update_variable(
 ) -> Result<String> {
     use sql_builder::prelude::*;
 
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot update variables for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("update variables")?;
+    let authed = job_authed.authed;
 
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,

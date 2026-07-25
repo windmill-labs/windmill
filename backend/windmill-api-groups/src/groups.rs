@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use windmill_api_auth::{require_super_admin, ApiAuthed};
+use windmill_api_auth::{require_super_admin, ApiAuthed, OptJobAuthed};
 use windmill_common::DB;
 
 use axum::{
@@ -228,17 +228,14 @@ async fn _check_nb_of_groups(db: &DB) -> Result<()> {
 }
 
 async fn create_group(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(_db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(ng): Json<NewGroup>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot create groups for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("create groups")?;
+    let authed = job_authed.authed;
     crate::check_demo_workspace_restriction(&authed, &w_id, "Group creation")?;
     let mut tx = user_db.begin(&authed).await?;
 
@@ -629,16 +626,13 @@ async fn get_group(
 }
 
 async fn delete_group(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot delete groups for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("delete groups")?;
+    let authed = job_authed.authed;
     let mut tx = user_db.begin(&authed).await?;
 
     if name == "all" {
@@ -696,17 +690,14 @@ async fn delete_group(
 }
 
 async fn update_group(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
     Json(eg): Json<EditGroup>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot update groups for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("update groups")?;
+    let authed = job_authed.authed;
     let mut tx = user_db.begin(&authed).await?;
     if !authed.is_admin {
         require_is_owner(&name, &authed.username, &authed.groups, &w_id, &db).await?;
@@ -761,17 +752,14 @@ async fn update_group(
 }
 
 async fn add_user(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
     Json(Username { username: user_username }): Json<Username>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot add users to groups for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("add users to groups")?;
+    let authed = job_authed.authed;
     let mut tx = user_db.begin(&authed).await?;
     if !authed.is_admin {
         require_is_owner(&name, &authed.username, &authed.groups, &w_id, &db).await?;
@@ -1161,17 +1149,14 @@ async fn remove_user_igroup(
 }
 
 async fn remove_user(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
     Json(Username { username: user_username }): Json<Username>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot remove users from groups for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("remove users from groups")?;
+    let authed = job_authed.authed;
     let mut tx = user_db.begin(&authed).await?;
     if !authed.is_admin {
         require_is_owner(&name, &authed.username, &authed.groups, &w_id, &db).await?;

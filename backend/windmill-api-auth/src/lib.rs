@@ -43,6 +43,26 @@ pub struct OptJobAuthed {
     pub authed: ApiAuthed,
 }
 
+impl OptJobAuthed {
+    /// Operators are a read-only + execute-only role, so they must not author
+    /// workspace objects. RLS carries no operator flag and `check_scopes` is a
+    /// no-op for a normal session, so every write handler has to reject them
+    /// explicitly. `what` completes "Operators cannot {what}".
+    ///
+    /// A running job is exempt: `job_id` is only set on the token minted for job
+    /// execution, and what a job writes is decided by the script's author, not by
+    /// the operator who ran it — `wmill.setState`/`setVariable`/`setResource` go
+    /// through these same routes.
+    pub fn reject_operator_write(&self, what: &str) -> Result<()> {
+        if self.authed.is_operator && self.job_id.is_none() {
+            return Err(Error::NotAuthorized(format!(
+                "Operators cannot {what} for security reasons"
+            )));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Default, Hash, Eq, PartialEq)]
 pub struct ApiAuthed {
     pub email: String,

@@ -11,7 +11,7 @@ use std::net::IpAddr;
 
 use windmill_api_auth::{
     build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
-    require_super_admin, ApiAuthed, Tokened,
+    require_super_admin, ApiAuthed, OptJobAuthed, Tokened,
 };
 use windmill_common::db::DB;
 use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
@@ -1014,7 +1014,7 @@ struct CreateResourceQuery {
     update_if_exists: Option<bool>,
 }
 async fn create_resource(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
@@ -1022,11 +1022,8 @@ async fn create_resource(
     Query(q): Query<CreateResourceQuery>,
     Json(resource): Json<CreateResource>,
 ) -> Result<(StatusCode, String)> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot create resources for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("create resources")?;
+    let authed = job_authed.authed;
     check_scopes(&authed, || format!("resources:write:{}", resource.path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -1196,17 +1193,14 @@ async fn create_resource(
 }
 
 async fn delete_resource(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot delete resources for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("delete resources")?;
+    let authed = job_authed.authed;
     let path = path.to_path();
 
     check_scopes(&authed, || format!("resources:write:{}", path))?;
@@ -1505,18 +1499,15 @@ pub async fn mark_linked_variables_ws_specific(
 }
 
 async fn delete_resources_bulk(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
     Json(request): Json<BulkDeleteRequest>,
 ) -> JsonResult<Vec<String>> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot delete resources for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("delete resources")?;
+    let authed = job_authed.authed;
     for path in &request.paths {
         check_scopes(&authed, || format!("resources:write:{}", path))?;
     }
@@ -1690,7 +1681,7 @@ async fn delete_resources_bulk(
 }
 
 async fn update_resource(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
@@ -1699,11 +1690,8 @@ async fn update_resource(
 ) -> Result<String> {
     use sql_builder::prelude::*;
 
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot update resources for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("update resources")?;
+    let authed = job_authed.authed;
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:write:{}", path))?;
     // A rename moves the resource (and its linked variable) to ns.path, so the
@@ -1972,18 +1960,15 @@ struct UpdateResource {
 }
 
 async fn update_resource_value(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(nv): Json<UpdateResource>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot update resources for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("update resources")?;
+    let authed = job_authed.authed;
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:write:{}", path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -2167,18 +2152,15 @@ async fn exists_resource_type(
 }
 
 async fn create_resource_type(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
     Json(resource_type): Json<CreateResourceType>,
 ) -> Result<(StatusCode, String)> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot create resource types for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("create resource types")?;
+    let authed = job_authed.authed;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
@@ -2279,17 +2261,14 @@ async fn check_rt_path_conflict<'c>(
 }
 
 async fn delete_resource_type(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot delete resource types for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("delete resource types")?;
+    let authed = job_authed.authed;
     require_admin(authed.is_admin, &authed.username)?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -2348,7 +2327,7 @@ async fn delete_resource_type(
 }
 
 async fn update_resource_type(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
@@ -2357,11 +2336,8 @@ async fn update_resource_type(
 ) -> Result<String> {
     use sql_builder::prelude::*;
 
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot update resource types for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("update resource types")?;
+    let authed = job_authed.authed;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),

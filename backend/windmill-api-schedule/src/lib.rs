@@ -17,8 +17,10 @@ use sql_builder::{prelude::Bind, SqlBuilder};
 use sqlx::{Postgres, Transaction};
 use std::str::FromStr;
 use windmill_api_auth::{
-    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_super_admin, ApiAuthed,
+    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_super_admin,
+    ApiAuthed, OptJobAuthed,
 };
+
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::DB;
@@ -227,17 +229,14 @@ async fn validate_dynamic_skip<'c>(
 }
 
 async fn create_schedule(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(ns): Json<NewSchedule>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot create schedules for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("create schedules")?;
+    let authed = job_authed.authed;
     check_scopes(&authed, || format!("schedules:write:{}", ns.path))?;
     reject_reserved_schedule_path(&ns.path)?;
 
@@ -481,17 +480,14 @@ async fn create_schedule(
 }
 
 async fn edit_schedule(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(es): Json<EditSchedule>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot update schedules for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("update schedules")?;
+    let authed = job_authed.authed;
     let path = path.to_path();
     check_scopes(&authed, || format!("schedules:write:{}", path))?;
     reject_reserved_schedule_path(path)?;
@@ -1048,12 +1044,15 @@ pub async fn preview_schedule(
 }
 
 pub async fn set_enabled(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(payload): Json<SetEnabled>,
 ) -> Result<String> {
+    // Toggling also rewrites the schedule's `email`, i.e. who it runs as.
+    job_authed.reject_operator_write("enable or disable schedules")?;
+    let authed = job_authed.authed;
     let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("schedules:write:{}", path))?;
@@ -1227,16 +1226,13 @@ pub async fn set_enabled(
 // }
 
 async fn delete_schedule(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot delete schedules for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("delete schedules")?;
+    let authed = job_authed.authed;
     let path = path.to_path();
     check_scopes(&authed, || format!("schedules:write:{}", path))?;
     reject_reserved_schedule_path(path)?;

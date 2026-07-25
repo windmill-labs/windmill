@@ -15,7 +15,9 @@ use axum::{
 };
 use lazy_static::lazy_static;
 use regex::Regex;
-use windmill_api_auth::{build_scope_path_predicate, check_scopes, ApiAuthed, AuthCache, Tokened};
+use windmill_api_auth::{
+    build_scope_path_predicate, check_scopes, ApiAuthed, AuthCache, OptJobAuthed, Tokened,
+};
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::DB;
@@ -234,7 +236,7 @@ lazy_static! {
 }
 
 async fn create_folder(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Tokened { token }: Tokened,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -243,11 +245,8 @@ async fn create_folder(
     Path(w_id): Path<String>,
     Json(mut ng): Json<NewFolder>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot create folders for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("create folders")?;
+    let authed = job_authed.authed;
     crate::check_demo_workspace_restriction(&authed, &w_id, "Folder creation")?;
     if let Some(labels) = ng.labels.as_mut() {
         dedup_labels(labels);
@@ -403,7 +402,7 @@ use windmill_api_auth::is_owner;
 pub use windmill_api_auth::require_is_owner;
 
 async fn update_folder(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
@@ -412,11 +411,8 @@ async fn update_folder(
 ) -> Result<String> {
     use sql_builder::prelude::*;
 
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot update folders for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("update folders")?;
+    let authed = job_authed.authed;
 
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -762,17 +758,14 @@ async fn get_folder_usage(
 }
 
 async fn delete_folder(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot delete folders for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("delete folders")?;
+    let authed = job_authed.authed;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
@@ -837,17 +830,14 @@ async fn delete_folder(
 }
 
 async fn add_owner(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
     Json(Owner { owner, .. }): Json<Owner>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot add owners to folders for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("add owners to folders")?;
+    let authed = job_authed.authed;
     crate::check_demo_workspace_restriction(&authed, &w_id, "Sharing")?;
     let mut tx = user_db.begin(&authed).await?;
 
@@ -907,17 +897,14 @@ async fn add_owner(
 }
 
 async fn remove_owner(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
     Json(Owner { owner, write }): Json<Owner>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot remove owners from folders for security reasons".to_string(),
-        ));
-    }
+    job_authed.reject_operator_write("remove owners from folders")?;
+    let authed = job_authed.authed;
     // remove_owner with a `write` value is a grant path: it jsonb_set's the owner's
     // permission level into extra_perms (only write=None is a pure revoke), so the
     // demo-workspace sharing restriction must apply when a level is being set.
