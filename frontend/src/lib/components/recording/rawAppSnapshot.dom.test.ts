@@ -83,13 +83,23 @@ describe('serializeDocument redaction', () => {
 	})
 
 	it('does not launder a marked stylesheet into the snapshot by inlining it', () => {
-		const doc = docFrom(``)
-		const style = doc.createElement('style')
+		// The inliner exists for sheets whose rules live only in the CSSOM (an empty
+		// `<style>` filled with `insertRule`, or a `<link>`); it must skip a marked
+		// owner, or the replacement node would carry the CSS past redaction.
+		// The live document, not a parsed one: only a document with a browsing
+		// context exposes `style.sheet`, which is what the inliner reads.
+		const style = document.createElement('style')
 		style.setAttribute('data-wm-no-record', '')
-		style.textContent = `.a { content: "sentinel-92000"; }`
-		doc.head.appendChild(style)
+		document.head.appendChild(style)
+		try {
+			style.sheet?.insertRule(`.a { content: "sentinel-92000"; }`, 0)
+			expect(style.sheet?.cssRules.length).toBe(1)
+			expect(style.textContent).toBe('')
 
-		expect(serializeDocument(doc)).not.toContain('sentinel-92000')
+			expect(serializeDocument(document)).not.toContain('sentinel-92000')
+		} finally {
+			style.remove()
+		}
 	})
 
 	it('masks a password without leaking its length, and keeps other values', () => {

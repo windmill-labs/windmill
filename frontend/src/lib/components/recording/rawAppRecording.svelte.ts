@@ -62,6 +62,8 @@ const MAX_STEP_VALUE_CHARS = 200
 /** Repeats of the same interaction on the same control (a held arrow key, a
  * drag along a slider) are one step, not one per event. */
 const CONTROL_COALESCE_MS = 250
+/** A form submit this soon after a click inside it is that click's consequence. */
+const SUBMIT_FOLD_MS = 500
 
 type PendingFill = {
 	el: Element
@@ -311,10 +313,6 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		return isTag(el, 'INPUT') && CONTINUOUS_INPUT_TYPES.has((el as HTMLInputElement).type)
 	}
 
-	/** A field whose value the user types into, character by character. Listed
-	 * positively: everything else an `<input>` can be (a range, a colour, a date,
-	 * a checkbox) is a control the browser mutates on keys that produce no
-	 * `beforeinput`, and must take the control path instead. */
 	/** Metadata is stored and rendered like a frame is; an unbounded paste (or a
 	 * pathological selector) would otherwise slip past the snapshot budget. */
 	function bound(text: string | undefined): string | undefined {
@@ -322,6 +320,10 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		return text.length > MAX_STEP_VALUE_CHARS ? `${text.slice(0, MAX_STEP_VALUE_CHARS)}…` : text
 	}
 
+	/** A field whose value the user types into, character by character. Listed
+	 * positively: everything else an `<input>` can be (a range, a colour, a date,
+	 * a checkbox) is a control the browser mutates on keys that produce no
+	 * `beforeinput`, and must take the control path instead. */
 	function isTextEntry(el: Element): boolean {
 		if (isTag(el, 'TEXTAREA')) return true
 		if ((el as HTMLElement).isContentEditable) return true
@@ -353,9 +355,18 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		return undefined
 	}
 
-	/** The pre-key snapshot, when the key landed on this same element. */
+	/** The pre-key snapshot, when the key landed on this element — or on another
+	 * radio of the same group, since arrows move the selection between them and
+	 * `change` then fires on a different element than `keydown` did. */
 	function keyFrameFor(el: Element): string | undefined {
-		return pendingKey?.el === el ? pendingKey.html : undefined
+		const from = pendingKey?.el
+		if (!from) return undefined
+		if (from === el) return pendingKey?.html
+		const a = el as HTMLInputElement
+		const b = from as HTMLInputElement
+		const sameGroup =
+			a.type === 'radio' && b.type === 'radio' && !!a.name && a.name === b.name && a.form === b.form
+		return sameGroup ? pendingKey?.html : undefined
 	}
 
 	function commitFill() {
@@ -388,9 +399,11 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		on('click', (e: MouseEvent) => {
 			const el = isElementNode(e.target) ? e.target : undefined
 			if (!el) return
-			// A click with no coordinates is a keyboard activation (Enter/Space): it
-			// had no pointerdown, so the last one belongs to an earlier interaction.
-			if (e.detail === 0) pendingPointer = undefined
+			// A click with no coordinates is either a keyboard activation or the click
+			// a label forwards to its control. Only the first is stale, and it is the
+			// one whose pointerdown was on this very element (an earlier physical
+			// click on it); a forwarded click's pointerdown was on the label.
+			if (e.detail === 0 && pendingPointer?.el === el) pendingPointer = undefined
 			// Before any early return: a fill still inside its debounce belongs before
 			// whatever this click records, and the control paths below never commit it.
 			if (pendingFill && pendingFill.el !== el) commitFill()
@@ -445,7 +458,10 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			// taken before the key or pointer that caused it will do.
 			const before = pointerFrameFor(el) ?? keyFrameFor(el)
 			pendingPointer = undefined
-			pendingKey = undefined
+			// A sweep keeps its opening frame: every repeat updates one step, whose
+			// Interaction is the state before the gesture started. A discrete control
+			// consumes it, so its next activation snapshots afresh.
+			if (!isContinuousControl(el)) pendingKey = undefined
 			if (isTag(el, 'SELECT')) {
 				const options = Array.from((el as HTMLSelectElement).selectedOptions)
 				const selected = options.map((o) => o.label || o.value).join(', ')
@@ -476,6 +492,17 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		on('submit', (e: Event) => {
 			const el = isElementNode(e.target) ? e.target : undefined
 			commitFill()
+			// Clicking a submit button records the click; the submit that follows is
+			// the same action, so it only becomes its own step when nothing in this
+			// form was just clicked (Enter in a field, or a programmatic submit).
+			const last = steps[steps.length - 1]
+			const justClickedInside =
+				last?.kind === 'click' &&
+				!!lastStepEl &&
+				!!el &&
+				el.contains(lastStepEl) &&
+				Date.now() - startTime - lastStepAt < SUBMIT_FOLD_MS
+			if (justClickedInside) return
 			pushStep('submit', el, capture(el))
 		})
 
@@ -486,7 +513,11 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			// fields are covered by `beforeinput` instead, which also sees paste and
 			// undo. Snapshotting is expensive and runs on the app's own event path, so
 			// keys that change nothing (Tab, modifiers, navigation) must not trigger it.
-			if (el && isControl(el) && mutatingKey(e)) pendingKey = { el, html: capture(el) }
+			// `pendingKey?.el !== el` skips auto-repeat: the first keydown of the burst
+			// already holds the pre-change DOM, and serializing per repeat would cost
+			// the app a full document clone at the key-repeat rate.
+			if (el && isControl(el) && mutatingKey(e) && pendingKey?.el !== el)
+				pendingKey = { el, html: capture(el) }
 			if (e.key !== 'Enter' && e.key !== 'Escape') return
 			// Enter in a field ends the edit: the fill step must land before the key.
 			commitFill()
