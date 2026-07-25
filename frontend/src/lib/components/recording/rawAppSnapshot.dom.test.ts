@@ -19,7 +19,7 @@ function docFrom(body: string): Document {
 describe('serializeDocument redaction', () => {
 	it('drops the content, attributes and template fragment of a no-record element', () => {
 		const doc = docFrom(
-			`<div data-wm-no-record title="salary 92000" data-token="sk-secret" aria-label="confidential">visible secret</div>` +
+			`<div data-wm-no-record="why-hidden-92000" title="salary 92000" data-token="sk-secret" aria-label="confidential">visible secret</div>` +
 				`<select><option data-wm-no-record label="codename falcon">falcon</option></select>` +
 				`<template data-wm-no-record><input value="template secret"></template>`
 		)
@@ -41,10 +41,14 @@ describe('serializeDocument redaction', () => {
 			'codename falcon',
 			'falcon',
 			'template secret',
-			'signed-secret'
+			'signed-secret',
+			// The marker itself is author-written free text; it survives so the element
+			// can still be styled, but carries nothing of its own.
+			'why-hidden-92000'
 		]) {
 			expect(html).not.toContain(secret)
 		}
+		expect(html).toContain('data-wm-no-record=""')
 	})
 
 	it('redacts a marked document root down to its constrained attributes', () => {

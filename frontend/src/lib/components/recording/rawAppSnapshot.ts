@@ -176,6 +176,10 @@ function redactMarkedSubtrees(doc: Document, root: Element) {
 	]
 	for (const n of marked) {
 		n.replaceChildren(doc.createTextNode('•••'))
+		// The marker is kept (an app may style `[data-wm-no-record]`) but emptied: its
+		// value is author-written free text that nothing downstream reads, so leaving
+		// it verbatim would be the one way past the allow-list below.
+		n.setAttribute(NO_RECORD_ATTR, '')
 		for (const attr of Array.from(n.attributes)) {
 			if (attr.name === NO_RECORD_ATTR) continue
 			const name = attr.localName.toLowerCase()
