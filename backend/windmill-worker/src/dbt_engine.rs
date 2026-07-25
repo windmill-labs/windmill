@@ -264,7 +264,8 @@ async fn provision_fusion(
         Some(v) => format!("fusion-{v}"),
         None => "fusion".to_string(),
     });
-    let bin = dir.join("bin").join("dbt");
+    // The installer places the binary directly in the directory `--to` names.
+    let bin = dir.join("dbt");
     if bin.exists() {
         return Ok(ProvisionedEngine {
             bin,
@@ -303,17 +304,20 @@ async fn provision_fusion(
         tmp.file_name().unwrap().to_str().unwrap(),
         &script,
     )?;
+    // `--to` and `--version` are the installer's own flags (`install.sh
+    // --help`); it takes no positional arguments and ignores unknown ones, so
+    // an approximation here fails by silently installing the latest release
+    // into the user's $HOME instead of the cache.
     let mut install = Command::new("sh");
-    install.arg(&tmp).env("FS_INSTALL_DIR", &staging);
-    match pinned_version {
-        // The installer takes a version positionally; without one it resolves
-        // the latest release.
-        Some(v) => install.arg(v),
-        None => install.arg("--update"),
-    };
+    install.arg(&tmp).arg("--to").arg(&staging);
+    if let Some(v) = pinned_version {
+        install.args(["--version", v]);
+    } else {
+        install.arg("--update");
+    }
     run_tool(&mut install, "fusion install").await?;
     tokio::fs::remove_file(&tmp).await.ok();
-    if !staging.join("bin").join("dbt").exists() {
+    if !staging.join("dbt").exists() {
         tokio::fs::remove_dir_all(&staging).await.ok();
         return Err(Error::internal_err(
             "the Fusion installer did not produce a dbt binary".to_string(),
@@ -335,11 +339,23 @@ async fn provision_fusion(
     })
 }
 
+/// From the binary itself: the installer writes no version file, and a pinned
+/// directory name would only echo back what was asked for rather than what was
+/// installed.
 async fn fusion_version(dir: &Path) -> String {
-    tokio::fs::read_to_string(dir.join("version"))
+    Command::new(dir.join("dbt"))
+        .arg("--version")
+        .output()
         .await
-        .map(|v| v.trim().to_string())
-        .unwrap_or_else(|_| "unknown".to_string())
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .split_whitespace()
+                .nth(1)
+                .map(|v| v.to_string())
+        })
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 /// A sibling of `dir` to build in before renaming into place. Appended to the

@@ -144,7 +144,7 @@ pub async fn handle_dbt_job(
         requirements_o.and_then(|s| serde_json::from_str(s).ok());
 
     let args = job.args.as_ref().map(|a| a.0.clone()).unwrap_or_default();
-    let inv = Invocation { args: args.clone(), envs: envs.clone() };
+    let inv = Invocation { args: args.clone(), envs: envs.clone(), strict: true };
     let prepared = prepare_project(
         &descriptor,
         inner_content,
@@ -358,7 +358,9 @@ pub async fn dbt_dep(
 
     // A deploy has no job arguments and, until the run, no job environment; it
     // tolerates the `{{ }}` placeholders it cannot fill (see `Invocation`).
-    let inv = Invocation::default();
+    // A deploy has no job arguments and no job environment, and tolerates the
+    // `{{ }}` placeholders only a run can fill.
+    let inv = Invocation { strict: false, ..Default::default() };
     run_dbt_parse(&prepared, &descriptor, &inv, job_id, w_id, &conn).await?;
 
     let selected = resolve_selection(&prepared, &descriptor, &inv).await?;
@@ -2021,15 +2023,15 @@ async fn save_run_state(
 pub struct Invocation {
     pub args: HashMap<String, Box<RawValue>>,
     pub envs: HashMap<String, String>,
+    /// A run must fail on a `{{ }}` placeholder it cannot fill; a deploy, which
+    /// has no arguments at all, tolerates them. Declared rather than inferred
+    /// from the argument count: a run submitted with `{}` is still a run, and
+    /// treating it as a deploy would blank its placeholders and build against
+    /// an unintended schema or alias.
+    pub strict: bool,
 }
 
 impl Invocation {
-    /// Placeholders a run must resolve; a deploy has no arguments and tolerates
-    /// the ones it cannot fill.
-    fn strict(&self) -> bool {
-        !self.args.is_empty()
-    }
-
     /// Digest of the script-level environment, for retry identity. Values are
     /// secrets, so they are hashed rather than stored.
     fn env_digest(&self) -> u64 {
@@ -2107,7 +2109,7 @@ async fn restore_run_state(
 
 /// Append `--vars` if the descriptor (or the run) declares any.
 fn add_vars(cmd: &mut Command, descriptor: &DbtDescriptor, inv: &Invocation) -> error::Result<()> {
-    let vars = resolved_vars(descriptor, &inv.args, inv.strict())?;
+    let vars = resolved_vars(descriptor, &inv.args, inv.strict)?;
     if !vars.is_empty() {
         cmd.args(["--vars", &serde_json::to_string(&vars).unwrap_or_default()]);
     }
