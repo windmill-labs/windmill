@@ -590,6 +590,9 @@
 		{
 			displayName: 'Publish to Hub',
 			icon: Globe,
+			// Publishing goes through the project flow, whose Hub endpoints are
+			// workspace-admin only: offering it to anyone else ends in a 403.
+			hide: !($userStore?.is_admin || $userStore?.is_super_admin),
 			action: () => goto(hubPublishHref(base, savedApp?.path ?? appPath))
 		}
 	])

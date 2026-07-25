@@ -98,7 +98,9 @@ function resolvePath(root: Element, path: number[]): Element | undefined {
 }
 
 /** What may stay on a no-record element: enough for it to keep occupying the
- * same space in the snapshot, and nothing that can carry content. An allow-list
+ * same space in the snapshot, and nothing that can carry content. `class` and
+ * `id` are on it by name only — their values are filtered to what the snapshot's
+ * CSS selects on (see {@link styledTokens}). An allow-list
  * on purpose — every round of "this attribute leaks too" (`title`, `data-*`,
  * `label`, `xlink:href`, `srcdoc`…) is a deny-list failing open. `style` is not
  * on it either: a custom property or an image function can carry content just as
@@ -136,11 +138,31 @@ export function redactedDescription(el: Element): string {
 	return `${role} (redacted)`
 }
 
+/** Class and id tokens the snapshot's own (already inlined) stylesheets select
+ * on. `class` and `id` are kept on redacted elements so their box keeps its
+ * shape, but their values are author-chosen free text and can carry the very
+ * content the marker withholds (`id="salary-92000"`). A token the CSS selects on
+ * is styling vocabulary by construction; one it never mentions buys the layout
+ * nothing, so it goes. Matching is textual and deliberately errs towards
+ * dropping: a class reached only through `[class~=…]` loses its styling, which
+ * costs a placeholder its shape rather than leaking anything. */
+function styledTokens(clone: Element): { classes: Set<string>; ids: Set<string> } {
+	const classes = new Set<string>()
+	const ids = new Set<string>()
+	for (const style of Array.from(clone.querySelectorAll('style'))) {
+		const css = style.textContent ?? ''
+		for (const m of css.matchAll(/\.(-?[_a-zA-Z][\w-]*)/g)) classes.add(m[1])
+		for (const m of css.matchAll(/#(-?[_a-zA-Z][\w-]*)/g)) ids.add(m[1])
+	}
+	return { classes, ids }
+}
+
 /** Strip everything the app marked no-record: the descendants of a marked
  * element, and every attribute outside {@link REDACTION_KEEPS_ATTRS} — content
  * hides in `title`, `data-*`, `label`, `srcdoc`, a namespaced `xlink:href`, so
  * only what the replay needs for layout and control state survives. */
 function redactMarkedSubtrees(doc: Document, root: Element) {
+	const styled = styledTokens(root)
 	// `querySelectorAll` skips the element it is called on, so a marked root
 	// (`<html data-wm-no-record>`) has to be handled explicitly.
 	const marked: Element[] = [
@@ -151,7 +173,16 @@ function redactMarkedSubtrees(doc: Document, root: Element) {
 		n.replaceChildren(doc.createTextNode('•••'))
 		for (const attr of Array.from(n.attributes)) {
 			if (attr.name === NO_RECORD_ATTR) continue
-			if (!REDACTION_KEEPS_ATTRS.has(attr.localName.toLowerCase())) n.removeAttributeNode(attr)
+			const name = attr.localName.toLowerCase()
+			if (!REDACTION_KEEPS_ATTRS.has(name)) {
+				n.removeAttributeNode(attr)
+			} else if (name === 'class') {
+				const kept = attr.value.split(/\s+/).filter((c) => c && styled.classes.has(c))
+				if (kept.length) n.setAttribute('class', kept.join(' '))
+				else n.removeAttributeNode(attr)
+			} else if (name === 'id' && !styled.ids.has(attr.value)) {
+				n.removeAttributeNode(attr)
+			}
 		}
 	}
 }
