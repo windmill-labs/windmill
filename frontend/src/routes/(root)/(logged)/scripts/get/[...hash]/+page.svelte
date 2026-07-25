@@ -22,7 +22,12 @@
 	} from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		userStore,
+		userWorkspaces,
+		workspaceStore
+	} from '$lib/stores'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 	import AIFormAssistant from '$lib/components/copilot/AIFormAssistant.svelte'
 
@@ -57,7 +62,6 @@
 		Eye,
 		FolderOpen,
 		GitFork,
-		Globe2,
 		History,
 		Loader2,
 		Pen,
@@ -70,8 +74,6 @@
 		ChevronDown,
 		ChevronRight
 	} from 'lucide-svelte'
-	import { SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB } from '$lib/consts'
-	import { hubPublishHref } from '$lib/hub'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import ScriptVersionHistory from '$lib/components/ScriptVersionHistory.svelte'
@@ -541,16 +543,6 @@
 				onclick: () => {
 					deploymentDrawer?.openDrawer(script?.path ?? '', 'script')
 				}
-			})
-		}
-
-		// Publishing goes through the project flow, whose Hub endpoints are
-		// workspace-admin only: offering it to anyone else ends in a 403.
-		if (SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB && ($userStore?.is_admin || $userStore?.is_super_admin)) {
-			menuItems.push({
-				label: 'Publish to Hub',
-				Icon: Globe2,
-				onclick: () => goto(hubPublishHref(base, script?.path))
 			})
 		}
 

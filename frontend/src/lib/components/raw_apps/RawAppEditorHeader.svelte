@@ -12,15 +12,18 @@
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { discardDraftAfterDeploy } from '$lib/userDraftToast'
-	import { hubPublishHref } from '$lib/hub'
-	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		userStore,
+		userWorkspaces,
+		workspaceStore
+	} from '$lib/stores'
 	import {
 		Bug,
 		DiffIcon,
 		EllipsisVertical,
 		FileJson,
 		Circle,
-		Globe,
 		History,
 		PanelLeft,
 		PanelLeftClose,
@@ -586,14 +589,6 @@
 				recordDrawer?.openDrawer()
 			},
 			disabled: !savedApp
-		},
-		{
-			displayName: 'Publish to Hub',
-			icon: Globe,
-			// Publishing goes through the project flow, whose Hub endpoints are
-			// workspace-admin only: offering it to anyone else ends in a 403.
-			hide: !($userStore?.is_admin || $userStore?.is_super_admin),
-			action: () => goto(hubPublishHref(base, savedApp?.path ?? appPath))
 		}
 	])
 

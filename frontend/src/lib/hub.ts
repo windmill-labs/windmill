@@ -1,5 +1,4 @@
-import { AppService, FlowService, type Flow } from './gen'
-import { encodeState } from './utils'
+import { AppService, FlowService } from './gen'
 import hubPathsData from './hubPaths.json'
 import {
 	replacePlaceholderForSignatureScriptTemplate,
@@ -46,35 +45,6 @@ export async function loadHubApps() {
 	} catch {
 		console.error('Hub is not available')
 	}
-}
-
-export function flowToHubUrl(flow: Flow, hubBaseUrl: string): URL {
-	const url = new URL(hubBaseUrl + '/flows/add')
-	const openFlow = {
-		value: flow.value,
-		summary: flow.summary,
-		description: flow.description,
-		schema: flow.schema
-	}
-	url.searchParams.append('flow', encodeState(openFlow))
-	return url
-}
-
-export function appToHubUrl(staticApp: any, hubBaseUrl: string): URL {
-	const url = new URL(hubBaseUrl + '/apps/add')
-	url.searchParams.append('app', encodeState(staticApp))
-	return url
-}
-
-/**
- * Where an item's editor sends the user to publish it. Publishing is a project
- * operation (a folder becomes a Hub project carrying its scripts, flows, apps,
- * resources and demos), so it lives on the folders page rather than in each
- * editor. Items outside a folder land on the folder list to pick one.
- */
-export function hubPublishHref(base: string, path: string | undefined): string {
-	const folder = path?.startsWith('f/') ? path.split('/')[1] : undefined
-	return folder ? `${base}/folders?publish=${encodeURIComponent(folder)}` : `${base}/folders`
 }
 
 type HubPaths = {
