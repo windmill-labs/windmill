@@ -4,7 +4,7 @@
 	 * step at a time, rendering each step's DOM snapshot in a scripting-disabled
 	 * iframe with the element the user acted on highlighted.
 	 */
-	import { Button } from '$lib/components/common'
+	import Button from '$lib/components/common/button/Button.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
