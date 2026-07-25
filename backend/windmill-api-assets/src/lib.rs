@@ -1123,18 +1123,34 @@ async fn asset_graph(
     // `table://` asset nodes (decision 15), so the per-model metadata has to
     // hang off the assets, not off the script. It describes the RELATION, not a
     // producer: several dbt scripts (different selections of one project) can
-    // materialize the same model, and the producer edges already name them. Fetched unfiltered for the same
-    // reason the macro definitions are: an out-of-folder dbt script still has
-    // to explain the models an in-scope consumer reads.
+    // materialize the same model, and the producer edges already name them.
+    //
+    // Scoped to the relations this graph actually renders, so a workspace with
+    // many dbt projects does not pay for all of them on every request. Not
+    // scoped by the script's folder: an out-of-folder dbt script still has to
+    // explain a model an in-scope consumer reads, same as macro definitions.
+    // Tests come along via `attached_node` — they carry no `asset_path` of
+    // their own.
     let dbt_rows = sqlx::query!(
-        r#"SELECT script_path AS "script_path!", unique_id AS "unique_id!",
+        r#"WITH scoped AS (
+             SELECT unique_id FROM dbt_node
+              WHERE workspace_id = $1 AND asset_path IS NOT NULL
+                AND asset_path IN (
+                  SELECT path FROM asset
+                   WHERE workspace_id = $1 AND kind = 'table'
+                     AND ($2::text IS NULL OR usage_path LIKE $2))
+           )
+           SELECT script_path AS "script_path!", unique_id AS "unique_id!",
                   resource_type AS "resource_type!", name AS "name!", asset_path,
                   materialized, materialize_strategy, tags AS "tags!", description,
                   test_kind, test_column, test_args, severity, attached_node
-           FROM dbt_node
-           WHERE workspace_id = $1
-           ORDER BY script_path, unique_id"#,
+             FROM dbt_node
+            WHERE workspace_id = $1
+              AND (unique_id IN (SELECT unique_id FROM scoped)
+                   OR attached_node IN (SELECT unique_id FROM scoped))
+            ORDER BY script_path, unique_id"#,
         &w_id,
+        folder_filter.as_deref(),
     )
     .fetch_all(&mut *tx)
     .await?;

@@ -3382,6 +3382,11 @@ async fn delete_script_by_path(
     .fetch_all(&mut *tx)
     .await?;
 
+    // Before the DELETE: `clear_dbt_manifest` keys on the path, and the sidecar
+    // has no script foreign key, so provenance left behind here would attach
+    // itself to whatever is created at this path next.
+    windmill_common::dbt_manifest::clear_dbt_manifest(&mut tx, &w_id, path).await?;
+
     let script = sqlx::query_scalar!(
         "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING path",
         path,
@@ -3543,6 +3548,11 @@ async fn delete_scripts_bulk(
             )
             .await?;
         }
+    }
+
+    // Same reason as the single-path delete: the sidecar has no foreign key.
+    for p in &request.paths {
+        windmill_common::dbt_manifest::clear_dbt_manifest(&mut tx, &w_id, p).await?;
     }
 
     let mut deleted_paths = sqlx::query_scalar!(

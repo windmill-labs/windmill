@@ -138,9 +138,6 @@
 
 	let showAdd = $derived(data.onAddScript != undefined)
 
-	// Data-test outcome badge. Only guarded assets show it. The write's fate on a
-	// failing test differs by edition — surface which one applies so a shared
-	// parent/fork table name can't hide a silently-published bad version.
 	// dbt badge. `materialized` is dbt's own word rather than the Windmill
 	// strategy because `view` and `ephemeral` have no strategy, and showing the
 	// dbt word keeps the node legible to someone reading their own project.
@@ -162,6 +159,9 @@
 		return lines.join('\n')
 	})
 
+	// Data-test outcome badge. Only guarded assets show it. The write's fate on a
+	// failing test differs by edition — surface which one applies so a shared
+	// parent/fork table name can't hide a silently-published bad version.
 	let isEE = $derived(!!$enterpriseLicense)
 	let showGuardBadge = $derived(data.dataTestGuarded === true)
 	let guardFailed = $derived(data.producerFailed === true)

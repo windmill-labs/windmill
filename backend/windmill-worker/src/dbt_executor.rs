@@ -402,8 +402,9 @@ pub async fn dbt_dep(
 
     serde_json::to_string_pretty(&DbtDependencyLocks {
         repo_resource: prepared.repo_resource.clone(),
-        // Empty under `ref: latest` by design: the commit is resolved per run.
-        commit: if descriptor.is_latest_ref() {
+        // Empty when the commit is chosen per run rather than at deploy: under
+        // `ref: latest`, and when the ref is a placeholder only a run can fill.
+        commit: if descriptor.is_latest_ref() || prepared.ref_is_per_run {
             String::new()
         } else {
             prepared.commit.clone()
@@ -420,6 +421,9 @@ pub struct PreparedProject {
     pub profiles_dir: PathBuf,
     pub engine: ProvisionedEngine,
     pub commit: String,
+    /// The descriptor's `ref` holds a placeholder no deploy can resolve, so the
+    /// lockfile must not pin a commit.
+    pub ref_is_per_run: bool,
     /// The `git_repository` resource path. The resolved URL is deliberately not
     /// kept: it can carry a token, and this ends up in the lockfile.
     pub repo_resource: String,
@@ -498,12 +502,15 @@ pub async fn prepare_project(
     // authoritative so a run reproduces its deploy exactly, and the descriptor's
     // ref is only the fallback for a script whose lock has not been generated.
     // At deploy there are no job args, so a `ref: "{{ commit }}"` cannot be
-    // resolved. That is not a deploy failure — it just means the ref is only
-    // knowable per run, so nothing is locked and each run interpolates it.
+    // resolved. That is not a deploy failure — the ref is simply only knowable
+    // per run. `ref_is_per_run` carries that fact to the lockfile, which must
+    // then pin nothing: locking the default branch's hash would make every run
+    // ignore its own `commit` argument and replay the deploy's checkout.
     let interpolated_ref = descriptor
         .r#ref
         .as_deref()
         .and_then(|r| crate::common::interpolate_template(r, Some(args), "ref").ok());
+    let ref_is_per_run = descriptor.r#ref.is_some() && interpolated_ref.is_none();
     let probe = GitRepo {
         url: url.clone(),
         commit: None,
@@ -512,6 +519,13 @@ pub async fn prepare_project(
     };
     let commit = if descriptor.is_latest_ref() {
         get_git_repo_full_head_commit_hash(&probe, &git_ssh_cmd).await?
+    } else if let Some(r) = interpolated_ref
+        .clone()
+        // A ref the descriptor spells with a placeholder is chosen by the run,
+        // so the run's value wins over whatever the deploy happened to lock.
+        .filter(|_| descriptor.r#ref.as_deref().is_some_and(|r| r.contains("{{")))
+    {
+        resolve_git_ref_to_commit(&probe, &git_ssh_cmd, &r).await?
     } else if let Some(locked) = locks.map(|l| l.commit.clone()).filter(|c| !c.is_empty()) {
         locked
     } else if let Some(r) = interpolated_ref.clone() {
@@ -578,6 +592,7 @@ pub async fn prepare_project(
         profiles_dir,
         engine,
         commit: checked_out,
+        ref_is_per_run,
         repo_resource: repo_res,
         resource_path,
         script_path: script_path.to_string(),
@@ -1478,12 +1493,14 @@ fn resolved_vars(
 ) -> serde_json::Map<String, serde_json::Value> {
     let mut out = serde_json::Map::new();
     for (k, v) in &descriptor.vars {
-        // A var whose placeholder only a run can fill is omitted rather than
-        // failing: at deploy the point is to parse the project, and dbt applies
-        // the var's own default for anything left unset.
-        if let Ok(value) = crate::common::interpolate_template(v, Some(args), &format!("vars.{k}")) {
-            out.insert(k.clone(), serde_json::Value::String(value));
-        }
+        // A var whose placeholder only a run can fill still has to be DEFINED at
+        // deploy, or a project calling `var("run_date")` without its own default
+        // fails to parse and cannot be deployed at all. The value is irrelevant
+        // to parsing the graph, so it resolves to empty; the run supplies the
+        // real one.
+        let value = crate::common::interpolate_template(v, Some(args), &format!("vars.{k}"))
+            .unwrap_or_default();
+        out.insert(k.clone(), serde_json::Value::String(value));
     }
     if let Some(raw) = args.get("vars") {
         if let Ok(serde_json::Value::Object(m)) = serde_json::from_str(raw.get()) {

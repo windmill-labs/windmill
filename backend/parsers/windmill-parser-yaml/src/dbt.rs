@@ -145,7 +145,13 @@ pub const REF_LATEST: &str = "latest";
 
 /// The dbt subcommands a run may ask for. Kept here so the signature and the
 /// worker's validation cannot drift apart.
-pub const DBT_COMMANDS: &[&str] = &["build", "run", "test", "retry"];
+///
+/// `test` is deliberately absent. A test-only run writes nothing, but the asset
+/// dispatcher fires a script's deploy-time writes on any successful job, so it
+/// would notify every downstream consumer that tables it never touched had
+/// changed. Tests run as part of `build`, or as the second phase of
+/// `test_behavior: after_all`.
+pub const DBT_COMMANDS: &[&str] = &["build", "run", "retry"];
 
 fn default_command(d: &DbtDescriptor) -> &'static str {
     match d.test_behavior {

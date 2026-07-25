@@ -1,0 +1,101 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH scoped AS (\n             SELECT unique_id FROM dbt_node\n              WHERE workspace_id = $1 AND asset_path IS NOT NULL\n                AND asset_path IN (\n                  SELECT path FROM asset\n                   WHERE workspace_id = $1 AND kind = 'table'\n                     AND ($2::text IS NULL OR usage_path LIKE $2))\n           )\n           SELECT script_path AS \"script_path!\", unique_id AS \"unique_id!\",\n                  resource_type AS \"resource_type!\", name AS \"name!\", asset_path,\n                  materialized, materialize_strategy, tags AS \"tags!\", description,\n                  test_kind, test_column, test_args, severity, attached_node\n             FROM dbt_node\n            WHERE workspace_id = $1\n              AND (unique_id IN (SELECT unique_id FROM scoped)\n                   OR attached_node IN (SELECT unique_id FROM scoped))\n            ORDER BY script_path, unique_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "script_path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "unique_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "resource_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "asset_path",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "materialized",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "materialize_strategy",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "tags!",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 8,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "test_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "test_column",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "test_args",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 12,
+        "name": "severity",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "attached_node",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "dfe10e7b067495438bd9631801c27b3759a76114fd5522222fa62974b3d3967c"
+}
