@@ -50,6 +50,12 @@ const FALLBACK_PROFILE_NAME: &str = "windmill";
 /// `ref: latest`, which resolves HEAD per run by design (decision 5/12).
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct DbtDependencyLocks {
+    /// The `<schema>/<database>` the profile resolved to at deploy. The
+    /// resource is re-read on every run, so a schema or catalog changed on it
+    /// afterwards moves every relation the project builds — and the stored
+    /// graph, which still names the old ones, has to be re-ingested.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_relation_root: Option<String>,
     /// The `git_repository` resource path, never the resolved URL. A token-auth
     /// URL carries the token, and the lockfile lands in script metadata and
     /// workspace exports.
@@ -161,6 +167,8 @@ pub async fn handle_dbt_job(
         mem_peak,
         canceled_by,
         occupancy_metrics,
+        // A dependency job has no per-job timeout of its own.
+        None,
     )
     .await?;
 
@@ -353,6 +361,8 @@ pub async fn dbt_dep(
         mem_peak,
         canceled_by,
         occupancy_metrics,
+        // A dependency job carries no per-job timeout of its own.
+        None,
     )
     .await?;
 
@@ -421,6 +431,7 @@ pub async fn dbt_dep(
             prepared.commit.clone()
         },
         manifest_digest,
+        profile_relation_root: Some(prepared.relation_root()),
         engine: prepared.engine.engine.as_str().to_string(),
         engine_version: prepared.engine.version.clone(),
         adapter_version: prepared.engine.adapter_version.clone(),
@@ -456,6 +467,8 @@ pub struct PreparedProject {
     /// The profile target's database. Nodes that override it qualify their
     /// `table://` schema segment so two databases cannot collapse onto one node.
     pub default_database: Option<String>,
+    /// The profile target's schema, for the drift check against the lockfile.
+    pub default_schema: Option<String>,
     pub script_path: String,
     pub env: Vec<(String, String)>,
     /// The descriptor body, kept so an ingest can re-read its `# on` / `# mute`
@@ -474,6 +487,17 @@ pub struct PreparedProject {
 }
 
 impl PreparedProject {
+    /// Where this run's relations live: the resolved schema and database. Drift
+    /// here since the deploy means the stored graph names relations that no
+    /// longer exist.
+    fn relation_root(&self) -> String {
+        format!(
+            "{}|{}",
+            self.default_schema.as_deref().unwrap_or(""),
+            self.default_database.as_deref().unwrap_or(""),
+        )
+    }
+
     /// Everything that decides which relations a run produces, for the
     /// retry-state check: same repo, same project within it, same commit, same
     /// warehouse and target, same engine. Identity only, never credentials —
@@ -539,6 +563,7 @@ pub async fn prepare_project(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     occupancy_metrics: &mut OccupancyMetrics,
+    job_timeout: Option<i32>,
 ) -> error::Result<PreparedProject> {
     let repo_res = descriptor.repo.trim_start_matches("$res:").to_string();
     let repo_value: serde_json::Value = client
@@ -697,7 +722,7 @@ pub async fn prepare_project(
         )));
     }
 
-    let (profiles_dir, resource_path, adapter, default_database) =
+    let (profiles_dir, resource_path, adapter, default_database, default_schema) =
         write_profiles(descriptor, &project_dir, job_dir, client, job_id).await?;
     // The lockfile's version, when it pinned one for this same engine — a
     // descriptor edited to another engine invalidates the pin.
@@ -727,7 +752,7 @@ pub async fn prepare_project(
     // pinning it inside the job dir keeps a job from touching a shared $HOME.
     env.push(("HOME".to_string(), job_dir.to_string()));
 
-    let prepared = PreparedProject {
+    let mut prepared = PreparedProject {
         project_dir,
         profiles_dir,
         engine,
@@ -747,10 +772,26 @@ pub async fn prepare_project(
             descriptor.profile.schema.as_deref().unwrap_or(""),
         ),
         default_database,
+        default_schema,
         script_path: script_path.to_string(),
         env,
     };
-    install_packages(&prepared, job_id, w_id, conn).await?;
+    let mut ctx = JobCtx {
+        mem_peak,
+        canceled_by,
+        occupancy_metrics,
+        worker_name,
+        timeout: job_timeout,
+    };
+    // A profile resource moved since the deploy — a changed schema, dataset or
+    // catalog — relocates every relation the project builds, so the stored
+    // graph names ones that no longer exist and must be re-ingested.
+    if let Some(locked_root) = locks.and_then(|l| l.profile_relation_root.as_deref()) {
+        if locked_root != prepared.relation_root() {
+            prepared.graph_is_per_run = true;
+        }
+    }
+    install_packages(&prepared, &mut ctx, job_id, w_id, conn).await?;
     Ok(prepared)
 }
 
@@ -898,6 +939,7 @@ async fn checkout(
 /// of `packages.yml` — the file that determines the whole tree.
 async fn install_packages(
     p: &PreparedProject,
+    ctx: &mut JobCtx<'_>,
     job_id: &Uuid,
     w_id: &str,
     conn: &Connection,
@@ -952,26 +994,7 @@ async fn install_packages(
         .await;
         return Ok(());
     }
-    let out = dbt_command(p, &["deps"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .await
-        .map_err(|e| Error::internal_err(format!("dbt deps could not be started: {e}")))?;
-    append_logs(
-        job_id,
-        w_id,
-        format!(
-            "{}{}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        ),
-        conn,
-    )
-    .await;
-    if !out.status.success() {
-        return Err(Error::ExecutionErr("dbt deps failed".to_string()));
-    }
+    run_prep_command(p, dbt_command(p, &["deps"]), "dbt deps", ctx, job_id, w_id, conn).await?;
     if target.exists() {
         publish_to_cache(&target, &cached, job_id).await;
     }
@@ -1043,7 +1066,13 @@ async fn write_profiles(
     job_dir: &str,
     client: &AuthedClient,
     job_id: &Uuid,
-) -> error::Result<(PathBuf, Option<String>, DbtAdapter, Option<String>)> {
+) -> error::Result<(
+    PathBuf,
+    Option<String>,
+    DbtAdapter,
+    Option<String>,
+    Option<String>,
+)> {
     let resource_path = descriptor
         .profile
         .resource
@@ -1090,7 +1119,8 @@ async fn write_profiles(
         // `table_asset_path` then qualifies every relation that names one,
         // because assuming they share a database is what would collapse two
         // distinct ones onto a single node.
-        return Ok((dir, resource_path, adapter, None));
+        // The project owns its profile, so Windmill knows neither.
+        return Ok((dir, resource_path, adapter, None, None));
     }
 
     let resource_path = resource_path.ok_or_else(|| {
@@ -1135,7 +1165,13 @@ async fn write_profiles(
             pem,
         )?;
     }
-    Ok((dir, Some(resource_path), adapter, rendered.database))
+    Ok((
+        dir,
+        Some(resource_path),
+        adapter,
+        rendered.database,
+        rendered.schema,
+    ))
 }
 
 async fn adapter_from_profiles_yml(
@@ -1885,6 +1921,51 @@ async fn resolve_selection(
     Ok(Some(set))
 }
 
+/// The job state a preparation command needs to stay cancellable. `dbt deps`
+/// can hang on an unreachable package endpoint and `dbt parse`/`ls` on a
+/// warehouse handshake, so running them detached would hold a worker slot past
+/// a cancel or a timeout.
+pub struct JobCtx<'a> {
+    pub mem_peak: &'a mut i32,
+    pub canceled_by: &'a mut Option<CanceledBy>,
+    pub occupancy_metrics: &'a mut OccupancyMetrics,
+    pub worker_name: &'a str,
+    pub timeout: Option<i32>,
+}
+
+/// Run a preparation command through the same child handler the build uses, so
+/// cancellation and the job timeout apply to it too.
+async fn run_prep_command(
+    p: &PreparedProject,
+    mut cmd: Command,
+    name: &str,
+    ctx: &mut JobCtx<'_>,
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> error::Result<()> {
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let child = start_child_process(cmd, p.engine.bin.to_string_lossy().as_ref(), false).await?;
+    handle_child(
+        job_id,
+        conn,
+        ctx.mem_peak,
+        ctx.canceled_by,
+        child,
+        false,
+        ctx.worker_name,
+        w_id,
+        name,
+        ctx.timeout,
+        false,
+        &mut Some(ctx.occupancy_metrics),
+        None,
+        None,
+    )
+    .await
+    .map(|_| ())
+}
+
 /// `dbt parse`, which writes `target/manifest.json` without touching the
 /// warehouse. Both the deploy and a per-run graph refresh need the manifest
 /// before anything else happens.
@@ -2091,7 +2172,11 @@ async fn restore_run_state(
     tokio::fs::remove_dir_all(&snapshot).await.ok();
     if copy_dir(&dir, &snapshot).await.is_err() {
         return Err(Error::BadRequest(
-            "no previous dbt run to retry from on this worker; run the script normally instead"
+            "no previous dbt run to retry from on this worker. `dbt retry` resumes from the \
+             `run_results.json` the failed run left behind, which lives in that worker's local \
+             cache — so on a multi-worker group a retry only finds it if it lands on the same \
+             worker. Give the script a dedicated `# tag` to pin it, or run it normally to \
+             rebuild"
                 .to_string(),
         ));
     }

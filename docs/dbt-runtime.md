@@ -359,7 +359,12 @@ provides observability.
    an exit code. Partial failure is dbt's normal case and must be legible without
    reading logs.
 6. `dbt retry` resumes from the failure point using `run_results.json`, which is
-   what makes one-job-per-invocation defensible. It is a run argument
+   what makes one-job-per-invocation defensible. That artifact lives in the
+   worker's local cache, so **on a multi-worker group a retry only finds it if
+   it lands on the same worker** — pin such a script to a dedicated tag, or
+   accept that a retry elsewhere reports that and rebuilds. Making it durable
+   means putting the artifact in workspace storage, which is worth doing the day
+   retry is used at scale and not before. It is a run argument
    (`dbt_command: retry`) rather than the automatic behavior of Windmill's
    generic retry, which has no per-language hook to change the invoked command.
    Each attempt gets a fresh job dir, so the previous run's `target/` is cached
