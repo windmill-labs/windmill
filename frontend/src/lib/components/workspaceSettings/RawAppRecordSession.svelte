@@ -1,0 +1,164 @@
+<script lang="ts">
+	/**
+	 * Records a raw app's session for its Hub page: the app runs full-screen, the
+	 * user drives it, and what they did becomes a step-by-step recording visitors
+	 * can replay before forking the project. A raw app cannot demo itself with a
+	 * job log the way a script or flow does — this is its equivalent.
+	 */
+	import { Button } from '$lib/components/common'
+	import RawAppPreview from '$lib/components/raw_apps/RawAppPreview.svelte'
+	import RawAppRecordingReplay from '$lib/components/recording/RawAppRecordingReplay.svelte'
+	import { createRawAppRecording } from '$lib/components/recording/rawAppRecording.svelte'
+	import type { RawAppRecording } from '$lib/components/recording/types'
+	import type { Runnable } from '$lib/components/raw_apps/rawAppPolicy'
+	import { AppService } from '$lib/gen'
+	import { userStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/toast'
+	import { Check, Circle, Download, Loader2, Square } from 'lucide-svelte'
+	import { onDestroy, setContext } from 'svelte'
+
+	interface Props {
+		workspace: string
+		path: string
+		/** Saves the finished recording against the Hub item. Absent while the
+		 * project has no Hub draft yet, which leaves Download as the only action. */
+		onsave?: (recording: RawAppRecording) => Promise<boolean>
+	}
+
+	let { workspace, path, onsave }: Props = $props()
+
+	// The recorder reads the bundle's DOM, which only the unsandboxed path allows.
+	// This is the publisher recording their own app, the same trust boundary the
+	// in-workspace viewer already applies.
+	setContext('IS_APP_UNSANDBOXED', { value: true })
+
+	const recorder = createRawAppRecording()
+
+	let app = $state<any>(undefined)
+	let loadError = $state<string | undefined>(undefined)
+	let iframe = $state<HTMLIFrameElement | undefined>(undefined)
+	let recording = $state<RawAppRecording | undefined>(undefined)
+	let saving = $state(false)
+
+	async function load() {
+		try {
+			const loaded: any = await AppService.getAppByPath({ workspace, path })
+			if (!loaded?.bundle_secret) {
+				loaded.bundle_secret = await AppService.getPublicSecretOfLatestVersionOfApp({
+					workspace,
+					path
+				})
+			}
+			app = loaded
+		} catch (e: any) {
+			loadError = e?.body ?? e?.message ?? String(e)
+		}
+	}
+	load()
+
+	function start() {
+		if (!iframe) return
+		recording = undefined
+		if (!recorder.start(iframe, { appPath: path, workspace })) {
+			sendUserToast('Cannot record this app: its bundle runs sandbox-isolated', true)
+			return
+		}
+		sendUserToast(
+			'Recording — walk through the app as a visitor would. Passwords are masked; mark ' +
+				'sensitive elements with data-wm-no-record to leave them out.'
+		)
+	}
+
+	function stop() {
+		recording = recorder.stop()
+	}
+
+	async function save() {
+		if (!recording || !onsave) return
+		saving = true
+		try {
+			if (await onsave(recording)) recording = undefined
+		} finally {
+			saving = false
+		}
+	}
+
+	onDestroy(() => {
+		if (recorder.active) recorder.stop()
+	})
+</script>
+
+<div class="flex flex-col h-full min-h-0 gap-2">
+	<div class="flex items-center gap-2 shrink-0 flex-wrap">
+		<span class="text-sm font-semibold text-primary">{path}</span>
+		{#if recorder.active}
+			<span class="flex items-center gap-1 text-xs text-primary">
+				<Circle size={10} class="text-red-500 animate-pulse" fill="currentColor" />
+				{recorder.stepCount} step{recorder.stepCount === 1 ? '' : 's'}
+			</span>
+			<Button size="xs" variant="border" startIcon={{ icon: Square }} onclick={stop}>
+				Stop recording
+			</Button>
+		{:else}
+			<Button
+				size="xs"
+				variant="accent"
+				disabled={!iframe}
+				startIcon={{ icon: Circle }}
+				onclick={start}
+			>
+				{recording ? 'Record again' : 'Start recording'}
+			</Button>
+		{/if}
+		{#if recording}
+			<span class="text-xs text-secondary">
+				{recording.steps.length} step{recording.steps.length === 1 ? '' : 's'} captured
+			</span>
+			<div class="ml-auto flex items-center gap-2">
+				<Button
+					size="xs"
+					variant="border"
+					startIcon={{ icon: Download }}
+					onclick={() => recorder.download(recording!)}
+				>
+					Download
+				</Button>
+				{#if onsave}
+					<Button
+						size="xs"
+						variant="accent"
+						loading={saving}
+						startIcon={{ icon: Check }}
+						onclick={save}
+					>
+						Save as recording
+					</Button>
+				{/if}
+			</div>
+		{/if}
+	</div>
+
+	{#if loadError}
+		<div class="text-sm text-red-600 dark:text-red-400">Could not load the app: {loadError}</div>
+	{:else if !app}
+		<div class="flex items-center gap-2 text-sm text-secondary">
+			<Loader2 size={14} class="animate-spin" /> Loading the app…
+		</div>
+	{:else if recording}
+		<!-- What was captured, in the same player the Hub page will use. -->
+		<div class="flex-1 min-h-0">
+			<RawAppRecordingReplay {recording} />
+		</div>
+	{:else}
+		<div class="flex-1 min-h-0 border rounded-md overflow-hidden">
+			<RawAppPreview
+				{workspace}
+				user={$userStore}
+				secret={app.bundle_secret}
+				{path}
+				runnables={(app.value?.runnables ?? {}) as Record<string, Runnable>}
+				oniframe={(el) => (iframe = el)}
+			/>
+		</div>
+	{/if}
+</div>

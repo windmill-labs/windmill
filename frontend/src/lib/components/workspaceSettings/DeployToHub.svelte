@@ -11,6 +11,7 @@
 	import {
 		useDeployToHubSession,
 		canRecord,
+		canRecordSession,
 		canShareAsIframe,
 		sanitizeSlug,
 		isValidSlug,
@@ -20,6 +21,7 @@
 	import Toggle from '../Toggle.svelte'
 	import MigrationSqlEditor from './MigrationSqlEditor.svelte'
 	import PipelineRecordingReplay from '$lib/components/recording/PipelineRecordingReplay.svelte'
+	import RawAppRecordSession from './RawAppRecordSession.svelte'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
 	import {
 		Check,
@@ -56,6 +58,8 @@
 	})
 
 	let recordDrawer = $state<Drawer | undefined>()
+	let appRecordDrawer = $state<Drawer | undefined>()
+	let appRecordTarget = $state<DeployItem | undefined>(undefined)
 	let pipelinePreviewDrawer = $state<Drawer | undefined>()
 	// Inline pipeline graph above the item list, collapsed by default so the
 	// selection list stays the first thing in view.
@@ -80,6 +84,11 @@
 	async function confirmBundle() {
 		await deployHub.session?.publishBundle(() => bundleDrawer?.closeDrawer())
 	}
+	function openAppRecord(it: DeployItem) {
+		appRecordTarget = it
+		appRecordDrawer?.openDrawer()
+	}
+
 	function openRecord(it: DeployItem) {
 		recordDrawer?.openDrawer()
 		void deployHub.session?.openRecord(it)
@@ -580,7 +589,32 @@
 							<Badge color="yellow" size="xs">No recording</Badge>
 						{/if}
 					{/if}
-					{#if s.phase !== 'predeploy' && canShareAsIframe(it)}
+					{#if s.phase === 'draft' && canRecordSession(it.kind)}
+					{#if it.rec === 'recorded'}
+						<Badge color="green" size="xs">
+							<Check size={10} class="mr-0.5" />Recorded
+						</Badge>
+						<Button
+							size="xs"
+							variant="subtle"
+							startIcon={{ icon: RotateCcw }}
+							onclick={() => openAppRecord(it)}
+						>
+							Re-record
+						</Button>
+					{:else}
+						<Badge color="yellow" size="xs">No recording</Badge>
+						<Button
+							size="xs"
+							variant="subtle"
+							startIcon={{ icon: Play }}
+							onclick={() => openAppRecord(it)}
+						>
+							Record demo
+						</Button>
+					{/if}
+				{/if}
+				{#if s.phase !== 'predeploy' && canShareAsIframe(it)}
 						{#if it.published}
 							<Badge color="green" size="xs">
 								<Globe size={10} class="mr-0.5" />Public
@@ -768,6 +802,37 @@
 						</Button>
 					{/if}
 				{/snippet}
+			</DrawerContent>
+		</Drawer>
+
+		<!-- Full screen on purpose: the demo is recorded at the size it will replay,
+		     and a recording driven in a narrow drawer replays as a narrow app. -->
+		<Drawer bind:this={appRecordDrawer} size="100vw">
+			<DrawerContent
+				title={appRecordTarget ? `Record demo — ${appRecordTarget.path}` : 'Record demo'}
+				on:close={() => appRecordDrawer?.closeDrawer()}
+			>
+				<span class="text-xs text-secondary">
+					Use the app the way a visitor would. Each interaction becomes a step, replayable on the
+					Hub page so people see what it does before forking it.
+				</span>
+				{#if appRecordTarget}
+					{#key appRecordTarget.key}
+						<div class="h-full min-h-[600px] pt-2">
+							<RawAppRecordSession
+								workspace={s.workspace}
+								path={appRecordTarget.path}
+								onsave={s.hubItemIds[appRecordTarget.key]
+									? async (recording) => {
+											const ok = await s.saveAppRecording(appRecordTarget!, recording)
+											if (ok) appRecordDrawer?.closeDrawer()
+											return ok
+										}
+									: undefined}
+							/>
+						</div>
+					{/key}
+				{/if}
 			</DrawerContent>
 		</Drawer>
 

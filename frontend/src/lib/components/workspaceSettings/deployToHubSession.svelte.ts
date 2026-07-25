@@ -44,7 +44,7 @@ import {
 	DATA_ASSET_KINDS
 } from '$lib/components/assets/AssetGraph/cascadeRun'
 import { capturePipelineRecording } from '$lib/components/recording/pipelineRecording.svelte'
-import type { PipelineRecording } from '$lib/components/recording/types'
+import type { PipelineRecording, RawAppRecording } from '$lib/components/recording/types'
 import {
 	TRIGGER_KINDS,
 	listAllWorkspaceTriggers,
@@ -69,6 +69,9 @@ export interface DeployItem {
 }
 
 export const canRecord = (k: Kind) => k === 'script' || k === 'flow'
+// A raw app has no run to capture: its demo is a recorded session of someone
+// using it, driven in the record drawer and replayed on the Hub page.
+export const canRecordSession = (k: Kind) => k === 'raw_app'
 // Legacy raw apps live only in the `raw_app` table, but the iframe share flow
 // drives AppService (the `app` table), so it can only target apps stored there.
 export const canShareAsIframe = (it: DeployItem): boolean =>
@@ -307,7 +310,11 @@ export class DeployToHubSession {
 		this.phase === 'predeploy' &&
 			this.selectedItemKeys.length === this.filteredWorkspaceItems.length
 	)
-	recordableItems = $derived(this.items.filter((i) => canRecord(i.kind)))
+	// A raw app's recorded session counts towards the project's recordings just as
+	// a script's captured run does — both are what a visitor replays.
+	recordableItems = $derived(
+		this.items.filter((i) => canRecord(i.kind) || canRecordSession(i.kind))
+	)
 	allRecorded = $derived(
 		this.recordableItems.length > 0 && this.recordableItems.every((i) => i.rec === 'recorded')
 	)
@@ -1502,6 +1509,27 @@ export class DeployToHubSession {
 				extra_perms: {}
 			},
 			jobs
+		}
+	}
+
+	/** Save a recorded raw-app session as that app's Hub recording. */
+	async saveAppRecording(it: DeployItem, recording: RawAppRecording): Promise<boolean> {
+		const hubId = this.hubItemIds[it.key]
+		if (!hubId) {
+			sendUserToast(`Push the bundle to the Hub first before saving recordings`, true)
+			return false
+		}
+		try {
+			await this.#postHub(`/hub/raw_apps/${hubId}/recording`, {
+				recording,
+				project_slug: this.hubSlug
+			})
+			this.#patchItem(it.key, { rec: 'recorded' })
+			sendUserToast(`Recording saved — ${recording.steps.length} steps`)
+			return true
+		} catch (e: any) {
+			sendUserToast(`Failed to save recording: ${e?.message ?? e}`, true)
+			return false
 		}
 	}
 
