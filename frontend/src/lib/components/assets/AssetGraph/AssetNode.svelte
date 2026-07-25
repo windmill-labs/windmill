@@ -155,6 +155,12 @@
 			const col = t.column ? ` on ${t.column}` : ''
 			lines.push(`test ${t.kind}${col}${t.severity ? ` [${t.severity}]` : ''}`)
 		}
+		const cols = Object.entries(d.columns ?? {})
+		if (cols.length) {
+			lines.push(
+				`columns: ${cols.map(([c, desc]) => (desc ? `${c} (${desc})` : c)).join(', ')}`
+			)
+		}
 		if (d.description) lines.push(d.description)
 		return lines.join('\n')
 	})

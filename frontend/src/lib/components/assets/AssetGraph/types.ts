@@ -36,6 +36,11 @@ export interface DbtAssetProvenance {
 	tags?: string[]
 	description?: string
 	data_tests?: DbtDataTest[]
+	/** Declared column metadata (name -> description). NOT column lineage:
+	 *  `manifest.json` carries none (docs/dbt-runtime.md, decision 14). */
+	columns?: Record<string, string>
+	/** A source's declared freshness policy. */
+	freshness?: unknown
 }
 
 export interface DbtDataTest {

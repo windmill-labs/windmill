@@ -656,6 +656,13 @@ struct DbtAssetProvenance {
     description: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     data_tests: Vec<DbtDataTest>,
+    /// Declared column metadata (name -> description). NOT column lineage —
+    /// `manifest.json` carries none (docs/dbt-runtime.md, decision 14).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    columns: Option<serde_json::Value>,
+    /// A source's declared freshness policy, for the staleness chip.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    freshness: Option<serde_json::Value>,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -1156,7 +1163,8 @@ async fn asset_graph(
            SELECT n.script_path AS "script_path!", n.unique_id AS "unique_id!",
                   n.resource_type AS "resource_type!", n.name AS "name!", n.asset_path,
                   n.materialized, n.materialize_strategy, n.tags AS "tags!", n.description,
-                  n.test_kind, n.test_column, n.test_args, n.severity, n.attached_node
+                  n.test_kind, n.test_column, n.test_args, n.severity, n.attached_node,
+                  n.columns, n.freshness
              FROM dbt_node n
             WHERE n.workspace_id = $1
               -- Joined on BOTH columns: a dbt `unique_id` is project-local, so
@@ -1284,6 +1292,8 @@ async fn asset_graph(
                 tags: r.tags.clone(),
                 description: r.description.clone(),
                 data_tests: vec![],
+                columns: r.columns.clone(),
+                freshness: r.freshness.clone(),
             },
         );
     }

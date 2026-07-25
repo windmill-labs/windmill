@@ -1,0 +1,113 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH scoped AS (\n             SELECT script_path, unique_id FROM dbt_node\n              WHERE workspace_id = $1 AND asset_path IS NOT NULL\n                AND asset_path IN (\n                  SELECT path FROM asset\n                   WHERE workspace_id = $1 AND kind = 'table'\n                     AND ($2::text IS NULL OR usage_path LIKE $2))\n           )\n           SELECT n.script_path AS \"script_path!\", n.unique_id AS \"unique_id!\",\n                  n.resource_type AS \"resource_type!\", n.name AS \"name!\", n.asset_path,\n                  n.materialized, n.materialize_strategy, n.tags AS \"tags!\", n.description,\n                  n.test_kind, n.test_column, n.test_args, n.severity, n.attached_node,\n                  n.columns, n.freshness\n             FROM dbt_node n\n            WHERE n.workspace_id = $1\n              -- Joined on BOTH columns: a dbt `unique_id` is project-local, so\n              -- two projects with the same model name would otherwise pull each\n              -- other's rows.\n              AND (EXISTS (SELECT 1 FROM scoped s\n                            WHERE s.script_path = n.script_path\n                              AND s.unique_id = n.unique_id)\n                   OR EXISTS (SELECT 1 FROM scoped s\n                               WHERE s.script_path = n.script_path\n                                 AND s.unique_id = n.attached_node))\n            ORDER BY n.script_path, n.unique_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "script_path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "unique_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "resource_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "asset_path",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "materialized",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "materialize_strategy",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "tags!",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 8,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "test_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "test_column",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "test_args",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 12,
+        "name": "severity",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "attached_node",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "columns",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 15,
+        "name": "freshness",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "a2e1169852c4ac78294ee842107e111645d21df0ba5f484de736b5491c92a770"
+}

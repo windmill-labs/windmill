@@ -437,14 +437,51 @@ pub fn ingest_manifest(
 
     let kept: std::collections::HashSet<&str> =
         out.nodes.iter().map(|n| n.unique_id.as_str()).collect();
-    for (child, parents) in &manifest.parent_map {
-        if !kept.contains(child.as_str()) {
+    // An ephemeral model is inlined as a CTE, so it is a node with no relation
+    // and nothing to draw. Its edges are still real lineage though: dropping
+    // `A -> E` and `E -> B` loses the `A -> B` the reader needs. Walk through
+    // ephemeral parents to the nearest ones that do have a relation.
+    let is_ephemeral = |id: &str| {
+        manifest
+            .nodes
+            .get(id)
+            .is_some_and(|n| n.relation_name.is_none() && n.resource_type != "test")
+    };
+    let physical_parents = |child: &str| -> Vec<String> {
+        let mut out = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut queue: Vec<&str> = manifest
+            .parent_map
+            .get(child)
+            .into_iter()
+            .flatten()
+            .map(|p| p.as_str())
+            .collect();
+        while let Some(p) = queue.pop() {
+            if !seen.insert(p.to_string()) {
+                continue;
+            }
+            if is_ephemeral(p) {
+                queue.extend(
+                    manifest
+                        .parent_map
+                        .get(p)
+                        .into_iter()
+                        .flatten()
+                        .map(|g| g.as_str()),
+                );
+            } else if kept.contains(p) {
+                out.push(p.to_string());
+            }
+        }
+        out
+    };
+    for child in manifest.parent_map.keys() {
+        if !kept.contains(child.as_str()) || is_ephemeral(child) {
             continue;
         }
-        for parent in parents {
-            if kept.contains(parent.as_str()) {
-                out.edges.push((parent.clone(), child.clone()));
-            }
+        for parent in physical_parents(child) {
+            out.edges.push((parent, child.clone()));
         }
     }
     out.edges.sort();
@@ -952,6 +989,31 @@ mod tests {
             .map(|a| a.path.as_str())
             .collect();
         assert_eq!(reads, vec!["f/prod/wh/s/base"]);
+    }
+
+    // `A -> ephemeral -> B` must still read as `A -> B`: the ephemeral node has
+    // no relation to draw, but the lineage it carries is real, and dropping both
+    // of its edges leaves the reader with none.
+    #[test]
+    fn lineage_contracts_through_ephemeral_models() {
+        let m: Manifest = serde_json::from_str(
+            r#"{"nodes":{
+              "model.p.a":{"resource_type":"model","name":"a","alias":"a","schema":"s",
+                "database":"wh","relation_name":"\"wh\".\"s\".\"a\"",
+                "config":{"materialized":"view"}},
+              "model.p.e":{"resource_type":"model","name":"e","schema":"s",
+                "relation_name":null,"config":{"materialized":"ephemeral"}},
+              "model.p.b":{"resource_type":"model","name":"b","alias":"b","schema":"s",
+                "database":"wh","relation_name":"\"wh\".\"s\".\"b\"",
+                "config":{"materialized":"table"}}},
+              "parent_map":{"model.p.e":["model.p.a"],"model.p.b":["model.p.e"]}}"#,
+        )
+        .unwrap();
+        let i = ingest_manifest(&m, "f/prod/wh", Some("wh"), None);
+        assert_eq!(
+            i.edges,
+            vec![("model.p.a".to_string(), "model.p.b".to_string())]
+        );
     }
 
     #[test]

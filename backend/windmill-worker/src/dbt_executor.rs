@@ -521,10 +521,7 @@ pub struct PreparedProject {
     /// The descriptor's `env`, resolved, in a stable order. Feeds run identity;
     /// `env` itself is not usable there because it carries per-job values.
     pub descriptor_env: std::collections::BTreeMap<String, String>,
-    /// The profile file and schema the descriptor named. Part of run identity:
-    /// a redeploy can repoint either while the commit and resource stay put,
-    /// and a retry there would resume one schema's failures in another.
-    pub profile_identity: String,
+
 }
 
 impl PreparedProject {
@@ -567,15 +564,18 @@ impl PreparedProject {
     }
 
     fn run_identity(&self) -> String {
+        // The descriptor is digested whole rather than field by field:
+        // `select`, `exclude`, `selector`, `vars`, `full_refresh` and
+        // `test_behavior` all change which nodes a run touches, and enumerating
+        // them means the next field added to the descriptor is silently left
+        // out of the check.
         format!(
-            "{}|{}|{}|{}|{}|{}|{}|{:x}|{}",
+            "{}|{}|{}|{}|{}|{:x}|{}",
             self.repo_resource,
             self.project_subdir,
             self.commit,
-            self.resource_path.as_deref().unwrap_or(""),
-            self.target.as_deref().unwrap_or(""),
             self.engine.engine.as_str(),
-            self.profile_identity,
+            digest(&self.descriptor_content),
             self.env_digest(),
             self.relation_root(),
         )
@@ -808,11 +808,7 @@ pub async fn prepare_project(
         descriptor_content: descriptor_content.to_string(),
         descriptor_env,
         credential_identity,
-        profile_identity: format!(
-            "{}|{}",
-            descriptor.profile.profiles_yml.as_deref().unwrap_or(""),
-            descriptor.profile.schema.as_deref().unwrap_or(""),
-        ),
+
         default_database,
         default_schema,
         script_path: script_path.to_string(),
@@ -830,20 +826,38 @@ pub async fn prepare_project(
     // longer exist. Compared against the graph AS STORED, not against the deploy
     // lock: moving A→B then back to A matches the lock again while the stored
     // graph is still at B.
-    if let Connection::Sql(db) = conn {
-        if let Some(stored) = sqlx::query_scalar!(
-            "SELECT relation_root FROM dbt_node
-              WHERE workspace_id = $1 AND script_path = $2 AND relation_root IS NOT NULL
-              LIMIT 1",
-            w_id,
-            script_path,
-        )
-        .fetch_optional(db)
-        .await?
-        .flatten()
-        {
-            if stored != prepared.relation_root() {
-                prepared.graph_is_per_run = true;
+    match conn {
+        Connection::Sql(db) => {
+            if let Some(stored) = sqlx::query_scalar!(
+                "SELECT relation_root FROM dbt_node
+                  WHERE workspace_id = $1 AND script_path = $2 AND relation_root IS NOT NULL
+                  LIMIT 1",
+                w_id,
+                script_path,
+            )
+            .fetch_optional(db)
+            .await?
+            .flatten()
+            {
+                if stored != prepared.relation_root() {
+                    prepared.graph_is_per_run = true;
+                }
+            }
+        }
+        // An agent worker has no DB to read the stored root from and cannot
+        // re-ingest either, so drift has to be refused rather than repaired.
+        // The lock is what it does have.
+        Connection::Http(_) => {
+            if let Some(locked) = locks.and_then(|l| l.profile_relation_root.as_deref()) {
+                if locked != prepared.relation_root() {
+                    return Err(Error::BadRequest(format!(
+                        "the profile now resolves to `{}` but this script was deployed against \
+                         `{locked}`, so its asset graph describes different relations. An agent \
+                         worker cannot re-ingest it — redeploy the script, or run it on a worker \
+                         with a database connection",
+                        prepared.relation_root()
+                    )));
+                }
             }
         }
     }
@@ -875,7 +889,7 @@ async fn git_ssh_cmd(
         })?;
         content.push('\n');
         {
-            use std::hash::{Hash, Hasher};
+            use std::hash::Hash;
             var_path.hash(&mut credential);
             content.hash(&mut credential);
         }
