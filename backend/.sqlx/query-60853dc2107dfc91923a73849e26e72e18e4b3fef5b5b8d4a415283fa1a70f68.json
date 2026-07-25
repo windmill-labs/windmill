@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT p.asset_path AS \"from_path!\", c.asset_path AS \"to_path!\"\n             FROM dbt_edge e\n             JOIN dbt_node p ON p.workspace_id = e.workspace_id\n                            AND p.script_path = e.script_path\n                            AND p.unique_id = e.parent_unique_id\n             JOIN dbt_node c ON c.workspace_id = e.workspace_id\n                            AND c.script_path = e.script_path\n                            AND c.unique_id = e.child_unique_id\n            WHERE e.workspace_id = $1\n              AND p.asset_path IS NOT NULL AND c.asset_path IS NOT NULL\n              -- Tests attach to their model as a badge, not as a lineage edge.\n              AND c.resource_type <> 'test'\n              -- Scoped by the RELATIONS, like the node provenance above, not by\n              -- the producing script's folder: two tables consumed in this\n              -- folder but produced by a dbt project outside it would otherwise\n              -- both render with their `ref()` edge missing.\n              AND EXISTS (\n                SELECT 1 FROM asset a\n                 WHERE a.workspace_id = $1 AND a.kind = 'table'\n                   AND a.path = c.asset_path\n                   AND ($2::text IS NULL OR a.usage_path LIKE $2))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "from_path!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "to_path!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "60853dc2107dfc91923a73849e26e72e18e4b3fef5b5b8d4a415283fa1a70f68"
+}

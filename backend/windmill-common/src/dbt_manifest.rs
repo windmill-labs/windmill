@@ -212,9 +212,9 @@ fn asset_path_for(
 /// that database uses the plain three-segment spelling. One that overrode its
 /// database is genuinely elsewhere and qualifies its schema segment as
 /// `<database>.<schema>`, so two same-named relations cannot collapse. When the
-/// default is unknown — the project brought its own `profiles.yml` and declared
-/// no `profile.database` — every relation qualifies, because guessing they all
-/// share one database is what would collapse them.
+/// default is unknown — the project brought its own `profiles.yml`, so Windmill
+/// never saw a database — every relation that names one qualifies, because
+/// assuming they all share a database is what would collapse them.
 pub fn table_asset_path(
     resource_path: &str,
     database: Option<&str>,

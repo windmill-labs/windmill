@@ -1191,7 +1191,15 @@ async fn asset_graph(
               AND p.asset_path IS NOT NULL AND c.asset_path IS NOT NULL
               -- Tests attach to their model as a badge, not as a lineage edge.
               AND c.resource_type <> 'test'
-              AND ($2::text IS NULL OR e.script_path LIKE $2)"#,
+              -- Scoped by the RELATIONS, like the node provenance above, not by
+              -- the producing script's folder: two tables consumed in this
+              -- folder but produced by a dbt project outside it would otherwise
+              -- both render with their `ref()` edge missing.
+              AND EXISTS (
+                SELECT 1 FROM asset a
+                 WHERE a.workspace_id = $1 AND a.kind = 'table'
+                   AND a.path = c.asset_path
+                   AND ($2::text IS NULL OR a.usage_path LIKE $2))"#,
         &w_id,
         folder_filter.as_deref(),
     )

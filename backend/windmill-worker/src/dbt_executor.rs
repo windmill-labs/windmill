@@ -965,8 +965,10 @@ async fn write_profiles(
             None => adapter_from_profiles_yml(&path).await?,
         };
         ensure_adapter_licensed(adapter)?;
-        // The project owns its profile, so Windmill does not know its database;
-        // nodes then qualify only against `None`, i.e. never.
+        // The project owns its profile, so Windmill does not know its database.
+        // `table_asset_path` then qualifies every relation that names one,
+        // because assuming they share a database is what would collapse two
+        // distinct ones onto a single node.
         return Ok((dir, resource_path, adapter, None));
     }
 
