@@ -17,12 +17,10 @@
 
 	const RESOURCE_TAGS = new Set(['IMG', 'SCRIPT', 'LINK', 'AUDIO', 'VIDEO', 'SOURCE', 'IFRAME'])
 
-	// The editor page is cross-origin isolated (COEP require-corp — required for
-	// the SharedArrayBuffer-based TS workers and in-browser bundling), and COEP
-	// forces every nested document, including the preview, to be isolated too. So
-	// cross-origin resources without CORS/CORP headers are blocked in the preview
-	// while loading fine on the deployed app: surface that as a warning instead
-	// of a silently broken image.
+	// The editor is cross-origin isolated (COEP require-corp, needed for the
+	// SharedArrayBuffer-based TS workers), and that extends to the nested preview:
+	// cross-origin resources lacking CORS/CORP headers are blocked there while the
+	// deployed app (served without COEP) loads them fine — warn instead of staying silent.
 	function onResourceError(e: Event) {
 		// Elements belong to the preview window's realm, so no instanceof checks —
 		// duck-type instead. Resource load errors don't bubble but do capture
