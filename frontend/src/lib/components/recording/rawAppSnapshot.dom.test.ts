@@ -70,6 +70,16 @@ describe('serializeDocument redaction', () => {
 		expect(html).toContain('class="frame"')
 	})
 
+	it('keeps the control state of a redacted element, so the replay matches its step', () => {
+		const doc = docFrom(`<input type="checkbox" data-wm-no-record aria-label="acquisition target">`)
+		const box = doc.querySelector('input') as HTMLInputElement
+		box.checked = true
+
+		const html = serializeDocument(doc)
+		expect(html).toContain('checked')
+		expect(html).not.toContain('acquisition target')
+	})
+
 	it('masks a password without leaking its length, and keeps other values', () => {
 		const doc = docFrom(`<input type="password"><input type="text">`)
 		const [password, text] = Array.from(doc.querySelectorAll('input')) as HTMLInputElement[]

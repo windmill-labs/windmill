@@ -31,6 +31,17 @@ const SETTLE_QUIET_MS = 400
 const SETTLE_MAX_MS = 3000
 /** Typing is one step per field, committed after this much inactivity. */
 const FILL_DEBOUNCE_MS = 800
+/** `<input>` types a user types into. An input with no `type` is one of them. */
+const TEXT_INPUT_TYPES = new Set([
+	'',
+	'text',
+	'search',
+	'url',
+	'tel',
+	'email',
+	'password',
+	'number'
+])
 /** Snapshots are full documents; stop storing them (steps keep coming) rather
  * than let a long session grow the tab's memory without bound. */
 const MAX_TOTAL_FRAME_BYTES = 40 * 1024 * 1024
@@ -108,8 +119,11 @@ export function createRawAppRecording(): RawAppRecordingStore {
 	}
 
 	/** Serialize the app document. The result is plain HTML — it becomes a frame
-	 * only once a step claims it (see {@link frameIndex}). */
+	 * only once a step claims it (see {@link frameIndex}). Serializing is the
+	 * expensive part and runs on the app's own event path, so a recording that can
+	 * no longer accept steps must stop doing it. */
 	function capture(target?: Element | null): string | undefined {
+		if (steps.length >= MAX_RECORDED_STEPS) return undefined
 		const d = doc()
 		if (!d) return undefined
 		try {
@@ -217,23 +231,22 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		)
 	}
 
-	/** A control whose value `change` reports: toggled or picked, never typed. */
+	/** A control whose value `change` reports rather than typing: a select, or any
+	 * input that is not a text field — a checkbox, a range, a date picker. They
+	 * change on keys that produce no `beforeinput`, so their pre-change frame has
+	 * to come from `keydown`. */
 	function isControl(el: Element): boolean {
-		return (
-			isTag(el, 'SELECT') ||
-			(isTag(el, 'INPUT') && ['checkbox', 'radio'].includes((el as HTMLInputElement).type))
-		)
+		return isTag(el, 'SELECT') || (isTag(el, 'INPUT') && !isTextEntry(el))
 	}
 
+	/** A field whose value the user types into, character by character. Listed
+	 * positively: everything else an `<input>` can be (a range, a colour, a date,
+	 * a checkbox) is a control the browser mutates on keys that produce no
+	 * `beforeinput`, and must take the control path instead. */
 	function isTextEntry(el: Element): boolean {
 		if (isTag(el, 'TEXTAREA')) return true
 		if ((el as HTMLElement).isContentEditable) return true
-		return (
-			isTag(el, 'INPUT') &&
-			!['checkbox', 'radio', 'file', 'submit', 'button', 'reset'].includes(
-				(el as HTMLInputElement).type
-			)
-		)
+		return isTag(el, 'INPUT') && TEXT_INPUT_TYPES.has((el as HTMLInputElement).type)
 	}
 
 	function currentValue(el: Element): string {
@@ -376,6 +389,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 							.map((f) => f.name)
 							.join(', ')
 					)
+				} else {
+					// Range, date, color…: a value the user picked rather than typed.
+					pushStep('fill', el, before, currentValue(el))
 				}
 			}
 		})

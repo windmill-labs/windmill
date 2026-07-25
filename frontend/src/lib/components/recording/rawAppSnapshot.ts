@@ -91,14 +91,20 @@ function resolvePath(root: Element, path: number[]): Element | undefined {
  * `label`, `xlink:href`, `srcdoc`…) is a deny-list failing open. `style` is
  * allowed only when it embeds no `url()`. */
 const REDACTION_KEEPS_ATTRS = new Set([
+	'checked',
 	'class',
+	'colspan',
 	'cols',
 	'disabled',
 	'height',
 	'hidden',
 	'id',
+	'multiple',
+	'open',
 	'readonly',
 	'rows',
+	'rowspan',
+	'selected',
 	'size',
 	'style',
 	'type',
@@ -118,11 +124,10 @@ export function redactedDescription(el: Element): string {
 	return `${role} (redacted)`
 }
 
-/** Strip everything the app marked no-record: descendants (including a
- * `<template>`'s separate content fragment, which `replaceChildren` does not
- * touch) and the attributes that are content themselves — a signed `src`, a
- * `title`, a `data-*` payload, a namespaced `xlink:href`. Recurses into template
- * fragments, since a marked node can sit inside one. */
+/** Strip everything the app marked no-record: the descendants of a marked
+ * element, and every attribute outside {@link REDACTION_KEEPS_ATTRS} — content
+ * hides in `title`, `data-*`, `label`, `srcdoc`, a namespaced `xlink:href`, so
+ * only what the replay needs for layout and control state survives. */
 function redactMarkedSubtrees(doc: Document, root: Element) {
 	// `querySelectorAll` skips the element it is called on, so a marked root
 	// (`<html data-wm-no-record>`) has to be handled explicitly.
