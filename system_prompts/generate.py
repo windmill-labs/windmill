@@ -1249,6 +1249,7 @@ WAC_TS_FUNCTIONS = [
     'step',
     'sleep',
     'waitForApproval',
+    'getApprovalUrls',
     'parallel',
 ]
 
@@ -1261,6 +1262,7 @@ WAC_PY_FUNCTIONS = [
     'step',
     'sleep',
     'wait_for_approval',
+    'get_approval_urls',
     'parallel',
 ]
 
@@ -1406,7 +1408,7 @@ def extract_wac_ts_sdk(ts_content: str) -> str:
         return ''
 
     md = "## TypeScript Workflow-as-Code API (windmill-client)\n\n"
-    md += 'Import: `import { workflow, task, taskScript, taskFlow, step, sleep, waitForApproval, getResumeUrls, parallel } from "windmill-client"`\n\n'
+    md += 'Import: `import { workflow, task, taskScript, taskFlow, step, sleep, waitForApproval, getApprovalUrls, getResumeUrls, parallel } from "windmill-client"`\n\n'
     md += "```typescript\n"
     md += "\n\n".join(declarations)
     md += "\n```\n"
@@ -1528,7 +1530,7 @@ def extract_wac_py_sdk(py_content: str) -> str:
         return ''
 
     md = "## Python Workflow-as-Code API (wmill)\n\n"
-    md += "Import: `from wmill import workflow, task, task_script, task_flow, step, sleep, wait_for_approval, get_resume_urls, parallel, TaskError`\n\n"
+    md += "Import: `from wmill import workflow, task, task_script, task_flow, step, sleep, wait_for_approval, get_approval_urls, get_resume_urls, parallel, TaskError`\n\n"
     md += "```python\n"
     md += "\n\n".join(declarations)
     md += "\n```\n"
