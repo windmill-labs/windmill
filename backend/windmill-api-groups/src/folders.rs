@@ -146,7 +146,7 @@ async fn list_foldernames(
     let mut sql = String::from("SELECT name FROM folder WHERE workspace_id = $1");
     let restricted = match build_scope_path_filter(&authed, "folders", "read") {
         ScopePathFilter::AllowAll => None,
-        ScopePathFilter::Restricted { exact, mut prefix } => {
+        ScopePathFilter::Restricted { exact, prefix } => {
             // A prefix grant also authorizes the folder at the prefix itself.
             let mut eq = exact;
             eq.append(&mut prefix.clone());
