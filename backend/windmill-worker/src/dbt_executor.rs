@@ -205,6 +205,7 @@ pub async fn handle_dbt_job(
 
     let results = read_run_results(&prepared.project_dir).await;
     save_run_state(&prepared, &job.workspace_id).await.ok();
+    reconcile_materializations(&prepared, &results, job, conn).await;
 
     // `ref: latest` executes whatever HEAD resolved to, so the graph must be
     // refreshed from this run's own manifest or it describes a different
@@ -983,6 +984,70 @@ fn parse_node_event(line: &str, resource_path: &str) -> Option<RecordMaterializa
     })
 }
 
+/// Settle each model's materialization record from `run_results.json` once the
+/// invocation ends.
+///
+/// This is what the live event tailer cannot do: the events carry no row count,
+/// and the Rust engines do not emit them at all (dbt-core 2.0.0-alpha.5 accepts
+/// `--log-format-file json` but still writes a text log). So the same records
+/// the tailer has been updating are re-stated here from the authoritative
+/// artifact, which both fills in `row_count` and gives those engines per-model
+/// state — just at the end of the run rather than during it.
+async fn reconcile_materializations(
+    p: &PreparedProject,
+    results: &[DbtNodeResult],
+    job: &MiniPulledJob,
+    conn: &Connection,
+) {
+    let (Connection::Sql(db), Some(resource_path)) = (conn, p.resource_path.as_deref()) else {
+        return;
+    };
+    for r in results {
+        let Some(path) = asset_path_of_relation(r.relation_name.as_deref(), resource_path) else {
+            continue;
+        };
+        let status = match r.status.as_str() {
+            "success" => MaterializationStatus::Materialized,
+            "error" | "fail" | "runtime error" => MaterializationStatus::Failed,
+            // Tests and skipped nodes say nothing about a relation's state.
+            _ => continue,
+        };
+        if let Err(e) = record_materialization(
+            db,
+            &job.workspace_id,
+            windmill_common::assets::AssetKind::Table,
+            &path,
+            windmill_common::materialization::UNPARTITIONED,
+            status,
+            None,
+            r.rows_affected,
+            Some(job.id),
+            (status == MaterializationStatus::Failed)
+                .then(|| r.message.as_deref())
+                .flatten(),
+        )
+        .await
+        {
+            tracing::warn!("recording the materialization of {path} failed: {e:#}");
+        }
+    }
+}
+
+/// `"db"."schema"."name"` from dbt into the `table://` path of the relation.
+/// The database segment is dropped: the resource identifies the warehouse.
+fn asset_path_of_relation(relation_name: Option<&str>, resource_path: &str) -> Option<String> {
+    let rel = relation_name?;
+    let parts: Vec<&str> = rel.split('.').collect();
+    let [.., schema, name] = parts.as_slice() else {
+        return None;
+    };
+    Some(
+        windmill_parser::asset_parser::canonicalize_table_asset_path(&format!(
+            "{resource_path}/{schema}/{name}"
+        )),
+    )
+}
+
 async fn read_run_results(project_dir: &Path) -> Vec<DbtNodeResult> {
     let Ok(content) = tokio::fs::read_to_string(project_dir.join("target/run_results.json")).await
     else {
@@ -1223,6 +1288,27 @@ mod tests {
         let ev = parse_node_event(failed, "f/prod/wh").unwrap();
         assert_eq!(ev.status, MaterializationStatus::Failed);
         assert_eq!(ev.error.as_deref(), Some("boom"));
+    }
+
+    // The end-of-run reconciliation and the live tailer must derive the SAME
+    // key, or a run would settle its progress against a path no graph node has.
+    #[test]
+    fn run_results_relations_canonicalize_like_the_live_events() {
+        assert_eq!(
+            asset_path_of_relation(Some("\"wh\".\"Analytics\".\"Customers\""), "f/prod/wh"),
+            Some("f/prod/wh/analytics/customers".to_string())
+        );
+        let live = r#"{"data":{"node_info":{"node_status":"success",
+            "node_relation":{"alias":"Customers","schema":"Analytics",
+            "relation_name":"\"wh\".\"Analytics\".\"Customers\""}}},
+            "info":{"name":"LogModelResult","msg":"ok"}}"#;
+        assert_eq!(
+            parse_node_event(live, "f/prod/wh").unwrap().asset_path,
+            asset_path_of_relation(Some("\"wh\".\"Analytics\".\"Customers\""), "f/prod/wh")
+                .unwrap()
+        );
+        // A test node has no relation of its own.
+        assert_eq!(asset_path_of_relation(None, "f/prod/wh"), None);
     }
 
     #[test]
