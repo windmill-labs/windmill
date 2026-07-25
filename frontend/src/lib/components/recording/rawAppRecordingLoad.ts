@@ -83,6 +83,18 @@ export const MAX_COMPONENT_FANOUT = 1000
  * budget would cost hundreds of MB to decode, and decoding it to find out how big it
  * is would be the denial of service. */
 export const MAX_SERIALIZED_FANOUT_CHARS = 256 * 1024
+/** Entries in one flat map that a renderer turns into a row each. Generous against
+ * reality (a script takes a handful of arguments) and far below what stalls a tab.
+ *
+ * Together with {@link MAX_COMPONENT_FANOUT} this is a list of keys, which is
+ * inherently incomplete: how much a collection costs to render depends on the
+ * component that renders it, so no key-agnostic rule separates 50k `render_all`
+ * entries (fatal, a component each) from 25k rows of a table result (fine, one
+ * table). {@link MAX_RECORDING_NODES} is what covers the keys this list is missing,
+ * at a coarser bound. When a new renderer iterates a recorded collection, add its key
+ * here — the backstop alone will not keep the tab responsive.
+ */
+export const MAX_MAP_ROWS = 2000
 /** `PipelineRecordingReplay.startReplay` schedules every frame in one pass, so this
  * counts timers created at once — frames at `t: 0` all land in the same tick, and
  * each reassigns the whole per-node status map and rebuilds the derived id/state maps
@@ -173,6 +185,12 @@ export function isAppRecording(data: unknown): data is RawAppRecording {
 /** Keys whose renderer mounts a component per entry. See {@link MAX_COMPONENT_FANOUT}. */
 const COMPONENT_FANOUT_KEYS = ['render_all', 'data_tests']
 
+/** Keys holding a flat map rendered as one row per entry: `args` (`JobArgs` sorts the
+ * keys and mounts a row each) and a schema's `properties` (`SchemaForm`/`SchemaViewer`
+ * a field each). Capped per collection rather than cumulatively: a hundred small
+ * schemas nested in a flow are fine, one map of 90k keys is not. */
+const MAP_ROW_KEYS = ['args', 'properties']
+
 /** Entry count of a fan-out collection, decoding the serialized form the renderers
  * accept — a JSON string is one node however many components it expands into.
  *
@@ -192,6 +210,9 @@ function fanoutLength(v: unknown): number {
 	}
 	return 0
 }
+
+/** Entry count of a flat map, for {@link MAX_MAP_ROWS}. */
+const mapSize = (v: unknown) => (isObject(v) ? Object.keys(v).length : 0)
 
 /**
  * Walks one recorded value and reports why it is too big to render, or `undefined`.
@@ -244,6 +265,9 @@ function describeValueOverflow(
 				if (budget.fanout < 0) {
 					return `more than ${MAX_COMPONENT_FANOUT} \`${k}\`-style entries, each of which mounts its own component`
 				}
+			}
+			if (MAP_ROW_KEYS.includes(k) && mapSize(v[k]) > MAX_MAP_ROWS) {
+				return `a \`${k}\` of more than ${MAX_MAP_ROWS} entries, each of which renders a row`
 			}
 			const over = describeValueOverflow(v[k], budget, depth + 1)
 			if (over) return over
@@ -362,8 +386,10 @@ export function isScriptRecording(data: unknown): data is ScriptRecording {
 		isBoundedCode(data.code) &&
 		// Selects a highlighter grammar and is rendered in the player's header.
 		isShortText(data.language, true) &&
-		// SchemaForm mounts a field per property, recursing into nested objects, and
-		// JobArgs a row per arg — so the budget, not a top-level key count.
+		// These arrive as the root of the walk, where there is no enclosing key for
+		// MAP_ROW_KEYS to match, so their own row counts are checked here.
+		mapSize(data.args) <= MAX_MAP_ROWS &&
+		mapSize((data.schema as Record<string, unknown> | undefined)?.properties) <= MAX_MAP_ROWS &&
 		withinRenderBudget(data.schema) &&
 		withinRenderBudget(data.args)
 	)
@@ -478,6 +504,16 @@ function describeOverflow(data: Record<string, unknown>): string | undefined {
 	] as const) {
 		const over = value === undefined ? undefined : describeValueOverflow(value)
 		if (over) return `Cannot replay: ${label} carries ${over}.`
+	}
+	// Checked at the root of the walk by `isScriptRecording`, where there is no
+	// enclosing key for the walk itself to report on.
+	for (const [label, size] of [
+		["this script's arguments", mapSize(data.args)],
+		["this script's schema", mapSize((data.schema as Record<string, unknown> | undefined)?.properties)]
+	] as const) {
+		if (size > MAX_MAP_ROWS) {
+			return `Cannot replay: ${label} holds ${size} entries, more than the ${MAX_MAP_ROWS} this player renders.`
+		}
 	}
 	return undefined
 }

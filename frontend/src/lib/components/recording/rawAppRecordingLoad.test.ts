@@ -4,6 +4,7 @@ import {
 	MAX_EVENTS_PER_JOB,
 	MAX_FLOW_MODULES,
 	MAX_RECORDED_JOBS,
+	MAX_MAP_ROWS,
 	MAX_SAMPLE_CELLS,
 	MAX_SERIALIZED_FANOUT_CHARS,
 	MAX_TIMELINE_FRAMES,
@@ -169,6 +170,12 @@ describe('parseRecording', () => {
 			)
 		).toBe(true)
 		expect(kindOf(script({ args: { a: 1 } }))).toBe('script')
+		// `args` and `schema.properties` arrive as the root of the walk on this kind.
+		const wideMap = Object.fromEntries(
+			Array.from({ length: MAX_MAP_ROWS + 1 }, (_, i) => [`a${i}`, 1])
+		)
+		expect(rejected(script({ args: wideMap }))).toBe(true)
+		expect(rejected(script({ schema: { properties: wideMap } }))).toBe(true)
 
 		const flowWith = (value: unknown) => ({
 			version: 1,
@@ -265,6 +272,12 @@ describe('parseRecording', () => {
 
 		// Text: a long string is one node, so only the character budget sees it.
 		expect(rejected(flowJob({ big: 'x'.repeat(MAX_VALUE_STRING_CHARS + 1) }))).toBe(true)
+		// A flat map rendered one row per entry: cheap per node, so the node budget
+		// alone lets ~100k rows through.
+		const rows = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`a${i}`, 1]))
+		expect(MAX_MAP_ROWS + 1).toBeLessThan(MAX_VALUE_NODES)
+		expect(rejected(flowJob({ args: rows(MAX_MAP_ROWS + 1) }))).toBe(true)
+		expect(kindOf(flowJob({ args: rows(5) }))).toBe('flow')
 		// An object *key* is rendered text too (JobArgs prints it), and charging only
 		// values would let a huge key through.
 		expect(rejected(flowJob({ ['k'.repeat(MAX_VALUE_STRING_CHARS + 1)]: 1 }))).toBe(true)
