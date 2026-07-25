@@ -1287,8 +1287,7 @@ class Windmill:
         """
         from urllib.parse import quote
 
-        if not step_key.strip():
-            raise RuntimeError("get_approval_urls step_key must be a non-empty step name")
+        _assert_usable_step_key(step_key, "get_approval_urls step_key")
         job_id = os.environ.get("WM_JOB_ID") or "NO_ID"
         # Omit rather than send `approver=`: an empty value is echoed into the
         # returned URLs and recorded as the approver instead of "anonymous".
@@ -2657,6 +2656,15 @@ import asyncio as _asyncio
 import contextvars as _contextvars
 
 
+def _assert_usable_step_key(key: str, what: str) -> None:
+    """A step key travels as one path segment when its URLs are minted, so it must be
+    non-empty and free of ``/`` and dot segments — otherwise ``wait_for_approval``
+    would accept a key ``get_approval_urls`` can never address."""
+    k = key.strip()
+    if not k or k in (".", "..") or "/" in key or "\\" in key:
+        raise RuntimeError(f"{what} must be a non-empty step name without `/` or dot segments")
+
+
 class _StepSuspend(BaseException):
     """Raised to suspend workflow execution. Inherits from BaseException
     so it is not caught by bare `except Exception:` blocks."""
@@ -2793,8 +2801,8 @@ class WorkflowCtx:
         self_approval: bool = True,
         key: str | None = None,
     ):
-        if key is not None and not key.strip():
-            raise RuntimeError("wait_for_approval key must be a non-empty step name")
+        if key is not None:
+            _assert_usable_step_key(key, "wait_for_approval key")
         requested_key, key = key, self._alloc_key(key or "approval")
 
         # An explicit key is an identifier callers mint URLs against, so silently

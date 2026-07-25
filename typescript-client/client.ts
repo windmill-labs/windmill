@@ -1530,6 +1530,16 @@ export interface TaskOptions {
   concurrency_time_window_s?: number;
 }
 
+/** A step key travels as one path segment when its URLs are minted, so it must be
+ *  non-empty and free of `/` and dot segments — otherwise `waitForApproval` would
+ *  accept a key `getApprovalUrls` can never address. */
+function assertUsableStepKey(key: string, what: string): void {
+  const k = key.trim();
+  if (k === "" || k === "." || k === ".." || key.includes("/") || key.includes("\\")) {
+    throw new Error(`${what} must be a non-empty step name without \`/\` or dot segments`);
+  }
+}
+
 export let _workflowCtx: WorkflowCtx | null = null;
 export function setWorkflowCtx(ctx: WorkflowCtx | null) {
   _workflowCtx = ctx;
@@ -1664,9 +1674,7 @@ export class WorkflowCtx {
     selfApproval?: boolean;
     key?: string;
   }): PromiseLike<{ value: any; approver: string; approved: boolean }> {
-    if (options?.key !== undefined && options.key.trim() === "") {
-      throw new Error("waitForApproval key must be a non-empty step name");
-    }
+    if (options?.key !== undefined) assertUsableStepKey(options.key, "waitForApproval key");
     const key = this._allocKey(options?.key || "approval");
 
     // An explicit key is an identifier callers mint URLs against, so silently
@@ -2049,9 +2057,7 @@ export async function getApprovalUrls(
   resume: string;
   cancel: string;
 }> {
-  if (stepKey.trim() === "") {
-    throw new Error("getApprovalUrls stepKey must be a non-empty step name");
-  }
+  assertUsableStepKey(stepKey, "getApprovalUrls stepKey");
   const workspace = getWorkspace();
   return await JobService.getWacApprovalUrls({
     workspace,

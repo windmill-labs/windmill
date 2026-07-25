@@ -1148,15 +1148,16 @@ class TestApprovalKeys:
         with pytest.raises(RuntimeError, match="already used"):
             _run_workflow(wf, {"completed_steps": {"dup": 1, "dup_2": 2}}, {})
 
-    def test_empty_key_raises(self):
-        """`""` must not quietly mean `approval` here while `get_approval_urls("")`
-        would mint a different (broken) URL."""
+    @pytest.mark.parametrize("bad", ["", "  ", ".", "..", "a/b"])
+    def test_unusable_key_raises(self, bad):
+        """The key travels as one path segment when its URLs are minted, so anything
+        `get_approval_urls` could not address must be refused here too."""
 
         @workflow
         async def wf():
-            await wait_for_approval(key="")
+            await wait_for_approval(key=bad)
 
-        with pytest.raises(RuntimeError, match="non-empty"):
+        with pytest.raises(RuntimeError, match="non-empty step name"):
             _run_workflow(wf, {}, {})
 
     def test_unnamed_approvals_still_auto_number(self):
