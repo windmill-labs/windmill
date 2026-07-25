@@ -11,7 +11,8 @@ pub use asset_parser::parse_assets;
 
 pub mod dbt;
 pub use dbt::{
-    parse_dbt_descriptor, parse_dbt_sig, DbtDescriptor, DbtEngine, DbtTestBehavior, DBT_COMMANDS,
+    dbt_arg_schema, parse_dbt_descriptor, parse_dbt_sig, DbtDescriptor, DbtEngine, DbtTestBehavior,
+    DBT_COMMANDS,
 };
 
 pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature> {

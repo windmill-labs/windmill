@@ -765,15 +765,7 @@ async function updateScriptLock(
   tempScriptRefs?: Record<string, string>,
   lockPathOverride?: string,
 ): Promise<void> {
-  if (
-    !(
-      (workspaceDependenciesLanguages.some((l) => l.language == language) &&
-        language !== "powershell") ||
-      language == "deno" ||
-      language == "rust" ||
-      language == "ansible"
-    )
-  ) {
+  if (!languageNeedsLock(language)) {
     return;
   }
 
@@ -998,9 +990,10 @@ export async function inferSchema(
   } else if (language === "dbt") {
     // `parse_dbt` exists in the Rust parser but reaches this package only with
     // the next `windmill-parser-wasm-yaml` publish. Keep whatever schema the
-    // metadata file already carries — the server recomputes it at deploy, so a
-    // push is not blocked on the local parser. Returning the current schema
-    // rather than nothing: the caller dereferences `.schema` immediately.
+    // metadata file already carries: the script-create endpoint derives the
+    // authoritative one from the descriptor and overrides whatever is pushed,
+    // so a push is not blocked on the local parser. Returning the current
+    // schema rather than nothing: the caller dereferences `.schema` at once.
     return {
       schema: currentSchema,
       has_preprocessor: undefined,

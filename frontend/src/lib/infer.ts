@@ -525,9 +525,9 @@ export async function inferArgs(
 		} else {
 			// dbt lands here: `parse_dbt` exists in the Rust parser but reaches the
 			// browser only with the next `windmill-parser-wasm-yaml` publish. A dbt
-			// script's run arguments come from the schema the server computes at
-			// deploy — the authoritative one — so only live-while-typing inference
-			// is missing until then.
+			// script's run arguments come from the schema the script-create endpoint
+			// derives from the descriptor, which overrides whatever the browser
+			// sends, so only live-while-typing inference is missing until then.
 			return null
 		}
 		if (inferedSchema.type == 'Invalid') {

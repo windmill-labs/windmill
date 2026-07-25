@@ -288,6 +288,48 @@ pub fn parse_dbt_sig(inner_content: &str) -> anyhow::Result<MainArgSignature> {
     })
 }
 
+/// The run form's JSON schema for a dbt descriptor.
+///
+/// Derived here rather than in the browser or the CLI: both infer a script's
+/// schema client-side through `windmill-parser-wasm`, whose published package
+/// has no dbt arm, so they leave the schema untouched. Without this a dbt
+/// script deploys with an empty schema and its run form offers none of the
+/// overrides — and an edited descriptor keeps the previous one's arguments.
+/// Built from `parse_dbt_sig` so the argument list has exactly one definition.
+pub fn dbt_arg_schema(inner_content: &str) -> anyhow::Result<serde_json::Value> {
+    let sig = parse_dbt_sig(inner_content)?;
+    let mut properties = serde_json::Map::new();
+    let mut required: Vec<serde_json::Value> = vec![];
+    let mut order: Vec<serde_json::Value> = vec![];
+    for arg in &sig.args {
+        let mut prop = match &arg.typ {
+            Typ::Bool => serde_json::json!({"type": "boolean"}),
+            Typ::List(_) => serde_json::json!({"type": "array", "items": {"type": "string"}}),
+            Typ::Object(_) => serde_json::json!({"type": "object"}),
+            Typ::Str(Some(variants)) => serde_json::json!({"type": "string", "enum": variants}),
+            Typ::Str(None) => serde_json::json!({"type": "string"}),
+            // A placeholder takes the JSON type of whatever is passed, so it is
+            // deliberately left untyped rather than guessed at.
+            _ => serde_json::json!({}),
+        };
+        if let (Some(obj), Some(default)) = (prop.as_object_mut(), arg.default.as_ref()) {
+            obj.insert("default".to_string(), default.clone());
+        }
+        if !arg.has_default {
+            required.push(serde_json::json!(arg.name));
+        }
+        order.push(serde_json::json!(arg.name));
+        properties.insert(arg.name.clone(), prop);
+    }
+    Ok(serde_json::json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "order": order,
+    }))
+}
+
 /// `{{ name }}` placeholders in the interpolated descriptor fields, in a stable
 /// order. Must stay in sync with the fields the worker actually interpolates.
 fn placeholders(d: &DbtDescriptor) -> Vec<String> {
@@ -349,6 +391,24 @@ vars:
 threads: 8
 full_refresh: true
 "#;
+
+    // The run form is built from this schema, and nothing else can build it:
+    // the browser and the CLI both infer through a wasm parser that has no dbt
+    // arm, so a missing property here is an override the user cannot reach.
+    #[test]
+    fn the_schema_carries_every_run_override_and_placeholder() {
+        let schema = dbt_arg_schema(DESCRIPTOR).unwrap();
+        let props = schema["properties"].as_object().unwrap();
+        for name in ["select", "exclude", "vars", "full_refresh", "dbt_command"] {
+            assert!(props.contains_key(name), "missing {name}: {schema}");
+        }
+        assert_eq!(props["dbt_command"]["enum"], serde_json::json!(DBT_COMMANDS));
+        assert_eq!(props["full_refresh"]["type"], "boolean");
+        // Every `{{ placeholder }}` the descriptor interpolates is an argument
+        // a run must supply — the overrides above all default to the
+        // descriptor's own values instead.
+        assert_eq!(schema["required"], serde_json::json!(["commit", "day"]));
+    }
 
     #[test]
     fn parses_descriptor() {

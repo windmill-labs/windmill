@@ -53,7 +53,12 @@ export function languageNeedsLock(language: ScriptLanguage | string): boolean {
       language !== "powershell") ||
     language === "deno" ||
     language === "rust" ||
-    language === "ansible"
+    language === "ansible" ||
+    // A dbt lock pins the resolved commit and engine versions. Pushing a
+    // changed descriptor with the old lock attached makes the API skip
+    // dependency generation, so the script keeps running the previous commit
+    // and its manifest graph is never refreshed.
+    language === "dbt"
   );
 }
 
