@@ -7,7 +7,7 @@ import { sendUserToast } from '$lib/toast'
  * pushed with no `parent_job`), so the offer to resolve the original can only be made by the
  * page that launched it.
  */
-type PendingRerun = { originalId: string; workspace: string }
+type PendingRerun = { originalId: string; rerunId: string; workspace: string }
 
 let pending: PendingRerun | undefined = undefined
 
@@ -16,11 +16,13 @@ export function rememberRerunOrigin(origin: PendingRerun) {
 }
 
 /**
- * Claims the pending origin if `newJobId` is the run it launched. Returns undefined otherwise,
- * so an unrelated run page never picks up a stale offer.
+ * Claims the pending origin only for the exact run it launched. Matching on `rerunId` rather
+ * than "any job that isn't the original" is what keeps a re-run that fails, stays queued, or is
+ * never opened from leaving a claim that the next successful run consumes: that run would be
+ * offered as proof of a failure it has nothing to do with.
  */
 export function claimRerunOrigin(newJobId: string): PendingRerun | undefined {
-	if (!pending || pending.originalId === newJobId) return undefined
+	if (pending?.rerunId !== newJobId) return undefined
 	const claimed = pending
 	pending = undefined
 	return claimed
@@ -41,9 +43,10 @@ export function offerToResolveOriginal(origin: PendingRerun, onResolved?: () => 
 						workspace: origin.workspace,
 						requestBody: {
 							job_ids: [origin.originalId],
-							// Provenance, not a person's words: sent as a closed reason so it survives
-							// outside enterprise, where free-text notes are dropped.
-							system_reason: 'superseded_by_rerun'
+							// Evidence, not a claim: the server proves this run superseded the failure
+							// and owns the wording, which is why it survives outside enterprise where
+							// free-text notes are dropped.
+							superseded_by: origin.rerunId
 						}
 					})
 					if (affected.length === 0) {

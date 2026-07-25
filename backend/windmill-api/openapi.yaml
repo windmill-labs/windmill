@@ -14628,13 +14628,14 @@ paths:
                   description: >-
                     a person's explanation of why the failure is considered handled.
                     Enterprise-only: ignored outside enterprise
-                system_reason:
+                superseded_by:
                   type: string
-                  enum:
-                    - superseded_by_rerun
+                  format: uuid
                   description: >-
-                    provenance the product generated rather than a person's words. Recorded
-                    regardless of licence, and the server owns the wording
+                    id of a later successful run of the same runnable that supersedes the
+                    failure. Verified server-side, and the resulting note is the server's own
+                    wording, so it is recorded regardless of licence. A claim that cannot be
+                    verified resolves nothing
               required:
                 - job_ids
       responses:

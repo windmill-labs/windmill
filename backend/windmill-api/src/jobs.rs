@@ -9666,25 +9666,16 @@ async fn delete_completed_job<'a>(
 struct ResolveJobsRequest {
     job_ids: Vec<Uuid>,
     note: Option<String>,
-    /// Provenance the product itself knows, as opposed to a person's explanation. Kept a
-    /// closed enum rather than free text: the server owns the wording, so a client cannot
-    /// smuggle an arbitrary note past the enterprise gate by labelling it system-generated.
-    system_reason: Option<ResolutionReason>,
+    /// Id of a later successful run of the same runnable, when the caller claims the failure
+    /// was superseded. Evidence rather than an assertion: the claim is proven in SQL below and
+    /// the wording it produces belongs to the server, so this cannot attach arbitrary text to a
+    /// failure nor stamp provenance onto one that was never re-run.
+    superseded_by: Option<Uuid>,
 }
 
-#[derive(Deserialize, Clone, Copy)]
-#[serde(rename_all = "snake_case")]
-enum ResolutionReason {
-    SupersededByRerun,
-}
-
-impl ResolutionReason {
-    fn text(self) -> &'static str {
-        match self {
-            ResolutionReason::SupersededByRerun => "Superseded by a successful re-run",
-        }
-    }
-}
+/// Provenance Windmill established itself, as opposed to a person's explanation, which is why
+/// this is recorded outside enterprise while a typed note is not.
+const SUPERSEDED_NOTE: &str = "Superseded by a successful re-run";
 
 /// Bounded so the per-id audit rows written below stay bounded too.
 const MAX_RESOLUTION_BATCH: usize = 1000;
@@ -9760,15 +9751,13 @@ async fn resolve_completed_jobs(
     let mut tx = user_db.begin(&authed).await?;
     let tags = get_scope_tags(&authed);
     let (resolved_by, typed_note) = resolution_attribution(&authed, req.note.as_deref());
-    // A typed explanation is enterprise-only; provenance the product generated is not, so CE
-    // still records *why* a run was resolved even though it cannot record who did it.
-    let note = typed_note.or(req.system_reason.map(ResolutionReason::text));
+    let system_note = req.superseded_by.map(|_| SUPERSEDED_NOTE);
     // The join on v2_job is what authorizes this write: v2_job_completed has RLS
     // disabled, so v2_job's policies are the only thing scoping rows to the caller.
     // `status = 'failure'` keeps the invariant that only a failure can be resolved.
     let resolved = sqlx::query_scalar!(
         "INSERT INTO job_resolution (job_id, workspace_id, resolved_by, note, automatic)
-            SELECT c.id, c.workspace_id, $4, $5, false
+            SELECT c.id, c.workspace_id, $4, COALESCE($5, $7), false
                 FROM v2_job_completed c
                 JOIN v2_job j ON j.id = c.id
                 WHERE c.id = ANY($1)
@@ -9778,14 +9767,31 @@ async fn resolve_completed_jobs(
                     -- Resolution is a top-level triage state: a step resolved on its own
                     -- would render orange inside a flow whose status is still red.
                     AND j.flow_step_id IS NULL
+                    -- A supersession claim has to be proven, not trusted: a later success of the
+                    -- same identified runnable, itself visible to the caller. An unproven claim
+                    -- resolves nothing, so the caller learns it was rejected instead of having
+                    -- the fiction recorded as provenance.
+                    AND ($6::UUID IS NULL OR EXISTS (
+                        SELECT 1 FROM v2_job_completed sc
+                            JOIN v2_job sj ON sj.id = sc.id
+                            WHERE sc.id = $6
+                                AND sc.workspace_id = $2
+                                AND sc.status = 'success'
+                                AND sc.completed_at >= c.completed_at
+                                AND (j.runnable_id IS NOT NULL OR j.runnable_path IS NOT NULL)
+                                AND sj.runnable_id IS NOT DISTINCT FROM j.runnable_id
+                                AND sj.runnable_path IS NOT DISTINCT FROM j.runnable_path
+                    ))
             ON CONFLICT (job_id) DO UPDATE SET
                 resolved_at = now(),
                 -- Both COALESCEd: `resolution_attribution` returns NULLs outside EE and once the
                 -- licence lapses, and bulk selections routinely include already-resolved rows,
                 -- so overwriting would erase metadata recorded while it was valid. Clear either
                 -- by unresolving first.
-                resolved_by = COALESCE(EXCLUDED.resolved_by, job_resolution.resolved_by),
-                note = COALESCE(EXCLUDED.note, job_resolution.note),
+                resolved_by = COALESCE($4, job_resolution.resolved_by),
+                -- A person's explanation replaces what was there; machine provenance only fills
+                -- a blank, so re-running an already-explained failure never erases their words.
+                note = COALESCE($5, job_resolution.note, $7),
                 -- A human taking over an automatic resolution makes it no longer automatic.
                 automatic = false
             RETURNING job_id",
@@ -9793,7 +9799,9 @@ async fn resolve_completed_jobs(
         &w_id,
         tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
         resolved_by,
-        note,
+        typed_note,
+        req.superseded_by,
+        system_note,
     )
     .fetch_all(&mut *tx)
     .await?;

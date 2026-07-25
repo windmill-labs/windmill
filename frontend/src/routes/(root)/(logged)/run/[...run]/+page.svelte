@@ -110,8 +110,7 @@
 
 	// A re-run launched from a failed run offers to resolve that failure once it succeeds.
 	// The claim happens here rather than at init because SvelteKit reuses this component
-	// across /run/<id> navigations, so init only runs for the first run viewed. Claiming at
-	// the moment of offering also means an unrelated run can never consume a stale origin.
+	// across /run/<id> navigations, so init only runs for the first run viewed.
 	// Only ever an offer: a re-run is a fresh execution, not proof the old failure was handled.
 	let offeredForJobId: string | undefined = $state(undefined)
 	$effect(() => {
@@ -470,9 +469,10 @@
 				}
 
 				// Offer to resolve this failure once the re-run succeeds. Captured here because the
-				// new job carries no back-pointer to the run it supersedes.
-				if (job && isJobResolvable(job) && !$userStore?.operator) {
-					rememberRerunOrigin({ originalId: job.id, workspace: $workspaceStore! })
+				// new job carries no back-pointer to the run it supersedes. An already-resolved
+				// failure needs no offer, and its note must not be restated as a supersession.
+				if (job && isJobResolvable(job) && !job.resolved && !$userStore?.operator) {
+					rememberRerunOrigin({ originalId: job.id, rerunId: id, workspace: $workspaceStore! })
 				}
 				await goto('/run/' + id + '?workspace=' + $workspaceStore)
 			} else {

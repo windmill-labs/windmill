@@ -317,7 +317,7 @@ async fn test_resolve_completed_jobs_scoping(db: Pool<Postgres>) -> anyhow::Resu
     let port = server.addr.port();
     let base = format!("http://localhost:{port}/api/w/test-workspace/jobs");
 
-    async fn seed(db: &Pool<Postgres>, owner: &str, status: &str) -> Uuid {
+    async fn seed(db: &Pool<Postgres>, owner: &str, status: &str, script: &str) -> Uuid {
         let id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, permissioned_as_email,
@@ -328,7 +328,7 @@ async fn test_resolve_completed_jobs_scoping(db: Pool<Postgres>) -> anyhow::Resu
         .bind(owner)
         .bind(format!("u/{owner}"))
         .bind(format!("{owner}@windmill.dev"))
-        .bind(format!("u/{owner}/some_script"))
+        .bind(format!("u/{owner}/{script}"))
         .execute(db)
         .await
         .unwrap();
@@ -344,9 +344,10 @@ async fn test_resolve_completed_jobs_scoping(db: Pool<Postgres>) -> anyhow::Resu
         id
     }
 
-    let mine = seed(&db, "test-user-2", "failure").await;
-    let theirs = seed(&db, "test-user", "failure").await;
-    let mine_succeeded = seed(&db, "test-user-2", "success").await;
+    let mine = seed(&db, "test-user-2", "failure", "some_script").await;
+    let theirs = seed(&db, "test-user", "failure", "some_script").await;
+    let mine_succeeded = seed(&db, "test-user-2", "success", "some_script").await;
+    let unrelated_success = seed(&db, "test-user-2", "success", "other_script").await;
 
     // test-user-2 is a plain non-admin, non-operator member of the workspace.
     let member = |b: reqwest::RequestBuilder| b.header("Authorization", "Bearer SECRET_TOKEN_2");
@@ -406,7 +407,10 @@ async fn test_resolve_completed_jobs_scoping(db: Pool<Postgres>) -> anyhow::Resu
     #[cfg(feature = "enterprise")]
     assert_eq!(kept.as_deref(), Some("expected"));
     #[cfg(not(feature = "enterprise"))]
-    assert_eq!(kept, None, "no note is stored outside EE, so none can be lost");
+    assert_eq!(
+        kept, None,
+        "no note is stored outside EE, so none can be lost"
+    );
 
     let resp = member(client().post(format!("{base}/completed/unresolve")))
         .json(&json!({ "job_ids": [mine, theirs] }))
@@ -421,16 +425,36 @@ async fn test_resolve_completed_jobs_scoping(db: Pool<Postgres>) -> anyhow::Resu
         .await?;
     assert_eq!(remaining, 0);
 
-    // Provenance the product generated is not accountability, so it is recorded even where a
-    // typed note is not. This is the one thing that must differ from the `note` field in CE.
+    // A supersession the server cannot prove must resolve nothing: `unrelated_success` is
+    // visible and successful, so only the runnable check stands between an arbitrary caller and
+    // a failure stamped with provenance that never happened.
     let resp = member(client().post(format!("{base}/completed/resolve")))
-        .json(&json!({ "job_ids": [mine], "system_reason": "superseded_by_rerun" }))
+        .json(&json!({ "job_ids": [mine], "superseded_by": unrelated_success }))
+        .send()
+        .await?;
+    let body = resp.text().await?;
+    let ids: Vec<Uuid> = serde_json::from_str(&body)?;
+    assert!(
+        ids.is_empty(),
+        "a supersession by an unrelated run must be rejected, got {body}"
+    );
+    let none: Option<Uuid> =
+        sqlx::query_scalar("SELECT job_id FROM job_resolution WHERE job_id = $1")
+            .bind(mine)
+            .fetch_optional(&db)
+            .await?;
+    assert_eq!(none, None, "a rejected claim must not resolve the failure");
+
+    // Provenance the server established itself is not accountability, so it is recorded even
+    // where a typed note is not. This is the one thing that must differ from `note` in CE.
+    let resp = member(client().post(format!("{base}/completed/resolve")))
+        .json(&json!({ "job_ids": [mine], "superseded_by": mine_succeeded }))
         .send()
         .await?;
     assert_2xx(
         resp.status().as_u16(),
         &resp.text().await?,
-        "resolve with a system reason",
+        "resolve with a verified supersession",
     );
     let system_note: Option<String> =
         sqlx::query_scalar("SELECT note FROM job_resolution WHERE job_id = $1")
@@ -440,8 +464,43 @@ async fn test_resolve_completed_jobs_scoping(db: Pool<Postgres>) -> anyhow::Resu
     assert_eq!(
         system_note.as_deref(),
         Some("Superseded by a successful re-run"),
-        "a system reason must be recorded regardless of licence"
+        "a verified supersession must be recorded regardless of licence"
     );
+
+    // Machine provenance only fills a blank: re-running a failure someone already explained
+    // must not replace their words with the generic supersession wording.
+    let resp = member(client().post(format!("{base}/completed/resolve")))
+        .json(&json!({ "job_ids": [mine], "note": "known upstream outage" }))
+        .send()
+        .await?;
+    assert_2xx(resp.status().as_u16(), &resp.text().await?, "typed note");
+    let resp = member(client().post(format!("{base}/completed/resolve")))
+        .json(&json!({ "job_ids": [mine], "superseded_by": mine_succeeded }))
+        .send()
+        .await?;
+    assert_2xx(
+        resp.status().as_u16(),
+        &resp.text().await?,
+        "supersede an explained failure",
+    );
+    let after: Option<String> =
+        sqlx::query_scalar("SELECT note FROM job_resolution WHERE job_id = $1")
+            .bind(mine)
+            .fetch_one(&db)
+            .await?;
+    #[cfg(feature = "enterprise")]
+    assert_eq!(
+        after.as_deref(),
+        Some("known upstream outage"),
+        "a person's explanation must survive a later supersession"
+    );
+    #[cfg(not(feature = "enterprise"))]
+    assert_eq!(
+        after.as_deref(),
+        Some("Superseded by a successful re-run"),
+        "no typed note is stored outside EE, so provenance fills the blank"
+    );
+
     sqlx::query("DELETE FROM job_resolution WHERE job_id = $1")
         .bind(mine)
         .execute(&db)
