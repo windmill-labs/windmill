@@ -45,6 +45,11 @@ const TEXT_INPUT_TYPES = new Set([
 /** Snapshots are full documents; stop storing them (steps keep coming) rather
  * than let a long session grow the tab's memory without bound. */
 const MAX_TOTAL_FRAME_BYTES = 40 * 1024 * 1024
+/** A step's value is shown in a one-line label; a pasted novel is not. */
+const MAX_STEP_VALUE_CHARS = 200
+/** Repeats of the same interaction on the same control (a held arrow key, a
+ * drag along a slider) are one step, not one per event. */
+const CONTROL_COALESCE_MS = 250
 
 type PendingFill = {
 	el: Element
@@ -74,11 +79,17 @@ export function createRawAppRecording(): RawAppRecordingStore {
 	let frameIndexes = new Map<string, number>()
 	let framesBytes = 0
 	let truncated = false
+	/** Set once an interaction was refused: from then on the recording can only
+	 * grow, so the expensive snapshotting stops — but the last accepted step still
+	 * gets its outcome. */
+	let capped = false
 	let viewport = { width: 0, height: 0 }
 	let baseHref = ''
 
 	let detachers: (() => void)[] = []
 	let pendingFill: PendingFill | undefined = undefined
+	/** Element of the last recorded step, for coalescing repeats of one interaction. */
+	let lastStepEl: Element | undefined = undefined
 	/** Pre-interaction snapshot taken on pointerdown, before a click handler runs. */
 	let pendingPointer: { el: Element; html: string | undefined } | undefined = undefined
 	/** Same, taken on keydown before the key changes the focused field or control. */
@@ -123,7 +134,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 	 * expensive part and runs on the app's own event path, so a recording that can
 	 * no longer accept steps must stop doing it. */
 	function capture(target?: Element | null): string | undefined {
-		if (steps.length >= MAX_RECORDED_STEPS) return undefined
+		if (capped) return undefined
 		const d = doc()
 		if (!d) return undefined
 		try {
@@ -174,6 +185,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		if (!active) return
 		if (steps.length >= MAX_RECORDED_STEPS) {
 			truncated = true
+			capped = true
 			return
 		}
 		// A step's outcome must be settled before the next one starts; the pending
@@ -192,7 +204,13 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		const target = el ? (redacted ? redactedDescription(el) : describeElement(el)) : 'the app'
 		// A toggle's value is state ('checked'), not content, and the label reads it
 		// back — masking it would render every redacted toggle as "Unchecked".
-		const shown = redacted && value && kind !== 'toggle' ? maskValue(value) : value
+		// Metadata is stored and rendered like a frame is; an unbounded paste would
+		// otherwise slip past the snapshot budget in `value` and `label`.
+		const bounded =
+			value && value.length > MAX_STEP_VALUE_CHARS
+				? `${value.slice(0, MAX_STEP_VALUE_CHARS)}…`
+				: value
+		const shown = redacted && bounded && kind !== 'toggle' ? maskValue(bounded) : bounded
 		const step: RawAppStep = {
 			t: Date.now() - startTime,
 			kind,
@@ -202,7 +220,23 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			value: shown,
 			before: frameIndex(before)
 		}
+		const last = steps[steps.length - 1]
+		if (
+			last &&
+			lastStepEl === el &&
+			last.kind === kind &&
+			kind !== 'click' &&
+			step.t - last.t < CONTROL_COALESCE_MS
+		) {
+			// Same control, same kind, still within the burst: update the step in place
+			// so a held arrow key or a slider drag reads as one interaction.
+			last.value = step.value
+			last.label = step.label
+			scheduleSettle(last)
+			return
+		}
 		steps.push(step)
+		lastStepEl = el
 		stepCount = steps.length
 		scheduleSettle(step)
 	}
@@ -313,14 +347,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			// whatever this click records, and the control paths below never commit it.
 			if (pendingFill && pendingFill.el !== el) commitFill()
 			// Controls report their own semantic step on `change`; a click on a text
-			// field is just focus. Recording those too would double every step.
-			if (isTextEntry(el)) return
-			if (
-				isTag(el, 'INPUT') &&
-				['checkbox', 'radio', 'file'].includes((el as HTMLInputElement).type)
-			)
-				return
-			if (isTag(el, 'SELECT') || isTag(el, 'OPTION')) return
+			// field is just focus. Recording those too would double every step. Derived
+			// from `isControl` so a type moving between the two can't double-record.
+			if (isTextEntry(el) || isControl(el) || isTag(el, 'OPTION')) return
 			// A click on a <label> is also delivered to its control, which reports the
 			// real step on `change`. Recording the label click too would double one
 			// physical action, with the second step appearing to rewind the state.
@@ -458,11 +487,13 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			appPath = opts.appPath
 			workspace = opts.workspace
 			steps = []
+			lastStepEl = undefined
 			stepCount = 0
 			frames = []
 			frameIndexes = new Map()
 			framesBytes = 0
 			truncated = false
+			capped = false
 			baseHref = typeof window !== 'undefined' ? window.location.origin : ''
 			viewport = {
 				width: iframe.clientWidth || d.documentElement.clientWidth,
