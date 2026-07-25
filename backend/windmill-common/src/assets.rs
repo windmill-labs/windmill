@@ -175,7 +175,14 @@ fn is_write_access(access: Option<AssetUsageAccessType>) -> bool {
 /// producers). Resource / datatable / volume reads stay explicit-`// on`:
 /// a config/lookup read cascading is more often surprising than wanted.
 fn is_auto_trigger_kind(kind: AssetKind) -> bool {
-    matches!(kind, AssetKind::Ducklake | AssetKind::S3Object)
+    // `Table` is here for the same reason the other two are: a warehouse
+    // relation a script reads read-only is an input whose producer should
+    // trigger it. Without it a dbt project split across scripts renders its
+    // upstream read edges and then never actually cascades along them.
+    matches!(
+        kind,
+        AssetKind::Ducklake | AssetKind::S3Object | AssetKind::Table
+    )
 }
 
 /// Trigger refs auto-derived from a pipeline script's inferred reads, so the

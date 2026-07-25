@@ -8,8 +8,9 @@
 use serde_json::Value;
 use windmill_common::error::{self, Error};
 
-/// Written beside `profiles.yml`; `sslrootcert` is emitted as a relative path,
-/// and dbt resolves it against the profiles dir.
+/// Written beside `profiles.yml`, and named absolutely in `sslrootcert`: dbt
+/// runs with the project as its working directory and hands the path to the
+/// driver unchanged.
 pub const ROOT_CERT_FILENAME: &str = "server-ca.pem";
 
 /// The dbt adapter a Windmill resource type maps to (decision 9). The resource

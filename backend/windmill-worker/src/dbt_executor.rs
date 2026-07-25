@@ -139,6 +139,7 @@ pub async fn handle_dbt_job(
         requirements_o.and_then(|s| serde_json::from_str(s).ok());
 
     let args = job.args.as_ref().map(|a| a.0.clone()).unwrap_or_default();
+    let inv = Invocation { args: args.clone(), envs: envs.clone() };
     let prepared = prepare_project(
         &descriptor,
         locks.as_ref(),
@@ -198,55 +199,45 @@ pub async fn handle_dbt_job(
     // cache before invoking it.
     // A retry resumes the previous invocation, so the graph refresh below and
     // dbt itself must both use THAT invocation's arguments, not this job's.
-    let retried_args = if command == "retry" {
-        Some(restore_run_state(&prepared, &job.workspace_id).await?)
+    // A retry resumes the previous invocation, so `dbt retry`, the graph refresh
+    // and the test phase must all use THAT invocation's arguments — not the
+    // retry request's, which may omit or change them.
+    let inv = if command == "retry" {
+        Invocation { args: restore_run_state(&prepared, &job.workspace_id).await?, ..inv }
     } else {
-        None
+        inv
     };
-    let graph_args = retried_args.as_ref().unwrap_or(&args);
 
     // A per-run graph is ingested BEFORE the build, from a `dbt parse` of the
     // commit this run resolved. Asset dispatch fans out from the stored rows
-    // after the job completes, so refreshing them afterwards leaves a window in
-    // which those rows still describe the previous run — and the invalidation of
-    // the producer-writes cache is asynchronous, so even a completed refresh may
-    // not be visible to dispatch. Parsing first costs about a second and closes
-    // both. Concurrent runs of one dynamic script still race on the path-keyed
-    // rows; that needs a per-job dispatch snapshot (docs/dbt-runtime.md).
+    // after the job completes, so the graph is written BEFORE the build, from a
+    // parse of the commit this run resolved. Concurrent runs of one dynamic
+    // script still race on the path-keyed rows; that needs a per-job dispatch
+    // snapshot (docs/dbt-runtime.md).
     if descriptor.is_latest_ref() || prepared.graph_is_per_run {
         // `dbt retry` resumes the PREVIOUS invocation's selection and vars, so
         // parsing with this job's arguments would ingest one graph while dbt
         // resumes another. The restored state already describes that
         // invocation, so its manifest is the one to ingest.
         if command != "retry" {
-            run_dbt_parse(
-                &prepared,
-                &descriptor,
-                graph_args,
-                &envs,
-                &job.id,
-                &job.workspace_id,
-                conn,
-            )
-            .await?;
+            run_dbt_parse(&prepared, &descriptor, &inv, &job.id, &job.workspace_id, conn).await?;
         }
         // For a retry the restored manifest already describes the invocation
         // being resumed, so only the ingest runs — with that invocation's
         // arguments, which the selection resolver needs to interpolate.
-        ingest_from_run(&prepared, &descriptor, graph_args, &envs, job, conn).await?;
+        ingest_from_run(&prepared, &descriptor, &inv, job, conn).await?;
     }
 
     let mut run = run_dbt(
         &prepared,
         &command,
         &descriptor,
-        &args,
+        &inv,
         job,
         conn,
         mem_peak,
         canceled_by,
         occupancy_metrics,
-        &envs,
         worker_name,
         true,
     )
@@ -268,13 +259,12 @@ pub async fn handle_dbt_job(
             &prepared,
             "test",
             &descriptor,
-            &args,
+            &inv,
             job,
             conn,
             mem_peak,
             canceled_by,
             occupancy_metrics,
-            &envs,
             worker_name,
             // The tests must be scoped exactly like the models were: testing
             // the whole project would assert against models this script never
@@ -285,7 +275,7 @@ pub async fn handle_dbt_job(
         results.extend(read_run_results(&prepared.project_dir).await);
     }
 
-    save_run_state(&prepared, &job.workspace_id, &args).await.ok();
+    save_run_state(&prepared, &job.workspace_id, &inv).await.ok();
     reconcile_materializations(&prepared, &results, job, conn).await;
 
     // `ref: latest` executes whatever HEAD resolved to, so the graph must be
@@ -372,19 +362,12 @@ pub async fn dbt_dep(
     )
     .await?;
 
-    run_dbt_parse(
-        &prepared,
-        &descriptor,
-        &HashMap::new(),
-        &HashMap::new(),
-        job_id,
-        w_id,
-        &conn,
-    )
-    .await?;
+    // A deploy has no job arguments and, until the run, no job environment; it
+    // tolerates the `{{ }}` placeholders it cannot fill (see `Invocation`).
+    let inv = Invocation::default();
+    run_dbt_parse(&prepared, &descriptor, &inv, job_id, w_id, &conn).await?;
 
-    let selected =
-        resolve_selection(&prepared, &descriptor, &HashMap::new(), &HashMap::new(), false).await?;
+    let selected = resolve_selection(&prepared, &descriptor, &inv).await?;
     let manifest = read_manifest(&prepared.project_dir).await?;
     let manifest_digest = digest(
         &tokio::fs::read_to_string(prepared.project_dir.join("target/manifest.json"))
@@ -399,17 +382,7 @@ pub async fn dbt_dep(
             prepared.default_database.as_deref(),
             selected.as_ref(),
         );
-        let mut tx = db.begin().await?;
-        windmill_common::dbt_manifest::replace_dbt_manifest(&mut tx, w_id, script_path, &ingested)
-            .await?;
-        windmill_common::assets::replace_static_asset_usage(
-            &mut tx,
-            w_id,
-            script_path,
-            &ingested.assets,
-        )
-        .await?;
-        tx.commit().await?;
+        persist_ingest(db, w_id, script_path, &ingested).await?;
         append_logs(
             job_id,
             w_id,
@@ -492,17 +465,23 @@ pub struct PreparedProject {
 }
 
 impl PreparedProject {
-    /// Which warehouse and target this run connects to, for the retry-state
-    /// check. Only identity, never credential material.
-    fn profile_identity(&self) -> String {
+    /// Everything that decides which relations a run produces, for the
+    /// retry-state check: same repo, same project within it, same commit, same
+    /// warehouse and target, same engine. Identity only, never credentials —
+    /// `repo_resource` is a path and the profile is named, not rendered.
+    ///
+    /// Anything omitted here is something a redeploy could change while a
+    /// stale `run_results.json` stays eligible, so `dbt retry` would resume one
+    /// project's failures inside another.
+    fn run_identity(&self) -> String {
         format!(
-            "{}|{}|{}",
+            "{}|{}|{}|{}|{}|{}",
+            self.repo_resource,
+            self.project_subdir,
+            self.commit,
             self.resource_path.as_deref().unwrap_or(""),
             self.target.as_deref().unwrap_or(""),
-            self.profiles_dir
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
+            self.engine.engine.as_str(),
         )
     }
 }
@@ -994,7 +973,14 @@ async fn write_profiles(
         // file already spells it, so read it from there when not declared.
         let adapter = match declared {
             Some(a) => a,
-            None => adapter_from_profiles_yml(&path).await?,
+            None => {
+                adapter_from_profiles_yml(
+                    &path,
+                    &project_profile_name(project_dir).await,
+                    descriptor.profile.target.as_deref(),
+                )
+                .await?
+            }
         };
         ensure_adapter_licensed(adapter)?;
         // The project owns its profile, so Windmill does not know its database.
@@ -1049,34 +1035,48 @@ async fn write_profiles(
     Ok((dir, Some(resource_path), adapter, rendered.database))
 }
 
-async fn adapter_from_profiles_yml(path: &Path) -> error::Result<DbtAdapter> {
+async fn adapter_from_profiles_yml(
+    path: &Path,
+    profile_name: &str,
+    target: Option<&str>,
+) -> error::Result<DbtAdapter> {
     let content = tokio::fs::read_to_string(path)
         .await
         .map_err(|e| Error::BadRequest(format!("could not read {}: {e}", path.display())))?;
     let v: serde_yml::Value = serde_yml::from_str(&content)
         .map_err(|e| Error::BadRequest(format!("could not parse {}: {e}", path.display())))?;
-    // `type:` appears once per output; any of them identifies the adapter.
-    fn find_type(v: &serde_yml::Value) -> Option<String> {
-        match v {
-            serde_yml::Value::Mapping(m) => {
-                for (k, val) in m {
-                    if k.as_str() == Some("type") {
-                        if let Some(s) = val.as_str() {
-                            return Some(s.to_string());
-                        }
-                    }
-                    if let Some(found) = find_type(val) {
-                        return Some(found);
-                    }
-                }
-                None
-            }
-            _ => None,
-        }
-    }
-    let t = find_type(&v)
-        .ok_or_else(|| Error::BadRequest(format!("{} declares no `type`", path.display())))?;
-    DbtAdapter::from_resource_type(&t)
+    // The profile the project names and the target actually in use, not the
+    // first `type:` in the file: a `profiles.yml` may define several profiles
+    // and several targets, and provisioning the wrong adapter installs the
+    // wrong package and license-checks the wrong warehouse.
+    let outputs = v
+        .get(profile_name)
+        .and_then(|p| p.get("outputs"))
+        .ok_or_else(|| {
+            Error::BadRequest(format!(
+                "{} declares no profile named `{profile_name}` (the name in dbt_project.yml)",
+                path.display()
+            ))
+        })?;
+    let target = target
+        .or_else(|| v.get(profile_name).and_then(|p| p.get("target")).and_then(|t| t.as_str()))
+        .ok_or_else(|| {
+            Error::BadRequest(format!(
+                "{} names no default target for `{profile_name}`; set `profile.target`",
+                path.display()
+            ))
+        })?;
+    let t = outputs
+        .get(target)
+        .and_then(|o| o.get("type"))
+        .and_then(|t| t.as_str())
+        .ok_or_else(|| {
+            Error::BadRequest(format!(
+                "{} has no `{target}` target with a `type` under `{profile_name}`",
+                path.display()
+            ))
+        })?;
+    DbtAdapter::from_resource_type(t)
         .ok_or_else(|| Error::BadRequest(format!("unsupported dbt adapter `{t}`")))
 }
 
@@ -1122,18 +1122,17 @@ async fn run_dbt(
     p: &PreparedProject,
     command: &str,
     descriptor: &DbtDescriptor,
-    args: &HashMap<String, Box<RawValue>>,
+    inv: &Invocation,
     job: &MiniPulledJob,
     conn: &Connection,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     occupancy_metrics: &mut OccupancyMetrics,
-    envs: &HashMap<String, String>,
     worker_name: &str,
     with_selection: bool,
 ) -> error::Result<()> {
     let mut cmd = dbt_command(p, &[command]);
-    cmd.envs(envs);
+    cmd.envs(&inv.envs);
     // The console stays human-readable and goes straight to the job log; the
     // machine-readable copy goes to a file the progress reporter tails, so
     // neither purpose degrades the other.
@@ -1146,10 +1145,10 @@ async fn run_dbt(
     if with_selection && command != "retry" {
         // Selectors are dbt's grammar and are passed verbatim — reimplementing
         // it is a standing source of divergence (docs/dbt-runtime.md).
-        for s in arg_list(args, "select").unwrap_or_else(|| descriptor.select.clone()) {
+        for s in arg_list(&inv.args, "select").unwrap_or_else(|| descriptor.select.clone()) {
             cmd.args(["--select", &s]);
         }
-        for s in arg_list(args, "exclude").unwrap_or_else(|| descriptor.exclude.clone()) {
+        for s in arg_list(&inv.args, "exclude").unwrap_or_else(|| descriptor.exclude.clone()) {
             cmd.args(["--exclude", &s]);
         }
         if let Some(sel) = descriptor.selector.as_deref() {
@@ -1157,11 +1156,11 @@ async fn run_dbt(
         }
     }
     if command != "retry" {
-        add_vars(&mut cmd, descriptor, args, true)?;
+        add_vars(&mut cmd, descriptor, inv)?;
         if let Some(t) = descriptor.threads {
             cmd.args(["--threads", &t.to_string()]);
         }
-        let full_refresh = arg_bool(args, "full_refresh").unwrap_or(descriptor.full_refresh);
+        let full_refresh = arg_bool(&inv.args, "full_refresh").unwrap_or(descriptor.full_refresh);
         if full_refresh && command != "test" {
             cmd.arg("--full-refresh");
         }
@@ -1549,8 +1548,7 @@ fn render_failures(r: &DbtRunResult) -> String {
 async fn ingest_from_run(
     p: &PreparedProject,
     descriptor: &DbtDescriptor,
-    args: &HashMap<String, Box<RawValue>>,
-    envs: &HashMap<String, String>,
+    inv: &Invocation,
     job: &MiniPulledJob,
     conn: &Connection,
 ) -> error::Result<()> {
@@ -1571,7 +1569,7 @@ async fn ingest_from_run(
     let manifest = read_manifest(&p.project_dir).await?;
     // The run's own arguments: resolving the selection with empty vars could
     // filter this run's manifest by a different node set than it built.
-    let selected = resolve_selection(p, descriptor, args, envs, true).await?;
+    let selected = resolve_selection(p, descriptor, inv).await?;
     let ingested =
         windmill_common::dbt_manifest::ingest_manifest(
         &manifest,
@@ -1579,27 +1577,72 @@ async fn ingest_from_run(
         p.default_database.as_deref(),
         selected.as_ref(),
     );
-    let mut tx = db.begin().await?;
-    windmill_common::dbt_manifest::replace_dbt_manifest(
-        &mut tx,
-        &job.workspace_id,
-        script_path,
-        &ingested,
-    )
-    .await?;
-    windmill_common::assets::replace_static_asset_usage(
-        &mut tx,
-        &job.workspace_id,
-        script_path,
-        &ingested.assets,
-    )
-    .await?;
-    tx.commit().await?;
+    persist_ingest(db, &job.workspace_id, script_path, &ingested).await?;
     // Synchronously, not through the notify poller: dispatch for THIS job runs
     // in this process once the job completes, and the poll is seconds away, so
     // a fast build would otherwise fan out from the pre-refresh cache. The
     // `notify_event` the transaction emitted still reaches every other process.
     windmill_queue::asset_dispatch::ASSET_PRODUCER_WRITES_CACHE.remove(&job.workspace_id);
+    Ok(())
+}
+
+/// Write one ingest: the sidecar rows, the `asset` usages, and the cascade
+/// subscriptions its reads imply.
+///
+/// The subscriptions have to happen here rather than in the deploy's generic
+/// derivation, which runs before these assets exist — it reads the script's
+/// parsed content, and a dbt script's assets come from a manifest the
+/// dependency job produces afterwards. Without them a project split across
+/// scripts renders its upstream read edges and never actually cascades along
+/// them, which is decision 6's whole point.
+async fn persist_ingest(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    w_id: &str,
+    script_path: &str,
+    ingested: &windmill_common::dbt_manifest::IngestedManifest,
+) -> error::Result<()> {
+    use windmill_common::assets::{AssetUsageKind, ScriptTriggerKind};
+    let mut tx = db.begin().await?;
+    windmill_common::dbt_manifest::replace_dbt_manifest(&mut tx, w_id, script_path, ingested)
+        .await?;
+    windmill_common::assets::replace_static_asset_usage(
+        &mut tx,
+        w_id,
+        script_path,
+        &ingested.assets,
+    )
+    .await?;
+    // Wipe-and-reinsert, so a model that stops reading a source loses its edge.
+    // Explicit `# on` annotations in the descriptor were inserted by the deploy
+    // and are re-derived here from the same reads, so nothing is lost.
+    windmill_common::assets::clear_script_triggers(
+        &mut *tx,
+        w_id,
+        script_path,
+        AssetUsageKind::Script,
+    )
+    .await?;
+    for trigger_ref in windmill_common::assets::derive_pipeline_asset_trigger_refs(
+        &ingested.assets,
+        &Default::default(),
+        &Default::default(),
+        false,
+    ) {
+        windmill_common::assets::insert_script_trigger(
+            &mut *tx,
+            w_id,
+            AssetUsageKind::Script,
+            script_path,
+            ScriptTriggerKind::Asset,
+            &trigger_ref,
+            false,
+            None,
+            None,
+            None,
+        )
+        .await?;
+    }
+    tx.commit().await?;
     Ok(())
 }
 
@@ -1613,13 +1656,7 @@ async fn ingest_from_run(
 async fn resolve_selection(
     p: &PreparedProject,
     descriptor: &DbtDescriptor,
-    args: &HashMap<String, Box<RawValue>>,
-    // `dbt_command` clears the environment, so `dbt ls` needs the job's the same
-    // way `dbt parse` and the build do: a project whose `enabled`, schema or
-    // alias reads `env_var()` would otherwise resolve a different node set than
-    // the build produces.
-    envs: &HashMap<String, String>,
-    strict: bool,
+    inv: &Invocation,
 ) -> error::Result<Option<std::collections::HashSet<String>>> {
     if descriptor.select.is_empty()
         && descriptor.exclude.is_empty()
@@ -1628,12 +1665,12 @@ async fn resolve_selection(
         return Ok(None);
     }
     let mut cmd = dbt_command(p, &["ls"]);
-    cmd.envs(envs);
+    cmd.envs(&inv.envs);
     // A project whose models call `var()` without a default fails to parse
     // without these, so the selection resolver needs them exactly as the run
     // does. Placeholders that only a run can fill are dropped rather than
     // failing the deploy.
-    add_vars(&mut cmd, descriptor, args, strict)?;
+    add_vars(&mut cmd, descriptor, inv)?;
     // The types spelled out rather than `all`, which dbt-core 2.x rejects.
     for t in ["model", "source", "seed", "snapshot", "test"] {
         cmd.args(["--resource-type", t]);
@@ -1681,21 +1718,14 @@ async fn resolve_selection(
 async fn run_dbt_parse(
     p: &PreparedProject,
     descriptor: &DbtDescriptor,
-    args: &HashMap<String, Box<RawValue>>,
-    // `dbt_command` clears the environment, so the job's own env has to be
-    // reapplied here exactly as `run_dbt` does: a project whose schema, alias or
-    // `enabled` comes from `env_var()` would otherwise parse into a different
-    // graph than the build produces — or fail to parse at all.
-    envs: &HashMap<String, String>,
+    inv: &Invocation,
     job_id: &Uuid,
     w_id: &str,
     conn: &Connection,
 ) -> error::Result<()> {
     let mut cmd = dbt_command(p, &["parse"]);
-    cmd.envs(envs);
-    // Strict only when there are arguments to be strict about: a deploy has
-    // none and must tolerate placeholders it cannot fill.
-    add_vars(&mut cmd, descriptor, args, !args.is_empty())?;
+    cmd.envs(&inv.envs);
+    add_vars(&mut cmd, descriptor, inv)?;
     let out = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1741,11 +1771,7 @@ fn state_dir(w_id: &str, script_path: &str) -> PathBuf {
         .join(digest(&format!("{w_id}/{script_path}")))
 }
 
-async fn save_run_state(
-    p: &PreparedProject,
-    w_id: &str,
-    args: &HashMap<String, Box<RawValue>>,
-) -> error::Result<()> {
+async fn save_run_state(p: &PreparedProject, w_id: &str, inv: &Invocation) -> error::Result<()> {
     if p.script_path.is_empty() {
         return Ok(());
     }
@@ -1763,9 +1789,9 @@ async fn save_run_state(
     // original invocation's selection and vars, so refreshing the graph for it
     // needs those, not this job's.
     let state = SavedRunState {
-        commit: p.commit.clone(),
-        profile: p.profile_identity(),
-        args: args
+        identity: p.run_identity(),
+        args: inv
+            .args
             .iter()
             .map(|(k, v)| (k.clone(), v.get().to_string()))
             .collect(),
@@ -1779,14 +1805,34 @@ async fn save_run_state(
     Ok(())
 }
 
+/// Everything a dbt invocation is parameterized by. One struct because every
+/// command in a run — `parse`, `ls`, `build` — must see the SAME arguments and
+/// environment: a difference between any two of them means the graph describes
+/// something other than what was built, silently.
+#[derive(Clone, Default)]
+pub struct Invocation {
+    pub args: HashMap<String, Box<RawValue>>,
+    pub envs: HashMap<String, String>,
+}
+
+impl Invocation {
+    /// Placeholders a run must resolve; a deploy has no arguments and tolerates
+    /// the ones it cannot fill.
+    fn strict(&self) -> bool {
+        !self.args.is_empty()
+    }
+}
+
 /// What an invocation was, so a later `dbt retry` can prove it is resuming the
 /// same thing rather than replaying failures somewhere else.
 #[derive(Serialize, Deserialize, Debug, Default)]
 struct SavedRunState {
-    commit: String,
-    /// Warehouse + target the profile resolved to.
-    profile: String,
-    /// The invocation's job arguments, as raw JSON per key.
+    /// Repo, project, commit, warehouse and engine — everything that decides
+    /// which relations the restored `run_results.json` describes.
+    identity: String,
+    /// The invocation's job arguments, as raw JSON per key. `dbt retry` reuses
+    /// the original selection and vars, so refreshing the graph for it needs
+    /// these rather than the retry request's.
     args: HashMap<String, String>,
 }
 
@@ -1817,21 +1863,10 @@ async fn restore_run_state(
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
-    if saved.commit != p.commit {
-        return Err(Error::BadRequest(format!(
-            "the last dbt run on this worker was at commit {}, but this run resolved {}. \
-             `dbt retry` resumes a specific checkout's failures; run the script normally instead",
-            if saved.commit.is_empty() { "an unknown revision" } else { &saved.commit },
-            p.commit
-        )));
-    }
-    // A redeploy can repoint the profile at another warehouse or target while
-    // the commit stays put; resuming there would apply one warehouse's failures
-    // to another.
-    if saved.profile != p.profile_identity() {
+    if saved.identity != p.run_identity() {
         return Err(Error::BadRequest(
-            "the profile changed since the last dbt run on this worker, so its failures do not \
-             describe this warehouse; run the script normally instead"
+            "the last dbt run on this worker was a different project, commit, warehouse or \
+             engine, so its failures do not describe this one; run the script normally instead"
                 .to_string(),
         ));
     }
@@ -1848,13 +1883,8 @@ async fn restore_run_state(
 }
 
 /// Append `--vars` if the descriptor (or the run) declares any.
-fn add_vars(
-    cmd: &mut Command,
-    descriptor: &DbtDescriptor,
-    args: &HashMap<String, Box<RawValue>>,
-    strict: bool,
-) -> error::Result<()> {
-    let vars = resolved_vars(descriptor, args, strict)?;
+fn add_vars(cmd: &mut Command, descriptor: &DbtDescriptor, inv: &Invocation) -> error::Result<()> {
+    let vars = resolved_vars(descriptor, &inv.args, inv.strict())?;
     if !vars.is_empty() {
         cmd.args(["--vars", &serde_json::to_string(&vars).unwrap_or_default()]);
     }

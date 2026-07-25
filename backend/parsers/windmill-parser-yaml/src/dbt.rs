@@ -261,7 +261,10 @@ pub fn parse_dbt_sig(inner_content: &str) -> anyhow::Result<MainArgSignature> {
         args.push(Arg {
             name,
             otyp: None,
-            typ: Typ::Str(None),
+            // Untyped, not `Str`: a placeholder standing alone in a var takes
+            // the argument's own JSON type, and declaring it a string makes the
+            // run form post `"false"` — truthy in Jinja — for a boolean.
+            typ: Typ::Unknown,
             has_default: false,
             default: None,
             oidx: None,
@@ -406,8 +409,11 @@ full_refresh: true
         // and overwrite the value the worker interpolated for it.
         let vars = sig.args.iter().find(|a| a.name == "vars").unwrap();
         assert_eq!(vars.default, Some(serde_json::json!({})));
-        // Placeholders are required: there is no sane default for a commit.
+        // Placeholders are required (no sane default for a commit) and untyped,
+        // so a `{{ }}` var can carry a boolean or a number rather than the
+        // string "false", which Jinja treats as truthy.
         let commit = sig.args.iter().find(|a| a.name == "commit").unwrap();
         assert!(!commit.has_default);
+        assert_eq!(commit.typ, Typ::Unknown);
     }
 }
