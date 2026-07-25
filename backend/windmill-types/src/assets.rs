@@ -14,6 +14,11 @@ pub enum AssetKind {
     Ducklake,
     DataTable,
     Volume,
+    /// A physical warehouse relation, `<resource_path>/<schema>/<name>`.
+    /// Identity is the relation, not the tool that wrote it, so a dbt mart and
+    /// a native script reading the same table are one node and the cascade
+    /// crosses the boundary (docs/dbt-runtime.md, decision 11).
+    Table,
 }
 
 impl AssetKind {
@@ -28,6 +33,7 @@ impl AssetKind {
             AssetKind::Ducklake => Some("ducklake://"),
             AssetKind::DataTable => Some("datatable://"),
             AssetKind::Volume => Some("volume://"),
+            AssetKind::Table => Some("table://"),
             AssetKind::Variable => None,
         }
     }

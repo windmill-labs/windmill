@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 // Token recognized inside declared asset URIs that the runtime substitutes
@@ -28,6 +29,8 @@ pub enum AssetKind {
     Ducklake,
     DataTable,
     Volume,
+    /// A physical warehouse relation, `table://<resource_path>/<schema>/<name>`.
+    Table,
 }
 
 #[derive(Serialize, Debug, PartialEq, Clone)]
@@ -714,21 +717,32 @@ pub fn asset_was_used(assets: &Vec<ParseAssetsResult>, (kind, path): (AssetKind,
     })
 }
 
-pub fn parse_asset_syntax(s: &str, enable_default_syntax: bool) -> Option<(AssetKind, &str)> {
+/// Split an asset URI into `(kind, path)`. The single point where user-written
+/// asset URIs become graph keys, and therefore where `table://` paths get
+/// canonicalized (see `canonicalize_table_asset_path`) — every other kind's
+/// suffix is kept verbatim and stays borrowed.
+pub fn parse_asset_syntax(
+    s: &str,
+    enable_default_syntax: bool,
+) -> Option<(AssetKind, Cow<'_, str>)> {
     if enable_default_syntax && s == "datatable" {
-        return Some((AssetKind::DataTable, "main"));
+        return Some((AssetKind::DataTable, Cow::Borrowed("main")));
     } else if enable_default_syntax && s == "ducklake" {
-        return Some((AssetKind::Ducklake, "main"));
+        return Some((AssetKind::Ducklake, Cow::Borrowed("main")));
     }
     for (prefix, kind) in ASSET_KINDS.iter() {
         if s.starts_with(prefix) {
+            let suffix = &s[prefix.len()..];
+            if *kind == AssetKind::Table {
+                return Some((*kind, Cow::Owned(canonicalize_table_asset_path(suffix))));
+            }
             // The suffix is kept verbatim. For S3 the path encodes the storage:
             // `s3://<storage>/<key>`, with an EMPTY storage segment for the
             // workspace default — so `s3:///key` yields `/key` (leading slash
             // significant, default storage) while `s3://secondary/key` yields
             // `secondary/key`. Stripping leading slashes here would conflate a
             // default-storage object with a named-storage one.
-            return Some((*kind, &s[prefix.len()..]));
+            return Some((*kind, Cow::Borrowed(suffix)));
         }
     }
     None
@@ -741,7 +755,60 @@ pub const ASSET_KINDS: &[(&str, AssetKind)] = &[
     ("ducklake://", AssetKind::Ducklake),
     ("datatable://", AssetKind::DataTable),
     ("volume://", AssetKind::Volume),
+    ("table://", AssetKind::Table),
 ];
+
+/// Canonical spelling of a `table://` path, `<resource_path>/<schema>/<name>`.
+///
+/// The whole point of keying warehouse relations on the relation rather than on
+/// the producing tool is that a dbt mart and a native script reading the same
+/// table land on one graph node. That only holds if both sides spell the key
+/// identically, and they will not by default: dbt's `manifest.json` gives
+/// `relation_name` pre-quoted (`"db"."Schema"."Tbl"`) while an annotation is
+/// written by hand, and the warehouses disagree on case (Snowflake folds
+/// unquoted identifiers up, Postgres folds them down, DuckDB compares them
+/// case-insensitively). Two spellings of one table produce two nodes, no edge,
+/// and nothing looks broken in isolation — so the rule is applied once, here,
+/// on every path that becomes a `table://` asset.
+///
+/// The rule: strip the quote characters the warehouses use (`"`, backtick,
+/// `[`/`]`) from the schema and name, then ASCII-lowercase them. This matches
+/// the case-insensitive identifier comparison the DuckDB paths already use
+/// (`schema_contracts::CapturedSchema::find`). The resource-path prefix is a
+/// Windmill path, which is case-sensitive, and is left untouched.
+///
+/// Consequence to accept: a relation deliberately created under a quoted
+/// mixed-case identifier collides with its lowercase spelling. That is rarer
+/// than the case-fold mismatch it prevents, and it errs toward unifying nodes
+/// rather than splitting them.
+pub fn canonicalize_table_asset_path(path: &str) -> String {
+    let Some((resource, rest)) = path.rsplit_once('/').and_then(|(head, name)| {
+        head.rsplit_once('/')
+            .map(|(resource, schema)| (resource, (schema, name)))
+    }) else {
+        // Fewer than three segments: not a well-formed relation path. Leave it
+        // alone so the malformed value stays visible instead of being reshaped
+        // into something that looks valid.
+        return path.to_string();
+    };
+    let (schema, name) = rest;
+    format!(
+        "{}/{}/{}",
+        resource,
+        unquote_identifier(schema).to_ascii_lowercase(),
+        unquote_identifier(name).to_ascii_lowercase()
+    )
+}
+
+fn unquote_identifier(s: &str) -> &str {
+    let s = s.trim();
+    for (open, close) in [('"', '"'), ('`', '`'), ('[', ']')] {
+        if s.len() >= 2 && s.starts_with(open) && s.ends_with(close) {
+            return &s[1..s.len() - 1];
+        }
+    }
+    s
+}
 
 // Tokenize a `key=value [key="quoted value"] ...` option string. Bare
 // values run until the next whitespace; quoted values consume until the
@@ -1555,11 +1622,11 @@ mod pipeline_annotation_tests {
         // objects and must never collapse to one identity.
         assert_eq!(
             parse_asset_syntax("s3:///exports/x", false),
-            Some((AssetKind::S3Object, "/exports/x"))
+            Some((AssetKind::S3Object, Cow::Borrowed("/exports/x")))
         );
         assert_eq!(
             parse_asset_syntax("s3://exports/x", false),
-            Some((AssetKind::S3Object, "exports/x"))
+            Some((AssetKind::S3Object, Cow::Borrowed("exports/x")))
         );
         assert_ne!(
             parse_asset_syntax("s3:///exports/x", false),
@@ -1569,28 +1636,86 @@ mod pipeline_annotation_tests {
         // The `// on` trigger annotation goes through the same function.
         assert_eq!(
             parse_asset_syntax("s3:///exports/x", true),
-            Some((AssetKind::S3Object, "/exports/x"))
+            Some((AssetKind::S3Object, Cow::Borrowed("/exports/x")))
         );
 
         assert_eq!(
             parse_asset_syntax("s3://secondary_storage/path/to/file.csv", false),
-            Some((AssetKind::S3Object, "secondary_storage/path/to/file.csv"))
+            Some((
+                AssetKind::S3Object,
+                Cow::Borrowed("secondary_storage/path/to/file.csv")
+            ))
         );
 
         // Hive-partition keys are preserved verbatim.
         assert_eq!(
             parse_asset_syntax("s3:///t/year=2024/month=01/f.parquet", false),
-            Some((AssetKind::S3Object, "/t/year=2024/month=01/f.parquet"))
+            Some((
+                AssetKind::S3Object,
+                Cow::Borrowed("/t/year=2024/month=01/f.parquet")
+            ))
         );
 
         // Non-S3 kinds also keep their suffix verbatim.
         assert_eq!(
             parse_asset_syntax("res://f/foo", false),
-            Some((AssetKind::Resource, "f/foo"))
+            Some((AssetKind::Resource, Cow::Borrowed("f/foo")))
         );
         assert_eq!(
             parse_asset_syntax("ducklake://analytics/orders", false),
-            Some((AssetKind::Ducklake, "analytics/orders"))
+            Some((AssetKind::Ducklake, Cow::Borrowed("analytics/orders")))
+        );
+    }
+
+    // A dbt mart and a native script reading the same warehouse table must land
+    // on ONE graph node. They only do if every spelling of the relation
+    // canonicalizes identically — dbt's manifest gives it pre-quoted, the
+    // annotation is hand-written, and the warehouses fold case in opposite
+    // directions. A regression here is invisible: both nodes still render, they
+    // just stop being the same node and the cross-boundary cascade never fires.
+    #[test]
+    fn table_paths_from_every_spelling_canonicalize_to_one_key() {
+        let canonical = Some((
+            AssetKind::Table,
+            Cow::Owned("f/prod/wh/analytics/orders".into()),
+        ));
+        for spelling in [
+            // Hand-written annotation.
+            "table://f/prod/wh/analytics/orders",
+            // dbt manifest `relation_name`, quoted (database segment already
+            // dropped by the ingest, which keys on the resource path instead).
+            "table://f/prod/wh/\"analytics\"/\"orders\"",
+            // Snowflake folds unquoted identifiers up, Postgres folds down.
+            "table://f/prod/wh/ANALYTICS/ORDERS",
+            "table://f/prod/wh/Analytics/Orders",
+            // BigQuery / Databricks backticks, SQL Server brackets.
+            "table://f/prod/wh/`analytics`/`orders`",
+            "table://f/prod/wh/[Analytics]/[Orders]",
+        ] {
+            assert_eq!(
+                parse_asset_syntax(spelling, false),
+                canonical,
+                "spelling {spelling} did not canonicalize"
+            );
+        }
+    }
+
+    #[test]
+    fn table_canonicalization_leaves_the_resource_path_case_alone() {
+        // The resource-path prefix is a Windmill path and case-sensitive;
+        // only the two identifier segments are folded.
+        assert_eq!(
+            parse_asset_syntax("table://u/RF/MyWarehouse/Sales/Orders", false),
+            Some((
+                AssetKind::Table,
+                Cow::Owned("u/RF/MyWarehouse/sales/orders".into())
+            ))
+        );
+        // Too few segments to be a relation: left alone rather than reshaped
+        // into something that looks well-formed.
+        assert_eq!(
+            parse_asset_syntax("table://Orders", false),
+            Some((AssetKind::Table, Cow::Owned("Orders".into())))
         );
     }
 

@@ -647,6 +647,7 @@ pub fn asset_kind_from_parser(parser_kind: windmill_parser::asset_parser::AssetK
         windmill_parser::asset_parser::AssetKind::Ducklake => AssetKind::Ducklake,
         windmill_parser::asset_parser::AssetKind::DataTable => AssetKind::DataTable,
         windmill_parser::asset_parser::AssetKind::Volume => AssetKind::Volume,
+        windmill_parser::asset_parser::AssetKind::Table => AssetKind::Table,
     }
 }
 

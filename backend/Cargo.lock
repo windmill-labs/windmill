@@ -15842,8 +15842,11 @@ name = "windmill-parser-yaml"
 version = "1.770.0"
 dependencies = [
  "anyhow",
+ "lazy_static",
+ "regex",
  "serde",
  "serde_json",
+ "serde_yml",
  "windmill-parser",
  "yaml-rust",
 ]

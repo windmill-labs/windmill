@@ -741,6 +741,7 @@ pub(crate) async fn tarball_workspace(
                 ScriptLang::Java => "java",
                 ScriptLang::Ruby => "rb",
                 ScriptLang::Rlang => "r",
+                ScriptLang::Dbt => "dbt.yaml",
                 // for related places search: ADD_NEW_LANG
             };
             archive

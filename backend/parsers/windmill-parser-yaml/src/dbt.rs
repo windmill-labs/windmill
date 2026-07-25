@@ -1,0 +1,296 @@
+//! The `ScriptLang::Dbt` script artifact: a YAML descriptor pointing at a dbt
+//! project in an external git repo, plus the run configuration.
+//!
+//! Field names track dbt's and astronomer-cosmos's vocabulary so the mental
+//! model ports without translation (docs/dbt-runtime.md, decision 22).
+//! `select` / `exclude` / `selector` are passed to dbt **verbatim**: the
+//! selector grammar is dbt's, and reimplementing it is a standing source of
+//! divergence.
+
+use std::collections::BTreeMap;
+
+use serde::{Deserialize, Serialize};
+use windmill_parser::{Arg, MainArgSignature, Typ};
+
+/// Which dbt to run. The shipped default is `dbt-core-1x` because it runs
+/// today's projects untouched; `fusion` is never bundled and is fetched from
+/// dbt Labs at runtime (docs/dbt-runtime.md, decision 1).
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum DbtEngine {
+    #[default]
+    #[serde(rename = "dbt-core-1x")]
+    DbtCore1x,
+    #[serde(rename = "dbt-core-2x")]
+    DbtCore2x,
+    Fusion,
+}
+
+impl DbtEngine {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DbtEngine::DbtCore1x => "dbt-core-1x",
+            DbtEngine::DbtCore2x => "dbt-core-2x",
+            DbtEngine::Fusion => "fusion",
+        }
+    }
+
+    /// dbt-core 1.x emits `LogModelResult` / `LogTestResult` (the events the
+    /// live per-model status is built from) at `info`. The Rust engines demote
+    /// them to `debug`, so they need the noisier level to report progress at
+    /// all; the executor filters debug lines back out of the job log.
+    pub fn progress_log_level(&self) -> &'static str {
+        match self {
+            DbtEngine::DbtCore1x => "info",
+            DbtEngine::DbtCore2x | DbtEngine::Fusion => "debug",
+        }
+    }
+}
+
+/// How the warehouse connection is supplied. Both paths are supported
+/// (decision 8): render `profiles.yml` from a Windmill resource, or keep the
+/// project's own file and inject Windmill secrets as env vars for
+/// `{{ env_var() }}`.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct DbtProfile {
+    /// `$res:<path>` of the warehouse resource to render into `profiles.yml`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource: Option<String>,
+    /// dbt target name. Also the `<resource_path>` component's companion when
+    /// resolving asset identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    /// Path (relative to `project`) of the project's own `profiles.yml`, used
+    /// instead of rendering one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profiles_yml: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DbtTestBehavior {
+    /// `dbt build` — models and their tests interleaved, a model's tests gating
+    /// its children. dbt's own default and the only behavior that stops bad
+    /// data propagating mid-run.
+    #[default]
+    Build,
+    /// `dbt run` then `dbt test`.
+    AfterAll,
+    /// `dbt run` only.
+    None,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct DbtDescriptor {
+    /// `$res:<path>` of the `git_repository` resource holding the project.
+    pub repo: String,
+    /// Subdirectory containing `dbt_project.yml`; empty means the repo root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    /// Tag / branch / commit, or the literal `latest` to resolve HEAD at run
+    /// time. Pinned by default (decision 5); `{{ arg }}` placeholders are
+    /// substituted from job args.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r#ref: Option<String>,
+    #[serde(default)]
+    pub engine: Option<DbtEngine>,
+    #[serde(default)]
+    pub profile: DbtProfile,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub select: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exclude: Vec<String>,
+    /// A named selector from the project's `selectors.yml`, passed verbatim.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selector: Option<String>,
+    #[serde(default)]
+    pub test_behavior: DbtTestBehavior,
+    /// `--vars`; values carry `{{ arg }}` placeholders substituted from job args.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub vars: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub threads: Option<u32>,
+    #[serde(default)]
+    pub full_refresh: bool,
+    /// Extra environment for the dbt process, for the project's own
+    /// `{{ env_var() }}` lookups and for engine flags such as
+    /// `DBT_ALLOW_EXPERIMENTAL_ADAPTERS`. `$var:`/`$res:` values are resolved
+    /// by the worker like any other job env.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
+}
+
+/// Sentinel `ref` meaning "resolve HEAD at run time" rather than at deploy.
+pub const REF_LATEST: &str = "latest";
+
+impl DbtDescriptor {
+    pub fn engine(&self) -> DbtEngine {
+        self.engine.unwrap_or_default()
+    }
+
+    pub fn is_latest_ref(&self) -> bool {
+        self.r#ref
+            .as_deref()
+            .is_none_or(|r| r.trim().eq_ignore_ascii_case(REF_LATEST))
+    }
+}
+
+pub fn parse_dbt_descriptor(inner_content: &str) -> anyhow::Result<DbtDescriptor> {
+    serde_yml::from_str::<DbtDescriptor>(inner_content)
+        .map_err(|e| anyhow::anyhow!("Failed to parse dbt descriptor: {e}"))
+}
+
+/// Run-time arguments of a dbt script: the descriptor fields that can be
+/// overridden per run (decision 7), plus one argument per `{{ placeholder }}`
+/// the descriptor interpolates. Defaults come from the descriptor, so an
+/// untouched run reproduces it exactly.
+pub fn parse_dbt_sig(inner_content: &str) -> anyhow::Result<MainArgSignature> {
+    let d = parse_dbt_descriptor(inner_content)?;
+    let mut args = vec![
+        Arg {
+            name: "select".to_string(),
+            otyp: None,
+            typ: Typ::List(Box::new(Typ::Str(None))),
+            has_default: true,
+            default: Some(serde_json::json!(d.select)),
+            oidx: None,
+            otyp_inferred: false,
+        },
+        Arg {
+            name: "exclude".to_string(),
+            otyp: None,
+            typ: Typ::List(Box::new(Typ::Str(None))),
+            has_default: true,
+            default: Some(serde_json::json!(d.exclude)),
+            oidx: None,
+            otyp_inferred: false,
+        },
+        Arg {
+            name: "vars".to_string(),
+            otyp: None,
+            typ: Typ::Object(windmill_parser::ObjectType::new(None, Some(vec![]))),
+            has_default: true,
+            default: Some(serde_json::json!(d.vars)),
+            oidx: None,
+            otyp_inferred: false,
+        },
+        Arg {
+            name: "full_refresh".to_string(),
+            otyp: None,
+            typ: Typ::Bool,
+            has_default: true,
+            default: Some(serde_json::json!(d.full_refresh)),
+            oidx: None,
+            otyp_inferred: false,
+        },
+    ];
+
+    for name in placeholders(&d) {
+        if args.iter().any(|a| a.name == name) {
+            continue;
+        }
+        args.push(Arg {
+            name,
+            otyp: None,
+            typ: Typ::Str(None),
+            has_default: false,
+            default: None,
+            oidx: None,
+            otyp_inferred: false,
+        });
+    }
+
+    Ok(MainArgSignature {
+        star_args: false,
+        star_kwargs: false,
+        args,
+        auto_kind: None,
+        has_preprocessor: None,
+        ..Default::default()
+    })
+}
+
+/// `{{ name }}` placeholders in the interpolated descriptor fields, in a stable
+/// order. Must stay in sync with the fields the worker actually interpolates.
+fn placeholders(d: &DbtDescriptor) -> Vec<String> {
+    let mut out: Vec<String> = vec![];
+    let mut push_from = |s: &str| {
+        for caps in PLACEHOLDER_RE.captures_iter(s) {
+            let name = caps[1].to_string();
+            if !out.contains(&name) {
+                out.push(name);
+            }
+        }
+    };
+    if let Some(r) = d.r#ref.as_deref() {
+        push_from(r);
+    }
+    for v in d.vars.values() {
+        push_from(v);
+    }
+    out
+}
+
+lazy_static::lazy_static! {
+    /// Same spelling as the Ansible executor's `interpolate_template`, which is
+    /// what actually performs the substitution at run time.
+    static ref PLACEHOLDER_RE: regex::Regex =
+        regex::Regex::new(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}").unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DESCRIPTOR: &str = r#"
+repo: $res:u/rf/analytics_repo
+project: transform
+ref: "{{ commit }}"
+engine: dbt-core-2x
+profile:
+  resource: $res:f/prod/snowflake
+  target: prod
+select: ["tag:nightly+"]
+test_behavior: after_all
+vars:
+  run_date: "{{ day }}"
+threads: 8
+full_refresh: true
+"#;
+
+    #[test]
+    fn parses_descriptor() {
+        let d = parse_dbt_descriptor(DESCRIPTOR).unwrap();
+        assert_eq!(d.repo, "$res:u/rf/analytics_repo");
+        assert_eq!(d.project.as_deref(), Some("transform"));
+        assert_eq!(d.engine(), DbtEngine::DbtCore2x);
+        assert_eq!(d.profile.target.as_deref(), Some("prod"));
+        assert_eq!(d.select, vec!["tag:nightly+"]);
+        assert_eq!(d.threads, Some(8));
+        assert!(d.full_refresh);
+        assert!(!d.is_latest_ref());
+    }
+
+    #[test]
+    fn minimal_descriptor_defaults_to_bundled_engine_and_latest_ref() {
+        let d = parse_dbt_descriptor("repo: $res:u/rf/repo\n").unwrap();
+        assert_eq!(d.engine(), DbtEngine::DbtCore1x);
+        assert!(d.is_latest_ref());
+    }
+
+    #[test]
+    fn signature_exposes_overridable_fields_and_placeholders() {
+        let sig = parse_dbt_sig(DESCRIPTOR).unwrap();
+        let names: Vec<&str> = sig.args.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["select", "exclude", "vars", "full_refresh", "commit", "day"]
+        );
+        // Defaults come from the descriptor so an untouched run reproduces it.
+        let select = sig.args.iter().find(|a| a.name == "select").unwrap();
+        assert_eq!(select.default, Some(serde_json::json!(["tag:nightly+"])));
+        // Placeholders are required: there is no sane default for a commit.
+        let commit = sig.args.iter().find(|a| a.name == "commit").unwrap();
+        assert!(!commit.has_default);
+    }
+}

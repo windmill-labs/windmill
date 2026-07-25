@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS dbt_edge;
+DROP TABLE IF EXISTS dbt_node;

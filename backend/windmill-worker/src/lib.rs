@@ -40,6 +40,7 @@ mod deno_executor;
 mod docker_v2;
 #[cfg(feature = "duckdb")]
 mod duckdb_executor;
+mod git_clone;
 mod global_cache;
 mod go_executor;
 mod graphql_executor;

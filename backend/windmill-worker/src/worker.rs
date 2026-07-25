@@ -5896,6 +5896,7 @@ pub fn parse_sig_of_lang(
             ScriptLang::Rlang => Some(windmill_parser_r::parse_r_signature(code)?),
             #[cfg(not(feature = "rlang"))]
             ScriptLang::Rlang => None,
+            ScriptLang::Dbt => Some(windmill_parser_yaml::parse_dbt_sig(code)?),
             // for related places search: ADD_NEW_LANG
         }
     } else {
