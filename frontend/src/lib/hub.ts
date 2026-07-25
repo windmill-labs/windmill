@@ -1,5 +1,4 @@
-import type { Schema } from './common'
-import { AppService, FlowService, type Flow, type Script } from './gen'
+import { AppService, FlowService, type Flow } from './gen'
 import { encodeState } from './utils'
 import hubPathsData from './hubPaths.json'
 import {
@@ -10,22 +9,6 @@ import {
 
 export const DEFAULT_HUB_BASE_URL = 'https://hub.windmill.dev'
 export const PRIVATE_HUB_MIN_VERSION = 10_000_000
-
-export function scriptToHubUrl(
-	content: string,
-	summary: string,
-	description: string,
-	kind: Script['kind'],
-	language: Script['language'],
-	schema: Schema | any,
-	lock: string | undefined,
-	hubBaseUrl: string
-): URL {
-	const url = new URL(hubBaseUrl + '/scripts/add')
-	url.hash = encodeState({ content, summary, description, kind, language, schema, lock })
-
-	return url
-}
 
 export const HubScript = {
 	SIGNATURE_TEMPLATE: SIGNATURE_TEMPLATE_SCRIPT_HUB_PATH
@@ -83,12 +66,15 @@ export function appToHubUrl(staticApp: any, hubBaseUrl: string): URL {
 	return url
 }
 
-export function rawAppToHubUrl(hubBaseUrl: string, summary?: string): URL {
-	const url = new URL(hubBaseUrl + '/raw_apps/add')
-	if (summary) {
-		url.searchParams.append('summary', summary)
-	}
-	return url
+/**
+ * Where an item's editor sends the user to publish it. Publishing is a project
+ * operation (a folder becomes a Hub project carrying its scripts, flows, apps,
+ * resources and demos), so it lives on the folders page rather than in each
+ * editor. Items outside a folder land on the folder list to pick one.
+ */
+export function hubPublishHref(base: string, path: string | undefined): string {
+	const folder = path?.startsWith('f/') ? path.split('/')[1] : undefined
+	return folder ? `${base}/folders?publish=${encodeURIComponent(folder)}` : `${base}/folders`
 }
 
 type HubPaths = {

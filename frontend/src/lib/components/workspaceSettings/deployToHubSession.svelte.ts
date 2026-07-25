@@ -7,12 +7,10 @@ import {
 	RawAppService,
 	ResourceService,
 	ScriptService,
-	WorkspaceService,
 	ScheduleService
 } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { sleep, emptySchema } from '$lib/utils'
-import { computeSecretUrl } from '$lib/components/apps/editor/appDeploy.svelte'
 import {
 	buildProjectBundle,
 	buildPathMap,
@@ -63,8 +61,6 @@ export interface DeployItem {
 	kind: Kind
 	summary?: string
 	rec: RecStatus
-	published?: boolean
-	publicUrl?: string
 	[k: string]: unknown
 }
 
@@ -72,35 +68,6 @@ export const canRecord = (k: Kind) => k === 'script' || k === 'flow'
 // A raw app has no run to capture: its demo is a recorded session of someone
 // using it, driven in the record drawer and replayed on the Hub page.
 export const canRecordSession = (k: Kind) => k === 'raw_app'
-// Legacy raw apps live only in the `raw_app` table, but the iframe share flow
-// drives AppService (the `app` table), so it can only target apps stored there.
-export const canShareAsIframe = (it: DeployItem): boolean =>
-	it.kind === 'app' || (it.kind === 'raw_app' && it.appTable === true)
-
-// Hub rehydration only carries draft membership, not the live share state of an
-// app. Copy the public-execution flag, public URL, and app-table origin from the
-// loaded workspace items onto matching draft items so a still-public app keeps its
-// Public badge, Unpublish, and iframe controls after its draft is reopened. Returns
-// the original array unchanged when nothing needs merging (stable reference).
-export function mergeShareState(
-	draftItems: DeployItem[],
-	workspaceItems: DeployItem[]
-): DeployItem[] {
-	if (draftItems.length === 0 || workspaceItems.length === 0) return draftItems
-	const byKey = new Map(workspaceItems.map((w) => [w.key, w]))
-	let changed = false
-	const merged = draftItems.map((d) => {
-		const w = byKey.get(d.key)
-		if (!w) return d
-		if (w.published !== d.published || w.publicUrl !== d.publicUrl || w.appTable !== d.appTable) {
-			changed = true
-			return { ...d, published: w.published, publicUrl: w.publicUrl, appTable: w.appTable }
-		}
-		return d
-	})
-	return changed ? merged : draftItems
-}
-
 export function sanitizeSlug(s: string): string {
 	return s
 		.toLowerCase()
@@ -204,7 +171,6 @@ export class DeployToHubSession {
 	schedulePreviews = $state<Record<string, string[]>>({})
 	manualDeselected = $state<Set<string>>(new Set())
 	loading = $state(false)
-	workspaceRateLimit = $state<number | undefined>(undefined)
 	deploymentStatus = $state<
 		Record<string, { status: 'loading' | 'deployed' | 'failed'; error?: string }>
 	>({})
@@ -230,9 +196,6 @@ export class DeployToHubSession {
 	pipelineRecordingResult = $state<PipelineRecording | undefined>(undefined)
 	pipelineRunError = $state<string | undefined>(undefined)
 	pipelineRecorded = $state(false)
-
-	publishTarget = $state<DeployItem | undefined>()
-	publishing = $state(false)
 
 	hubName = $state('')
 	hubSummary = $state('')
@@ -294,12 +257,7 @@ export class DeployToHubSession {
 	filteredWorkspaceItems = $derived(
 		this.workspaceItems.filter((i) => i.path.startsWith(this.selectedFolder + '/'))
 	)
-	// Derived (not merged at load time) so it settles regardless of which of the
-	// racing loads (#loadWorkspace / rehydrateFromHub) finishes last.
-	draftItemsWithLocalState = $derived(mergeShareState(this.draftItems, this.workspaceItems))
-	items = $derived(
-		this.phase === 'predeploy' ? this.filteredWorkspaceItems : this.draftItemsWithLocalState
-	)
+	items = $derived(this.phase === 'predeploy' ? this.filteredWorkspaceItems : this.draftItems)
 	selectedItems = $derived(
 		this.phase === 'predeploy'
 			? this.filteredWorkspaceItems.filter((i) => !this.manualDeselected.has(i.key))
@@ -478,23 +436,16 @@ export class DeployToHubSession {
 		const workspace = this.workspace
 		this.loading = true
 		try {
-			const [apps, rawApps, flows, scripts, settings] = await Promise.all([
+			const [apps, rawApps, flows, scripts] = await Promise.all([
 				this.#listAllPages((p) => AppService.listApps({ workspace, ...p })),
 				this.#listAllPages((p) => RawAppService.listRawApps({ workspace, ...p })),
 				this.#listAllPages((p) => FlowService.listFlows({ workspace, ...p })),
-				this.#listAllPages((p) => ScriptService.listScripts({ workspace, ...p })),
-				WorkspaceService.getSettings({ workspace }).catch(() => undefined)
+				this.#listAllPages((p) => ScriptService.listScripts({ workspace, ...p }))
 			])
 			if (this.#disposed) return
 
-			this.workspaceRateLimit = settings?.public_app_execution_limit_per_minute
-
 			const next: DeployItem[] = []
-			const publicApps = apps.filter((a) => a.execution_mode === 'anonymous')
-			const publicUrls = await Promise.all(publicApps.map((a) => this.#resolvePublicUrl(a.path)))
-			const publicUrlByPath = new Map(publicApps.map((a, i) => [a.path, publicUrls[i]]))
 			for (const a of apps) {
-				const isPublic = a.execution_mode === 'anonymous'
 				// Raw apps live in the `app` table (value = files/runnables) but must be
 				// published to the Hub as raw apps, not low-code apps.
 				const isRaw = (a as any).raw_app === true
@@ -504,9 +455,7 @@ export class DeployToHubSession {
 					kind: isRaw ? 'raw_app' : 'app',
 					appTable: isRaw || undefined,
 					summary: a.summary,
-					rec: 'none',
-					published: isPublic,
-					publicUrl: isPublic ? publicUrlByPath.get(a.path) : undefined
+					rec: 'none'
 				})
 			}
 			for (const a of rawApps) {
@@ -567,15 +516,6 @@ export class DeployToHubSession {
 			this.triggerDiscoveryFailed = failedKinds.length > 0
 		} finally {
 			if (!this.#disposed && tok === this.#triggerLoadTok) this.triggersLoading = false
-		}
-	}
-
-	async #resolvePublicUrl(path: string): Promise<string | undefined> {
-		try {
-			const secret = await AppService.getPublicSecretOfApp({ workspace: this.workspace, path })
-			return computeSecretUrl(secret)
-		} catch {
-			return undefined
 		}
 	}
 
@@ -1196,33 +1136,6 @@ export class DeployToHubSession {
 					}
 				}
 			}
-			// A re-bundle clears the Hub-side embed (idempotent replace), so re-push it
-			// for any raw app that is already public — keeps the live iframe in sync
-			// without forcing an unpublish/share round-trip. Updates by hub id, safe in parallel.
-			const embedResults = await Promise.all(
-				bundle.items
-					.filter((it) => it.kind === 'raw_app')
-					.map(async (it) => {
-						const hubId = this.hubItemIds[`${it.kind}:${it.path}`]
-						const src = itemsSnapshot.find((i) => i.kind === 'raw_app' && i.path === it.path)
-						if (!hubId || !src?.published) return 0
-						// The re-bundle cleared the embed; a public raw app with no resolved URL
-						// can't have its iframe restored, so it's an incomplete publish too —
-						// count it (like a push failure) so the draft can't become submit-ready.
-						if (!src.publicUrl) {
-							sendUserToast(`Cannot restore the iframe for ${it.path}: missing public URL`, true)
-							return 1
-						}
-						try {
-							await this.#pushRawAppEmbed(hubId, src.publicUrl)
-							return 0
-						} catch (e: any) {
-							sendUserToast(`Failed to sync iframe for ${it.path}: ${e?.message ?? e}`, true)
-							return 1
-						}
-					})
-			)
-			failures += embedResults.reduce((a: number, b) => a + b, 0)
 			if (this.#disposed) return
 			try {
 				await this.#pushTriggers(slug, resourcePathMap, triggersSnapshot)
@@ -1689,88 +1602,6 @@ export class DeployToHubSession {
 		} catch (e: any) {
 			sendUserToast(`Failed to save pipeline recording: ${e?.message ?? e}`, true)
 			return false
-		}
-	}
-
-	// Set the Hub raw app's live-iframe URL (or clear it with null). The Hub renders
-	// from external_embed_url; project_slug scopes ownership.
-	async #pushRawAppEmbed(hubId: number, url: string | null) {
-		await this.#postHub(`/hub/raw_apps/${hubId}/embed`, {
-			external_embed_url: url,
-			project_slug: this.hubSlug
-		})
-	}
-
-	// Flip an app/raw app between public (anonymous) and private (publisher) and keep
-	// the Hub raw-app iframe in sync. Returns the resolved public URL when shared.
-	async #setAppShared(it: DeployItem, shared: boolean): Promise<string | null> {
-		const workspace = this.workspace
-		const hubId = it.kind === 'raw_app' ? this.hubItemIds[it.key] : undefined
-		// Sharing a raw app as an iframe needs its Hub item to wire the embed. Fail
-		// before flipping the app public so it can't be left anonymous with no embed.
-		if (shared && it.kind === 'raw_app' && !hubId) {
-			throw new Error('Push the bundle to the Hub first to share the live iframe')
-		}
-		const app = await AppService.getAppByPath({ workspace, path: it.path })
-		const prevMode = (app.policy?.execution_mode ?? 'publisher') as 'anonymous' | 'publisher'
-		const nextMode = (shared ? 'anonymous' : 'publisher') as 'anonymous' | 'publisher'
-		const setMode = (mode: 'anonymous' | 'publisher', message: string) =>
-			AppService.updateApp({
-				workspace,
-				path: it.path,
-				requestBody: {
-					policy: { ...(app.policy ?? {}), execution_mode: mode },
-					deployment_message: message
-				}
-			})
-		// Undo the policy flip so the app's public state stays consistent when a later
-		// step of the share fails. Best-effort: a revert failure must not mask the cause.
-		const rollback = () => setMode(prevMode, 'Revert iframe share').catch(() => {})
-		await setMode(nextMode, shared ? 'Share as iframe' : 'Unshare iframe')
-		const url = shared ? ((await this.#resolvePublicUrl(it.path)) ?? null) : null
-		// A share with no resolvable public URL is incomplete (no embeddable link, no
-		// Unpublish control); don't leave the app anonymous while reporting success.
-		if (shared && url === null) {
-			await rollback()
-			throw new Error(`Could not resolve the public URL for ${it.path}`)
-		}
-		if (hubId && it.kind === 'raw_app' && (!shared || url)) {
-			try {
-				await this.#pushRawAppEmbed(hubId, shared ? url : null)
-			} catch (e) {
-				await rollback()
-				throw e
-			}
-		}
-		return url
-	}
-
-	/** Make the publish target public. Returns true on success. */
-	async confirmPublish(): Promise<boolean> {
-		const it = this.publishTarget
-		if (!it || !canShareAsIframe(it)) return false
-		this.publishing = true
-		try {
-			const url = await this.#setAppShared(it, true)
-			this.#patchItem(it.key, { published: true, publicUrl: url ?? undefined })
-			sendUserToast(`${it.path} is now public`)
-			return true
-		} catch (e: any) {
-			sendUserToast(`Failed to publish: ${e?.message ?? e}`, true)
-			return false
-		} finally {
-			this.publishing = false
-		}
-	}
-
-	unpublishApp = async (it: DeployItem) => {
-		if (!canShareAsIframe(it)) return
-		try {
-			await this.#setAppShared(it, false)
-			this.#patchItem(it.key, { published: false, publicUrl: undefined })
-			sendUserToast('App unpublished')
-		} catch (e: any) {
-			sendUserToast(`Failed to unpublish: ${e?.message ?? e}`, true)
 		}
 	}
 }

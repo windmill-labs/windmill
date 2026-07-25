@@ -22,13 +22,7 @@
 	} from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import {
-		enterpriseLicense,
-		hubBaseUrlStore,
-		userStore,
-		userWorkspaces,
-		workspaceStore
-	} from '$lib/stores'
+	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 	import AIFormAssistant from '$lib/components/copilot/AIFormAssistant.svelte'
 
@@ -77,7 +71,7 @@
 		ChevronRight
 	} from 'lucide-svelte'
 	import { SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB } from '$lib/consts'
-	import { scriptToHubUrl } from '$lib/hub'
+	import { hubPublishHref } from '$lib/hub'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import ScriptVersionHistory from '$lib/components/ScriptVersionHistory.svelte'
@@ -554,23 +548,7 @@
 			menuItems.push({
 				label: 'Publish to Hub',
 				Icon: Globe2,
-				onclick: () => {
-					if (!script) return
-
-					window.open(
-						scriptToHubUrl(
-							script.content,
-							script.summary,
-							script.description ?? '',
-							script.kind,
-							script.language,
-							script.schema,
-							script.lock ?? '',
-							$hubBaseUrlStore
-						).toString(),
-						'_blank'
-					)
-				}
+				onclick: () => goto(hubPublishHref(base, script?.path))
 			})
 		}
 
