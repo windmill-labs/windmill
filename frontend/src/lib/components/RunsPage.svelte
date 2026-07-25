@@ -1107,7 +1107,6 @@
 										placeholder: $enterpriseLicense
 											? 'Why is this handled? (optional)'
 											: 'Notes and attribution require ee',
-										maxlength: MAX_RESOLUTION_NOTE_LEN,
 										disabled: !$enterpriseLicense
 									}}
 									size="sm"

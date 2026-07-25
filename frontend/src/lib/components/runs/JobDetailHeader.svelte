@@ -69,6 +69,12 @@
 	// onto it is what refreshes the status badge without a refetch.
 	async function setResolution(resolve: boolean, note?: string) {
 		if (!isJobResolvable(job)) return
+		// Count code points, matching the server. A native `maxlength` counts UTF-16 units and
+		// would cut a note of astral characters at half the length the API actually accepts.
+		if (note !== undefined && [...note].length > MAX_RESOLUTION_NOTE_LEN) {
+			sendUserToast(`Note cannot exceed ${MAX_RESOLUTION_NOTE_LEN} characters`, true)
+			return
+		}
 		togglingResolution = true
 		try {
 			const workspace = job.workspace_id ?? $workspaceStore ?? ''
@@ -526,7 +532,6 @@
 														placeholder: $enterpriseLicense
 															? 'Why is this handled? (optional)'
 															: 'Notes and attribution require ee',
-														maxlength: MAX_RESOLUTION_NOTE_LEN,
 														disabled: !$enterpriseLicense
 													}}
 													size="sm"
