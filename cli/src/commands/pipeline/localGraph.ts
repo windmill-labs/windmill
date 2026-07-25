@@ -229,6 +229,7 @@ function commentPrefix(language: string): string {
     language === "ansible" ||
     language === "ruby" ||
     language === "rlang" ||
+    language === "dbt" ||
     language === "nu" ||
     language === "powershell"
   )

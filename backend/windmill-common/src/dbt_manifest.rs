@@ -208,11 +208,12 @@ pub fn ingest_manifest(
     };
     let mut assets: HashMap<(AssetKind, String), AssetUsageAccessType> = HashMap::new();
 
-    // dbt does not list sources as selected nodes, but a source is only this
-    // script's input if something it actually builds reads it. Keeping every
-    // source would make a narrowly-selected script claim reads on tables it
-    // never touches, and those reads are cascade subscriptions.
-    let selected_sources: Option<std::collections::HashSet<&str>> = selected.map(|sel| {
+    // Direct parents of the selected set. A source is only this script's input
+    // if something it actually builds reads it — keeping every source would
+    // make a narrowly-selected script claim reads on tables it never touches,
+    // and those reads are cascade subscriptions. The same set answers the
+    // cross-config question below.
+    let direct_parents: Option<std::collections::HashSet<&str>> = selected.map(|sel| {
         manifest
             .parent_map
             .iter()
@@ -223,7 +224,7 @@ pub fn ingest_manifest(
     for (unique_id, node) in manifest.nodes.iter().chain(manifest.sources.iter()) {
         let keep = match (node.resource_type.as_str(), selected) {
             (_, None) => true,
-            ("source", Some(_)) => selected_sources
+            ("source", Some(_)) => direct_parents
                 .as_ref()
                 .is_some_and(|s| s.contains(unique_id.as_str())),
             (_, Some(sel)) => sel.contains(unique_id.as_str()),
@@ -295,6 +296,35 @@ pub fn ingest_manifest(
             (None, a) => a,
         };
         assets.insert(key, merged);
+    }
+
+    // Splitting one project across several scripts (decision 6) only composes if
+    // a downstream script READS the relations its upstream script builds. Those
+    // parents are outside this script's selection, so nothing above registered
+    // them — and without the read there is no edge for the upstream's write to
+    // cascade along, which is the whole point of splitting.
+    if let Some(parents) = direct_parents.as_ref() {
+        let owned: std::collections::HashSet<&str> = out
+            .nodes
+            .iter()
+            .filter_map(|n| n.asset_path.as_deref())
+            .collect();
+        for parent in parents {
+            let Some(node) = manifest
+                .nodes
+                .get(*parent)
+                .or_else(|| manifest.sources.get(*parent))
+            else {
+                continue;
+            };
+            let Some(path) = asset_path_for(node, resource_path) else {
+                continue;
+            };
+            if owned.contains(path.as_str()) {
+                continue;
+            }
+            assets.entry((AssetKind::Table, path)).or_insert(AssetUsageAccessType::R);
+        }
     }
 
     out.nodes.sort_by(|a, b| a.unique_id.cmp(&b.unique_id));
@@ -404,6 +434,35 @@ pub async fn clear_dbt_manifest(
         "DELETE FROM dbt_edge WHERE workspace_id = $1 AND script_path = $2",
         workspace_id,
         script_path
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Drop everything the script at `script_hash`'s path contributed. The
+/// by-hash sibling of `clear_dbt_manifest`, for the delete/archive routes that
+/// only have a hash — `dbt_node` has no script foreign key, so every one of
+/// them has to clear explicitly or stale provenance outlives its script and
+/// attaches itself to whatever is created at that path next.
+pub async fn clear_dbt_manifest_by_script_hash(
+    tx: &mut Transaction<'_, Postgres>,
+    workspace_id: &str,
+    script_hash: crate::scripts::ScriptHash,
+) -> Result<()> {
+    sqlx::query!(
+        "DELETE FROM dbt_node WHERE workspace_id = $1
+           AND script_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1)",
+        workspace_id,
+        script_hash.0
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM dbt_edge WHERE workspace_id = $1
+           AND script_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1)",
+        workspace_id,
+        script_hash.0
     )
     .execute(&mut **tx)
     .await?;
@@ -649,6 +708,30 @@ mod tests {
                 "source.jaffle_shop.jaffle_raw.raw_orders".to_string(),
                 "model.jaffle_shop.orders_daily".to_string()
             )]
+        );
+    }
+
+    // Splitting a project across scripts only composes if the downstream one
+    // reads what the upstream one writes: without that read there is no edge
+    // for the upstream's write to cascade along.
+    #[test]
+    fn a_selected_script_reads_the_upstream_models_another_script_builds() {
+        let m: Manifest = serde_json::from_str(MANIFEST).unwrap();
+        // `customers` is selected; its parent `orders_daily` is built elsewhere.
+        let sel: std::collections::HashSet<String> =
+            ["model.jaffle_shop.customers".to_string()].into_iter().collect();
+        let i = ingest_manifest(&m, "f/prod/wh", Some(&sel));
+        let by_access = |t: AssetUsageAccessType| -> Vec<&str> {
+            i.assets
+                .iter()
+                .filter(|a| a.access_type == Some(t))
+                .map(|a| a.path.as_str())
+                .collect()
+        };
+        assert_eq!(by_access(AssetUsageAccessType::W), vec!["f/prod/wh/jaffle_dbt/customers"]);
+        assert_eq!(
+            by_access(AssetUsageAccessType::R),
+            vec!["f/prod/wh/jaffle_dbt/orders_daily"]
         );
     }
 

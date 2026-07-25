@@ -63,9 +63,19 @@ impl DbtAdapter {
         }
     }
 
-    /// Which dbt driver a resource needs, from the fields it carries. This
-    /// picks the adapter only — asset identity is always the resource path,
-    /// never anything read here. `profile.type` overrides it.
+    /// Which dbt driver a resource needs, from the fields it carries — a
+    /// fallback for when the descriptor omits `profile.type`. It picks the
+    /// adapter only; asset identity is always the resource path, never anything
+    /// read here.
+    ///
+    /// Deliberately conservative about the host/port shapes. Windmill's
+    /// `ms_sql_server` and `oracledb` resources carry the same `host` +
+    /// `dbname`/`database` fields Postgres does, so a shape check cannot tell
+    /// them apart — and guessing Postgres for a SQL Server resource would
+    /// connect dbt-postgres to port 1433 instead of producing the licensing
+    /// error this design exists to give. So a bare host/database resource is
+    /// only Postgres when it carries something Postgres-specific, and is
+    /// otherwise `None`, which asks the user for `profile.type`.
     pub fn infer_from_resource(v: &Value) -> Option<Self> {
         let has = |k: &str| v.get(k).is_some_and(|x| !x.is_null());
         if has("account_identifier") || has("warehouse") {
@@ -74,7 +84,7 @@ impl DbtAdapter {
             Some(DbtAdapter::Databricks)
         } else if has("project_id") && has("client_email") {
             Some(DbtAdapter::Bigquery)
-        } else if has("dbname") && has("host") {
+        } else if has("dbname") && has("host") && (has("sslmode") || has("root_certificate_pem")) {
             Some(DbtAdapter::Postgres)
         } else {
             None
@@ -424,6 +434,25 @@ mod tests {
     // silently redirecting the run at another warehouse.
     // dbt-mysql has no database/schema split: one `schema` key is the database.
     // Emitting the generic one too yields a profile with two `schema` keys.
+    // A SQL Server resource has the same host/dbname shape as a Postgres one.
+    // Guessing Postgres for it would point dbt-postgres at port 1433 instead of
+    // producing the licensing error, so an ambiguous resource must decline.
+    #[test]
+    fn ambiguous_host_resources_decline_rather_than_guess() {
+        let mssql = json!({"host": "h", "dbname": "d", "user": "u", "password": "p"});
+        assert_eq!(DbtAdapter::infer_from_resource(&mssql), None);
+        let pg = json!({"host": "h", "dbname": "d", "sslmode": "require"});
+        assert_eq!(
+            DbtAdapter::infer_from_resource(&pg),
+            Some(DbtAdapter::Postgres)
+        );
+        let sf = json!({"account_identifier": "acc", "database": "d"});
+        assert_eq!(
+            DbtAdapter::infer_from_resource(&sf),
+            Some(DbtAdapter::Snowflake)
+        );
+    }
+
     #[test]
     fn mysql_emits_exactly_one_schema_key() {
         let r = json!({"host": "h", "dbname": "sales", "user": "u"});

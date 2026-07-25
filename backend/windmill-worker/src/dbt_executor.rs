@@ -205,9 +205,11 @@ pub async fn handle_dbt_job(
     // read before the test phase overwrites them — otherwise the job reports
     // tests only, and nothing settles the models' materializations.
     let mut results = read_run_results(&prepared.project_dir).await;
+    // `retry` counts as the model phase too: a run that failed midway and was
+    // retried to success would otherwise return green having never tested.
     if run.is_ok()
         && matches!(descriptor.test_behavior, DbtTestBehavior::AfterAll)
-        && command == "run"
+        && matches!(command.as_str(), "run" | "retry")
     {
         run = run_dbt(
             &prepared,
@@ -317,7 +319,9 @@ pub async fn dbt_dep(
     )
     .await?;
 
-    let out = dbt_command(&prepared, &["parse"])
+    let mut parse_cmd = dbt_command(&prepared, &["parse"]);
+    add_vars(&mut parse_cmd, &descriptor, &HashMap::new());
+    let out = parse_cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -493,11 +497,13 @@ pub async fn prepare_project(
     // Under `latest` HEAD is resolved now; otherwise the lockfile's commit is
     // authoritative so a run reproduces its deploy exactly, and the descriptor's
     // ref is only the fallback for a script whose lock has not been generated.
+    // At deploy there are no job args, so a `ref: "{{ commit }}"` cannot be
+    // resolved. That is not a deploy failure — it just means the ref is only
+    // knowable per run, so nothing is locked and each run interpolates it.
     let interpolated_ref = descriptor
         .r#ref
         .as_deref()
-        .map(|r| crate::common::interpolate_template(r, Some(args), "ref"))
-        .transpose()?;
+        .and_then(|r| crate::common::interpolate_template(r, Some(args), "ref").ok());
     let probe = GitRepo {
         url: url.clone(),
         commit: None,
@@ -682,10 +688,7 @@ async fn checkout(
             git_ssh_cmd,
         )
         .await?;
-        tokio::fs::create_dir_all(cached.parent().unwrap())
-            .await
-            .ok();
-        copy_dir(&dest, &cached).await.ok();
+        publish_to_cache(&dest, &cached, job_id).await;
         return Ok(commit.to_string());
     }
     clone_repo(
@@ -711,19 +714,35 @@ async fn install_packages(
     w_id: &str,
     conn: &Connection,
 ) -> error::Result<()> {
-    let manifest = ["packages.yml", "dependencies.yml"]
-        .iter()
-        .map(|f| p.project_dir.join(f))
-        .find(|f| f.exists());
-    let Some(manifest) = manifest else {
+    // A cache hit skips `dbt deps` entirely, so the key has to cover everything
+    // that determines the resolved tree: `package-lock.yml` pins versions two
+    // projects with identical ranges would otherwise resolve differently, and a
+    // `local:` dependency's content is not in any of these files at all — the
+    // commit and project subdir stand in for it. The cache is worker-global, so
+    // without those two, byte-identical `packages.yml` files in unrelated repos
+    // (and workspaces) would share one tree.
+    let mut key = format!(
+        "{}\n{}\n",
+        p.commit,
+        p.project_dir.file_name().unwrap_or_default().to_string_lossy()
+    );
+    let mut declares_packages = false;
+    for f in ["packages.yml", "dependencies.yml", "package-lock.yml"] {
+        let path = p.project_dir.join(f);
+        if !path.exists() {
+            continue;
+        }
+        declares_packages |= f != "package-lock.yml";
+        key.push_str(f);
+        key.push('\n');
+        key.push_str(&tokio::fs::read_to_string(&path).await.unwrap_or_default());
+    }
+    if !declares_packages {
         return Ok(());
-    };
-    let content = tokio::fs::read_to_string(&manifest)
-        .await
-        .unwrap_or_default();
+    }
     let cached = PathBuf::from(&*DBT_CACHE_DIR)
         .join("packages")
-        .join(digest(&content));
+        .join(digest(&key));
     let target = p.project_dir.join("dbt_packages");
     if cached.exists() {
         copy_dir(&cached, &target).await?;
@@ -757,12 +776,34 @@ async fn install_packages(
         return Err(Error::ExecutionErr("dbt deps failed".to_string()));
     }
     if target.exists() {
-        tokio::fs::create_dir_all(cached.parent().unwrap())
-            .await
-            .ok();
-        copy_dir(&target, &cached).await.ok();
+        publish_to_cache(&target, &cached, job_id).await;
     }
     Ok(())
+}
+
+/// Copy `from` into a sibling of `cached`, then move it into place.
+///
+/// The rename is the point. `copy_dir` creates its destination and then fills
+/// it, so a concurrent job on the same host — worker processes share
+/// `DBT_CACHE_DIR` — would see `cached` exist and copy a checkout with no
+/// `dbt_project.yml`, failing with an error that blames the user's descriptor.
+/// Worse, a copy interrupted by cancellation or disk pressure would leave that
+/// partial tree in place for every later job, so a transient failure becomes
+/// permanent. Staging keeps a half-written tree under a name nothing looks up.
+/// Same pattern as the engine provisioning; best-effort, since losing the race
+/// only means the next job repopulates.
+async fn publish_to_cache(from: &Path, cached: &Path, job_id: &Uuid) {
+    let Some(parent) = cached.parent() else { return };
+    if tokio::fs::create_dir_all(parent).await.is_err() {
+        return;
+    }
+    let name = cached.file_name().unwrap_or_default().to_string_lossy();
+    let staging = cached.with_file_name(format!("{name}.staging-{job_id}"));
+    tokio::fs::remove_dir_all(&staging).await.ok();
+    if copy_dir(from, &staging).await.is_err() || tokio::fs::rename(&staging, cached).await.is_err()
+    {
+        tokio::fs::remove_dir_all(&staging).await.ok();
+    }
 }
 
 /// Write `profiles.yml`, either rendered from a Windmill resource or taken from
@@ -953,10 +994,7 @@ async fn run_dbt(
         }
     }
     if command != "retry" {
-        let vars = resolved_vars(descriptor, args)?;
-        if !vars.is_empty() {
-            cmd.args(["--vars", &serde_json::to_string(&vars).unwrap_or_default()]);
-        }
+        add_vars(&mut cmd, descriptor, args);
         if let Some(t) = descriptor.threads {
             cmd.args(["--threads", &t.to_string()]);
         }
@@ -1014,21 +1052,50 @@ fn spawn_progress_reporter(
         // is reconciled from run_results.json at the end instead.
         return None;
     };
+    if !p.engine.engine.emits_node_events() {
+        // Nothing to read: those engines write a text file log, so tailing it
+        // would burn a task per run for no events.
+        return None;
+    }
     let (db, w_id, job_id) = (db.clone(), job.workspace_id.clone(), job.id);
     let resource_path = p.resource_path.clone()?;
     Some(tokio::spawn(async move {
+        use tokio::io::{AsyncReadExt, AsyncSeekExt};
         let mut offset = 0u64;
+        // A tick can land mid-write, leaving a trailing partial line; hold it
+        // over rather than dropping the event it belongs to.
+        let mut carry = String::new();
         loop {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            let Ok(content) = tokio::fs::read_to_string(&log_file).await else {
+            let Ok(mut f) = tokio::fs::File::open(&log_file).await else {
                 continue;
             };
-            if (content.len() as u64) <= offset {
+            // dbt truncates/rotates its log; a shrunk file means the offsets
+            // from the previous incarnation are meaningless, and keeping them
+            // would silence the tailer for the rest of the run.
+            let len = f.metadata().await.map(|m| m.len()).unwrap_or(0);
+            if len < offset {
+                offset = 0;
+                carry.clear();
+            }
+            if len == offset {
                 continue;
             }
-            let fresh = &content[offset as usize..];
-            offset = content.len() as u64;
-            for line in fresh.lines() {
+            // Seek rather than re-read: a long run's log grows without bound
+            // and reading it whole every tick is quadratic in its size.
+            if f.seek(std::io::SeekFrom::Start(offset)).await.is_err() {
+                continue;
+            }
+            let mut buf = Vec::new();
+            if f.read_to_end(&mut buf).await.is_err() {
+                continue;
+            }
+            offset += buf.len() as u64;
+            let fresh = String::from_utf8_lossy(&buf);
+            let complete_upto = fresh.rfind('\n').map(|i| i + 1).unwrap_or(0);
+            let chunk = format!("{carry}{}", &fresh[..complete_upto]);
+            carry = fresh[complete_upto..].to_string();
+            for line in chunk.lines() {
                 let Some(ev) = parse_node_event(line, &resource_path) else {
                     continue;
                 };
@@ -1292,6 +1359,11 @@ async fn resolve_selection(
         return Ok(None);
     }
     let mut cmd = dbt_command(p, &["ls"]);
+    // A project whose models call `var()` without a default fails to parse
+    // without these, so the selection resolver needs them exactly as the run
+    // does. Placeholders that only a run can fill are dropped rather than
+    // failing the deploy.
+    add_vars(&mut cmd, descriptor, &HashMap::new());
     // The types spelled out rather than `all`, which dbt-core 2.x rejects.
     for t in ["model", "source", "seed", "snapshot", "test"] {
         cmd.args(["--resource-type", t]);
@@ -1354,6 +1426,9 @@ fn state_dir(w_id: &str, script_path: &str) -> PathBuf {
 }
 
 async fn save_run_state(p: &PreparedProject, w_id: &str) -> error::Result<()> {
+    if p.script_path.is_empty() {
+        return Ok(());
+    }
     let dir = state_dir(w_id, &p.script_path);
     tokio::fs::create_dir_all(&dir).await.ok();
     for f in ["run_results.json", "manifest.json"] {
@@ -1365,6 +1440,15 @@ async fn save_run_state(p: &PreparedProject, w_id: &str) -> error::Result<()> {
 }
 
 async fn restore_run_state(p: &PreparedProject, w_id: &str) -> error::Result<()> {
+    if p.script_path.is_empty() {
+        // A preview has no path to key state on, and an empty key is the one
+        // that used to be shared by every dbt script in the workspace.
+        return Err(Error::BadRequest(
+            "`dbt_command: retry` needs a deployed script; a preview run has no state to \
+             resume from"
+                .to_string(),
+        ));
+    }
     let dir = state_dir(w_id, &p.script_path);
     if !dir.join("run_results.json").exists() {
         return Err(Error::BadRequest(
@@ -1380,27 +1464,33 @@ async fn restore_run_state(p: &PreparedProject, w_id: &str) -> error::Result<()>
     Ok(())
 }
 
+/// Append `--vars` if the descriptor (or the run) declares any.
+fn add_vars(cmd: &mut Command, descriptor: &DbtDescriptor, args: &HashMap<String, Box<RawValue>>) {
+    let vars = resolved_vars(descriptor, args);
+    if !vars.is_empty() {
+        cmd.args(["--vars", &serde_json::to_string(&vars).unwrap_or_default()]);
+    }
+}
+
 fn resolved_vars(
     descriptor: &DbtDescriptor,
     args: &HashMap<String, Box<RawValue>>,
-) -> error::Result<serde_json::Map<String, serde_json::Value>> {
+) -> serde_json::Map<String, serde_json::Value> {
     let mut out = serde_json::Map::new();
     for (k, v) in &descriptor.vars {
-        out.insert(
-            k.clone(),
-            serde_json::Value::String(crate::common::interpolate_template(
-                v,
-                Some(args),
-                &format!("vars.{k}"),
-            )?),
-        );
+        // A var whose placeholder only a run can fill is omitted rather than
+        // failing: at deploy the point is to parse the project, and dbt applies
+        // the var's own default for anything left unset.
+        if let Ok(value) = crate::common::interpolate_template(v, Some(args), &format!("vars.{k}")) {
+            out.insert(k.clone(), serde_json::Value::String(value));
+        }
     }
     if let Some(raw) = args.get("vars") {
         if let Ok(serde_json::Value::Object(m)) = serde_json::from_str(raw.get()) {
             out.extend(m);
         }
     }
-    Ok(out)
+    out
 }
 
 fn arg_str(args: &HashMap<String, Box<RawValue>>, k: &str) -> Option<String> {

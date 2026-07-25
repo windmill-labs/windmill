@@ -21,7 +21,7 @@ import {
   workspaceRoot,
 } from "./localGraph.ts";
 
-const ASSET_KINDS = "s3object,ducklake,datatable,volume";
+const ASSET_KINDS = "s3object,ducklake,datatable,volume,table";
 
 function assetUri(kind: string, p: string): string {
   const prefix = kind === "s3object" ? "s3" : kind;

@@ -227,7 +227,13 @@ minted per use.
 
 `select`/`exclude`/`selector` are passed **verbatim** to dbt. Do not reimplement
 the selector grammar; Cosmos's manifest path had to, and it is a recurring source
-of divergence. `select` and `vars` are overridable per run via job args.
+of divergence. `select` and `vars` are overridable per run via job args. One boundary to know:
+the **cascade follows the deployed descriptor**, not the run. Asset rows are
+written at deploy like every other language's, so narrowing `select` for an
+ad-hoc run still notifies consumers of the models it skipped, and widening it
+does not notify consumers of the extra ones. Treat the run-arg override as what
+it is — an ad-hoc scope — and split the project into several scripts
+(decision 6) when the *graph* should differ.
 
 `vars` and `ref` interpolate from job args with `interpolate_template`
 (`common.rs`, shared with the Ansible executor, which is how Ansible already

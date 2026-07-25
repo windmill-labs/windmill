@@ -3232,6 +3232,7 @@ async fn archive_script_by_hash(
 
     check_scopes(&authed, || format!("scripts:write:{}", &script.path))?;
     clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
+    windmill_common::dbt_manifest::clear_dbt_manifest_by_script_hash(&mut tx, &w_id, hash).await?;
     // Pipeline event hygiene: archived scripts must not be triggered by
     // anything. Wipe declared `// on ...` edges.
     clear_script_triggers(&mut *tx, &w_id, &script.path, AssetUsageKind::Script).await?;
@@ -3296,6 +3297,7 @@ async fn delete_script_by_hash(
     check_scopes(&authed, || format!("scripts:write:{}", &script.path))?;
 
     clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
+    windmill_common::dbt_manifest::clear_dbt_manifest_by_script_hash(&mut tx, &w_id, hash).await?;
     // Pipeline event hygiene: a deleted script must not be triggered by
     // anything. Wipe declared `// on ...` edges. Idempotent — safe even if
     // the script was never a pipeline member.

@@ -159,10 +159,13 @@ impl DbtDescriptor {
         self.engine.unwrap_or_default()
     }
 
+    /// Only the explicit `latest` floats. An omitted `ref` still pins: the
+    /// deploy resolves the resource's default branch to a commit and locks it,
+    /// which is what "pinned by default" means (decision 5).
     pub fn is_latest_ref(&self) -> bool {
         self.r#ref
             .as_deref()
-            .is_none_or(|r| r.trim().eq_ignore_ascii_case(REF_LATEST))
+            .is_some_and(|r| r.trim().eq_ignore_ascii_case(REF_LATEST))
     }
 }
 
@@ -317,10 +320,19 @@ full_refresh: true
     }
 
     #[test]
-    fn minimal_descriptor_defaults_to_bundled_engine_and_latest_ref() {
+    fn minimal_descriptor_defaults_to_the_bundled_engine_and_a_pinned_ref() {
         let d = parse_dbt_descriptor("repo: $res:u/rf/repo\n").unwrap();
         assert_eq!(d.engine(), DbtEngine::DbtCore1x);
-        assert!(d.is_latest_ref());
+        // Pinned by default: an omitted ref is locked at deploy, and only the
+        // explicit `latest` resolves HEAD per run.
+        assert!(!d.is_latest_ref());
+        assert!(parse_dbt_descriptor("repo: r\nref: latest\n")
+            .unwrap()
+            .is_latest_ref());
+        assert!(parse_dbt_descriptor("repo: r\nref: main\n")
+            .unwrap()
+            .is_latest_ref()
+            == false);
     }
 
     #[test]
