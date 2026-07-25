@@ -9729,7 +9729,10 @@ async fn resolve_completed_jobs(
             ON CONFLICT (job_id) DO UPDATE SET
                 resolved_at = now(),
                 resolved_by = EXCLUDED.resolved_by,
-                note = EXCLUDED.note
+                -- Re-resolving without typing a note must not wipe the note already there:
+                -- a bulk selection routinely includes already-resolved failures. Clearing a
+                -- note is done by unresolving first.
+                note = COALESCE(EXCLUDED.note, job_resolution.note)
             RETURNING job_id",
         &req.job_ids,
         &w_id,

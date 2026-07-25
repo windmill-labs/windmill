@@ -1055,20 +1055,29 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         return Ok((job_id, duration, None));
     }
 
-    // The Rust guard keeps flow steps and plain top-level jobs off the query entirely.
-    if success && !skipped && !completed_job.is_flow_step() {
-        if let (JobKind::Script, Some(root)) = (completed_job.kind, completed_job.parent_job) {
-            if let Err(e) = resolve_superseded_retry_attempts(
-                db,
-                root,
-                &completed_job.workspace_id,
-                completed_job.id,
-                completed_job.runnable_id,
-            )
-            .await
-            {
-                tracing::error!("Error auto-resolving native retry chain {root}: {e:#}");
-            }
+    // Auto-resolve a retry chain that ultimately worked, from whichever of the two
+    // completions lands last (see resolve_retry_chain_if_succeeded): a success that has a
+    // parent (so is a possible retry attempt), or a failure that just enqueued a retry.
+    // `retry_pending` already implies a non-flow-step `Script`.
+    let resolve_root = if success && !skipped && !completed_job.is_flow_step() {
+        matches!(completed_job.kind, JobKind::Script)
+            .then(|| completed_job.parent_job)
+            .flatten()
+    } else if !success && !skipped && retry_pending {
+        Some(completed_job.parent_job.unwrap_or(completed_job.id))
+    } else {
+        None
+    };
+    if let Some(root) = resolve_root {
+        if let Err(e) = resolve_retry_chain_if_succeeded(
+            db,
+            root,
+            &completed_job.workspace_id,
+            completed_job.runnable_id,
+        )
+        .await
+        {
+            tracing::error!("Error auto-resolving native retry chain {root}: {e:#}");
         }
     }
 
@@ -1730,15 +1739,19 @@ async fn restart_job_if_perpetual_inner(
 /// over-reach: when the original attempt had a parent it is an unmarked sibling
 /// indistinguishable from any other child of the caller, so it stays red.
 ///
-/// The arguments' relationship is verified in SQL rather than assumed of the caller, since
-/// this writes through a privileged pool: `succeeded_id` must name a job that actually
-/// succeeded, in `workspace_id`, parented to `root`, running `runnable_id`, and carrying a
-/// `native_retry_attempt` marker. Mismatched arguments resolve nothing.
-pub async fn resolve_superseded_retry_attempts(
+/// Nothing is trusted of the caller (this writes through a privileged pool): the gate is
+/// "some marked attempt under `root` running `runnable_id` has succeeded", evaluated in
+/// SQL, so a call for a chain that has not succeeded resolves nothing.
+///
+/// Call this from *both* completion paths. A retry is enqueued before its predecessor's
+/// failure row is committed, so with a zero delay the retry can succeed while that row is
+/// still absent; the success-side call would then find nothing to resolve. Calling again
+/// when a failure commits with a retry pending makes the two commit orders converge, and
+/// `ON CONFLICT DO NOTHING` keeps the duplicate call free of effect.
+pub async fn resolve_retry_chain_if_succeeded(
     db: &Pool<Postgres>,
     root: Uuid,
     workspace_id: &str,
-    succeeded_id: Uuid,
     runnable_id: Option<ScriptHash>,
 ) -> Result<(), Error> {
     sqlx::query!(
@@ -1748,16 +1761,15 @@ pub async fn resolve_superseded_retry_attempts(
                 JOIN v2_job j ON j.id = c.id
                 WHERE c.status = 'failure'
                     AND c.workspace_id = $2
-                    AND j.runnable_id IS NOT DISTINCT FROM $4
+                    AND j.runnable_id IS NOT DISTINCT FROM $3
                     AND EXISTS (
                         SELECT 1 FROM v2_job_completed sc
                         JOIN v2_job sj ON sj.id = sc.id
                         JOIN native_retry_attempt nra ON nra.job_id = sc.id
-                        WHERE sc.id = $3
-                            AND sc.status = 'success'
+                        WHERE sc.status = 'success'
                             AND sc.workspace_id = $2
                             AND sj.parent_job = $1
-                            AND sj.runnable_id IS NOT DISTINCT FROM $4
+                            AND sj.runnable_id IS NOT DISTINCT FROM $3
                     )
                     AND (
                         (j.parent_job = $1
@@ -1768,7 +1780,6 @@ pub async fn resolve_superseded_retry_attempts(
             ON CONFLICT (job_id) DO NOTHING",
         root,
         workspace_id,
-        succeeded_id,
         runnable_id.map(|h| h.0),
     )
     .execute(db)

@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO job_resolution (job_id, workspace_id, resolved_by, note)\n            SELECT c.id, c.workspace_id, $4, $5\n                FROM v2_job_completed c\n                JOIN v2_job j ON j.id = c.id\n                WHERE c.id = ANY($1)\n                    AND c.workspace_id = $2\n                    AND ($3::TEXT[] IS NULL OR j.tag = ANY($3))\n                    AND c.status = 'failure'\n            ON CONFLICT (job_id) DO UPDATE SET\n                resolved_at = now(),\n                resolved_by = EXCLUDED.resolved_by,\n                -- Re-resolving without typing a note must not wipe the note already there:\n                -- a bulk selection routinely includes already-resolved failures. Clearing a\n                -- note is done by unresolving first.\n                note = COALESCE(EXCLUDED.note, job_resolution.note)\n            RETURNING job_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Text",
+        "TextArray",
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7f81cee879460188b7a0c68a91399ccf166c9b1e3cf12036d1ff60252a7a55ea"
+}

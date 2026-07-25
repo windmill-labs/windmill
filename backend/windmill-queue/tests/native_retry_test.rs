@@ -409,11 +409,11 @@ mod native_retry {
 
         let succeeded = Uuid::new_v4();
         seed_job(&db, succeeded, Some(a), true, "success").await;
-        windmill_queue::jobs::resolve_superseded_retry_attempts(&db, a, WS, succeeded, None)
+        windmill_queue::jobs::resolve_retry_chain_if_succeeded(&db, a, WS, None)
             .await
             .unwrap();
         // The unmarked child must not be able to resolve its own chain.
-        windmill_queue::jobs::resolve_superseded_retry_attempts(&db, f, WS, f_child, None)
+        windmill_queue::jobs::resolve_retry_chain_if_succeeded(&db, f, WS, None)
             .await
             .unwrap();
 
@@ -455,12 +455,47 @@ mod native_retry {
             "an unmarked child succeeding must not resolve its parent"
         );
 
-        // The helper writes through a privileged pool, so it must verify its own arguments
-        // rather than trust the caller: a job that did not succeed resolves nothing.
+        // A retry is enqueued before its predecessor's failure row is committed, so with a
+        // zero delay the success can land first and the success-side sweep finds nothing.
+        // The failure-side call must then close the chain: seed the success first, resolve
+        // (nothing to do yet), then make the failure visible and resolve again.
+        let (h, h_attempt) = (Uuid::new_v4(), Uuid::new_v4());
+        seed_job(&db, h_attempt, Some(h), true, "success").await;
+        windmill_queue::jobs::resolve_retry_chain_if_succeeded(&db, h, WS, None)
+            .await
+            .unwrap();
+        let h_early: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM job_resolution WHERE job_id = $1")
+                .bind(h)
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert_eq!(
+            h_early, 0,
+            "nothing to resolve while the failure is not visible"
+        );
+        seed_job(&db, h, None, false, "failure").await;
+        windmill_queue::jobs::resolve_retry_chain_if_succeeded(&db, h, WS, None)
+            .await
+            .unwrap();
+        let h_resolved: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM job_resolution WHERE job_id = $1")
+                .bind(h)
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert_eq!(
+            h_resolved, 1,
+            "a retry that succeeded before its predecessor's failure was visible must still \
+             resolve it once that failure commits"
+        );
+
+        // The helper trusts nothing of its caller: a chain whose attempts all failed
+        // resolves nothing.
         let (g, g_attempt) = (Uuid::new_v4(), Uuid::new_v4());
         seed_job(&db, g, None, false, "failure").await;
         seed_job(&db, g_attempt, Some(g), true, "failure").await;
-        windmill_queue::jobs::resolve_superseded_retry_attempts(&db, g, WS, g_attempt, None)
+        windmill_queue::jobs::resolve_retry_chain_if_succeeded(&db, g, WS, None)
             .await
             .unwrap();
         let g_resolved: i64 =

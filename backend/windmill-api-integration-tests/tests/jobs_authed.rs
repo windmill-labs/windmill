@@ -377,6 +377,25 @@ async fn test_resolve_completed_jobs_scoping(db: Pool<Postgres>) -> anyhow::Resu
     assert_eq!(row.1.as_deref(), Some("test-user-2"));
     assert_eq!(row.2.as_deref(), Some("expected"));
 
+    // Re-resolving without a note must keep the existing one: a bulk selection routinely
+    // includes already-resolved failures, and silently blanking their notes loses the only
+    // record of why they were handled.
+    let resp = member(client().post(format!("{base}/completed/resolve")))
+        .json(&json!({ "job_ids": [mine] }))
+        .send()
+        .await?;
+    assert_2xx(
+        resp.status().as_u16(),
+        &resp.text().await?,
+        "re-resolve without a note",
+    );
+    let kept: Option<String> =
+        sqlx::query_scalar("SELECT note FROM job_resolution WHERE job_id = $1")
+            .bind(mine)
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(kept.as_deref(), Some("expected"));
+
     let resp = member(client().post(format!("{base}/completed/unresolve")))
         .json(&json!({ "job_ids": [mine, theirs] }))
         .send()
