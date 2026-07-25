@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { X, AlertCircle, Trash2 } from 'lucide-svelte'
 	import type { DAPClient } from './dapClient'
+	import { preemptToHuman } from './agentDebugSession'
 
 	interface Props {
 		client: DAPClient | null
@@ -93,6 +94,9 @@
 	async function evaluate(): Promise<void> {
 		const expression = inputValue.trim()
 		if (!expression || !client || isEvaluating) return
+
+		// A human typing in the console takes control back from the agent.
+		preemptToHuman()
 
 		// Add to command history
 		if (commandHistory[commandHistory.length - 1] !== expression) {
@@ -226,7 +230,10 @@
 		<div class="flex items-center gap-1">
 			<button
 				class="p-0.5 hover:bg-[#3c3c3c] rounded text-[#969696] hover:text-[#d4d4d4]"
-				onclick={(e) => { e.stopPropagation(); clearConsole(); }}
+				onclick={(e) => {
+					e.stopPropagation()
+					clearConsole()
+				}}
 				title="Clear console (Ctrl+L)"
 			>
 				<Trash2 size={12} />
@@ -234,7 +241,10 @@
 			{#if onClose}
 				<button
 					class="p-0.5 hover:bg-[#3c3c3c] rounded text-[#969696] hover:text-[#d4d4d4]"
-					onclick={(e) => { e.stopPropagation(); onClose?.(); }}
+					onclick={(e) => {
+						e.stopPropagation()
+						onClose?.()
+					}}
 					title="Close console (Esc)"
 				>
 					<X size={14} />
@@ -244,10 +254,7 @@
 	</div>
 
 	<!-- Console output -->
-	<div
-		bind:this={consoleRef}
-		class="flex-1 overflow-auto min-h-0"
-	>
+	<div bind:this={consoleRef} class="flex-1 overflow-auto min-h-0">
 		{#if history.length === 0}
 			<div class="px-3 py-2 text-[#969696] text-[11px]">
 				Evaluate expressions in the current scope. Use ↑↓ for history.
@@ -263,7 +270,9 @@
 					<span class="text-[#ce9178] break-all whitespace-pre-wrap">{entry.content}</span>
 				{:else if entry.type === 'output'}
 					<span class="text-[#569cd6] mr-2 select-none opacity-0">&gt;</span>
-					<span class="{getValueClass(entry.content, 'output')} break-all whitespace-pre-wrap">{formatValue(entry.content, 'output')}</span>
+					<span class="{getValueClass(entry.content, 'output')} break-all whitespace-pre-wrap"
+						>{formatValue(entry.content, 'output')}</span
+					>
 				{:else}
 					<AlertCircle size={12} class="text-red-500 mr-2 mt-0.5 flex-shrink-0" />
 					<span class="text-red-400 break-all whitespace-pre-wrap">{entry.content}</span>
@@ -289,7 +298,9 @@
 			spellcheck="false"
 		/>
 		{#if isEvaluating}
-			<div class="w-3 h-3 border border-[#569cd6] border-t-transparent rounded-full animate-spin ml-2"></div>
+			<div
+				class="w-3 h-3 border border-[#569cd6] border-t-transparent rounded-full animate-spin ml-2"
+			></div>
 		{/if}
 	</div>
 </div>

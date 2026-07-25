@@ -174,6 +174,9 @@ pub struct SignDebugRequest {
     pub code: String,
     /// The programming language (python3, bun, typescript, etc.)
     pub language: String,
+    /// Caller-asserted audit hint only; never verified, so never trust it for authz.
+    #[serde(default)]
+    pub agent_originated: bool,
 }
 
 /// JWT claims for debug tokens
@@ -203,6 +206,14 @@ pub struct SignedDebugPayload {
     pub code: String,
     /// Job ID for the debug session (can be used to view job details)
     pub job_id: String,
+}
+
+fn bool_str(b: bool) -> &'static str {
+    if b {
+        "true"
+    } else {
+        "false"
+    }
 }
 
 /// Sign a debug request and create audit log + job entries for full traceability.
@@ -320,6 +331,8 @@ async fn sign_debug_request(
     .await?;
 
     // Create audit log entry (identical to jobs.run.preview)
+    let job_id_str = job_id.to_string();
+    let agent_flag = bool_str(request.agent_originated);
     audit_log(
         &mut *tx,
         &authed,
@@ -327,7 +340,13 @@ async fn sign_debug_request(
         ActionKind::Execute,
         &w_id,
         None,
-        Some([("job_id", job_id.to_string().as_str())].into()),
+        Some(
+            [
+                ("job_id", job_id_str.as_str()),
+                ("agent_originated", agent_flag),
+            ]
+            .into(),
+        ),
     )
     .await?;
 
@@ -346,6 +365,9 @@ pub struct SignExpressionRequest {
     pub expression: String,
     /// The job ID of the parent debug session
     pub job_id: String,
+    /// Caller-asserted audit hint only; never verified, so never trust it for authz.
+    #[serde(default)]
+    pub agent_originated: bool,
 }
 
 /// JWT claims for expression evaluation tokens
@@ -428,6 +450,7 @@ async fn sign_expression(
         request.expression.clone()
     };
 
+    let agent_flag = bool_str(request.agent_originated);
     audit_log(
         &mut *tx,
         &authed,
@@ -439,6 +462,7 @@ async fn sign_expression(
             [
                 ("job_id", request.job_id.as_str()),
                 ("expression", request.expression.as_str()),
+                ("agent_originated", agent_flag),
             ]
             .into(),
         ),

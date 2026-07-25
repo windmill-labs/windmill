@@ -50,7 +50,8 @@ export async function fetchContextualVariables(workspace: string): Promise<Recor
 export async function signDebugRequest(
 	workspace: string,
 	code: string,
-	language: string
+	language: string,
+	agentOriginated?: boolean
 ): Promise<{ token: string; code: string; job_id: string }> {
 	if (!workspace) {
 		throw new Error('No workspace selected')
@@ -59,7 +60,7 @@ export async function signDebugRequest(
 	const response = await fetch(`/api/w/${workspace}/debug/sign`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ code, language })
+		body: JSON.stringify({ code, language, agent_originated: agentOriginated ?? false })
 	})
 
 	if (!response.ok) {

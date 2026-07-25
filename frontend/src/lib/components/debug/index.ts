@@ -48,7 +48,9 @@ export { default as DebugConsole } from './DebugConsole.svelte'
 export {
 	DAPClient,
 	getDAPClient,
+	peekDAPClient,
 	resetDAPClient,
+	onDAPReset,
 	debugState,
 	type DebugState,
 	type Breakpoint,
@@ -56,6 +58,24 @@ export {
 	type Variable,
 	type Scope
 } from './dapClient'
+
+export {
+	debugOwner,
+	getDebugOwner,
+	preemptToHuman,
+	resetDebugBudget,
+	onAgentTurnEnd,
+	agentDebugGetState,
+	agentDebugStart,
+	agentDebugContinue,
+	agentDebugStep,
+	agentDebugWait,
+	agentDebugEvaluate,
+	agentDebugSetBreakpoints,
+	agentDebugStop,
+	type DebugController,
+	type DebugOwner
+} from './agentDebugSession'
 
 // Re-export shared utilities
 export {
