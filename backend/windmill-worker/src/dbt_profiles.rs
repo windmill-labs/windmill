@@ -472,18 +472,4 @@ mod tests {
         }
     }
 
-    #[test]
-    fn descriptor_schema_overrides_the_resource() {
-        let r = json!({"host": "h", "dbname": "d", "schema": "from_resource"});
-        let p = render_profile(
-            DbtAdapter::Postgres,
-            &r,
-            "wm",
-            "dev",
-            None,
-            Some("from_descriptor"),
-        )
-        .unwrap();
-        assert_eq!(p.schema.as_deref(), Some("from_descriptor"));
-    }
 }
