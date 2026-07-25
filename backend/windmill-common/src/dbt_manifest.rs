@@ -475,6 +475,9 @@ pub async fn replace_dbt_manifest(
     workspace_id: &str,
     script_path: &str,
     ingested: &IngestedManifest,
+    // Where the profile put these relations, so a later run can tell whether the
+    // resource has moved since — see the migration.
+    relation_root: &str,
 ) -> Result<()> {
     clear_dbt_manifest(tx, workspace_id, script_path).await?;
 
@@ -482,8 +485,10 @@ pub async fn replace_dbt_manifest(
         sqlx::query!(
             "INSERT INTO dbt_node (workspace_id, script_path, unique_id, resource_type, name,
                  asset_path, materialized, materialize_strategy, unique_key, tags, description,
-                 test_kind, test_column, test_args, severity, attached_node, columns, freshness)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)",
+                 test_kind, test_column, test_args, severity, attached_node, columns, freshness,
+                 relation_root)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                     $18, $19)",
             workspace_id,
             script_path,
             n.unique_id,
@@ -502,6 +507,7 @@ pub async fn replace_dbt_manifest(
             n.attached_node,
             n.columns,
             n.freshness,
+            relation_root,
         )
         .execute(&mut **tx)
         .await?;

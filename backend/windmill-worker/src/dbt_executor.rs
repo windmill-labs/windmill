@@ -44,6 +44,11 @@ use crate::{GIT_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV};
 /// fallback for the (invalid) case where it declares none.
 const FALLBACK_PROFILE_NAME: &str = "windmill";
 
+/// Bound on `dbt ls`. It only parses the project and resolves a node set, so it
+/// is fast unless the warehouse handshake hangs — which is exactly the case
+/// this stops from holding a worker slot.
+const SELECTION_TIMEOUT_SECS: u64 = 300;
+
 
 
 /// Written to the script's lockfile at deploy. `commit` is empty under
@@ -167,8 +172,7 @@ pub async fn handle_dbt_job(
         mem_peak,
         canceled_by,
         occupancy_metrics,
-        // A dependency job has no per-job timeout of its own.
-        None,
+        job.timeout,
     )
     .await?;
 
@@ -228,7 +232,22 @@ pub async fn handle_dbt_job(
     // (docs/dbt-runtime.md).
     if descriptor.is_latest_ref() || prepared.graph_is_per_run {
         if command != "retry" {
-            run_dbt_parse(&prepared, &descriptor, &inv, &job.id, &job.workspace_id, conn).await?;
+            run_dbt_parse(
+                &prepared,
+                &descriptor,
+                &inv,
+                &mut JobCtx {
+                    mem_peak,
+                    canceled_by,
+                    occupancy_metrics,
+                    worker_name,
+                    timeout: job.timeout,
+                },
+                &job.id,
+                &job.workspace_id,
+                conn,
+            )
+            .await?;
         }
         // For a retry the restored manifest already describes the invocation
         // being resumed, so only the ingest runs — with that invocation's
@@ -369,7 +388,22 @@ pub async fn dbt_dep(
     // A deploy has no job arguments and no job environment, so it tolerates the
     // `{{ }}` placeholders only a run can fill (see `Invocation::strict`).
     let inv = Invocation { strict: false, ..Default::default() };
-    run_dbt_parse(&prepared, &descriptor, &inv, job_id, w_id, &conn).await?;
+    run_dbt_parse(
+        &prepared,
+        &descriptor,
+        &inv,
+        &mut JobCtx {
+            mem_peak,
+            canceled_by,
+            occupancy_metrics,
+            worker_name,
+            timeout: None,
+        },
+        job_id,
+        w_id,
+        &conn,
+    )
+    .await?;
 
     let selected = resolve_selection(&prepared, &descriptor, &inv).await?;
     let manifest = read_manifest(&prepared.project_dir).await?;
@@ -386,8 +420,15 @@ pub async fn dbt_dep(
             prepared.default_database.as_deref(),
             selected.as_ref(),
         );
-        persist_ingest(db, w_id, script_path, &ingested, &DescriptorTriggers::parse(content))
-            .await?;
+        persist_ingest(
+            db,
+            w_id,
+            script_path,
+            &ingested,
+            &DescriptorTriggers::parse(content),
+            &prepared.relation_root(),
+        )
+        .await?;
         append_logs(
             job_id,
             w_id,
@@ -527,7 +568,7 @@ impl PreparedProject {
 
     fn run_identity(&self) -> String {
         format!(
-            "{}|{}|{}|{}|{}|{}|{}|{:x}",
+            "{}|{}|{}|{}|{}|{}|{}|{:x}|{}",
             self.repo_resource,
             self.project_subdir,
             self.commit,
@@ -536,6 +577,7 @@ impl PreparedProject {
             self.engine.engine.as_str(),
             self.profile_identity,
             self.env_digest(),
+            self.relation_root(),
         )
     }
 }
@@ -783,12 +825,26 @@ pub async fn prepare_project(
         worker_name,
         timeout: job_timeout,
     };
-    // A profile resource moved since the deploy — a changed schema, dataset or
-    // catalog — relocates every relation the project builds, so the stored
-    // graph names ones that no longer exist and must be re-ingested.
-    if let Some(locked_root) = locks.and_then(|l| l.profile_relation_root.as_deref()) {
-        if locked_root != prepared.relation_root() {
-            prepared.graph_is_per_run = true;
+    // A profile resource moved — a changed schema, dataset or catalog — relocates
+    // every relation the project builds, so the stored graph names ones that no
+    // longer exist. Compared against the graph AS STORED, not against the deploy
+    // lock: moving A→B then back to A matches the lock again while the stored
+    // graph is still at B.
+    if let Connection::Sql(db) = conn {
+        if let Some(stored) = sqlx::query_scalar!(
+            "SELECT relation_root FROM dbt_node
+              WHERE workspace_id = $1 AND script_path = $2 AND relation_root IS NOT NULL
+              LIMIT 1",
+            w_id,
+            script_path,
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten()
+        {
+            if stored != prepared.relation_root() {
+                prepared.graph_is_per_run = true;
+            }
         }
     }
     install_packages(&prepared, &mut ctx, job_id, w_id, conn).await?;
@@ -1722,6 +1778,7 @@ async fn ingest_from_run(
         script_path,
         &ingested,
         &DescriptorTriggers::parse(&p.descriptor_content),
+        &p.relation_root(),
     )
     .await?;
     // Synchronously, not through the notify poller: dispatch for THIS job runs
@@ -1797,11 +1854,18 @@ async fn persist_ingest(
     script_path: &str,
     ingested: &windmill_common::dbt_manifest::IngestedManifest,
     annotations: &DescriptorTriggers,
+    relation_root: &str,
 ) -> error::Result<()> {
     use windmill_common::assets::{AssetUsageKind, ScriptTriggerKind};
     let mut tx = db.begin().await?;
-    windmill_common::dbt_manifest::replace_dbt_manifest(&mut tx, w_id, script_path, ingested)
-        .await?;
+    windmill_common::dbt_manifest::replace_dbt_manifest(
+        &mut tx,
+        w_id,
+        script_path,
+        ingested,
+        relation_root,
+    )
+    .await?;
     windmill_common::assets::replace_static_asset_usage(
         &mut tx,
         w_id,
@@ -1894,12 +1958,21 @@ async fn resolve_selection(
     if let Some(sel) = descriptor.selector.as_deref() {
         cmd.args(["--selector", sel]);
     }
-    let out = cmd
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .await
-        .map_err(|e| Error::internal_err(format!("dbt ls could not be started: {e}")))?;
+    // `dbt ls` is read for its stdout, so it cannot go through `handle_child`
+    // (which streams to the job log). It is bounded instead, so an unreachable
+    // warehouse cannot hold the slot indefinitely the way an unbounded wait
+    // would.
+    let out = tokio::time::timeout(
+        std::time::Duration::from_secs(SELECTION_TIMEOUT_SECS),
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).output(),
+    )
+    .await
+    .map_err(|_| {
+        Error::ExecutionErr(format!(
+            "dbt ls did not resolve the selection within {SELECTION_TIMEOUT_SECS}s"
+        ))
+    })?
+    .map_err(|e| Error::internal_err(format!("dbt ls could not be started: {e}")))?;
     if !out.status.success() {
         return Err(Error::ExecutionErr(format!(
             "dbt ls failed to resolve the selection: {}",
@@ -1973,6 +2046,7 @@ async fn run_dbt_parse(
     p: &PreparedProject,
     descriptor: &DbtDescriptor,
     inv: &Invocation,
+    ctx: &mut JobCtx<'_>,
     job_id: &Uuid,
     w_id: &str,
     conn: &Connection,
@@ -1980,27 +2054,7 @@ async fn run_dbt_parse(
     let mut cmd = dbt_command(p, &["parse"]);
     cmd.envs(&inv.envs);
     add_vars(&mut cmd, descriptor, inv)?;
-    let out = cmd
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .await
-        .map_err(|e| Error::internal_err(format!("dbt parse could not be started: {e}")))?;
-    append_logs(
-        job_id,
-        w_id,
-        format!(
-            "{}{}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        ),
-        conn,
-    )
-    .await;
-    if !out.status.success() {
-        return Err(Error::ExecutionErr("dbt parse failed".to_string()));
-    }
-    Ok(())
+    run_prep_command(p, cmd, "dbt parse", ctx, job_id, w_id, conn).await
 }
 
 pub async fn read_manifest(
