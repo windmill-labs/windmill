@@ -4835,6 +4835,10 @@ fn pg_action_to_string(action: &str) -> String {
 pub async fn pg_get_full_schema(
     client: &tokio_postgres::Client,
 ) -> Result<FullDatabaseSchema, String> {
+    // Primary-key and default-value info are joined in (a table has at most one
+    // primary-key constraint, so `pkc` stays 1:1) rather than fetched via
+    // per-column correlated subqueries — on large catalogs those subqueries run
+    // once per column and make the introspection time out.
     let column_rows = client
         .query(
             "SELECT
@@ -4842,19 +4846,17 @@ pub async fn pg_get_full_schema(
                 c.relname AS table_name,
                 a.attname AS column_name,
                 pg_catalog.format_type(a.atttypid, a.atttypmod) AS datatype,
-                (SELECT substring(pg_catalog.pg_get_expr(d.adbin, d.adrelid, true) for 128)
-                 FROM pg_catalog.pg_attrdef d
-                 WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef) AS default_value,
-                CASE a.attnotnull WHEN false THEN true ELSE false END AS nullable,
-                EXISTS (
-                    SELECT 1 FROM pg_catalog.pg_index i
-                    WHERE i.indrelid = c.oid AND i.indisprimary AND a.attnum = ANY(i.indkey)
-                ) AS is_primary_key,
-                (SELECT con.conname FROM pg_catalog.pg_constraint con
-                 WHERE con.conrelid = c.oid AND con.contype = 'p' LIMIT 1) AS pk_constraint_name
+                substring(pg_catalog.pg_get_expr(ad.adbin, ad.adrelid, true) for 128) AS default_value,
+                NOT a.attnotnull AS nullable,
+                COALESCE(pkc.conkey @> ARRAY[a.attnum], false) AS is_primary_key,
+                pkc.conname AS pk_constraint_name
             FROM pg_catalog.pg_attribute a
             JOIN pg_catalog.pg_class c ON a.attrelid = c.oid
             JOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid
+            LEFT JOIN pg_catalog.pg_attrdef ad
+                ON ad.adrelid = a.attrelid AND ad.adnum = a.attnum AND a.atthasdef
+            LEFT JOIN pg_catalog.pg_constraint pkc
+                ON pkc.conrelid = c.oid AND pkc.contype = 'p'
             WHERE c.relkind = 'r'
                 AND a.attnum > 0
                 AND NOT a.attisdropped

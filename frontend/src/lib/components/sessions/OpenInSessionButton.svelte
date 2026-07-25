@@ -27,8 +27,9 @@
 		/** Undefined (e.g. an item without a path yet) renders the fallback. */
 		source?: OpenInSessionSource
 		btnClasses?: string
-		/** Rendered instead when the global-AI flag is off (typically the
-		 * editor's inline-chat toggle). Never rendered inside the session panel. */
+		/** Rendered instead when the user opted out of the sessions beta
+		 * (typically the editor's inline-chat toggle). Never rendered inside
+		 * the session panel. */
 		fallback?: Snippet
 	} = $props()
 

@@ -331,6 +331,7 @@
 			class="mt-1"
 			_resourceMetadata={{ resource_type: resourceType }}
 			asset={{ kind: 'resource', path: value }}
+			workspace={effectiveWorkspace}
 		/>
 	{/if}
 </div>

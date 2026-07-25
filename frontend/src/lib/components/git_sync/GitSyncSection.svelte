@@ -6,6 +6,7 @@
 	import GitSyncRepositoryCard from './GitSyncRepositoryCard.svelte'
 	import GitSyncModalManager from './GitSyncModalManager.svelte'
 	import { enterpriseLicense, workspaceStore, userWorkspaces } from '$lib/stores'
+	import { base } from '$lib/base'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { untrack } from 'svelte'
@@ -42,13 +43,17 @@
 
 	const gitSyncAllowed = $derived(gitSyncStatus.enabled)
 	const isFreeTier = $derived(gitSyncAllowed && !$enterpriseLicense)
-	// Fork/dev workspaces never run promotion mode: their deploys always go to
-	// the fork's own wm-fork/** branch, so a promotion repo could never take
-	// effect (the backend rejects it too). Mirrors the backend/CLI fork rule.
+	// Throwaway forks never run promotion mode: their deploys always go to the
+	// fork's own wm-fork/** branch, so a promotion repo could never take effect
+	// (the backend rejects it too). A dev workspace is the exception — it deploys
+	// per-item wm_deploy/** branches that promote into its parent. Mirrors the
+	// backend/CLI rule.
+	const currentWorkspace = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
 	const isFork = $derived(
-		($workspaceStore?.startsWith('wm-fork-') ?? false) ||
-			!!$userWorkspaces?.find((w) => w.id === $workspaceStore)?.parent_workspace_id
+		($workspaceStore?.startsWith('wm-fork-') ?? false) || !!currentWorkspace?.parent_workspace_id
 	)
+	const isDevWorkspace = $derived(!!currentWorkspace?.is_dev_workspace)
+	const showPromotion = $derived(!isFork || isDevWorkspace)
 	const hasConfiguredRepos = $derived(
 		gitSyncContext?.repositories?.some((r) => r.git_repo_resource_path) ?? false
 	)
@@ -70,8 +75,34 @@
 	// Derived state for repository categorization
 	const primarySync = $derived(gitSyncContext?.getPrimarySyncRepository() || null)
 	const primaryPromotion = $derived(gitSyncContext?.getPrimaryPromotionRepository() || null)
+	// A dev workspace reuses the single repo it inherited from prod: whether it's
+	// currently in sync or promotion mode, it's the same one card, toggled between
+	// the two — so a dev never configures a separate promotion repo.
+	const devPrimaryRepo = $derived(isDevWorkspace ? (primarySync ?? primaryPromotion) : null)
+	// The single-repo dev UX (one card + promotion toggle, secondaries hidden) is
+	// only safe when the dev actually has one repo — i.e. it inherited prod's on
+	// fork. An ATTACHED dev keeps its own repos: with more than one, fall back to
+	// the normal layout so none are hidden and we don't present an unrelated repo
+	// as prod's promotion target.
+	const devSingleRepo = $derived(isDevWorkspace && (gitSyncContext?.repositories?.length ?? 0) <= 1)
 	const secondarySync = $derived(gitSyncContext?.getSecondarySyncRepositories() || [])
 	const secondaryPromotion = $derived(gitSyncContext?.getSecondaryPromotionRepositories() || [])
+	// Fork creation keeps only sync-mode repositories and a fork is refused a
+	// promotion one, so the single way a fork holds one is a dev workspace
+	// detached back into a plain fork. Deploys still sync through it (only the
+	// promotion branching is dropped), so name it instead of showing nothing.
+	const promotionModeRepos = $derived(
+		showPromotion ? [] : [primaryPromotion, ...secondaryPromotion].filter((r) => r != null)
+	)
+	// Promotion is what a dev workspace does, so a fork that wants it can be
+	// re-designated as one. Pairing is prod-scoped and admin-gated there, so this
+	// only links to the parent's screen, and only when the parent is a workspace
+	// the user actually has.
+	const devPairingHref = $derived.by(() => {
+		const parent = currentWorkspace?.parent_workspace_id
+		if (!parent || !$userWorkspaces?.some((w) => w.id === parent)) return undefined
+		return `${base}/workspace_settings?workspace=${parent}&tab=dev_workspace`
+	})
 
 	// State for collapsible sections
 	let secondarySyncExpanded = $state(false)
@@ -139,17 +170,18 @@
 		<div class="space-y-6 pt-6">
 			<GitSyncRepositoryCard
 				variant="primary-sync"
-				mode="sync"
-				idx={primarySync?.idx ?? null}
-				repository={primarySync?.repo ?? null}
+				mode={devSingleRepo && devPrimaryRepo?.repo?.use_individual_branch ? 'promotion' : 'sync'}
+				idx={(devSingleRepo ? devPrimaryRepo : primarySync)?.idx ?? null}
+				repository={(devSingleRepo ? devPrimaryRepo : primarySync)?.repo ?? null}
 				onAdd={() => gitSyncContext.addSyncRepository()}
 				isCollapsible={false}
-				showEmptyState={primarySync?.repo === null}
+				showEmptyState={(devSingleRepo ? devPrimaryRepo : primarySync)?.repo == null}
+				devPromotion={devSingleRepo && !!$enterpriseLicense}
 			/>
 
 			{#if $enterpriseLicense}
-				<!-- Secondary Sync Repositories (EE only) -->
-				{#if primarySync && !primarySync.repo?.isUnsavedConnection}
+				<!-- Secondary Sync Repositories (EE only; a dev workspace has a single inherited repo) -->
+				{#if primarySync && !primarySync.repo?.isUnsavedConnection && !devSingleRepo}
 					{#if secondarySync.length > 0 || secondarySyncExpanded}
 						<div class="mt-4">
 							<button
@@ -211,8 +243,9 @@
 					{/if}
 				{/if}
 
-				<!-- Primary Promotion Repository (EE only; not on forks) -->
-				{#if !isFork}
+				<!-- Primary Promotion Repository (EE only; roots only — a dev promotes via the
+					toggle on its single inherited repo, not a separate promotion repo) -->
+				{#if showPromotion && !devSingleRepo}
 					<div class="mt-6">
 						<GitSyncRepositoryCard
 							variant="primary-promotion"
@@ -286,6 +319,30 @@
 								{/if}
 							{/if}
 						{/if}
+					</div>
+				{:else if !showPromotion}
+					<div class="mt-6">
+						<Alert
+							type="info"
+							title="Promotion does not apply to a fork"
+							documentationLink="https://www.windmill.dev/docs/advanced/workspace_forks"
+						>
+							Deploys in a fork always commit to the fork's own wm-fork/** branch, so a promotion
+							repository would never take effect here. Promote this fork's work by merging that
+							branch into the tracked branch instead.
+							{#if devPairingHref}
+								<div class="mt-2">
+									To promote per item from this workspace, pair it with its parent as a
+									<a href={devPairingHref} class="text-blue-500 hover:underline">dev workspace</a>.
+								</div>
+							{/if}
+							{#if promotionModeRepos.length > 0}
+								<div class="mt-2">
+									Still set to promotion mode here, and still syncing deploys to the fork's branch:
+									{promotionModeRepos.map((r) => r.repo.git_repo_resource_path).join(', ')}
+								</div>
+							{/if}
+						</Alert>
 					</div>
 				{/if}
 			{/if}

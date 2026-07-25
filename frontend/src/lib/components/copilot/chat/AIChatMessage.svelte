@@ -7,7 +7,7 @@
 	import { Button } from '$lib/components/common'
 	import { RefreshCwIcon, Undo2Icon } from 'lucide-svelte'
 	import AIChatInput from './AIChatInput.svelte'
-	import type { ContextElement } from './context'
+	import { createAttachedFileContextElement, type ContextElement } from './context'
 	import ToolExecutionDisplay from './ToolExecutionDisplay.svelte'
 	import CompactionBoundary from './CompactionBoundary.svelte'
 	import { messageDraft, segments } from './chatDraft'
@@ -59,7 +59,7 @@
 </script>
 
 {#if message.role === 'summary'}
-	<CompactionBoundary content={message.content} />
+	<CompactionBoundary content={message.content} files={message.files} />
 {:else}
 	<div
 		class={twMerge(
@@ -74,10 +74,26 @@
 		onclick={() => editMessage()}
 		onkeydown={() => {}}
 	>
-		{#if message.role === 'user' && message.contextElements && editingMessageIndex !== messageIndex}
-			<div class="flex flex-row gap-1 mb-1 overflow-scroll no-scrollbar px-2">
-				{#each message.contextElements as element}
+		<!-- One wrapping row for every badge on the message: selected context / DOM
+		     picks and attached files, side by side. Clicks stay inside the row: the
+		     wrapper's click opens edit mode, which would unmount a badge's preview
+		     popover the instant it opens. -->
+		{#if message.role === 'user' && editingMessageIndex !== messageIndex && ((message.contextElements?.length ?? 0) > 0 || (message.files?.length ?? 0) > 0)}
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div
+				class="flex flex-row flex-wrap gap-1 mb-1 px-2"
+				onclick={(e) => e.stopPropagation()}
+				onkeydown={(e) => e.stopPropagation()}
+			>
+				{#each message.contextElements ?? [] as element}
 					<ContextElementBadge contextElement={element} compact />
+				{/each}
+				<!-- Index in the key: same-named entries can survive in older transcripts. -->
+				{#each message.files ?? [] as file, i (`${file.id ?? file.name}:${i}`)}
+					<ContextElementBadge
+						contextElement={createAttachedFileContextElement(file.name, file.content)}
+						compact
+					/>
 				{/each}
 			</div>
 		{/if}
@@ -89,6 +105,7 @@
 					initialInstructions={message.content}
 					initialPastes={message.pastes}
 					initialImages={aiChatManager.storedImages(messageIndex)}
+					initialFiles={message.files}
 					{editingMessageIndex}
 					onClickOutside={() => (editingMessageIndex = null)}
 					onKeyDown={(e) => {
@@ -119,8 +136,9 @@
 							{/each}
 						</div>
 					{/if}
-					<!-- Text-free messages show only their context chips / images — no
-					     empty bubble (empty sends require chips or images to go out). -->
+					<!-- Text-free messages show only their context chips / images / file
+					     chips — no empty bubble (empty sends require chips, images, or
+					     files to go out). -->
 					{#if message.content.trim() !== ''}
 						<div
 							class="text-xs px-3 py-2 w-fit max-w-[min(32rem,100%)] bg-surface-accent-selected text-accent rounded-lg relative group break-words"

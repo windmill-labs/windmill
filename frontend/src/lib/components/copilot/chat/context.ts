@@ -4,6 +4,7 @@ import {
 	TriangleAlert,
 	Diff,
 	FileCode,
+	FileText,
 	Code2,
 	TextSelect,
 	Table2,
@@ -29,7 +30,9 @@ export const ContextIconMap = {
 	app_dom_selector: MousePointer2,
 	workspace_script: Code2,
 	workspace_flow: BarsStaggered,
-	workspace_app: LayoutDashboard
+	workspace_app: LayoutDashboard,
+	// Fallback — the badge renders attached_file with the per-extension file icon.
+	attached_file: FileText
 	// flow_module type is handled with FlowModuleIcon
 }
 
@@ -283,6 +286,22 @@ export interface WorkspaceAppElement {
 	summary?: string
 }
 
+/** Message-attached text file, rendered with the shared context badge. Never part
+ * of `selectedContext` — constructed at render time from the composer's / a sent
+ * message's `files` state (see createAttachedFileContextElement). */
+export interface AttachedFileElement {
+	type: 'attached_file'
+	title: string
+	content: string
+}
+
+export function createAttachedFileContextElement(
+	name: string,
+	content: string
+): AttachedFileElement {
+	return { type: 'attached_file', title: name, content }
+}
+
 export type ContextElement = (
 	| CodeElement
 	| ErrorElement
@@ -299,6 +318,7 @@ export type ContextElement = (
 	| WorkspaceScriptElement
 	| WorkspaceFlowElement
 	| WorkspaceAppElement
+	| AttachedFileElement
 ) & {
 	deletable?: boolean
 }

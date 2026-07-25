@@ -755,15 +755,53 @@ export const PIPELINE_BASE = `# Data pipeline authoring
 
 A **data pipeline** is NOT a flow. A flow is one runnable that orchestrates steps internally. A data pipeline is a set of **independent scripts**, each deployed on its own, that form a DAG by reading and writing shared **storage assets** (DuckLake tables, data tables, S3 objects, volumes, resources) and by declaring execution **triggers**. The pipeline is visualized and edited at \`/pipeline/<folder>\`; every node is a normal workspace script that happens to carry pipeline annotations. When the user asks for a "data pipeline" (or to "ingest / transform / materialize" data across steps), build pipeline-annotated scripts — do NOT build a flow.
 
+## Default to DuckDB + DuckLake
+
+A pipeline node that produces a table should almost always be a **\`duckdb\`** node that materializes its output into a **DuckLake** table with \`-- materialize ducklake://<name>/<table>\` (in a DuckDB node the annotation uses SQL \`--\` comment syntax; write the body as a bare \`SELECT\` and let the runtime do the write). DuckLake is the default lakehouse store for pipelines and is the shape the pipeline editor is built around, so prefer it unless the work specifically calls for something else:
+
+- \`postgresql\` / data tables — only for row-level, OLTP-style mutations against an existing Postgres data table (frequent single-row upserts/updates, transactional reads that an app queries live).
+- \`bun\` / \`python3\` — only for non-tabular work that doesn't map to SQL: calling an external API, wrangling files, arbitrary glue. When such a node still produces tabular data for downstream steps, land it in DuckLake (write it with the wmill SDK / ducklake helpers) rather than inventing a parallel store.
+
+Do not spread a pipeline across postgres, S3, and DuckLake when one DuckLake lake would do; a consistent DuckLake lakehouse is the goal.
+
+## Storage prerequisites
+
+A DuckLake pipeline only runs once the workspace has **object storage** (S3 / Azure Blob / GCS) **and a DuckLake catalog** configured — DuckLake tables and \`s3://\` assets can't be materialized or read without it. Check with the \`list_ducklakes\` tool before you build (it returns the configured DuckLake catalogs, or none). Drafting the annotated scripts does not require storage, but the pipeline can't ingest, materialize, or read its assets until it exists. So if \`list_ducklakes\` returns none (or the user hits "storage not configured" errors), say so and give the right next step **by role**:
+
+- a workspace **admin** sets it up in Workspace settings → Object Storage (add an S3/Azure/GCS storage), then adds a DuckLake catalog on top of it;
+- anyone **without admin rights** should ask a workspace admin to configure object storage + a DuckLake catalog.
+
+Never hand back a DuckLake pipeline that cannot run without flagging the missing storage and pointing to who sets it up.
+
 ## What makes a script a pipeline node
 
 A script joins the pipeline when its source begins with the \`pipeline\` annotation as a top-of-file comment, **written in the script's own comment syntax** — \`//\` for TS/JS (bun), \`--\` for SQL (DuckDB/Postgres), \`#\` for Python/Bash. So it's \`-- pipeline\` in a DuckDB node, \`# pipeline\` in a Python node, \`// pipeline\` in a bun node. Every annotation below uses that same prefix (the \`//\` shown is the TS form). All other wiring is expressed as annotation comments near the top of the file:
 
 - \`// on <ref>\` — declares an execution-DAG **input** (what triggers/feeds this node). \`<ref>\` is either:
-  - an **asset URI** (the node runs when that asset is produced upstream): \`ducklake://main/orders\`, \`datatable://main/users\`, \`s3://<key>\`, \`$res:f/folder/my_resource\`, \`volume://name/path\`.
-  - a **native trigger kind**: \`schedule\`, \`webhook\`, \`email\`, \`kafka\`, \`mqtt\`, \`amqp\`, \`nats\`, \`postgres\`, \`sqs\`, \`gcp\`, or \`data_upload\` (a user-uploaded S3 file). For these the actual trigger row (cron, topic, …) is created separately; the annotation only declares the binding.
+  - an **asset URI** (the node runs when that asset is produced upstream): \`ducklake://main/orders\`, \`datatable://main/users\`, \`$res:f/folder/my_resource\`, \`volume://name/path\`, or an S3 object (see the S3 storage-form rule below).
+  - a **native trigger kind**: \`schedule\`, \`webhook\`, \`email\`, \`kafka\`, \`mqtt\`, \`amqp\`, \`nats\`, \`postgres\`, \`sqs\`, \`gcp\`, or \`data_upload\` (a user-uploaded S3 file). For these the actual trigger row (cron, topic, …) is created separately; the annotation only declares the binding. **\`data_upload\` is special**: there is no trigger row — the node instead declares an **\`S3Object\` input parameter** fed by the auto-generated upload picker; it never hard-codes a key. Any language can be the \`data_upload\` node:
+    - Python (has \`import wmill\`): \`def main(file: wmill.S3Object):\` then \`wmill.load_s3_file(file)\`; TS (has \`import * as wmill from "windmill-client"\`): \`export async function main(file: wmill.S3Object)\`. Qualify the type as \`wmill.S3Object\` (or add \`from wmill import S3Object\` / \`import { S3Object } from "windmill-client"\`) — a bare \`S3Object\` is undefined.
+    - **DuckDB** takes the s3object arg via a \`-- $<name> (s3object)\` declaration and reads it directly, so a single DuckDB node can ingest **and** materialize:
+      \`\`\`
+      -- pipeline
+      -- on data_upload
+      -- materialize ducklake://main/raw_uploads
+      -- $file (s3object)
+      SELECT * FROM read_csv($file)
+      \`\`\`
 - **Outputs** are inferred from what the body writes — a \`CREATE TABLE\`, a \`wmill.writeS3File(...)\`, a DuckLake/datatable write. To declare a managed output explicitly, use \`// materialize <asset-uri>\`.
 - Optional badges: \`// partitioned <daily|hourly|weekly|monthly|dynamic>\`, \`// freshness <duration>\` (e.g. \`1h\`), \`// tag <worker-tag>\`, \`// retry <count> [delay]\`, \`// data_test <kind> ...\`.
+
+## S3 object wiring (storage form matters)
+
+An \`s3://\` URI's first slashes select the **storage**, not part of the key — get this wrong and the producer/consumer edge silently won't connect:
+
+- \`s3:///<key>\` (**triple** slash, empty first segment) = the **default** workspace storage. A downstream node reading or triggering on that object uses \`s3:///<key>\` — e.g. DuckDB \`-- on s3:///orders/2024.parquet\` and \`read_parquet('s3:///orders/2024.parquet')\`.
+- \`s3://<storage>/<key>\` (**double** slash, non-empty first segment) = a **named secondary** storage called \`<storage>\` — so \`s3://ingest/x\` means storage \`ingest\`, key \`x\`, NOT key \`ingest/x\`. Only use this when the object genuinely lives in a configured secondary storage; never invent a bucket/storage name for a default-storage object (it breaks the edge).
+
+To make the producer side visible to lineage, a Python/TS node MUST pass the **\`S3Object\` form**, not a bare key string: Python \`wmill.write_s3_file(wmill.S3Object(s3="<key>"), data)\` (or the import-free dict \`{"s3": "<key>"}\`), TS \`wmill.writeS3File({ s3: "<key>" }, data)\`. That records the default-storage asset \`/<key>\`, which a downstream \`s3:///<key>\` reader connects to (same key both sides). A bare \`write_s3_file("<key>", ...)\` records **no** asset and produces **no** edge. Add \`storage="<name>"\` only for a named secondary storage.
+
+The key must be a **string literal** — the graph parser is static and cannot follow a variable, f-string, or computed path, so \`write_s3_file(wmill.S3Object(s3=key_var), ...)\` records no edge. Inline the literal (\`s3="events/user_events.parquet"\`) on both the writing and reading node. The same rule applies to every asset URI in an annotation or SDK call (\`ducklake://\`, \`datatable://\`, \`s3://\`): write them literally, not via a variable.
 
 ## Materialize (the managed output)
 
@@ -784,7 +822,7 @@ A script joins the pipeline when its source begins with the \`pipeline\` annotat
 ## How to build one in chat
 
 1. Put every node in the **same folder**: \`f/<folder>/<name>\`. The folder is the pipeline.
-2. Author each node as a **script draft** with \`write_script\` (or \`edit_script\`), language chosen for the work: \`duckdb\` or \`postgresql\` for SQL-shaped data work, \`bun\`/\`python3\` for general transforms. SQL-heavy lakehouse steps usually use \`duckdb\`.
+2. Author each node as a **script draft** with \`write_script\` (or \`edit_script\`). Default to \`duckdb\` materializing into DuckLake (see "Default to DuckDB + DuckLake" above); pick \`postgresql\`, \`bun\`, or \`python3\` only when that section says the work calls for it.
 3. Start each body with \`// pipeline\`, then the \`// on\` input declarations, then the transform that writes the output.
 4. **Chain nodes by asset URI**: read an upstream node's output asset, then \`// on <that-same-uri>\` in the downstream node so the edge forms. Reuse exact asset paths from existing nodes rather than inventing parallel ones.
 5. Leave nodes as drafts unless the user asks to deploy. A pipeline only "runs" once its scripts are deployed and their triggers exist.
@@ -799,7 +837,7 @@ Node \`f/sales/orders_ingest\` (runs on a schedule, materializes a DuckLake tabl
 -- pipeline
 -- on schedule
 -- materialize ducklake://main/orders
-SELECT * FROM read_csv('s3://raw/orders/*.csv')
+SELECT * FROM read_csv('s3:///raw/orders/*.csv')
 \`\`\`
 
 Node \`f/sales/orders_daily\` (runs when \`orders\` is produced, writes a rollup):
@@ -836,7 +874,7 @@ import {
   step,
   sleep,
   waitForApproval,
-  getResumeUrls,
+  getApprovalUrls,
   parallel,
   workflow,
 } from "windmill-client";
@@ -854,7 +892,7 @@ export const main = workflow(async (x: string) => {
 Python:
 
 \`\`\`python
-from wmill import task, task_script, task_flow, step, sleep, wait_for_approval, get_resume_urls, parallel, workflow
+from wmill import task, task_script, task_flow, step, sleep, wait_for_approval, get_approval_urls, parallel, workflow
 
 @task()
 async def process(x: str) -> str:
@@ -938,12 +976,13 @@ output = await pipeline(input=data)
 Use \`step()\` for lightweight inline values that must not change during replay:
 
 \`\`\`typescript
-const urls = await step("get_urls", () => getResumeUrls());
 const startedAt = await step("started_at", () => new Date().toISOString());
 \`\`\`
 
 \`\`\`python
-urls = await step("get_urls", lambda: get_resume_urls())
+from datetime import datetime
+
+started_at = await step("started_at", lambda: datetime.now().isoformat())
 \`\`\`
 
 Use stable, descriptive step names. Do not generate step names dynamically.
@@ -968,19 +1007,27 @@ Only parallelize independent steps. Do not read the result of a task before it i
 
 ## Approvals
 
-Generate resume URLs inside \`step()\` before sending them:
+Name the approval step and generate its URLs inside \`step()\` before sending them.
+\`getApprovalUrls\` / \`get_approval_urls\` returns the URLs bound to that step, the same
+ones its built-in approve/reject buttons use:
 
 \`\`\`typescript
-const urls = await step("get_urls", () => getResumeUrls());
-await step("notify", () => sendApprovalEmail(urls.approvalPage));
-const approval = await waitForApproval({ timeout: 3600 });
+const urls = await step("urls", () => getApprovalUrls("manager"));
+await step("notify", () => sendApprovalEmail(urls.resume, urls.cancel));
+const approval = await waitForApproval({ key: "manager", timeout: 3600 });
 \`\`\`
 
 \`\`\`python
-urls = await step("get_urls", lambda: get_resume_urls())
-await step("notify", lambda: send_approval_email(urls["approvalPage"]))
-approval = await wait_for_approval(timeout=3600)
+urls = await step("urls", lambda: get_approval_urls("manager"))
+await step("notify", lambda: send_approval_email(urls["resume"], urls["cancel"]))
+approval = await wait_for_approval(key="manager", timeout=3600)
 \`\`\`
+
+With several approvals in one workflow, give each its own key so each notification
+resumes its own step. Keys must be unique — reusing one raises an error rather than
+silently renaming the step. A minted URL only resumes while its own step is awaiting
+approval; used at any other moment it is rejected rather than resuming the wrong one. \`getResumeUrls()\` / \`get_resume_urls()\` still works but signs a
+random nonce, so its URLs are not tied to any particular approval step.
 
 \`selfApproval: false\` and \`self_approval=False\` are Enterprise-only approval behavior. Do not use them unless the user asks for that behavior.
 
@@ -1528,15 +1575,43 @@ workflow<T>(fn: (...args: any[]) => Promise<T>): void
 /**
  * Suspend the workflow and wait for an external approval.
  * 
- * Use \`getResumeUrls()\` (wrapped in \`step()\`) to obtain resume/cancel/approvalPage
- * URLs before calling this function.
+ * Pass \`key\` to name the step, then \`getApprovalUrls(key)\` yields the URLs that
+ * resume exactly this approval — route them through your own channel. Without a
+ * key the steps are named \`approval\`, \`approval_2\`, ...
  * 
  * @example
- * const urls = await step("urls", () => getResumeUrls());
- * await step("notify", () => sendEmail(urls.approvalPage));
- * const { value, approver } = await waitForApproval({ timeout: 3600 });
+ * const urls = await step("urls", () => getApprovalUrls("manager"));
+ * await step("notify", () => sendEmail(urls.resume, urls.cancel));
+ * const { value, approver } = await waitForApproval({ key: "manager", timeout: 3600 });
  */
-waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; key?: string; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+
+/**
+ * Resume/cancel/approval-page URLs bound to one \`waitForApproval\` step.
+ * 
+ * Unlike \`getResumeUrls()\`, which signs a random nonce, these address the very
+ * \`resume_job\` record the step's built-in approval buttons use, so they are
+ * stable across replays and safe to embed in a custom notification.
+ * 
+ * \`stepKey\` must match the \`key\` given to \`waitForApproval\`. Keys must be unique
+ * within a workflow; reusing one throws rather than silently renaming it. The URL
+ * only resumes while that step is awaiting approval; used at any other moment it is
+ * rejected rather than banking a row a different approval would consume. Send it
+ * ahead of time — approvers just cannot act before the workflow reaches the step.
+ * 
+ * \`resume\` and \`cancel\` are step-bound; \`approvalPage\` is not — it opens the job's
+ * approval page, which acts on whichever approval is pending when it is used.
+ * 
+ * @example
+ * const urls = await step("urls", () => getApprovalUrls("manager"));
+ * await step("notify", () => sendEmail(urls.resume, urls.cancel));
+ * await waitForApproval({ key: "manager" });
+ */
+async getApprovalUrls(stepKey: string = "approval", approver?: string): Promise<{
+  approvalPage: string;
+  resume: string;
+  cancel: string;
+}>
 
 /**
  * Process items in parallel with optional concurrency control.
@@ -2028,6 +2103,17 @@ def get_shared_state(path: str = 'state.json') -> None
 #     Dictionary with approvalPage, resume, and cancel URLs
 def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict
 
+# Get the resume URLs bound to one \`\`wait_for_approval\`\` step of this workflow.
+# 
+# Args:
+#     step_key: Checkpoint key of the approval step, as passed to
+#         \`\`wait_for_approval(key=...)\`\`
+#     approver: Optional approver name
+# 
+# Returns:
+#     Dictionary with approvalPage, resume, and cancel URLs
+def get_approval_urls(step_key: str = 'approval', approver: str = None) -> dict
+
 # Sends an interactive approval request via Slack, allowing optional customization of the message, approver, and form fields.
 # 
 # **[Enterprise Edition Only]** To include form fields in the Slack approval request, use the "Advanced -> Suspend -> Form" functionality.
@@ -2304,8 +2390,9 @@ async def sleep(seconds: int)
 
 # Suspend the workflow and wait for an external approval.
 # 
-# Use \`\`get_resume_urls()\`\` (wrapped in \`\`step()\`\`) to obtain
-# resume/cancel/approval URLs before calling this function.
+# Pass \`\`key\`\` to name the step, then \`\`get_approval_urls(key)\`\` yields the URLs
+# that resume exactly this approval — route them through your own channel.
+# Without a key the steps are named \`\`approval\`\`, \`\`approval_2\`\`, ...
 # 
 # Returns a dict with \`\`value\`\` (form data), \`\`approver\`\`, and \`\`approved\`\`.
 # 
@@ -2313,13 +2400,14 @@ async def sleep(seconds: int)
 #     timeout: Approval timeout in seconds (default 1800).
 #     form: Optional form schema for the approval page.
 #     self_approval: Whether the user who triggered the flow can approve it (default True).
+#     key: Optional checkpoint key naming this approval step.
 # 
 # Example::
 # 
-#     urls = await step("urls", lambda: get_resume_urls())
-#     await step("notify", lambda: send_email(urls["approvalPage"]))
-#     result = await wait_for_approval(timeout=3600)
-async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_approval: bool = True) -> dict
+#     urls = await step("urls", lambda: get_approval_urls("manager"))
+#     await step("notify", lambda: send_email(urls["resume"], urls["cancel"]))
+#     result = await wait_for_approval(key="manager", timeout=3600)
+async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_approval: bool = True, key: str | None = None) -> dict
 
 # Process items in parallel with optional concurrency control.
 # 
@@ -2348,7 +2436,7 @@ def commit_kafka_offsets(trigger_path: str, topic: str, partition: int, offset: 
 
 export const WAC_SDK_TYPESCRIPT = `## TypeScript Workflow-as-Code API (windmill-client)
 
-Import: \`import { workflow, task, taskScript, taskFlow, step, sleep, waitForApproval, getResumeUrls, parallel } from "windmill-client"\`
+Import: \`import { workflow, task, taskScript, taskFlow, step, sleep, waitForApproval, getApprovalUrls, getResumeUrls, parallel } from "windmill-client"\`
 
 \`\`\`typescript
 export interface TaskOptions {
@@ -2418,15 +2506,39 @@ export async function sleep(seconds: number): Promise<void>
 /**
  * Suspend the workflow and wait for an external approval.
  *
- * Use \`getResumeUrls()\` (wrapped in \`step()\`) to obtain resume/cancel/approvalPage
- * URLs before calling this function.
+ * Pass \`key\` to name the step, then \`getApprovalUrls(key)\` yields the URLs that
+ * resume exactly this approval — route them through your own channel. Without a
+ * key the steps are named \`approval\`, \`approval_2\`, ...
  *
  * @example
- * const urls = await step("urls", () => getResumeUrls());
- * await step("notify", () => sendEmail(urls.approvalPage));
- * const { value, approver } = await waitForApproval({ timeout: 3600 });
+ * const urls = await step("urls", () => getApprovalUrls("manager"));
+ * await step("notify", () => sendEmail(urls.resume, urls.cancel));
+ * const { value, approver } = await waitForApproval({ key: "manager", timeout: 3600 });
  */
-export function waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+export function waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; key?: string; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+
+/**
+ * Resume/cancel/approval-page URLs bound to one \`waitForApproval\` step.
+ *
+ * Unlike \`getResumeUrls()\`, which signs a random nonce, these address the very
+ * \`resume_job\` record the step's built-in approval buttons use, so they are
+ * stable across replays and safe to embed in a custom notification.
+ *
+ * \`stepKey\` must match the \`key\` given to \`waitForApproval\`. Keys must be unique
+ * within a workflow; reusing one throws rather than silently renaming it. The URL
+ * only resumes while that step is awaiting approval; used at any other moment it is
+ * rejected rather than banking a row a different approval would consume. Send it
+ * ahead of time — approvers just cannot act before the workflow reaches the step.
+ *
+ * \`resume\` and \`cancel\` are step-bound; \`approvalPage\` is not — it opens the job's
+ * approval page, which acts on whichever approval is pending when it is used.
+ *
+ * @example
+ * const urls = await step("urls", () => getApprovalUrls("manager"));
+ * await step("notify", () => sendEmail(urls.resume, urls.cancel));
+ * await waitForApproval({ key: "manager" });
+ */
+export async function getApprovalUrls(stepKey: string = "approval", approver?: string): Promise<{ approvalPage: string; resume: string; cancel: string; }>
 
 /**
  * Process items in parallel with optional concurrency control.
@@ -2444,7 +2556,7 @@ export async function parallel<T, R>(items: T[], fn: (item: T) => PromiseLike<R>
 
 export const WAC_SDK_PYTHON = `## Python Workflow-as-Code API (wmill)
 
-Import: \`from wmill import workflow, task, task_script, task_flow, step, sleep, wait_for_approval, get_resume_urls, parallel, TaskError\`
+Import: \`from wmill import workflow, task, task_script, task_flow, step, sleep, wait_for_approval, get_approval_urls, get_resume_urls, parallel, TaskError\`
 
 \`\`\`python
 # Raised when a WAC task step failed.
@@ -2532,8 +2644,9 @@ async def sleep(seconds: int)
 
 # Suspend the workflow and wait for an external approval.
 #
-# Use \`\`get_resume_urls()\`\` (wrapped in \`\`step()\`\`) to obtain
-# resume/cancel/approval URLs before calling this function.
+# Pass \`\`key\`\` to name the step, then \`\`get_approval_urls(key)\`\` yields the URLs
+# that resume exactly this approval — route them through your own channel.
+# Without a key the steps are named \`\`approval\`\`, \`\`approval_2\`\`, ...
 #
 # Returns a dict with \`\`value\`\` (form data), \`\`approver\`\`, and \`\`approved\`\`.
 #
@@ -2541,13 +2654,37 @@ async def sleep(seconds: int)
 #     timeout: Approval timeout in seconds (default 1800).
 #     form: Optional form schema for the approval page.
 #     self_approval: Whether the user who triggered the flow can approve it (default True).
+#     key: Optional checkpoint key naming this approval step.
 #
 # Example::
 #
-#     urls = await step("urls", lambda: get_resume_urls())
-#     await step("notify", lambda: send_email(urls["approvalPage"]))
-#     result = await wait_for_approval(timeout=3600)
-async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_approval: bool = True) -> dict
+#     urls = await step("urls", lambda: get_approval_urls("manager"))
+#     await step("notify", lambda: send_email(urls["resume"], urls["cancel"]))
+#     result = await wait_for_approval(key="manager", timeout=3600)
+async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_approval: bool = True, key: str | None = None) -> dict
+
+# Get the resume/cancel/approval-page URLs bound to one \`\`wait_for_approval\`\` step.
+#
+# Unlike :func:\`get_resume_urls\`, which signs a random nonce, these address the
+# very \`\`resume_job\`\` record the step's built-in approval buttons use, so they
+# are stable across replays and safe to embed in a custom notification.
+#
+# Args:
+#     step_key: Checkpoint key of the approval step, as passed to
+#         \`\`wait_for_approval(key=...)\`\`. Keys must be unique within a workflow;
+#         reusing one raises rather than silently renaming it. The URL only
+#         resumes while that step is awaiting approval; used at any other moment
+#         it is rejected rather than banking a row a different approval would
+#         consume. Send it ahead of time — approvers just cannot act before the
+#         workflow reaches the step.
+#         \`\`resume\`\` and \`\`cancel\`\` are step-bound; \`\`approvalPage\`\` is not — it
+#         opens the job's approval page, which acts on whichever approval is
+#         pending when it is used.
+#     approver: Optional approver name
+#
+# Returns:
+#     Dictionary with approvalPage, resume, and cancel URLs
+def get_approval_urls(step_key: str = 'approval', approver: str = None) -> dict
 
 # Process items in parallel with optional concurrency control.
 #
@@ -3729,7 +3866,7 @@ being buffered, bypassing the 10000-row return cap.
 
 export const LANG_BUN = `# TypeScript (Bun)
 
-Bun runtime with full npm ecosystem and fastest execution.
+Bun runtime with full npm ecosystem and fastest execution. **Bun is the default and preferred TypeScript runtime** — choose it for any TypeScript script unless there is a major reason to use Deno for that specific use-case.
 
 ## Structure
 
@@ -4015,6 +4152,8 @@ public class Script
 export const LANG_DENO = `# TypeScript (Deno)
 
 Deno runtime with npm support via \`npm:\` prefix and native Deno libraries.
+
+**Prefer Bun (\`write-script-bun\`) for TypeScript.** Only use Deno when the script specifically requires the Deno runtime — Deno's standard library or \`deno.land\` URL imports that have no npm equivalent. For all other TypeScript, use Bun instead.
 
 ## Structure
 

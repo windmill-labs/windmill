@@ -184,6 +184,7 @@ struct EditResource {
     path: Option<String>,
     description: Option<String>,
     value: Option<Box<RawValue>>,
+    resource_type: Option<String>,
     labels: Option<Vec<String>>,
     ws_specific: Option<bool>,
 }
@@ -242,11 +243,7 @@ async fn list_search_resources(
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<Vec<SearchResource>> {
     let mut tx = user_db.begin(&authed).await?;
-    #[cfg(feature = "enterprise")]
     let n = 1000;
-
-    #[cfg(not(feature = "enterprise"))]
-    let n = 3;
 
     let allowed = build_scope_path_predicate(&authed, "resources", "read");
     let rows = sqlx::query_as!(
@@ -1716,6 +1713,9 @@ async fn update_resource(
     }
     if let Some(nvalue) = &ns.value {
         sqlb.set_str("value", nvalue.to_string());
+    }
+    if let Some(nrt) = &ns.resource_type {
+        sqlb.set_str("resource_type", nrt);
     }
     if let Some(ndesc) = ns.description {
         sqlb.set_str("description", ndesc);

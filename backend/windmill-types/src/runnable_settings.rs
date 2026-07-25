@@ -93,9 +93,7 @@ pub struct DebouncingSettings {
     pub debounce_args_to_accumulate: Option<Vec<String>>,
 }
 
-#[derive(
-    Debug, Default, Clone, Serialize, Deserialize, Hash, PartialEq, sqlx::FromRow, sqlx::Decode,
-)]
+#[derive(Debug, Default, Clone, Serialize, Hash, PartialEq, sqlx::FromRow, sqlx::Decode)]
 pub struct ConcurrencySettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrency_key: Option<String>,
@@ -105,7 +103,65 @@ pub struct ConcurrencySettings {
     pub concurrency_time_window_s: Option<i32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, Default)]
+/// Shared normalization for the positive-only `Option<i32>` runnable settings
+/// (`concurrent_limit`, `timeout`, ...): a `<= 0` value is never meaningful — zero
+/// concurrent slots permanently blocks a runnable at the concurrency gate (a re-queue
+/// storm the zombie monitor eventually fails with a misleading OOM error), and a
+/// 0-second timeout kills every job on the spot. The frontend already treats `0` as
+/// "disabled", so `<= 0` maps to `None` (unset) everywhere. Idempotent.
+pub fn none_if_non_positive(v: Option<i32>) -> Option<i32> {
+    v.filter(|n| *n > 0)
+}
+
+/// Coerce a `concurrent_limit <= 0` to disabled, dropping the now-meaningless time window
+/// alongside it. Idempotent.
+fn normalize_concurrency(
+    concurrent_limit: &mut Option<i32>,
+    concurrency_time_window_s: &mut Option<i32>,
+) {
+    if none_if_non_positive(*concurrent_limit).is_none() {
+        *concurrent_limit = None;
+        *concurrency_time_window_s = None;
+    }
+}
+
+impl ConcurrencySettings {
+    pub fn normalized(mut self) -> Self {
+        normalize_concurrency(
+            &mut self.concurrent_limit,
+            &mut self.concurrency_time_window_s,
+        );
+        self
+    }
+}
+
+// Manual `Deserialize` so every ingestion path (script/flow create & update, app and
+// http-trigger payloads, and read-back of already-stored settings) normalizes a `<= 0`
+// limit uniformly, without each call site remembering to call `normalized()`.
+impl<'de> Deserialize<'de> for ConcurrencySettings {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Raw {
+            #[serde(default)]
+            concurrency_key: Option<String>,
+            #[serde(default)]
+            concurrent_limit: Option<i32>,
+            #[serde(default)]
+            concurrency_time_window_s: Option<i32>,
+        }
+        let Raw { concurrency_key, concurrent_limit, concurrency_time_window_s } =
+            Raw::deserialize(deserializer)?;
+        Ok(
+            ConcurrencySettings { concurrency_key, concurrent_limit, concurrency_time_window_s }
+                .normalized(),
+        )
+    }
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, Default)]
 pub struct ConcurrencySettingsWithCustom {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_concurrency_key: Option<String>,
@@ -113,6 +169,41 @@ pub struct ConcurrencySettingsWithCustom {
     pub concurrent_limit: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrency_time_window_s: Option<i32>,
+}
+
+impl ConcurrencySettingsWithCustom {
+    pub fn normalized(mut self) -> Self {
+        normalize_concurrency(
+            &mut self.concurrent_limit,
+            &mut self.concurrency_time_window_s,
+        );
+        self
+    }
+}
+
+impl<'de> Deserialize<'de> for ConcurrencySettingsWithCustom {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Raw {
+            #[serde(default)]
+            custom_concurrency_key: Option<String>,
+            #[serde(default)]
+            concurrent_limit: Option<i32>,
+            #[serde(default)]
+            concurrency_time_window_s: Option<i32>,
+        }
+        let Raw { custom_concurrency_key, concurrent_limit, concurrency_time_window_s } =
+            Raw::deserialize(deserializer)?;
+        Ok(ConcurrencySettingsWithCustom {
+            custom_concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+        }
+        .normalized())
+    }
 }
 
 impl DebouncingSettings {
@@ -142,11 +233,15 @@ impl ConcurrencySettings {
         concurrent_limit: Option<i32>,
         concurrency_time_window_s: Option<i32>,
     ) -> Self {
+        // Legacy columns can still hold a stored `0` that predates ingestion normalization,
+        // so re-normalize here: this is the single load boundary for every DB-backed read
+        // (script/schedule read, flow value, and the worker pull path).
         Self {
             concurrency_key: self.concurrency_key.or(concurrency_key),
             concurrent_limit: self.concurrent_limit.or(concurrent_limit),
             concurrency_time_window_s: self.concurrency_time_window_s.or(concurrency_time_window_s),
         }
+        .normalized()
     }
 }
 
@@ -228,5 +323,92 @@ mod tests {
         let r: Retry = RetrySettings::default().into();
         assert_eq!(r, Retry::default());
         assert_eq!(r.exponential.multiplier, 1);
+    }
+
+    // The positive-only settings share one rule: `<= 0` means "unset". This is what keeps a
+    // stored `0` from being enforced as a zero-slot cap or a 0-second timeout.
+    #[test]
+    fn none_if_non_positive_coerces_zero_and_negative() {
+        assert_eq!(none_if_non_positive(Some(0)), None);
+        assert_eq!(none_if_non_positive(Some(-3)), None);
+        assert_eq!(none_if_non_positive(Some(1)), Some(1));
+        assert_eq!(none_if_non_positive(Some(i32::MAX)), Some(i32::MAX));
+        assert_eq!(none_if_non_positive(None), None);
+    }
+
+    // Ingestion path (scripts flatten this on `NewScript`, flows on `FlowModule`): a `0`
+    // concurrent_limit deserializes to disabled and drops the now-meaningless time window,
+    // while a real limit and its window survive untouched.
+    #[test]
+    fn concurrency_settings_deserialize_normalizes_non_positive_limit() {
+        let zero: ConcurrencySettings = serde_json::from_value(
+            serde_json::json!({"concurrent_limit": 0, "concurrency_time_window_s": 30}),
+        )
+        .unwrap();
+        assert_eq!(zero.concurrent_limit, None);
+        assert_eq!(zero.concurrency_time_window_s, None);
+
+        let negative: ConcurrencySettings =
+            serde_json::from_value(serde_json::json!({"concurrent_limit": -1})).unwrap();
+        assert_eq!(negative.concurrent_limit, None);
+
+        let real: ConcurrencySettings = serde_json::from_value(
+            serde_json::json!({"concurrent_limit": 2, "concurrency_time_window_s": 30}),
+        )
+        .unwrap();
+        assert_eq!(real.concurrent_limit, Some(2));
+        assert_eq!(real.concurrency_time_window_s, Some(30));
+    }
+
+    // Per-flow-step overrides use the `custom_concurrency_key` variant; same rule.
+    #[test]
+    fn concurrency_settings_with_custom_deserialize_normalizes() {
+        let zero: ConcurrencySettingsWithCustom = serde_json::from_value(
+            serde_json::json!({"concurrent_limit": 0, "concurrency_time_window_s": 5}),
+        )
+        .unwrap();
+        assert_eq!(zero.concurrent_limit, None);
+        assert_eq!(zero.concurrency_time_window_s, None);
+    }
+
+    // A normalized value serializes with the limit omitted (skip_serializing_if), matching the
+    // frontend's "disabled" representation instead of re-emitting a `0`.
+    #[test]
+    fn normalized_disabled_limit_serializes_as_omitted() {
+        let s =
+            ConcurrencySettings { concurrent_limit: Some(0), ..Default::default() }.normalized();
+        let json = serde_json::to_value(&s).unwrap();
+        assert!(json.get("concurrent_limit").is_none());
+    }
+
+    // Runtime load boundary: legacy rows still hold a raw `0` in the fallback columns. The
+    // fallback must not resurrect it as an active limit.
+    #[test]
+    fn maybe_fallback_normalizes_legacy_zero_column() {
+        let merged = ConcurrencySettings::default().maybe_fallback(None, Some(0), Some(30));
+        assert_eq!(merged.concurrent_limit, None);
+        assert_eq!(merged.concurrency_time_window_s, None);
+    }
+
+    // `NewScript`/`FlowModule` embed the settings via `#[serde(flatten)]`, which drives the
+    // manual Deserialize through a content-buffer deserializer rather than a plain map. Guard
+    // that path: normalization must still fire and sibling fields must still parse.
+    #[test]
+    fn flattened_concurrency_normalizes_and_preserves_siblings() {
+        #[derive(Deserialize)]
+        struct Wrapper {
+            name: String,
+            #[serde(flatten)]
+            concurrency: ConcurrencySettings,
+        }
+        let w: Wrapper = serde_json::from_value(serde_json::json!({
+            "name": "s",
+            "concurrent_limit": 0,
+            "concurrency_time_window_s": 42,
+        }))
+        .unwrap();
+        assert_eq!(w.name, "s");
+        assert_eq!(w.concurrency.concurrent_limit, None);
+        assert_eq!(w.concurrency.concurrency_time_window_s, None);
     }
 }

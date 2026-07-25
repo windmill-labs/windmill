@@ -2,6 +2,7 @@ import type { Job, OpenFlow } from '$lib/gen'
 import type { History } from '$lib/history.svelte'
 import type { Writable } from 'svelte/store'
 import type ScriptEditorDrawer from './content/ScriptEditorDrawer.svelte'
+import type WorkspaceScriptSettingsDrawer from './content/WorkspaceScriptSettingsDrawer.svelte'
 import type FlowEditorDrawer from './content/FlowEditorDrawer.svelte'
 import type { FlowState } from './flowState'
 import type { FlowBuilderWhitelabelCustomUi } from '../custom_ui'
@@ -76,6 +77,7 @@ export type FlowEditorContext = {
 	currentEditor: Writable<CurrentEditor>
 	previewArgs: StateStore<Record<string, any>>
 	scriptEditorDrawer: Writable<ScriptEditorDrawer | undefined>
+	workspaceScriptSettingsDrawer: Writable<WorkspaceScriptSettingsDrawer | undefined>
 	flowEditorDrawer: Writable<FlowEditorDrawer | undefined>
 	history: History<OpenFlow>
 	pathStore: Writable<string>
