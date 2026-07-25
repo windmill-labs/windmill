@@ -22,6 +22,9 @@ rust-client/Cargo.toml
 .claude/settings.local.json
 .claude/worktrees/
 
+# Any stray node_modules (a tool run from the repo root writes caches there)
+node_modules/
+
 # Symlinked cache directories (for git worktrees)
 backend/target
 frontend/node_modules

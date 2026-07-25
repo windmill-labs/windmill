@@ -129,7 +129,14 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		cap: ReturnType<typeof setTimeout>
 	}
 	let settle: Settle | undefined = undefined
-	/** Runnable calls the app is waiting on right now. */
+	/** Request ids the app is waiting on, by `reqId`. Owned by the recording, not
+	 * by one bridge watch: a reload's bootstrap scripts run *before* the iframe's
+	 * `load` fires, so their requests are seen by the outgoing watch while the
+	 * response only arrives after the new one is bound. Clearing this on rebind
+	 * would strand exactly those, and a reloaded app that immediately calls a
+	 * runnable would settle on its spinner. */
+	const inFlight = new Set<unknown>()
+	/** Runnable calls the app is waiting on right now (`inFlight.size`, as state). */
 	let pendingJobs = 0
 	let unwatchBridge: (() => void) | undefined = undefined
 	let stopping = $state(false)
@@ -257,13 +264,18 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		if (!active) return
 		const t = Date.now() - startTime
 		const last = steps[steps.length - 1]
+		// `keyDriven` is the browser's own `KeyboardEvent.repeat`, which already
+		// says "same key, still held", so it folds on its own. The time window is
+		// for a continuous control, where nothing else distinguishes one drag from
+		// the next press: without it a slider would coalesce across a pause. Gating
+		// repeats on it too would split every held key in two, because the first
+		// repeat only arrives after the OS repeat delay (~500ms).
 		const coalesces =
 			!!last &&
 			!!el &&
 			sameTarget(lastStepEl, el) &&
 			last.kind === kind &&
-			(isContinuousControl(el) || keyDriven) &&
-			t - lastStepAt < CONTROL_COALESCE_MS
+			(keyDriven || (isContinuousControl(el) && t - lastStepAt < CONTROL_COALESCE_MS))
 		// A step's outcome must be settled before the next one starts; the pending
 		// snapshot can't be deferred past this point. It can't reuse `before`
 		// either: that frame carries the NEW step's target stamp. Runs before the
@@ -680,7 +692,6 @@ export function createRawAppRecording(): RawAppRecordingStore {
 	 * different windows: the request goes iframe -> host, the response goes host ->
 	 * iframe. Listening only on the host would count every request and clear none. */
 	function watchRunnableBridge(iframe: HTMLIFrameElement) {
-		const inFlight = new Set<unknown>()
 		const bundle = iframe.contentWindow
 		const onRequest = (e: MessageEvent) => {
 			const data = e.data
@@ -700,10 +711,11 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		}
 		window.addEventListener('message', onRequest)
 		bundle?.addEventListener('message', onResponse)
+		// Only the listeners: `inFlight` outlives a rebind on purpose (see its
+		// declaration), and stop() is what finally empties it.
 		return () => {
 			window.removeEventListener('message', onRequest)
 			bundle?.removeEventListener('message', onResponse)
-			pendingJobs = 0
 		}
 	}
 
@@ -723,9 +735,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		const d = doc()
 		if (!d) return
 		attach(d)
-		// Half the runnable bridge is bound to the document's window, and jobs the
-		// old document was waiting on can no longer land anywhere: rebind, resetting
-		// the count.
+		// Half the runnable bridge is bound to the document's window, which the
+		// reload replaced: rebind the listeners. What is in flight carries over —
+		// the new document's bootstrap requests were seen by the outgoing watch.
 		if (iframeEl) {
 			unwatchBridge?.()
 			unwatchBridge = watchRunnableBridge(iframeEl)
@@ -790,6 +802,8 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			// NOT in `detachers`: onIframeLoad calls detach(), which would otherwise
 			// remove the very listener that rebinds the recorder on the next reload.
 			iframe.addEventListener('load', onIframeLoad)
+			inFlight.clear()
+			pendingJobs = 0
 			unwatchBridge = watchRunnableBridge(iframe)
 			return true
 		},
@@ -819,6 +833,8 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			}
 			unwatchBridge?.()
 			unwatchBridge = undefined
+			inFlight.clear()
+			pendingJobs = 0
 			iframeEl?.removeEventListener('load', onIframeLoad)
 			pendingPointer = undefined
 			pendingKey = undefined
