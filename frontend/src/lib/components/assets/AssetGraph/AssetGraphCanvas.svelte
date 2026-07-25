@@ -244,6 +244,7 @@
 			| 'data-test'
 			| 'macro'
 			| 'test-dependency'
+			| 'dbt-ref'
 		unsaved?: boolean
 		// Muted read edge: a ducklake/s3 input read every run whose (default)
 		// auto cascade trigger is suppressed by `// mute` / `// mute all`.
@@ -621,6 +622,17 @@
 				target: testedId,
 				kind: 'test-dependency'
 			})
+		}
+
+		// dbt `ref()` lineage: model → model inside one project. The dbt script
+		// writes every one of them, so without these the canvas shows a flat
+		// fan-out from the script and loses the project's actual shape.
+		const assetNodeIds = new Set(g.assets.map((a) => `asset:${a.kind}:${a.path}`))
+		for (const de of g.dbt_edges ?? []) {
+			const from = `asset:table:${de.from_asset_path}`
+			const to = `asset:table:${de.to_asset_path}`
+			if (!assetNodeIds.has(from) || !assetNodeIds.has(to)) continue
+			edges.push({ id: `dbtref:${from}->${to}`, source: from, target: to, kind: 'dbt-ref' })
 		}
 
 		// Non-asset triggers (schedule + native) are rendered as source nodes
@@ -1065,6 +1077,16 @@
 						markerColor = 'rgb(217 119 6)'
 						label = 'test needs'
 						labelStyle = 'fill: rgb(217 119 6); font-size: 10px; font-weight: 600;'
+						break
+					case 'dbt-ref':
+						// model → model inside one dbt project. Orange, matching the
+						// dbt badges, and dashed because the edge is dbt's own lineage
+						// rather than a Windmill read/write the cascade acts on.
+						style = 'stroke: rgb(234 88 12); stroke-width: 1.25px;'
+						strokeDasharray = '4 3'
+						markerColor = 'rgb(234 88 12)'
+						label = 'ref'
+						labelStyle = 'fill: rgb(234 88 12); font-size: 10px; font-weight: 600;'
 						break
 					default:
 						style = ''

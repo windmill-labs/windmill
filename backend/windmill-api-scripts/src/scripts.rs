@@ -2035,6 +2035,12 @@ async fn create_script_internal<'c>(
     // stale `// on` edges keep matching producers (and would trigger a script
     // later recreated at that path with no annotation, P1) and its producer
     // rows keep it lingering in the asset graph.
+    // A path that stops being a dbt script keeps no dbt provenance: the sidecar
+    // is path-keyed and the graph query does not check the current language, so
+    // stale model metadata would attach itself to whatever now lives there.
+    if ns.language != ScriptLang::Dbt {
+        windmill_common::dbt_manifest::clear_dbt_manifest(&mut tx, &w_id, &ns.path).await?;
+    }
     if let Some(ref old) = p_path_opt {
         if old != &ns.path {
             clear_script_triggers(&mut *tx, &w_id, old, AssetUsageKind::Script).await?;

@@ -157,6 +157,22 @@ pub async fn handle_dbt_job(
     )
     .await?;
 
+    // Before any invocation: a per-run graph has to be re-ingested for the run's
+    // writes to dispatch correctly, and an agent worker reaches the DB only
+    // through the API. Refusing after `dbt build` would leave the warehouse
+    // written and the job failed, and a retry would repeat the write.
+    if (descriptor.is_latest_ref() || prepared.graph_is_per_run)
+        && prepared.resource_path.is_some()
+        && !matches!(conn, Connection::Sql(_))
+    {
+        return Err(Error::BadRequest(
+            "this dbt script resolves its commit or its models per run, so its asset graph must \
+             be re-ingested after every run — which an agent worker cannot do. Pin `ref` to a \
+             commit and use literal `vars`, or run it on a worker with a database connection."
+                .to_string(),
+        ));
+    }
+
     let command = match arg_str(&args, "dbt_command") {
         // Validated against an allowlist rather than passed through: the value
         // becomes the dbt subcommand, and running a script needs weaker
@@ -449,6 +465,9 @@ pub struct PreparedProject {
     /// brings its own `profiles.yml` and declares no resource, in which case
     /// there is no stable warehouse identity to key assets on.
     pub resource_path: Option<String>,
+    /// The descriptor's `profile.target`, passed as `--target` so it applies to
+    /// a project-owned `profiles.yml` as well as a rendered one.
+    pub target: Option<String>,
     /// The profile target's database. Nodes that override it qualify their
     /// `table://` schema segment so two databases cannot collapse onto one node.
     pub default_database: Option<String>,
@@ -643,6 +662,7 @@ pub async fn prepare_project(
         project_subdir,
         repo_resource: repo_res,
         resource_path,
+        target: descriptor.profile.target.clone(),
         default_database,
         script_path: script_path.to_string(),
         env,
@@ -1036,6 +1056,12 @@ async fn project_profile_name(project_dir: &Path) -> String {
 
 pub fn dbt_command(p: &PreparedProject, args: &[&str]) -> Command {
     let mut cmd = Command::new(&p.engine.bin);
+    // The rendered profile is written with this target as its only output, but
+    // a project-owned `profiles.yml` has its own default — silently building
+    // `dev` when the descriptor asked for `prod` writes to the wrong warehouse.
+    if let Some(target) = p.target.as_deref() {
+        cmd.args(["--target", target]);
+    }
     cmd.current_dir(&p.project_dir)
         .env_clear()
         .envs(PROXY_ENVS.clone())
@@ -1143,8 +1169,9 @@ fn spawn_progress_reporter(
     log_file: PathBuf,
 ) -> Option<tokio::task::JoinHandle<()>> {
     let Connection::Sql(db) = conn else {
-        // Agent workers reach the DB only through the API; per-model progress
-        // is reconciled from run_results.json at the end instead.
+        // Agent workers reach the DB only through the API. Their per-model state
+        // is settled from run_results.json at the end of the run instead — at
+        // the end rather than live, but recorded.
         return None;
     };
     if !p.engine.engine.emits_node_events() {
@@ -1291,7 +1318,7 @@ async fn reconcile_materializations(
     job: &MiniPulledJob,
     conn: &Connection,
 ) {
-    let (Connection::Sql(db), Some(resource_path)) = (conn, p.resource_path.as_deref()) else {
+    let Some(resource_path) = p.resource_path.as_deref() else {
         return;
     };
     for r in results {
@@ -1308,23 +1335,47 @@ async fn reconcile_materializations(
             // Tests and skipped nodes say nothing about a relation's state.
             _ => continue,
         };
-        if let Err(e) = record_materialization(
-            db,
-            &job.workspace_id,
-            windmill_common::assets::AssetKind::Table,
-            &path,
-            windmill_common::materialization::UNPARTITIONED,
-            status,
-            None,
-            r.rows_affected,
-            Some(job.id),
-            (status == MaterializationStatus::Failed)
-                .then(|| r.message.as_deref())
-                .flatten(),
-        )
-        .await
-        {
-            tracing::warn!("recording the materialization of {path} failed: {e:#}");
+        let error = (status == MaterializationStatus::Failed)
+            .then(|| r.message.as_deref())
+            .flatten();
+        // An agent worker has no direct DB, so its outcomes go through the API —
+        // otherwise a successful agent run leaves every model with no recorded
+        // status or row count.
+        let recorded = match conn {
+            Connection::Sql(db) => record_materialization(
+                db,
+                &job.workspace_id,
+                windmill_common::assets::AssetKind::Table,
+                &path,
+                windmill_common::materialization::UNPARTITIONED,
+                status,
+                None,
+                r.rows_affected,
+                Some(job.id),
+                error,
+            )
+            .await
+            .map_err(|e| e.to_string()),
+            Connection::Http(http) => crate::agent_workers::record_materialization_from_agent_http(
+                http,
+                &job.workspace_id,
+                &RecordMaterializationRequest {
+                    asset_kind: windmill_common::assets::AssetKind::Table,
+                    asset_path: path.clone(),
+                    partition: windmill_common::materialization::UNPARTITIONED.to_string(),
+                    status,
+                    snapshot_id: None,
+                    row_count: r.rows_affected,
+                    job_id: Some(job.id),
+                    error: error.map(|e| e.to_string()),
+                    schema: None,
+                },
+            )
+            .await
+            .map_err(|e| e.to_string()),
+        };
+        if let Err(e) = recorded {
+            tracing::warn!("recording the materialization of {path} failed: {e}");
         }
     }
 }
@@ -1445,12 +1496,11 @@ async fn ingest_from_run(
     let Some(resource_path) = p.resource_path.as_deref() else {
         return Ok(());
     };
+    // The caller rejects this configuration before invoking dbt; this is the
+    // backstop for any other path into the ingest.
     let Connection::Sql(db) = conn else {
-        return Err(Error::BadRequest(
-            "this dbt script resolves its commit or its models per run, so its asset graph must \
-             be re-ingested after every run — which an agent worker cannot do. Pin `ref` to a \
-             commit and use literal `vars`, or run it on a worker with a database connection."
-                .to_string(),
+        return Err(Error::internal_err(
+            "cannot re-ingest a dbt graph without a database connection".to_string(),
         ));
     };
     let Some(script_path) = job.runnable_path.as_deref() else {
@@ -1682,7 +1732,17 @@ fn interpolate_value(
     Ok(match v {
         serde_json::Value::String(s) => {
             match crate::common::interpolate_template(s, Some(args), field) {
-                Ok(v) => serde_json::Value::String(v),
+                // A var whose ENTIRE value is one placeholder takes the
+                // argument's own type: `strict: "{{ strict }}"` given `false`
+                // must reach dbt as a boolean, since the string "false" is
+                // truthy in Jinja — the same trap literal vars were fixed for.
+                // A placeholder embedded in surrounding text stays a string,
+                // which is what interpolation into text means.
+                Ok(v) => match sole_placeholder(s).and_then(|name| args.get(name)) {
+                    Some(raw) => serde_json::from_str(raw.get())
+                        .unwrap_or(serde_json::Value::String(v)),
+                    None => serde_json::Value::String(v),
+                },
                 Err(e) if strict => return Err(e),
                 Err(_) => serde_json::Value::String(String::new()),
             }
@@ -1699,6 +1759,18 @@ fn interpolate_value(
         ),
         other => other.clone(),
     })
+}
+
+/// The argument name when a value is exactly one `{{ placeholder }}` and
+/// nothing else.
+fn sole_placeholder(s: &str) -> Option<&str> {
+    let inner = s.trim().strip_prefix("{{")?.strip_suffix("}}")?.trim();
+    (!inner.is_empty()
+        && !inner.contains("{{")
+        && inner
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_'))
+    .then_some(inner)
 }
 
 fn arg_str(args: &HashMap<String, Box<RawValue>>, k: &str) -> Option<String> {
@@ -1813,6 +1885,30 @@ mod tests {
     // dbt scripts in one workspace must not share it, or a retry resumes
     // another project's run_results.json against this project's checkout — and
     // an empty script_path is exactly how that happened.
+    // dbt vars are typed, and Jinja treats the string "false" as truthy. A var
+    // that IS a placeholder must therefore carry the argument's own type
+    // through, while one embedded in text stays the string it interpolates to.
+    #[test]
+    fn placeholder_vars_keep_the_arguments_type() {
+        use windmill_parser_yaml::parse_dbt_descriptor;
+        let d = parse_dbt_descriptor(
+            "repo: r\nvars:\n  strict: \"{{ strict }}\"\n  n: \"{{ n }}\"\n  label: \"run-{{ name }}\"\n",
+        )
+        .unwrap();
+        let args: HashMap<String, Box<RawValue>> = [
+            ("strict", "false"),
+            ("n", "7"),
+            ("name", "\"nightly\""),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), RawValue::from_string(v.to_string()).unwrap()))
+        .collect();
+        let vars = resolved_vars(&d, &args, true).unwrap();
+        assert_eq!(vars["strict"], serde_json::json!(false));
+        assert_eq!(vars["n"], serde_json::json!(7));
+        assert_eq!(vars["label"], serde_json::json!("run-nightly"));
+    }
+
     #[test]
     fn retry_state_is_per_script() {
         assert_ne!(state_dir("ws", "f/a/one"), state_dir("ws", "f/a/two"));

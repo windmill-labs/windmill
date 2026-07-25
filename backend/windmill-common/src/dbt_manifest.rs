@@ -13,11 +13,15 @@
 //!   forms no edge, and the cross-boundary cascade — the reason to build the
 //!   graph at all — never fires (decision 11).
 //! * **The warehouse is identified by the Windmill resource path**, matching
-//!   `datatable://` and `ducklake://`. Connection details (host, account,
-//!   database) are never part of the key: the same warehouse is reachable under
-//!   several hostnames, and credential material has no business in an asset
-//!   key. The accepted consequence is documented in docs/dbt-runtime.md — two
-//!   resources pointing at one physical warehouse do not unify.
+//!   `datatable://` and `ducklake://`. Connection details (host, account) are
+//!   never part of the key: the same warehouse is reachable under several
+//!   hostnames, and credential material has no business in an asset key. The
+//!   resource names the default database too, so relations in it need no
+//!   qualification; one that OVERRODE its database qualifies its schema segment
+//!   (`table_asset_path`), since two same-named relations in different databases
+//!   are not the same table. The accepted consequence is documented in
+//!   docs/dbt-runtime.md — two resources pointing at one physical warehouse do
+//!   not unify.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -173,16 +177,7 @@ fn single_unique_key(v: Option<&serde_json::Value>) -> Option<String> {
 }
 
 /// `table://` path of the relation a node resolves to, or `None` when it has
-/// none.
-///
-/// The resource identifies the warehouse *and* its default database, so the
-/// database is normally redundant and left out — that is the three-segment
-/// spelling `table://<resource>/<schema>/<name>`. A model that overrides
-/// `database` (Snowflake) or `project` (BigQuery) is genuinely elsewhere,
-/// though, and dropping it would collapse two distinct relations onto one node:
-/// same schema and name in two databases would merge their lineage and cascade
-/// into each other's consumers. Those qualify the schema segment as
-/// `<database>.<schema>` so identity stays exact without a fourth segment.
+/// none. Assembles the parts; `table_asset_path` owns the spelling.
 fn asset_path_for(
     node: &ManifestNode,
     resource_path: &str,
@@ -685,9 +680,9 @@ mod tests {
     }
 
     // The whole reason for `table://`: a model's key is the physical relation,
-    // so a native script reading the same table lands on the same node. The
-    // database segment is dropped (the resource identifies the warehouse) and
-    // identifiers are canonicalized.
+    // so a native script reading the same table lands on the same node.
+    // Identifiers are canonicalized, and the database appears only when a model
+    // overrode the target's.
     #[test]
     fn models_become_table_assets_keyed_on_the_resource_path() {
         let i = ingested();

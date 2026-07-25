@@ -211,6 +211,15 @@ export interface AssetGraphResponse {
 	triggers: AssetGraphTrigger[]
 	macro_edges?: AssetGraphMacroEdge[]
 	test_edges?: AssetGraphTestEdge[]
+	dbt_edges?: AssetGraphDbtEdge[]
+}
+
+// `ref()` lineage BETWEEN two dbt models, in the terms the canvas draws
+// (relations, not dbt node ids). Without these every model hangs off the one
+// dbt runnable, which reads as a flat fan-out rather than the project's shape.
+export interface AssetGraphDbtEdge {
+	from_asset_path: string
+	to_asset_path: string
 }
 
 export type AssetGraphNodeData =

@@ -292,10 +292,18 @@ pub fn render_profile(
             if let Some(u) = s(resource, "username").or_else(|| s(resource, "user")) {
                 out.push(("user".into(), quoted(&u)));
             }
-            // Key-pair auth is Windmill's snowflake resource shape; password is
-            // accepted too for resources that carry one.
-            if let Some(k) = s(resource, "private_key") {
+            // Key-pair is Windmill's own snowflake resource shape; the
+            // `snowflake_oauth` type carries a token instead, which dbt only
+            // accepts alongside `authenticator: oauth` — without both, the
+            // profile renders with no credential at all and cannot connect.
+            if let Some(t) = s(resource, "token").or_else(|| s(resource, "access_token")) {
+                out.push(("authenticator".into(), quoted("oauth")));
+                out.push(("token".into(), quoted(&t)));
+            } else if let Some(k) = s(resource, "private_key") {
                 out.push(("private_key".into(), quoted(&k)));
+                if let Some(pp) = s(resource, "private_key_passphrase") {
+                    out.push(("private_key_passphrase".into(), quoted(&pp)));
+                }
             } else if let Some(p) = s(resource, "password") {
                 out.push(("password".into(), quoted(&p)));
             }
@@ -457,6 +465,18 @@ mod tests {
     // dbt rejects a BigQuery target with no dataset, and a service-account JSON
     // carries none — so the descriptor has to supply it, and saying which field
     // is missing beats a downstream dbt error.
+    // `snowflake_oauth` maps to the Snowflake adapter, but its credential is a
+    // token, which dbt only honors with `authenticator: oauth`. Forwarding
+    // neither renders a profile with no credential at all.
+    #[test]
+    fn snowflake_oauth_renders_its_token() {
+        let r = json!({"account_identifier": "acc", "username": "u", "token": "tok",
+                       "database": "db", "warehouse": "wh"});
+        let p = render_profile(DbtAdapter::Snowflake, &r, "wm", "prod", None, None).unwrap();
+        assert!(p.yaml.contains("      authenticator: \"oauth\"\n"), "{}", p.yaml);
+        assert!(p.yaml.contains("      token: \"tok\"\n"));
+    }
+
     #[test]
     fn bigquery_requires_a_dataset() {
         let r = json!({"project_id": "p", "client_email": "e", "private_key": "k"});

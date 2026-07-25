@@ -893,6 +893,19 @@ struct AssetGraphResponse {
     macro_edges: Vec<MacroEdge>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     test_edges: Vec<TestEdge>,
+    /// `ref()` lineage BETWEEN two dbt models. Without it every model hangs off
+    /// the one dbt runnable, which reads as a flat source-to-model fan-out
+    /// instead of the project's actual shape.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    dbt_edges: Vec<DbtLineageEdge>,
+}
+
+/// One `ref()`/`source()` edge, in the terms the canvas draws: the two
+/// relations, not dbt's node ids.
+#[derive(Serialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct DbtLineageEdge {
+    from_asset_path: String,
+    to_asset_path: String,
 }
 
 async fn asset_graph(
@@ -1156,6 +1169,29 @@ async fn asset_graph(
                                WHERE s.script_path = n.script_path
                                  AND s.unique_id = n.attached_node))
             ORDER BY n.script_path, n.unique_id"#,
+        &w_id,
+        folder_filter.as_deref(),
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // `ref()` lineage between two models, resolved to the relations they
+    // produce. Joined to `dbt_node` on both key columns because a dbt
+    // `unique_id` is only unique within its project.
+    let dbt_edge_rows = sqlx::query!(
+        r#"SELECT p.asset_path AS "from_path!", c.asset_path AS "to_path!"
+             FROM dbt_edge e
+             JOIN dbt_node p ON p.workspace_id = e.workspace_id
+                            AND p.script_path = e.script_path
+                            AND p.unique_id = e.parent_unique_id
+             JOIN dbt_node c ON c.workspace_id = e.workspace_id
+                            AND c.script_path = e.script_path
+                            AND c.unique_id = e.child_unique_id
+            WHERE e.workspace_id = $1
+              AND p.asset_path IS NOT NULL AND c.asset_path IS NOT NULL
+              -- Tests attach to their model as a badge, not as a lineage edge.
+              AND c.resource_type <> 'test'
+              AND ($2::text IS NULL OR e.script_path LIKE $2)"#,
         &w_id,
         folder_filter.as_deref(),
     )
@@ -1739,6 +1775,22 @@ async fn asset_graph(
         .collect();
     runnables.sort_by(|a, b| a.path.cmp(&b.path));
 
+    // Only between relations this graph actually renders — an edge to a node
+    // that is not here has nothing to draw.
+    let rendered: std::collections::HashSet<&str> =
+        assets.iter().map(|a| a.path.as_str()).collect();
+    let mut dbt_edges: Vec<DbtLineageEdge> = dbt_edge_rows
+        .into_iter()
+        .filter(|r| {
+            r.from_path != r.to_path
+                && rendered.contains(r.from_path.as_str())
+                && rendered.contains(r.to_path.as_str())
+        })
+        .map(|r| DbtLineageEdge { from_asset_path: r.from_path, to_asset_path: r.to_path })
+        .collect();
+    dbt_edges.sort();
+    dbt_edges.dedup();
+
     Ok(Json(AssetGraphResponse {
         assets,
         runnables,
@@ -1746,6 +1798,7 @@ async fn asset_graph(
         triggers,
         macro_edges,
         test_edges,
+        dbt_edges,
     }))
 }
 
