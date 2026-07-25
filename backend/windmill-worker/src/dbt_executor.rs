@@ -212,7 +212,7 @@ pub async fn handle_dbt_job(
     // commit than the one that ran (decision 12). The run already produced
     // `manifest.json`, so this costs no extra dbt invocation.
     if descriptor.is_latest_ref() {
-        if let Err(e) = ingest_from_run(&prepared, job, conn).await {
+        if let Err(e) = ingest_from_run(&prepared, &descriptor, job, conn).await {
             tracing::warn!("dbt graph refresh after a `latest` run failed: {e:#}");
         }
     }
@@ -313,6 +313,7 @@ pub async fn dbt_dep(
         return Err(Error::ExecutionErr("dbt parse failed".to_string()));
     }
 
+    let selected = resolve_selection(&prepared, &descriptor).await?;
     let manifest = read_manifest(&prepared.project_dir).await?;
     let manifest_digest = digest(
         &tokio::fs::read_to_string(prepared.project_dir.join("target/manifest.json"))
@@ -321,7 +322,11 @@ pub async fn dbt_dep(
     );
 
     if let Some(resource_path) = prepared.resource_path.as_deref() {
-        let ingested = windmill_common::dbt_manifest::ingest_manifest(&manifest, resource_path);
+        let ingested = windmill_common::dbt_manifest::ingest_manifest(
+            &manifest,
+            resource_path,
+            selected.as_ref(),
+        );
         let mut tx = db.begin().await?;
         windmill_common::dbt_manifest::replace_dbt_manifest(&mut tx, w_id, script_path, &ingested)
             .await?;
@@ -1125,6 +1130,7 @@ fn render_failures(r: &DbtRunResult) -> String {
 /// Refresh the stored graph from the manifest this run produced.
 async fn ingest_from_run(
     p: &PreparedProject,
+    descriptor: &DbtDescriptor,
     job: &MiniPulledJob,
     conn: &Connection,
 ) -> error::Result<()> {
@@ -1135,7 +1141,9 @@ async fn ingest_from_run(
         return Ok(());
     };
     let manifest = read_manifest(&p.project_dir).await?;
-    let ingested = windmill_common::dbt_manifest::ingest_manifest(&manifest, resource_path);
+    let selected = resolve_selection(p, descriptor).await?;
+    let ingested =
+        windmill_common::dbt_manifest::ingest_manifest(&manifest, resource_path, selected.as_ref());
     let mut tx = db.begin().await?;
     windmill_common::dbt_manifest::replace_dbt_manifest(
         &mut tx,
@@ -1153,6 +1161,61 @@ async fn ingest_from_run(
     .await?;
     tx.commit().await?;
     Ok(())
+}
+
+/// The node set the descriptor's selection resolves to, or `None` when it
+/// selects everything.
+///
+/// Resolved by asking dbt (`dbt ls`) rather than by interpreting the selector
+/// string: the grammar is dbt's, it is large, and reimplementing it is a
+/// standing source of divergence — the mistake Cosmos's manifest path had to
+/// make and keeps paying for.
+async fn resolve_selection(
+    p: &PreparedProject,
+    descriptor: &DbtDescriptor,
+) -> error::Result<Option<std::collections::HashSet<String>>> {
+    if descriptor.select.is_empty()
+        && descriptor.exclude.is_empty()
+        && descriptor.selector.is_none()
+    {
+        return Ok(None);
+    }
+    let mut cmd = dbt_command(p, &["ls"]);
+    cmd.args(["--resource-type", "all", "--output", "json", "--quiet"]);
+    for x in &descriptor.select {
+        cmd.args(["--select", x]);
+    }
+    for x in &descriptor.exclude {
+        cmd.args(["--exclude", x]);
+    }
+    if let Some(sel) = descriptor.selector.as_deref() {
+        cmd.args(["--selector", sel]);
+    }
+    let out = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .map_err(|e| Error::internal_err(format!("dbt ls could not be started: {e}")))?;
+    if !out.status.success() {
+        return Err(Error::ExecutionErr(format!(
+            "dbt ls failed to resolve the selection: {}",
+            String::from_utf8_lossy(&out.stderr)
+        )));
+    }
+    let mut set = std::collections::HashSet::new();
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let line = line.trim();
+        if !line.starts_with('{') {
+            continue;
+        }
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+            if let Some(id) = v.get("unique_id").and_then(|x| x.as_str()) {
+                set.insert(id.to_string());
+            }
+        }
+    }
+    Ok(Some(set))
 }
 
 pub async fn read_manifest(

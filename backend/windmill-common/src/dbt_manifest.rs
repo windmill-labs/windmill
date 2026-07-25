@@ -189,7 +189,18 @@ fn asset_path_for(node: &ManifestNode, resource_path: &str) -> Option<String> {
 ///
 /// `resource_path` is the Windmill path of the warehouse resource the profile
 /// target points at, e.g. `f/prod/snowflake`.
-pub fn ingest_manifest(manifest: &Manifest, resource_path: &str) -> IngestedManifest {
+/// `selected` is the node set the descriptor's `select`/`exclude` resolves to,
+/// as reported by dbt itself (`dbt ls`). `None` means the whole project. It
+/// scopes what this script is recorded as owning: a script that builds only
+/// `tag:nightly` must not register as the producer of every other model, or the
+/// cascade fires downstream of models it never touched. Running several scripts
+/// against one repo with different selections is the intended shape
+/// (docs/dbt-runtime.md, decision 6), and this is what makes them compose.
+pub fn ingest_manifest(
+    manifest: &Manifest,
+    resource_path: &str,
+    selected: Option<&std::collections::HashSet<String>>,
+) -> IngestedManifest {
     let mut out = IngestedManifest {
         dbt_version: manifest.metadata.dbt_version.clone(),
         adapter_type: manifest.metadata.adapter_type.clone(),
@@ -198,6 +209,14 @@ pub fn ingest_manifest(manifest: &Manifest, resource_path: &str) -> IngestedMani
     let mut assets: HashMap<(AssetKind, String), AssetUsageAccessType> = HashMap::new();
 
     for (unique_id, node) in manifest.nodes.iter().chain(manifest.sources.iter()) {
+        // Sources are inputs of whatever was selected, so dbt does not list
+        // them as selected nodes; keep them, they are how the graph knows what
+        // the project reads.
+        if node.resource_type != "source"
+            && selected.is_some_and(|sel| !sel.contains(unique_id.as_str()))
+        {
+            continue;
+        }
         let asset_path = asset_path_for(node, resource_path);
         let materialized = node
             .config
@@ -266,9 +285,16 @@ pub fn ingest_manifest(manifest: &Manifest, resource_path: &str) -> IngestedMani
 
     out.nodes.sort_by(|a, b| a.unique_id.cmp(&b.unique_id));
 
+    let kept: std::collections::HashSet<&str> =
+        out.nodes.iter().map(|n| n.unique_id.as_str()).collect();
     for (child, parents) in &manifest.parent_map {
+        if !kept.contains(child.as_str()) {
+            continue;
+        }
         for parent in parents {
-            out.edges.push((parent.clone(), child.clone()));
+            if kept.contains(parent.as_str()) {
+                out.edges.push((parent.clone(), child.clone()));
+            }
         }
     }
     out.edges.sort();
@@ -428,7 +454,7 @@ mod tests {
 
     fn ingested() -> IngestedManifest {
         let m: Manifest = serde_json::from_str(MANIFEST).unwrap();
-        ingest_manifest(&m, "f/prod/wh")
+        ingest_manifest(&m, "f/prod/wh", None)
     }
 
     fn node<'a>(i: &'a IngestedManifest, id: &str) -> &'a IngestedNode {
@@ -559,6 +585,37 @@ mod tests {
                     Some(AssetUsageAccessType::R)
                 ),
             ]
+        );
+    }
+
+    // A script that builds a subset must not register as the producer of the
+    // whole project, or the cascade fires downstream of models it never ran.
+    #[test]
+    fn selection_scopes_what_the_script_owns() {
+        let m: Manifest = serde_json::from_str(MANIFEST).unwrap();
+        let sel: std::collections::HashSet<String> =
+            ["model.jaffle_shop.orders_daily".to_string()].into_iter().collect();
+        let i = ingest_manifest(&m, "f/prod/wh", Some(&sel));
+        let owned: Vec<&str> = i
+            .assets
+            .iter()
+            .filter(|a| a.access_type == Some(AssetUsageAccessType::W))
+            .map(|a| a.path.as_str())
+            .collect();
+        assert_eq!(owned, vec!["f/prod/wh/jaffle_dbt/orders_daily"]);
+        // Its source is still read: that is how the graph knows the input.
+        assert!(i
+            .assets
+            .iter()
+            .any(|a| a.path == "f/prod/wh/jaffle_raw/raw_orders"
+                && a.access_type == Some(AssetUsageAccessType::R)));
+        // Edges to nodes this script does not own are dropped with them.
+        assert_eq!(
+            i.edges,
+            vec![(
+                "source.jaffle_shop.jaffle_raw.raw_orders".to_string(),
+                "model.jaffle_shop.orders_daily".to_string()
+            )]
         );
     }
 
