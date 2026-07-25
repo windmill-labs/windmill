@@ -739,7 +739,9 @@
 			</div>
 			<div class="flex-1 min-h-0">
 				{#if recordDrawer}
-					<RawAppRecordSession workspace={$workspaceStore ?? ''} path={savedApp?.path ?? appPath} />
+					<!-- opWorkspace, not the selected one: a session edits an app that may
+				     live in another workspace, and recording must load and run it there. -->
+					<RawAppRecordSession workspace={opWorkspace ?? ''} path={savedApp?.path ?? appPath} />
 				{/if}
 			</div>
 		</div>

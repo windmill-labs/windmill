@@ -35,6 +35,12 @@ import {
 	type GeneratedMigration
 } from './projectMigrations'
 import type { Kind } from '$lib/utils_deployable'
+import {
+	canRecord,
+	canRecordSession,
+	mergeAppTableOrigin,
+	type DeployItem
+} from './deployToHubItems'
 import type { AssetGraphResponse } from '$lib/components/assets/AssetGraph/types'
 import {
 	CASCADE_JOB_TIMEOUT_MS,
@@ -54,44 +60,14 @@ import {
 } from '../triggers/workspaceTriggersList'
 
 export type Phase = 'predeploy' | 'draft' | 'under_review' | 'live'
-export type RecStatus = 'none' | 'recorded'
-export interface DeployItem {
-	key: string
-	path: string
-	kind: Kind
-	summary?: string
-	rec: RecStatus
-	[k: string]: unknown
-}
-
-export const canRecord = (k: Kind) => k === 'script' || k === 'flow'
-// A raw app has no run to capture: its demo is a recorded session of someone
-// using it, driven in the record drawer and replayed on the Hub page. Legacy raw
-// apps live only in the `raw_app` table, and the record surface loads the app
-// (bundle secret, runnables) through AppService, so it can only offer the action
-// for apps stored in the `app` table.
-export const canRecordSession = (it: DeployItem): boolean =>
-	it.kind === 'raw_app' && it.appTable === true
-
-// Hub rehydration carries draft membership, not where an app is stored. Copy the
-// app-table origin from the loaded workspace items onto matching draft items so a
-// reopened draft still knows which raw apps can be recorded. Returns the original
-// array unchanged when nothing needs merging (stable reference).
-export function mergeAppTableOrigin(
-	draftItems: DeployItem[],
-	workspaceItems: DeployItem[]
-): DeployItem[] {
-	if (draftItems.length === 0 || workspaceItems.length === 0) return draftItems
-	const byKey = new Map(workspaceItems.map((w) => [w.key, w]))
-	let changed = false
-	const merged = draftItems.map((d) => {
-		const w = byKey.get(d.key)
-		if (!w || w.appTable === d.appTable) return d
-		changed = true
-		return { ...d, appTable: w.appTable }
-	})
-	return changed ? merged : draftItems
-}
+// Re-exported so the publish-flow components keep one import site.
+export {
+	canRecord,
+	canRecordSession,
+	mergeAppTableOrigin,
+	type DeployItem,
+	type RecStatus
+} from './deployToHubItems'
 export function sanitizeSlug(s: string): string {
 	return s
 		.toLowerCase()
