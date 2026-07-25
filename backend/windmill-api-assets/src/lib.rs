@@ -629,6 +629,55 @@ struct GraphAssetNode {
     // `AssetGraphAssetNode.derived_from`.
     #[serde(skip_serializing_if = "Option::is_none")]
     derived_from: Option<String>,
+    // Set on a `table://` asset produced (or, for a source, consumed) by a dbt
+    // script: which dbt node it is and what dbt says about it. A dbt project is
+    // one runnable node with many model assets, so per-model metadata belongs
+    // here rather than on the script (docs/dbt-runtime.md, decision 15).
+    // Lockstep with TS `AssetGraphAssetNode.dbt`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dbt: Option<DbtAssetProvenance>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+struct DbtAssetProvenance {
+    unique_id: String,
+    producer_path: String,
+    // `model` | `snapshot` | `seed` | `source` — a source is read, not written,
+    // and the canvas distinguishes them.
+    resource_type: String,
+    // dbt's own word (`table`, `view`, `incremental`, `snapshot`), kept because
+    // `view` and `ephemeral` have no Windmill write-strategy analogue.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    materialized: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    materialize_strategy: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    tags: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    data_tests: Vec<DbtDataTest>,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq)]
+struct DbtDataTest {
+    // `unique` | `not_null` | `accepted_values` | `relationships` — the four
+    // generic tests, one-for-one with the `// data_test` kinds — or a package
+    // test's namespaced name (`dbt_utils.accepted_range`).
+    kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    column: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    args: Option<serde_json::Value>,
+    // Lowercased. dbt's own severity decides whether a failure fails the run,
+    // so the canvas shows it rather than assuming every test is blocking.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    severity: Option<String>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+struct DbtRunnableProvenance {
+    model_count: usize,
 }
 
 #[derive(Serialize, Debug)]
@@ -691,6 +740,11 @@ struct GraphRunnableNode {
     // signature list. Lockstep with TS `AssetGraphRunnableNode.macros`.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     macros: Vec<MacroInfo>,
+    // Set on a `ScriptLang::Dbt` script: it owns a whole dbt project, so the
+    // node says how many models it materializes rather than pretending to be a
+    // single-output script. Lockstep with TS `AssetGraphRunnableNode.dbt`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    dbt: Option<DbtRunnableProvenance>,
 }
 
 // One macro of a `// macros` library, as surfaced on its graph node.
@@ -1066,6 +1120,24 @@ async fn asset_graph(
     .fetch_all(&mut *tx)
     .await?;
 
+    // dbt provenance. A dbt script is one runnable node whose models are many
+    // `table://` asset nodes (decision 15), so the per-model metadata has to
+    // hang off the assets, not off the script. Fetched unfiltered for the same
+    // reason the macro definitions are: an out-of-folder dbt script still has
+    // to explain the models an in-scope consumer reads.
+    let dbt_rows = sqlx::query!(
+        r#"SELECT script_path AS "script_path!", unique_id AS "unique_id!",
+                  resource_type AS "resource_type!", name AS "name!", asset_path,
+                  materialized, materialize_strategy, tags AS "tags!", description,
+                  test_kind, test_column, test_args, severity, attached_node
+           FROM dbt_node
+           WHERE workspace_id = $1
+           ORDER BY script_path, unique_id"#,
+        &w_id,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
     tx.commit().await?;
 
     // Parse each pipeline member's body once into its badge annotations, keyed
@@ -1110,6 +1182,67 @@ async fn asset_graph(
             (r.path.clone(), lineage)
         })
         .collect();
+    // Model → its provenance, and script → how many models it owns. Tests are
+    // folded onto the model they are attached to, which is what makes dbt's
+    // four generic tests render through the existing data-test node.
+    let mut dbt_by_asset_path: std::collections::HashMap<String, DbtAssetProvenance> =
+        Default::default();
+    let mut dbt_model_count: std::collections::HashMap<String, usize> = Default::default();
+    let dbt_asset_path_by_unique_id: std::collections::HashMap<&str, &str> = dbt_rows
+        .iter()
+        .filter_map(|r| Some((r.unique_id.as_str(), r.asset_path.as_deref()?)))
+        .collect();
+    for r in &dbt_rows {
+        let Some(asset_path) = r.asset_path.as_deref() else {
+            continue;
+        };
+        if r.resource_type != "source" {
+            *dbt_model_count.entry(r.script_path.clone()).or_default() += 1;
+        }
+        dbt_by_asset_path.insert(
+            asset_path.to_string(),
+            DbtAssetProvenance {
+                unique_id: r.unique_id.clone(),
+                producer_path: r.script_path.clone(),
+                resource_type: r.resource_type.clone(),
+                materialized: r.materialized.clone(),
+                materialize_strategy: r.materialize_strategy.clone(),
+                tags: r.tags.clone(),
+                description: r.description.clone(),
+                data_tests: vec![],
+            },
+        );
+    }
+    // Tests fold onto the model they assert, which is what makes dbt's four
+    // generic tests render through the existing data-test node. A separate pass
+    // because rows arrive in `unique_id` order, so a test can precede its model.
+    for r in &dbt_rows {
+        if r.resource_type != "test" {
+            continue;
+        }
+        let Some(target) = r
+            .attached_node
+            .as_deref()
+            .and_then(|n| dbt_asset_path_by_unique_id.get(n))
+        else {
+            continue;
+        };
+        let Some(entry) = dbt_by_asset_path.get_mut(*target) else {
+            continue;
+        };
+        let test = DbtDataTest {
+            kind: r.test_kind.clone().unwrap_or_else(|| r.name.clone()),
+            column: r.test_column.clone(),
+            args: r.test_args.clone(),
+            // dbt-core 1.x echoes the author's casing, 2.x uppercases; fold so
+            // the badge reads the same whichever engine deployed the script.
+            severity: r.severity.as_deref().map(|s| s.to_ascii_lowercase()),
+        };
+        if !entry.data_tests.contains(&test) {
+            entry.data_tests.push(test);
+        }
+    }
+
     let last_success_by_path: std::collections::HashMap<String, chrono::DateTime<chrono::Utc>> =
         last_success_rows
             .into_iter()
@@ -1491,6 +1624,9 @@ async fn asset_graph(
                 })
                 .flatten(),
             derived_from: scd2_current_base.get(&(kind, path.clone())).cloned(),
+            dbt: (kind == AssetKind::Table)
+                .then(|| dbt_by_asset_path.get(&path).cloned())
+                .flatten(),
             kind,
             path,
         })
@@ -1562,6 +1698,10 @@ async fn asset_graph(
                     .flatten()
                     .cloned()
                     .unwrap_or_default(),
+                dbt: (usage_kind == AssetUsageKind::Script)
+                    .then(|| dbt_model_count.get(&path))
+                    .flatten()
+                    .map(|n| DbtRunnableProvenance { model_count: *n }),
                 path,
                 usage_kind,
             }

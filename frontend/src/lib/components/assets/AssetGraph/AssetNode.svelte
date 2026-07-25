@@ -21,6 +21,8 @@
 	import { sendUserToast } from '$lib/utils'
 	import { PIPELINE_LANGUAGES } from './pipelineLanguages'
 	import type { PipelineOutputKind } from './pipelineTemplates'
+	import type { DbtAssetProvenance } from './types'
+	import DbtIcon from '$lib/components/icons/DbtIcon.svelte'
 
 	// Shape used for both the data prop and the run callback. Drafts carry
 	// `content` / `language` so the page-level run handler can dispatch to
@@ -44,6 +46,9 @@
 			// "current view of <dim>" marker so it reads as a derived node, not an
 			// unrelated table.
 			derived_from?: string
+			// dbt provenance when this warehouse table is a dbt node: which model
+			// it is, how dbt materializes it, its tags and its generic tests.
+			dbt?: DbtAssetProvenance
 			onAddScript?: (
 				asset: { kind: AssetKind; path: string },
 				language: ScriptLang,
@@ -136,6 +141,27 @@
 	// Data-test outcome badge. Only guarded assets show it. The write's fate on a
 	// failing test differs by edition — surface which one applies so a shared
 	// parent/fork table name can't hide a silently-published bad version.
+	// dbt badge. `materialized` is dbt's own word rather than the Windmill
+	// strategy because `view` and `ephemeral` have no strategy, and showing the
+	// dbt word keeps the node legible to someone reading their own project.
+	let dbtLabel = $derived(data.dbt?.materialized ?? data.dbt?.resource_type)
+	let dbtTitle = $derived.by(() => {
+		const d = data.dbt
+		if (!d) return ''
+		const lines = [`dbt ${d.resource_type} ${d.unique_id.split('.').pop()} (${d.producer_path})`]
+		if (d.materialized) {
+			const strategy = d.materialize_strategy ? ` -> ${d.materialize_strategy}` : ''
+			lines.push(`materialized: ${d.materialized}${strategy}`)
+		}
+		if (d.tags?.length) lines.push(`tags: ${d.tags.join(', ')}`)
+		for (const t of d.data_tests ?? []) {
+			const col = t.column ? ` on ${t.column}` : ''
+			lines.push(`test ${t.kind}${col}${t.severity ? ` [${t.severity}]` : ''}`)
+		}
+		if (d.description) lines.push(d.description)
+		return lines.join('\n')
+	})
+
 	let isEE = $derived(!!$enterpriseLicense)
 	let showGuardBadge = $derived(data.dataTestGuarded === true)
 	let guardFailed = $derived(data.producerFailed === true)
@@ -228,6 +254,21 @@
 		<!-- SCD2 companion marker: this node is the `<dim>_current` "latest row
 		     per key" view its producer maintains alongside the base dimension.
 		     Icon-only (the pill already truncates); the title names the base. -->
+		{#if data.dbt}
+			<!-- dbt chip: names the materialization dbt declares, plus a test count
+			     when the model carries generic tests. Orange keeps it visually
+			     separate from the fork/SCD2 chips, which describe Windmill state. -->
+			<span
+				class="shrink-0 mr-1.5 flex items-center gap-0.5 rounded px-1 py-px text-3xs font-semibold tracking-wide bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 border border-orange-300 dark:border-orange-700"
+				title={dbtTitle}
+			>
+				<DbtIcon width={9} height={9} />
+				{dbtLabel}
+				{#if data.dbt.data_tests?.length}
+					<span class="opacity-70">&middot; {data.dbt.data_tests.length}T</span>
+				{/if}
+			</span>
+		{/if}
 		{#if data.derived_from}
 			<span
 				class="shrink-0 mr-1.5 text-violet-600 dark:text-violet-400"

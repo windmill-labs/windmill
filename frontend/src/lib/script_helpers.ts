@@ -1345,6 +1345,34 @@ main <- function(
     return(toJSON(result, auto_unbox = TRUE))
 }
 `
+
+// A dbt script is a pointer to a dbt project in a git repo plus its run
+// configuration; the models themselves are versioned by the repo, not by
+// Windmill. Field names track dbt's and astronomer-cosmos's vocabulary.
+const DBT_INIT_CODE = `# The git_repository resource holding the dbt project
+repo: $res:u/user/my_dbt_repo
+# Subdirectory containing dbt_project.yml (omit if it is at the repo root)
+# project: transform
+# Tag, branch or commit — pinned by default. Use "latest" to resolve HEAD per run.
+ref: main
+# dbt-core-1x (default) | dbt-core-2x | fusion
+engine: dbt-core-1x
+profile:
+  # Warehouse resource rendered into profiles.yml. Also the <resource> component
+  # of every table:// asset this project produces.
+  resource: $res:u/user/my_warehouse
+  target: prod
+  # Alternatively, keep the project's own file:
+  # profiles_yml: profiles.yml
+# Passed to dbt verbatim — this is dbt's selector grammar, not Windmill's
+select: []
+exclude: []
+# build (models and tests interleaved) | after_all | none
+test_behavior: build
+vars: {}
+threads: 4
+full_refresh: false
+`
 // for related places search: ADD_NEW_LANG
 export const INITIAL_CODE = {
 	bun: {
@@ -1442,6 +1470,9 @@ export const INITIAL_CODE = {
 	},
 	rlang: {
 		script: R_INIT_CODE
+	},
+	dbt: {
+		script: DBT_INIT_CODE
 	},
 	claudesandbox: {
 		script: CLAUDE_SANDBOX_INIT_CODE
@@ -1610,6 +1641,8 @@ export function initialCode(
 		return INITIAL_CODE.ruby.script
 	} else if (language == 'rlang') {
 		return INITIAL_CODE.rlang.script
+	} else if (language == 'dbt') {
+		return INITIAL_CODE.dbt.script
 		// for related places search: ADD_NEW_LANG
 	} else if (language == 'bun' || language == 'bunnative') {
 		if (subkind === 'claudesandbox') {

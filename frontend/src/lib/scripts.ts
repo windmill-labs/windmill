@@ -63,6 +63,9 @@ export function scriptLangToEditorLang(
 		return 'java'
 	} else if (lang == 'rlang') {
 		return 'r'
+	} else if (lang == 'dbt') {
+		// the descriptor is YAML; the dbt project itself lives in a git repo
+		return 'yaml'
 		// for related places search: ADD_NEW_LANG
 	} else if (lang == undefined) {
 		return 'typescript'
@@ -170,7 +173,8 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string]
 	['java', 'Java'],
 	['duckdb', 'DuckDB'],
 	['ruby', 'Ruby'],
-	['rlang', 'R']
+	['rlang', 'R'],
+	['dbt', 'dbt']
 	// for related places search: ADD_NEW_LANG
 ]
 export function processLangs(selected: string | undefined, langs: string[]): string[] {
@@ -180,7 +184,7 @@ export function processLangs(selected: string | undefined, langs: string[]): str
 		let ls = langs.filter((lang) => lang !== 'nativets')
 
 		//those languages are newer and may not be in the saved list
-		let nl = ['bunnative', 'rust', 'ansible', 'csharp', 'nu', 'java', 'duckdb', 'ruby', 'rlang']
+		let nl = ['bunnative', 'rust', 'ansible', 'csharp', 'nu', 'java', 'duckdb', 'ruby', 'rlang', 'dbt']
 		// for related places search: ADD_NEW_LANG
 		nl.forEach((lang) => {
 			if (!ls.includes(lang)) {

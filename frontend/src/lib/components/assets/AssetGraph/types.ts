@@ -16,6 +16,35 @@ export interface AssetGraphAssetNode {
 	// the `_current` node; lets the canvas mark it as a derived "current view"
 	// rather than an unrelated table. Lockstep with Rust `GraphAssetNode`.
 	derived_from?: string
+	// Set on a `table://` asset a dbt project produces (or, for a source,
+	// consumes). A dbt script is ONE runnable node with many model assets, so
+	// per-model metadata hangs off the asset, not off the script. Lockstep with
+	// Rust `GraphAssetNode.dbt`.
+	dbt?: DbtAssetProvenance
+}
+
+export interface DbtAssetProvenance {
+	unique_id: string
+	producer_path: string
+	resource_type: 'model' | 'snapshot' | 'seed' | 'source' | (string & {})
+	// dbt's own word (`table`, `view`, `incremental`, `snapshot`). Kept because
+	// `view` and `ephemeral` have no Windmill write-strategy analogue.
+	materialized?: string
+	materialize_strategy?: 'replace' | 'append' | 'merge' | 'scd2'
+	tags?: string[]
+	description?: string
+	data_tests?: DbtDataTest[]
+}
+
+export interface DbtDataTest {
+	// The four dbt generic tests map one-for-one onto the `// data_test` kinds;
+	// a package test keeps its namespaced name (`dbt_utils.accepted_range`).
+	kind: string
+	column?: string
+	args?: unknown
+	// Lowercased. dbt's own severity decides whether a failure fails the run,
+	// so the badge shows it rather than assuming every test is blocking.
+	severity?: string
 }
 
 export interface AssetGraphRunnableNode {
@@ -73,6 +102,10 @@ export interface AssetGraphRunnableNode {
 	// drives the "defines N macros" badge and the details-pane signature
 	// list. `params` is the verbatim parameter list.
 	macros?: { name: string; params: string; is_table: boolean }[]
+	// Set on a `ScriptLang::Dbt` script: it owns a whole dbt project, so the node
+	// says how many models it materializes rather than reading as a single-output
+	// script. Lockstep with Rust `GraphRunnableNode.dbt`.
+	dbt?: { model_count: number }
 	// Synthesized by the page from a local draft; the script doesn't exist
 	// in the DB yet. Drives a dashed/lower-opacity rendering to mirror how
 	// unsaved triggers are styled — visually distinct from persisted nodes.

@@ -188,7 +188,8 @@
 		resource: '$res:',
 		ducklake: 'ducklake://',
 		datatable: 'datatable://',
-		volume: 'volume://'
+		volume: 'volume://',
+		table: 'table://'
 	}
 
 	// Path-input split for the insert menu: a read-only `f/<folder>/` chip

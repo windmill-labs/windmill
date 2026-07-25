@@ -28,6 +28,8 @@ export function formatAsset(asset: Asset): string {
 			return `datatable://${asset.path}`
 		case 'volume':
 			return `volume://${asset.path}`
+		case 'table':
+			return `table://${asset.path}`
 	}
 	return 'unknown'
 }
@@ -93,6 +95,8 @@ export function formatAssetKind(asset: {
 			return 'Data table'
 		case 'volume':
 			return 'Volume'
+		case 'table':
+			return 'Warehouse table'
 	}
 }
 

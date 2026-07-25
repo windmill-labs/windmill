@@ -677,6 +677,7 @@ components:
             - ruby
             - rlang
             - duckdb
+            - dbt
             # for related places search: ADD_NEW_LANG
         path:
           type: string
@@ -724,6 +725,7 @@ components:
                   - ducklake
                   - datatable
                   - volume
+                  - table
               access_type:
                 type: string
                 nullable: true

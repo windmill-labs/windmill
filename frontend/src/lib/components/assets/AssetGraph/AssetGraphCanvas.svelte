@@ -395,6 +395,7 @@
 					path: a.path,
 					fork_materialization: a.fork_materialization,
 					derived_from: a.derived_from,
+					dbt: a.dbt,
 					onAddScript: onAddScriptForAsset,
 					pathPrefix,
 					defaultPathSuffix,
@@ -475,6 +476,7 @@
 					tag: r.tag,
 					retry: r.retry,
 					macros: r.macros,
+					dbt: r.dbt,
 					unsaved: r.unsaved ?? false,
 					// Same dispatch the asset node uses, only routed when the
 					// runnable is a script (the page handler short-circuits

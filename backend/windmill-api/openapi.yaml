@@ -14456,6 +14456,7 @@ paths:
                         - ducklake
                         - datatable
                         - volume
+                        - table
                     asset_path:
                       type: string
                     outcome:
@@ -14546,6 +14547,7 @@ paths:
                         - ducklake
                         - datatable
                         - volume
+                        - table
                     asset_path:
                       type: string
                     created_at:
@@ -26677,6 +26679,7 @@ components:
           rlang,
           duckdb,
           bunnative,
+          dbt,
           # for related places search: ADD_NEW_LANG
         ]
 
@@ -31953,6 +31956,7 @@ components:
         - ducklake
         - datatable
         - volume
+        - table
     MaterializedPartition:
       type: object
       required: [asset_kind, asset_path, partition, status, materialized_at]
