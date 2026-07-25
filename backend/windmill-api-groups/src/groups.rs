@@ -234,6 +234,11 @@ async fn create_group(
     Path(w_id): Path<String>,
     Json(ng): Json<NewGroup>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot create groups for security reasons".to_string(),
+        ));
+    }
     crate::check_demo_workspace_restriction(&authed, &w_id, "Group creation")?;
     let mut tx = user_db.begin(&authed).await?;
 
@@ -629,6 +634,11 @@ async fn delete_group(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot delete groups for security reasons".to_string(),
+        ));
+    }
     let mut tx = user_db.begin(&authed).await?;
 
     if name == "all" {
@@ -692,6 +702,11 @@ async fn update_group(
     Path((w_id, name)): Path<(String, String)>,
     Json(eg): Json<EditGroup>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot update groups for security reasons".to_string(),
+        ));
+    }
     let mut tx = user_db.begin(&authed).await?;
     if !authed.is_admin {
         require_is_owner(&name, &authed.username, &authed.groups, &w_id, &db).await?;
@@ -752,6 +767,11 @@ async fn add_user(
     Path((w_id, name)): Path<(String, String)>,
     Json(Username { username: user_username }): Json<Username>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot add users to groups for security reasons".to_string(),
+        ));
+    }
     let mut tx = user_db.begin(&authed).await?;
     if !authed.is_admin {
         require_is_owner(&name, &authed.username, &authed.groups, &w_id, &db).await?;
@@ -1147,6 +1167,11 @@ async fn remove_user(
     Path((w_id, name)): Path<(String, String)>,
     Json(Username { username: user_username }): Json<Username>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot remove users from groups for security reasons".to_string(),
+        ));
+    }
     let mut tx = user_db.begin(&authed).await?;
     if !authed.is_admin {
         require_is_owner(&name, &authed.username, &authed.groups, &w_id, &db).await?;

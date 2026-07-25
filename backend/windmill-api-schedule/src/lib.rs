@@ -233,6 +233,11 @@ async fn create_schedule(
     Path(w_id): Path<String>,
     Json(ns): Json<NewSchedule>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot create schedules for security reasons".to_string(),
+        ));
+    }
     check_scopes(&authed, || format!("schedules:write:{}", ns.path))?;
     reject_reserved_schedule_path(&ns.path)?;
 
@@ -482,6 +487,11 @@ async fn edit_schedule(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(es): Json<EditSchedule>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot update schedules for security reasons".to_string(),
+        ));
+    }
     let path = path.to_path();
     check_scopes(&authed, || format!("schedules:write:{}", path))?;
     reject_reserved_schedule_path(path)?;
@@ -1222,6 +1232,11 @@ async fn delete_schedule(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot delete schedules for security reasons".to_string(),
+        ));
+    }
     let path = path.to_path();
     check_scopes(&authed, || format!("schedules:write:{}", path))?;
     reject_reserved_schedule_path(path)?;

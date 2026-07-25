@@ -473,6 +473,11 @@ async fn create_trigger<T: TriggerCrud>(
     Path(workspace_id): Path<String>,
     Json(mut new_trigger): Json<TriggerData<T::TriggerConfigRequest>>,
 ) -> Result<(StatusCode, String)> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot create triggers for security reasons".to_string(),
+        ));
+    }
     check_scopes(&authed, || {
         format!(
             "{}:write:{}",
@@ -719,6 +724,11 @@ async fn update_trigger<T: TriggerCrud>(
     Path((workspace_id, path)): Path<(String, StripPath)>,
     Json(mut edit_trigger): Json<TriggerData<T::TriggerConfigRequest>>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot update triggers for security reasons".to_string(),
+        ));
+    }
     let path = path.to_path();
     // A scoped token must be allowed on both the existing path (URL) and the
     // new path (body); checking only the latter would let it move a trigger it
@@ -861,6 +871,11 @@ async fn delete_trigger<T: TriggerCrud>(
     Extension(db): Extension<DB>,
     Path((workspace_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot delete triggers for security reasons".to_string(),
+        ));
+    }
     let path = path.to_path();
     check_scopes(&authed, || {
         format!("{}:write:{}", T::scope_domain_name(), &path)

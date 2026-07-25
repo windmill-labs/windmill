@@ -1022,6 +1022,11 @@ async fn create_resource(
     Query(q): Query<CreateResourceQuery>,
     Json(resource): Json<CreateResource>,
 ) -> Result<(StatusCode, String)> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot create resources for security reasons".to_string(),
+        ));
+    }
     check_scopes(&authed, || format!("resources:write:{}", resource.path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -1197,6 +1202,11 @@ async fn delete_resource(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot delete resources for security reasons".to_string(),
+        ));
+    }
     let path = path.to_path();
 
     check_scopes(&authed, || format!("resources:write:{}", path))?;
@@ -1502,6 +1512,11 @@ async fn delete_resources_bulk(
     Path(w_id): Path<String>,
     Json(request): Json<BulkDeleteRequest>,
 ) -> JsonResult<Vec<String>> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot delete resources for security reasons".to_string(),
+        ));
+    }
     for path in &request.paths {
         check_scopes(&authed, || format!("resources:write:{}", path))?;
     }
@@ -1684,6 +1699,11 @@ async fn update_resource(
 ) -> Result<String> {
     use sql_builder::prelude::*;
 
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot update resources for security reasons".to_string(),
+        ));
+    }
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:write:{}", path))?;
     // A rename moves the resource (and its linked variable) to ns.path, so the
@@ -1959,6 +1979,11 @@ async fn update_resource_value(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(nv): Json<UpdateResource>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot update resources for security reasons".to_string(),
+        ));
+    }
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:write:{}", path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -2149,6 +2174,11 @@ async fn create_resource_type(
     Path(w_id): Path<String>,
     Json(resource_type): Json<CreateResourceType>,
 ) -> Result<(StatusCode, String)> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot create resource types for security reasons".to_string(),
+        ));
+    }
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
@@ -2255,6 +2285,11 @@ async fn delete_resource_type(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot delete resource types for security reasons".to_string(),
+        ));
+    }
     require_admin(authed.is_admin, &authed.username)?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -2321,6 +2356,12 @@ async fn update_resource_type(
     Json(ns): Json<EditResourceType>,
 ) -> Result<String> {
     use sql_builder::prelude::*;
+
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot update resource types for security reasons".to_string(),
+        ));
+    }
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),

@@ -243,6 +243,11 @@ async fn create_folder(
     Path(w_id): Path<String>,
     Json(mut ng): Json<NewFolder>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot create folders for security reasons".to_string(),
+        ));
+    }
     crate::check_demo_workspace_restriction(&authed, &w_id, "Folder creation")?;
     if let Some(labels) = ng.labels.as_mut() {
         dedup_labels(labels);
@@ -406,6 +411,12 @@ async fn update_folder(
     Json(mut ng): Json<UpdateFolder>,
 ) -> Result<String> {
     use sql_builder::prelude::*;
+
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot update folders for security reasons".to_string(),
+        ));
+    }
 
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -757,6 +768,11 @@ async fn delete_folder(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot delete folders for security reasons".to_string(),
+        ));
+    }
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
@@ -827,6 +843,11 @@ async fn add_owner(
     Path((w_id, name)): Path<(String, String)>,
     Json(Owner { owner, .. }): Json<Owner>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot add owners to folders for security reasons".to_string(),
+        ));
+    }
     crate::check_demo_workspace_restriction(&authed, &w_id, "Sharing")?;
     let mut tx = user_db.begin(&authed).await?;
 
@@ -892,6 +913,11 @@ async fn remove_owner(
     Path((w_id, name)): Path<(String, String)>,
     Json(Owner { owner, write }): Json<Owner>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot remove owners from folders for security reasons".to_string(),
+        ));
+    }
     // remove_owner with a `write` value is a grant path: it jsonb_set's the owner's
     // permission level into extra_perms (only write=None is a pure revoke), so the
     // demo-workspace sharing restriction must apply when a level is being set.

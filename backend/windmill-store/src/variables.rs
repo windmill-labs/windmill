@@ -574,6 +574,11 @@ async fn create_variable(
     Query(AlreadyEncrypted { already_encrypted }): Query<AlreadyEncrypted>,
     Json(variable): Json<CreateVariable>,
 ) -> Result<(StatusCode, String)> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot create variables for security reasons".to_string(),
+        ));
+    }
     check_scopes(&authed, || format!("variables:write:{}", variable.path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -707,6 +712,11 @@ async fn delete_variable(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot delete variables for security reasons".to_string(),
+        ));
+    }
     let path = path.to_path();
 
     check_scopes(&authed, || format!("variables:write:{}", path))?;
@@ -880,6 +890,11 @@ async fn delete_variables_bulk(
     Path(w_id): Path<String>,
     Json(request): Json<BulkDeleteRequest>,
 ) -> JsonResult<Vec<String>> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot delete variables for security reasons".to_string(),
+        ));
+    }
     for path in &request.paths {
         check_scopes(&authed, || format!("variables:write:{}", path))?;
     }
@@ -1057,6 +1072,12 @@ async fn update_variable(
     Json(ns): Json<EditVariable>,
 ) -> Result<String> {
     use sql_builder::prelude::*;
+
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot update variables for security reasons".to_string(),
+        ));
+    }
 
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
