@@ -48,7 +48,9 @@ describe('serializeDocument redaction', () => {
 	})
 
 	it('redacts a marked document root, and keeps only layout attributes', () => {
-		const doc = docFrom(`<p>everything here is private</p>`)
+		const doc = docFrom(
+			`<style>.theme-dark { color: white }</style><p>everything here is private</p>`
+		)
 		doc.documentElement.setAttribute('data-wm-no-record', '')
 		doc.documentElement.setAttribute('class', 'theme-dark')
 		doc.documentElement.setAttribute('cite', 'https://host/private-source')
@@ -61,7 +63,8 @@ describe('serializeDocument redaction', () => {
 
 	it('keeps no attribute that could carry content, listed or not', () => {
 		const doc = docFrom(
-			`<iframe data-wm-no-record srcdoc="<p>embedded secret</p>" data-anything="future secret"` +
+			`<style>.frame { border: 1px solid }</style>` +
+				`<iframe data-wm-no-record srcdoc="<p>embedded secret</p>" data-anything="future secret"` +
 				` cite="/cited" style="--code: salary-92000" class="frame"></iframe>`
 		)
 		const html = serializeDocument(doc)
@@ -69,7 +72,21 @@ describe('serializeDocument redaction', () => {
 		expect(html).not.toContain('future secret')
 		expect(html).not.toContain('/cited')
 		expect(html).not.toContain('salary-92000')
+		// The layout-bearing class survives: the snapshot's own CSS selects on it.
 		expect(html).toContain('class="frame"')
+	})
+
+	it('keeps only the class and id tokens the snapshot styles', () => {
+		// `class` and `id` stay on a redacted element so its box keeps its shape,
+		// but the values are the app's to choose and can name what the marker hides.
+		const doc = docFrom(
+			`<style>.card { padding: 4px }</style>` +
+				`<div data-wm-no-record class="card customer-acme-secret" id="salary-92000">x</div>`
+		)
+		const html = serializeDocument(doc)
+		expect(html).toContain('class="card"')
+		expect(html).not.toContain('customer-acme-secret')
+		expect(html).not.toContain('salary-92000')
 	})
 
 	it('withholds even the state of a redacted control', () => {
@@ -153,9 +170,9 @@ describe('serializeDocument redaction', () => {
 	})
 
 	it('shows that a redacted option was chosen without saying which', () => {
-		// The second select sits inside a marked container, whose subtree redaction
-		// removes it from the clone: the masking must already have run by then, or
-		// pairing by index would silently skip every select in the document.
+		// The first select sits inside a marked container, whose subtree redaction
+		// drops it from the clone entirely: the masking must already have run by
+		// then, or pairing by index would silently skip every select in the document.
 		const doc = docFrom(
 			`<div data-wm-no-record><select><option>hidden</option></select></div>` +
 				`<select><option>Public</option><option data-wm-no-record>Confidential case 92000</option></select>`

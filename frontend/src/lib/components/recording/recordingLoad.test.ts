@@ -5,6 +5,7 @@ import {
 	MAX_FLOW_MODULES,
 	MAX_RECORDED_JOBS,
 	MAX_SAMPLE_CELLS,
+	MAX_TIMELINE_FRAMES,
 	MAX_SAMPLE_COLUMNS,
 	MAX_VALUE_DEPTH,
 	MAX_VALUE_NODES,
@@ -100,10 +101,9 @@ describe('parseRecording', () => {
 	})
 
 	it('holds every recorded value to one structural render budget', () => {
-		// Each of these was previously a named per-key cap, and each of those caps was
-		// found to have an unbounded sibling or an unbounded recursion. They are one
-		// test now because they are one rule: a value a component expands eagerly may
-		// not expand into more than MAX_VALUE_NODES of structure, at any depth.
+		// One rule, asserted over the shapes it has to hold for: a value a component
+		// expands eagerly may not carry more than MAX_VALUE_NODES of structure, at any
+		// depth and under any key.
 		const wide = (n: number) => Array.from({ length: n }, () => 0)
 		const overBudget = MAX_VALUE_NODES + 1
 
@@ -302,7 +302,7 @@ describe('parseRecording', () => {
 		).toBe(true)
 	})
 
-	it('bounds what round 7 found: graph contents, metadata strings, timer bursts', () => {
+	it('bounds graph contents, rendered metadata strings and scheduled timers', () => {
 		// The canvas emits a node and edge per nested graph entry, so the four
 		// top-level array lengths were never the bound.
 		expect(
@@ -347,6 +347,15 @@ describe('parseRecording', () => {
 			)
 		).toBe(true)
 
+		// A pipeline's timeline frames all become timers in a single pass too.
+		expect(
+			rejected(
+				pipeline({
+					timeline: Array.from({ length: MAX_TIMELINE_FRAMES + 1 }, () => ({ t: 0, statuses: {} }))
+				})
+			)
+		).toBe(true)
+
 		// One job's events all become timers in a single pass.
 		expect(
 			rejected({
@@ -367,8 +376,8 @@ describe('parseRecording', () => {
 	})
 
 	it('refuses a huge recording before it looks at what any field means', () => {
-		// The last line: the per-value budgets only cover values someone named, and
-		// every round of review found a field nobody had. This one needs no key.
+		// The backstop needs no key name, so a field no validator mentions is still
+		// bounded.
 		const filler = Array.from({ length: 5000 }, () => Array.from({ length: 500 }, () => 0))
 		const res = parseRecording({
 			version: 1,

@@ -27,14 +27,19 @@
 
 	let { workspace, path, onsave }: Props = $props()
 
-	// The recorder reads the bundle's DOM, which only the unsandboxed path allows.
-	// This is the publisher recording their own app, the same trust boundary the
-	// in-workspace viewer already applies.
-	setContext('IS_APP_UNSANDBOXED', { value: true })
-
 	const recorder = createRawAppRecording()
 
 	let app = $state<any>(undefined)
+	// The publisher's isolation opt-in decides this, exactly as in the viewer:
+	// forcing the unsandboxed path here would run a bundle its own author marked
+	// untrusted same-origin with the session of whoever is recording it. An
+	// isolated app simply cannot be recorded — its DOM is unreachable by design.
+	let sandboxed = $derived(app?.policy?.sandbox === true)
+	setContext('IS_APP_UNSANDBOXED', {
+		get value() {
+			return app !== undefined && !sandboxed
+		}
+	})
 	let loadError = $state<string | undefined>(undefined)
 	let iframe = $state<HTMLIFrameElement | undefined>(undefined)
 	let recording = $state<RawAppRecording | undefined>(undefined)
@@ -56,9 +61,22 @@
 	}
 	load()
 
+	// Showing the replay unmounts the preview, so "Record again" has to wait for the
+	// fresh one: `iframe` still points at the removed document until it mounts and
+	// hands its own back.
+	let startWhenReady = $state(false)
+
 	function start() {
+		if (recording) {
+			recording = undefined
+			startWhenReady = true
+			return
+		}
+		beginRecording()
+	}
+
+	function beginRecording() {
 		if (!iframe) return
-		recording = undefined
 		if (!recorder.start(iframe, { appPath: path, workspace })) {
 			sendUserToast('Cannot record this app: its bundle runs sandbox-isolated', true)
 			return
@@ -69,8 +87,16 @@
 		)
 	}
 
-	function stop() {
-		recording = recorder.stop()
+	function onIframe(el: HTMLIFrameElement | undefined) {
+		iframe = el
+		if (el && startWhenReady) {
+			startWhenReady = false
+			beginRecording()
+		}
+	}
+
+	async function stop() {
+		recording = await recorder.stop()
 	}
 
 	async function save() {
@@ -84,6 +110,8 @@
 	}
 
 	onDestroy(() => {
+		// Not awaited: the drawer is going away, and the recorder resolves on its own
+		// once the document it was reading is gone.
 		if (recorder.active) recorder.stop()
 	})
 </script>
@@ -91,19 +119,29 @@
 <div class="flex flex-col h-full min-h-0 gap-2">
 	<div class="flex items-center gap-2 shrink-0 flex-wrap">
 		<span class="text-sm font-semibold text-primary">{path}</span>
-		{#if recorder.active}
+		{#if sandboxed}
+			<span class="text-xs text-secondary">Sandbox-isolated: not recordable</span>
+		{:else if recorder.active || recorder.stopping}
 			<span class="flex items-center gap-1 text-xs text-primary">
 				<Circle size={10} class="text-red-500 animate-pulse" fill="currentColor" />
 				{recorder.stepCount} step{recorder.stepCount === 1 ? '' : 's'}
 			</span>
-			<Button size="xs" variant="border" startIcon={{ icon: Square }} onclick={stop}>
-				Stop recording
+			<Button
+				size="xs"
+				variant="border"
+				loading={recorder.stopping}
+				startIcon={{ icon: Square }}
+				onclick={stop}
+			>
+				{recorder.stopping ? 'Waiting for the job…' : 'Stop recording'}
 			</Button>
 		{:else}
+			<!-- While the replay is showing there is no preview and so no iframe; the
+			     re-record path remounts one and starts against it. -->
 			<Button
 				size="xs"
 				variant="accent"
-				disabled={!iframe}
+				disabled={!iframe && !recording}
 				startIcon={{ icon: Circle }}
 				onclick={start}
 			>
@@ -140,6 +178,12 @@
 
 	{#if loadError}
 		<div class="text-sm text-red-600 dark:text-red-400">Could not load the app: {loadError}</div>
+	{:else if sandboxed}
+		<div class="text-sm text-secondary max-w-2xl">
+			This app is opted into sandbox isolation, so it runs in an opaque-origin frame that nothing on
+			this page can read — including the recorder. Turn isolation off in the app's settings to
+			record a demo of it.
+		</div>
 	{:else if !app}
 		<div class="flex items-center gap-2 text-sm text-secondary">
 			<Loader2 size={14} class="animate-spin" /> Loading the app…
@@ -157,7 +201,7 @@
 				secret={app.bundle_secret}
 				{path}
 				runnables={(app.value?.runnables ?? {}) as Record<string, Runnable>}
-				oniframe={(el) => (iframe = el)}
+				oniframe={onIframe}
 			/>
 		</div>
 	{/if}

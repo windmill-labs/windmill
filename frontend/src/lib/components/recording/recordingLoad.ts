@@ -27,13 +27,12 @@ export const MAX_RECORDING_BYTES = 100 * 1024 * 1024
  * Total structure in the whole recording — the last line, applied before any
  * per-kind validator runs.
  *
- * The per-value budgets below are precise but they only cover values that were
- * *named*, and six review rounds of this file each found a field nobody had named.
- * This one doesn't need to know the field: with `MAX_RECORDING_BYTES` bounding the
- * bytes and this bounding the structure inside them, an unnamed field cannot be
- * unboundedly large even before anyone decides what it renders as. Far above any
- * real capture (the largest recorded here is ~19k nodes) and far below what a tab
- * survives rendering.
+ * The per-value budgets below are precise, but each only covers a field it names, so
+ * a field added later is unbounded until someone remembers to name it. This one needs
+ * no field: with `MAX_RECORDING_BYTES` bounding the bytes and this bounding the
+ * structure inside them, no part of a recording can be unboundedly large regardless
+ * of what it renders as. Far above any real capture (a recorded two-step flow is
+ * ~19k nodes) and far below what a tab survives rendering.
  */
 export const MAX_RECORDING_NODES = 2_000_000
 /* Caps on the job-stream recordings (flow/script/pipeline). Each recorded job
@@ -75,10 +74,11 @@ export const MAX_VALUE_DEPTH = 256
  * and a string is one node no matter what it decodes to.
  */
 export const MAX_COMPONENT_FANOUT = 1000
-/** Every frame reassigns the whole per-node status map on a timer, and each
- * reassignment rebuilds the derived id/state maps over the entire key set — a
- * per-entry cost that recurs, so it keeps a cap tighter than the node budget. */
-export const MAX_TIMELINE_FRAMES = 20_000
+/** `PipelineRecordingReplay.startReplay` schedules every frame in one pass, so this
+ * counts timers created at once — frames at `t: 0` all land in the same tick, and
+ * each reassigns the whole per-node status map and rebuilds the derived id/state maps
+ * over its entire key set. Same bound as {@link MAX_EVENTS_PER_JOB}, same reason. */
+export const MAX_TIMELINE_FRAMES = 5000
 export const MAX_FRAME_STATUSES = 5000
 /** Graph elements each become a rendered canvas node or edge. */
 export const MAX_GRAPH_ELEMENTS = 2000
@@ -137,7 +137,9 @@ export function isAppRecording(data: unknown): data is RawAppRecording {
 		data.steps.every(
 			(s: unknown) =>
 				isObject(s) &&
-				typeof s.t === 'number' &&
+				// Finite, not merely numeric: the timeline positions each checkpoint at
+				// `t / total_duration_ms`, and a NaN there places nothing.
+				Number.isFinite(s.t) &&
 				RAW_APP_INTERACTION_KINDS.includes(s.kind as RawAppInteractionKind) &&
 				isShortText(s.label, true) &&
 				isShortText(s.target) &&

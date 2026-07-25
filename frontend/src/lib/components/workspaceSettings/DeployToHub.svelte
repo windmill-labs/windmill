@@ -1,18 +1,15 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import { Badge, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import WorkspaceDeployLayout from '$lib/components/WorkspaceDeployLayout.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore, hubBaseUrlStore, enterpriseLicense } from '$lib/stores'
 	import { displayDate } from '$lib/utils'
 	import {
 		useDeployToHubSession,
 		canRecord,
 		canRecordSession,
-		canShareAsIframe,
 		sanitizeSlug,
 		isValidSlug,
 		type DeployItem
@@ -28,11 +25,9 @@
 		ChevronDown,
 		Cloud,
 		Code2,
-		Copy,
 		Database,
 		Eye,
 		ExternalLink,
-		Globe,
 		Info,
 		LayoutDashboard,
 		Loader2,
@@ -64,7 +59,6 @@
 	// Inline pipeline graph above the item list, collapsed by default so the
 	// selection list stays the first thing in view.
 	let pipelineGraphOpen = $state(false)
-	let publishDrawer = $state<Drawer | undefined>()
 	let resourceDrawer = $state<Drawer | undefined>()
 	let triggerDrawer = $state<Drawer | undefined>()
 	let bundleDrawer = $state<Drawer | undefined>()
@@ -98,24 +92,6 @@
 	}
 	async function savePipelineRecording() {
 		await deployHub.session?.savePipelineRecording()
-	}
-	function openPublish(it: DeployItem) {
-		const s = deployHub.session
-		if (!s) return
-		s.publishTarget = it
-		publishDrawer?.openDrawer()
-	}
-	async function confirmPublish() {
-		if (await deployHub.session?.confirmPublish()) publishDrawer?.closeDrawer()
-	}
-	async function copyIframeSnippet(url: string) {
-		const snippet = `<iframe src="${url}" width="100%" height="600" frameborder="0"></iframe>`
-		try {
-			await navigator.clipboard.writeText(snippet)
-			sendUserToast('Iframe snippet copied to clipboard')
-		} catch {
-			sendUserToast('Failed to copy snippet', true)
-		}
 	}
 </script>
 
@@ -159,9 +135,9 @@
 								class={stepNum === 2 ? 'text-primary' : stepNum > 2 ? 'opacity-60' : 'opacity-40'}
 							>
 								<span class="font-mono text-emphasis">{stepNum > 2 ? '✓' : '2.'}</span>
-								<span class="font-semibold text-primary">Generate iframes &amp; recordings</span> — share
-								public apps as iframes, capture one execution per script/flow, and record the whole data-pipeline
-								cascade as one interactive replay.
+								<span class="font-semibold text-primary">Record demos</span> — capture one execution
+								per script/flow, a session per raw app, and the whole data-pipeline cascade as one interactive
+								replay.
 							</li>
 							<li
 								class={stepNum === 3 ? 'text-primary' : stepNum > 3 ? 'opacity-60' : 'opacity-40'}
@@ -177,9 +153,7 @@
 									Step 1: Bundle your project
 								</span>
 							{:else if s.phase === 'draft'}
-								<span class="text-sm font-semibold text-primary">
-									Step 2: Generate iframes &amp; recordings
-								</span>
+								<span class="text-sm font-semibold text-primary"> Step 2: Record demos </span>
 							{:else if s.phase === 'under_review'}
 								<span class="text-sm font-semibold text-primary">Step 3: Awaiting review</span>
 							{:else}
@@ -324,9 +298,9 @@
 						{#if s.phase === 'draft'}
 							<div class="flex flex-col gap-1 pb-3">
 								<span class="text-xs text-secondary">
-									A recording captures one real run of a script or flow — inputs, logs, step outputs
-									and result — replayable on the Hub so visitors see it work before forking. Public
-									apps can also be shared as live iframes. Optional, but recommended.
+									A recording captures one real run of a script or flow (inputs, logs, step outputs
+									and result), or one session of someone using a raw app, replayable on the Hub so
+									visitors see it work before forking. Optional, but recommended.
 								</span>
 							</div>
 						{/if}
@@ -589,77 +563,28 @@
 							<Badge color="yellow" size="xs">No recording</Badge>
 						{/if}
 					{/if}
-					{#if s.phase === 'draft' && canRecordSession(it.kind)}
-					{#if it.rec === 'recorded'}
-						<Badge color="green" size="xs">
-							<Check size={10} class="mr-0.5" />Recorded
-						</Badge>
-						<Button
-							size="xs"
-							variant="subtle"
-							startIcon={{ icon: RotateCcw }}
-							onclick={() => openAppRecord(it)}
-						>
-							Re-record
-						</Button>
-					{:else}
-						<Badge color="yellow" size="xs">No recording</Badge>
-						<Button
-							size="xs"
-							variant="subtle"
-							startIcon={{ icon: Play }}
-							onclick={() => openAppRecord(it)}
-						>
-							Record demo
-						</Button>
-					{/if}
-				{/if}
-				{#if s.phase !== 'predeploy' && canShareAsIframe(it)}
-						{#if it.published}
+					{#if s.phase === 'draft' && canRecordSession(it)}
+						{#if it.rec === 'recorded'}
 							<Badge color="green" size="xs">
-								<Globe size={10} class="mr-0.5" />Public
+								<Check size={10} class="mr-0.5" />Recorded
 							</Badge>
-							{#if it.publicUrl}
-								<a
-									href={it.publicUrl}
-									target="_blank"
-									rel="noopener noreferrer"
-									class="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
-								>
-									<ExternalLink size={12} /> Open
-								</a>
-								<Button
-									size="xs"
-									variant="subtle"
-									startIcon={{ icon: Copy }}
-									onclick={() => copyIframeSnippet(it.publicUrl!)}
-								>
-									Copy iframe
-								</Button>
-							{:else if s.phase !== 'under_review'}
-								<!-- Public but its URL didn't resolve: offer a retry, keep Unpublish. -->
-								<Button
-									size="xs"
-									variant="subtle"
-									startIcon={{ icon: RotateCcw }}
-									onclick={() => openPublish(it)}
-								>
-									Retry link
-								</Button>
-							{/if}
-							{#if s.phase !== 'under_review'}
-								<Button size="xs" variant="subtle" onclick={() => s.unpublishApp(it)}
-									>Unpublish</Button
-								>
-							{/if}
-						{:else if s.phase !== 'under_review'}
 							<Button
 								size="xs"
 								variant="subtle"
-								startIcon={{ icon: Globe }}
-								onclick={() => openPublish(it)}
+								startIcon={{ icon: RotateCcw }}
+								onclick={() => openAppRecord(it)}
 							>
-								Share as iframe
+								Re-record
+							</Button>
+						{:else}
+							<Badge color="yellow" size="xs">No recording</Badge>
+							<Button
+								size="xs"
+								variant="subtle"
+								startIcon={{ icon: Play }}
+								onclick={() => openAppRecord(it)}
+							>
+								Record demo
 							</Button>
 						{/if}
 					{/if}
@@ -846,65 +771,6 @@
 						<PipelineRecordingReplay recording={s.pipelineRecordingResult} />
 					</div>
 				{/if}
-			</DrawerContent>
-		</Drawer>
-
-		<Drawer bind:this={publishDrawer} size="600px">
-			<DrawerContent
-				title={s.publishTarget ? `Share as iframe — ${s.publishTarget.path}` : 'Share as iframe'}
-				on:close={() => publishDrawer?.closeDrawer()}
-			>
-				<div class="flex flex-col gap-4">
-					<p class="text-xs text-secondary">
-						Expose <span class="font-mono text-emphasis">{s.publishTarget?.path}</span> at a public URL
-						so it can be embedded as an iframe (e.g. on the Hub, a docs page, or your own site). Anyone
-						with the URL will be able to interact with it.
-					</p>
-
-					<div class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3">
-						<div class="flex items-center gap-2">
-							<TriangleAlert
-								size={14}
-								class={s.workspaceRateLimit
-									? 'text-secondary'
-									: 'text-orange-600 dark:text-orange-400'}
-							/>
-							<span class="text-sm font-semibold">Rate limit (workspace-wide)</span>
-							<Tooltip>
-								Caps public app executions per minute per server. Applies to all public apps in this
-								workspace.
-							</Tooltip>
-						</div>
-						{#if s.workspaceRateLimit && s.workspaceRateLimit > 0}
-							<span class="text-xs text-secondary">
-								Currently <span class="font-mono text-emphasis">{s.workspaceRateLimit}</span> executions
-								/ minute / server.
-							</span>
-						{:else}
-							<span class="text-xs text-orange-700 dark:text-orange-300">
-								No rate limit configured — anyone with the URL can hit this app at any rate.
-							</span>
-						{/if}
-						<a
-							href="{base}/workspace_settings?tab=default_app"
-							class="text-[11px] text-blue-600 underline"
-							onclick={() => publishDrawer?.closeDrawer()}
-						>
-							Edit in Workspace settings → Apps
-						</a>
-					</div>
-				</div>
-				{#snippet actions()}
-					<Button variant="default" onclick={() => publishDrawer?.closeDrawer()}>Cancel</Button>
-					<Button
-						variant="accent"
-						loading={s.publishing}
-						startIcon={{ icon: Globe }}
-						onclick={confirmPublish}
-					>
-						Generate iframe
-					</Button>
-				{/snippet}
 			</DrawerContent>
 		</Drawer>
 

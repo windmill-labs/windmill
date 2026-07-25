@@ -19,7 +19,8 @@
 	import Head from '$lib/components/table/Head.svelte'
 	import Row from '$lib/components/table/Row.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { untrack } from 'svelte'
+	import { onMount, untrack } from 'svelte'
+	import { page } from '$app/state'
 	import { DEMO_RESTRICTION_HINT, isDemoWorkspaceRestricted } from '$lib/cloud'
 
 	type FolderW = Folder & { canWrite: boolean }
@@ -71,6 +72,17 @@
 			untrack(() => {
 				loadFolders()
 			})
+		}
+	})
+
+	// `?publish=<folder>` opens the publish drawer straight away: it is how the
+	// editors send an item here, since publishing is a project (folder) operation.
+	// Consumed once, on mount, so closing the drawer doesn't reopen it.
+	onMount(() => {
+		const folder = page.url.searchParams.get('publish')
+		if (folder) {
+			publishFolderName = folder
+			hubDrawer?.openDrawer()
 		}
 	})
 

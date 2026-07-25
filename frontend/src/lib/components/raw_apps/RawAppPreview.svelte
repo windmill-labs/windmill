@@ -20,7 +20,11 @@
 	let { workspace, user, secret, path, runnables, oniframe }: Props = $props()
 
 	$effect(() => {
-		oniframe?.(unsandboxed ? iframe : undefined)
+		const el = unsandboxed ? iframe : undefined
+		oniframe?.(el)
+		// Withdraw it on teardown: a consumer that keeps the reference (the session
+		// recorder) would otherwise go on addressing a document that is gone.
+		return () => oniframe?.(undefined)
 	})
 
 	let iframe = $state() as HTMLIFrameElement | undefined

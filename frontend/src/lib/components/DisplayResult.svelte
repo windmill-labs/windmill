@@ -645,6 +645,12 @@
 		// can see them. A run with this many tests is unreadable anyway, and the cap has
 		// to live where the parse happens rather than be predicted from the payload.
 		const MAX_RENDERED = 1000
+		// A per-test `sample` arrives as its own JSON string, so nothing that measures
+		// the enclosing result's structure can see inside it — parsing an 8 MB string of
+		// `{}` would allocate millions of objects before any row cap applied. Bound the
+		// text first, then the rows.
+		const MAX_SAMPLE_CHARS = 256 * 1024
+		const MAX_SAMPLE_ROWS = 1000
 		const capped = <T,>(tests: T[]): T[] =>
 			tests.length > MAX_RENDERED ? tests.slice(0, MAX_RENDERED) : tests
 		// Both structured shapes carry `[{ test, violating, sample? }]`; the
@@ -673,13 +679,15 @@
 				let sample = x.sample
 				if (typeof sample === 'string') {
 					try {
-						sample = JSON.parse(sample)
+						sample = sample.length > MAX_SAMPLE_CHARS ? undefined : JSON.parse(sample)
 					} catch {
 						sample = undefined
 					}
 				}
 				if (!Array.isArray(sample) || !sample.every((r) => r && typeof r === 'object')) {
 					sample = undefined
+				} else if (sample.length > MAX_SAMPLE_ROWS) {
+					sample = sample.slice(0, MAX_SAMPLE_ROWS)
 				}
 				return { test: x.test, violating: x.violating, sample }
 			})
