@@ -6,6 +6,27 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Local development for data pipelines',
+		href: 'https://www.windmill.dev/changelog/pipeline-local-dev',
+		date: '2026-07-01'
+	},
+	{
+		label: 'SCD2 history strategy for DuckLake materialization',
+		href: 'https://www.windmill.dev/changelog/scd2-history-materialization',
+		date: '2026-07-01'
+	},
+	{
+		label: 'Workspace DuckDB macro libraries',
+		href: 'https://www.windmill.dev/changelog/duckdb-macro-libraries',
+		date: '2026-07-02'
+	},
+	{
+		label: 'Backfill a range of partitions from the asset drawer',
+		href: 'https://www.windmill.dev/changelog/partition-backfill',
+		date: '2026-07-02'
+	},
+
+	{
 		label: 'AWS Bedrock support for Windmill AI',
 		href: 'https://www.windmill.dev/changelog/aws-bedrock',
 		date: '2025-11-19'
