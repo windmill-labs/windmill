@@ -33,7 +33,7 @@ the dominant way dbt is orchestrated today.
 | 6 | Multiple run configs | N scripts against the same repo |
 | 7 | Run-time `select` | Descriptor default plus run-arg override |
 | 8 | Credentials | Both `profiles.yml` passthrough and resource mapping |
-| 9 | Adapter mappings | postgres, snowflake, bigquery, databricks |
+| 9 | Adapter mappings | postgres, redshift, mysql, snowflake, bigquery, databricks; others via the project's own `profiles.yml` |
 | 10 | Private repo auth | SSH/token in CE; GitHub App **not yet** — see below |
 | 11 | Asset kind | `table://<resource>/<schema>/<name>`, not `dbt://`. See below |
 | 12 | Graph refresh | Falls out of #5, no separate mechanism. See below |
@@ -98,6 +98,13 @@ and `oracledb`, so those two dbt adapters are EE and every other one (postgres,
 mysql, duckdb, snowflake, bigquery, databricks, redshift, clickhouse,
 salesforce) is CE. Gating any of the others would make reaching a warehouse
 through dbt stricter than reaching it natively, which is backwards.
+
+Those two are *recognized* (for the gate and for the pip package the bundled
+engine needs), not rendered from a resource: an `oracledb` resource is
+`{user, password, database}` with no host/protocol/service, and dbt-sqlserver
+needs an ODBC `driver` the images do not install. Both reach their warehouse
+through the project's own `profiles.yml`, which is also how duckdb, clickhouse
+and salesforce work.
 
 The gate almost never fires in practice: `dbt-core-2x` supports neither adapter,
 so it can only apply to `dbt-core-1x` with one of those two.
@@ -185,6 +192,13 @@ graph is re-ingested from every run's own manifest. Since asset dispatch fans ou
 from the stored rows, a run that cannot refresh them fails rather than cascading
 from a stale graph — which also means those descriptors cannot run on an agent
 worker, whose only DB access is through the API.
+
+Second boundary to accept: those rows are keyed by script path, so **two
+concurrent runs of one dynamic script race**. Each replaces the other's rows
+before dispatch reads them, and either job can end up notifying the other's
+consumers. Give such a script a concurrency limit of 1. Fixing it properly means
+dispatching from a per-job snapshot of what the run actually wrote, which is a
+change to the shared cascade rather than to dbt.
 
 - **`ref: latest`.** Resolve HEAD at run time. The graph must then refresh every
   run or it diverges from execution, and that is nearly free: the run already

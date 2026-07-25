@@ -264,6 +264,13 @@ pub async fn handle_dbt_job(
     // dispatch fans out from the stored rows, so a stale graph cascades from
     // relations this run did not produce. Failing the job is the only honest
     // outcome — including on an agent worker, which has no DB to refresh through.
+    //
+    // The rows are keyed by script path, so two CONCURRENT runs of one dynamic
+    // script overwrite each other's before either dispatches, and each can then
+    // notify the other's consumers. Set a concurrency limit of 1 on a dynamic
+    // script whose runs produce different relations; the alternative — a
+    // per-job dispatch snapshot — is a change to the shared cascade, not to
+    // dbt (docs/dbt-runtime.md).
     let refresh = if descriptor.is_latest_ref() || prepared.graph_is_per_run {
         ingest_from_run(&prepared, &descriptor, &args, job, conn).await
     } else {
@@ -993,6 +1000,10 @@ async fn write_profiles(
     ensure_adapter_licensed(adapter)?;
     let profile_name = project_profile_name(project_dir).await;
     let target = descriptor.profile.target.as_deref().unwrap_or("default");
+    let dir = PathBuf::from(job_dir).join("dbt_profiles");
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(|e| Error::internal_err(format!("creating the profiles dir: {e}")))?;
     let rendered = render_profile(
         adapter,
         &value,
@@ -1000,11 +1011,8 @@ async fn write_profiles(
         target,
         descriptor.threads,
         descriptor.profile.schema.as_deref(),
+        &dir,
     )?;
-    let dir = PathBuf::from(job_dir).join("dbt_profiles");
-    tokio::fs::create_dir_all(&dir)
-        .await
-        .map_err(|e| Error::internal_err(format!("creating the profiles dir: {e}")))?;
     write_file(dir.to_str().unwrap(), "profiles.yml", &rendered.yaml)?;
     if let Some(pem) = rendered.root_certificate_pem.as_deref() {
         write_file(
@@ -1396,11 +1404,10 @@ fn asset_path_of_relation(
     resource_path: &str,
     default_database: Option<&str>,
 ) -> Option<String> {
-    let rel = relation_name?;
-    let parts: Vec<&str> = rel.split('.').collect();
+    let parts = split_relation(relation_name?);
     let (database, schema, name) = match parts.as_slice() {
-        [db, schema, name] => (Some(unquote(db)), unquote(schema), unquote(name)),
-        [schema, name] => (None, unquote(schema), unquote(name)),
+        [db, schema, name] => (Some(db.as_str()), schema.as_str(), name.as_str()),
+        [schema, name] => (None, schema.as_str(), name.as_str()),
         _ => return None,
     };
     Some(windmill_common::dbt_manifest::table_asset_path(
@@ -1412,11 +1419,31 @@ fn asset_path_of_relation(
     ))
 }
 
-/// `canonicalize_table_asset_path` strips quotes from the schema and name, but
-/// the database is compared against the target's before it ever gets there.
-fn unquote(s: &str) -> &str {
-    s.trim()
-        .trim_matches(|c| c == '"' || c == '`' || c == '[' || c == ']')
+/// Split `"db"."schema"."name"` on the separators BETWEEN identifiers only.
+///
+/// A period inside a quoted identifier is part of the name — `"analytics.v2"`
+/// is one schema, not two — and splitting on every period discards the relation
+/// entirely, so the model silently records no status at all.
+fn split_relation(rel: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut quote: Option<char> = None;
+    for c in rel.chars() {
+        match quote {
+            Some(q) => {
+                if c == q || (q == '[' && c == ']') {
+                    quote = None;
+                } else {
+                    current.push(c);
+                }
+            }
+            None if c == '"' || c == '`' || c == '[' => quote = Some(c),
+            None if c == '.' => parts.push(std::mem::take(&mut current)),
+            None => current.push(c),
+        }
+    }
+    parts.push(current);
+    parts.into_iter().map(|p| p.trim().to_string()).collect()
 }
 
 async fn read_run_results(project_dir: &Path) -> Vec<DbtNodeResult> {
@@ -1888,6 +1915,19 @@ mod tests {
         );
         // A test node has no relation of its own.
         assert_eq!(asset_path_of_relation(None, "f/prod/wh", Some("wh")), None);
+
+        // A period INSIDE a quoted identifier is part of the name. Splitting on
+        // every period yields four parts and discards the relation, so the model
+        // records no status at all — invisible except as a graph that never
+        // moves.
+        assert_eq!(
+            asset_path_of_relation(
+                Some("\"wh\".\"analytics.v2\".\"orders\""),
+                "f/prod/wh",
+                Some("wh")
+            ),
+            Some("f/prod/wh/analytics.v2/orders".to_string())
+        );
     }
 
     // `dbt retry` restores the previous run's target/ from this directory. Two

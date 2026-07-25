@@ -134,8 +134,6 @@ impl DbtAdapter {
     fn default_port(&self) -> i64 {
         match self {
             DbtAdapter::Mysql => 3306,
-            DbtAdapter::Mssql => 1433,
-            DbtAdapter::OracleDB => 1521,
             _ => 5432,
         }
     }
@@ -144,8 +142,6 @@ impl DbtAdapter {
     fn database_key(&self) -> &'static str {
         match self {
             DbtAdapter::Mysql => "schema",
-            DbtAdapter::Mssql => "database",
-            DbtAdapter::OracleDB => "database",
             _ => "dbname",
         }
     }
@@ -223,21 +219,22 @@ pub fn render_profile(
     target: &str,
     threads: Option<u32>,
     schema_override: Option<&str>,
+    // Where `profiles.yml` (and any root certificate) is written. dbt runs with
+    // the PROJECT as its working directory and hands `sslrootcert` to the
+    // driver unchanged, so a path relative to the profiles dir would be
+    // resolved against the project and never found.
+    profiles_dir: &std::path::Path,
 ) -> error::Result<RenderedProfile> {
     let mut out: Vec<(String, ProfileValue)> = vec![("type".into(), quoted(adapter.dbt_type()))];
     let mut schema = schema_override.map(|x| x.to_string());
     let database;
 
     match adapter {
-        // Redshift, MySQL, SQL Server and Oracle all take the same
-        // host/port/user/password/database shape as Postgres in both dbt and
-        // Windmill's resource types, so one arm renders them; only the default
-        // port and the database key differ.
-        DbtAdapter::Postgres
-        | DbtAdapter::Redshift
-        | DbtAdapter::Mysql
-        | DbtAdapter::Mssql
-        | DbtAdapter::OracleDB => {
+        // Redshift and MySQL take the same host/port/user/password/database
+        // shape as Postgres in both dbt and Windmill's resource types, so one
+        // arm renders all three; only the default port and the database key
+        // differ.
+        DbtAdapter::Postgres | DbtAdapter::Redshift | DbtAdapter::Mysql => {
             let host = s(resource, "host").ok_or_else(|| {
                 Error::BadRequest(format!("{} resource has no `host`", adapter.dbt_type()))
             })?;
@@ -275,25 +272,30 @@ pub fn render_profile(
             if s(resource, "root_certificate_pem").is_some() {
                 out.push((
                     "sslrootcert".into(),
-                    quoted(&format!("./{ROOT_CERT_FILENAME}")),
+                    quoted(&profiles_dir.join(ROOT_CERT_FILENAME).to_string_lossy()),
                 ));
             }
             schema = match adapter {
                 // Already emitted as the database key; reported back so the
                 // caller can spell `table://` paths with it.
                 DbtAdapter::Mysql => Some(dbname.clone()),
-                DbtAdapter::Mssql => schema
-                    .or_else(|| s(resource, "schema"))
-                    .or(Some("dbo".into())),
                 _ => schema
                     .or_else(|| s(resource, "schema"))
                     .or(Some("public".into())),
             };
         }
-        // No Windmill resource type carries these; they are reachable through
-        // the project's own `profiles.yml` (`profile.profiles_yml`), which is
-        // the path that exists precisely so an unmodified project runs as-is.
-        DbtAdapter::Duckdb | DbtAdapter::Clickhouse | DbtAdapter::Salesforce => {
+        // Not in decision 9's adapter mappings, and their Windmill resources do
+        // not carry what dbt needs: an `oracledb` resource is
+        // `{user, password, database}` with no host/protocol/service, and
+        // dbt-sqlserver requires an ODBC `driver` the images do not install.
+        // Rendering a profile from them would produce one that cannot connect,
+        // so route them to the project's own `profiles.yml` — the path that
+        // exists precisely so an unmodified project runs as-is.
+        DbtAdapter::Duckdb
+        | DbtAdapter::Clickhouse
+        | DbtAdapter::Salesforce
+        | DbtAdapter::Mssql
+        | DbtAdapter::OracleDB => {
             return Err(Error::BadRequest(format!(
                 "the `{}` adapter has no Windmill resource mapping; point \
                  `profile.profiles_yml` at the project's own profiles.yml instead",
@@ -467,7 +469,7 @@ mod tests {
     fn renders_postgres_target() {
         let r = json!({"host": "db.internal", "port": 5433, "user": "u", "password": "p",
                        "dbname": "warehouse", "sslmode": "require"});
-        let p = render_profile(DbtAdapter::Postgres, &r, "wm", "prod", Some(8), None).unwrap();
+        let p = render_profile(DbtAdapter::Postgres, &r, "wm", "prod", Some(8), None, std::path::Path::new("/tmp/p")).unwrap();
         assert!(p.yaml.contains("wm:\n  target: prod\n"));
         assert!(p.yaml.contains("      type: \"postgres\"\n"));
         // dbt's profile schema types these as integers, so they must not be
@@ -500,9 +502,12 @@ mod tests {
     fn postgres_forwards_its_root_certificate() {
         let r = json!({"host": "h", "dbname": "d", "sslmode": "verify-full",
                        "root_certificate_pem": "-----BEGIN CERTIFICATE-----\nx\n"});
-        let p = render_profile(DbtAdapter::Postgres, &r, "wm", "prod", None, None).unwrap();
+        let p = render_profile(DbtAdapter::Postgres, &r, "wm", "prod", None, None, std::path::Path::new("/tmp/p")).unwrap();
+        // Absolute: dbt runs with the PROJECT as its cwd and hands this to the
+        // driver unchanged, so a profiles-relative path would never be found.
         assert!(
-            p.yaml.contains(&format!("      sslrootcert: \"./{ROOT_CERT_FILENAME}\"\n")),
+            p.yaml
+                .contains(&format!("      sslrootcert: \"/tmp/p/{ROOT_CERT_FILENAME}\"\n")),
             "{}",
             p.yaml
         );
@@ -512,7 +517,7 @@ mod tests {
         );
         // No CA configured, no dangling sslrootcert pointing at a missing file.
         let plain = json!({"host": "h", "dbname": "d", "sslmode": "require"});
-        let p = render_profile(DbtAdapter::Postgres, &plain, "wm", "prod", None, None).unwrap();
+        let p = render_profile(DbtAdapter::Postgres, &plain, "wm", "prod", None, None, std::path::Path::new("/tmp/p")).unwrap();
         assert!(!p.yaml.contains("sslrootcert"));
         assert_eq!(p.root_certificate_pem, None);
     }
@@ -521,7 +526,7 @@ mod tests {
     fn snowflake_oauth_renders_its_token() {
         let r = json!({"account_identifier": "acc", "username": "u", "token": "tok",
                        "database": "db", "warehouse": "wh"});
-        let p = render_profile(DbtAdapter::Snowflake, &r, "wm", "prod", None, None).unwrap();
+        let p = render_profile(DbtAdapter::Snowflake, &r, "wm", "prod", None, None, std::path::Path::new("/tmp/p")).unwrap();
         assert!(p.yaml.contains("      authenticator: \"oauth\"\n"), "{}", p.yaml);
         assert!(p.yaml.contains("      token: \"tok\"\n"));
     }
@@ -529,11 +534,11 @@ mod tests {
     #[test]
     fn bigquery_requires_a_dataset() {
         let r = json!({"project_id": "p", "client_email": "e", "private_key": "k"});
-        let err = render_profile(DbtAdapter::Bigquery, &r, "wm", "prod", None, None)
+        let err = render_profile(DbtAdapter::Bigquery, &r, "wm", "prod", None, None, std::path::Path::new("/tmp/p"))
             .unwrap_err()
             .to_string();
         assert!(err.contains("profile.schema"), "{err}");
-        let p = render_profile(DbtAdapter::Bigquery, &r, "wm", "prod", None, Some("marts")).unwrap();
+        let p = render_profile(DbtAdapter::Bigquery, &r, "wm", "prod", None, Some("marts"), std::path::Path::new("/tmp/p")).unwrap();
         // dbt-bigquery's key is `dataset`, not `schema`.
         assert!(p.yaml.contains("      dataset: \"marts\"\n"), "{}", p.yaml);
         assert!(!p.yaml.contains("      schema:"));
@@ -559,7 +564,7 @@ mod tests {
     #[test]
     fn mysql_emits_exactly_one_schema_key() {
         let r = json!({"host": "h", "dbname": "sales", "user": "u"});
-        let p = render_profile(DbtAdapter::Mysql, &r, "wm", "dev", None, None).unwrap();
+        let p = render_profile(DbtAdapter::Mysql, &r, "wm", "dev", None, None, std::path::Path::new("/tmp/p")).unwrap();
         assert_eq!(p.yaml.matches("      schema:").count(), 1);
         assert!(p.yaml.contains("      schema: \"sales\"\n"));
         assert!(p.yaml.contains("      port: 3306\n"));
@@ -570,7 +575,7 @@ mod tests {
     fn credentials_cannot_break_out_of_their_scalar() {
         let r = json!({"host": "h", "dbname": "d",
                        "password": "p\"\nhost: evil.example.com\n#"});
-        let p = render_profile(DbtAdapter::Postgres, &r, "wm", "dev", None, None).unwrap();
+        let p = render_profile(DbtAdapter::Postgres, &r, "wm", "dev", None, None, std::path::Path::new("/tmp/p")).unwrap();
         assert!(p
             .yaml
             .contains(r#"password: "p\"\nhost: evil.example.com\n#""#));
