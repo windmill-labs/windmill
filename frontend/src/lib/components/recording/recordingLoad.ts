@@ -23,12 +23,29 @@ import {
  * origin can't exhaust the tab before validation runs. */
 export const MAX_RECORDING_BYTES = 100 * 1024 * 1024
 
+/**
+ * Total structure in the whole recording — the last line, applied before any
+ * per-kind validator runs.
+ *
+ * The per-value budgets below are precise but they only cover values that were
+ * *named*, and six review rounds of this file each found a field nobody had named.
+ * This one doesn't need to know the field: with `MAX_RECORDING_BYTES` bounding the
+ * bytes and this bounding the structure inside them, an unnamed field cannot be
+ * unboundedly large even before anyone decides what it renders as. Far above any
+ * real capture (the largest recorded here is ~19k nodes) and far below what a tab
+ * survives rendering.
+ */
+export const MAX_RECORDING_NODES = 2_000_000
 /* Caps on the job-stream recordings (flow/script/pipeline). Each recorded job
- * mounts a JobLoader and each of its events costs a `setTimeout`, so the counts —
- * not just the byte size — decide whether the tab survives the render. Set far
- * above any real capture: a wide for-loop flow records a job per iteration. */
+ * mounts a JobLoader and each of its events costs a `setTimeout` created up front,
+ * so the counts — not just the byte size — decide whether the tab survives. */
 export const MAX_RECORDED_JOBS = 2000
-export const MAX_RECORDED_JOB_EVENTS = 200_000
+/** `JobLoader.watchJob` schedules every event of a job in one pass, so this is a
+ * count of timers created at once; events at `t: 0` all fire in the same frame, each
+ * one a reactive update. Generous against reality (a long streaming job records on
+ * the order of thousands) and survivable when they all land together. */
+export const MAX_EVENTS_PER_JOB = 5000
+export const MAX_RECORDED_JOB_EVENTS = 20_000
 /**
  * The backstop: how much structure any single recorded value may expand into. One
  * value is what a component renders eagerly (a job state, a flow definition, an
@@ -216,6 +233,28 @@ function describeValueOverflow(
 	return undefined
 }
 
+/** Structure in the whole recording, for the {@link MAX_RECORDING_NODES} backstop.
+ * Separate from {@link describeValueOverflow} because it deliberately knows nothing
+ * about keys or renderers — it just refuses to let an arbitrary payload be huge. */
+function countRecordingNodes(v: unknown, budget = { n: MAX_RECORDING_NODES + 1 }): number {
+	let count = 0
+	const walk = (x: unknown, depth: number) => {
+		if (budget.n <= 0 || depth > MAX_VALUE_DEPTH) return
+		if (Array.isArray(x)) {
+			count += x.length
+			budget.n -= x.length
+			for (const i of x) walk(i, depth + 1)
+		} else if (isObject(x)) {
+			const keys = Object.keys(x)
+			count += keys.length
+			budget.n -= keys.length
+			for (const k of keys) walk(x[k], depth + 1)
+		}
+	}
+	walk(v, 0)
+	return count
+}
+
 /** True when one recorded value is renderable. Apply this to each value a component
  * expands eagerly (a job's args/result/flow_status, a flow definition, an asset
  * sample); the *number* of such values is bounded separately. */
@@ -232,7 +271,7 @@ function isRecordedJob(j: unknown): j is RecordedJob {
 		isObject(j) &&
 		isObject(j.initial_job) &&
 		withinRenderBudget(j.initial_job) &&
-		isBoundedArray(j.events, MAX_RECORDED_JOB_EVENTS) &&
+		isBoundedArray(j.events, MAX_EVENTS_PER_JOB) &&
 		j.events.every((e) => isObject(e) && isObject(e.data) && withinRenderBudget(e.data))
 	)
 }
@@ -301,7 +340,8 @@ export function isScriptRecording(data: unknown): data is ScriptRecording {
 		hasValidHeader(data, 'script_path') &&
 		isRecordedJob(data.job) &&
 		isBoundedCode(data.code) &&
-		typeof data.language === 'string' &&
+		// Selects a highlighter grammar and is rendered in the player's header.
+		isShortText(data.language, true) &&
 		// SchemaForm mounts a field per property, recursing into nested objects, and
 		// JobArgs a row per arg — so the budget, not a top-level key count.
 		withinRenderBudget(data.schema) &&
@@ -315,6 +355,10 @@ export function isPipelineRecording(data: unknown): data is PipelineRecording {
 	const g = data.graph
 	const validGraph =
 		isObject(g) &&
+		// The canvas emits a node and an edge per nested entry too (a runnable's custom
+		// `data_tests`, its column lineage), so the whole graph goes through the budget
+		// rather than just the lengths of the four top-level arrays.
+		withinRenderBudget(g) &&
 		isObjectArray(g.runnables, MAX_GRAPH_ELEMENTS) &&
 		isObjectArray(g.assets, MAX_GRAPH_ELEMENTS) &&
 		isObjectArray(g.edges, MAX_GRAPH_ELEMENTS) &&
@@ -339,7 +383,9 @@ export function isPipelineRecording(data: unknown): data is PipelineRecording {
 			Object.values(data.assetSamples).every(
 				(s) =>
 					isObject(s) &&
-					((typeof s.error === 'string' && s.error !== '') ||
+					// An errored sample renders the message instead of the table, so it needs a
+					// bound of its own — the table branch's budget never sees it.
+					((isShortText(s.error, true) && s.error !== '') ||
 						(isObjectArray(s.rows, MAX_SAMPLE_ROWS) &&
 							isObjectArray(s.columns, MAX_SAMPLE_COLUMNS) &&
 							(s.rows as unknown[]).length * (s.columns as unknown[]).length <= MAX_SAMPLE_CELLS &&
@@ -350,7 +396,7 @@ export function isPipelineRecording(data: unknown): data is PipelineRecording {
 		data.codes === undefined ||
 		(isObject(data.codes) &&
 			Object.values(data.codes).every(
-				(c) => isObject(c) && isBoundedCode(c.content) && typeof c.language === 'string'
+				(c) => isObject(c) && isBoundedCode(c.content) && isShortText(c.language, true)
 			))
 	return (
 		hasValidHeader(data, 'folder') &&
@@ -424,6 +470,15 @@ export function parseRecording(
 ): { ok: true; loaded: LoadedRecording } | { ok: false; error: string } {
 	if (!isObject(data) || data.version !== 1) {
 		return { ok: false, error: 'This file is not a Windmill recording.' }
+	}
+	// Before anything looks at what the fields mean: no recording, whatever it holds,
+	// may carry more structure than a tab can render. This is what makes the bound
+	// exhaustive rather than a list of the fields someone remembered.
+	if (countRecordingNodes(data) > MAX_RECORDING_NODES) {
+		return {
+			ok: false,
+			error: `This recording carries more than ${MAX_RECORDING_NODES} values, more than this player can render.`
+		}
 	}
 	const type = data.type === undefined ? 'flow' : data.type
 	const invalid = (kind: string) => ({

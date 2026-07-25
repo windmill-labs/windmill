@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
 	MAX_COMPONENT_FANOUT,
+	MAX_EVENTS_PER_JOB,
 	MAX_FLOW_MODULES,
 	MAX_RECORDED_JOBS,
 	MAX_SAMPLE_CELLS,
 	MAX_SAMPLE_COLUMNS,
 	MAX_VALUE_DEPTH,
 	MAX_VALUE_NODES,
+	MAX_RECORDING_NODES,
 	MAX_VALUE_STRING_CHARS,
 	parseRecording
 } from './recordingLoad'
@@ -298,6 +300,87 @@ describe('parseRecording', () => {
 				}
 			})
 		).toBe(true)
+	})
+
+	it('bounds what round 7 found: graph contents, metadata strings, timer bursts', () => {
+		// The canvas emits a node and edge per nested graph entry, so the four
+		// top-level array lengths were never the bound.
+		expect(
+			rejected(
+				pipeline({
+					graph: {
+						runnables: [
+							{
+								path: 'f/a/b',
+								usage_kind: 'script',
+								data_tests: Array.from({ length: MAX_VALUE_NODES }, (_, i) => ({ test: `t${i}` }))
+							}
+						],
+						assets: [],
+						edges: [],
+						triggers: []
+					}
+				})
+			)
+		).toBe(true)
+
+		// Metadata strings land in a header, a highlighter class or an error panel, and
+		// were only `typeof === 'string'`.
+		const long = 'x'.repeat(5000)
+		expect(
+			rejected({
+				version: 1,
+				type: 'script',
+				script_path: 's',
+				...header,
+				code: 'x',
+				language: long,
+				job: job()
+			})
+		).toBe(true)
+		expect(rejected(pipeline({ codes: { 'f/a/b': { content: 'x', language: long } } }))).toBe(true)
+		expect(
+			rejected(
+				pipeline({
+					assetSamples: { 'ducklake:main/t': { kind: 'ducklake', path: 'main/t', error: long } }
+				})
+			)
+		).toBe(true)
+
+		// One job's events all become timers in a single pass.
+		expect(
+			rejected({
+				version: 1,
+				flow_path: 'f',
+				...header,
+				jobs: {
+					j: {
+						initial_job: { id: 'j' },
+						events: Array.from({ length: MAX_EVENTS_PER_JOB + 1 }, () => ({
+							t: 0,
+							data: { progress: 1 }
+						}))
+					}
+				}
+			})
+		).toBe(true)
+	})
+
+	it('refuses a huge recording before it looks at what any field means', () => {
+		// The last line: the per-value budgets only cover values someone named, and
+		// every round of review found a field nobody had. This one needs no key.
+		const filler = Array.from({ length: 5000 }, () => Array.from({ length: 500 }, () => 0))
+		const res = parseRecording({
+			version: 1,
+			flow_path: 'f',
+			...header,
+			jobs: { j: job() },
+			some_future_field: filler
+		})
+		expect(res.ok).toBe(false)
+		expect(res.ok ? '' : res.error).toMatch(
+			new RegExp(`more than ${MAX_RECORDING_NODES} values`)
+		)
 	})
 
 	it('tells an oversized recording apart from a corrupt one', () => {
