@@ -255,6 +255,22 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		}
 	}
 
+	/** Close out the step still settling, because the next interaction is starting.
+	 * The DOM it starts from IS that step's outcome, and by now `capture()` would
+	 * already include the new interaction's effect (a fill committed by clicking a
+	 * checkbox would settle showing it checked). Only a frame taken for the new
+	 * interaction will do: a fill's own pre-frame is up to a debounce old and
+	 * predates the step being settled. The stamp has to come off — it marks the NEW
+	 * step's target. */
+	function settlePendingStep(before: string | undefined) {
+		if (!settle) return
+		const pending = settle.step
+		clearSettle()
+		const fresh =
+			before !== undefined && (pendingPointer?.html === before || pendingKey?.html === before)
+		pending.after = frameIndex(fresh ? unstamp(before) : capture())
+	}
+
 	function pushStep(
 		kind: RawAppInteractionKind,
 		el: Element | undefined,
@@ -286,19 +302,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		// interaction that follows it is the one that gets refused. Skipped while a
 		// gesture is still coalescing: each repeat's outcome would be indexed and
 		// then immediately superseded, leaving a full document unreferenced.
-		if (settle && !coalesces) {
-			const pending = settle.step
-			clearSettle()
-			// The DOM the new interaction starts from IS the previous step's outcome,
-			// and by now `capture()` would already include this interaction's effect (a
-			// fill committed by clicking a checkbox would settle showing it checked).
-			// Only a frame taken for this interaction will do: a fill's own pre-frame
-			// is up to a debounce old and predates the step being settled. The stamp
-			// has to come off — it marks the NEW step's target.
-			const fresh =
-				before !== undefined && (pendingPointer?.html === before || pendingKey?.html === before)
-			pending.after = frameIndex(fresh ? unstamp(before!) : capture())
-		}
+		if (!coalesces) settlePendingStep(before)
 		if (steps.length >= MAX_RECORDED_STEPS && !coalesces) {
 			truncated = true
 			capped = true
@@ -573,6 +577,13 @@ export function createRawAppRecording(): RawAppRecordingStore {
 				// taken on the pointerdown that focused the field, or on the keydown
 				// that produced this character.
 				const before = pointerFrameFor(el) ?? keyFrameFor(el) ?? capture(el)
+				// Arming a fill is the start of an interaction even though no step exists
+				// yet, so the previous one has to be closed out here too. Typing changes
+				// the `value` *property*, which the observer cannot see, so its settle
+				// would otherwise stay armed and capture this field mid-edit as the
+				// previous step's outcome — replaying as text that appears before it was
+				// typed and then vanishes.
+				settlePendingStep(before)
 				pendingFill = { el, before, timer: setTimeout(commitFill, FILL_DEBOUNCE_MS) }
 			} else {
 				clearTimeout(pendingFill.timer)
