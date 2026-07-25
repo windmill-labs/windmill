@@ -1746,8 +1746,14 @@ async fn restart_job_if_perpetual_inner(
 /// Call this from *both* completion paths. A retry is enqueued before its predecessor's
 /// failure row is committed, so with a zero delay the retry can succeed while that row is
 /// still absent; the success-side call would then find nothing to resolve. Calling again
-/// when a failure commits with a retry pending makes the two commit orders converge, and
-/// `ON CONFLICT DO NOTHING` keeps the duplicate call free of effect.
+/// when a failure commits with a retry pending makes the two commit orders converge.
+///
+/// `ON CONFLICT DO NOTHING` makes a repeat call idempotent while a resolution *exists*, but
+/// it is not inert: once a human unresolves a chain member, a later sweep for the same
+/// chain resolves it again. Reaching that needs another completion under the same `root`
+/// (a WAC inline sibling, or a replayed completion), so it is rare rather than impossible.
+/// Making an unresolve durable against it needs a tombstone the read path can see, which
+/// this deliberately does not add.
 pub async fn resolve_retry_chain_if_succeeded(
     db: &Pool<Postgres>,
     root: Uuid,
