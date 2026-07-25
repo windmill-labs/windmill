@@ -282,8 +282,16 @@ function describeValueOverflow(
  * about keys or renderers — it just refuses to let an arbitrary payload be huge. */
 function countRecordingNodes(v: unknown, budget = { n: MAX_RECORDING_NODES + 1 }): number {
 	let count = 0
+	// Past the ceiling the answer is `Infinity`, not the partial count: giving up on
+	// the walk and reporting what was seen so far would let any amount of structure
+	// hide behind a few hundred wrappers, which is the opposite of a backstop.
+	let tooDeep = false
 	const walk = (x: unknown, depth: number) => {
-		if (budget.n <= 0 || depth > MAX_VALUE_DEPTH) return
+		if (tooDeep || budget.n <= 0) return
+		if (depth > MAX_VALUE_DEPTH) {
+			tooDeep = true
+			return
+		}
 		if (Array.isArray(x)) {
 			count += x.length
 			budget.n -= x.length
@@ -296,7 +304,7 @@ function countRecordingNodes(v: unknown, budget = { n: MAX_RECORDING_NODES + 1 }
 		}
 	}
 	walk(v, 0)
-	return count
+	return tooDeep ? Infinity : count
 }
 
 /** True when one recorded value is renderable. Apply this to each value a component
@@ -429,14 +437,13 @@ export function isPipelineRecording(data: unknown): data is PipelineRecording {
 			Object.values(data.assetSamples).every(
 				(s) =>
 					isObject(s) &&
-					// An errored sample renders the message instead of the table, so it needs a
-					// bound of its own — the table branch's budget never sees it.
+					// Both branches render the sample's own fields (`uri`, `rowCount`), so the
+					// budget applies either way; only the table is extra.
+					withinRenderBudget(s) &&
 					((isShortText(s.error, true) && s.error !== '') ||
 						(isObjectArray(s.rows, MAX_SAMPLE_ROWS) &&
 							isObjectArray(s.columns, MAX_SAMPLE_COLUMNS) &&
-							(s.rows as unknown[]).length * (s.columns as unknown[]).length <= MAX_SAMPLE_CELLS &&
-							// The cells' values are formatted individually on top of that.
-							withinRenderBudget(s)))
+							(s.rows as unknown[]).length * (s.columns as unknown[]).length <= MAX_SAMPLE_CELLS))
 			))
 	const validCodes =
 		data.codes === undefined ||
@@ -497,10 +504,12 @@ function describeOverflow(data: Record<string, unknown>): string | undefined {
 	// The render budget is the cap a legitimate capture is most likely to trip (the
 	// recorders stringify job results verbatim), so name the value that blew it and
 	// what about it was too big instead of reporting a format error.
+	const samples = isObject(data.assetSamples) ? Object.values(data.assetSamples) : []
 	for (const [label, value] of [
 		['a recorded job', jobs.find((j) => !withinRenderBudget(j))],
 		['this flow definition', withinRenderBudget(data.flow) ? undefined : data.flow],
-		["this script's inputs", withinRenderBudget(data.schema) ? undefined : data.schema]
+		["this script's inputs", withinRenderBudget(data.schema) ? undefined : data.schema],
+		['a recorded asset sample', samples.find((s) => !withinRenderBudget(s))]
 	] as const) {
 		const over = value === undefined ? undefined : describeValueOverflow(value)
 		if (over) return `Cannot replay: ${label} carries ${over}.`

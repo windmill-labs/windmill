@@ -413,9 +413,43 @@ describe('parseRecording', () => {
 			some_future_field: filler
 		})
 		expect(res.ok).toBe(false)
-		expect(res.ok ? '' : res.error).toMatch(
-			new RegExp(`more than ${MAX_RECORDING_NODES} values`)
-		)
+		expect(res.ok ? '' : res.error).toMatch(new RegExp(`more than ${MAX_RECORDING_NODES} values`))
+
+		// Structure hidden behind wrappers deeper than the ceiling must be refused, not
+		// silently uncounted — a backstop that gives up is not a backstop.
+		let buried: unknown = filler
+		for (let i = 0; i < MAX_VALUE_DEPTH + 2; i++) buried = { nest: buried }
+		expect(
+			rejected({ version: 1, flow_path: 'f', ...header, jobs: { j: job() }, buried })
+		).toBe(true)
+	})
+
+	it('bounds an errored asset sample, which still renders its own fields', () => {
+		// The error branch shows the message instead of the table, but `uri` and
+		// `rowCount` render either way.
+		expect(
+			rejected(
+				pipeline({
+					assetSamples: {
+						'ducklake:main/t': {
+							kind: 'ducklake',
+							path: 'main/t',
+							error: 'table missing',
+							uri: 'x'.repeat(MAX_VALUE_STRING_CHARS + 1)
+						}
+					}
+				})
+			)
+		).toBe(true)
+		expect(
+			kindOf(
+				pipeline({
+					assetSamples: {
+						'ducklake:main/t': { kind: 'ducklake', path: 'main/t', uri: 'ducklake://main/t', error: 'table missing' }
+					}
+				})
+			)
+		).toBe('pipeline')
 	})
 
 	it('tells an oversized recording apart from a corrupt one', () => {
