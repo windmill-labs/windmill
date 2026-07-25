@@ -71,6 +71,12 @@ pub struct DbtProfile {
     /// instead of rendering one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profiles_yml: Option<String>,
+    /// Target schema (BigQuery calls it the dataset). Required for adapters
+    /// whose Windmill resource carries none — a BigQuery resource is a raw
+    /// service-account JSON, which has no dataset in it. Overrides the
+    /// resource's own value where there is one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<String>,
     /// dbt adapter (`postgres` | `snowflake` | `bigquery` | `databricks`),
     /// spelled as dbt's own `type:`. Optional: the worker infers it from the
     /// resource's shape, and this pins it when the inference is wrong or the
@@ -205,12 +211,16 @@ pub fn parse_dbt_sig(inner_content: &str) -> anyhow::Result<MainArgSignature> {
             oidx: None,
             otyp_inferred: false,
         },
+        // An OVERRIDE map, so its default is empty rather than a copy of the
+        // descriptor's vars. Seeding it with the descriptor would make the run
+        // form post the raw `{{ placeholder }}` text back and clobber the value
+        // the worker just interpolated for it.
         Arg {
             name: "vars".to_string(),
             otyp: None,
             typ: Typ::Object(windmill_parser::ObjectType::new(None, Some(vec![]))),
             has_default: true,
-            default: Some(serde_json::json!(d.vars)),
+            default: Some(serde_json::json!({})),
             oidx: None,
             otyp_inferred: false,
         },
@@ -368,6 +378,11 @@ full_refresh: true
         // Defaults come from the descriptor so an untouched run reproduces it.
         let select = sig.args.iter().find(|a| a.name == "select").unwrap();
         assert_eq!(select.default, Some(serde_json::json!(["tag:nightly+"])));
+        // `vars` is the exception: it overrides, so its default must be empty.
+        // Seeded with the descriptor, the run form would post `{{ day }}` back
+        // and overwrite the value the worker interpolated for it.
+        let vars = sig.args.iter().find(|a| a.name == "vars").unwrap();
+        assert_eq!(vars.default, Some(serde_json::json!({})));
         // Placeholders are required: there is no sane default for a commit.
         let commit = sig.args.iter().find(|a| a.name == "commit").unwrap();
         assert!(!commit.has_default);

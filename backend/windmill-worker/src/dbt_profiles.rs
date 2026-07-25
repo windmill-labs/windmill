@@ -195,6 +195,7 @@ fn n(v: &Value, k: &str) -> Option<i64> {
 /// The rendered `profiles.yml` body plus the `(schema, database)` the target
 /// resolves to. The caller needs those two to spell the `table://` asset paths
 /// of models that do not override them.
+#[derive(Debug)]
 pub struct RenderedProfile {
     pub yaml: String,
     pub schema: Option<String>,
@@ -319,7 +320,17 @@ pub fn render_profile(
             })?;
             out.push(("project".into(), quoted(&project)));
             database = Some(project);
-            schema = schema.or_else(|| s(resource, "dataset"));
+            // A service-account JSON has no dataset, so unless the resource was
+            // extended with one the descriptor must supply it — dbt rejects a
+            // BigQuery target without `dataset`, and failing here names the
+            // missing field instead.
+            schema = schema.or_else(|| s(resource, "dataset")).or_else(|| s(resource, "schema"));
+            if schema.is_none() {
+                return Err(Error::BadRequest(
+                    "a BigQuery target needs a dataset; set `profile.schema` in the descriptor"
+                        .to_string(),
+                ));
+            }
         }
         DbtAdapter::Databricks => {
             for (k, rk) in [
@@ -437,6 +448,21 @@ mod tests {
     // A SQL Server resource has the same host/dbname shape as a Postgres one.
     // Guessing Postgres for it would point dbt-postgres at port 1433 instead of
     // producing the licensing error, so an ambiguous resource must decline.
+    // dbt rejects a BigQuery target with no dataset, and a service-account JSON
+    // carries none — so the descriptor has to supply it, and saying which field
+    // is missing beats a downstream dbt error.
+    #[test]
+    fn bigquery_requires_a_dataset() {
+        let r = json!({"project_id": "p", "client_email": "e", "private_key": "k"});
+        let err = render_profile(DbtAdapter::Bigquery, &r, "wm", "prod", None, None)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("profile.schema"), "{err}");
+        let p = render_profile(DbtAdapter::Bigquery, &r, "wm", "prod", None, Some("marts")).unwrap();
+        assert!(p.yaml.contains("      schema: \"marts\"\n"));
+        assert_eq!(p.schema.as_deref(), Some("marts"));
+    }
+
     #[test]
     fn ambiguous_host_resources_decline_rather_than_guess() {
         let mssql = json!({"host": "h", "dbname": "d", "user": "u", "password": "p"});

@@ -147,6 +147,7 @@ pub async fn handle_dbt_job(
         &job.id,
         &job.workspace_id,
         job.runnable_path.as_deref().unwrap_or_default(),
+        true,
         worker_name,
         conn,
         client,
@@ -239,7 +240,11 @@ pub async fn handle_dbt_job(
     // refreshed from this run's own manifest or it describes a different
     // commit than the one that ran (decision 12). The run already produced
     // `manifest.json`, so this costs no extra dbt invocation.
-    if descriptor.is_latest_ref() {
+    // Whenever the commit is chosen per run rather than pinned at deploy — both
+    // `latest` and a placeholder ref — the deployed graph describes a different
+    // commit than the one that just executed, so it has to be refreshed from
+    // this run's manifest (decision 12). Free: the run already wrote it.
+    if descriptor.is_latest_ref() || prepared.ref_is_per_run {
         if let Err(e) = ingest_from_run(&prepared, &descriptor, job, conn).await {
             tracing::warn!("dbt graph refresh after a `latest` run failed: {e:#}");
         }
@@ -310,6 +315,7 @@ pub async fn dbt_dep(
         job_id,
         w_id,
         script_path,
+        false,
         worker_name,
         &conn,
         &client,
@@ -320,7 +326,7 @@ pub async fn dbt_dep(
     .await?;
 
     let mut parse_cmd = dbt_command(&prepared, &["parse"]);
-    add_vars(&mut parse_cmd, &descriptor, &HashMap::new());
+    add_vars(&mut parse_cmd, &descriptor, &HashMap::new(), false)?;
     let out = parse_cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -422,8 +428,11 @@ pub struct PreparedProject {
     pub engine: ProvisionedEngine,
     pub commit: String,
     /// The descriptor's `ref` holds a placeholder no deploy can resolve, so the
-    /// lockfile must not pin a commit.
+    /// lockfile must not pin a commit and the graph refreshes per run.
     pub ref_is_per_run: bool,
+    /// The project's path relative to the checkout root, which distinguishes
+    /// two same-named project dirs in one repo.
+    pub project_subdir: String,
     /// The `git_repository` resource path. The resolved URL is deliberately not
     /// kept: it can carry a token, and this ends up in the lockfile.
     pub repo_resource: String,
@@ -449,6 +458,9 @@ pub async fn prepare_project(
     // across every dbt script in the workspace, so a retry resumes another
     // project's run_results.json.
     script_path: &str,
+    // False only for the deploy, which has no job arguments and so must tolerate
+    // `{{ }}` placeholders it cannot fill. A run must not.
+    strict_args: bool,
     worker_name: &str,
     conn: &Connection,
     client: &AuthedClient,
@@ -506,10 +518,17 @@ pub async fn prepare_project(
     // per run. `ref_is_per_run` carries that fact to the lockfile, which must
     // then pin nothing: locking the default branch's hash would make every run
     // ignore its own `commit` argument and replay the deploy's checkout.
-    let interpolated_ref = descriptor
-        .r#ref
-        .as_deref()
-        .and_then(|r| crate::common::interpolate_template(r, Some(args), "ref").ok());
+    let interpolated_ref = match descriptor.r#ref.as_deref() {
+        Some(r) => match crate::common::interpolate_template(r, Some(args), "ref") {
+            Ok(v) => Some(v),
+            // A run that cannot fill its own ref must fail: falling back to the
+            // default branch would silently execute a commit nobody asked for
+            // and report success.
+            Err(e) if strict_args => return Err(e),
+            Err(_) => None,
+        },
+        None => None,
+    };
     let ref_is_per_run = descriptor.r#ref.is_some() && interpolated_ref.is_none();
     let probe = GitRepo {
         url: url.clone(),
@@ -559,18 +578,17 @@ pub async fn prepare_project(
     )
     .await?;
 
-    let project_dir = match descriptor
+    let project_subdir = descriptor
         .project
         .as_deref()
         .map(str::trim)
         .filter(|p| !p.is_empty())
-    {
-        Some(sub) => {
-            crate::common::validate_relative_path(sub, "project")?;
-            PathBuf::from(job_dir).join("dbt").join(sub)
-        }
-        None => PathBuf::from(job_dir).join("dbt"),
-    };
+        .unwrap_or(".")
+        .to_string();
+    if project_subdir != "." {
+        crate::common::validate_relative_path(&project_subdir, "project")?;
+    }
+    let project_dir = PathBuf::from(job_dir).join("dbt").join(&project_subdir);
     if !project_dir.join("dbt_project.yml").exists() {
         return Err(Error::BadRequest(format!(
             "no dbt_project.yml at `{}` in the repo",
@@ -593,6 +611,7 @@ pub async fn prepare_project(
         engine,
         commit: checked_out,
         ref_is_per_run,
+        project_subdir,
         repo_resource: repo_res,
         resource_path,
         script_path: script_path.to_string(),
@@ -736,11 +755,10 @@ async fn install_packages(
     // commit and project subdir stand in for it. The cache is worker-global, so
     // without those two, byte-identical `packages.yml` files in unrelated repos
     // (and workspaces) would share one tree.
-    let mut key = format!(
-        "{}\n{}\n",
-        p.commit,
-        p.project_dir.file_name().unwrap_or_default().to_string_lossy()
-    );
+    // The project's path RELATIVE to the checkout, not its basename:
+    // `team_a/analytics` and `team_b/analytics` in one repo resolve different
+    // `local:` dependencies from identical manifests.
+    let mut key = format!("{}\n{}\n", p.commit, p.project_subdir);
     let mut declares_packages = false;
     for f in ["packages.yml", "dependencies.yml", "package-lock.yml"] {
         let path = p.project_dir.join(f);
@@ -815,10 +833,40 @@ async fn publish_to_cache(from: &Path, cached: &Path, job_id: &Uuid) {
     let name = cached.file_name().unwrap_or_default().to_string_lossy();
     let staging = cached.with_file_name(format!("{name}.staging-{job_id}"));
     tokio::fs::remove_dir_all(&staging).await.ok();
-    if copy_dir(from, &staging).await.is_err() || tokio::fs::rename(&staging, cached).await.is_err()
+    if copy_dir(from, &staging).await.is_err()
+        || strip_git_remote(&staging).await.is_err()
+        || tokio::fs::rename(&staging, cached).await.is_err()
     {
         tokio::fs::remove_dir_all(&staging).await.ok();
     }
+}
+
+/// Drop the origin remote from a checkout on its way into the cache.
+///
+/// `git clone` writes the URL it was given into `.git/config`, and for token
+/// auth or a GitHub App that URL *is* the credential. The cache is
+/// worker-global and outlives the job, so copying the checkout verbatim would
+/// leave a live token readable by every later job on the host. The cache is
+/// only ever restored at an already-known commit, so it needs no remote.
+async fn strip_git_remote(dir: &Path) -> std::io::Result<()> {
+    let config = dir.join(".git").join("config");
+    if !config.exists() {
+        return Ok(());
+    }
+    let content = tokio::fs::read_to_string(&config).await?;
+    let mut out = String::with_capacity(content.len());
+    let mut in_remote = false;
+    for line in content.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with('[') {
+            in_remote = trimmed.starts_with("[remote ");
+        }
+        if !in_remote {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    tokio::fs::write(&config, out).await
 }
 
 /// Write `profiles.yml`, either rendered from a Windmill resource or taken from
@@ -897,7 +945,7 @@ async fn write_profiles(
         &profile_name,
         target,
         descriptor.threads,
-        None,
+        descriptor.profile.schema.as_deref(),
     )?;
     let dir = PathBuf::from(job_dir).join("dbt_profiles");
     tokio::fs::create_dir_all(&dir)
@@ -1009,7 +1057,7 @@ async fn run_dbt(
         }
     }
     if command != "retry" {
-        add_vars(&mut cmd, descriptor, args);
+        add_vars(&mut cmd, descriptor, args, true)?;
         if let Some(t) = descriptor.threads {
             cmd.args(["--threads", &t.to_string()]);
         }
@@ -1378,7 +1426,7 @@ async fn resolve_selection(
     // without these, so the selection resolver needs them exactly as the run
     // does. Placeholders that only a run can fill are dropped rather than
     // failing the deploy.
-    add_vars(&mut cmd, descriptor, &HashMap::new());
+    add_vars(&mut cmd, descriptor, &HashMap::new(), false)?;
     // The types spelled out rather than `all`, which dbt-core 2.x rejects.
     for t in ["model", "source", "seed", "snapshot", "test"] {
         cmd.args(["--resource-type", t]);
@@ -1480,34 +1528,49 @@ async fn restore_run_state(p: &PreparedProject, w_id: &str) -> error::Result<()>
 }
 
 /// Append `--vars` if the descriptor (or the run) declares any.
-fn add_vars(cmd: &mut Command, descriptor: &DbtDescriptor, args: &HashMap<String, Box<RawValue>>) {
-    let vars = resolved_vars(descriptor, args);
+fn add_vars(
+    cmd: &mut Command,
+    descriptor: &DbtDescriptor,
+    args: &HashMap<String, Box<RawValue>>,
+    strict: bool,
+) -> error::Result<()> {
+    let vars = resolved_vars(descriptor, args, strict)?;
     if !vars.is_empty() {
         cmd.args(["--vars", &serde_json::to_string(&vars).unwrap_or_default()]);
     }
+    Ok(())
 }
 
+/// `strict` is the difference between the two callers. A run MUST fail on a
+/// placeholder it cannot fill — silently substituting an empty string would let
+/// the job build the wrong slice and report success. A deploy has no arguments
+/// at all, so the same placeholder is expected there; the var still has to be
+/// *defined* or a project calling `var("run_date")` without its own default
+/// cannot be parsed, but its value is irrelevant to the graph.
 fn resolved_vars(
     descriptor: &DbtDescriptor,
     args: &HashMap<String, Box<RawValue>>,
-) -> serde_json::Map<String, serde_json::Value> {
+    strict: bool,
+) -> error::Result<serde_json::Map<String, serde_json::Value>> {
     let mut out = serde_json::Map::new();
     for (k, v) in &descriptor.vars {
-        // A var whose placeholder only a run can fill still has to be DEFINED at
-        // deploy, or a project calling `var("run_date")` without its own default
-        // fails to parse and cannot be deployed at all. The value is irrelevant
-        // to parsing the graph, so it resolves to empty; the run supplies the
-        // real one.
-        let value = crate::common::interpolate_template(v, Some(args), &format!("vars.{k}"))
-            .unwrap_or_default();
+        let field = format!("vars.{k}");
+        let value = match crate::common::interpolate_template(v, Some(args), &field) {
+            Ok(value) => value,
+            Err(e) if strict => return Err(e),
+            Err(_) => String::new(),
+        };
         out.insert(k.clone(), serde_json::Value::String(value));
     }
+    // The run argument overrides; it never carries the descriptor's own values
+    // back (its signature default is empty), so this cannot clobber what was
+    // just interpolated above.
     if let Some(raw) = args.get("vars") {
         if let Ok(serde_json::Value::Object(m)) = serde_json::from_str(raw.get()) {
             out.extend(m);
         }
     }
-    out
+    Ok(out)
 }
 
 fn arg_str(args: &HashMap<String, Box<RawValue>>, k: &str) -> Option<String> {

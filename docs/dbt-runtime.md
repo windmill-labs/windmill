@@ -205,6 +205,9 @@ engine: dbt-core-1x               # or dbt-core-2x | fusion
 profile:
   resource: $res:f/prod/snowflake # rendered into profiles.yml
   target: prod
+  # schema: marts                 # target schema; REQUIRED for BigQuery, whose
+                                  # resource is a service-account JSON with no
+                                  # dataset in it
   # profiles_yml: profiles.yml    # alternative: keep your own file
 select: ["tag:nightly+"]
 exclude: []
