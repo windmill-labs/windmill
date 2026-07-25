@@ -454,6 +454,7 @@ impl From<UnifiedJob> for Job {
                     resolved_by: None,
                     resolved_at: None,
                     resolution_note: None,
+                    resolved_automatically: None,
                 },
             )),
             "QueuedJob" => Job::QueuedJob(JobExtended::new(

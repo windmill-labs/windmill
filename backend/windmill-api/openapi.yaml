@@ -25592,6 +25592,12 @@ components:
           format: date-time
         resolution_note:
           type: string
+        resolved_automatically:
+          type: boolean
+          description: >-
+            true when a succeeding retry resolved this rather than a person. Explicit rather
+            than inferred from an absent resolved_by, which is also absent for a manual
+            resolution outside enterprise
         worker:
           type: string
       required:

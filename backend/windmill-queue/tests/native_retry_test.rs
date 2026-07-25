@@ -440,7 +440,17 @@ mod native_retry {
         assert_eq!(
             by_id.get(&a_retry),
             Some(&(None, None)),
-            "the superseded attempt resolves automatically (resolved_by NULL)"
+            "the superseded attempt resolves with no attribution"
+        );
+        let auto: bool =
+            sqlx::query_scalar("SELECT automatic FROM job_resolution WHERE job_id = $1")
+                .bind(a_retry)
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert!(
+            auto,
+            "automatic must be set explicitly: a manual CE resolution also has resolved_by NULL"
         );
         assert!(
             !by_id.contains_key(&a_sibling),

@@ -1,13 +1,21 @@
 <script lang="ts">
 	import { JobService, type Job } from '$lib/gen'
 	import { base } from '$lib/base'
-	import { displayDate, truncateRev, truncateHash, isJobResolvable } from '$lib/utils'
+	import {
+		displayDate,
+		truncateRev,
+		truncateHash,
+		isJobResolvable,
+		MAX_RESOLUTION_NOTE_LEN
+	} from '$lib/utils'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
-	import { ExternalLink, ListFilter, ChevronDown, Share2, Link, Copy, Wrench } from 'lucide-svelte'
+	import { ExternalLink, ListFilter, ChevronDown, Share2, Link, Copy } from 'lucide-svelte'
 	import JobStatus from '$lib/components/JobStatus.svelte'
 	import JobStatusIcon from '$lib/components/runs/JobStatusIcon.svelte'
 	import RunBadges from '$lib/components/runs/RunBadges.svelte'
@@ -55,27 +63,33 @@
 
 	let togglingResolution = $state(false)
 
+	let resolutionNote = $state('')
+
 	// `job` comes from a $state holder in every caller, so writing the resolution back
 	// onto it is what refreshes the status badge without a refetch.
-	async function toggleResolution() {
+	async function setResolution(resolve: boolean, note?: string) {
 		if (!isJobResolvable(job)) return
-		const resolve = !job.resolved
 		togglingResolution = true
 		try {
-			const body = {
-				workspace: job.workspace_id ?? $workspaceStore ?? '',
-				requestBody: { job_ids: [job.id] }
-			}
+			const workspace = job.workspace_id ?? $workspaceStore ?? ''
 			const affected = resolve
-				? await JobService.resolveCompletedJobs(body)
-				: await JobService.unresolveCompletedJobs(body)
+				? await JobService.resolveCompletedJobs({
+						workspace,
+						requestBody: { job_ids: [job.id], note: note || undefined }
+					})
+				: await JobService.unresolveCompletedJobs({ workspace, requestBody: { job_ids: [job.id] } })
 			if (affected.length === 0) {
 				sendUserToast('Could not change the resolution of this run', true)
 				return
 			}
+			// Mirror what the server actually persisted: attribution and notes are EE-only, so
+			// claiming them in CE would show "resolved by X" until the next refetch dropped it.
 			job.resolved = resolve
-			job.resolved_by = resolve ? ($userStore?.username ?? undefined) : undefined
-			job.resolution_note = undefined
+			job.resolved_automatically = false
+			job.resolved_by =
+				resolve && $enterpriseLicense ? ($userStore?.username ?? undefined) : undefined
+			job.resolution_note = resolve && $enterpriseLicense ? note || undefined : undefined
+			resolutionNote = ''
 			onResolutionChanged?.()
 		} finally {
 			togglingResolution = false
@@ -474,18 +488,67 @@
 							<JobStatus {job} />
 
 							{#if isJobResolvable(job)}
-								<Button
-									size="xs2"
-									variant="subtle"
-									startIcon={{ icon: Wrench }}
-									disabled={togglingResolution}
-									onClick={toggleResolution}
-									title={job.resolved
-										? 'Show this run as a failure again'
-										: 'Mark this failure as handled'}
-								>
-									{job.resolved ? 'Unresolve' : 'Mark resolved'}
-								</Button>
+								<!-- No startIcon on these: the row is baseline-aligned, and a Button is
+								     itself a flex container whose baseline comes from its icon rather
+								     than its label, which sits the text ~3px above the badges. Text
+								     only keeps it on the badges' baseline exactly. -->
+								{#if job.resolved}
+									<Button
+										size="xs2"
+										variant="subtle"
+										disabled={togglingResolution}
+										onClick={() => setResolution(false)}
+										title="Show this run as a failure again"
+									>
+										Unresolve
+									</Button>
+								{:else}
+									<Popover placement="bottom-start" usePointerDownOutside>
+										{#snippet trigger()}
+											<Button
+												size="xs2"
+												variant="subtle"
+												nonCaptureEvent
+												title="Mark this failure as handled"
+											>
+												Mark resolved
+											</Button>
+										{/snippet}
+										{#snippet content({ close })}
+											<div class="p-3 flex flex-col gap-2 w-80">
+												<p class="text-xs text-secondary">
+													Resolving keeps the run a failure but stops it showing as one in the runs
+													list.
+												</p>
+												<TextInput
+													bind:value={resolutionNote}
+													inputProps={{
+														placeholder: $enterpriseLicense
+															? 'Why is this handled? (optional)'
+															: 'Notes and attribution require ee',
+														maxlength: MAX_RESOLUTION_NOTE_LEN,
+														disabled: !$enterpriseLicense
+													}}
+													size="sm"
+												/>
+												<div class="flex flex-row justify-end gap-2">
+													<Button size="xs2" variant="subtle" onClick={close}>Cancel</Button>
+													<Button
+														size="xs2"
+														variant="accent"
+														disabled={togglingResolution}
+														onClick={async () => {
+															await setResolution(true, resolutionNote)
+															close()
+														}}
+													>
+														Mark resolved
+													</Button>
+												</div>
+											</div>
+										{/snippet}
+									</Popover>
+								{/if}
 							{/if}
 
 							<RunBadges

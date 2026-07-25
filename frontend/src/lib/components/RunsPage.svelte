@@ -10,7 +10,14 @@
 	} from '$lib/gen'
 
 	import { sendUserToast } from '$lib/toast'
-	import { userStore, workspaceStore, userWorkspaces, superadmin, devopsRole } from '$lib/stores'
+	import {
+		userStore,
+		workspaceStore,
+		userWorkspaces,
+		superadmin,
+		devopsRole,
+		enterpriseLicense
+	} from '$lib/stores'
 	import {
 		Button,
 		ButtonType,
@@ -39,7 +46,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { computeJobKinds, useJobsLoader } from '$lib/components/runs/useJobsLoader.svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
-	import { pluralize } from '$lib/utils'
+	import { pluralize, MAX_RESOLUTION_BATCH, MAX_RESOLUTION_NOTE_LEN } from '$lib/utils'
 	import BatchReRunOptionsPane, {
 		type BatchReRunOptions
 	} from '$lib/components/runs/BatchReRunOptionsPane.svelte'
@@ -558,9 +565,6 @@
 
 	let manualSelectionMode: undefined | 'cancel' | 'rerun' | 'resolve' = $state()
 	let resolutionNote = $state('')
-	// Mirrors the caps enforced by /jobs/completed/resolve.
-	const MAX_RESOLUTION_BATCH = 1000
-	const MAX_RESOLUTION_NOTE_LEN = 2000
 </script>
 
 <ConfirmationModal
@@ -1088,8 +1092,11 @@
 								<TextInput
 									bind:value={resolutionNote}
 									inputProps={{
-										placeholder: 'Why is this handled? (optional)',
-										maxlength: MAX_RESOLUTION_NOTE_LEN
+										placeholder: $enterpriseLicense
+											? 'Why is this handled? (optional)'
+											: 'Notes and attribution require ee',
+										maxlength: MAX_RESOLUTION_NOTE_LEN,
+										disabled: !$enterpriseLicense
 									}}
 									size="sm"
 								/>

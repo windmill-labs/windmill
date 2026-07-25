@@ -374,8 +374,17 @@ async fn test_resolve_completed_jobs_scoping(db: Pool<Postgres>) -> anyhow::Resu
     .fetch_one(&db)
     .await?;
     assert_eq!(row.0, "failure", "resolving must not change job status");
-    assert_eq!(row.1.as_deref(), Some("test-user-2"));
-    assert_eq!(row.2.as_deref(), Some("expected"));
+    // Who resolved it and why are enterprise-only; CE records only that it was handled.
+    #[cfg(feature = "enterprise")]
+    {
+        assert_eq!(row.1.as_deref(), Some("test-user-2"));
+        assert_eq!(row.2.as_deref(), Some("expected"));
+    }
+    #[cfg(not(feature = "enterprise"))]
+    {
+        assert_eq!(row.1, None, "attribution is an EE feature");
+        assert_eq!(row.2, None, "notes are an EE feature");
+    }
 
     // Re-resolving without a note must keep the existing one: a bulk selection routinely
     // includes already-resolved failures, and silently blanking their notes loses the only
@@ -394,7 +403,10 @@ async fn test_resolve_completed_jobs_scoping(db: Pool<Postgres>) -> anyhow::Resu
             .bind(mine)
             .fetch_one(&db)
             .await?;
+    #[cfg(feature = "enterprise")]
     assert_eq!(kept.as_deref(), Some("expected"));
+    #[cfg(not(feature = "enterprise"))]
+    assert_eq!(kept, None, "no note is stored outside EE, so none can be lost");
 
     let resp = member(client().post(format!("{base}/completed/unresolve")))
         .json(&json!({ "job_ids": [mine, theirs] }))

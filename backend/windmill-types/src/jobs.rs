@@ -408,6 +408,12 @@ pub struct CompletedJob {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub resolution_note: Option<String>,
+    // True when a succeeding retry resolved this, rather than a person. Explicit rather than
+    // inferred from a NULL `resolved_by`, which is also NULL for a manual resolution outside
+    // enterprise (attribution is an EE feature).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub resolved_automatically: Option<bool>,
 }
 
 impl CompletedJob {

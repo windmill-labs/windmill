@@ -1721,9 +1721,9 @@ async fn restart_job_if_perpetual_inner(
 }
 
 /// Marks the failures a succeeding native retry attempt superseded as resolved, so
-/// triage surfaces stop showing red for a chain that ultimately worked. `resolved_by`
-/// stays NULL to mark the resolution as automatic, and `ON CONFLICT DO NOTHING` keeps a
-/// human's note intact.
+/// triage surfaces stop showing red for a chain that ultimately worked. `automatic` is set
+/// so the UI can say so without reading `resolved_by`, which is NULL for every manual CE
+/// resolution too; `ON CONFLICT DO NOTHING` keeps a human's note intact.
 ///
 /// Membership of the chain must be *proven* per row, never inferred from `parent_job`
 /// alone: `root` is `job.parent_job.unwrap_or(job.id)`, so for a job launched with an
@@ -1761,8 +1761,8 @@ pub async fn resolve_retry_chain_if_succeeded(
     runnable_id: Option<ScriptHash>,
 ) -> Result<(), Error> {
     sqlx::query!(
-        "INSERT INTO job_resolution (job_id, workspace_id, resolved_by, note)
-            SELECT c.id, c.workspace_id, NULL, NULL
+        "INSERT INTO job_resolution (job_id, workspace_id, resolved_by, note, automatic)
+            SELECT c.id, c.workspace_id, NULL, NULL, true
                 FROM v2_job_completed c
                 JOIN v2_job j ON j.id = c.id
                 WHERE c.status = 'failure'

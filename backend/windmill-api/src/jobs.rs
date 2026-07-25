@@ -1436,6 +1436,7 @@ macro_rules! get_job_query {
             (SELECT resolved_by FROM job_resolution WHERE job_id = v2_job_completed.id) as resolved_by, \
             (SELECT resolved_at FROM job_resolution WHERE job_id = v2_job_completed.id) as resolved_at, \
             (SELECT note FROM job_resolution WHERE job_id = v2_job_completed.id) as resolution_note, \
+            (SELECT automatic FROM job_resolution WHERE job_id = v2_job_completed.id) as resolved_automatically, \
             CASE WHEN result is null or pg_column_size(result) < 90000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result",
             "",
         )
@@ -9675,6 +9676,26 @@ const MAX_RESOLUTION_BATCH: usize = 1000;
 /// `maxLength` count and a non-ASCII note never fails a check it appeared to pass.
 const MAX_RESOLUTION_NOTE_LEN: usize = 2000;
 
+/// Who resolved a failure and why is enterprise-only, mirroring `audit_log` being a no-op
+/// outside EE: CE records *that* a failure was handled, EE records the accountability. The
+/// resolution itself, the filter and the automatic retry sweep are unaffected, so gating
+/// stays on this write and never reaches the runs-list read path.
+#[cfg(feature = "enterprise")]
+fn resolution_attribution<'a>(
+    authed: &'a ApiAuthed,
+    note: Option<&'a str>,
+) -> (Option<&'a str>, Option<&'a str>) {
+    (Some(authed.username.as_str()), note)
+}
+
+#[cfg(not(feature = "enterprise"))]
+fn resolution_attribution<'a>(
+    _authed: &'a ApiAuthed,
+    _note: Option<&'a str>,
+) -> (Option<&'a str>, Option<&'a str>) {
+    (None, None)
+}
+
 fn check_resolution_request(
     authed: &ApiAuthed,
     job_ids: &[Uuid],
@@ -9714,12 +9735,13 @@ async fn resolve_completed_jobs(
     check_resolution_request(&authed, &req.job_ids, req.note.as_deref())?;
     let mut tx = user_db.begin(&authed).await?;
     let tags = get_scope_tags(&authed);
+    let (resolved_by, note) = resolution_attribution(&authed, req.note.as_deref());
     // The join on v2_job is what authorizes this write: v2_job_completed has RLS
     // disabled, so v2_job's policies are the only thing scoping rows to the caller.
     // `status = 'failure'` keeps the invariant that only a failure can be resolved.
     let resolved = sqlx::query_scalar!(
-        "INSERT INTO job_resolution (job_id, workspace_id, resolved_by, note)
-            SELECT c.id, c.workspace_id, $4, $5
+        "INSERT INTO job_resolution (job_id, workspace_id, resolved_by, note, automatic)
+            SELECT c.id, c.workspace_id, $4, $5, false
                 FROM v2_job_completed c
                 JOIN v2_job j ON j.id = c.id
                 WHERE c.id = ANY($1)
@@ -9732,13 +9754,15 @@ async fn resolve_completed_jobs(
                 -- Re-resolving without typing a note must not wipe the note already there:
                 -- a bulk selection routinely includes already-resolved failures. Clearing a
                 -- note is done by unresolving first.
-                note = COALESCE(EXCLUDED.note, job_resolution.note)
+                note = COALESCE(EXCLUDED.note, job_resolution.note),
+                -- A human taking over an automatic resolution makes it no longer automatic.
+                automatic = false
             RETURNING job_id",
         &req.job_ids,
         &w_id,
         tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
-        &authed.username,
-        req.note.as_deref(),
+        resolved_by,
+        note,
     )
     .fetch_all(&mut *tx)
     .await?;

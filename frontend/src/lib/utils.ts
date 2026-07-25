@@ -89,6 +89,11 @@ export function isJobResolvable(j: Job): j is CompletedJob {
 	return j.type === 'CompletedJob' && !j.success && !j.canceled
 }
 
+// Mirror the caps enforced by /jobs/completed/resolve, so the UI can chunk and validate
+// before the API rejects a whole action.
+export const MAX_RESOLUTION_BATCH = 1000
+export const MAX_RESOLUTION_NOTE_LEN = 2000
+
 export const WORKER_NAME_PREFIX = 'wk'
 
 export function escapeHtml(unsafe: string) {
