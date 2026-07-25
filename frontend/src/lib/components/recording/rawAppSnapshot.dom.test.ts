@@ -47,18 +47,23 @@ describe('serializeDocument redaction', () => {
 		}
 	})
 
-	it('redacts a marked document root, and keeps only layout attributes', () => {
+	it('redacts a marked document root down to its constrained attributes', () => {
+		// Marking the root marks every stylesheet with it, so no CSS survives to
+		// justify keeping a class: only attributes whose values cannot carry content
+		// are left.
 		const doc = docFrom(
 			`<style>.theme-dark { color: white }</style><p>everything here is private</p>`
 		)
 		doc.documentElement.setAttribute('data-wm-no-record', '')
 		doc.documentElement.setAttribute('class', 'theme-dark')
+		doc.documentElement.setAttribute('hidden', '')
 		doc.documentElement.setAttribute('cite', 'https://host/private-source')
 
 		const html = serializeDocument(doc)
 		expect(html).not.toContain('everything here is private')
 		expect(html).not.toContain('private-source')
-		expect(html).toContain('theme-dark')
+		expect(html).not.toContain('theme-dark')
+		expect(html).toContain('hidden')
 	})
 
 	it('keeps no attribute that could carry content, listed or not', () => {
@@ -74,6 +79,18 @@ describe('serializeDocument redaction', () => {
 		expect(html).not.toContain('salary-92000')
 		// The layout-bearing class survives: the snapshot's own CSS selects on it.
 		expect(html).toContain('class="frame"')
+	})
+
+	it('does not let a marked stylesheet justify keeping the class it selects', () => {
+		// The marked sheet is scrubbed, so its selectors are not part of the
+		// snapshot's vocabulary: honouring them would launder the very token the
+		// author marked the sheet to withhold.
+		const doc = docFrom(
+			`<style data-wm-no-record>.salary-92000 { color: red }</style>` +
+				`<div data-wm-no-record class="salary-92000">x</div>`
+		)
+		const html = serializeDocument(doc)
+		expect(html).not.toContain('salary-92000')
 	})
 
 	it('keeps only the class and id tokens the snapshot styles', () => {

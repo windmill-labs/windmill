@@ -20,6 +20,11 @@
 	let error = $state<string | undefined>(undefined)
 	let progress = $state<number | undefined>(undefined)
 
+	/** Recording kinds the in-workspace player handles. Named rather than echoed:
+	 * `type` comes from whatever `?src=` points at, so an arbitrary payload must
+	 * never reach the page as text. */
+	const IN_WORKSPACE_KINDS = ['script', 'flow', 'pipeline']
+
 	function accept(data: unknown): boolean {
 		if (!isAppRecording(data)) {
 			// Flow/script/pipeline recordings replay job streams, which need a session:
@@ -29,10 +34,9 @@
 			// the visitor having to reconstruct the URL.
 			const src = new URL(window.location.href).searchParams.get('src')
 			const where = `/pipeline_replay${src ? `?src=${encodeURIComponent(src)}` : ''}`
-			error =
-				kind && kind !== 'app'
-					? `This is a ${kind} recording — open it in your workspace at ${where}.`
-					: 'That file is not a raw-app session recording this player understands.'
+			error = IN_WORKSPACE_KINDS.includes(kind)
+				? `This is a ${kind} recording — open it in your workspace at ${where}.`
+				: 'That file is not a raw-app session recording this player understands.'
 			return false
 		}
 		error = undefined

@@ -143,13 +143,18 @@ export function redactedDescription(el: Element): string {
  * shape, but their values are author-chosen free text and can carry the very
  * content the marker withholds (`id="salary-92000"`). A token the CSS selects on
  * is styling vocabulary by construction; one it never mentions buys the layout
- * nothing, so it goes. Matching is textual and deliberately errs towards
+ * nothing, so it goes. Only stylesheets that survive into the snapshot count.
+ * Matching is textual and deliberately errs towards
  * dropping: a class reached only through `[class~=…]` loses its styling, which
  * costs a placeholder its shape rather than leaking anything. */
 function styledTokens(clone: Element): { classes: Set<string>; ids: Set<string> } {
 	const classes = new Set<string>()
 	const ids = new Set<string>()
 	for (const style of Array.from(clone.querySelectorAll('style'))) {
+		// A marked stylesheet is scrubbed too, so its selectors are not vocabulary:
+		// letting `<style data-wm-no-record>.salary-92000{}</style>` justify keeping
+		// that class would launder the token the sheet was marked to withhold.
+		if (isRedacted(style)) continue
 		const css = style.textContent ?? ''
 		for (const m of css.matchAll(/\.(-?[_a-zA-Z][\w-]*)/g)) classes.add(m[1])
 		for (const m of css.matchAll(/#(-?[_a-zA-Z][\w-]*)/g)) ids.add(m[1])
