@@ -372,6 +372,16 @@
 		}
 
 		const selectedFilters = getSelectedFilters()
+		// Cancellation targets come from the queue, but resolution only exists on completed
+		// jobs: "Resolved only" therefore matches nothing cancellable. The queue endpoint
+		// takes ListQueueQuery and has no `resolved` param at all, so without this the
+		// lookup would silently return the queued jobs the table is currently hiding and
+		// offer to cancel them.
+		if (selectedFilters.resolved === true) {
+			askingForConfirmation = undefined
+			sendUserToast('No queued jobs match "Resolved only" — resolution applies to completed runs')
+			return
+		}
 		const selectedFiltersString = JSON.stringify(selectedFilters, null, 4)
 		const jobIdsToCancel = await JobService.listFilteredQueueUuids(selectedFilters)
 
