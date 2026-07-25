@@ -420,7 +420,23 @@ pub async fn dbt_dep(
             .unwrap_or_default(),
     );
 
-    if let Some(resource_path) = prepared.resource_path.as_deref() {
+    // Two deploys of one path can run concurrently — nothing serializes
+    // dependency jobs — and the graph is keyed by path, not by version. The
+    // older one finishing last would replace the newer one's nodes, assets and
+    // cascade subscriptions with a description of code that is no longer
+    // deployed, and nothing afterwards repairs it. It still returns its lock,
+    // which belongs to its own version.
+    if superseded_by_a_newer_deploy(db, job_id, w_id, script_path).await {
+        append_logs(
+            job_id,
+            w_id,
+            "\nA newer version of this script was deployed while this job ran, so the asset \
+             graph was left describing that one.\n"
+                .to_string(),
+            &conn,
+        )
+        .await;
+    } else if let Some(resource_path) = prepared.resource_path.as_deref() {
         let ingested = windmill_common::dbt_manifest::ingest_manifest(
             &manifest,
             resource_path,
@@ -485,6 +501,35 @@ pub async fn dbt_dep(
         adapter_version: prepared.engine.adapter_version.clone(),
     })
     .map_err(|e| Error::internal_err(format!("serializing the dbt lockfile: {e}")))
+}
+
+/// Whether a newer version of this script has been created since this
+/// dependency job's own. The lock predicate `get_latest_script_hash` uses is
+/// not usable here: the version being deployed has no lock yet, so it would
+/// name the PREVIOUS version and every deploy would look superseded.
+async fn superseded_by_a_newer_deploy(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    job_id: &Uuid,
+    w_id: &str,
+    script_path: &str,
+) -> bool {
+    let Ok(Some(mine)) = sqlx::query_scalar!("SELECT runnable_id FROM v2_job WHERE id = $1", job_id)
+        .fetch_optional(db)
+        .await
+    else {
+        // A raw dependency job (the CLI's lock generation) has no script row to
+        // compare against and publishes as before.
+        return false;
+    };
+    let latest = sqlx::query_scalar!(
+        "SELECT hash FROM script WHERE workspace_id = $1 AND path = $2 AND deleted = false \
+         ORDER BY created_at DESC LIMIT 1",
+        w_id,
+        script_path
+    )
+    .fetch_optional(db)
+    .await;
+    matches!((mine, latest), (Some(mine), Ok(Some(latest))) if mine != latest)
 }
 
 pub struct PreparedProject {
