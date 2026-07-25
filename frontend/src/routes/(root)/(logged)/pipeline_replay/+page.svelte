@@ -122,7 +122,9 @@
 						isIndex(s.before) &&
 						isIndex(s.after)
 				)
-			if (!validFrames || !validSteps || !validViewport) {
+			// Rendered in the player's header like the step labels are.
+			const validHeader = isShortText(data.app_path) && isShortText(data.workspace)
+			if (!validFrames || !validSteps || !validViewport || !validHeader) {
 				sendUserToast('Invalid app recording format', true)
 				return false
 			}

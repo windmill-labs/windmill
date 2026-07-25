@@ -141,9 +141,9 @@ export function redactedDescription(el: Element): string {
 function redactMarkedSubtrees(doc: Document, root: Element) {
 	// `querySelectorAll` skips the element it is called on, so a marked root
 	// (`<html data-wm-no-record>`) has to be handled explicitly.
-	const marked = [
+	const marked: Element[] = [
 		...(root.hasAttribute(NO_RECORD_ATTR) ? [root] : []),
-		...root.querySelectorAll(`[${NO_RECORD_ATTR}]`)
+		...Array.from(root.querySelectorAll(`[${NO_RECORD_ATTR}]`))
 	]
 	for (const n of marked) {
 		n.replaceChildren(doc.createTextNode('•••'))
@@ -243,7 +243,15 @@ function sheetCss(sheet: CSSStyleSheet, rules: CSSRuleList): string {
 function inlineStyleSheets(doc: Document, root: Element, clone: Element) {
 	for (const sheet of Array.from(doc.styleSheets)) {
 		const owner = sheet.ownerNode
-		if (!isElementNode(owner) || sheet.disabled) continue
+		if (!isElementNode(owner)) continue
+		if (sheet.disabled) {
+			// `disabled` is a property, not an attribute: cloned through, the sheet
+			// would come back to life on replay. Drop the node instead.
+			const path = nodePath(root, owner)
+			const target = path ? resolvePath(clone, path) : undefined
+			target?.remove()
+			continue
+		}
 		// Inlining replaces the node, which would leave the marker behind and carry
 		// the sheet's text into the snapshot. Leave marked sheets for redaction.
 		if (isRedacted(owner)) continue

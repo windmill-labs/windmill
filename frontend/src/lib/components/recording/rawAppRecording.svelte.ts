@@ -568,9 +568,10 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			}
 			if (e.key !== 'Enter' && e.key !== 'Escape') return
 			// A control reports what the key did to it on `change`, and an activatable
-			// element turns the key into a click. Recording the key as well would
-			// double the interaction.
-			if (el && (isControl(el) || isActivatable(el))) return
+			// element turns Enter into a click. Recording those keys as well would
+			// double the interaction — but Escape becomes neither, so it is only ever
+			// recorded here.
+			if (e.key === 'Enter' && el && (isControl(el) || isActivatable(el))) return
 			// Enter in a field ends the edit: the fill step must land before the key.
 			commitFill()
 			pushStep('key', el, capture(el), e.key)
