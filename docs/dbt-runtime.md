@@ -193,12 +193,19 @@ from the stored rows, a run that cannot refresh them fails rather than cascading
 from a stale graph — which also means those descriptors cannot run on an agent
 worker, whose only DB access is through the API.
 
-Second boundary to accept: those rows are keyed by script path, so **two
-concurrent runs of one dynamic script race**. Each replaces the other's rows
-before dispatch reads them, and either job can end up notifying the other's
-consumers. Give such a script a concurrency limit of 1. Fixing it properly means
-dispatching from a per-job snapshot of what the run actually wrote, which is a
-change to the shared cascade rather than to dbt.
+The refresh happens **before** the build, from a `dbt parse` of the commit the
+run resolved — not after it. Dispatch fans out from the stored rows once the job
+completes, so refreshing afterwards leaves a window where those rows still
+describe the previous run, and the producer-writes cache is invalidated
+asynchronously on top of that. Parsing first costs about a second and closes
+both.
+
+Boundary that remains: the rows are keyed by script path, so **two concurrent
+runs of one dynamic script race** — each overwrites the other's before either
+dispatches, and a job can notify the other run's consumers. Give such a script a
+concurrency limit of 1. Removing the race entirely means dispatching from a
+per-job snapshot of what the run actually wrote, which is a change to the shared
+cascade rather than to dbt.
 
 - **`ref: latest`.** Resolve HEAD at run time. The graph must then refresh every
   run or it diverges from execution, and that is nearly free: the run already

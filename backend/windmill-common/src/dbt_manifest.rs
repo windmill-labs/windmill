@@ -155,15 +155,27 @@ pub struct IngestedManifest {
 /// The mapping is exact for the four strategies Windmill has, and deliberately
 /// `None` where dbt has no analogue: `view` produces a relation but performs no
 /// write, and `ephemeral` produces no relation at all.
-pub fn materialize_strategy_for(materialized: &str, unique_key: Option<&str>) -> Option<String> {
+pub fn materialize_strategy_for(materialized: &str, has_unique_key: bool) -> Option<String> {
     match materialized {
         "table" | "seed" => Some("replace".to_string()),
-        "incremental" | "microbatch" => Some(match unique_key {
-            Some(_) => "merge".to_string(),
-            None => "append".to_string(),
+        // Any `unique_key` makes it a merge — including a composite one, whose
+        // columns `single_unique_key` cannot name. Reporting `append` for those
+        // would describe an upsert as an insert-only write.
+        "incremental" | "microbatch" => Some(match has_unique_key {
+            true => "merge".to_string(),
+            false => "append".to_string(),
         }),
         "snapshot" => Some("scd2".to_string()),
         _ => None,
+    }
+}
+
+/// Whether dbt declared any `unique_key`, composite or not.
+fn has_unique_key(v: Option<&serde_json::Value>) -> bool {
+    match v {
+        Some(serde_json::Value::String(s)) => !s.is_empty(),
+        Some(serde_json::Value::Array(a)) => !a.is_empty(),
+        _ => false,
     }
 }
 
@@ -309,9 +321,9 @@ pub fn ingest_manifest(
             resource_type: node.resource_type.clone(),
             name: node.name.clone(),
             asset_path: asset_path.clone(),
-            materialize_strategy: materialized
-                .as_deref()
-                .and_then(|m| materialize_strategy_for(m, unique_key.as_deref())),
+            materialize_strategy: materialized.as_deref().and_then(|m| {
+                materialize_strategy_for(m, has_unique_key(node.config.unique_key.as_ref()))
+            }),
             materialized,
             unique_key,
             tags: node.tags.clone(),
@@ -554,6 +566,12 @@ mod tests {
           "relation_name": "\"archive\".\"jaffle_dbt\".\"order_events\"",
           "config": {"materialized": "incremental"}
         },
+        "model.jaffle_shop.composite_key": {
+          "resource_type": "model", "name": "composite_key", "alias": "composite_key",
+          "schema": "jaffle_dbt", "database": "wh",
+          "relation_name": "\"wh\".\"jaffle_dbt\".\"composite_key\"",
+          "config": {"materialized": "incremental", "unique_key": ["a", "b"]}
+        },
         "model.jaffle_shop.stg_customers": {
           "resource_type": "model", "name": "stg_customers", "alias": "stg_customers",
           "schema": "jaffle_dbt", "relation_name": "\"wh\".\"jaffle_dbt\".\"stg_customers\"",
@@ -634,6 +652,9 @@ mod tests {
             ("model.jaffle_shop.customers", Some("replace")),
             ("model.jaffle_shop.orders_daily", Some("merge")),
             ("model.jaffle_shop.order_events", Some("append")),
+            // A composite key is still an upsert; only its columns are
+            // unmappable, so `unique_key` stays NULL while the strategy is merge.
+            ("model.jaffle_shop.composite_key", Some("merge")),
             ("snapshot.jaffle_shop.customers_snapshot", Some("scd2")),
             // `ephemeral` is inlined as a CTE and writes nothing; `view`
             // produces a relation but performs no write. Neither has a
@@ -739,6 +760,10 @@ mod tests {
             vec![
                 (
                     "f/prod/wh/archive.jaffle_dbt/order_events".into(),
+                    Some(AssetUsageAccessType::W)
+                ),
+                (
+                    "f/prod/wh/jaffle_dbt/composite_key".into(),
                     Some(AssetUsageAccessType::W)
                 ),
                 (

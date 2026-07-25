@@ -200,6 +200,27 @@ pub async fn handle_dbt_job(
         restore_run_state(&prepared, &job.workspace_id).await?;
     }
 
+    // A per-run graph is ingested BEFORE the build, from a `dbt parse` of the
+    // commit this run resolved. Asset dispatch fans out from the stored rows
+    // after the job completes, so refreshing them afterwards leaves a window in
+    // which those rows still describe the previous run — and the invalidation of
+    // the producer-writes cache is asynchronous, so even a completed refresh may
+    // not be visible to dispatch. Parsing first costs about a second and closes
+    // both. Concurrent runs of one dynamic script still race on the path-keyed
+    // rows; that needs a per-job dispatch snapshot (docs/dbt-runtime.md).
+    if descriptor.is_latest_ref() || prepared.graph_is_per_run {
+        run_dbt_parse(
+            &prepared,
+            &descriptor,
+            &args,
+            &job.id,
+            &job.workspace_id,
+            conn,
+        )
+        .await?;
+        ingest_from_run(&prepared, &descriptor, &args, job, conn).await?;
+    }
+
     let mut run = run_dbt(
         &prepared,
         &command,
@@ -260,25 +281,9 @@ pub async fn handle_dbt_job(
     // `latest` and a placeholder ref — the deployed graph describes a different
     // commit than the one that just executed, so it has to be refreshed from
     // this run's manifest (decision 12). Free: the run already wrote it.
-    // A per-run graph MUST be refreshed before the job reports success: asset
-    // dispatch fans out from the stored rows, so a stale graph cascades from
-    // relations this run did not produce. Failing the job is the only honest
-    // outcome — including on an agent worker, which has no DB to refresh through.
-    //
-    // The rows are keyed by script path, so two CONCURRENT runs of one dynamic
-    // script overwrite each other's before either dispatches, and each can then
-    // notify the other's consumers. Set a concurrency limit of 1 on a dynamic
-    // script whose runs produce different relations; the alternative — a
-    // per-job dispatch snapshot — is a change to the shared cascade, not to
-    // dbt (docs/dbt-runtime.md).
-    let refresh = if descriptor.is_latest_ref() || prepared.graph_is_per_run {
-        ingest_from_run(&prepared, &descriptor, &args, job, conn).await
-    } else {
-        Ok(())
-    };
 
     let result = build_result(&prepared, &command, results);
-    match run.and(refresh) {
+    match run {
         Ok(()) => Ok(to_raw_value(&result)),
         Err(e) => {
             // dbt's exit code already honors each test's own `severity`: a
@@ -352,28 +357,7 @@ pub async fn dbt_dep(
     )
     .await?;
 
-    let mut parse_cmd = dbt_command(&prepared, &["parse"]);
-    add_vars(&mut parse_cmd, &descriptor, &HashMap::new(), false)?;
-    let out = parse_cmd
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .await
-        .map_err(|e| Error::internal_err(format!("dbt parse could not be started: {e}")))?;
-    append_logs(
-        job_id,
-        w_id,
-        format!(
-            "{}{}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        ),
-        &conn,
-    )
-    .await;
-    if !out.status.success() {
-        return Err(Error::ExecutionErr("dbt parse failed".to_string()));
-    }
+    run_dbt_parse(&prepared, &descriptor, &HashMap::new(), job_id, w_id, &conn).await?;
 
     let selected = resolve_selection(&prepared, &descriptor, &HashMap::new(), false).await?;
     let manifest = read_manifest(&prepared.project_dir).await?;
@@ -1636,6 +1620,44 @@ async fn resolve_selection(
         }
     }
     Ok(Some(set))
+}
+
+/// `dbt parse`, which writes `target/manifest.json` without touching the
+/// warehouse. Both the deploy and a per-run graph refresh need the manifest
+/// before anything else happens.
+async fn run_dbt_parse(
+    p: &PreparedProject,
+    descriptor: &DbtDescriptor,
+    args: &HashMap<String, Box<RawValue>>,
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> error::Result<()> {
+    let mut cmd = dbt_command(p, &["parse"]);
+    // Strict only when there are arguments to be strict about: a deploy has
+    // none and must tolerate placeholders it cannot fill.
+    add_vars(&mut cmd, descriptor, args, !args.is_empty())?;
+    let out = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .map_err(|e| Error::internal_err(format!("dbt parse could not be started: {e}")))?;
+    append_logs(
+        job_id,
+        w_id,
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        ),
+        conn,
+    )
+    .await;
+    if !out.status.success() {
+        return Err(Error::ExecutionErr("dbt parse failed".to_string()));
+    }
+    Ok(())
 }
 
 pub async fn read_manifest(
