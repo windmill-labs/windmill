@@ -205,7 +205,10 @@ pub async fn handle_dbt_job(
     // with, since dbt reuses that invocation's selection and vars and the graph
     // refresh, the build and the test phase must all agree with it.
     let inv = if command == "retry" {
-        Invocation { args: restore_run_state(&prepared, &job.workspace_id).await?, ..inv }
+        Invocation {
+            args: restore_run_state(&prepared, &job.workspace_id, &inv).await?,
+            ..inv
+        }
     } else {
         inv
     };
@@ -456,6 +459,9 @@ pub struct PreparedProject {
     /// The descriptor body, kept so an ingest can re-read its `# on` / `# mute`
     /// annotations without threading the content through every caller.
     pub descriptor_content: String,
+    /// Digest of the SSH key material this run authenticates with. Scopes the
+    /// worker-global caches; stable across jobs, unlike the key files' paths.
+    pub credential_identity: String,
     /// The descriptor's `env`, resolved, in a stable order. Feeds run identity;
     /// `env` itself is not usable there because it carries per-job values.
     pub descriptor_env: std::collections::BTreeMap<String, String>,
@@ -569,7 +575,7 @@ pub async fn prepare_project(
         ));
     }
     let _ = &mut url;
-    let git_ssh_cmd = git_ssh_cmd(descriptor, job_dir, client).await?;
+    let (git_ssh_cmd, credential_identity) = git_ssh_cmd(descriptor, job_dir, client).await?;
     let branch = repo_value
         .get("branch")
         .and_then(|v| v.as_str())
@@ -647,6 +653,7 @@ pub async fn prepare_project(
     let checked_out = checkout(
         &repo,
         &commit,
+        &credential_identity,
         job_dir,
         job_id,
         w_id,
@@ -720,6 +727,7 @@ pub async fn prepare_project(
         target: descriptor.profile.target.clone(),
         descriptor_content: descriptor_content.to_string(),
         descriptor_env,
+        credential_identity,
         profile_identity: format!(
             "{}|{}",
             descriptor.profile.profiles_yml.as_deref().unwrap_or(""),
@@ -741,8 +749,12 @@ async fn git_ssh_cmd(
     descriptor: &DbtDescriptor,
     job_dir: &str,
     client: &AuthedClient,
-) -> error::Result<String> {
+) -> error::Result<(String, String)> {
     let mut identities = String::new();
+    // Digested from the key material, not from the `-i <path>` command: those
+    // paths live under the per-job dir, so hashing the command would make every
+    // run a cache miss and re-clone a repo the cache was supposed to hold.
+    let mut credential = std::collections::hash_map::DefaultHasher::new();
     for (i, var_path) in descriptor.git_ssh_identity.iter().enumerate() {
         let name = format!(".ssh_id_priv_dbt_{i}");
         let loc = windmill_common::worker::is_allowed_file_location(job_dir, &name)?;
@@ -752,6 +764,11 @@ async fn git_ssh_cmd(
             ))
         })?;
         content.push('\n');
+        {
+            use std::hash::{Hash, Hasher};
+            var_path.hash(&mut credential);
+            content.hash(&mut credential);
+        }
         let file = write_file(job_dir, &name, &content)?;
         #[cfg(unix)]
         file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
@@ -762,7 +779,11 @@ async fn git_ssh_cmd(
             loc.to_string_lossy().replace('\'', r"'\''")
         ));
     }
-    Ok(format!("ssh -o StrictHostKeyChecking=no{identities}"))
+    use std::hash::Hasher;
+    Ok((
+        format!("ssh -o StrictHostKeyChecking=no{identities}"),
+        format!("{:x}", credential.finish()),
+    ))
 }
 
 /// Resolve `$var:<path>` values in the descriptor's `env`. This is the only way
@@ -792,6 +813,9 @@ async fn resolve_env(
 async fn checkout(
     repo: &GitRepo,
     commit: &str,
+    // Identifies WHO may reuse a cached private checkout, from the key material
+    // rather than the per-job paths it was written to.
+    credential_identity: &str,
     job_dir: &str,
     job_id: &Uuid,
     w_id: &str,
@@ -811,7 +835,7 @@ async fn checkout(
         // to.
         let cached = PathBuf::from(&*DBT_CACHE_DIR).join("repos").join(format!(
             "{}-{}",
-            digest(&format!("{w_id}\n{}\n{git_ssh_cmd}", repo.url)),
+            digest(&format!("{w_id}\n{}\n{credential_identity}", repo.url)),
             commit
         ));
         if cached.join(".git").exists() {
@@ -875,7 +899,17 @@ async fn install_packages(
     // The project's path RELATIVE to the checkout, not its basename:
     // `team_a/analytics` and `team_b/analytics` in one repo resolve different
     // `local:` dependencies from identical manifests.
-    let mut key = format!("{}\n{}\n", p.commit, p.project_subdir);
+    // Workspace and credential identity are in the key: `dbt deps` runs with the
+    // descriptor's environment and can fetch private git packages, so a shared
+    // tree would let one workspace execute another's private package code
+    // without ever authenticating.
+    let mut key = format!(
+        "{w_id}\n{}\n{}\n{}\n{:x}\n",
+        p.commit,
+        p.project_subdir,
+        p.credential_identity,
+        p.env_digest(),
+    );
     let mut declares_packages = false;
     for f in ["packages.yml", "dependencies.yml", "package-lock.yml"] {
         let path = p.project_dir.join(f);
@@ -1903,10 +1937,18 @@ async fn save_run_state(p: &PreparedProject, w_id: &str, inv: &Invocation) -> er
     }
     let dir = state_dir(w_id, &p.script_path);
     tokio::fs::create_dir_all(&dir).await.ok();
+    // Both artifacts or neither. A run that fails before writing
+    // `run_results.json` would otherwise leave the PREVIOUS one in place beside
+    // this run's `state.json`, and the next retry would resume those results
+    // under these arguments.
     for f in ["run_results.json", "manifest.json"] {
-        tokio::fs::copy(p.project_dir.join("target").join(f), dir.join(f))
+        if tokio::fs::copy(p.project_dir.join("target").join(f), dir.join(f))
             .await
-            .ok();
+            .is_err()
+        {
+            tokio::fs::remove_dir_all(&dir).await.ok();
+            return Ok(());
+        }
     }
     // What produced it. `latest` and placeholder refs move, and a redeploy can
     // repoint the profile, so resuming one invocation's failed nodes against a
@@ -1915,7 +1957,11 @@ async fn save_run_state(p: &PreparedProject, w_id: &str, inv: &Invocation) -> er
     // original invocation's selection and vars, so refreshing the graph for it
     // needs those, not this job's.
     let state = SavedRunState {
-        identity: p.run_identity(),
+        // Includes the invocation's own environment: script-level variables are
+        // applied to parse, ls and the build just as the descriptor's are, so a
+        // change to one after a failure makes the saved results describe
+        // relations a retry would not produce.
+        identity: format!("{}|{:x}", p.run_identity(), inv.env_digest()),
         args: inv
             .args
             .iter()
@@ -1947,6 +1993,20 @@ impl Invocation {
     fn strict(&self) -> bool {
         !self.args.is_empty()
     }
+
+    /// Digest of the script-level environment, for retry identity. Values are
+    /// secrets, so they are hashed rather than stored.
+    fn env_digest(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut sorted: Vec<(&String, &String)> = self.envs.iter().collect();
+        sorted.sort();
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for (k, v) in sorted {
+            k.hash(&mut h);
+            v.hash(&mut h);
+        }
+        h.finish()
+    }
 }
 
 /// What an invocation was, so a later `dbt retry` can prove it is resuming the
@@ -1967,6 +2027,7 @@ struct SavedRunState {
 async fn restore_run_state(
     p: &PreparedProject,
     w_id: &str,
+    inv: &Invocation,
 ) -> error::Result<HashMap<String, Box<RawValue>>> {
     if p.script_path.is_empty() {
         // A preview has no path to key state on, and an empty key is the one
@@ -1989,7 +2050,7 @@ async fn restore_run_state(
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
-    if saved.identity != p.run_identity() {
+    if saved.identity != format!("{}|{:x}", p.run_identity(), inv.env_digest()) {
         return Err(Error::BadRequest(
             "the last dbt run on this worker was a different project, commit, warehouse or \
              engine, so its failures do not describe this one; run the script normally instead"
