@@ -94,6 +94,8 @@ const REDACTED_ATTRS = new Set([
 	'download',
 	'formaction',
 	'href',
+	// `<option label>` / `<optgroup label>` are what the user reads.
+	'label',
 	'placeholder',
 	'poster',
 	'src',
@@ -279,6 +281,10 @@ export function serializeDocument(doc: Document, opts: SnapshotOptions = {}): st
 		const target = path ? resolvePath(clone, path) : undefined
 		target?.setAttribute(REC_TARGET_ATTR, '')
 	}
+	// Templates render nothing, and their content fragment is invisible to
+	// `querySelectorAll` while `outerHTML` still serializes it — so the passes
+	// below would miss scripts and handlers hiding inside one.
+	clone.querySelectorAll('template').forEach((n) => n.remove())
 	clone.querySelectorAll('script').forEach((n) => n.remove())
 	redactMarkedSubtrees(doc, clone)
 	clone.querySelectorAll('meta[http-equiv="refresh" i]').forEach((n) => n.remove())
@@ -318,9 +324,12 @@ const NAVIGATION_ATTRS = new Set(['href', 'action', 'formaction', 'ping', 'targe
  * Injected at the very top of <head> so it applies before anything is fetched. */
 const REPLAY_CSP = `default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:`
 
-/** A replay is a picture of a past session, not a working app. Making it
- * unclickable is the categorical version of stripping navigation attributes:
- * whatever markup a frame turns out to contain, no click can activate it. */
+/** A replay is a picture of a past session, not a working app, so clicks are
+ * turned off at the root. `pointer-events` inherits rather than cascades, so an
+ * element that sets its own value (Tailwind's `pointer-events-auto`, overlay
+ * CSS) still takes clicks — this is a broad default, NOT a guarantee, and the
+ * attribute stripping below remains the actual defense. It also costs
+ * mouse text-selection inside the replayed frame. */
 const INERT_CSS = `html { pointer-events: none !important; }`
 
 const HIGHLIGHT_CSS = `[${REC_TARGET_ATTR}] {
@@ -389,16 +398,20 @@ export function withHighlightStyles(frame: string): string {
 	return `<!DOCTYPE html>${doc.documentElement.outerHTML}`
 }
 
-/** Visible text of an element, with any no-record subtree left out: the element
- * itself may be recordable while something inside it is not. */
-function textOf(el: Element | null | undefined, max = 40): string {
+/** Text of an element with any no-record subtree left out: the element itself
+ * may be recordable while something inside it is not. */
+export function textWithoutRedacted(el: Element | null | undefined): string {
 	if (!el) return ''
 	let source: Element = el
 	if (el.querySelector(`[${NO_RECORD_ATTR}]`)) {
 		source = el.cloneNode(true) as Element
 		source.querySelectorAll(`[${NO_RECORD_ATTR}]`).forEach((n) => n.remove())
 	}
-	const text = (source.textContent ?? '').replace(/\s+/g, ' ').trim()
+	return (source.textContent ?? '').replace(/\s+/g, ' ').trim()
+}
+
+function textOf(el: Element | null | undefined, max = 40): string {
+	const text = textWithoutRedacted(el)
 	return text.length > max ? `${text.slice(0, max)}…` : text
 }
 

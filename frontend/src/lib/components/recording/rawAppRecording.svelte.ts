@@ -20,6 +20,7 @@ import {
 	maskValue,
 	serializeDocument,
 	stepLabel,
+	textWithoutRedacted,
 	type RawAppInteractionKind
 } from './rawAppSnapshot'
 
@@ -236,11 +237,12 @@ export function createRawAppRecording(): RawAppRecordingStore {
 	}
 
 	function currentValue(el: Element): string {
+		// A contenteditable host can be recordable while a node inside it is not.
 		const raw = isTag(el, 'INPUT')
 			? (el as HTMLInputElement).value
 			: isTag(el, 'TEXTAREA')
 				? (el as HTMLTextAreaElement).value
-				: (el.textContent ?? '').trim()
+				: textWithoutRedacted(el)
 		const secret =
 			(isTag(el, 'INPUT') && (el as HTMLInputElement).type === 'password') || isRedacted(el)
 		return secret ? maskValue(raw) : raw
