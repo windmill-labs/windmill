@@ -15,6 +15,7 @@ import {
 	isElementNode,
 	isRedacted,
 	isTag,
+	REC_TARGET_ATTR,
 	redactedDescription,
 	MAX_RECORDED_STEPS,
 	maskValue,
@@ -108,9 +109,8 @@ export function createRawAppRecording(): RawAppRecordingStore {
 	let lastStepEl: Element | undefined = undefined
 	let lastStepAt = 0
 	/** Pre-interaction snapshot taken on pointerdown, before a click handler runs.
-	 * `at` separates a click a label is forwarding right now from a snapshot left
-	 * over by an earlier interaction. */
-	let pendingPointer: { el: Element; html: string | undefined; at: number } | undefined = undefined
+	 * Lives until a step spends it or focus leaves what it describes. */
+	let pendingPointer: { el: Element; html: string | undefined } | undefined = undefined
 	/** Same, taken on keydown before the key changes the focused field or control.
 	 * `repeat` marks it as opening an auto-repeating gesture (a held arrow), whose
 	 * changes are one step rather than one per event. */
@@ -164,6 +164,12 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			console.warn('raw app recorder: snapshot failed', e)
 			return undefined
 		}
+	}
+
+	/** A pre-interaction frame reused as the previous step's outcome must not carry
+	 * the incoming target's highlight. */
+	function unstamp(html: string): string {
+		return html.replace(` ${REC_TARGET_ATTR}=""`, '')
 	}
 
 	function clearSettle() {
@@ -226,7 +232,11 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		if (settle && !coalesces) {
 			const pending = settle.step
 			clearSettle()
-			pending.after = frameIndex(capture())
+			// The DOM the new interaction starts from IS the previous step's outcome,
+			// and by now `capture()` would already include this interaction's effect (a
+			// fill committed by clicking a checkbox would settle showing it checked).
+			// The stamp has to come off: it marks the NEW step's target.
+			pending.after = frameIndex(before !== undefined ? unstamp(before) : capture())
 		}
 		if (steps.length >= MAX_RECORDED_STEPS && !coalesces) {
 			truncated = true
@@ -413,7 +423,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		on('pointerdown', (e: PointerEvent) => {
 			const el = isElementNode(e.target) ? e.target : undefined
 			if (!el) return
-			pendingPointer = { el, html: capture(el), at: Date.now() }
+			pendingPointer = { el, html: capture(el) }
 		})
 
 		on('click', (e: MouseEvent) => {
@@ -434,6 +444,13 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			// the control's own `change`, which needs the same pre-click frame. The
 			// next pointerdown replaces it.
 			pushStep('click', el, pointerFrameFor(el) ?? capture(el))
+		})
+
+		on('focusin', (e: FocusEvent) => {
+			const el = isElementNode(e.target) ? e.target : undefined
+			// Focus moved somewhere the pending pointerdown does not describe (Tab to
+			// another field), so that frame no longer states what was just before.
+			if (pendingPointer && (!el || pointerFrameFor(el) === undefined)) pendingPointer = undefined
 		})
 
 		// Fires before the DOM changes for every edit, including the ones no keydown
@@ -538,6 +555,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 				else pendingKey = { el, html: capture(el), repeat: e.repeat }
 			}
 			if (e.key !== 'Enter' && e.key !== 'Escape') return
+			// A control reports what the key did to it on `change`; recording the key
+			// as well would double the interaction.
+			if (el && isControl(el)) return
 			// Enter in a field ends the edit: the fill step must land before the key.
 			commitFill()
 			pushStep('key', el, capture(el), e.key)
