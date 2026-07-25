@@ -1290,9 +1290,12 @@ class Windmill:
         if not step_key.strip():
             raise RuntimeError("get_approval_urls step_key must be a non-empty step name")
         job_id = os.environ.get("WM_JOB_ID") or "NO_ID"
+        # Omit rather than send `approver=`: an empty value is echoed into the
+        # returned URLs and recorded as the approver instead of "anonymous".
+        params = {"approver": approver} if approver is not None else {}
         return self.get(
             f"/w/{self.workspace}/jobs/wac_approval_urls/{job_id}/{quote(step_key, safe='')}",
-            params={"approver": approver},
+            params=params,
         ).json()
 
     def request_interactive_slack_approval(
