@@ -115,6 +115,33 @@ export function redactedDescription(el: Element): string {
 	return `${role} (redacted)`
 }
 
+/** Strip everything the app marked no-record: descendants (including a
+ * `<template>`'s separate content fragment, which `replaceChildren` does not
+ * touch) and the attributes that are content themselves — a signed `src`, a
+ * `title`, a `data-*` payload, a namespaced `xlink:href`. Recurses into template
+ * fragments, since a marked node can sit inside one. */
+function redactMarkedSubtrees(doc: Document, root: ParentNode) {
+	root.querySelectorAll(`[${NO_RECORD_ATTR}]`).forEach((n) => {
+		n.replaceChildren(doc.createTextNode('•••'))
+		const content = (n as HTMLTemplateElement).content
+		if (content) content.replaceChildren()
+		for (const attr of Array.from(n.attributes)) {
+			const name = attr.localName.toLowerCase()
+			if (attr.name === NO_RECORD_ATTR || attr.name === REC_TARGET_ATTR) continue
+			const styleWithUrl = name === 'style' && /url\(/i.test(attr.value)
+			if (
+				REDACTED_ATTRS.has(name) ||
+				styleWithUrl ||
+				name.startsWith('data-') ||
+				name.startsWith('aria-')
+			) {
+				n.removeAttributeNode(attr)
+			}
+		}
+	})
+	root.querySelectorAll('template').forEach((t) => redactMarkedSubtrees(doc, t.content))
+}
+
 /** Copy live form state (which lives in properties, not attributes, so
  * `outerHTML` would lose it) onto the clone. Passwords and anything the app
  * marked no-record are masked. */
@@ -253,26 +280,7 @@ export function serializeDocument(doc: Document, opts: SnapshotOptions = {}): st
 		target?.setAttribute(REC_TARGET_ATTR, '')
 	}
 	clone.querySelectorAll('script').forEach((n) => n.remove())
-	// The app declared these subtrees off-limits: keep the node (so the layout
-	// still replays) but never carry their content into the recording — neither
-	// their descendants nor the attributes that are content themselves (a signed
-	// `src`, a `title`, a `data-*` payload).
-	clone.querySelectorAll(`[${NO_RECORD_ATTR}]`).forEach((n) => {
-		n.replaceChildren(doc.createTextNode('•••'))
-		for (const attr of Array.from(n.attributes)) {
-			const name = attr.name.toLowerCase()
-			if (name === NO_RECORD_ATTR || name === REC_TARGET_ATTR) continue
-			const styleWithUrl = name === 'style' && /url\(/i.test(attr.value)
-			if (
-				REDACTED_ATTRS.has(name) ||
-				styleWithUrl ||
-				name.startsWith('data-') ||
-				name.startsWith('aria-')
-			) {
-				n.removeAttribute(attr.name)
-			}
-		}
-	})
+	redactMarkedSubtrees(doc, clone)
 	clone.querySelectorAll('meta[http-equiv="refresh" i]').forEach((n) => n.remove())
 	clone.querySelectorAll('*').forEach((el) => {
 		for (const attr of Array.from(el.attributes)) {
@@ -309,6 +317,11 @@ const NAVIGATION_ATTRS = new Set(['href', 'action', 'formaction', 'ping', 'targe
  * fonts the recorder could not inline (remote URLs) do not render on replay.
  * Injected at the very top of <head> so it applies before anything is fetched. */
 const REPLAY_CSP = `default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:`
+
+/** A replay is a picture of a past session, not a working app. Making it
+ * unclickable is the categorical version of stripping navigation attributes:
+ * whatever markup a frame turns out to contain, no click can activate it. */
+const INERT_CSS = `html { pointer-events: none !important; }`
 
 const HIGHLIGHT_CSS = `[${REC_TARGET_ATTR}] {
 	outline: 3px solid #ef4444 !important;
@@ -359,6 +372,10 @@ export function withHighlightStyles(frame: string): string {
 	// SVG animation is declarative — it runs without scripts — and `<set
 	// attributeName="href">` would put back the link just stripped.
 	doc.querySelectorAll('set, animate, animateTransform, animateMotion').forEach((n) => n.remove())
+	// `querySelectorAll` cannot see into a template's content fragment, so markup
+	// hidden there escapes every pass above and comes alive as a shadow root when
+	// the frame is parsed. A snapshot has no use for templates: drop them.
+	doc.querySelectorAll('template').forEach((n) => n.remove())
 	// Resource hints exist only to fetch; the CSP already refuses them, so this is
 	// about not asking rather than not getting.
 	doc
@@ -367,7 +384,7 @@ export function withHighlightStyles(frame: string): string {
 		)
 		.forEach((n) => n.remove())
 	const style = doc.createElement('style')
-	style.textContent = HIGHLIGHT_CSS
+	style.textContent = `${INERT_CSS}\n${HIGHLIGHT_CSS}`
 	head.appendChild(style)
 	return `<!DOCTYPE html>${doc.documentElement.outerHTML}`
 }

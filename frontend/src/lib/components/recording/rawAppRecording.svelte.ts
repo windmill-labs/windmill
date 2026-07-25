@@ -206,7 +206,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 
 	/** Whether this key can change a control: activation, option picking, or the
 	 * first letter of a `<select>` typeahead. */
-	function mutatingKey(e: KeyboardEvent, _el: Element): boolean {
+	function mutatingKey(e: KeyboardEvent): boolean {
 		if (e.ctrlKey || e.metaKey || e.altKey) return false
 		return (
 			e.key.length === 1 ||
@@ -320,7 +320,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		// describes: paste, cut, undo, drag-and-drop, IME composition.
 		on('beforeinput', (e: Event) => {
 			const el = isElementNode(e.target) ? e.target : undefined
-			if (!el || !isTextEntry(el) || pendingFill) return
+			if (!el || !isTextEntry(el) || pendingFill?.el === el) return
 			if (pointerFrameFor(el) === undefined) pendingKey = { el, html: capture(el) }
 		})
 
@@ -355,10 +355,12 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			pendingPointer = undefined
 			pendingKey = undefined
 			if (isTag(el, 'SELECT')) {
-				const selected = Array.from((el as HTMLSelectElement).selectedOptions)
-					.map((o) => o.label || o.value)
-					.join(', ')
-				pushStep('select', el, before, selected)
+				const options = Array.from((el as HTMLSelectElement).selectedOptions)
+				const selected = options.map((o) => o.label || o.value).join(', ')
+				// The <select> itself can be recordable while the option picked is not;
+				// `pushStep` only looks at the event target, so mask it here.
+				const secret = options.some((o) => isRedacted(o))
+				pushStep('select', el, before, secret ? maskValue(selected) : selected)
 			} else if (isTag(el, 'INPUT')) {
 				const input = el as HTMLInputElement
 				if (['checkbox', 'radio'].includes(input.type)) {
@@ -389,7 +391,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			// fields are covered by `beforeinput` instead, which also sees paste and
 			// undo. Snapshotting is expensive and runs on the app's own event path, so
 			// keys that change nothing (Tab, modifiers, navigation) must not trigger it.
-			if (el && isControl(el) && mutatingKey(e, el)) pendingKey = { el, html: capture(el) }
+			if (el && isControl(el) && mutatingKey(e)) pendingKey = { el, html: capture(el) }
 			if (e.key !== 'Enter' && e.key !== 'Escape') return
 			// Enter in a field ends the edit: the fill step must land before the key.
 			commitFill()
