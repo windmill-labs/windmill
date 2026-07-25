@@ -1133,22 +1133,29 @@ async fn asset_graph(
     // their own.
     let dbt_rows = sqlx::query!(
         r#"WITH scoped AS (
-             SELECT unique_id FROM dbt_node
+             SELECT script_path, unique_id FROM dbt_node
               WHERE workspace_id = $1 AND asset_path IS NOT NULL
                 AND asset_path IN (
                   SELECT path FROM asset
                    WHERE workspace_id = $1 AND kind = 'table'
                      AND ($2::text IS NULL OR usage_path LIKE $2))
            )
-           SELECT script_path AS "script_path!", unique_id AS "unique_id!",
-                  resource_type AS "resource_type!", name AS "name!", asset_path,
-                  materialized, materialize_strategy, tags AS "tags!", description,
-                  test_kind, test_column, test_args, severity, attached_node
-             FROM dbt_node
-            WHERE workspace_id = $1
-              AND (unique_id IN (SELECT unique_id FROM scoped)
-                   OR attached_node IN (SELECT unique_id FROM scoped))
-            ORDER BY script_path, unique_id"#,
+           SELECT n.script_path AS "script_path!", n.unique_id AS "unique_id!",
+                  n.resource_type AS "resource_type!", n.name AS "name!", n.asset_path,
+                  n.materialized, n.materialize_strategy, n.tags AS "tags!", n.description,
+                  n.test_kind, n.test_column, n.test_args, n.severity, n.attached_node
+             FROM dbt_node n
+            WHERE n.workspace_id = $1
+              -- Joined on BOTH columns: a dbt `unique_id` is project-local, so
+              -- two projects with the same model name would otherwise pull each
+              -- other's rows.
+              AND (EXISTS (SELECT 1 FROM scoped s
+                            WHERE s.script_path = n.script_path
+                              AND s.unique_id = n.unique_id)
+                   OR EXISTS (SELECT 1 FROM scoped s
+                               WHERE s.script_path = n.script_path
+                                 AND s.unique_id = n.attached_node))
+            ORDER BY n.script_path, n.unique_id"#,
         &w_id,
         folder_filter.as_deref(),
     )
@@ -1205,9 +1212,16 @@ async fn asset_graph(
     let mut dbt_by_asset_path: std::collections::HashMap<String, DbtAssetProvenance> =
         Default::default();
     let mut dbt_model_count: std::collections::HashMap<String, usize> = Default::default();
-    let dbt_asset_path_by_unique_id: std::collections::HashMap<&str, &str> = dbt_rows
+    // Keyed by (script_path, unique_id) — the sidecar's own primary key — since
+    // a dbt `unique_id` is only unique within its project.
+    let dbt_asset_path_by_unique_id: std::collections::HashMap<(&str, &str), &str> = dbt_rows
         .iter()
-        .filter_map(|r| Some((r.unique_id.as_str(), r.asset_path.as_deref()?)))
+        .filter_map(|r| {
+            Some((
+                (r.script_path.as_str(), r.unique_id.as_str()),
+                r.asset_path.as_deref()?,
+            ))
+        })
         .collect();
     for r in &dbt_rows {
         let Some(asset_path) = r.asset_path.as_deref() else {
@@ -1239,7 +1253,7 @@ async fn asset_graph(
         let Some(target) = r
             .attached_node
             .as_deref()
-            .and_then(|n| dbt_asset_path_by_unique_id.get(n))
+            .and_then(|n| dbt_asset_path_by_unique_id.get(&(r.script_path.as_str(), n)))
         else {
             continue;
         };

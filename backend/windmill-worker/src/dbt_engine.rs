@@ -205,6 +205,11 @@ async fn provision_fusion(
         .text()
         .await
         .map_err(|e| Error::internal_err(format!("fetching the Fusion installer: {e}")))?;
+    // Install into a per-job sibling and rename, like the other two engines:
+    // pointing the installer straight at the shared cache lets a second job
+    // observe `bin/dbt` and execute it while the first is still writing.
+    let staging = staging_path(&dir, job_id);
+    tokio::fs::remove_dir_all(&staging).await.ok();
     let tmp = std::env::temp_dir().join(format!("wm-fusion-install-{job_id}.sh"));
     write_file(
         tmp.parent().unwrap().to_str().unwrap(),
@@ -214,16 +219,25 @@ async fn provision_fusion(
     run_tool(
         Command::new("sh")
             .arg(&tmp)
-            .env("FS_INSTALL_DIR", &dir)
+            .env("FS_INSTALL_DIR", &staging)
             .arg("--update"),
         "fusion install",
     )
     .await?;
     tokio::fs::remove_file(&tmp).await.ok();
-    if !bin.exists() {
+    if !staging.join("bin").join("dbt").exists() {
+        tokio::fs::remove_dir_all(&staging).await.ok();
         return Err(Error::internal_err(
             "the Fusion installer did not produce a dbt binary".to_string(),
         ));
+    }
+    if tokio::fs::rename(&staging, &dir).await.is_err() {
+        tokio::fs::remove_dir_all(&staging).await.ok();
+        if !bin.exists() {
+            return Err(Error::internal_err(
+                "could not install the Fusion engine".to_string(),
+            ));
+        }
     }
     Ok(ProvisionedEngine { bin, version: fusion_version(&dir).await, engine: DbtEngine::Fusion })
 }

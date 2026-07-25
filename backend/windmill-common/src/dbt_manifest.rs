@@ -60,6 +60,10 @@ pub struct ManifestNode {
     pub alias: Option<String>,
     #[serde(default)]
     pub schema: Option<String>,
+    /// dbt's resolved database (BigQuery's project, Snowflake's database). A
+    /// model can override it per node, so it is part of identity.
+    #[serde(default)]
+    pub database: Option<String>,
     /// dbt leaves this null exactly for nodes with no physical relation:
     /// ephemeral models (inlined as CTEs) and tests.
     #[serde(default)]
@@ -169,9 +173,21 @@ fn single_unique_key(v: Option<&serde_json::Value>) -> Option<String> {
 }
 
 /// `table://` path of the relation a node resolves to, or `None` when it has
-/// none. The database segment of dbt's relation is intentionally dropped: the
-/// warehouse (and its database) is already identified by `resource_path`.
-fn asset_path_for(node: &ManifestNode, resource_path: &str) -> Option<String> {
+/// none.
+///
+/// The resource identifies the warehouse *and* its default database, so the
+/// database is normally redundant and left out — that is the three-segment
+/// spelling `table://<resource>/<schema>/<name>`. A model that overrides
+/// `database` (Snowflake) or `project` (BigQuery) is genuinely elsewhere,
+/// though, and dropping it would collapse two distinct relations onto one node:
+/// same schema and name in two databases would merge their lineage and cascade
+/// into each other's consumers. Those qualify the schema segment as
+/// `<database>.<schema>` so identity stays exact without a fourth segment.
+fn asset_path_for(
+    node: &ManifestNode,
+    resource_path: &str,
+    default_database: Option<&str>,
+) -> Option<String> {
     node.relation_name.as_ref()?;
     // `schema` is dbt's RESOLVED schema; `config.schema` is only the custom
     // suffix `generate_schema_name` combines with the target's (a snapshot
@@ -180,8 +196,17 @@ fn asset_path_for(node: &ManifestNode, resource_path: &str) -> Option<String> {
     // that does not exist, and the mismatch is invisible until nothing links.
     let schema = node.schema.as_ref()?;
     let name = node.alias.as_ref().unwrap_or(&node.name);
+    let qualified = match node.database.as_deref() {
+        Some(db)
+            if !db.is_empty()
+                && default_database.is_some_and(|d| !d.eq_ignore_ascii_case(db)) =>
+        {
+            format!("{db}.{schema}")
+        }
+        _ => schema.clone(),
+    };
     Some(canonicalize_table_asset_path(&format!(
-        "{resource_path}/{schema}/{name}"
+        "{resource_path}/{qualified}/{name}"
     )))
 }
 
@@ -199,6 +224,9 @@ fn asset_path_for(node: &ManifestNode, resource_path: &str) -> Option<String> {
 pub fn ingest_manifest(
     manifest: &Manifest,
     resource_path: &str,
+    // The profile target's database. Nodes in it use the plain three-segment
+    // spelling; a node that overrode it qualifies its schema segment.
+    default_database: Option<&str>,
     selected: Option<&std::collections::HashSet<String>>,
 ) -> IngestedManifest {
     let mut out = IngestedManifest {
@@ -242,7 +270,7 @@ pub fn ingest_manifest(
         if !keep {
             continue;
         }
-        let asset_path = asset_path_for(node, resource_path);
+        let asset_path = asset_path_for(node, resource_path, default_database);
         let materialized = node
             .config
             .materialized
@@ -327,7 +355,7 @@ pub fn ingest_manifest(
             else {
                 continue;
             };
-            let Some(path) = asset_path_for(node, resource_path) else {
+            let Some(path) = asset_path_for(node, resource_path, default_database) else {
                 continue;
             };
             if owned.contains(path.as_str()) {
@@ -501,7 +529,8 @@ mod tests {
         },
         "model.jaffle_shop.order_events": {
           "resource_type": "model", "name": "order_events", "alias": "order_events",
-          "schema": "jaffle_dbt", "relation_name": "\"wh\".\"jaffle_dbt\".\"order_events\"",
+          "schema": "jaffle_dbt", "database": "archive",
+          "relation_name": "\"archive\".\"jaffle_dbt\".\"order_events\"",
           "config": {"materialized": "incremental"}
         },
         "model.jaffle_shop.stg_customers": {
@@ -568,7 +597,7 @@ mod tests {
 
     fn ingested() -> IngestedManifest {
         let m: Manifest = serde_json::from_str(MANIFEST).unwrap();
-        ingest_manifest(&m, "f/prod/wh", None)
+        ingest_manifest(&m, "f/prod/wh", Some("wh"), None)
     }
 
     fn node<'a>(i: &'a IngestedManifest, id: &str) -> &'a IngestedNode {
@@ -642,6 +671,15 @@ mod tests {
                 .as_deref(),
             Some("f/prod/wh/jaffle_dbt/customers")
         );
+        // `order_events` overrode its database. Dropping that would collapse it
+        // onto a same-named relation in the target's own database, merging their
+        // lineage and cascading into each other's consumers.
+        assert_eq!(
+            node(&i, "model.jaffle_shop.order_events")
+                .asset_path
+                .as_deref(),
+            Some("f/prod/wh/archive.jaffle_dbt/order_events")
+        );
         // `config.schema` on the snapshot is the custom SUFFIX (`snapshots`);
         // the relation actually lives in the resolved `jaffle_dbt_snapshots`.
         // Keying on the config value would name a table that does not exist.
@@ -679,11 +717,11 @@ mod tests {
             got,
             vec![
                 (
-                    "f/prod/wh/jaffle_dbt/customers".into(),
+                    "f/prod/wh/archive.jaffle_dbt/order_events".into(),
                     Some(AssetUsageAccessType::W)
                 ),
                 (
-                    "f/prod/wh/jaffle_dbt/order_events".into(),
+                    "f/prod/wh/jaffle_dbt/customers".into(),
                     Some(AssetUsageAccessType::W)
                 ),
                 (
@@ -713,7 +751,7 @@ mod tests {
         let m: Manifest = serde_json::from_str(MANIFEST).unwrap();
         let sel: std::collections::HashSet<String> =
             ["model.jaffle_shop.orders_daily".to_string()].into_iter().collect();
-        let i = ingest_manifest(&m, "f/prod/wh", Some(&sel));
+        let i = ingest_manifest(&m, "f/prod/wh", Some("wh"), Some(&sel));
         let owned: Vec<&str> = i
             .assets
             .iter()
@@ -750,7 +788,7 @@ mod tests {
         // `customers` is selected; its parent `orders_daily` is built elsewhere.
         let sel: std::collections::HashSet<String> =
             ["model.jaffle_shop.customers".to_string()].into_iter().collect();
-        let i = ingest_manifest(&m, "f/prod/wh", Some(&sel));
+        let i = ingest_manifest(&m, "f/prod/wh", Some("wh"), Some(&sel));
         let by_access = |t: AssetUsageAccessType| -> Vec<&str> {
             i.assets
                 .iter()
@@ -773,7 +811,7 @@ mod tests {
              "test.jaffle_shop.relationships_orders_daily_customer_id.ab".to_string()]
                 .into_iter()
                 .collect();
-        let i = ingest_manifest(&m, "f/prod/wh", Some(&staging));
+        let i = ingest_manifest(&m, "f/prod/wh", Some("wh"), Some(&staging));
         assert!(
             !i.assets
                 .iter()

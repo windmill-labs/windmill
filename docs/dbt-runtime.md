@@ -34,7 +34,7 @@ the dominant way dbt is orchestrated today.
 | 7 | Run-time `select` | Descriptor default plus run-arg override |
 | 8 | Credentials | Both `profiles.yml` passthrough and resource mapping |
 | 9 | Adapter mappings | postgres, snowflake, bigquery, databricks |
-| 10 | Private repo auth | SSH/token in CE, GitHub App EE (inherited) |
+| 10 | Private repo auth | SSH/token in CE; GitHub App **not yet** — see below |
 | 11 | Asset kind | `table://<resource>/<schema>/<name>`, not `dbt://`. See below |
 | 12 | Graph refresh | Falls out of #5, no separate mechanism. See below |
 | 13 | Manifest storage | Sidecar table for nodes/edges, full manifest to S3 |
@@ -150,7 +150,11 @@ matching the case-insensitive identifier comparison the DuckDB paths already
 use. The resource-path prefix is a Windmill path and stays case-sensitive.
 
 **Warehouse identity is the Windmill resource path**, exactly as `datatable://`
-and `ducklake://` do it — never the host, account or database. The same
+and `ducklake://` do it — never the host, account or database. The resource names
+the default database too, so it stays out of the key; a model that *overrides*
+its database (Snowflake `database`, BigQuery `project`) is genuinely elsewhere and
+qualifies its schema segment as `<database>.<schema>`, so two same-named relations
+in different databases cannot collapse onto one node. The same
 warehouse is reachable under several hostnames, and credential material has no
 business in an asset key. Accepted limitation, worth knowing before it is
 filed as a bug: **two Windmill resources pointing at the same physical
@@ -223,10 +227,17 @@ git_ssh_identity: []              # variables holding private keys, for SSH remo
 
 `env` values spelled `$var:<path>` are resolved to that Windmill variable, so a
 project keeping its own `profiles.yml` never needs a credential written into the
-descriptor — which is versioned script content. Private repos authenticate the
-same three ways git-sync does: a token in the resource's URL, `git_ssh_identity`
-for SSH remotes, and (EE) a GitHub App resource, whose installation token is
-minted per use.
+descriptor — which is versioned script content. Private repos authenticate two ways: a
+token in the resource's URL, and `git_ssh_identity` for SSH remotes.
+
+**GitHub App resources are rejected, with that reason.** Decision 10 assumed the
+support was inherited from git-sync, and it is not: the only helper that mints an
+installation token (`get_github_app_token_internal`) authorizes by matching the
+job against the workspace's *configured git-sync scripts*, so it refuses a dbt
+job outright. Minting for an arbitrary runnable needs its own authorization path.
+Until that exists the descriptor fails with a message naming the two paths that
+do work — a stated limitation beats a clone failing on an auth error the user
+cannot connect to a cause.
 
 `select`/`exclude`/`selector` are passed **verbatim** to dbt. Do not reimplement
 the selector grammar; Cosmos's manifest path had to, and it is a recurring source

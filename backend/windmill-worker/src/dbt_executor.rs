@@ -244,8 +244,8 @@ pub async fn handle_dbt_job(
     // `latest` and a placeholder ref — the deployed graph describes a different
     // commit than the one that just executed, so it has to be refreshed from
     // this run's manifest (decision 12). Free: the run already wrote it.
-    if descriptor.is_latest_ref() || prepared.ref_is_per_run {
-        if let Err(e) = ingest_from_run(&prepared, &descriptor, job, conn).await {
+    if descriptor.is_latest_ref() || prepared.graph_is_per_run {
+        if let Err(e) = ingest_from_run(&prepared, &descriptor, &args, job, conn).await {
             tracing::warn!("dbt graph refresh after a `latest` run failed: {e:#}");
         }
     }
@@ -348,7 +348,7 @@ pub async fn dbt_dep(
         return Err(Error::ExecutionErr("dbt parse failed".to_string()));
     }
 
-    let selected = resolve_selection(&prepared, &descriptor).await?;
+    let selected = resolve_selection(&prepared, &descriptor, &HashMap::new(), false).await?;
     let manifest = read_manifest(&prepared.project_dir).await?;
     let manifest_digest = digest(
         &tokio::fs::read_to_string(prepared.project_dir.join("target/manifest.json"))
@@ -360,6 +360,7 @@ pub async fn dbt_dep(
         let ingested = windmill_common::dbt_manifest::ingest_manifest(
             &manifest,
             resource_path,
+            prepared.default_database.as_deref(),
             selected.as_ref(),
         );
         let mut tx = db.begin().await?;
@@ -428,8 +429,11 @@ pub struct PreparedProject {
     pub engine: ProvisionedEngine,
     pub commit: String,
     /// The descriptor's `ref` holds a placeholder no deploy can resolve, so the
-    /// lockfile must not pin a commit and the graph refreshes per run.
+    /// lockfile must not pin a commit.
     pub ref_is_per_run: bool,
+    /// The deploy-time graph is a guess — a per-run ref or a var that can steer
+    /// what the project even produces — so each run re-ingests its own manifest.
+    pub graph_is_per_run: bool,
     /// The project's path relative to the checkout root, which distinguishes
     /// two same-named project dirs in one repo.
     pub project_subdir: String,
@@ -441,6 +445,9 @@ pub struct PreparedProject {
     /// brings its own `profiles.yml` and declares no resource, in which case
     /// there is no stable warehouse identity to key assets on.
     pub resource_path: Option<String>,
+    /// The profile target's database. Nodes that override it qualify their
+    /// `table://` schema segment so two databases cannot collapse onto one node.
+    pub default_database: Option<String>,
     pub script_path: String,
     pub env: Vec<(String, String)>,
 }
@@ -484,25 +491,27 @@ pub async fn prepare_project(
             )
         })?
         .to_string();
-    // A GitHub App resource carries no credential of its own — an installation
-    // token is minted per use and prepended to the URL, the same as git-sync and
-    // the Ansible delegate path. Without this those repos fail with a bare auth
-    // error that says nothing about the cause.
-    #[cfg(feature = "enterprise")]
+    // A GitHub App resource carries no credential of its own: an installation
+    // token has to be minted per use. The only helper that does that
+    // (`get_github_app_token_internal`) authorizes by checking the job against
+    // the workspace's configured git-sync scripts, so it rejects a dbt job
+    // outright — minting for an arbitrary runnable needs its own authorization
+    // path, which is not this PR. Refuse with the reason rather than letting
+    // the clone fail on a bare auth error: a wrong-looking credential is far
+    // harder to diagnose than a stated limitation.
     if repo_value
         .get("is_github_app")
         .and_then(|v| v.as_bool())
         .unwrap_or(false)
     {
-        let Connection::Sql(db) = conn else {
-            return Err(Error::BadRequest(
-                "GitHub App authentication is not available for agent workers".to_string(),
-            ));
-        };
-        let token =
-            windmill_common::git_sync_oss::get_github_app_token_internal(db, &client.token).await?;
-        url = windmill_common::git_sync_oss::prepend_token_to_github_url(&url, &token)?;
+        return Err(Error::BadRequest(
+            "dbt cannot use a GitHub App git_repository resource yet: installation tokens are \
+             minted only for git-sync jobs. Use a token in the resource URL, or \
+             `git_ssh_identity` for an SSH remote."
+                .to_string(),
+        ));
     }
+    let _ = &mut url;
     let git_ssh_cmd = git_ssh_cmd(descriptor, job_dir, client).await?;
     let branch = repo_value
         .get("branch")
@@ -529,7 +538,17 @@ pub async fn prepare_project(
         },
         None => None,
     };
-    let ref_is_per_run = descriptor.r#ref.is_some() && interpolated_ref.is_none();
+    // A property of the descriptor, not of whether this particular caller could
+    // interpolate: runs are strict, so deciding it from a failed interpolation
+    // would make it permanently false on the run path and the per-run graph
+    // refresh below would never fire.
+    let has_placeholder = |v: &str| v.contains("{{");
+    let ref_is_per_run = descriptor.r#ref.as_deref().is_some_and(has_placeholder);
+    // Vars can drive `enabled`, alias, schema, database and materialization, so
+    // a var only a run can fill means the deploy-time graph is a guess. Treat it
+    // like a per-run ref: refresh from each run's own manifest.
+    let graph_is_per_run =
+        ref_is_per_run || descriptor.vars.values().any(|v| has_placeholder(v));
     let probe = GitRepo {
         url: url.clone(),
         commit: None,
@@ -596,7 +615,7 @@ pub async fn prepare_project(
         )));
     }
 
-    let (profiles_dir, resource_path, adapter) =
+    let (profiles_dir, resource_path, adapter, default_database) =
         write_profiles(descriptor, &project_dir, job_dir, client, job_id).await?;
     let engine = provision_engine(descriptor.engine(), adapter, job_id, w_id, conn).await?;
 
@@ -611,9 +630,11 @@ pub async fn prepare_project(
         engine,
         commit: checked_out,
         ref_is_per_run,
+        graph_is_per_run,
         project_subdir,
         repo_resource: repo_res,
         resource_path,
+        default_database,
         script_path: script_path.to_string(),
         env,
     };
@@ -879,7 +900,7 @@ async fn write_profiles(
     job_dir: &str,
     client: &AuthedClient,
     job_id: &Uuid,
-) -> error::Result<(PathBuf, Option<String>, DbtAdapter)> {
+) -> error::Result<(PathBuf, Option<String>, DbtAdapter, Option<String>)> {
     let resource_path = descriptor
         .profile
         .resource
@@ -915,7 +936,9 @@ async fn write_profiles(
             None => adapter_from_profiles_yml(&path).await?,
         };
         ensure_adapter_licensed(adapter)?;
-        return Ok((dir, resource_path, adapter));
+        // The project owns its profile, so Windmill does not know its database;
+        // nodes then qualify only against `None`, i.e. never.
+        return Ok((dir, resource_path, adapter, None));
     }
 
     let resource_path = resource_path.ok_or_else(|| {
@@ -952,7 +975,7 @@ async fn write_profiles(
         .await
         .map_err(|e| Error::internal_err(format!("creating the profiles dir: {e}")))?;
     write_file(dir.to_str().unwrap(), "profiles.yml", &rendered.yaml)?;
-    Ok((dir, Some(resource_path), adapter))
+    Ok((dir, Some(resource_path), adapter, rendered.database))
 }
 
 async fn adapter_from_profiles_yml(path: &Path) -> error::Result<DbtAdapter> {
@@ -1154,10 +1177,13 @@ fn spawn_progress_reporter(
                 continue;
             }
             offset += buf.len() as u64;
-            let fresh = String::from_utf8_lossy(&buf);
-            let complete_upto = fresh.rfind('\n').map(|i| i + 1).unwrap_or(0);
-            let chunk = format!("{carry}{}", &fresh[..complete_upto]);
-            carry = fresh[complete_upto..].to_string();
+            // Append BEFORE looking for the last newline: a line spanning three
+            // reads would otherwise have its middle fragment replace the first,
+            // and the reassembled line would be invalid JSON.
+            carry.push_str(&String::from_utf8_lossy(&buf));
+            let complete_upto = carry.rfind('\n').map(|i| i + 1).unwrap_or(0);
+            let chunk = carry[..complete_upto].to_string();
+            carry = carry[complete_upto..].to_string();
             for line in chunk.lines() {
                 let Some(ev) = parse_node_event(line, &resource_path) else {
                     continue;
@@ -1372,6 +1398,7 @@ fn render_failures(r: &DbtRunResult) -> String {
 async fn ingest_from_run(
     p: &PreparedProject,
     descriptor: &DbtDescriptor,
+    args: &HashMap<String, Box<RawValue>>,
     job: &MiniPulledJob,
     conn: &Connection,
 ) -> error::Result<()> {
@@ -1382,9 +1409,16 @@ async fn ingest_from_run(
         return Ok(());
     };
     let manifest = read_manifest(&p.project_dir).await?;
-    let selected = resolve_selection(p, descriptor).await?;
+    // The run's own arguments: resolving the selection with empty vars could
+    // filter this run's manifest by a different node set than it built.
+    let selected = resolve_selection(p, descriptor, args, true).await?;
     let ingested =
-        windmill_common::dbt_manifest::ingest_manifest(&manifest, resource_path, selected.as_ref());
+        windmill_common::dbt_manifest::ingest_manifest(
+        &manifest,
+        resource_path,
+        p.default_database.as_deref(),
+        selected.as_ref(),
+    );
     let mut tx = db.begin().await?;
     windmill_common::dbt_manifest::replace_dbt_manifest(
         &mut tx,
@@ -1414,6 +1448,8 @@ async fn ingest_from_run(
 async fn resolve_selection(
     p: &PreparedProject,
     descriptor: &DbtDescriptor,
+    args: &HashMap<String, Box<RawValue>>,
+    strict: bool,
 ) -> error::Result<Option<std::collections::HashSet<String>>> {
     if descriptor.select.is_empty()
         && descriptor.exclude.is_empty()
@@ -1426,7 +1462,7 @@ async fn resolve_selection(
     // without these, so the selection resolver needs them exactly as the run
     // does. Placeholders that only a run can fill are dropped rather than
     // failing the deploy.
-    add_vars(&mut cmd, descriptor, &HashMap::new(), false)?;
+    add_vars(&mut cmd, descriptor, args, strict)?;
     // The types spelled out rather than `all`, which dbt-core 2.x rejects.
     for t in ["model", "source", "seed", "snapshot", "test"] {
         cmd.args(["--resource-type", t]);
@@ -1481,7 +1517,9 @@ pub async fn read_manifest(
 
 /// `dbt retry` reads `target/run_results.json` from the previous invocation.
 /// Windmill gives each attempt a fresh job dir, so the state is kept in a
-/// worker-local cache keyed by the script.
+/// worker-local cache keyed by the script — which is also its limitation: a
+/// retry that lands on a different worker finds nothing and says so, rather
+/// than silently rebuilding everything.
 fn state_dir(w_id: &str, script_path: &str) -> PathBuf {
     PathBuf::from(&*DBT_CACHE_DIR)
         .join("state")
@@ -1499,6 +1537,10 @@ async fn save_run_state(p: &PreparedProject, w_id: &str) -> error::Result<()> {
             .await
             .ok();
     }
+    // Which checkout produced it. `latest` and placeholder refs move, and
+    // resuming commit A's failed nodes against commit B's project is worse than
+    // not resuming at all.
+    tokio::fs::write(dir.join("commit"), &p.commit).await.ok();
     Ok(())
 }
 
@@ -1518,6 +1560,17 @@ async fn restore_run_state(p: &PreparedProject, w_id: &str) -> error::Result<()>
             "no previous dbt run to retry from on this worker; run the script normally instead"
                 .to_string(),
         ));
+    }
+    let saved_commit = tokio::fs::read_to_string(dir.join("commit"))
+        .await
+        .unwrap_or_default();
+    if saved_commit != p.commit {
+        return Err(Error::BadRequest(format!(
+            "the last dbt run on this worker was at commit {}, but this run resolved {}. \
+             `dbt retry` resumes a specific checkout's failures; run the script normally instead",
+            if saved_commit.is_empty() { "an unknown revision" } else { &saved_commit },
+            p.commit
+        )));
     }
     let target = p.project_dir.join("target");
     tokio::fs::create_dir_all(&target).await.ok();

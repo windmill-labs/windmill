@@ -357,7 +357,13 @@ pub fn render_profile(
     // pointing at the wrong database.
     if adapter != DbtAdapter::Mysql {
         if let Some(sc) = schema.clone() {
-            out.push(("schema".into(), quoted(&sc)));
+            // dbt-bigquery spells it `dataset`; every other adapter says
+            // `schema`. Emitting `schema` there produces a profile dbt rejects.
+            let key = match adapter {
+                DbtAdapter::Bigquery => "dataset",
+                _ => "schema",
+            };
+            out.push((key.into(), quoted(&sc)));
         }
     }
     if let Some(t) = threads {
@@ -459,7 +465,9 @@ mod tests {
             .to_string();
         assert!(err.contains("profile.schema"), "{err}");
         let p = render_profile(DbtAdapter::Bigquery, &r, "wm", "prod", None, Some("marts")).unwrap();
-        assert!(p.yaml.contains("      schema: \"marts\"\n"));
+        // dbt-bigquery's key is `dataset`, not `schema`.
+        assert!(p.yaml.contains("      dataset: \"marts\"\n"), "{}", p.yaml);
+        assert!(!p.yaml.contains("      schema:"));
         assert_eq!(p.schema.as_deref(), Some("marts"));
     }
 
