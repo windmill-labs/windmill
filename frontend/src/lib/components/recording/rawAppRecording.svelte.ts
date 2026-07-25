@@ -100,8 +100,11 @@ export function createRawAppRecording(): RawAppRecordingStore {
 
 	let detachers: (() => void)[] = []
 	let pendingFill: PendingFill | undefined = undefined
-	/** Element of the last recorded step, for coalescing repeats of one interaction. */
+	/** Element and time of the last recorded step, for coalescing repeats of one
+	 * interaction. The time is refreshed on every repeat, so a sustained gesture
+	 * does not split once it outlives the window. */
 	let lastStepEl: Element | undefined = undefined
+	let lastStepAt = 0
 	/** Pre-interaction snapshot taken on pointerdown, before a click handler runs. */
 	let pendingPointer: { el: Element; html: string | undefined } | undefined = undefined
 	/** Same, taken on keydown before the key changes the focused field or control. */
@@ -195,12 +198,23 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		value?: string
 	) {
 		if (!active) return
+		const t = Date.now() - startTime
+		const last = steps[steps.length - 1]
+		const coalesces =
+			!!last &&
+			!!el &&
+			lastStepEl === el &&
+			last.kind === kind &&
+			isContinuousControl(el) &&
+			t - lastStepAt < CONTROL_COALESCE_MS
 		// A step's outcome must be settled before the next one starts; the pending
 		// snapshot can't be deferred past this point. It can't reuse `before`
 		// either: that frame carries the NEW step's target stamp. Runs before the
 		// cap check, so the last accepted step keeps its result even when the
-		// interaction that follows it is the one that gets refused.
-		if (settle) {
+		// interaction that follows it is the one that gets refused. Skipped while a
+		// gesture is still coalescing: each repeat's outcome would be indexed and
+		// then immediately superseded, leaving a full document unreferenced.
+		if (settle && !coalesces) {
 			const pending = settle.step
 			clearSettle()
 			pending.after = frameIndex(capture())
@@ -227,22 +241,16 @@ export function createRawAppRecording(): RawAppRecordingStore {
 				? `${value.slice(0, MAX_STEP_VALUE_CHARS)}…`
 				: value
 		const shown = redacted && bounded && kind !== 'toggle' ? maskValue(bounded) : bounded
-		const t = Date.now() - startTime
 		const label = stepLabel(kind, target, shown)
-		const last = steps[steps.length - 1]
-		if (
-			last &&
-			el &&
-			lastStepEl === el &&
-			last.kind === kind &&
-			isContinuousControl(el) &&
-			t - last.t < CONTROL_COALESCE_MS
-		) {
+		if (coalesces && last) {
 			// Same control, same kind, still within the sweep: update the step in place
-			// so a held arrow key or a slider drag reads as one interaction. The new
-			// pre-frame is deliberately never indexed — it would be an orphan.
+			// so a held arrow key or a slider drag reads as one interaction. Nothing is
+			// indexed for a repeat — neither its pre-frame nor an outcome the next
+			// repeat would supersede — and the window runs from this update, so a
+			// sustained gesture stays one step however long it is held.
 			last.value = shown
 			last.label = label
+			lastStepAt = t
 			scheduleSettle(last)
 			return
 		}
@@ -257,6 +265,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		}
 		steps.push(step)
 		lastStepEl = el
+		lastStepAt = t
 		stepCount = steps.length
 		scheduleSettle(step)
 	}
@@ -268,7 +277,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 	function labelDrivesControl(el: Element): boolean {
 		const label = el.closest('label') as HTMLLabelElement | null
 		const control = label?.control
-		if (!control || !isControl(control)) return false
+		if (!control) return false
 		const interactive = el.closest('a, button, input, select, textarea')
 		return !interactive || interactive === control
 	}
@@ -524,6 +533,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			workspace = opts.workspace
 			steps = []
 			lastStepEl = undefined
+			lastStepAt = 0
 			stepCount = 0
 			frames = []
 			frameIndexes = new Map()

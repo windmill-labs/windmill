@@ -61,12 +61,14 @@ describe('serializeDocument redaction', () => {
 
 	it('keeps no attribute that could carry content, listed or not', () => {
 		const doc = docFrom(
-			`<iframe data-wm-no-record srcdoc="<p>embedded secret</p>" data-anything="future secret" cite="/cited" class="frame"></iframe>`
+			`<iframe data-wm-no-record srcdoc="<p>embedded secret</p>" data-anything="future secret"` +
+				` cite="/cited" style="--code: salary-92000" class="frame"></iframe>`
 		)
 		const html = serializeDocument(doc)
 		expect(html).not.toContain('embedded secret')
 		expect(html).not.toContain('future secret')
 		expect(html).not.toContain('/cited')
+		expect(html).not.toContain('salary-92000')
 		expect(html).toContain('class="frame"')
 	})
 

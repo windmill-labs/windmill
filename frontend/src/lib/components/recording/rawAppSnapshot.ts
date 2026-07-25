@@ -88,8 +88,9 @@ function resolvePath(root: Element, path: number[]): Element | undefined {
 /** What may stay on a no-record element: enough for it to keep occupying the
  * same space in the snapshot, and nothing that can carry content. An allow-list
  * on purpose — every round of "this attribute leaks too" (`title`, `data-*`,
- * `label`, `xlink:href`, `srcdoc`…) is a deny-list failing open. `style` is
- * allowed only when it embeds no `url()`. */
+ * `label`, `xlink:href`, `srcdoc`…) is a deny-list failing open. `style` is not
+ * on it either: a custom property or an image function can carry content just as
+ * well as a `url()`. */
 const REDACTION_KEEPS_ATTRS = new Set([
 	'checked',
 	'class',
@@ -106,7 +107,6 @@ const REDACTION_KEEPS_ATTRS = new Set([
 	'rowspan',
 	'selected',
 	'size',
-	'style',
 	'type',
 	'width'
 ])
@@ -140,10 +140,7 @@ function redactMarkedSubtrees(doc: Document, root: Element) {
 		n.replaceChildren(doc.createTextNode('•••'))
 		for (const attr of Array.from(n.attributes)) {
 			if (attr.name === NO_RECORD_ATTR || attr.name === REC_TARGET_ATTR) continue
-			const name = attr.localName.toLowerCase()
-			const keep =
-				REDACTION_KEEPS_ATTRS.has(name) && !(name === 'style' && /url\(/i.test(attr.value))
-			if (!keep) n.removeAttributeNode(attr)
+			if (!REDACTION_KEEPS_ATTRS.has(attr.localName.toLowerCase())) n.removeAttributeNode(attr)
 		}
 	}
 }
