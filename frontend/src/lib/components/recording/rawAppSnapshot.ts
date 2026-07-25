@@ -26,14 +26,17 @@ export const MAX_STEP_TEXT_CHARS = 1000
  * re-serialized before it is handed to the iframe. */
 export const MAX_TOTAL_FRAME_CHARS = 40 * 1024 * 1024
 
-export type RawAppInteractionKind =
-	| 'click'
-	| 'fill'
-	| 'select'
-	| 'toggle'
-	| 'submit'
-	| 'key'
-	| 'navigate'
+export const RAW_APP_INTERACTION_KINDS = [
+	'click',
+	'fill',
+	'select',
+	'toggle',
+	'submit',
+	'key',
+	'navigate'
+] as const
+
+export type RawAppInteractionKind = (typeof RAW_APP_INTERACTION_KINDS)[number]
 
 /** Resolve `url(...)` references of an inlined stylesheet against the sheet's
  * own URL: once its rules move into a `<style>` in the document, a relative
@@ -99,9 +102,9 @@ function resolvePath(root: Element, path: number[]): Element | undefined {
  * on purpose — every round of "this attribute leaks too" (`title`, `data-*`,
  * `label`, `xlink:href`, `srcdoc`…) is a deny-list failing open. `style` is not
  * on it either: a custom property or an image function can carry content just as
- * well as a `url()`. */
+ * well as a `url()`. Nor is `checked`/`selected`: whether a marked box is ticked
+ * is exactly the kind of answer the marker exists to withhold. */
 const REDACTION_KEEPS_ATTRS = new Set([
-	'checked',
 	'class',
 	'colspan',
 	'cols',
@@ -114,7 +117,6 @@ const REDACTION_KEEPS_ATTRS = new Set([
 	'readonly',
 	'rows',
 	'rowspan',
-	'selected',
 	'size',
 	'type',
 	'width'
@@ -217,14 +219,30 @@ function rulesProbe(rules: CSSRuleList): string {
 	return parts.join('|')
 }
 
+/** Rule text, with `@import` replaced by the rules it pulls in: the replay CSP
+ * refuses the fetch, so an unexpanded import is simply lost styling. */
+function expandRules(rules: CSSRuleList): string {
+	return Array.from(rules)
+		.map((rule) => {
+			const imported = (rule as CSSImportRule).styleSheet
+			if (!imported) return rule.cssText
+			try {
+				const inner = expandRules(imported.cssRules)
+				const media = imported.media?.mediaText
+				return media ? `@media ${media} {\n${inner}\n}` : inner
+			} catch (_) {
+				return rule.cssText
+			}
+		})
+		.join('\n')
+}
+
 function sheetCss(sheet: CSSStyleSheet, rules: CSSRuleList): string {
 	const cacheable = !!sheet.href
 	const probe = cacheable ? rulesProbe(rules) : ''
 	const cached = cacheable ? sheetCssCache.get(sheet) : undefined
 	if (cached && cached.probe === probe) return cached.css
-	let css = Array.from(rules)
-		.map((r) => r.cssText)
-		.join('\n')
+	let css = expandRules(rules)
 	if (sheet.href) css = rewriteCssUrls(css, sheet.href)
 	// `cssRules` drops the sheet-level media condition the `<link media>` carried,
 	// so an unwrapped inline copy would apply print-only CSS to every replay.
@@ -430,7 +448,7 @@ export function withHighlightStyles(frame: string): string {
 /** Text of an element with any no-record subtree left out: the element itself
  * may be recordable while something inside it is not. */
 export function textWithoutRedacted(el: Element | null | undefined): string {
-	if (!el) return ''
+	if (!el || isRedacted(el)) return ''
 	let source: Element = el
 	if (el.querySelector(`[${NO_RECORD_ATTR}]`)) {
 		source = el.cloneNode(true) as Element
@@ -508,6 +526,9 @@ export function stepLabel(kind: RawAppInteractionKind, target: string, value?: s
 		case 'select':
 			return `Selected "${value ?? ''}" in ${target}`
 		case 'toggle':
+			// A redacted control reports no state, and "Unchecked" would then be a
+			// claim rather than an omission: say only that it was toggled.
+			if (!value) return `Toggled ${target}`
 			return `${value === 'checked' ? 'Checked' : 'Unchecked'} ${target}`
 		case 'submit':
 			return `Submitted ${target}`

@@ -138,7 +138,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		const existing = frameIndexes.get(html)
 		if (existing !== undefined) return existing
 		if (framesBytes + html.length > MAX_TOTAL_FRAME_CHARS) {
+			// Nothing more can be stored, so nothing more should be serialized either.
 			truncated = true
+			capped = true
 			return undefined
 		}
 		const index = frames.length
@@ -218,7 +220,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			!!el &&
 			sameTarget(lastStepEl, el) &&
 			last.kind === kind &&
-			(isContinuousControl(el) || keyDriven) &&
+			(isContinuousControl(el) || keyDriven || kind === 'key') &&
 			t - lastStepAt < CONTROL_COALESCE_MS
 		// A step's outcome must be settled before the next one starts; the pending
 		// snapshot can't be deferred past this point. It can't reuse `before`
@@ -253,15 +255,17 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		const target =
 			bound(el ? (redacted ? redactedDescription(el) : describeElement(el)) : 'the app') ??
 			'the app'
-		// A toggle's value is state ('checked'), not content, and the label reads it
-		// back — masking it would render every redacted toggle as "Unchecked".
 		// Metadata is stored and rendered like a frame is; an unbounded paste would
 		// otherwise slip past the snapshot budget in `value` and `label`.
 		const bounded =
 			value && value.length > MAX_STEP_VALUE_CHARS
 				? `${value.slice(0, MAX_STEP_VALUE_CHARS)}…`
 				: value
-		const shown = redacted && bounded && kind !== 'toggle' ? maskValue(bounded) : bounded
+		// Whether a marked control is ticked is withheld from the snapshot, so the
+		// step must not answer it either. A masked "checked" would read back as
+		// Unchecked, so a redacted toggle carries no value and gets a neutral label.
+		const shown =
+			!redacted || !bounded ? bounded : kind === 'toggle' ? undefined : maskValue(bounded)
 		const label = stepLabel(kind, target, shown)
 		if (coalesces && last) {
 			// Same control, same kind, still within the sweep: update the step in place
@@ -332,6 +336,11 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		if (!isTag(el, 'INPUT')) return false
 		const type = (el as HTMLInputElement).type
 		return !isTextEntry(el) && !BUTTON_INPUT_TYPES.has(type)
+	}
+
+	/** A field where Enter inserts a newline rather than committing anything. */
+	function isMultiline(el: Element): boolean {
+		return isTag(el, 'TEXTAREA') || (el as HTMLElement).isContentEditable
 	}
 
 	/** An element the browser activates with Enter or Space by dispatching a click,
@@ -568,14 +577,17 @@ export function createRawAppRecording(): RawAppRecordingStore {
 				else pendingKey = { el, html: capture(el), repeat: e.repeat }
 			}
 			if (e.key !== 'Enter' && e.key !== 'Escape') return
-			// A control reports what the key did to it on `change`, and an activatable
-			// element turns Enter into a click. Recording those keys as well would
-			// double the interaction — but Escape becomes neither, so it is only ever
+			// A control reports what the key did to it on `change`, an activatable
+			// element turns Enter into a click, and Enter in a multiline field is the
+			// newline the fill already records. Recording the key as well would double
+			// the interaction — Escape becomes none of those, so it is only ever
 			// recorded here.
-			if (e.key === 'Enter' && el && (isControl(el) || isActivatable(el))) return
+			if (e.key === 'Enter' && el && (isControl(el) || isActivatable(el) || isMultiline(el))) return
 			// Enter in a field ends the edit: the fill step must land before the key.
 			commitFill()
-			pushStep('key', el, capture(el), e.key)
+			// A held key is one interaction: `pushStep` folds the repeats into the step
+			// the first press opened rather than serializing per repeat.
+			pushStep('key', el, e.repeat ? undefined : capture(el), e.key, e.repeat)
 		})
 	}
 
@@ -589,16 +601,27 @@ export function createRawAppRecording(): RawAppRecordingStore {
 	 * nodes and must be dropped, not carried into the new page's timeline. */
 	function onIframeLoad() {
 		detach()
+		// The interaction that triggered the load never settled: its outcome is the
+		// document that has just replaced the one it acted on.
+		const reloadedFrom = settle?.step
+		clearSettle()
 		if (pendingFill) clearTimeout(pendingFill.timer)
 		pendingFill = undefined
 		pendingPointer = undefined
 		pendingKey = undefined
-		clearSettle()
 		const d = doc()
 		if (!d) return
 		attach(d)
+		const loaded = capture()
+		if (reloadedFrom) reloadedFrom.after = frameIndex(loaded)
+		// Recording started before the app had loaded: this document IS the initial
+		// state, not a navigation away from one.
+		if (frames.length === 0) {
+			frameIndex(loaded)
+			return
+		}
 		// The wrapper is a blob: URL, so only the in-app hash is meaningful here.
-		pushStep('navigate', undefined, capture(), d.location?.hash || undefined)
+		pushStep('navigate', undefined, loaded, d.location?.hash || undefined)
 	}
 
 	return {
@@ -633,9 +656,14 @@ export function createRawAppRecording(): RawAppRecordingStore {
 				width: iframe.clientWidth || d.documentElement.clientWidth,
 				height: iframe.clientHeight || d.documentElement.clientHeight
 			}
-			// frames[0] is the app as recording started: the player opens on it, and
-			// it is the one frame no step claims.
-			frameIndex(capture())
+			// frames[0] is the app as recording started: the player opens on it, and it
+			// is the one frame no step claims. An iframe that has not finished loading
+			// is still `about:blank` — capturing that would open the replay on an empty
+			// page and make the real initial DOM look like a navigation, so leave frame
+			// 0 to the load handler.
+			if (d.readyState === 'complete' || (d.body?.childElementCount ?? 0) > 0) {
+				frameIndex(capture())
+			}
 			attach(d)
 			// NOT in `detachers`: onIframeLoad calls detach(), which would otherwise
 			// remove the very listener that rebinds the recorder on the next reload.

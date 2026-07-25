@@ -72,13 +72,15 @@ describe('serializeDocument redaction', () => {
 		expect(html).toContain('class="frame"')
 	})
 
-	it('keeps the control state of a redacted element, so the replay matches its step', () => {
+	it('withholds even the state of a redacted control', () => {
+		// Whether a marked box is ticked is exactly what the marker exists to hide;
+		// the step's value is masked to match, so label and snapshot agree.
 		const doc = docFrom(`<input type="checkbox" data-wm-no-record aria-label="acquisition target">`)
 		const box = doc.querySelector('input') as HTMLInputElement
 		box.checked = true
 
 		const html = serializeDocument(doc)
-		expect(html).toContain('checked')
+		expect(html).not.toContain('checked')
 		expect(html).not.toContain('acquisition target')
 	})
 

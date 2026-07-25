@@ -6,7 +6,9 @@
 	import {
 		MAX_RECORDED_STEPS,
 		MAX_STEP_TEXT_CHARS,
-		MAX_TOTAL_FRAME_CHARS
+		MAX_TOTAL_FRAME_CHARS,
+		RAW_APP_INTERACTION_KINDS,
+		type RawAppInteractionKind
 	} from '$lib/components/recording/rawAppSnapshot'
 	import type {
 		FlowRecording,
@@ -98,9 +100,19 @@
 			// restyle the player around itself.
 			const isSize = (v: unknown) =>
 				typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 20000
+			// Divided into every step timestamp by the timeline; a string here would be
+			// coerced once per step, and a missing one renders as NaN.
+			const validDuration =
+				typeof data.total_duration_ms === 'number' &&
+				Number.isFinite(data.total_duration_ms) &&
+				data.total_duration_ms >= 0
 			const validViewport =
 				isObject(data.viewport) && isSize(data.viewport.width) && isSize(data.viewport.height)
-			const isIndex = (v: unknown) => v === undefined || typeof v === 'number'
+			const frameCount = Array.isArray(data.frames) ? data.frames.length : 0
+			// An index must actually address a frame: a dangling one silently drops the
+			// snapshot the player would show.
+			const isIndex = (v: unknown) =>
+				v === undefined || (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < frameCount)
 			// Labels are rendered per row; the recorder bounds them, a remote payload
 			// has to be held to the same order of magnitude.
 			const isShortText = (v: unknown, required = false) =>
@@ -114,7 +126,7 @@
 					(s: unknown) =>
 						isObject(s) &&
 						typeof s.t === 'number' &&
-						isShortText(s.kind, true) &&
+						RAW_APP_INTERACTION_KINDS.includes(s.kind as RawAppInteractionKind) &&
 						isShortText(s.label, true) &&
 						isShortText(s.target) &&
 						isShortText(s.selector) &&
@@ -124,7 +136,7 @@
 				)
 			// Rendered in the player's header like the step labels are.
 			const validHeader = isShortText(data.app_path) && isShortText(data.workspace)
-			if (!validFrames || !validSteps || !validViewport || !validHeader) {
+			if (!validFrames || !validSteps || !validViewport || !validHeader || !validDuration) {
 				sendUserToast('Invalid app recording format', true)
 				return false
 			}
