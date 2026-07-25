@@ -218,6 +218,16 @@ pub fn ingest_manifest(
             .parent_map
             .iter()
             .filter(|(child, _)| sel.contains(child.as_str()))
+            // Only what the script BUILDS establishes a dependency. Selecting a
+            // model also selects its tests, and a `relationships` test depends
+            // on the model it points at — so counting test parents would make a
+            // staging-only script subscribe to a mart it merely asserts against.
+            .filter(|(child, _)| {
+                manifest
+                    .nodes
+                    .get(*child)
+                    .is_some_and(|n| n.resource_type != "test")
+            })
             .flat_map(|(_, parents)| parents.iter().map(|p| p.as_str()))
             .collect()
     });
@@ -494,6 +504,19 @@ mod tests {
           "schema": "jaffle_dbt", "relation_name": "\"wh\".\"jaffle_dbt\".\"order_events\"",
           "config": {"materialized": "incremental"}
         },
+        "model.jaffle_shop.stg_customers": {
+          "resource_type": "model", "name": "stg_customers", "alias": "stg_customers",
+          "schema": "jaffle_dbt", "relation_name": "\"wh\".\"jaffle_dbt\".\"stg_customers\"",
+          "config": {"materialized": "view"}
+        },
+        "test.jaffle_shop.relationships_orders_daily_customer_id.ab": {
+          "resource_type": "test", "name": "relationships_orders_daily_customer_id",
+          "column_name": "customer_id", "attached_node": "model.jaffle_shop.orders_daily",
+          "config": {"materialized": "test", "severity": "ERROR"},
+          "test_metadata": {"name": "relationships",
+                            "kwargs": {"to": "ref('stg_customers')", "field": "customer_id"},
+                            "namespace": null}
+        },
         "model.jaffle_shop.ephemeral_helper": {
           "resource_type": "model", "name": "ephemeral_helper", "schema": "jaffle_dbt",
           "relation_name": null, "config": {"materialized": "ephemeral"}
@@ -536,7 +559,10 @@ mod tests {
       },
       "parent_map": {
         "model.jaffle_shop.customers": ["model.jaffle_shop.orders_daily"],
-        "model.jaffle_shop.orders_daily": ["source.jaffle_shop.jaffle_raw.raw_orders"]
+        "model.jaffle_shop.orders_daily": ["source.jaffle_shop.jaffle_raw.raw_orders"],
+        "model.jaffle_shop.stg_customers": ["source.jaffle_shop.jaffle_raw.raw_customers"],
+        "test.jaffle_shop.relationships_orders_daily_customer_id.ab":
+          ["model.jaffle_shop.orders_daily", "model.jaffle_shop.stg_customers"]
       }
     }"#;
 
@@ -665,6 +691,10 @@ mod tests {
                     Some(AssetUsageAccessType::W)
                 ),
                 (
+                    "f/prod/wh/jaffle_dbt/stg_customers".into(),
+                    Some(AssetUsageAccessType::W)
+                ),
+                (
                     "f/prod/wh/jaffle_dbt_snapshots/customers_snapshot".into(),
                     Some(AssetUsageAccessType::W)
                 ),
@@ -733,6 +763,24 @@ mod tests {
             by_access(AssetUsageAccessType::R),
             vec!["f/prod/wh/jaffle_dbt/orders_daily"]
         );
+
+        // Selecting a model also selects its tests, and the `relationships`
+        // test on orders_daily points at stg_customers. A script that only
+        // builds staging models must not end up subscribed to the mart it is
+        // merely asserted against.
+        let staging: std::collections::HashSet<String> =
+            ["model.jaffle_shop.stg_customers".to_string(),
+             "test.jaffle_shop.relationships_orders_daily_customer_id.ab".to_string()]
+                .into_iter()
+                .collect();
+        let i = ingest_manifest(&m, "f/prod/wh", Some(&staging));
+        assert!(
+            !i.assets
+                .iter()
+                .any(|a| a.path.ends_with("/orders_daily")),
+            "a test's dependency must not become a read: {:?}",
+            i.assets.iter().map(|a| &a.path).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -744,6 +792,16 @@ mod tests {
                 (
                     "model.jaffle_shop.orders_daily".to_string(),
                     "model.jaffle_shop.customers".to_string()
+                ),
+                // A test's own edges are kept — the graph renders them — even
+                // though they do not make the script depend on what they assert.
+                (
+                    "model.jaffle_shop.orders_daily".to_string(),
+                    "test.jaffle_shop.relationships_orders_daily_customer_id.ab".to_string()
+                ),
+                (
+                    "model.jaffle_shop.stg_customers".to_string(),
+                    "test.jaffle_shop.relationships_orders_daily_customer_id.ab".to_string()
                 ),
                 (
                     "source.jaffle_shop.jaffle_raw.raw_orders".to_string(),
