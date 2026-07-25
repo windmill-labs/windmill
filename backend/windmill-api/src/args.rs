@@ -67,6 +67,25 @@ pub struct WebhookArgs {
     pub metadata: WebhookArgsMetadata,
 }
 
+/// Build a `Content-Disposition` header value for an inline S3 object upload.
+///
+/// File names may contain non-ASCII characters (e.g. `这是测试.md`). Emitting them
+/// verbatim in a quoted `filename="..."` produces a header whose bytes are not
+/// valid ASCII; the object store then fails to read the attribute back on
+/// download (`HeaderValue::to_str` -> "Content-Disposition header contained non
+/// UTF-8 characters"), surfacing as a 500 (#7456). For non-ASCII names we use the
+/// RFC 6266 / RFC 5987 `filename*=UTF-8''<percent-encoded>` form, which is pure
+/// ASCII and is decoded back to the original name by clients. ASCII names keep
+/// the existing plain `filename="..."` form unchanged.
+#[cfg_attr(not(feature = "parquet"), allow(dead_code))]
+pub(crate) fn content_disposition_inline(filename: &str) -> String {
+    if filename.is_ascii() {
+        format!("inline; filename=\"{}\"", filename)
+    } else {
+        format!("inline; filename*=UTF-8''{}", urlencoding::encode(filename))
+    }
+}
+
 // capture
 //
 
@@ -131,7 +150,7 @@ impl RawWebhookArgs {
                             (
                                 Attribute::ContentDisposition,
                                 if let Some(filename) = filename {
-                                    format!("inline; filename=\"{}\"", filename)
+                                    content_disposition_inline(&filename)
                                 } else {
                                     "inline".to_string()
                                 },
@@ -774,6 +793,60 @@ mod tests {
                 );
             }
             _ => panic!("Expected a HashMap"),
+        }
+    }
+
+    #[test]
+    fn test_content_disposition_ascii_unchanged() {
+        // ASCII filenames keep the existing plain form — no behavior change.
+        assert_eq!(
+            content_disposition_inline("report.md"),
+            "inline; filename=\"report.md\""
+        );
+        assert_eq!(
+            content_disposition_inline("data_2024.csv"),
+            "inline; filename=\"data_2024.csv\""
+        );
+    }
+
+    #[test]
+    fn test_content_disposition_non_ascii_rfc5987() {
+        // #7456: a non-ASCII name must be RFC 5987 percent-encoded, not embedded raw.
+        assert_eq!(
+            content_disposition_inline("这是测试.md"),
+            "inline; filename*=UTF-8''%E8%BF%99%E6%98%AF%E6%B5%8B%E8%AF%95.md"
+        );
+    }
+
+    #[test]
+    fn test_content_disposition_is_always_ascii() {
+        // The header bytes must be valid ASCII so the object store can read the
+        // attribute back via `HeaderValue::to_str` on download (#7456).
+        for name in [
+            "这是测试.md",
+            "ünïcödé file.txt",
+            "Москва.pdf",
+            "日本語.json",
+        ] {
+            assert!(
+                content_disposition_inline(name).is_ascii(),
+                "Content-Disposition must be ASCII for {:?}",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn test_content_disposition_special_chars_encoded() {
+        // urlencoding percent-encodes space as %20 (not +) and escapes *, ', (, )
+        // etc., so neither the RFC 5987 ext-value nor its `'` delimiter can be
+        // corrupted by the file name.
+        let v = content_disposition_inline("café *'() a.txt");
+        assert!(v.is_ascii(), "{}", v);
+        let value = v.split("UTF-8''").nth(1).unwrap();
+        assert!(!value.contains('+'), "space must be %20, not +: {}", v);
+        for bad in ['\'', '*', '(', ')', ' '] {
+            assert!(!value.contains(bad), "{:?} must be encoded: {}", bad, v);
         }
     }
 }
