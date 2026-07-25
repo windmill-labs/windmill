@@ -195,14 +195,10 @@ pub async fn handle_dbt_job(
     };
     // `dbt retry` resumes from the previous run's `run_results.json`, which is
     // what makes one-job-per-invocation defensible: a partial failure does not
-    // force a full rebuild. Windmill runs each attempt in a fresh job dir, so
-    // the previous run's `target/` is restored from the worker-local state
-    // cache before invoking it.
-    // A retry resumes the previous invocation, so the graph refresh below and
-    // dbt itself must both use THAT invocation's arguments, not this job's.
-    // A retry resumes the previous invocation, so `dbt retry`, the graph refresh
-    // and the test phase must all use THAT invocation's arguments — not the
-    // retry request's, which may omit or change them.
+    // force a full rebuild. Each attempt gets a fresh job dir, so that state is
+    // restored from the worker-local cache — along with the ARGUMENTS it ran
+    // with, since dbt reuses that invocation's selection and vars and the graph
+    // refresh, the build and the test phase must all agree with it.
     let inv = if command == "retry" {
         Invocation { args: restore_run_state(&prepared, &job.workspace_id).await?, ..inv }
     } else {
@@ -210,16 +206,11 @@ pub async fn handle_dbt_job(
     };
 
     // A per-run graph is ingested BEFORE the build, from a `dbt parse` of the
-    // commit this run resolved. Asset dispatch fans out from the stored rows
-    // after the job completes, so the graph is written BEFORE the build, from a
-    // parse of the commit this run resolved. Concurrent runs of one dynamic
-    // script still race on the path-keyed rows; that needs a per-job dispatch
-    // snapshot (docs/dbt-runtime.md).
+    // commit this run resolved: asset dispatch fans out from the stored rows the
+    // moment the job completes. Concurrent runs of one dynamic script still race
+    // on the path-keyed rows; that needs a per-job dispatch snapshot
+    // (docs/dbt-runtime.md).
     if descriptor.is_latest_ref() || prepared.graph_is_per_run {
-        // `dbt retry` resumes the PREVIOUS invocation's selection and vars, so
-        // parsing with this job's arguments would ingest one graph while dbt
-        // resumes another. The restored state already describes that
-        // invocation, so its manifest is the one to ingest.
         if command != "retry" {
             run_dbt_parse(&prepared, &descriptor, &inv, &job.id, &job.workspace_id, conn).await?;
         }
@@ -278,15 +269,6 @@ pub async fn handle_dbt_job(
 
     save_run_state(&prepared, &job.workspace_id, &inv).await.ok();
     reconcile_materializations(&prepared, &results, job, conn).await;
-
-    // `ref: latest` executes whatever HEAD resolved to, so the graph must be
-    // refreshed from this run's own manifest or it describes a different
-    // commit than the one that ran (decision 12). The run already produced
-    // `manifest.json`, so this costs no extra dbt invocation.
-    // Whenever the commit is chosen per run rather than pinned at deploy — both
-    // `latest` and a placeholder ref — the deployed graph describes a different
-    // commit than the one that just executed, so it has to be refreshed from
-    // this run's manifest (decision 12). Free: the run already wrote it.
 
     let result = build_result(&prepared, &command, results);
     match run {
@@ -483,9 +465,26 @@ impl PreparedProject {
     /// Anything omitted here is something a redeploy could change while a
     /// stale `run_results.json` stays eligible, so `dbt retry` would resume one
     /// project's failures inside another.
+    /// A stable digest of the resolved environment. It belongs in run identity
+    /// because `env_var()` can drive a model's schema, database, alias or
+    /// `enabled` — so changing a `$var:` value after a failed run makes the
+    /// saved `run_results.json` describe relations this run would not produce.
+    /// Digested rather than listed: the values are resolved secrets.
+    fn env_digest(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut sorted: Vec<&(String, String)> = self.env.iter().collect();
+        sorted.sort();
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for (k, v) in sorted {
+            k.hash(&mut h);
+            v.hash(&mut h);
+        }
+        h.finish()
+    }
+
     fn run_identity(&self) -> String {
         format!(
-            "{}|{}|{}|{}|{}|{}|{}",
+            "{}|{}|{}|{}|{}|{}|{}|{:x}",
             self.repo_resource,
             self.project_subdir,
             self.commit,
@@ -493,6 +492,7 @@ impl PreparedProject {
             self.target.as_deref().unwrap_or(""),
             self.engine.engine.as_str(),
             self.profile_identity,
+            self.env_digest(),
         )
     }
 }
@@ -1712,13 +1712,12 @@ async fn persist_ingest(
         &annotations.muted_refs,
         annotations.mute_all,
     );
-    let keep: Vec<String> = derived
-        .iter()
-        .cloned()
-        .chain(annotations.explicit_refs.iter().cloned())
-        .collect();
-    // A model that stops reading a source loses its edge, but only among the
-    // `table://` refs this ingest owns.
+    // Delete every derived row, including the ones about to be reinserted:
+    // `script_trigger` has no uniqueness constraint and the subscriber lookup
+    // does not dedupe, so keeping them would double the downstream jobs on the
+    // first refresh and add another copy on every one after. Authored refs are
+    // excluded from the delete — they carry opts this ingest cannot rebuild.
+    let authored: Vec<String> = annotations.explicit_refs.iter().cloned().collect();
     sqlx::query!(
         "DELETE FROM script_trigger
           WHERE workspace_id = $1 AND runnable_kind = 'script' AND runnable_path = $2
@@ -1726,7 +1725,7 @@ async fn persist_ingest(
             AND NOT (trigger_ref = ANY($3))",
         w_id,
         script_path,
-        &keep[..],
+        &authored[..],
     )
     .execute(&mut *tx)
     .await?;
