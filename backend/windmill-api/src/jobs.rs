@@ -9776,6 +9776,10 @@ async fn resolve_completed_jobs(
                             JOIN v2_job sj ON sj.id = sc.id
                             WHERE sc.id = $6
                                 AND sc.workspace_id = $2
+                                -- Tag scope is a read restriction enforced outside RLS, so it has
+                                -- to bind the evidence as well: otherwise the result reveals
+                                -- whether an out-of-scope run succeeded.
+                                AND ($3::TEXT[] IS NULL OR sj.tag = ANY($3))
                                 AND sc.status = 'success'
                                 AND sc.completed_at >= c.completed_at
                                 AND (j.runnable_id IS NOT NULL OR j.runnable_path IS NOT NULL)

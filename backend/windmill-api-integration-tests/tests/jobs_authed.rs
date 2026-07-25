@@ -506,6 +506,38 @@ async fn test_resolve_completed_jobs_scoping(db: Pool<Postgres>) -> anyhow::Resu
         .execute(&db)
         .await?;
 
+    // Tag scope restricts reads outside RLS, so it has to bind the evidence too: this run is a
+    // genuine later success of the same runnable and is rejected only by its tag. Without that
+    // predicate the response would disclose whether a run the token cannot read succeeded.
+    let out_of_scope_success = seed(&db, "test-user-2", "success", "some_script").await;
+    sqlx::query("UPDATE v2_job SET tag = 'restricted' WHERE id = $1")
+        .bind(out_of_scope_success)
+        .execute(&db)
+        .await?;
+    sqlx::query(
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes)
+         VALUES (encode(sha256('TAG_SCOPED_2'::bytea), 'hex'), 'TAG_SCOP', 'TAG_SCOPED_2',
+                 'test2@windmill.dev', 'tag scoped', false, ARRAY['if_jobs:filter_tags:deno'])",
+    )
+    .execute(&db)
+    .await?;
+    let resp = client()
+        .post(format!("{base}/completed/resolve"))
+        .header("Authorization", "Bearer TAG_SCOPED_2")
+        .json(&json!({ "job_ids": [mine], "superseded_by": out_of_scope_success }))
+        .send()
+        .await?;
+    let body = resp.text().await?;
+    let ids: Vec<Uuid> = serde_json::from_str(&body)?;
+    assert!(
+        ids.is_empty(),
+        "an out-of-scope run must not serve as evidence, got {body}"
+    );
+    sqlx::query("DELETE FROM job_resolution WHERE job_id = $1")
+        .bind(mine)
+        .execute(&db)
+        .await?;
+
     // A flow step is a failure too, but resolving one would render it orange inside a flow
     // whose own status is still red, so the endpoint must skip it.
     let step = Uuid::new_v4();
