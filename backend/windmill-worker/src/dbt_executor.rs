@@ -1006,6 +1006,13 @@ async fn write_profiles(
         .await
         .map_err(|e| Error::internal_err(format!("creating the profiles dir: {e}")))?;
     write_file(dir.to_str().unwrap(), "profiles.yml", &rendered.yaml)?;
+    if let Some(pem) = rendered.root_certificate_pem.as_deref() {
+        write_file(
+            dir.to_str().unwrap(),
+            crate::dbt_profiles::ROOT_CERT_FILENAME,
+            pem,
+        )?;
+    }
     Ok((dir, Some(resource_path), adapter, rendered.database))
 }
 

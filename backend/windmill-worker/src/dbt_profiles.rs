@@ -8,6 +8,10 @@
 use serde_json::Value;
 use windmill_common::error::{self, Error};
 
+/// Written beside `profiles.yml`; `sslrootcert` is emitted as a relative path,
+/// and dbt resolves it against the profiles dir.
+pub const ROOT_CERT_FILENAME: &str = "server-ca.pem";
+
 /// The dbt adapter a Windmill resource type maps to (decision 9). The resource
 /// type name is the authority — connection details are never sniffed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -200,6 +204,10 @@ pub struct RenderedProfile {
     pub yaml: String,
     pub schema: Option<String>,
     pub database: Option<String>,
+    /// A private CA the caller must write next to `profiles.yml`, under the
+    /// file name `sslrootcert` already points at. Returned rather than written
+    /// here so this stays a pure renderer.
+    pub root_certificate_pem: Option<String>,
 }
 
 /// Render a single-target `profiles.yml` for `profile_name`/`target`.
@@ -259,6 +267,16 @@ pub fn render_profile(
             }
             if let Some(m) = s(resource, "sslmode") {
                 out.push(("sslmode".into(), quoted(&m)));
+            }
+            // Under `verify-ca`/`verify-full` a resource's private CA is the
+            // only way the connection can succeed; without it libpq looks for a
+            // default certificate that is not there, and the same field is what
+            // identifies the resource as Postgres in the first place.
+            if s(resource, "root_certificate_pem").is_some() {
+                out.push((
+                    "sslrootcert".into(),
+                    quoted(&format!("./{ROOT_CERT_FILENAME}")),
+                ));
             }
             schema = match adapter {
                 // Already emitted as the database key; reported back so the
@@ -395,7 +413,14 @@ pub fn render_profile(
         }
     }
 
-    Ok(RenderedProfile { yaml, schema, database })
+    Ok(RenderedProfile {
+        yaml,
+        schema,
+        database,
+        root_certificate_pem: matches!(adapter, DbtAdapter::Postgres)
+            .then(|| s(resource, "root_certificate_pem"))
+            .flatten(),
+    })
 }
 
 /// One rendered `profiles.yml` value. Strings are always quoted so credential
@@ -468,6 +493,30 @@ mod tests {
     // `snowflake_oauth` maps to the Snowflake adapter, but its credential is a
     // token, which dbt only honors with `authenticator: oauth`. Forwarding
     // neither renders a profile with no credential at all.
+    // A resource's private CA is the only way a `verify-full` connection can
+    // succeed, and `root_certificate_pem` is also what identifies the resource
+    // as Postgres — forwarding one and dropping the other is incoherent.
+    #[test]
+    fn postgres_forwards_its_root_certificate() {
+        let r = json!({"host": "h", "dbname": "d", "sslmode": "verify-full",
+                       "root_certificate_pem": "-----BEGIN CERTIFICATE-----\nx\n"});
+        let p = render_profile(DbtAdapter::Postgres, &r, "wm", "prod", None, None).unwrap();
+        assert!(
+            p.yaml.contains(&format!("      sslrootcert: \"./{ROOT_CERT_FILENAME}\"\n")),
+            "{}",
+            p.yaml
+        );
+        assert_eq!(
+            p.root_certificate_pem.as_deref(),
+            Some("-----BEGIN CERTIFICATE-----\nx\n")
+        );
+        // No CA configured, no dangling sslrootcert pointing at a missing file.
+        let plain = json!({"host": "h", "dbname": "d", "sslmode": "require"});
+        let p = render_profile(DbtAdapter::Postgres, &plain, "wm", "prod", None, None).unwrap();
+        assert!(!p.yaml.contains("sslrootcert"));
+        assert_eq!(p.root_certificate_pem, None);
+    }
+
     #[test]
     fn snowflake_oauth_renders_its_token() {
         let r = json!({"account_identifier": "acc", "username": "u", "token": "tok",
