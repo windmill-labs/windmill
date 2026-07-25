@@ -19,6 +19,24 @@ use crate::common::{start_child_process, OccupancyMetrics};
 use crate::handle_child::handle_child;
 use crate::{GIT_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV};
 
+/// Bound on the remote-metadata commands (`ls-remote`). They talk to a git host
+/// and are otherwise unbounded, so an unreachable one would hold a worker slot
+/// for the life of the process rather than failing the job.
+const LS_REMOTE_TIMEOUT_SECS: u64 = 120;
+
+async fn bounded_output(
+    cmd: &mut Command,
+    what: &str,
+) -> anyhow::Result<std::process::Output> {
+    tokio::time::timeout(
+        std::time::Duration::from_secs(LS_REMOTE_TIMEOUT_SECS),
+        cmd.output(),
+    )
+    .await
+    .map_err(|_| anyhow!("{what} did not respond within {LS_REMOTE_TIMEOUT_SECS}s"))?
+    .map_err(Into::into)
+}
+
 pub async fn clone_repo(
     repo: &GitRepo,
     job_dir: &str,
@@ -329,12 +347,14 @@ pub async fn resolve_git_ref_to_commit(
     if git_ref.len() == 40 && git_ref.chars().all(|c| c.is_ascii_hexdigit()) {
         return Ok(git_ref.to_string());
     }
-    let output = Command::new(GIT_PATH.as_str())
-        .env("GIT_SSH_COMMAND", git_ssh_cmd)
-        .args(["ls-remote", &repo.url, git_ref])
-        .stderr(Stdio::piped())
-        .output()
-        .await?;
+    let output = bounded_output(
+        Command::new(GIT_PATH.as_str())
+            .env("GIT_SSH_COMMAND", git_ssh_cmd)
+            .args(["ls-remote", &repo.url, git_ref])
+            .stderr(Stdio::piped()),
+        "git ls-remote",
+    )
+    .await?;
     if !output.status.success() {
         return Err(anyhow!(
             "Error resolving `{git_ref}` in repo `{}`: {}",
@@ -372,7 +392,7 @@ pub async fn get_git_repo_full_head_commit_hash(
         .env("GIT_SSH_COMMAND", git_ssh_cmd)
         .args(["ls-remote", &repo.url, "HEAD"]);
 
-    let output = git_cmd.stderr(Stdio::piped()).output().await?;
+    let output = bounded_output(git_cmd.stderr(Stdio::piped()), "git ls-remote").await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8(output.stderr)?;

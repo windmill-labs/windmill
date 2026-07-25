@@ -44,11 +44,6 @@ use crate::{GIT_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV};
 /// fallback for the (invalid) case where it declares none.
 const FALLBACK_PROFILE_NAME: &str = "windmill";
 
-/// Bound on `dbt ls`. It only parses the project and resolves a node set, so it
-/// is fast unless the warehouse handshake hangs — which is exactly the case
-/// this stops from holding a worker slot.
-const SELECTION_TIMEOUT_SECS: u64 = 300;
-
 
 
 /// Written to the script's lockfile at deploy. `commit` is empty under
@@ -252,7 +247,21 @@ pub async fn handle_dbt_job(
         // For a retry the restored manifest already describes the invocation
         // being resumed, so only the ingest runs — with that invocation's
         // arguments, which the selection resolver needs to interpolate.
-        ingest_from_run(&prepared, &descriptor, &inv, job, conn).await?;
+        ingest_from_run(
+            &prepared,
+            &descriptor,
+            &inv,
+            &mut JobCtx {
+                mem_peak,
+                canceled_by,
+                occupancy_metrics,
+                worker_name,
+                timeout: job.timeout,
+            },
+            job,
+            conn,
+        )
+        .await?;
     }
 
     let mut run = run_dbt(
@@ -405,7 +414,22 @@ pub async fn dbt_dep(
     )
     .await?;
 
-    let selected = resolve_selection(&prepared, &descriptor, &inv).await?;
+    let selected = resolve_selection(
+        &prepared,
+        &descriptor,
+        &inv,
+        &mut JobCtx {
+            mem_peak,
+            canceled_by,
+            occupancy_metrics,
+            worker_name,
+            timeout: None,
+        },
+        job_id,
+        w_id,
+        &conn,
+    )
+    .await?;
     let manifest = read_manifest(&prepared.project_dir).await?;
     let manifest_digest = digest(
         &tokio::fs::read_to_string(prepared.project_dir.join("target/manifest.json"))
@@ -844,20 +868,22 @@ pub async fn prepare_project(
                 }
             }
         }
-        // An agent worker has no DB to read the stored root from and cannot
-        // re-ingest either, so drift has to be refused rather than repaired.
-        // The lock is what it does have.
+        // An agent worker can neither read the stored root nor re-ingest, so it
+        // cannot establish that the graph still describes what this run will
+        // build. Matching the deploy lock is not proof: another worker may have
+        // re-ingested a different root after a drift that has since been undone.
+        // Refuse only when the profile is one Windmill resolves — a project
+        // bringing its own `profiles.yml` has no root for Windmill to track, and
+        // its graph was never keyed on one.
         Connection::Http(_) => {
-            if let Some(locked) = locks.and_then(|l| l.profile_relation_root.as_deref()) {
-                if locked != prepared.relation_root() {
-                    return Err(Error::BadRequest(format!(
-                        "the profile now resolves to `{}` but this script was deployed against \
-                         `{locked}`, so its asset graph describes different relations. An agent \
-                         worker cannot re-ingest it — redeploy the script, or run it on a worker \
-                         with a database connection",
-                        prepared.relation_root()
-                    )));
-                }
+            if prepared.resource_path.is_some() {
+                return Err(Error::BadRequest(format!(
+                    "this dbt script's asset graph is keyed on the relations its profile \
+                     resolves to (`{}`), and an agent worker can neither verify nor re-ingest \
+                     that — so a profile changed since the last ingest would silently cascade \
+                     from the wrong relations. Run it on a worker with a database connection",
+                    prepared.relation_root()
+                )));
             }
         }
     }
@@ -1758,6 +1784,7 @@ async fn ingest_from_run(
     p: &PreparedProject,
     descriptor: &DbtDescriptor,
     inv: &Invocation,
+    ctx: &mut JobCtx<'_>,
     job: &MiniPulledJob,
     conn: &Connection,
 ) -> error::Result<()> {
@@ -1778,7 +1805,8 @@ async fn ingest_from_run(
     let manifest = read_manifest(&p.project_dir).await?;
     // The run's own arguments: resolving the selection with empty vars could
     // filter this run's manifest by a different node set than it built.
-    let selected = resolve_selection(p, descriptor, inv).await?;
+    let selected = resolve_selection(p, descriptor, inv, ctx, &job.id, &job.workspace_id, conn)
+        .await?;
     let ingested =
         windmill_common::dbt_manifest::ingest_manifest(
         &manifest,
@@ -1944,6 +1972,10 @@ async fn resolve_selection(
     p: &PreparedProject,
     descriptor: &DbtDescriptor,
     inv: &Invocation,
+    ctx: &mut JobCtx<'_>,
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
 ) -> error::Result<Option<std::collections::HashSet<String>>> {
     if descriptor.select.is_empty()
         && descriptor.exclude.is_empty()
@@ -1972,29 +2004,32 @@ async fn resolve_selection(
     if let Some(sel) = descriptor.selector.as_deref() {
         cmd.args(["--selector", sel]);
     }
-    // `dbt ls` is read for its stdout, so it cannot go through `handle_child`
-    // (which streams to the job log). It is bounded instead, so an unreachable
-    // warehouse cannot hold the slot indefinitely the way an unbounded wait
-    // would.
-    let out = tokio::time::timeout(
-        std::time::Duration::from_secs(SELECTION_TIMEOUT_SECS),
-        cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).output(),
+    // `handle_child` with `pipe_stdout` — the same cancellation and timeout the
+    // build gets, while still capturing the node list rather than streaming it
+    // to the job log.
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let child = start_child_process(cmd, p.engine.bin.to_string_lossy().as_ref(), false).await?;
+    let mut stdout = String::new();
+    handle_child(
+        job_id,
+        conn,
+        ctx.mem_peak,
+        ctx.canceled_by,
+        child,
+        false,
+        ctx.worker_name,
+        w_id,
+        "dbt ls",
+        ctx.timeout,
+        false,
+        &mut Some(ctx.occupancy_metrics),
+        Some(&mut stdout),
+        None,
     )
     .await
-    .map_err(|_| {
-        Error::ExecutionErr(format!(
-            "dbt ls did not resolve the selection within {SELECTION_TIMEOUT_SECS}s"
-        ))
-    })?
-    .map_err(|e| Error::internal_err(format!("dbt ls could not be started: {e}")))?;
-    if !out.status.success() {
-        return Err(Error::ExecutionErr(format!(
-            "dbt ls failed to resolve the selection: {}",
-            String::from_utf8_lossy(&out.stderr)
-        )));
-    }
+    .map_err(|e| Error::ExecutionErr(format!("dbt ls failed to resolve the selection: {e}")))?;
     let mut set = std::collections::HashSet::new();
-    for line in String::from_utf8_lossy(&out.stdout).lines() {
+    for line in stdout.lines() {
         let line = line.trim();
         if !line.starts_with('{') {
             continue;

@@ -46,6 +46,10 @@ lazy_static::lazy_static! {
         .unwrap_or_else(|_| "https://public.cdn.getdbt.com/fs/install/install.sh".to_string());
 }
 
+/// Bound on engine provisioning. Generous — a cold `uv pip install` of dbt-core
+/// plus an adapter is minutes — but finite, unlike a stalled index.
+const PROVISION_TIMEOUT_SECS: u64 = 1800;
+
 pub struct ProvisionedEngine {
     /// Absolute path of the dbt binary to invoke.
     pub bin: PathBuf,
@@ -420,12 +424,17 @@ async fn fetch_and_extract(
 /// with no job to attribute progress to, so they are not routed through
 /// `handle_child`; failures surface with the tool's own stderr.
 async fn run_tool(cmd: &mut Command, name: &str) -> error::Result<()> {
-    let out = cmd
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .await
-        .map_err(|e| Error::internal_err(format!("{name} could not be started: {e}")))?;
+    // Bounded: these fetch from PyPI, GitHub or dbt Labs, and an unreachable
+    // endpoint would otherwise hold the worker slot indefinitely.
+    let out = tokio::time::timeout(
+        std::time::Duration::from_secs(PROVISION_TIMEOUT_SECS),
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).output(),
+    )
+    .await
+    .map_err(|_| {
+        Error::ExecutionErr(format!("{name} did not finish within {PROVISION_TIMEOUT_SECS}s"))
+    })?
+    .map_err(|e| Error::internal_err(format!("{name} could not be started: {e}")))?;
     if !out.status.success() {
         return Err(Error::internal_err(format!(
             "{name} failed: {}",

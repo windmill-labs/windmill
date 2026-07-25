@@ -193,6 +193,13 @@ from the stored rows, a run that cannot refresh them fails rather than cascading
 from a stale graph — which also means those descriptors cannot run on an agent
 worker, whose only DB access is through the API.
 
+Agent workers are further limited: any dbt script whose profile Windmill resolves
+is refused there, because the agent can neither read the relation root the graph
+was ingested against nor re-ingest it — so a profile changed since the last
+ingest would cascade from the wrong relations with nothing to detect it. A
+project bringing its own `profiles.yml` has no root for Windmill to track and
+runs there normally.
+
 The refresh happens **before** the build, from a `dbt parse` of the commit the
 run resolved — not after it. Dispatch fans out from the stored rows once the job
 completes, so refreshing afterwards leaves a window in which those rows still

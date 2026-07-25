@@ -161,6 +161,13 @@
 				`columns: ${cols.map(([c, desc]) => (desc ? `${c} (${desc})` : c)).join(', ')}`
 			)
 		}
+		if (d.freshness) {
+			const f = d.freshness as Record<string, { count?: number; period?: string }>
+			const window = (k: string) =>
+				f[k]?.count != null ? `${k.replace('_after', '')} after ${f[k].count}${f[k].period?.[0] ?? ''}` : ''
+			const windows = ['warn_after', 'error_after'].map(window).filter(Boolean)
+			if (windows.length) lines.push(`freshness: ${windows.join(', ')}`)
+		}
 		if (d.description) lines.push(d.description)
 		return lines.join('\n')
 	})
