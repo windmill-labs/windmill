@@ -211,8 +211,11 @@ function fanoutLength(v: unknown): number {
 	return 0
 }
 
-/** Entry count of a flat map, for {@link MAX_MAP_ROWS}. */
-const mapSize = (v: unknown) => (isObject(v) ? Object.keys(v).length : 0)
+/** Entries a renderer would turn into rows, for {@link MAX_MAP_ROWS}. Counts arrays
+ * as well as objects: `args` is only *conventionally* a map, and an array of 90k
+ * primitives costs one node each and gets a row each just the same. */
+const rowCount = (v: unknown) =>
+	Array.isArray(v) ? v.length : isObject(v) ? Object.keys(v).length : 0
 
 /**
  * Walks one recorded value and reports why it is too big to render, or `undefined`.
@@ -266,7 +269,7 @@ function describeValueOverflow(
 					return `more than ${MAX_COMPONENT_FANOUT} \`${k}\`-style entries, each of which mounts its own component`
 				}
 			}
-			if (MAP_ROW_KEYS.includes(k) && mapSize(v[k]) > MAX_MAP_ROWS) {
+			if (MAP_ROW_KEYS.includes(k) && rowCount(v[k]) > MAX_MAP_ROWS) {
 				return `a \`${k}\` of more than ${MAX_MAP_ROWS} entries, each of which renders a row`
 			}
 			const over = describeValueOverflow(v[k], budget, depth + 1)
@@ -396,8 +399,8 @@ export function isScriptRecording(data: unknown): data is ScriptRecording {
 		isShortText(data.language, true) &&
 		// These arrive as the root of the walk, where there is no enclosing key for
 		// MAP_ROW_KEYS to match, so their own row counts are checked here.
-		mapSize(data.args) <= MAX_MAP_ROWS &&
-		mapSize((data.schema as Record<string, unknown> | undefined)?.properties) <= MAX_MAP_ROWS &&
+		rowCount(data.args) <= MAX_MAP_ROWS &&
+		rowCount((data.schema as Record<string, unknown> | undefined)?.properties) <= MAX_MAP_ROWS &&
 		withinRenderBudget(data.schema) &&
 		withinRenderBudget(data.args)
 	)
@@ -517,8 +520,8 @@ function describeOverflow(data: Record<string, unknown>): string | undefined {
 	// Checked at the root of the walk by `isScriptRecording`, where there is no
 	// enclosing key for the walk itself to report on.
 	for (const [label, size] of [
-		["this script's arguments", mapSize(data.args)],
-		["this script's schema", mapSize((data.schema as Record<string, unknown> | undefined)?.properties)]
+		["this script's arguments", rowCount(data.args)],
+		["this script's schema", rowCount((data.schema as Record<string, unknown> | undefined)?.properties)]
 	] as const) {
 		if (size > MAX_MAP_ROWS) {
 			return `Cannot replay: ${label} holds ${size} entries, more than the ${MAX_MAP_ROWS} this player renders.`

@@ -175,6 +175,7 @@ describe('parseRecording', () => {
 			Array.from({ length: MAX_MAP_ROWS + 1 }, (_, i) => [`a${i}`, 1])
 		)
 		expect(rejected(script({ args: wideMap }))).toBe(true)
+		expect(rejected(script({ args: Array.from({ length: MAX_MAP_ROWS + 1 }, () => 0) }))).toBe(true)
 		expect(rejected(script({ schema: { properties: wideMap } }))).toBe(true)
 
 		const flowWith = (value: unknown) => ({
@@ -277,6 +278,10 @@ describe('parseRecording', () => {
 		const rows = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`a${i}`, 1]))
 		expect(MAX_MAP_ROWS + 1).toBeLessThan(MAX_VALUE_NODES)
 		expect(rejected(flowJob({ args: rows(MAX_MAP_ROWS + 1) }))).toBe(true)
+		// `args` is only conventionally a map: an array gets a row per entry too.
+		expect(rejected(flowJob({ args: Array.from({ length: MAX_MAP_ROWS + 1 }, () => 0) }))).toBe(
+			true
+		)
 		expect(kindOf(flowJob({ args: rows(5) }))).toBe('flow')
 		// An object *key* is rendered text too (JobArgs prints it), and charging only
 		// values would let a huge key through.
