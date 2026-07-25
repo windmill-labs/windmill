@@ -109,8 +109,10 @@ export function createRawAppRecording(): RawAppRecordingStore {
 	let lastStepAt = 0
 	/** Pre-interaction snapshot taken on pointerdown, before a click handler runs. */
 	let pendingPointer: { el: Element; html: string | undefined } | undefined = undefined
-	/** Same, taken on keydown before the key changes the focused field or control. */
-	let pendingKey: { el: Element; html: string | undefined } | undefined = undefined
+	/** Same, taken on keydown before the key changes the focused field or control.
+	 * `at` bounds its life to the gesture it opened: repeats inside the window
+	 * reuse it (no re-serialization), a later gesture snapshots afresh. */
+	let pendingKey: { el: Element; html: string | undefined; at: number } | undefined = undefined
 	type Settle = {
 		step: RawAppStep
 		observer: MutationObserver
@@ -400,10 +402,14 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			const el = isElementNode(e.target) ? e.target : undefined
 			if (!el) return
 			// A click with no coordinates is either a keyboard activation or the click
-			// a label forwards to its control. Only the first is stale, and it is the
-			// one whose pointerdown was on this very element (an earlier physical
-			// click on it); a forwarded click's pointerdown was on the label.
-			if (e.detail === 0 && pendingPointer?.el === el) pendingPointer = undefined
+			// a label forwards to its control. Only the second may keep the pointer
+			// frame: for a keyboard activation the pending pointerdown belongs to an
+			// earlier interaction — on this element or on an ancestor of it.
+			const from = pendingPointer?.el
+			if (e.detail === 0 && from) {
+				const forwarded = (from.closest('label') as HTMLLabelElement | null)?.control === el
+				if (!forwarded) pendingPointer = undefined
+			}
 			// Before any early return: a fill still inside its debounce belongs before
 			// whatever this click records, and the control paths below never commit it.
 			if (pendingFill && pendingFill.el !== el) commitFill()
@@ -426,7 +432,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		on('beforeinput', (e: Event) => {
 			const el = isElementNode(e.target) ? e.target : undefined
 			if (!el || !isTextEntry(el) || pendingFill?.el === el) return
-			if (pointerFrameFor(el) === undefined) pendingKey = { el, html: capture(el) }
+			if (pointerFrameFor(el) === undefined) pendingKey = { el, html: capture(el), at: Date.now() }
 		})
 
 		on('input', (e: Event) => {
@@ -513,11 +519,13 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			// fields are covered by `beforeinput` instead, which also sees paste and
 			// undo. Snapshotting is expensive and runs on the app's own event path, so
 			// keys that change nothing (Tab, modifiers, navigation) must not trigger it.
-			// `pendingKey?.el !== el` skips auto-repeat: the first keydown of the burst
-			// already holds the pre-change DOM, and serializing per repeat would cost
-			// the app a full document clone at the key-repeat rate.
-			if (el && isControl(el) && mutatingKey(e) && pendingKey?.el !== el)
-				pendingKey = { el, html: capture(el) }
+			// Reuse the frame this gesture opened with — serializing per repeat would
+			// cost the app a full document clone at the key-repeat rate — but only
+			// while the gesture is live, or a later press would rewind to it.
+			const now = Date.now()
+			const live = !!pendingKey && pendingKey.el === el && now - pendingKey.at < CONTROL_COALESCE_MS
+			if (el && isControl(el) && mutatingKey(e) && !live)
+				pendingKey = { el, html: capture(el), at: now }
 			if (e.key !== 'Enter' && e.key !== 'Escape') return
 			// Enter in a field ends the edit: the fill step must land before the key.
 			commitFill()
