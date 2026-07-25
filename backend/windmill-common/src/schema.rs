@@ -202,6 +202,20 @@ impl SchemaValidationRule {
             }
             return Err(Error::ArgumentErr(format!("Argument {key} cannot be null")));
         }
+        // Unresolved Windmill references ($var:/$jsonvar:/$res:/$encrypted:) are
+        // replaced with their actual values by the worker after validation runs,
+        // so a reference string can stand in for any typed argument (e.g.
+        // `$res:f/foo` for a resource/object parameter). Accept it here and let
+        // the resolved value execute. (#6938)
+        if let Some(s) = val.as_str() {
+            if s.starts_with("$var:")
+                || s.starts_with("$jsonvar:")
+                || s.starts_with("$res:")
+                || s.starts_with("$encrypted:")
+            {
+                return Ok(());
+            }
+        }
         match self {
             SchemaValidationRule::IsNull => {
                 if !val.is_null() {
@@ -814,5 +828,50 @@ mod tests {
             "u/user/myXscript",
             "u/user/my_script"
         ));
+    }
+
+    #[test]
+    fn validate_accepts_unresolved_reference_for_object_param() {
+        // #6938: a resource (object-typed) parameter supplied as an unresolved
+        // `$res:` reference must pass validation — the worker resolves it after
+        // validation runs. The same applies to `$var:`/`$encrypted:` references.
+        let schema = r#"{
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+                "gmail": {
+                    "type": "object",
+                    "properties": { "token": { "type": "string" } }
+                }
+            },
+            "required": ["gmail"],
+            "type": "object"
+        }"#;
+        let validator = SchemaValidator::from_schema(schema).expect("valid schema");
+
+        // A `$res:` reference string stands in for the object parameter.
+        let args = json!({ "gmail": "$res:f/team/gmail" });
+        validator
+            .validate(&value_to_rawvalue_map(args).unwrap())
+            .expect("resource reference should pass object validation");
+
+        // `$jsonvar:` / `$var:` / `$encrypted:` references are likewise accepted.
+        for r in ["$jsonvar:f/team/x", "$var:f/team/y", "$encrypted:abc"] {
+            validator
+                .validate(&value_to_rawvalue_map(json!({ "gmail": r })).unwrap())
+                .expect("reference should pass object validation");
+        }
+
+        // A genuine object still validates.
+        let args = json!({ "gmail": { "token": "abc" } });
+        validator
+            .validate(&value_to_rawvalue_map(args).unwrap())
+            .expect("object value should pass");
+
+        // A non-reference, non-object value is still rejected.
+        let args = json!({ "gmail": "not a resource" });
+        validator
+            .validate(&value_to_rawvalue_map(args).unwrap())
+            .err()
+            .expect("plain string should be rejected for an object parameter");
     }
 }
