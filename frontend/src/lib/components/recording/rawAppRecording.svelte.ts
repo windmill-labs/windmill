@@ -64,6 +64,11 @@ const MAX_STEP_VALUE_CHARS = 200
 const CONTROL_COALESCE_MS = 250
 /** A form submit this soon after a click inside it is that click's consequence. */
 const SUBMIT_FOLD_MS = 500
+/** A label forwards its click within a tick; anything older is a leftover. */
+const FORWARDED_CLICK_MS = 1000
+/** How long a captured pre-interaction frame still describes "just before".
+ * Past it (a paused drag, a button clicked minutes ago) it would rewind. */
+const STALE_PREFRAME_MS = 2000
 
 type PendingFill = {
 	el: Element
@@ -107,8 +112,10 @@ export function createRawAppRecording(): RawAppRecordingStore {
 	 * does not split once it outlives the window. */
 	let lastStepEl: Element | undefined = undefined
 	let lastStepAt = 0
-	/** Pre-interaction snapshot taken on pointerdown, before a click handler runs. */
-	let pendingPointer: { el: Element; html: string | undefined } | undefined = undefined
+	/** Pre-interaction snapshot taken on pointerdown, before a click handler runs.
+	 * `at` separates a click a label is forwarding right now from a snapshot left
+	 * over by an earlier interaction. */
+	let pendingPointer: { el: Element; html: string | undefined; at: number } | undefined = undefined
 	/** Same, taken on keydown before the key changes the focused field or control.
 	 * `at` bounds its life to the gesture it opened: repeats inside the window
 	 * reuse it (no re-serialization), a later gesture snapshots afresh. */
@@ -199,7 +206,10 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		kind: RawAppInteractionKind,
 		el: Element | undefined,
 		before: string | undefined,
-		value?: string
+		value?: string,
+		/** This change came from a key the browser is repeating, so it continues the
+		 * gesture already recorded rather than starting a new step. */
+		keyDriven = false
 	) {
 		if (!active) return
 		const t = Date.now() - startTime
@@ -207,9 +217,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		const coalesces =
 			!!last &&
 			!!el &&
-			lastStepEl === el &&
+			sameTarget(lastStepEl, el) &&
 			last.kind === kind &&
-			isContinuousControl(el) &&
+			(isContinuousControl(el) || keyDriven) &&
 			t - lastStepAt < CONTROL_COALESCE_MS
 		// A step's outcome must be settled before the next one starts; the pending
 		// snapshot can't be deferred past this point. It can't reuse `before`
@@ -349,7 +359,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 	 * click on `<label>Urgent</label>` looks like. */
 	function pointerFrameFor(el: Element): string | undefined {
 		const from = pendingPointer?.el
-		if (!from) return undefined
+		if (!from || Date.now() - (pendingPointer?.at ?? 0) > STALE_PREFRAME_MS) return undefined
 		if (from === el || from.contains(el)) return pendingPointer?.html
 		const labels = (el as HTMLInputElement).labels
 		if (labels && Array.from(labels).some((l) => l === from || l.contains(from)))
@@ -357,18 +367,23 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		return undefined
 	}
 
-	/** The pre-key snapshot, when the key landed on this element — or on another
-	 * radio of the same group, since arrows move the selection between them and
-	 * `change` then fires on a different element than `keydown` did. */
+	/** One interaction target: the same element, or another radio of the same
+	 * group — arrows move the selection between them, so `keydown`, `change` and
+	 * the step already recorded can each land on a different member. */
+	function sameTarget(a: Element | undefined, b: Element | undefined): boolean {
+		if (!a || !b) return false
+		if (a === b) return true
+		const x = a as HTMLInputElement
+		const y = b as HTMLInputElement
+		return (
+			x.type === 'radio' && y.type === 'radio' && !!x.name && x.name === y.name && x.form === y.form
+		)
+	}
+
+	/** The pre-key snapshot, when the key landed on this interaction target. */
 	function keyFrameFor(el: Element): string | undefined {
-		const from = pendingKey?.el
-		if (!from) return undefined
-		if (from === el) return pendingKey?.html
-		const a = el as HTMLInputElement
-		const b = from as HTMLInputElement
-		const sameGroup =
-			a.type === 'radio' && b.type === 'radio' && !!a.name && a.name === b.name && a.form === b.form
-		return sameGroup ? pendingKey?.html : undefined
+		if (!pendingKey || Date.now() - pendingKey.at > STALE_PREFRAME_MS) return undefined
+		return sameTarget(pendingKey.el, el) ? pendingKey.html : undefined
 	}
 
 	function commitFill() {
@@ -395,7 +410,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		on('pointerdown', (e: PointerEvent) => {
 			const el = isElementNode(e.target) ? e.target : undefined
 			if (!el) return
-			pendingPointer = { el, html: capture(el) }
+			pendingPointer = { el, html: capture(el), at: Date.now() }
 		})
 
 		on('click', (e: MouseEvent) => {
@@ -405,9 +420,11 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			// a label forwards to its control. Only the second may keep the pointer
 			// frame: for a keyboard activation the pending pointerdown belongs to an
 			// earlier interaction — on this element or on an ancestor of it.
-			const from = pendingPointer?.el
-			if (e.detail === 0 && from) {
-				const forwarded = (from.closest('label') as HTMLLabelElement | null)?.control === el
+			const pointer = pendingPointer
+			if (e.detail === 0 && pointer) {
+				const forwarded =
+					(pointer.el.closest('label') as HTMLLabelElement | null)?.control === el &&
+					Date.now() - pointer.at < FORWARDED_CLICK_MS
 				if (!forwarded) pendingPointer = undefined
 			}
 			// Before any early return: a fill still inside its debounce belongs before
@@ -467,18 +484,19 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			// A sweep keeps its opening frame: every repeat updates one step, whose
 			// Interaction is the state before the gesture started. A discrete control
 			// consumes it, so its next activation snapshots afresh.
-			if (!isContinuousControl(el)) pendingKey = undefined
+			const keyDriven = keyFrameFor(el) !== undefined
+			if (!isContinuousControl(el) && !keyDriven) pendingKey = undefined
 			if (isTag(el, 'SELECT')) {
 				const options = Array.from((el as HTMLSelectElement).selectedOptions)
 				const selected = options.map((o) => o.label || o.value).join(', ')
 				// The <select> itself can be recordable while the option picked is not;
 				// `pushStep` only looks at the event target, so mask it here.
 				const secret = options.some((o) => isRedacted(o))
-				pushStep('select', el, before, secret ? maskValue(selected) : selected)
+				pushStep('select', el, before, secret ? maskValue(selected) : selected, keyDriven)
 			} else if (isTag(el, 'INPUT')) {
 				const input = el as HTMLInputElement
 				if (['checkbox', 'radio'].includes(input.type)) {
-					pushStep('toggle', el, before, input.checked ? 'checked' : 'unchecked')
+					pushStep('toggle', el, before, input.checked ? 'checked' : 'unchecked', keyDriven)
 				} else if (input.type === 'file') {
 					pushStep(
 						'fill',
@@ -490,7 +508,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 					)
 				} else {
 					// Range, date, color…: a value the user picked rather than typed.
-					pushStep('fill', el, before, currentValue(el))
+					pushStep('fill', el, before, currentValue(el), keyDriven)
 				}
 			}
 		})
@@ -523,7 +541,11 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			// cost the app a full document clone at the key-repeat rate — but only
 			// while the gesture is live, or a later press would rewind to it.
 			const now = Date.now()
-			const live = !!pendingKey && pendingKey.el === el && now - pendingKey.at < CONTROL_COALESCE_MS
+			const live =
+				!!el &&
+				!!pendingKey &&
+				keyFrameFor(el) !== undefined &&
+				now - pendingKey.at < CONTROL_COALESCE_MS
 			if (el && isControl(el) && mutatingKey(e) && !live)
 				pendingKey = { el, html: capture(el), at: now }
 			if (e.key !== 'Enter' && e.key !== 'Escape') return
