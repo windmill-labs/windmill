@@ -640,6 +640,13 @@
 	// formats are produced by this repo's worker (see duckdb_executor.rs); the
 	// derivation is inert (undefined) for every other DisplayResult use.
 	let dataTests = $derived.by(() => {
+		// `DataTestsResult` renders an item per entry, and the message-derived branch
+		// below builds them from *lines of text*, so no bound on the result's structure
+		// can see them. A run with this many tests is unreadable anyway, and the cap has
+		// to live where the parse happens rather than be predicted from the payload.
+		const MAX_RENDERED = 1000
+		const capped = <T,>(tests: T[]): T[] =>
+			tests.length > MAX_RENDERED ? tests.slice(0, MAX_RENDERED) : tests
 		// Both structured shapes carry `[{ test, violating, sample? }]`; the
 		// sample (bounded violating-row rows) may arrive as a JSON string (the
 		// worker keeps it string-typed through the summary row) and is optional
@@ -680,17 +687,18 @@
 		// Success: structured column on the summary row.
 		const row = Array.isArray(result) ? (result as any)?.[0] : (result as any)
 		const fromRow = normalize(row?.data_tests)
-		if (fromRow) return fromRow
+		if (fromRow) return capped(fromRow)
 		// Failure: the worker attaches the same structured breakdown (plus
 		// per-failed-test samples) to the error payload.
 		const fromError = normalize((result as any)?.error?.data_tests)
-		if (fromError) return fromError
+		if (fromError) return capped(fromError)
 		// Failure fallback for results predating the structured error payload:
 		// parse the worker's breakdown out of the error message.
 		const msg = (result as any)?.error?.message
 		if (typeof msg === 'string' && msg.includes('data tests failed on')) {
 			const out: Array<{ test: string; violating: number }> = []
 			for (const line of msg.split('\n')) {
+				if (out.length >= MAX_RENDERED) break
 				const fail = line.match(/^\s*✗\s*(.+?)\s*—\s*(\d+)\s+violating/)
 				const pass = line.match(/^\s*✓\s*(.+?)\s*$/)
 				if (fail) out.push({ test: fail[1], violating: parseInt(fail[2], 10) })

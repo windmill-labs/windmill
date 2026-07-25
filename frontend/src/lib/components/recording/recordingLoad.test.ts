@@ -238,6 +238,16 @@ describe('parseRecording', () => {
 			}
 		})
 
+		// Fan-out is cumulative across the value, not per array: nesting sidesteps a
+		// per-array cap while mounting a component per leaf.
+		const side = 40
+		expect(side * side).toBeGreaterThan(MAX_COMPONENT_FANOUT)
+		expect(
+			rejected(
+				flowJob({ render_all: Array.from({ length: side }, () => ({ render_all: wide(side) })) })
+			)
+		).toBe(true)
+
 		// Component fan-out: well inside the node budget, but one nested DisplayResult
 		// per entry is orders of magnitude more expensive than a node.
 		const fanout = MAX_COMPONENT_FANOUT + 1
@@ -315,7 +325,7 @@ describe('parseRecording', () => {
 				}
 			}
 		})
-		expect(fat.ok ? '' : fat.error).toMatch(/a recorded job carries a `render_all`/)
+		expect(fat.ok ? '' : fat.error).toMatch(/a recorded job carries more than \d+ `render_all`/)
 	})
 
 	it('bounds an asset sample on its rendered cells, not just per axis', () => {

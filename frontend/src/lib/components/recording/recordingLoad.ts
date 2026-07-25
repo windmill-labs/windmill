@@ -178,7 +178,7 @@ function fanoutLength(v: unknown): number {
  */
 function describeValueOverflow(
 	v: unknown,
-	budget = { nodes: MAX_VALUE_NODES, chars: MAX_VALUE_STRING_CHARS },
+	budget = { nodes: MAX_VALUE_NODES, chars: MAX_VALUE_STRING_CHARS, fanout: MAX_COMPONENT_FANOUT },
 	depth = 0
 ): string | undefined {
 	if (depth > MAX_VALUE_DEPTH) return `nested more than ${MAX_VALUE_DEPTH} levels deep`
@@ -200,8 +200,13 @@ function describeValueOverflow(
 		budget.nodes -= keys.length
 		if (budget.nodes < 0) return `more than ${MAX_VALUE_NODES} values to render`
 		for (const k of keys) {
-			if (COMPONENT_FANOUT_KEYS.includes(k) && fanoutLength(v[k]) > MAX_COMPONENT_FANOUT) {
-				return `a \`${k}\` of more than ${MAX_COMPONENT_FANOUT} entries`
+			// Cumulative across the value, not per array: `render_all` nests, so 300
+			// arrays of 300 are 90k components with no single array over the cap.
+			if (COMPONENT_FANOUT_KEYS.includes(k)) {
+				budget.fanout -= fanoutLength(v[k])
+				if (budget.fanout < 0) {
+					return `more than ${MAX_COMPONENT_FANOUT} \`${k}\`-style entries, each of which mounts its own component`
+				}
 			}
 			const over = describeValueOverflow(v[k], budget, depth + 1)
 			if (over) return over
