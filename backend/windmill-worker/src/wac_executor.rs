@@ -143,14 +143,31 @@ pub async fn prepare_checkpoint_for_resume(
                 .and_then(|p| p.keys.first().cloned())
                 .unwrap_or_default();
 
-            let resume_row = sqlx::query_as::<_, (sqlx::types::Json<Box<serde_json::value::RawValue>>, Option<String>, bool)>(
-                "SELECT value, approver, approved FROM resume_job WHERE job = $1 ORDER BY created_at ASC LIMIT 1",
+            // Exclude rows already consumed by earlier approvals so each step
+            // reads its own (rows are never deleted). resume_id can't key this:
+            // it's only hash(step_key) for the inline URL, while the approval
+            // page, in-run button, Slack, Teams and resume-as-owner store a
+            // random id. A timed-out step matches no row -> else branch below.
+            let consumed = checkpoint.consumed_resume_row_ids.clone();
+            let resume_row = sqlx::query_as::<
+                _,
+                (
+                    Uuid,
+                    sqlx::types::Json<Box<serde_json::value::RawValue>>,
+                    Option<String>,
+                    bool,
+                ),
+            >(
+                "SELECT id, value, approver, approved FROM resume_job \
+                 WHERE job = $1 AND id <> ALL($2) ORDER BY created_at ASC LIMIT 1",
             )
             .bind(job_id)
+            .bind(&consumed)
             .fetch_optional(db)
             .await?;
 
-            let approval_result = if let Some((value, approver, approved)) = resume_row {
+            let approval_result = if let Some((row_id, value, approver, approved)) = resume_row {
+                checkpoint.consumed_resume_row_ids.push(row_id);
                 serde_json::json!({
                     "value": serde_json::from_str::<Value>(value.get()).unwrap_or(Value::Null),
                     "approver": approver.unwrap_or_else(|| "anonymous".to_string()),

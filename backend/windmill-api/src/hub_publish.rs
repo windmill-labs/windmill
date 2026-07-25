@@ -2,7 +2,7 @@ use crate::auth::Tokened;
 use crate::db::ApiAuthed;
 use crate::HTTP_CLIENT;
 use axum::{
-    extract::{FromRequestParts, Json, Path, Query, RawPathParams},
+    extract::{DefaultBodyLimit, FromRequestParts, Json, Path, Query, RawPathParams},
     http::{request::Parts, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -31,6 +31,10 @@ pub fn workspaced_service() -> Router {
         .route(
             "/projects/{slug}/pipeline_recording",
             post(publish_pipeline_recording),
+        )
+        .route(
+            "/projects/{slug}/logo",
+            post(publish_project_logo).layer(DefaultBodyLimit::max(LOGO_BODY_LIMIT)),
         )
         .route("/resource_types", post(publish_resource_type))
         .route("/resources", post(publish_resources))
@@ -357,6 +361,81 @@ async fn publish_pipeline_recording(
 ) -> Result<impl IntoResponse, Error> {
     ctx.post(&format!("/projects/{}/pipeline_recording", slug), &body)
         .await
+}
+
+#[derive(Deserialize, Serialize)]
+struct ProjectLogoInner {
+    b64: String,
+    mime: String,
+}
+
+// Custom project logo (png/svg, base64). Double-Option so a missing `logo`
+// key is distinguishable from an explicit `logo: null` (which clears the
+// logo on the Hub) — otherwise POSTing `{}` would silently delete it.
+#[derive(Deserialize, Serialize)]
+struct ProjectLogoBody {
+    #[serde(default, deserialize_with = "deserialize_explicit")]
+    logo: Option<Option<ProjectLogoInner>>,
+}
+
+fn deserialize_explicit<'de, D: Deserializer<'de>>(
+    d: D,
+) -> Result<Option<Option<ProjectLogoInner>>, D::Error> {
+    Option::<ProjectLogoInner>::deserialize(d).map(Some)
+}
+
+// Mirrors the Hub's own limits so an oversized/invalid payload is rejected
+// here instead of being deserialized, copied and forwarded first. The route
+// also carries a DefaultBodyLimit sized for a max logo in base64 + JSON
+// envelope, overriding the much larger global request limit.
+const MAX_LOGO_BYTES: usize = 512 * 1024;
+const LOGO_BODY_LIMIT: usize = MAX_LOGO_BYTES / 3 * 4 + 16 * 1024;
+const ALLOWED_LOGO_MIMES: [&str; 2] = ["image/png", "image/svg+xml"];
+
+fn validate_logo(inner: &ProjectLogoInner) -> Result<(), Error> {
+    if !ALLOWED_LOGO_MIMES.contains(&inner.mime.as_str()) {
+        return Err(Error::BadRequest(
+            "logo mime must be image/png or image/svg+xml".to_string(),
+        ));
+    }
+    let b = inner.b64.as_bytes();
+    let padding = b.iter().rev().take_while(|&&c| c == b'=').count();
+    let valid = !b.is_empty()
+        && b.len() % 4 == 0
+        && padding <= 2
+        && b[..b.len() - padding]
+            .iter()
+            .all(|&c| c.is_ascii_alphanumeric() || c == b'+' || c == b'/');
+    if !valid {
+        return Err(Error::BadRequest("invalid base64".to_string()));
+    }
+    if b.len() / 4 * 3 - padding > MAX_LOGO_BYTES {
+        return Err(Error::BadRequest(format!(
+            "logo too large (max {}KB)",
+            MAX_LOGO_BYTES / 1024
+        )));
+    }
+    Ok(())
+}
+
+async fn publish_project_logo(
+    ctx: HubPublishCtx,
+    Path((_workspace, slug)): Path<(String, ProjectSlug)>,
+    Json(body): Json<ProjectLogoBody>,
+) -> Result<impl IntoResponse, Error> {
+    let Some(logo) = body.logo else {
+        return Err(Error::BadRequest(
+            "logo field is required: an object to set it, or null to clear it".to_string(),
+        ));
+    };
+    if let Some(inner) = &logo {
+        validate_logo(inner)?;
+    }
+    ctx.post(
+        &format!("/projects/{}/logo", slug),
+        &serde_json::json!({ "logo": logo }),
+    )
+    .await
 }
 
 #[derive(Deserialize, Serialize)]

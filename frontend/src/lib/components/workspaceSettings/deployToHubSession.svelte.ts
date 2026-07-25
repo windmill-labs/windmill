@@ -234,6 +234,14 @@ export class DeployToHubSession {
 	hubName = $state('')
 	hubSummary = $state('')
 	hubReadme = $state('')
+	// Custom logo state for the next publish (png/svg, base64 without the
+	// data: prefix). Three-state: undefined = untouched (publishing leaves the
+	// Hub's current logo alone), null = clear the Hub's logo on publish,
+	// object = upload this image.
+	hubLogo = $state<{ b64: string; mime: string; name: string } | null | undefined>(undefined)
+	// Whether the Hub currently has a custom logo for this project (from
+	// rehydration) — drives the "Remove current logo" affordance.
+	hubHasRemoteLogo = $state(false)
 	effectiveSlug = $state('')
 	hubItemIds = $state<Record<string, number>>({})
 
@@ -586,6 +594,7 @@ export class DeployToHubSession {
 			this.hubName = p.name ?? ''
 			this.hubSummary = p.summary ?? ''
 			this.hubReadme = p.readme ?? ''
+			this.hubHasRemoteLogo = p.has_logo === true
 			this.phase =
 				p.status === 'live' ? 'live' : p.status === 'under_review' ? 'under_review' : 'draft'
 			const ids: Record<string, number> = {}
@@ -1240,6 +1249,22 @@ export class DeployToHubSession {
 			} catch (e: any) {
 				sendUserToast(`Data table migration sync failed: ${e?.message ?? e}`, true)
 				failures++
+			}
+
+			// Push the logo only when touched this session: an object uploads it,
+			// null clears the Hub's current logo, undefined leaves it alone
+			// (re-publishing a bundle must not clear it).
+			if (this.hubLogo !== undefined) {
+				try {
+					await this.#postHub(`/hub/projects/${encodeURIComponent(slug)}/logo`, {
+						logo: this.hubLogo ? { b64: this.hubLogo.b64, mime: this.hubLogo.mime } : null
+					})
+					this.hubHasRemoteLogo = this.hubLogo !== null
+					this.hubLogo = undefined
+				} catch (e: any) {
+					sendUserToast(`Logo ${this.hubLogo ? 'upload' : 'removal'} failed: ${e?.message ?? e}`, true)
+					failures++
+				}
 			}
 
 			await sleep(150)
