@@ -1,8 +1,5 @@
--- Fixture for the operator write-guard regression test (WIN-2245).
--- Layered on top of `base` (which provides test-workspace and the non-operator
--- `test-user-2`/SECRET_TOKEN_2). Adds an Operator member so we can assert that
--- Operators cannot reach the group / folder / variable / resource / schedule
--- write handlers.
+-- Adds an Operator member on top of `base` (which provides test-workspace and
+-- the non-operator `test-user-2`/SECRET_TOKEN_2).
 
 INSERT INTO password(email, password_hash, login_type, super_admin, verified, name)
     VALUES ('operator@windmill.dev', 'not-a-real-hash', 'password', false, true, 'Operator User');

@@ -1,16 +1,8 @@
-//! Operators are a read-only + execute-only role, but only the script / flow /
-//! app handlers used to enforce that on writes. RLS does not carry
-//! `is_operator` (only `is_admin` reaches `set_session_context`) and
-//! `check_scopes` is a no-op for a normal session, so an Operator could create
-//! and modify groups, folders, variables, resources, resource types and
-//! schedules through direct API calls — including overwriting shared `g/all/*`
-//! credentials.
-//!
-//! This pins the guard on every such write route: an Operator is rejected with
-//! 401 "Operators cannot ...", a regular member is not caught by it, and the
-//! token a job runs with is exempt. The trigger routes share the same guard in
-//! `windmill_trigger::handler` but are feature-gated per trigger kind, so they
-//! are not exercised here.
+//! Pins `OptJobAuthed::reject_operator_write` on every workspace-object write
+//! route it guards: an Operator is rejected with 401 "Operators cannot ...", a
+//! regular member is not caught by it, and the token a job runs with is exempt.
+//! The trigger routes share the same guard but are feature-gated per trigger
+//! kind, so they are not exercised here.
 
 use serde_json::json;
 use sqlx::{Pool, Postgres};
@@ -116,6 +108,16 @@ fn write_routes() -> Vec<(&'static str, String, serde_json::Value)> {
             "POST",
             "schedules/setenabled/u/test-user/s".into(),
             json!({"enabled": false}),
+        ),
+        (
+            "POST",
+            "acls/add/folder/f1".into(),
+            json!({"owner": "u/operator-user", "write": true}),
+        ),
+        (
+            "POST",
+            "acls/remove/folder/f1".into(),
+            json!({"owner": "u/test-user"}),
         ),
     ]
 }

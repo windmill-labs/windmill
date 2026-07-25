@@ -20,7 +20,7 @@ use windmill_common::{
 };
 use windmill_git_sync::DeployedObject;
 
-use windmill_api_auth::{check_scopes, ApiAuthed};
+use windmill_api_auth::{check_scopes, ApiAuthed, OptJobAuthed};
 use windmill_trigger::{Trigger, TriggerCrud, TriggerData};
 
 use super::{
@@ -461,12 +461,14 @@ pub async fn list_slot_name(
 }
 
 pub async fn create_slot(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, postgres_resource_path)): Path<(String, String)>,
     Json(Slot { name }): Json<Slot>,
 ) -> Result<String> {
+    job_authed.reject_operator_write("manage replication slots or publications")?;
+    let authed = job_authed.authed;
     check_scopes(&authed, || {
         format!("postgres_triggers:write:{}", postgres_resource_path)
     })?;
@@ -520,12 +522,14 @@ pub async fn drop_logical_replication_slot(pg_connection: &Client, slot_name: &s
 }
 
 pub async fn drop_slot_name(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, postgres_resource_path)): Path<(String, String)>,
     Json(Slot { name }): Json<Slot>,
 ) -> Result<String> {
+    job_authed.reject_operator_write("manage replication slots or publications")?;
+    let authed = job_authed.authed;
     check_scopes(&authed, || {
         format!("postgres_triggers:write:{}", postgres_resource_path)
     })?;
@@ -623,12 +627,14 @@ pub async fn get_publication_info(
 }
 
 pub async fn create_publication(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, publication_name, postgres_resource_path)): Path<(String, String, String)>,
     Json(publication_data): Json<PublicationData>,
 ) -> Result<String> {
+    job_authed.reject_operator_write("manage replication slots or publications")?;
+    let authed = job_authed.authed;
     check_scopes(&authed, || {
         format!("postgres_triggers:write:{}", postgres_resource_path)
     })?;
@@ -664,11 +670,13 @@ pub async fn create_publication(
 }
 
 pub async fn delete_publication(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, publication_name, postgres_resource_path)): Path<(String, String, String)>,
 ) -> Result<String> {
+    job_authed.reject_operator_write("manage replication slots or publications")?;
+    let authed = job_authed.authed;
     check_scopes(&authed, || {
         format!("postgres_triggers:write:{}", postgres_resource_path)
     })?;
@@ -800,12 +808,14 @@ pub async fn update_pg_publication(
 }
 
 pub async fn alter_publication(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, publication_name, postgres_resource_path)): Path<(String, String, String)>,
     Json(publication_data): Json<PublicationData>,
 ) -> Result<String> {
+    job_authed.reject_operator_write("manage replication slots or publications")?;
+    let authed = job_authed.authed;
     check_scopes(&authed, || {
         format!("postgres_triggers:write:{}", postgres_resource_path)
     })?;

@@ -18,7 +18,7 @@ use windmill_common::scripts::ScriptHash;
 use windmill_common::DB;
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
-use windmill_api_auth::ApiAuthed;
+use windmill_api_auth::{ApiAuthed, OptJobAuthed};
 
 use serde::{Deserialize, Serialize};
 use windmill_common::{
@@ -90,12 +90,14 @@ pub struct GranularAcl {
 }
 
 async fn add_granular_acl(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(GranularAcl { owner, write }): Json<GranularAcl>,
 ) -> Result<String> {
+    job_authed.reject_operator_write("grant permissions")?;
+    let authed = job_authed.authed;
     crate::check_demo_workspace_restriction(&authed, &w_id, "Sharing")?;
     let path = path.to_path();
 
@@ -325,12 +327,14 @@ async fn add_granular_acl(
 }
 
 async fn remove_granular_acl(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(GranularAcl { owner, .. }): Json<GranularAcl>,
 ) -> Result<String> {
+    job_authed.reject_operator_write("revoke permissions")?;
+    let authed = job_authed.authed;
     let path = path.to_path();
 
     let (kind, path) = path

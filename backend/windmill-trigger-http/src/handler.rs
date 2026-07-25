@@ -7,7 +7,7 @@ use axum::{extract::Path, routing::post, Extension, Json, Router};
 use http::StatusCode;
 use sqlx::PgConnection;
 use std::collections::HashSet;
-use windmill_api_auth::{check_scopes, ApiAuthed};
+use windmill_api_auth::{check_scopes, ApiAuthed, OptJobAuthed};
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::global_settings::HTTP_ROUTE_WORKSPACED_ROUTE;
 use windmill_common::{
@@ -240,12 +240,14 @@ pub async fn insert_new_trigger_into_db(
 }
 
 pub async fn create_many_http_triggers(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(new_http_triggers): Json<Vec<TriggerData<HttpConfigRequest>>>,
 ) -> Result<(StatusCode, String)> {
+    job_authed.reject_operator_write("create triggers")?;
+    let authed = job_authed.authed;
     // Admin check for instance-wide routes is done per-trigger in insert_new_trigger_into_db
 
     let handler = HttpTrigger;

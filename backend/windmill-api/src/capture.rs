@@ -64,7 +64,7 @@ use crate::triggers::postgres::{
 
 use crate::{
     args::RawWebhookArgs,
-    db::{ApiAuthed, DB},
+    db::{ApiAuthed, OptJobAuthed, DB},
     users::fetch_api_authed,
 };
 
@@ -531,12 +531,14 @@ async fn set_azure_trigger_config(
 }
 
 async fn set_config(
-    authed: ApiAuthed,
+    job_authed: OptJobAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(nc): Json<NewCaptureConfig>,
 ) -> JsonResult<Option<TriggerConfig>> {
+    job_authed.reject_operator_write("configure trigger captures")?;
+    let authed = job_authed.authed;
     let nc = match nc.trigger_kind {
         TriggerKind::Postgres => {
             set_postgres_trigger_config(&w_id, authed.clone(), &db, user_db.clone(), nc).await?
