@@ -5,6 +5,7 @@ import {
 	MAX_FLOW_MODULES,
 	MAX_RECORDED_JOBS,
 	MAX_SAMPLE_CELLS,
+	MAX_SERIALIZED_FANOUT_CHARS,
 	MAX_TIMELINE_FRAMES,
 	MAX_SAMPLE_COLUMNS,
 	MAX_VALUE_DEPTH,
@@ -12,7 +13,7 @@ import {
 	MAX_RECORDING_NODES,
 	MAX_VALUE_STRING_CHARS,
 	parseRecording
-} from './recordingLoad'
+} from './rawAppRecordingLoad'
 
 const job = (events = 1) => ({
 	initial_job: { id: 'j' },
@@ -264,6 +265,18 @@ describe('parseRecording', () => {
 
 		// Text: a long string is one node, so only the character budget sees it.
 		expect(rejected(flowJob({ big: 'x'.repeat(MAX_VALUE_STRING_CHARS + 1) }))).toBe(true)
+		// An object *key* is rendered text too (JobArgs prints it), and charging only
+		// values would let a huge key through.
+		expect(rejected(flowJob({ ['k'.repeat(MAX_VALUE_STRING_CHARS + 1)]: 1 }))).toBe(true)
+		// A serialized fan-out larger than validation is willing to decode is refused
+		// rather than measured — decoding it to size it would be the DoS.
+		expect(
+			rejected(
+				flowJob({
+					data_tests: JSON.stringify([{ test: 't', violating: 1, pad: 'x'.repeat(MAX_SERIALIZED_FANOUT_CHARS) }])
+				})
+			)
+		).toBe(true)
 	})
 
 	it('budgets the whole flow object, not just its value', () => {

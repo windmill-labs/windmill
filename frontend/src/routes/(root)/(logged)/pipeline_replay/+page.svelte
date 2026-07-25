@@ -4,7 +4,7 @@
 		fetchRecording,
 		parseRecording,
 		type LoadedRecording
-	} from '$lib/components/recording/recordingLoad'
+	} from '$lib/components/recording/rawAppRecordingLoad'
 	import { sendUserToast } from '$lib/toast'
 	import FileInput from '$lib/components/common/fileInput/FileInput.svelte'
 	import { Loader2 } from 'lucide-svelte'

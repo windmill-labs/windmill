@@ -9,7 +9,7 @@
 	import PipelineRecordingReplay from './PipelineRecordingReplay.svelte'
 	import RawAppRecordingReplay from './RawAppRecordingReplay.svelte'
 	import { setActiveReplay } from './flowRecording.svelte'
-	import type { LoadedRecording } from './recordingLoad'
+	import type { LoadedRecording } from './rawAppRecordingLoad'
 	import { Button } from '$lib/components/common'
 	import { TriangleAlert, Upload } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'

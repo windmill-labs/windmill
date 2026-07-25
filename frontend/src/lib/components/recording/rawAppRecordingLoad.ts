@@ -3,6 +3,10 @@
  * `?src=` URL. Both replay pages go through this: a recording is caller-supplied
  * data that a player indexes into and renders per step, so its shape, its
  * cardinality and its sizes all have to hold before anything mounts.
+ *
+ * Covers every kind of recording, not only raw-app ones: the file name is fixed by
+ * `package.json`'s `./components/recording/rawAppRecordingLoad` export, which the hub
+ * imports, so renaming it means changing the hub in the same breath.
  */
 import type {
 	FlowRecording,
@@ -74,6 +78,11 @@ export const MAX_VALUE_DEPTH = 256
  * and a string is one node no matter what it decodes to.
  */
 export const MAX_COMPONENT_FANOUT = 1000
+/** How much serialized text a fan-out collection may be before validation stops
+ * measuring it and just refuses. A real checklist is a few KB; anything near the text
+ * budget would cost hundreds of MB to decode, and decoding it to find out how big it
+ * is would be the denial of service. */
+export const MAX_SERIALIZED_FANOUT_CHARS = 256 * 1024
 /** `PipelineRecordingReplay.startReplay` schedules every frame in one pass, so this
  * counts timers created at once — frames at `t: 0` all land in the same tick, and
  * each reassigns the whole per-node status map and rebuilds the derived id/state maps
@@ -165,10 +174,15 @@ export function isAppRecording(data: unknown): data is RawAppRecording {
 const COMPONENT_FANOUT_KEYS = ['render_all', 'data_tests']
 
 /** Entry count of a fan-out collection, decoding the serialized form the renderers
- * accept — a JSON string is one node however many components it expands into. */
+ * accept — a JSON string is one node however many components it expands into.
+ *
+ * Only decodes what is small enough to be a legitimate checklist: parsing megabytes
+ * here would commit the same allocation this is meant to prevent, so anything larger
+ * is reported as over-budget rather than measured. */
 function fanoutLength(v: unknown): number {
 	if (Array.isArray(v)) return v.length
-	if (typeof v === 'string' && v.length <= MAX_VALUE_STRING_CHARS) {
+	if (typeof v === 'string') {
+		if (v.length > MAX_SERIALIZED_FANOUT_CHARS) return Infinity
 		try {
 			const decoded = JSON.parse(v)
 			return Array.isArray(decoded) ? decoded.length : 0
@@ -219,6 +233,10 @@ function describeValueOverflow(
 		budget.nodes -= keys.length
 		if (budget.nodes < 0) return `more than ${MAX_VALUE_NODES} values to render`
 		for (const k of keys) {
+			// A key is rendered text as much as a value is — `JobArgs` prints it — so it
+			// is charged against the same budget.
+			budget.chars -= k.length
+			if (budget.chars < 0) return `more than ${MAX_VALUE_STRING_CHARS} characters of text`
 			// Cumulative across the value, not per array: `render_all` nests, so 300
 			// arrays of 300 are 90k components with no single array over the cap.
 			if (COMPONENT_FANOUT_KEYS.includes(k)) {

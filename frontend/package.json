@@ -319,9 +319,9 @@
 			"types": "./package/components/recording/types.d.ts",
 			"default": "./package/components/recording/types.js"
 		},
-		"./components/recording/recordingLoad": {
-			"types": "./package/components/recording/recordingLoad.d.ts",
-			"default": "./package/components/recording/recordingLoad.js"
+		"./components/recording/rawAppRecordingLoad": {
+			"types": "./package/components/recording/rawAppRecordingLoad.d.ts",
+			"default": "./package/components/recording/rawAppRecordingLoad.js"
 		},
 		"./components/recording/rawAppSnapshot": {
 			"types": "./package/components/recording/rawAppSnapshot.d.ts",

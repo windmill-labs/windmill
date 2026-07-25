@@ -12,8 +12,8 @@
 		fetchRecording,
 		MAX_RECORDING_BYTES,
 		parseRecording
-	} from '$lib/components/recording/recordingLoad'
-	import type { LoadedRecording } from '$lib/components/recording/recordingLoad'
+	} from '$lib/components/recording/rawAppRecordingLoad'
+	import type { LoadedRecording } from '$lib/components/recording/rawAppRecordingLoad'
 	import { Loader2, TriangleAlert, Upload } from 'lucide-svelte'
 	import { onDestroy, onMount } from 'svelte'
 
@@ -50,7 +50,10 @@
 	}
 
 	async function onFile(e: Event) {
-		const file = (e.target as HTMLInputElement).files?.[0]
+		const input = e.target as HTMLInputElement
+		const file = input.files?.[0]
+		// Cleared so picking the same file again after an error still fires `change`.
+		input.value = ''
 		if (!file) return
 		// Same cap the `?src=` fetch enforces: reading a multi-hundred-MB file into a
 		// string is enough to take the tab down before validation gets a say.
