@@ -353,8 +353,10 @@ export function serializeDocument(doc: Document, opts: SnapshotOptions = {}): st
 	// so redaction cannot see into it, yet it would render on a script-less replay.
 	clone.querySelectorAll('template, noscript').forEach((n) => n.remove())
 	clone.querySelectorAll('script').forEach((n) => n.remove())
-	redactMarkedSubtrees(doc, clone)
+	// Before any node is removed: this pairs live and cloned selects by index, so
+	// it only holds while the clone is still a structural copy of the document.
 	maskSelectsWithRedactedChoice(doc, clone)
+	redactMarkedSubtrees(doc, clone)
 	clone.querySelectorAll('meta[http-equiv="refresh" i]').forEach((n) => n.remove())
 	clone.querySelectorAll('*').forEach((el) => {
 		for (const attr of Array.from(el.attributes)) {

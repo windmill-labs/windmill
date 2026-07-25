@@ -134,8 +134,10 @@
 						isIndex(s.before) &&
 						isIndex(s.after)
 				)
-			// Rendered in the player's header like the step labels are.
-			const validHeader = isShortText(data.app_path) && isShortText(data.workspace)
+			// Rendered in the player's header like the step labels are. `recorded_at`
+			// is parsed as a date there, so it has to be a string of sane length.
+			const validHeader =
+				isShortText(data.app_path) && isShortText(data.workspace) && isShortText(data.recorded_at, true)
 			if (!validFrames || !validSteps || !validViewport || !validHeader || !validDuration) {
 				sendUserToast('Invalid app recording format', true)
 				return false

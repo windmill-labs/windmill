@@ -153,10 +153,14 @@ describe('serializeDocument redaction', () => {
 	})
 
 	it('shows that a redacted option was chosen without saying which', () => {
+		// The second select sits inside a marked container, whose subtree redaction
+		// removes it from the clone: the masking must already have run by then, or
+		// pairing by index would silently skip every select in the document.
 		const doc = docFrom(
-			`<select><option>Public</option><option data-wm-no-record>Confidential case 92000</option></select>`
+			`<div data-wm-no-record><select><option>hidden</option></select></div>` +
+				`<select><option>Public</option><option data-wm-no-record>Confidential case 92000</option></select>`
 		)
-		const select = doc.querySelector('select') as HTMLSelectElement
+		const select = doc.querySelectorAll('select')[1] as HTMLSelectElement
 		select.selectedIndex = 1
 
 		const html = serializeDocument(doc)
