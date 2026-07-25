@@ -424,17 +424,25 @@ async fn fetch_and_extract(
 /// with no job to attribute progress to, so they are not routed through
 /// `handle_child`; failures surface with the tool's own stderr.
 async fn run_tool(cmd: &mut Command, name: &str) -> error::Result<()> {
-    // Bounded: these fetch from PyPI, GitHub or dbt Labs, and an unreachable
-    // endpoint would otherwise hold the worker slot indefinitely.
+    // Bounded, and the child is KILLED when the bound expires: these fetch from
+    // PyPI, GitHub or dbt Labs, and dropping an `output()` future does not stop
+    // the process — a timed-out installer would keep writing into shared
+    // staging after the job returned.
+    let mut child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|e| Error::internal_err(format!("{name} could not be started: {e}")))?;
     let out = tokio::time::timeout(
         std::time::Duration::from_secs(PROVISION_TIMEOUT_SECS),
-        cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).output(),
+        child.wait_with_output(),
     )
     .await
     .map_err(|_| {
         Error::ExecutionErr(format!("{name} did not finish within {PROVISION_TIMEOUT_SECS}s"))
     })?
-    .map_err(|e| Error::internal_err(format!("{name} could not be started: {e}")))?;
+    .map_err(|e| Error::internal_err(format!("{name} failed: {e}")))?;
     if !out.status.success() {
         return Err(Error::internal_err(format!(
             "{name} failed: {}",

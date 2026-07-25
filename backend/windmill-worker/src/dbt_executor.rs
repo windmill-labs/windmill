@@ -44,6 +44,9 @@ use crate::{GIT_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV};
 /// fallback for the (invalid) case where it declares none.
 const FALLBACK_PROFILE_NAME: &str = "windmill";
 
+/// Fallback bound on `dbt ls` when the job declares no timeout of its own.
+const SELECTION_TIMEOUT_SECS: u64 = 300;
+
 
 
 /// Written to the script's lockfile at deploy. `commit` is empty under
@@ -418,16 +421,13 @@ pub async fn dbt_dep(
         &prepared,
         &descriptor,
         &inv,
-        &mut JobCtx {
+        &JobCtx {
             mem_peak,
             canceled_by,
             occupancy_metrics,
             worker_name,
             timeout: None,
         },
-        job_id,
-        w_id,
-        &conn,
     )
     .await?;
     let manifest = read_manifest(&prepared.project_dir).await?;
@@ -1805,8 +1805,7 @@ async fn ingest_from_run(
     let manifest = read_manifest(&p.project_dir).await?;
     // The run's own arguments: resolving the selection with empty vars could
     // filter this run's manifest by a different node set than it built.
-    let selected = resolve_selection(p, descriptor, inv, ctx, &job.id, &job.workspace_id, conn)
-        .await?;
+    let selected = resolve_selection(p, descriptor, inv, ctx).await?;
     let ingested =
         windmill_common::dbt_manifest::ingest_manifest(
         &manifest,
@@ -1972,10 +1971,7 @@ async fn resolve_selection(
     p: &PreparedProject,
     descriptor: &DbtDescriptor,
     inv: &Invocation,
-    ctx: &mut JobCtx<'_>,
-    job_id: &Uuid,
-    w_id: &str,
-    conn: &Connection,
+    ctx: &JobCtx<'_>,
 ) -> error::Result<Option<std::collections::HashSet<String>>> {
     if descriptor.select.is_empty()
         && descriptor.exclude.is_empty()
@@ -2004,30 +2000,18 @@ async fn resolve_selection(
     if let Some(sel) = descriptor.selector.as_deref() {
         cmd.args(["--selector", sel]);
     }
-    // `handle_child` with `pipe_stdout` — the same cancellation and timeout the
-    // build gets, while still capturing the node list rather than streaming it
-    // to the job log.
-    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let child = start_child_process(cmd, p.engine.bin.to_string_lossy().as_ref(), false).await?;
-    let mut stdout = String::new();
-    handle_child(
-        job_id,
-        conn,
-        ctx.mem_peak,
-        ctx.canceled_by,
-        child,
-        false,
-        ctx.worker_name,
-        w_id,
+    // Captured directly rather than through `handle_child`: its `pipe_stdout`
+    // path runs the output through the job-log writer, which `NO_LOGS_AT_ALL`
+    // discards — the selection would then resolve to the empty set and the
+    // ingest would wipe the script's assets and subscriptions while dbt went on
+    // building the descriptor's models. The child is killed on timeout so this
+    // still cannot hold the slot.
+    let stdout = run_capturing(
+        cmd,
         "dbt ls",
-        ctx.timeout,
-        false,
-        &mut Some(ctx.occupancy_metrics),
-        Some(&mut stdout),
-        None,
+        ctx.timeout.map(|t| t as u64).unwrap_or(SELECTION_TIMEOUT_SECS),
     )
-    .await
-    .map_err(|e| Error::ExecutionErr(format!("dbt ls failed to resolve the selection: {e}")))?;
+    .await?;
     let mut set = std::collections::HashSet::new();
     for line in stdout.lines() {
         let line = line.trim();
@@ -2040,7 +2024,51 @@ async fn resolve_selection(
             }
         }
     }
+    if set.is_empty() {
+        // A selection that matches nothing would be ingested as "this script
+        // owns no relations", wiping its graph and cascade edges — the same
+        // outcome a failed capture produces, and indistinguishable from it.
+        // Refuse rather than silently un-wire the script.
+        return Err(Error::ExecutionErr(
+            "the descriptor's `select`/`exclude` matched no dbt nodes; fix the selection rather \
+             than deploying a script that owns nothing"
+                .to_string(),
+        ));
+    }
     Ok(Some(set))
+}
+
+/// Run a command for its stdout, killing the child if it outlives `timeout_s`.
+/// Dropping a `Command::output()` future does NOT kill the process, so a bare
+/// `tokio::time::timeout` leaves it running against the warehouse and mutating
+/// shared state after the job returns.
+async fn run_capturing(mut cmd: Command, name: &str, timeout_s: u64) -> error::Result<String> {
+    let mut child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|e| Error::internal_err(format!("{name} could not be started: {e}")))?;
+    let out = match tokio::time::timeout(
+        std::time::Duration::from_secs(timeout_s),
+        child.wait_with_output(),
+    )
+    .await
+    {
+        Ok(r) => r.map_err(|e| Error::internal_err(format!("{name} failed: {e}")))?,
+        Err(_) => {
+            return Err(Error::ExecutionErr(format!(
+                "{name} did not finish within {timeout_s}s"
+            )))
+        }
+    };
+    if !out.status.success() {
+        return Err(Error::ExecutionErr(format!(
+            "{name} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        )));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
 /// The job state a preparation command needs to stay cancellable. `dbt deps`

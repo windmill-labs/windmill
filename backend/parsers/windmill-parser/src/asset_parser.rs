@@ -795,7 +795,7 @@ pub fn canonicalize_table_asset_path(path: &str) -> String {
     format!(
         "{}/{}/{}",
         resource,
-        unquote_identifier(schema).to_ascii_lowercase(),
+        unquote_schema_segment(schema).to_ascii_lowercase(),
         unquote_identifier(name).to_ascii_lowercase()
     )
 }
@@ -808,6 +808,30 @@ fn unquote_identifier(s: &str) -> &str {
         }
     }
     s
+}
+
+/// Unquote a schema segment, which carries a `<database>.<schema>` pair when a
+/// relation overrode its database. Each half is separately quotable, so
+/// stripping only the outer pair leaves `"Archive"."Sales"` as
+/// `Archive"."Sales` — a different key from the ingest's `archive.sales`, which
+/// silently splits the model and its native consumer into two nodes.
+fn unquote_schema_segment(s: &str) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut quote: Option<char> = None;
+    for c in s.trim().chars() {
+        match quote {
+            Some(q) if c == q || (q == '[' && c == ']') => quote = None,
+            Some(_) => current.push(c),
+            None if c == '"' || c == '`' || c == '[' => quote = Some(c),
+            // Only an UNQUOTED period separates the database from the schema;
+            // one inside an identifier is part of the name.
+            None if c == '.' => parts.push(std::mem::take(&mut current)),
+            None => current.push(c),
+        }
+    }
+    parts.push(current);
+    parts.join(".")
 }
 
 // Tokenize a `key=value [key="quoted value"] ...` option string. Bare
@@ -1698,6 +1722,39 @@ mod pipeline_annotation_tests {
                 "spelling {spelling} did not canonicalize"
             );
         }
+    }
+
+    // A relation that overrode its database carries `<database>.<schema>` in
+    // one segment, and each half can be quoted independently. Stripping only
+    // the outer pair leaves a key the manifest ingest never produces, so the
+    // model and a native script reading it become separate nodes.
+    #[test]
+    fn qualified_schema_segments_unquote_each_half() {
+        let canonical = Some((
+            AssetKind::Table,
+            Cow::Owned("f/prod/wh/archive.sales/orders".into()),
+        ));
+        for spelling in [
+            "table://f/prod/wh/archive.sales/orders",
+            "table://f/prod/wh/\"Archive\".\"Sales\"/\"Orders\"",
+            "table://f/prod/wh/`Archive`.`Sales`/`Orders`",
+            "table://f/prod/wh/[Archive].[Sales]/[Orders]",
+        ] {
+            assert_eq!(
+                parse_asset_syntax(spelling, false),
+                canonical,
+                "spelling {spelling} did not canonicalize"
+            );
+        }
+        // A period INSIDE one quoted identifier is part of the name, not a
+        // database qualifier.
+        assert_eq!(
+            parse_asset_syntax("table://f/prod/wh/\"sales.v2\"/orders", false),
+            Some((
+                AssetKind::Table,
+                Cow::Owned("f/prod/wh/sales.v2/orders".into())
+            ))
+        );
     }
 
     #[test]

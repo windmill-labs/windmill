@@ -28,9 +28,18 @@ async fn bounded_output(
     cmd: &mut Command,
     what: &str,
 ) -> anyhow::Result<std::process::Output> {
+    // `output()` pipes both streams implicitly; `spawn()` does not, so stdout
+    // must be asked for explicitly or `wait_with_output` returns nothing.
+    // `kill_on_drop` matters too: dropping the future a timeout abandons does
+    // not stop the process, so a hung `ls-remote` would outlive the job.
+    let child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()?;
     tokio::time::timeout(
         std::time::Duration::from_secs(LS_REMOTE_TIMEOUT_SECS),
-        cmd.output(),
+        child.wait_with_output(),
     )
     .await
     .map_err(|_| anyhow!("{what} did not respond within {LS_REMOTE_TIMEOUT_SECS}s"))?
