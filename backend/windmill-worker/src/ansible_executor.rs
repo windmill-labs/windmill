@@ -655,13 +655,14 @@ pub async fn get_git_repos_lock(
                     w_id,
                     occupancy_metrics,
                     git_ssh_cmd,
+                    None,
                 )
                 .await?,
             );
         } else {
             ret.insert(
                 repo.url.to_string(),
-                get_git_repo_full_head_commit_hash(repo, git_ssh_cmd).await?,
+                get_git_repo_full_head_commit_hash(repo, git_ssh_cmd, None).await?,
             );
         }
     }
@@ -1211,6 +1212,7 @@ pub async fn handle_ansible_job(
                     &job.workspace_id,
                     occupancy_metrics,
                     git_ssh_cmd,
+                    job.timeout,
                 )
                 .await
                 .map_err(|e| {
@@ -1231,6 +1233,7 @@ pub async fn handle_ansible_job(
                     &job.workspace_id,
                     occupancy_metrics,
                     git_ssh_cmd,
+                    job.timeout,
                 )
                 .await
                 .map_err(|e| {
@@ -1322,6 +1325,7 @@ pub async fn handle_ansible_job(
                     &job.workspace_id,
                     occupancy_metrics,
                     git_ssh_cmd,
+                    job.timeout,
                 )
                 .await
                 .map_err(|e| {
@@ -1351,6 +1355,7 @@ pub async fn handle_ansible_job(
                     &job.workspace_id,
                     occupancy_metrics,
                     git_ssh_cmd,
+                    job.timeout,
                 )
                 .await
                 .map_err(|e| {

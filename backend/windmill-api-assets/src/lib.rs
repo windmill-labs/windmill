@@ -1282,20 +1282,38 @@ async fn asset_graph(
         if r.resource_type != "source" {
             *dbt_model_count.entry(r.script_path.clone()).or_default() += 1;
         }
-        dbt_by_asset_path.insert(
-            asset_path.to_string(),
-            DbtAssetProvenance {
-                unique_id: r.unique_id.clone(),
-                resource_type: r.resource_type.clone(),
-                materialized: r.materialized.clone(),
-                materialize_strategy: r.materialize_strategy.clone(),
-                tags: r.tags.clone(),
-                description: r.description.clone(),
-                data_tests: vec![],
-                columns: r.columns.clone(),
-                freshness: r.freshness.clone(),
-            },
-        );
+        let candidate = DbtAssetProvenance {
+            unique_id: r.unique_id.clone(),
+            resource_type: r.resource_type.clone(),
+            materialized: r.materialized.clone(),
+            materialize_strategy: r.materialize_strategy.clone(),
+            tags: r.tags.clone(),
+            description: r.description.clone(),
+            data_tests: vec![],
+            columns: r.columns.clone(),
+            freshness: r.freshness.clone(),
+        };
+        // One relation can carry rows from several projects — typically a model
+        // in one and a source declaring it in another. The producer describes
+        // the relation and the source only names it, so which one wins must not
+        // depend on script-path ordering. The source's freshness policy is
+        // still worth keeping, so it fills in rather than overwrites.
+        let existing = dbt_by_asset_path.entry(asset_path.to_string()).or_insert_with(|| candidate.clone());
+        if existing.unique_id == candidate.unique_id {
+            continue;
+        }
+        let wins = match (existing.resource_type.as_str(), candidate.resource_type.as_str()) {
+            ("source", t) if t != "source" => true,
+            (t, "source") if t != "source" => false,
+            // Two rows of the same nature: pick by id so the graph does not
+            // change shape between requests.
+            _ => candidate.unique_id < existing.unique_id,
+        };
+        let freshness = existing.freshness.clone().or_else(|| candidate.freshness.clone());
+        if wins {
+            *existing = candidate;
+        }
+        existing.freshness = freshness;
     }
     // Tests fold onto the model they assert, which is what makes dbt's four
     // generic tests render through the existing data-test node. A separate pass

@@ -690,6 +690,18 @@ pub(crate) async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
     }
 }
 
+/// The job state a command run outside the main script needs to stay cancellable. `dbt deps`
+/// can hang on an unreachable package endpoint and `dbt parse`/`ls` on a
+/// warehouse handshake, so running them detached would hold a worker slot past
+/// a cancel or a timeout.
+pub struct JobCtx<'a> {
+    pub mem_peak: &'a mut i32,
+    pub canceled_by: &'a mut Option<CanceledBy>,
+    pub occupancy_metrics: &'a mut OccupancyMetrics,
+    pub worker_name: &'a str,
+    pub timeout: Option<i32>,
+}
+
 pub async fn run_future_with_polling_update_job_poller<Fut, T, S>(
     job_id: Uuid,
     timeout: Option<i32>,

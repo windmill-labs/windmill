@@ -35,7 +35,9 @@ use crate::git_clone::{
     clone_repo, clone_repo_without_history, get_git_repo_full_head_commit_hash,
     resolve_git_ref_to_commit,
 };
-use crate::handle_child::{get_mem_peak, handle_child, run_future_with_polling_update_job_poller};
+use crate::handle_child::{
+    get_mem_peak, handle_child, run_future_with_polling_update_job_poller, JobCtx,
+};
 use crate::{GIT_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV};
 
 /// The profile name Windmill renders into `profiles.yml`. dbt takes the profile
@@ -546,6 +548,12 @@ pub struct PreparedProject {
     /// The descriptor's `env`, resolved, in a stable order. Feeds run identity;
     /// `env` itself is not usable there because it carries per-job values.
     pub descriptor_env: std::collections::BTreeMap<String, String>,
+    /// One-way digest of the rendered profile — the resolved connection, not
+    /// just the names it exposes. A resource repointed from one warehouse to
+    /// another that happens to use the same database and schema names is
+    /// invisible to `relation_root`, and a retry would then execute the saved
+    /// failures against a warehouse where the successful nodes do not exist.
+    pub profile_digest: String,
 
 }
 
@@ -595,7 +603,7 @@ impl PreparedProject {
         // them means the next field added to the descriptor is silently left
         // out of the check.
         format!(
-            "{}|{}|{}|{}|{}|{:x}|{}",
+            "{}|{}|{}|{}|{}|{:x}|{}|{}",
             self.repo_resource,
             self.project_subdir,
             self.commit,
@@ -603,6 +611,7 @@ impl PreparedProject {
             digest(&self.descriptor_content),
             self.env_digest(),
             self.relation_root(),
+            self.profile_digest,
         )
     }
 }
@@ -701,9 +710,6 @@ pub async fn prepare_project(
     // refresh below would never fire.
     let has_placeholder = |v: &str| v.contains("{{");
     let ref_is_per_run = descriptor.r#ref.as_deref().is_some_and(has_placeholder);
-    // Vars can drive `enabled`, alias, schema, database and materialization, so
-    // a var only a run can fill means the deploy-time graph is a guess. Treat it
-    // like a per-run ref: refresh from each run's own manifest.
     // Properties of the DESCRIPTOR only, never of one run's arguments. Vars can
     // drive `enabled`, alias, schema, database and materialization, so a
     // placeholder var, a dynamic ref or a `$var:` env value (re-resolved every
@@ -728,15 +734,24 @@ pub async fn prepare_project(
         branch: branch.clone(),
         target_path: "dbt".to_string(),
     };
+    // Borrowed only for the ref probes: `checkout` below takes the same state.
+    let mut probe_ctx = JobCtx {
+        mem_peak,
+        canceled_by,
+        occupancy_metrics,
+        worker_name,
+        timeout: job_timeout,
+    };
+    let probe_job = (job_id, w_id, conn, &mut probe_ctx);
     let commit = if descriptor.is_latest_ref() {
-        get_git_repo_full_head_commit_hash(&probe, &git_ssh_cmd).await?
+        get_git_repo_full_head_commit_hash(&probe, &git_ssh_cmd, Some(probe_job)).await?
     } else if let Some(r) = interpolated_ref
         .clone()
         // A ref the descriptor spells with a placeholder is chosen by the run,
         // so the run's value wins over whatever the deploy happened to lock.
         .filter(|_| descriptor.r#ref.as_deref().is_some_and(|r| r.contains("{{")))
     {
-        resolve_git_ref_to_commit(&probe, &git_ssh_cmd, &r).await?
+        resolve_git_ref_to_commit(&probe, &git_ssh_cmd, &r, Some(probe_job)).await?
     } else if let Some(locked) = locks.map(|l| l.commit.clone()).filter(|c| !c.is_empty()) {
         locked
     } else if let Some(r) = interpolated_ref.clone() {
@@ -744,7 +759,7 @@ pub async fn prepare_project(
         // resolved rather than used as-is: a branch name is not a pin, and the
         // clone cache below keys on the commit precisely because commits are
         // immutable and a branch name is not.
-        resolve_git_ref_to_commit(&probe, &git_ssh_cmd, &r).await?
+        resolve_git_ref_to_commit(&probe, &git_ssh_cmd, &r, Some(probe_job)).await?
     } else {
         String::new()
     };
@@ -768,6 +783,7 @@ pub async fn prepare_project(
         canceled_by,
         occupancy_metrics,
         &git_ssh_cmd,
+        job_timeout,
     )
     .await?;
 
@@ -789,7 +805,7 @@ pub async fn prepare_project(
         )));
     }
 
-    let (profiles_dir, resource_path, adapter, default_database, default_schema) =
+    let (profiles_dir, resource_path, adapter, default_database, default_schema, profile_digest) =
         write_profiles(descriptor, &project_dir, job_dir, client, job_id).await?;
     // The lockfile's version, when it pinned one for this same engine — a
     // descriptor edited to another engine invalidates the pin.
@@ -827,6 +843,7 @@ pub async fn prepare_project(
     env.push(("HOME".to_string(), job_dir.to_string()));
 
     let mut prepared = PreparedProject {
+        profile_digest,
         project_dir,
         profiles_dir,
         engine,
@@ -983,6 +1000,7 @@ async fn checkout(
     canceled_by: &mut Option<CanceledBy>,
     occupancy_metrics: &mut OccupancyMetrics,
     git_ssh_cmd: &str,
+    job_timeout: Option<i32>,
 ) -> error::Result<String> {
     let dest = PathBuf::from(job_dir).join("dbt");
     if !commit.is_empty() {
@@ -1019,6 +1037,7 @@ async fn checkout(
             w_id,
             occupancy_metrics,
             git_ssh_cmd,
+            job_timeout,
         )
         .await?;
         publish_to_cache(&dest, &cached, job_id).await;
@@ -1035,6 +1054,7 @@ async fn checkout(
         w_id,
         occupancy_metrics,
         git_ssh_cmd,
+        job_timeout,
     )
     .await
 }
@@ -1176,6 +1196,7 @@ async fn write_profiles(
     DbtAdapter,
     Option<String>,
     Option<String>,
+    String,
 )> {
     let resource_path = descriptor
         .profile
@@ -1219,12 +1240,12 @@ async fn write_profiles(
             }
         };
         ensure_adapter_licensed(adapter)?;
-        // The project owns its profile, so Windmill does not know its database.
-        // `table_asset_path` then qualifies every relation that names one,
-        // because assuming they share a database is what would collapse two
-        // distinct ones onto a single node.
-        // The project owns its profile, so Windmill knows neither.
-        return Ok((dir, resource_path, adapter, None, None));
+        // The project owns its profile, so Windmill knows neither its database
+        // nor its schema. `table_asset_path` then qualifies every relation that
+        // names a database, because assuming two share one is what would
+        // collapse distinct relations onto a single node.
+        let profile_digest = digest(&tokio::fs::read_to_string(&path).await.unwrap_or_default());
+        return Ok((dir, resource_path, adapter, None, None, profile_digest));
     }
 
     let resource_path = resource_path.ok_or_else(|| {
@@ -1269,12 +1290,14 @@ async fn write_profiles(
             pem,
         )?;
     }
+    let profile_digest = digest(&rendered.yaml);
     Ok((
         dir,
         Some(resource_path),
         adapter,
         rendered.database,
         rendered.schema,
+        profile_digest,
     ))
 }
 
@@ -2072,17 +2095,6 @@ async fn run_capturing(
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
-/// The job state a preparation command needs to stay cancellable. `dbt deps`
-/// can hang on an unreachable package endpoint and `dbt parse`/`ls` on a
-/// warehouse handshake, so running them detached would hold a worker slot past
-/// a cancel or a timeout.
-pub struct JobCtx<'a> {
-    pub mem_peak: &'a mut i32,
-    pub canceled_by: &'a mut Option<CanceledBy>,
-    pub occupancy_metrics: &'a mut OccupancyMetrics,
-    pub worker_name: &'a str,
-    pub timeout: Option<i32>,
-}
 
 /// Run a preparation command through the same child handler the build uses, so
 /// cancellation and the job timeout apply to it too.

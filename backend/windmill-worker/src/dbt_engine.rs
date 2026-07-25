@@ -21,8 +21,10 @@ use windmill_common::worker::{write_file, Connection, ROOT_CACHE_NOMOUNT_DIR};
 use windmill_parser_yaml::DbtEngine;
 use windmill_queue::append_logs;
 
-use crate::dbt_executor::{digest, JobCtx};
-use crate::handle_child::{get_mem_peak, run_future_with_polling_update_job_poller};
+use crate::dbt_executor::digest;
+use crate::handle_child::{
+    get_mem_peak, run_future_with_polling_update_job_poller, JobCtx,
+};
 use crate::dbt_profiles::DbtAdapter;
 
 lazy_static::lazy_static! {
@@ -298,16 +300,23 @@ async fn provision_fusion(
         conn,
     )
     .await;
-    let script = windmill_common::utils::HTTP_CLIENT
-        .get(&*DBT_FUSION_INSTALL_URL)
-        .send()
-        .await
-        .map_err(|e| Error::internal_err(format!("fetching the Fusion installer: {e}")))?
-        .error_for_status()
-        .map_err(|e| Error::internal_err(format!("fetching the Fusion installer: {e}")))?
-        .text()
-        .await
-        .map_err(|e| Error::internal_err(format!("fetching the Fusion installer: {e}")))?;
+    let script = fetch_under_job(
+        "the Fusion installer",
+        async {
+            windmill_common::utils::HTTP_CLIENT
+                .get(&*DBT_FUSION_INSTALL_URL)
+                .send()
+                .await?
+                .error_for_status()?
+                .text()
+                .await
+        },
+        job_id,
+        w_id,
+        conn,
+        ctx,
+    )
+    .await?;
     // Install into a per-job sibling and rename, like the other two engines:
     // pointing the installer straight at the shared cache lets a second job
     // observe `bin/dbt` and execute it while the first is still writing.
@@ -381,6 +390,39 @@ fn staging_path(dir: &Path, job_id: &Uuid) -> PathBuf {
     dir.with_file_name(format!("{name}.staging-{job_id}"))
 }
 
+/// Fetch under the job's cancellation and timeout. The shared `HTTP_CLIENT`
+/// sets no request timeout, so a stalled release download would otherwise hold
+/// the worker for as long as the connection stays open.
+async fn fetch_under_job<T, F>(
+    what: &str,
+    fetch: F,
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
+    ctx: &mut JobCtx<'_>,
+) -> error::Result<T>
+where
+    F: std::future::Future<Output = reqwest::Result<T>>,
+{
+    run_future_with_polling_update_job_poller(
+        *job_id,
+        ctx.timeout,
+        conn,
+        ctx.mem_peak,
+        ctx.canceled_by,
+        async move {
+            fetch
+                .await
+                .map_err(|e| Error::internal_err(format!("fetching {what}: {e}")))
+        },
+        ctx.worker_name,
+        w_id,
+        &mut Some(ctx.occupancy_metrics),
+        Box::pin(futures::stream::once(async { 0 })),
+    )
+    .await
+}
+
 async fn fetch_and_extract(
     url: &str,
     dir: &Path,
@@ -390,16 +432,23 @@ async fn fetch_and_extract(
     conn: &Connection,
     ctx: &mut JobCtx<'_>,
 ) -> error::Result<()> {
-    let bytes = windmill_common::utils::HTTP_CLIENT
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| Error::internal_err(format!("fetching {url}: {e}")))?
-        .error_for_status()
-        .map_err(|e| Error::internal_err(format!("fetching {url}: {e}")))?
-        .bytes()
-        .await
-        .map_err(|e| Error::internal_err(format!("fetching {url}: {e}")))?;
+    let bytes = fetch_under_job(
+        url,
+        async {
+            windmill_common::utils::HTTP_CLIENT
+                .get(url)
+                .send()
+                .await?
+                .error_for_status()?
+                .bytes()
+                .await
+        },
+        job_id,
+        w_id,
+        conn,
+        ctx,
+    )
+    .await?;
     let tarball = std::env::temp_dir().join(format!("wm-dbt-{job_id}.tar.gz"));
     tokio::fs::write(&tarball, &bytes)
         .await

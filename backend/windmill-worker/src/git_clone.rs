@@ -10,13 +10,16 @@ use anyhow::anyhow;
 use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::error;
+use windmill_common::error::Error;
 use windmill_common::git_sync_oss::sanitize_git_url;
 use windmill_common::worker::{is_allowed_file_location, Connection};
 use windmill_parser_yaml::GitRepo;
 use windmill_queue::CanceledBy;
 
 use crate::common::{start_child_process, OccupancyMetrics};
-use crate::handle_child::handle_child;
+use crate::handle_child::{
+    get_mem_peak, handle_child, run_future_with_polling_update_job_poller, JobCtx,
+};
 use crate::{GIT_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV};
 
 /// Bound on the remote-metadata commands (`ls-remote`). They talk to a git host
@@ -24,25 +27,57 @@ use crate::{GIT_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV};
 /// for the life of the process rather than failing the job.
 const LS_REMOTE_TIMEOUT_SECS: u64 = 120;
 
+/// The job a git probe runs inside, when there is one, so cancellation and the
+/// job's own timeout reach it.
+pub type JobRef<'a, 'b> = (&'a Uuid, &'a str, &'a Connection, &'a mut JobCtx<'b>);
+
 async fn bounded_output(
     cmd: &mut Command,
     what: &str,
+    job: Option<JobRef<'_, '_>>,
 ) -> anyhow::Result<std::process::Output> {
     // `output()` pipes both streams implicitly; `spawn()` does not, so stdout
     // must be asked for explicitly or `wait_with_output` returns nothing.
-    // `kill_on_drop` matters too: dropping the future a timeout abandons does
-    // not stop the process, so a hung `ls-remote` would outlive the job.
+    // `kill_on_drop` matters too: dropping the future a cancel or a timeout
+    // abandons does not stop the process, so a hung `ls-remote` would outlive
+    // the job.
     let child = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()?;
-    tokio::time::timeout(
-        std::time::Duration::from_secs(LS_REMOTE_TIMEOUT_SECS),
-        child.wait_with_output(),
+    let Some((job_id, w_id, conn, ctx)) = job else {
+        // No job to attribute it to (a worker-level probe): the fixed bound is
+        // all that stops a hung remote from holding the caller.
+        return tokio::time::timeout(
+            std::time::Duration::from_secs(LS_REMOTE_TIMEOUT_SECS),
+            child.wait_with_output(),
+        )
+        .await
+        .map_err(|_| anyhow!("{what} did not respond within {LS_REMOTE_TIMEOUT_SECS}s"))?
+        .map_err(Into::into);
+    };
+    let pid = child.id();
+    run_future_with_polling_update_job_poller(
+        *job_id,
+        ctx.timeout,
+        conn,
+        ctx.mem_peak,
+        ctx.canceled_by,
+        async move {
+            child
+                .wait_with_output()
+                .await
+                .map_err(|e| Error::internal_err(format!("{what} failed: {e}")))
+        },
+        ctx.worker_name,
+        w_id,
+        &mut Some(ctx.occupancy_metrics),
+        Box::pin(futures::stream::unfold((), move |_| async move {
+            Some((get_mem_peak(pid, false).await, ()))
+        })),
     )
     .await
-    .map_err(|_| anyhow!("{what} did not respond within {LS_REMOTE_TIMEOUT_SECS}s"))?
     .map_err(Into::into)
 }
 
@@ -57,6 +92,7 @@ pub async fn clone_repo(
     w_id: &str,
     occupancy_metrics: &mut OccupancyMetrics,
     git_ssh_cmd: &str,
+    job_timeout: Option<i32>,
 ) -> error::Result<String> {
     let target_path = is_allowed_file_location(job_dir, &repo.target_path)?;
 
@@ -88,7 +124,7 @@ pub async fn clone_repo(
         worker_name,
         w_id,
         "git clone",
-        None,
+        job_timeout,
         false,
         &mut Some(occupancy_metrics),
         None,
@@ -124,7 +160,7 @@ pub async fn clone_repo(
             worker_name,
             w_id,
             "git checkout",
-            None,
+            job_timeout,
             false,
             &mut Some(occupancy_metrics),
             None,
@@ -198,6 +234,7 @@ pub async fn clone_repo_without_history(
     w_id: &str,
     occupancy_metrics: &mut OccupancyMetrics,
     git_ssh_cmd: &str,
+    job_timeout: Option<i32>,
 ) -> error::Result<()> {
     let target_path = is_allowed_file_location(job_dir, &repo.target_path)?;
 
@@ -230,7 +267,7 @@ pub async fn clone_repo_without_history(
         worker_name,
         w_id,
         "git init",
-        None,
+        job_timeout,
         false,
         &mut Some(occupancy_metrics),
         None,
@@ -264,7 +301,7 @@ pub async fn clone_repo_without_history(
         worker_name,
         w_id,
         "git add remote",
-        None,
+        job_timeout,
         false,
         &mut Some(occupancy_metrics),
         None,
@@ -297,7 +334,7 @@ pub async fn clone_repo_without_history(
         worker_name,
         w_id,
         "git fetch",
-        None,
+        job_timeout,
         false,
         &mut Some(occupancy_metrics),
         None,
@@ -330,7 +367,7 @@ pub async fn clone_repo_without_history(
         worker_name,
         w_id,
         "git checkout",
-        None,
+        job_timeout,
         false,
         &mut Some(occupancy_metrics),
         None,
@@ -351,6 +388,7 @@ pub async fn resolve_git_ref_to_commit(
     repo: &GitRepo,
     git_ssh_cmd: &str,
     git_ref: &str,
+    job: Option<JobRef<'_, '_>>,
 ) -> anyhow::Result<String> {
     let git_ref = git_ref.trim();
     if git_ref.len() == 40 && git_ref.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -362,6 +400,7 @@ pub async fn resolve_git_ref_to_commit(
             .args(["ls-remote", &repo.url, git_ref])
             .stderr(Stdio::piped()),
         "git ls-remote",
+        job,
     )
     .await?;
     if !output.status.success() {
@@ -394,6 +433,7 @@ pub async fn resolve_git_ref_to_commit(
 pub async fn get_git_repo_full_head_commit_hash(
     repo: &GitRepo,
     git_ssh_cmd: &str,
+    job: Option<JobRef<'_, '_>>,
 ) -> anyhow::Result<String> {
     let mut git_cmd = Command::new(GIT_PATH.as_str());
 
@@ -401,7 +441,7 @@ pub async fn get_git_repo_full_head_commit_hash(
         .env("GIT_SSH_COMMAND", git_ssh_cmd)
         .args(["ls-remote", &repo.url, "HEAD"]);
 
-    let output = bounded_output(git_cmd.stderr(Stdio::piped()), "git ls-remote").await?;
+    let output = bounded_output(git_cmd.stderr(Stdio::piped()), "git ls-remote", job).await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8(output.stderr)?;
