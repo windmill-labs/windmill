@@ -102,6 +102,22 @@ describe('serializeDocument redaction', () => {
 		}
 	})
 
+	it('snapshots a stylesheet as it renders, not as it was authored', () => {
+		// `insertRule` and friends never touch the element's text, so a <style> that
+		// shipped with CSS and was then mutated at runtime would replay stale.
+		const style = document.createElement('style')
+		style.textContent = `.authored { color: red; }`
+		document.head.appendChild(style)
+		try {
+			style.sheet?.insertRule(`.added-at-runtime { color: blue; }`, 0)
+			const html = serializeDocument(document)
+			expect(html).toContain('added-at-runtime')
+			expect(html).toContain('authored')
+		} finally {
+			style.remove()
+		}
+	})
+
 	it('masks a password without leaking its length, and keeps other values', () => {
 		const doc = docFrom(`<input type="password"><input type="text">`)
 		const [password, text] = Array.from(doc.querySelectorAll('input')) as HTMLInputElement[]

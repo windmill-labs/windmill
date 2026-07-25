@@ -18,6 +18,7 @@ import {
 	REC_TARGET_ATTR,
 	redactedDescription,
 	MAX_RECORDED_STEPS,
+	MAX_TOTAL_FRAME_CHARS,
 	maskValue,
 	serializeDocument,
 	stepLabel,
@@ -55,9 +56,6 @@ const TEXT_INPUT_TYPES = new Set([
 	'password',
 	'number'
 ])
-/** Snapshots are full documents; stop storing them (steps keep coming) rather
- * than let a long session grow the tab's memory without bound. */
-const MAX_TOTAL_FRAME_BYTES = 40 * 1024 * 1024
 /** A step's value is shown in a one-line label; a pasted novel is not. */
 const MAX_STEP_VALUE_CHARS = 200
 /** Repeats of the same interaction on the same control (a held arrow key, a
@@ -139,7 +137,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		if (html === undefined) return undefined
 		const existing = frameIndexes.get(html)
 		if (existing !== undefined) return existing
-		if (framesBytes + html.length > MAX_TOTAL_FRAME_BYTES) {
+		if (framesBytes + html.length > MAX_TOTAL_FRAME_CHARS) {
 			truncated = true
 			return undefined
 		}
@@ -235,8 +233,12 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			// The DOM the new interaction starts from IS the previous step's outcome,
 			// and by now `capture()` would already include this interaction's effect (a
 			// fill committed by clicking a checkbox would settle showing it checked).
-			// The stamp has to come off: it marks the NEW step's target.
-			pending.after = frameIndex(before !== undefined ? unstamp(before) : capture())
+			// Only a frame taken for this interaction will do: a fill's own pre-frame
+			// is up to a debounce old and predates the step being settled. The stamp
+			// has to come off — it marks the NEW step's target.
+			const fresh =
+				before !== undefined && (pendingPointer?.html === before || pendingKey?.html === before)
+			pending.after = frameIndex(fresh ? unstamp(before!) : capture())
 		}
 		if (steps.length >= MAX_RECORDED_STEPS && !coalesces) {
 			truncated = true
@@ -373,7 +375,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 	function pointerFrameFor(el: Element): string | undefined {
 		const from = pendingPointer?.el
 		if (!from) return undefined
-		if (from === el || from.contains(el)) return pendingPointer?.html
+		if (from === el || from.contains(el) || el.contains(from)) return pendingPointer?.html
 		const labels = (el as HTMLInputElement).labels
 		if (labels && Array.from(labels).some((l) => l === from || l.contains(from)))
 			return pendingPointer?.html

@@ -17,6 +17,11 @@ export const NO_RECORD_ATTR = 'data-wm-no-record'
  * step, so the loader enforces it too on recordings it did not produce. */
 export const MAX_RECORDED_STEPS = 500
 
+/** Snapshots are whole documents; the recorder stops storing them past this, and
+ * the loader refuses a recording that claims more — every frame is parsed and
+ * re-serialized before it is handed to the iframe. */
+export const MAX_TOTAL_FRAME_CHARS = 40 * 1024 * 1024
+
 export type RawAppInteractionKind =
 	| 'click'
 	| 'fill'
@@ -255,7 +260,10 @@ function inlineStyleSheets(doc: Document, root: Element, clone: Element) {
 			const style = doc.createElement('style')
 			style.textContent = css
 			target.replaceWith(style)
-		} else if (owner.tagName === 'STYLE' && (target.textContent ?? '').trim() === '') {
+		} else if (owner.tagName === 'STYLE') {
+			// The parsed rules are the truth: `insertRule`/`deleteRule` and edits to a
+			// rule's style never touch the element's source text, so copying the text
+			// through would replay the sheet as it was authored, not as it renders.
 			target.textContent = css
 		}
 	}

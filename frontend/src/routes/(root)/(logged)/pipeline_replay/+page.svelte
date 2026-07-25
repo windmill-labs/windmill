@@ -3,7 +3,10 @@
 	import ScriptRecordingReplay from '$lib/components/recording/ScriptRecordingReplay.svelte'
 	import PipelineRecordingReplay from '$lib/components/recording/PipelineRecordingReplay.svelte'
 	import RawAppRecordingReplay from '$lib/components/recording/RawAppRecordingReplay.svelte'
-	import { MAX_RECORDED_STEPS } from '$lib/components/recording/rawAppSnapshot'
+	import {
+		MAX_RECORDED_STEPS,
+		MAX_TOTAL_FRAME_CHARS
+	} from '$lib/components/recording/rawAppSnapshot'
 	import type {
 		FlowRecording,
 		PipelineRecording,
@@ -81,10 +84,14 @@
 			// download cap, which would freeze the tab on render.
 			// A legitimate recording holds at most the initial frame plus a before and
 			// an after per step; anything beyond that is a payload, not a recording.
+			// Every frame is parsed and re-serialized before the iframe parses it
+			// again, so a single frame just under the download cap would freeze the
+			// tab. Hold remote recordings to the budget the recorder itself obeys.
 			const validFrames =
 				Array.isArray(data.frames) &&
 				data.frames.length <= 2 * MAX_RECORDED_STEPS + 1 &&
-				data.frames.every((f) => typeof f === 'string')
+				data.frames.every((f) => typeof f === 'string') &&
+				data.frames.reduce((sum: number, f: string) => sum + f.length, 0) <= MAX_TOTAL_FRAME_CHARS
 			// The viewport is interpolated into the snapshot iframe's `style`, so a
 			// non-numeric value would escape the property and let a remote recording
 			// restyle the player around itself.
