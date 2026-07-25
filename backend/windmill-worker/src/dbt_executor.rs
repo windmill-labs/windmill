@@ -196,9 +196,14 @@ pub async fn handle_dbt_job(
     // force a full rebuild. Windmill runs each attempt in a fresh job dir, so
     // the previous run's `target/` is restored from the worker-local state
     // cache before invoking it.
-    if command == "retry" {
-        restore_run_state(&prepared, &job.workspace_id).await?;
-    }
+    // A retry resumes the previous invocation, so the graph refresh below and
+    // dbt itself must both use THAT invocation's arguments, not this job's.
+    let retried_args = if command == "retry" {
+        Some(restore_run_state(&prepared, &job.workspace_id).await?)
+    } else {
+        None
+    };
+    let graph_args = retried_args.as_ref().unwrap_or(&args);
 
     // A per-run graph is ingested BEFORE the build, from a `dbt parse` of the
     // commit this run resolved. Asset dispatch fans out from the stored rows
@@ -213,21 +218,22 @@ pub async fn handle_dbt_job(
         // parsing with this job's arguments would ingest one graph while dbt
         // resumes another. The restored state already describes that
         // invocation, so its manifest is the one to ingest.
-        if command == "retry" {
-            ingest_from_run(&prepared, &descriptor, &HashMap::new(), job, conn).await?;
-        } else {
+        if command != "retry" {
             run_dbt_parse(
                 &prepared,
                 &descriptor,
-                &args,
+                graph_args,
                 &envs,
                 &job.id,
                 &job.workspace_id,
                 conn,
             )
             .await?;
-            ingest_from_run(&prepared, &descriptor, &args, job, conn).await?;
         }
+        // For a retry the restored manifest already describes the invocation
+        // being resumed, so only the ingest runs — with that invocation's
+        // arguments, which the selection resolver needs to interpolate.
+        ingest_from_run(&prepared, &descriptor, graph_args, &envs, job, conn).await?;
     }
 
     let mut run = run_dbt(
@@ -279,7 +285,7 @@ pub async fn handle_dbt_job(
         results.extend(read_run_results(&prepared.project_dir).await);
     }
 
-    save_run_state(&prepared, &job.workspace_id).await.ok();
+    save_run_state(&prepared, &job.workspace_id, &args).await.ok();
     reconcile_materializations(&prepared, &results, job, conn).await;
 
     // `ref: latest` executes whatever HEAD resolved to, so the graph must be
@@ -377,7 +383,8 @@ pub async fn dbt_dep(
     )
     .await?;
 
-    let selected = resolve_selection(&prepared, &descriptor, &HashMap::new(), false).await?;
+    let selected =
+        resolve_selection(&prepared, &descriptor, &HashMap::new(), &HashMap::new(), false).await?;
     let manifest = read_manifest(&prepared.project_dir).await?;
     let manifest_digest = digest(
         &tokio::fs::read_to_string(prepared.project_dir.join("target/manifest.json"))
@@ -482,6 +489,22 @@ pub struct PreparedProject {
     pub default_database: Option<String>,
     pub script_path: String,
     pub env: Vec<(String, String)>,
+}
+
+impl PreparedProject {
+    /// Which warehouse and target this run connects to, for the retry-state
+    /// check. Only identity, never credential material.
+    fn profile_identity(&self) -> String {
+        format!(
+            "{}|{}|{}",
+            self.resource_path.as_deref().unwrap_or(""),
+            self.target.as_deref().unwrap_or(""),
+            self.profiles_dir
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+        )
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1527,6 +1550,7 @@ async fn ingest_from_run(
     p: &PreparedProject,
     descriptor: &DbtDescriptor,
     args: &HashMap<String, Box<RawValue>>,
+    envs: &HashMap<String, String>,
     job: &MiniPulledJob,
     conn: &Connection,
 ) -> error::Result<()> {
@@ -1547,7 +1571,7 @@ async fn ingest_from_run(
     let manifest = read_manifest(&p.project_dir).await?;
     // The run's own arguments: resolving the selection with empty vars could
     // filter this run's manifest by a different node set than it built.
-    let selected = resolve_selection(p, descriptor, args, true).await?;
+    let selected = resolve_selection(p, descriptor, args, envs, true).await?;
     let ingested =
         windmill_common::dbt_manifest::ingest_manifest(
         &manifest,
@@ -1590,6 +1614,11 @@ async fn resolve_selection(
     p: &PreparedProject,
     descriptor: &DbtDescriptor,
     args: &HashMap<String, Box<RawValue>>,
+    // `dbt_command` clears the environment, so `dbt ls` needs the job's the same
+    // way `dbt parse` and the build do: a project whose `enabled`, schema or
+    // alias reads `env_var()` would otherwise resolve a different node set than
+    // the build produces.
+    envs: &HashMap<String, String>,
     strict: bool,
 ) -> error::Result<Option<std::collections::HashSet<String>>> {
     if descriptor.select.is_empty()
@@ -1599,6 +1628,7 @@ async fn resolve_selection(
         return Ok(None);
     }
     let mut cmd = dbt_command(p, &["ls"]);
+    cmd.envs(envs);
     // A project whose models call `var()` without a default fails to parse
     // without these, so the selection resolver needs them exactly as the run
     // does. Placeholders that only a run can fill are dropped rather than
@@ -1711,7 +1741,11 @@ fn state_dir(w_id: &str, script_path: &str) -> PathBuf {
         .join(digest(&format!("{w_id}/{script_path}")))
 }
 
-async fn save_run_state(p: &PreparedProject, w_id: &str) -> error::Result<()> {
+async fn save_run_state(
+    p: &PreparedProject,
+    w_id: &str,
+    args: &HashMap<String, Box<RawValue>>,
+) -> error::Result<()> {
     if p.script_path.is_empty() {
         return Ok(());
     }
@@ -1722,14 +1756,46 @@ async fn save_run_state(p: &PreparedProject, w_id: &str) -> error::Result<()> {
             .await
             .ok();
     }
-    // Which checkout produced it. `latest` and placeholder refs move, and
-    // resuming commit A's failed nodes against commit B's project is worse than
-    // not resuming at all.
-    tokio::fs::write(dir.join("commit"), &p.commit).await.ok();
+    // What produced it. `latest` and placeholder refs move, and a redeploy can
+    // repoint the profile, so resuming one invocation's failed nodes against a
+    // different checkout — or a different warehouse — is worse than not
+    // resuming at all. The arguments come back too: `dbt retry` reuses the
+    // original invocation's selection and vars, so refreshing the graph for it
+    // needs those, not this job's.
+    let state = SavedRunState {
+        commit: p.commit.clone(),
+        profile: p.profile_identity(),
+        args: args
+            .iter()
+            .map(|(k, v)| (k.clone(), v.get().to_string()))
+            .collect(),
+    };
+    tokio::fs::write(
+        dir.join("state.json"),
+        serde_json::to_vec(&state).unwrap_or_default(),
+    )
+    .await
+    .ok();
     Ok(())
 }
 
-async fn restore_run_state(p: &PreparedProject, w_id: &str) -> error::Result<()> {
+/// What an invocation was, so a later `dbt retry` can prove it is resuming the
+/// same thing rather than replaying failures somewhere else.
+#[derive(Serialize, Deserialize, Debug, Default)]
+struct SavedRunState {
+    commit: String,
+    /// Warehouse + target the profile resolved to.
+    profile: String,
+    /// The invocation's job arguments, as raw JSON per key.
+    args: HashMap<String, String>,
+}
+
+/// Restore the previous invocation and return ITS arguments, which is what the
+/// graph refresh for a retry must use.
+async fn restore_run_state(
+    p: &PreparedProject,
+    w_id: &str,
+) -> error::Result<HashMap<String, Box<RawValue>>> {
     if p.script_path.is_empty() {
         // A preview has no path to key state on, and an empty key is the one
         // that used to be shared by every dbt script in the workspace.
@@ -1746,23 +1812,39 @@ async fn restore_run_state(p: &PreparedProject, w_id: &str) -> error::Result<()>
                 .to_string(),
         ));
     }
-    let saved_commit = tokio::fs::read_to_string(dir.join("commit"))
+    let saved: SavedRunState = tokio::fs::read_to_string(dir.join("state.json"))
         .await
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
-    if saved_commit != p.commit {
+    if saved.commit != p.commit {
         return Err(Error::BadRequest(format!(
             "the last dbt run on this worker was at commit {}, but this run resolved {}. \
              `dbt retry` resumes a specific checkout's failures; run the script normally instead",
-            if saved_commit.is_empty() { "an unknown revision" } else { &saved_commit },
+            if saved.commit.is_empty() { "an unknown revision" } else { &saved.commit },
             p.commit
         )));
+    }
+    // A redeploy can repoint the profile at another warehouse or target while
+    // the commit stays put; resuming there would apply one warehouse's failures
+    // to another.
+    if saved.profile != p.profile_identity() {
+        return Err(Error::BadRequest(
+            "the profile changed since the last dbt run on this worker, so its failures do not \
+             describe this warehouse; run the script normally instead"
+                .to_string(),
+        ));
     }
     let target = p.project_dir.join("target");
     tokio::fs::create_dir_all(&target).await.ok();
     for f in ["run_results.json", "manifest.json"] {
         tokio::fs::copy(dir.join(f), target.join(f)).await.ok();
     }
-    Ok(())
+    Ok(saved
+        .args
+        .into_iter()
+        .filter_map(|(k, v)| Some((k, RawValue::from_string(v).ok()?)))
+        .collect())
 }
 
 /// Append `--vars` if the descriptor (or the run) declares any.
