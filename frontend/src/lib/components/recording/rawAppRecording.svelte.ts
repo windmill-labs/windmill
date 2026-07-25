@@ -64,11 +64,6 @@ const MAX_STEP_VALUE_CHARS = 200
 const CONTROL_COALESCE_MS = 250
 /** A form submit this soon after a click inside it is that click's consequence. */
 const SUBMIT_FOLD_MS = 500
-/** A label forwards its click within a tick; anything older is a leftover. */
-const FORWARDED_CLICK_MS = 1000
-/** How long a captured pre-interaction frame still describes "just before".
- * Past it (a paused drag, a button clicked minutes ago) it would rewind. */
-const STALE_PREFRAME_MS = 2000
 
 type PendingFill = {
 	el: Element
@@ -117,9 +112,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 	 * over by an earlier interaction. */
 	let pendingPointer: { el: Element; html: string | undefined; at: number } | undefined = undefined
 	/** Same, taken on keydown before the key changes the focused field or control.
-	 * `at` bounds its life to the gesture it opened: repeats inside the window
-	 * reuse it (no re-serialization), a later gesture snapshots afresh. */
-	let pendingKey: { el: Element; html: string | undefined; at: number } | undefined = undefined
+	 * `repeat` marks it as opening an auto-repeating gesture (a held arrow), whose
+	 * changes are one step rather than one per event. */
+	let pendingKey: { el: Element; html: string | undefined; repeat: boolean } | undefined = undefined
 	type Settle = {
 		step: RawAppStep
 		observer: MutationObserver
@@ -278,6 +273,12 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			before: frameIndex(before)
 		}
 		steps.push(step)
+		// The frames that described this step's "before" are spent. Without this a
+		// later interaction on the same element (a keyboard activation of a button
+		// already clicked) would reuse them and appear to rewind; with it, a pending
+		// frame can wait as long as a native picker session takes.
+		pendingPointer = undefined
+		pendingKey = undefined
 		lastStepEl = el
 		lastStepAt = t
 		stepCount = steps.length
@@ -359,7 +360,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 	 * click on `<label>Urgent</label>` looks like. */
 	function pointerFrameFor(el: Element): string | undefined {
 		const from = pendingPointer?.el
-		if (!from || Date.now() - (pendingPointer?.at ?? 0) > STALE_PREFRAME_MS) return undefined
+		if (!from) return undefined
 		if (from === el || from.contains(el)) return pendingPointer?.html
 		const labels = (el as HTMLInputElement).labels
 		if (labels && Array.from(labels).some((l) => l === from || l.contains(from)))
@@ -382,7 +383,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 
 	/** The pre-key snapshot, when the key landed on this interaction target. */
 	function keyFrameFor(el: Element): string | undefined {
-		if (!pendingKey || Date.now() - pendingKey.at > STALE_PREFRAME_MS) return undefined
+		if (!pendingKey) return undefined
 		return sameTarget(pendingKey.el, el) ? pendingKey.html : undefined
 	}
 
@@ -416,17 +417,6 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		on('click', (e: MouseEvent) => {
 			const el = isElementNode(e.target) ? e.target : undefined
 			if (!el) return
-			// A click with no coordinates is either a keyboard activation or the click
-			// a label forwards to its control. Only the second may keep the pointer
-			// frame: for a keyboard activation the pending pointerdown belongs to an
-			// earlier interaction — on this element or on an ancestor of it.
-			const pointer = pendingPointer
-			if (e.detail === 0 && pointer) {
-				const forwarded =
-					(pointer.el.closest('label') as HTMLLabelElement | null)?.control === el &&
-					Date.now() - pointer.at < FORWARDED_CLICK_MS
-				if (!forwarded) pendingPointer = undefined
-			}
 			// Before any early return: a fill still inside its debounce belongs before
 			// whatever this click records, and the control paths below never commit it.
 			if (pendingFill && pendingFill.el !== el) commitFill()
@@ -449,7 +439,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		on('beforeinput', (e: Event) => {
 			const el = isElementNode(e.target) ? e.target : undefined
 			if (!el || !isTextEntry(el) || pendingFill?.el === el) return
-			if (pointerFrameFor(el) === undefined) pendingKey = { el, html: capture(el), at: Date.now() }
+			if (pointerFrameFor(el) === undefined) pendingKey = { el, html: capture(el), repeat: false }
 		})
 
 		on('input', (e: Event) => {
@@ -484,8 +474,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			// A sweep keeps its opening frame: every repeat updates one step, whose
 			// Interaction is the state before the gesture started. A discrete control
 			// consumes it, so its next activation snapshots afresh.
-			const keyDriven = keyFrameFor(el) !== undefined
-			if (!isContinuousControl(el) && !keyDriven) pendingKey = undefined
+			// Only a browser-generated repeat continues a step; two deliberate presses
+			// are two interactions even when they land inside the window.
+			const keyDriven = keyFrameFor(el) !== undefined && !!pendingKey?.repeat
 			if (isTag(el, 'SELECT')) {
 				const options = Array.from((el as HTMLSelectElement).selectedOptions)
 				const selected = options.map((o) => o.label || o.value).join(', ')
@@ -537,17 +528,13 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			// fields are covered by `beforeinput` instead, which also sees paste and
 			// undo. Snapshotting is expensive and runs on the app's own event path, so
 			// keys that change nothing (Tab, modifiers, navigation) must not trigger it.
-			// Reuse the frame this gesture opened with — serializing per repeat would
-			// cost the app a full document clone at the key-repeat rate — but only
-			// while the gesture is live, or a later press would rewind to it.
-			const now = Date.now()
-			const live =
-				!!el &&
-				!!pendingKey &&
-				keyFrameFor(el) !== undefined &&
-				now - pendingKey.at < CONTROL_COALESCE_MS
-			if (el && isControl(el) && mutatingKey(e) && !live)
-				pendingKey = { el, html: capture(el), at: now }
+			if (el && isControl(el) && mutatingKey(e)) {
+				// An auto-repeat continues the gesture the first press opened: keep that
+				// frame (re-serializing per repeat would clone the whole document at the
+				// key-repeat rate) and only note that the gesture is now repeating.
+				if (e.repeat && pendingKey && keyFrameFor(el) !== undefined) pendingKey.repeat = true
+				else pendingKey = { el, html: capture(el), repeat: e.repeat }
+			}
 			if (e.key !== 'Enter' && e.key !== 'Escape') return
 			// Enter in a field ends the edit: the fill step must land before the key.
 			commitFill()
