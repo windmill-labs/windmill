@@ -12,12 +12,7 @@
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { discardDraftAfterDeploy } from '$lib/userDraftToast'
-	import {
-		enterpriseLicense,
-		userStore,
-		userWorkspaces,
-		workspaceStore
-	} from '$lib/stores'
+	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import {
 		Bug,
 		DiffIcon,
@@ -731,8 +726,8 @@
 					</a>
 					— a public page that needs no login and can be embedded in an iframe. Host the JSON anywhere
 					it can be fetched (S3, GitHub raw, your docs site) and link
-					<span class="font-mono">/replay?src=&lt;url&gt;</span> to have it load itself. Windmill keeps
-					no copy.
+					<span class="font-mono">{base}/replay?src=&lt;url&gt;</span> to have it load itself. Windmill
+					keeps no copy.
 				</span>
 			</div>
 			<div class="flex-1 min-h-0">

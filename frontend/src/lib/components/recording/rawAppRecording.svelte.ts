@@ -136,6 +136,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 	 * would strand exactly those, and a reloaded app that immediately calls a
 	 * runnable would settle on its spinner. */
 	const inFlight = new Set<unknown>()
+	/** Document the response listener is currently bound to, so a navigation is
+	 * noticed the moment the new document speaks rather than only at `load`. */
+	let boundDoc: Document | undefined = undefined
 	/** Runnable calls the app is waiting on right now (`inFlight.size`, as state). */
 	let pendingJobs = 0
 	let unwatchBridge: (() => void) | undefined = undefined
@@ -693,14 +696,6 @@ export function createRawAppRecording(): RawAppRecordingStore {
 	 * iframe. Listening only on the host would count every request and clear none. */
 	function watchRunnableBridge(iframe: HTMLIFrameElement) {
 		const bundle = iframe.contentWindow
-		const onRequest = (e: MessageEvent) => {
-			const data = e.data
-			if (!data || typeof data !== 'object' || e.source !== bundle) return
-			const { type, reqId } = data as { type?: unknown; reqId?: unknown }
-			if (typeof type !== 'string' || type.endsWith('Res') || reqId === undefined) return
-			inFlight.add(reqId)
-			pendingJobs = inFlight.size
-		}
 		const onResponse = (e: MessageEvent) => {
 			const data = e.data
 			if (!data || typeof data !== 'object' || e.source !== window) return
@@ -709,13 +704,37 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			inFlight.delete(reqId)
 			pendingJobs = inFlight.size
 		}
+		// Bound off the request rather than only off `load`: a reloaded document can
+		// request (and be answered) while a slow subresource still holds `load` open,
+		// and since `inFlight` survives the reload an unobserved response would leave
+		// its id pending until the job cap. The request proves the document is live
+		// and always precedes its own response, so binding here makes the listener's
+		// presence independent of how a navigation treats the previous one.
+		const bindResponses = () => {
+			const d = doc()
+			if (!d || d === boundDoc) return
+			// Same handler identity, so re-adding it to a window that kept the old
+			// registration is a no-op.
+			bundle?.addEventListener('message', onResponse)
+			boundDoc = d
+		}
+		const onRequest = (e: MessageEvent) => {
+			const data = e.data
+			if (!data || typeof data !== 'object' || e.source !== bundle) return
+			const { type, reqId } = data as { type?: unknown; reqId?: unknown }
+			if (typeof type !== 'string' || type.endsWith('Res') || reqId === undefined) return
+			bindResponses()
+			inFlight.add(reqId)
+			pendingJobs = inFlight.size
+		}
 		window.addEventListener('message', onRequest)
-		bundle?.addEventListener('message', onResponse)
+		bindResponses()
 		// Only the listeners: `inFlight` outlives a rebind on purpose (see its
 		// declaration), and stop() is what finally empties it.
 		return () => {
 			window.removeEventListener('message', onRequest)
 			bundle?.removeEventListener('message', onResponse)
+			boundDoc = undefined
 		}
 	}
 

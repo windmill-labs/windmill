@@ -5,6 +5,7 @@
 	 * file the visitor opens locally or a URL they host themselves (`?src=`), so a
 	 * demo can live next to the docs or README that links it.
 	 */
+	import { base } from '$lib/base'
 	import RawAppRecordingReplay from '$lib/components/recording/RawAppRecordingReplay.svelte'
 	import {
 		fetchRecording,
@@ -33,7 +34,9 @@
 			// Carry the source along so the in-workspace player can pick it up without
 			// the visitor having to reconstruct the URL.
 			const src = new URL(window.location.href).searchParams.get('src')
-			const where = `/pipeline_replay${src ? `?src=${encodeURIComponent(src)}` : ''}`
+			// Rooted at the configured base: on a subpath deployment a host-rooted
+			// path would send the visitor out of the application entirely.
+			const where = `${base}/pipeline_replay${src ? `?src=${encodeURIComponent(src)}` : ''}`
 			error = IN_WORKSPACE_KINDS.includes(kind)
 				? `This is a ${kind} recording — open it in your workspace at ${where}.`
 				: 'That file is not a raw-app session recording this player understands.'
