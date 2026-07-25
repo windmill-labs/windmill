@@ -9759,11 +9759,10 @@ async fn resolve_completed_jobs(
                     AND j.flow_step_id IS NULL
             ON CONFLICT (job_id) DO UPDATE SET
                 resolved_at = now(),
-                -- Both COALESCEd for the same reason: attribution and notes are unavailable
-                -- outside EE and when the runtime licence lapses, and a bulk selection
-                -- routinely includes already-resolved failures. Overwriting with the NULLs
-                -- that come back from `resolution_attribution` would erase metadata recorded
-                -- while the licence was valid. Clearing either is done by unresolving first.
+                -- Both COALESCEd: `resolution_attribution` returns NULLs outside EE and once the
+                -- licence lapses, and bulk selections routinely include already-resolved rows,
+                -- so overwriting would erase metadata recorded while it was valid. Clear either
+                -- by unresolving first.
                 resolved_by = COALESCE(EXCLUDED.resolved_by, job_resolution.resolved_by),
                 note = COALESCE(EXCLUDED.note, job_resolution.note),
                 -- A human taking over an automatic resolution makes it no longer automatic.
