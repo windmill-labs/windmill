@@ -6,6 +6,12 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'IAM authentication for RDS PostgreSQL resources',
+		href: 'https://www.windmill.dev/changelog/iam-rds-auth',
+		date: '2026-03-30'
+	},
+
+	{
 		label: 'AWS Bedrock support for Windmill AI',
 		href: 'https://www.windmill.dev/changelog/aws-bedrock',
 		date: '2025-11-19'
