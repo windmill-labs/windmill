@@ -220,7 +220,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			!!el &&
 			sameTarget(lastStepEl, el) &&
 			last.kind === kind &&
-			(isContinuousControl(el) || keyDriven || kind === 'key') &&
+			(isContinuousControl(el) || keyDriven) &&
 			t - lastStepAt < CONTROL_COALESCE_MS
 		// A step's outcome must be settled before the next one starts; the pending
 		// snapshot can't be deferred past this point. It can't reuse `before`
@@ -286,7 +286,10 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			target,
 			selector: el && !redacted ? bound(cssSelectorFor(el)) : undefined,
 			value: shown,
-			before: frameIndex(before)
+			// A key repeat skips its snapshot because it expects to fold into the step
+			// already recorded; when it turns out to start one instead, it still needs
+			// a state to open on.
+			before: frameIndex(before ?? capture(el))
 		}
 		steps.push(step)
 		// Spend only the frame this step actually used. Without consumption a later
@@ -336,6 +339,24 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		if (!isTag(el, 'INPUT')) return false
 		const type = (el as HTMLInputElement).type
 		return !isTextEntry(el) && !BUTTON_INPUT_TYPES.has(type)
+	}
+
+	/** The control a form submits through. */
+	function isSubmitter(el: Element): boolean {
+		if (isTag(el, 'BUTTON')) return ((el as HTMLButtonElement).type || 'submit') === 'submit'
+		return isTag(el, 'INPUT') && ['submit', 'image'].includes((el as HTMLInputElement).type)
+	}
+
+	/** Whether the step just recorded was a key press inside this form. */
+	function justPressedKeyInside(form: Element | null | undefined): boolean {
+		const last = steps[steps.length - 1]
+		return (
+			last?.kind === 'key' &&
+			!!form &&
+			!!lastStepEl &&
+			form.contains(lastStepEl) &&
+			Date.now() - startTime - lastStepAt < SUBMIT_FOLD_MS
+		)
 	}
 
 	/** A field where Enter inserts a newline rather than committing anything. */
@@ -455,6 +476,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			// field is just focus. Recording those too would double every step. Derived
 			// from `isControl` so a type moving between the two can't double-record.
 			if (isTextEntry(el) || isControl(el) || isTag(el, 'OPTION')) return
+			// Enter in a field is already recorded; the browser then synthesises this
+			// click on the form's default submitter to carry it out.
+			if (e.detail === 0 && isSubmitter(el) && justPressedKeyInside(el.closest('form'))) return
 			// A click on a <label> is also delivered to its control, which reports the
 			// real step on `change`. Recording the label click too would double one
 			// physical action, with the second step appearing to rewind the state.
@@ -661,9 +685,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			// is still `about:blank` — capturing that would open the replay on an empty
 			// page and make the real initial DOM look like a navigation, so leave frame
 			// 0 to the load handler.
-			if (d.readyState === 'complete' || (d.body?.childElementCount ?? 0) > 0) {
-				frameIndex(capture())
-			}
+			if ((d.body?.childElementCount ?? 0) > 0) frameIndex(capture())
 			attach(d)
 			// NOT in `detachers`: onIframeLoad calls detach(), which would otherwise
 			// remove the very listener that rebinds the recorder on the next reload.

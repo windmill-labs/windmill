@@ -141,6 +141,13 @@ describe('serializeDocument redaction', () => {
 		}
 	})
 
+	it('does not serialize redacted markup hidden inside <noscript>', () => {
+		// With scripting on, a <noscript>'s markup is one text node — invisible to
+		// the redaction pass, but `outerHTML` writes it back out as markup.
+		const doc = docFrom(`<noscript><div data-wm-no-record>noscript secret</div></noscript>`)
+		expect(serializeDocument(doc)).not.toContain('noscript secret')
+	})
+
 	it('masks a password without leaking its length, and keeps other values', () => {
 		const doc = docFrom(`<input type="password"><input type="text">`)
 		const [password, text] = Array.from(doc.querySelectorAll('input')) as HTMLInputElement[]

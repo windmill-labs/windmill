@@ -117,6 +117,10 @@ const REDACTION_KEEPS_ATTRS = new Set([
 	'readonly',
 	'rows',
 	'rowspan',
+	// A marked <option>'s text is the answer and is scrubbed; `selected` only says
+	// that the user picked *some* option. Dropping it would make the snapshot claim
+	// they picked the first one, which is worse than saying nothing.
+	'selected',
 	'size',
 	'type',
 	'width'
@@ -330,8 +334,10 @@ export function serializeDocument(doc: Document, opts: SnapshotOptions = {}): st
 	}
 	// Templates render nothing, and their content fragment is invisible to
 	// `querySelectorAll` while `outerHTML` still serializes it — so the passes
-	// below would miss scripts and handlers hiding inside one.
-	clone.querySelectorAll('template').forEach((n) => n.remove())
+	// below would miss scripts and handlers hiding inside one. `<noscript>` is the
+	// same trap from the other side: with scripting on its markup is one text node,
+	// so redaction cannot see into it, yet it would render on a script-less replay.
+	clone.querySelectorAll('template, noscript').forEach((n) => n.remove())
 	clone.querySelectorAll('script').forEach((n) => n.remove())
 	redactMarkedSubtrees(doc, clone)
 	clone.querySelectorAll('meta[http-equiv="refresh" i]').forEach((n) => n.remove())
