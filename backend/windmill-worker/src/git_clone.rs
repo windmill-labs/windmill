@@ -60,7 +60,7 @@ async fn bounded_output(
     let pid = child.id();
     run_future_with_polling_update_job_poller(
         *job_id,
-        ctx.timeout,
+        ctx.timeout(),
         conn,
         ctx.mem_peak,
         ctx.canceled_by,

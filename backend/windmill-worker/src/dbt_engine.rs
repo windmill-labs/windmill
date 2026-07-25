@@ -406,7 +406,7 @@ where
 {
     run_future_with_polling_update_job_poller(
         *job_id,
-        ctx.timeout,
+        ctx.timeout(),
         conn,
         ctx.mem_peak,
         ctx.canceled_by,
@@ -513,7 +513,7 @@ async fn run_tool(
     let pid = child.id();
     let out = run_future_with_polling_update_job_poller(
         *job_id,
-        ctx.timeout,
+        ctx.timeout(),
         conn,
         ctx.mem_peak,
         ctx.canceled_by,

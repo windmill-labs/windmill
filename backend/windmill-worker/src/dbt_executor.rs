@@ -36,7 +36,7 @@ use crate::git_clone::{
     resolve_git_ref_to_commit,
 };
 use crate::handle_child::{
-    get_mem_peak, handle_child, run_future_with_polling_update_job_poller, JobCtx,
+    get_mem_peak, handle_child, run_future_with_polling_update_job_poller, JobCtx, JobDeadline,
 };
 use crate::{GIT_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV};
 
@@ -154,6 +154,11 @@ pub async fn handle_dbt_job(
 
     let args = job.args.as_ref().map(|a| a.0.clone()).unwrap_or_default();
     let inv = Invocation { args: args.clone(), envs: envs.clone(), strict: true };
+    // One wall clock for the whole job. A dbt job is a sequence of
+    // subprocesses — provision, clone, deps, parse, ls, build, then the
+    // `after_all` tests — and each would otherwise resolve the job's full
+    // timeout for itself.
+    let deadline = JobDeadline::start(conn, &job.workspace_id, job.id, job.timeout).await;
     let prepared = prepare_project(
         &descriptor,
         inner_content,
@@ -170,7 +175,7 @@ pub async fn handle_dbt_job(
         mem_peak,
         canceled_by,
         occupancy_metrics,
-        job.timeout,
+        deadline,
     )
     .await?;
 
@@ -239,7 +244,7 @@ pub async fn handle_dbt_job(
                     canceled_by,
                     occupancy_metrics,
                     worker_name,
-                    timeout: job.timeout,
+                    deadline,
                 },
                 &job.id,
                 &job.workspace_id,
@@ -259,7 +264,7 @@ pub async fn handle_dbt_job(
                 canceled_by,
                 occupancy_metrics,
                 worker_name,
-                timeout: job.timeout,
+                deadline,
             },
             job,
             conn,
@@ -279,6 +284,7 @@ pub async fn handle_dbt_job(
         occupancy_metrics,
         worker_name,
         true,
+        deadline,
     )
     .await;
 
@@ -309,6 +315,7 @@ pub async fn handle_dbt_job(
             // the whole project would assert against models this script never
             // builds, the same failure the ingest-side scoping fixes.
             true,
+            deadline,
         )
         .await;
         results.extend(read_run_results(&prepared.project_dir).await);
@@ -376,6 +383,10 @@ pub async fn dbt_dep(
         token.to_string(),
         None,
     );
+    // A dependency job carries no per-job timeout of its own, but its phases
+    // still share one wall clock rather than each getting the instance-wide
+    // one.
+    let deadline = JobDeadline::start(&conn, w_id, *job_id, None).await;
     let prepared = prepare_project(
         &descriptor,
         content,
@@ -392,8 +403,7 @@ pub async fn dbt_dep(
         mem_peak,
         canceled_by,
         occupancy_metrics,
-        // A dependency job carries no per-job timeout of its own.
-        None,
+        deadline,
     )
     .await?;
 
@@ -409,7 +419,7 @@ pub async fn dbt_dep(
             canceled_by,
             occupancy_metrics,
             worker_name,
-            timeout: None,
+            deadline,
         },
         job_id,
         w_id,
@@ -426,7 +436,7 @@ pub async fn dbt_dep(
             canceled_by,
             occupancy_metrics,
             worker_name,
-            timeout: None,
+            deadline,
         },
         job_id,
         w_id,
@@ -639,7 +649,7 @@ pub async fn prepare_project(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     occupancy_metrics: &mut OccupancyMetrics,
-    job_timeout: Option<i32>,
+    deadline: JobDeadline,
 ) -> error::Result<PreparedProject> {
     let repo_res = descriptor.repo.trim_start_matches("$res:").to_string();
     let repo_value: serde_json::Value = client
@@ -740,7 +750,7 @@ pub async fn prepare_project(
         canceled_by,
         occupancy_metrics,
         worker_name,
-        timeout: job_timeout,
+        deadline,
     };
     let probe_job = (job_id, w_id, conn, &mut probe_ctx);
     let commit = if descriptor.is_latest_ref() {
@@ -783,7 +793,7 @@ pub async fn prepare_project(
         canceled_by,
         occupancy_metrics,
         &git_ssh_cmd,
-        job_timeout,
+        deadline,
     )
     .await?;
 
@@ -829,7 +839,7 @@ pub async fn prepare_project(
             canceled_by,
             occupancy_metrics,
             worker_name,
-            timeout: job_timeout,
+            deadline,
         },
     )
     .await?;
@@ -868,7 +878,7 @@ pub async fn prepare_project(
         canceled_by,
         occupancy_metrics,
         worker_name,
-        timeout: job_timeout,
+        deadline,
     };
     // A profile resource moved — a changed schema, dataset or catalog — relocates
     // every relation the project builds, so the stored graph names ones that no
@@ -1000,7 +1010,7 @@ async fn checkout(
     canceled_by: &mut Option<CanceledBy>,
     occupancy_metrics: &mut OccupancyMetrics,
     git_ssh_cmd: &str,
-    job_timeout: Option<i32>,
+    deadline: JobDeadline,
 ) -> error::Result<String> {
     let dest = PathBuf::from(job_dir).join("dbt");
     if !commit.is_empty() {
@@ -1037,7 +1047,7 @@ async fn checkout(
             w_id,
             occupancy_metrics,
             git_ssh_cmd,
-            job_timeout,
+            deadline.remaining_secs(),
         )
         .await?;
         publish_to_cache(&dest, &cached, job_id).await;
@@ -1054,7 +1064,7 @@ async fn checkout(
         w_id,
         occupancy_metrics,
         git_ssh_cmd,
-        job_timeout,
+        deadline.remaining_secs(),
     )
     .await
 }
@@ -1290,7 +1300,11 @@ async fn write_profiles(
             pem,
         )?;
     }
-    let profile_digest = digest(&rendered.yaml);
+    let profile_digest = profile_identity_digest(
+        &rendered.yaml,
+        &dir,
+        rendered.root_certificate_pem.as_deref(),
+    );
     Ok((
         dir,
         Some(resource_path),
@@ -1298,6 +1312,20 @@ async fn write_profiles(
         rendered.database,
         rendered.schema,
         profile_digest,
+    ))
+}
+
+/// Identifies the connection a rendered profile describes, for run identity.
+///
+/// The per-job profiles dir is spelled out in the YAML when a private CA is
+/// configured (`sslrootcert`) and differs on every attempt, so hashing the
+/// rendered text as-is would make a retry reject its own predecessor. The
+/// certificate is part of the connection, so it is hashed in place of its path.
+fn profile_identity_digest(yaml: &str, profiles_dir: &Path, root_cert_pem: Option<&str>) -> String {
+    digest(&format!(
+        "{}\n{}",
+        yaml.replace(profiles_dir.to_str().unwrap_or_default(), "$PROFILES_DIR"),
+        root_cert_pem.unwrap_or_default(),
     ))
 }
 
@@ -1396,6 +1424,7 @@ async fn run_dbt(
     occupancy_metrics: &mut OccupancyMetrics,
     worker_name: &str,
     with_selection: bool,
+    deadline: JobDeadline,
 ) -> error::Result<()> {
     let mut cmd = dbt_command(p, &[command]);
     cmd.envs(&inv.envs);
@@ -1439,7 +1468,9 @@ async fn run_dbt(
         worker_name,
         &job.workspace_id,
         &format!("dbt {command}"),
-        job.timeout,
+        // What is left of the job's wall clock: `dbt build` follows the whole
+        // preparation sequence, and the `after_all` tests follow it.
+        deadline.remaining_secs(),
         false,
         &mut Some(occupancy_metrics),
         None,
@@ -2068,7 +2099,7 @@ async fn run_capturing(
     let pid = child.id();
     let out = run_future_with_polling_update_job_poller(
         *job_id,
-        ctx.timeout,
+        ctx.timeout(),
         conn,
         ctx.mem_peak,
         ctx.canceled_by,
@@ -2119,7 +2150,7 @@ async fn run_prep_command(
         ctx.worker_name,
         w_id,
         name,
-        ctx.timeout,
+        ctx.timeout(),
         false,
         &mut Some(ctx.occupancy_metrics),
         None,
@@ -2555,6 +2586,41 @@ mod tests {
         };
         assert!(has_selection(&descriptor, &Invocation::default()));
         assert!(!has_selection(&descriptor, &cleared));
+    }
+
+    // A retry runs in a new job directory, and a profile with a private CA
+    // names that directory in `sslrootcert`. Hashing the rendered text as-is
+    // would make every such retry look like a different warehouse and reject
+    // its own predecessor's state.
+    #[test]
+    fn profile_identity_ignores_the_job_dir_but_not_the_connection() {
+        let yaml = |dir: &str, host: &str| {
+            format!("host: \"{host}\"\nsslrootcert: \"{dir}/server-ca.pem\"\n")
+        };
+        let first = profile_identity_digest(
+            &yaml("/tmp/windmill/w/job-1/profiles", "wh.internal"),
+            Path::new("/tmp/windmill/w/job-1/profiles"),
+            Some("PEM"),
+        );
+        let retry = profile_identity_digest(
+            &yaml("/tmp/windmill/w/job-2/profiles", "wh.internal"),
+            Path::new("/tmp/windmill/w/job-2/profiles"),
+            Some("PEM"),
+        );
+        assert_eq!(first, retry);
+
+        let repointed = profile_identity_digest(
+            &yaml("/tmp/windmill/w/job-2/profiles", "other.internal"),
+            Path::new("/tmp/windmill/w/job-2/profiles"),
+            Some("PEM"),
+        );
+        let recerted = profile_identity_digest(
+            &yaml("/tmp/windmill/w/job-2/profiles", "wh.internal"),
+            Path::new("/tmp/windmill/w/job-2/profiles"),
+            Some("OTHER PEM"),
+        );
+        assert_ne!(first, repointed);
+        assert_ne!(first, recerted);
     }
 
     // THREE sites derive a `table://` key: the manifest ingest (which creates
