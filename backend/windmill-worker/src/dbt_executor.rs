@@ -356,10 +356,8 @@ pub async fn dbt_dep(
     )
     .await?;
 
-    // A deploy has no job arguments and, until the run, no job environment; it
-    // tolerates the `{{ }}` placeholders it cannot fill (see `Invocation`).
-    // A deploy has no job arguments and no job environment, and tolerates the
-    // `{{ }}` placeholders only a run can fill.
+    // A deploy has no job arguments and no job environment, so it tolerates the
+    // `{{ }}` placeholders only a run can fill (see `Invocation::strict`).
     let inv = Invocation { strict: false, ..Default::default() };
     run_dbt_parse(&prepared, &descriptor, &inv, job_id, w_id, &conn).await?;
 
@@ -2083,7 +2081,21 @@ async fn restore_run_state(
                 .to_string(),
         ));
     }
-    let saved: SavedRunState = tokio::fs::read_to_string(dir.join("state.json"))
+    // Snapshot the whole directory first, then read only from the snapshot.
+    // `save_run_state` publishes by replacing this directory, so reading
+    // `state.json` and then copying the artifacts through separate lookups can
+    // pair one generation's arguments with another's results. A single copy
+    // either sees one generation or fails — and failing reports "no previous
+    // run", which is the safe direction.
+    let snapshot = p.project_dir.join(".wm_dbt_retry_state");
+    tokio::fs::remove_dir_all(&snapshot).await.ok();
+    if copy_dir(&dir, &snapshot).await.is_err() {
+        return Err(Error::BadRequest(
+            "no previous dbt run to retry from on this worker; run the script normally instead"
+                .to_string(),
+        ));
+    }
+    let saved: SavedRunState = tokio::fs::read_to_string(snapshot.join("state.json"))
         .await
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
@@ -2098,8 +2110,9 @@ async fn restore_run_state(
     let target = p.project_dir.join("target");
     tokio::fs::create_dir_all(&target).await.ok();
     for f in ["run_results.json", "manifest.json"] {
-        tokio::fs::copy(dir.join(f), target.join(f)).await.ok();
+        tokio::fs::copy(snapshot.join(f), target.join(f)).await.ok();
     }
+    tokio::fs::remove_dir_all(&snapshot).await.ok();
     Ok(saved
         .args
         .into_iter()

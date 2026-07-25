@@ -62,6 +62,11 @@ pub struct ManifestNode {
     pub name: String,
     #[serde(default)]
     pub alias: Option<String>,
+    /// Sources only: the PHYSICAL table name. `name` is the logical one
+    /// `source()` refers to, and the two differ whenever a source is declared
+    /// with an `identifier`. Sources have no `alias`.
+    #[serde(default)]
+    pub identifier: Option<String>,
     #[serde(default)]
     pub schema: Option<String>,
     /// dbt's resolved database (BigQuery's project, Snowflake's database). A
@@ -202,7 +207,15 @@ fn asset_path_for(
     // `analytics_snapshots`). Keying on the config value would name a relation
     // that does not exist, and the mismatch is invisible until nothing links.
     let schema = node.schema.as_deref()?;
-    let name = node.alias.as_deref().unwrap_or(&node.name);
+    // `identifier` for a source, `alias` for a model; `name` only when neither
+    // is set. Using `name` for a source declared `name: orders, identifier:
+    // raw_orders` would key the asset on a relation that does not exist, so no
+    // native script reading `raw_orders` could ever join it.
+    let name = node
+        .identifier
+        .as_deref()
+        .or(node.alias.as_deref())
+        .unwrap_or(&node.name);
     Some(table_asset_path(
         resource_path,
         node.database.as_deref(),
@@ -642,7 +655,8 @@ mod tests {
       },
       "sources": {
         "source.jaffle_shop.jaffle_raw.raw_orders": {
-          "resource_type": "source", "name": "raw_orders", "schema": "jaffle_raw",
+          "resource_type": "source", "name": "orders", "identifier": "raw_orders",
+          "schema": "jaffle_raw",
           "relation_name": "\"wh\".\"jaffle_raw\".\"raw_orders\"",
           "freshness": {"warn_after": {"count": 1000, "period": "day"}}
         }
@@ -720,6 +734,20 @@ mod tests {
         // dbt-core 1.x echoes the author's casing, 2.x uppercases it — readers
         // must compare case-insensitively.
         assert_eq!(pkg.severity.as_deref(), Some("warn"));
+    }
+
+    // A source's `name` is what `source()` refers to; its `identifier` is the
+    // table. Keying on the logical name would name a relation that does not
+    // exist, so nothing reading the real one could ever join it.
+    #[test]
+    fn sources_key_on_their_identifier_not_their_logical_name() {
+        let i = ingested();
+        assert_eq!(
+            node(&i, "source.jaffle_shop.jaffle_raw.raw_orders")
+                .asset_path
+                .as_deref(),
+            Some("f/prod/wh/jaffle_raw/raw_orders")
+        );
     }
 
     // The whole reason for `table://`: a model's key is the physical relation,
