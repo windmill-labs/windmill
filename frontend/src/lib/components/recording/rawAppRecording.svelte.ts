@@ -273,12 +273,14 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			before: frameIndex(before)
 		}
 		steps.push(step)
-		// The frames that described this step's "before" are spent. Without this a
-		// later interaction on the same element (a keyboard activation of a button
-		// already clicked) would reuse them and appear to rewind; with it, a pending
-		// frame can wait as long as a native picker session takes.
-		pendingPointer = undefined
-		pendingKey = undefined
+		// Spend only the frame this step actually used. Without consumption a later
+		// interaction on the same element (a keyboard activation of a button already
+		// clicked) would reuse it and appear to rewind; consuming indiscriminately
+		// would take the frame belonging to something else — a control clicked while
+		// a fill is still debouncing commits that fill first, and the control's own
+		// pointerdown frame must survive it.
+		if (before !== undefined && pendingPointer?.html === before) pendingPointer = undefined
+		if (before !== undefined && pendingKey?.html === before) pendingKey = undefined
 		lastStepEl = el
 		lastStepAt = t
 		stepCount = steps.length
