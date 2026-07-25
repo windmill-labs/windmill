@@ -29,14 +29,18 @@ export const MAX_RECORDING_BYTES = 100 * 1024 * 1024
  * above any real capture: a wide for-loop flow records a job per iteration. */
 export const MAX_RECORDED_JOBS = 2000
 export const MAX_RECORDED_JOB_EVENTS = 200_000
-/** A flow job's `flow_status.modules` becomes one component subtree per entry, so
- * a single job can be a render bomb regardless of how few jobs the map holds. It
- * arrives on `initial_job` and on any event carrying a status update. */
-export const MAX_FLOW_STATUS_MODULES = 20_000
+/** How much structure any single recorded value may expand into. One value is what
+ * a component renders eagerly (a job state, a flow definition, an asset sample), so
+ * this is the bound that stops a render bomb; the *number* of values is bounded by
+ * the counts above. See {@link countRenderNodes} for why this is one structural
+ * budget rather than a cap per key. */
+export const MAX_VALUE_NODES = 100_000
+/** Depth is its own hazard: a renderer recursing over a deeply nested value blows
+ * the stack long before the node count matters. */
+export const MAX_VALUE_DEPTH = 64
 /** Every frame reassigns the whole per-node status map on a timer, and each
  * reassignment rebuilds the derived id/state maps over the entire key set. */
 export const MAX_TIMELINE_FRAMES = 20_000
-export const MAX_FRAME_STATUSES = 5000
 /** Graph elements each become a rendered canvas node or edge. */
 export const MAX_GRAPH_ELEMENTS = 2000
 /* An asset sample renders as a `rows × columns` table of plain `<td>`s, so the
@@ -44,24 +48,16 @@ export const MAX_GRAPH_ELEMENTS = 2000
  * cells from a tiny payload of empty row objects. */
 export const MAX_SAMPLE_ROWS = 5000
 export const MAX_SAMPLE_COLUMNS = 500
+/** Not subsumed by {@link MAX_VALUE_NODES}: the table is the cross product of two
+ * independent arrays, so rows of *empty* objects carry no structure to count yet
+ * still render a cell each. Structure and cross products are different bounds. */
 export const MAX_SAMPLE_CELLS = 100_000
 /** Captured source is syntax-highlighted in one pass. */
 export const MAX_CODE_CHARS = 4 * 1024 * 1024
-/** `SchemaForm` and `JobArgs` render a row per property of a script recording's
- * `args`/`schema.properties`, so those maps are render cardinality too. */
-export const MAX_ARG_PROPERTIES = 2000
 /** `FlowGraphV2` builds and lays out a node per module, recursing into branches and
- * loops, plus one per note. A flow definition is a nested structure, so the count
- * that matters is the total across the tree, not the top-level array's length. */
+ * loops, plus one per note or group. Kept alongside the render budget because it
+ * gives the flow-specific count a name; the budget is what makes it exhaustive. */
 export const MAX_FLOW_MODULES = 5000
-/** Notes and groups are each a rendered overlay; capping one and not the other just
- * moves where a hostile count goes. */
-export const MAX_FLOW_NOTES = 1000
-export const MAX_FLOW_GROUPS = 1000
-/** `DisplayResult` mounts a nested `DisplayResult` per entry of a `render_all`
- * result, so this one key in a recorded result fans out into components. Bounded
- * where the results live: on the initial job and on every completion event. */
-export const MAX_RENDER_ALL = 1000
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
 	typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -124,42 +120,61 @@ export function isAppRecording(data: unknown): data is RawAppRecording {
 	return validSteps && validViewport && validDuration && validHeader
 }
 
-/** `flow_status.modules` on anything that carries a flow status, bounded wherever
- * it appears rather than only on `initial_job` — a status update arriving as an
- * event lands in the same renderer. */
-function hasBoundedFlowStatus(v: unknown): boolean {
-	if (!isObject(v)) return true
-	const status = v.flow_status
-	if (!isObject(status) || status.modules === undefined) return true
-	return isBoundedArray(status.modules, MAX_FLOW_STATUS_MODULES)
+/**
+ * Total array entries and object keys reachable from `v`, stopping as soon as
+ * `budget` is blown so the count itself can't be the denial of service. Returns
+ * `Infinity` past `MAX_VALUE_DEPTH` so a deeply nested payload is rejected rather
+ * than overflowing this stack (or a renderer's).
+ *
+ * This is the general form of a bound that was previously written per key
+ * (`render_all`, `schema.properties`, `flow_status.modules`, …). Every one of those
+ * turned out to have an unbounded sibling or an unbounded recursion, because the
+ * thing that actually costs is "how much structure does one recorded value expand
+ * into", not which key it arrived under. Counting structure covers the keys nobody
+ * has thought of yet, so prefer widening this over adding another named cap.
+ */
+function countRenderNodes(v: unknown, budget: number, depth = 0): number {
+	if (depth > MAX_VALUE_DEPTH) return Infinity
+	if (Array.isArray(v)) {
+		let n = v.length
+		if (n > budget) return n
+		for (const item of v) {
+			n += countRenderNodes(item, budget - n, depth + 1)
+			if (n > budget) return n
+		}
+		return n
+	}
+	if (isObject(v)) {
+		const keys = Object.keys(v)
+		let n = keys.length
+		if (n > budget) return n
+		for (const k of keys) {
+			n += countRenderNodes(v[k], budget - n, depth + 1)
+			if (n > budget) return n
+		}
+		return n
+	}
+	return 0
 }
 
-/** A recorded `result`, bounded on the one key whose renderer fans out per entry. */
-function hasBoundedResult(v: unknown): boolean {
-	if (!isObject(v)) return true
-	const result = v.result
-	if (!isObject(result) || result.render_all === undefined) return true
-	return isBoundedArray(result.render_all, MAX_RENDER_ALL)
-}
+/** True when one recorded value stays inside the render budget. Apply this to each
+ * value a component expands eagerly (a job's args/result/flow_status, a flow
+ * definition, an asset sample); the *number* of such values is bounded separately. */
+const withinRenderBudget = (v: unknown) => countRenderNodes(v, MAX_VALUE_NODES) <= MAX_VALUE_NODES
 
 /** A RecordedJob whose events all carry an object `data`: JobLoader replays each
  * `event.data` in a `setTimeout`, whose throw a Svelte boundary can't catch, so a
- * malformed event has to be rejected at load. */
+ * malformed event has to be rejected at load. Each job state is also held to the
+ * render budget, which covers everything hanging off it — `args` (a JobArgs row per
+ * key), `result` (`render_all` fan-out, `data_tests` checklists), `flow_status`
+ * (a component subtree per module) — at any depth. */
 function isRecordedJob(j: unknown): j is RecordedJob {
 	return (
 		isObject(j) &&
 		isObject(j.initial_job) &&
-		hasBoundedFlowStatus(j.initial_job) &&
-		hasBoundedResult(j.initial_job) &&
+		withinRenderBudget(j.initial_job) &&
 		isBoundedArray(j.events, MAX_RECORDED_JOB_EVENTS) &&
-		j.events.every(
-			(e) =>
-				isObject(e) &&
-				isObject(e.data) &&
-				hasBoundedFlowStatus(e.data) &&
-				hasBoundedFlowStatus(e.data.job) &&
-				hasBoundedResult(e.data.job)
-		)
+		j.events.every((e) => isObject(e) && isObject(e.data) && withinRenderBudget(e.data))
 	)
 }
 
@@ -190,9 +205,6 @@ function hasValidHeader(data: Record<string, unknown>, pathField: string): boole
 		data.total_duration_ms >= 0
 	)
 }
-
-const isBoundedMap = (v: unknown, max: number) =>
-	v === undefined || (isObject(v) && Object.keys(v).length <= max)
 
 /** Total modules across a flow definition's nested structure (branches, loops),
  * stopping as soon as the budget is blown so a hostile tree can't make the walk
@@ -231,9 +243,10 @@ export function isScriptRecording(data: unknown): data is ScriptRecording {
 		isRecordedJob(data.job) &&
 		isBoundedCode(data.code) &&
 		typeof data.language === 'string' &&
-		(data.schema === undefined ||
-			(isObject(data.schema) && isBoundedMap(data.schema.properties, MAX_ARG_PROPERTIES))) &&
-		isBoundedMap(data.args, MAX_ARG_PROPERTIES)
+		// SchemaForm mounts a field per property, recursing into nested objects, and
+		// JobArgs a row per arg — so the budget, not a top-level key count.
+		withinRenderBudget(data.schema) &&
+		withinRenderBudget(data.args)
 	)
 }
 
@@ -256,7 +269,7 @@ export function isPipelineRecording(data: unknown): data is PipelineRecording {
 			(f) =>
 				isObject(f) &&
 				isObject(f.statuses) &&
-				Object.keys(f.statuses).length <= MAX_FRAME_STATUSES &&
+				withinRenderBudget(f.statuses) &&
 				Object.values(f.statuses).every(isObject)
 		)
 	// A sample renders `rows`/`columns` unless it carries a non-empty `error`.
@@ -269,7 +282,10 @@ export function isPipelineRecording(data: unknown): data is PipelineRecording {
 					((typeof s.error === 'string' && s.error !== '') ||
 						(isObjectArray(s.rows, MAX_SAMPLE_ROWS) &&
 							isObjectArray(s.columns, MAX_SAMPLE_COLUMNS) &&
-							(s.rows as unknown[]).length * (s.columns as unknown[]).length <= MAX_SAMPLE_CELLS))
+							(s.rows as unknown[]).length * (s.columns as unknown[]).length <=
+								MAX_SAMPLE_CELLS &&
+							// The cells' values are formatted individually on top of that.
+							withinRenderBudget(s)))
 			))
 	const validCodes =
 		data.codes === undefined ||
@@ -300,8 +316,9 @@ export function isFlowRecording(data: unknown): data is FlowRecording {
 	return (
 		isObject(value) &&
 		countFlowModules(value.modules, MAX_FLOW_MODULES) <= MAX_FLOW_MODULES &&
-		(value.notes === undefined || isBoundedArray(value.notes, MAX_FLOW_NOTES)) &&
-		(value.groups === undefined || isBoundedArray(value.groups, MAX_FLOW_GROUPS))
+		// Covers everything else the graph lays out in one pass: notes, groups, and
+		// each module's `input_transforms` table.
+		withinRenderBudget(value)
 	)
 }
 

@@ -1,15 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
-	MAX_ARG_PROPERTIES,
-	MAX_FLOW_GROUPS,
 	MAX_FLOW_MODULES,
-	MAX_FLOW_NOTES,
-	MAX_FLOW_STATUS_MODULES,
-	MAX_FRAME_STATUSES,
 	MAX_RECORDED_JOBS,
-	MAX_RENDER_ALL,
 	MAX_SAMPLE_CELLS,
 	MAX_SAMPLE_COLUMNS,
+	MAX_VALUE_DEPTH,
+	MAX_VALUE_NODES,
 	parseRecording
 } from './recordingLoad'
 
@@ -99,44 +95,56 @@ describe('parseRecording', () => {
 		expect(rejected({ version: 1, flow_path: 'f', ...header, jobs: tooManyJobs })).toBe(true)
 	})
 
-	it('bounds the nested structures that drive render cost, not just the job count', () => {
-		// One job whose flow_status.modules is huge renders a subtree per entry, so
-		// the job/event counts alone would let a small payload freeze the tab.
-		const fatModules = Array.from({ length: MAX_FLOW_STATUS_MODULES + 1 }, () => ({
-			type: 'Success'
-		}))
-		expect(
-			rejected({
-				version: 1,
-				flow_path: 'f',
-				...header,
-				jobs: { j: { initial_job: { flow_status: { modules: fatModules } }, events: [] } }
-			})
-		).toBe(true)
-		// Same via an event carrying the status update rather than the initial job.
-		expect(
-			rejected({
-				version: 1,
-				flow_path: 'f',
-				...header,
-				jobs: {
-					j: {
-						initial_job: {},
-						events: [{ t: 0, data: { flow_status: { modules: fatModules } } }]
-					}
+	it('holds every recorded value to one structural render budget', () => {
+		// Each of these was previously a named per-key cap, and each of those caps was
+		// found to have an unbounded sibling or an unbounded recursion. They are one
+		// test now because they are one rule: a value a component expands eagerly may
+		// not expand into more than MAX_VALUE_NODES of structure, at any depth.
+		const wide = (n: number) => Array.from({ length: n }, () => 0)
+		const overBudget = MAX_VALUE_NODES + 1
+
+		const flowJob = (initial: unknown, eventData?: unknown) => ({
+			version: 1,
+			flow_path: 'f',
+			...header,
+			jobs: {
+				j: {
+					initial_job: initial,
+					events: eventData ? [{ t: 0, data: eventData }] : []
 				}
-			})
-		).toBe(true)
-		// A pipeline frame's status map is reassigned whole on a timer.
-		const fatStatuses = Object.fromEntries(
-			Array.from({ length: MAX_FRAME_STATUSES + 1 }, (_, i) => [`p${i}`, { status: 'success' }])
+			}
+		})
+		// args (a JobArgs row per key) and flow_status.modules (a subtree per entry).
+		expect(rejected(flowJob({ id: 'j', args: { a: wide(overBudget) } }))).toBe(true)
+		expect(rejected(flowJob({ id: 'j', flow_status: { modules: wide(overBudget) } }))).toBe(true)
+		// Same via an event rather than the initial job.
+		expect(rejected(flowJob({ id: 'j' }, { flow_status: { modules: wide(overBudget) } }))).toBe(
+			true
 		)
-		expect(rejected(pipeline({ timeline: [{ t: 0, statuses: fatStatuses }] }))).toBe(true)
+		// render_all fans out into nested DisplayResults, and the renderer recurses —
+		// so a nested budget, not the top-level array's length.
+		const nested = Array.from({ length: 400 }, () => ({ render_all: wide(400) }))
+		expect(
+			rejected(flowJob({ id: 'j' }, { completed: true, job: { id: 'j', result: { render_all: nested } } }))
+		).toBe(true)
+		// data_tests is a sibling key whose renderer also fans out per entry; nobody
+		// had to name it for the budget to cover it.
+		expect(
+			rejected(
+				flowJob({ id: 'j' }, { completed: true, job: { id: 'j', result: { data_tests: wide(overBudget) } } })
+			)
+		).toBe(true)
+		// Depth is its own hazard: a renderer recursing over this blows the stack long
+		// before the node count would.
+		let deep: unknown = 0
+		for (let i = 0; i < MAX_VALUE_DEPTH + 2; i++) deep = { nest: deep }
+		expect(rejected(flowJob({ id: 'j', args: { a: deep } }))).toBe(true)
+
+		expect(kindOf(flowJob({ id: 'j', args: { a: 1, b: 'two' } }))).toBe('flow')
 	})
 
-	it('bounds the collections a script and a flow render immediately', () => {
-		const props = (n: number) =>
-			Object.fromEntries(Array.from({ length: n }, (_, i) => [`a${i}`, { type: 'string' }]))
+	it('bounds what a script and a flow render immediately', () => {
+		const wide = (n: number) => Array.from({ length: n }, () => 0)
 		const script = (extra: Record<string, unknown>) => ({
 			version: 1,
 			type: 'script',
@@ -147,10 +155,15 @@ describe('parseRecording', () => {
 			job: job(),
 			...extra
 		})
-		// SchemaForm / JobArgs render a row per property.
-		expect(rejected(script({ args: props(MAX_ARG_PROPERTIES + 1) }))).toBe(true)
-		expect(rejected(script({ schema: { properties: props(MAX_ARG_PROPERTIES + 1) } }))).toBe(true)
-		expect(kindOf(script({ args: props(3) }))).toBe('script')
+		// SchemaForm recurses into nested properties, so the cap cannot be top-level.
+		expect(
+			rejected(
+				script({
+					schema: { properties: { outer: { properties: { inner: wide(MAX_VALUE_NODES + 1) } } } }
+				})
+			)
+		).toBe(true)
+		expect(kindOf(script({ args: { a: 1 } }))).toBe('script')
 
 		const flowWith = (value: unknown) => ({
 			version: 1,
@@ -162,22 +175,18 @@ describe('parseRecording', () => {
 		const modules = (n: number) =>
 			Array.from({ length: n }, (_, i) => ({ id: `m${i}`, value: { type: 'identity' } }))
 		expect(rejected(flowWith({ modules: modules(MAX_FLOW_MODULES + 1) }))).toBe(true)
-		// The count has to be the total across the nested tree, not the top-level
+		// The module count is the total across the nested tree, not the top-level
 		// array's length — a branch or loop body renders nodes just the same.
 		expect(
 			rejected(
 				flowWith({
 					modules: [
-						{
-							id: 'loop',
-							value: { type: 'forloopflow', modules: modules(MAX_FLOW_MODULES + 1) }
-						}
+						{ id: 'loop', value: { type: 'forloopflow', modules: modules(MAX_FLOW_MODULES + 1) } }
 					]
 				})
 			)
 		).toBe(true)
-		// A branch is a node and an edge even with no modules in it, so counting only
-		// branch *contents* would let empty branches ride free.
+		// A branch is a node and an edge even with no modules in it.
 		expect(
 			rejected(
 				flowWith({
@@ -193,28 +202,24 @@ describe('parseRecording', () => {
 				})
 			)
 		).toBe(true)
-		expect(rejected(flowWith({ modules: [], notes: modules(MAX_FLOW_NOTES + 1) }))).toBe(true)
-		// Notes and groups are both rendered overlays: capping one only moves the count.
-		expect(rejected(flowWith({ modules: [], groups: modules(MAX_FLOW_GROUPS + 1) }))).toBe(true)
-		expect(kindOf(flowWith({ modules: modules(3) }))).toBe('flow')
-	})
-
-	it('bounds a recorded render_all result, which fans out into nested components', () => {
-		const withResult = (result: unknown) => ({
-			version: 1,
-			flow_path: 'f',
-			...header,
-			jobs: {
-				j: {
-					initial_job: { id: 'j' },
-					events: [{ t: 0, data: { completed: true, job: { id: 'j', result } } }]
-				}
-			}
-		})
+		// input_transforms renders a table row per entry — a per-module sibling the
+		// module count never saw, and the budget covers without naming it.
 		expect(
-			rejected(withResult({ render_all: Array.from({ length: MAX_RENDER_ALL + 1 }, () => 0) }))
+			rejected(
+				flowWith({
+					modules: [
+						{
+							id: 'a',
+							value: { type: 'rawscript', input_transforms: { x: wide(MAX_VALUE_NODES + 1) } }
+						}
+					]
+				})
+			)
 		).toBe(true)
-		expect(kindOf(withResult({ render_all: [1, 2, 3] }))).toBe('flow')
+		// Notes and groups are rendered overlays; same budget, no separate caps.
+		expect(rejected(flowWith({ modules: [], notes: wide(MAX_VALUE_NODES + 1) }))).toBe(true)
+		expect(rejected(flowWith({ modules: [], groups: wide(MAX_VALUE_NODES + 1) }))).toBe(true)
+		expect(kindOf(flowWith({ modules: modules(3) }))).toBe('flow')
 	})
 
 	it('tells an oversized recording apart from a corrupt one', () => {
@@ -229,7 +234,7 @@ describe('parseRecording', () => {
 		expect(corrupt.ok ? '' : corrupt.error).toBe('Invalid flow recording format.')
 	})
 
-	it('bounds an asset sample on its cell product, not just per axis', () => {
+	it('bounds an asset sample on its rendered cells, not just per axis', () => {
 		const sample = (rows: number, columns: number) => ({
 			assetSamples: {
 				'ducklake:main/t': {
@@ -241,7 +246,9 @@ describe('parseRecording', () => {
 				}
 			}
 		})
-		// Each axis is individually under its cap, so only the product rejects this.
+		// Each axis is individually under its cap, and rows of empty objects carry no
+		// structure to count, so only the cell-product cap rejects this — which is why
+		// the structural budget does not replace it.
 		const overBudget = MAX_SAMPLE_CELLS / MAX_SAMPLE_COLUMNS + 1
 		expect(rejected(pipeline(sample(overBudget, MAX_SAMPLE_COLUMNS)))).toBe(true)
 		expect(kindOf(pipeline(sample(10, 20)))).toBe('pipeline')
