@@ -1767,6 +1767,7 @@ pub async fn resolve_retry_chain_if_succeeded(
                 JOIN v2_job j ON j.id = c.id
                 WHERE c.status = 'failure'
                     AND c.workspace_id = $2
+                    AND j.flow_step_id IS NULL
                     AND j.runnable_id IS NOT DISTINCT FROM $3
                     AND EXISTS (
                         SELECT 1 FROM v2_job_completed sc

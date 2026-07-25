@@ -13,7 +13,7 @@
 		Wrench
 	} from 'lucide-svelte'
 	import Popover from '../Popover.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import './runs-grid.css'
 	import { useKeyPressed } from '$lib/svelte5Utils.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -312,8 +312,10 @@
 				onClick: () => onCancelJobs?.(selectedIdsPossibleActions.cancellableJobIds),
 				onHover: (hover) => (hoveredDropdownAction = hover ? 'cancel' : null)
 			})
-		const resolvable = selectedIdsPossibleActions.resolvableJobIds.length
-		const unresolvable = selectedIdsPossibleActions.unresolvableJobIds.length
+		// Operators are rejected by the endpoint, so offering the action would only 403.
+		const canResolve = !$userStore?.operator
+		const resolvable = canResolve ? selectedIdsPossibleActions.resolvableJobIds.length : 0
+		const unresolvable = canResolve ? selectedIdsPossibleActions.unresolvableJobIds.length : 0
 		if (resolvable)
 			actions.push({
 				label: 'Mark resolved',

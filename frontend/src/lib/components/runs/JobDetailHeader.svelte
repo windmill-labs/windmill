@@ -487,7 +487,7 @@
 						<div class="flex items-baseline flex-wrap gap-x-2 gap-y-1">
 							<JobStatus {job} />
 
-							{#if isJobResolvable(job)}
+							{#if isJobResolvable(job) && !$userStore?.operator}
 								<!-- No startIcon on these: the row is baseline-aligned, and a Button is
 								     itself a flex container whose baseline comes from its icon rather
 								     than its label, which sits the text ~3px above the badges. Text

@@ -25586,7 +25586,9 @@ components:
           description: whether this failure has been marked as handled
         resolved_by:
           type: string
-          description: absent when Windmill resolved the failure automatically
+          description: >-
+            who resolved the failure. Enterprise-only, so also absent for a manual resolution
+            outside enterprise; use resolved_automatically to tell the two apart
         resolved_at:
           type: string
           format: date-time

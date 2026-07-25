@@ -20,9 +20,13 @@ describe('isJobResolvable', () => {
 	it('accepts a plain failure', () => {
 		expect(isJobResolvable(completed({ success: false, canceled: false }))).toBe(true)
 	})
-	it('rejects success, cancellation and jobs still queued', () => {
+	it('rejects success, cancellation, flow steps and jobs still queued', () => {
 		expect(isJobResolvable(completed({ success: true, canceled: false }))).toBe(false)
 		expect(isJobResolvable(completed({ success: false, canceled: true }))).toBe(false)
+		// a step resolved alone would show orange inside a flow that is still red
+		expect(
+			isJobResolvable(completed({ success: false, canceled: false, is_flow_step: true }))
+		).toBe(false)
 		expect(isJobResolvable({ type: 'QueuedJob', running: true } as any)).toBe(false)
 	})
 })

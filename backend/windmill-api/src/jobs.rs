@@ -9680,11 +9680,17 @@ const MAX_RESOLUTION_NOTE_LEN: usize = 2000;
 /// outside EE: CE records *that* a failure was handled, EE records the accountability. The
 /// resolution itself, the filter and the automatic retry sweep are unaffected, so gating
 /// stays on this write and never reaches the runs-list read path.
+/// The runtime license check matters as much as the feature gate: an EE binary keeps the
+/// `enterprise` feature when its key expires, so without this a direct API client could keep
+/// persisting attribution the UI has already stopped offering.
 #[cfg(feature = "enterprise")]
 fn resolution_attribution<'a>(
     authed: &'a ApiAuthed,
     note: Option<&'a str>,
 ) -> (Option<&'a str>, Option<&'a str>) {
+    if !windmill_common::ee_oss::LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed) {
+        return (None, None);
+    }
     (Some(authed.username.as_str()), note)
 }
 
@@ -9748,6 +9754,9 @@ async fn resolve_completed_jobs(
                     AND c.workspace_id = $2
                     AND ($3::TEXT[] IS NULL OR j.tag = ANY($3))
                     AND c.status = 'failure'
+                    -- Resolution is a top-level triage state: a step resolved on its own
+                    -- would render orange inside a flow whose status is still red.
+                    AND j.flow_step_id IS NULL
             ON CONFLICT (job_id) DO UPDATE SET
                 resolved_at = now(),
                 resolved_by = EXCLUDED.resolved_by,

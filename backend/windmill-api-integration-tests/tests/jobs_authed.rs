@@ -421,6 +421,50 @@ async fn test_resolve_completed_jobs_scoping(db: Pool<Postgres>) -> anyhow::Resu
         .await?;
     assert_eq!(remaining, 0);
 
+    // A flow step is a failure too, but resolving one would render it orange inside a flow
+    // whose own status is still red, so the endpoint must skip it.
+    let step = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, permissioned_as_email,
+                             kind, tag, runnable_path, visible_to_owner, flow_step_id)
+         VALUES ($1, 'test-workspace', 'test-user-2', 'u/test-user-2', 'test2@windmill.dev',
+                 'script', 'deno', 'u/test-user-2/some_script', true, 'a')",
+    )
+    .bind(step)
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO v2_job_completed (id, workspace_id, duration_ms, result, status)
+         VALUES ($1, 'test-workspace', 100, '42'::jsonb, 'failure'::job_status)",
+    )
+    .bind(step)
+    .execute(&db)
+    .await?;
+    let resp = member(client().post(format!("{base}/completed/resolve")))
+        .json(&json!({ "job_ids": [step] }))
+        .send()
+        .await?;
+    let ids: Vec<Uuid> = serde_json::from_str(&resp.text().await?)?;
+    assert!(ids.is_empty(), "a flow step must not be resolvable");
+
+    // Operators are read-only on runs; the endpoint must refuse them outright.
+    sqlx::query("UPDATE usr SET operator = true WHERE username = 'test-user-3'")
+        .execute(&db)
+        .await?;
+    let resp = client()
+        .post(format!("{base}/completed/resolve"))
+        .header("Authorization", "Bearer SECRET_TOKEN_3")
+        .json(&json!({ "job_ids": [mine] }))
+        .send()
+        .await?;
+    // Error::NotAuthorized maps to 401 (403 is RequireAdmin/PermissionDenied).
+    assert_eq!(
+        resp.status().as_u16(),
+        401,
+        "operators must be refused: {}",
+        resp.text().await?
+    );
+
     // The note is copied onto every resolved row, so an unbounded one multiplies by the
     // batch size; the cap must reject before any row is written.
     let resp = member(client().post(format!("{base}/completed/resolve")))

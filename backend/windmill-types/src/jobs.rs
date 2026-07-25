@@ -398,7 +398,8 @@ pub struct CompletedJob {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub resolved: Option<bool>,
-    // None means it was resolved automatically by a succeeding retry.
+    // None does NOT imply automatic: attribution is enterprise-only, so a manual resolution in
+    // CE is also None, and list responses omit it deliberately. Use `resolved_automatically`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub resolved_by: Option<String>,

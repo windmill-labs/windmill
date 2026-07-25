@@ -84,9 +84,11 @@ export function isJobReRunnable(j: Job): boolean {
 	return (j.job_kind === 'script' || j.job_kind === 'flow') && j.parent_job === undefined
 }
 
-// Only a failure can carry a resolution, so cancellations and skipped steps are out.
+// Only a top-level failure can carry a resolution: cancellations and skipped steps are not
+// failures, and a flow step resolved on its own would render orange inside a flow whose status
+// is still red. The resolve endpoint enforces the same three conditions.
 export function isJobResolvable(j: Job): j is CompletedJob {
-	return j.type === 'CompletedJob' && !j.success && !j.canceled
+	return j.type === 'CompletedJob' && !j.success && !j.canceled && !j.is_flow_step
 }
 
 // Mirror the caps enforced by /jobs/completed/resolve, so the UI can chunk and validate
