@@ -45,7 +45,7 @@
 	import { getContext, hasContext, createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { toJsonStr } from '$lib/utils'
 	import { userStore } from '$lib/stores'
-	import { isReplaying } from './recording/offlineReplay.svelte'
+	import { isOfflineReplay, isReplaying } from './recording/offlineReplay.svelte'
 	import ResultStreamDisplay from './ResultStreamDisplay.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import DOMPurify from 'dompurify'
@@ -91,6 +91,12 @@
 	 * page those buttons would let an arbitrary payload aim a credentialed request
 	 * at any origin. */
 	const REPLAY_INERT_KINDS: ResultKind[] = ['s3object', 's3object-list', 'materialized', 'approval']
+	/** Kinds that render caller-supplied markup which pulls subresources: `<img src>`
+	 * inside a markdown/HTML result, and `map`'s tile requests. Every other visual
+	 * kind (png/jpeg/gif/svg/pdf/file) is a `data:` URI and stays. Only inert on the
+	 * public page, where the recording comes from an arbitrary origin and the page
+	 * promises to issue no requests — see `isOfflineReplay`. */
+	const OFFLINE_INERT_KINDS: ResultKind[] = ['markdown', 'html', 'map']
 	let length = $state(1)
 
 	let hasBigInt = $state(false)
@@ -358,7 +364,12 @@
 						keys.includes('filename') &&
 						keys.includes('autodownload')
 					) {
-						if (result.autodownload) {
+						// Guarded here rather than through REPLAY_INERT_KINDS: this download is
+						// a side effect *inside* kind inference, so it has already happened by
+						// the time the caller could reclassify the result. A recording is
+						// caller-supplied, so replaying one must never write attacker-chosen
+						// bytes under an attacker-chosen filename into the viewer's downloads.
+						if (result.autodownload && !isReplaying()) {
 							const a = document.createElement('a')
 
 							a.href = 'data:application/octet-stream;base64,' + result.file
@@ -592,11 +603,15 @@
 	$effect(() => {
 		;[result]
 		const replaying = isReplaying()
+		const offlineReplay = isOfflineReplay()
 		untrack(() => {
 			resultKind = inferResultKind(result)
 			// A recording carries the result JSON, nothing the result points at, and a
 			// replay has no session to go get it: show the recorded value instead.
-			if (replaying && REPLAY_INERT_KINDS.includes(resultKind)) {
+			const inert =
+				(replaying && REPLAY_INERT_KINDS.includes(resultKind)) ||
+				(offlineReplay && OFFLINE_INERT_KINDS.includes(resultKind))
+			if (inert) {
 				resultKind = 'json'
 				largeObject = false
 			}

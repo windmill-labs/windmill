@@ -47,6 +47,14 @@ export const MAX_SAMPLE_COLUMNS = 500
 export const MAX_SAMPLE_CELLS = 100_000
 /** Captured source is syntax-highlighted in one pass. */
 export const MAX_CODE_CHARS = 4 * 1024 * 1024
+/** `SchemaForm` and `JobArgs` render a row per property of a script recording's
+ * `args`/`schema.properties`, so those maps are render cardinality too. */
+export const MAX_ARG_PROPERTIES = 2000
+/** `FlowGraphV2` builds and lays out a node per module, recursing into branches and
+ * loops, plus one per note. A flow definition is a nested structure, so the count
+ * that matters is the total across the tree, not the top-level array's length. */
+export const MAX_FLOW_MODULES = 5000
+export const MAX_FLOW_NOTES = 1000
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
 	typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -166,6 +174,34 @@ function hasValidHeader(data: Record<string, unknown>, pathField: string): boole
 	)
 }
 
+const isBoundedMap = (v: unknown, max: number) =>
+	v === undefined || (isObject(v) && Object.keys(v).length <= max)
+
+/** Total modules across a flow definition's nested structure (branches, loops),
+ * stopping as soon as the budget is blown so a hostile tree can't make the walk
+ * itself the denial of service. */
+function countFlowModules(modules: unknown, budget: number): number {
+	if (!Array.isArray(modules)) return 0
+	let n = 0
+	for (const m of modules) {
+		if (++n > budget) return n
+		if (!isObject(m) || !isObject(m.value)) continue
+		for (const key of ['modules', 'default'] as const) {
+			n += countFlowModules((m.value as Record<string, unknown>)[key], budget - n)
+			if (n > budget) return n
+		}
+		const branches = (m.value as Record<string, unknown>).branches
+		if (Array.isArray(branches)) {
+			for (const b of branches) {
+				if (!isObject(b)) continue
+				n += countFlowModules(b.modules, budget - n)
+				if (n > budget) return n
+			}
+		}
+	}
+	return n
+}
+
 /** True when `data` is a well-formed script recording. */
 export function isScriptRecording(data: unknown): data is ScriptRecording {
 	if (!isObject(data) || data.version !== 1 || data.type !== 'script') return false
@@ -175,8 +211,9 @@ export function isScriptRecording(data: unknown): data is ScriptRecording {
 		isRecordedJob(data.job) &&
 		isBoundedCode(data.code) &&
 		typeof data.language === 'string' &&
-		(data.schema === undefined || isObject(data.schema)) &&
-		(data.args === undefined || isObject(data.args))
+		(data.schema === undefined ||
+			(isObject(data.schema) && isBoundedMap(data.schema.properties, MAX_ARG_PROPERTIES))) &&
+		isBoundedMap(data.args, MAX_ARG_PROPERTIES)
 	)
 }
 
@@ -235,10 +272,15 @@ export function isPipelineRecording(data: unknown): data is PipelineRecording {
 export function isFlowRecording(data: unknown): data is FlowRecording {
 	if (!isObject(data) || data.version !== 1) return false
 	if (data.type !== undefined && data.type !== 'flow') return false
+	if (!hasValidHeader(data, 'flow_path') || !isJobsMap(data.jobs)) return false
+	if (data.flow === undefined) return true
+	if (!isObject(data.flow)) return false
+	const value = data.flow.value
+	if (value === undefined) return true
 	return (
-		hasValidHeader(data, 'flow_path') &&
-		isJobsMap(data.jobs) &&
-		(data.flow === undefined || isObject(data.flow))
+		isObject(value) &&
+		countFlowModules(value.modules, MAX_FLOW_MODULES) <= MAX_FLOW_MODULES &&
+		(value.notes === undefined || isBoundedArray(value.notes, MAX_FLOW_NOTES))
 	)
 }
 

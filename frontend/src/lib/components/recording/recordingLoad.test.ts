@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+	MAX_ARG_PROPERTIES,
+	MAX_FLOW_MODULES,
+	MAX_FLOW_NOTES,
 	MAX_FLOW_STATUS_MODULES,
 	MAX_FRAME_STATUSES,
 	MAX_RECORDED_JOBS,
@@ -127,6 +130,52 @@ describe('parseRecording', () => {
 			Array.from({ length: MAX_FRAME_STATUSES + 1 }, (_, i) => [`p${i}`, { status: 'success' }])
 		)
 		expect(rejected(pipeline({ timeline: [{ t: 0, statuses: fatStatuses }] }))).toBe(true)
+	})
+
+	it('bounds the collections a script and a flow render immediately', () => {
+		const props = (n: number) =>
+			Object.fromEntries(Array.from({ length: n }, (_, i) => [`a${i}`, { type: 'string' }]))
+		const script = (extra: Record<string, unknown>) => ({
+			version: 1,
+			type: 'script',
+			script_path: 's',
+			...header,
+			code: 'x',
+			language: 'bash',
+			job: job(),
+			...extra
+		})
+		// SchemaForm / JobArgs render a row per property.
+		expect(rejected(script({ args: props(MAX_ARG_PROPERTIES + 1) }))).toBe(true)
+		expect(rejected(script({ schema: { properties: props(MAX_ARG_PROPERTIES + 1) } }))).toBe(true)
+		expect(kindOf(script({ args: props(3) }))).toBe('script')
+
+		const flowWith = (value: unknown) => ({
+			version: 1,
+			flow_path: 'f',
+			...header,
+			jobs: { j: job() },
+			flow: { value }
+		})
+		const modules = (n: number) =>
+			Array.from({ length: n }, (_, i) => ({ id: `m${i}`, value: { type: 'identity' } }))
+		expect(rejected(flowWith({ modules: modules(MAX_FLOW_MODULES + 1) }))).toBe(true)
+		// The count has to be the total across the nested tree, not the top-level
+		// array's length — a branch or loop body renders nodes just the same.
+		expect(
+			rejected(
+				flowWith({
+					modules: [
+						{
+							id: 'loop',
+							value: { type: 'forloopflow', modules: modules(MAX_FLOW_MODULES + 1) }
+						}
+					]
+				})
+			)
+		).toBe(true)
+		expect(rejected(flowWith({ modules: [], notes: modules(MAX_FLOW_NOTES + 1) }))).toBe(true)
+		expect(kindOf(flowWith({ modules: modules(3) }))).toBe('flow')
 	})
 
 	it('tells an oversized recording apart from a corrupt one', () => {

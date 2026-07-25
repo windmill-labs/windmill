@@ -11,6 +11,10 @@
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 	import { dfs } from './flows/dfs'
 	import { workspaceStore } from '$lib/stores'
+	// Notes are rendered as GitHub-flavoured markdown, so an `![](url)` in a
+	// recording from an arbitrary `?src=` origin would fetch on the public page.
+	// They are editor annotations, so dropping them there costs nothing.
+	import { isOfflineReplay } from './recording/offlineReplay.svelte'
 
 	interface Props {
 		flow: {
@@ -85,7 +89,7 @@
 				modules={flow?.value?.modules}
 				failureModule={flow?.value?.failure_module}
 				preprocessorModule={flow?.value?.preprocessor_module}
-				notes={flow?.value?.notes}
+				notes={isOfflineReplay() ? undefined : flow?.value?.notes}
 				groups={flow?.value?.groups}
 				onSelect={(nodeId) => {
 					if (nodeId === 'Trigger') {

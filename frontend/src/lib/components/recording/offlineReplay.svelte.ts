@@ -22,11 +22,20 @@ function rejectRequest(): never {
 	throw new Error('Offline replay: this page renders a recording and cannot call the API')
 }
 
+/** True on the public page only. Use this for recorded *markup* whose rendering
+ * would fetch subresources (`<img src>`, map tiles): the threat is content from an
+ * arbitrary `?src=` origin on a page that promises to touch nothing, so the answer
+ * is to not render it there. In-workspace the recording is one the user opened
+ * themselves and the page makes no such promise, so it still renders. */
+export function isOfflineReplay(): boolean {
+	return offline
+}
+
 /** True whenever the UI shows recorded data rather than a live job: the whole
- * public page, or an in-workspace player while it replays a job stream. Both
- * cases want the recorded value, not a fresh read: in-workspace, re-querying a
- * ducklake table or a job's logs would answer for *now* while the player is
- * replaying a past run. */
+ * public page, or an in-workspace player while it replays a job stream. Use this
+ * for anything about *staleness or side effects* — both cases want the recorded
+ * value, not a fresh read (re-querying a ducklake table would answer for *now*
+ * while the player replays a past run), and neither should let recorded data act. */
 export function isReplaying(): boolean {
 	return offline || getActiveReplay() != undefined
 }
