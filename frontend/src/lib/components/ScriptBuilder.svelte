@@ -332,7 +332,7 @@
 		triggersState
 	})
 
-	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql', 'oracledb']
+	const enterpriseLangs = ['mssql', 'oracledb']
 
 	// Languages the pipeline editor treats as warehouse/dataset transforms —
 	// the ones where a `-- pipeline` annotation is a natural next step.
