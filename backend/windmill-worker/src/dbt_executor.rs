@@ -46,9 +46,6 @@ use crate::{GIT_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV};
 /// fallback for the (invalid) case where it declares none.
 const FALLBACK_PROFILE_NAME: &str = "windmill";
 
-
-
-
 /// Written to the script's lockfile at deploy. `commit` is empty under
 /// `ref: latest`, which resolves HEAD per run by design (decision 5/12).
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -220,10 +217,7 @@ pub async fn handle_dbt_job(
     // with, since dbt reuses that invocation's selection and vars and the graph
     // refresh, the build and the test phase must all agree with it.
     let inv = if command == "retry" {
-        Invocation {
-            args: restore_run_state(&prepared, &job.workspace_id, &inv).await?,
-            ..inv
-        }
+        Invocation { args: restore_run_state(&prepared, &job.workspace_id, &inv).await?, ..inv }
     } else {
         inv
     };
@@ -239,13 +233,7 @@ pub async fn handle_dbt_job(
                 &prepared,
                 &descriptor,
                 &inv,
-                &mut JobCtx {
-                    mem_peak,
-                    canceled_by,
-                    occupancy_metrics,
-                    worker_name,
-                    deadline,
-                },
+                &mut JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline },
                 &job.id,
                 &job.workspace_id,
                 conn,
@@ -259,13 +247,7 @@ pub async fn handle_dbt_job(
             &prepared,
             &descriptor,
             &inv,
-            &mut JobCtx {
-                mem_peak,
-                canceled_by,
-                occupancy_metrics,
-                worker_name,
-                deadline,
-            },
+            &mut JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline },
             job,
             conn,
         )
@@ -414,13 +396,7 @@ pub async fn dbt_dep(
         &prepared,
         &descriptor,
         &inv,
-        &mut JobCtx {
-            mem_peak,
-            canceled_by,
-            occupancy_metrics,
-            worker_name,
-            deadline,
-        },
+        &mut JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline },
         job_id,
         w_id,
         &conn,
@@ -431,13 +407,7 @@ pub async fn dbt_dep(
         &prepared,
         &descriptor,
         &inv,
-        &mut JobCtx {
-            mem_peak,
-            canceled_by,
-            occupancy_metrics,
-            worker_name,
-            deadline,
-        },
+        &mut JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline },
         job_id,
         w_id,
         &conn,
@@ -564,7 +534,6 @@ pub struct PreparedProject {
     /// invisible to `relation_root`, and a retry would then execute the saved
     /// failures against a warehouse where the successful nodes do not exist.
     pub profile_digest: String,
-
 }
 
 impl PreparedProject {
@@ -745,13 +714,7 @@ pub async fn prepare_project(
         target_path: "dbt".to_string(),
     };
     // Borrowed only for the ref probes: `checkout` below takes the same state.
-    let mut probe_ctx = JobCtx {
-        mem_peak,
-        canceled_by,
-        occupancy_metrics,
-        worker_name,
-        deadline,
-    };
+    let mut probe_ctx = JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline };
     let probe_job = (job_id, w_id, conn, &mut probe_ctx);
     let commit = if descriptor.is_latest_ref() {
         get_git_repo_full_head_commit_hash(&probe, &git_ssh_cmd, Some(probe_job)).await?
@@ -759,7 +722,12 @@ pub async fn prepare_project(
         .clone()
         // A ref the descriptor spells with a placeholder is chosen by the run,
         // so the run's value wins over whatever the deploy happened to lock.
-        .filter(|_| descriptor.r#ref.as_deref().is_some_and(|r| r.contains("{{")))
+        .filter(|_| {
+            descriptor
+                .r#ref
+                .as_deref()
+                .is_some_and(|r| r.contains("{{"))
+        })
     {
         resolve_git_ref_to_commit(&probe, &git_ssh_cmd, &r, Some(probe_job)).await?
     } else if let Some(locked) = locks.map(|l| l.commit.clone()).filter(|c| !c.is_empty()) {
@@ -834,13 +802,7 @@ pub async fn prepare_project(
         job_id,
         w_id,
         conn,
-        &mut JobCtx {
-            mem_peak,
-            canceled_by,
-            occupancy_metrics,
-            worker_name,
-            deadline,
-        },
+        &mut JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline },
     )
     .await?;
 
@@ -873,13 +835,7 @@ pub async fn prepare_project(
         script_path: script_path.to_string(),
         env,
     };
-    let mut ctx = JobCtx {
-        mem_peak,
-        canceled_by,
-        occupancy_metrics,
-        worker_name,
-        deadline,
-    };
+    let mut ctx = JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline };
     // A profile resource moved — a changed schema, dataset or catalog — relocates
     // every relation the project builds, so the stored graph names ones that no
     // longer exist. Compared against the graph AS STORED, not against the deploy
@@ -1047,7 +1003,7 @@ async fn checkout(
             w_id,
             occupancy_metrics,
             git_ssh_cmd,
-            deadline.remaining_secs(),
+            deadline,
         )
         .await?;
         publish_to_cache(&dest, &cached, job_id).await;
@@ -1064,7 +1020,7 @@ async fn checkout(
         w_id,
         occupancy_metrics,
         git_ssh_cmd,
-        deadline.remaining_secs(),
+        deadline,
     )
     .await
 }
@@ -1128,7 +1084,16 @@ async fn install_packages(
         .await;
         return Ok(());
     }
-    run_prep_command(p, dbt_command(p, &["deps"]), "dbt deps", ctx, job_id, w_id, conn).await?;
+    run_prep_command(
+        p,
+        dbt_command(p, &["deps"]),
+        "dbt deps",
+        ctx,
+        job_id,
+        w_id,
+        conn,
+    )
+    .await?;
     if target.exists() {
         publish_to_cache(&target, &cached, job_id).await;
     }
@@ -1147,7 +1112,9 @@ async fn install_packages(
 /// Same pattern as the engine provisioning; best-effort, since losing the race
 /// only means the next job repopulates.
 async fn publish_to_cache(from: &Path, cached: &Path, job_id: &Uuid) {
-    let Some(parent) = cached.parent() else { return };
+    let Some(parent) = cached.parent() else {
+        return;
+    };
     if tokio::fs::create_dir_all(parent).await.is_err() {
         return;
     }
@@ -1353,7 +1320,11 @@ async fn adapter_from_profiles_yml(
             ))
         })?;
     let target = target
-        .or_else(|| v.get(profile_name).and_then(|p| p.get("target")).and_then(|t| t.as_str()))
+        .or_else(|| {
+            v.get(profile_name)
+                .and_then(|p| p.get("target"))
+                .and_then(|t| t.as_str())
+        })
         .ok_or_else(|| {
             Error::BadRequest(format!(
                 "{} names no default target for `{profile_name}`; set `profile.target`",
@@ -1859,8 +1830,7 @@ async fn ingest_from_run(
     // filter this run's manifest by a different node set than it built.
     let selected =
         resolve_selection(p, descriptor, inv, ctx, &job.id, &job.workspace_id, conn).await?;
-    let ingested =
-        windmill_common::dbt_manifest::ingest_manifest(
+    let ingested = windmill_common::dbt_manifest::ingest_manifest(
         &manifest,
         resource_path,
         p.default_database.as_deref(),
@@ -2126,7 +2096,6 @@ async fn run_capturing(
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
-
 /// Run a preparation command through the same child handler the build uses, so
 /// cancellation and the job timeout apply to it too.
 async fn run_prep_command(
@@ -2211,13 +2180,15 @@ async fn save_run_state(
     if p.script_path.is_empty() {
         return Ok(());
     }
-    // Staged and renamed as one generation. Writing the three files into the
-    // live directory lets two concurrent runs interleave — B's results beside
-    // A's manifest and arguments — and lets a failed copy delete state another
-    // run just published. A retry resuming that mixture is worse than one that
-    // finds nothing.
+    // Each run writes its OWN generation directory, which is never modified
+    // afterwards, and publication is a rename of the pointer naming it. Runs
+    // that replaced one live directory could interleave — B's results beside
+    // A's manifest and arguments — and a reader copying that directory could
+    // straddle a replacement and take half of each. A retry resuming a mixture
+    // is worse than one that finds nothing.
     let dir = state_dir(w_id, &p.script_path);
-    let staging = dir.with_extension(format!("staging-{job_id}"));
+    let generation = format!("gen-{job_id}");
+    let staging = dir.join(&generation);
     tokio::fs::remove_dir_all(&staging).await.ok();
     if tokio::fs::create_dir_all(&staging).await.is_err() {
         return Ok(());
@@ -2259,14 +2230,55 @@ async fn save_run_state(
         tokio::fs::remove_dir_all(&staging).await.ok();
         return Ok(());
     }
-    // Rename cannot replace a non-empty directory, so the live one goes first.
-    // A reader between the two sees no state and reports that, which is the
-    // safe direction.
-    tokio::fs::remove_dir_all(&dir).await.ok();
-    if tokio::fs::rename(&staging, &dir).await.is_err() {
+    // Publishing is one rename over the pointer file. A reader either sees the
+    // previous generation's name or this one's, never a directory being
+    // rebuilt under it.
+    let pointer_staging = dir.join(format!(".{generation}.pointer"));
+    if tokio::fs::write(&pointer_staging, generation.as_bytes())
+        .await
+        .is_err()
+        || tokio::fs::rename(&pointer_staging, dir.join(CURRENT_GENERATION))
+            .await
+            .is_err()
+    {
+        tokio::fs::remove_file(&pointer_staging).await.ok();
         tokio::fs::remove_dir_all(&staging).await.ok();
+        return Ok(());
     }
+    prune_old_generations(&dir, &generation).await;
     Ok(())
+}
+
+/// Names the generation directory a retry reads. Replaced by rename, so it is
+/// always one name or the other.
+const CURRENT_GENERATION: &str = "current";
+
+/// How long a superseded generation stays readable. A retry that has already
+/// read the pointer is still copying out of that directory, so it cannot be
+/// removed the moment the next run publishes.
+const GENERATION_GRACE_SECS: u64 = 3600;
+
+async fn prune_old_generations(dir: &Path, keep: &str) {
+    let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
+        return;
+    };
+    let now = std::time::SystemTime::now();
+    while let Ok(Some(e)) = entries.next_entry().await {
+        let name = e.file_name().to_string_lossy().to_string();
+        if !name.starts_with("gen-") || name == keep {
+            continue;
+        }
+        let stale = e
+            .metadata()
+            .await
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| now.duration_since(t).ok())
+            .is_some_and(|age| age.as_secs() > GENERATION_GRACE_SECS);
+        if stale {
+            tokio::fs::remove_dir_all(e.path()).await.ok();
+        }
+    }
 }
 
 /// Everything a dbt invocation is parameterized by. One struct because every
@@ -2331,29 +2343,27 @@ async fn restore_run_state(
         ));
     }
     let dir = state_dir(w_id, &p.script_path);
-    if !dir.join("run_results.json").exists() {
-        return Err(Error::BadRequest(
-            "no previous dbt run to retry from on this worker; run the script normally instead"
-                .to_string(),
-        ));
-    }
-    // Snapshot the whole directory first, then read only from the snapshot.
-    // `save_run_state` publishes by replacing this directory, so reading
-    // `state.json` and then copying the artifacts through separate lookups can
-    // pair one generation's arguments with another's results. A single copy
-    // either sees one generation or fails — and failing reports "no previous
-    // run", which is the safe direction.
-    let snapshot = p.project_dir.join(".wm_dbt_retry_state");
-    tokio::fs::remove_dir_all(&snapshot).await.ok();
-    if copy_dir(&dir, &snapshot).await.is_err() {
-        return Err(Error::BadRequest(
+    // The pointer is resolved ONCE and everything is read out of the generation
+    // it names. Generations are immutable, so the arguments, the manifest and
+    // the results necessarily describe the same invocation; resolving the
+    // directory again per file could pair one run's arguments with another's
+    // results.
+    let no_state = || {
+        Error::BadRequest(
             "no previous dbt run to retry from on this worker. `dbt retry` resumes from the \
              `run_results.json` the failed run left behind, which lives in that worker's local \
              cache — so on a multi-worker group a retry only finds it if it lands on the same \
              worker. Give the script a dedicated `# tag` to pin it, or run it normally to \
              rebuild"
                 .to_string(),
-        ));
+        )
+    };
+    let generation = tokio::fs::read_to_string(dir.join(CURRENT_GENERATION))
+        .await
+        .map_err(|_| no_state())?;
+    let snapshot = dir.join(generation.trim());
+    if !snapshot.join("run_results.json").exists() {
+        return Err(no_state());
     }
     let saved: SavedRunState = tokio::fs::read_to_string(snapshot.join("state.json"))
         .await
@@ -2372,7 +2382,6 @@ async fn restore_run_state(
     for f in ["run_results.json", "manifest.json"] {
         tokio::fs::copy(snapshot.join(f), target.join(f)).await.ok();
     }
-    tokio::fs::remove_dir_all(&snapshot).await.ok();
     Ok(saved
         .args
         .into_iter()
@@ -2436,8 +2445,9 @@ fn interpolate_value(
                 // A placeholder embedded in surrounding text stays a string,
                 // which is what interpolation into text means.
                 Ok(v) => match sole_placeholder(s).and_then(|name| args.get(name)) {
-                    Some(raw) => serde_json::from_str(raw.get())
-                        .unwrap_or(serde_json::Value::String(v)),
+                    Some(raw) => {
+                        serde_json::from_str(raw.get()).unwrap_or(serde_json::Value::String(v))
+                    }
                     None => serde_json::Value::String(v),
                 },
                 Err(e) if strict => return Err(e),
@@ -2464,9 +2474,7 @@ fn sole_placeholder(s: &str) -> Option<&str> {
     let inner = s.trim().strip_prefix("{{")?.strip_suffix("}}")?.trim();
     (!inner.is_empty()
         && !inner.contains("{{")
-        && inner
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_'))
+        && inner.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
     .then_some(inner)
 }
 
@@ -2574,14 +2582,15 @@ mod tests {
     // set than the run asked for.
     #[test]
     fn an_empty_override_clears_the_descriptor_selection() {
-        let descriptor = DbtDescriptor {
-            select: vec!["tag:nightly".to_string()],
-            ..Default::default()
-        };
+        let descriptor =
+            DbtDescriptor { select: vec!["tag:nightly".to_string()], ..Default::default() };
         let cleared = Invocation {
-            args: [("select".to_string(), serde_json::value::RawValue::from_string("[]".to_string()).unwrap())]
-                .into_iter()
-                .collect(),
+            args: [(
+                "select".to_string(),
+                serde_json::value::RawValue::from_string("[]".to_string()).unwrap(),
+            )]
+            .into_iter()
+            .collect(),
             ..Default::default()
         };
         assert!(has_selection(&descriptor, &Invocation::default()));
@@ -2693,14 +2702,11 @@ mod tests {
             "repo: r\nvars:\n  strict: \"{{ strict }}\"\n  n: \"{{ n }}\"\n  label: \"run-{{ name }}\"\n",
         )
         .unwrap();
-        let args: HashMap<String, Box<RawValue>> = [
-            ("strict", "false"),
-            ("n", "7"),
-            ("name", "\"nightly\""),
-        ]
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), RawValue::from_string(v.to_string()).unwrap()))
-        .collect();
+        let args: HashMap<String, Box<RawValue>> =
+            [("strict", "false"), ("n", "7"), ("name", "\"nightly\"")]
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), RawValue::from_string(v.to_string()).unwrap()))
+                .collect();
         let vars = resolved_vars(&d, &args, true).unwrap();
         assert_eq!(vars["strict"], serde_json::json!(false));
         assert_eq!(vars["n"], serde_json::json!(7));

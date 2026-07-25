@@ -22,10 +22,8 @@ use windmill_parser_yaml::DbtEngine;
 use windmill_queue::append_logs;
 
 use crate::dbt_executor::digest;
-use crate::handle_child::{
-    get_mem_peak, run_future_with_polling_update_job_poller, JobCtx,
-};
 use crate::dbt_profiles::DbtAdapter;
+use crate::handle_child::{get_mem_peak, run_future_with_polling_update_job_poller, JobCtx};
 
 lazy_static::lazy_static! {
     pub static ref DBT_CACHE_DIR: String = format!("{}dbt", *ROOT_CACHE_NOMOUNT_DIR);
@@ -48,7 +46,6 @@ lazy_static::lazy_static! {
     static ref DBT_FUSION_INSTALL_URL: String = std::env::var("DBT_FUSION_INSTALL_URL")
         .unwrap_or_else(|_| "https://public.cdn.getdbt.com/fs/install/install.sh".to_string());
 }
-
 
 pub struct ProvisionedEngine {
     /// Absolute path of the dbt binary to invoke.
@@ -118,8 +115,8 @@ async fn provision_core_1x(
         Some(v) => format!("{}=={v}", adapter.pip_package()),
         None => adapter.pip_package().to_string(),
     };
-    let dir = PathBuf::from(&*DBT_CACHE_DIR)
-        .join(format!("core1x-{version}-{}", digest(&adapter_spec)));
+    let dir =
+        PathBuf::from(&*DBT_CACHE_DIR).join(format!("core1x-{version}-{}", digest(&adapter_spec)));
     let bin = dir.join("bin").join("dbt");
     if bin.exists() {
         let adapter_version = installed_adapter_version(&dir, adapter).await;
@@ -167,7 +164,12 @@ async fn provision_core_1x(
     run_tool(
         Command::new(UV_PATH.as_str())
             .env("VIRTUAL_ENV", &staging)
-            .args(["pip", "install", &format!("dbt-core=={version}"), &adapter_spec]),
+            .args([
+                "pip",
+                "install",
+                &format!("dbt-core=={version}"),
+                &adapter_spec,
+            ]),
         "uv pip install",
         job_id,
         w_id,
@@ -184,12 +186,7 @@ async fn provision_core_1x(
         Err(e) => return Err(Error::internal_err(format!("installing dbt-core: {e}"))),
     }
     let adapter_version = installed_adapter_version(&dir, adapter).await;
-    Ok(ProvisionedEngine {
-        bin,
-        version,
-        engine: DbtEngine::DbtCore1x,
-        adapter_version,
-    })
+    Ok(ProvisionedEngine { bin, version, engine: DbtEngine::DbtCore1x, adapter_version })
 }
 
 /// The adapter version a venv actually resolved, read from its dist-info so a
@@ -257,12 +254,7 @@ async fn provision_core_2x(
     )
     .await;
     fetch_and_extract(&url, &dir, "dbt-sa-cli", job_id, w_id, conn, ctx).await?;
-    Ok(ProvisionedEngine {
-        bin,
-        version,
-        engine: DbtEngine::DbtCore2x,
-        adapter_version: None,
-    })
+    Ok(ProvisionedEngine { bin, version, engine: DbtEngine::DbtCore2x, adapter_version: None })
 }
 
 /// Fusion is fetched from dbt Labs at runtime and cached — see the module docs

@@ -354,7 +354,9 @@ pub fn render_profile(
             // extended with one the descriptor must supply it — dbt rejects a
             // BigQuery target without `dataset`, and failing here names the
             // missing field instead.
-            schema = schema.or_else(|| s(resource, "dataset")).or_else(|| s(resource, "schema"));
+            schema = schema
+                .or_else(|| s(resource, "dataset"))
+                .or_else(|| s(resource, "schema"));
             if schema.is_none() {
                 return Err(Error::BadRequest(
                     "a BigQuery target needs a dataset; set `profile.schema` in the descriptor"
@@ -471,7 +473,16 @@ mod tests {
     fn renders_postgres_target() {
         let r = json!({"host": "db.internal", "port": 5433, "user": "u", "password": "p",
                        "dbname": "warehouse", "sslmode": "require"});
-        let p = render_profile(DbtAdapter::Postgres, &r, "wm", "prod", Some(8), None, std::path::Path::new("/tmp/p")).unwrap();
+        let p = render_profile(
+            DbtAdapter::Postgres,
+            &r,
+            "wm",
+            "prod",
+            Some(8),
+            None,
+            std::path::Path::new("/tmp/p"),
+        )
+        .unwrap();
         assert!(p.yaml.contains("wm:\n  target: prod\n"));
         assert!(p.yaml.contains("      type: \"postgres\"\n"));
         // dbt's profile schema types these as integers, so they must not be
@@ -488,7 +499,16 @@ mod tests {
         // does not answer on Postgres's port.
         let r = json!({"host": "cluster.redshift.amazonaws.com", "user": "u",
                        "password": "p", "dbname": "warehouse"});
-        let p = render_profile(DbtAdapter::Redshift, &r, "wm", "prod", None, None, std::path::Path::new("/tmp/p")).unwrap();
+        let p = render_profile(
+            DbtAdapter::Redshift,
+            &r,
+            "wm",
+            "prod",
+            None,
+            None,
+            std::path::Path::new("/tmp/p"),
+        )
+        .unwrap();
         assert!(p.yaml.contains("      port: 5439\n"), "{}", p.yaml);
     }
 
@@ -514,12 +534,22 @@ mod tests {
     fn postgres_forwards_its_root_certificate() {
         let r = json!({"host": "h", "dbname": "d", "sslmode": "verify-full",
                        "root_certificate_pem": "-----BEGIN CERTIFICATE-----\nx\n"});
-        let p = render_profile(DbtAdapter::Postgres, &r, "wm", "prod", None, None, std::path::Path::new("/tmp/p")).unwrap();
+        let p = render_profile(
+            DbtAdapter::Postgres,
+            &r,
+            "wm",
+            "prod",
+            None,
+            None,
+            std::path::Path::new("/tmp/p"),
+        )
+        .unwrap();
         // Absolute: dbt runs with the PROJECT as its cwd and hands this to the
         // driver unchanged, so a profiles-relative path would never be found.
         assert!(
-            p.yaml
-                .contains(&format!("      sslrootcert: \"/tmp/p/{ROOT_CERT_FILENAME}\"\n")),
+            p.yaml.contains(&format!(
+                "      sslrootcert: \"/tmp/p/{ROOT_CERT_FILENAME}\"\n"
+            )),
             "{}",
             p.yaml
         );
@@ -529,7 +559,16 @@ mod tests {
         );
         // No CA configured, no dangling sslrootcert pointing at a missing file.
         let plain = json!({"host": "h", "dbname": "d", "sslmode": "require"});
-        let p = render_profile(DbtAdapter::Postgres, &plain, "wm", "prod", None, None, std::path::Path::new("/tmp/p")).unwrap();
+        let p = render_profile(
+            DbtAdapter::Postgres,
+            &plain,
+            "wm",
+            "prod",
+            None,
+            None,
+            std::path::Path::new("/tmp/p"),
+        )
+        .unwrap();
         assert!(!p.yaml.contains("sslrootcert"));
         assert_eq!(p.root_certificate_pem, None);
     }
@@ -538,19 +577,49 @@ mod tests {
     fn snowflake_oauth_renders_its_token() {
         let r = json!({"account_identifier": "acc", "username": "u", "token": "tok",
                        "database": "db", "warehouse": "wh"});
-        let p = render_profile(DbtAdapter::Snowflake, &r, "wm", "prod", None, None, std::path::Path::new("/tmp/p")).unwrap();
-        assert!(p.yaml.contains("      authenticator: \"oauth\"\n"), "{}", p.yaml);
+        let p = render_profile(
+            DbtAdapter::Snowflake,
+            &r,
+            "wm",
+            "prod",
+            None,
+            None,
+            std::path::Path::new("/tmp/p"),
+        )
+        .unwrap();
+        assert!(
+            p.yaml.contains("      authenticator: \"oauth\"\n"),
+            "{}",
+            p.yaml
+        );
         assert!(p.yaml.contains("      token: \"tok\"\n"));
     }
 
     #[test]
     fn bigquery_requires_a_dataset() {
         let r = json!({"project_id": "p", "client_email": "e", "private_key": "k"});
-        let err = render_profile(DbtAdapter::Bigquery, &r, "wm", "prod", None, None, std::path::Path::new("/tmp/p"))
-            .unwrap_err()
-            .to_string();
+        let err = render_profile(
+            DbtAdapter::Bigquery,
+            &r,
+            "wm",
+            "prod",
+            None,
+            None,
+            std::path::Path::new("/tmp/p"),
+        )
+        .unwrap_err()
+        .to_string();
         assert!(err.contains("profile.schema"), "{err}");
-        let p = render_profile(DbtAdapter::Bigquery, &r, "wm", "prod", None, Some("marts"), std::path::Path::new("/tmp/p")).unwrap();
+        let p = render_profile(
+            DbtAdapter::Bigquery,
+            &r,
+            "wm",
+            "prod",
+            None,
+            Some("marts"),
+            std::path::Path::new("/tmp/p"),
+        )
+        .unwrap();
         // dbt-bigquery's key is `dataset`, not `schema`.
         assert!(p.yaml.contains("      dataset: \"marts\"\n"), "{}", p.yaml);
         assert!(!p.yaml.contains("      schema:"));
@@ -576,7 +645,16 @@ mod tests {
     #[test]
     fn mysql_emits_exactly_one_schema_key() {
         let r = json!({"host": "h", "dbname": "sales", "user": "u"});
-        let p = render_profile(DbtAdapter::Mysql, &r, "wm", "dev", None, None, std::path::Path::new("/tmp/p")).unwrap();
+        let p = render_profile(
+            DbtAdapter::Mysql,
+            &r,
+            "wm",
+            "dev",
+            None,
+            None,
+            std::path::Path::new("/tmp/p"),
+        )
+        .unwrap();
         assert_eq!(p.yaml.matches("      schema:").count(), 1);
         assert!(p.yaml.contains("      schema: \"sales\"\n"));
         assert!(p.yaml.contains("      port: 3306\n"));
@@ -587,7 +665,16 @@ mod tests {
     fn credentials_cannot_break_out_of_their_scalar() {
         let r = json!({"host": "h", "dbname": "d",
                        "password": "p\"\nhost: evil.example.com\n#"});
-        let p = render_profile(DbtAdapter::Postgres, &r, "wm", "dev", None, None, std::path::Path::new("/tmp/p")).unwrap();
+        let p = render_profile(
+            DbtAdapter::Postgres,
+            &r,
+            "wm",
+            "dev",
+            None,
+            None,
+            std::path::Path::new("/tmp/p"),
+        )
+        .unwrap();
         assert!(p
             .yaml
             .contains(r#"password: "p\"\nhost: evil.example.com\n#""#));
@@ -642,5 +729,4 @@ mod tests {
             }
         }
     }
-
 }

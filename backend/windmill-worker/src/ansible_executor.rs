@@ -30,19 +30,20 @@ use windmill_queue::{append_logs, CanceledBy};
 use crate::git_clone::{
     clone_repo, clone_repo_without_history, get_git_repo_full_head_commit_hash,
 };
+use crate::handle_child::JobDeadline;
 use crate::{
     bash_executor::BIN_BASH,
     common::{
         build_command_with_isolation, check_executor_binary_exists, get_reserved_variables,
-        interpolate_template, read_and_check_result, render_nsjail_rlimit_as, resolve_nsjail_timeout,
-        resolve_nsjail_tmp_mount_block, start_child_process, transform_json, validate_relative_path,
-        OccupancyMetrics,
+        interpolate_template, read_and_check_result, render_nsjail_rlimit_as,
+        resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
+        transform_json, validate_relative_path, OccupancyMetrics,
     },
     handle_child::handle_child,
     is_sandboxing_enabled,
     python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile},
-    DISABLE_NUSER, HOME_ENV, NSJAIL_ANSIBLE_RLIMIT_AS_MB, NSJAIL_PATH, PATH_ENV,
-    PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV,
+    DISABLE_NUSER, HOME_ENV, NSJAIL_ANSIBLE_RLIMIT_AS_MB, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    PY_INSTALL_DIR, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 
@@ -244,8 +245,7 @@ async fn prepare_socket_root(root: &str, stale_after: std::time::Duration) {
     }
 }
 
-lazy_static::lazy_static! {
-}
+lazy_static::lazy_static! {}
 
 async fn handle_ansible_python_deps(
     job_dir: &str,
@@ -655,7 +655,7 @@ pub async fn get_git_repos_lock(
                     w_id,
                     occupancy_metrics,
                     git_ssh_cmd,
-                    None,
+                    JobDeadline::unbounded(),
                 )
                 .await?,
             );
@@ -1212,7 +1212,7 @@ pub async fn handle_ansible_job(
                     &job.workspace_id,
                     occupancy_metrics,
                     git_ssh_cmd,
-                    job.timeout,
+                    JobDeadline::start(conn, &job.workspace_id, job.id, job.timeout).await,
                 )
                 .await
                 .map_err(|e| {
@@ -1233,7 +1233,7 @@ pub async fn handle_ansible_job(
                     &job.workspace_id,
                     occupancy_metrics,
                     git_ssh_cmd,
-                    job.timeout,
+                    JobDeadline::start(conn, &job.workspace_id, job.id, job.timeout).await,
                 )
                 .await
                 .map_err(|e| {
@@ -1325,7 +1325,7 @@ pub async fn handle_ansible_job(
                     &job.workspace_id,
                     occupancy_metrics,
                     git_ssh_cmd,
-                    job.timeout,
+                    JobDeadline::start(conn, &job.workspace_id, job.id, job.timeout).await,
                 )
                 .await
                 .map_err(|e| {
@@ -1355,7 +1355,7 @@ pub async fn handle_ansible_job(
                     &job.workspace_id,
                     occupancy_metrics,
                     git_ssh_cmd,
-                    job.timeout,
+                    JobDeadline::start(conn, &job.workspace_id, job.id, job.timeout).await,
                 )
                 .await
                 .map_err(|e| {

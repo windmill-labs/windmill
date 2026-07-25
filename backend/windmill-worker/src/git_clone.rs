@@ -18,7 +18,7 @@ use windmill_queue::CanceledBy;
 
 use crate::common::{start_child_process, OccupancyMetrics};
 use crate::handle_child::{
-    get_mem_peak, handle_child, run_future_with_polling_update_job_poller, JobCtx,
+    get_mem_peak, handle_child, run_future_with_polling_update_job_poller, JobCtx, JobDeadline,
 };
 use crate::{GIT_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV};
 
@@ -92,7 +92,7 @@ pub async fn clone_repo(
     w_id: &str,
     occupancy_metrics: &mut OccupancyMetrics,
     git_ssh_cmd: &str,
-    job_timeout: Option<i32>,
+    deadline: JobDeadline,
 ) -> error::Result<String> {
     let target_path = is_allowed_file_location(job_dir, &repo.target_path)?;
 
@@ -124,7 +124,7 @@ pub async fn clone_repo(
         worker_name,
         w_id,
         "git clone",
-        job_timeout,
+        deadline.remaining_secs(),
         false,
         &mut Some(occupancy_metrics),
         None,
@@ -160,7 +160,7 @@ pub async fn clone_repo(
             worker_name,
             w_id,
             "git checkout",
-            job_timeout,
+            deadline.remaining_secs(),
             false,
             &mut Some(occupancy_metrics),
             None,
@@ -234,7 +234,7 @@ pub async fn clone_repo_without_history(
     w_id: &str,
     occupancy_metrics: &mut OccupancyMetrics,
     git_ssh_cmd: &str,
-    job_timeout: Option<i32>,
+    deadline: JobDeadline,
 ) -> error::Result<()> {
     let target_path = is_allowed_file_location(job_dir, &repo.target_path)?;
 
@@ -267,7 +267,7 @@ pub async fn clone_repo_without_history(
         worker_name,
         w_id,
         "git init",
-        job_timeout,
+        deadline.remaining_secs(),
         false,
         &mut Some(occupancy_metrics),
         None,
@@ -301,7 +301,7 @@ pub async fn clone_repo_without_history(
         worker_name,
         w_id,
         "git add remote",
-        job_timeout,
+        deadline.remaining_secs(),
         false,
         &mut Some(occupancy_metrics),
         None,
@@ -334,7 +334,7 @@ pub async fn clone_repo_without_history(
         worker_name,
         w_id,
         "git fetch",
-        job_timeout,
+        deadline.remaining_secs(),
         false,
         &mut Some(occupancy_metrics),
         None,
@@ -367,7 +367,7 @@ pub async fn clone_repo_without_history(
         worker_name,
         w_id,
         "git checkout",
-        job_timeout,
+        deadline.remaining_secs(),
         false,
         &mut Some(occupancy_metrics),
         None,
@@ -416,7 +416,9 @@ pub async fn resolve_git_ref_to_commit(
     let mut hash = None;
     for line in stdout.lines() {
         let mut cols = line.split_whitespace();
-        let (Some(sha), Some(name)) = (cols.next(), cols.next()) else { continue };
+        let (Some(sha), Some(name)) = (cols.next(), cols.next()) else {
+            continue;
+        };
         if name.ends_with("^{}") {
             return Ok(sha.to_string());
         }
