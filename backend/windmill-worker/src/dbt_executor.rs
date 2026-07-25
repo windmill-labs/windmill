@@ -209,16 +209,25 @@ pub async fn handle_dbt_job(
     // both. Concurrent runs of one dynamic script still race on the path-keyed
     // rows; that needs a per-job dispatch snapshot (docs/dbt-runtime.md).
     if descriptor.is_latest_ref() || prepared.graph_is_per_run {
-        run_dbt_parse(
-            &prepared,
-            &descriptor,
-            &args,
-            &job.id,
-            &job.workspace_id,
-            conn,
-        )
-        .await?;
-        ingest_from_run(&prepared, &descriptor, &args, job, conn).await?;
+        // `dbt retry` resumes the PREVIOUS invocation's selection and vars, so
+        // parsing with this job's arguments would ingest one graph while dbt
+        // resumes another. The restored state already describes that
+        // invocation, so its manifest is the one to ingest.
+        if command == "retry" {
+            ingest_from_run(&prepared, &descriptor, &HashMap::new(), job, conn).await?;
+        } else {
+            run_dbt_parse(
+                &prepared,
+                &descriptor,
+                &args,
+                &envs,
+                &job.id,
+                &job.workspace_id,
+                conn,
+            )
+            .await?;
+            ingest_from_run(&prepared, &descriptor, &args, job, conn).await?;
+        }
     }
 
     let mut run = run_dbt(
@@ -357,7 +366,16 @@ pub async fn dbt_dep(
     )
     .await?;
 
-    run_dbt_parse(&prepared, &descriptor, &HashMap::new(), job_id, w_id, &conn).await?;
+    run_dbt_parse(
+        &prepared,
+        &descriptor,
+        &HashMap::new(),
+        &HashMap::new(),
+        job_id,
+        w_id,
+        &conn,
+    )
+    .await?;
 
     let selected = resolve_selection(&prepared, &descriptor, &HashMap::new(), false).await?;
     let manifest = read_manifest(&prepared.project_dir).await?;
@@ -1553,6 +1571,11 @@ async fn ingest_from_run(
     )
     .await?;
     tx.commit().await?;
+    // Synchronously, not through the notify poller: dispatch for THIS job runs
+    // in this process once the job completes, and the poll is seconds away, so
+    // a fast build would otherwise fan out from the pre-refresh cache. The
+    // `notify_event` the transaction emitted still reaches every other process.
+    windmill_queue::asset_dispatch::ASSET_PRODUCER_WRITES_CACHE.remove(&job.workspace_id);
     Ok(())
 }
 
@@ -1629,11 +1652,17 @@ async fn run_dbt_parse(
     p: &PreparedProject,
     descriptor: &DbtDescriptor,
     args: &HashMap<String, Box<RawValue>>,
+    // `dbt_command` clears the environment, so the job's own env has to be
+    // reapplied here exactly as `run_dbt` does: a project whose schema, alias or
+    // `enabled` comes from `env_var()` would otherwise parse into a different
+    // graph than the build produces — or fail to parse at all.
+    envs: &HashMap<String, String>,
     job_id: &Uuid,
     w_id: &str,
     conn: &Connection,
 ) -> error::Result<()> {
     let mut cmd = dbt_command(p, &["parse"]);
+    cmd.envs(envs);
     // Strict only when there are arguments to be strict about: a deploy has
     // none and must tolerate placeholders it cannot fill.
     add_vars(&mut cmd, descriptor, args, !args.is_empty())?;

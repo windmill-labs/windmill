@@ -195,10 +195,10 @@ worker, whose only DB access is through the API.
 
 The refresh happens **before** the build, from a `dbt parse` of the commit the
 run resolved — not after it. Dispatch fans out from the stored rows once the job
-completes, so refreshing afterwards leaves a window where those rows still
-describe the previous run, and the producer-writes cache is invalidated
-asynchronously on top of that. Parsing first costs about a second and closes
-both.
+completes, so refreshing afterwards leaves a window in which those rows still
+describe the previous run. The producer-writes cache is invalidated in-process
+at the same moment rather than waiting for the notify poll, since the dispatch
+for that job runs in the process that just refreshed.
 
 Boundary that remains: the rows are keyed by script path, so **two concurrent
 runs of one dynamic script race** — each overwrites the other's before either
@@ -208,13 +208,12 @@ per-job snapshot of what the run actually wrote, which is a change to the shared
 cascade rather than to dbt.
 
 - **`ref: latest`.** Resolve HEAD at run time. The graph must then refresh every
-  run or it diverges from execution, and that is nearly free: the run already
-  invokes dbt, which already writes `target/manifest.json`, so ingest that
-  instead of paying for a separate `dbt parse`.
+  run or it diverges from execution, and that is nearly free: the run parses the
+  project (about a second) before building it and ingests that manifest.
 
-One wrinkle to accept and surface in the UI: under `latest`, a newly added model
-has no graph entry until its first run completes, so nodes appear one run late.
-Strictly better than a stale graph presented as authoritative.
+The parse is what makes a newly added model appear in the same run that builds
+it, rather than one run late: the graph is written before the build, so the
+dispatch that follows sees this run's models.
 
 ## Where the dbt project lives
 
