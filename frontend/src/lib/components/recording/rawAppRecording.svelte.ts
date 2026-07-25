@@ -538,17 +538,18 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		on('submit', (e: Event) => {
 			const el = isElementNode(e.target) ? e.target : undefined
 			commitFill()
-			// Clicking a submit button records the click; the submit that follows is
-			// the same action, so it only becomes its own step when nothing in this
-			// form was just clicked (Enter in a field, or a programmatic submit).
+			// Clicking a submit button — or pressing Enter in a field — records that
+			// interaction; the submit that follows is the same action, so it only
+			// becomes its own step when nothing in this form just acted (a
+			// programmatic submit, or one triggered from outside the form).
 			const last = steps[steps.length - 1]
-			const justClickedInside =
-				last?.kind === 'click' &&
+			const justActedInside =
+				(last?.kind === 'click' || last?.kind === 'key') &&
 				!!lastStepEl &&
 				!!el &&
 				el.contains(lastStepEl) &&
 				Date.now() - startTime - lastStepAt < SUBMIT_FOLD_MS
-			if (justClickedInside) return
+			if (justActedInside) return
 			pushStep('submit', el, capture(el))
 		})
 

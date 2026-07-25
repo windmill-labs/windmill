@@ -118,6 +118,27 @@ describe('serializeDocument redaction', () => {
 		}
 	})
 
+	it('keeps a disabled sheet inert without shifting what follows it', () => {
+		// Neutralizing a disabled sheet must not remove its node: every later path
+		// resolution — other sheets, and the target stamp — is by sibling index.
+		const off = document.createElement('style')
+		off.textContent = `.disabled-rule { color: red; }`
+		const on = document.createElement('style')
+		document.head.append(off, on)
+		try {
+			off.sheet!.disabled = true
+			on.sheet?.insertRule(`.live-rule { color: green; }`, 0)
+
+			const html = serializeDocument(document)
+			expect(html).toContain('live-rule')
+			expect(html).not.toContain('disabled-rule')
+			expect(html).toContain('media="not all"')
+		} finally {
+			off.remove()
+			on.remove()
+		}
+	})
+
 	it('masks a password without leaking its length, and keeps other values', () => {
 		const doc = docFrom(`<input type="password"><input type="text">`)
 		const [password, text] = Array.from(doc.querySelectorAll('input')) as HTMLInputElement[]

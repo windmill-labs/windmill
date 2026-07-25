@@ -88,9 +88,12 @@
 		})
 	})
 
-	// Keep the playing step visible: during playback the list scrolls past the
-	// viewport within a few steps.
+	// Keep the current step visible: during playback the list scrolls past the
+	// viewport within a few steps, and a list reopened after navigating elsewhere
+	// would otherwise show the top. Reading `listOpen` re-runs this on reopen,
+	// when scrolling a hidden element would have done nothing.
 	$effect(() => {
+		if (!listOpen) return
 		const row = stepList?.querySelector(`[data-step="${stepIndex}"]`)
 		row?.scrollIntoView({ block: 'nearest' })
 	})

@@ -246,10 +246,15 @@ function inlineStyleSheets(doc: Document, root: Element, clone: Element) {
 		if (!isElementNode(owner)) continue
 		if (sheet.disabled) {
 			// `disabled` is a property, not an attribute: cloned through, the sheet
-			// would come back to life on replay. Drop the node instead.
+			// would come back to life on replay. Neutralize it in place — removing the
+			// node would shift the sibling indices that every later path resolution in
+			// this function, and the target stamp after it, resolve against.
 			const path = nodePath(root, owner)
 			const target = path ? resolvePath(clone, path) : undefined
-			target?.remove()
+			if (target) {
+				target.setAttribute('media', 'not all')
+				if (target.tagName === 'STYLE') target.textContent = ''
+			}
 			continue
 		}
 		// Inlining replaces the node, which would leave the marker behind and carry
