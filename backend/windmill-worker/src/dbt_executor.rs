@@ -31,6 +31,7 @@ use crate::dbt_engine::{provision_engine, ProvisionedEngine, DBT_CACHE_DIR};
 use crate::dbt_profiles::{ensure_adapter_licensed, render_profile, DbtAdapter};
 use crate::git_clone::{
     clone_repo, clone_repo_without_history, get_git_repo_full_head_commit_hash,
+    resolve_git_ref_to_commit,
 };
 use crate::handle_child::handle_child;
 use crate::{GIT_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV};
@@ -430,20 +431,24 @@ pub async fn prepare_project(
         .as_deref()
         .map(|r| crate::common::interpolate_template(r, Some(args), "ref"))
         .transpose()?;
+    let probe = GitRepo {
+        url: url.clone(),
+        commit: None,
+        branch: branch.clone(),
+        target_path: "dbt".to_string(),
+    };
     let commit = if descriptor.is_latest_ref() {
-        let probe = GitRepo {
-            url: url.clone(),
-            commit: None,
-            branch: branch.clone(),
-            target_path: "dbt".to_string(),
-        };
         get_git_repo_full_head_commit_hash(&probe, "ssh").await?
+    } else if let Some(locked) = locks.map(|l| l.commit.clone()).filter(|c| !c.is_empty()) {
+        locked
+    } else if let Some(r) = interpolated_ref.clone() {
+        // The descriptor's ref before a lockfile exists (deploy). It has to be
+        // resolved rather than used as-is: a branch name is not a pin, and the
+        // clone cache below keys on the commit precisely because commits are
+        // immutable and a branch name is not.
+        resolve_git_ref_to_commit(&probe, "ssh", &r).await?
     } else {
-        locks
-            .map(|l| l.commit.clone())
-            .filter(|c| !c.is_empty())
-            .or(interpolated_ref.clone())
-            .unwrap_or_default()
+        String::new()
     };
 
     let repo = GitRepo {

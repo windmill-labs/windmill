@@ -314,6 +314,54 @@ pub async fn clone_repo_without_history(
     Ok(())
 }
 
+/// Resolve a tag/branch/commit to the full commit hash it names.
+///
+/// A ref like `main` is not a pin: it moves. Anything that caches or locks on a
+/// checkout has to resolve it first, or it keys on a name whose contents change
+/// underneath it. A ref that is already a full hash resolves to itself —
+/// `ls-remote` does not report bare commits.
+pub async fn resolve_git_ref_to_commit(
+    repo: &GitRepo,
+    git_ssh_cmd: &str,
+    git_ref: &str,
+) -> anyhow::Result<String> {
+    let git_ref = git_ref.trim();
+    if git_ref.len() == 40 && git_ref.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Ok(git_ref.to_string());
+    }
+    let output = Command::new(GIT_PATH.as_str())
+        .env("GIT_SSH_COMMAND", git_ssh_cmd)
+        .args(["ls-remote", &repo.url, git_ref])
+        .stderr(Stdio::piped())
+        .output()
+        .await?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "Error resolving `{git_ref}` in repo `{}`: {}",
+            sanitize_git_url(&repo.url),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let stdout = String::from_utf8(output.stdout)?;
+    // A tag resolves to both the tag object and, with `^{}`, the commit it
+    // points at; the dereferenced line is the one to check out.
+    let mut hash = None;
+    for line in stdout.lines() {
+        let mut cols = line.split_whitespace();
+        let (Some(sha), Some(name)) = (cols.next(), cols.next()) else { continue };
+        if name.ends_with("^{}") {
+            return Ok(sha.to_string());
+        }
+        hash.get_or_insert_with(|| sha.to_string());
+    }
+    hash.ok_or_else(|| {
+        anyhow!(
+            "`{git_ref}` does not name a ref in repo `{}`",
+            sanitize_git_url(&repo.url)
+        )
+    })
+}
+
 pub async fn get_git_repo_full_head_commit_hash(
     repo: &GitRepo,
     git_ssh_cmd: &str,

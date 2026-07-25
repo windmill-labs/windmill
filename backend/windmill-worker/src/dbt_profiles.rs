@@ -205,7 +205,7 @@ pub fn render_profile(
     threads: Option<u32>,
     schema_override: Option<&str>,
 ) -> error::Result<RenderedProfile> {
-    let mut out: Vec<(String, String)> = vec![("type".into(), adapter.dbt_type().into())];
+    let mut out: Vec<(String, ProfileValue)> = vec![("type".into(), quoted(adapter.dbt_type()))];
     let mut schema = schema_override.map(|x| x.to_string());
     let database;
 
@@ -231,23 +231,23 @@ pub fn render_profile(
                         adapter.dbt_type()
                     ))
                 })?;
-            out.push(("host".into(), host));
+            out.push(("host".into(), quoted(&host)));
             out.push((
                 "port".into(),
-                n(resource, "port")
-                    .unwrap_or(adapter.default_port())
-                    .to_string(),
+                // dbt validates `port` against a JSON schema that demands an
+                // integer; a quoted scalar is rejected outright.
+                ProfileValue::Number(n(resource, "port").unwrap_or(adapter.default_port())),
             ));
-            out.push((adapter.database_key().into(), dbname.clone()));
+            out.push((adapter.database_key().into(), quoted(&dbname)));
             database = Some(dbname);
             if let Some(u) = s(resource, "user") {
-                out.push(("user".into(), u));
+                out.push(("user".into(), quoted(&u)));
             }
             if let Some(p) = s(resource, "password") {
-                out.push(("password".into(), p));
+                out.push(("password".into(), quoted(&p)));
             }
             if let Some(m) = s(resource, "sslmode") {
-                out.push(("sslmode".into(), m));
+                out.push(("sslmode".into(), quoted(&m)));
             }
             schema = schema.or_else(|| s(resource, "schema")).or(Some(
                 match adapter {
@@ -273,25 +273,25 @@ pub fn render_profile(
                 .ok_or_else(|| {
                     Error::BadRequest("snowflake resource has no `account_identifier`".to_string())
                 })?;
-            out.push(("account".into(), account));
+            out.push(("account".into(), quoted(&account)));
             if let Some(u) = s(resource, "username").or_else(|| s(resource, "user")) {
-                out.push(("user".into(), u));
+                out.push(("user".into(), quoted(&u)));
             }
             // Key-pair auth is Windmill's snowflake resource shape; password is
             // accepted too for resources that carry one.
             if let Some(k) = s(resource, "private_key") {
-                out.push(("private_key".into(), k));
+                out.push(("private_key".into(), quoted(&k)));
             } else if let Some(p) = s(resource, "password") {
-                out.push(("password".into(), p));
+                out.push(("password".into(), quoted(&p)));
             }
             for k in ["warehouse", "role"] {
                 if let Some(v) = s(resource, k) {
-                    out.push((k.into(), v));
+                    out.push((k.into(), quoted(&v)));
                 }
             }
             database = s(resource, "database");
             if let Some(d) = database.clone() {
-                out.push(("database".into(), d));
+                out.push(("database".into(), quoted(&d)));
             }
             schema = schema.or_else(|| s(resource, "schema"));
         }
@@ -299,11 +299,11 @@ pub fn render_profile(
             // Windmill's bigquery resource is the raw service-account JSON, so
             // hand dbt the same document via `method: service-account-json`
             // rather than re-deriving individual fields.
-            out.push(("method".into(), "service-account-json".into()));
+            out.push(("method".into(), quoted("service-account-json")));
             let project = s(resource, "project_id").ok_or_else(|| {
                 Error::BadRequest("bigquery resource has no `project_id`".to_string())
             })?;
-            out.push(("project".into(), project.clone()));
+            out.push(("project".into(), quoted(&project)));
             database = Some(project);
             schema = schema.or_else(|| s(resource, "dataset"));
         }
@@ -316,26 +316,26 @@ pub fn render_profile(
                 let v = s(resource, rk).ok_or_else(|| {
                     Error::BadRequest(format!("databricks resource has no `{rk}`"))
                 })?;
-                out.push((k.into(), v));
+                out.push((k.into(), quoted(&v)));
             }
             database = s(resource, "catalog");
             if let Some(c) = database.clone() {
-                out.push(("catalog".into(), c));
+                out.push(("catalog".into(), quoted(&c)));
             }
             schema = schema.or_else(|| s(resource, "schema"));
         }
     }
 
     if let Some(sc) = schema.clone() {
-        out.push(("schema".into(), sc));
+        out.push(("schema".into(), quoted(&sc)));
     }
     if let Some(t) = threads {
-        out.push(("threads".into(), t.to_string()));
+        out.push(("threads".into(), ProfileValue::Number(t as i64)));
     }
 
     let mut yaml = format!("{profile_name}:\n  target: {target}\n  outputs:\n    {target}:\n");
     for (k, v) in &out {
-        yaml.push_str(&format!("      {k}: {}\n", yaml_scalar(v)));
+        yaml.push_str(&format!("      {k}: {}\n", v.render()));
     }
     // The service-account document is a nested mapping, not a scalar.
     if adapter == DbtAdapter::Bigquery {
@@ -351,6 +351,28 @@ pub fn render_profile(
     }
 
     Ok(RenderedProfile { yaml, schema, database })
+}
+
+/// One rendered `profiles.yml` value. Strings are always quoted so credential
+/// content cannot inject profile keys; numbers must NOT be, because dbt
+/// validates `port` and `threads` against a JSON schema that demands integers
+/// and rejects the quoted form outright.
+enum ProfileValue {
+    Str(String),
+    Number(i64),
+}
+
+impl ProfileValue {
+    fn render(&self) -> String {
+        match self {
+            ProfileValue::Str(s) => yaml_scalar(s),
+            ProfileValue::Number(n) => n.to_string(),
+        }
+    }
+}
+
+fn quoted(v: &str) -> ProfileValue {
+    ProfileValue::Str(v.to_string())
 }
 
 /// Emit a YAML scalar that survives any credential content. Always
@@ -378,8 +400,10 @@ mod tests {
         let p = render_profile(DbtAdapter::Postgres, &r, "wm", "prod", Some(8), None).unwrap();
         assert!(p.yaml.contains("wm:\n  target: prod\n"));
         assert!(p.yaml.contains("      type: \"postgres\"\n"));
-        assert!(p.yaml.contains("      port: \"5433\"\n"));
-        assert!(p.yaml.contains("      threads: \"8\"\n"));
+        // dbt's profile schema types these as integers, so they must not be
+        // quoted like the credential scalars around them.
+        assert!(p.yaml.contains("      port: 5433\n"));
+        assert!(p.yaml.contains("      threads: 8\n"));
         assert_eq!(p.database.as_deref(), Some("warehouse"));
         assert_eq!(p.schema.as_deref(), Some("public"));
     }
