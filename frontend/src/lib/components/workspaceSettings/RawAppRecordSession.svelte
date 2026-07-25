@@ -95,8 +95,8 @@
 		}
 	}
 
-	function stop() {
-		recording = recorder.stop()
+	async function stop() {
+		recording = await recorder.stop()
 	}
 
 	async function save() {
@@ -110,6 +110,8 @@
 	}
 
 	onDestroy(() => {
+		// Not awaited: the drawer is going away, and the recorder resolves on its own
+		// once the document it was reading is gone.
 		if (recorder.active) recorder.stop()
 	})
 </script>
@@ -119,13 +121,19 @@
 		<span class="text-sm font-semibold text-primary">{path}</span>
 		{#if sandboxed}
 			<span class="text-xs text-secondary">Sandbox-isolated: not recordable</span>
-		{:else if recorder.active}
+		{:else if recorder.active || recorder.stopping}
 			<span class="flex items-center gap-1 text-xs text-primary">
 				<Circle size={10} class="text-red-500 animate-pulse" fill="currentColor" />
 				{recorder.stepCount} step{recorder.stepCount === 1 ? '' : 's'}
 			</span>
-			<Button size="xs" variant="border" startIcon={{ icon: Square }} onclick={stop}>
-				Stop recording
+			<Button
+				size="xs"
+				variant="border"
+				loading={recorder.stopping}
+				startIcon={{ icon: Square }}
+				onclick={stop}
+			>
+				{recorder.stopping ? 'Waiting for the job…' : 'Stop recording'}
 			</Button>
 		{:else}
 			<!-- While the replay is showing there is no preview and so no iframe; the

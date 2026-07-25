@@ -77,9 +77,13 @@ type PendingFill = {
 export type RawAppRecordingStore = {
 	readonly active: boolean
 	readonly stepCount: number
+	/** Stop is waiting on a runnable the last step kicked off. */
+	readonly stopping: boolean
 	/** Attach to a same-origin app iframe. False when its document is unreachable. */
 	start(iframe: HTMLIFrameElement, opts: { appPath: string; workspace?: string }): boolean
-	stop(): RawAppRecording
+	/** Async because a step still waiting on a backend job has to land before its
+	 * outcome can be captured. */
+	stop(): Promise<RawAppRecording>
 	download(recording: RawAppRecording): void
 }
 
@@ -128,6 +132,25 @@ export function createRawAppRecording(): RawAppRecordingStore {
 	/** Runnable calls the app is waiting on right now. */
 	let pendingJobs = 0
 	let unwatchBridge: (() => void) | undefined = undefined
+	let stopping = $state(false)
+
+	/** Resolve once nothing is in flight, the step's job budget is spent, or the
+	 * document is gone. Polled rather than driven off the bridge listener so a
+	 * response that never arrives still ends the wait. */
+	function drainPendingJobs(startedAt: number): Promise<void> {
+		return new Promise((resolve) => {
+			const tick = () => {
+				if (pendingJobs === 0 || Date.now() - startedAt >= SETTLE_JOB_MAX_MS || !doc()) {
+					resolve()
+					return
+				}
+				setTimeout(tick, SETTLE_QUIET_MS)
+			}
+			tick()
+		})
+	}
+
+	const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 	function doc(): Document | undefined {
 		try {
@@ -726,6 +749,10 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		get stepCount() {
 			return stepCount
 		},
+		/** Stop is waiting on a runnable the last step kicked off. */
+		get stopping() {
+			return stopping
+		},
 		start(iframe: HTMLIFrameElement, opts: { appPath: string; workspace?: string }): boolean {
 			iframeEl = iframe
 			const d = doc()
@@ -766,8 +793,23 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			unwatchBridge = watchRunnableBridge(iframe)
 			return true
 		},
-		stop(): RawAppRecording {
+		async stop(): Promise<RawAppRecording> {
 			commitFill()
+			// Interactions stop counting the moment Stop is pressed, but the bridge
+			// stays up through the drain below.
+			detach()
+			active = false
+			// The last step is still waiting on the backend: capturing now would ship
+			// its spinner as the outcome, and the bridge is torn down right after, so
+			// nothing could correct it later. Same budget the scheduled settle spends.
+			if (settle && pendingJobs > 0) {
+				stopping = true
+				const startedAt = settle.startedAt
+				await drainPendingJobs(startedAt)
+				// The response still has to render before it is the outcome.
+				if (doc()) await wait(SETTLE_QUIET_MS)
+				stopping = false
+			}
 			// The step the user just finished has no settled frame yet — take it now
 			// rather than ship a step with no outcome.
 			if (settle) {
@@ -775,11 +817,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 				clearSettle()
 				step.after = frameIndex(capture())
 			}
-			detach()
 			unwatchBridge?.()
 			unwatchBridge = undefined
 			iframeEl?.removeEventListener('load', onIframeLoad)
-			active = false
 			pendingPointer = undefined
 			pendingKey = undefined
 			iframeEl = undefined
