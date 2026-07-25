@@ -66,8 +66,32 @@ export interface DeployItem {
 
 export const canRecord = (k: Kind) => k === 'script' || k === 'flow'
 // A raw app has no run to capture: its demo is a recorded session of someone
-// using it, driven in the record drawer and replayed on the Hub page.
-export const canRecordSession = (k: Kind) => k === 'raw_app'
+// using it, driven in the record drawer and replayed on the Hub page. Legacy raw
+// apps live only in the `raw_app` table, and the record surface loads the app
+// (bundle secret, runnables) through AppService, so it can only offer the action
+// for apps stored in the `app` table.
+export const canRecordSession = (it: DeployItem): boolean =>
+	it.kind === 'raw_app' && it.appTable === true
+
+// Hub rehydration carries draft membership, not where an app is stored. Copy the
+// app-table origin from the loaded workspace items onto matching draft items so a
+// reopened draft still knows which raw apps can be recorded. Returns the original
+// array unchanged when nothing needs merging (stable reference).
+export function mergeAppTableOrigin(
+	draftItems: DeployItem[],
+	workspaceItems: DeployItem[]
+): DeployItem[] {
+	if (draftItems.length === 0 || workspaceItems.length === 0) return draftItems
+	const byKey = new Map(workspaceItems.map((w) => [w.key, w]))
+	let changed = false
+	const merged = draftItems.map((d) => {
+		const w = byKey.get(d.key)
+		if (!w || w.appTable === d.appTable) return d
+		changed = true
+		return { ...d, appTable: w.appTable }
+	})
+	return changed ? merged : draftItems
+}
 export function sanitizeSlug(s: string): string {
 	return s
 		.toLowerCase()
@@ -257,7 +281,12 @@ export class DeployToHubSession {
 	filteredWorkspaceItems = $derived(
 		this.workspaceItems.filter((i) => i.path.startsWith(this.selectedFolder + '/'))
 	)
-	items = $derived(this.phase === 'predeploy' ? this.filteredWorkspaceItems : this.draftItems)
+	// Derived (not merged at load time) so it settles regardless of which of the
+	// racing loads (#loadWorkspace / rehydrateFromHub) finishes last.
+	draftItemsWithOrigin = $derived(mergeAppTableOrigin(this.draftItems, this.workspaceItems))
+	items = $derived(
+		this.phase === 'predeploy' ? this.filteredWorkspaceItems : this.draftItemsWithOrigin
+	)
 	selectedItems = $derived(
 		this.phase === 'predeploy'
 			? this.filteredWorkspaceItems.filter((i) => !this.manualDeselected.has(i.key))
@@ -270,9 +299,7 @@ export class DeployToHubSession {
 	)
 	// A raw app's recorded session counts towards the project's recordings just as
 	// a script's captured run does — both are what a visitor replays.
-	recordableItems = $derived(
-		this.items.filter((i) => canRecord(i.kind) || canRecordSession(i.kind))
-	)
+	recordableItems = $derived(this.items.filter((i) => canRecord(i.kind) || canRecordSession(i)))
 	allRecorded = $derived(
 		this.recordableItems.length > 0 && this.recordableItems.every((i) => i.rec === 'recorded')
 	)

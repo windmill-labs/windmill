@@ -642,27 +642,44 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		detachers = []
 	}
 
-	/** The bundle asks the host to run a runnable by postMessage and gets a `…Res`
-	 * back (see RawAppBackgroundRunner). Counting those tells the settle logic that
-	 * the app is waiting on a job rather than finished — nothing else can: the
-	 * request leaves the iframe, so no DOM mutation marks it. */
+	/** The bundle asks the host to do backend work by postMessage — run a runnable,
+	 * await a job, stream one — and each request is answered with a `<type>Res`
+	 * carrying the same `reqId` (see RawAppBackgroundRunner). Counting outstanding
+	 * reqIds tells the settle logic that the app is waiting on the backend rather
+	 * than finished; nothing else can, since the request leaves the iframe without
+	 * touching the DOM.
+	 *
+	 * Tracked by reqId rather than by an enumerated set of request types: a step
+	 * that dispatches with `backendAsync` and then waits with `waitJob`/`streamJob`
+	 * is still waiting, and an unlisted type would settle it on its spinner.
+	 *
+	 * The two halves travel in opposite directions and are therefore delivered to
+	 * different windows: the request goes iframe -> host, the response goes host ->
+	 * iframe. Listening only on the host would count every request and clear none. */
 	function watchRunnableBridge(iframe: HTMLIFrameElement) {
 		const inFlight = new Set<unknown>()
-		const onMessage = (e: MessageEvent) => {
+		const bundle = iframe.contentWindow
+		const onRequest = (e: MessageEvent) => {
 			const data = e.data
-			if (!data || typeof data !== 'object') return
-			const type = (data as any).type
-			const reqId = (data as any).reqId
-			if (e.source === iframe.contentWindow && (type === 'backend' || type === 'backendAsync')) {
-				inFlight.add(reqId)
-			} else if (type === 'backendRes' || type === 'backendAsyncRes') {
-				inFlight.delete(reqId)
-			}
+			if (!data || typeof data !== 'object' || e.source !== bundle) return
+			const { type, reqId } = data as { type?: unknown; reqId?: unknown }
+			if (typeof type !== 'string' || type.endsWith('Res') || reqId === undefined) return
+			inFlight.add(reqId)
 			pendingJobs = inFlight.size
 		}
-		window.addEventListener('message', onMessage)
+		const onResponse = (e: MessageEvent) => {
+			const data = e.data
+			if (!data || typeof data !== 'object' || e.source !== window) return
+			const { type, reqId } = data as { type?: unknown; reqId?: unknown }
+			if (typeof type !== 'string' || !type.endsWith('Res')) return
+			inFlight.delete(reqId)
+			pendingJobs = inFlight.size
+		}
+		window.addEventListener('message', onRequest)
+		bundle?.addEventListener('message', onResponse)
 		return () => {
-			window.removeEventListener('message', onMessage)
+			window.removeEventListener('message', onRequest)
+			bundle?.removeEventListener('message', onResponse)
 			pendingJobs = 0
 		}
 	}
@@ -683,6 +700,13 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		const d = doc()
 		if (!d) return
 		attach(d)
+		// Half the runnable bridge is bound to the document's window, and jobs the
+		// old document was waiting on can no longer land anywhere: rebind, resetting
+		// the count.
+		if (iframeEl) {
+			unwatchBridge?.()
+			unwatchBridge = watchRunnableBridge(iframeEl)
+		}
 		const loaded = capture()
 		if (reloadedFrom) reloadedFrom.after = frameIndex(loaded)
 		// Recording started before the app had loaded: this document IS the initial

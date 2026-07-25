@@ -153,8 +153,8 @@ describe('serializeDocument redaction', () => {
 	})
 
 	it('shows that a redacted option was chosen without saying which', () => {
-		// The second select sits inside a marked container, whose subtree redaction
-		// removes it from the clone: the masking must already have run by then, or
+		// The first select sits inside a marked container, whose subtree redaction
+		// empties it in the clone: the masking must already have run by then, or
 		// pairing by index would silently skip every select in the document.
 		const doc = docFrom(
 			`<div data-wm-no-record><select><option>hidden</option></select></div>` +

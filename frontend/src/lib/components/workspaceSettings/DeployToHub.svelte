@@ -563,7 +563,7 @@
 							<Badge color="yellow" size="xs">No recording</Badge>
 						{/if}
 					{/if}
-					{#if s.phase === 'draft' && canRecordSession(it.kind)}
+					{#if s.phase === 'draft' && canRecordSession(it)}
 						{#if it.rec === 'recorded'}
 							<Badge color="green" size="xs">
 								<Check size={10} class="mr-0.5" />Recorded

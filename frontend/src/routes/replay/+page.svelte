@@ -6,7 +6,11 @@
 	 * demo can live next to the docs or README that links it.
 	 */
 	import RawAppRecordingReplay from '$lib/components/recording/RawAppRecordingReplay.svelte'
-	import { fetchRecording, isAppRecording } from '$lib/components/recording/rawAppRecordingLoad'
+	import {
+		fetchRecording,
+		isAppRecording,
+		MAX_RECORDING_BYTES
+	} from '$lib/components/recording/rawAppRecordingLoad'
 	import type { RawAppRecording } from '$lib/components/recording/types'
 	import { Loader2, TriangleAlert, Upload } from 'lucide-svelte'
 	import { onMount } from 'svelte'
@@ -20,9 +24,14 @@
 		if (!isAppRecording(data)) {
 			// Flow/script/pipeline recordings replay job streams, which need a session:
 			// they belong to the in-workspace player, not this public page.
+			const kind = (data as any)?.type
+			// Carry the source along so the in-workspace player can pick it up without
+			// the visitor having to reconstruct the URL.
+			const src = new URL(window.location.href).searchParams.get('src')
+			const where = `/pipeline_replay${src ? `?src=${encodeURIComponent(src)}` : ''}`
 			error =
-				(data as any)?.type && (data as any)?.type !== 'app'
-					? `This is a ${(data as any).type} recording — open it in your workspace at /pipeline_replay.`
+				kind && kind !== 'app'
+					? `This is a ${kind} recording — open it in your workspace at ${where}.`
 					: 'That file is not a raw-app session recording this player understands.'
 			return false
 		}
@@ -48,8 +57,17 @@
 	}
 
 	async function onFile(e: Event) {
-		const file = (e.target as HTMLInputElement).files?.[0]
+		const input = e.target as HTMLInputElement
+		const file = input.files?.[0]
+		// Cleared so picking the same file again after an error still fires `change`.
+		input.value = ''
 		if (!file) return
+		// The same cap the URL path enforces while streaming: reading a multi-hundred-MB
+		// file into a string and parsing it would take the tab down before validation.
+		if (file.size > MAX_RECORDING_BYTES) {
+			error = `That file is too large (${file.size} bytes).`
+			return
+		}
 		try {
 			accept(JSON.parse(await file.text()))
 		} catch (err) {

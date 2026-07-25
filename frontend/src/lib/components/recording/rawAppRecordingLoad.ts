@@ -49,7 +49,9 @@ export function isAppRecording(data: unknown): data is RawAppRecording {
 		data.steps.every(
 			(s: unknown) =>
 				isObject(s) &&
-				typeof s.t === 'number' &&
+				// Finite, not merely numeric: the timeline positions each checkpoint at
+				// `t / total_duration_ms`, and a NaN there places nothing.
+				Number.isFinite(s.t) &&
 				RAW_APP_INTERACTION_KINDS.includes(s.kind as RawAppInteractionKind) &&
 				isShortText(s.label, true) &&
 				isShortText(s.target) &&

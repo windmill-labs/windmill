@@ -150,7 +150,7 @@ function redactMarkedSubtrees(doc: Document, root: Element) {
 	for (const n of marked) {
 		n.replaceChildren(doc.createTextNode('•••'))
 		for (const attr of Array.from(n.attributes)) {
-			if (attr.name === NO_RECORD_ATTR || attr.name === REC_TARGET_ATTR) continue
+			if (attr.name === NO_RECORD_ATTR) continue
 			if (!REDACTION_KEEPS_ATTRS.has(attr.localName.toLowerCase())) n.removeAttributeNode(attr)
 		}
 	}

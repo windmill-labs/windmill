@@ -3,13 +3,7 @@
 	import ScriptRecordingReplay from '$lib/components/recording/ScriptRecordingReplay.svelte'
 	import PipelineRecordingReplay from '$lib/components/recording/PipelineRecordingReplay.svelte'
 	import RawAppRecordingReplay from '$lib/components/recording/RawAppRecordingReplay.svelte'
-	import {
-		MAX_RECORDED_STEPS,
-		MAX_STEP_TEXT_CHARS,
-		MAX_TOTAL_FRAME_CHARS,
-		RAW_APP_INTERACTION_KINDS,
-		type RawAppInteractionKind
-	} from '$lib/components/recording/rawAppSnapshot'
+	import { isAppRecording } from '$lib/components/recording/rawAppRecordingLoad'
 	import type {
 		FlowRecording,
 		PipelineRecording,
@@ -80,70 +74,15 @@
 			return false
 		}
 		if (data.type === 'app') {
-			// Raw-app session recording: the player indexes `frames` by each step's
-			// before/after and renders a row per step, so both must be well-formed —
-			// and the step count bounded — before it mounts. A `?src=` payload is
-			// caller-controlled and can pack millions of tiny valid steps under the
-			// download cap, which would freeze the tab on render.
-			// A legitimate recording holds at most the initial frame plus a before and
-			// an after per step; anything beyond that is a payload, not a recording.
-			// Every frame is parsed and re-serialized before the iframe parses it
-			// again, so a single frame just under the download cap would freeze the
-			// tab. Hold remote recordings to the budget the recorder itself obeys.
-			const validFrames =
-				Array.isArray(data.frames) &&
-				data.frames.length <= 2 * MAX_RECORDED_STEPS + 1 &&
-				data.frames.every((f) => typeof f === 'string') &&
-				data.frames.reduce((sum: number, f: string) => sum + f.length, 0) <= MAX_TOTAL_FRAME_CHARS
-			// The viewport is interpolated into the snapshot iframe's `style`, so a
-			// non-numeric value would escape the property and let a remote recording
-			// restyle the player around itself.
-			const isSize = (v: unknown) =>
-				typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 20000
-			// Divided into every step timestamp by the timeline; a string here would be
-			// coerced once per step, and a missing one renders as NaN.
-			const validDuration =
-				typeof data.total_duration_ms === 'number' &&
-				Number.isFinite(data.total_duration_ms) &&
-				data.total_duration_ms >= 0
-			const validViewport =
-				isObject(data.viewport) && isSize(data.viewport.width) && isSize(data.viewport.height)
-			const frameCount = Array.isArray(data.frames) ? data.frames.length : 0
-			// An index must actually address a frame: a dangling one silently drops the
-			// snapshot the player would show.
-			const isIndex = (v: unknown) =>
-				v === undefined || (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < frameCount)
-			// Labels are rendered per row; the recorder bounds them, a remote payload
-			// has to be held to the same order of magnitude.
-			const isShortText = (v: unknown, required = false) =>
-				required
-					? typeof v === 'string' && v.length <= MAX_STEP_TEXT_CHARS
-					: v === undefined || (typeof v === 'string' && v.length <= MAX_STEP_TEXT_CHARS)
-			const validSteps =
-				Array.isArray(data.steps) &&
-				data.steps.length <= MAX_RECORDED_STEPS &&
-				data.steps.every(
-					(s: unknown) =>
-						isObject(s) &&
-						typeof s.t === 'number' &&
-						RAW_APP_INTERACTION_KINDS.includes(s.kind as RawAppInteractionKind) &&
-						isShortText(s.label, true) &&
-						isShortText(s.target) &&
-						isShortText(s.selector) &&
-						isShortText(s.value) &&
-						isIndex(s.before) &&
-						isIndex(s.after)
-				)
-			// Rendered in the player's header like the step labels are. `recorded_at`
-			// is parsed as a date there, so it has to be a string of sane length.
-			const validHeader =
-				isShortText(data.app_path) && isShortText(data.workspace) && isShortText(data.recorded_at, true)
-			if (!validFrames || !validSteps || !validViewport || !validHeader || !validDuration) {
+			// Same validator the public /replay page uses: both mount the same player
+			// off caller-supplied data, so one drifting from the other would mean one
+			// entry point accepting what the other rejects.
+			if (!isAppRecording(data)) {
 				sendUserToast('Invalid app recording format', true)
 				return false
 			}
 			reset()
-			appRecording = data as unknown as RawAppRecording
+			appRecording = data
 		} else if (data.type === 'script') {
 			if (!isRecordedJob(data.job)) {
 				sendUserToast('Invalid script recording format', true)

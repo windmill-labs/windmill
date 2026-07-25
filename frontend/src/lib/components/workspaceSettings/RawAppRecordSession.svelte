@@ -56,9 +56,22 @@
 	}
 	load()
 
+	// Showing the replay unmounts the preview, so "Record again" has to wait for the
+	// fresh one: `iframe` still points at the removed document until it mounts and
+	// hands its own back.
+	let startWhenReady = $state(false)
+
 	function start() {
+		if (recording) {
+			recording = undefined
+			startWhenReady = true
+			return
+		}
+		beginRecording()
+	}
+
+	function beginRecording() {
 		if (!iframe) return
-		recording = undefined
 		if (!recorder.start(iframe, { appPath: path, workspace })) {
 			sendUserToast('Cannot record this app: its bundle runs sandbox-isolated', true)
 			return
@@ -67,6 +80,14 @@
 			'Recording — walk through the app as a visitor would. Passwords are masked; mark ' +
 				'sensitive elements with data-wm-no-record to leave them out.'
 		)
+	}
+
+	function onIframe(el: HTMLIFrameElement | undefined) {
+		iframe = el
+		if (el && startWhenReady) {
+			startWhenReady = false
+			beginRecording()
+		}
 	}
 
 	function stop() {
@@ -100,10 +121,12 @@
 				Stop recording
 			</Button>
 		{:else}
+			<!-- While the replay is showing there is no preview and so no iframe; the
+			     re-record path remounts one and starts against it. -->
 			<Button
 				size="xs"
 				variant="accent"
-				disabled={!iframe}
+				disabled={!iframe && !recording}
 				startIcon={{ icon: Circle }}
 				onclick={start}
 			>
@@ -157,7 +180,7 @@
 				secret={app.bundle_secret}
 				{path}
 				runnables={(app.value?.runnables ?? {}) as Record<string, Runnable>}
-				oniframe={(el) => (iframe = el)}
+				oniframe={onIframe}
 			/>
 		</div>
 	{/if}

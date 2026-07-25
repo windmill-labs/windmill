@@ -23,6 +23,7 @@ pub fn workspaced_service() -> Router {
         .route("/apps", post(publish_app))
         .route("/raw_apps", post(publish_raw_app))
         .route("/raw_apps/{id}/embed", post(publish_raw_app_embed))
+        .route("/raw_apps/{id}/recording", post(publish_raw_app_recording))
         .route(
             "/scripts/{ask_id}/recording",
             post(publish_script_recording),
@@ -321,6 +322,15 @@ struct RecordingBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     recording: Option<serde_json::Value>,
     project_slug: ProjectSlug,
+}
+
+async fn publish_raw_app_recording(
+    ctx: HubPublishCtx,
+    Path((_workspace, id)): Path<(String, i64)>,
+    Json(body): Json<RecordingBody>,
+) -> Result<impl IntoResponse, Error> {
+    ctx.post(&format!("/raw_apps/{}/recording", id), &body)
+        .await
 }
 
 async fn publish_script_recording(
