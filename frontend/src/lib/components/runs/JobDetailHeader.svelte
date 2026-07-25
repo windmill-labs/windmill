@@ -67,13 +67,15 @@
 
 	// `job` comes from a $state holder in every caller, so writing the resolution back
 	// onto it is what refreshes the status badge without a refetch.
-	async function setResolution(resolve: boolean, note?: string) {
-		if (!isJobResolvable(job)) return
+	/// Returns whether the resolution was applied, so the popover only closes on success and a
+	/// rejected note stays on screen to be corrected.
+	async function setResolution(resolve: boolean, note?: string): Promise<boolean> {
+		if (!isJobResolvable(job)) return false
 		// Count code points, matching the server. A native `maxlength` counts UTF-16 units and
 		// would cut a note of astral characters at half the length the API actually accepts.
 		if (note !== undefined && [...note].length > MAX_RESOLUTION_NOTE_LEN) {
 			sendUserToast(`Note cannot exceed ${MAX_RESOLUTION_NOTE_LEN} characters`, true)
-			return
+			return false
 		}
 		togglingResolution = true
 		try {
@@ -86,7 +88,7 @@
 				: await JobService.unresolveCompletedJobs({ workspace, requestBody: { job_ids: [job.id] } })
 			if (affected.length === 0) {
 				sendUserToast('Could not change the resolution of this run', true)
-				return
+				return false
 			}
 			// Mirror what the server actually persisted: attribution and notes are EE-only, so
 			// claiming them in CE would show "resolved by X" until the next refetch dropped it.
@@ -97,6 +99,7 @@
 			job.resolution_note = resolve && $enterpriseLicense ? note || undefined : undefined
 			resolutionNote = ''
 			onResolutionChanged?.()
+			return true
 		} finally {
 			togglingResolution = false
 		}
@@ -543,8 +546,7 @@
 														variant="accent"
 														disabled={togglingResolution}
 														onClick={async () => {
-															await setResolution(true, resolutionNote)
-															close()
+															if (await setResolution(true, resolutionNote)) close()
 														}}
 													>
 														Mark resolved
