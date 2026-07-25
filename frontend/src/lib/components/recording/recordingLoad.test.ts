@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+	MAX_FLOW_STATUS_MODULES,
+	MAX_FRAME_STATUSES,
 	MAX_RECORDED_JOBS,
 	MAX_SAMPLE_CELLS,
 	MAX_SAMPLE_COLUMNS,
@@ -90,6 +92,53 @@ describe('parseRecording', () => {
 			Array.from({ length: MAX_RECORDED_JOBS + 1 }, (_, i) => [`j${i}`, job(0)])
 		)
 		expect(rejected({ version: 1, flow_path: 'f', ...header, jobs: tooManyJobs })).toBe(true)
+	})
+
+	it('bounds the nested structures that drive render cost, not just the job count', () => {
+		// One job whose flow_status.modules is huge renders a subtree per entry, so
+		// the job/event counts alone would let a small payload freeze the tab.
+		const fatModules = Array.from({ length: MAX_FLOW_STATUS_MODULES + 1 }, () => ({
+			type: 'Success'
+		}))
+		expect(
+			rejected({
+				version: 1,
+				flow_path: 'f',
+				...header,
+				jobs: { j: { initial_job: { flow_status: { modules: fatModules } }, events: [] } }
+			})
+		).toBe(true)
+		// Same via an event carrying the status update rather than the initial job.
+		expect(
+			rejected({
+				version: 1,
+				flow_path: 'f',
+				...header,
+				jobs: {
+					j: {
+						initial_job: {},
+						events: [{ t: 0, data: { flow_status: { modules: fatModules } } }]
+					}
+				}
+			})
+		).toBe(true)
+		// A pipeline frame's status map is reassigned whole on a timer.
+		const fatStatuses = Object.fromEntries(
+			Array.from({ length: MAX_FRAME_STATUSES + 1 }, (_, i) => [`p${i}`, { status: 'success' }])
+		)
+		expect(rejected(pipeline({ timeline: [{ t: 0, statuses: fatStatuses }] }))).toBe(true)
+	})
+
+	it('tells an oversized recording apart from a corrupt one', () => {
+		// A wide for-loop flow records a job per iteration, so a real capture can trip
+		// this — it must not read as "your recorder wrote a broken file".
+		const tooManyJobs = Object.fromEntries(
+			Array.from({ length: MAX_RECORDED_JOBS + 1 }, (_, i) => [`j${i}`, job(0)])
+		)
+		const res = parseRecording({ version: 1, flow_path: 'f', ...header, jobs: tooManyJobs })
+		expect(res.ok ? '' : res.error).toMatch(/holds \d+ jobs/)
+		const corrupt = parseRecording({ version: 1, flow_path: 'f', ...header, jobs: 'nope' })
+		expect(corrupt.ok ? '' : corrupt.error).toBe('Invalid flow recording format.')
 	})
 
 	it('bounds an asset sample on its cell product, not just per axis', () => {

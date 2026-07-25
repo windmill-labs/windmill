@@ -8,7 +8,11 @@
 	 */
 	import RecordingPlayer from '$lib/components/recording/RecordingPlayer.svelte'
 	import { setOfflineReplay } from '$lib/components/recording/offlineReplay.svelte'
-	import { fetchRecording, parseRecording } from '$lib/components/recording/recordingLoad'
+	import {
+		fetchRecording,
+		MAX_RECORDING_BYTES,
+		parseRecording
+	} from '$lib/components/recording/recordingLoad'
 	import type { LoadedRecording } from '$lib/components/recording/recordingLoad'
 	import { Loader2, TriangleAlert, Upload } from 'lucide-svelte'
 	import { onDestroy, onMount } from 'svelte'
@@ -48,6 +52,12 @@
 	async function onFile(e: Event) {
 		const file = (e.target as HTMLInputElement).files?.[0]
 		if (!file) return
+		// Same cap the `?src=` fetch enforces: reading a multi-hundred-MB file into a
+		// string is enough to take the tab down before validation gets a say.
+		if (file.size > MAX_RECORDING_BYTES) {
+			error = `That file is too large to replay (${file.size} bytes).`
+			return
+		}
 		try {
 			accept(JSON.parse(await file.text()))
 		} catch (err) {
@@ -82,7 +92,7 @@
 
 <div class="h-screen w-screen p-3 bg-surface overflow-auto">
 	{#if loaded}
-		<RecordingPlayer {loaded} />
+		<RecordingPlayer {loaded} hideHeader onreset={() => (loaded = undefined)} />
 	{:else if loading}
 		<div class="h-full flex flex-col items-center justify-center gap-2 text-sm text-secondary">
 			<Loader2 size={24} class="animate-spin text-blue-500" />

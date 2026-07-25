@@ -16,13 +16,16 @@
 
 	interface Props {
 		loaded: LoadedRecording
-		/** Set to offer a way back to the recording picker, here and in the failure
-		 * state. The public page omits it and stays chrome-less. */
+		/** How to get back to the recording picker. */
 		onreset?: () => void
+		/** Drop the header row that hosts the reset control, so the public page stays
+		 * chrome-less. The failure card still offers `onreset` — a recording that dies
+		 * on render must not dead-end a visitor whose URL refetches the same file. */
+		hideHeader?: boolean
 		class?: string
 	}
 
-	let { loaded, onreset, class: className = '' }: Props = $props()
+	let { loaded, onreset, hideHeader = false, class: className = '' }: Props = $props()
 
 	// The pipeline and app players fill the viewport (steps left, detail right,
 	// like their editors); the flow/script players keep a centered scrolling page.
@@ -41,7 +44,7 @@
 		className
 	)}
 >
-	{#if onreset}
+	{#if onreset && !hideHeader}
 		<div class="flex justify-end mb-2 shrink-0">
 			<Button variant="border" size="xs" onclick={reset} startIcon={{ icon: Upload }}>
 				Load another recording

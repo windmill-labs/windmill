@@ -29,8 +29,14 @@ export const MAX_RECORDING_BYTES = 100 * 1024 * 1024
  * above any real capture: a wide for-loop flow records a job per iteration. */
 export const MAX_RECORDED_JOBS = 2000
 export const MAX_RECORDED_JOB_EVENTS = 200_000
-/** Every frame reassigns the whole per-node status map on a timer. */
+/** A flow job's `flow_status.modules` becomes one component subtree per entry, so
+ * a single job can be a render bomb regardless of how few jobs the map holds. It
+ * arrives on `initial_job` and on any event carrying a status update. */
+export const MAX_FLOW_STATUS_MODULES = 20_000
+/** Every frame reassigns the whole per-node status map on a timer, and each
+ * reassignment rebuilds the derived id/state maps over the entire key set. */
 export const MAX_TIMELINE_FRAMES = 20_000
+export const MAX_FRAME_STATUSES = 5000
 /** Graph elements each become a rendered canvas node or edge. */
 export const MAX_GRAPH_ELEMENTS = 2000
 /* An asset sample renders as a `rows × columns` table of plain `<td>`s, so the
@@ -103,6 +109,16 @@ export function isAppRecording(data: unknown): data is RawAppRecording {
 	return validSteps && validViewport && validDuration && validHeader
 }
 
+/** `flow_status.modules` on anything that carries a flow status, bounded wherever
+ * it appears rather than only on `initial_job` — a status update arriving as an
+ * event lands in the same renderer. */
+function hasBoundedFlowStatus(v: unknown): boolean {
+	if (!isObject(v)) return true
+	const status = v.flow_status
+	if (!isObject(status) || status.modules === undefined) return true
+	return isBoundedArray(status.modules, MAX_FLOW_STATUS_MODULES)
+}
+
 /** A RecordedJob whose events all carry an object `data`: JobLoader replays each
  * `event.data` in a `setTimeout`, whose throw a Svelte boundary can't catch, so a
  * malformed event has to be rejected at load. */
@@ -110,8 +126,15 @@ function isRecordedJob(j: unknown): j is RecordedJob {
 	return (
 		isObject(j) &&
 		isObject(j.initial_job) &&
+		hasBoundedFlowStatus(j.initial_job) &&
 		isBoundedArray(j.events, MAX_RECORDED_JOB_EVENTS) &&
-		j.events.every((e) => isObject(e) && isObject(e.data))
+		j.events.every(
+			(e) =>
+				isObject(e) &&
+				isObject(e.data) &&
+				hasBoundedFlowStatus(e.data) &&
+				hasBoundedFlowStatus(e.data.job)
+		)
 	)
 }
 
@@ -173,7 +196,11 @@ export function isPipelineRecording(data: unknown): data is PipelineRecording {
 	const validTimeline =
 		isBoundedArray(data.timeline, MAX_TIMELINE_FRAMES) &&
 		data.timeline.every(
-			(f) => isObject(f) && isObject(f.statuses) && Object.values(f.statuses).every(isObject)
+			(f) =>
+				isObject(f) &&
+				isObject(f.statuses) &&
+				Object.keys(f.statuses).length <= MAX_FRAME_STATUSES &&
+				Object.values(f.statuses).every(isObject)
 		)
 	// A sample renders `rows`/`columns` unless it carries a non-empty `error`.
 	const validSamples =
@@ -222,6 +249,27 @@ export type LoadedRecording =
 	| { kind: 'pipeline'; recording: PipelineRecording }
 	| { kind: 'flow'; recording: FlowRecording }
 
+/** The cap a well-formed but oversized recording tripped, if any. A genuine
+ * capture can hit these (a wide for-loop flow records a job per iteration), so it
+ * must not be reported with the same message as a corrupt file. */
+function describeOverflow(data: Record<string, unknown>): string | undefined {
+	const jobs = isObject(data.jobs) ? Object.values(data.jobs) : []
+	if (jobs.length > MAX_RECORDED_JOBS) {
+		return `This recording holds ${jobs.length} jobs, more than the ${MAX_RECORDED_JOBS} this player can replay.`
+	}
+	const events = jobs.reduce(
+		(sum: number, j) => sum + (isObject(j) && Array.isArray(j.events) ? j.events.length : 0),
+		0
+	)
+	if (events > MAX_RECORDED_JOB_EVENTS) {
+		return `This recording holds ${events} job events, more than the ${MAX_RECORDED_JOB_EVENTS} this player can replay.`
+	}
+	if (Array.isArray(data.timeline) && data.timeline.length > MAX_TIMELINE_FRAMES) {
+		return `This recording holds ${data.timeline.length} timeline frames, more than the ${MAX_TIMELINE_FRAMES} this player can animate.`
+	}
+	return undefined
+}
+
 /** Classify a parsed recording and validate it against the player that would
  * mount it. The `type` discriminator picks the validator, so a malformed payload
  * reports the kind it claimed to be instead of falling through to `flow`. */
@@ -232,23 +280,27 @@ export function parseRecording(
 		return { ok: false, error: 'This file is not a Windmill recording.' }
 	}
 	const type = data.type === undefined ? 'flow' : data.type
+	const invalid = (kind: string) => ({
+		ok: false as const,
+		error: describeOverflow(data) ?? `Invalid ${kind} recording format.`
+	})
 	switch (type) {
 		case 'app':
 			return isAppRecording(data)
 				? { ok: true, loaded: { kind: 'app', recording: data } }
-				: { ok: false, error: 'Invalid app recording format.' }
+				: invalid('app')
 		case 'script':
 			return isScriptRecording(data)
 				? { ok: true, loaded: { kind: 'script', recording: data } }
-				: { ok: false, error: 'Invalid script recording format.' }
+				: invalid('script')
 		case 'pipeline':
 			return isPipelineRecording(data)
 				? { ok: true, loaded: { kind: 'pipeline', recording: data } }
-				: { ok: false, error: 'Invalid pipeline recording format.' }
+				: invalid('pipeline')
 		case 'flow':
 			return isFlowRecording(data)
 				? { ok: true, loaded: { kind: 'flow', recording: data } }
-				: { ok: false, error: 'Invalid flow recording format.' }
+				: invalid('flow')
 		default:
 			return {
 				ok: false,

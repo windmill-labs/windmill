@@ -2,7 +2,6 @@
 	import RecordingPlayer from '$lib/components/recording/RecordingPlayer.svelte'
 	import {
 		fetchRecording,
-		MAX_RECORDING_BYTES,
 		parseRecording,
 		type LoadedRecording
 	} from '$lib/components/recording/recordingLoad'
@@ -100,7 +99,7 @@
 			<h2 class="text-lg font-semibold text-emphasis">Replay a recording</h2>
 			<p class="text-xs text-secondary mb-2">
 				Upload a recording JSON file to replay a flow, script or data-pipeline execution — or a
-				raw-app session — offline. Recordings up to {fmtBytes(MAX_RECORDING_BYTES)} are accepted.
+				raw-app session — offline.
 			</p>
 			{#if downloadError}
 				<p class="text-xs text-red-600 dark:text-red-400 mb-1 text-center">{downloadError}</p>
