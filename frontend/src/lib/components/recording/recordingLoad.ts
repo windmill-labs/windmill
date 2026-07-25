@@ -29,18 +29,40 @@ export const MAX_RECORDING_BYTES = 100 * 1024 * 1024
  * above any real capture: a wide for-loop flow records a job per iteration. */
 export const MAX_RECORDED_JOBS = 2000
 export const MAX_RECORDED_JOB_EVENTS = 200_000
-/** How much structure any single recorded value may expand into. One value is what
- * a component renders eagerly (a job state, a flow definition, an asset sample), so
- * this is the bound that stops a render bomb; the *number* of values is bounded by
- * the counts above. See {@link countRenderNodes} for why this is one structural
- * budget rather than a cap per key. */
+/**
+ * The backstop: how much structure any single recorded value may expand into. One
+ * value is what a component renders eagerly (a job state, a flow definition, an
+ * asset sample); the *number* of values is bounded by the counts above.
+ *
+ * This is deliberately generous, because it is not the precise bound — it exists to
+ * catch the keys nobody has named yet. Anything that mounts a *component* per entry
+ * is far more expensive than a node and gets {@link MAX_COMPONENT_FANOUT} on top.
+ */
 export const MAX_VALUE_NODES = 100_000
+/** Total characters of text in one value. Strings are one node however long they
+ * are, so this is the part of "how big is this value" the node count structurally
+ * cannot see: a flow module's inline `content`/`lock` is syntax-highlighted in one
+ * pass, exactly like the `code` that {@link MAX_CODE_CHARS} already covers. */
+export const MAX_VALUE_STRING_CHARS = 8 * 1024 * 1024
 /** Depth is its own hazard: a renderer recursing over a deeply nested value blows
- * the stack long before the node count matters. */
-export const MAX_VALUE_DEPTH = 64
+ * the stack long before the node count matters. Well above real data (recursive
+ * results nest tens deep) and well below what overflows a JS stack. */
+export const MAX_VALUE_DEPTH = 256
+/**
+ * Entries in a collection whose renderer mounts a *component* each, rather than a
+ * cell or a row: `render_all` (a nested `DisplayResult` per entry, recursively) and
+ * `data_tests` (a checklist item per entry, and it renders ahead of every size
+ * fallback `DisplayResult` has). Two orders of magnitude below the node budget
+ * because that is roughly the cost ratio. Counted through the serialized form too —
+ * these arrive as JSON strings often enough that the renderer parses them itself,
+ * and a string is one node no matter what it decodes to.
+ */
+export const MAX_COMPONENT_FANOUT = 1000
 /** Every frame reassigns the whole per-node status map on a timer, and each
- * reassignment rebuilds the derived id/state maps over the entire key set. */
+ * reassignment rebuilds the derived id/state maps over the entire key set — a
+ * per-entry cost that recurs, so it keeps a cap tighter than the node budget. */
 export const MAX_TIMELINE_FRAMES = 20_000
+export const MAX_FRAME_STATUSES = 5000
 /** Graph elements each become a rendered canvas node or edge. */
 export const MAX_GRAPH_ELEMENTS = 2000
 /* An asset sample renders as a `rows × columns` table of plain `<td>`s, so the
@@ -120,47 +142,79 @@ export function isAppRecording(data: unknown): data is RawAppRecording {
 	return validSteps && validViewport && validDuration && validHeader
 }
 
-/**
- * Total array entries and object keys reachable from `v`, stopping as soon as
- * `budget` is blown so the count itself can't be the denial of service. Returns
- * `Infinity` past `MAX_VALUE_DEPTH` so a deeply nested payload is rejected rather
- * than overflowing this stack (or a renderer's).
- *
- * This is the general form of a bound that was previously written per key
- * (`render_all`, `schema.properties`, `flow_status.modules`, …). Every one of those
- * turned out to have an unbounded sibling or an unbounded recursion, because the
- * thing that actually costs is "how much structure does one recorded value expand
- * into", not which key it arrived under. Counting structure covers the keys nobody
- * has thought of yet, so prefer widening this over adding another named cap.
- */
-function countRenderNodes(v: unknown, budget: number, depth = 0): number {
-	if (depth > MAX_VALUE_DEPTH) return Infinity
-	if (Array.isArray(v)) {
-		let n = v.length
-		if (n > budget) return n
-		for (const item of v) {
-			n += countRenderNodes(item, budget - n, depth + 1)
-			if (n > budget) return n
+/** Keys whose renderer mounts a component per entry. See {@link MAX_COMPONENT_FANOUT}. */
+const COMPONENT_FANOUT_KEYS = ['render_all', 'data_tests']
+
+/** Entry count of a fan-out collection, decoding the serialized form the renderers
+ * accept — a JSON string is one node however many components it expands into. */
+function fanoutLength(v: unknown): number {
+	if (Array.isArray(v)) return v.length
+	if (typeof v === 'string' && v.length <= MAX_VALUE_STRING_CHARS) {
+		try {
+			const decoded = JSON.parse(v)
+			return Array.isArray(decoded) ? decoded.length : 0
+		} catch {
+			return 0
 		}
-		return n
-	}
-	if (isObject(v)) {
-		const keys = Object.keys(v)
-		let n = keys.length
-		if (n > budget) return n
-		for (const k of keys) {
-			n += countRenderNodes(v[k], budget - n, depth + 1)
-			if (n > budget) return n
-		}
-		return n
 	}
 	return 0
 }
 
-/** True when one recorded value stays inside the render budget. Apply this to each
- * value a component expands eagerly (a job's args/result/flow_status, a flow
- * definition, an asset sample); the *number* of such values is bounded separately. */
-const withinRenderBudget = (v: unknown) => countRenderNodes(v, MAX_VALUE_NODES) <= MAX_VALUE_NODES
+/**
+ * Walks one recorded value and reports why it is too big to render, or `undefined`.
+ *
+ * Three different bounds, because they catch three different things and none
+ * subsumes the others:
+ *  - **structure** (`MAX_VALUE_NODES`) is the backstop, and the only one that covers
+ *    keys nobody has named. Widen this rather than adding a named cap;
+ *  - **text** (`MAX_VALUE_STRING_CHARS`), because a string is one node however long,
+ *    so structure cannot see a 60 MB inline script;
+ *  - **component fan-out** (`MAX_COMPONENT_FANOUT`), because mounting a component per
+ *    entry costs orders of magnitude more than a node, so a collection well inside
+ *    the structural budget can still be fatal.
+ *
+ * Bails as soon as any bound is blown, so the walk can't itself be the denial of
+ * service, and refuses past `MAX_VALUE_DEPTH` rather than overflowing this stack.
+ */
+function describeValueOverflow(
+	v: unknown,
+	budget = { nodes: MAX_VALUE_NODES, chars: MAX_VALUE_STRING_CHARS },
+	depth = 0
+): string | undefined {
+	if (depth > MAX_VALUE_DEPTH) return `nested more than ${MAX_VALUE_DEPTH} levels deep`
+	if (typeof v === 'string') {
+		budget.chars -= v.length
+		return budget.chars < 0 ? `more than ${MAX_VALUE_STRING_CHARS} characters of text` : undefined
+	}
+	if (Array.isArray(v)) {
+		budget.nodes -= v.length
+		if (budget.nodes < 0) return `more than ${MAX_VALUE_NODES} values to render`
+		for (const item of v) {
+			const over = describeValueOverflow(item, budget, depth + 1)
+			if (over) return over
+		}
+		return undefined
+	}
+	if (isObject(v)) {
+		const keys = Object.keys(v)
+		budget.nodes -= keys.length
+		if (budget.nodes < 0) return `more than ${MAX_VALUE_NODES} values to render`
+		for (const k of keys) {
+			if (COMPONENT_FANOUT_KEYS.includes(k) && fanoutLength(v[k]) > MAX_COMPONENT_FANOUT) {
+				return `a \`${k}\` of more than ${MAX_COMPONENT_FANOUT} entries`
+			}
+			const over = describeValueOverflow(v[k], budget, depth + 1)
+			if (over) return over
+		}
+		return undefined
+	}
+	return undefined
+}
+
+/** True when one recorded value is renderable. Apply this to each value a component
+ * expands eagerly (a job's args/result/flow_status, a flow definition, an asset
+ * sample); the *number* of such values is bounded separately. */
+const withinRenderBudget = (v: unknown) => describeValueOverflow(v) === undefined
 
 /** A RecordedJob whose events all carry an object `data`: JobLoader replays each
  * `event.data` in a `setTimeout`, whose throw a Svelte boundary can't catch, so a
@@ -269,6 +323,7 @@ export function isPipelineRecording(data: unknown): data is PipelineRecording {
 			(f) =>
 				isObject(f) &&
 				isObject(f.statuses) &&
+				Object.keys(f.statuses).length <= MAX_FRAME_STATUSES &&
 				withinRenderBudget(f.statuses) &&
 				Object.values(f.statuses).every(isObject)
 		)
@@ -282,8 +337,7 @@ export function isPipelineRecording(data: unknown): data is PipelineRecording {
 					((typeof s.error === 'string' && s.error !== '') ||
 						(isObjectArray(s.rows, MAX_SAMPLE_ROWS) &&
 							isObjectArray(s.columns, MAX_SAMPLE_COLUMNS) &&
-							(s.rows as unknown[]).length * (s.columns as unknown[]).length <=
-								MAX_SAMPLE_CELLS &&
+							(s.rows as unknown[]).length * (s.columns as unknown[]).length <= MAX_SAMPLE_CELLS &&
 							// The cells' values are formatted individually on top of that.
 							withinRenderBudget(s)))
 			))
@@ -310,16 +364,12 @@ export function isFlowRecording(data: unknown): data is FlowRecording {
 	if (data.type !== undefined && data.type !== 'flow') return false
 	if (!hasValidHeader(data, 'flow_path') || !isJobsMap(data.jobs)) return false
 	if (data.flow === undefined) return true
-	if (!isObject(data.flow)) return false
+	// The player hands the whole `flow` to FlowViewer, so `schema` renders (Input
+	// Schema tab, Input node) just like `value` does — budget one level up.
+	if (!isObject(data.flow) || !withinRenderBudget(data.flow)) return false
 	const value = data.flow.value
 	if (value === undefined) return true
-	return (
-		isObject(value) &&
-		countFlowModules(value.modules, MAX_FLOW_MODULES) <= MAX_FLOW_MODULES &&
-		// Covers everything else the graph lays out in one pass: notes, groups, and
-		// each module's `input_transforms` table.
-		withinRenderBudget(value)
-	)
+	return isObject(value) && countFlowModules(value.modules, MAX_FLOW_MODULES) <= MAX_FLOW_MODULES
 }
 
 /** A recording that passed validation, tagged with the player it needs. */
@@ -346,6 +396,17 @@ function describeOverflow(data: Record<string, unknown>): string | undefined {
 	}
 	if (Array.isArray(data.timeline) && data.timeline.length > MAX_TIMELINE_FRAMES) {
 		return `This recording holds ${data.timeline.length} timeline frames, more than the ${MAX_TIMELINE_FRAMES} this player can animate.`
+	}
+	// The render budget is the cap a legitimate capture is most likely to trip (the
+	// recorders stringify job results verbatim), so name the value that blew it and
+	// what about it was too big instead of reporting a format error.
+	for (const [label, value] of [
+		['a recorded job', jobs.find((j) => !withinRenderBudget(j))],
+		['this flow definition', withinRenderBudget(data.flow) ? undefined : data.flow],
+		["this script's inputs", withinRenderBudget(data.schema) ? undefined : data.schema]
+	] as const) {
+		const over = value === undefined ? undefined : describeValueOverflow(value)
+		if (over) return `Cannot replay: ${label} carries ${over}.`
 	}
 	return undefined
 }

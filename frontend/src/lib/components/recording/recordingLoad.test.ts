@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+	MAX_COMPONENT_FANOUT,
 	MAX_FLOW_MODULES,
 	MAX_RECORDED_JOBS,
 	MAX_SAMPLE_CELLS,
 	MAX_SAMPLE_COLUMNS,
 	MAX_VALUE_DEPTH,
 	MAX_VALUE_NODES,
+	MAX_VALUE_STRING_CHARS,
 	parseRecording
 } from './recordingLoad'
 
@@ -222,6 +224,72 @@ describe('parseRecording', () => {
 		expect(kindOf(flowWith({ modules: modules(3) }))).toBe('flow')
 	})
 
+	it('bounds the three things that cost differently: structure, text, components', () => {
+		const wide = (n: number) => Array.from({ length: n }, () => 0)
+		const flowJob = (result: unknown) => ({
+			version: 1,
+			flow_path: 'f',
+			...header,
+			jobs: {
+				j: {
+					initial_job: { id: 'j' },
+					events: [{ t: 0, data: { completed: true, job: { id: 'j', result } } }]
+				}
+			}
+		})
+
+		// Component fan-out: well inside the node budget, but one nested DisplayResult
+		// per entry is orders of magnitude more expensive than a node.
+		const fanout = MAX_COMPONENT_FANOUT + 1
+		expect(fanout).toBeLessThan(MAX_VALUE_NODES)
+		expect(rejected(flowJob({ render_all: wide(fanout) }))).toBe(true)
+		expect(rejected(flowJob({ data_tests: wide(fanout) }))).toBe(true)
+		// ...including the serialized form, since a string is one node however many
+		// components the renderer parses out of it.
+		expect(rejected(flowJob({ data_tests: JSON.stringify(wide(fanout)) }))).toBe(true)
+		expect(rejected(flowJob({ error: { data_tests: JSON.stringify(wide(fanout)) } }))).toBe(true)
+		expect(kindOf(flowJob({ render_all: wide(10) }))).toBe('flow')
+
+		// Text: a long string is one node, so only the character budget sees it.
+		expect(rejected(flowJob({ big: 'x'.repeat(MAX_VALUE_STRING_CHARS + 1) }))).toBe(true)
+	})
+
+	it('budgets the whole flow object, not just its value', () => {
+		// `schema` renders through SchemaViewer (Input Schema tab, Input node) exactly
+		// as `value` renders through the graph, so the budget belongs one level up.
+		const properties = Object.fromEntries(
+			Array.from({ length: MAX_VALUE_NODES }, (_, i) => [`p${i}`, { type: 'string' }])
+		)
+		const res = parseRecording({
+			version: 1,
+			flow_path: 'f',
+			...header,
+			jobs: { j: job() },
+			flow: { schema: { properties }, value: { modules: [] } }
+		})
+		expect(res.ok).toBe(false)
+		// A module's inline `content` is the flow kind's equivalent of a script's
+		// `code`, and text is not structure.
+		expect(
+			rejected({
+				version: 1,
+				flow_path: 'f',
+				...header,
+				jobs: { j: job() },
+				flow: {
+					value: {
+						modules: [
+							{
+								id: 'a',
+								value: { type: 'rawscript', content: 'x'.repeat(MAX_VALUE_STRING_CHARS + 1) }
+							}
+						]
+					}
+				}
+			})
+		).toBe(true)
+	})
+
 	it('tells an oversized recording apart from a corrupt one', () => {
 		// A wide for-loop flow records a job per iteration, so a real capture can trip
 		// this — it must not read as "your recorder wrote a broken file".
@@ -232,6 +300,22 @@ describe('parseRecording', () => {
 		expect(res.ok ? '' : res.error).toMatch(/holds \d+ jobs/)
 		const corrupt = parseRecording({ version: 1, flow_path: 'f', ...header, jobs: 'nope' })
 		expect(corrupt.ok ? '' : corrupt.error).toBe('Invalid flow recording format.')
+		// The render budget is the cap a real capture is most likely to trip, so it
+		// names the value and what about it was too big.
+		const fat = parseRecording({
+			version: 1,
+			flow_path: 'f',
+			...header,
+			jobs: {
+				j: {
+					initial_job: { id: 'j' },
+					events: [
+						{ t: 0, data: { completed: true, job: { id: 'j', result: { render_all: Array.from({ length: MAX_COMPONENT_FANOUT + 1 }, () => 0) } } } }
+					]
+				}
+			}
+		})
+		expect(fat.ok ? '' : fat.error).toMatch(/a recorded job carries a `render_all`/)
 	})
 
 	it('bounds an asset sample on its rendered cells, not just per axis', () => {
