@@ -31,6 +31,10 @@ const SETTLE_QUIET_MS = 400
 /** …but never later than this after the interaction (an app that animates or
  * polls forever would otherwise keep the frame pending). */
 const SETTLE_MAX_MS = 3000
+/** A step that launched a backend job waits for it instead: the DOM goes quiet
+ * while the job runs, so the ordinary settle would capture the spinner as the
+ * outcome. Still bounded — a job can outlive anyone's patience. */
+const SETTLE_JOB_MAX_MS = 60000
 /** Typing is one step per field, committed after this much inactivity. */
 const FILL_DEBOUNCE_MS = 800
 /** `<input>` types that act as buttons: they report a click and never a change. */
@@ -116,10 +120,14 @@ export function createRawAppRecording(): RawAppRecordingStore {
 	type Settle = {
 		step: RawAppStep
 		observer: MutationObserver
+		startedAt: number
 		timer: ReturnType<typeof setTimeout>
 		cap: ReturnType<typeof setTimeout>
 	}
 	let settle: Settle | undefined = undefined
+	/** Runnable calls the app is waiting on right now. */
+	let pendingJobs = 0
+	let unwatchBridge: (() => void) | undefined = undefined
 
 	function doc(): Document | undefined {
 		try {
@@ -186,6 +194,14 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		const d = doc()
 		if (!d) return
 		const finish = () => {
+			// A backend call is in flight: the app is waiting, not done. Settling now
+			// would record the spinner as this interaction's result — the quiet period
+			// cannot see the difference, because a document waiting on a job is quiet.
+			if (pendingJobs > 0 && settle && Date.now() - settle.startedAt < SETTLE_JOB_MAX_MS) {
+				clearTimeout(settle.timer)
+				settle.timer = setTimeout(finish, SETTLE_QUIET_MS)
+				return
+			}
 			clearSettle()
 			step.after = frameIndex(capture())
 		}
@@ -198,7 +214,10 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		settle = {
 			step,
 			observer,
+			startedAt: Date.now(),
 			timer: setTimeout(finish, SETTLE_QUIET_MS),
+			// The hard cap only bounds a *mutating* app; one waiting on a job is
+			// bounded by SETTLE_JOB_MAX_MS in `finish` instead.
 			cap: setTimeout(finish, SETTLE_MAX_MS)
 		}
 	}
@@ -623,6 +642,31 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		detachers = []
 	}
 
+	/** The bundle asks the host to run a runnable by postMessage and gets a `…Res`
+	 * back (see RawAppBackgroundRunner). Counting those tells the settle logic that
+	 * the app is waiting on a job rather than finished — nothing else can: the
+	 * request leaves the iframe, so no DOM mutation marks it. */
+	function watchRunnableBridge(iframe: HTMLIFrameElement) {
+		const inFlight = new Set<unknown>()
+		const onMessage = (e: MessageEvent) => {
+			const data = e.data
+			if (!data || typeof data !== 'object') return
+			const type = (data as any).type
+			const reqId = (data as any).reqId
+			if (e.source === iframe.contentWindow && (type === 'backend' || type === 'backendAsync')) {
+				inFlight.add(reqId)
+			} else if (type === 'backendRes' || type === 'backendAsyncRes') {
+				inFlight.delete(reqId)
+			}
+			pendingJobs = inFlight.size
+		}
+		window.addEventListener('message', onMessage)
+		return () => {
+			window.removeEventListener('message', onMessage)
+			pendingJobs = 0
+		}
+	}
+
 	/** A reload replaces the document the listeners are bound to. Anything the old
 	 * one had in flight (a debounced fill, a pending outcome) refers to detached
 	 * nodes and must be dropped, not carried into the new page's timeline. */
@@ -695,6 +739,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			// NOT in `detachers`: onIframeLoad calls detach(), which would otherwise
 			// remove the very listener that rebinds the recorder on the next reload.
 			iframe.addEventListener('load', onIframeLoad)
+			unwatchBridge = watchRunnableBridge(iframe)
 			return true
 		},
 		stop(): RawAppRecording {
@@ -707,6 +752,8 @@ export function createRawAppRecording(): RawAppRecordingStore {
 				step.after = frameIndex(capture())
 			}
 			detach()
+			unwatchBridge?.()
+			unwatchBridge = undefined
 			iframeEl?.removeEventListener('load', onIframeLoad)
 			active = false
 			pendingPointer = undefined
