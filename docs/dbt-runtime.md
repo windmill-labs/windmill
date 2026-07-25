@@ -37,8 +37,8 @@ the dominant way dbt is orchestrated today.
 | 10 | Private repo auth | SSH/token in CE; GitHub App **not yet** — see below |
 | 11 | Asset kind | `table://<resource>/<schema>/<name>`, not `dbt://`. See below |
 | 12 | Graph refresh | Falls out of #5, no separate mechanism. See below |
-| 13 | Manifest storage | Sidecar table for nodes/edges, full manifest to S3 |
-| 14 | Metadata depth | Full (tests, column lineage, strategy, tags, freshness) |
+| 13 | Manifest storage | Sidecar table for nodes/edges. Full manifest **not** stored — see below |
+| 14 | Metadata depth | Tests, strategy, tags, freshness, column descriptions. Column **lineage** is not in the manifest — see below |
 | 15 | Node rendering | Asset nodes per model plus one runnable node for the script |
 | 16 | Progress | Live, from the JSON event stream |
 | 17 | Test failures | Honor dbt's own `severity` |
@@ -361,6 +361,20 @@ provides observability.
    without failing. Overriding this would make the same project behave differently
    on Windmill than locally, breaking the core promise.
 
+## Two decisions the implementation narrowed
+
+**Decision 13 — no S3 copy of the manifest.** The sidecar holds every field the
+graph renders; nothing reads a stored `manifest.json`, so writing one to S3
+would be an unread copy of data that is already reproducible by redeploying (or,
+for a dynamic ref, by the next run). Worth adding the day something needs the
+parts the sidecar drops — compiled SQL, macro definitions — and not before.
+
+**Decision 14 — column lineage is not available.** The decision assumed
+`manifest.json` carries column-to-column edges; it does not, in either core
+engine. What it does carry is declared column *descriptions*, which are
+ingested. Real column lineage would need Fusion (which does static analysis) or
+a SQL-AST pass of our own, so `columnLineageGraph.ts` is not wired up for dbt.
+
 ## Concept mapping
 
 | dbt | Windmill | Mechanism |
@@ -371,7 +385,7 @@ provides observability.
 | `materialized: incremental` | `append` or `merge` (by `unique_key`) | same |
 | `{% snapshot %}` | `scd2` | same, incl. `<dim>_current` handling |
 | `unique`/`not_null`/`accepted_values`/`relationships` | `data_tests` | exact 1:1 with the four `// data_test` kinds |
-| column-level lineage | `column_lineage` | `columnLineageGraph.ts`, `ColumnLineageTrace.svelte` |
+| declared column metadata | `columns` on the asset node | descriptions only; see the note below |
 | model `tags` | node badge | `tag` |
 | source freshness | `freshness` | `last_success_at` chip |
 | `run_results.json` | materialization records | `record_materialization` |

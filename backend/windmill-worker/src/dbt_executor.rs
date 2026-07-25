@@ -54,6 +54,11 @@ pub struct DbtDependencyLocks {
     /// URL carries the token, and the lockfile lands in script metadata and
     /// workspace exports.
     pub repo_resource: String,
+    /// dbt-core 1.x only: its adapter is a separate package versioning
+    /// independently of core, so pinning core alone still lets a rebuilt cache
+    /// resolve different runtime behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_version: Option<String>,
     pub commit: String,
     pub manifest_digest: String,
     pub engine: String,
@@ -413,6 +418,7 @@ pub async fn dbt_dep(
         manifest_digest,
         engine: prepared.engine.engine.as_str().to_string(),
         engine_version: prepared.engine.version.clone(),
+        adapter_version: prepared.engine.adapter_version.clone(),
     })
     .map_err(|e| Error::internal_err(format!("serializing the dbt lockfile: {e}")))
 }
@@ -450,6 +456,9 @@ pub struct PreparedProject {
     /// The descriptor body, kept so an ingest can re-read its `# on` / `# mute`
     /// annotations without threading the content through every caller.
     pub descriptor_content: String,
+    /// The descriptor's `env`, resolved, in a stable order. Feeds run identity;
+    /// `env` itself is not usable there because it carries per-job values.
+    pub descriptor_env: std::collections::BTreeMap<String, String>,
     /// The profile file and schema the descriptor named. Part of run identity:
     /// a redeploy can repoint either while the commit and resource stay put,
     /// and a retry there would resume one schema's failures in another.
@@ -465,17 +474,19 @@ impl PreparedProject {
     /// Anything omitted here is something a redeploy could change while a
     /// stale `run_results.json` stays eligible, so `dbt retry` would resume one
     /// project's failures inside another.
-    /// A stable digest of the resolved environment. It belongs in run identity
-    /// because `env_var()` can drive a model's schema, database, alias or
-    /// `enabled` — so changing a `$var:` value after a failed run makes the
+    /// A digest of the DESCRIPTOR's resolved environment. It belongs in run
+    /// identity because `env_var()` can drive a model's schema, database, alias
+    /// or `enabled`, so changing a `$var:` value after a failed run makes the
     /// saved `run_results.json` describe relations this run would not produce.
     /// Digested rather than listed: the values are resolved secrets.
+    ///
+    /// Only the descriptor's own entries. `env` additionally carries `HOME`,
+    /// set to this job's directory, which differs on every attempt — hashing it
+    /// would make a retry reject its own predecessor every time.
     fn env_digest(&self) -> u64 {
         use std::hash::{Hash, Hasher};
-        let mut sorted: Vec<&(String, String)> = self.env.iter().collect();
-        sorted.sort();
         let mut h = std::collections::hash_map::DefaultHasher::new();
-        for (k, v) in sorted {
+        for (k, v) in &self.descriptor_env {
             k.hash(&mut h);
             v.hash(&mut h);
         }
@@ -678,13 +689,20 @@ pub async fn prepare_project(
         descriptor.engine(),
         adapter,
         pinned_version,
+        locks
+            .filter(|l| l.engine == descriptor.engine().as_str())
+            .and_then(|l| l.adapter_version.as_deref())
+            .filter(|v| !v.is_empty()),
         job_id,
         w_id,
         conn,
     )
     .await?;
 
-    let mut env = resolve_env(descriptor, client).await?;
+    let resolved_env = resolve_env(descriptor, client).await?;
+    let descriptor_env: std::collections::BTreeMap<String, String> =
+        resolved_env.iter().cloned().collect();
+    let mut env = resolved_env;
     // Both engines write their profile-independent state under the project;
     // pinning it inside the job dir keeps a job from touching a shared $HOME.
     env.push(("HOME".to_string(), job_dir.to_string()));
@@ -701,6 +719,7 @@ pub async fn prepare_project(
         resource_path,
         target: descriptor.profile.target.clone(),
         descriptor_content: descriptor_content.to_string(),
+        descriptor_env,
         profile_identity: format!(
             "{}|{}",
             descriptor.profile.profiles_yml.as_deref().unwrap_or(""),
@@ -785,9 +804,14 @@ async fn checkout(
 ) -> error::Result<String> {
     let dest = PathBuf::from(job_dir).join("dbt");
     if !commit.is_empty() {
+        // Keyed by workspace and credential as well as the commit. The cache
+        // holds a checkout of a private repository, and a literal 40-char ref
+        // needs no `ls-remote` to resolve — so a key of url+commit alone would
+        // let any workspace that knows both read a repo it cannot authenticate
+        // to.
         let cached = PathBuf::from(&*DBT_CACHE_DIR).join("repos").join(format!(
             "{}-{}",
-            digest(&repo.url),
+            digest(&format!("{w_id}\n{}\n{git_ssh_cmd}", repo.url)),
             commit
         ));
         if cached.join(".git").exists() {

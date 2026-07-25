@@ -50,6 +50,10 @@ pub struct ProvisionedEngine {
     pub bin: PathBuf,
     pub version: String,
     pub engine: DbtEngine,
+    /// The adapter version this venv resolved, for dbt-core 1.x where the
+    /// adapter is a separate package that versions independently of core.
+    /// `None` for the Rust engines, which ship their adapters in the binary.
+    pub adapter_version: Option<String>,
 }
 
 /// Ensure the engine is present on this worker and return how to invoke it.
@@ -62,13 +66,24 @@ pub async fn provision_engine(
     // `None` for a deploy (which is what writes the pin) and for a script whose
     // lock predates it.
     pinned_version: Option<&str>,
+    pinned_adapter_version: Option<&str>,
     job_id: &Uuid,
     w_id: &str,
     conn: &Connection,
 ) -> error::Result<ProvisionedEngine> {
     tokio::fs::create_dir_all(&*DBT_CACHE_DIR).await.ok();
     match engine {
-        DbtEngine::DbtCore1x => provision_core_1x(adapter, pinned_version, job_id, w_id, conn).await,
+        DbtEngine::DbtCore1x => {
+            provision_core_1x(
+                adapter,
+                pinned_version,
+                pinned_adapter_version,
+                job_id,
+                w_id,
+                conn,
+            )
+            .await
+        }
         DbtEngine::DbtCore2x => provision_core_2x(pinned_version, job_id, w_id, conn).await,
         // Fusion's installer resolves its own version, so there is nothing to
         // pin; the fetch-at-runtime model is what its license requires.
@@ -82,6 +97,7 @@ pub async fn provision_engine(
 async fn provision_core_1x(
     adapter: DbtAdapter,
     pinned_version: Option<&str>,
+    pinned_adapter_version: Option<&str>,
     job_id: &Uuid,
     w_id: &str,
     conn: &Connection,
@@ -89,11 +105,24 @@ async fn provision_core_1x(
     let version = pinned_version
         .map(str::to_string)
         .unwrap_or_else(|| DBT_CORE_1X_VERSION.clone());
-    let dir =
-        PathBuf::from(&*DBT_CACHE_DIR).join(format!("core1x-{version}-{}", adapter.pip_package()));
+    // The adapter is in the cache key: pinning core alone would let a rebuilt
+    // cache resolve a newer adapter than the deploy did, which changes runtime
+    // behavior under a lockfile that claims to prevent exactly that.
+    let adapter_spec = match pinned_adapter_version {
+        Some(v) => format!("{}=={v}", adapter.pip_package()),
+        None => adapter.pip_package().to_string(),
+    };
+    let dir = PathBuf::from(&*DBT_CACHE_DIR)
+        .join(format!("core1x-{version}-{}", digest(&adapter_spec)));
     let bin = dir.join("bin").join("dbt");
     if bin.exists() {
-        return Ok(ProvisionedEngine { bin, version, engine: DbtEngine::DbtCore1x });
+        let adapter_version = installed_adapter_version(&dir, adapter).await;
+        return Ok(ProvisionedEngine {
+            bin,
+            version,
+            engine: DbtEngine::DbtCore1x,
+            adapter_version,
+        });
     }
 
     append_logs(
@@ -128,12 +157,7 @@ async fn provision_core_1x(
     run_tool(
         Command::new(UV_PATH.as_str())
             .env("VIRTUAL_ENV", &staging)
-            .args([
-                "pip",
-                "install",
-                &format!("dbt-core=={version}"),
-                adapter.pip_package(),
-            ]),
+            .args(["pip", "install", &format!("dbt-core=={version}"), &adapter_spec]),
         "uv pip install",
     )
     .await?;
@@ -145,7 +169,34 @@ async fn provision_core_1x(
         }
         Err(e) => return Err(Error::internal_err(format!("installing dbt-core: {e}"))),
     }
-    Ok(ProvisionedEngine { bin, version, engine: DbtEngine::DbtCore1x })
+    let adapter_version = installed_adapter_version(&dir, adapter).await;
+    Ok(ProvisionedEngine {
+        bin,
+        version,
+        engine: DbtEngine::DbtCore1x,
+        adapter_version,
+    })
+}
+
+/// The adapter version a venv actually resolved, read from its dist-info so a
+/// deploy can lock it and later runs can ask for the same one.
+async fn installed_adapter_version(dir: &Path, adapter: DbtAdapter) -> Option<String> {
+    let prefix = format!("{}-", adapter.pip_package().replace('-', "_"));
+    let mut entries = tokio::fs::read_dir(dir.join("lib")).await.ok()?;
+    while let Ok(Some(py)) = entries.next_entry().await {
+        let mut pkgs = tokio::fs::read_dir(py.path().join("site-packages"))
+            .await
+            .ok()?;
+        while let Ok(Some(e)) = pkgs.next_entry().await {
+            let name = e.file_name().to_string_lossy().to_string();
+            if let Some(rest) = name.strip_prefix(&prefix) {
+                if let Some(v) = rest.strip_suffix(".dist-info") {
+                    return Some(v.to_string());
+                }
+            }
+        }
+    }
+    None
 }
 
 async fn provision_core_2x(
@@ -162,12 +213,22 @@ async fn provision_core_2x(
         .join(format!("core2x-{version}"))
         .join("dbt-sa-cli");
     if bundled.exists() {
-        return Ok(ProvisionedEngine { bin: bundled, version, engine: DbtEngine::DbtCore2x });
+        return Ok(ProvisionedEngine {
+            bin: bundled,
+            version,
+            engine: DbtEngine::DbtCore2x,
+            adapter_version: None,
+        });
     }
     let dir = PathBuf::from(&*DBT_CACHE_DIR).join(format!("core2x-{version}"));
     let bin = dir.join("dbt-sa-cli");
     if bin.exists() {
-        return Ok(ProvisionedEngine { bin, version, engine: DbtEngine::DbtCore2x });
+        return Ok(ProvisionedEngine {
+            bin,
+            version,
+            engine: DbtEngine::DbtCore2x,
+            adapter_version: None,
+        });
     }
     let target = format!("{}-unknown-linux-gnu", std::env::consts::ARCH);
     let url = format!(
@@ -181,7 +242,12 @@ async fn provision_core_2x(
     )
     .await;
     fetch_and_extract(&url, &dir, "dbt-sa-cli", job_id).await?;
-    Ok(ProvisionedEngine { bin, version, engine: DbtEngine::DbtCore2x })
+    Ok(ProvisionedEngine {
+        bin,
+        version,
+        engine: DbtEngine::DbtCore2x,
+        adapter_version: None,
+    })
 }
 
 /// Fusion is fetched from dbt Labs at runtime and cached — see the module docs
@@ -198,6 +264,7 @@ async fn provision_fusion(
             bin,
             version: fusion_version(&dir).await,
             engine: DbtEngine::Fusion,
+            adapter_version: None,
         });
     }
     append_logs(
@@ -253,7 +320,19 @@ async fn provision_fusion(
             ));
         }
     }
-    Ok(ProvisionedEngine { bin, version: fusion_version(&dir).await, engine: DbtEngine::Fusion })
+    Ok(ProvisionedEngine {
+        bin,
+        version: fusion_version(&dir).await,
+        engine: DbtEngine::Fusion,
+        adapter_version: None,
+    })
+}
+
+fn digest(s: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(s.as_bytes());
+    format!("{:x}", h.finalize())[..16].to_string()
 }
 
 async fn fusion_version(dir: &Path) -> String {

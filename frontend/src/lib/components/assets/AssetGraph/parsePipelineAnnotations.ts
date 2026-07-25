@@ -18,8 +18,25 @@ const ASSET_PREFIXES: Array<[string, AssetKind]> = [
 	['$res:', 'resource'],
 	['ducklake://', 'ducklake'],
 	['datatable://', 'datatable'],
-	['volume://', 'volume']
+	['volume://', 'volume'],
+	['table://', 'table']
 ]
+
+/** Canonical spelling of a `table://` path — mirror of
+ *  `canonicalize_table_asset_path` in the Rust parser, which is the single
+ *  place a relation becomes a graph key. The live editor must agree with it
+ *  exactly, or an annotation looks connected while typing and lands on a
+ *  different node at deploy. Strips the warehouses' quote characters from the
+ *  schema and name and folds their case; the resource-path prefix is a
+ *  Windmill path and stays as written. */
+function canonicalizeTablePath(path: string): string {
+	const parts = path.split('/')
+	if (parts.length < 3) return path
+	const name = parts.pop()!
+	const schema = parts.pop()!
+	const unquote = (s: string) => s.trim().replace(/^["`[]|["`\]]$/g, '')
+	return [...parts, unquote(schema).toLowerCase(), unquote(name).toLowerCase()].join('/')
+}
 
 // Native trigger keywords — `// on <kind>`. Each is marker-only: the
 // binding lives on the matching trigger row's own `script_path` field.
@@ -277,11 +294,13 @@ function stripTrailingKvOpts(s: string): string {
 function parseAssetSyntax(s: string): PipelineTriggerAsset | undefined {
 	for (const [prefix, kind] of ASSET_PREFIXES) {
 		if (s.startsWith(prefix)) {
-			// The suffix is kept verbatim, mirroring the Rust `parse_asset_syntax`.
-			// For S3 the path encodes the storage: `s3:///key` yields `/key`
-			// (default storage, leading slash significant) while
-			// `s3://secondary/key` yields `secondary/key` — two different objects.
-			return { kind, path: s.slice(prefix.length) }
+			const suffix = s.slice(prefix.length)
+			// `table://` is canonicalized, every other kind's suffix is kept
+			// verbatim — mirroring the Rust `parse_asset_syntax`. For S3 the path
+			// encodes the storage: `s3:///key` yields `/key` (default storage,
+			// leading slash significant) while `s3://secondary/key` yields
+			// `secondary/key` — two different objects.
+			return { kind, path: kind === 'table' ? canonicalizeTablePath(suffix) : suffix }
 		}
 	}
 	return undefined

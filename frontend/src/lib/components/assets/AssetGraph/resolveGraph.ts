@@ -75,8 +75,13 @@ function persistedNativeKinds(base: AssetGraphResponse, path: string): Set<strin
 
 // Read-asset kinds that auto-derive a cascade trigger edge inside a
 // `// pipeline`. Mirror of the backend `is_auto_trigger_kind`
-// (windmill-common assets.rs) — ducklake tables and s3 objects only.
-const AUTO_TRIGGER_KINDS: ReadonlySet<AssetKind> = new Set(['ducklake', 's3object'])
+// (windmill-common assets.rs): ducklake tables, s3 objects and warehouse
+// relations.
+const AUTO_TRIGGER_KINDS: ReadonlySet<AssetKind> = new Set([
+	'ducklake',
+	's3object',
+	'table'
+])
 
 /** `kind:path` refs of a script's `// materialize` write target(s) (base +
  *  the scd2 `<dim>_current` companion), which the body `SELECT` doesn't express. */
