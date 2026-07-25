@@ -610,13 +610,21 @@ pub async fn prepare_project(
     // Vars can drive `enabled`, alias, schema, database and materialization, so
     // a var only a run can fill means the deploy-time graph is a guess. Treat it
     // like a per-run ref: refresh from each run's own manifest.
-    let graph_is_per_run =
-        ref_is_per_run
-            || descriptor
-                .vars
-                .values()
-                .flat_map(windmill_parser_yaml::dbt::string_leaves)
-                .any(has_placeholder);
+    // Anything a run can change about which relations the project produces: vars
+    // drive `enabled`, alias, schema, database and materialization, so a
+    // placeholder var, a per-run `vars` override, or a `$var:` env value
+    // (re-resolved every run) each make the deploy-time graph a guess.
+    let graph_is_per_run = ref_is_per_run
+        || descriptor
+            .vars
+            .values()
+            .flat_map(windmill_parser_yaml::dbt::string_leaves)
+            .any(has_placeholder)
+        || args
+            .get("vars")
+            .and_then(|v| serde_json::from_str::<serde_json::Value>(v.get()).ok())
+            .is_some_and(|v| v.as_object().is_some_and(|m| !m.is_empty()))
+        || descriptor.env.values().any(|v| v.starts_with("$var:"));
     let probe = GitRepo {
         url: url.clone(),
         commit: None,
@@ -1935,18 +1943,23 @@ async fn save_run_state(p: &PreparedProject, w_id: &str, inv: &Invocation) -> er
     if p.script_path.is_empty() {
         return Ok(());
     }
+    // Staged and renamed as one generation. Writing the three files into the
+    // live directory lets two concurrent runs interleave — B's results beside
+    // A's manifest and arguments — and lets a failed copy delete state another
+    // run just published. A retry resuming that mixture is worse than one that
+    // finds nothing.
     let dir = state_dir(w_id, &p.script_path);
-    tokio::fs::create_dir_all(&dir).await.ok();
-    // Both artifacts or neither. A run that fails before writing
-    // `run_results.json` would otherwise leave the PREVIOUS one in place beside
-    // this run's `state.json`, and the next retry would resume those results
-    // under these arguments.
+    let staging = dir.with_extension(format!("staging-{}", p.commit));
+    tokio::fs::remove_dir_all(&staging).await.ok();
+    if tokio::fs::create_dir_all(&staging).await.is_err() {
+        return Ok(());
+    }
     for f in ["run_results.json", "manifest.json"] {
-        if tokio::fs::copy(p.project_dir.join("target").join(f), dir.join(f))
+        if tokio::fs::copy(p.project_dir.join("target").join(f), staging.join(f))
             .await
             .is_err()
         {
-            tokio::fs::remove_dir_all(&dir).await.ok();
+            tokio::fs::remove_dir_all(&staging).await.ok();
             return Ok(());
         }
     }
@@ -1968,12 +1981,23 @@ async fn save_run_state(p: &PreparedProject, w_id: &str, inv: &Invocation) -> er
             .map(|(k, v)| (k.clone(), v.get().to_string()))
             .collect(),
     };
-    tokio::fs::write(
-        dir.join("state.json"),
+    if tokio::fs::write(
+        staging.join("state.json"),
         serde_json::to_vec(&state).unwrap_or_default(),
     )
     .await
-    .ok();
+    .is_err()
+    {
+        tokio::fs::remove_dir_all(&staging).await.ok();
+        return Ok(());
+    }
+    // Rename cannot replace a non-empty directory, so the live one goes first.
+    // A reader between the two sees no state and reports that, which is the
+    // safe direction.
+    tokio::fs::remove_dir_all(&dir).await.ok();
+    if tokio::fs::rename(&staging, &dir).await.is_err() {
+        tokio::fs::remove_dir_all(&staging).await.ok();
+    }
     Ok(())
 }
 
@@ -2174,7 +2198,7 @@ fn arg_list(args: &HashMap<String, Box<RawValue>>, k: &str) -> Option<Vec<String
     (!v.is_empty()).then_some(v)
 }
 
-fn digest(s: &str) -> String {
+pub(crate) fn digest(s: &str) -> String {
     let mut h = Sha256::new();
     h.update(s.as_bytes());
     format!("{:x}", h.finalize())[..32].to_string()

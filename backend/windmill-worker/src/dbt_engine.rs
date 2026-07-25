@@ -21,6 +21,7 @@ use windmill_common::worker::{write_file, Connection, ROOT_CACHE_NOMOUNT_DIR};
 use windmill_parser_yaml::DbtEngine;
 use windmill_queue::append_logs;
 
+use crate::dbt_executor::digest;
 use crate::dbt_profiles::DbtAdapter;
 
 lazy_static::lazy_static! {
@@ -326,13 +327,6 @@ async fn provision_fusion(
         engine: DbtEngine::Fusion,
         adapter_version: None,
     })
-}
-
-fn digest(s: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let mut h = Sha256::new();
-    h.update(s.as_bytes());
-    format!("{:x}", h.finalize())[..16].to_string()
 }
 
 async fn fusion_version(dir: &Path) -> String {
