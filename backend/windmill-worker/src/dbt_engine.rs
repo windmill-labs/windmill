@@ -21,7 +21,8 @@ use windmill_common::worker::{write_file, Connection, ROOT_CACHE_NOMOUNT_DIR};
 use windmill_parser_yaml::DbtEngine;
 use windmill_queue::append_logs;
 
-use crate::dbt_executor::digest;
+use crate::dbt_executor::{digest, JobCtx};
+use crate::handle_child::{get_mem_peak, run_future_with_polling_update_job_poller};
 use crate::dbt_profiles::DbtAdapter;
 
 lazy_static::lazy_static! {
@@ -46,9 +47,6 @@ lazy_static::lazy_static! {
         .unwrap_or_else(|_| "https://public.cdn.getdbt.com/fs/install/install.sh".to_string());
 }
 
-/// Bound on engine provisioning. Generous — a cold `uv pip install` of dbt-core
-/// plus an adapter is minutes — but finite, unlike a stalled index.
-const PROVISION_TIMEOUT_SECS: u64 = 1800;
 
 pub struct ProvisionedEngine {
     /// Absolute path of the dbt binary to invoke.
@@ -75,6 +73,7 @@ pub async fn provision_engine(
     job_id: &Uuid,
     w_id: &str,
     conn: &Connection,
+    ctx: &mut JobCtx<'_>,
 ) -> error::Result<ProvisionedEngine> {
     tokio::fs::create_dir_all(&*DBT_CACHE_DIR).await.ok();
     match engine {
@@ -86,11 +85,12 @@ pub async fn provision_engine(
                 job_id,
                 w_id,
                 conn,
+                ctx,
             )
             .await
         }
-        DbtEngine::DbtCore2x => provision_core_2x(pinned_version, job_id, w_id, conn).await,
-        DbtEngine::Fusion => provision_fusion(pinned_version, job_id, w_id, conn).await,
+        DbtEngine::DbtCore2x => provision_core_2x(pinned_version, job_id, w_id, conn, ctx).await,
+        DbtEngine::Fusion => provision_fusion(pinned_version, job_id, w_id, conn, ctx).await,
     }
 }
 
@@ -104,6 +104,7 @@ async fn provision_core_1x(
     job_id: &Uuid,
     w_id: &str,
     conn: &Connection,
+    ctx: &mut JobCtx<'_>,
 ) -> error::Result<ProvisionedEngine> {
     let version = pinned_version
         .map(str::to_string)
@@ -155,6 +156,10 @@ async fn provision_core_1x(
             ])
             .arg(&staging),
         "uv venv",
+        job_id,
+        w_id,
+        conn,
+        ctx,
     )
     .await?;
     run_tool(
@@ -162,6 +167,10 @@ async fn provision_core_1x(
             .env("VIRTUAL_ENV", &staging)
             .args(["pip", "install", &format!("dbt-core=={version}"), &adapter_spec]),
         "uv pip install",
+        job_id,
+        w_id,
+        conn,
+        ctx,
     )
     .await?;
     match tokio::fs::rename(&staging, &dir).await {
@@ -207,6 +216,7 @@ async fn provision_core_2x(
     job_id: &Uuid,
     w_id: &str,
     conn: &Connection,
+    ctx: &mut JobCtx<'_>,
 ) -> error::Result<ProvisionedEngine> {
     let version = pinned_version
         .map(str::to_string)
@@ -244,7 +254,7 @@ async fn provision_core_2x(
         conn,
     )
     .await;
-    fetch_and_extract(&url, &dir, "dbt-sa-cli", job_id).await?;
+    fetch_and_extract(&url, &dir, "dbt-sa-cli", job_id, w_id, conn, ctx).await?;
     Ok(ProvisionedEngine {
         bin,
         version,
@@ -260,6 +270,7 @@ async fn provision_fusion(
     job_id: &Uuid,
     w_id: &str,
     conn: &Connection,
+    ctx: &mut JobCtx<'_>,
 ) -> error::Result<ProvisionedEngine> {
     // Version-keyed like the other two: one shared `fusion` directory means a
     // run landing on a clean worker fetches whatever is current rather than
@@ -319,7 +330,7 @@ async fn provision_fusion(
     } else {
         install.arg("--update");
     }
-    run_tool(&mut install, "fusion install").await?;
+    run_tool(&mut install, "fusion install", job_id, w_id, conn, ctx).await?;
     tokio::fs::remove_file(&tmp).await.ok();
     if !staging.join("dbt").exists() {
         tokio::fs::remove_dir_all(&staging).await.ok();
@@ -375,6 +386,9 @@ async fn fetch_and_extract(
     dir: &Path,
     expected_bin: &str,
     job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
+    ctx: &mut JobCtx<'_>,
 ) -> error::Result<()> {
     let bytes = windmill_common::utils::HTTP_CLIENT
         .get(url)
@@ -403,6 +417,10 @@ async fn fetch_and_extract(
             // The release tarballs wrap the binary in a versioned directory.
             .args(["--strip-components", "1"]),
         "tar",
+        job_id,
+        w_id,
+        conn,
+        ctx,
     )
     .await?;
     tokio::fs::remove_file(&tarball).await.ok();
@@ -420,29 +438,50 @@ async fn fetch_and_extract(
     Ok(())
 }
 
-/// Run a provisioning command to completion. These are worker-level setup steps
-/// with no job to attribute progress to, so they are not routed through
-/// `handle_child`; failures surface with the tool's own stderr.
-async fn run_tool(cmd: &mut Command, name: &str) -> error::Result<()> {
-    // Bounded, and the child is KILLED when the bound expires: these fetch from
-    // PyPI, GitHub or dbt Labs, and dropping an `output()` future does not stop
-    // the process — a timed-out installer would keep writing into shared
-    // staging after the job returned.
-    let mut child = cmd
+/// Run a provisioning command to completion. Provisioning happens inside the
+/// job that needs the engine, so it runs under that job's cancellation and
+/// timeout: a cold `uv pip install` or Fusion download is the longest thing a
+/// dbt job does, and a cancel that could not reach it would hold the worker
+/// slot for the rest of the install. Its output is not streamed to the job log
+/// — these are worker-level setup steps with no node to attribute progress to,
+/// and failures surface with the tool's own stderr.
+async fn run_tool(
+    cmd: &mut Command,
+    name: &str,
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
+    ctx: &mut JobCtx<'_>,
+) -> error::Result<()> {
+    let child = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        // The wait future owns the child, so cancellation dropping that future
+        // is what terminates the install — dropping it alone would not.
         .kill_on_drop(true)
         .spawn()
         .map_err(|e| Error::internal_err(format!("{name} could not be started: {e}")))?;
-    let out = tokio::time::timeout(
-        std::time::Duration::from_secs(PROVISION_TIMEOUT_SECS),
-        child.wait_with_output(),
+    let pid = child.id();
+    let out = run_future_with_polling_update_job_poller(
+        *job_id,
+        ctx.timeout,
+        conn,
+        ctx.mem_peak,
+        ctx.canceled_by,
+        async move {
+            child
+                .wait_with_output()
+                .await
+                .map_err(|e| Error::internal_err(format!("{name} failed: {e}")))
+        },
+        ctx.worker_name,
+        w_id,
+        &mut Some(ctx.occupancy_metrics),
+        Box::pin(futures::stream::unfold((), move |_| async move {
+            Some((get_mem_peak(pid, false).await, ()))
+        })),
     )
-    .await
-    .map_err(|_| {
-        Error::ExecutionErr(format!("{name} did not finish within {PROVISION_TIMEOUT_SECS}s"))
-    })?
-    .map_err(|e| Error::internal_err(format!("{name} failed: {e}")))?;
+    .await?;
     if !out.status.success() {
         return Err(Error::internal_err(format!(
             "{name} failed: {}",

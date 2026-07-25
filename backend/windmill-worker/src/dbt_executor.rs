@@ -808,6 +808,13 @@ pub async fn prepare_project(
         job_id,
         w_id,
         conn,
+        &mut JobCtx {
+            mem_peak,
+            canceled_by,
+            occupancy_metrics,
+            worker_name,
+            timeout: job_timeout,
+        },
     )
     .await?;
 
@@ -1379,17 +1386,7 @@ async fn run_dbt(
         .args(["--log-level-file", p.engine.engine.progress_log_level()]);
 
     if with_selection && command != "retry" {
-        // Selectors are dbt's grammar and are passed verbatim — reimplementing
-        // it is a standing source of divergence (docs/dbt-runtime.md).
-        for s in arg_list(&inv.args, "select").unwrap_or_else(|| descriptor.select.clone()) {
-            cmd.args(["--select", &s]);
-        }
-        for s in arg_list(&inv.args, "exclude").unwrap_or_else(|| descriptor.exclude.clone()) {
-            cmd.args(["--exclude", &s]);
-        }
-        if let Some(sel) = descriptor.selector.as_deref() {
-            cmd.args(["--selector", sel]);
-        }
+        add_selection(&mut cmd, descriptor, inv);
     }
     if command != "retry" {
         add_vars(&mut cmd, descriptor, inv)?;
@@ -1978,10 +1975,7 @@ async fn resolve_selection(
     w_id: &str,
     conn: &Connection,
 ) -> error::Result<Option<std::collections::HashSet<String>>> {
-    if descriptor.select.is_empty()
-        && descriptor.exclude.is_empty()
-        && descriptor.selector.is_none()
-    {
+    if !has_selection(descriptor, inv) {
         return Ok(None);
     }
     let mut cmd = dbt_command(p, &["ls"]);
@@ -1996,15 +1990,7 @@ async fn resolve_selection(
         cmd.args(["--resource-type", t]);
     }
     cmd.args(["--output", "json", "--quiet"]);
-    for x in &descriptor.select {
-        cmd.args(["--select", x]);
-    }
-    for x in &descriptor.exclude {
-        cmd.args(["--exclude", x]);
-    }
-    if let Some(sel) = descriptor.selector.as_deref() {
-        cmd.args(["--selector", sel]);
-    }
+    add_selection(&mut cmd, descriptor, inv);
     // Captured directly rather than through `handle_child`: its `pipe_stdout`
     // path runs the output through the job-log writer, which `NO_LOGS_AT_ALL`
     // discards — the selection would then resolve to the empty set and the
@@ -2451,9 +2437,43 @@ fn arg_bool(args: &HashMap<String, Box<RawValue>>, k: &str) -> Option<bool> {
     serde_json::from_str::<bool>(args.get(k)?.get()).ok()
 }
 
+/// The selectors a given invocation runs with: the descriptor's, unless the
+/// run overrode them. Shared by the build and by the resolver that decides
+/// which nodes the run claims, which must agree — a resolver reading the
+/// descriptor while dbt builds an override filters the graph by a set the run
+/// never built.
+///
+/// Selectors are dbt's grammar and are passed verbatim — reimplementing it is a
+/// standing source of divergence (docs/dbt-runtime.md).
+fn add_selection(cmd: &mut Command, descriptor: &DbtDescriptor, inv: &Invocation) {
+    for s in arg_list(&inv.args, "select").unwrap_or_else(|| descriptor.select.clone()) {
+        cmd.args(["--select", &s]);
+    }
+    for s in arg_list(&inv.args, "exclude").unwrap_or_else(|| descriptor.exclude.clone()) {
+        cmd.args(["--exclude", &s]);
+    }
+    if let Some(sel) = descriptor.selector.as_deref() {
+        cmd.args(["--selector", sel]);
+    }
+}
+
+/// Whether an invocation selects a subset at all. `[]` from a run clears the
+/// descriptor's selector, which puts the run back to the whole project.
+fn has_selection(descriptor: &DbtDescriptor, inv: &Invocation) -> bool {
+    !arg_list(&inv.args, "select")
+        .unwrap_or_else(|| descriptor.select.clone())
+        .is_empty()
+        || !arg_list(&inv.args, "exclude")
+            .unwrap_or_else(|| descriptor.exclude.clone())
+            .is_empty()
+        || descriptor.selector.is_some()
+}
+
+/// An explicitly supplied list, including an empty one — passing `[]` is how a
+/// run clears a selector the descriptor sets, so it must not read as "absent"
+/// and fall back to the descriptor.
 fn arg_list(args: &HashMap<String, Box<RawValue>>, k: &str) -> Option<Vec<String>> {
-    let v = serde_json::from_str::<Vec<String>>(args.get(k)?.get()).ok()?;
-    (!v.is_empty()).then_some(v)
+    serde_json::from_str::<Vec<String>>(args.get(k)?.get()).ok()
 }
 
 pub(crate) fn digest(s: &str) -> String {
@@ -2504,6 +2524,25 @@ mod tests {
         let ev = parse_node_event(failed, "f/prod/wh", Some("wh")).unwrap();
         assert_eq!(ev.status, MaterializationStatus::Failed);
         assert_eq!(ev.error.as_deref(), Some("boom"));
+    }
+
+    // A run clears a descriptor selector by passing `[]`. Reading that as
+    // "absent" would fall back to the descriptor and build a different model
+    // set than the run asked for.
+    #[test]
+    fn an_empty_override_clears_the_descriptor_selection() {
+        let descriptor = DbtDescriptor {
+            select: vec!["tag:nightly".to_string()],
+            ..Default::default()
+        };
+        let cleared = Invocation {
+            args: [("select".to_string(), serde_json::value::RawValue::from_string("[]".to_string()).unwrap())]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        assert!(has_selection(&descriptor, &Invocation::default()));
+        assert!(!has_selection(&descriptor, &cleared));
     }
 
     // THREE sites derive a `table://` key: the manifest ingest (which creates

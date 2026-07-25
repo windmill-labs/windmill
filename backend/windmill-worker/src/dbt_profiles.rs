@@ -135,6 +135,7 @@ impl DbtAdapter {
     fn default_port(&self) -> i64 {
         match self {
             DbtAdapter::Mysql => 3306,
+            DbtAdapter::Redshift => 5439,
             _ => 5432,
         }
     }
@@ -479,6 +480,16 @@ mod tests {
         assert!(p.yaml.contains("      threads: 8\n"));
         assert_eq!(p.database.as_deref(), Some("warehouse"));
         assert_eq!(p.schema.as_deref(), Some("public"));
+    }
+
+    #[test]
+    fn redshift_falls_back_to_its_own_port() {
+        // Redshift is rendered from the same host/port shape as Postgres but
+        // does not answer on Postgres's port.
+        let r = json!({"host": "cluster.redshift.amazonaws.com", "user": "u",
+                       "password": "p", "dbname": "warehouse"});
+        let p = render_profile(DbtAdapter::Redshift, &r, "wm", "prod", None, None, std::path::Path::new("/tmp/p")).unwrap();
+        assert!(p.yaml.contains("      port: 5439\n"), "{}", p.yaml);
     }
 
     // A credential is attacker-influenced text pasted into a resource. Left

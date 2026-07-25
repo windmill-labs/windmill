@@ -287,12 +287,14 @@ pub fn ingest_manifest(
     // make a narrowly-selected script claim reads on tables it never touches,
     // and those reads are cascade subscriptions. The same set answers the
     // cross-config question below.
-    let direct_parents: Option<std::collections::HashSet<&str>> = selected.map(|sel| {
+    // Without a selection the script builds everything, so every node is its
+    // own builder — but a source nothing reads is still not an input.
+    let direct_parents: std::collections::HashSet<&str> = {
         let mut out = std::collections::HashSet::new();
         let mut queue: Vec<&str> = manifest
             .parent_map
             .iter()
-            .filter(|(child, _)| sel.contains(child.as_str()))
+            .filter(|(child, _)| selected.is_none_or(|sel| sel.contains(child.as_str())))
             // Only what the script BUILDS establishes a dependency. Selecting a
             // model also selects its tests, and a `relationships` test depends
             // on the model it points at — so counting test parents would make a
@@ -326,13 +328,11 @@ pub fn ingest_manifest(
             }
         }
         out
-    });
+    };
     for (unique_id, node) in manifest.nodes.iter().chain(manifest.sources.iter()) {
         let keep = match (node.resource_type.as_str(), selected) {
+            ("source", _) => direct_parents.contains(unique_id.as_str()),
             (_, None) => true,
-            ("source", Some(_)) => direct_parents
-                .as_ref()
-                .is_some_and(|s| s.contains(unique_id.as_str())),
             (_, Some(sel)) => sel.contains(unique_id.as_str()),
         };
         if !keep {
@@ -409,13 +409,13 @@ pub fn ingest_manifest(
     // parents are outside this script's selection, so nothing above registered
     // them — and without the read there is no edge for the upstream's write to
     // cascade along, which is the whole point of splitting.
-    if let Some(parents) = direct_parents.as_ref() {
+    {
         let owned: std::collections::HashSet<&str> = out
             .nodes
             .iter()
             .filter_map(|n| n.asset_path.as_deref())
             .collect();
-        for parent in parents {
+        for parent in &direct_parents {
             let Some(node) = manifest
                 .nodes
                 .get(*parent)
@@ -916,6 +916,32 @@ mod tests {
                 "model.jaffle_shop.orders_daily".to_string()
             )]
         );
+    }
+
+    // A read is a cascade subscription, so a source no model reads must not
+    // become one — otherwise loading an unused table dispatches the whole dbt
+    // script. This holds for the unselected, whole-project case too, which is
+    // the common one.
+    #[test]
+    fn a_source_nothing_reads_is_not_an_input() {
+        let mut v: serde_json::Value = serde_json::from_str(MANIFEST).unwrap();
+        v["sources"]["source.jaffle_shop.jaffle_raw.unused"] = serde_json::json!({
+            "resource_type": "source", "name": "unused", "identifier": "unused",
+            "schema": "jaffle_raw", "relation_name": "\"wh\".\"jaffle_raw\".\"unused\""
+        });
+        let m: Manifest = serde_json::from_value(v).unwrap();
+        let i = ingest_manifest(&m, "f/prod/wh", Some("wh"), None);
+        let reads: Vec<&str> = i
+            .assets
+            .iter()
+            .filter(|a| a.access_type == Some(AssetUsageAccessType::R))
+            .map(|a| a.path.as_str())
+            .collect();
+        assert!(
+            !reads.contains(&"f/prod/wh/jaffle_raw/unused"),
+            "unused source registered as a read: {reads:?}"
+        );
+        assert!(reads.contains(&"f/prod/wh/jaffle_raw/raw_orders"), "{reads:?}");
     }
 
     // Splitting a project across scripts only composes if the downstream one
