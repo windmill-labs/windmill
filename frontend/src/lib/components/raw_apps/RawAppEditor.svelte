@@ -1330,7 +1330,12 @@
 		// regardless of the pinned UI Builder artifact. A manual refresh is
 		// covered separately by the handshake in `listener` (this listener is
 		// bound to the now-stale document and won't fire again).
-		win.addEventListener('load', () => feedExternalPreview())
+		win.addEventListener('load', () => {
+			feedExternalPreview()
+			// Attach here too: against an artifact that predates the handshake, this
+			// is the only place the freshly opened window is ever seen loaded.
+			coepWarning?.attachTo(win)
+		})
 	}
 
 	let getBundleResolve: (({ css, js }: { css: string; js: string }) => void) | undefined = undefined

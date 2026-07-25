@@ -42,8 +42,10 @@
 		if (!/^https?:$/.test(url.protocol) || url.origin === window.location.origin) return
 		if (warnedOrigins.has(url.origin)) return
 		warnedOrigins.add(url.origin)
+		// `error` events carry no failure reason, so a 404/DNS failure on a
+		// cross-origin URL looks identical to a COEP block — hedge the wording.
 		sendUserToast(
-			`The editor preview blocked a cross-origin resource (${url.host}) due to COEP/CORS isolation. It will load normally on the deployed app.`,
+			`Cross-origin resource (${url.host}) failed to load — likely the editor's COEP/CORS isolation. A valid URL will still load on the deployed app.`,
 			'warning',
 			[{ label: 'Read more', callback: () => (open = true) }],
 			undefined,
@@ -79,7 +81,9 @@
 			A side effect is that the browser refuses to load cross-origin resources (images, scripts,
 			stylesheets, media…) unless the remote server explicitly opts in with CORS or a
 			<code>Cross-Origin-Resource-Policy</code> header. Resources from servers that don't are
-			blocked <b>in the editor preview only</b>.
+			blocked <b>in the editor preview only</b>. When this is the cause, the browser console shows
+			<code>ERR_BLOCKED_BY_RESPONSE</code> — a plain 404 or DNS error instead means the URL itself is
+			broken and will fail on the deployed app too.
 		</p>
 		<p>
 			The deployed app is served without these headers, so the same resources load normally there —
