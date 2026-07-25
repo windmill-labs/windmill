@@ -25,6 +25,10 @@ use crate::dbt_profiles::DbtAdapter;
 
 lazy_static::lazy_static! {
     pub static ref DBT_CACHE_DIR: String = format!("{}dbt", *ROOT_CACHE_NOMOUNT_DIR);
+    /// Where the full images bake the Apache-2.0 engines. A persistent image
+    /// path, unlike the runtime caches, which are a fresh volume at start.
+    static ref DBT_BUNDLED_DIR: String =
+        std::env::var("DBT_BUNDLED_DIR").unwrap_or_else(|_| "/usr/local/dbt".to_string());
     static ref UV_PATH: String =
         std::env::var("UV_PATH").unwrap_or_else(|_| "/usr/local/bin/uv".to_string());
     /// Pinned so a worker's engine does not drift under running projects. Both
@@ -139,6 +143,13 @@ async fn provision_core_2x(
     conn: &Connection,
 ) -> error::Result<ProvisionedEngine> {
     let version = DBT_CORE_2X_VERSION.clone();
+    // The full images bake this engine in; only a slim image pays the fetch.
+    let bundled = PathBuf::from(&*DBT_BUNDLED_DIR)
+        .join(format!("core2x-{version}"))
+        .join("dbt-sa-cli");
+    if bundled.exists() {
+        return Ok(ProvisionedEngine { bin: bundled, version, engine: DbtEngine::DbtCore2x });
+    }
     let dir = PathBuf::from(&*DBT_CACHE_DIR).join(format!("core2x-{version}"));
     let bin = dir.join("dbt-sa-cli");
     if bin.exists() {
