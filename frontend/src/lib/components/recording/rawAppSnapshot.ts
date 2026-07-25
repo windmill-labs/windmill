@@ -238,7 +238,9 @@ function rulesProbe(rules: CSSRuleList): string {
 }
 
 /** Rule text, with `@import` replaced by the rules it pulls in: the replay CSP
- * refuses the fetch, so an unexpanded import is simply lost styling. */
+ * refuses the fetch, so an unexpanded import is simply lost styling. An import
+ * that carries a cascade layer replays as unlayered rules at the import's
+ * position — closer to the live rendering than dropping it, but not identical. */
 function expandRules(rules: CSSRuleList): string {
 	return Array.from(rules)
 		.map((rule) => {
@@ -335,12 +337,17 @@ export type SnapshotOptions = {
 export function serializeDocument(doc: Document, opts: SnapshotOptions = {}): string {
 	const root = doc.documentElement
 	const clone = root.cloneNode(true) as Element
+	// These three read the live document and write to the matching node in the
+	// clone, pairing by position — so they must all run before anything is removed
+	// from it. Freezing, inlining and redacting only mutate nodes in place.
 	freezeFormState(doc, clone)
 	inlineStyleSheets(doc, root, clone)
+	maskSelectsWithRedactedChoice(doc, clone)
+	redactMarkedSubtrees(doc, clone)
 	// Stamp the target BEFORE anything is removed from the clone: the live tree is
 	// what `nodePath` indexes against, so a single removed node (a data `<script>`
 	// preceding the target, say) would shift every later sibling and stamp the
-	// wrong element. Freezing and inlining above only mutate nodes in place.
+	// wrong element.
 	if (opts.target) {
 		const path = nodePath(root, opts.target)
 		const target = path ? resolvePath(clone, path) : undefined
@@ -353,10 +360,6 @@ export function serializeDocument(doc: Document, opts: SnapshotOptions = {}): st
 	// so redaction cannot see into it, yet it would render on a script-less replay.
 	clone.querySelectorAll('template, noscript').forEach((n) => n.remove())
 	clone.querySelectorAll('script').forEach((n) => n.remove())
-	// Before any node is removed: this pairs live and cloned selects by index, so
-	// it only holds while the clone is still a structural copy of the document.
-	maskSelectsWithRedactedChoice(doc, clone)
-	redactMarkedSubtrees(doc, clone)
 	clone.querySelectorAll('meta[http-equiv="refresh" i]').forEach((n) => n.remove())
 	clone.querySelectorAll('*').forEach((el) => {
 		for (const attr of Array.from(el.attributes)) {

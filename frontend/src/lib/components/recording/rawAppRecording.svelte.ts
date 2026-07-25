@@ -348,11 +348,13 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		return isTag(el, 'INPUT') && ['submit', 'image'].includes((el as HTMLInputElement).type)
 	}
 
-	/** Whether the step just recorded was a key press inside this form. */
+	/** Whether the step just recorded was an Enter inside this form — the only key
+	 * that submits, so an Escape before a submission must not swallow it. */
 	function justPressedKeyInside(form: Element | null | undefined): boolean {
 		const last = steps[steps.length - 1]
 		return (
 			last?.kind === 'key' &&
+			last.value === 'Enter' &&
 			!!form &&
 			!!lastStepEl &&
 			form.contains(lastStepEl) &&
@@ -578,7 +580,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			// programmatic submit, or one triggered from outside the form).
 			const last = steps[steps.length - 1]
 			const justActedInside =
-				(last?.kind === 'click' || last?.kind === 'key') &&
+				(last?.kind === 'click' || (last?.kind === 'key' && last.value === 'Enter')) &&
 				!!lastStepEl &&
 				!!el &&
 				el.contains(lastStepEl) &&
