@@ -17,6 +17,10 @@ export const NO_RECORD_ATTR = 'data-wm-no-record'
  * step, so the loader enforces it too on recordings it did not produce. */
 export const MAX_RECORDED_STEPS = 500
 
+/** Upper bound on any one string a step carries (its label, value, selector).
+ * The recorder truncates well below this; the loader refuses more. */
+export const MAX_STEP_TEXT_CHARS = 1000
+
 /** Snapshots are whole documents; the recorder stops storing them past this, and
  * the loader refuses a recording that claims more — every frame is parsed and
  * re-serialized before it is handed to the iframe. */

@@ -5,6 +5,7 @@
 	import RawAppRecordingReplay from '$lib/components/recording/RawAppRecordingReplay.svelte'
 	import {
 		MAX_RECORDED_STEPS,
+		MAX_STEP_TEXT_CHARS,
 		MAX_TOTAL_FRAME_CHARS
 	} from '$lib/components/recording/rawAppSnapshot'
 	import type {
@@ -100,6 +101,12 @@
 			const validViewport =
 				isObject(data.viewport) && isSize(data.viewport.width) && isSize(data.viewport.height)
 			const isIndex = (v: unknown) => v === undefined || typeof v === 'number'
+			// Labels are rendered per row; the recorder bounds them, a remote payload
+			// has to be held to the same order of magnitude.
+			const isShortText = (v: unknown, required = false) =>
+				required
+					? typeof v === 'string' && v.length <= MAX_STEP_TEXT_CHARS
+					: v === undefined || (typeof v === 'string' && v.length <= MAX_STEP_TEXT_CHARS)
 			const validSteps =
 				Array.isArray(data.steps) &&
 				data.steps.length <= MAX_RECORDED_STEPS &&
@@ -107,8 +114,11 @@
 					(s: unknown) =>
 						isObject(s) &&
 						typeof s.t === 'number' &&
-						typeof s.kind === 'string' &&
-						typeof s.label === 'string' &&
+						isShortText(s.kind, true) &&
+						isShortText(s.label, true) &&
+						isShortText(s.target) &&
+						isShortText(s.selector) &&
+						isShortText(s.value) &&
 						isIndex(s.before) &&
 						isIndex(s.after)
 				)

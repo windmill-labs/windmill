@@ -334,6 +334,14 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		return !isTextEntry(el) && !BUTTON_INPUT_TYPES.has(type)
 	}
 
+	/** An element the browser activates with Enter or Space by dispatching a click,
+	 * which is the event the interaction is recorded from. */
+	function isActivatable(el: Element): boolean {
+		if (isTag(el, 'BUTTON') || isTag(el, 'SUMMARY')) return true
+		if (isTag(el, 'A') && el.hasAttribute('href')) return true
+		return isTag(el, 'INPUT') && BUTTON_INPUT_TYPES.has((el as HTMLInputElement).type)
+	}
+
 	/** A control the user sweeps rather than sets once: repeats within a burst are
 	 * one interaction. A checkbox is not one — two quick clicks are two toggles. */
 	function isContinuousControl(el: Element): boolean {
@@ -491,7 +499,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			// snapshot taken here is the outcome, not the interaction. Only a frame
 			// taken before the key or pointer that caused it will do.
 			const before = pointerFrameFor(el) ?? keyFrameFor(el)
-			pendingPointer = undefined
+			// NOT cleared here: `pushStep` spends exactly the frame it used, and needs
+			// this one still pending to recognise it as this interaction's pre-state
+			// when settling the step before it.
 			// A sweep keeps its opening frame: every repeat updates one step, whose
 			// Interaction is the state before the gesture started. A discrete control
 			// consumes it, so its next activation snapshots afresh.
@@ -557,9 +567,10 @@ export function createRawAppRecording(): RawAppRecordingStore {
 				else pendingKey = { el, html: capture(el), repeat: e.repeat }
 			}
 			if (e.key !== 'Enter' && e.key !== 'Escape') return
-			// A control reports what the key did to it on `change`; recording the key
-			// as well would double the interaction.
-			if (el && isControl(el)) return
+			// A control reports what the key did to it on `change`, and an activatable
+			// element turns the key into a click. Recording the key as well would
+			// double the interaction.
+			if (el && (isControl(el) || isActivatable(el))) return
 			// Enter in a field ends the edit: the fill step must land before the key.
 			commitFill()
 			pushStep('key', el, capture(el), e.key)
