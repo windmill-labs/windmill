@@ -45,6 +45,7 @@
 	import { getContext, hasContext, createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { toJsonStr } from '$lib/utils'
 	import { userStore } from '$lib/stores'
+	import { isReplaying } from './recording/offlineReplay.svelte'
 	import ResultStreamDisplay from './ResultStreamDisplay.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import DOMPurify from 'dompurify'
@@ -83,6 +84,9 @@
 		| 'pdf'
 		| undefined
 	let resultKind: ResultKind = $state()
+	/** Kinds whose renderer reads the referenced file or table from the backend,
+	 * so they can't be shown from a recording alone. */
+	const REPLAY_UNRENDERABLE_KINDS: ResultKind[] = ['s3object', 's3object-list', 'materialized']
 	let length = $state(1)
 
 	let hasBigInt = $state(false)
@@ -583,8 +587,16 @@
 
 	$effect(() => {
 		;[result]
+		const replaying = isReplaying()
 		untrack(() => {
 			resultKind = inferResultKind(result)
+			// A recording carries the result JSON, not the object-store file or the
+			// ducklake table the result points at, and a replay has no session to read
+			// either: show the recorded value instead of a preview that can only fail.
+			if (replaying && REPLAY_UNRENDERABLE_KINDS.includes(resultKind)) {
+				resultKind = 'json'
+				largeObject = false
+			}
 		})
 	})
 	$effect(() => {
