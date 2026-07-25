@@ -219,7 +219,7 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			clearSettle()
 			pending.after = frameIndex(capture())
 		}
-		if (steps.length >= MAX_RECORDED_STEPS) {
+		if (steps.length >= MAX_RECORDED_STEPS && !coalesces) {
 			truncated = true
 			capped = true
 			return
@@ -270,16 +270,16 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		scheduleSettle(step)
 	}
 
-	/** True when this click will be forwarded to a label's control, which then
-	 * reports the step itself. A label does NOT forward a click that landed on
-	 * interactive content inside it (a link, a button, another field), so those
-	 * stay ordinary click steps. */
+	/** True when this click landed on a label and will be forwarded to its control,
+	 * which then reports the interaction itself — the label's own click is the
+	 * duplicate. The forwarded click (target === the control) must NOT fold, or a
+	 * button-shaped control, which never fires `change`, would vanish. Interactive
+	 * content inside the label isn't forwarded either, so it stays a click step. */
 	function labelDrivesControl(el: Element): boolean {
 		const label = el.closest('label') as HTMLLabelElement | null
 		const control = label?.control
-		if (!control) return false
-		const interactive = el.closest('a, button, input, select, textarea')
-		return !interactive || interactive === control
+		if (!control || el === control || control.contains(el)) return false
+		return !el.closest('a, button, input, select, textarea')
 	}
 
 	/** Whether this key can change a control: activation, option picking, or the
@@ -388,6 +388,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		on('click', (e: MouseEvent) => {
 			const el = isElementNode(e.target) ? e.target : undefined
 			if (!el) return
+			// A click with no coordinates is a keyboard activation (Enter/Space): it
+			// had no pointerdown, so the last one belongs to an earlier interaction.
+			if (e.detail === 0) pendingPointer = undefined
 			// Before any early return: a fill still inside its debounce belongs before
 			// whatever this click records, and the control paths below never commit it.
 			if (pendingFill && pendingFill.el !== el) commitFill()

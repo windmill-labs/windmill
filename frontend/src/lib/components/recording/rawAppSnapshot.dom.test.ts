@@ -82,6 +82,16 @@ describe('serializeDocument redaction', () => {
 		expect(html).not.toContain('acquisition target')
 	})
 
+	it('does not launder a marked stylesheet into the snapshot by inlining it', () => {
+		const doc = docFrom(``)
+		const style = doc.createElement('style')
+		style.setAttribute('data-wm-no-record', '')
+		style.textContent = `.a { content: "sentinel-92000"; }`
+		doc.head.appendChild(style)
+
+		expect(serializeDocument(doc)).not.toContain('sentinel-92000')
+	})
+
 	it('masks a password without leaking its length, and keeps other values', () => {
 		const doc = docFrom(`<input type="password"><input type="text">`)
 		const [password, text] = Array.from(doc.querySelectorAll('input')) as HTMLInputElement[]

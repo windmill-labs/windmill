@@ -235,6 +235,9 @@ function inlineStyleSheets(doc: Document, root: Element, clone: Element) {
 	for (const sheet of Array.from(doc.styleSheets)) {
 		const owner = sheet.ownerNode
 		if (!isElementNode(owner) || sheet.disabled) continue
+		// Inlining replaces the node, which would leave the marker behind and carry
+		// the sheet's text into the snapshot. Leave marked sheets for redaction.
+		if (isRedacted(owner)) continue
 		let rules: CSSRuleList
 		try {
 			const cssRules = (sheet as CSSStyleSheet).cssRules
