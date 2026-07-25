@@ -5759,6 +5759,28 @@ mount {{
                 .await
             }
         }
+        ScriptLang::Dbt => {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
+            Box::pin(crate::dbt_executor::handle_dbt_job(
+                lock.as_ref(),
+                job_dir,
+                worker_name,
+                job,
+                mem_peak,
+                canceled_by,
+                conn,
+                client,
+                &code,
+                base_internal_url,
+                envs,
+                occupancy_metrics,
+            ))
+            .await
+        }
         // for related places search: ADD_NEW_LANG
         _ => panic!("unreachable, language is not supported: {language:#?}"),
     };

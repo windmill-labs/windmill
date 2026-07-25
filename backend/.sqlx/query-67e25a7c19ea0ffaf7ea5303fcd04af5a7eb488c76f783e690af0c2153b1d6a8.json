@@ -119,7 +119,8 @@
                 "java",
                 "duckdb",
                 "ruby",
-                "rlang"
+                "rlang",
+                "dbt"
               ]
             }
           }

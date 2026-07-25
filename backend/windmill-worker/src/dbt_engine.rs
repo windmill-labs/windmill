@@ -1,0 +1,286 @@
+//! Provisioning the three dbt engines on a worker.
+//!
+//! `dbt-core-1x` and `dbt-core-2x` are Apache 2.0 and may be baked into the
+//! images; the Fusion engine is **never bundled**. Its license grants only a
+//! non-transferable, non-sublicensable redistribution right and forbids
+//! interposing on Provider-to-End-User communication, which is exactly what
+//! shipping it inside a job runner would do. The mitigation is that the user's
+//! own instance fetches it from dbt Labs on first use, so Windmill never
+//! redistributes it (docs/dbt-runtime.md, decision 1).
+//!
+//! Everything lands in a worker-global cache keyed by engine and version, so
+//! the fetch happens once per worker rather than once per job.
+
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
+
+use tokio::process::Command;
+use uuid::Uuid;
+use windmill_common::error::{self, Error};
+use windmill_common::worker::{write_file, Connection, ROOT_CACHE_NOMOUNT_DIR};
+use windmill_parser_yaml::DbtEngine;
+use windmill_queue::append_logs;
+
+use crate::dbt_profiles::DbtAdapter;
+
+lazy_static::lazy_static! {
+    pub static ref DBT_CACHE_DIR: String = format!("{}dbt", *ROOT_CACHE_NOMOUNT_DIR);
+    static ref UV_PATH: String =
+        std::env::var("UV_PATH").unwrap_or_else(|_| "/usr/local/bin/uv".to_string());
+    /// Pinned so a worker's engine does not drift under running projects. Both
+    /// are overridable per instance for upgrades without a release.
+    static ref DBT_CORE_1X_VERSION: String =
+        std::env::var("DBT_CORE_1X_VERSION").unwrap_or_else(|_| "1.12.0".to_string());
+    static ref DBT_CORE_2X_VERSION: String =
+        std::env::var("DBT_CORE_2X_VERSION").unwrap_or_else(|_| "2.0.0-alpha.5".to_string());
+    static ref DBT_PYTHON_VERSION: String =
+        std::env::var("DBT_PYTHON_VERSION").unwrap_or_else(|_| "3.12".to_string());
+    /// Where the Fusion engine is fetched from. Never a Windmill-hosted mirror:
+    /// the point of runtime fetch is that the binary comes from dbt Labs.
+    static ref DBT_FUSION_INSTALL_URL: String = std::env::var("DBT_FUSION_INSTALL_URL")
+        .unwrap_or_else(|_| "https://public.cdn.getdbt.com/fs/install/install.sh".to_string());
+}
+
+pub struct ProvisionedEngine {
+    /// Absolute path of the dbt binary to invoke.
+    pub bin: PathBuf,
+    pub version: String,
+    pub engine: DbtEngine,
+}
+
+/// Ensure the engine is present on this worker and return how to invoke it.
+pub async fn provision_engine(
+    engine: DbtEngine,
+    adapter: DbtAdapter,
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> error::Result<ProvisionedEngine> {
+    tokio::fs::create_dir_all(&*DBT_CACHE_DIR).await.ok();
+    match engine {
+        DbtEngine::DbtCore1x => provision_core_1x(adapter, job_id, w_id, conn).await,
+        DbtEngine::DbtCore2x => provision_core_2x(job_id, w_id, conn).await,
+        DbtEngine::Fusion => provision_fusion(job_id, w_id, conn).await,
+    }
+}
+
+/// A uv venv per (dbt version, adapter): the adapter is a separate pip package
+/// and installing every adapter into one venv would make their transitive
+/// dependency sets fight.
+async fn provision_core_1x(
+    adapter: DbtAdapter,
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> error::Result<ProvisionedEngine> {
+    let version = DBT_CORE_1X_VERSION.clone();
+    let dir =
+        PathBuf::from(&*DBT_CACHE_DIR).join(format!("core1x-{version}-{}", adapter.pip_package()));
+    let bin = dir.join("bin").join("dbt");
+    if bin.exists() {
+        return Ok(ProvisionedEngine { bin, version, engine: DbtEngine::DbtCore1x });
+    }
+
+    append_logs(
+        job_id,
+        w_id,
+        format!(
+            "\nProvisioning dbt-core {version} with {}...\n",
+            adapter.pip_package()
+        ),
+        conn,
+    )
+    .await;
+    // Build beside the target and rename: two jobs racing on the same worker
+    // must not observe a half-installed venv through the `bin.exists()` check.
+    let staging = dir.with_extension(format!("staging-{job_id}"));
+    tokio::fs::remove_dir_all(&staging).await.ok();
+    run_tool(
+        Command::new(UV_PATH.as_str())
+            .args(["venv", "--python", DBT_PYTHON_VERSION.as_str()])
+            .arg(&staging),
+        "uv venv",
+    )
+    .await?;
+    run_tool(
+        Command::new(UV_PATH.as_str())
+            .env("VIRTUAL_ENV", &staging)
+            .args([
+                "pip",
+                "install",
+                &format!("dbt-core=={version}"),
+                adapter.pip_package(),
+            ]),
+        "uv pip install",
+    )
+    .await?;
+    match tokio::fs::rename(&staging, &dir).await {
+        Ok(()) => {}
+        // Lost the race: the winner's venv is equivalent, so use it.
+        Err(_) if bin.exists() => {
+            tokio::fs::remove_dir_all(&staging).await.ok();
+        }
+        Err(e) => return Err(Error::internal_err(format!("installing dbt-core: {e}"))),
+    }
+    Ok(ProvisionedEngine { bin, version, engine: DbtEngine::DbtCore1x })
+}
+
+async fn provision_core_2x(
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> error::Result<ProvisionedEngine> {
+    let version = DBT_CORE_2X_VERSION.clone();
+    let dir = PathBuf::from(&*DBT_CACHE_DIR).join(format!("core2x-{version}"));
+    let bin = dir.join("dbt-sa-cli");
+    if bin.exists() {
+        return Ok(ProvisionedEngine { bin, version, engine: DbtEngine::DbtCore2x });
+    }
+    let target = format!("{}-unknown-linux-gnu", std::env::consts::ARCH);
+    let url = format!(
+        "https://github.com/dbt-labs/dbt-core/releases/download/v{version}/dbt-core-{version}-{target}.tar.gz"
+    );
+    append_logs(
+        job_id,
+        w_id,
+        format!("\nFetching dbt-core {version}...\n"),
+        conn,
+    )
+    .await;
+    fetch_and_extract(&url, &dir, "dbt-sa-cli", job_id).await?;
+    Ok(ProvisionedEngine { bin, version, engine: DbtEngine::DbtCore2x })
+}
+
+/// Fusion is fetched from dbt Labs at runtime and cached — see the module docs
+/// for why it must never be baked into an image.
+async fn provision_fusion(
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> error::Result<ProvisionedEngine> {
+    let dir = PathBuf::from(&*DBT_CACHE_DIR).join("fusion");
+    let bin = dir.join("bin").join("dbt");
+    if bin.exists() {
+        return Ok(ProvisionedEngine {
+            bin,
+            version: fusion_version(&dir).await,
+            engine: DbtEngine::Fusion,
+        });
+    }
+    append_logs(
+        job_id,
+        w_id,
+        "\nFetching the dbt Fusion engine from dbt Labs (not bundled with Windmill; \
+         subject to the dbt Fusion engine license agreement)...\n"
+            .to_string(),
+        conn,
+    )
+    .await;
+    let script = windmill_common::utils::HTTP_CLIENT
+        .get(&*DBT_FUSION_INSTALL_URL)
+        .send()
+        .await
+        .map_err(|e| Error::internal_err(format!("fetching the Fusion installer: {e}")))?
+        .error_for_status()
+        .map_err(|e| Error::internal_err(format!("fetching the Fusion installer: {e}")))?
+        .text()
+        .await
+        .map_err(|e| Error::internal_err(format!("fetching the Fusion installer: {e}")))?;
+    let tmp = std::env::temp_dir().join(format!("wm-fusion-install-{job_id}.sh"));
+    write_file(
+        tmp.parent().unwrap().to_str().unwrap(),
+        tmp.file_name().unwrap().to_str().unwrap(),
+        &script,
+    )?;
+    run_tool(
+        Command::new("sh")
+            .arg(&tmp)
+            .env("FS_INSTALL_DIR", &dir)
+            .arg("--update"),
+        "fusion install",
+    )
+    .await?;
+    tokio::fs::remove_file(&tmp).await.ok();
+    if !bin.exists() {
+        return Err(Error::internal_err(
+            "the Fusion installer did not produce a dbt binary".to_string(),
+        ));
+    }
+    Ok(ProvisionedEngine { bin, version: fusion_version(&dir).await, engine: DbtEngine::Fusion })
+}
+
+async fn fusion_version(dir: &Path) -> String {
+    tokio::fs::read_to_string(dir.join("version"))
+        .await
+        .map(|v| v.trim().to_string())
+        .unwrap_or_else(|_| "unknown".to_string())
+}
+
+async fn fetch_and_extract(
+    url: &str,
+    dir: &Path,
+    expected_bin: &str,
+    job_id: &Uuid,
+) -> error::Result<()> {
+    let bytes = windmill_common::utils::HTTP_CLIENT
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| Error::internal_err(format!("fetching {url}: {e}")))?
+        .error_for_status()
+        .map_err(|e| Error::internal_err(format!("fetching {url}: {e}")))?
+        .bytes()
+        .await
+        .map_err(|e| Error::internal_err(format!("fetching {url}: {e}")))?;
+    let tarball = std::env::temp_dir().join(format!("wm-dbt-{job_id}.tar.gz"));
+    tokio::fs::write(&tarball, &bytes)
+        .await
+        .map_err(|e| Error::internal_err(format!("writing {url}: {e}")))?;
+    let staging = dir.with_extension(format!("staging-{job_id}"));
+    tokio::fs::create_dir_all(&staging)
+        .await
+        .map_err(|e| Error::internal_err(format!("creating {staging:?}: {e}")))?;
+    run_tool(
+        Command::new("tar")
+            .arg("xzf")
+            .arg(&tarball)
+            .arg("-C")
+            .arg(&staging)
+            // The release tarballs wrap the binary in a versioned directory.
+            .args(["--strip-components", "1"]),
+        "tar",
+    )
+    .await?;
+    tokio::fs::remove_file(&tarball).await.ok();
+    if !staging.join(expected_bin).exists() {
+        return Err(Error::internal_err(format!(
+            "{url} did not contain the expected `{expected_bin}` binary"
+        )));
+    }
+    if tokio::fs::rename(&staging, dir).await.is_err() {
+        tokio::fs::remove_dir_all(&staging).await.ok();
+        if !dir.join(expected_bin).exists() {
+            return Err(Error::internal_err(format!("could not install {url}")));
+        }
+    }
+    Ok(())
+}
+
+/// Run a provisioning command to completion. These are worker-level setup steps
+/// with no job to attribute progress to, so they are not routed through
+/// `handle_child`; failures surface with the tool's own stderr.
+async fn run_tool(cmd: &mut Command, name: &str) -> error::Result<()> {
+    let out = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .map_err(|e| Error::internal_err(format!("{name} could not be started: {e}")))?;
+    if !out.status.success() {
+        return Err(Error::internal_err(format!(
+            "{name} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        )));
+    }
+    Ok(())
+}

@@ -1160,6 +1160,7 @@ async fn create_script_internal<'c>(
             || ns.language == ScriptLang::Ruby
             || ns.language == ScriptLang::Rlang
             || ns.language == ScriptLang::Powershell
+            || ns.language == ScriptLang::Dbt
         // for related places search: ADD_NEW_LANG
     ) {
         Some(String::new())

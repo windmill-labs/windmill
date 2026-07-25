@@ -64,6 +64,12 @@ pub struct DbtProfile {
     /// instead of rendering one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profiles_yml: Option<String>,
+    /// dbt adapter (`postgres` | `snowflake` | `bigquery` | `databricks`),
+    /// spelled as dbt's own `type:`. Optional: the worker infers it from the
+    /// resource's shape, and this pins it when the inference is wrong or the
+    /// resource is a custom type.
+    #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
+    pub adapter: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]

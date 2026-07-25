@@ -2782,6 +2782,23 @@ async fn capture_dependency_job(
                 .await?
             }
         }
+        ScriptLang::Dbt => {
+            crate::dbt_executor::dbt_dep(
+                job_raw_code,
+                job_id,
+                mem_peak,
+                canceled_by,
+                job_dir,
+                db,
+                worker_name,
+                w_id,
+                script_path,
+                occupancy_metrics,
+                token,
+                base_internal_url,
+            )
+            .await?
+        }
         ScriptLang::Go => {
             install_go_dependencies(
                 job_id,

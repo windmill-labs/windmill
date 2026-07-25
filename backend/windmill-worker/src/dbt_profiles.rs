@@ -29,6 +29,24 @@ impl DbtAdapter {
         }
     }
 
+    /// Which dbt driver a resource needs, from the fields it carries. This
+    /// picks the adapter only — asset identity is always the resource path,
+    /// never anything read here. `profile.type` overrides it.
+    pub fn infer_from_resource(v: &Value) -> Option<Self> {
+        let has = |k: &str| v.get(k).is_some_and(|x| !x.is_null());
+        if has("account_identifier") || has("warehouse") {
+            Some(DbtAdapter::Snowflake)
+        } else if has("http_path") {
+            Some(DbtAdapter::Databricks)
+        } else if has("project_id") && has("client_email") {
+            Some(DbtAdapter::Bigquery)
+        } else if has("dbname") && has("host") {
+            Some(DbtAdapter::Postgres)
+        } else {
+            None
+        }
+    }
+
     /// dbt's own `type:` key in `profiles.yml`.
     pub fn dbt_type(&self) -> &'static str {
         match self {
@@ -87,7 +105,7 @@ pub fn render_profile(
 ) -> error::Result<RenderedProfile> {
     let mut out: Vec<(String, String)> = vec![("type".into(), adapter.dbt_type().into())];
     let mut schema = schema_override.map(|x| x.to_string());
-    let mut database = None;
+    let database;
 
     match adapter {
         DbtAdapter::Postgres => {

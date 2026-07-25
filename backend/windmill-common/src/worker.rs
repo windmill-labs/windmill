@@ -269,6 +269,7 @@ lazy_static::lazy_static! {
         "ruby".to_string(),
         "rlang".to_string(),
         "duckdb".to_string(),
+        "dbt".to_string(),
         // for related places search: ADD_NEW_LANG
         "dependency".to_string(),
         "flow".to_string(),
