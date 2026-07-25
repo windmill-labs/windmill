@@ -186,6 +186,7 @@ async fn get_offboard_preview(
         "kafka_trigger",
         "postgres_trigger",
         "mqtt_trigger",
+        "amqp_trigger",
         "nats_trigger",
         "sqs_trigger",
         "gcp_trigger",
@@ -750,6 +751,7 @@ async fn check_path_conflicts(
         "kafka_trigger",
         "postgres_trigger",
         "mqtt_trigger",
+        "amqp_trigger",
         "nats_trigger",
         "sqs_trigger",
         "gcp_trigger",
@@ -1017,13 +1019,14 @@ async fn offboard_user_from_workspace<'c>(
         &new_permissioned_as, username, w_id
     ).execute(&mut **tx).await?;
 
-    // ---- triggers (all 9 types with path/permissioned_as) ----
+    // ---- triggers (all 10 types with path/permissioned_as) ----
     let trigger_tables = [
         "http_trigger",
         "websocket_trigger",
         "kafka_trigger",
         "postgres_trigger",
         "mqtt_trigger",
+        "amqp_trigger",
         "nats_trigger",
         "sqs_trigger",
         "gcp_trigger",

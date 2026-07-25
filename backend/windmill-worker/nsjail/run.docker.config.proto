@@ -77,6 +77,13 @@ mount {
     is_bind: true
 }
 
+mount {
+    dst: "/dev/shm"
+    fstype: "tmpfs"
+    rw: true
+    is_bind: false
+}
+
 # Host DNS config layered over the image's /etc so name resolution works on the
 # job's network (mandatory:false: some minimal images have no /etc files to shadow).
 mount {

@@ -19,6 +19,7 @@ use windmill_common::{
     jobs::{is_safe_log_file_path, JobKind, JobStatus, JobTriggerKind},
     scripts::ScriptLang,
     utils::{paginate, paginate_without_limits, require_admin, Pagination},
+    worker::CLOUD_HOSTED,
 };
 
 use windmill_api_auth::ApiAuthed;
@@ -434,6 +435,15 @@ pub async fn import_queued_jobs(
     Json(jobs): Json<Vec<ExportableQueuedJob>>,
 ) -> error::Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+
+    // Self-hosted migration/restore tool. It writes queue rows straight to the DB, bypassing the
+    // push path and every admission check that lives there, so it has no place on multi-tenant
+    // cloud where those checks are what keep one workspace from swamping the shared pool.
+    if *CLOUD_HOSTED {
+        return Err(error::Error::BadRequest(
+            "Importing queued jobs is not available on the cloud".to_string(),
+        ));
+    }
 
     let mut tx = user_db.begin(&authed).await?;
 

@@ -9,6 +9,7 @@
 	import Checkbox from '../common/checkbox/Checkbox.svelte'
 	import Markdown from 'svelte-exmarkdown'
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
+	import { markdownProse } from '$lib/components/markdownProse'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import SettingCard from '../instanceSettings/SettingCard.svelte'
@@ -563,14 +564,7 @@
 				{#if viewParsed.description}
 					<p class="text-xs text-secondary">{viewParsed.description}</p>
 				{/if}
-				<div
-					class="border rounded-md p-3 overflow-auto max-h-[60vh] prose prose-sm dark:prose-invert max-w-full leading-snug space-y-2 prose-ul:!pl-6
-						prose-p:text-xs prose-li:text-xs prose-code:text-xs prose-pre:text-xs
-						prose-code:break-words prose-a:break-words
-						prose-headings:font-medium prose-headings:text-emphasis prose-headings:mt-3 prose-headings:mb-1
-						prose-h1:text-sm prose-h2:text-xs prose-h3:text-xs prose-h4:text-xs prose-h5:text-xs prose-h6:text-xs
-						prose-table:block prose-table:max-w-full prose-table:overflow-x-auto prose-table:text-xs"
-				>
+				<div class="border rounded-md p-3 overflow-auto max-h-[60vh] space-y-2 {markdownProse.sm}">
 					<Markdown md={viewParsed.instructions} plugins={[gfmPlugin()]} />
 				</div>
 			</div>

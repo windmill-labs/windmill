@@ -2,7 +2,9 @@ import { base } from '$lib/base'
 import { randomUUID } from '$lib/utils/uuid'
 import { editPathFor, type WorkspaceItem } from '$lib/components/workspacePicker'
 import {
+	artifactUrl,
 	matchPreviewPage,
+	parseArtifactRoute,
 	parsePipelineRoute,
 	parsePreviewItemRoute,
 	previewLocationLabel,
@@ -33,6 +35,9 @@ export type PreviewTabsAdapter = {
 	// Fired synchronously on every tab-set change, so the runtime can drop editor
 	// cells no open tab references anymore (a closed / navigated-away item).
 	onTabsChanged?: () => void
+	// Fired when open() creates a brand-new tab (not focus/retarget of an
+	// existing one), with the tab's initial URL.
+	onTabOpened?: (url: string) => void
 }
 
 // True when a tab's URL is the live editor for a specific editable item. Every
@@ -43,18 +48,22 @@ function isEditorTabFor(url: string, target: SessionTarget): boolean {
 	return slot.kind === 'editor' && slot.editorKind === target.kind && slot.path === target.path
 }
 
-// URL a tab should load for a destination: a page's href, or an item's edit route.
+// URL a tab should load for a destination: a page's href, an item's edit route, or an artifact's scheme.
 function targetUrl(target: PreviewTarget): string {
-	return target.type === 'page' ? target.href : `${base}${editPathFor(target.item)}`
+	if (target.type === 'page') return target.href
+	if (target.type === 'artifact') return artifactUrl(target.id, target.name)
+	return `${base}${editPathFor(target.item)}`
 }
 
-// Point a tab at a new destination. Clears `friendlyLabel` (bound to the previous
-// editor's item): a new editor re-stamps it, and navigating to a plain page must
-// drop the stale name so the tab falls back to the location label.
+// Point a tab at a new destination. Clears `friendlyLabel`/`friendlyPath`
+// (bound to the previous editor's item): a new editor re-stamps them, and
+// navigating to a plain page must drop the stale name so the tab falls back
+// to the location label.
 function retargetTab(tab: SessionPreviewTab, url: string): void {
 	tab.url = url
 	tab.loc = url
 	tab.friendlyLabel = undefined
+	tab.friendlyPath = undefined
 }
 
 // Strip the query params the sessions preview injects into iframe URLs
@@ -151,6 +160,9 @@ export class SessionPreviewTabs {
 	#activeId = $state('')
 	#collapsed = $state(false)
 	#previewSize = $state<number | undefined>(undefined)
+	// Ephemeral UI signals — not part of the persisted snapshot.
+	#focusPulse = $state({ id: '', nonce: 0 })
+	#reloadPulse = $state({ id: '', nonce: 0 })
 	readonly #adapter: PreviewTabsAdapter
 	readonly #flushDelay: number
 	#flushHandle: ReturnType<typeof setTimeout> | undefined
@@ -182,6 +194,27 @@ export class SessionPreviewTabs {
 	}
 	get previewSize(): number | undefined {
 		return this.#previewSize
+	}
+	get focusPulse(): { id: string; nonce: number } {
+		return this.#focusPulse
+	}
+
+	// The nonce makes each call a fresh value, so re-clicking the same active tab
+	// still fires the flash.
+	pulseFocus(id: string): void {
+		this.#focusPulse = { id, nonce: this.#focusPulse.nonce + 1 }
+	}
+
+	get reloadPulse(): { id: string; nonce: number } {
+		return this.#reloadPulse
+	}
+
+	// Ask the tab's host to reload its iframe. Needed when a navigation targets the
+	// tab's exact current URL: nothing changes, so URL-driven behavior in the page
+	// (e.g. a #<path> hash opening an edit drawer the user has since closed) would
+	// never re-fire without a forced load.
+	pulseReload(id: string): void {
+		this.#reloadPulse = { id, nonce: this.#reloadPulse.nonce + 1 }
 	}
 
 	setPreviewSize(size: number): void {
@@ -226,6 +259,18 @@ export class SessionPreviewTabs {
 				return { status: same ? 'focused' : 'opened' }
 			}
 		}
+		// Dedupe artifacts by id, not full url: an update may have changed the name the url carries.
+		if (target.type === 'artifact') {
+			const existing = this.#tabs.find((t) => parseArtifactRoute(t.url)?.id === target.id)
+			if (existing) {
+				const same = existing.url === url
+				existing.url = url
+				existing.loc = url
+				this.#activeId = existing.id
+				this.#flush()
+				return { status: same ? 'focused' : 'opened' }
+			}
+		}
 		// Focus the tab currently *showing* this destination instead of opening a
 		// duplicate. Matched on the observed `loc`, not `url`: a tab that was
 		// opened here but navigated away no longer counts as showing it.
@@ -239,6 +284,7 @@ export class SessionPreviewTabs {
 		this.#tabs.push(tab)
 		this.#activeId = tab.id
 		this.#flush()
+		this.#adapter.onTabOpened?.(url)
 		return { status: 'opened' }
 	}
 
@@ -267,6 +313,18 @@ export class SessionPreviewTabs {
 		const pipelineFolder = parsePipelineRoute(url)
 		if (pipelineFolder) {
 			const existing = this.#tabs.find((x) => parsePipelineRoute(x.url) !== null)
+			if (existing && existing.id !== t.id) {
+				retargetTab(existing, url)
+				this.#activeId = existing.id
+				this.#flush()
+				return
+			}
+		}
+		// Same by-id artifact dedupe as open(): focus (and re-point, in case the
+		// name changed) the tab already viewing this artifact instead of turning
+		// the active tab into a duplicate viewer.
+		if (target.type === 'artifact') {
+			const existing = this.#tabs.find((x) => parseArtifactRoute(x.url)?.id === target.id)
 			if (existing && existing.id !== t.id) {
 				retargetTab(existing, url)
 				this.#activeId = existing.id
@@ -323,6 +381,11 @@ export class SessionPreviewTabs {
 		this.#flush()
 	}
 
+	closeArtifact(artifactId: string): void {
+		const tab = this.#tabs.find((t) => parseArtifactRoute(t.url)?.id === artifactId)
+		if (tab) this.close(tab.id)
+	}
+
 	setCollapsed(collapsed: boolean): void {
 		if (this.#collapsed === collapsed) return
 		this.#collapsed = collapsed
@@ -341,15 +404,21 @@ export class SessionPreviewTabs {
 		this.#flush()
 	}
 
-	// Stamp the friendly display label for the editor tab hosting `target` (the
-	// live editor knows the item's typed/auto name once its cell loads, which the
-	// page can't read reactively from the runtime cell). Matched on the tab's
-	// commanded `url` — the stable per-(kind,path) editor identity. Transient, so
-	// no persist/flush: it's recomputed when the tab remounts.
-	setEditorFriendlyLabel(target: SessionTarget, label: string | undefined): void {
+	// Stamp the friendly display label (and full friendly path, which scopes the
+	// breadcrumb picker) for the editor tab hosting `target` (the live editor
+	// knows the item's typed/auto name once its cell loads, which the page can't
+	// read reactively from the runtime cell). Matched on the tab's commanded
+	// `url` — the stable per-(kind,path) editor identity. Transient, so no
+	// persist/flush: they're recomputed when the tab remounts.
+	setEditorFriendlyLabel(
+		target: SessionTarget,
+		label: string | undefined,
+		friendlyPath?: string
+	): void {
 		const t = this.#tabs.find((x) => isEditorTabFor(x.url, target))
-		if (!t || t.friendlyLabel === label) return
+		if (!t || (t.friendlyLabel === label && t.friendlyPath === friendlyPath)) return
 		t.friendlyLabel = label
+		t.friendlyPath = friendlyPath
 	}
 
 	// Persist a pending write immediately, cancelling the debounce. Called on
@@ -414,16 +483,19 @@ export function describePreview(tabs: SessionPreviewTab[], activeId: string): st
 	if (tabs.length === 0) return 'No preview tabs are open in the side panel.'
 	const lines = tabs.map((t) => {
 		const where = t.loc || t.url
+		const artifact = parseArtifactRoute(where)
 		const page = matchPreviewPage(where)
 		const pipelineFolder = parsePipelineRoute(where)
 		const route = parsePreviewItemRoute(where)
-		const label = page
-			? `page "${page.label}"`
-			: pipelineFolder
-				? `pipeline "${pipelineFolder}"`
-				: route
-					? `${route.raw_app ? 'raw_app' : route.kind} "${route.itemPath}"`
-					: stripBase(where)
+		const label = artifact
+			? `artifact "${artifact.name || 'Artifact'}"`
+			: page
+				? `page "${page.label}"`
+				: pipelineFolder
+					? `pipeline "${pipelineFolder}"`
+					: route
+						? `${route.raw_app ? 'raw_app' : route.kind} "${route.itemPath}"`
+						: stripBase(where)
 		const live = resolvePreviewTab(t.url).kind === 'editor' ? ', live editor' : ''
 		const active = t.id === activeId ? ', active' : ''
 		return `- ${label}${live}${active}`

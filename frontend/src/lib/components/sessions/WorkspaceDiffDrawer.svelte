@@ -143,7 +143,7 @@
 		)
 	}
 
-	export function open() {
+	export function open(focusKey?: string) {
 		loadedDiffs = {}
 		mountedRows = {}
 		folderOpen = {}
@@ -151,6 +151,34 @@
 		model.load()
 		drawer?.openDrawer()
 		setTimeout(() => searchInputEl?.focus(), 50)
+		if (focusKey) void focusItem(focusKey)
+	}
+
+	// model.load()'s draft fetch is async, so poll real frames (not ticks — the
+	// fetch is wall-clock) until the item lands in model.items, then force-mount its
+	// row so scrollToDiff has an anchor even below the fold on a cold drawer.
+	async function focusItem(focusKey: string) {
+		let frames = 0
+		let item = model.items.find((i) => i.key === focusKey)
+		while (!item && frames++ < 120) {
+			await new Promise<void>((r) => requestAnimationFrame(() => r()))
+			item = model.items.find((i) => i.key === focusKey)
+		}
+		if (!item) return
+		await tick()
+		// Force-mount bypasses use:lazyMount, which is what fetches the diff values.
+		mountedRows[item.key] = true
+		if (item.deployKind === 'raw_app') {
+			// Loading rekeys the app leaf to a folder at its displayPath, so highlight
+			// that key once loaded (as expandApp does), not the now-stale item.key.
+			await loadDiffFor(item)
+			await tick()
+			revealDiff(item, folderKeyFor(item.displayPath))
+		} else {
+			void loadDiffFor(item)
+			await tick()
+			revealDiff(item, item.key)
+		}
 	}
 
 	// ── Badge presentation ─────────────────────────────────────────────────────

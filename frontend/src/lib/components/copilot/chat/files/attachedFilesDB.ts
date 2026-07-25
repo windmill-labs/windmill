@@ -21,6 +21,9 @@ export interface PersistedAttachedItem {
 	kind: AttachedItemKind
 	/** Display name: relative path for files, folder name for dir-handle records. */
 	name: string
+	/** Raw pre-sanitization source name — the re-link identity. Absent on records
+	 * persisted before provenance existed (dedupe then falls back to `name`). */
+	sourceName?: string
 	/** Top-level folder (for grouping); equals `name` for dir-handle records. */
 	folder?: string
 	/** Folder-relative path (snapshot folder children) — restores the folder grouping/tree. */

@@ -30,7 +30,7 @@
 	import { workspaceAIClients } from '../copilot/lib'
 	import { twMerge } from 'tailwind-merge'
 	import type { MenubarBuilders } from '@melt-ui/svelte'
-	import { buildWorkspaceHierarchy } from '$lib/utils/workspaceHierarchy'
+	import { buildWorkspaceHierarchy, isForkOwner } from '$lib/utils/workspaceHierarchy'
 	import { canCreateFork } from '$lib/utils/editInFork'
 	import { getContrastTextColor } from '$lib/utils'
 	import { workspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
@@ -165,9 +165,25 @@
 	// shown in the breadcrumb).
 	const currentFamily = $derived(findRoot($workspaceStore ?? undefined))
 
+	// Workspace names carry no uniqueness constraint, and this menu labels every
+	// row by name alone: a prod/staging pair sharing one name renders as two
+	// identical rows. Show the (unique) id alongside the name wherever a name is
+	// shared, so the rows stay tellable apart.
+	const ambiguousNames = $derived.by(() => {
+		const seen = new Set<string>()
+		const ambiguous = new Set<string>()
+		for (const w of $userWorkspaces ?? []) {
+			if (seen.has(w.name)) ambiguous.add(w.name)
+			seen.add(w.name)
+		}
+		return ambiguous
+	})
+
 	// The active workspace itself (fork included) — names the settings entry.
 	const activeWorkspace = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
-	const canManageWorkspace = $derived($userStore?.is_admin || $superadmin)
+	const canManageWorkspace = $derived(
+		$userStore?.is_admin || $superadmin || isForkOwner(activeWorkspace, $userStore?.email)
+	)
 
 	// font-normal is explicit: href-less MenuItems render as <button>, which the
 	// global stylesheet makes semibold, unlike the <a> the href entries get.
@@ -203,6 +219,9 @@
 				icon={Building}
 				iconProps={iconColor ? { style: `color: ${iconColor}` } : undefined}
 				label={currentFamily?.name ?? $workspaceStore ?? ''}
+				sublabel={!isCollapsed && currentFamily && ambiguousNames.has(currentFamily.name)
+					? currentFamily.id
+					: undefined}
 				{isCollapsed}
 				color={familyColor}
 				showChevron
@@ -291,6 +310,11 @@
 												>
 											{/if}
 										</div>
+										{#if ambiguousNames.has(workspace.name)}
+											<div class="truncate text-left text-2xs text-tertiary" title={workspace.id}>
+												{workspace.id}
+											</div>
+										{/if}
 									</div>
 								</div>
 								{#if isSelected}
@@ -361,7 +385,9 @@
 						{item}
 					>
 						<Settings size={16} />
-						{activeWorkspace?.name ?? $workspaceStore} settings
+						{(activeWorkspace && ambiguousNames.has(activeWorkspace.name)
+							? activeWorkspace.id
+							: activeWorkspace?.name) ?? $workspaceStore} settings
 					</MenuItem>
 				</div>
 			{/if}

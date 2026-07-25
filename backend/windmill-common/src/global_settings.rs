@@ -116,6 +116,16 @@ pub const WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING: &str = "workspace_fairness_max
 pub const WORKSPACE_FAIRNESS_DURATION_SECS_SETTING: &str = "workspace_fairness_duration_secs";
 pub const WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING: &str = "workspace_fairness_min_total_jobs";
 
+// Cloud-only ceiling on how many jobs may sit in the queue behind a single
+// concurrency key. `0` disables the cap. See `windmill-queue/src/jobs.rs`,
+// `check_concurrency_key_queue_cap`.
+pub const CONCURRENCY_KEY_MAX_QUEUED_SETTING: &str = "concurrency_key_max_queued_jobs";
+
+// Cloud-only ceiling on how many jobs a single workspace may have queued in
+// total, across every key and script. Applies even to premium workspaces. `0`
+// disables the cap. See `windmill-queue/src/jobs.rs`, `check_workspace_queue_cap`.
+pub const WORKSPACE_MAX_QUEUED_JOBS_SETTING: &str = "workspace_max_queued_jobs";
+
 /// Global settings an agent worker (a remote worker connected over HTTP instead
 /// of to the database) must NEVER read through
 /// `GET /api/agent_workers/get_global_setting/{key}`. Every other key is served.
@@ -155,6 +165,11 @@ pub const AGENT_WORKER_BLOCKED_SETTINGS: &[&str] = &[
     INSTANCE_EVENTS_WEBHOOK_SETTING,
     OTEL_SETTING,
     OTEL_TRACING_PROXY_SETTING,
+    // Custom-instance DB credentials: `custom_instance_pg_databases` holds `user_pwd`,
+    // `custom_instance_replication_pwd` holds the REPLICATION-role password. Agent workers
+    // resolve datatable connections through the dedicated datatable endpoints, never these.
+    "custom_instance_pg_databases",
+    "custom_instance_replication_pwd",
 ];
 
 /// Whether an agent worker may read the given global setting over HTTP.
@@ -371,6 +386,8 @@ mod tests {
             INSTANCE_EVENTS_WEBHOOK_SETTING,
             OTEL_SETTING,
             OTEL_TRACING_PROXY_SETTING,
+            "custom_instance_pg_databases",
+            "custom_instance_replication_pwd",
         ] {
             assert!(
                 !is_setting_readable_by_agent_worker(key),

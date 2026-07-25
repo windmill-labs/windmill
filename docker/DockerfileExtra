@@ -124,10 +124,19 @@ WORKDIR /app
 COPY docker/entrypoint-extra.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Set permissions
-RUN chmod -R a+rX /usr/local && \
-    chmod -R a+rX /pyls && \
-    chmod -R a+rX /debugger
+# Non-root 'windmill' user with UID/GID 1000 to match the app image, so
+# `runAsUser: 1000` resolves to a real account with a writable $HOME.
+# No USER directive: the image still starts as root by default.
+RUN addgroup --gid 1000 windmill && \
+    adduser --disabled-password --gecos "" --uid 1000 --gid 1000 windmill
+
+# The root-run installs above write into the base image's UV_CACHE_DIR
+# (/tmp/windmill/cache/uv) after the base already made it world-writable, leaving
+# root-owned 0755 dirs that make uv fail EACCES for a non-root UID. /pyls/.cache
+# (XDG_CACHE_HOME, incl. DENO_DIR) and /tmp/monaco are written at runtime too.
+RUN chmod -R a+rX /usr/local /pyls /debugger /multiplayer /tmp/monaco && \
+    chmod -R a+rw /tmp/windmill /pyls/.cache && \
+    find /tmp/windmill /pyls/.cache /tmp/monaco -type d -exec chmod 777 {} +
 
 # Expose all service ports
 EXPOSE 3000 3001 3002 3003

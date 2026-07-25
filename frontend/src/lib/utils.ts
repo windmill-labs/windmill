@@ -844,6 +844,21 @@ export function isMac(): boolean {
 	return navigator.userAgent.indexOf('Mac OS X') !== -1
 }
 
+/**
+ * True on Chromium-based browsers (Chrome, Edge, Brave, Opera, ...). Gates
+ * capabilities that are only faithful on Blink, e.g. DOM screenshot capture.
+ * userAgentData is itself Chromium-only; the UA fallback covers Chromium
+ * versions predating it ("Chrome/" never appears in Gecko or WebKit UAs).
+ */
+export function isChromiumBrowser(): boolean {
+	if (typeof navigator === 'undefined') return false
+	const brands = (navigator as any).userAgentData?.brands
+	if (Array.isArray(brands)) {
+		return brands.some((entry) => typeof entry?.brand === 'string' && /chromium/i.test(entry.brand))
+	}
+	return /chrome\//i.test(navigator.userAgent)
+}
+
 export function getModifierKey(): string {
 	return isMac() ? '⌘' : 'Ctrl+'
 }

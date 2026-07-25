@@ -4,9 +4,11 @@ import type {
 	CreateVariable,
 	FlowValue,
 	GcpTriggerData,
+	NewEmailTrigger,
 	NewHttpTrigger,
 	NewKafkaTrigger,
 	NewMqttTrigger,
+	NewAmqpTrigger,
 	NewNatsTrigger,
 	NewPostgresTrigger,
 	NewSchedule,
@@ -38,9 +40,11 @@ export const TRIGGER_KINDS = [
 	'nats',
 	'postgres',
 	'mqtt',
+	'amqp',
 	'sqs',
 	'gcp',
-	'azure'
+	'azure',
+	'email'
 ] as const
 
 export type TriggerKind = (typeof TRIGGER_KINDS)[number]
@@ -52,9 +56,11 @@ export type TriggerRequestBody =
 	| NewNatsTrigger
 	| NewPostgresTrigger
 	| NewMqttTrigger
+	| NewAmqpTrigger
 	| NewSqsTrigger
 	| GcpTriggerData
 	| AzureTriggerData
+	| NewEmailTrigger
 
 export type WorkspaceItemType =
 	| 'script'
@@ -75,6 +81,10 @@ export type AppDraftValue = {
 	// Fork base: the deployed app version this draft was started from, pinned at
 	// fork. The app analog of a script's parent_hash / a flow's version_id.
 	parent_version?: number
+	// User-typed friendly path while the app is parked at a `…/draft_<uuid>`
+	// storage path (see RawAppDraft in sessions/appDraftCodec.ts). Must
+	// round-trip through chat writes or an edit erases the chosen name.
+	draft_path?: string
 }
 
 export type ResourceDraftState = {
@@ -99,6 +109,10 @@ export type VariableDraftState = {
 export type WorkspaceItem = {
 	type: WorkspaceItemType
 	path: string
+	/** Friendly display path for a draft parked at a `…/draft_<uuid>` storage
+	 * path (the draft value's `draft_path`). Display-only — `path` is the key
+	 * drafts are stored and routed under. */
+	draftPath?: string
 	summary?: string
 	language?: ScriptLang
 	triggerKind?: TriggerKind
@@ -115,6 +129,8 @@ export type WorkspaceItem = {
 		| CreateResource
 		| CreateVariable
 		| AppDraftValue
+	/** Input schema of a script read (flows carry theirs inside `value`). */
+	schema?: unknown
 	isDraft: boolean
 	isLiveDraft?: boolean
 }

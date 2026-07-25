@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n            args->'__git_sync_open_pr' as \"marker\",\n            args->>'repo_url_resource_path' as \"repo_path\",\n            args->>'parent_workspace_id' as \"parent_workspace_id\",\n            args->>'dev_workspace_label' as \"dev_workspace_label\",\n            args->>'parent_dev_workspace_label' as \"parent_dev_workspace_label\",\n            COALESCE((args->'use_individual_branch')::bool, false) as \"use_individual_branch!\",\n            COALESCE((args->'group_by_folder')::bool, false) as \"group_by_folder!\",\n            COALESCE(args->'items'->0->>'path', args->>'path', '') as \"item_path!\",\n            COALESCE(args->'items'->0->>'parent_path', args->>'parent_path', '') as \"item_parent_path!\",\n            COALESCE(args->'items'->0->>'path_type', args->>'path_type', '') as \"path_type!\",\n            COALESCE(args->'items'->0->>'commit_msg', args->>'commit_msg', '') as \"commit_msg!\"\n        FROM v2_job WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "marker",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 1,
+        "name": "repo_path",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "parent_workspace_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "dev_workspace_label",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "parent_dev_workspace_label",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "use_individual_branch!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "group_by_folder!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "item_path!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "item_parent_path!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "path_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "commit_msg!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "f02977ee5df3d8f734fb32836583abaf747aef7078ae57b0373f06c70b6f2f9f"
+}

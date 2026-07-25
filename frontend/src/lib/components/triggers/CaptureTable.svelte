@@ -17,7 +17,7 @@
 	import { isObject, sendUserToast } from '$lib/utils'
 	import SchemaPickerRow from '$lib/components/schema/SchemaPickerRow.svelte'
 	import type { Capture } from '$lib/gen'
-	import { AwsIcon, MqttIcon } from '../icons'
+	import { AwsIcon, MqttIcon, AmqpIcon } from '../icons'
 	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
 
 	interface Props {
@@ -218,6 +218,7 @@
 		websocket: Unplug,
 		kafka: KafkaIcon,
 		mqtt: MqttIcon,
+		amqp: AmqpIcon,
 		sqs: AwsIcon,
 		postgres: DatabaseIcon,
 		gcp: GoogleCloudIcon

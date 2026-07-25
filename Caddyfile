@@ -16,8 +16,12 @@
         # site, silently disabling the HTTP proxy while the :25 layer4 listener stays up.
         bind {$ADDRESS:0.0.0.0 ::}
 
-        # Extra services: LSP, Multiplayer, Debugger (windmill_extra gateway)
-        reverse_proxy /ws/* /ws_mp/* /ws_debug/* http://windmill_extra:3000
+        # Extra services: LSP, Multiplayer, Debugger (windmill_extra gateway).
+        # reverse_proxy only reads its first argument as a matcher, so listing
+        # several paths inline turns the rest into upstream addresses. The paths
+        # have to go through a named matcher.
+        @extra path /ws/* /ws_mp/* /ws_debug/*
+        reverse_proxy @extra http://windmill_extra:3000
 
         # Search indexer, Enterprise Edition (windmill_indexer:8002)
         # reverse_proxy /api/srch/* http://windmill_indexer:8002

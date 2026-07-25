@@ -4,6 +4,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
 	import { copyToClipboard, parseS3Object, roughSizeOfObject } from '$lib/utils'
+	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 	import { base } from '$lib/base'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { appendViewToken } from '$lib/viewToken'
@@ -46,6 +47,9 @@
 	import { userStore } from '$lib/stores'
 	import ResultStreamDisplay from './ResultStreamDisplay.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import DOMPurify from 'dompurify'
+	import MarkupApprovalGate from './MarkupApprovalGate.svelte'
+	import type { MarkupTrust } from './apps/markupTrust'
 
 	const TABLE_MAX_SIZE = 5000000
 	const DISPLAY_MAX_SIZE = 100000
@@ -85,7 +89,10 @@
 
 	interface Props {
 		result: any
-		requireHtmlApproval?: boolean
+		/** How to treat `result.html` / `result.svg`. Defaults to sanitizing, which is
+		 * what every non-app caller wants. Low-code app display components pass
+		 * `getAppMarkupTrust()`. */
+		markupTrust?: MarkupTrust
 		filename?: string | undefined
 		disableExpand?: boolean
 		jobId?: string | undefined
@@ -110,7 +117,7 @@
 
 	let {
 		result,
-		requireHtmlApproval = false,
+		markupTrust = 'sanitize',
 		filename = undefined,
 		disableExpand = false,
 		jobId = undefined,
@@ -132,7 +139,6 @@
 		loading = false,
 		growVertical = false
 	}: Props = $props()
-	let enableHtml = $state(false)
 	let s3FileDisplayRawMode = $state(false)
 
 	// Build the image/PDF source URL for an S3 object. When `appPath` is set
@@ -433,6 +439,15 @@
 		}
 	}
 
+	// An html/svg result is attacker-authored: any member can return one and a
+	// higher-privileged user may view it. Every `{@html}` of result markup must go
+	// through here, or it becomes stored XSS (GHSA-gh2j-49rx-4464). `approval` renders
+	// verbatim too, so it must stay behind MarkupApprovalGate at the call site.
+	function renderResultMarkup(markup: string | { filename: string; content: string } | undefined) {
+		const str = contentOrRootString(markup) || ''
+		return markupTrust === 'sanitize' ? DOMPurify.sanitize(str) : str
+	}
+
 	function handleArrayOfObjectsHeaders(json: any) {
 		// handle possible a first row of headers
 		if (
@@ -690,7 +705,7 @@
 				<DisplayResult
 					{noControls}
 					result={res}
-					{requireHtmlApproval}
+					{markupTrust}
 					{filename}
 					{disableExpand}
 					{jobId}
@@ -790,30 +805,16 @@
 					/>
 				{:else if !forceJson && resultKind === 'html'}
 					<div class="h-full">
-						{#if !requireHtmlApproval || enableHtml}
-							{@html result.html}
+						{#if markupTrust === 'approval'}
+							<MarkupApprovalGate>
+								{#snippet children()}
+									<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+									{@html renderResultMarkup(result.html)}
+								{/snippet}
+							</MarkupApprovalGate>
 						{:else}
-							<div class="font-main text-sm">
-								<div class="flex flex-col">
-									<div class="bg-red-400 py-1 rounded-t text-white font-bold text-center">
-										Warning
-									</div>
-									<p
-										class="text-primary mb-2 text-left border-2 !border-t-0 rounded-b border-red-400 overflow-auto p-1"
-										>Rendering HTML can expose you to <a
-											href="https://owasp.org/www-community/attacks/xss/"
-											target="_blank"
-											rel="noreferrer"
-											class="hover:underline">XSS attacks</a
-										>. Only enable it if you trust the author of the script.
-									</p>
-								</div>
-								<div class="center-center">
-									<Button unifiedSize="md" variant="default" on:click={() => (enableHtml = true)}>
-										Enable HTML rendering
-									</Button>
-								</div>
-							</div>
+							<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+							{@html renderResultMarkup(result.html)}
 						{/if}
 					</div>
 				{:else if !forceJson && resultKind === 'map'}
@@ -827,7 +828,7 @@
 					</div>
 				{:else if !forceJson && resultKind === 'png'}
 					<div class="h-full">
-						<img
+						<ExpandableImage
 							alt="png rendered"
 							class="w-auto h-full"
 							src="data:image/png;base64,{contentOrRootString(result.png)}"
@@ -835,21 +836,36 @@
 					</div>
 				{:else if !forceJson && resultKind === 'jpeg'}
 					<div class="h-full">
-						<img
+						<ExpandableImage
 							alt="jpeg rendered"
 							class="w-auto h-full"
 							src="data:image/jpeg;base64,{contentOrRootString(result.jpeg)}"
 						/>
 					</div>
 				{:else if !forceJson && resultKind === 'svg'}
-					<div
-						><a download="windmill.svg" href="data:text/plain;base64,{btoa(result.svg)}">Download</a
+					{@const svgMarkup = contentOrRootString(result.svg) || ''}
+					<div>
+						<a
+							download="windmill.svg"
+							href="data:image/svg+xml;charset=utf-8,{encodeURIComponent(svgMarkup)}">Download</a
 						>
 					</div>
-					<div class="h-full overflow-auto">{@html result.svg} </div>
+					<div class="h-full overflow-auto">
+						{#if markupTrust === 'approval'}
+							<MarkupApprovalGate>
+								{#snippet children()}
+									<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+									{@html renderResultMarkup(result.svg)}
+								{/snippet}
+							</MarkupApprovalGate>
+						{:else}
+							<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+							{@html renderResultMarkup(result.svg)}
+						{/if}
+					</div>
 				{:else if !forceJson && resultKind === 'gif'}
 					<div class="h-full">
-						<img
+						<ExpandableImage
 							alt="gif rendered"
 							class="w-auto h-full"
 							src="data:image/gif;base64,{contentOrRootString(result.gif)}"
@@ -1060,11 +1076,17 @@
 										{appPath}
 										s3resource={s3object?.s3}
 										storage={s3object?.storage}
+										presigned={s3object?.presigned}
 									/>
 								{/key}
 							{:else if s3object?.s3?.endsWith('.png') || s3object?.s3?.endsWith('.jpeg') || s3object?.s3?.endsWith('.jpg') || s3object?.s3?.endsWith('.webp')}
 								<div class="h-full mt-2">
-									<img alt="preview rendered" class="w-auto h-full" src={s3DisplayUrl(s3object)} />
+									<ExpandableImage
+										alt="preview rendered"
+										title={s3object?.s3}
+										class="w-auto h-full"
+										src={s3DisplayUrl(s3object)}
+									/>
 								</div>
 							{:else if s3object?.s3?.endsWith('.pdf')}
 								<div class="h-96 mt-2 border">
@@ -1116,6 +1138,7 @@
 											{appPath}
 											s3resource={s3object?.s3}
 											storage={s3object?.storage}
+											presigned={s3object?.presigned}
 										/>{:else}
 										<button
 											class="text-primary whitespace-nowrap flex gap-2 items-center"
@@ -1128,8 +1151,9 @@
 								{:else if s3object?.s3?.endsWith('.png') || s3object?.s3?.endsWith('.jpeg') || s3object?.s3?.endsWith('.jpg') || s3object?.s3?.endsWith('.webp')}
 									{#if seeS3PreviewFileFromList == s3object?.s3}
 										<div class="h-full mt-2">
-											<img
+											<ExpandableImage
 												alt="preview rendered"
+												title={s3object?.s3}
 												class="w-auto h-full"
 												src={s3DisplayUrl(s3object)}
 											/>
@@ -1279,7 +1303,7 @@
 				<DisplayResult
 					{noControls}
 					{result}
-					{requireHtmlApproval}
+					{markupTrust}
 					{filename}
 					{jobId}
 					{nodeId}

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM data_metric WHERE workspace_id = $1 AND (script_path = $2 OR script_path = $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cb792a399cc1a7eb67222380cc0b2fb39d4ab8278cd605219541d06837e974d2"
+}

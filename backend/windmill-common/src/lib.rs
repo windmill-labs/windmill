@@ -62,6 +62,7 @@ pub mod instance_config;
 pub mod job_metrics;
 pub mod log_context;
 pub mod materialization;
+pub mod data_metrics;
 pub mod min_version;
 pub mod notify_events;
 pub mod runtime_assets;

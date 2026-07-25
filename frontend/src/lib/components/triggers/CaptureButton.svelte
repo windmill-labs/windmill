@@ -11,6 +11,7 @@
 	import AwsIcon from '../icons/AwsIcon.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import MqttIcon from '../icons/MqttIcon.svelte'
+	import AmqpIcon from '../icons/AmqpIcon.svelte'
 	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
 
 	interface Props {
@@ -60,6 +61,11 @@
 			icon: MqttIcon,
 			displayName: 'MQTT',
 			action: () => handleClick('mqtt')
+		},
+		{
+			icon: AmqpIcon,
+			displayName: 'AMQP',
+			action: () => handleClick('amqp')
 		},
 		{
 			icon: Database,

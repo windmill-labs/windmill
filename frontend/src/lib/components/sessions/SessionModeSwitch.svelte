@@ -47,7 +47,7 @@
 			icon={isCollapsed ? MessagesSquare : undefined}
 			label="AI Sessions"
 			iconOnly={isCollapsed}
-			tooltip={isCollapsed ? 'AI Sessions' : undefined}
+			tooltip={isCollapsed ? 'AI Sessions (beta)' : undefined}
 			size="sm"
 			class="w-full justify-center"
 		/>
