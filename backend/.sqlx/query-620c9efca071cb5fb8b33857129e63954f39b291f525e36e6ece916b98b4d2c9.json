@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings SET deploy_to = $1, error_handler_fallback_to_instance_alerts = false WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "620c9efca071cb5fb8b33857129e63954f39b291f525e36e6ece916b98b4d2c9"
+}

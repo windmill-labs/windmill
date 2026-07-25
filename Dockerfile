@@ -1,5 +1,5 @@
 ARG DEBIAN_IMAGE=debian:trixie-slim
-ARG RUST_IMAGE=rust:1.93-slim-trixie
+ARG RUST_IMAGE=rust:1.97-slim-trixie
 
 FROM debian:trixie-slim AS nsjail
 
@@ -79,6 +79,8 @@ COPY /python-client/docs/ /frontend/static/pydocs/
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
 ARG VITE_BASE_URL ""
+# Must be declared for the build-arg to reach the bundle. See frontend/svelte.config.js.
+ARG WM_BUILD_VERSION=""
 # Read more about macro in docker/dev.nu
 # -- MACRO-SPREAD-WASM-PARSER-DEV-ONLY -- #
 RUN npm run build
@@ -162,6 +164,7 @@ ENV PATH /usr/local/bin:/root/.local/bin:/tmp/.local/bin:$PATH
 
 
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends netbase tzdata ca-certificates wget curl jq unzip build-essential unixodbc xmlsec1 tini gnupg libargon2-1 \
     && if echo "$features" | grep -q "ee"; then apt-get install -y --no-install-recommends libsasl2-modules-gssapi-mit krb5-user; fi \
     && apt-get clean \

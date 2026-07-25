@@ -10,9 +10,11 @@ export const importFlowStore = writable<Flow | undefined>(undefined)
 export async function initFlow(
 	flow: Flow,
 	flowStore: StateStore<Flow>,
-	flowStateStore: StateStore<FlowState>
+	flowStateStore: StateStore<FlowState>,
+	// The acting workspace when the flow editor runs in an AI session; else the nav workspace.
+	workspace?: string
 ) {
-	await initFlowState(flow, flowStateStore)
+	await initFlowState(flow, flowStateStore, workspace)
 	flowStore.val = flow
 }
 

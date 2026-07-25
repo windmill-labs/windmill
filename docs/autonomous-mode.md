@@ -65,6 +65,8 @@ After code changes compile and type-check, verify the feature works:
 
 When done, directly open or update a **draft PR** against `main` once the work and validation are complete. Do not stop at a local summary or ask a human to create the PR manually.
 
+Then drive the PR through CI review rounds to ready, per the `pr` skill ("Review rounds"): run `.agents/skills/pr/review-round.sh` as a background task, let its completion wake you, address the findings, and repeat until every reviewer verdict is a go — then post the clean-round marker comment and `gh pr ready`. Do not end the session at an unreviewed draft or while a round is pending; waiting on the background waiter costs nothing.
+
 In your final summary, provide:
 - What was changed and why (files modified, approach taken)
 - What checks passed (cargo check, npm run check, etc.)

@@ -4,10 +4,12 @@ import {
 	TriangleAlert,
 	Diff,
 	FileCode,
+	FileText,
 	Code2,
 	TextSelect,
 	Table2,
-	LayoutDashboard
+	LayoutDashboard,
+	MousePointer2
 } from 'lucide-svelte'
 import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 import type { ScriptLang } from '$lib/gen/types.gen'
@@ -25,9 +27,12 @@ export const ContextIconMap = {
 	app_backend_runnable: Code2,
 	app_code_selection: TextSelect,
 	app_datatable: Table2,
+	app_dom_selector: MousePointer2,
 	workspace_script: Code2,
 	workspace_flow: BarsStaggered,
-	workspace_app: LayoutDashboard
+	workspace_app: LayoutDashboard,
+	// Fallback — the badge renders attached_file with the per-extension file icon.
+	attached_file: FileText
 	// flow_module type is handled with FlowModuleIcon
 }
 
@@ -142,6 +147,47 @@ export interface AppDatatableElement {
 	columns?: Record<string, string>
 }
 
+/**
+ * A DOM element the user picked in the raw-app preview inspector, attached to the
+ * chat as a lightweight selector reference. The element's HTML is NOT stored — the
+ * model reads it live via the `search_dom` / `read_dom` tools using `selector`.
+ */
+export interface AppDomSelectorElement {
+	type: 'app_dom_selector'
+	/** Full CSS selector path, passed verbatim to search_dom / read_dom. */
+	selector: string
+	/** Raw-app path the element was picked from. The selector only makes sense
+	 * against this app's preview, so chips are scoped to it (a session can have
+	 * several raw-app preview tabs, only one active at a time). */
+	appPath: string
+	/** Compact, space-free display label, e.g. "button#submit.primary". */
+	title: string
+	tagName: string
+	id?: string
+	className?: string
+}
+
+export function createAppDomSelectorElement(info: {
+	selector: string
+	appPath: string
+	tagName: string
+	id?: string
+	className?: string
+}): AppDomSelectorElement {
+	const tag = info.tagName.toLowerCase()
+	const firstClass = info.className?.trim().split(/\s+/)[0]
+	const title = `${tag}${info.id ? `#${info.id}` : ''}${firstClass ? `.${firstClass}` : ''}`
+	return {
+		type: 'app_dom_selector',
+		selector: info.selector,
+		appPath: info.appPath,
+		title,
+		tagName: tag,
+		id: info.id,
+		className: info.className
+	}
+}
+
 export function createAppSelectedContext(options: SelectedContext = {}): SelectedContext {
 	return {
 		...options
@@ -240,6 +286,22 @@ export interface WorkspaceAppElement {
 	summary?: string
 }
 
+/** Message-attached text file, rendered with the shared context badge. Never part
+ * of `selectedContext` — constructed at render time from the composer's / a sent
+ * message's `files` state (see createAttachedFileContextElement). */
+export interface AttachedFileElement {
+	type: 'attached_file'
+	title: string
+	content: string
+}
+
+export function createAttachedFileContextElement(
+	name: string,
+	content: string
+): AttachedFileElement {
+	return { type: 'attached_file', title: name, content }
+}
+
 export type ContextElement = (
 	| CodeElement
 	| ErrorElement
@@ -252,9 +314,27 @@ export type ContextElement = (
 	| AppBackendRunnableElement
 	| AppCodeSelectionElement
 	| AppDatatableElement
+	| AppDomSelectorElement
 	| WorkspaceScriptElement
 	| WorkspaceFlowElement
 	| WorkspaceAppElement
+	| AttachedFileElement
 ) & {
 	deletable?: boolean
+}
+
+// DOM selector chips can share a display title (two `button.btn` from repeated
+// elements), so identify them by (appPath, selector) — keying or removing by
+// title would collide, giving repeated chips one Svelte key and deleting them
+// together. Other context types stay identified by (type, title).
+export function contextElementKey(c: ContextElement): string {
+	return c.type === 'app_dom_selector' ? `dom:${c.appPath}:${c.selector}` : `${c.type}:${c.title}`
+}
+
+export function isSameContextElement(a: ContextElement, b: ContextElement): boolean {
+	if (a.type !== b.type) return false
+	if (a.type === 'app_dom_selector' && b.type === 'app_dom_selector') {
+		return a.selector === b.selector && a.appPath === b.appPath
+	}
+	return a.title === b.title
 }

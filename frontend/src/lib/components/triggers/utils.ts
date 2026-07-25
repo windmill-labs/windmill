@@ -7,11 +7,13 @@ import {
 	Database,
 	Terminal,
 	Timer,
-	Zap
+	Zap,
+	LayoutDashboard
 } from 'lucide-svelte'
 import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
 import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
+import AmqpIcon from '$lib/components/icons/AmqpIcon.svelte'
 import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
 import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
 import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
@@ -34,6 +36,7 @@ import { saveKafkaTriggerFromCfg } from './kafka/utils'
 import { saveSqsTriggerFromCfg } from './sqs/utils'
 import { saveNatsTriggerFromCfg } from './nats/utils'
 import { saveMqttTriggerFromCfg } from './mqtt/utils'
+import { saveAmqpTriggerFromCfg } from './amqp/utils'
 import { saveGcpTriggerFromCfg } from './gcp/utils'
 import { saveAzureTriggerFromCfg } from './azure/utils'
 import type { Triggers } from './triggers.svelte'
@@ -49,6 +52,7 @@ export const CLOUD_DISABLED_TRIGGER_TYPES = [
 	'kafka',
 	'sqs',
 	'mqtt',
+	'amqp',
 	'gcp',
 	'azure',
 	'websocket',
@@ -66,6 +70,7 @@ export type TriggerType =
 	| 'kafka'
 	| 'nats'
 	| 'mqtt'
+	| 'amqp'
 	| 'sqs'
 	| 'gcp'
 	| 'azure'
@@ -85,6 +90,7 @@ export const jobTriggerKinds: JobTriggerKind[] = [
 	'email',
 	'nats',
 	'mqtt',
+	'amqp',
 	'sqs',
 	'postgres',
 	'schedule',
@@ -93,7 +99,8 @@ export const jobTriggerKinds: JobTriggerKind[] = [
 	'google',
 	'github',
 	'asset',
-	'freshness'
+	'freshness',
+	'app'
 ]
 
 export type Trigger = {
@@ -121,6 +128,7 @@ export const triggerIconMap = {
 	kafka: KafkaIcon,
 	nats: NatsIcon,
 	mqtt: MqttIcon,
+	amqp: AmqpIcon,
 	sqs: AwsIcon,
 	gcp: GoogleCloudIcon,
 	azure: AzureIcon,
@@ -131,10 +139,12 @@ export const triggerIconMap = {
 	google: GoogleIcon,
 	github: GithubIcon,
 	// Job-attribution-only kinds (no trigger CRUD page): the pipeline asset
-	// cascade and the freshness watchdog. Needed so the Runs filter and job
-	// detail render these trigger kinds instead of a blank label / no icon.
+	// cascade, the freshness watchdog, and app-component runs. Needed so the Runs
+	// filter and job detail render these trigger kinds instead of a blank label /
+	// no icon.
 	asset: Zap,
-	freshness: Timer
+	freshness: Timer,
+	app: LayoutDashboard
 }
 
 export const triggerDisplayNamesMap = {
@@ -145,6 +155,7 @@ export const triggerDisplayNamesMap = {
 	kafka: 'Kafka',
 	nats: 'NATS',
 	mqtt: 'MQTT',
+	amqp: 'AMQP',
 	sqs: 'SQS',
 	gcp: 'GCP Pub/Sub',
 	azure: 'Azure Event Grid',
@@ -157,10 +168,11 @@ export const triggerDisplayNamesMap = {
 	google: 'Google',
 	github: 'GitHub',
 	asset: 'Asset cascade',
-	freshness: 'Freshness'
-	// `asset` / `freshness` are job-attribution-only (JobTriggerKind, not
+	freshness: 'Freshness',
+	app: 'App'
+	// `asset` / `freshness` / `app` are job-attribution-only (JobTriggerKind, not
 	// TriggerType) — hence the union in the satisfies below.
-} as const satisfies Record<TriggerType | 'asset' | 'freshness', string>
+} as const satisfies Record<TriggerType | 'asset' | 'freshness' | 'app', string>
 
 /**
  * Converts a TriggerType to a CaptureTriggerKind when a mapping exists
@@ -179,6 +191,7 @@ export function triggerTypeToCaptureKind(triggerType: TriggerType): CaptureTrigg
 		'kafka',
 		'nats',
 		'mqtt',
+		'amqp',
 		'sqs',
 		'gcp',
 		'azure',
@@ -210,6 +223,7 @@ export function updateTriggersCount(
 		kafka: 'kafka_count',
 		nats: 'nats_count',
 		mqtt: 'mqtt_count',
+		amqp: 'amqp_count',
 		sqs: 'sqs_count',
 		gcp: 'gcp_count',
 		azure: 'azure_count',
@@ -281,6 +295,8 @@ export function triggerKindToTriggerType(kind: TriggerKind): TriggerType | undef
 			return 'nats'
 		case 'mqtt':
 			return 'mqtt'
+		case 'amqp':
+			return 'amqp'
 		case 'sqs':
 			return 'sqs'
 		case 'gcp':
@@ -370,6 +386,14 @@ export async function deployTriggers(
 			),
 		mqtt: (trigger: Trigger) =>
 			saveMqttTriggerFromCfg(
+				trigger.path ?? trigger.draftConfig?.path ?? '',
+				trigger.draftConfig ?? {},
+				!trigger.isDraft,
+				workspaceId,
+				usedTriggerKinds
+			),
+		amqp: (trigger: Trigger) =>
+			saveAmqpTriggerFromCfg(
 				trigger.path ?? trigger.draftConfig?.path ?? '',
 				trigger.draftConfig ?? {},
 				!trigger.isDraft,

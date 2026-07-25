@@ -86,8 +86,8 @@
 		return !!rt && rt.manager.instructions.trim().length > 0
 	}
 
-	// Sessions piggyback on the same dev gate as the global AI chat — when
-	// the feature flag is off, the sidebar section is hidden entirely.
+	// Sessions share the beta opt-out gate with the global AI chat — when the
+	// user opted out, the sidebar section is hidden entirely.
 	const globalEnabled = isGlobalAiEnabled()
 
 	// Only highlight the active session while the sessions page is open — elsewhere
@@ -145,7 +145,8 @@
 	// total, and keyboard navigation.
 	const visibleSessions = $derived(
 		sessionState.sessions.filter((s) => {
-			if (s.transient) return false
+			// Pending (unsent) sessions show like any other, so several drafts can be
+			// set up in parallel; they group by pending_workspace_id via sessionRootOf.
 			// The open session always stays in the list, ignoring both filters.
 			if (s.id === sessionState.currentSessionId) return true
 			if (s.archived && !showArchived.val) return false
@@ -309,10 +310,8 @@
 	async function createAndOpen() {
 		const fresh = createSession()
 		// A new session opened from a Windmill page adopts that page as its first
-		// preview tab (resetSessionPreviewTabs handles a reused transient whose
-		// tabs still show a previous destination). Skip when already on the
-		// sessions page (nothing meaningful to capture) so the preview starts
-		// empty until the chat opens something.
+		// preview tab. Skip when already on the sessions page (nothing meaningful to
+		// capture) so the preview starts empty until the chat opens something.
 		if (!onSessionsPage) {
 			const url = page.url.pathname + page.url.search
 			resetSessionPreviewTabs(fresh.id, url)

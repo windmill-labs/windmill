@@ -30,6 +30,10 @@
 		allowEdit?: boolean
 		allowView?: boolean
 		clearable?: boolean
+		/** Workspace to list runnables from. Defaults to the navigation
+		 * `$workspaceStore`; pass the session's acting workspace so a forked
+		 * session lists its own scripts/flows/apps rather than the parent's. */
+		workspace?: string
 	}
 
 	let {
@@ -42,8 +46,14 @@
 		allowRefresh = false,
 		allowEdit = true,
 		allowView = true,
-		clearable = false
+		clearable = false,
+		workspace = undefined
 	}: Props = $props()
+
+	let effectiveWorkspace = $derived(workspace ?? $workspaceStore)
+	// Only carry the workspace onto Edit/View routes when an explicit override
+	// was passed, so existing callers' links are unchanged.
+	let wsParam = $derived(workspace ? `?workspace=${encodeURIComponent(workspace)}` : '')
 
 	let items: { value: string; label: string }[] = $state([])
 	let drawerViewer: Drawer | undefined = $state()
@@ -58,7 +68,7 @@
 	async function loadItems(): Promise<void> {
 		if (itemKind == 'flow') {
 			items = (
-				await FlowService.listFlows({ workspace: $workspaceStore!, withoutDescription: true })
+				await FlowService.listFlows({ workspace: effectiveWorkspace!, withoutDescription: true })
 			).map((flow) => ({
 				value: flow.path,
 				label: `${flow.path}${flow.summary ? ` | ${truncate(flow.summary, 20)}` : ''}`,
@@ -67,7 +77,7 @@
 		} else if (itemKind == 'script') {
 			items = (
 				await ScriptService.listScripts({
-					workspace: $workspaceStore!,
+					workspace: effectiveWorkspace!,
 					kinds: kinds.join(','),
 					withoutDescription: true
 				})
@@ -76,7 +86,7 @@
 				label: `${script.path}${script.summary ? ` | ${truncate(script.summary, 20)}` : ''}`
 			}))
 		} else if (itemKind == 'app') {
-			items = (await AppService.listApps({ workspace: $workspaceStore! })).map((app) => ({
+			items = (await AppService.listApps({ workspace: effectiveWorkspace! })).map((app) => ({
 				value: app.path,
 				label: `${app.path}${app.summary ? ` | ${truncate(app.summary, 20)}` : ''}`
 			}))
@@ -84,7 +94,7 @@
 	}
 
 	$effect(() => {
-		itemKind && $workspaceStore && untrack(() => loadItems())
+		itemKind && effectiveWorkspace && untrack(() => loadItems())
 	})
 	let darkMode: boolean = $state(false)
 </script>
@@ -99,7 +109,7 @@
 
 <Drawer bind:this={drawerFlowViewer} size="900px">
 	<DrawerContent title="Flow {scriptPath}" on:close={drawerFlowViewer.closeDrawer}>
-		<FlowPathViewer path={scriptPath ?? ''} />
+		<FlowPathViewer path={scriptPath ?? ''} workspace={effectiveWorkspace} />
 	</DrawerContent>
 </Drawer>
 
@@ -158,7 +168,7 @@
 						target="_blank"
 						variant="default"
 						size="xs"
-						href="{base}/flows/edit/{scriptPath}">Edit</Button
+						href="{base}/flows/edit/{scriptPath}{wsParam}">Edit</Button
 					>
 				{/if}
 				{#if allowView}
@@ -181,7 +191,7 @@
 						target="_blank"
 						variant="default"
 						size="xs"
-						href="{base}/apps/edit/{scriptPath}"
+						href="{base}/apps/edit/{scriptPath}{wsParam}"
 					>
 						Edit
 					</Button>
@@ -192,7 +202,7 @@
 						size="xs"
 						target="_blank"
 						startIcon={{ icon: Code }}
-						href="{base}/apps/get/{scriptPath}"
+						href="{base}/apps/get/{scriptPath}{wsParam}"
 					>
 						View
 					</Button>
@@ -206,7 +216,7 @@
 						target="_blank"
 						variant="default"
 						size="xs"
-						href="{base}/scripts/edit/{scriptPath}"
+						href="{base}/scripts/edit/{scriptPath}{wsParam}"
 					>
 						Edit
 					</Button>
@@ -217,7 +227,10 @@
 						size="xs"
 						startIcon={{ icon: Code }}
 						on:click={async () => {
-							const { language, content } = await getScriptByPath(scriptPath ?? '')
+							const { language, content } = await getScriptByPath(
+								scriptPath ?? '',
+								effectiveWorkspace
+							)
 							code = content
 							lang = language
 							drawerViewer?.openDrawer()

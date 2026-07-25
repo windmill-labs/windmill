@@ -163,11 +163,13 @@ flow related commands
 - `flow run <path:string>` - run a flow by path.
   - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - `-s --silent` - Do not ouput anything other then the final output. Useful for scripting.
+  - `--tag <tag:string>` - Override the worker tag the run is dispatched to (e.g. to route it to dev workers instead of the flow's default tag).
 - `flow preview <flow_path:string>` - preview a local flow without deploying it. Runs the flow definition from local files and uses local PathScripts by default. Pass --step <id> to run only one module in isolation (resolves nested steps inside branchone/branchall/forloopflow/whileloopflow plus the special preprocessor/failure modules; supported step types: rawscript, script, flow).
   - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - `-s --silent` - Do not output anything other then the final output. Useful for scripting.
   - `--remote` - Use deployed workspace scripts for PathScript steps instead of local files.
   - `--step <step_id:string>` - Run only the named step instead of the whole flow. Honors --data as the step's args and --remote / local-PathScript resolution the same way the full-flow preview does.
+  - `--tag <tag:string>` - Override the worker tag the preview is dispatched to (e.g. to route it to dev workers instead of the flow's default tag).
 - `flow new <flow_path:string>` - create a new empty flow
   - `--summary <summary:string>` - flow summary
   - `--description <description:string>` - flow description
@@ -254,6 +256,8 @@ Manage git-sync settings between local wmill.yaml and Windmill backend
   - `--with-backend-settings <json:string>` - Use provided JSON settings instead of querying backend (for testing)
   - `--yes` - Skip interactive prompts and use default behavior
   - `--promotion <branch:string>` - Use promotionOverrides from the specified branch instead of regular overrides
+- `gitsync-settings status` - Report how local changes deploy to the workspace (git push vs wmill sync push)
+  - `--json-output` - Output in JSON format
 
 ### group
 
@@ -559,9 +563,11 @@ script related commands
 - `script run <path:file>` - run a script by path
   - `-d --data <data:file>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - `-s --silent` - Do not output anything other then the final output. Useful for scripting.
+  - `--tag <tag:string>` - Override the worker tag the run is dispatched to (e.g. to route it to dev workers instead of the script's default tag).
 - `script preview <path:file>` - preview a local script without deploying it. Supports both regular and codebase scripts.
   - `-d --data <data:file>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - `-s --silent` - Do not output anything other than the final output. Useful for scripting.
+  - `--tag <tag:string>` - Override the worker tag the preview is dispatched to (e.g. to route it to dev workers instead of the script's default tag).
 - `script new <path:file> <language:string>` - create a new script
   - `--summary <summary:string>` - script summary
   - `--description <description:string>` - script description
@@ -674,12 +680,12 @@ trigger related commands
   - `--json` - Output as JSON (for piping to jq)
 - `trigger get <path:string>` - get a trigger's details
   - `--json` - Output as JSON (for piping to jq)
-  - `--kind <kind:string>` - Trigger kind (http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email). Recommended for faster lookup
+  - `--kind <kind:string>` - Trigger kind (http, websocket, kafka, nats, postgres, mqtt, amqp, sqs, gcp, azure, email). Recommended for faster lookup
 - `trigger new <path:string>` - create a new trigger locally
-  - `--kind <kind:string>` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email)
+  - `--kind <kind:string>` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, amqp, sqs, gcp, azure, email)
 - `trigger push <file_path:string> <remote_path:string>` - push a local trigger spec. This overrides any remote versions.
 - `trigger set-permissioned-as <path:string> <email:string>` - Set the email (run-as user) for a trigger (requires admin or wm_deployers group)
-  - `--kind <kind:string>` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email)
+  - `--kind <kind:string>` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, amqp, sqs, gcp, azure, email)
 
 ### user
 

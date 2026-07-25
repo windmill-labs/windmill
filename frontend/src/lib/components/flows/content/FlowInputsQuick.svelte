@@ -146,7 +146,7 @@
 
 	let inlineScripts: [string, SupportedLanguage | 'docker'][] = $state([])
 
-	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql', 'oracledb']
+	const enterpriseLangs = ['mssql', 'oracledb']
 
 	function computeInlineScriptChoices(
 		funcDesc: string,

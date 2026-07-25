@@ -13,6 +13,7 @@
 	import KafkaCapture from './kafka/KafkaCapture.svelte'
 	import NatsCapture from './nats/NatsCapture.svelte'
 	import MqttCapture from './mqtt/MqttCapture.svelte'
+	import AmqpCapture from './amqp/AmqpCapture.svelte'
 	import SqsCapture from './sqs/SqsCapture.svelte'
 	import GcpCapture from './gcp/GcpCapture.svelte'
 	import AzureCapture from './azure/AzureCapture.svelte'
@@ -78,9 +79,17 @@
 		if (captureType === 'azure' && args.azure_mode !== 'namespace_pull') {
 			return false
 		}
-		return ['mqtt', 'sqs', 'websocket', 'postgres', 'kafka', 'nats', 'gcp', 'azure'].includes(
-			captureType
-		)
+		return [
+			'mqtt',
+			'amqp',
+			'sqs',
+			'websocket',
+			'postgres',
+			'kafka',
+			'nats',
+			'gcp',
+			'azure'
+		].includes(captureType)
 	}
 
 	async function getCaptureConfigs() {
@@ -289,6 +298,20 @@
 			/>
 		{:else if captureType === 'mqtt'}
 			<MqttCapture
+				{isValid}
+				{captureInfo}
+				{hasPreprocessor}
+				{isFlow}
+				{captureLoading}
+				{triggerDeployed}
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={handleCapture}
+				on:testWithArgs
+			/>
+		{:else if captureType === 'amqp'}
+			<AmqpCapture
 				{isValid}
 				{captureInfo}
 				{hasPreprocessor}

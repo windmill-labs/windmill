@@ -34,6 +34,10 @@
 		onSelect: (id: string) => void
 		onClose?: (id: string) => void
 		onReorder?: (newOrder: TabItem[]) => void
+		/** Called instead of `onSelect` when the already-active tab is clicked or
+		 * activated via Enter/Space — lets the active tab host a secondary affordance
+		 * (e.g. toggling the breadcrumb picker rendered in `tabAccessory`). */
+		onActiveClick?: (id: string) => void
 		/** Extra classes for the outer tab strip. */
 		class?: string
 		/** Render inside the scroll row, right after the last tab (e.g. a "+" new-tab
@@ -42,8 +46,10 @@
 		/** Render after the right-pinned tabs, outside the scroll area so it stays
 		 * pinned (e.g. a "Split with Preview" toggle). */
 		trailing?: import('svelte').Snippet
-		/** Render inside each tab, after the label and before the close button (e.g. a
-		 * per-tab chevron/breadcrumb picker). Receives the tab and whether it's active. */
+		/** Render inside each tab (after the label; receives the tab + isActive). Clicks
+		 * bubble to the tab unless the accessory stops them. The tab is position:relative
+		 * so an `absolute inset-0 pointer-events-none` child can anchor a whole-tab
+		 * popover — a *clickable* overlay would break dnd (no drags from nested buttons). */
 		tabAccessory?: import('svelte').Snippet<[TabItem, boolean]>
 	}
 
@@ -53,6 +59,7 @@
 		onSelect,
 		onClose,
 		onReorder,
+		onActiveClick,
 		class: c = '',
 		afterTabs,
 		trailing,
@@ -69,6 +76,7 @@
 	// Local list the dnd zone owns. `consider` updates only this (mid-drag it
 	// holds svelte-dnd-action's shadow placeholder); we commit to the parent on
 	// `finalize` so the placeholder never leaks into a sibling bar.
+	let stripEl = $state<HTMLElement | undefined>(undefined)
 	let dndMiddle = $state<TabItem[]>(untrack(() => middle))
 	let isDragging = false
 	$effect(() => {
@@ -89,29 +97,44 @@
 
 	function tabClasses(isActive: boolean) {
 		return twMerge(
-			'group inline-flex items-center gap-1.5 px-2.5 h-7 text-xs rounded-md select-none cursor-pointer whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-border-selected focus-visible:ring-inset',
+			'group relative inline-flex items-center gap-1.5 px-2.5 h-7 text-xs rounded-md select-none cursor-pointer whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-border-selected focus-visible:ring-inset',
 			isActive
 				? 'bg-surface-tertiary text-emphasis'
 				: 'bg-transparent text-hint hover:text-secondary'
 		)
 	}
 
+	function activate(tab: TabItem) {
+		if (tab.id === activeId && onActiveClick) onActiveClick(tab.id)
+		else onSelect(tab.id)
+	}
+
+	// Runs as a DIRECT capture listener: svelte-dnd-action's item-wrapper handler
+	// swallows Enter/Space (keyboard drag) before Svelte's root-delegated keydown
+	// would fire, so the tab must claim its keys first via stopPropagation.
 	function handleKeydown(e: KeyboardEvent, tab: TabItem) {
+		if (e.target !== e.currentTarget) return // let nested controls (close ×) act
 		if (e.key === 'Delete' || e.key === 'Backspace') {
 			if (tab.closable !== false) {
 				e.preventDefault()
+				e.stopPropagation()
 				onClose?.(tab.id)
 			}
 		} else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
 			const idx = tabs.findIndex((t) => t.id === tab.id)
 			const next = e.key === 'ArrowLeft' ? idx - 1 : idx + 1
 			if (next >= 0 && next < tabs.length) {
-				onSelect(tabs[next].id)
 				e.preventDefault()
+				e.stopPropagation()
+				onSelect(tabs[next].id)
+				// Selection moved — follow with focus, else the next arrow press
+				// recomputes from this (stale) tab and Delete closes the wrong one.
+				stripEl?.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(tabs[next].id)}"]`)?.focus()
 			}
 		} else if (e.key === 'Enter' || e.key === ' ') {
 			e.preventDefault()
-			onSelect(tab.id)
+			e.stopPropagation()
+			activate(tab)
 		}
 	}
 
@@ -129,23 +152,20 @@
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div
 		role="tab"
+		data-tab-id={tab.id}
 		aria-selected={isActive}
 		tabindex={isActive ? 0 : -1}
 		class={twMerge(tabClasses(isActive), tab.closable !== false && 'pr-1')}
-		onclick={() => onSelect(tab.id)}
+		onclick={() => activate(tab)}
 		onauxclick={(e) => handleAuxClick(e, tab)}
-		onkeydown={(e) => handleKeydown(e, tab)}
+		onkeydowncapture={(e) => handleKeydown(e, tab)}
 	>
 		{#if Icon}
 			<Icon size={12} class={tab.iconClass} />
 		{/if}
 		<span class={twMerge('truncate max-w-[180px]', tab.labelClass)}>{tab.label}</span>
 		{#if tabAccessory}
-			<!-- The accessory is its own control (e.g. a picker): a click on it must not
-				 also select/re-select the tab, mirroring the close button below. -->
-			<!-- svelte-ignore a11y_click_events_have_key_events -->
-			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			<span class="inline-flex items-center" onclick={(e) => e.stopPropagation()}>
+			<span class="inline-flex items-center">
 				{@render tabAccessory(tab, isActive)}
 			</span>
 		{/if}
@@ -165,7 +185,7 @@
 	</div>
 {/snippet}
 
-<div class={twMerge('flex items-center bg-surface', c)}>
+<div bind:this={stripEl} class={twMerge('flex items-center bg-surface', c)}>
 	<!-- 4px bar to match the strip's `pb-1` reserve. -->
 	<ScrollableX class="flex-1 min-w-0 pt-1 pl-1 pb-1" style="--wm-scrollbar-size: 4px;">
 		<div class="flex items-center" role="tablist">

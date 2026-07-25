@@ -34,12 +34,13 @@
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import AIChangesWarningModal from '$lib/components/copilot/chat/flow/AIChangesWarningModal.svelte'
 
-	import { createRawSnippet, setContext, untrack } from 'svelte'
+	import { createRawSnippet, getContext, setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Button } from './common'
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
+	import WorkspaceScriptSettingsDrawer from './flows/content/WorkspaceScriptSettingsDrawer.svelte'
 	import FlowEditorDrawer from './flows/content/FlowEditorDrawer.svelte'
 	import { dfs as dfsApply } from './flows/dfs'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
@@ -202,6 +203,12 @@
 		confirmDeploymentCallback(selectedTriggers)
 	}
 
+	// Inside an AI session pane (SessionEditorTarget injects an aiChatManager via
+	// context) the collaborator presence badge is spurious: the editor is embedded
+	// in the shared /sessions URL under the session's own workspace identity, so
+	// presence keyed on that URL leaks a phantom self-badge. Hide it here.
+	const inSessionPane = !!getContext('aiChatManager')
+
 	function hasAIChanges(): boolean {
 		return aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false
 	}
@@ -305,6 +312,17 @@
 		})
 	}
 
+	// Materialize a brand-new flow's draft before the session preview loads it by
+	// path — an untouched new flow never autosaved, so forcePersist is the only
+	// thing that creates the row. Gated to never-deployed: forcePersist skips the
+	// discardIf baseline, safe only when there is none.
+	async function persistDraftForSession(): Promise<void> {
+		await saveDraft()
+		if (opWorkspace && liveEditorDraftStoragePath && newFlow) {
+			await UserDraft.forcePersist('flow', liveEditorDraftStoragePath, { workspace: opWorkspace })
+		}
+	}
+
 	export function computeUnlockedSteps(flow: Flow) {
 		return Object.fromEntries(
 			getAllModules(flow.value.modules, flow.value.failure_module)
@@ -402,7 +420,22 @@
 			// loadingSave = false // del
 			// return
 
-			if (newFlow) {
+			// `newFlow` comes from the embedder, and updating a path that has no
+			// deployed flow 404s. Confirm with the server before taking the update
+			// branch so a first deploy still lands.
+			let isNewFlow = newFlow
+			if (!isNewFlow) {
+				try {
+					isNewFlow =
+						initialPath === '' ||
+						!(await FlowService.existsFlowByPath({ workspace: opWorkspace!, path: initialPath }))
+				} catch (err) {
+					// Unreachable check: keep the caller's intent rather than failing the deploy.
+					console.error('Could not check flow existence', err)
+				}
+			}
+
+			if (isNewFlow) {
 				await FlowService.createFlow({
 					workspace: opWorkspace!,
 					requestBody: {
@@ -508,9 +541,17 @@
 
 	const previewArgsStore = $state({ val: untrack(() => initialArgs) })
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
+	const workspaceScriptSettingsDrawer = writable<WorkspaceScriptSettingsDrawer | undefined>(
+		undefined
+	)
 	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
 	const history = initHistory(untrack(() => flowStore).val)
 	const pathStore = writable<string>(untrack(() => pathStoreInit) ?? initialPath)
+
+	// "Open in AI session" target: the URL draft path the editor loads/saves by
+	// (which for a new flow differs from the live-edited friendly `$pathStore`),
+	// falling back to `$pathStore` in drawer mounts that carry no storage path.
+	const sessionTargetPath = $derived(liveEditorDraftStoragePath || $pathStore)
 
 	$effect(() => {
 		if (liveEditorDraftStoragePath === undefined || !opWorkspace) return
@@ -552,6 +593,7 @@
 		currentEditor: writable(undefined),
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
+		workspaceScriptSettingsDrawer,
 		flowEditorDrawer,
 		history,
 		flowStateStore: untrack(() => flowStateStore),
@@ -640,7 +682,9 @@
 		for (const mod of restoredModules) {
 			if (mod) {
 				try {
-					loadFlowModuleState(mod).then((state) => (flowStateStore.val[mod.id] = state))
+					loadFlowModuleState(mod, opWorkspace).then(
+						(state) => (flowStateStore.val[mod.id] = state)
+					)
 				} catch (e) {
 					console.error('Error loading state for restored node', e)
 				}
@@ -1100,6 +1144,7 @@
 		<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
 		<FlowImportExportMenu bind:drawer={jsonViewerDrawer} />
 		<ScriptEditorDrawer bind:this={$scriptEditorDrawer} />
+		<WorkspaceScriptSettingsDrawer bind:this={$workspaceScriptSettingsDrawer} />
 		<FlowEditorDrawer bind:this={$flowEditorDrawer} />
 
 		<div bind:this={flowBuilderRoot} class="flex flex-col h-full">
@@ -1111,17 +1156,21 @@
 					: 'max-h-12'}"
 			>
 				<div class="flex flex-row items-center gap-2 min-w-0">
-					<div class="min-w-0 overflow-hidden">
-						<EditorHeader
-							bind:summary={flowStore.val.summary}
-							bind:path={$pathStore}
-							savedPath={initialPath}
-							onBehalfOfEmail={$savedOnBehalfOfEmail}
-							hidePath={condensedHeader}
-							workspaceId={autosaveWorkspace}
-							onNavigate={(item) => onNavigate?.(item)}
-						/>
-					</div>
+					{#if customUi?.topBar?.path != false}
+						<div class="min-w-0 overflow-hidden">
+							<EditorHeader
+								bind:summary={flowStore.val.summary}
+								bind:path={$pathStore}
+								savedPath={initialPath}
+								onBehalfOfEmail={$savedOnBehalfOfEmail}
+								summaryEditable={customUi?.topBar?.editableSummary != false}
+								pathEditable={customUi?.topBar?.editablePath != false}
+								hidePath={condensedHeader}
+								workspaceId={autosaveWorkspace}
+								onNavigate={(item) => onNavigate?.(item)}
+							/>
+						</div>
+					{/if}
 					{#if opWorkspace && indicatorPath !== undefined}
 						<AutosaveIndicator
 							workspace={opWorkspace}
@@ -1136,7 +1185,7 @@
 					{/if}
 				</div>
 				<div class="flex flex-row gap-2 items-center shrink-0">
-					{#if $enterpriseLicense && !newFlow}
+					{#if $enterpriseLicense && !newFlow && !inSessionPane}
 						<Awareness />
 					{/if}
 					<div class="relative">
@@ -1257,14 +1306,11 @@
 					aiChatOpen={aiChatManager.open}
 					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
-					sessionOpen={$pathStore
+					sessionOpen={sessionTargetPath
 						? {
-								target: { kind: 'flow', path: $pathStore },
+								target: { kind: 'flow', path: sessionTargetPath },
 								workspaceId: opWorkspace ?? undefined,
-								// Persist unsaved edits so the session preview
-								// (/flows/edit/<path>) opens the flow exactly as it is in the
-								// editor right now.
-								beforeOpen: saveDraft
+								beforeOpen: persistDraftForSession
 							}
 						: undefined}
 					onOpenPreview={flowPreviewButtons?.openPreview}

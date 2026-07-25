@@ -26,7 +26,7 @@ RUN make
 FROM ${DEBIAN_IMAGE}
 
 ARG APP=/usr/src/app
-ARG LATEST_STABLE_PY=3.12.12
+ARG LATEST_STABLE_PY=3.12.13
 
 # UV configuration
 ENV UV_CACHE_DIR=/tmp/windmill/cache/uv
@@ -39,6 +39,7 @@ ENV PATH=/usr/local/bin:/root/.local/bin:/tmp/.local/bin:$PATH
 
 # Install system dependencies
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends ca-certificates wget curl git jq unzip unixodbc xmlsec1 gnupg lsb-release libgnutls30t64 libgcrypt20 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*

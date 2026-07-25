@@ -1,4 +1,5 @@
-import type { Job, OpenFlow } from '$lib/gen'
+import type { AssetKind, Job, OpenFlow } from '$lib/gen'
+import type { AssetGraphResponse } from '$lib/components/assets/AssetGraph/types'
 
 export type RecordedEvent = {
 	t: number
@@ -31,6 +32,69 @@ export type ScriptRecording = {
 	args: Record<string, any>
 	schema?: Record<string, any>
 	job: RecordedJob
+}
+
+/** Per-node status inside a recorded cascade frame (mirror of
+ * cascadeOrchestrator.CascadeNodeState, kept structurally independent so the
+ * recording module doesn't depend on the orchestrator internals). */
+export type RecordedNodeState = {
+	status: 'pending' | 'running' | 'success' | 'failure' | 'skipped'
+	jobId?: string
+	error?: string
+}
+
+/** One frame of the cascade timeline: the full per-path status snapshot at
+ * `t` ms since the run started. Replaying these in order reproduces the graph
+ * animation (nodes lighting up / turning green/red) a live run would show. */
+export type PipelineTimelineFrame = {
+	t: number
+	statuses: Record<string, RecordedNodeState>
+}
+
+/** A captured data-sample of a pipeline asset (ducklake table / datatable),
+ * so the player can show what an asset held after the run — offline, without
+ * re-querying the backend. Keyed in `assetSamples` by `${kind}:${path}`. */
+export type PipelineAssetSample = {
+	kind: AssetKind
+	path: string
+	/** Full asset URI, e.g. `ducklake://main/orders`. */
+	uri: string
+	/** Column names (in order) of the sampled table. */
+	columns: { field: string; datatype?: string }[]
+	/** Sampled rows (capped), each a record keyed by column field. */
+	rows: unknown[]
+	/** Total row count if it could be fetched. */
+	rowCount?: number
+	/** Set when the sample couldn't be captured (table missing, unsupported…). */
+	error?: string
+}
+
+export type PipelineRecording = {
+	version: 1
+	type: 'pipeline'
+	recorded_at: string
+	folder: string
+	total_duration_ms: number
+	/** The resolved asset graph rendered read-only by the player. */
+	graph: AssetGraphResponse
+	/** Ordered cascade status snapshots driving the node animation. */
+	timeline: PipelineTimelineFrame[]
+	/** Per-node job streams (initial job + SSE events), keyed by job id, so the
+	 * player can replay each node's logs/result/args offline via JobLoader. */
+	jobs: Record<string, RecordedJob>
+	/** Per-asset data samples captured after the run, keyed by `${kind}:${path}`,
+	 * so asset nodes are inspectable offline in the player. */
+	assetSamples?: Record<string, PipelineAssetSample>
+	/** Source code of each runnable, keyed by script path, captured at record
+	 * time so the player can show a step's code offline. Absent for recordings
+	 * taken before code capture existed (the player degrades gracefully). */
+	codes?: Record<string, PipelineRecordedCode>
+}
+
+/** A pipeline step's captured source. */
+export type PipelineRecordedCode = {
+	content: string
+	language: string
 }
 
 /** Minimal interface that both flow and script recording stores implement */

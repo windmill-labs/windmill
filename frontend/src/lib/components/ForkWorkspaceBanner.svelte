@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { workspaceStore, userWorkspaces } from '$lib/stores'
-	import { WorkspaceService, ScriptService } from '$lib/gen'
+	import { ScriptService } from '$lib/gen'
 	import type { WorkspaceComparison } from '$lib/gen'
+	import { fetchWorkspaceComparison } from '$lib/workspaceComparison'
 	import { Button } from './common'
 	import { AlertTriangle, GitFork, CircleCheck, CircleX, Loader2 } from 'lucide-svelte'
 	import { goto } from '$app/navigation'
@@ -67,11 +68,9 @@
 		error = undefined
 
 		try {
-			// Compare with parent workspace
-			const result = await WorkspaceService.compareWorkspaces({
-				workspace: parentWorkspaceId,
-				targetWorkspaceId: $workspaceStore
-			})
+			// Compare with parent workspace (shared single-flight fetch — the chat
+			// diff tool reuses this result instead of recomputing the comparison)
+			const result = await fetchWorkspaceComparison(parentWorkspaceId, $workspaceStore)
 
 			comparison = result
 		} catch (e) {

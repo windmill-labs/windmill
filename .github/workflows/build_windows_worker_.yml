@@ -33,7 +33,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-workspaces: backend
-          toolchain: 1.93.0
+          toolchain: 1.97.0
 
       - name: Substitute EE code
         shell: bash
@@ -45,8 +45,12 @@ jobs:
         env:
           RUSTFLAGS: "-D warnings"
         run: |
-          mkdir frontend/build && cd backend
+          cd backend
+          # Stub the openapi specs to empty: they are compiled in via an ungated
+          # include_str! but a worker binary never serves them, so this avoids
+          # embedding ~2.5MB of spec.
           New-Item -Path . -Name "windmill-api/openapi-deref.yaml" -ItemType "File" -Force
+          New-Item -Path . -Name "windmill-api/openapi-deref.json" -ItemType "File" -Force
           cargo check --features=ee_windows
 
       - name: Cargo build dynamic libraries windows

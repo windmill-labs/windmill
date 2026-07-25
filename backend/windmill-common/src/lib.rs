@@ -62,6 +62,7 @@ pub mod instance_config;
 pub mod job_metrics;
 pub mod log_context;
 pub mod materialization;
+pub mod data_metrics;
 pub mod min_version;
 pub mod notify_events;
 pub mod runtime_assets;
@@ -260,6 +261,16 @@ lazy_static::lazy_static! {
     pub static ref CRITICAL_ALERTS_ON_DB_OVERSIZE: arc_swap::ArcSwap<Option<f32>> = arc_swap::ArcSwap::from_pointee(None);
 
     pub static ref JOB_RETENTION_SECS: AtomicI64 = AtomicI64::new(0);
+    /// Per-workspace overrides of `JOB_RETENTION_SECS` (EE-only), keyed by workspace_id, in seconds.
+    /// Sourced from the `retention_period_secs_overrides` global setting and cached here so the
+    /// cleanup sweep reads it without a per-tick DB query. A workspace may be given a longer OR
+    /// shorter window than the instance-wide value; `0` means "keep forever" for that workspace.
+    pub static ref JOB_RETENTION_SECS_OVERRIDES: arc_swap::ArcSwap<std::collections::HashMap<String, i64>> = arc_swap::ArcSwap::from_pointee(std::collections::HashMap::new());
+    /// Whether `JOB_RETENTION_SECS_OVERRIDES` has ever been loaded successfully (a valid map, an
+    /// explicit unset, or CE's no-op). Until then the empty cache is "unknown, not confirmed empty",
+    /// so the retention sweep must NOT run globally — that would delete jobs a longer-retention
+    /// workspace configured before its override could be read.
+    pub static ref JOB_RETENTION_SECS_OVERRIDES_LOADED: AtomicBool = AtomicBool::new(false);
     pub static ref AUDIT_LOG_RETENTION_DAYS: AtomicI64 = AtomicI64::new(0);
 
     pub static ref MONITOR_LOGS_ON_OBJECT_STORE: AtomicBool = AtomicBool::new(false);

@@ -220,7 +220,11 @@ function migrateAiAgentInputTransforms(
 	return inputTransforms
 }
 
-export async function loadSchemaFromModule(module: FlowModule): Promise<{
+export async function loadSchemaFromModule(
+	module: FlowModule,
+	// The acting workspace when the flow editor runs in an AI session; else the nav workspace.
+	workspace?: string
+): Promise<{
 	input_transforms: Record<string, InputTransform>
 	schema: Schema
 }> {
@@ -237,9 +241,9 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 				module.id === 'preprocessor' ? 'preprocessor' : undefined
 			)
 		} else if (mod.type == 'script' && mod.path && mod.path != '') {
-			schema = await loadSchemaFromPath(mod.path!, mod.hash)
+			schema = await loadSchemaFromPath(mod.path!, mod.hash, workspace)
 		} else if (mod.type == 'flow' && mod.path && mod.path != '') {
-			schema = await loadSchemaFlow(mod.path!)
+			schema = await loadSchemaFlow(mod.path!, workspace)
 		} else {
 			return {
 				input_transforms: {},
