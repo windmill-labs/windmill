@@ -421,6 +421,32 @@ async fn test_resolve_completed_jobs_scoping(db: Pool<Postgres>) -> anyhow::Resu
         .await?;
     assert_eq!(remaining, 0);
 
+    // Provenance the product generated is not accountability, so it is recorded even where a
+    // typed note is not. This is the one thing that must differ from the `note` field in CE.
+    let resp = member(client().post(format!("{base}/completed/resolve")))
+        .json(&json!({ "job_ids": [mine], "system_reason": "superseded_by_rerun" }))
+        .send()
+        .await?;
+    assert_2xx(
+        resp.status().as_u16(),
+        &resp.text().await?,
+        "resolve with a system reason",
+    );
+    let system_note: Option<String> =
+        sqlx::query_scalar("SELECT note FROM job_resolution WHERE job_id = $1")
+            .bind(mine)
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(
+        system_note.as_deref(),
+        Some("Superseded by a successful re-run"),
+        "a system reason must be recorded regardless of licence"
+    );
+    sqlx::query("DELETE FROM job_resolution WHERE job_id = $1")
+        .bind(mine)
+        .execute(&db)
+        .await?;
+
     // A flow step is a failure too, but resolving one would render it orange inside a flow
     // whose own status is still red, so the endpoint must skip it.
     let step = Uuid::new_v4();

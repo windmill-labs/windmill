@@ -9666,6 +9666,24 @@ async fn delete_completed_job<'a>(
 struct ResolveJobsRequest {
     job_ids: Vec<Uuid>,
     note: Option<String>,
+    /// Provenance the product itself knows, as opposed to a person's explanation. Kept a
+    /// closed enum rather than free text: the server owns the wording, so a client cannot
+    /// smuggle an arbitrary note past the enterprise gate by labelling it system-generated.
+    system_reason: Option<ResolutionReason>,
+}
+
+#[derive(Deserialize, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+enum ResolutionReason {
+    SupersededByRerun,
+}
+
+impl ResolutionReason {
+    fn text(self) -> &'static str {
+        match self {
+            ResolutionReason::SupersededByRerun => "Superseded by a successful re-run",
+        }
+    }
 }
 
 /// Bounded so the per-id audit rows written below stay bounded too.
@@ -9741,7 +9759,10 @@ async fn resolve_completed_jobs(
     check_resolution_request(&authed, &req.job_ids, req.note.as_deref())?;
     let mut tx = user_db.begin(&authed).await?;
     let tags = get_scope_tags(&authed);
-    let (resolved_by, note) = resolution_attribution(&authed, req.note.as_deref());
+    let (resolved_by, typed_note) = resolution_attribution(&authed, req.note.as_deref());
+    // A typed explanation is enterprise-only; provenance the product generated is not, so CE
+    // still records *why* a run was resolved even though it cannot record who did it.
+    let note = typed_note.or(req.system_reason.map(ResolutionReason::text));
     // The join on v2_job is what authorizes this write: v2_job_completed has RLS
     // disabled, so v2_job's policies are the only thing scoping rows to the caller.
     // `status = 'failure'` keeps the invariant that only a failure can be resolved.

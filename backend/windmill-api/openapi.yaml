@@ -14625,7 +14625,16 @@ paths:
                 note:
                   type: string
                   maxLength: 2000
-                  description: why the failure is considered handled
+                  description: >-
+                    a person's explanation of why the failure is considered handled.
+                    Enterprise-only: ignored outside enterprise
+                system_reason:
+                  type: string
+                  enum:
+                    - superseded_by_rerun
+                  description: >-
+                    provenance the product generated rather than a person's words. Recorded
+                    regardless of licence, and the server owns the wording
               required:
                 - job_ids
       responses:
