@@ -10,6 +10,10 @@ CREATE TABLE datatable_ephemeral_role (
     permissioned_as VARCHAR(255) NOT NULL,
     password TEXT NOT NULL,
     perms_hash TEXT NOT NULL,
+    -- Workspace-key-encrypted owner credentials of the cluster the role was
+    -- created on, so revocation still reaches the role after the data table's
+    -- resource is re-pointed at a different cluster.
+    owner_creds TEXT,
     expires_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

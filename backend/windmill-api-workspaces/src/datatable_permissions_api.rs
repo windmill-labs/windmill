@@ -212,7 +212,6 @@ async fn set_datatable_permissions(
     Json(perms): Json<DataTablePermissions>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
-    let config = get_datatable_config(&db, &w_id, &datatable_name).await?;
 
     // Disabling never requires a license: it is the escape hatch after a
     // license downgrade (enabled + no license fails closed for non-admins).
@@ -228,6 +227,12 @@ async fn set_datatable_permissions(
         // enables/creations targeting the same physical database must not both
         // pass the pre-write check. Held until commit.
         sqlx::query(SHARED_DB_CHECK_LOCK).execute(&mut *tx).await?;
+    }
+    // Load the config only under the lock: a concurrent config edit could
+    // otherwise re-point the data table between validation and the write,
+    // making the exclusivity/CREATEROLE checks judge a stale database.
+    let config = get_datatable_config(&db, &w_id, &datatable_name).await?;
+    if perms.enabled {
         check_shared_database_forbid(&db, &w_id, &datatable_name, &config.database, true).await?;
         check_owner_can_create_roles(&db, &w_id, &config).await?;
     }

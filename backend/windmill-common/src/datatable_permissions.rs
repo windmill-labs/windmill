@@ -545,6 +545,67 @@ async fn harden_instance_databases(db: &DB, target_dbname: &str) -> Result<()> {
     Ok(())
 }
 
+/// Owner credentials + type of the cluster a role was created on, stored
+/// workspace-key-encrypted in the bookkeeping row. Without it, re-pointing a
+/// data table's resource at a different cluster would strand the role on the
+/// old cluster with its grants intact and no way to reach it again.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct StoredOwnerTarget {
+    pg: PgDatabase,
+    is_instance: bool,
+}
+
+fn same_target(a: &PgDatabase, b: &PgDatabase) -> bool {
+    a.host == b.host && a.port == b.port && a.dbname == b.dbname && a.user == b.user
+}
+
+enum DropOutcome {
+    Dropped,
+    SkippedActive,
+}
+
+/// Drop the role on the given target, or — when sessions are still active —
+/// strip its ability to log back in and leave the drop to a later sweep.
+async fn drop_or_disable_on_target(
+    db: &DB,
+    owner: &PgDatabase,
+    is_instance: bool,
+    role: &str,
+) -> Result<DropOutcome> {
+    let client = connect_target(owner, db).await?;
+    let active: i64 = client
+        .query_one(
+            "SELECT count(*) FROM pg_stat_activity WHERE usename = $1",
+            &[&role],
+        )
+        .await
+        .map_err(|e| pg_err("checking active sessions", e))?
+        .get(0);
+    if active > 0 {
+        disable_role_login(&client, role).await;
+        return Ok(DropOutcome::SkippedActive);
+    }
+    if role_exists(&client, role).await? {
+        if is_instance {
+            revoke_instance_connect(db, &owner.dbname, role).await;
+        }
+        guarded_drop_role(&client, role).await?;
+    }
+    Ok(DropOutcome::Dropped)
+}
+
+/// Decode a bookkeeping row's stored owner target, if any.
+async fn decode_stored_target(
+    db: &DB,
+    w_id: &str,
+    owner_creds: Option<String>,
+) -> Option<StoredOwnerTarget> {
+    let encrypted = owner_creds?;
+    let mc = build_crypt(db, w_id).await.ok()?;
+    let json = decrypt(&mc, encrypted).ok()?;
+    serde_json::from_str(&json).ok()
+}
+
 /// Ensure the caller's ephemeral role exists with up-to-date grants and a
 /// fresh sliding expiry. Returns `(role_name, cleartext_password)`.
 /// Deliberately private: live credentials must only flow out through
@@ -597,7 +658,7 @@ async fn ensure_ephemeral_role(
     // Double-checked locking: another resolution may have recreated the role
     // while we waited on the lock.
     let existing = sqlx::query!(
-        "SELECT password, perms_hash, expires_at > now() AS \"fresh!\"
+        "SELECT password, perms_hash, owner_creds, expires_at > now() AS \"fresh!\"
          FROM datatable_ephemeral_role WHERE role_name = $1",
         &role
     )
@@ -622,6 +683,26 @@ async fn ensure_ephemeral_role(
     let password = rd_string(48);
     let mc = build_crypt(db, w_id).await?;
     let encrypted = encrypt(&mc, &password);
+
+    // If the data table's database moved since the role was created (resource
+    // edit, config re-point), the role still exists on the PREVIOUS cluster
+    // with its old grants — revoke it there first, using the stored owner
+    // credentials (best-effort: the old cluster may be unreachable, in which
+    // case the role at least keeps only its old-cluster grants and any active
+    // holder is handled by the NOLOGIN path when reachable again).
+    let stored_creds = existing.and_then(|r| r.owner_creds);
+    if let Some(stored) = decode_stored_target(db, w_id, stored_creds).await {
+        if !same_target(&stored.pg, owner) {
+            if let Err(e) =
+                drop_or_disable_on_target(db, &stored.pg, stored.is_instance, &role).await
+            {
+                tracing::warn!(
+                    "revoking ephemeral role {role} on its previous cluster {}: {e:#}",
+                    stored.pg.host
+                );
+            }
+        }
+    }
 
     let client = connect_target(owner, db).await?;
     if role_exists(&client, &role).await? {
@@ -682,16 +763,22 @@ async fn ensure_ephemeral_role(
     }
     drop(client);
 
+    let owner_creds = encrypt(
+        &mc,
+        &serde_json::to_string(&StoredOwnerTarget { pg: owner.clone(), is_instance })
+            .map_err(|e| Error::internal_err(format!("serializing owner target: {e}")))?,
+    );
     sqlx::query!(
         "INSERT INTO datatable_ephemeral_role
-            (role_name, workspace_id, datatable, permissioned_as, password, perms_hash, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, now() + interval '5 minutes')
+            (role_name, workspace_id, datatable, permissioned_as, password, perms_hash, owner_creds, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, now() + interval '5 minutes')
          ON CONFLICT (role_name) DO UPDATE SET
             workspace_id = EXCLUDED.workspace_id,
             datatable = EXCLUDED.datatable,
             permissioned_as = EXCLUDED.permissioned_as,
             password = EXCLUDED.password,
             perms_hash = EXCLUDED.perms_hash,
+            owner_creds = EXCLUDED.owner_creds,
             expires_at = EXCLUDED.expires_at,
             created_at = now()",
         &role,
@@ -699,7 +786,8 @@ async fn ensure_ephemeral_role(
         datatable,
         permissioned_as,
         &encrypted,
-        &hash
+        &hash,
+        &owner_creds
     )
     .execute(&mut *tx)
     .await?;
@@ -774,47 +862,31 @@ async fn cleanup_one_expired_role(db: &DB, role: &str, w_id: &str, datatable: &s
         return Ok(());
     }
     // Re-check under the lock: a concurrent resolution may have refreshed it.
-    let still_expired = sqlx::query_scalar!(
-        "SELECT expires_at < now() AS \"expired!\" FROM datatable_ephemeral_role WHERE role_name = $1",
+    let row = sqlx::query!(
+        "SELECT owner_creds, expires_at < now() AS \"expired!\" FROM datatable_ephemeral_role WHERE role_name = $1",
         role
     )
     .fetch_optional(&mut *tx)
     .await?;
-    if !still_expired.unwrap_or(false) {
+    let Some(row) = row.filter(|r| r.expired) else {
         return Ok(());
-    }
+    };
 
-    match get_datatable_config(db, w_id, datatable).await {
-        Ok(config) => {
-            let owner: PgDatabase =
-                serde_json::from_value(datatable_shared_resource(db, w_id, &config).await?)
-                    .map_err(|e| Error::internal_err(format!("parsing owner creds: {e}")))?;
-            let client = connect_target(&owner, db).await?;
-            let active: i64 = client
-                .query_one(
-                    "SELECT count(*) FROM pg_stat_activity WHERE usename = $1",
-                    &[&role],
-                )
-                .await
-                .map_err(|e| pg_err("checking active sessions", e))?
-                .get(0);
-            if active > 0 {
-                disable_role_login(&client, role).await;
+    match resolve_role_target(db, w_id, datatable, row.owner_creds).await {
+        Some((owner, is_instance)) => {
+            if matches!(
+                drop_or_disable_on_target(db, &owner, is_instance, role).await?,
+                DropOutcome::SkippedActive
+            ) {
                 return Ok(());
             }
-            if role_exists(&client, role).await? {
-                if config.database.resource_type == DataTableCatalogResourceType::Instance {
-                    revoke_instance_connect(db, &owner.dbname, role).await;
-                }
-                guarded_drop_role(&client, role).await?;
-            }
         }
-        Err(_) => {
-            // Data table config is gone — the target database is unknowable.
-            // Try a bare drop on the main cluster (covers instance-type roles
-            // whose database was already dropped); an orphaned role on an
-            // external cluster stays inert (NOINHERIT, no grants worth
-            // keeping) and is accepted.
+        None => {
+            // Neither stored target nor config is usable — the target database
+            // is unknowable. Try a bare drop on the main cluster (covers
+            // instance-type roles whose database was already dropped); an
+            // orphaned role on an external cluster stays inert (NOINHERIT, no
+            // grants worth keeping) and is accepted.
             let _ = sqlx::query(&format!("DROP ROLE IF EXISTS {}", quote_ident(role)))
                 .execute(db)
                 .await;
@@ -887,6 +959,25 @@ async fn disable_role_login(client: &tokio_postgres::Client, role: &str) {
     }
 }
 
+/// Where a role must be revoked: the stored owner target from its bookkeeping
+/// row when present (survives resource/config re-points), else the currently
+/// configured database.
+async fn resolve_role_target(
+    db: &DB,
+    w_id: &str,
+    datatable: &str,
+    owner_creds: Option<String>,
+) -> Option<(PgDatabase, bool)> {
+    if let Some(stored) = decode_stored_target(db, w_id, owner_creds).await {
+        return Some((stored.pg, stored.is_instance));
+    }
+    let config = get_datatable_config(db, w_id, datatable).await.ok()?;
+    let owner: PgDatabase =
+        serde_json::from_value(datatable_shared_resource(db, w_id, &config).await.ok()?).ok()?;
+    let is_instance = config.database.resource_type == DataTableCatalogResourceType::Instance;
+    Some((owner, is_instance))
+}
+
 async fn teardown_role(db: &DB, w_id: &str, datatable: &str, role: &str) -> Result<()> {
     // Same per-role lock as role creation and the expiry sweep: without it,
     // teardown could observe a stale role while a resolver is recreating it
@@ -897,33 +988,25 @@ async fn teardown_role(db: &DB, w_id: &str, datatable: &str, role: &str) -> Resu
         .bind(role)
         .execute(&mut *tx)
         .await?;
-    if let Ok(config) = get_datatable_config(db, w_id, datatable).await {
-        let owner: PgDatabase =
-            serde_json::from_value(datatable_shared_resource(db, w_id, &config).await?)
-                .map_err(|e| Error::internal_err(format!("parsing owner creds: {e}")))?;
-        let client = connect_target(&owner, db).await?;
-        let active: i64 = client
-            .query_one(
-                "SELECT count(*) FROM pg_stat_activity WHERE usename = $1",
-                &[&role],
-            )
-            .await
-            .map_err(|e| pg_err("checking active sessions", e))?
-            .get(0);
-        if active > 0 {
+    let owner_creds = sqlx::query_scalar!(
+        "SELECT owner_creds FROM datatable_ephemeral_role WHERE role_name = $1",
+        role
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+    if let Some((owner, is_instance)) = resolve_role_target(db, w_id, datatable, owner_creds).await
+    {
+        if matches!(
+            drop_or_disable_on_target(db, &owner, is_instance, role).await?,
+            DropOutcome::SkippedActive
+        ) {
             // Keep the bookkeeping row: this teardown runs on grant revocation,
             // and deleting the row would permanently orphan a live role that
             // still holds its old grants (and whose password the caller
             // already has). With the row intact, the expiry sweep retries the
             // drop once the sessions are gone; meanwhile new logins are cut.
-            disable_role_login(&client, role).await;
             return Ok(());
-        }
-        if role_exists(&client, role).await? {
-            if config.database.resource_type == DataTableCatalogResourceType::Instance {
-                revoke_instance_connect(db, &owner.dbname, role).await;
-            }
-            guarded_drop_role(&client, role).await?;
         }
     }
     sqlx::query!(

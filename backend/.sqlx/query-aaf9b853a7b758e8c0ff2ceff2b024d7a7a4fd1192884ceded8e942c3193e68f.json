@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT password, perms_hash, expires_at > now() AS \"fresh!\"\n         FROM datatable_ephemeral_role WHERE role_name = $1",
+  "query": "SELECT password, perms_hash, owner_creds, expires_at > now() AS \"fresh!\"\n         FROM datatable_ephemeral_role WHERE role_name = $1",
   "describe": {
     "columns": [
       {
@@ -15,6 +15,11 @@
       },
       {
         "ordinal": 2,
+        "name": "owner_creds",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
         "name": "fresh!",
         "type_info": "Bool"
       }
@@ -27,8 +32,9 @@
     "nullable": [
       false,
       false,
+      true,
       null
     ]
   },
-  "hash": "5597ac036625ed528460c184d882eca7c6520dbdd130275975ecf10aa90e3f34"
+  "hash": "aaf9b853a7b758e8c0ff2ceff2b024d7a7a4fd1192884ceded8e942c3193e68f"
 }
