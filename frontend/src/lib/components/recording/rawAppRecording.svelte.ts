@@ -31,6 +31,18 @@ const SETTLE_QUIET_MS = 400
 const SETTLE_MAX_MS = 3000
 /** Typing is one step per field, committed after this much inactivity. */
 const FILL_DEBOUNCE_MS = 800
+/** `<input>` types that act as buttons: they report a click and never a change. */
+const BUTTON_INPUT_TYPES = new Set(['button', 'submit', 'reset', 'image'])
+/** `<input>` types whose value moves continuously, so repeats are one gesture. */
+const CONTINUOUS_INPUT_TYPES = new Set([
+	'range',
+	'color',
+	'date',
+	'time',
+	'datetime-local',
+	'month',
+	'week'
+])
 /** `<input>` types a user types into. An input with no `type` is one of them. */
 const TEXT_INPUT_TYPES = new Set([
 	'',
@@ -183,25 +195,29 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		value?: string
 	) {
 		if (!active) return
-		if (steps.length >= MAX_RECORDED_STEPS) {
-			truncated = true
-			capped = true
-			return
-		}
 		// A step's outcome must be settled before the next one starts; the pending
 		// snapshot can't be deferred past this point. It can't reuse `before`
-		// either: that frame carries the NEW step's target stamp.
+		// either: that frame carries the NEW step's target stamp. Runs before the
+		// cap check, so the last accepted step keeps its result even when the
+		// interaction that follows it is the one that gets refused.
 		if (settle) {
 			const pending = settle.step
 			clearSettle()
 			pending.after = frameIndex(capture())
+		}
+		if (steps.length >= MAX_RECORDED_STEPS) {
+			truncated = true
+			capped = true
+			return
 		}
 		// A no-record subtree opted out of the recording entirely: its text is what
 		// names the element and what a select/file step carries as a value, so the
 		// step metadata has to be redacted here too — snapshot scrubbing can't
 		// reach into `steps`.
 		const redacted = !!el && isRedacted(el)
-		const target = el ? (redacted ? redactedDescription(el) : describeElement(el)) : 'the app'
+		const target =
+			bound(el ? (redacted ? redactedDescription(el) : describeElement(el)) : 'the app') ??
+			'the app'
 		// A toggle's value is state ('checked'), not content, and the label reads it
 		// back — masking it would render every redacted toggle as "Unchecked".
 		// Metadata is stored and rendered like a frame is; an unbounded paste would
@@ -211,29 +227,33 @@ export function createRawAppRecording(): RawAppRecordingStore {
 				? `${value.slice(0, MAX_STEP_VALUE_CHARS)}…`
 				: value
 		const shown = redacted && bounded && kind !== 'toggle' ? maskValue(bounded) : bounded
-		const step: RawAppStep = {
-			t: Date.now() - startTime,
-			kind,
-			label: stepLabel(kind, target, shown),
-			target,
-			selector: el && !redacted ? cssSelectorFor(el) : undefined,
-			value: shown,
-			before: frameIndex(before)
-		}
+		const t = Date.now() - startTime
+		const label = stepLabel(kind, target, shown)
 		const last = steps[steps.length - 1]
 		if (
 			last &&
+			el &&
 			lastStepEl === el &&
 			last.kind === kind &&
-			kind !== 'click' &&
-			step.t - last.t < CONTROL_COALESCE_MS
+			isContinuousControl(el) &&
+			t - last.t < CONTROL_COALESCE_MS
 		) {
-			// Same control, same kind, still within the burst: update the step in place
-			// so a held arrow key or a slider drag reads as one interaction.
-			last.value = step.value
-			last.label = step.label
+			// Same control, same kind, still within the sweep: update the step in place
+			// so a held arrow key or a slider drag reads as one interaction. The new
+			// pre-frame is deliberately never indexed — it would be an orphan.
+			last.value = shown
+			last.label = label
 			scheduleSettle(last)
 			return
+		}
+		const step: RawAppStep = {
+			t,
+			kind,
+			label,
+			target,
+			selector: el && !redacted ? bound(cssSelectorFor(el)) : undefined,
+			value: shown,
+			before: frameIndex(before)
 		}
 		steps.push(step)
 		lastStepEl = el
@@ -270,13 +290,29 @@ export function createRawAppRecording(): RawAppRecordingStore {
 	 * change on keys that produce no `beforeinput`, so their pre-change frame has
 	 * to come from `keydown`. */
 	function isControl(el: Element): boolean {
-		return isTag(el, 'SELECT') || (isTag(el, 'INPUT') && !isTextEntry(el))
+		if (isTag(el, 'SELECT')) return true
+		if (!isTag(el, 'INPUT')) return false
+		const type = (el as HTMLInputElement).type
+		return !isTextEntry(el) && !BUTTON_INPUT_TYPES.has(type)
+	}
+
+	/** A control the user sweeps rather than sets once: repeats within a burst are
+	 * one interaction. A checkbox is not one — two quick clicks are two toggles. */
+	function isContinuousControl(el: Element): boolean {
+		return isTag(el, 'INPUT') && CONTINUOUS_INPUT_TYPES.has((el as HTMLInputElement).type)
 	}
 
 	/** A field whose value the user types into, character by character. Listed
 	 * positively: everything else an `<input>` can be (a range, a colour, a date,
 	 * a checkbox) is a control the browser mutates on keys that produce no
 	 * `beforeinput`, and must take the control path instead. */
+	/** Metadata is stored and rendered like a frame is; an unbounded paste (or a
+	 * pathological selector) would otherwise slip past the snapshot budget. */
+	function bound(text: string | undefined): string | undefined {
+		if (text === undefined) return undefined
+		return text.length > MAX_STEP_VALUE_CHARS ? `${text.slice(0, MAX_STEP_VALUE_CHARS)}…` : text
+	}
+
 	function isTextEntry(el: Element): boolean {
 		if (isTag(el, 'TEXTAREA')) return true
 		if ((el as HTMLElement).isContentEditable) return true

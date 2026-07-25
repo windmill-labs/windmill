@@ -120,7 +120,8 @@ export function isRedacted(el: Element): boolean {
  * are exactly what the app asked to keep out of the recording. */
 export function redactedDescription(el: Element): string {
 	const tag = el.tagName.toLowerCase()
-	const role = tag === 'input' ? `input[${(el.getAttribute('type') ?? 'text').toLowerCase()}]` : tag
+	const type = (el.getAttribute('type') ?? 'text').toLowerCase()
+	const role = tag === 'input' ? `input[${type}]` : tag
 	return `${role} (redacted)`
 }
 
@@ -422,13 +423,18 @@ function textOf(el: Element | null | undefined, max = 40): string {
  * (its label / accessible name) over its markup. */
 export function describeElement(el: Element): string {
 	const tag = el.tagName.toLowerCase()
-	const role = tag === 'input' ? `input[${(el.getAttribute('type') ?? 'text').toLowerCase()}]` : tag
+	const type = (el.getAttribute('type') ?? 'text').toLowerCase()
+	const role = tag === 'input' ? `input[${type}]` : tag
 	// An element can be recordable while its associated label is not (the label is
 	// where a form usually puts the sensitive wording).
 	const label = (el as HTMLInputElement).labels?.[0]
 	const name =
 		el.getAttribute('aria-label') ||
 		(label && !isRedacted(label) ? textOf(label) : '') ||
+		// A button-shaped <input> has no text content: its `value` is its caption.
+		(tag === 'input' && ['button', 'submit', 'reset'].includes(type)
+			? el.getAttribute('value')
+			: '') ||
 		el.getAttribute('placeholder') ||
 		el.getAttribute('title') ||
 		textOf(el) ||
