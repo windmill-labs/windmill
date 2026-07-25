@@ -275,7 +275,9 @@ pub async fn handle_dbt_job(
         results.extend(read_run_results(&prepared.project_dir).await);
     }
 
-    save_run_state(&prepared, &job.workspace_id, &inv).await.ok();
+    save_run_state(&prepared, &job.workspace_id, &job.id, &inv)
+        .await
+        .ok();
     reconcile_materializations(&prepared, &results, job, conn).await;
 
     let result = build_result(&prepared, &command, results);
@@ -610,20 +612,23 @@ pub async fn prepare_project(
     // Vars can drive `enabled`, alias, schema, database and materialization, so
     // a var only a run can fill means the deploy-time graph is a guess. Treat it
     // like a per-run ref: refresh from each run's own manifest.
-    // Anything a run can change about which relations the project produces: vars
+    // Properties of the DESCRIPTOR only, never of one run's arguments. Vars can
     // drive `enabled`, alias, schema, database and materialization, so a
-    // placeholder var, a per-run `vars` override, or a `$var:` env value
-    // (re-resolved every run) each make the deploy-time graph a guess.
+    // placeholder var, a dynamic ref or a `$var:` env value (re-resolved every
+    // run) each make the deploy-time graph a guess and must be re-ingested.
+    //
+    // A per-run `vars` override is deliberately NOT here: gating on it would
+    // leave the override's graph in place for the next default run, which then
+    // builds the descriptor's relations and dispatches from the override's.
+    // Overrides are ad-hoc builds and follow the deployed descriptor for
+    // cascade purposes — the same boundary a run-arg `select` override has
+    // (docs/dbt-runtime.md).
     let graph_is_per_run = ref_is_per_run
         || descriptor
             .vars
             .values()
             .flat_map(windmill_parser_yaml::dbt::string_leaves)
             .any(has_placeholder)
-        || args
-            .get("vars")
-            .and_then(|v| serde_json::from_str::<serde_json::Value>(v.get()).ok())
-            .is_some_and(|v| v.as_object().is_some_and(|m| !m.is_empty()))
         || descriptor.env.values().any(|v| v.starts_with("$var:"));
     let probe = GitRepo {
         url: url.clone(),
@@ -1939,7 +1944,14 @@ fn state_dir(w_id: &str, script_path: &str) -> PathBuf {
         .join(digest(&format!("{w_id}/{script_path}")))
 }
 
-async fn save_run_state(p: &PreparedProject, w_id: &str, inv: &Invocation) -> error::Result<()> {
+async fn save_run_state(
+    p: &PreparedProject,
+    w_id: &str,
+    // Scopes the staging directory. Keyed by commit, two concurrent runs of one
+    // script would stage into the same place and publish a mixture.
+    job_id: &Uuid,
+    inv: &Invocation,
+) -> error::Result<()> {
     if p.script_path.is_empty() {
         return Ok(());
     }
@@ -1949,7 +1961,7 @@ async fn save_run_state(p: &PreparedProject, w_id: &str, inv: &Invocation) -> er
     // run just published. A retry resuming that mixture is worse than one that
     // finds nothing.
     let dir = state_dir(w_id, &p.script_path);
-    let staging = dir.with_extension(format!("staging-{}", p.commit));
+    let staging = dir.with_extension(format!("staging-{job_id}"));
     tokio::fs::remove_dir_all(&staging).await.ok();
     if tokio::fs::create_dir_all(&staging).await.is_err() {
         return Ok(());

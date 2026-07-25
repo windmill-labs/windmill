@@ -86,9 +86,7 @@ pub async fn provision_engine(
             .await
         }
         DbtEngine::DbtCore2x => provision_core_2x(pinned_version, job_id, w_id, conn).await,
-        // Fusion's installer resolves its own version, so there is nothing to
-        // pin; the fetch-at-runtime model is what its license requires.
-        DbtEngine::Fusion => provision_fusion(job_id, w_id, conn).await,
+        DbtEngine::Fusion => provision_fusion(pinned_version, job_id, w_id, conn).await,
     }
 }
 
@@ -254,11 +252,18 @@ async fn provision_core_2x(
 /// Fusion is fetched from dbt Labs at runtime and cached — see the module docs
 /// for why it must never be baked into an image.
 async fn provision_fusion(
+    pinned_version: Option<&str>,
     job_id: &Uuid,
     w_id: &str,
     conn: &Connection,
 ) -> error::Result<ProvisionedEngine> {
-    let dir = PathBuf::from(&*DBT_CACHE_DIR).join("fusion");
+    // Version-keyed like the other two: one shared `fusion` directory means a
+    // run landing on a clean worker fetches whatever is current rather than
+    // what the deploy locked.
+    let dir = PathBuf::from(&*DBT_CACHE_DIR).join(match pinned_version {
+        Some(v) => format!("fusion-{v}"),
+        None => "fusion".to_string(),
+    });
     let bin = dir.join("bin").join("dbt");
     if bin.exists() {
         return Ok(ProvisionedEngine {
@@ -298,14 +303,15 @@ async fn provision_fusion(
         tmp.file_name().unwrap().to_str().unwrap(),
         &script,
     )?;
-    run_tool(
-        Command::new("sh")
-            .arg(&tmp)
-            .env("FS_INSTALL_DIR", &staging)
-            .arg("--update"),
-        "fusion install",
-    )
-    .await?;
+    let mut install = Command::new("sh");
+    install.arg(&tmp).env("FS_INSTALL_DIR", &staging);
+    match pinned_version {
+        // The installer takes a version positionally; without one it resolves
+        // the latest release.
+        Some(v) => install.arg(v),
+        None => install.arg("--update"),
+    };
+    run_tool(&mut install, "fusion install").await?;
     tokio::fs::remove_file(&tmp).await.ok();
     if !staging.join("bin").join("dbt").exists() {
         tokio::fs::remove_dir_all(&staging).await.ok();
