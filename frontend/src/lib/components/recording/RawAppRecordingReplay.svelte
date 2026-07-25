@@ -11,6 +11,8 @@
 	import {
 		ChevronLeft,
 		ChevronRight,
+		PanelLeftClose,
+		PanelLeftOpen,
 		CircleDot,
 		InfoIcon,
 		Keyboard,
@@ -36,6 +38,10 @@
 	let phase = $state<'before' | 'after'>('before')
 	let playing = $state(false)
 	let paneWidth = $state(0)
+	/** The step list is navigation; the app is the content. Closed by default so a
+	 * replay opens at nearly the recorded width, with the timeline and the step bar
+	 * still saying where you are. */
+	let listOpen = $state(false)
 	let stepList: HTMLElement | undefined = $state(undefined)
 
 	const KIND_ICONS: Record<RawAppInteractionKind, any> = {
@@ -188,6 +194,14 @@
 				variant="border"
 				size="xs"
 				iconOnly
+				title={listOpen ? 'Hide steps' : 'Show steps'}
+				startIcon={{ icon: listOpen ? PanelLeftClose : PanelLeftOpen }}
+				onclick={() => (listOpen = !listOpen)}
+			/>
+			<Button
+				variant="border"
+				size="xs"
+				iconOnly
 				startIcon={{ icon: ChevronLeft }}
 				disabled={stepIndex === 0}
 				onclick={() => step_(stepIndex - 1)}
@@ -273,7 +287,9 @@
 	<div class="flex flex-1 min-h-0 gap-2">
 		<div
 			bind:this={stepList}
-			class="w-72 shrink-0 overflow-auto border rounded-md bg-surface-secondary"
+			class="w-72 shrink-0 overflow-auto border rounded-md bg-surface-secondary {listOpen
+				? ''
+				: 'hidden'}"
 		>
 			<button
 				data-step="0"
