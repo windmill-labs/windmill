@@ -29,6 +29,11 @@ describe('isJobResolvable', () => {
 		).toBe(false)
 		expect(isJobResolvable({ type: 'QueuedJob', running: true } as any)).toBe(false)
 	})
+	// Obscured cross-workspace runs look like failures but carry no id, and one of them in a
+	// batch fails the whole request on UUID parsing.
+	it('rejects an obscured placeholder run', () => {
+		expect(isJobResolvable(completed({ success: false, canceled: false, id: '-' }))).toBe(false)
+	})
 })
 
 describe('parseDbInputFromAssetSyntax', () => {
