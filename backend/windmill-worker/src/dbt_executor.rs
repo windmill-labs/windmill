@@ -1181,7 +1181,11 @@ async fn resolve_selection(
         return Ok(None);
     }
     let mut cmd = dbt_command(p, &["ls"]);
-    cmd.args(["--resource-type", "all", "--output", "json", "--quiet"]);
+    // The types spelled out rather than `all`, which dbt-core 2.x rejects.
+    for t in ["model", "source", "seed", "snapshot", "test"] {
+        cmd.args(["--resource-type", t]);
+    }
+    cmd.args(["--output", "json", "--quiet"]);
     for x in &descriptor.select {
         cmd.args(["--select", x]);
     }
