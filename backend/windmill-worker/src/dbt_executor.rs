@@ -35,7 +35,7 @@ use crate::git_clone::{
     clone_repo, clone_repo_without_history, get_git_repo_full_head_commit_hash,
     resolve_git_ref_to_commit,
 };
-use crate::handle_child::handle_child;
+use crate::handle_child::{get_mem_peak, handle_child, run_future_with_polling_update_job_poller};
 use crate::{GIT_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV};
 
 /// The profile name Windmill renders into `profiles.yml`. dbt takes the profile
@@ -44,8 +44,6 @@ use crate::{GIT_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV};
 /// fallback for the (invalid) case where it declares none.
 const FALLBACK_PROFILE_NAME: &str = "windmill";
 
-/// Fallback bound on `dbt ls` when the job declares no timeout of its own.
-const SELECTION_TIMEOUT_SECS: u64 = 300;
 
 
 
@@ -421,13 +419,16 @@ pub async fn dbt_dep(
         &prepared,
         &descriptor,
         &inv,
-        &JobCtx {
+        &mut JobCtx {
             mem_peak,
             canceled_by,
             occupancy_metrics,
             worker_name,
             timeout: None,
         },
+        job_id,
+        w_id,
+        &conn,
     )
     .await?;
     let manifest = read_manifest(&prepared.project_dir).await?;
@@ -1805,7 +1806,8 @@ async fn ingest_from_run(
     let manifest = read_manifest(&p.project_dir).await?;
     // The run's own arguments: resolving the selection with empty vars could
     // filter this run's manifest by a different node set than it built.
-    let selected = resolve_selection(p, descriptor, inv, ctx).await?;
+    let selected =
+        resolve_selection(p, descriptor, inv, ctx, &job.id, &job.workspace_id, conn).await?;
     let ingested =
         windmill_common::dbt_manifest::ingest_manifest(
         &manifest,
@@ -1971,7 +1973,10 @@ async fn resolve_selection(
     p: &PreparedProject,
     descriptor: &DbtDescriptor,
     inv: &Invocation,
-    ctx: &JobCtx<'_>,
+    ctx: &mut JobCtx<'_>,
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
 ) -> error::Result<Option<std::collections::HashSet<String>>> {
     if descriptor.select.is_empty()
         && descriptor.exclude.is_empty()
@@ -2004,14 +2009,8 @@ async fn resolve_selection(
     // path runs the output through the job-log writer, which `NO_LOGS_AT_ALL`
     // discards — the selection would then resolve to the empty set and the
     // ingest would wipe the script's assets and subscriptions while dbt went on
-    // building the descriptor's models. The child is killed on timeout so this
-    // still cannot hold the slot.
-    let stdout = run_capturing(
-        cmd,
-        "dbt ls",
-        ctx.timeout.map(|t| t as u64).unwrap_or(SELECTION_TIMEOUT_SECS),
-    )
-    .await?;
+    // building the descriptor's models.
+    let stdout = run_capturing(cmd, "dbt ls", ctx, job_id, w_id, conn).await?;
     let mut set = std::collections::HashSet::new();
     for line in stdout.lines() {
         let line = line.trim();
@@ -2038,30 +2037,46 @@ async fn resolve_selection(
     Ok(Some(set))
 }
 
-/// Run a command for its stdout, killing the child if it outlives `timeout_s`.
-/// Dropping a `Command::output()` future does NOT kill the process, so a bare
-/// `tokio::time::timeout` leaves it running against the warehouse and mutating
-/// shared state after the job returns.
-async fn run_capturing(mut cmd: Command, name: &str, timeout_s: u64) -> error::Result<String> {
-    let mut child = cmd
+/// Run a command for its stdout under the job's cancellation and timeout.
+/// The same poller `handle_child` uses drives them, so a cancel or a deadline
+/// drops the wait future — which owns the child, and `kill_on_drop` then
+/// terminates it. Dropping a wait future does NOT by itself kill a process, so
+/// without that flag the child would outlive the job.
+async fn run_capturing(
+    mut cmd: Command,
+    name: &str,
+    ctx: &mut JobCtx<'_>,
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> error::Result<String> {
+    let child = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
         .map_err(|e| Error::internal_err(format!("{name} could not be started: {e}")))?;
-    let out = match tokio::time::timeout(
-        std::time::Duration::from_secs(timeout_s),
-        child.wait_with_output(),
+    let pid = child.id();
+    let out = run_future_with_polling_update_job_poller(
+        *job_id,
+        ctx.timeout,
+        conn,
+        ctx.mem_peak,
+        ctx.canceled_by,
+        async move {
+            child
+                .wait_with_output()
+                .await
+                .map_err(|e| Error::internal_err(format!("{name} failed: {e}")))
+        },
+        ctx.worker_name,
+        w_id,
+        &mut Some(ctx.occupancy_metrics),
+        Box::pin(futures::stream::unfold((), move |_| async move {
+            Some((get_mem_peak(pid, false).await, ()))
+        })),
     )
-    .await
-    {
-        Ok(r) => r.map_err(|e| Error::internal_err(format!("{name} failed: {e}")))?,
-        Err(_) => {
-            return Err(Error::ExecutionErr(format!(
-                "{name} did not finish within {timeout_s}s"
-            )))
-        }
-    };
+    .await?;
     if !out.status.success() {
         return Err(Error::ExecutionErr(format!(
             "{name} failed: {}",

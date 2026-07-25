@@ -233,3 +233,30 @@ describe('parseDurationSecs', () => {
 		expect(parseDurationSecs('999999999d')).toBeUndefined()
 	})
 })
+
+describe('table:// canonicalization', () => {
+	const readPath = (line: string) => parsePipelineAnnotations(line).triggerAssets?.[0]?.path
+
+	it('folds every spelling of a relation onto one key', () => {
+		const canonical = 'u/me/wh/analytics/orders'
+		expect(readPath('// on table://u/me/wh/Analytics/Orders')).toBe(canonical)
+		expect(readPath('// on table://u/me/wh/"Analytics"/"Orders"')).toBe(canonical)
+		expect(readPath('// on table://u/me/wh/`analytics`/`orders`')).toBe(canonical)
+		expect(readPath('// on table://u/me/wh/[Analytics]/[Orders]')).toBe(canonical)
+	})
+
+	it('unquotes each half of a qualified database.schema segment', () => {
+		// Only an unquoted period separates the two halves — the backend
+		// ingest keys the same relation as `archive.sales/orders`, so
+		// stripping just the outer quote pair would split the node in two.
+		expect(readPath('// on table://u/me/wh/"Archive"."Sales"/"Orders"')).toBe(
+			'u/me/wh/archive.sales/orders'
+		)
+	})
+
+	it('leaves the resource path alone', () => {
+		expect(readPath('// on table://u/Me/WH/analytics/orders')).toBe(
+			'u/Me/WH/analytics/orders'
+		)
+	})
+})

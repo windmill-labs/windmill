@@ -34,8 +34,35 @@ function canonicalizeTablePath(path: string): string {
 	if (parts.length < 3) return path
 	const name = parts.pop()!
 	const schema = parts.pop()!
-	const unquote = (s: string) => s.trim().replace(/^["`[]|["`\]]$/g, '')
-	return [...parts, unquote(schema).toLowerCase(), unquote(name).toLowerCase()].join('/')
+	return [...parts, unquoteSegment(schema).toLowerCase(), unquoteSegment(name).toLowerCase()].join(
+		'/'
+	)
+}
+
+/** Strip the warehouses' quote characters from an identifier segment. The
+ *  schema segment carries a `<database>.<schema>` pair when a relation
+ *  overrode its database, and each half is separately quotable, so only an
+ *  unquoted period separates them — one inside an identifier is part of the
+ *  name. */
+function unquoteSegment(s: string): string {
+	const parts: string[] = []
+	let current = ''
+	let quote: string | undefined = undefined
+	for (const c of s.trim()) {
+		if (quote !== undefined) {
+			if (c === quote || (quote === '[' && c === ']')) quote = undefined
+			else current += c
+		} else if (c === '"' || c === '`' || c === '[') {
+			quote = c
+		} else if (c === '.') {
+			parts.push(current)
+			current = ''
+		} else {
+			current += c
+		}
+	}
+	parts.push(current)
+	return parts.join('.')
 }
 
 // Native trigger keywords — `// on <kind>`. Each is marker-only: the
