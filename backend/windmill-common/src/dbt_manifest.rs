@@ -194,20 +194,46 @@ fn asset_path_for(
     // configured `schema: snapshots` under target schema `analytics` lands in
     // `analytics_snapshots`). Keying on the config value would name a relation
     // that does not exist, and the mismatch is invisible until nothing links.
-    let schema = node.schema.as_ref()?;
-    let name = node.alias.as_ref().unwrap_or(&node.name);
-    let qualified = match node.database.as_deref() {
-        Some(db)
-            if !db.is_empty()
-                && default_database.is_some_and(|d| !d.eq_ignore_ascii_case(db)) =>
-        {
+    let schema = node.schema.as_deref()?;
+    let name = node.alias.as_deref().unwrap_or(&node.name);
+    Some(table_asset_path(
+        resource_path,
+        node.database.as_deref(),
+        schema,
+        name,
+        default_database,
+    ))
+}
+
+/// The one derivation of a `table://` path from a relation's parts.
+///
+/// Three call sites need it and they MUST agree: the manifest ingest (which
+/// creates the graph node), the live progress events, and the end-of-run
+/// settlement (which both record status against it). A site that derives it
+/// differently records progress against a path no node has, and nothing looks
+/// broken — the run succeeds, the graph just never moves.
+///
+/// The resource names the warehouse and its default database, so a relation in
+/// that database uses the plain three-segment spelling. One that overrode its
+/// database is genuinely elsewhere and qualifies its schema segment as
+/// `<database>.<schema>`, so two same-named relations cannot collapse. When the
+/// default is unknown — the project brought its own `profiles.yml` and declared
+/// no `profile.database` — every relation qualifies, because guessing they all
+/// share one database is what would collapse them.
+pub fn table_asset_path(
+    resource_path: &str,
+    database: Option<&str>,
+    schema: &str,
+    name: &str,
+    default_database: Option<&str>,
+) -> String {
+    let qualified = match database.map(str::trim).filter(|d| !d.is_empty()) {
+        Some(db) if !default_database.is_some_and(|d| d.eq_ignore_ascii_case(db)) => {
             format!("{db}.{schema}")
         }
-        _ => schema.clone(),
+        _ => schema.to_string(),
     };
-    Some(canonicalize_table_asset_path(&format!(
-        "{resource_path}/{qualified}/{name}"
-    )))
+    canonicalize_table_asset_path(&format!("{resource_path}/{qualified}/{name}"))
 }
 
 /// Parse a `manifest.json` into rows, edges and asset usages.

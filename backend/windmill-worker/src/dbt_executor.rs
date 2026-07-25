@@ -244,14 +244,18 @@ pub async fn handle_dbt_job(
     // `latest` and a placeholder ref — the deployed graph describes a different
     // commit than the one that just executed, so it has to be refreshed from
     // this run's manifest (decision 12). Free: the run already wrote it.
-    if descriptor.is_latest_ref() || prepared.graph_is_per_run {
-        if let Err(e) = ingest_from_run(&prepared, &descriptor, &args, job, conn).await {
-            tracing::warn!("dbt graph refresh after a `latest` run failed: {e:#}");
-        }
-    }
+    // A per-run graph MUST be refreshed before the job reports success: asset
+    // dispatch fans out from the stored rows, so a stale graph cascades from
+    // relations this run did not produce. Failing the job is the only honest
+    // outcome — including on an agent worker, which has no DB to refresh through.
+    let refresh = if descriptor.is_latest_ref() || prepared.graph_is_per_run {
+        ingest_from_run(&prepared, &descriptor, &args, job, conn).await
+    } else {
+        Ok(())
+    };
 
     let result = build_result(&prepared, &command, results);
-    match run {
+    match run.and(refresh) {
         Ok(()) => Ok(to_raw_value(&result)),
         Err(e) => {
             // dbt's exit code already honors each test's own `severity`: a
@@ -495,8 +499,8 @@ pub async fn prepare_project(
     // token has to be minted per use. The only helper that does that
     // (`get_github_app_token_internal`) authorizes by checking the job against
     // the workspace's configured git-sync scripts, so it rejects a dbt job
-    // outright — minting for an arbitrary runnable needs its own authorization
-    // path, which is not this PR. Refuse with the reason rather than letting
+    // outright; minting for an arbitrary runnable needs its own authorization
+    // path. Refuse with the reason rather than letting
     // the clone fail on a bare auth error: a wrong-looking credential is far
     // harder to diagnose than a stated limitation.
     if repo_value
@@ -548,7 +552,12 @@ pub async fn prepare_project(
     // a var only a run can fill means the deploy-time graph is a guess. Treat it
     // like a per-run ref: refresh from each run's own manifest.
     let graph_is_per_run =
-        ref_is_per_run || descriptor.vars.values().any(|v| has_placeholder(v));
+        ref_is_per_run
+            || descriptor
+                .vars
+                .values()
+                .flat_map(windmill_parser_yaml::dbt::string_leaves)
+                .any(has_placeholder);
     let probe = GitRepo {
         url: url.clone(),
         commit: None,
@@ -1145,6 +1154,7 @@ fn spawn_progress_reporter(
     }
     let (db, w_id, job_id) = (db.clone(), job.workspace_id.clone(), job.id);
     let resource_path = p.resource_path.clone()?;
+    let default_database = p.default_database.clone();
     Some(tokio::spawn(async move {
         use tokio::io::{AsyncReadExt, AsyncSeekExt};
         let mut offset = 0u64;
@@ -1185,7 +1195,8 @@ fn spawn_progress_reporter(
             let chunk = carry[..complete_upto].to_string();
             carry = carry[complete_upto..].to_string();
             for line in chunk.lines() {
-                let Some(ev) = parse_node_event(line, &resource_path) else {
+                let Some(ev) = parse_node_event(line, &resource_path, default_database.as_deref())
+                else {
                     continue;
                 };
                 let _ = record_materialization(
@@ -1209,7 +1220,11 @@ fn spawn_progress_reporter(
 /// One `node_info`-carrying dbt log event turned into the materialization
 /// record the asset graph reads. `None` for events that are not per-node, and
 /// for nodes with no physical relation (tests, ephemeral models).
-fn parse_node_event(line: &str, resource_path: &str) -> Option<RecordMaterializationRequest> {
+fn parse_node_event(
+    line: &str,
+    resource_path: &str,
+    default_database: Option<&str>,
+) -> Option<RecordMaterializationRequest> {
     let line = line.trim();
     if !line.starts_with('{') {
         return None;
@@ -1219,6 +1234,7 @@ fn parse_node_event(line: &str, resource_path: &str) -> Option<RecordMaterializa
     let rel = info.get("node_relation")?;
     let schema = rel.get("schema")?.as_str()?;
     let alias = rel.get("alias")?.as_str()?;
+    let database = rel.get("database").and_then(|d| d.as_str());
     if rel
         .get("relation_name")
         .and_then(|r| r.as_str())
@@ -1235,9 +1251,13 @@ fn parse_node_event(line: &str, resource_path: &str) -> Option<RecordMaterializa
         // nothing about the relation's state; neither is a materialization.
         _ => return None,
     };
-    let path = windmill_parser::asset_parser::canonicalize_table_asset_path(&format!(
-        "{resource_path}/{schema}/{alias}"
-    ));
+    let path = windmill_common::dbt_manifest::table_asset_path(
+        resource_path,
+        database,
+        schema,
+        alias,
+        default_database,
+    );
     Some(RecordMaterializationRequest {
         asset_kind: windmill_common::assets::AssetKind::Table,
         asset_path: path,
@@ -1275,7 +1295,11 @@ async fn reconcile_materializations(
         return;
     };
     for r in results {
-        let Some(path) = asset_path_of_relation(r.relation_name.as_deref(), resource_path) else {
+        let Some(path) = asset_path_of_relation(
+            r.relation_name.as_deref(),
+            resource_path,
+            p.default_database.as_deref(),
+        ) else {
             continue;
         };
         let status = match r.status.as_str() {
@@ -1305,19 +1329,34 @@ async fn reconcile_materializations(
     }
 }
 
-/// `"db"."schema"."name"` from dbt into the `table://` path of the relation.
-/// The database segment is dropped: the resource identifies the warehouse.
-fn asset_path_of_relation(relation_name: Option<&str>, resource_path: &str) -> Option<String> {
+/// `"db"."schema"."name"` from dbt into the `table://` path of the relation,
+/// through the same derivation the manifest ingest and the live events use.
+fn asset_path_of_relation(
+    relation_name: Option<&str>,
+    resource_path: &str,
+    default_database: Option<&str>,
+) -> Option<String> {
     let rel = relation_name?;
     let parts: Vec<&str> = rel.split('.').collect();
-    let [.., schema, name] = parts.as_slice() else {
-        return None;
+    let (database, schema, name) = match parts.as_slice() {
+        [db, schema, name] => (Some(unquote(db)), unquote(schema), unquote(name)),
+        [schema, name] => (None, unquote(schema), unquote(name)),
+        _ => return None,
     };
-    Some(
-        windmill_parser::asset_parser::canonicalize_table_asset_path(&format!(
-            "{resource_path}/{schema}/{name}"
-        )),
-    )
+    Some(windmill_common::dbt_manifest::table_asset_path(
+        resource_path,
+        database,
+        schema,
+        name,
+        default_database,
+    ))
+}
+
+/// `canonicalize_table_asset_path` strips quotes from the schema and name, but
+/// the database is compared against the target's before it ever gets there.
+fn unquote(s: &str) -> &str {
+    s.trim()
+        .trim_matches(|c| c == '"' || c == '`' || c == '[' || c == ']')
 }
 
 async fn read_run_results(project_dir: &Path) -> Vec<DbtNodeResult> {
@@ -1402,8 +1441,17 @@ async fn ingest_from_run(
     job: &MiniPulledJob,
     conn: &Connection,
 ) -> error::Result<()> {
-    let (Connection::Sql(db), Some(resource_path)) = (conn, p.resource_path.as_deref()) else {
+    // No warehouse identity means there is no graph that could go stale.
+    let Some(resource_path) = p.resource_path.as_deref() else {
         return Ok(());
+    };
+    let Connection::Sql(db) = conn else {
+        return Err(Error::BadRequest(
+            "this dbt script resolves its commit or its models per run, so its asset graph must \
+             be re-ingested after every run — which an agent worker cannot do. Pin `ref` to a \
+             commit and use literal `vars`, or run it on a worker with a database connection."
+                .to_string(),
+        ));
     };
     let Some(script_path) = job.runnable_path.as_deref() else {
         return Ok(());
@@ -1607,13 +1655,10 @@ fn resolved_vars(
 ) -> error::Result<serde_json::Map<String, serde_json::Value>> {
     let mut out = serde_json::Map::new();
     for (k, v) in &descriptor.vars {
-        let field = format!("vars.{k}");
-        let value = match crate::common::interpolate_template(v, Some(args), &field) {
-            Ok(value) => value,
-            Err(e) if strict => return Err(e),
-            Err(_) => String::new(),
-        };
-        out.insert(k.clone(), serde_json::Value::String(value));
+        out.insert(
+            k.clone(),
+            interpolate_value(v, args, &format!("vars.{k}"), strict)?,
+        );
     }
     // The run argument overrides; it never carries the descriptor's own values
     // back (its signature default is empty), so this cannot clobber what was
@@ -1624,6 +1669,36 @@ fn resolved_vars(
         }
     }
     Ok(out)
+}
+
+/// Substitute `{{ arg }}` in every string leaf, leaving numbers, booleans and
+/// structure exactly as the descriptor spelled them.
+fn interpolate_value(
+    v: &serde_json::Value,
+    args: &HashMap<String, Box<RawValue>>,
+    field: &str,
+    strict: bool,
+) -> error::Result<serde_json::Value> {
+    Ok(match v {
+        serde_json::Value::String(s) => {
+            match crate::common::interpolate_template(s, Some(args), field) {
+                Ok(v) => serde_json::Value::String(v),
+                Err(e) if strict => return Err(e),
+                Err(_) => serde_json::Value::String(String::new()),
+            }
+        }
+        serde_json::Value::Array(a) => serde_json::Value::Array(
+            a.iter()
+                .map(|x| interpolate_value(x, args, field, strict))
+                .collect::<error::Result<_>>()?,
+        ),
+        serde_json::Value::Object(o) => serde_json::Value::Object(
+            o.iter()
+                .map(|(k, x)| Ok((k.clone(), interpolate_value(x, args, field, strict)?)))
+                .collect::<error::Result<_>>()?,
+        ),
+        other => other.clone(),
+    })
 }
 
 fn arg_str(args: &HashMap<String, Box<RawValue>>, k: &str) -> Option<String> {
@@ -1677,7 +1752,7 @@ mod tests {
             "node_relation":{"alias":"Customers","schema":"Analytics",
             "relation_name":"\"wh\".\"Analytics\".\"Customers\""}}},
             "info":{"name":"LogStartLine","msg":"start"}}"#;
-        let ev = parse_node_event(started, "f/prod/wh").unwrap();
+        let ev = parse_node_event(started, "f/prod/wh", Some("wh")).unwrap();
         assert_eq!(ev.status, MaterializationStatus::Running);
         // Same canonicalization as the manifest ingest, or a run would record
         // progress against a key no graph node has.
@@ -1686,30 +1761,52 @@ mod tests {
         let failed = r#"{"data":{"node_info":{"node_status":"error",
             "node_relation":{"alias":"c","schema":"a","relation_name":"\"w\".\"a\".\"c\""}}},
             "info":{"name":"LogModelResult","msg":"boom"}}"#;
-        let ev = parse_node_event(failed, "f/prod/wh").unwrap();
+        let ev = parse_node_event(failed, "f/prod/wh", Some("wh")).unwrap();
         assert_eq!(ev.status, MaterializationStatus::Failed);
         assert_eq!(ev.error.as_deref(), Some("boom"));
     }
 
-    // The end-of-run reconciliation and the live tailer must derive the SAME
-    // key, or a run would settle its progress against a path no graph node has.
+    // THREE sites derive a `table://` key: the manifest ingest (which creates
+    // the graph node), the live events, and the end-of-run settlement. They must
+    // agree exactly — a site that derives it differently records progress
+    // against a path no node has, the run still succeeds, and the graph simply
+    // never moves. Nothing else catches that.
     #[test]
-    fn run_results_relations_canonicalize_like_the_live_events() {
-        assert_eq!(
-            asset_path_of_relation(Some("\"wh\".\"Analytics\".\"Customers\""), "f/prod/wh"),
-            Some("f/prod/wh/analytics/customers".to_string())
-        );
+    fn all_three_key_derivations_agree() {
+        use windmill_common::dbt_manifest::{ingest_manifest, Manifest};
+        let manifest: Manifest = serde_json::from_str(
+            r#"{"nodes":{"model.p.customers":{
+                 "resource_type":"model","name":"customers","alias":"Customers",
+                 "schema":"Analytics","database":"Archive",
+                 "relation_name":"\"Archive\".\"Analytics\".\"Customers\""}}}"#,
+        )
+        .unwrap();
+        let ingested = ingest_manifest(&manifest, "f/prod/wh", Some("wh"), None);
+        let from_manifest = ingested.nodes[0].asset_path.clone().unwrap();
+
+        let relation = "\"Archive\".\"Analytics\".\"Customers\"";
+        let from_results = asset_path_of_relation(Some(relation), "f/prod/wh", Some("wh")).unwrap();
         let live = r#"{"data":{"node_info":{"node_status":"success",
-            "node_relation":{"alias":"Customers","schema":"Analytics",
-            "relation_name":"\"wh\".\"Analytics\".\"Customers\""}}},
+            "node_relation":{"alias":"Customers","schema":"Analytics","database":"Archive",
+            "relation_name":"\"Archive\".\"Analytics\".\"Customers\""}}},
             "info":{"name":"LogModelResult","msg":"ok"}}"#;
+        let from_events = parse_node_event(live, "f/prod/wh", Some("wh"))
+            .unwrap()
+            .asset_path;
+
+        // The model overrode its database, so all three must qualify.
+        assert_eq!(from_manifest, "f/prod/wh/archive.analytics/customers");
+        assert_eq!(from_results, from_manifest);
+        assert_eq!(from_events, from_manifest);
+
+        // And in the target's own database, all three drop it.
+        let plain = "\"wh\".\"Analytics\".\"Customers\"";
         assert_eq!(
-            parse_node_event(live, "f/prod/wh").unwrap().asset_path,
-            asset_path_of_relation(Some("\"wh\".\"Analytics\".\"Customers\""), "f/prod/wh")
-                .unwrap()
+            asset_path_of_relation(Some(plain), "f/prod/wh", Some("wh")).unwrap(),
+            "f/prod/wh/analytics/customers"
         );
         // A test node has no relation of its own.
-        assert_eq!(asset_path_of_relation(None, "f/prod/wh"), None);
+        assert_eq!(asset_path_of_relation(None, "f/prod/wh", Some("wh")), None);
     }
 
     // `dbt retry` restores the previous run's target/ from this directory. Two
@@ -1729,12 +1826,12 @@ mod tests {
         let t = r#"{"data":{"node_info":{"node_status":"pass",
             "node_relation":{"alias":"unique_c","schema":"a_audit","relation_name":""}}},
             "info":{"name":"LogTestResult","msg":"ok"}}"#;
-        assert!(parse_node_event(t, "f/prod/wh").is_none());
-        assert!(parse_node_event("Running with dbt=1.12.0", "f/prod/wh").is_none());
+        assert!(parse_node_event(t, "f/prod/wh", Some("wh")).is_none());
+        assert!(parse_node_event("Running with dbt=1.12.0", "f/prod/wh", Some("wh")).is_none());
         // `skipped` says nothing about the relation's state.
         let s = r#"{"data":{"node_info":{"node_status":"skipped",
             "node_relation":{"alias":"c","schema":"a","relation_name":"\"w\".\"a\".\"c\""}}},
             "info":{"name":"LogModelResult","msg":"skip"}}"#;
-        assert!(parse_node_event(s, "f/prod/wh").is_none());
+        assert!(parse_node_event(s, "f/prod/wh", Some("wh")).is_none());
     }
 }

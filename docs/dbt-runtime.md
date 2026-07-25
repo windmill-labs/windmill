@@ -154,7 +154,14 @@ and `ducklake://` do it — never the host, account or database. The resource na
 the default database too, so it stays out of the key; a model that *overrides*
 its database (Snowflake `database`, BigQuery `project`) is genuinely elsewhere and
 qualifies its schema segment as `<database>.<schema>`, so two same-named relations
-in different databases cannot collapse onto one node. The same
+in different databases cannot collapse onto one node. When the default database is
+unknown — the project brought its own `profiles.yml` — every relation qualifies,
+because assuming they share one database is exactly what would collapse them.
+
+Three call sites derive this key: the manifest ingest that creates the node, and
+the live-progress and end-of-run paths that record status against it. They share
+one function, because a site that derives it differently records progress against
+a path no node has — the run still succeeds and the graph simply never moves. The same
 warehouse is reachable under several hostnames, and credential material has no
 business in an asset key. Accepted limitation, worth knowing before it is
 filed as a bug: **two Windmill resources pointing at the same physical
@@ -171,6 +178,14 @@ and no webhook in v0:
   in the lockfile alongside the parsed graph. Runs are reproducible and the graph
   always matches what executes. "Refresh" is just "redeploy", which re-resolves
   and re-parses. No new concept.
+A `ref` or a `vars` value spelled with a `{{ placeholder }}` behaves like
+`latest` for graph purposes: the deploy cannot know what will run, and dbt vars
+can steer `enabled`, aliases, schemas, databases and materializations, so the
+graph is re-ingested from every run's own manifest. Since asset dispatch fans out
+from the stored rows, a run that cannot refresh them fails rather than cascading
+from a stale graph — which also means those descriptors cannot run on an agent
+worker, whose only DB access is through the API.
+
 - **`ref: latest`.** Resolve HEAD at run time. The graph must then refresh every
   run or it diverges from execution, and that is nearly free: the run already
   invokes dbt, which already writes `target/manifest.json`, so ingest that
@@ -216,8 +231,9 @@ profile:
 select: ["tag:nightly+"]
 exclude: []
 test_behavior: build              # build | after_all | none
-vars:
-  run_date: "{{ run_date }}"      # substituted from a job argument
+vars:                             # typed: numbers/bools/lists keep their type,
+  run_date: "{{ run_date }}"      # and string leaves take job arguments
+  strict: false
 threads: 8
 full_refresh: false
 env:                              # for the project's own `{{ env_var() }}`

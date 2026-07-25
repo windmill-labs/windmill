@@ -124,9 +124,12 @@ pub struct DbtDescriptor {
     pub selector: Option<String>,
     #[serde(default)]
     pub test_behavior: DbtTestBehavior,
-    /// `--vars`; values carry `{{ arg }}` placeholders substituted from job args.
+    /// `--vars`. dbt vars are typed — numbers, booleans, lists and objects are
+    /// all normal — so values keep their YAML type; only string leaves carry
+    /// `{{ arg }}` placeholders the worker substitutes from job args. Coercing
+    /// everything to a string would make a `false` var truthy in Jinja.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub vars: BTreeMap<String, String>,
+    pub vars: BTreeMap<String, serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub threads: Option<u32>,
     #[serde(default)]
@@ -140,8 +143,10 @@ pub struct DbtDescriptor {
     pub env: BTreeMap<String, String>,
     /// Windmill variables holding private SSH keys for cloning the repo, the
     /// same shape as Ansible's `git_ssh_identity`. Token auth lives in the
-    /// `git_repository` resource's URL instead, and a GitHub App resource needs
-    /// neither.
+    /// `git_repository` resource's URL instead. GitHub App resources are NOT
+    /// supported: minting their installation token needs an authorization path
+    /// that does not exist for arbitrary runnables, so they are rejected with
+    /// that reason (docs/dbt-runtime.md, decision 10).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub git_ssh_identity: Vec<String>,
 }
@@ -290,9 +295,22 @@ fn placeholders(d: &DbtDescriptor) -> Vec<String> {
         push_from(r);
     }
     for v in d.vars.values() {
-        push_from(v);
+        for leaf in string_leaves(v) {
+            push_from(leaf);
+        }
     }
     out
+}
+
+/// Every string inside a var's value, at any depth — the only places a
+/// `{{ arg }}` placeholder can appear.
+pub fn string_leaves(v: &serde_json::Value) -> Vec<&str> {
+    match v {
+        serde_json::Value::String(s) => vec![s.as_str()],
+        serde_json::Value::Array(a) => a.iter().flat_map(string_leaves).collect(),
+        serde_json::Value::Object(o) => o.values().flat_map(string_leaves).collect(),
+        _ => vec![],
+    }
 }
 
 lazy_static::lazy_static! {
@@ -318,6 +336,7 @@ select: ["tag:nightly+"]
 test_behavior: after_all
 vars:
   run_date: "{{ day }}"
+  strict: false
 threads: 8
 full_refresh: true
 "#;
@@ -332,6 +351,10 @@ full_refresh: true
         assert_eq!(d.select, vec!["tag:nightly+"]);
         assert_eq!(d.threads, Some(8));
         assert!(d.full_refresh);
+        // dbt vars keep their YAML type: a `false` coerced to "false" is truthy
+        // in Jinja and would silently invert the condition it gates.
+        assert_eq!(d.vars["strict"], serde_json::json!(false));
+        assert_eq!(d.vars["run_date"], serde_json::json!("{{ day }}"));
         assert!(!d.is_latest_ref());
     }
 
