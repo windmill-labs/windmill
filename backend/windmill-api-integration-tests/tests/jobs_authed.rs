@@ -447,6 +447,47 @@ async fn test_resolve_completed_jobs_scoping(db: Pool<Postgres>) -> anyhow::Resu
     let ids: Vec<Uuid> = serde_json::from_str(&resp.text().await?)?;
     assert!(ids.is_empty(), "a flow step must not be resolvable");
 
+    // Re-resolving when attribution is unavailable must not erase attribution already
+    // recorded. CE reaches the identical code path as an EE instance whose runtime licence
+    // lapsed: `resolution_attribution` returns NULLs in both cases, and without the COALESCE
+    // the conflict update would overwrite a stored resolver with NULL.
+    #[cfg(not(feature = "enterprise"))]
+    {
+        sqlx::query(
+            "INSERT INTO job_resolution (job_id, workspace_id, resolved_by, note)
+             VALUES ($1, 'test-workspace', 'earlier-admin', 'recorded under a valid licence')
+             ON CONFLICT (job_id) DO UPDATE SET resolved_by = EXCLUDED.resolved_by,
+                                                note = EXCLUDED.note",
+        )
+        .bind(mine)
+        .execute(&db)
+        .await?;
+        let resp = member(client().post(format!("{base}/completed/resolve")))
+            .json(&json!({ "job_ids": [mine] }))
+            .send()
+            .await?;
+        assert_2xx(
+            resp.status().as_u16(),
+            &resp.text().await?,
+            "re-resolve without attribution",
+        );
+        let kept: (Option<String>, Option<String>) =
+            sqlx::query_as("SELECT resolved_by, note FROM job_resolution WHERE job_id = $1")
+                .bind(mine)
+                .fetch_one(&db)
+                .await?;
+        assert_eq!(
+            kept.0.as_deref(),
+            Some("earlier-admin"),
+            "attribution recorded earlier must survive a re-resolve that cannot supply it"
+        );
+        assert_eq!(kept.1.as_deref(), Some("recorded under a valid licence"));
+        sqlx::query("DELETE FROM job_resolution WHERE job_id = $1")
+            .bind(mine)
+            .execute(&db)
+            .await?;
+    }
+
     // Operators are read-only on runs; the endpoint must refuse them outright.
     sqlx::query("UPDATE usr SET operator = true WHERE username = 'test-user-3'")
         .execute(&db)
