@@ -232,3 +232,122 @@ async fn wac_approval_urls_mint_guards(db: Pool<Postgres>) -> anyhow::Result<()>
 
     Ok(())
 }
+
+/// Return once a request is provably blocked on a row lock — polled rather than
+/// slept on, so the interleave is deterministic.
+async fn block_until_waiting(db: &Pool<Postgres>) -> anyhow::Result<()> {
+    for _ in 0..600 {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_stat_activity \
+             WHERE wait_event_type = 'Lock' AND datname = current_database()",
+        )
+        .fetch_one(db)
+        .await?;
+        if waiting > 0 {
+            return Ok(());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    anyhow::bail!("no request ever blocked on the queue row lock")
+}
+
+/// The suspend counter is read before the transaction takes the queue-row lock, so
+/// a workflow that suspends in that window must still be woken — the decrement is
+/// evaluated against the locked row, not the snapshot.
+#[sqlx::test(fixtures("base", "wac_approval_urls"))]
+async fn wac_resume_decrements_a_suspend_set_after_the_snapshot(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!("http://localhost:{}/api", server.addr.port());
+    let client = reqwest::Client::new();
+
+    let urls: serde_json::Value = client
+        .get(format!(
+            "{base}/w/test-workspace/jobs/wac_approval_urls/{WAC_JOB}/manager"
+        ))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let resume = to_test_url(&base, urls["resume"].as_str().expect("resume url"));
+    awaiting_approval(&db, "manager").await?;
+
+    // Not suspended when the request arrives: this is the value the pre-transaction
+    // snapshot captures.
+    sqlx::query("UPDATE v2_job_queue SET suspend = 0 WHERE id = $1::uuid")
+        .bind(WAC_JOB)
+        .execute(&db)
+        .await?;
+
+    let mut holder = db.begin().await?;
+    sqlx::query("SELECT 1 FROM v2_job_queue WHERE id = $1::uuid FOR UPDATE")
+        .bind(WAC_JOB)
+        .fetch_optional(&mut *holder)
+        .await?;
+
+    let inflight = tokio::spawn(async move {
+        client
+            .post(resume)
+            .json(&serde_json::json!({ "who": "alice" }))
+            .send()
+            .await
+    });
+    block_until_waiting(&db).await?;
+    holder.commit().await?;
+
+    // The worker suspends on `manager` in the window the request was blocked.
+    sqlx::query("UPDATE v2_job_queue SET suspend = 1 WHERE id = $1::uuid")
+        .bind(WAC_JOB)
+        .execute(&db)
+        .await?;
+
+    let resp = inflight.await??;
+    assert!(resp.status().is_success(), "resume must be accepted");
+
+    let suspend: i32 = sqlx::query_scalar("SELECT suspend FROM v2_job_queue WHERE id = $1::uuid")
+        .bind(WAC_JOB)
+        .fetch_one(&db)
+        .await?;
+    assert_eq!(
+        suspend, 0,
+        "the step must be woken, not left parked until its approval times out"
+    );
+    Ok(())
+}
+
+/// Colliding keys share one resume_job row and one capability, so the mint that
+/// records them must let exactly one through however the requests interleave.
+#[sqlx::test(fixtures("base", "wac_approval_urls"))]
+async fn wac_concurrent_colliding_mints_admit_exactly_one(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!("http://localhost:{}/api", server.addr.port());
+
+    let mut set = tokio::task::JoinSet::new();
+    for key in [APPROVAL_COLLISION_A, APPROVAL_COLLISION_B] {
+        let url = format!("{base}/w/test-workspace/jobs/wac_approval_urls/{WAC_JOB}/{key}");
+        set.spawn(async move {
+            reqwest::Client::new()
+                .get(url)
+                .header("Authorization", "Bearer SECRET_TOKEN")
+                .send()
+                .await
+                .map(|r| r.status())
+        });
+    }
+    let mut ok = 0;
+    let mut rejected = 0;
+    while let Some(res) = set.join_next().await {
+        match res?? {
+            s if s.is_success() => ok += 1,
+            reqwest::StatusCode::BAD_REQUEST => rejected += 1,
+            other => anyhow::bail!("unexpected status {other}"),
+        }
+    }
+    assert_eq!((ok, rejected), (1, 1), "exactly one colliding key may be minted");
+    Ok(())
+}
