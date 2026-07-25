@@ -33,9 +33,12 @@ export const MAX_RECORDED_JOB_EVENTS = 200_000
 export const MAX_TIMELINE_FRAMES = 20_000
 /** Graph elements each become a rendered canvas node or edge. */
 export const MAX_GRAPH_ELEMENTS = 2000
-/* An asset sample renders as a `rows × columns` table. */
+/* An asset sample renders as a `rows × columns` table of plain `<td>`s, so the
+ * product is what costs, and the per-axis caps alone would allow millions of
+ * cells from a tiny payload of empty row objects. */
 export const MAX_SAMPLE_ROWS = 5000
 export const MAX_SAMPLE_COLUMNS = 500
+export const MAX_SAMPLE_CELLS = 100_000
 /** Captured source is syntax-highlighted in one pass. */
 export const MAX_CODE_CHARS = 4 * 1024 * 1024
 
@@ -127,11 +130,25 @@ function isJobsMap(v: unknown): v is Record<string, RecordedJob> {
 	return true
 }
 
+/** The header every recording renders: a title, a `recorded_at` each player parses
+ * as a date, and a duration it divides by. Required by the types, so a payload
+ * missing them shows `Invalid Date` and `NaN` instead. */
+function hasValidHeader(data: Record<string, unknown>, pathField: string): boolean {
+	return (
+		isShortText(data[pathField], true) &&
+		isShortText(data.recorded_at, true) &&
+		typeof data.total_duration_ms === 'number' &&
+		Number.isFinite(data.total_duration_ms) &&
+		data.total_duration_ms >= 0
+	)
+}
+
 /** True when `data` is a well-formed script recording. */
 export function isScriptRecording(data: unknown): data is ScriptRecording {
 	if (!isObject(data) || data.version !== 1 || data.type !== 'script') return false
 	// `code` is highlighted in one pass and `language` selects the grammar.
 	return (
+		hasValidHeader(data, 'script_path') &&
 		isRecordedJob(data.job) &&
 		isBoundedCode(data.code) &&
 		typeof data.language === 'string' &&
@@ -167,7 +184,8 @@ export function isPipelineRecording(data: unknown): data is PipelineRecording {
 					isObject(s) &&
 					((typeof s.error === 'string' && s.error !== '') ||
 						(isObjectArray(s.rows, MAX_SAMPLE_ROWS) &&
-							isObjectArray(s.columns, MAX_SAMPLE_COLUMNS)))
+							isObjectArray(s.columns, MAX_SAMPLE_COLUMNS) &&
+							(s.rows as unknown[]).length * (s.columns as unknown[]).length <= MAX_SAMPLE_CELLS))
 			))
 	const validCodes =
 		data.codes === undefined ||
@@ -175,7 +193,14 @@ export function isPipelineRecording(data: unknown): data is PipelineRecording {
 			Object.values(data.codes).every(
 				(c) => isObject(c) && isBoundedCode(c.content) && typeof c.language === 'string'
 			))
-	return validGraph && validTimeline && isJobsMap(data.jobs) && validSamples && validCodes
+	return (
+		hasValidHeader(data, 'folder') &&
+		validGraph &&
+		validTimeline &&
+		isJobsMap(data.jobs) &&
+		validSamples &&
+		validCodes
+	)
 }
 
 /** True when `data` is a well-formed flow recording. `type` is absent on
@@ -183,7 +208,11 @@ export function isPipelineRecording(data: unknown): data is PipelineRecording {
 export function isFlowRecording(data: unknown): data is FlowRecording {
 	if (!isObject(data) || data.version !== 1) return false
 	if (data.type !== undefined && data.type !== 'flow') return false
-	return isJobsMap(data.jobs) && (data.flow === undefined || isObject(data.flow))
+	return (
+		hasValidHeader(data, 'flow_path') &&
+		isJobsMap(data.jobs) &&
+		(data.flow === undefined || isObject(data.flow))
+	)
 }
 
 /** A recording that passed validation, tagged with the player it needs. */

@@ -22,12 +22,11 @@ function rejectRequest(): never {
 	throw new Error('Offline replay: this page renders a recording and cannot call the API')
 }
 
-export function isOfflineReplay(): boolean {
-	return offline
-}
-
 /** True whenever the UI shows recorded data rather than a live job: the whole
- * public page, or an in-workspace player while it replays a job stream. */
+ * public page, or an in-workspace player while it replays a job stream. Both
+ * cases want the recorded value, not a fresh read: in-workspace, re-querying a
+ * ducklake table or a job's logs would answer for *now* while the player is
+ * replaying a past run. */
 export function isReplaying(): boolean {
 	return offline || getActiveReplay() != undefined
 }
