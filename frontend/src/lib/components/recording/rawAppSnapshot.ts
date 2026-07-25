@@ -117,10 +117,6 @@ const REDACTION_KEEPS_ATTRS = new Set([
 	'readonly',
 	'rows',
 	'rowspan',
-	// A marked <option>'s text is the answer and is scrubbed; `selected` only says
-	// that the user picked *some* option. Dropping it would make the snapshot claim
-	// they picked the first one, which is worse than saying nothing.
-	'selected',
 	'size',
 	'type',
 	'width'
@@ -157,6 +153,24 @@ function redactMarkedSubtrees(doc: Document, root: Element) {
 			if (attr.name === NO_RECORD_ATTR || attr.name === REC_TARGET_ATTR) continue
 			if (!REDACTION_KEEPS_ATTRS.has(attr.localName.toLowerCase())) n.removeAttributeNode(attr)
 		}
+	}
+}
+
+/** A `<select>` whose chosen option is marked cannot be serialized honestly:
+ * keeping `selected` says which one was picked, dropping it says the first one
+ * was. Replace its options with a single masked, selected one — the replay then
+ * shows that a choice was made without disclosing it. */
+function maskSelectsWithRedactedChoice(doc: Document, clone: Element) {
+	const live = doc.querySelectorAll('select')
+	const copies = clone.querySelectorAll('select')
+	if (live.length !== copies.length) return
+	for (let i = 0; i < live.length; i++) {
+		const select = live[i] as HTMLSelectElement
+		if (!Array.from(select.selectedOptions).some((o) => isRedacted(o))) continue
+		const masked = doc.createElement('option')
+		masked.setAttribute('selected', '')
+		masked.textContent = '•••'
+		copies[i].replaceChildren(masked)
 	}
 }
 
@@ -340,6 +354,7 @@ export function serializeDocument(doc: Document, opts: SnapshotOptions = {}): st
 	clone.querySelectorAll('template, noscript').forEach((n) => n.remove())
 	clone.querySelectorAll('script').forEach((n) => n.remove())
 	redactMarkedSubtrees(doc, clone)
+	maskSelectsWithRedactedChoice(doc, clone)
 	clone.querySelectorAll('meta[http-equiv="refresh" i]').forEach((n) => n.remove())
 	clone.querySelectorAll('*').forEach((el) => {
 		for (const attr of Array.from(el.attributes)) {

@@ -288,8 +288,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			value: shown,
 			// A key repeat skips its snapshot because it expects to fold into the step
 			// already recorded; when it turns out to start one instead, it still needs
-			// a state to open on.
-			before: frameIndex(before ?? capture(el))
+			// a state to open on. Only for keys: for a `change`, a capture taken now
+			// would be the outcome, not the interaction.
+			before: frameIndex(before ?? (kind === 'key' ? capture(el) : undefined))
 		}
 		steps.push(step)
 		// Spend only the frame this step actually used. Without consumption a later
@@ -685,7 +686,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			// is still `about:blank` — capturing that would open the replay on an empty
 			// page and make the real initial DOM look like a navigation, so leave frame
 			// 0 to the load handler.
-			if ((d.body?.childElementCount ?? 0) > 0) frameIndex(capture())
+			if (d.readyState === 'complete' && d.location?.href !== 'about:blank') {
+				frameIndex(capture())
+			}
 			attach(d)
 			// NOT in `detachers`: onIframeLoad calls detach(), which would otherwise
 			// remove the very listener that rebinds the recorder on the next reload.

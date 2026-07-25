@@ -141,11 +141,29 @@ describe('serializeDocument redaction', () => {
 		}
 	})
 
-	it('does not serialize redacted markup hidden inside <noscript>', () => {
+	it('drops <noscript> rather than trusting the redaction pass to see into it', () => {
 		// With scripting on, a <noscript>'s markup is one text node — invisible to
-		// the redaction pass, but `outerHTML` writes it back out as markup.
+		// the redaction pass, but `outerHTML` writes it back out. (A parser with
+		// scripting off, like this one, exposes it as elements instead, so the
+		// assertion that matters is that the element does not survive at all.)
 		const doc = docFrom(`<noscript><div data-wm-no-record>noscript secret</div></noscript>`)
-		expect(serializeDocument(doc)).not.toContain('noscript secret')
+		const html = serializeDocument(doc)
+		expect(html).not.toContain('<noscript')
+		expect(html).not.toContain('noscript secret')
+	})
+
+	it('shows that a redacted option was chosen without saying which', () => {
+		const doc = docFrom(
+			`<select><option>Public</option><option data-wm-no-record>Confidential case 92000</option></select>`
+		)
+		const select = doc.querySelector('select') as HTMLSelectElement
+		select.selectedIndex = 1
+
+		const html = serializeDocument(doc)
+		expect(html).not.toContain('Confidential case 92000')
+		// Neither option is asserted as the choice; one masked entry stands in.
+		expect(html).not.toContain('Public')
+		expect(html).toContain('•••')
 	})
 
 	it('masks a password without leaking its length, and keeps other values', () => {
