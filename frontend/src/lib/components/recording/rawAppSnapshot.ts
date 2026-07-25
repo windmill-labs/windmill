@@ -85,23 +85,24 @@ function resolvePath(root: Element, path: number[]): Element | undefined {
 	return cur
 }
 
-/** Attributes that carry content rather than presentation, and so must not
- * survive on a no-record element. `style` is not among them — it is stripped
- * only when it embeds a `url()`, which can be a signed asset URL. */
-const REDACTED_ATTRS = new Set([
-	'alt',
-	'action',
-	'download',
-	'formaction',
-	'href',
-	// `<option label>` / `<optgroup label>` are what the user reads.
-	'label',
-	'placeholder',
-	'poster',
-	'src',
-	'srcset',
-	'title',
-	'value'
+/** What may stay on a no-record element: enough for it to keep occupying the
+ * same space in the snapshot, and nothing that can carry content. An allow-list
+ * on purpose — every round of "this attribute leaks too" (`title`, `data-*`,
+ * `label`, `xlink:href`, `srcdoc`…) is a deny-list failing open. `style` is
+ * allowed only when it embeds no `url()`. */
+const REDACTION_KEEPS_ATTRS = new Set([
+	'class',
+	'cols',
+	'disabled',
+	'height',
+	'hidden',
+	'id',
+	'readonly',
+	'rows',
+	'size',
+	'style',
+	'type',
+	'width'
 ])
 
 /** True when the element sits under an app-declared no-record subtree. */
@@ -122,26 +123,23 @@ export function redactedDescription(el: Element): string {
  * touch) and the attributes that are content themselves — a signed `src`, a
  * `title`, a `data-*` payload, a namespaced `xlink:href`. Recurses into template
  * fragments, since a marked node can sit inside one. */
-function redactMarkedSubtrees(doc: Document, root: ParentNode) {
-	root.querySelectorAll(`[${NO_RECORD_ATTR}]`).forEach((n) => {
+function redactMarkedSubtrees(doc: Document, root: Element) {
+	// `querySelectorAll` skips the element it is called on, so a marked root
+	// (`<html data-wm-no-record>`) has to be handled explicitly.
+	const marked = [
+		...(root.hasAttribute(NO_RECORD_ATTR) ? [root] : []),
+		...root.querySelectorAll(`[${NO_RECORD_ATTR}]`)
+	]
+	for (const n of marked) {
 		n.replaceChildren(doc.createTextNode('•••'))
-		const content = (n as HTMLTemplateElement).content
-		if (content) content.replaceChildren()
 		for (const attr of Array.from(n.attributes)) {
-			const name = attr.localName.toLowerCase()
 			if (attr.name === NO_RECORD_ATTR || attr.name === REC_TARGET_ATTR) continue
-			const styleWithUrl = name === 'style' && /url\(/i.test(attr.value)
-			if (
-				REDACTED_ATTRS.has(name) ||
-				styleWithUrl ||
-				name.startsWith('data-') ||
-				name.startsWith('aria-')
-			) {
-				n.removeAttributeNode(attr)
-			}
+			const name = attr.localName.toLowerCase()
+			const keep =
+				REDACTION_KEEPS_ATTRS.has(name) && !(name === 'style' && /url\(/i.test(attr.value))
+			if (!keep) n.removeAttributeNode(attr)
 		}
-	})
-	root.querySelectorAll('template').forEach((t) => redactMarkedSubtrees(doc, t.content))
+	}
 }
 
 /** Copy live form state (which lives in properties, not attributes, so

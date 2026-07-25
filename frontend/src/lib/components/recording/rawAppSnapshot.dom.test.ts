@@ -47,6 +47,29 @@ describe('serializeDocument redaction', () => {
 		}
 	})
 
+	it('redacts a marked document root, and keeps only layout attributes', () => {
+		const doc = docFrom(`<p>everything here is private</p>`)
+		doc.documentElement.setAttribute('data-wm-no-record', '')
+		doc.documentElement.setAttribute('class', 'theme-dark')
+		doc.documentElement.setAttribute('cite', 'https://host/private-source')
+
+		const html = serializeDocument(doc)
+		expect(html).not.toContain('everything here is private')
+		expect(html).not.toContain('private-source')
+		expect(html).toContain('theme-dark')
+	})
+
+	it('keeps no attribute that could carry content, listed or not', () => {
+		const doc = docFrom(
+			`<iframe data-wm-no-record srcdoc="<p>embedded secret</p>" data-anything="future secret" cite="/cited" class="frame"></iframe>`
+		)
+		const html = serializeDocument(doc)
+		expect(html).not.toContain('embedded secret')
+		expect(html).not.toContain('future secret')
+		expect(html).not.toContain('/cited')
+		expect(html).toContain('class="frame"')
+	})
+
 	it('masks a password without leaking its length, and keeps other values', () => {
 		const doc = docFrom(`<input type="password"><input type="text">`)
 		const [password, text] = Array.from(doc.querySelectorAll('input')) as HTMLInputElement[]
