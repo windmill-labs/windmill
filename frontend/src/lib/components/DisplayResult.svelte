@@ -91,12 +91,14 @@
 	 * page those buttons would let an arbitrary payload aim a credentialed request
 	 * at any origin. */
 	const REPLAY_INERT_KINDS: ResultKind[] = ['s3object', 's3object-list', 'materialized', 'approval']
-	/** Kinds that render caller-supplied markup which pulls subresources: `<img src>`
-	 * inside a markdown/HTML result, and `map`'s tile requests. Every other visual
-	 * kind (png/jpeg/gif/svg/pdf/file) is a `data:` URI and stays. Only inert on the
-	 * public page, where the recording comes from an arbitrary origin and the page
-	 * promises to issue no requests — see `isOfflineReplay`. */
-	const OFFLINE_INERT_KINDS: ResultKind[] = ['markdown', 'html', 'map']
+	/** Kinds that render caller-supplied markup, which can pull subresources: `<img>`
+	 * in a markdown result, and `html`/`svg` inserted with `{@html}` — DOMPurify stops
+	 * the scripting but keeps `<img src>` / SVG `<image href>`, which still fetch. Plus
+	 * `map`, whose tiles are requests by construction. The kinds NOT here render the
+	 * bytes carried in the result as a `data:` URI (png/jpeg/gif/pdf/file), so they
+	 * reach nothing. Only inert on the public page, where the recording comes from an
+	 * arbitrary origin and the page promises to issue no requests. */
+	const OFFLINE_INERT_KINDS: ResultKind[] = ['markdown', 'html', 'svg', 'map']
 	let length = $state(1)
 
 	let hasBigInt = $state(false)

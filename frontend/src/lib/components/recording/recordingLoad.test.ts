@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
 	MAX_ARG_PROPERTIES,
+	MAX_FLOW_GROUPS,
 	MAX_FLOW_MODULES,
 	MAX_FLOW_NOTES,
 	MAX_FLOW_STATUS_MODULES,
 	MAX_FRAME_STATUSES,
 	MAX_RECORDED_JOBS,
+	MAX_RENDER_ALL,
 	MAX_SAMPLE_CELLS,
 	MAX_SAMPLE_COLUMNS,
 	parseRecording
@@ -174,8 +176,45 @@ describe('parseRecording', () => {
 				})
 			)
 		).toBe(true)
+		// A branch is a node and an edge even with no modules in it, so counting only
+		// branch *contents* would let empty branches ride free.
+		expect(
+			rejected(
+				flowWith({
+					modules: [
+						{
+							id: 'b',
+							value: {
+								type: 'branchall',
+								branches: Array.from({ length: MAX_FLOW_MODULES + 1 }, () => ({ modules: [] }))
+							}
+						}
+					]
+				})
+			)
+		).toBe(true)
 		expect(rejected(flowWith({ modules: [], notes: modules(MAX_FLOW_NOTES + 1) }))).toBe(true)
+		// Notes and groups are both rendered overlays: capping one only moves the count.
+		expect(rejected(flowWith({ modules: [], groups: modules(MAX_FLOW_GROUPS + 1) }))).toBe(true)
 		expect(kindOf(flowWith({ modules: modules(3) }))).toBe('flow')
+	})
+
+	it('bounds a recorded render_all result, which fans out into nested components', () => {
+		const withResult = (result: unknown) => ({
+			version: 1,
+			flow_path: 'f',
+			...header,
+			jobs: {
+				j: {
+					initial_job: { id: 'j' },
+					events: [{ t: 0, data: { completed: true, job: { id: 'j', result } } }]
+				}
+			}
+		})
+		expect(
+			rejected(withResult({ render_all: Array.from({ length: MAX_RENDER_ALL + 1 }, () => 0) }))
+		).toBe(true)
+		expect(kindOf(withResult({ render_all: [1, 2, 3] }))).toBe('flow')
 	})
 
 	it('tells an oversized recording apart from a corrupt one', () => {

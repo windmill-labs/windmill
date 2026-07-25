@@ -54,7 +54,14 @@ export const MAX_ARG_PROPERTIES = 2000
  * loops, plus one per note. A flow definition is a nested structure, so the count
  * that matters is the total across the tree, not the top-level array's length. */
 export const MAX_FLOW_MODULES = 5000
+/** Notes and groups are each a rendered overlay; capping one and not the other just
+ * moves where a hostile count goes. */
 export const MAX_FLOW_NOTES = 1000
+export const MAX_FLOW_GROUPS = 1000
+/** `DisplayResult` mounts a nested `DisplayResult` per entry of a `render_all`
+ * result, so this one key in a recorded result fans out into components. Bounded
+ * where the results live: on the initial job and on every completion event. */
+export const MAX_RENDER_ALL = 1000
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
 	typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -127,6 +134,14 @@ function hasBoundedFlowStatus(v: unknown): boolean {
 	return isBoundedArray(status.modules, MAX_FLOW_STATUS_MODULES)
 }
 
+/** A recorded `result`, bounded on the one key whose renderer fans out per entry. */
+function hasBoundedResult(v: unknown): boolean {
+	if (!isObject(v)) return true
+	const result = v.result
+	if (!isObject(result) || result.render_all === undefined) return true
+	return isBoundedArray(result.render_all, MAX_RENDER_ALL)
+}
+
 /** A RecordedJob whose events all carry an object `data`: JobLoader replays each
  * `event.data` in a `setTimeout`, whose throw a Svelte boundary can't catch, so a
  * malformed event has to be rejected at load. */
@@ -135,13 +150,15 @@ function isRecordedJob(j: unknown): j is RecordedJob {
 		isObject(j) &&
 		isObject(j.initial_job) &&
 		hasBoundedFlowStatus(j.initial_job) &&
+		hasBoundedResult(j.initial_job) &&
 		isBoundedArray(j.events, MAX_RECORDED_JOB_EVENTS) &&
 		j.events.every(
 			(e) =>
 				isObject(e) &&
 				isObject(e.data) &&
 				hasBoundedFlowStatus(e.data) &&
-				hasBoundedFlowStatus(e.data.job)
+				hasBoundedFlowStatus(e.data.job) &&
+				hasBoundedResult(e.data.job)
 		)
 	)
 }
@@ -193,6 +210,9 @@ function countFlowModules(modules: unknown, budget: number): number {
 		const branches = (m.value as Record<string, unknown>).branches
 		if (Array.isArray(branches)) {
 			for (const b of branches) {
+				// The branch itself is a node and an edge even when it holds no modules,
+				// so counting only its contents would let empty branches ride free.
+				if (++n > budget) return n
 				if (!isObject(b)) continue
 				n += countFlowModules(b.modules, budget - n)
 				if (n > budget) return n
@@ -280,7 +300,8 @@ export function isFlowRecording(data: unknown): data is FlowRecording {
 	return (
 		isObject(value) &&
 		countFlowModules(value.modules, MAX_FLOW_MODULES) <= MAX_FLOW_MODULES &&
-		(value.notes === undefined || isBoundedArray(value.notes, MAX_FLOW_NOTES))
+		(value.notes === undefined || isBoundedArray(value.notes, MAX_FLOW_NOTES)) &&
+		(value.groups === undefined || isBoundedArray(value.groups, MAX_FLOW_GROUPS))
 	)
 }
 
