@@ -92,8 +92,6 @@ pub struct NodeConfig {
     pub unique_key: Option<serde_json::Value>,
     #[serde(default)]
     pub severity: Option<String>,
-    #[serde(default)]
-    pub schema: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Default)]
@@ -175,7 +173,12 @@ fn single_unique_key(v: Option<&serde_json::Value>) -> Option<String> {
 /// warehouse (and its database) is already identified by `resource_path`.
 fn asset_path_for(node: &ManifestNode, resource_path: &str) -> Option<String> {
     node.relation_name.as_ref()?;
-    let schema = node.config.schema.as_ref().or(node.schema.as_ref())?;
+    // `schema` is dbt's RESOLVED schema; `config.schema` is only the custom
+    // suffix `generate_schema_name` combines with the target's (a snapshot
+    // configured `schema: snapshots` under target schema `analytics` lands in
+    // `analytics_snapshots`). Keying on the config value would name a relation
+    // that does not exist, and the mismatch is invisible until nothing links.
+    let schema = node.schema.as_ref()?;
     let name = node.alias.as_ref().unwrap_or(&node.name);
     Some(canonicalize_table_asset_path(&format!(
         "{resource_path}/{schema}/{name}"
@@ -385,7 +388,8 @@ mod tests {
           "resource_type": "snapshot", "name": "customers_snapshot", "alias": "customers_snapshot",
           "schema": "jaffle_dbt_snapshots",
           "relation_name": "\"wh\".\"jaffle_dbt_snapshots\".\"customers_snapshot\"",
-          "config": {"materialized": "snapshot", "unique_key": "customer_id"}
+          "config": {"materialized": "snapshot", "unique_key": "customer_id",
+                     "schema": "snapshots"}
         },
         "test.jaffle_shop.unique_customers_customer_id.c5": {
           "resource_type": "test", "name": "unique_customers_customer_id",
@@ -497,6 +501,15 @@ mod tests {
                 .asset_path
                 .as_deref(),
             Some("f/prod/wh/jaffle_dbt/customers")
+        );
+        // `config.schema` on the snapshot is the custom SUFFIX (`snapshots`);
+        // the relation actually lives in the resolved `jaffle_dbt_snapshots`.
+        // Keying on the config value would name a table that does not exist.
+        assert_eq!(
+            node(&i, "snapshot.jaffle_shop.customers_snapshot")
+                .asset_path
+                .as_deref(),
+            Some("f/prod/wh/jaffle_dbt_snapshots/customers_snapshot")
         );
         // No physical relation, no asset — `dbt://` stays reserved and unused.
         assert_eq!(

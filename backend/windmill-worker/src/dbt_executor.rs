@@ -850,6 +850,10 @@ async fn run_dbt(
     }
 
     tokio::fs::remove_file(log_dir.join("dbt.log")).await.ok();
+    // `handle_child` reads the job log off these pipes. Without them the child
+    // inherits the worker's stdio and handle_child waits on streams that never
+    // arrive, so the job hangs instead of running.
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     let child = start_child_process(cmd, p.engine.bin.to_string_lossy().as_ref(), false).await?;
     let progress = spawn_progress_reporter(p, job, conn, log_dir.join("dbt.log"));
     let res = handle_child(
