@@ -84,9 +84,13 @@
 		| 'pdf'
 		| undefined
 	let resultKind: ResultKind = $state()
-	/** Kinds whose renderer reads the referenced file or table from the backend,
-	 * so they can't be shown from a recording alone. */
-	const REPLAY_UNRENDERABLE_KINDS: ResultKind[] = ['s3object', 's3object-list', 'materialized']
+	/** Kinds whose renderer leaves the page: the S3/ducklake previews read the
+	 * referenced file or table, and `approval` renders Resume/Cancel buttons that
+	 * `fetch` the URLs carried *in the result*. The latter is why this list matters
+	 * beyond cosmetics — a recording is caller-supplied, so on the public replay
+	 * page those buttons would let an arbitrary payload aim a credentialed request
+	 * at any origin. */
+	const REPLAY_INERT_KINDS: ResultKind[] = ['s3object', 's3object-list', 'materialized', 'approval']
 	let length = $state(1)
 
 	let hasBigInt = $state(false)
@@ -590,10 +594,9 @@
 		const replaying = isReplaying()
 		untrack(() => {
 			resultKind = inferResultKind(result)
-			// A recording carries the result JSON, not the object-store file or the
-			// ducklake table the result points at, and a replay has no session to read
-			// either: show the recorded value instead of a preview that can only fail.
-			if (replaying && REPLAY_UNRENDERABLE_KINDS.includes(resultKind)) {
+			// A recording carries the result JSON, nothing the result points at, and a
+			// replay has no session to go get it: show the recorded value instead.
+			if (replaying && REPLAY_INERT_KINDS.includes(resultKind)) {
 				resultKind = 'json'
 				largeObject = false
 			}
