@@ -582,9 +582,14 @@ pub struct PreparedProject {
     /// The descriptor's `env`, resolved, in a stable order. Feeds run identity;
     /// `env` itself is not usable there because it carries per-job values.
     pub descriptor_env: std::collections::BTreeMap<String, String>,
-    /// Digest of the invocation's own environment (the script's `envs`). It
-    /// reaches every phase, so it keys the package cache alongside the
-    /// descriptor's; digested because the values are resolved secrets.
+    /// The invocation's own environment (the script's `envs`), in a stable
+    /// order. Every phase gets it, `dbt deps` included: `packages.yml` can
+    /// resolve a private package URL through `env_var()`, and a phase that saw
+    /// a different environment from the one the cache key was built on would
+    /// populate that key with the wrong tree.
+    pub invocation_env: Vec<(String, String)>,
+    /// Digest of the above. Keys the package cache alongside the descriptor's
+    /// environment; digested because the values are resolved secrets.
     pub invocation_env_digest: u64,
     /// Written nsjail profile for this job, when the worker sandboxes jobs.
     /// `None` means the phases run unsandboxed, exactly as before.
@@ -817,14 +822,22 @@ pub async fn prepare_project(
 
     let project_digest = project_digest(modules);
 
+    // Sorted so the digest depends on the values rather than on map ordering.
+    let sorted_invocation_env = {
+        let mut v: Vec<(String, String)> = invocation_env
+            .iter()
+            .map(|(k, val)| (k.clone(), val.clone()))
+            .collect();
+        v.sort();
+        v
+    };
     let mut prepared = PreparedProject {
         project_digest,
+        invocation_env: sorted_invocation_env.clone(),
         invocation_env_digest: {
             use std::hash::{Hash, Hasher};
-            let mut sorted: Vec<(&String, &String)> = invocation_env.iter().collect();
-            sorted.sort();
             let mut h = std::collections::hash_map::DefaultHasher::new();
-            for (k, v) in sorted {
+            for (k, v) in &sorted_invocation_env {
                 k.hash(&mut h);
                 v.hash(&mut h);
             }
@@ -982,7 +995,8 @@ async fn install_packages(
         .join(digest(&key));
     let target = p.project_dir.join("dbt_packages");
     if cached.exists() {
-        copy_dir(&cached, &target).await?;
+        copy_dir_watched(&cached, &target, "restoring cached dbt_packages", ctx, job_id, w_id, conn)
+            .await?;
         append_logs(
             job_id,
             w_id,
@@ -1003,23 +1017,29 @@ async fn install_packages(
     )
     .await?;
     if target.exists() {
-        publish_to_cache(&target, &cached, job_id).await;
+        publish_to_cache(&target, &cached, ctx, job_id, w_id, conn).await;
     }
     Ok(())
 }
 
 /// Copy `from` into a sibling of `cached`, then move it into place.
 ///
-/// The rename is the point. `copy_dir` creates its destination and then fills
-/// it, so a concurrent job on the same host — worker processes share
-/// `DBT_CACHE_DIR` — would see `cached` exist and copy a checkout with no
-/// `dbt_project.yml`, failing with an error that blames the user's descriptor.
-/// Worse, a copy interrupted by cancellation or disk pressure would leave that
-/// partial tree in place for every later job, so a transient failure becomes
-/// permanent. Staging keeps a half-written tree under a name nothing looks up.
+/// The rename is the point. The copy creates its destination and then fills it,
+/// so a concurrent job on the same host — worker processes share
+/// `DBT_CACHE_DIR` — would see `cached` exist and restore a half-written
+/// package tree. Worse, a copy interrupted by cancellation or disk pressure
+/// would leave that tree in place for every later job, so a transient failure
+/// becomes permanent. Staging keeps it under a name nothing looks up.
 /// Same pattern as the engine provisioning; best-effort, since losing the race
 /// only means the next job repopulates.
-async fn publish_to_cache(from: &Path, cached: &Path, job_id: &Uuid) {
+async fn publish_to_cache(
+    from: &Path,
+    cached: &Path,
+    ctx: &mut JobCtx<'_>,
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
+) {
     let Some(parent) = cached.parent() else {
         return;
     };
@@ -1029,7 +1049,9 @@ async fn publish_to_cache(from: &Path, cached: &Path, job_id: &Uuid) {
     let name = cached.file_name().unwrap_or_default().to_string_lossy();
     let staging = cached.with_file_name(format!("{name}.staging-{job_id}"));
     tokio::fs::remove_dir_all(&staging).await.ok();
-    if copy_dir(from, &staging).await.is_err()
+    if copy_dir_watched(from, &staging, "caching dbt_packages", ctx, job_id, w_id, conn)
+        .await
+        .is_err()
         || strip_git_remotes(&staging).await.is_err()
         || tokio::fs::rename(&staging, cached).await.is_err()
     {
@@ -1296,12 +1318,6 @@ const NSJAIL_CONFIG_RUN_DBT_CONTENT: &str = include_str!("../nsjail/run.dbt.conf
 /// script metadata — `LD_PRELOAD` naming a library from the checkout would be
 /// loaded by the dynamic linker as the worker, before isolation exists. The
 /// jail profile carries them to the child instead (see `sandbox_config`).
-fn with_invocation_env(cmd: &mut Command, p: &PreparedProject, inv: &Invocation) {
-    if p.sandbox_config.is_none() {
-        cmd.envs(&inv.envs);
-    }
-}
-
 pub fn dbt_command(p: &PreparedProject, args: &[&str]) -> Command {
     let mut cmd = match p.sandbox_config.as_ref().map(|c| c.path()) {
         Some(config) => {
@@ -1327,13 +1343,15 @@ pub fn dbt_command(p: &PreparedProject, args: &[&str]) -> Command {
         .env("PATH", PATH_ENV.as_str())
         .env("TZ", TZ_ENV.as_str())
         .env("GIT_PATH", GIT_PATH.as_str());
-    // The descriptor's environment is the PROJECT's, so under a sandbox it
-    // reaches the child through the jail profile instead of this process.
-    // Placing it here would hand it to the dynamic loader that execs nsjail
-    // itself — `LD_PRELOAD` naming a library from the checkout would then run
-    // as the worker, before any isolation exists.
+    // The descriptor's environment is the PROJECT's, and the invocation's is
+    // the script's; both belong to the child. Under a sandbox they reach it
+    // through the jail profile instead of this process, because placing them
+    // here would hand them to the dynamic loader that execs nsjail itself —
+    // `LD_PRELOAD` naming a library from the project would then run as the
+    // worker, before any isolation exists.
     if p.sandbox_config.is_none() {
         cmd.envs(p.env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+        cmd.envs(p.invocation_env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
     }
     cmd.args(args)
         .arg("--profiles-dir")
@@ -1342,7 +1360,9 @@ pub fn dbt_command(p: &PreparedProject, args: &[&str]) -> Command {
         // `target-path` in `dbt_project.yml`, and every artifact this runtime
         // reads — the graph, the per-node results, the retry state — is found
         // by path, so the location is Windmill's to decide. As an env var
-        // rather than `--target-path`, which `dbt deps` rejects outright.
+        // rather than `--target-path`, which `dbt deps` rejects outright. Set
+        // last so neither environment above can displace it, belt to the
+        // braces of `reject_reserved_env`.
         .env("DBT_TARGET_PATH", ARTIFACTS_DIR);
     cmd
 }
@@ -1450,7 +1470,6 @@ async fn run_dbt(
     deadline: JobDeadline,
 ) -> error::Result<()> {
     let mut cmd = dbt_command(p, &[command]);
-    with_invocation_env(&mut cmd, p, inv);
     // The console stays human-readable and goes straight to the job log; the
     // machine-readable copy goes to a file the progress reporter tails, so
     // neither purpose degrades the other.
@@ -2129,7 +2148,6 @@ async fn resolve_selection(
         return Ok(None);
     }
     let mut cmd = dbt_command(p, &["ls"]);
-    with_invocation_env(&mut cmd, p, inv);
     // A project whose models call `var()` without a default fails to parse
     // without these, so the selection resolver needs them exactly as the run
     // does. Placeholders that only a run can fill are dropped rather than
@@ -2268,7 +2286,6 @@ async fn run_dbt_parse(
     conn: &Connection,
 ) -> error::Result<()> {
     let mut cmd = dbt_command(p, &["parse"]);
-    with_invocation_env(&mut cmd, p, inv);
     add_vars(&mut cmd, descriptor, inv)?;
     run_prep_command(p, cmd, "dbt parse", ctx, job_id, w_id, conn).await
 }
@@ -2701,24 +2718,50 @@ pub(crate) fn digest(s: &str) -> String {
     format!("{:x}", h.finalize())[..32].to_string()
 }
 
-async fn copy_dir(from: &Path, to: &Path) -> error::Result<()> {
+fn copy_dir_command(from: &Path, to: &Path) -> Command {
+    let mut cmd = Command::new("cp");
+    cmd.arg("-a").arg(format!("{}/.", from.display())).arg(to);
+    cmd
+}
+
+/// Copy a package tree, bounded by the job.
+///
+/// The tree is the project's, so its size is not ours to assume: run it under
+/// the poller like every other phase, or a cancelled or timed-out job keeps its
+/// worker slot until `cp` finishes on its own.
+async fn copy_dir_watched(
+    from: &Path,
+    to: &Path,
+    label: &str,
+    ctx: &mut JobCtx<'_>,
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> error::Result<()> {
     tokio::fs::create_dir_all(to)
         .await
         .map_err(|e| Error::internal_err(format!("creating {to:?}: {e}")))?;
-    let out = Command::new("cp")
-        .arg("-a")
-        .arg(format!("{}/.", from.display()))
-        .arg(to)
-        .output()
-        .await
-        .map_err(|e| Error::internal_err(format!("copying {from:?}: {e}")))?;
-    if !out.status.success() {
-        return Err(Error::internal_err(format!(
-            "copying {from:?} to {to:?}: {}",
-            String::from_utf8_lossy(&out.stderr)
-        )));
-    }
-    Ok(())
+    let mut cmd = copy_dir_command(from, to);
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let child = start_child_process(cmd, "cp", false).await?;
+    handle_child(
+        job_id,
+        conn,
+        ctx.mem_peak,
+        ctx.canceled_by,
+        child,
+        false,
+        ctx.worker_name,
+        w_id,
+        label,
+        ctx.timeout(),
+        false,
+        &mut Some(ctx.occupancy_metrics),
+        None,
+        None,
+    )
+    .await
+    .map(|_| ())
 }
 
 #[cfg(test)]
