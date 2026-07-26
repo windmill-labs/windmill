@@ -576,7 +576,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 				// The pre-keystroke DOM is gone by the time `input` fires: use the frame
 				// taken on the pointerdown that focused the field, or on the keydown
 				// that produced this character.
-				const before = pointerFrameFor(el) ?? keyFrameFor(el) ?? capture(el)
+				const pointerBefore = pointerFrameFor(el)
+				const keyBefore = keyFrameFor(el)
+				const before = pointerBefore ?? keyBefore ?? capture(el)
 				// Arming a fill is the start of an interaction even though no step exists
 				// yet, so the previous one has to be closed out here too. Typing changes
 				// the `value` *property*, which the observer cannot see, so its settle
@@ -602,7 +604,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			// `change` fires after the control already holds its new value, so a
 			// snapshot taken here is the outcome, not the interaction. Only a frame
 			// taken before the key or pointer that caused it will do.
-			const before = pointerFrameFor(el) ?? keyFrameFor(el)
+			const pointerBefore = pointerFrameFor(el)
+			const keyBefore = keyFrameFor(el)
+			const before = pointerBefore ?? keyBefore
 			// NOT cleared here: `pushStep` spends exactly the frame it used, and needs
 			// this one still pending to recognise it as this interaction's pre-state
 			// when settling the step before it.
@@ -610,8 +614,13 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			// Interaction is the state before the gesture started. A discrete control
 			// consumes it, so its next activation snapshots afresh.
 			// Only a browser-generated repeat continues a step; two deliberate presses
-			// are two interactions even when they land inside the window.
-			const keyDriven = keyFrameFor(el) !== undefined && !!pendingKey?.repeat
+			// are two interactions even when they land inside the window. Read from the
+			// frame this change actually starts from, not merely from a key frame
+			// existing: a held key leaves `repeat` set until something else replaces it,
+			// so a later pointer takeover of the same control would otherwise inherit
+			// the flag and fold a separate interaction into the finished gesture.
+			const keyDriven =
+				pointerBefore === undefined && keyBefore !== undefined && !!pendingKey?.repeat
 			if (isTag(el, 'SELECT')) {
 				const options = Array.from((el as HTMLSelectElement).selectedOptions)
 				const selected = options.map((o) => o.label || o.value).join(', ')
