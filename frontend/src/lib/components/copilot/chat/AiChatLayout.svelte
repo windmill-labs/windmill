@@ -60,7 +60,13 @@
 	let aiChat: AiChat | undefined = $state(undefined)
 
 	async function handleAiShortcut(e: KeyboardEvent) {
-		if (disableAi || !(e.ctrlKey || e.metaKey) || !e.shiftKey || e.key.toLowerCase() !== 'l') {
+		if (
+			e.repeat ||
+			disableAi ||
+			!(e.ctrlKey || e.metaKey) ||
+			!e.shiftKey ||
+			e.key.toLowerCase() !== 'l'
+		) {
 			return
 		}
 
