@@ -269,12 +269,15 @@
 	})
 	// Land on the code, since that is what the step *is* — but fall back to Output
 	// when the recording carries none, so a recording made before `codes` existed
-	// does not open on an empty pane. Re-runs per selected step, so a tab the
-	// viewer picked by hand survives until they move to another step.
+	// does not open on an empty pane. Depends on the selected path alone: the
+	// lookup is untracked so a tab the viewer picked by hand survives until they
+	// move to another step, rather than resetting if the recording object changes.
 	$effect(() => {
 		const path = selection?.kind === 'runnable' ? selection.path : undefined
 		if (path === undefined) return
-		runnableTab = recording.codes?.[path] ? 'code' : 'output'
+		untrack(() => {
+			runnableTab = recording.codes?.[path] ? 'code' : 'output'
+		})
 	})
 
 	// Recorded data-sample for a selected asset node (ducklake/datatable).
