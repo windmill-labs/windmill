@@ -64,7 +64,8 @@ export function scriptLangToEditorLang(
 	} else if (lang == 'rlang') {
 		return 'r'
 	} else if (lang == 'dbt') {
-		// the descriptor is YAML; the dbt project itself lives in a git repo
+		// the script content is the YAML descriptor; the project's own files ride
+		// with it as its module bundle
 		return 'yaml'
 		// for related places search: ADD_NEW_LANG
 	} else if (lang == undefined) {
@@ -184,7 +185,18 @@ export function processLangs(selected: string | undefined, langs: string[]): str
 		let ls = langs.filter((lang) => lang !== 'nativets')
 
 		//those languages are newer and may not be in the saved list
-		let nl = ['bunnative', 'rust', 'ansible', 'csharp', 'nu', 'java', 'duckdb', 'ruby', 'rlang', 'dbt']
+		let nl = [
+			'bunnative',
+			'rust',
+			'ansible',
+			'csharp',
+			'nu',
+			'java',
+			'duckdb',
+			'ruby',
+			'rlang',
+			'dbt'
+		]
 		// for related places search: ADD_NEW_LANG
 		nl.forEach((lang) => {
 			if (!ls.includes(lang)) {

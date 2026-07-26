@@ -47,8 +47,7 @@ use crate::{
 /// fallback for the (invalid) case where it declares none.
 const FALLBACK_PROFILE_NAME: &str = "windmill";
 
-/// Written to the script's lockfile at deploy. `commit` is empty under
-/// `ref: latest`, which resolves HEAD per run by design (decision 5/12).
+/// Written to the script's lockfile at deploy.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct DbtDependencyLocks {
     /// The `<schema>/<database>` the profile resolved to at deploy. The
@@ -139,6 +138,7 @@ pub async fn handle_dbt_job(
     inner_content: &str,
     envs: HashMap<String, String>,
     occupancy_metrics: &mut OccupancyMetrics,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> error::Result<Box<RawValue>> {
     let descriptor = parse_dbt_descriptor(inner_content)?;
     let locks: Option<DbtDependencyLocks> =
@@ -167,9 +167,7 @@ pub async fn handle_dbt_job(
         occupancy_metrics,
         deadline,
         &envs,
-        // The generic job path already wrote this script's modules into the job
-        // directory before dispatching here.
-        None,
+        modules,
     )
     .await?;
 
@@ -325,17 +323,17 @@ pub async fn handle_dbt_job(
     }
 }
 
-/// Deploy-time lock: resolve the ref to a commit, clone it, and parse the
-/// project so its models land in the asset graph before it has ever run.
+/// Deploy-time lock: materialise the script's project and parse it, so its
+/// models land in the asset graph before it has ever run.
 ///
 /// This is the one place where dbt does not fit the shape every other language
 /// uses. `parse_assets_for_lang` is a pure function of the script content, and
-/// dbt's assets are not derivable from the descriptor — they need a clone and a
-/// dbt invocation. So the dependency job, which already runs on a worker with
-/// git and the engine available, does the parse and writes the `asset` rows
+/// dbt's assets are not derivable from the descriptor — they need the project
+/// on disk and a dbt invocation. So the dependency job, which already runs on a
+/// worker with the engine available, does the parse and writes the `asset` rows
 /// itself; `parse_assets_for_lang` returns `None` for dbt and leaves them
-/// alone. That also makes redeploy the graph-refresh mechanism for pinned refs,
-/// with no separate concept (docs/dbt-runtime.md, decision 12).
+/// alone. That also makes redeploy the graph-refresh mechanism, with no
+/// separate concept (docs/dbt-runtime.md, decision 12).
 #[allow(clippy::too_many_arguments)]
 pub async fn dbt_dep(
     content: &str,
@@ -558,10 +556,10 @@ pub struct PreparedProject {
     /// A var that can steer what the project produces makes the deploy-time
     /// graph a guess, so each run re-ingests its own manifest.
     pub graph_is_per_run: bool,
-    /// Digest of the project's own files. This is what a commit hash used to be:
-    /// the identity of the code that runs. It keys the package cache (a
-    /// `local:` dependency's content appears in no manifest) and gates retry
-    /// state, so a project edited between attempts cannot resume the old one.
+    /// Digest of the project's own files: the identity of the code that runs.
+    /// It keys the package cache (a `local:` dependency's content appears in no
+    /// manifest) and gates retry state, so a project edited between attempts
+    /// cannot resume the old one.
     pub project_digest: String,
     /// Windmill resource path of the warehouse, the `<resource_path>` component
     /// of every `table://` asset this project produces. `None` when the project
@@ -683,11 +681,10 @@ pub async fn prepare_project(
     // The script's files: the dbt project itself.
     modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> error::Result<PreparedProject> {
-    // The project IS this script's files. The generic job path writes a
-    // script's modules into the job directory before the executor runs, so a
-    // run already has the tree; a dependency job writes them itself (it has no
-    // such step). Either way nothing is cloned: no repository resource, no ref
-    // to resolve, no commit to pin, no credential, no clone cache.
+    // The project IS this script's files. Nothing is fetched: the bundle is the
+    // project. A dependency job has no generic module-writing step, so it does
+    // the writing here; a run rewrites the same bytes, which costs nothing next
+    // to the dbt invocations that follow.
     if let Some(modules) = modules {
         write_module_files(job_dir, modules, None).await?;
     }
@@ -776,8 +773,8 @@ pub async fn prepare_project(
                     &escape_textproto(&project_dir.to_string_lossy()),
                 )
                 // The engine's own directory, NOT the cache root: its siblings
-                // are other workspaces' checkouts and package trees, kept apart
-                // by cache key rather than by permissions.
+                // are other workspaces' package trees, kept apart by cache key
+                // rather than by permissions.
                 .replace(
                     "{ENGINE_DIR}",
                     &escape_textproto(&engine.root.to_string_lossy()),
@@ -808,8 +805,8 @@ pub async fn prepare_project(
         )
         // Fail the job rather than fall back: a `None` here means every
         // project-controlled phase would run unsandboxed on a worker configured
-        // to isolate them, and a repository can make this write fail on purpose
-        // by filling the job filesystem first.
+        // to isolate them, and a project can make this write fail on purpose by
+        // filling the job filesystem first.
         .map_err(|e| {
             Error::internal_err(format!("could not write the dbt sandbox profile: {e}"))
         })?;
@@ -818,21 +815,7 @@ pub async fn prepare_project(
         None
     };
 
-    // Sorted, so the digest depends on the files rather than on map ordering.
-    let project_digest = {
-        let mut names: Vec<&String> = modules.map(|m| m.keys().collect()).unwrap_or_default();
-        names.sort();
-        let mut h = Sha256::new();
-        for name in names {
-            h.update(name.as_bytes());
-            h.update([0u8]);
-            if let Some(m) = modules.and_then(|m| m.get(name)) {
-                h.update(m.content.as_bytes());
-            }
-            h.update([0u8]);
-        }
-        format!("{:x}", h.finalize())[..32].to_string()
-    };
+    let project_digest = project_digest(modules);
 
     let mut prepared = PreparedProject {
         project_digest,
@@ -909,6 +892,31 @@ pub async fn prepare_project(
     install_packages(&prepared, &mut ctx, job_id, w_id, conn).await?;
     Ok(prepared)
 }
+/// Identity of the project's own files: what the run reproduces, and what a
+/// retry must match to be allowed to resume.
+///
+/// Sorted, so it depends on the files rather than on map ordering: a digest
+/// that moved between two runs of one project would evict the package cache
+/// every time and reject every retry. Every caller must pass the bundle; an
+/// empty one collapses every project in the workspace onto one digest, which
+/// silently lets a retry resume a DIFFERENT project's `run_results.json`.
+fn project_digest(
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
+) -> String {
+    let mut names: Vec<&String> = modules.map(|m| m.keys().collect()).unwrap_or_default();
+    names.sort();
+    let mut h = Sha256::new();
+    for name in names {
+        h.update(name.as_bytes());
+        h.update([0u8]);
+        if let Some(m) = modules.and_then(|m| m.get(name)) {
+            h.update(m.content.as_bytes());
+        }
+        h.update([0u8]);
+    }
+    format!("{:x}", h.finalize())[..32].to_string()
+}
+
 
 /// Resolve `$var:<path>` values in the descriptor's `env`. This is the only way
 /// a project using its own `profiles.yml` can get a secret into
@@ -2290,8 +2298,8 @@ fn state_dir(w_id: &str, script_path: &str) -> PathBuf {
 async fn save_run_state(
     p: &PreparedProject,
     w_id: &str,
-    // Scopes the staging directory. Keyed by commit, two concurrent runs of one
-    // script would stage into the same place and publish a mixture.
+    // Scopes the staging directory. Keyed by project digest, two concurrent
+    // runs of one script would stage into the same place and publish a mixture.
     job_id: &Uuid,
     inv: &Invocation,
 ) -> error::Result<()> {
@@ -2435,8 +2443,8 @@ impl Invocation {
 /// same thing rather than replaying failures somewhere else.
 #[derive(Serialize, Deserialize, Debug, Default)]
 struct SavedRunState {
-    /// Repo, project, commit, warehouse and engine — everything that decides
-    /// which relations the restored `run_results.json` describes.
+    /// Project digest, warehouse and engine — everything that decides which
+    /// relations the restored `run_results.json` describes.
     identity: String,
     /// The invocation's job arguments, as raw JSON per key. `dbt retry` reuses
     /// the original selection and vars, so refreshing the graph for it needs
@@ -2490,8 +2498,8 @@ async fn restore_run_state(
         .unwrap_or_default();
     if saved.identity != format!("{}|{:x}", p.run_identity(), inv.env_digest()) {
         return Err(Error::BadRequest(
-            "the last dbt run on this worker was a different project, commit, warehouse or \
-             engine, so its failures do not describe this one; run the script normally instead"
+            "the last dbt run on this worker was a different project, warehouse or engine, so \
+             its failures do not describe this one; run the script normally instead"
                 .to_string(),
         ));
     }
@@ -2894,8 +2902,8 @@ mod tests {
 
     // `dbt retry` restores the previous run's target/ from this directory. Two
     // dbt scripts in one workspace must not share it, or a retry resumes
-    // another project's run_results.json against this project's checkout — and
-    // an empty script_path is exactly how that happened.
+    // another project's run_results.json against this project — and an empty
+    // script_path is exactly how that happened.
     // dbt vars are typed, and Jinja treats the string "false" as truthy. A var
     // that IS a placeholder must therefore carry the argument's own type
     // through, while one embedded in text stays the string it interpolates to.
@@ -2915,6 +2923,39 @@ mod tests {
         assert_eq!(vars["strict"], serde_json::json!(false));
         assert_eq!(vars["n"], serde_json::json!(7));
         assert_eq!(vars["label"], serde_json::json!("run-nightly"));
+    }
+
+    // The digest gates the retry state and keys the package cache, so a value
+    // that depends on map ordering would evict and reject on every run, and one
+    // that ignores content would let an edited project resume the previous
+    // attempt's failures against models it no longer builds.
+    #[test]
+    fn the_project_digest_is_content_addressed_and_order_free() {
+        use windmill_common::scripts::{ScriptLang, ScriptModule};
+        let m = |pairs: &[(&str, &str)]| {
+            pairs
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        k.to_string(),
+                        ScriptModule {
+                            content: v.to_string(),
+                            language: ScriptLang::Dbt,
+                            lock: None,
+                        },
+                    )
+                })
+                .collect::<HashMap<_, _>>()
+        };
+        let a = m(&[("models/a.sql", "select 1"), ("dbt_project.yml", "name: p")]);
+        let b = m(&[("dbt_project.yml", "name: p"), ("models/a.sql", "select 1")]);
+        assert_eq!(project_digest(Some(&a)), project_digest(Some(&b)));
+        let edited = m(&[("models/a.sql", "select 2"), ("dbt_project.yml", "name: p")]);
+        assert_ne!(project_digest(Some(&a)), project_digest(Some(&edited)));
+        // A file renamed with the same body is a different project too: the
+        // separators keep `ab|c` from digesting the same as `a|bc`.
+        let renamed = m(&[("models/b.sql", "select 1"), ("dbt_project.yml", "name: p")]);
+        assert_ne!(project_digest(Some(&a)), project_digest(Some(&renamed)));
     }
 
     #[test]

@@ -97,7 +97,7 @@ pub struct ManifestNode {
     /// this; `compiled_code` needs a `dbt compile`, which no phase here runs.
     #[serde(default)]
     pub raw_code: Option<String>,
-    /// Where the model lives in the repo, e.g. `models/staging/stg_orders.sql`.
+    /// Its path inside the dbt project, e.g. `models/staging/stg_orders.sql`.
     #[serde(default)]
     pub original_file_path: Option<String>,
 }
@@ -165,8 +165,8 @@ pub struct IngestedNode {
     pub attached_node: Option<String>,
     pub columns: Option<serde_json::Value>,
     pub freshness: Option<serde_json::Value>,
-    /// The transform itself, for the graph to render. Read-only: the model
-    /// lives in the repo, and Windmill holds the commit, not the file.
+    /// The transform itself, for the graph to render. The copy taken at
+    /// deploy: the file itself is in the script's module bundle.
     pub raw_code: Option<String>,
     pub original_file_path: Option<String>,
 }
@@ -292,8 +292,8 @@ pub fn table_asset_path(
 /// scopes what this script is recorded as owning: a script that builds only
 /// `tag:nightly` must not register as the producer of every other model, or the
 /// cascade fires downstream of models it never touched. Running several scripts
-/// against one repo with different selections is the intended shape
-/// (docs/dbt-runtime.md, decision 6), and this is what makes them compose.
+/// with different selections is the intended shape (docs/dbt-runtime.md,
+/// decision 6), and this is what makes them compose.
 pub fn ingest_manifest(
     manifest: &Manifest,
     resource_path: &str,

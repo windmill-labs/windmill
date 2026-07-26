@@ -74,7 +74,7 @@ mount {
 
 {TMP_MOUNT_BLOCK}
 
-# The job's own directory: the checkout, the rendered profile, the artifacts
+# The job's own directory: the project, the rendered profile, the artifacts
 # dbt writes and the logs the progress reporter tails all live under it.
 mount {
     src: "{JOB_DIR}"

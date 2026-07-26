@@ -1051,7 +1051,17 @@ const _: () = {
             let content = src.get_utf8("code.txt")?;
             let lock = src.get_utf8("lock.txt").ok();
             let meta = src.get_json("info.json").ok();
-            Ok(Self { content, lock, meta, modules: None })
+            // A script's modules are part of what it IS: dropping them here
+            // makes the first fetch (which goes to the database) behave
+            // differently from every later one, so a worker restart silently
+            // starts running the script without its own files.
+            //
+            // Always present, even for a script with none, so an entry written
+            // before modules were cached fails to import and is refetched
+            // rather than serving a script stripped of its own files forever.
+            let modules: Option<std::collections::HashMap<String, ScriptModule>> =
+                src.get_json("modules.json")?;
+            Ok(Self { content, lock, meta, modules })
         }
     }
 
@@ -1067,6 +1077,7 @@ const _: () = {
             if let Some(lock) = self.lock.as_ref() {
                 dst.put("lock.txt", lock.as_bytes())?;
             }
+            dst.put("modules.json", serde_json::to_vec(&self.modules)?)?;
             Ok(())
         }
     }
@@ -1276,6 +1287,41 @@ mod tests {
             .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
             .collect();
         assert!(leftover.is_empty(), "temp files must be renamed/cleaned up");
+    }
+
+    // The first fetch of a script goes to the database, every later one to this
+    // directory. A module lost in between makes a worker restart silently start
+    // running the script without its own files — for dbt, without its project.
+    #[test]
+    fn a_scripts_modules_survive_the_file_system_cache() {
+        use crate::scripts::ScriptModule;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        let data = ScriptData {
+            code: "profile: {}".to_string(),
+            lock: None,
+            modules: Some(std::collections::HashMap::from([(
+                "dbt_project.yml".to_string(),
+                ScriptModule {
+                    content: "name: p".to_string(),
+                    language: ScriptLang::Dbt,
+                    lock: None,
+                },
+            )])),
+        };
+        data.export(&root).unwrap();
+        let back = ScriptData::resolve(RawScript::import(&root).unwrap()).unwrap();
+        assert_eq!(
+            back.modules.unwrap()["dbt_project.yml"].content,
+            "name: p"
+        );
+
+        // An entry written before modules were cached has no `modules.json`.
+        // It must fail to import so the caller refetches, rather than serving a
+        // script stripped of its files for as long as the directory lives.
+        std::fs::remove_file(root.join("modules.json")).unwrap();
+        assert!(RawScript::import(&root).is_err());
     }
 
     #[test]

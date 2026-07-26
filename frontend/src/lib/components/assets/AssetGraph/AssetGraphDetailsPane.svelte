@@ -432,6 +432,16 @@
 			)
 	)
 
+	// Where the selected model's file sits on disk: the producing script's
+	// module folder holds the dbt project verbatim, so this is the path a
+	// `wmill sync pull` writes and the one to edit.
+	let dbtBundlePath = $derived.by(() => {
+		const file = selectionDbt?.original_file_path
+		if (!file) return undefined
+		const producer = selectionProducers.find((p) => p.kind === 'script')
+		return producer ? `${producer.path}__dbt/${file}` : file
+	})
+
 	// Bound from ScriptEditor — populated by inferAssets on every code
 	// change. Forwarded to the page so the canvas can re-derive write
 	// edges as the user edits the body (e.g. renaming a CREATE TABLE
@@ -1223,19 +1233,20 @@
 									</div>
 								{/key}
 							{:else if selectionDbt?.raw_code}
-								<!-- The transform behind the node. Read-only on purpose: the
-								     file lives in the repo at the commit the script pins, and
-								     this is the copy taken at deploy — editing here would
-								     suggest a write path that does not exist. -->
+								<!-- The transform behind the node. Read-only on purpose: dbt
+								     development is a local loop (`dbt run --select`, `dbt test`
+								     against a dev target), and a browser textarea over one file
+								     of a project is a worse version of it. The header names the
+								     file's path in the bundle so the edit is one `cd` away. -->
 								<div class="flex flex-col h-full min-h-0">
 									<div
 										class="shrink-0 flex items-center gap-2 px-3 py-1.5 text-2xs border-b bg-surface-secondary text-secondary"
 									>
 										<DbtIcon width={11} height={11} />
 										<span class="font-mono truncate"
-											>{selectionDbt.original_file_path ?? selectionDbt.unique_id}</span
+											>{dbtBundlePath ?? selectionDbt.unique_id}</span
 										>
-										<span class="ml-auto shrink-0 opacity-70">read-only · from the repo</span>
+										<span class="ml-auto shrink-0 opacity-70">read-only · edit locally</span>
 									</div>
 									<div class="flex-1 min-h-0 overflow-auto">
 										<HighlightCode language="sql" code={selectionDbt.raw_code} />

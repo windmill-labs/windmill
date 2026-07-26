@@ -5779,6 +5779,9 @@ mount {{
                 &code,
                 envs,
                 occupancy_metrics,
+                // The project's identity is derived from these, so the dbt
+                // executor needs them even though they are already on disk.
+                modules.as_ref(),
             ))
             .await
         }

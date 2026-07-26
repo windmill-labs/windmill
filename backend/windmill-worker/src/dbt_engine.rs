@@ -51,8 +51,8 @@ pub struct ProvisionedEngine {
     /// Absolute path of the dbt binary to invoke.
     pub bin: PathBuf,
     /// The engine's own directory — the ONLY part of the cache a sandboxed job
-    /// may see. Its siblings hold other workspaces' checkouts and package
-    /// trees, which are scoped by cache key, not by permissions.
+    /// may see. Its siblings hold other workspaces' package trees, which are
+    /// scoped by cache key, not by permissions.
     pub root: PathBuf,
     pub version: String,
     pub engine: DbtEngine,
