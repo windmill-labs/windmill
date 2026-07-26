@@ -647,7 +647,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			{@render emptyHint()}
 		{:else}
 			<span class="text-2xs text-gray-500 dark:text-gray-400 text-center px-2 my-2"
-				>You can use {getModifierKey()}L to open or close this chat, and {getModifierKey()}K in the
+				>You can use {getModifierKey()}⇧L to open or close this chat, and {getModifierKey()}K in the
 				script editor to modify selected lines.</span
 			>
 		{/if}

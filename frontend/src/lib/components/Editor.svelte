@@ -1686,7 +1686,7 @@
 				editor?.trigger('keyboard', 'editor.action.commentLine', {})
 			})
 
-			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyL, function () {
+			editor?.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyL, function () {
 				const selectedLines = getSelectedLines()
 				const selection = editor?.getSelection()
 				const hasSelection =

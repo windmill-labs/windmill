@@ -2659,7 +2659,7 @@
 									hidden={true}
 									direction="right"
 									panelName="AI"
-									shortcut="L"
+									shortcut="⇧L"
 									unifiedSize="sm"
 									usePopoverOverride={!$copilotInfo.enabled}
 									customHiddenIcon={{

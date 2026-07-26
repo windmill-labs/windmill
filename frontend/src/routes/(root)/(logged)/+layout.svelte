@@ -995,7 +995,7 @@
 														label="Ask AI"
 														class="!text-xs"
 														iconClasses="!text-ai"
-														shortcut={`${getModifierKey()}L`}
+														shortcut={`${getModifierKey()}⇧L`}
 													/>
 												{/if}
 											</div>
@@ -1128,7 +1128,7 @@
 												label="Ask AI"
 												class="!text-xs"
 												iconClasses="!text-ai"
-												shortcut={`${getModifierKey()}L`}
+												shortcut={`${getModifierKey()}⇧L`}
 											/>
 										{/if}
 									</div>
@@ -1262,7 +1262,7 @@
 									label="Ask AI"
 									class="!text-xs"
 									iconClasses="!text-ai"
-									shortcut={`${getModifierKey()}L`}
+									shortcut={`${getModifierKey()}⇧L`}
 								/>
 							</div>
 

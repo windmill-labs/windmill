@@ -112,22 +112,12 @@
 	})
 </script>
 
-<svelte:window
-	onkeydown={(e) => {
-		if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
-			e.preventDefault()
-			aiChatManager.toggleOpen()
-			aiChatDisplay?.focusInput()
-		}
-	}}
-/>
-
 {#snippet headerLeft()}
 	<HideButton
 		hidden={false}
 		direction="right"
 		panelName="AI"
-		shortcut="L"
+		shortcut="⇧L"
 		size="md"
 		on:click={() => aiChatManager.toggleOpen()}
 	/>
