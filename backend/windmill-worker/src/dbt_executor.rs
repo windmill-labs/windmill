@@ -421,64 +421,75 @@ pub async fn dbt_dep(
     );
 
     // Two deploys of one path can run concurrently — nothing serializes
-    // dependency jobs — and the graph is keyed by path, not by version. The
-    // older one finishing last would replace the newer one's nodes, assets and
-    // cascade subscriptions with a description of code that is no longer
-    // deployed, and nothing afterwards repairs it. It still returns its lock,
-    // which belongs to its own version.
-    if superseded_by_a_newer_deploy(db, job_id, w_id, script_path).await {
-        append_logs(
-            job_id,
-            w_id,
-            "\nA newer version of this script was deployed while this job ran, so the asset \
-             graph was left describing that one.\n"
-                .to_string(),
-            &conn,
-        )
-        .await;
-    } else if let Some(resource_path) = prepared.resource_path.as_deref() {
+    // dependency jobs — and the graph is keyed by path, not by version, so the
+    // publication is claimed against this job's own version. It still returns
+    // its lock, which belongs to that version.
+    let deploying_hash = deploying_script_hash(db, job_id).await;
+    let superseded = if let Some(resource_path) = prepared.resource_path.as_deref() {
         let ingested = windmill_common::dbt_manifest::ingest_manifest(
             &manifest,
             resource_path,
             prepared.default_database.as_deref(),
             selected.as_ref(),
         );
-        persist_ingest(
+        let published = persist_ingest(
             db,
             w_id,
             script_path,
             &ingested,
             &DescriptorTriggers::parse(content),
             &prepared.relation_root(),
+            deploying_hash,
         )
         .await?;
-        append_logs(
-            job_id,
-            w_id,
-            format!(
-                "\nIngested {} dbt nodes and {} edges into the asset graph\n",
-                ingested.nodes.len(),
-                ingested.edges.len()
-            ),
-            &conn,
-        )
-        .await;
+        if published {
+            append_logs(
+                job_id,
+                w_id,
+                format!(
+                    "\nIngested {} dbt nodes and {} edges into the asset graph\n",
+                    ingested.nodes.len(),
+                    ingested.edges.len()
+                ),
+                &conn,
+            )
+            .await;
+        }
+        !published
     } else {
         // No warehouse identity, so nothing can be ingested — but the previous
         // deploy's rows must still go. Leaving them means a descriptor edited
         // to use its own profiles.yml keeps claiming ownership of relations it
         // no longer describes, and keeps cascading from them.
+        // The clear is a publication too — a newer deploy's graph must not be
+        // wiped by an older job that no longer describes the script.
         let mut tx = db.begin().await?;
-        windmill_common::dbt_manifest::clear_dbt_manifest(&mut tx, w_id, script_path).await?;
-        windmill_common::assets::replace_static_asset_usage(&mut tx, w_id, script_path, &[])
-            .await?;
-        tx.commit().await?;
+        let published =
+            claim_graph_publication(&mut tx, w_id, script_path, deploying_hash).await?;
+        if published {
+            windmill_common::dbt_manifest::clear_dbt_manifest(&mut tx, w_id, script_path).await?;
+            windmill_common::assets::replace_static_asset_usage(&mut tx, w_id, script_path, &[])
+                .await?;
+            tx.commit().await?;
+            append_logs(
+                job_id,
+                w_id,
+                "\nNo asset-graph ingest: the descriptor declares no `profile.resource`, so \
+                 there is no warehouse identity to key `table://` assets on. Any previously \
+                 ingested nodes for this script have been cleared.\n"
+                    .to_string(),
+                &conn,
+            )
+            .await;
+        }
+        !published
+    };
+    if superseded {
         append_logs(
             job_id,
             w_id,
-            "\nNo asset-graph ingest: the descriptor declares no `profile.resource`, so there \
-             is no warehouse identity to key `table://` assets on. Any previously ingested \
-             nodes for this script have been cleared.\n"
+            "\nA newer version of this script was deployed while this job ran, so the asset \
+             graph was left describing that one.\n"
                 .to_string(),
             &conn,
         )
@@ -503,33 +514,15 @@ pub async fn dbt_dep(
     .map_err(|e| Error::internal_err(format!("serializing the dbt lockfile: {e}")))
 }
 
-/// Whether a newer version of this script has been created since this
-/// dependency job's own. The lock predicate `get_latest_script_hash` uses is
-/// not usable here: the version being deployed has no lock yet, so it would
-/// name the PREVIOUS version and every deploy would look superseded.
-async fn superseded_by_a_newer_deploy(
-    db: &sqlx::Pool<sqlx::Postgres>,
-    job_id: &Uuid,
-    w_id: &str,
-    script_path: &str,
-) -> bool {
-    let Ok(Some(mine)) = sqlx::query_scalar!("SELECT runnable_id FROM v2_job WHERE id = $1", job_id)
+/// The script version this dependency job is deploying. `None` for a raw
+/// dependency job (the CLI's lock generation), which has no script row.
+async fn deploying_script_hash(db: &sqlx::Pool<sqlx::Postgres>, job_id: &Uuid) -> Option<i64> {
+    sqlx::query_scalar!("SELECT runnable_id FROM v2_job WHERE id = $1", job_id)
         .fetch_optional(db)
         .await
-    else {
-        // A raw dependency job (the CLI's lock generation) has no script row to
-        // compare against and publishes as before.
-        return false;
-    };
-    let latest = sqlx::query_scalar!(
-        "SELECT hash FROM script WHERE workspace_id = $1 AND path = $2 AND deleted = false \
-         ORDER BY created_at DESC LIMIT 1",
-        w_id,
-        script_path
-    )
-    .fetch_optional(db)
-    .await;
-    matches!((mine, latest), (Some(mine), Ok(Some(latest))) if mine != latest)
+        .ok()
+        .flatten()
+        .flatten()
 }
 
 pub struct PreparedProject {
@@ -1881,6 +1874,9 @@ async fn ingest_from_run(
         p.default_database.as_deref(),
         selected.as_ref(),
     );
+    // A run refreshes the graph of the version it IS, so it always publishes:
+    // it was pulled for the hash it runs, and a newer deploy's own dependency
+    // job publishes after it.
     persist_ingest(
         db,
         &job.workspace_id,
@@ -1888,6 +1884,7 @@ async fn ingest_from_run(
         &ingested,
         &DescriptorTriggers::parse(&p.descriptor_content),
         &p.relation_root(),
+        None,
     )
     .await?;
     // Synchronously, not through the notify poller: dispatch for THIS job runs
@@ -1957,6 +1954,12 @@ impl DescriptorTriggers {
 /// dependency job produces afterwards. Without them a project split across
 /// scripts renders its upstream read edges and never actually cascades along
 /// them, which is decision 6's whole point.
+/// Replace this script's graph, unless a newer version of it has been deployed.
+///
+/// Returns whether it published. The check runs inside the same transaction as
+/// the writes and behind a lock every publisher for this path takes: checking
+/// first and writing after leaves a window where a newer job publishes in
+/// between and the older one overwrites it, which no later job repairs.
 async fn persist_ingest(
     db: &sqlx::Pool<sqlx::Postgres>,
     w_id: &str,
@@ -1964,9 +1967,15 @@ async fn persist_ingest(
     ingested: &windmill_common::dbt_manifest::IngestedManifest,
     annotations: &DescriptorTriggers,
     relation_root: &str,
-) -> error::Result<()> {
+    // The version being deployed. `None` for a raw dependency job (the CLI's
+    // lock generation), which has no script row to compare against.
+    deploying_hash: Option<i64>,
+) -> error::Result<bool> {
     use windmill_common::assets::{AssetUsageKind, ScriptTriggerKind};
     let mut tx = db.begin().await?;
+    if !claim_graph_publication(&mut tx, w_id, script_path, deploying_hash).await? {
+        return Ok(false);
+    }
     windmill_common::dbt_manifest::replace_dbt_manifest(
         &mut tx,
         w_id,
@@ -2025,7 +2034,40 @@ async fn persist_ingest(
         .await?;
     }
     tx.commit().await?;
-    Ok(())
+    Ok(true)
+}
+
+/// Serialize publishers for one script path and confirm this job's version is
+/// still the newest. Both happen inside the caller's transaction, so a newer
+/// publisher either commits before this check sees it, or waits behind it and
+/// overwrites afterwards — which is the correct order either way.
+async fn claim_graph_publication(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
+    script_path: &str,
+    deploying_hash: Option<i64>,
+) -> error::Result<bool> {
+    sqlx::query!(
+        "SELECT pg_advisory_xact_lock(hashtext($1))",
+        format!("dbt_graph:{w_id}:{script_path}")
+    )
+    .execute(&mut **tx)
+    .await?;
+    let Some(mine) = deploying_hash else {
+        return Ok(true);
+    };
+    // Not `get_latest_script_hash`: its `lock IS NOT NULL` predicate names the
+    // PREVIOUS version while this one is being deployed, so every deploy would
+    // look superseded.
+    let latest = sqlx::query_scalar!(
+        "SELECT hash FROM script WHERE workspace_id = $1 AND path = $2 AND deleted = false \
+         ORDER BY created_at DESC LIMIT 1",
+        w_id,
+        script_path
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(latest.is_none_or(|latest| latest == mine))
 }
 
 /// The node set the descriptor's selection resolves to, or `None` when it

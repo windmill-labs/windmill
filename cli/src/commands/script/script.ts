@@ -509,7 +509,11 @@ export async function handleFile(
       path: remotePath.replaceAll(SEP, "/"),
       summary: typed?.summary ?? "",
       kind: typed?.kind,
-      lock: typed?.lock,
+      // A dbt lock pins a resolved commit and engine versions that only a
+      // dependency job can determine, and that job is also what publishes the
+      // script's manifest graph. Sending one suppresses that job, so the push
+      // would deploy a stale lock AND leave the graph unpublished.
+      lock: language === "dbt" ? undefined : typed?.lock,
       schema: typed?.schema,
       tag: typed?.tag,
       ws_error_handler_muted: typed?.ws_error_handler_muted,
