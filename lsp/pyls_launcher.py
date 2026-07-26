@@ -18,9 +18,8 @@ log = logging.getLogger(__name__)
 logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
-# Named explicitly by the python editor in its LSP initializationOptions (see
-# Editor.svelte), which must stay in sync: ruff never discovers this file on its
-# own, since the editor registers the document URI as the workspace folder.
+# Named explicitly by the python editor's ruff initializationOptions, which must
+# stay in sync with this path (Editor.svelte explains why ruff needs it named).
 RUFF_CONFIG_PATH = "/tmp/monaco/ruff.toml"
 # How often to re-fetch the instance ruff config from the backend. Existing
 # ruff server processes won't pick up the change mid-session, but the next
