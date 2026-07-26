@@ -42,7 +42,7 @@ export type RawAppInteractionKind = (typeof RAW_APP_INTERACTION_KINDS)[number]
  * own URL: once its rules move into a `<style>` in the document, a relative
  * reference would otherwise resolve against the document instead of the sheet. */
 export function rewriteCssUrls(css: string, sheetHref: string): string {
-	return css.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g, (match, quote: string, raw: string) => {
+	const resolve = (match: string, quote: string, raw: string) => {
 		const url = raw.trim()
 		if (!url || /^(data:|blob:|about:|https?:|\/\/|#)/i.test(url)) return match
 		try {
@@ -50,7 +50,48 @@ export function rewriteCssUrls(css: string, sheetHref: string): string {
 		} catch (_) {
 			return match
 		}
-	})
+	}
+	// Only real url() tokens: `content: "url(x.svg)"` is a string the replay must
+	// render verbatim, so strings (and comments, which can hold anything) are
+	// copied through and never scanned.
+	let out = ''
+	let i = 0
+	while (i < css.length) {
+		const ch = css[i]
+		if (ch === '"' || ch === "'") {
+			const end = skipString(css, i)
+			out += css.slice(i, end)
+			i = end
+		} else if (ch === '/' && css[i + 1] === '*') {
+			const end = css.indexOf('*/', i + 2)
+			const stop = end === -1 ? css.length : end + 2
+			out += css.slice(i, stop)
+			i = stop
+		} else {
+			const m = /^url\(\s*(['"]?)([^'")]+)\1\s*\)/i.exec(css.slice(i))
+			if (m) {
+				out += resolve(m[0], m[1], m[2])
+				i += m[0].length
+			} else {
+				out += ch
+				i++
+			}
+		}
+	}
+	return out
+}
+
+/** Index just past the string starting at `start`, honouring CSS backslash
+ * escapes so an escaped quote does not end it early. */
+function skipString(css: string, start: number): number {
+	const quote = css[start]
+	let i = start + 1
+	while (i < css.length) {
+		if (css[i] === '\\') i += 2
+		else if (css[i] === quote) return i + 1
+		else i++
+	}
+	return css.length
 }
 
 /* The recorded document lives in another realm (the app's iframe), where
@@ -133,17 +174,18 @@ export function redactedDescription(el: Element): string {
 	return `${role} (redacted)`
 }
 
-/** A selector's identifier, escapes included: a utility framework writes a class
- * like `md:flex` as `.md\:flex` and `w-1/2` as `.w-1\/2`, so stopping at the
- * backslash would read the token as `md` and drop the real one — costing a
- * redacted placeholder the styling it is kept around for. */
-const CLASS_SELECTOR = /\.(-?[_a-zA-Z][\w-]*(?:\\.[\w-]*)*)/g
-const ID_SELECTOR = /#(-?[_a-zA-Z][\w-]*(?:\\.[\w-]*)*)/g
+/** A selector's identifier, escapes included and in any position: a utility
+ * framework writes `md:flex` as `.md\:flex` and `2xl:block` as `.\32 xl\:block`,
+ * so a matcher that stops at a backslash — or demands one before it — reads the
+ * wrong token and costs a redacted placeholder the styling it is kept for. */
+const IDENT_CHAR = String.raw`(?:[-\w\u00a0-\uffff]|\\[0-9a-fA-F]{1,6}[ \t\r\n\f]?|\\[^\r\n\f0-9a-fA-F])`
+const CLASS_SELECTOR = new RegExp(String.raw`\.(${IDENT_CHAR}+)`, 'g')
+const ID_SELECTOR = new RegExp(String.raw`#(${IDENT_CHAR}+)`, 'g')
 
 /** CSS escapes back to the literal text an attribute holds: `\:` is `:`, and a
  * hex escape (`\3a `) is its code point. */
 function unescapeCssIdent(ident: string): string {
-	return ident.replace(/\\([0-9a-fA-F]{1,6})[ \t\n]?|\\([^])/g, (_, hex, ch) =>
+	return ident.replace(/\\([0-9a-fA-F]{1,6})[ \t\r\n\f]?|\\([^])/g, (_, hex, ch) =>
 		hex ? String.fromCodePoint(parseInt(hex, 16)) : ch
 	)
 }

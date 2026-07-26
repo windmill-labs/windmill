@@ -13,6 +13,19 @@ describe('rewriteCssUrls', () => {
 		)
 	})
 
+	it('leaves url() inside a string or comment alone', () => {
+		// A quoted `url(...)` is text the replay renders verbatim, not a reference.
+		const css =
+			`.hint::before { content: "url(icon.svg)" } ` +
+			`/* url(commented.svg) */ ` +
+			`.a { background: url(real.svg) }`
+		expect(rewriteCssUrls(css, 'http://host/css/app.css')).toBe(
+			`.hint::before { content: "url(icon.svg)" } ` +
+				`/* url(commented.svg) */ ` +
+				`.a { background: url(http://host/css/real.svg) }`
+		)
+	})
+
 	it('leaves references that are already resolvable alone', () => {
 		const css = `.a { background: url(data:image/gif;base64,R0lGOD) } .b { background: url(https://cdn/x.png) }`
 		expect(rewriteCssUrls(css, 'http://localhost:3000/app.css')).toBe(css)

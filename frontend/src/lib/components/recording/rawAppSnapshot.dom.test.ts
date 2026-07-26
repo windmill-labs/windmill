@@ -158,6 +158,17 @@ describe('serializeDocument redaction', () => {
 		}
 	})
 
+	it('keeps a utility class whose selector starts with an escape', () => {
+		// `2xl:block` compiles to `.\\32 xl\\:block` and `!flex` to `.\\!flex`; demanding an
+		// ASCII first character drops both from the placeholder.
+		const doc = docFrom(
+			`<style>.\\32 xl\\:block { display: block } .\\!flex { display: flex }</style>` +
+				`<div data-wm-no-record class="2xl:block !flex">x</div>`
+		)
+		const html = serializeDocument(doc)
+		expect(html).toContain('class="2xl:block !flex"')
+	})
+
 	it('keeps a utility class whose selector is escaped', () => {
 		// A framework writes `md:flex` as `.md\\:flex`; reading the selector up to the
 		// backslash would drop the real token and leave the placeholder unstyled.
