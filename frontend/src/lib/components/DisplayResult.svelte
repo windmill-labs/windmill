@@ -45,6 +45,7 @@
 	import { getContext, hasContext, createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { toJsonStr } from '$lib/utils'
 	import { userStore } from '$lib/stores'
+	import { isOfflineReplay, isReplaying } from './recording/offlineReplay.svelte'
 	import ResultStreamDisplay from './ResultStreamDisplay.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import DOMPurify from 'dompurify'
@@ -83,6 +84,16 @@
 		| 'pdf'
 		| undefined
 	let resultKind: ResultKind = $state()
+	/** Kinds whose renderer leaves the page: S3/ducklake previews fetch the file or
+	 * table, and `approval` renders buttons that `fetch` URLs carried in the result.
+	 * A recording is caller-supplied, so on the public page those would aim a
+	 * credentialed request at an arbitrary origin. */
+	const REPLAY_INERT_KINDS: ResultKind[] = ['s3object', 's3object-list', 'materialized', 'approval']
+	/** Kinds whose markup pulls subresources: DOMPurify stops scripting but keeps
+	 * `<img src>` and SVG `<image href>`, and `map` tiles are requests by
+	 * construction. Kinds absent here carry their bytes as `data:` and reach nothing.
+	 * Inert only on the public page, which promises to issue no requests. */
+	const OFFLINE_INERT_KINDS: ResultKind[] = ['markdown', 'html', 'svg', 'map']
 	let length = $state(1)
 
 	let hasBigInt = $state(false)
@@ -350,7 +361,10 @@
 						keys.includes('filename') &&
 						keys.includes('autodownload')
 					) {
-						if (result.autodownload) {
+						// Not via REPLAY_INERT_KINDS: this download is a side effect *inside* kind
+						// inference, already done by the time a caller could reclassify. Replaying
+						// must never write caller-chosen bytes into the viewer's downloads.
+						if (result.autodownload && !isReplaying()) {
 							const a = document.createElement('a')
 
 							a.href = 'data:application/octet-stream;base64,' + result.file
@@ -583,8 +597,19 @@
 
 	$effect(() => {
 		;[result]
+		const replaying = isReplaying()
+		const offlineReplay = isOfflineReplay()
 		untrack(() => {
 			resultKind = inferResultKind(result)
+			// A recording carries the result JSON, nothing the result points at, and a
+			// replay has no session to go get it: show the recorded value instead.
+			const inert =
+				(replaying && REPLAY_INERT_KINDS.includes(resultKind)) ||
+				(offlineReplay && OFFLINE_INERT_KINDS.includes(resultKind))
+			if (inert) {
+				resultKind = 'json'
+				largeObject = false
+			}
 		})
 	})
 	$effect(() => {
@@ -600,19 +625,27 @@
 		)
 	})
 
-	// Per-test breakdown of a managed `// materialize` run, rendered as a
-	// checklist above the raw result. On success it rides the result
-	// (`data_tests: [{ test, violating }]`, a one-row array). On failure the job
-	// result is the error, whose message is the worker's breakdown text — parsed
-	// back into the same shape so the checklist shows on both outcomes. Both
-	// formats are produced by this repo's worker (see duckdb_executor.rs); the
-	// derivation is inert (undefined) for every other DisplayResult use.
+	// Per-test breakdown of a managed `// materialize` run. On success it rides the
+	// result as `data_tests`; on failure the job result is the error, whose message
+	// is the worker's breakdown text, parsed back into the same shape so the
+	// checklist shows either way. Inert for every other DisplayResult use.
 	let dataTests = $derived.by(() => {
-		// Both structured shapes carry `[{ test, violating, sample? }]`; the
-		// sample (bounded violating-row rows) may arrive as a JSON string (the
-		// worker keeps it string-typed through the summary row) and is optional
-		// by contract — anything malformed degrades to no sample, never to a
-		// dropped checklist.
+		// `DataTestsResult` renders an item per entry, and the message-derived branch
+		// below builds them from *lines of text*, so no bound on the result's structure
+		// can see them. A run with this many tests is unreadable anyway, and the cap has
+		// to live where the parse happens rather than be predicted from the payload.
+		const MAX_RENDERED = 1000
+		// A per-test `sample` arrives as its own JSON string, so nothing that measures
+		// the enclosing result's structure can see inside it — parsing an 8 MB string of
+		// `{}` would allocate millions of objects before any row cap applied. Bound the
+		// text first, then the rows.
+		const MAX_SAMPLE_CHARS = 256 * 1024
+		const MAX_SAMPLE_ROWS = 1000
+		const capped = <T,>(tests: T[]): T[] =>
+			tests.length > MAX_RENDERED ? tests.slice(0, MAX_RENDERED) : tests
+		// Both shapes carry `[{ test, violating, sample? }]`. The sample may arrive as
+		// a JSON string and is optional by contract, so anything malformed degrades to
+		// no sample — never to a dropped checklist.
 		const normalize = (
 			dt: any
 		): Array<{ test: string; violating: number; sample?: Record<string, any>[] }> | undefined => {
@@ -634,13 +667,15 @@
 				let sample = x.sample
 				if (typeof sample === 'string') {
 					try {
-						sample = JSON.parse(sample)
+						sample = sample.length > MAX_SAMPLE_CHARS ? undefined : JSON.parse(sample)
 					} catch {
 						sample = undefined
 					}
 				}
 				if (!Array.isArray(sample) || !sample.every((r) => r && typeof r === 'object')) {
 					sample = undefined
+				} else if (sample.length > MAX_SAMPLE_ROWS) {
+					sample = sample.slice(0, MAX_SAMPLE_ROWS)
 				}
 				return { test: x.test, violating: x.violating, sample }
 			})
@@ -648,17 +683,18 @@
 		// Success: structured column on the summary row.
 		const row = Array.isArray(result) ? (result as any)?.[0] : (result as any)
 		const fromRow = normalize(row?.data_tests)
-		if (fromRow) return fromRow
+		if (fromRow) return capped(fromRow)
 		// Failure: the worker attaches the same structured breakdown (plus
 		// per-failed-test samples) to the error payload.
 		const fromError = normalize((result as any)?.error?.data_tests)
-		if (fromError) return fromError
+		if (fromError) return capped(fromError)
 		// Failure fallback for results predating the structured error payload:
 		// parse the worker's breakdown out of the error message.
 		const msg = (result as any)?.error?.message
 		if (typeof msg === 'string' && msg.includes('data tests failed on')) {
 			const out: Array<{ test: string; violating: number }> = []
 			for (const line of msg.split('\n')) {
+				if (out.length >= MAX_RENDERED) break
 				const fail = line.match(/^\s*✗\s*(.+?)\s*—\s*(\d+)\s+violating/)
 				const pass = line.match(/^\s*✓\s*(.+?)\s*$/)
 				if (fail) out.push({ test: fail[1], violating: parseInt(fail[2], 10) })

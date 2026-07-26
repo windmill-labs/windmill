@@ -49,6 +49,7 @@
 		"eslint-config-prettier": "^8.6.0",
 		"eslint-plugin-svelte": "^2.45.1",
 		"fake-indexeddb": "^6.2.5",
+		"jsdom": "^29.1.1",
 		"json-refs": "^3.0.15",
 		"json-schema-to-zod": "^2.7.0",
 		"path-browserify": "^1.0.1",
@@ -309,9 +310,22 @@
 			"svelte": "./package/components/recording/PipelineRecordingReplay.svelte",
 			"default": "./package/components/recording/PipelineRecordingReplay.svelte"
 		},
+		"./components/RawAppRecordingReplay.svelte": {
+			"types": "./package/components/recording/RawAppRecordingReplay.svelte.d.ts",
+			"svelte": "./package/components/recording/RawAppRecordingReplay.svelte",
+			"default": "./package/components/recording/RawAppRecordingReplay.svelte"
+		},
 		"./components/recording/types": {
 			"types": "./package/components/recording/types.d.ts",
 			"default": "./package/components/recording/types.js"
+		},
+		"./components/recording/rawAppRecordingLoad": {
+			"types": "./package/components/recording/rawAppRecordingLoad.d.ts",
+			"default": "./package/components/recording/rawAppRecordingLoad.js"
+		},
+		"./components/recording/rawAppSnapshot": {
+			"types": "./package/components/recording/rawAppSnapshot.d.ts",
+			"default": "./package/components/recording/rawAppSnapshot.js"
 		},
 		"./components/FlowWrapper.svelte": {
 			"types": "./package/components/FlowWrapper.svelte.d.ts",

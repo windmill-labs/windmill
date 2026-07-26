@@ -23318,6 +23318,40 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/hub/raw_apps/{id}/recording:
+    post:
+      summary: attach a recorded session to a hub raw app
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubRawAppRecording
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          description: hub id of the raw app
+          schema:
+            type: integer
+            format: int64
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordingBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/hub/scripts/{ask_id}/recording:
     post:
       summary: attach a recording to a hub script

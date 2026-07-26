@@ -138,8 +138,19 @@ const config = {
 					name: 'server',
 					environment: 'node',
 					include: ['src/**/*.{test,spec}.{js,ts}'],
-					exclude: ['src/**/*.svelte.{test,spec}.{js,ts}'],
+					exclude: ['src/**/*.svelte.{test,spec}.{js,ts}', 'src/**/*.dom.{test,spec}.{js,ts}'],
 					setupFiles: ['src/lib/test-setup.ts']
+				}
+			},
+			{
+				// `*.dom.test.ts` — for the pure DOM utilities (snapshot serialization,
+				// replay sanitization) whose contracts can only be asserted against a
+				// real document.
+				extends: './vite.config.js',
+				test: {
+					name: 'dom',
+					environment: 'jsdom',
+					include: ['src/**/*.dom.{test,spec}.{js,ts}']
 				}
 			}
 		]
