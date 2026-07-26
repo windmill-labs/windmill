@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE datatable_ephemeral_role SET password = $1, owner_creds = $2 WHERE role_name = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a659b5deb715850d0f67c88f4da7eee007659e60d40c7bd8de94bf191b84f28f"
+}

@@ -617,43 +617,43 @@ async fn decode_stored_target(
 }
 
 /// Ensure the caller's ephemeral role exists with up-to-date grants and a
-/// fresh sliding expiry. Returns `(role_name, cleartext_password)`.
+/// fresh sliding expiry. Returns ready-to-use connection credentials.
 /// Deliberately private: live credentials must only flow out through
 /// [`get_datatable_resource_from_db_checked`], which performs the
-/// authorization this function assumes already happened.
+/// authorization this function assumes already happened. `fast_path_hash` is
+/// the caller's grant hash, only trusted for the lock-free refresh; the slow
+/// path re-derives config, grants and target under the locks so a role is
+/// never created from state that a concurrent edit or deletion invalidated.
 async fn ensure_ephemeral_role(
     db: &DB,
     w_id: &str,
     datatable: &str,
     permissioned_as: &str,
-    owner: &PgDatabase,
-    is_instance: bool,
-    matched: &[DataTableGrant],
-    memberships: &[String],
-) -> Result<(String, String)> {
+    fast_path_hash: &str,
+) -> Result<PgDatabase> {
     let role = ephemeral_role_name(w_id, permissioned_as, datatable);
-    let hash = perms_hash(
-        w_id,
-        permissioned_as,
-        datatable,
-        &db_identity(is_instance, owner),
-        matched,
-        memberships,
-    );
 
     // Fast path: role exists with current grants — refresh the sliding expiry.
-    if let Some(encrypted) = sqlx::query_scalar!(
+    if let Some(row) = sqlx::query!(
         "UPDATE datatable_ephemeral_role SET expires_at = now() + interval '5 minutes'
          WHERE role_name = $1 AND perms_hash = $2 AND expires_at > now()
-         RETURNING password",
+         RETURNING password, owner_creds",
         &role,
-        &hash
+        fast_path_hash
     )
     .fetch_optional(db)
     .await?
     {
         let mc = build_crypt(db, w_id).await?;
-        return Ok((role, decrypt(&mc, encrypted)?));
+        let password = decrypt(&mc, row.password)?;
+        if let Some(stored) = decode_stored_target(db, w_id, row.owner_creds).await {
+            let mut pg = stored.pg;
+            pg.user = Some(role);
+            pg.password = Some(password);
+            return Ok(pg);
+        }
+        // Legacy row without a recorded target: fall through to the slow path
+        // to rebuild it.
     }
 
     // Slow path: (re)create the role under a per-role advisory lock on the
@@ -672,6 +672,44 @@ async fn ensure_ephemeral_role(
         .bind(&role)
         .execute(&mut *tx)
         .await?;
+
+    // Everything the role is built from is re-derived under the locks: the
+    // caller's reads happened before them, so a concurrent permission/config
+    // edit (serialized through these locks) or workspace deletion may have
+    // changed or removed what the role must reflect. Config gone (data table
+    // or workspace deleted) errors out before any external side effect.
+    let config = get_datatable_config(db, w_id, datatable).await?;
+    let grants = config
+        .permissions
+        .as_ref()
+        .filter(|p| p.enabled)
+        .map(|p| p.grants.as_slice())
+        .ok_or_else(|| {
+            Error::internal_err(format!(
+                "Permissions of data table '{datatable}' were disabled concurrently; retry."
+            ))
+        })?;
+    let (matched, memberships) =
+        compute_effective_grants(db, w_id, permissioned_as, grants).await?;
+    if matched.is_empty() {
+        return Err(Error::PermissionDenied(format!(
+            "You have no permissions on data table '{datatable}'. Ask a workspace admin to \
+             grant you access in the data table's permission settings."
+        )));
+    }
+    let is_instance = config.database.resource_type == DataTableCatalogResourceType::Instance;
+    let owner: PgDatabase =
+        serde_json::from_value(datatable_shared_resource(db, w_id, &config).await?)
+            .map_err(|e| Error::internal_err(format!("parsing data table owner creds: {e}")))?;
+    let owner = &owner;
+    let hash = perms_hash(
+        w_id,
+        permissioned_as,
+        datatable,
+        &db_identity(is_instance, owner),
+        &matched,
+        &memberships,
+    );
 
     // Double-checked locking: another resolution may have recreated the role
     // while we waited on the lock.
@@ -695,7 +733,11 @@ async fn ensure_ephemeral_role(
         .await?;
         tx.commit().await?;
         let mc = build_crypt(db, w_id).await?;
-        return Ok((role, decrypt(&mc, password)?));
+        let password = decrypt(&mc, password)?;
+        let mut pg = owner.clone();
+        pg.user = Some(role);
+        pg.password = Some(password);
+        return Ok(pg);
     }
 
     let password = rd_string(48);
@@ -770,7 +812,7 @@ async fn ensure_ephemeral_role(
     }
 
     let owner_role = owner.user.as_deref().unwrap_or("postgres");
-    for stmt in grant_sql_statements(&role, owner_role, matched) {
+    for stmt in grant_sql_statements(&role, owner_role, &matched) {
         client.batch_execute(&stmt).await.map_err(|e| {
             pg_err(
                 &format!(
@@ -817,7 +859,10 @@ async fn ensure_ephemeral_role(
     // Opportunistic cleanup of expired roles, bounded and best-effort.
     cleanup_expired_datatable_roles(db, CLEANUP_BATCH_SIZE).await;
 
-    Ok((role, password))
+    let mut pg = owner.clone();
+    pg.user = Some(role);
+    pg.password = Some(password);
+    Ok(pg)
 }
 
 // ---------------------------------------------------------------------------
@@ -935,9 +980,13 @@ pub struct RoleSnapshot {
 }
 
 /// Capture the current roles of a data table (or whole workspace) with their
-/// perms hashes. Take this BEFORE committing the edit that invalidates them
-/// (ideally under the same serialization lock), then pass it to
+/// perms hashes. Take this BEFORE committing the edit that invalidates them,
+/// under [`WORKSPACE_ROLES_LOCK`] (so no role can be created between the
+/// snapshot and the commit), then pass it to
 /// [`teardown_snapshot_roles_best_effort`] after the commit.
+///
+/// Authorization: reads role bookkeeping metadata; call only from admin-gated
+/// flows.
 pub async fn snapshot_datatable_roles(
     db: &DB,
     w_id: &str,
@@ -1116,6 +1165,15 @@ async fn teardown_role(
             // still holds its old grants (and whose password the caller
             // already has). With the row intact, the expiry sweep retries the
             // drop once the sessions are gone; meanwhile new logins are cut.
+            // Expire it so the lock-free fast path stops handing out
+            // credentials for the now-NOLOGIN role.
+            sqlx::query!(
+                "UPDATE datatable_ephemeral_role SET expires_at = now() WHERE role_name = $1",
+                role
+            )
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
             return Ok(());
         }
     }
@@ -1187,23 +1245,21 @@ pub async fn get_datatable_resource_from_db_checked(
         )));
     }
 
-    let mut pg: PgDatabase =
+    // This hash is only a fast-path key; the slow path re-derives everything
+    // under its locks.
+    let owner: PgDatabase =
         serde_json::from_value(datatable_shared_resource(db, w_id, &config).await?)
             .map_err(|e| Error::internal_err(format!("parsing data table owner creds: {e}")))?;
     let is_instance = config.database.resource_type == DataTableCatalogResourceType::Instance;
-    let (role, password) = ensure_ephemeral_role(
-        db,
+    let fast_path_hash = perms_hash(
         w_id,
-        name,
         permissioned_as,
-        &pg,
-        is_instance,
+        name,
+        &db_identity(is_instance, &owner),
         &matched,
         &memberships,
-    )
-    .await?;
-    pg.user = Some(role);
-    pg.password = Some(password);
+    );
+    let pg = ensure_ephemeral_role(db, w_id, name, permissioned_as, &fast_path_hash).await?;
     serde_json::to_value(&pg)
         .map_err(|e| Error::internal_err(format!("serializing ephemeral pg creds: {e}")))
 }

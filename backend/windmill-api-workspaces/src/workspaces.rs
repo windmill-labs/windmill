@@ -2979,8 +2979,15 @@ async fn edit_datatable_config(
     // BEFORE reading the old config: this save writes the whole datatable
     // document back, so an unserialized concurrent permissions edit would be
     // silently overwritten by the stale snapshot read below. The same lock
-    // also makes the shared-database exclusivity scan below race-free.
+    // also makes the shared-database exclusivity scan below race-free. The
+    // workspace-roles lock additionally serializes with role creation, so the
+    // pre-edit role snapshot cannot miss a role created from the old config
+    // mid-save. Lock order everywhere: shared-db → workspace → role.
     sqlx::query(crate::datatable_permissions_api::SHARED_DB_CHECK_LOCK)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(windmill_common::datatable_permissions::WORKSPACE_ROLES_LOCK)
+        .bind(&w_id)
         .execute(&mut *tx)
         .await?;
 
@@ -4777,6 +4784,48 @@ async fn set_encryption_key(
             .execute(&mut *tx)
             .await?;
             reencrypted_secret_paths.push(variable.path);
+        }
+
+        // Data table ephemeral-role bookkeeping stores workspace-key-encrypted
+        // secrets too (role password + recorded owner credentials). Left
+        // un-rotated they become undecryptable, and revocation could no longer
+        // reach a role's recorded cluster after a later re-point.
+        let dt_roles = sqlx::query!(
+            "SELECT role_name, password, owner_creds FROM datatable_ephemeral_role WHERE workspace_id = $1",
+            w_id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        for row in dt_roles {
+            let password = encrypt(
+                &new_encryption_key,
+                &decrypt(&previous_encryption_key, row.password).map_err(|e| {
+                    Error::internal_err(format!(
+                        "Error decrypting ephemeral role {} password: {}",
+                        row.role_name, e
+                    ))
+                })?,
+            );
+            let owner_creds = match row.owner_creds {
+                Some(creds) => Some(encrypt(
+                    &new_encryption_key,
+                    &decrypt(&previous_encryption_key, creds).map_err(|e| {
+                        Error::internal_err(format!(
+                            "Error decrypting ephemeral role {} owner creds: {}",
+                            row.role_name, e
+                        ))
+                    })?,
+                )),
+                None => None,
+            };
+            sqlx::query!(
+                "UPDATE datatable_ephemeral_role SET password = $1, owner_creds = $2 WHERE role_name = $3",
+                password,
+                owner_creds,
+                row.role_name
+            )
+            .execute(&mut *tx)
+            .await?;
         }
     }
 

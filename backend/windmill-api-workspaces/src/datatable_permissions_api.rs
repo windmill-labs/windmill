@@ -225,8 +225,15 @@ async fn set_datatable_permissions(
     // `edit_datatable_config`, which rewrites the whole document): two
     // concurrent enables targeting the same physical database must not both
     // pass the exclusivity scan, and a disable must not be silently restored
-    // by a concurrent config save's stale snapshot. Held until commit.
+    // by a concurrent config save's stale snapshot. The workspace-roles lock
+    // additionally serializes with role creation, so the pre-edit snapshot
+    // below cannot miss a role created from the old grants mid-save. Both
+    // held until commit; lock order everywhere: shared-db → workspace → role.
     sqlx::query(SHARED_DB_CHECK_LOCK).execute(&mut *tx).await?;
+    sqlx::query(windmill_common::datatable_permissions::WORKSPACE_ROLES_LOCK)
+        .bind(&w_id)
+        .execute(&mut *tx)
+        .await?;
     // Load the config only under the lock: a concurrent config edit could
     // otherwise re-point the data table between validation and the write,
     // making the exclusivity/CREATEROLE checks judge a stale database.
