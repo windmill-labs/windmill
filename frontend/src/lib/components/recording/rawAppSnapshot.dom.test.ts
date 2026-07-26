@@ -181,6 +181,29 @@ describe('serializeDocument redaction', () => {
 		expect(html).not.toContain('not-styled-92000')
 	})
 
+	it('paints a canvas into the snapshot, but never a redacted one', () => {
+		// A canvas keeps its picture in a bitmap `outerHTML` cannot see, so without
+		// this the chart replays blank. A marked one must stay blank: the painted
+		// background rides on `style`, which redaction strips.
+		const doc = docFrom(
+			`<canvas id="chart"></canvas><div data-wm-no-record><canvas id="secret"></canvas></div>`
+		)
+		for (const c of Array.from(doc.querySelectorAll('canvas'))) {
+			Object.defineProperty(c, 'width', { value: 200 })
+			Object.defineProperty(c, 'height', { value: 100 })
+			Object.defineProperty(c, 'toDataURL', {
+				value: () => `data:image/webp;base64,PIXELS-${c.id}`
+			})
+			Object.defineProperty(c, 'getBoundingClientRect', {
+				value: () => ({ width: 200, height: 100 })
+			})
+		}
+
+		const html = serializeDocument(doc)
+		expect(html).toContain('PIXELS-chart')
+		expect(html).not.toContain('PIXELS-secret')
+	})
+
 	it('keeps a disabled sheet inert without shifting what follows it', () => {
 		// Neutralizing a disabled sheet must not remove its node: every later path
 		// resolution — other sheets, and the target stamp — is by sibling index.

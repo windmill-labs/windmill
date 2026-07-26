@@ -247,6 +247,51 @@ function redactMarkedSubtrees(doc: Document, root: Element) {
  * keeping `selected` says which one was picked, dropping it says the first one
  * was. Replace its options with a single masked, selected one — the replay then
  * shows that a choice was made without disclosing it. */
+/** Beyond this many pixels a canvas is left blank: encoding runs on the app's
+ * own event path, several times per interaction, and a wall-sized canvas costs
+ * more there (and in frame budget) than the picture is worth. */
+const MAX_CANVAS_PIXELS = 4_000_000
+
+/** A canvas holds its picture in a bitmap `outerHTML` knows nothing about, so a
+ * cloned one replays blank. Paint it into the clone's own background instead of
+ * swapping the element for an `<img>`, which would lose whatever the app's CSS
+ * says about `canvas`. WebGL without `preserveDrawingBuffer` and cross-origin
+ * tainted canvases cannot be read at all; both keep today's blank. */
+function paintCanvases(doc: Document, clone: Element) {
+	const live = doc.querySelectorAll('canvas')
+	const copies = clone.querySelectorAll('canvas')
+	if (live.length !== copies.length) return
+	for (let i = 0; i < live.length; i++) {
+		const source = live[i] as HTMLCanvasElement
+		if (!source.width || !source.height) continue
+		if (source.width * source.height > MAX_CANVAS_PIXELS) continue
+		let url: string
+		try {
+			url = source.toDataURL('image/webp', 0.85)
+		} catch (_) {
+			continue // tainted by cross-origin pixels
+		}
+		if (!url.startsWith('data:image/')) continue
+		// The replay runs without scripting, where a canvas renders its (empty)
+		// fallback content: it is no longer a replaced element, so it has no intrinsic
+		// size and — while it stays `display: inline` — ignores width and height
+		// entirely. Carry over the box it actually rendered at, and a display that
+		// accepts one.
+		const rect = source.getBoundingClientRect()
+		if (!rect.width || !rect.height) continue
+		const display = doc.defaultView?.getComputedStyle(source).display
+		const box = !display || display === 'inline' ? 'inline-block' : display
+		const copy = copies[i]
+		const style = copy.getAttribute('style')
+		copy.setAttribute(
+			'style',
+			`${style ? style + ';' : ''}display:${box};box-sizing:border-box` +
+				`;width:${rect.width}px;height:${rect.height}px` +
+				`;background-image:url("${url}");background-size:100% 100%;background-repeat:no-repeat`
+		)
+	}
+}
+
 function maskSelectsWithRedactedChoice(doc: Document, clone: Element) {
 	const live = doc.querySelectorAll('select')
 	const copies = clone.querySelectorAll('select')
@@ -400,11 +445,12 @@ export type SnapshotOptions = {
 export function serializeDocument(doc: Document, opts: SnapshotOptions = {}): string {
 	const root = doc.documentElement
 	const clone = root.cloneNode(true) as Element
-	// These three read the live document and write to the matching node in the
-	// clone, pairing by position — so they must all run before anything is removed
-	// from it. Freezing, inlining and redacting only mutate nodes in place.
+	// These read the live document and write to the matching node in the clone,
+	// pairing by position — so they must all run before anything is removed from
+	// it. Freezing, inlining, painting and redacting only mutate nodes in place.
 	freezeFormState(doc, clone)
 	inlineStyleSheets(doc, root, clone)
+	paintCanvases(doc, clone)
 	maskSelectsWithRedactedChoice(doc, clone)
 	redactMarkedSubtrees(doc, clone)
 	// Stamp the target BEFORE anything is removed from the clone: the live tree is
