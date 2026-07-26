@@ -142,12 +142,17 @@ pub struct DbtDescriptor {
 /// The dbt subcommands a run may ask for. Kept here so the signature and the
 /// worker's validation cannot drift apart.
 ///
-/// `test` is deliberately absent. A test-only run writes nothing, but the asset
-/// dispatcher fires a script's deploy-time writes on any successful job, so it
-/// would notify every downstream consumer that tables it never touched had
-/// changed. Tests run as part of `build`, or as the second phase of
-/// `test_behavior: after_all`.
-pub const DBT_COMMANDS: &[&str] = &["build", "run", "retry"];
+/// Only commands whose writes match the graph the deploy registered. The asset
+/// dispatcher fires a script's deploy-time writes on any successful job, so a
+/// command that builds a SUBSET of them notifies consumers of relations this
+/// invocation left stale.
+///
+/// That rules out `test`, which writes nothing, and `run`, which covers models
+/// only: a project with seeds or snapshots registers those as writes too.
+/// Narrowing what a run touches is `select`/`exclude`, which scope the graph as
+/// well, resolved by asking dbt. Tests run as part of `build`, or as the second
+/// phase of `test_behavior: after_all`.
+pub const DBT_COMMANDS: &[&str] = &["build", "retry"];
 
 /// The command a run uses when it does not name one. Public because the worker
 /// must choose exactly what the run form's default advertises.

@@ -22,6 +22,24 @@
 //!   are not the same table. The accepted consequence is documented in
 //!   docs/dbt-runtime.md — two resources pointing at one physical warehouse do
 //!   not unify.
+//!
+//! # Mutator contract
+//!
+//! `replace_dbt_manifest`, `clear_dbt_manifest` and
+//! `clear_dbt_manifest_by_script_hash` take the workspace and the script to act
+//! on as plain arguments and enforce nothing: **the caller must already have
+//! verified write access to that script**, exactly like the sibling
+//! `assets::replace_static_asset_usage` each is called next to. A user-scoped
+//! transaction is not enforcement here — `dbt_node` and `dbt_edge` carry no RLS
+//! policy and grant `windmill_user` full access, deliberately, because the
+//! writer is the dependency job rather than a request.
+//!
+//! Every caller today satisfies it through the route that owns the script:
+//! `windmill-api-scripts::scripts` clears from the create, archive and delete
+//! handlers, each behind a `scripts:write:<path>` scope check plus that route's
+//! own owner or admin requirement; the worker replaces from the dependency job
+//! of the very script being deployed. A new call site that cannot name where it
+//! authorized is a bug.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -541,9 +559,7 @@ pub fn ingest_manifest(
 /// Replace the stored manifest of one dbt script. Wipe-and-reinsert per ingest,
 /// so a model deleted upstream disappears from the graph on the next deploy.
 ///
-/// Performs no authorization itself: `tx` must already be scoped to a caller
-/// authorized for `workspace_id`/`script_path`, exactly like the sibling
-/// `assets::replace_static_asset_usage` it is always called next to.
+/// See the mutator contract above: this authorizes nothing.
 pub async fn replace_dbt_manifest(
     tx: &mut Transaction<'_, Postgres>,
     workspace_id: &str,
@@ -604,8 +620,8 @@ pub async fn replace_dbt_manifest(
     Ok(())
 }
 
-/// Drop everything one script contributed to the graph. Same authorization
-/// contract as `replace_dbt_manifest`.
+/// Drop everything one script contributed to the graph. See the mutator
+/// contract above: this authorizes nothing.
 pub async fn clear_dbt_manifest(
     tx: &mut Transaction<'_, Postgres>,
     workspace_id: &str,
@@ -633,6 +649,9 @@ pub async fn clear_dbt_manifest(
 /// only have a hash — `dbt_node` has no script foreign key, so every one of
 /// them has to clear explicitly or stale provenance outlives its script and
 /// attaches itself to whatever is created at that path next.
+///
+/// See the mutator contract above: this authorizes nothing. `script_hash`
+/// selects the path to clear; it is not a capability.
 pub async fn clear_dbt_manifest_by_script_hash(
     tx: &mut Transaction<'_, Postgres>,
     workspace_id: &str,

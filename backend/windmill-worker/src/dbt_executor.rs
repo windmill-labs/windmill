@@ -272,7 +272,7 @@ pub async fn handle_dbt_job(
     // retried to success would otherwise return green having never tested.
     if run.is_ok()
         && matches!(descriptor.test_behavior, DbtTestBehavior::AfterAll)
-        && matches!(command.as_str(), "build" | "run" | "retry")
+        && matches!(command.as_str(), "build" | "retry")
     {
         run = run_dbt(
             &prepared,
@@ -993,7 +993,13 @@ async fn install_packages(
     let cached = PathBuf::from(&*DBT_CACHE_DIR)
         .join("packages")
         .join(digest(&key));
-    let target = p.project_dir.join("dbt_packages");
+    // Where `dbt deps` actually writes. `packages-install-path` is a project
+    // setting, and assuming the default means a project that moved it gets no
+    // cache at all: the publish finds nothing to copy and every job resolves
+    // its dependencies over the network again.
+    let target = p
+        .project_dir
+        .join(packages_install_path(&p.project_dir).await);
     if cached.exists() {
         copy_dir_watched(&cached, &target, "restoring cached dbt_packages", ctx, job_id, w_id, conn)
             .await?;
@@ -1298,6 +1304,31 @@ async fn project_profile_name(project_dir: &Path) -> String {
                 .map(|s| s.to_string())
         })
         .unwrap_or_else(|| FALLBACK_PROFILE_NAME.to_string())
+}
+
+/// Where the project has `dbt deps` install its packages, defaulting to dbt's
+/// own `dbt_packages`. Relative to the project root, and validated as such: it
+/// is project-controlled, so an absolute or `..`-bearing value would make the
+/// cache copy read and write outside the job directory.
+async fn packages_install_path(project_dir: &Path) -> String {
+    const DEFAULT: &str = "dbt_packages";
+    let Ok(content) = tokio::fs::read_to_string(project_dir.join("dbt_project.yml")).await else {
+        return DEFAULT.to_string();
+    };
+    serde_yml::from_str::<serde_yml::Value>(&content)
+        .ok()
+        .and_then(|v| {
+            v.get("packages-install-path")
+                .and_then(|p| p.as_str())
+                .map(|s| s.trim().trim_start_matches("./").to_string())
+        })
+        .filter(|s| {
+            !s.is_empty()
+                && Path::new(s)
+                    .components()
+                    .all(|c| matches!(c, std::path::Component::Normal(_)))
+        })
+        .unwrap_or_else(|| DEFAULT.to_string())
 }
 
 /// The nsjail profile a sandboxed dbt phase runs under.
@@ -2999,6 +3030,28 @@ mod tests {
         // separators keep `ab|c` from digesting the same as `a|bc`.
         let renamed = m(&[("models/b.sql", "select 1"), ("dbt_project.yml", "name: p")]);
         assert_ne!(project_digest(Some(&a)), project_digest(Some(&renamed)));
+    }
+
+    // The path is project-controlled and both cache copies are rooted at it, so
+    // an absolute or `..`-bearing value would read and write outside the job.
+    #[tokio::test]
+    async fn a_projects_packages_path_cannot_escape_the_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let write = |yml: &str| std::fs::write(root.join("dbt_project.yml"), yml).unwrap();
+
+        write("name: p\n");
+        assert_eq!(packages_install_path(root).await, "dbt_packages");
+        write("name: p\npackages-install-path: ./vendor\n");
+        assert_eq!(packages_install_path(root).await, "vendor");
+        for escape in ["/etc", "../../etc", "a/../../b", ""] {
+            write(&format!("name: p\npackages-install-path: \"{escape}\"\n"));
+            assert_eq!(
+                packages_install_path(root).await,
+                "dbt_packages",
+                "{escape} must not be honoured"
+            );
+        }
     }
 
     #[test]

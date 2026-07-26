@@ -27,7 +27,7 @@ the dominant way dbt is orchestrated today.
 | 2 | Artifact shape | `ScriptLang::Dbt` |
 | 3 | Graph in v0 | Yes, both runtime and graph |
 | 4 | Execution granularity | One job per invocation |
-| 5 | Project storage | The project is the script's module bundle; nothing is cloned. See below |
+| 5 | Project storage | The project is the script's module bundle; nothing is cloned. See "Where the dbt project lives" |
 | 6 | Multiple run configs | Per-run `select` on one script; N scripts means N projects |
 | 7 | Run-time `select` | Descriptor default plus run-arg override |
 | 8 | Credentials | Both `profiles.yml` passthrough and resource mapping |
@@ -494,7 +494,9 @@ Against a real dbt project (jaffle_shop shape) and the local Postgres:
 6. **Cross-boundary cascade**: a dbt mart write triggers a downstream native
    pipeline script declaring a read on it.
 7. **Selection**: descriptor `select`/`exclude`, and a run-arg override, each
-   build only the expected subset.
+   build only the expected subset. `dbt_command` offers `build` and `retry`
+   only: a command building a subset of the registered writes would notify
+   consumers of relations it left stale.
 8. **Dynamic descriptors**: a `{{ }}` placeholder in `vars` re-ingests the graph
    from the run's own manifest, so a model that placeholder enables appears in
    the same run that builds it.

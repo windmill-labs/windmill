@@ -614,13 +614,15 @@ export function isModuleEntryPoint(p: string): boolean {
  * Extract the script base path from a module folder entry.
  * e.g., "u/admin/my_script__mod/script.ts" -> "u/admin/my_script"
  * e.g., "u/admin/my_script__mod/helper.ts" -> "u/admin/my_script"
+ * e.g., "f/x/proj__dbt/models/a.sql" -> "f/x/proj"
  */
 export function getScriptBasePathFromModulePath(p: string): string | undefined {
   const norm = normalizeSep(p);
-  const suffix = MODULE_SUFFIX + "/";
-  const idx = norm.indexOf(suffix);
-  if (idx === -1) return undefined;
-  return norm.slice(0, idx);
+  for (const suffix of MODULE_SUFFIXES) {
+    const idx = norm.indexOf(suffix + "/");
+    if (idx !== -1) return norm.slice(0, idx);
+  }
+  return undefined;
 }
 
 /**

@@ -4657,7 +4657,14 @@ export async function push(
     // Group changes by base path (before first dot)
     const groupedChanges = new Map<string, typeof changes>();
     for (const change of changes) {
-      const basePath = change.path.split(".")[0];
+      // A module file is pushed by pushing its parent script, so it belongs in
+      // that script's group. Left in a group of its own it gets its own
+      // `alreadySynced`, and a push touching several files of one bundle then
+      // deploys the script once per file: several versions in a row, of which
+      // only the last is the one the asset graph ends up describing.
+      const basePath =
+        getScriptBasePathFromModulePath(change.path) ??
+        change.path.split(".")[0];
       if (!groupedChanges.has(basePath)) {
         groupedChanges.set(basePath, []);
       }
