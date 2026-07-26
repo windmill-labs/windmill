@@ -50,6 +50,10 @@ lazy_static::lazy_static! {
 pub struct ProvisionedEngine {
     /// Absolute path of the dbt binary to invoke.
     pub bin: PathBuf,
+    /// The engine's own directory — the ONLY part of the cache a sandboxed job
+    /// may see. Its siblings hold other workspaces' checkouts and package
+    /// trees, which are scoped by cache key, not by permissions.
+    pub root: PathBuf,
     pub version: String,
     pub engine: DbtEngine,
     /// The adapter version this venv resolved, for dbt-core 1.x where the
@@ -121,6 +125,7 @@ async fn provision_core_1x(
     if bin.exists() {
         let adapter_version = installed_adapter_version(&dir, adapter).await;
         return Ok(ProvisionedEngine {
+            root: dir.clone(),
             bin,
             version,
             engine: DbtEngine::DbtCore1x,
@@ -191,7 +196,7 @@ async fn provision_core_1x(
         Err(e) => return Err(Error::internal_err(format!("installing dbt-core: {e}"))),
     }
     let adapter_version = installed_adapter_version(&dir, adapter).await;
-    Ok(ProvisionedEngine { bin, version, engine: DbtEngine::DbtCore1x, adapter_version })
+    Ok(ProvisionedEngine { root: dir, bin, version, engine: DbtEngine::DbtCore1x, adapter_version })
 }
 
 /// The adapter version a venv actually resolved, read from its dist-info so a
@@ -231,6 +236,7 @@ async fn provision_core_2x(
         .join("dbt-sa-cli");
     if bundled.exists() {
         return Ok(ProvisionedEngine {
+            root: bundled.parent().map(Path::to_path_buf).unwrap_or_default(),
             bin: bundled,
             version,
             engine: DbtEngine::DbtCore2x,
@@ -241,6 +247,7 @@ async fn provision_core_2x(
     let bin = dir.join("dbt-sa-cli");
     if bin.exists() {
         return Ok(ProvisionedEngine {
+            root: dir.clone(),
             bin,
             version,
             engine: DbtEngine::DbtCore2x,
@@ -259,7 +266,13 @@ async fn provision_core_2x(
     )
     .await;
     fetch_and_extract(&url, &dir, "dbt-sa-cli", job_id, w_id, conn, ctx).await?;
-    Ok(ProvisionedEngine { bin, version, engine: DbtEngine::DbtCore2x, adapter_version: None })
+    Ok(ProvisionedEngine {
+        root: dir,
+        bin,
+        version,
+        engine: DbtEngine::DbtCore2x,
+        adapter_version: None,
+    })
 }
 
 /// Fusion is fetched from dbt Labs at runtime and cached — see the module docs
@@ -282,6 +295,7 @@ async fn provision_fusion(
     let bin = dir.join("dbt");
     if bin.exists() {
         return Ok(ProvisionedEngine {
+            root: dir.clone(),
             bin,
             version: fusion_version(&dir).await,
             engine: DbtEngine::Fusion,
@@ -353,6 +367,7 @@ async fn provision_fusion(
         }
     }
     Ok(ProvisionedEngine {
+        root: dir.clone(),
         bin,
         version: fusion_version(&dir).await,
         engine: DbtEngine::Fusion,

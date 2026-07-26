@@ -926,9 +926,12 @@ pub async fn prepare_project(
                     "{PROJECT_DIR}",
                     &escape_textproto(&project_dir.to_string_lossy()),
                 )
+                // The engine's own directory, NOT the cache root: its siblings
+                // are other workspaces' checkouts and package trees, kept apart
+                // by cache key rather than by permissions.
                 .replace(
                     "{ENGINE_DIR}",
-                    &escape_textproto(&crate::dbt_engine::DBT_CACHE_DIR),
+                    &escape_textproto(&engine.root.to_string_lossy()),
                 )
                 .replace("{PY_INSTALL_DIR}", &escape_textproto(&crate::PY_INSTALL_DIR))
                 .replace("{CLONE_NEWUSER}", &(!*crate::DISABLE_NUSER).to_string())
@@ -2767,9 +2770,18 @@ fn resolved_vars(
     // The run argument overrides; it never carries the descriptor's own values
     // back (its signature default is empty), so this cannot clobber what was
     // just interpolated above.
-    if let Some(raw) = args.get("vars") {
-        if let Ok(serde_json::Value::Object(m)) = serde_json::from_str(raw.get()) {
-            out.extend(m);
+    if let Some(raw) = args.get("vars").filter(|r| r.get().trim() != "null") {
+        // A wrong-typed override is refused rather than ignored: argument-schema
+        // validation is opt-in, so silently running the descriptor's own vars
+        // could build against a different schema or alias than the caller asked
+        // for — the same reason `select`/`exclude` reject theirs.
+        match serde_json::from_str(raw.get()) {
+            Ok(serde_json::Value::Object(m)) => out.extend(m),
+            _ => {
+                return Err(Error::BadRequest(
+                    "`vars` must be an object mapping dbt var names to values".to_string(),
+                ))
+            }
         }
     }
     Ok(out)

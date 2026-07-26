@@ -198,9 +198,27 @@ impl DbtDescriptor {
     }
 }
 
+/// Run arguments the descriptor's own fields already claim. A `{{ placeholder }}`
+/// may not take one of these names: the built-in argument would shadow it, and
+/// the script could never be run — `select` is an array, and interpolating one
+/// into a string is not something any invocation can satisfy.
+pub const RESERVED_ARG_NAMES: &[&str] =
+    &["select", "exclude", "vars", "full_refresh", "dbt_command"];
+
 pub fn parse_dbt_descriptor(inner_content: &str) -> anyhow::Result<DbtDescriptor> {
-    serde_yml::from_str::<DbtDescriptor>(inner_content)
-        .map_err(|e| anyhow::anyhow!("Failed to parse dbt descriptor: {e}"))
+    let d = serde_yml::from_str::<DbtDescriptor>(inner_content)
+        .map_err(|e| anyhow::anyhow!("Failed to parse dbt descriptor: {e}"))?;
+    if let Some(name) = placeholders(&d)
+        .into_iter()
+        .find(|n| RESERVED_ARG_NAMES.contains(&n.as_str()))
+    {
+        return Err(anyhow::anyhow!(
+            "`{{{{ {name} }}}}` collides with the run argument `{name}` this runtime already \
+             defines ({}); rename the placeholder",
+            RESERVED_ARG_NAMES.join(", ")
+        ));
+    }
+    Ok(d)
 }
 
 /// Run-time arguments of a dbt script: the descriptor fields that can be
@@ -397,6 +415,26 @@ vars:
 threads: 8
 full_refresh: true
 "#;
+
+    // A placeholder that takes a run argument's name would be shadowed by it,
+    // leaving a descriptor no invocation can satisfy: `select` is an array and
+    // the interpolation needs a scalar. Refused at parse, so the deploy says so
+    // rather than the script becoming unrunnable after it.
+    #[test]
+    fn a_placeholder_may_not_take_a_run_argument_name() {
+        for name in RESERVED_ARG_NAMES {
+            let d = format!(
+                "repo: $res:u/rf/r\nprofile:\n  resource: $res:u/rf/wh\nvars:\n  v: \"{{{{ {name} }}}}\"\n"
+            );
+            let err = parse_dbt_descriptor(&d).unwrap_err().to_string();
+            assert!(err.contains(name), "{name}: {err}");
+        }
+        // A name of its own is fine.
+        assert!(parse_dbt_descriptor(
+            "repo: $res:u/rf/r\nprofile:\n  resource: $res:u/rf/wh\nvars:\n  v: \"{{ day }}\"\n"
+        )
+        .is_ok());
+    }
 
     // The run form is built from this schema, and nothing else can build it:
     // the browser and the CLI both infer through a wasm parser that has no dbt
