@@ -19,6 +19,7 @@
 	import { isWorkflowAsCode } from '$lib/components/graph/wacToFlow'
 	import WacDiagram from '$lib/components/graph/WacDiagram.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import DbtProjectPanel from '$lib/components/dbt/DbtProjectPanel.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import PowerShellCommonParams from './PowerShellCommonParams.svelte'
 	import LogPanel from './scriptEditor/LogPanel.svelte'
@@ -373,7 +374,16 @@
 		return isTsWac || isPyWac
 	})
 	let supportsModules = $derived((lang === 'bun' || lang === 'python3') && isWacV2)
-	let mainFileName = $derived('script.' + langToExt(scriptLangToEditorLang(lang)))
+	// A dbt script's content is the descriptor and its modules are the project.
+	// Two views rather than the module tab strip: a project is a tree of many
+	// files, and none of them is editable here.
+	let isDbt = $derived(lang === 'dbt')
+	let dbtTab = $state<'descriptor' | 'project'>('descriptor')
+	let mainFileName = $derived(
+		isDbt
+			? (path?.split('/').pop() ?? 'script') + '.dbt.yaml'
+			: 'script.' + langToExt(scriptLangToEditorLang(lang))
+	)
 
 	let modulePathInput = $state('')
 	let showAddModulePopover = $state(false)
@@ -2506,6 +2516,27 @@
 
 {#snippet editorContent()}
 	<div class="h-full !overflow-visible bg-surface dark:bg-[#272D38] relative flex flex-col">
+		{#if isDbt}
+			<div
+				class="flex items-center border-b border-tertiary/30 bg-surface-secondary px-1 gap-0.5 text-xs shrink-0"
+			>
+				{#each [{ id: 'descriptor', label: mainFileName }, { id: 'project', label: 'Project' }] as tab (tab.id)}
+					<button
+						class="px-2 py-1 rounded-t {dbtTab === tab.id
+							? 'bg-surface font-semibold border-b-2 border-blue-500'
+							: 'hover:bg-surface-hover'}"
+						onclick={() => (dbtTab = tab.id as 'descriptor' | 'project')}
+					>
+						{tab.label}
+					</button>
+				{/each}
+			</div>
+			{#if dbtTab === 'project'}
+				<div class="flex-1 min-h-0">
+					<DbtProjectPanel modules={modules ?? {}} scriptPath={path ?? ''} />
+				</div>
+			{/if}
+		{/if}
 		{#if supportsModules}
 			<div
 				class="flex items-center border-b border-tertiary/30 bg-surface-secondary px-1 gap-0.5 text-xs overflow-x-auto shrink-0"
@@ -2595,7 +2626,11 @@
 				</Popover>
 			</div>
 		{/if}
-		<div class="relative flex-1 min-h-0 !overflow-visible">
+		<div
+			class="relative flex-1 min-h-0 !overflow-visible {isDbt && dbtTab === 'project'
+				? 'hidden'
+				: ''}"
+		>
 			<div class="absolute bg-surface top-2 right-4 z-10 flex flex-row gap-2">
 				{#if assets?.length}
 					<AssetsDropdownButton {assets} />
