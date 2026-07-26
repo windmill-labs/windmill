@@ -221,13 +221,12 @@ async fn set_datatable_permissions(
     validate_permissions_config(&perms)?;
 
     let mut tx = db.begin().await?;
-    if perms.enabled {
-        // Serialize the exclusivity scan with every other writer of datatable
-        // configs (same lock in `edit_datatable_config`): two concurrent
-        // enables/creations targeting the same physical database must not both
-        // pass the pre-write check. Held until commit.
-        sqlx::query(SHARED_DB_CHECK_LOCK).execute(&mut *tx).await?;
-    }
+    // Serialize with every other writer of datatable configs (same lock in
+    // `edit_datatable_config`, which rewrites the whole document): two
+    // concurrent enables targeting the same physical database must not both
+    // pass the exclusivity scan, and a disable must not be silently restored
+    // by a concurrent config save's stale snapshot. Held until commit.
+    sqlx::query(SHARED_DB_CHECK_LOCK).execute(&mut *tx).await?;
     // Load the config only under the lock: a concurrent config edit could
     // otherwise re-point the data table between validation and the write,
     // making the exclusivity/CREATEROLE checks judge a stale database.

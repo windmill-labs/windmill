@@ -924,13 +924,20 @@ pub(crate) async fn delete_workspace(
             vec![]
         });
 
-    // Drop the workspace's data table ephemeral roles while its datatable
-    // config (needed to reach their databases) still exists; the bookkeeping
-    // rows themselves cascade with the workspace row.
-    windmill_common::datatable_permissions::drop_datatable_ephemeral_roles_best_effort(
-        &db, &w_id, None,
-    )
-    .await;
+    // Revoke the workspace's data table ephemeral roles while the bookkeeping
+    // rows and the workspace key (which encrypts their recorded targets) still
+    // exist — both cascade with the workspace row, after which an unrevoked
+    // role could never be reached again. Failure (e.g. an unreachable external
+    // cluster) aborts the deletion; retry once the database is reachable.
+    windmill_common::datatable_permissions::teardown_datatable_roles_strict(&db, &w_id)
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "cannot delete workspace {w_id}: {e}. Retry when the data table database(s) \
+                 are reachable, or clear the datatable_ephemeral_role entries manually if a \
+                 database is permanently gone."
+            ))
+        })?;
 
     sqlx::query!("DELETE FROM ai_agent_memory WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)

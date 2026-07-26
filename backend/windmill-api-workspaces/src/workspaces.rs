@@ -2975,6 +2975,15 @@ async fn edit_datatable_config(
 
     let mut tx = db.begin().await?;
 
+    // Serialized with every permissions/config writer (held until commit)
+    // BEFORE reading the old config: this save writes the whole datatable
+    // document back, so an unserialized concurrent permissions edit would be
+    // silently overwritten by the stale snapshot read below. The same lock
+    // also makes the shared-database exclusivity scan below race-free.
+    sqlx::query(crate::datatable_permissions_api::SHARED_DB_CHECK_LOCK)
+        .execute(&mut *tx)
+        .await?;
+
     let old_datatables: HashMap<String, DataTable> = serde_json::from_value(
         sqlx::query_scalar!(
             "SELECT ws.datatable->'datatables' FROM workspace_settings ws WHERE ws.workspace_id = $1",
@@ -3034,12 +3043,8 @@ async fn edit_datatable_config(
     // A permissions-enabled data table must be the only config pointing at its
     // physical database (enforcement is per database, config is per data
     // table). Check every data table whose database is new or changed, against
-    // both the stored global state and the other entries of this request.
-    // Serialized with every other config writer (held until commit) so two
-    // concurrent saves can't both pass the exclusivity scan.
-    sqlx::query(crate::datatable_permissions_api::SHARED_DB_CHECK_LOCK)
-        .execute(&mut *tx)
-        .await?;
+    // both the stored global state and the other entries of this request
+    // (race-free under the lock taken above).
     let mut default_disabled: Vec<String> = vec![];
     let mut database_changed_names: Vec<String> = vec![];
     for (name, dt) in new_config.settings.datatables.iter() {
@@ -3119,6 +3124,23 @@ async fn edit_datatable_config(
                     // request: fall back to disabled instead of blocking the
                     // creation of a second config on a shared
                     // (non-permissioned) database.
+                    default_disabled.push(name.clone());
+                    self_enabled = false;
+                } else {
+                    return Err(e);
+                }
+            }
+        }
+        // An external target must be able to create the enforcement roles.
+        // Instance targets are skipped: their shared role's CREATEROLE is
+        // cluster-wide (granted at provisioning, re-checked at grant-save),
+        // and the instance database may legitimately not be set up yet when
+        // the config is saved.
+        if self_enabled && dt.database.resource_type == DataTableCatalogResourceType::Postgresql {
+            if let Err(e) =
+                crate::datatable_permissions_api::check_owner_can_create_roles(&db, &w_id, dt).await
+            {
+                if self_defaulted {
                     default_disabled.push(name.clone());
                 } else {
                     return Err(e);

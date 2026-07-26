@@ -222,6 +222,10 @@ fn folder_access_satisfies(
 /// `g/<group>`). Returns the matched statements plus the group memberships
 /// they were resolved through (folded into the perms hash so membership
 /// changes invalidate the role).
+///
+/// Authorization: does not authenticate the supplied identity — callers MUST
+/// pass a `permissioned_as` they have verified belongs to the caller (a job's
+/// `permissioned_as`, or the authed user's own username).
 pub async fn compute_effective_grants(
     db: &DB,
     w_id: &str,
@@ -686,21 +690,24 @@ async fn ensure_ephemeral_role(
 
     // If the data table's database moved since the role was created (resource
     // edit, config re-point), the role still exists on the PREVIOUS cluster
-    // with its old grants — revoke it there first, using the stored owner
-    // credentials (best-effort: the old cluster may be unreachable, in which
-    // case the role at least keeps only its old-cluster grants and any active
-    // holder is handled by the NOLOGIN path when reachable again).
+    // with its old grants — revoke it there first. Failure is fatal, not
+    // logged: continuing would overwrite the stored target with the new
+    // cluster's and lose the only pointer to the unrevoked role. Failing
+    // keeps the row (old target intact) so the next access or sweep retries.
     let stored_creds = existing.and_then(|r| r.owner_creds);
     if let Some(stored) = decode_stored_target(db, w_id, stored_creds).await {
         if !same_target(&stored.pg, owner) {
-            if let Err(e) =
-                drop_or_disable_on_target(db, &stored.pg, stored.is_instance, &role).await
-            {
-                tracing::warn!(
-                    "revoking ephemeral role {role} on its previous cluster {}: {e:#}",
-                    stored.pg.host
-                );
-            }
+            drop_or_disable_on_target(db, &stored.pg, stored.is_instance, &role)
+                .await
+                .map_err(|e| {
+                    Error::internal_err(format!(
+                        "cannot revoke this data table's previous credentials on its former \
+                         database ({}/{}): {e:#}. Access stays blocked until that database is \
+                         reachable; if it is permanently gone, ask an admin to clear the \
+                         datatable_ephemeral_role entry.",
+                        stored.pg.host, stored.pg.dbname
+                    ))
+                })?;
         }
     }
 
@@ -904,37 +911,56 @@ async fn cleanup_one_expired_role(db: &DB, role: &str, w_id: &str, datatable: &s
 }
 
 /// Best-effort teardown of every ephemeral role of a data table (or a whole
-/// workspace when `datatable` is `None`), used on data table deletion and
-/// workspace deletion. Roles with active sessions are skipped; their
-/// bookkeeping rows are removed regardless (workspace deletion cascades them
-/// anyway) and the roles become inert stragglers.
+/// workspace when `datatable` is `None`), used on data table deletion,
+/// database re-points and permission edits. Roles that cannot be dropped keep
+/// their bookkeeping row (with the recorded target), so the expiry sweep
+/// retries them — failure here loses nothing.
+///
+/// Authorization: mutates cluster roles; call only from admin-gated flows.
 pub async fn drop_datatable_ephemeral_roles_best_effort(
     db: &DB,
     w_id: &str,
     datatable: Option<&str>,
 ) {
-    let rows = match sqlx::query!(
+    if let Err(e) = teardown_datatable_roles(db, w_id, datatable).await {
+        tracing::warn!("tearing down datatable ephemeral roles: {e:#}");
+    }
+}
+
+/// Strict variant for workspace deletion: the bookkeeping rows (and the
+/// workspace key their targets are encrypted with) are about to cascade away,
+/// so every role must be revoked NOW — dropped, or at least stripped of LOGIN
+/// when sessions are still active. Any failure (e.g. an unreachable external
+/// cluster) must abort the deletion; proceeding would orphan a live LOGIN
+/// role with no remaining way to ever revoke it.
+///
+/// Authorization: mutates cluster roles; call only from admin-gated flows.
+pub async fn teardown_datatable_roles_strict(db: &DB, w_id: &str) -> Result<()> {
+    teardown_datatable_roles(db, w_id, None).await
+}
+
+async fn teardown_datatable_roles(db: &DB, w_id: &str, datatable: Option<&str>) -> Result<()> {
+    let rows = sqlx::query!(
         "SELECT role_name, datatable FROM datatable_ephemeral_role
          WHERE workspace_id = $1 AND ($2::text IS NULL OR datatable = $2)",
         w_id,
         datatable
     )
     .fetch_all(db)
-    .await
-    {
-        Ok(rows) => rows,
-        Err(e) => {
-            tracing::warn!("listing datatable ephemeral roles for teardown: {e:#}");
-            return;
-        }
-    };
+    .await?;
+    let mut failures: Vec<String> = vec![];
     for row in rows {
         if let Err(e) = teardown_role(db, w_id, &row.datatable, &row.role_name).await {
-            tracing::warn!(
-                "tearing down datatable ephemeral role {}: {e:#}",
-                row.role_name
-            );
+            failures.push(format!("{} ({}): {e:#}", row.role_name, row.datatable));
         }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(Error::internal_err(format!(
+            "could not revoke data table role(s): {}",
+            failures.join("; ")
+        )))
     }
 }
 
@@ -961,21 +987,40 @@ async fn disable_role_login(client: &tokio_postgres::Client, role: &str) {
 
 /// Where a role must be revoked: the stored owner target from its bookkeeping
 /// row when present (survives resource/config re-points), else the currently
-/// configured database.
+/// configured database. When the stored and configured targets are the same
+/// physical database, the configured credentials win — a password-only
+/// rotation of the resource must not leave revocation retrying obsolete
+/// credentials forever.
 async fn resolve_role_target(
     db: &DB,
     w_id: &str,
     datatable: &str,
     owner_creds: Option<String>,
 ) -> Option<(PgDatabase, bool)> {
-    if let Some(stored) = decode_stored_target(db, w_id, owner_creds).await {
-        return Some((stored.pg, stored.is_instance));
+    let stored = decode_stored_target(db, w_id, owner_creds).await;
+    let current = match get_datatable_config(db, w_id, datatable).await {
+        Ok(config) => {
+            let is_instance =
+                config.database.resource_type == DataTableCatalogResourceType::Instance;
+            datatable_shared_resource(db, w_id, &config)
+                .await
+                .ok()
+                .and_then(|v| serde_json::from_value::<PgDatabase>(v).ok())
+                .map(|owner| (owner, is_instance))
+        }
+        Err(_) => None,
+    };
+    match (stored, current) {
+        (Some(stored), Some((current, current_is_instance))) => {
+            if same_target(&stored.pg, &current) {
+                Some((current, current_is_instance))
+            } else {
+                Some((stored.pg, stored.is_instance))
+            }
+        }
+        (Some(stored), None) => Some((stored.pg, stored.is_instance)),
+        (None, current) => current,
     }
-    let config = get_datatable_config(db, w_id, datatable).await.ok()?;
-    let owner: PgDatabase =
-        serde_json::from_value(datatable_shared_resource(db, w_id, &config).await.ok()?).ok()?;
-    let is_instance = config.database.resource_type == DataTableCatalogResourceType::Instance;
-    Some((owner, is_instance))
 }
 
 async fn teardown_role(db: &DB, w_id: &str, datatable: &str, role: &str) -> Result<()> {

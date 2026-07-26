@@ -1091,6 +1091,10 @@ fn datatable_not_found_error(name: &str, datatables: Option<&serde_json::Value>)
 }
 
 /// Load a data table's config from workspace settings.
+///
+/// Authorization: performs none — the returned config includes the grant
+/// statements and database coordinates (no secrets). Callers exposing it to a
+/// user must gate on workspace membership/admin themselves.
 pub async fn get_datatable_config(db: &DB, w_id: &str, name: &str) -> Result<DataTable> {
     let datatables = sqlx::query_scalar!(
         r#"
