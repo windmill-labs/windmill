@@ -97,15 +97,10 @@ function resolvePath(root: Element, path: number[]): Element | undefined {
 	return cur
 }
 
-/** What may stay on a no-record element: enough for it to keep occupying the
- * same space in the snapshot, and nothing that can carry content. `class` and
- * `id` are on it by name only — their values are filtered to what the snapshot's
- * CSS selects on (see {@link styledTokens}). An allow-list
- * on purpose — every round of "this attribute leaks too" (`title`, `data-*`,
- * `label`, `xlink:href`, `srcdoc`…) is a deny-list failing open. `style` is not
- * on it either: a custom property or an image function can carry content just as
- * well as a `url()`. Nor is `checked`/`selected`: whether a marked box is ticked
- * is exactly the kind of answer the marker exists to withhold. */
+/** What may stay on a no-record element: enough to keep occupying the same
+ * space, nothing that can carry content. An allow-list on purpose, since any
+ * deny-list fails open. `class`/`id` are here by name only, their values
+ * filtered by {@link styledTokens}; `style` and `checked` are deliberately not. */
 const REDACTION_KEEPS_ATTRS = new Set([
 	'class',
 	'colspan',
@@ -153,15 +148,10 @@ function unescapeCssIdent(ident: string): string {
 	)
 }
 
-/** Class and id tokens the snapshot's own (already inlined) stylesheets select
- * on. `class` and `id` are kept on redacted elements so their box keeps its
- * shape, but their values are author-chosen free text and can carry the very
- * content the marker withholds (`id="salary-92000"`). A token the CSS selects on
- * is styling vocabulary by construction; one it never mentions buys the layout
- * nothing, so it goes. Only stylesheets that survive into the snapshot count.
- * Matching is textual and deliberately errs towards
- * dropping: a class reached only through `[class~=…]` loses its styling, which
- * costs a placeholder its shape rather than leaking anything. */
+/** Tokens the snapshot's surviving stylesheets select on. A redacted element
+ * keeps `class`/`id` for its shape, but the values are author-written and can
+ * name what the marker withholds; a token the CSS selects on is styling
+ * vocabulary, one it never mentions buys nothing. Errs towards dropping. */
 function styledTokens(clone: Element): { classes: Set<string>; ids: Set<string> } {
 	const classes = new Set<string>()
 	const ids = new Set<string>()
@@ -442,17 +432,11 @@ const HIGHLIGHT_CSS = `[${REC_TARGET_ATTR}] {
 	box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.25) !important;
 }`
 
-/** Prepare a recorded frame for replay: the policy first in <head>, then the
- * target highlight, and anything executable dropped.
- *
- * Goes through a real parser rather than string surgery — a recording can come
- * from an arbitrary `?src=` URL, and markup like `<body><img src=/probe><header>`
- * defeats a `<head>` regex, putting the policy after the request it must prevent.
- * DOMParser does not fetch subresources or run scripts, so parsing is inert; the
- * document only becomes live when the player hands it to a sandboxed iframe.
- *
- * Lives here rather than in the player because a literal `<style>` tag inside a
- * .svelte file is parsed as the component's own style block. */
+/** Prepare a recorded frame for replay: policy first in `<head>`, target
+ * highlight, nothing executable. Parsed rather than string-spliced because a
+ * `?src=` recording can defeat a `<head>` regex (`<body><img src=/probe><header>`)
+ * and land the policy after the request it must prevent. Not in the player: a
+ * literal `<style>` there is parsed as the component's own style block. */
 export function withHighlightStyles(frame: string): string {
 	let doc: Document
 	try {

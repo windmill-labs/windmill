@@ -129,12 +129,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		cap: ReturnType<typeof setTimeout>
 	}
 	let settle: Settle | undefined = undefined
-	/** Request ids the app is waiting on, by `reqId`. Owned by the recording, not
-	 * by one bridge watch: a reload's bootstrap scripts run *before* the iframe's
-	 * `load` fires, so their requests are seen by the outgoing watch while the
-	 * response only arrives after the new one is bound. Clearing this on rebind
-	 * would strand exactly those, and a reloaded app that immediately calls a
-	 * runnable would settle on its spinner. */
+	/** Request ids the app is waiting on. Outlives a bridge rebind: a reload's
+	 * bootstrap requests are seen by the outgoing watch and answered after the next
+	 * one binds, so clearing it there would strand them. */
 	const inFlight = new Set<unknown>()
 	/** Document the response listener is currently bound to, so a navigation is
 	 * noticed the moment the new document speaks rather than only at `load`. */
@@ -255,13 +252,10 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		}
 	}
 
-	/** Close out the step still settling, because the next interaction is starting.
-	 * The DOM it starts from IS that step's outcome, and by now `capture()` would
-	 * already include the new interaction's effect (a fill committed by clicking a
-	 * checkbox would settle showing it checked). Only a frame taken for the new
-	 * interaction will do: a fill's own pre-frame is up to a debounce old and
-	 * predates the step being settled. The stamp has to come off — it marks the NEW
-	 * step's target. */
+	/** Close out the settling step: the DOM the next interaction starts from IS its
+	 * outcome. Must use that interaction's own pre-frame, unstamped — `capture()`
+	 * here would already include the new effect, and an older frame predates the
+	 * step being settled. */
 	function settlePendingStep(before: string | undefined) {
 		if (!settle) return
 		const pending = settle.step
@@ -283,25 +277,19 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		if (!active) return
 		const t = Date.now() - startTime
 		const last = steps[steps.length - 1]
-		// `keyDriven` is the browser's own `KeyboardEvent.repeat`, which already
-		// says "same key, still held", so it folds on its own. The time window is
-		// for a continuous control, where nothing else distinguishes one drag from
-		// the next press: without it a slider would coalesce across a pause. Gating
-		// repeats on it too would split every held key in two, because the first
-		// repeat only arrives after the OS repeat delay (~500ms).
+		// A repeat already means "same key, still held", so it folds untimed; gating
+		// it would split every held key at the OS repeat delay. The window is only for
+		// a continuous control, where nothing else separates a drag from the next
+		// press.
 		const coalesces =
 			!!last &&
 			!!el &&
 			sameTarget(lastStepEl, el) &&
 			last.kind === kind &&
 			(keyDriven || (isContinuousControl(el) && t - lastStepAt < CONTROL_COALESCE_MS))
-		// A step's outcome must be settled before the next one starts; the pending
-		// snapshot can't be deferred past this point. It can't reuse `before`
-		// either: that frame carries the NEW step's target stamp. Runs before the
-		// cap check, so the last accepted step keeps its result even when the
-		// interaction that follows it is the one that gets refused. Skipped while a
-		// gesture is still coalescing: each repeat's outcome would be indexed and
-		// then immediately superseded, leaving a full document unreferenced.
+		// Before the cap check, so the last accepted step still gets its outcome when
+		// the next interaction is the one refused. Skipped mid-gesture: each repeat's
+		// outcome would be indexed and immediately superseded.
 		if (!coalesces) settlePendingStep(before)
 		if (steps.length >= MAX_RECORDED_STEPS && !coalesces) {
 			truncated = true
@@ -329,11 +317,8 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			!redacted || !bounded ? bounded : kind === 'toggle' ? undefined : maskValue(bounded)
 		const label = stepLabel(kind, target, shown)
 		if (coalesces && last) {
-			// Same control, same kind, still within the sweep: update the step in place
-			// so a held arrow key or a slider drag reads as one interaction. Nothing is
-			// indexed for a repeat — neither its pre-frame nor an outcome the next
-			// repeat would supersede — and the window runs from this update, so a
-			// sustained gesture stays one step however long it is held.
+			// One gesture, one step: updated in place, indexing nothing for a repeat, and
+			// the window runs from here so a sustained hold never splits.
 			last.value = shown
 			last.label = label
 			lastStepAt = t
@@ -354,12 +339,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			before: frameIndex(before ?? (kind === 'key' ? capture(el) : undefined))
 		}
 		steps.push(step)
-		// Spend only the frame this step actually used. Without consumption a later
-		// interaction on the same element (a keyboard activation of a button already
-		// clicked) would reuse it and appear to rewind; consuming indiscriminately
-		// would take the frame belonging to something else — a control clicked while
-		// a fill is still debouncing commits that fill first, and the control's own
-		// pointerdown frame must survive it.
+		// Spend only the frame this step used: reusing it later rewinds the replay,
+		// while clearing both would take one belonging to an interaction still in
+		// flight (a control clicked mid-debounce commits the fill first).
 		if (before !== undefined && pendingPointer?.html === before) pendingPointer = undefined
 		if (before !== undefined && pendingKey?.html === before) pendingKey = undefined
 		lastStepEl = el
@@ -368,11 +350,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		scheduleSettle(step)
 	}
 
-	/** True when this click landed on a label and will be forwarded to its control,
-	 * which then reports the interaction itself — the label's own click is the
-	 * duplicate. The forwarded click (target === the control) must NOT fold, or a
-	 * button-shaped control, which never fires `change`, would vanish. Interactive
-	 * content inside the label isn't forwarded either, so it stays a click step. */
+	/** A label's own click duplicates the control's report of the same interaction.
+	 * Only the label's: the forwarded click must not fold, or a button-shaped
+	 * control (which never fires `change`) would vanish. */
 	function labelDrivesControl(el: Element): boolean {
 		const label = el.closest('label') as HTMLLabelElement | null
 		const control = label?.control
@@ -508,11 +488,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		const { el, before } = pendingFill
 		clearTimeout(pendingFill.timer)
 		pendingFill = undefined
-		// The frames that fed this edit are spent: a later burst in the same field
-		// must snapshot itself instead of rewinding to the pre-typing DOM. A
-		// pointerdown on something ELSE (the control the user just moved to) is that
-		// control's pre-change frame and must survive — `pointerFrameFor` decides,
-		// so the label and ancestor cases it accepts are cleared here too.
+		// Spent, so a later burst in this field snapshots itself instead of rewinding.
+		// A pointerdown on something else is that control's own pre-change frame and
+		// must survive, which is why `pointerFrameFor` decides what is cleared.
 		if (pointerFrameFor(el) !== undefined) pendingPointer = undefined
 		if (pendingKey?.el === el) pendingKey = undefined
 		pushStep('fill', el, before, currentValue(el))
@@ -579,12 +557,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 				const pointerBefore = pointerFrameFor(el)
 				const keyBefore = keyFrameFor(el)
 				const before = pointerBefore ?? keyBefore ?? capture(el)
-				// Arming a fill is the start of an interaction even though no step exists
-				// yet, so the previous one has to be closed out here too. Typing changes
-				// the `value` *property*, which the observer cannot see, so its settle
-				// would otherwise stay armed and capture this field mid-edit as the
-				// previous step's outcome — replaying as text that appears before it was
-				// typed and then vanishes.
+				// Arming a fill starts an interaction before any step exists. Typing moves
+				// the `value` *property*, invisible to the observer, so the previous
+				// settle would otherwise capture this field mid-edit as its outcome.
 				settlePendingStep(before)
 				pendingFill = { el, before, timer: setTimeout(commitFill, FILL_DEBOUNCE_MS) }
 			} else {
@@ -607,18 +582,10 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			const pointerBefore = pointerFrameFor(el)
 			const keyBefore = keyFrameFor(el)
 			const before = pointerBefore ?? keyBefore
-			// NOT cleared here: `pushStep` spends exactly the frame it used, and needs
-			// this one still pending to recognise it as this interaction's pre-state
-			// when settling the step before it.
-			// A sweep keeps its opening frame: every repeat updates one step, whose
-			// Interaction is the state before the gesture started. A discrete control
-			// consumes it, so its next activation snapshots afresh.
-			// Only a browser-generated repeat continues a step; two deliberate presses
-			// are two interactions even when they land inside the window. Read from the
-			// frame this change actually starts from, not merely from a key frame
-			// existing: a held key leaves `repeat` set until something else replaces it,
-			// so a later pointer takeover of the same control would otherwise inherit
-			// the flag and fold a separate interaction into the finished gesture.
+			// Left pending: `pushStep` spends the frame it used, and needs this one to
+			// recognise the pre-state when settling the step before it. `repeat` is read
+			// from the frame this change starts from — a held key leaves the flag set,
+			// so a later pointer takeover would otherwise fold into a finished gesture.
 			const keyDriven =
 				pointerBefore === undefined && keyBefore !== undefined && !!pendingKey?.repeat
 			if (isTag(el, 'SELECT')) {
@@ -668,11 +635,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 
 		on('keydown', (e: KeyboardEvent) => {
 			const el = isElementNode(e.target) ? e.target : undefined
-			// Space on a checkbox, arrows on a select: the key is about to change the
-			// control, and this is the last moment the pre-change DOM exists. Text
-			// fields are covered by `beforeinput` instead, which also sees paste and
-			// undo. Snapshotting is expensive and runs on the app's own event path, so
-			// keys that change nothing (Tab, modifiers, navigation) must not trigger it.
+			// Last moment the pre-change DOM exists for a control key (space, arrows).
+			// Text fields go through `beforeinput`, which also sees paste and undo.
+			// Snapshotting runs on the app's event path, so inert keys must not trigger it.
 			if (el && isControl(el) && mutatingKey(e)) {
 				// An auto-repeat continues the gesture the first press opened: keep that
 				// frame (re-serializing per repeat would clone the whole document at the
@@ -681,11 +646,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 				else pendingKey = { el, html: capture(el), repeat: e.repeat }
 			}
 			if (e.key !== 'Enter' && e.key !== 'Escape') return
-			// A control reports what the key did to it on `change`, an activatable
-			// element turns Enter into a click, and Enter in a multiline field is the
-			// newline the fill already records. Recording the key as well would double
-			// the interaction — Escape becomes none of those, so it is only ever
-			// recorded here.
+			// Enter is already reported as a change, a click, or the fill's own newline,
+			// so recording it again would double the interaction. Escape becomes none of
+			// those and is only ever recorded here.
 			if (e.key === 'Enter' && el && (isControl(el) || isActivatable(el) || isMultiline(el))) return
 			// Enter in a field ends the edit: the fill step must land before the key.
 			commitFill()
@@ -700,20 +663,10 @@ export function createRawAppRecording(): RawAppRecordingStore {
 		detachers = []
 	}
 
-	/** The bundle asks the host to do backend work by postMessage — run a runnable,
-	 * await a job, stream one — and each request is answered with a `<type>Res`
-	 * carrying the same `reqId` (see RawAppBackgroundRunner). Counting outstanding
-	 * reqIds tells the settle logic that the app is waiting on the backend rather
-	 * than finished; nothing else can, since the request leaves the iframe without
-	 * touching the DOM.
-	 *
-	 * Tracked by reqId rather than by an enumerated set of request types: a step
-	 * that dispatches with `backendAsync` and then waits with `waitJob`/`streamJob`
-	 * is still waiting, and an unlisted type would settle it on its spinner.
-	 *
-	 * The two halves travel in opposite directions and are therefore delivered to
-	 * different windows: the request goes iframe -> host, the response goes host ->
-	 * iframe. Listening only on the host would count every request and clear none. */
+	/** Outstanding `reqId`s on the bundle's bridge (RawAppBackgroundRunner) are the
+	 * only sign a step waits on the backend: the request leaves the iframe without
+	 * touching the DOM. By id, so an async dispatch awaited later still counts; on
+	 * both windows, since request and response travel opposite ways. */
 	function watchRunnableBridge(iframe: HTMLIFrameElement) {
 		const bundle = iframe.contentWindow
 		const onResponse = (e: MessageEvent) => {
@@ -724,12 +677,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 			inFlight.delete(reqId)
 			pendingJobs = inFlight.size
 		}
-		// Bound off the request rather than only off `load`: a reloaded document can
-		// request (and be answered) while a slow subresource still holds `load` open,
-		// and since `inFlight` survives the reload an unobserved response would leave
-		// its id pending until the job cap. The request proves the document is live
-		// and always precedes its own response, so binding here makes the listener's
-		// presence independent of how a navigation treats the previous one.
+		// Bound off the request, not just `load`: a reloaded document can be answered
+		// while a slow subresource still holds `load` open, and the request both
+		// proves the document is live and always precedes its own response.
 		const bindResponses = () => {
 			const d = doc()
 			if (!d || d === boundDoc) return
@@ -829,11 +779,9 @@ export function createRawAppRecording(): RawAppRecordingStore {
 				width: iframe.clientWidth || d.documentElement.clientWidth,
 				height: iframe.clientHeight || d.documentElement.clientHeight
 			}
-			// frames[0] is the app as recording started: the player opens on it, and it
-			// is the one frame no step claims. An iframe that has not finished loading
-			// is still `about:blank` — capturing that would open the replay on an empty
-			// page and make the real initial DOM look like a navigation, so leave frame
-			// 0 to the load handler.
+			// frames[0] is the app as recording started, the one frame no step claims.
+			// Capturing a not-yet-loaded `about:blank` would open the replay empty and
+			// make the real initial DOM look like a navigation, so defer to `load`.
 			if (d.readyState === 'complete' && d.location?.href !== 'about:blank') {
 				frameIndex(capture())
 			}
