@@ -539,7 +539,8 @@ const DBT_GENERATED_DIRS = ["target", "dbt_packages", "logs", ".git", ".venv", "
 const dbtGeneratedDirsCache = new Map<string, Set<string>>();
 
 /**
- * Top-level directories to leave out of a dbt project's module bundle.
+ * Directories to leave out of a dbt project's module bundle, as project-relative
+ * paths — `target-path` and friends may be nested (`build/target`).
  *
  * `target-path`, `packages-install-path` and `clean-targets` are configurable,
  * so they are read from the project rather than assumed. Cached per project
@@ -549,21 +550,39 @@ export function dbtGeneratedDirs(moduleFolderPath: string): Set<string> {
   const cached = dbtGeneratedDirsCache.get(moduleFolderPath);
   if (cached) return cached;
   const dirs = new Set<string>(DBT_GENERATED_DIRS);
+  const add = (raw: string) => {
+    const v = normalizeSep(raw.trim().replace(/^["']|["']$/g, ""))
+      .replace(/^\.\//, "")
+      .replace(/\/+$/, "");
+    // A configured path that escapes the project is dbt's problem, not ours;
+    // ignoring it here just means those files stay in the bundle.
+    if (v && !v.startsWith("/") && !v.split("/").includes("..")) dirs.add(v);
+  };
   try {
     const projectYml = fs.readFileSync(
       path.join(moduleFolderPath, "dbt_project.yml"),
       "utf-8",
     );
     for (const m of projectYml.matchAll(
-      /^\s*(?:target-path|packages-install-path)\s*:\s*["']?([^"'\n#]+)/gm,
+      /^\s*(?:target-path|packages-install-path)\s*:\s*([^\n#]+)/gm,
     )) {
-      dirs.add(m[1].trim().replace(/^\.\//, ""));
+      add(m[1]);
     }
-    const clean = projectYml.match(/^\s*clean-targets\s*:\s*\[([^\]]*)\]/m);
-    if (clean) {
-      for (const t of clean[1].split(",")) {
-        const v = t.trim().replace(/^["']|["']$/g, "").replace(/^\.\//, "");
-        if (v) dirs.add(v);
+    // `clean-targets` in either of dbt's two spellings: inline `[a, b]`, and the
+    // block form, whose entries are on the lines that follow.
+    const lines = projectYml.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      const head = lines[i].match(/^\s*clean-targets\s*:\s*(.*)$/);
+      if (!head) continue;
+      const inline = head[1].match(/^\[([^\]]*)\]/);
+      if (inline) {
+        inline[1].split(",").forEach(add);
+        continue;
+      }
+      for (let j = i + 1; j < lines.length; j++) {
+        const item = lines[j].match(/^\s+-\s*([^\n#]+)$/);
+        if (!item) break;
+        add(item[1]);
       }
     }
   } catch {
@@ -572,6 +591,18 @@ export function dbtGeneratedDirs(moduleFolderPath: string): Set<string> {
   }
   dbtGeneratedDirsCache.set(moduleFolderPath, dirs);
   return dirs;
+}
+
+/**
+ * Whether a project-relative path sits inside one of `dirs`. Compared segment
+ * by segment: `targetx/a` must not match a configured `target`.
+ */
+export function isUnderGeneratedDir(rel: string, dirs: Set<string>): boolean {
+  const n = normalizeSep(rel);
+  for (const d of dirs) {
+    if (n === d || n.startsWith(d + "/")) return true;
+  }
+  return false;
 }
 
 /**
@@ -585,8 +616,10 @@ export function isDbtGeneratedPath(p: string): boolean {
   const idx = n.indexOf(suffix);
   if (idx === -1) return false;
   const rel = n.slice(idx + suffix.length);
-  const top = rel.split("/")[0];
-  return dbtGeneratedDirs(n.slice(0, idx + suffix.length - 1)).has(top);
+  return isUnderGeneratedDir(
+    rel,
+    dbtGeneratedDirs(n.slice(0, idx + suffix.length - 1)),
+  );
 }
 
 /**

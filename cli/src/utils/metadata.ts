@@ -19,7 +19,7 @@ import {
   languageNeedsLock,
 } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
-import { dbtGeneratedDirs, getModuleFolderSuffix, isModuleEntryPoint, scriptPathToRemotePath } from "./resource_folders.ts";
+import { dbtGeneratedDirs, isUnderGeneratedDir, getModuleFolderSuffix, isModuleEntryPoint, scriptPathToRemotePath } from "./resource_folders.ts";
 import { findCodebase, yamlOptions } from "../commands/sync/sync.ts";
 import { generateHash, readInlinePathSync, getHeaders, readTextFile, readTextFileSync } from "./utils.ts";
 import { detectAuthGatewayChallenge } from "./http_guards.ts";
@@ -1392,7 +1392,9 @@ async function computeModuleHashes(
       const isTopLevel = relPrefix === "";
 
       if (entry.isDirectory()) {
-        if (isTopLevel && skipDirs.has(entry.name)) continue;
+        // A configured `target-path` may be nested (`build/target`), so the
+        // comparison is on the project-relative path, not the entry name.
+        if (skipDirs.size > 0 && isUnderGeneratedDir(relPath, skipDirs)) continue;
         await readDir(fullPath, relPath);
       } else if (
         entry.isFile() &&

@@ -2536,8 +2536,21 @@ async fn restore_run_state(
         .await
         .map_err(|_| no_state())?;
     let snapshot = dir.join(generation.trim());
-    if !snapshot.join("run_results.json").exists() {
-        return Err(no_state());
+    let saved_results = tokio::fs::read_to_string(snapshot.join("run_results.json"))
+        .await
+        .map_err(|_| no_state())?;
+    // dbt builds a retry's graph from the error, fail and skipped nodes alone,
+    // so retrying an all-green run selects nothing and writes nothing — and a
+    // job that succeeds having written nothing still dispatches every
+    // deploy-time write, waking every downstream consumer for relations no one
+    // touched. Refuse instead.
+    if !has_retryable_node(&saved_results) {
+        return Err(Error::BadRequest(
+            "the last dbt run on this worker succeeded, so there is nothing to retry: `dbt \
+             retry` resumes the previous run's failed and skipped nodes. Run the script \
+             normally to rebuild"
+                .to_string(),
+        ));
     }
     let saved: SavedRunState = tokio::fs::read_to_string(snapshot.join("state.json"))
         .await
@@ -2561,6 +2574,26 @@ async fn restore_run_state(
         .into_iter()
         .filter_map(|(k, v)| Some((k, RawValue::from_string(v).ok()?)))
         .collect())
+}
+
+/// Whether a saved `run_results.json` has anything `dbt retry` would select.
+///
+/// dbt's own rule: `error`, `fail` and `skipped`. A `partial success` counts —
+/// dbt spells it in `status` as `partial success` for a node that built but
+/// whose tests failed, and its own retry treats the failures.
+fn has_retryable_node(run_results: &str) -> bool {
+    serde_json::from_str::<RunResults>(run_results)
+        .map(|r| {
+            r.results.iter().any(|n| {
+                matches!(
+                    n.status.to_ascii_lowercase().as_str(),
+                    "error" | "fail" | "skipped" | "partial success"
+                )
+            })
+        })
+        // Unreadable results are not "nothing to retry": let dbt decide rather
+        // than refusing a retry the user may well need.
+        .unwrap_or(true)
 }
 
 /// Append `--vars` if the descriptor (or the run) declares any.
@@ -3052,6 +3085,35 @@ mod tests {
                 "{escape} must not be honoured"
             );
         }
+    }
+
+    // A retry of an all-green run selects nothing, writes nothing, and still
+    // succeeds — and a successful dbt job dispatches every deploy-time write,
+    // so it would wake every downstream consumer for relations no one touched.
+    #[test]
+    fn a_retry_needs_something_to_retry() {
+        let results = |statuses: &[&str]| {
+            format!(
+                r#"{{"results":[{}]}}"#,
+                statuses
+                    .iter()
+                    .map(|s| format!(r#"{{"unique_id":"model.p.m","status":"{s}"}}"#))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )
+        };
+        assert!(!has_retryable_node(&results(&["success"])));
+        assert!(!has_retryable_node(&results(&["success", "pass"])));
+        assert!(!has_retryable_node(r#"{"results":[]}"#));
+        for retryable in ["error", "fail", "skipped", "partial success"] {
+            assert!(
+                has_retryable_node(&results(&["success", retryable])),
+                "{retryable} must be retryable"
+            );
+        }
+        // Unreadable results let dbt decide rather than refusing a retry the
+        // user may well need.
+        assert!(has_retryable_node("not json"));
     }
 
     #[test]

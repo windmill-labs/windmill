@@ -454,6 +454,22 @@
 					language: 'bun'
 				}
 			}
+		} else if (script.language === 'dbt') {
+			// A dbt script's modules ARE its dbt project, and the runtime refuses one
+			// without a `dbt_project.yml`. Seed a project that builds, so Deploy and
+			// Run work from here; growing it is `wmill sync pull` and a local editor,
+			// which is where dbt development happens.
+			script.modules = {
+				'dbt_project.yml': {
+					content:
+						'name: my_dbt_project\nversion: "1.0"\nprofile: my_dbt_project\nmodels:\n  my_dbt_project:\n    +materialized: view\n',
+					language: 'dbt'
+				},
+				'models/example.sql': {
+					content: 'select 1 as id\n',
+					language: 'dbt'
+				}
+			}
 		}
 		const restarter = scheduleRestartSync(userDraftPath, { waitForContent: true })
 		initContent(script.language, script.kind, template).finally(() => restarter.markContentReady())

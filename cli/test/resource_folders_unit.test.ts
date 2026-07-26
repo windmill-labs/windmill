@@ -37,6 +37,8 @@ import {
   transformJsonPathToDir,
   isModuleEntryPoint,
   getScriptBasePathFromModulePath,
+  dbtGeneratedDirs,
+  isUnderGeneratedDir,
 } from "../src/utils/resource_folders.ts";
 import { removeWorkerPrefix } from "../src/commands/worker-groups/worker-groups.ts";
 
@@ -655,5 +657,71 @@ describe("removeWorkerPrefix", () => {
 
   test("handles worker__ as the entire name", () => {
     expect(removeWorkerPrefix("worker__")).toBe("");
+  });
+});
+
+// A dbt project's generated directories never belong to the bundle: hashing and
+// uploading a local `target/` would make every local `dbt run` look like a
+// project change, and a stale manifest in it is what the runtime reads as the
+// graph. They are configurable, so they are read from the project.
+describe("dbtGeneratedDirs", () => {
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const nodePath = require("node:path");
+  let dir: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), "dbtgen-"));
+  });
+
+  // A fresh directory per call: `dbtGeneratedDirs` memoizes per project folder,
+  // since within one sync the project file does not change under it.
+  const write = (yml: string) => {
+    const d = fs.mkdtempSync(nodePath.join(os.tmpdir(), "dbtgen-"));
+    fs.writeFileSync(nodePath.join(d, "dbt_project.yml"), yml);
+    return dbtGeneratedDirs(d);
+  };
+
+  test("defaults apply with no project file", () => {
+    const dirs = dbtGeneratedDirs(dir);
+    expect(dirs.has("target")).toBe(true);
+    expect(dirs.has("dbt_packages")).toBe(true);
+  });
+
+  test("reads nested target-path and packages-install-path", () => {
+    const dirs = write(
+      'name: p\ntarget-path: "build/target"\npackages-install-path: ./vendor/pkgs\n',
+    );
+    expect(dirs.has("build/target")).toBe(true);
+    expect(dirs.has("vendor/pkgs")).toBe(true);
+  });
+
+  test("reads clean-targets in both of dbt's spellings", () => {
+    expect(write('name: p\nclean-targets: ["a", b]\n').has("a")).toBe(true);
+    const block = write("name: p\nclean-targets:\n  - out/one\n  - two\nmodels: {}\n");
+    expect(block.has("out/one")).toBe(true);
+    expect(block.has("two")).toBe(true);
+    expect(block.has("models")).toBe(false);
+  });
+
+  test("ignores a configured path that escapes the project", () => {
+    const dirs = write('name: p\ntarget-path: "../../etc"\n');
+    expect([...dirs].some((d) => d.includes(".."))).toBe(false);
+  });
+});
+
+describe("isUnderGeneratedDir", () => {
+  const dirs = new Set(["target", "build/target"]);
+
+  test("matches the directory and everything under it", () => {
+    expect(isUnderGeneratedDir("target", dirs)).toBe(true);
+    expect(isUnderGeneratedDir("target/manifest.json", dirs)).toBe(true);
+    expect(isUnderGeneratedDir("build/target/run_results.json", dirs)).toBe(true);
+  });
+
+  test("does not match a sibling sharing the prefix", () => {
+    expect(isUnderGeneratedDir("targetx/a.sql", dirs)).toBe(false);
+    expect(isUnderGeneratedDir("models/target_helper.sql", dirs)).toBe(false);
+    expect(isUnderGeneratedDir("build/targeted/a.sql", dirs)).toBe(false);
   });
 });

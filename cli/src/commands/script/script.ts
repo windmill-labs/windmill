@@ -72,6 +72,7 @@ import {
   buildModuleFolderPath,
   getModuleFolderSuffix,
   dbtGeneratedDirs,
+  isUnderGeneratedDir,
   isModuleEntryPoint,
   getScriptBasePathFromModulePath,
   scriptPathToRemotePath,
@@ -716,7 +717,9 @@ export async function readModulesFromDisk(
       const isTopLevel = relPrefix === "";
 
       if (entry.isDirectory()) {
-        if (isTopLevel && skipDirs.has(entry.name)) continue;
+        // A configured `target-path` may be nested (`build/target`), so the
+        // comparison is on the project-relative path, not the entry name.
+        if (skipDirs.size > 0 && isUnderGeneratedDir(relPath, skipDirs)) continue;
         readDir(fullPath, relPath);
       } else if (entry.isFile() && !entry.name.endsWith(".lock") && !isEntryPointFile(entry.name, isTopLevel)) {
         // Skip lock files — they're handled as the `lock` field on ScriptModule
