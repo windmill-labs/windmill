@@ -68,7 +68,7 @@ ENV PIPENV_VENV_IN_PROJECT=1
 ENV XDG_CACHE_HOME=/pyls/.cache
 
 # Install Python packages for LSP using uv
-RUN uv pip install --system --break-system-packages pipenv tornado python-lsp-jsonrpc ruff Cython
+RUN uv pip install --system --break-system-packages pipenv tornado python-lsp-jsonrpc ruff==0.16.0 Cython
 
 # Install Node-based language servers
 RUN npm install -g diagnostic-languageserver pyright
