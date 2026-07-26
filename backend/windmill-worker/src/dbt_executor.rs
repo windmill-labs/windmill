@@ -362,6 +362,11 @@ pub async fn dbt_dep(
     base_internal_url: &str,
 ) -> error::Result<String> {
     let descriptor = parse_dbt_descriptor(content)?;
+    // The script's own `envs`, exactly as a run gets them. A project can drive a
+    // model's schema, alias or `enabled` from `env_var()`, so parsing with an
+    // empty environment would record one relation at deploy and build another
+    // at run time — with no per-run refresh to correct it.
+    let envs = script_envs(db, job_id, w_id).await;
     let conn = Connection::Sql(db.clone());
     let client = AuthedClient::new(
         base_internal_url.to_string(),
@@ -390,14 +395,14 @@ pub async fn dbt_dep(
         canceled_by,
         occupancy_metrics,
         deadline,
-        // A dependency job runs no invocation, so it carries none.
-        &HashMap::new(),
+        &envs,
     )
     .await?;
 
-    // A deploy has no job arguments and no job environment, so it tolerates the
-    // `{{ }}` placeholders only a run can fill (see `Invocation::strict`).
-    let inv = Invocation { strict: false, ..Default::default() };
+    // A deploy has no job arguments, so it tolerates the `{{ }}` placeholders
+    // only a run can fill (see `Invocation::strict`). Its environment is the
+    // script's, matching what the run will parse with.
+    let inv = Invocation { envs: envs.clone(), strict: false, ..Default::default() };
     run_dbt_parse(
         &prepared,
         &descriptor,
@@ -523,6 +528,30 @@ pub async fn dbt_dep(
     .map_err(|e| Error::internal_err(format!("serializing the dbt lockfile: {e}")))
 }
 
+/// The `envs` of the script this dependency job is deploying, in the same shape
+/// a run receives them. Empty when the version cannot be resolved — a raw
+/// dependency job has no script row.
+async fn script_envs(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    job_id: &Uuid,
+    w_id: &str,
+) -> HashMap<String, String> {
+    let Some(hash) = deploying_script_hash(db, job_id).await else {
+        return HashMap::new();
+    };
+    let envs = sqlx::query_scalar!(
+        "SELECT envs FROM script WHERE workspace_id = $1 AND hash = $2",
+        w_id,
+        hash
+    )
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
+    .flatten();
+    crate::worker::build_envs(envs.as_ref()).unwrap_or_default()
+}
+
 /// The script version this dependency job is deploying. `None` for a raw
 /// dependency job (the CLI's lock generation), which has no script row.
 async fn deploying_script_hash(db: &sqlx::Pool<sqlx::Postgres>, job_id: &Uuid) -> Option<i64> {
@@ -575,6 +604,10 @@ pub struct PreparedProject {
     /// The descriptor's `env`, resolved, in a stable order. Feeds run identity;
     /// `env` itself is not usable there because it carries per-job values.
     pub descriptor_env: std::collections::BTreeMap<String, String>,
+    /// Digest of the invocation's own environment (the script's `envs`). It
+    /// reaches every phase, so it keys the package cache alongside the
+    /// descriptor's; digested because the values are resolved secrets.
+    pub invocation_env_digest: u64,
     /// Written nsjail profile for this job, when the worker sandboxes jobs.
     /// `None` means the phases run unsandboxed, exactly as before.
     pub sandbox_config: Option<PathBuf>,
@@ -912,13 +945,30 @@ pub async fn prepare_project(
                 )
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )
-        .ok()
-        .map(|_| PathBuf::from(job_dir).join("dbt.nsjail.config.proto"))
+        // Fail the job rather than fall back: a `None` here means every
+        // project-controlled phase would run unsandboxed on a worker configured
+        // to isolate them, and a repository can make this write fail on purpose
+        // by filling the job filesystem first.
+        .map_err(|e| {
+            Error::internal_err(format!("could not write the dbt sandbox profile: {e}"))
+        })?;
+        Some(PathBuf::from(job_dir).join("dbt.nsjail.config.proto"))
     } else {
         None
     };
 
     let mut prepared = PreparedProject {
+        invocation_env_digest: {
+            use std::hash::{Hash, Hasher};
+            let mut sorted: Vec<(&String, &String)> = invocation_env.iter().collect();
+            sorted.sort();
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            for (k, v) in sorted {
+                k.hash(&mut h);
+                v.hash(&mut h);
+            }
+            h.finish()
+        },
         sandbox_config,
         profile_digest,
         project_dir,
@@ -1153,12 +1203,17 @@ async fn install_packages(
     // descriptor's environment and can fetch private git packages, so a shared
     // tree would let one workspace execute another's private package code
     // without ever authenticating.
+    //
+    // BOTH environments are keyed. `deps` receives the invocation's too, so a
+    // `packages.yml` reading `env_var()` resolves differently per script, and
+    // two scripts with different metadata envs must not share one tree.
     let mut key = format!(
-        "{w_id}\n{}\n{}\n{}\n{:x}\n",
+        "{w_id}\n{}\n{}\n{}\n{:x}\n{:x}\n",
         p.commit,
         p.project_subdir,
         p.credential_identity,
         p.env_digest(),
+        p.invocation_env_digest,
     );
     let mut declares_packages = false;
     for f in ["packages.yml", "dependencies.yml", "package-lock.yml"] {

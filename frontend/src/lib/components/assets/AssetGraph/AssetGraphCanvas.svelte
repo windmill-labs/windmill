@@ -302,6 +302,11 @@
 			g.runnables,
 			g.edges
 		)
+		// Per-relation dbt description, to tell a project's own declared source
+		// from a relation another script materializes.
+		const dbtAssetProvenance = new Map(
+			g.assets.filter((a) => a.dbt).map((a) => [`asset:${a.kind}:${a.path}`, a.dbt!])
+		)
 
 		const hasAddNode = onAddPipelineScript != null
 		if (hasAddNode) {
@@ -566,9 +571,18 @@
 			const runnableId = `${e.runnable_kind}:${e.runnable_path}`
 			const assetId = `asset:${e.asset_kind}:${e.asset_path}`
 			const access = e.access_type ?? 'r'
-			// Suppressed in both directions: a project's sources already reach its
-			// models through the `ref()` edges, so a read edge would double up.
-			if (dbtRunnableIds.has(runnableId)) continue
+			// A dbt project's own relations are related by badge, not by edges: its
+			// writes are the fan-out, and its declared sources already reach its
+			// models through the `ref()` edges, so both would be noise.
+			//
+			// A read of a relation ANOTHER script builds is different — that is how
+			// two selections of one project compose (decision 6), it carries the
+			// cascade, and no `ref()` edge survives the split to stand in for it.
+			// Kept, or the two halves render as disconnected islands.
+			if (dbtRunnableIds.has(runnableId)) {
+				const isOwnSource = dbtAssetProvenance.get(assetId)?.resource_type === 'source'
+				if (access === 'w' || access === 'rw' || isOwnSource) continue
+			}
 			if (access === 'w' || access === 'rw') {
 				// Data tests assert on the `// materialize` target, which is always
 				// a ducklake asset (v1 enforces this), so only the ducklake
