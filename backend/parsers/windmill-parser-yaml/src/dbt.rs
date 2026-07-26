@@ -125,6 +125,15 @@ pub struct DbtDescriptor {
     pub threads: Option<u32>,
     #[serde(default)]
     pub full_refresh: bool,
+    /// Automatic in-job retry of the nodes a build failed on.
+    ///
+    /// dbt already confines a failure to its own subtree, and `dbt retry`
+    /// rebuilds exactly the failed and skipped set, so a transient warehouse
+    /// error costs those nodes rather than the whole project. Doing it inside
+    /// the same job is what keeps the state question out of it: the previous
+    /// attempt's `run_results.json` is still in the job directory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_failed_nodes: Option<DbtNodeRetry>,
     /// Extra environment for the dbt process, for the project's own
     /// `{{ env_var() }}` lookups and for engine flags such as
     /// `DBT_ALLOW_EXPERIMENTAL_ADAPTERS`. A `$var:<path>` value is resolved to
@@ -138,6 +147,27 @@ pub struct DbtDescriptor {
     /// build writes.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
+}
+
+/// How many times, and how far apart, to retry a build's failed nodes.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DbtNodeRetry {
+    /// Extra `dbt retry` attempts after the first failed build.
+    pub attempts: u32,
+    /// Seconds between attempts. A transient warehouse error is usually a lock
+    /// or a restart, so a pause is the point.
+    #[serde(default)]
+    pub delay_seconds: u64,
+}
+
+impl DbtNodeRetry {
+    /// Bounded because each attempt is a real dbt invocation inside a job that
+    /// already holds a worker slot, and the job's own deadline still applies.
+    pub const MAX_ATTEMPTS: u32 = 10;
+
+    pub fn attempts(&self) -> u32 {
+        self.attempts.min(Self::MAX_ATTEMPTS)
+    }
 }
 
 /// The dbt subcommands a run may ask for. Kept here so the signature and the

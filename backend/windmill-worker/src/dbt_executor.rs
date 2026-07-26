@@ -205,11 +205,23 @@ pub async fn handle_dbt_job(
     // `dbt retry` resumes from the previous run's `run_results.json`, which is
     // what makes one-job-per-invocation defensible: a partial failure does not
     // force a full rebuild. Each attempt gets a fresh job dir, so that state is
-    // restored from the worker-local cache — along with the ARGUMENTS it ran
-    // with, since dbt reuses that invocation's selection and vars and the graph
-    // refresh, the build and the test phase must all agree with it.
+    // restored — along with the ARGUMENTS it ran with, since dbt reuses that
+    // invocation's selection and vars and the graph refresh, the build and the
+    // test phase must all agree with it.
+    let mut ctx_for_restore =
+        JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline };
     let inv = if command == "retry" {
-        Invocation { args: restore_run_state(&prepared, &job.workspace_id, &inv).await?, ..inv }
+        let restored = restore_run_state(
+            &prepared,
+            &descriptor,
+            &job.workspace_id,
+            &inv,
+            &mut ctx_for_restore,
+            &job.id,
+            conn,
+        )
+        .await?;
+        Invocation { args: restored, ..inv }
     } else {
         inv
     };
@@ -268,6 +280,56 @@ pub async fn handle_dbt_job(
     // read before the test phase overwrites them — otherwise the job reports
     // tests only, and nothing settles the models' materializations.
     let mut results = read_run_results(&prepared.project_dir).await;
+
+    // Automatic node-level retry, inside this job. A `dbt retry` rebuilds only
+    // the failed and skipped nodes, so a transient warehouse error costs those
+    // rather than the project — and doing it here means the previous attempt's
+    // `run_results.json` is still in the job directory, with no state to
+    // persist and no worker to land back on.
+    if let Some(policy) = descriptor.retry_failed_nodes.filter(|_| run.is_err()) {
+        for attempt in 1..=policy.attempts() {
+            if !current_results_are_retryable(&prepared).await {
+                break;
+            }
+            if policy.delay_seconds > 0 {
+                tokio::time::sleep(std::time::Duration::from_secs(policy.delay_seconds)).await;
+            }
+            append_logs(
+                &job.id,
+                &job.workspace_id,
+                format!(
+                    "\nRetrying the nodes that failed (attempt {attempt} of {})\n",
+                    policy.attempts()
+                ),
+                conn,
+            )
+            .await;
+            run = run_dbt(
+                &prepared,
+                "retry",
+                &descriptor,
+                &inv,
+                job,
+                conn,
+                mem_peak,
+                canceled_by,
+                occupancy_metrics,
+                worker_name,
+                // `dbt retry` reuses the previous invocation's selection; adding
+                // one would narrow what it resumes.
+                false,
+                deadline,
+            )
+            .await;
+            // A retry's `run_results.json` describes only the nodes it redid, so
+            // it OVERLAYS the previous attempt's rather than replacing it. The
+            // job's result has to be every node this job touched.
+            merge_results(&mut results, read_run_results(&prepared.project_dir).await);
+            if run.is_ok() {
+                break;
+            }
+        }
+    }
     // `retry` counts as the model phase too: a run that failed midway and was
     // retried to success would otherwise return green having never tested.
     if run.is_ok()
@@ -295,7 +357,7 @@ pub async fn handle_dbt_job(
         results.extend(read_run_results(&prepared.project_dir).await);
     }
 
-    save_run_state(&prepared, &job.workspace_id, &job.id, &inv)
+    save_run_state(&prepared, &job.workspace_id, &job.id, &inv, conn)
         .await
         .ok();
     reconcile_materializations(&prepared, &results, job, conn).await;
@@ -2371,9 +2433,42 @@ async fn save_run_state(
     // runs of one script would stage into the same place and publish a mixture.
     job_id: &Uuid,
     inv: &Invocation,
+    conn: &Connection,
 ) -> error::Result<()> {
     if p.script_path.is_empty() {
         return Ok(());
+    }
+    let identity = format!("{}|{:x}", p.run_identity(), inv.env_digest());
+    let args: HashMap<String, String> = inv
+        .args
+        .iter()
+        .map(|(k, v)| (k.clone(), v.get().to_string()))
+        .collect();
+    // The durable copy, so a retry works from any worker of the group. Only
+    // `run_results.json`: the manifest is a pure function of what `identity`
+    // already pins, so the resuming worker re-derives it with a `dbt parse`.
+    if let Connection::Sql(db) = conn {
+        if let Ok(results) =
+            tokio::fs::read_to_string(p.project_dir.join(ARTIFACTS_DIR).join("run_results.json"))
+                .await
+        {
+            let _ = sqlx::query!(
+                "INSERT INTO dbt_run_state (workspace_id, script_path, identity, args, run_results, job_id, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, now())
+                 ON CONFLICT (workspace_id, script_path) DO UPDATE SET
+                   identity = EXCLUDED.identity, args = EXCLUDED.args,
+                   run_results = EXCLUDED.run_results, job_id = EXCLUDED.job_id,
+                   updated_at = now()",
+                w_id,
+                &p.script_path,
+                identity,
+                serde_json::to_value(&args).unwrap_or_default(),
+                results,
+                job_id,
+            )
+            .execute(db)
+            .await;
+        }
     }
     // Each run writes its OWN generation directory, which is never modified
     // afterwards, and publication is a rename of the pointer naming it. Runs
@@ -2403,18 +2498,11 @@ async fn save_run_state(
     // resuming at all. The arguments come back too: `dbt retry` reuses the
     // original invocation's selection and vars, so refreshing the graph for it
     // needs those, not this job's.
-    let state = SavedRunState {
-        // Includes the invocation's own environment: script-level variables are
-        // applied to parse, ls and the build just as the descriptor's are, so a
-        // change to one after a failure makes the saved results describe
-        // relations a retry would not produce.
-        identity: format!("{}|{:x}", p.run_identity(), inv.env_digest()),
-        args: inv
-            .args
-            .iter()
-            .map(|(k, v)| (k.clone(), v.get().to_string()))
-            .collect(),
-    };
+    // Includes the invocation's own environment: script-level variables are
+    // applied to parse, ls and the build just as the descriptor's are, so a
+    // change to one after a failure makes the saved results describe relations
+    // a retry would not produce.
+    let state = SavedRunState { identity, args };
     if tokio::fs::write(
         staging.join("state.json"),
         serde_json::to_vec(&state).unwrap_or_default(),
@@ -2521,12 +2609,103 @@ struct SavedRunState {
     args: HashMap<String, String>,
 }
 
+/// The durable half of the restore: the worker-local generation is gone (or this
+/// is another worker of the group), so the state comes from the database.
+///
+/// `run_results.json` is all that is stored. `dbt retry` also reads
+/// `manifest.json`, which is far larger and grows with the project, so it is
+/// re-derived here with a `dbt parse` — sound because `identity` pins the
+/// project digest, the warehouse and the engine, which is everything the
+/// manifest is a function of.
+#[allow(clippy::too_many_arguments)]
+async fn restore_from_db(
+    p: &PreparedProject,
+    descriptor: &DbtDescriptor,
+    w_id: &str,
+    inv: &Invocation,
+    ctx: &mut JobCtx<'_>,
+    job_id: &Uuid,
+    conn: &Connection,
+    no_state: Error,
+) -> error::Result<HashMap<String, Box<RawValue>>> {
+    let Connection::Sql(db) = conn else {
+        // An agent worker reaches the database only through the API, and this
+        // state is not exposed there.
+        return Err(no_state);
+    };
+    let Some(row) = sqlx::query!(
+        "SELECT identity, args, run_results FROM dbt_run_state
+         WHERE workspace_id = $1 AND script_path = $2",
+        w_id,
+        &p.script_path
+    )
+    .fetch_optional(db)
+    .await?
+    else {
+        return Err(no_state);
+    };
+    if row.identity != format!("{}|{:x}", p.run_identity(), inv.env_digest()) {
+        return Err(different_project());
+    }
+    if !has_retryable_node(&row.run_results) {
+        return Err(nothing_to_retry());
+    }
+    let target = p.project_dir.join(ARTIFACTS_DIR);
+    tokio::fs::create_dir_all(&target).await.ok();
+    tokio::fs::write(target.join("run_results.json"), &row.run_results)
+        .await
+        .map_err(|e| Error::internal_err(format!("restoring run_results.json: {e}")))?;
+    // The arguments first: the parse below has to see the invocation dbt will
+    // retry, not this request's.
+    let args = restored_args(row.args);
+    run_dbt_parse(
+        p,
+        descriptor,
+        &Invocation { args: args.clone(), ..inv.clone() },
+        ctx,
+        job_id,
+        w_id,
+        conn,
+    )
+    .await?;
+    Ok(args)
+}
+
+/// Job arguments as stored, each value a raw JSON string.
+fn restored_args(args: serde_json::Value) -> HashMap<String, Box<RawValue>> {
+    serde_json::from_value::<HashMap<String, String>>(args)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|(k, v)| Some((k, RawValue::from_string(v).ok()?)))
+        .collect()
+}
+
+fn different_project() -> Error {
+    Error::BadRequest(
+        "the last dbt run was of a different project, warehouse or engine, so its failures do \
+         not describe this one; run the script normally instead"
+            .to_string(),
+    )
+}
+
+fn nothing_to_retry() -> Error {
+    Error::BadRequest(
+        "the last dbt run succeeded, so there is nothing to retry: `dbt retry` resumes the \
+         previous run's failed and skipped nodes. Run the script normally to rebuild"
+            .to_string(),
+    )
+}
+
 /// Restore the previous invocation and return ITS arguments, which is what the
 /// graph refresh for a retry must use.
 async fn restore_run_state(
     p: &PreparedProject,
+    descriptor: &DbtDescriptor,
     w_id: &str,
     inv: &Invocation,
+    ctx: &mut JobCtx<'_>,
+    job_id: &Uuid,
+    conn: &Connection,
 ) -> error::Result<HashMap<String, Box<RawValue>>> {
     if p.script_path.is_empty() {
         // A preview has no path to key state on, and an empty key is the one
@@ -2545,17 +2724,16 @@ async fn restore_run_state(
     // results.
     let no_state = || {
         Error::BadRequest(
-            "no previous dbt run to retry from on this worker. `dbt retry` resumes from the \
-             `run_results.json` the failed run left behind, which lives in that worker's local \
-             cache — so on a multi-worker group a retry only finds it if it lands on the same \
-             worker. Give the script a dedicated `# tag` to pin it, or run it normally to \
-             rebuild"
+            "no previous dbt run to retry from. `dbt retry` resumes from the \
+             `run_results.json` the failed run left behind; run the script normally to rebuild"
                 .to_string(),
         )
     };
-    let generation = tokio::fs::read_to_string(dir.join(CURRENT_GENERATION))
-        .await
-        .map_err(|_| no_state())?;
+    let Ok(generation) = tokio::fs::read_to_string(dir.join(CURRENT_GENERATION)).await else {
+        // Nothing on this worker: fall back to the durable copy, which is what
+        // lets a retry land anywhere in the group.
+        return restore_from_db(p, descriptor, w_id, inv, ctx, job_id, conn, no_state()).await;
+    };
     let snapshot = dir.join(generation.trim());
     let saved_results = tokio::fs::read_to_string(snapshot.join("run_results.json"))
         .await
@@ -2566,12 +2744,7 @@ async fn restore_run_state(
     // deploy-time write, waking every downstream consumer for relations no one
     // touched. Refuse instead.
     if !has_retryable_node(&saved_results) {
-        return Err(Error::BadRequest(
-            "the last dbt run on this worker succeeded, so there is nothing to retry: `dbt \
-             retry` resumes the previous run's failed and skipped nodes. Run the script \
-             normally to rebuild"
-                .to_string(),
-        ));
+        return Err(nothing_to_retry());
     }
     let saved: SavedRunState = tokio::fs::read_to_string(snapshot.join("state.json"))
         .await
@@ -2579,11 +2752,7 @@ async fn restore_run_state(
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
     if saved.identity != format!("{}|{:x}", p.run_identity(), inv.env_digest()) {
-        return Err(Error::BadRequest(
-            "the last dbt run on this worker was a different project, warehouse or engine, so \
-             its failures do not describe this one; run the script normally instead"
-                .to_string(),
-        ));
+        return Err(different_project());
     }
     let target = p.project_dir.join(ARTIFACTS_DIR);
     tokio::fs::create_dir_all(&target).await.ok();
@@ -2595,6 +2764,30 @@ async fn restore_run_state(
         .into_iter()
         .filter_map(|(k, v)| Some((k, RawValue::from_string(v).ok()?)))
         .collect())
+}
+
+/// Whether the artifacts in the job directory still name something to retry.
+async fn current_results_are_retryable(p: &PreparedProject) -> bool {
+    match tokio::fs::read_to_string(p.project_dir.join(ARTIFACTS_DIR).join("run_results.json"))
+        .await
+    {
+        Ok(s) => has_retryable_node(&s),
+        Err(_) => false,
+    }
+}
+
+/// Overlay a retry's results onto the attempt they resumed.
+///
+/// dbt writes only the nodes it redid, so replacing the accumulated results
+/// would drop every node that succeeded before the retry — the job would then
+/// report a handful of nodes and settle materializations for no others.
+fn merge_results(into: &mut Vec<DbtNodeResult>, from: Vec<DbtNodeResult>) {
+    for node in from {
+        match into.iter_mut().find(|n| n.unique_id == node.unique_id) {
+            Some(existing) => *existing = node,
+            None => into.push(node),
+        }
+    }
 }
 
 /// Whether a saved `run_results.json` has a WRITE that `dbt retry` would redo.
@@ -3133,6 +3326,39 @@ mod tests {
     // A retry of an all-green run selects nothing, writes nothing, and still
     // succeeds — and a successful dbt job dispatches every deploy-time write,
     // so it would wake every downstream consumer for relations no one touched.
+    // A retry rewrites `run_results.json` with only the nodes it redid, so the
+    // job's own result has to be the union: replacing would drop every node that
+    // succeeded before it, and nothing would settle their materializations.
+    #[test]
+    fn a_retrys_results_overlay_the_attempt_they_resumed() {
+        let node = |id: &str, status: &str| DbtNodeResult {
+            unique_id: id.to_string(),
+            status: status.to_string(),
+            execution_time: None,
+            rows_affected: None,
+            relation_name: None,
+            message: None,
+            failures: None,
+        };
+        let mut acc = vec![
+            node("model.p.a", "success"),
+            node("model.p.b", "error"),
+            node("model.p.c", "skipped"),
+        ];
+        merge_results(
+            &mut acc,
+            vec![node("model.p.b", "success"), node("model.p.c", "success")],
+        );
+        assert_eq!(acc.len(), 3, "the untouched node must survive the retry");
+        let by = |id: &str| acc.iter().find(|n| n.unique_id == id).unwrap();
+        assert_eq!(by("model.p.a").status, "success");
+        assert_eq!(by("model.p.b").status, "success");
+        assert_eq!(by("model.p.c").status, "success");
+        // A node the retry introduces is kept rather than dropped.
+        merge_results(&mut acc, vec![node("test.p.d", "fail")]);
+        assert_eq!(acc.len(), 4);
+    }
+
     #[test]
     fn a_retry_needs_something_to_retry() {
         let results = |statuses: &[&str]| {

@@ -1369,6 +1369,12 @@ test_behavior: build
 vars: {}
 threads: 4
 full_refresh: false
+# Rebuild the nodes a failed build left failed or skipped, in this same job,
+# before reporting failure. dbt confines a failure to its own subtree, so a
+# transient warehouse error costs those nodes rather than the whole project.
+# retry_failed_nodes:
+#   attempts: 2
+#   delay_seconds: 30
 # Extra env for the project's own {{ env_var() }} lookups. A $var: value is
 # resolved to that Windmill variable, so secrets stay out of this file.
 # env:

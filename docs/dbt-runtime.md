@@ -40,7 +40,7 @@ the dominant way dbt is orchestrated today.
 | 15 | Node rendering | Asset nodes per model plus one runnable node for the script |
 | 16 | Progress | Live, from the JSON event stream |
 | 17 | Test failures | Honor dbt's own `severity` |
-| 18 | Retry | `dbt retry` by default, full re-run available |
+| 18 | Retry | Automatic node-level retry in-job, plus `dbt retry` as a run argument. See below |
 | 19 | Caching | Worker-local global cache, keyed by the project digest |
 | 20 | Images | Full images only |
 | 21 | Licensing | CE except the `mssql` / `oracle` adapters. See below |
@@ -408,18 +408,35 @@ provides observability.
 5. Structured job result (per-model status, timing, rows, failed tests), not just
    an exit code. Partial failure is dbt's normal case and must be legible without
    reading logs.
-6. `dbt retry` resumes from the failure point using `run_results.json`, which is
-   what makes one-job-per-invocation defensible. That artifact lives in the
-   worker's local cache, so **on a multi-worker group a retry only finds it if
-   it lands on the same worker** — pin such a script to a dedicated tag, or
-   accept that a retry elsewhere reports that and rebuilds. Making it durable
-   means putting the artifact in workspace storage, which is worth doing the day
-   retry is used at scale and not before. It is a run argument
+6. **Node-level retry.** `retry_failed_nodes: {attempts, delay_seconds}` in the
+   descriptor rebuilds only what a failed build left failed or skipped, in the
+   same job, before reporting failure. dbt confines a failure to its own
+   subtree, so a transient warehouse error costs those nodes rather than the
+   project. In-job is what keeps the state question out of it: the previous
+   attempt's `run_results.json` is still in the job directory, so there is
+   nothing to persist and no worker to land back on. This is the granularity
+   astronomer-cosmos gets from one Airflow task per model, without the ~6x that
+   per-model tasks measured (decision 4).
+
+   A retry's `run_results.json` names only the nodes it redid, so it overlays
+   the accumulated results rather than replacing them: the job's result must be
+   every node the job touched, or the nodes that succeeded before the retry
+   settle no materializations.
+
+7. `dbt retry` resumes from the failure point using `run_results.json`, which is
+   what makes one-job-per-invocation defensible. It is saved twice: to the
+   worker's local cache, and to `dbt_run_state` in the database, so a retry
+   works from any worker of the group. Only `run_results.json` is stored there.
+   `dbt retry` also needs `manifest.json`, roughly sixty times larger and
+   growing with the project (732 KB against 12 KB on a six-node fixture), but
+   the manifest is a pure function of the project files, vars and env — all of
+   which the stored identity already pins — so a worker restoring from the
+   database re-derives it with a `dbt parse` of about a second. It is a run argument
    (`dbt_command: retry`) rather than the automatic behavior of Windmill's
    generic retry, which has no per-language hook to change the invoked command.
    Each attempt gets a fresh job dir, so the previous run's `target/` is cached
    per (workspace, script) on the worker and restored for a retry.
-7. Test failures honor dbt's `severity`: `error` fails the job, `warn` surfaces
+8. Test failures honor dbt's `severity`: `error` fails the job, `warn` surfaces
    without failing. Overriding this would make the same project behave differently
    on Windmill than locally, breaking the core promise.
 
