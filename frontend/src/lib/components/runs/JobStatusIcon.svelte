@@ -9,6 +9,7 @@
 		Hourglass,
 		Play,
 		ShieldQuestion,
+		Wrench,
 		X
 	} from 'lucide-svelte'
 	import type { Job } from '$lib/gen'
@@ -41,6 +42,15 @@
 				<Check size={14} />
 			</Badge>
 		{/if}
+	{:else if 'success' in job && job.resolved}
+		<Badge
+			color="orange"
+			{roundedFull}
+			baseClass={roundedFull ? '' : '!px-1.5'}
+			title="Failed, marked as resolved"
+		>
+			<Wrench size={14} />
+		</Badge>
 	{:else if 'success' in job}
 		<Badge color="red" {roundedFull} baseClass={roundedFull ? '' : '!px-1.5'}>
 			<X size={14} />

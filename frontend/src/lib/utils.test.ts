@@ -8,8 +8,33 @@ import {
 	isDynamicTag,
 	isTagTemplate,
 	getQueryStmtCountHeuristic,
+	isJobResolvable,
 	parseDbInputFromAssetSyntax
 } from './utils'
+
+// Mirrors the backend invariant that only `status = 'failure'` rows can carry a
+// resolution; loosening this to `!success` would offer the action on queued and
+// canceled runs the API then silently skips.
+describe('isJobResolvable', () => {
+	const completed = (o: object) => ({ type: 'CompletedJob', ...o }) as any
+	it('accepts a plain failure', () => {
+		expect(isJobResolvable(completed({ success: false, canceled: false }))).toBe(true)
+	})
+	it('rejects success, cancellation, flow steps and jobs still queued', () => {
+		expect(isJobResolvable(completed({ success: true, canceled: false }))).toBe(false)
+		expect(isJobResolvable(completed({ success: false, canceled: true }))).toBe(false)
+		// a step resolved alone would show orange inside a flow that is still red
+		expect(
+			isJobResolvable(completed({ success: false, canceled: false, is_flow_step: true }))
+		).toBe(false)
+		expect(isJobResolvable({ type: 'QueuedJob', running: true } as any)).toBe(false)
+	})
+	// Obscured cross-workspace runs look like failures but carry no id, and one of them in a
+	// batch fails the whole request on UUID parsing.
+	it('rejects an obscured placeholder run', () => {
+		expect(isJobResolvable(completed({ success: false, canceled: false, id: '-' }))).toBe(false)
+	})
+})
 
 describe('parseDbInputFromAssetSyntax', () => {
 	it('parses a table path', () => {

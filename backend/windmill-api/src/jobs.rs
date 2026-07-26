@@ -325,6 +325,14 @@ pub fn workspaced_service() -> Router {
             post(delete_completed_job).layer(cors.clone()),
         )
         .route(
+            "/completed/resolve",
+            post(resolve_completed_jobs).layer(cors.clone()),
+        )
+        .route(
+            "/completed/unresolve",
+            post(unresolve_completed_jobs).layer(cors.clone()),
+        )
+        .route(
             "/flow/resume/{id}",
             post(resume_suspended_flow_as_owner).layer(cors.clone()),
         )
@@ -1428,6 +1436,11 @@ macro_rules! get_job_query {
             "v2_job_completed.duration_ms, v2_job_completed.completed_at, CASE WHEN status = 'success' OR status = 'skipped' THEN true ELSE false END as success, result_columns, deleted, status = 'skipped' as is_skipped, \
             v2_job.labels, \
             EXISTS(SELECT 1 FROM native_retry_attempt WHERE job_id = v2_job.id) as is_retry, \
+            EXISTS(SELECT 1 FROM job_resolution WHERE job_id = v2_job_completed.id) as resolved, \
+            (SELECT resolved_by FROM job_resolution WHERE job_id = v2_job_completed.id) as resolved_by, \
+            (SELECT resolved_at FROM job_resolution WHERE job_id = v2_job_completed.id) as resolved_at, \
+            (SELECT note FROM job_resolution WHERE job_id = v2_job_completed.id) as resolution_note, \
+            (SELECT automatic FROM job_resolution WHERE job_id = v2_job_completed.id) as resolved_automatically, \
             CASE WHEN result is null or pg_column_size(result) < 90000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result",
             "",
         )
@@ -2787,7 +2800,10 @@ async fn list_filtered_job_uuids(
         false,
         get_scope_tags(&authed),
     );
-    let query = if lq.status.is_some() {
+    // Same reasoning as the runs-list union gate: "resolved only" is a completed-jobs
+    // concept, so unioning the queue would feed queued jobs into bulk actions taken
+    // under that filter. "hide resolved" must still keep them.
+    let query = if lq.status.is_some() || lq.resolved == Some(true) {
         sqlb.subquery()?
     } else {
         let sqlb2 = list_queue_jobs_query(
@@ -3016,6 +3032,10 @@ async fn list_jobs(
         && lq.label.is_none()
         && lq.result.is_none()
         && !lq.is_skipped.unwrap_or(false)
+        // Only "resolved = true" forces completed-only: queued jobs would otherwise leak
+        // into a resolved-only view. "resolved = false" (hide resolved) must keep them,
+        // since a running job has no resolution to hide.
+        && lq.resolved != Some(true)
         && lq.created_before.is_none()
         && lq.started_before.is_none()
         && lq.created_or_started_before.is_none()
@@ -9827,6 +9847,213 @@ async fn delete_completed_job<'a>(
         Path((w_id, id)),
     )
     .await;
+}
+
+#[derive(Deserialize)]
+struct ResolveJobsRequest {
+    job_ids: Vec<Uuid>,
+    note: Option<String>,
+    /// Id of a later successful run of the same runnable, when the caller claims the failure
+    /// was superseded. Evidence rather than an assertion: the claim is proven in SQL below and
+    /// the wording it produces belongs to the server, so this cannot attach arbitrary text to a
+    /// failure nor stamp provenance onto one that was never re-run.
+    superseded_by: Option<Uuid>,
+}
+
+/// Provenance Windmill established itself, as opposed to a person's explanation, which is why
+/// this is recorded outside enterprise while a typed note is not.
+const SUPERSEDED_NOTE: &str = "Superseded by a successful re-run";
+
+/// Bounded so the per-id audit rows written below stay bounded too.
+const MAX_RESOLUTION_BATCH: usize = 1000;
+/// The note is copied onto every row the request resolves, so its size multiplies by the
+/// batch size. Bounded to keep a single call from writing an outsized amount of TOAST/WAL.
+/// Counted in characters, not bytes, so the limit matches what the client and the OpenAPI
+/// `maxLength` count and a non-ASCII note never fails a check it appeared to pass.
+const MAX_RESOLUTION_NOTE_LEN: usize = 2000;
+
+/// Who resolved a failure and why is enterprise-only, mirroring `audit_log` being a no-op
+/// outside EE: CE records *that* a failure was handled, EE records the accountability. The
+/// resolution itself, the filter and the automatic retry sweep are unaffected, so gating
+/// stays on this write and never reaches the runs-list read path.
+/// The runtime license check matters as much as the feature gate: an EE binary keeps the
+/// `enterprise` feature when its key expires, so without this a direct API client could keep
+/// persisting attribution the UI has already stopped offering.
+#[cfg(feature = "enterprise")]
+fn resolution_attribution<'a>(
+    authed: &'a ApiAuthed,
+    note: Option<&'a str>,
+) -> (Option<&'a str>, Option<&'a str>) {
+    if !windmill_common::ee_oss::LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed) {
+        return (None, None);
+    }
+    (Some(authed.username.as_str()), note)
+}
+
+#[cfg(not(feature = "enterprise"))]
+fn resolution_attribution<'a>(
+    _authed: &'a ApiAuthed,
+    _note: Option<&'a str>,
+) -> (Option<&'a str>, Option<&'a str>) {
+    (None, None)
+}
+
+fn check_resolution_request(
+    authed: &ApiAuthed,
+    job_ids: &[Uuid],
+    note: Option<&str>,
+) -> error::Result<()> {
+    if authed.is_operator {
+        return Err(error::Error::NotAuthorized(
+            "Operators cannot resolve jobs".to_string(),
+        ));
+    }
+    if job_ids.len() > MAX_RESOLUTION_BATCH {
+        return Err(error::Error::BadRequest(format!(
+            "Cannot resolve more than {MAX_RESOLUTION_BATCH} jobs at once, got {}",
+            job_ids.len()
+        )));
+    }
+    if let Some(note) = note {
+        let len = note.chars().count();
+        if len > MAX_RESOLUTION_NOTE_LEN {
+            return Err(error::Error::BadRequest(format!(
+                "Resolution note cannot exceed {MAX_RESOLUTION_NOTE_LEN} characters, got {len}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Marks failed jobs as handled. Returns the ids actually affected: an id that is not
+/// visible to the caller, carries an out-of-scope tag, or did not fail is silently
+/// absent rather than an error, so a bulk selection never fails as a whole.
+async fn resolve_completed_jobs(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<ResolveJobsRequest>,
+) -> error::JsonResult<Vec<Uuid>> {
+    check_resolution_request(&authed, &req.job_ids, req.note.as_deref())?;
+    let mut tx = user_db.begin(&authed).await?;
+    let tags = get_scope_tags(&authed);
+    let (resolved_by, typed_note) = resolution_attribution(&authed, req.note.as_deref());
+    let system_note = req.superseded_by.map(|_| SUPERSEDED_NOTE);
+    // The join on v2_job is what authorizes this write: v2_job_completed has RLS
+    // disabled, so v2_job's policies are the only thing scoping rows to the caller.
+    // `status = 'failure'` keeps the invariant that only a failure can be resolved.
+    let resolved = sqlx::query_scalar!(
+        "INSERT INTO job_resolution (job_id, workspace_id, resolved_by, note, automatic)
+            SELECT c.id, c.workspace_id, $4, COALESCE($5, $7), false
+                FROM v2_job_completed c
+                JOIN v2_job j ON j.id = c.id
+                WHERE c.id = ANY($1)
+                    AND c.workspace_id = $2
+                    AND ($3::TEXT[] IS NULL OR j.tag = ANY($3))
+                    AND c.status = 'failure'
+                    -- Resolution is a top-level triage state: a step resolved on its own
+                    -- would render orange inside a flow whose status is still red.
+                    AND j.flow_step_id IS NULL
+                    -- A supersession claim has to be proven, not trusted: a later success of the
+                    -- same identified runnable, itself visible to the caller. An unproven claim
+                    -- resolves nothing, so the caller learns it was rejected instead of having
+                    -- the fiction recorded as provenance.
+                    AND ($6::UUID IS NULL OR EXISTS (
+                        SELECT 1 FROM v2_job_completed sc
+                            JOIN v2_job sj ON sj.id = sc.id
+                            WHERE sc.id = $6
+                                AND sc.workspace_id = $2
+                                -- Tag scope is a read restriction enforced outside RLS, so it has
+                                -- to bind the evidence as well: otherwise the result reveals
+                                -- whether an out-of-scope run succeeded.
+                                AND ($3::TEXT[] IS NULL OR sj.tag = ANY($3))
+                                AND sc.status = 'success'
+                                AND sc.completed_at >= c.completed_at
+                                AND (j.runnable_id IS NOT NULL OR j.runnable_path IS NOT NULL)
+                                AND sj.runnable_id IS NOT DISTINCT FROM j.runnable_id
+                                AND sj.runnable_path IS NOT DISTINCT FROM j.runnable_path
+                    ))
+            ON CONFLICT (job_id) DO UPDATE SET
+                resolved_at = now(),
+                -- Both COALESCEd: `resolution_attribution` returns NULLs outside EE and once the
+                -- licence lapses, and bulk selections routinely include already-resolved rows,
+                -- so overwriting would erase metadata recorded while it was valid. Clear either
+                -- by unresolving first.
+                resolved_by = COALESCE($4, job_resolution.resolved_by),
+                -- A person's explanation replaces what was there; machine provenance only fills
+                -- a blank, so re-running an already-explained failure never erases their words.
+                note = COALESCE($5, job_resolution.note, $7),
+                -- A human taking over an automatic resolution makes it no longer automatic.
+                automatic = false
+            RETURNING job_id",
+        &req.job_ids,
+        &w_id,
+        tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
+        resolved_by,
+        typed_note,
+        req.superseded_by,
+        system_note,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for id in &resolved {
+        audit_log(
+            &mut *tx,
+            &authed,
+            "jobs.resolve",
+            ActionKind::Update,
+            &w_id,
+            Some(&id.to_string()),
+            None,
+        )
+        .await?;
+    }
+
+    tx.commit().await?;
+    Ok(Json(resolved))
+}
+
+async fn unresolve_completed_jobs(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<ResolveJobsRequest>,
+) -> error::JsonResult<Vec<Uuid>> {
+    check_resolution_request(&authed, &req.job_ids, None)?;
+    let mut tx = user_db.begin(&authed).await?;
+    let tags = get_scope_tags(&authed);
+    let unresolved = sqlx::query_scalar!(
+        "DELETE FROM job_resolution r
+            USING v2_job_completed c
+            JOIN v2_job j ON j.id = c.id
+            WHERE r.job_id = c.id
+                AND c.id = ANY($1)
+                AND c.workspace_id = $2
+                AND ($3::TEXT[] IS NULL OR j.tag = ANY($3))
+            RETURNING r.job_id",
+        &req.job_ids,
+        &w_id,
+        tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for id in &unresolved {
+        audit_log(
+            &mut *tx,
+            &authed,
+            "jobs.unresolve",
+            ActionKind::Update,
+            &w_id,
+            Some(&id.to_string()),
+            None,
+        )
+        .await?;
+    }
+
+    tx.commit().await?;
+    Ok(Json(unresolved))
 }
 
 async fn get_otel_traces(
