@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT owner_creds, perms_hash FROM datatable_ephemeral_role WHERE role_name = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "owner_creds",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "perms_hash",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "9b7255c12350fa9e493d6dd0d85c3fe5c6884cb18252390ebcfcd5fcad1c345f"
+}

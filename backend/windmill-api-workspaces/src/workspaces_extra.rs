@@ -928,7 +928,13 @@ pub(crate) async fn delete_workspace(
     // rows and the workspace key (which encrypts their recorded targets) still
     // exist — both cascade with the workspace row, after which an unrevoked
     // role could never be reached again. Failure (e.g. an unreachable external
-    // cluster) aborts the deletion; retry once the database is reachable.
+    // cluster) aborts the deletion; retry once the database is reachable. The
+    // workspace-scoped lock (held on this transaction until commit) keeps a
+    // concurrent resolution from creating a fresh role after the teardown scan.
+    sqlx::query(windmill_common::datatable_permissions::WORKSPACE_ROLES_LOCK)
+        .bind(&w_id)
+        .execute(&mut *tx)
+        .await?;
     windmill_common::datatable_permissions::teardown_datatable_roles_strict(&db, &w_id)
         .await
         .map_err(|e| {

@@ -27,6 +27,12 @@ use crate::{
 /// to touch a role that does not carry it.
 pub const DATATABLE_EPHEMERAL_ROLE_PREFIX: &str = "wm_dt_";
 
+/// Transaction-scoped advisory lock serializing a workspace's ephemeral role
+/// creation with its deletion-time strict teardown. Bind the workspace id.
+/// Lock order where both are taken: workspace lock first, then per-role lock.
+pub const WORKSPACE_ROLES_LOCK: &str =
+    "SELECT pg_advisory_xact_lock(hashtextextended('wm_dt_ws:' || $1::text, 0))";
+
 pub const PERMISSIONED_AS_FOLDER_PREFIX: &str = "f/";
 
 const EPHEMERAL_ROLE_CONNECTION_LIMIT: u32 = 25;
@@ -586,7 +592,7 @@ async fn drop_or_disable_on_target(
         .map_err(|e| pg_err("checking active sessions", e))?
         .get(0);
     if active > 0 {
-        disable_role_login(&client, role).await;
+        disable_role_login(&client, role).await?;
         return Ok(DropOutcome::SkippedActive);
     }
     if role_exists(&client, role).await? {
@@ -652,8 +658,16 @@ async fn ensure_ephemeral_role(
 
     // Slow path: (re)create the role under a per-role advisory lock on the
     // main DB (advisory locks are per-database — never take them on the
-    // target cluster).
+    // target cluster). The workspace-scoped lock (taken first — same order as
+    // workspace deletion, which holds it from strict teardown through its
+    // commit) keeps a creation from racing workspace deletion: a role created
+    // after deletion's teardown scan would be orphaned forever once the
+    // bookkeeping rows and workspace key cascade away.
     let mut tx = db.begin().await?;
+    sqlx::query(WORKSPACE_ROLES_LOCK)
+        .bind(w_id)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('wm_dt_role:' || $1, 0))")
         .bind(&role)
         .execute(&mut *tx)
@@ -910,47 +924,81 @@ async fn cleanup_one_expired_role(db: &DB, role: &str, w_id: &str, datatable: &s
     Ok(())
 }
 
-/// Best-effort teardown of every ephemeral role of a data table (or a whole
-/// workspace when `datatable` is `None`), used on data table deletion,
-/// database re-points and permission edits. Roles that cannot be dropped keep
-/// their bookkeeping row (with the recorded target), so the expiry sweep
-/// retries them — failure here loses nothing.
-///
-/// Authorization: mutates cluster roles; call only from admin-gated flows.
-pub async fn drop_datatable_ephemeral_roles_best_effort(
+/// One bookkeeping row captured before a permissions/config edit commits.
+/// The post-commit teardown only revokes roles still carrying the captured
+/// hash: a role concurrently recreated from the NEW config has a different
+/// hash and must keep working.
+pub struct RoleSnapshot {
+    role_name: String,
+    datatable: String,
+    perms_hash: String,
+}
+
+/// Capture the current roles of a data table (or whole workspace) with their
+/// perms hashes. Take this BEFORE committing the edit that invalidates them
+/// (ideally under the same serialization lock), then pass it to
+/// [`teardown_snapshot_roles_best_effort`] after the commit.
+pub async fn snapshot_datatable_roles(
     db: &DB,
     w_id: &str,
     datatable: Option<&str>,
-) {
-    if let Err(e) = teardown_datatable_roles(db, w_id, datatable).await {
-        tracing::warn!("tearing down datatable ephemeral roles: {e:#}");
-    }
-}
-
-/// Strict variant for workspace deletion: the bookkeeping rows (and the
-/// workspace key their targets are encrypted with) are about to cascade away,
-/// so every role must be revoked NOW — dropped, or at least stripped of LOGIN
-/// when sessions are still active. Any failure (e.g. an unreachable external
-/// cluster) must abort the deletion; proceeding would orphan a live LOGIN
-/// role with no remaining way to ever revoke it.
-///
-/// Authorization: mutates cluster roles; call only from admin-gated flows.
-pub async fn teardown_datatable_roles_strict(db: &DB, w_id: &str) -> Result<()> {
-    teardown_datatable_roles(db, w_id, None).await
-}
-
-async fn teardown_datatable_roles(db: &DB, w_id: &str, datatable: Option<&str>) -> Result<()> {
-    let rows = sqlx::query!(
-        "SELECT role_name, datatable FROM datatable_ephemeral_role
+) -> Result<Vec<RoleSnapshot>> {
+    Ok(sqlx::query!(
+        "SELECT role_name, datatable, perms_hash FROM datatable_ephemeral_role
          WHERE workspace_id = $1 AND ($2::text IS NULL OR datatable = $2)",
         w_id,
         datatable
     )
     .fetch_all(db)
+    .await?
+    .into_iter()
+    .map(|r| RoleSnapshot {
+        role_name: r.role_name,
+        datatable: r.datatable,
+        perms_hash: r.perms_hash,
+    })
+    .collect())
+}
+
+/// Best-effort teardown of a pre-edit role generation, used after permission
+/// edits, data table deletion/renames and database re-points commit. Roles
+/// that cannot be dropped keep their bookkeeping row (with the recorded
+/// target), so the expiry sweep retries them — failure here loses nothing.
+///
+/// Authorization: mutates cluster roles; call only from admin-gated flows.
+pub async fn teardown_snapshot_roles_best_effort(db: &DB, w_id: &str, snapshot: Vec<RoleSnapshot>) {
+    for s in snapshot {
+        if let Err(e) =
+            teardown_role(db, w_id, &s.datatable, &s.role_name, Some(&s.perms_hash)).await
+        {
+            tracing::warn!(
+                "tearing down datatable ephemeral role {}: {e:#}",
+                s.role_name
+            );
+        }
+    }
+}
+
+/// Strict teardown of every role of a workspace, for workspace deletion: the
+/// bookkeeping rows (and the workspace key their targets are encrypted with)
+/// are about to cascade away, so every role must be revoked NOW — dropped, or
+/// at least stripped of LOGIN when sessions are still active. Any failure
+/// (e.g. an unreachable external cluster) must abort the deletion; proceeding
+/// would orphan a live LOGIN role with no remaining way to ever revoke it.
+/// Callers must hold [`WORKSPACE_ROLES_LOCK`] until the deletion commits so
+/// no new role is created after this scan.
+///
+/// Authorization: mutates cluster roles; call only from admin-gated flows.
+pub async fn teardown_datatable_roles_strict(db: &DB, w_id: &str) -> Result<()> {
+    let rows = sqlx::query!(
+        "SELECT role_name, datatable FROM datatable_ephemeral_role WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_all(db)
     .await?;
     let mut failures: Vec<String> = vec![];
     for row in rows {
-        if let Err(e) = teardown_role(db, w_id, &row.datatable, &row.role_name).await {
+        if let Err(e) = teardown_role(db, w_id, &row.datatable, &row.role_name, None).await {
             failures.push(format!("{} ({}): {e:#}", row.role_name, row.datatable));
         }
     }
@@ -970,19 +1018,22 @@ async fn teardown_datatable_roles(db: &DB, w_id: &str, datatable: Option<&str>) 
 /// revocation. Only CREATEROLE can restore LOGIN, so this closes the
 /// reconnect vector while letting in-flight queries finish; the kept
 /// bookkeeping row makes the expiry sweep finish the drop later.
-async fn disable_role_login(client: &tokio_postgres::Client, role: &str) {
+/// Failure is propagated: callers (notably strict workspace-deletion
+/// teardown) must not treat an active role as revoked when it still holds
+/// LOGIN.
+async fn disable_role_login(client: &tokio_postgres::Client, role: &str) -> Result<()> {
     if !role.starts_with(DATATABLE_EPHEMERAL_ROLE_PREFIX) {
-        return;
+        return Err(Error::internal_err(format!(
+            "refusing to alter role '{role}' without the reserved prefix"
+        )));
     }
-    if let Err(e) = client
+    client
         .batch_execute(&format!(
             "ALTER ROLE {} NOLOGIN CONNECTION LIMIT 0 PASSWORD NULL",
             quote_ident(role)
         ))
         .await
-    {
-        tracing::warn!("disabling login of ephemeral role {role}: {e:#}");
-    }
+        .map_err(|e| pg_err(&format!("disabling login of ephemeral role {role}"), e))
 }
 
 /// Where a role must be revoked: the stored owner target from its bookkeeping
@@ -1023,7 +1074,13 @@ async fn resolve_role_target(
     }
 }
 
-async fn teardown_role(db: &DB, w_id: &str, datatable: &str, role: &str) -> Result<()> {
+async fn teardown_role(
+    db: &DB,
+    w_id: &str,
+    datatable: &str,
+    role: &str,
+    only_if_hash: Option<&str>,
+) -> Result<()> {
     // Same per-role lock as role creation and the expiry sweep: without it,
     // teardown could observe a stale role while a resolver is recreating it
     // and drop the fresh role right before its bookkeeping row lands, leaving
@@ -1033,13 +1090,21 @@ async fn teardown_role(db: &DB, w_id: &str, datatable: &str, role: &str) -> Resu
         .bind(role)
         .execute(&mut *tx)
         .await?;
-    let owner_creds = sqlx::query_scalar!(
-        "SELECT owner_creds FROM datatable_ephemeral_role WHERE role_name = $1",
+    let row = sqlx::query!(
+        "SELECT owner_creds, perms_hash FROM datatable_ephemeral_role WHERE role_name = $1",
         role
     )
     .fetch_optional(&mut *tx)
-    .await?
-    .flatten();
+    .await?;
+    if let (Some(expected), Some(row)) = (only_if_hash, row.as_ref()) {
+        // The role was recreated from the post-edit config while we were
+        // getting here — it is current, not the generation this teardown
+        // targets. Leave it alone.
+        if row.perms_hash != expected {
+            return Ok(());
+        }
+    }
+    let owner_creds = row.and_then(|r| r.owner_creds);
     if let Some((owner, is_instance)) = resolve_role_target(db, w_id, datatable, owner_creds).await
     {
         if matches!(

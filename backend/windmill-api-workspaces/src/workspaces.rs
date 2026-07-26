@@ -3205,26 +3205,35 @@ async fn edit_datatable_config(
     )
     .await?;
 
-    // Tear down ephemeral roles of deleted/renamed/re-pointed data tables
-    // while the old config (needed to reach their previous database) is still
-    // readable outside this transaction — after the switch the cleanup sweep
-    // would look for the roles on the wrong cluster. Renames and database
-    // changes get fresh roles on next access.
+    // Capture the roles of deleted/renamed/re-pointed data tables before the
+    // commit: the post-commit teardown revokes exactly this pre-edit
+    // generation (their rows carry the recorded previous target), while any
+    // role recreated from the new config keeps working.
+    let mut pre_edit_roles = vec![];
     for name in new_config
         .deleted_datatables
         .iter()
         .chain(new_config.renames.iter().map(|r| &r.from))
         .chain(database_changed_names.iter())
     {
-        windmill_common::datatable_permissions::drop_datatable_ephemeral_roles_best_effort(
-            &db,
-            &w_id,
-            Some(name),
-        )
-        .await;
+        pre_edit_roles.extend(
+            windmill_common::datatable_permissions::snapshot_datatable_roles(
+                &db,
+                &w_id,
+                Some(name),
+            )
+            .await?,
+        );
     }
 
     tx.commit().await?;
+
+    windmill_common::datatable_permissions::teardown_snapshot_roles_best_effort(
+        &db,
+        &w_id,
+        pre_edit_roles,
+    )
+    .await;
 
     Ok(format!("Edit datatable config for workspace {}", &w_id))
 }

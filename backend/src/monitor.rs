@@ -1259,6 +1259,12 @@ async fn report_token_expiration(db: &DB, token: &TokenRow, expired: bool) {
 }
 
 pub async fn delete_expired_items(db: &DB) -> () {
+    // Expired data table ephemeral roles must be revoked even when no new role
+    // creation happens to trigger the opportunistic sweep — a revoked caller
+    // could otherwise keep reconnecting with a self-set password until some
+    // unrelated access finally sweeps.
+    windmill_common::datatable_permissions::cleanup_expired_datatable_roles(db, 20).await;
+
     let expired_tokens_r = sqlx::query_as!(
         TokenRow,
         "DELETE FROM token WHERE expiration <= now()

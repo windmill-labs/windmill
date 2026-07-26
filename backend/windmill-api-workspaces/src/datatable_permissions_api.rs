@@ -12,7 +12,7 @@ use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::datatable_permissions::{
     compute_effective_grants, datatable_license_valid, datatable_permissions_enabled,
-    drop_datatable_ephemeral_roles_best_effort, validate_grant_identifier,
+    snapshot_datatable_roles, teardown_snapshot_roles_best_effort, validate_grant_identifier,
     PERMISSIONED_AS_FOLDER_PREFIX,
 };
 use windmill_common::error::{Error, JsonResult, Result};
@@ -252,6 +252,10 @@ async fn set_datatable_permissions(
         ),
     )
     .await?;
+    // Captured before the commit so the post-commit teardown only revokes the
+    // pre-edit role generation — a role concurrently recreated from the new
+    // grants must keep working.
+    let pre_edit_roles = snapshot_datatable_roles(&db, &w_id, Some(&datatable_name)).await?;
     let perms_json =
         serde_json::to_value(&perms).map_err(|e| Error::internal_err(e.to_string()))?;
     sqlx::query!(
@@ -266,10 +270,9 @@ async fn set_datatable_permissions(
     .await?;
     tx.commit().await?;
 
-    // Existing ephemeral roles were built from the previous grants; drop them
-    // so nothing outlives the edit (new accesses would recreate them via the
-    // perms-hash check anyway, and disabled data tables stop using them).
-    drop_datatable_ephemeral_roles_best_effort(&db, &w_id, Some(&datatable_name)).await;
+    // The pre-edit roles were built from the previous grants; revoke them so
+    // nothing outlives the edit (active holders get NOLOGIN'd, the rest drop).
+    teardown_snapshot_roles_best_effort(&db, &w_id, pre_edit_roles).await;
 
     Ok(format!(
         "Edited permissions of data table {datatable_name} in workspace {w_id}"
