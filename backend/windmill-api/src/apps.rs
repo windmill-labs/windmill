@@ -2121,6 +2121,11 @@ async fn delete_app(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot delete apps for security reasons".to_string(),
+        ));
+    }
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:write:{}", path))?;
 
