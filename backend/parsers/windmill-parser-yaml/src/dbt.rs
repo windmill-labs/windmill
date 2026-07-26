@@ -1,5 +1,6 @@
-//! The `ScriptLang::Dbt` script artifact: a YAML descriptor pointing at a dbt
-//! project in an external git repo, plus the run configuration.
+//! The `ScriptLang::Dbt` script artifact: a YAML descriptor holding a dbt
+//! project's run configuration. The project itself is the script's module
+//! bundle, so the descriptor names no source for it.
 //!
 //! Field names track dbt's and astronomer-cosmos's vocabulary so the mental
 //! model ports without translation (docs/dbt-runtime.md, decision 22).

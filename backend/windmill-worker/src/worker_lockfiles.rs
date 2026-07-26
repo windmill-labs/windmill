@@ -193,8 +193,19 @@ pub async fn handle_dependency_job(
             let (deployment_message, parent_path) =
                 get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
-            // Generate lockfiles for module files (if any)
-            let updated_modules = if let Some(modules) = &script_data.modules {
+            // Generate lockfiles for module files (if any).
+            //
+            // Not for dbt: a dbt script's modules are its dbt project, not
+            // helper code with dependencies of its own. The parent lock above
+            // already ran `dbt deps` and `dbt parse` over the whole project,
+            // which is the one dependency pass it has. Locking each file
+            // separately would re-materialise the bundle and re-invoke dbt once
+            // per file, so a project of N files pays N project-sized passes and
+            // a large one times the deploy out.
+            let per_module_locks = job.script_lang != Some(ScriptLang::Dbt);
+            let updated_modules = if let Some(modules) =
+                script_data.modules.as_ref().filter(|_| per_module_locks)
+            {
                 let mut updated = modules.clone();
                 for (module_path, module) in updated.iter_mut() {
                     if module.content.is_empty() {

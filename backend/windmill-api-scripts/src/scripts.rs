@@ -1143,21 +1143,21 @@ async fn create_script_internal<'c>(
         .as_ref()
         .map(|v| v.perms.clone())
         .unwrap_or(json!({}));
-    // A dbt lock names a resolved commit and engine versions that only a
+    // A dbt lock names a manifest digest and engine versions that only a
     // dependency job can determine, and that job is also what publishes the
     // script's manifest graph. Honouring a supplied one would skip it, leaving
-    // the script running an older commit with no graph — including on the UI
-    // paths that round-trip an existing lock, like rename and unarchive.
+    // the script with no graph — including on the UI paths that round-trip an
+    // existing lock, like rename and unarchive.
     if matches!(ns.language, ScriptLang::Dbt) {
         ns.lock = None;
-        // A codebase is a bundle of JS/TS sources; a dbt script's content is a
-        // descriptor naming a git repo. Accepting one takes the branch below
-        // that stands in for lock generation, which would suppress the very job
-        // that resolves the commit and publishes the graph.
+        // A codebase is a bundle of JS/TS sources; a dbt script's project is
+        // its modules. Accepting one takes the branch below that stands in for
+        // lock generation, which would suppress the very job that parses the
+        // project and publishes the graph.
         if ns.codebase.is_some() {
             return Err(Error::BadRequest(
-                "a dbt script has no codebase: its project lives in the git repository the \
-                 descriptor names"
+                "a dbt script has no codebase: its project is its modules, the \
+                 `<script>__dbt/` folder the CLI syncs"
                     .to_string(),
             ));
         }

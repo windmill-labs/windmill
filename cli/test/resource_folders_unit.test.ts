@@ -39,6 +39,7 @@ import {
   getScriptBasePathFromModulePath,
   dbtGeneratedDirs,
   isUnderGeneratedDir,
+  isDbtModulePath,
 } from "../src/utils/resource_folders.ts";
 import { removeWorkerPrefix } from "../src/commands/worker-groups/worker-groups.ts";
 
@@ -723,5 +724,24 @@ describe("isUnderGeneratedDir", () => {
     expect(isUnderGeneratedDir("targetx/a.sql", dirs)).toBe(false);
     expect(isUnderGeneratedDir("models/target_helper.sql", dirs)).toBe(false);
     expect(isUnderGeneratedDir("build/targeted/a.sql", dirs)).toBe(false);
+  });
+});
+
+// A Windows path spells the folder `__dbt\\`. A lookup that searched the raw
+// path for `__dbt/` would find nothing, so a module-only edit would return
+// without deploying its parent while the file was still recorded as synced.
+describe("dbt module paths on either separator", () => {
+  test("isDbtModulePath and getScriptBasePathFromModulePath accept backslashes", () => {
+    expect(isDbtModulePath("f\\x\\proj__dbt\\models\\a.sql")).toBe(true);
+    expect(getScriptBasePathFromModulePath("f\\x\\proj__dbt\\models\\a.sql")).toBe(
+      "f/x/proj",
+    );
+    expect(getScriptBasePathFromModulePath("f/x/proj__dbt/models/a.sql")).toBe(
+      "f/x/proj",
+    );
+  });
+
+  test("a path with no module folder has no base path", () => {
+    expect(getScriptBasePathFromModulePath("f/x/proj.dbt.yaml")).toBeUndefined();
   });
 });

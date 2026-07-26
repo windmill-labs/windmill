@@ -2941,12 +2941,14 @@ async function pushParentScriptForModule(
   codebases: SyncCodebase[],
 ): Promise<void> {
   const isDbt = isDbtModulePath(modulePath);
-  const moduleSuffix =
-    getModuleFolderSuffix(isDbt ? "dbt" : undefined) + "/";
-  const idx = modulePath.indexOf(moduleSuffix);
-  if (idx === -1) return;
-  const scriptBasePath = modulePath.substring(0, idx);
-  const moduleFolderPath = scriptBasePath + moduleSuffix.slice(0, -1);
+  // Via the shared helper, which normalizes separators: a Windows path spells
+  // the folder `__dbt\\`, and searching the raw path for `__dbt/` would find
+  // nothing and silently return without deploying the parent — while the caller
+  // still records the file as synced.
+  const scriptBasePath = getScriptBasePathFromModulePath(modulePath);
+  if (scriptBasePath === undefined) return;
+  const moduleFolderPath =
+    scriptBasePath + getModuleFolderSuffix(isDbt ? "dbt" : undefined);
 
   // A dbt project's descriptor sits beside its folder, never inside it: the
   // folder is the project, and dbt owns every name in it.
