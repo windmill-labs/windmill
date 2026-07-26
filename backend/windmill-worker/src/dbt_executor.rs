@@ -610,7 +610,7 @@ pub struct PreparedProject {
     pub invocation_env_digest: u64,
     /// Written nsjail profile for this job, when the worker sandboxes jobs.
     /// `None` means the phases run unsandboxed, exactly as before.
-    pub sandbox_config: Option<PathBuf>,
+    pub sandbox_config: Option<SandboxProfile>,
     /// One-way digest of the rendered profile — the resolved connection, not
     /// just the names it exposes. A resource repointed from one warehouse to
     /// another that happens to use the same database and schema names is
@@ -904,12 +904,18 @@ pub async fn prepare_project(
     // The engines are provisioned per (version, adapter) under one cache root,
     // and mounting that root rather than the resolved engine directory keeps
     // the profile identical for every job on this worker.
-    let sandbox_config = if is_sandboxing_enabled() {
+    let sandbox_config: Option<SandboxProfile> = if is_sandboxing_enabled() {
         let nsjail_timeout =
             resolve_nsjail_timeout(conn, w_id, *job_id, deadline.remaining_secs()).await;
+        // A SIBLING of the job directory: that directory is mounted read-write
+        // into the jail, and every phase re-reads this file.
+        let sandbox_dir = PathBuf::from(format!("{job_dir}.dbt-sandbox"));
+        tokio::fs::create_dir_all(&sandbox_dir).await.map_err(|e| {
+            Error::internal_err(format!("could not create the dbt sandbox dir: {e}"))
+        })?;
         write_file(
-            job_dir,
-            "dbt.nsjail.config.proto",
+            &sandbox_dir.to_string_lossy(),
+            SANDBOX_PROFILE_NAME,
             &NSJAIL_CONFIG_RUN_DBT_CONTENT
                 .replace(
                     "{RLIMIT_AS}",
@@ -952,7 +958,7 @@ pub async fn prepare_project(
         .map_err(|e| {
             Error::internal_err(format!("could not write the dbt sandbox profile: {e}"))
         })?;
-        Some(PathBuf::from(job_dir).join("dbt.nsjail.config.proto"))
+        Some(SandboxProfile(sandbox_dir.join(SANDBOX_PROFILE_NAME)))
     } else {
         None
     };
@@ -1546,7 +1552,7 @@ fn with_invocation_env(cmd: &mut Command, p: &PreparedProject, inv: &Invocation)
 }
 
 pub fn dbt_command(p: &PreparedProject, args: &[&str]) -> Command {
-    let mut cmd = match p.sandbox_config.as_deref() {
+    let mut cmd = match p.sandbox_config.as_ref().map(|c| c.path()) {
         Some(config) => {
             let mut nsjail = Command::new(NSJAIL_PATH.as_str());
             nsjail
@@ -1598,6 +1604,31 @@ fn jail_envars(env: &[(String, String)]) -> String {
         .map(|(k, v)| format!("envar: \"{}={}\"", escape_textproto(k), escape_textproto(v)))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+const SANDBOX_PROFILE_NAME: &str = "dbt.nsjail.config.proto";
+
+/// The written nsjail profile, kept OUTSIDE every path the jailed child can
+/// reach and removed when the job ends.
+///
+/// It cannot live in the job directory: the jail mounts that read-write, and
+/// each phase launches a fresh `nsjail --config` against this file — so a
+/// project able to write files during `build` (a DuckDB one can, through
+/// `shellfs`) could rewrite the profile and have the `after_all` test phase
+/// start with mounts of its choosing. A sibling of the job directory is not
+/// mounted at all, so the child never sees it.
+pub struct SandboxProfile(PathBuf);
+
+impl SandboxProfile {
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for SandboxProfile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(self.0.parent().unwrap_or(&self.0));
+    }
 }
 
 /// Escape a value for a protobuf text-format string literal.

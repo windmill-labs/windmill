@@ -297,12 +297,14 @@ git_ssh_identity: []              # variables holding private keys, for SSH remo
 
 `env` values spelled `$var:<path>` are resolved to that Windmill variable, so a
 project keeping its own `profiles.yml` never needs a credential written into the
-descriptor — which is versioned script content. Use this map, not script-level
-environment variables, for anything an `env_var()` feeds into a schema, alias or
-`enabled`: the descriptor's `env` applies to the deploy-time parse as well as
-the run, so the stored graph and the build agree. Script-level variables reach
-the run only. Private repos authenticate two ways: a
-token in the resource's URL, and `git_ssh_identity` for SSH remotes.
+descriptor — which is versioned script content. Both this map and the script's
+own environment variables apply to the deploy-time parse as well as the run, so
+an `env_var()` feeding a schema, alias or `enabled` produces the same relation
+in the stored graph and in the build either way. Prefer the descriptor's `env`
+when the value belongs to the project rather than to one deployment of it: it is
+versioned with the descriptor, so a redeploy from git carries it. Private repos
+authenticate two ways: a token in the resource's URL, and `git_ssh_identity` for
+SSH remotes.
 
 **GitHub App resources are rejected, with that reason.** Decision 10 assumed the
 support was inherited from git-sync, and it is not: the only helper that mints an
