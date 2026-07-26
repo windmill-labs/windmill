@@ -23,24 +23,19 @@ use windmill_common::materialization::{
     record_materialization, MaterializationStatus, RecordMaterializationRequest,
 };
 use windmill_common::worker::{to_raw_value, write_file, Connection};
-use windmill_parser_yaml::{
-    parse_dbt_descriptor, DbtDescriptor, DbtTestBehavior, GitRepo, DBT_COMMANDS,
-};
+use windmill_parser_yaml::{parse_dbt_descriptor, DbtDescriptor, DbtTestBehavior, DBT_COMMANDS};
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
-use crate::common::{start_child_process, OccupancyMetrics};
-use crate::dbt_engine::{provision_engine, ProvisionedEngine, DBT_CACHE_DIR};
-use crate::dbt_profiles::{ensure_adapter_licensed, render_profile, DbtAdapter};
-use crate::git_clone::{
-    clone_repo, clone_repo_without_history, get_git_repo_full_head_commit_hash,
-    resolve_git_ref_to_commit,
-};
-use crate::handle_child::{
-    get_mem_peak, handle_child, run_future_with_polling_update_job_poller, JobCtx, JobDeadline,
-};
 use crate::common::{
     render_nsjail_rlimit_as, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block,
 };
+use crate::common::{start_child_process, OccupancyMetrics};
+use crate::dbt_engine::{provision_engine, ProvisionedEngine, DBT_CACHE_DIR};
+use crate::dbt_profiles::{ensure_adapter_licensed, render_profile, DbtAdapter};
+use crate::handle_child::{
+    get_mem_peak, handle_child, run_future_with_polling_update_job_poller, JobCtx, JobDeadline,
+};
+use crate::worker::write_module_files;
 use crate::{
     is_sandboxing_enabled, GIT_PATH, NSJAIL_DBT_RLIMIT_AS_MB, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
     TZ_ENV,
@@ -62,16 +57,11 @@ pub struct DbtDependencyLocks {
     /// graph, which still names the old ones, has to be re-ingested.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile_relation_root: Option<String>,
-    /// The `git_repository` resource path, never the resolved URL. A token-auth
-    /// URL carries the token, and the lockfile lands in script metadata and
-    /// workspace exports.
-    pub repo_resource: String,
     /// dbt-core 1.x only: its adapter is a separate package versioning
     /// independently of core, so pinning core alone still lets a rebuilt cache
     /// resolve different runtime behavior.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adapter_version: Option<String>,
-    pub commit: String,
     pub manifest_digest: String,
     pub engine: String,
     pub engine_version: String,
@@ -101,7 +91,6 @@ pub struct DbtNodeResult {
 pub struct DbtRunResult {
     pub engine: String,
     pub engine_version: String,
-    pub commit: String,
     pub command: String,
     pub totals: DbtTotals,
     pub nodes: Vec<DbtNodeResult>,
@@ -158,7 +147,7 @@ pub async fn handle_dbt_job(
     let args = job.args.as_ref().map(|a| a.0.clone()).unwrap_or_default();
     let inv = Invocation { args: args.clone(), envs: envs.clone(), strict: true };
     // One wall clock for the whole job. A dbt job is a sequence of
-    // subprocesses — provision, clone, deps, parse, ls, build, then the
+    // subprocesses — provision, deps, parse, ls, build, then the
     // `after_all` tests — and each would otherwise resolve the job's full
     // timeout for itself.
     let deadline = JobDeadline::start(conn, &job.workspace_id, job.id, job.timeout).await;
@@ -166,12 +155,10 @@ pub async fn handle_dbt_job(
         &descriptor,
         inner_content,
         locks.as_ref(),
-        &args,
         job_dir,
         &job.id,
         &job.workspace_id,
         job.runnable_path.as_deref().unwrap_or_default(),
-        true,
         worker_name,
         conn,
         client,
@@ -180,6 +167,9 @@ pub async fn handle_dbt_job(
         occupancy_metrics,
         deadline,
         &envs,
+        // The generic job path already wrote this script's modules into the job
+        // directory before dispatching here.
+        None,
     )
     .await?;
 
@@ -187,19 +177,19 @@ pub async fn handle_dbt_job(
     // writes to dispatch correctly, and an agent worker reaches the DB only
     // through the API. Refusing after `dbt build` would leave the warehouse
     // written and the job failed, and a retry would repeat the write.
-    if (descriptor.is_latest_ref() || prepared.graph_is_per_run)
+    if prepared.graph_is_per_run
         && prepared.resource_path.is_some()
         && !matches!(conn, Connection::Sql(_))
     {
         return Err(Error::BadRequest(
-            "this dbt script resolves its commit or its models per run, so its asset graph must \
-             be re-ingested after every run — which an agent worker cannot do. Pin `ref` to a \
-             commit and use literal `vars`, or run it on a worker with a database connection."
+            "this dbt script resolves its models per run, so its asset graph must be re-ingested \
+             after every run — which an agent worker cannot do. Use literal `vars` and no \
+             `$var:` env, or run it on a worker with a database connection."
                 .to_string(),
         ));
     }
 
-    let command = match arg_str(&args, "dbt_command") {
+    let command = match arg_str(&args, "dbt_command")? {
         // Validated against an allowlist rather than passed through: the value
         // becomes the dbt subcommand, and running a script needs weaker
         // permission than editing it — an unchecked arg would let a runner
@@ -226,12 +216,12 @@ pub async fn handle_dbt_job(
         inv
     };
 
-    // A per-run graph is ingested BEFORE the build, from a `dbt parse` of the
-    // commit this run resolved: asset dispatch fans out from the stored rows the
-    // moment the job completes. Concurrent runs of one dynamic script still race
+    // A per-run graph is ingested BEFORE the build, from a `dbt parse` with this
+    // run's vars: asset dispatch fans out from the stored rows the moment the
+    // job completes. Concurrent runs of one dynamic script still race
     // on the path-keyed rows; that needs a per-job dispatch snapshot
     // (docs/dbt-runtime.md).
-    if descriptor.is_latest_ref() || prepared.graph_is_per_run {
+    if prepared.graph_is_per_run {
         if command != "retry" {
             run_dbt_parse(
                 &prepared,
@@ -349,6 +339,9 @@ pub async fn handle_dbt_job(
 #[allow(clippy::too_many_arguments)]
 pub async fn dbt_dep(
     content: &str,
+    // The project this dependency job is deploying: a dependency job has no
+    // generic module-writing step, so the executor materialises them.
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
     job_id: &Uuid,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
@@ -382,12 +375,10 @@ pub async fn dbt_dep(
         &descriptor,
         content,
         None,
-        &HashMap::new(),
         job_dir,
         job_id,
         w_id,
         script_path,
-        false,
         worker_name,
         &conn,
         &client,
@@ -396,6 +387,7 @@ pub async fn dbt_dep(
         occupancy_metrics,
         deadline,
         &envs,
+        modules,
     )
     .await?;
 
@@ -426,9 +418,14 @@ pub async fn dbt_dep(
     .await?;
     let manifest = read_manifest(&prepared.project_dir).await?;
     let manifest_digest = digest(
-        &tokio::fs::read_to_string(prepared.project_dir.join(ARTIFACTS_DIR).join("manifest.json"))
-            .await
-            .unwrap_or_default(),
+        &tokio::fs::read_to_string(
+            prepared
+                .project_dir
+                .join(ARTIFACTS_DIR)
+                .join("manifest.json"),
+        )
+        .await
+        .unwrap_or_default(),
     );
 
     // Two deploys of one path can run concurrently — nothing serializes
@@ -478,8 +475,7 @@ pub async fn dbt_dep(
         // The clear is a publication too — a newer deploy's graph must not be
         // wiped by an older job that no longer describes the script.
         let mut tx = db.begin().await?;
-        let published =
-            claim_graph_publication(&mut tx, w_id, script_path, publisher).await?;
+        let published = claim_graph_publication(&mut tx, w_id, script_path, publisher).await?;
         if published {
             windmill_common::dbt_manifest::clear_dbt_manifest(&mut tx, w_id, script_path).await?;
             windmill_common::assets::replace_static_asset_usage(&mut tx, w_id, script_path, &[])
@@ -511,14 +507,6 @@ pub async fn dbt_dep(
     }
 
     serde_json::to_string_pretty(&DbtDependencyLocks {
-        repo_resource: prepared.repo_resource.clone(),
-        // Empty when the commit is chosen per run rather than at deploy: under
-        // `ref: latest`, and when the ref is a placeholder only a run can fill.
-        commit: if descriptor.is_latest_ref() || prepared.ref_is_per_run {
-            String::new()
-        } else {
-            prepared.commit.clone()
-        },
         manifest_digest,
         profile_relation_root: Some(prepared.relation_root()),
         engine: prepared.engine.engine.as_str().to_string(),
@@ -567,19 +555,14 @@ pub struct PreparedProject {
     pub project_dir: PathBuf,
     pub profiles_dir: PathBuf,
     pub engine: ProvisionedEngine,
-    pub commit: String,
-    /// The descriptor's `ref` holds a placeholder no deploy can resolve, so the
-    /// lockfile must not pin a commit.
-    pub ref_is_per_run: bool,
-    /// The deploy-time graph is a guess — a per-run ref or a var that can steer
-    /// what the project even produces — so each run re-ingests its own manifest.
+    /// A var that can steer what the project produces makes the deploy-time
+    /// graph a guess, so each run re-ingests its own manifest.
     pub graph_is_per_run: bool,
-    /// The project's path relative to the checkout root, which distinguishes
-    /// two same-named project dirs in one repo.
-    pub project_subdir: String,
-    /// The `git_repository` resource path. The resolved URL is deliberately not
-    /// kept: it can carry a token, and this ends up in the lockfile.
-    pub repo_resource: String,
+    /// Digest of the project's own files. This is what a commit hash used to be:
+    /// the identity of the code that runs. It keys the package cache (a
+    /// `local:` dependency's content appears in no manifest) and gates retry
+    /// state, so a project edited between attempts cannot resume the old one.
+    pub project_digest: String,
     /// Windmill resource path of the warehouse, the `<resource_path>` component
     /// of every `table://` asset this project produces. `None` when the project
     /// brings its own `profiles.yml` and declares no resource, in which case
@@ -598,9 +581,6 @@ pub struct PreparedProject {
     /// The descriptor body, kept so an ingest can re-read its `# on` / `# mute`
     /// annotations without threading the content through every caller.
     pub descriptor_content: String,
-    /// Digest of the SSH key material this run authenticates with. Scopes the
-    /// worker-global caches; stable across jobs, unlike the key files' paths.
-    pub credential_identity: String,
     /// The descriptor's `env`, resolved, in a stable order. Feeds run identity;
     /// `env` itself is not usable there because it carries per-job values.
     pub descriptor_env: std::collections::BTreeMap<String, String>,
@@ -632,9 +612,9 @@ impl PreparedProject {
     }
 
     /// Everything that decides which relations a run produces, for the
-    /// retry-state check: same repo, same project within it, same commit, same
-    /// warehouse and target, same engine. Identity only, never credentials —
-    /// `repo_resource` is a path and the profile is named, not rendered.
+    /// retry-state check: same project files, same warehouse and target, same
+    /// engine. Identity only, never credentials — the profile is digested, and
+    /// the digest is one-way.
     ///
     /// Anything omitted here is something a redeploy could change while a
     /// stale `run_results.json` stays eligible, so `dbt retry` would resume one
@@ -665,10 +645,8 @@ impl PreparedProject {
         // them means the next field added to the descriptor is silently left
         // out of the check.
         format!(
-            "{}|{}|{}|{}|{}|{:x}|{}|{}",
-            self.repo_resource,
-            self.project_subdir,
-            self.commit,
+            "{}|{}|{}|{:x}|{}|{}",
+            self.project_digest,
             self.engine.engine.as_str(),
             digest(&self.descriptor_content),
             self.env_digest(),
@@ -683,7 +661,6 @@ pub async fn prepare_project(
     descriptor: &DbtDescriptor,
     descriptor_content: &str,
     locks: Option<&DbtDependencyLocks>,
-    args: &HashMap<String, Box<RawValue>>,
     job_dir: &str,
     job_id: &Uuid,
     w_id: &str,
@@ -692,9 +669,6 @@ pub async fn prepare_project(
     // across every dbt script in the workspace, so a retry resumes another
     // project's run_results.json.
     script_path: &str,
-    // False only for the deploy, which has no job arguments and so must tolerate
-    // `{{ }}` placeholders it cannot fill. A run must not.
-    strict_args: bool,
     worker_name: &str,
     conn: &Connection,
     client: &AuthedClient,
@@ -706,169 +680,39 @@ pub async fn prepare_project(
     // because under a sandbox it must travel in the jail profile rather than
     // on the process that execs nsjail.
     invocation_env: &HashMap<String, String>,
+    // The script's files: the dbt project itself.
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> error::Result<PreparedProject> {
-    let repo_res = descriptor.repo.trim_start_matches("$res:").to_string();
-    let repo_value: serde_json::Value = client
-        .get_resource_value_interpolated(&repo_res, Some(job_id.to_string()))
-        .await
-        .map_err(|e| {
-            Error::BadRequest(format!("could not read the git repository resource: {e}"))
-        })?;
-    let mut url = repo_value
-        .get("url")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            Error::BadRequest(
-                "the `repo` resource has no `url`; it must be of type git_repository".to_string(),
-            )
-        })?
-        .to_string();
-    // A GitHub App resource carries no credential of its own: an installation
-    // token has to be minted per use. The only helper that does that
-    // (`get_github_app_token_internal`) authorizes by checking the job against
-    // the workspace's configured git-sync scripts, so it rejects a dbt job
-    // outright; minting for an arbitrary runnable needs its own authorization
-    // path. Refuse with the reason rather than letting
-    // the clone fail on a bare auth error: a wrong-looking credential is far
-    // harder to diagnose than a stated limitation.
-    if repo_value
-        .get("is_github_app")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
-    {
+    // The project IS this script's files. The generic job path writes a
+    // script's modules into the job directory before the executor runs, so a
+    // run already has the tree; a dependency job writes them itself (it has no
+    // such step). Either way nothing is cloned: no repository resource, no ref
+    // to resolve, no commit to pin, no credential, no clone cache.
+    if let Some(modules) = modules {
+        write_module_files(job_dir, modules, None).await?;
+    }
+    let project_dir = PathBuf::from(job_dir);
+    if !project_dir.join("dbt_project.yml").exists() {
         return Err(Error::BadRequest(
-            "dbt cannot use a GitHub App git_repository resource yet: installation tokens are \
-             minted only for git-sync jobs. Use a token in the resource URL, or \
-             `git_ssh_identity` for an SSH remote."
+            "this dbt script carries no project: `dbt_project.yml` was not found. Copy a dbt \
+             project into its `<script>__dbt/` folder and push it (`wmill sync push`)"
                 .to_string(),
         ));
     }
-    let _ = &mut url;
-    let (git_ssh_cmd, credential_identity) = git_ssh_cmd(descriptor, job_dir, client).await?;
-    let branch = repo_value
-        .get("branch")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string());
-
-    // Under `latest` HEAD is resolved now; otherwise the lockfile's commit is
-    // authoritative so a run reproduces its deploy exactly, and the descriptor's
-    // ref is only the fallback for a script whose lock has not been generated.
-    // At deploy there are no job args, so a `ref: "{{ commit }}"` cannot be
-    // resolved. That is not a deploy failure — the ref is simply only knowable
-    // per run. `ref_is_per_run` carries that fact to the lockfile, which must
-    // then pin nothing: locking the default branch's hash would make every run
-    // ignore its own `commit` argument and replay the deploy's checkout.
-    let interpolated_ref = match descriptor.r#ref.as_deref() {
-        Some(r) => match crate::common::interpolate_template(r, Some(args), "ref") {
-            Ok(v) => Some(v),
-            // A run that cannot fill its own ref must fail: falling back to the
-            // default branch would silently execute a commit nobody asked for
-            // and report success.
-            Err(e) if strict_args => return Err(e),
-            Err(_) => None,
-        },
-        None => None,
-    };
-    // A property of the descriptor, not of whether this particular caller could
-    // interpolate: runs are strict, so deciding it from a failed interpolation
-    // would make it permanently false on the run path and the per-run graph
-    // refresh below would never fire.
-    let has_placeholder = |v: &str| v.contains("{{");
-    let ref_is_per_run = descriptor.r#ref.as_deref().is_some_and(has_placeholder);
-    // Properties of the DESCRIPTOR only, never of one run's arguments. Vars can
-    // drive `enabled`, alias, schema, database and materialization, so a
-    // placeholder var, a dynamic ref or a `$var:` env value (re-resolved every
-    // run) each make the deploy-time graph a guess and must be re-ingested.
+    // Vars can drive `enabled`, alias, schema, database and materialization, so
+    // a placeholder var or a `$var:` env value (re-resolved every run) makes the
+    // deploy-time graph a guess, and each run re-ingests its own manifest.
     //
     // A per-run `vars` override is deliberately NOT here: gating on it would
     // leave the override's graph in place for the next default run, which then
     // builds the descriptor's relations and dispatches from the override's.
-    // Overrides are ad-hoc builds and follow the deployed descriptor for
-    // cascade purposes — the same boundary a run-arg `select` override has
-    // (docs/dbt-runtime.md).
-    let graph_is_per_run = ref_is_per_run
-        || descriptor
-            .vars
-            .values()
-            .flat_map(windmill_parser_yaml::dbt::string_leaves)
-            .any(has_placeholder)
+    let has_placeholder = |v: &str| v.contains("{{");
+    let graph_is_per_run = descriptor
+        .vars
+        .values()
+        .flat_map(windmill_parser_yaml::dbt::string_leaves)
+        .any(has_placeholder)
         || descriptor.env.values().any(|v| v.starts_with("$var:"));
-    let probe = GitRepo {
-        url: url.clone(),
-        commit: None,
-        branch: branch.clone(),
-        target_path: "dbt".to_string(),
-    };
-    // Borrowed only for the ref probes: `checkout` below takes the same state.
-    let mut probe_ctx = JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline };
-    let probe_job = (job_id, w_id, conn, &mut probe_ctx);
-    let commit = if descriptor.is_latest_ref() {
-        get_git_repo_full_head_commit_hash(&probe, &git_ssh_cmd, Some(probe_job)).await?
-    } else if let Some(r) = interpolated_ref
-        .clone()
-        // A ref the descriptor spells with a placeholder is chosen by the run,
-        // so the run's value wins over whatever the deploy happened to lock.
-        .filter(|_| {
-            descriptor
-                .r#ref
-                .as_deref()
-                .is_some_and(|r| r.contains("{{"))
-        })
-    {
-        resolve_git_ref_to_commit(&probe, &git_ssh_cmd, &r, Some(probe_job)).await?
-    } else if let Some(locked) = locks.map(|l| l.commit.clone()).filter(|c| !c.is_empty()) {
-        locked
-    } else if let Some(r) = interpolated_ref.clone() {
-        // The descriptor's ref before a lockfile exists (deploy). It has to be
-        // resolved rather than used as-is: a branch name is not a pin, and the
-        // clone cache below keys on the commit precisely because commits are
-        // immutable and a branch name is not.
-        resolve_git_ref_to_commit(&probe, &git_ssh_cmd, &r, Some(probe_job)).await?
-    } else {
-        String::new()
-    };
-
-    let repo = GitRepo {
-        url: url.clone(),
-        commit: (!commit.is_empty()).then(|| commit.clone()),
-        branch,
-        target_path: "dbt".to_string(),
-    };
-    let checked_out = checkout(
-        &repo,
-        &commit,
-        &credential_identity,
-        job_dir,
-        job_id,
-        w_id,
-        worker_name,
-        conn,
-        mem_peak,
-        canceled_by,
-        occupancy_metrics,
-        &git_ssh_cmd,
-        deadline,
-    )
-    .await?;
-
-    let project_subdir = descriptor
-        .project
-        .as_deref()
-        .map(str::trim)
-        .filter(|p| !p.is_empty())
-        .unwrap_or(".")
-        .to_string();
-    if project_subdir != "." {
-        crate::common::validate_relative_path(&project_subdir, "project")?;
-    }
-    let project_dir = PathBuf::from(job_dir).join("dbt").join(&project_subdir);
-    if !project_dir.join("dbt_project.yml").exists() {
-        return Err(Error::BadRequest(format!(
-            "no dbt_project.yml at `{}` in the repo",
-            descriptor.project.as_deref().unwrap_or(".")
-        )));
-    }
 
     let (profiles_dir, resource_path, adapter, default_database, default_schema, profile_digest) =
         write_profiles(descriptor, &project_dir, job_dir, client, job_id).await?;
@@ -894,6 +738,11 @@ pub async fn prepare_project(
     .await?;
 
     let resolved_env = resolve_env(descriptor, client).await?;
+    reject_reserved_env(
+        resolved_env.iter().map(|(k, _)| k),
+        "the descriptor's `env`",
+    )?;
+    reject_reserved_env(invocation_env.keys(), "the script's environment variables")?;
     let descriptor_env: std::collections::BTreeMap<String, String> =
         resolved_env.iter().cloned().collect();
     let mut env = resolved_env;
@@ -933,7 +782,10 @@ pub async fn prepare_project(
                     "{ENGINE_DIR}",
                     &escape_textproto(&engine.root.to_string_lossy()),
                 )
-                .replace("{PY_INSTALL_DIR}", &escape_textproto(&crate::PY_INSTALL_DIR))
+                .replace(
+                    "{PY_INSTALL_DIR}",
+                    &escape_textproto(&crate::PY_INSTALL_DIR),
+                )
                 .replace("{CLONE_NEWUSER}", &(!*crate::DISABLE_NUSER).to_string())
                 // Both environments the child needs: the descriptor's and the
                 // invocation's. Neither may sit on the launcher.
@@ -966,7 +818,24 @@ pub async fn prepare_project(
         None
     };
 
+    // Sorted, so the digest depends on the files rather than on map ordering.
+    let project_digest = {
+        let mut names: Vec<&String> = modules.map(|m| m.keys().collect()).unwrap_or_default();
+        names.sort();
+        let mut h = Sha256::new();
+        for name in names {
+            h.update(name.as_bytes());
+            h.update([0u8]);
+            if let Some(m) = modules.and_then(|m| m.get(name)) {
+                h.update(m.content.as_bytes());
+            }
+            h.update([0u8]);
+        }
+        format!("{:x}", h.finalize())[..32].to_string()
+    };
+
     let mut prepared = PreparedProject {
+        project_digest,
         invocation_env_digest: {
             use std::hash::{Hash, Hasher};
             let mut sorted: Vec<(&String, &String)> = invocation_env.iter().collect();
@@ -983,16 +852,11 @@ pub async fn prepare_project(
         project_dir,
         profiles_dir,
         engine,
-        commit: checked_out,
-        ref_is_per_run,
         graph_is_per_run,
-        project_subdir,
-        repo_resource: repo_res,
         resource_path,
         target: descriptor.profile.target.clone(),
         descriptor_content: descriptor_content.to_string(),
         descriptor_env,
-        credential_identity,
 
         default_database,
         default_schema,
@@ -1046,51 +910,6 @@ pub async fn prepare_project(
     Ok(prepared)
 }
 
-/// `GIT_SSH_COMMAND` for the clone, with any descriptor-declared private keys
-/// written into the job dir (torn down with the job). Mirrors the Ansible
-/// executor's identity handling — the clone helpers are shared, so the auth
-/// story should be too.
-async fn git_ssh_cmd(
-    descriptor: &DbtDescriptor,
-    job_dir: &str,
-    client: &AuthedClient,
-) -> error::Result<(String, String)> {
-    let mut identities = String::new();
-    // Digested from the key material, not from the `-i <path>` command: those
-    // paths live under the per-job dir, so hashing the command would make every
-    // run a cache miss and re-clone a repo the cache was supposed to hold.
-    let mut credential = std::collections::hash_map::DefaultHasher::new();
-    for (i, var_path) in descriptor.git_ssh_identity.iter().enumerate() {
-        let name = format!(".ssh_id_priv_dbt_{i}");
-        let loc = windmill_common::worker::is_allowed_file_location(job_dir, &name)?;
-        let mut content = client.get_variable_value(var_path).await.map_err(|e| {
-            Error::NotFound(format!(
-                "variable {var_path} not found for `git_ssh_identity`: {e:#}"
-            ))
-        })?;
-        content.push('\n');
-        {
-            use std::hash::Hash;
-            var_path.hash(&mut credential);
-            content.hash(&mut credential);
-        }
-        let file = write_file(job_dir, &name, &content)?;
-        #[cfg(unix)]
-        file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
-        #[cfg(not(unix))]
-        let _ = file;
-        identities.push_str(&format!(
-            " -i '{}'",
-            loc.to_string_lossy().replace('\'', r"'\''")
-        ));
-    }
-    use std::hash::Hasher;
-    Ok((
-        format!("ssh -o StrictHostKeyChecking=no{identities}"),
-        format!("{:x}", credential.finish()),
-    ))
-}
-
 /// Resolve `$var:<path>` values in the descriptor's `env`. This is the only way
 /// a project using its own `profiles.yml` can get a secret into
 /// `{{ env_var() }}` without writing it into versioned script content.
@@ -1111,84 +930,6 @@ async fn resolve_env(
     Ok(out)
 }
 
-/// Clone at `commit`, reusing the worker-local cache when the commit is pinned.
-/// Commits are immutable, so a cached checkout of one is always current — which
-/// is why `latest` never reads the cache.
-#[allow(clippy::too_many_arguments)]
-async fn checkout(
-    repo: &GitRepo,
-    commit: &str,
-    // Identifies WHO may reuse a cached private checkout, from the key material
-    // rather than the per-job paths it was written to.
-    credential_identity: &str,
-    job_dir: &str,
-    job_id: &Uuid,
-    w_id: &str,
-    worker_name: &str,
-    conn: &Connection,
-    mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
-    occupancy_metrics: &mut OccupancyMetrics,
-    git_ssh_cmd: &str,
-    deadline: JobDeadline,
-) -> error::Result<String> {
-    let dest = PathBuf::from(job_dir).join("dbt");
-    if !commit.is_empty() {
-        // Keyed by workspace and credential as well as the commit. The cache
-        // holds a checkout of a private repository, and a literal 40-char ref
-        // needs no `ls-remote` to resolve — so a key of url+commit alone would
-        // let any workspace that knows both read a repo it cannot authenticate
-        // to.
-        let cached = PathBuf::from(&*DBT_CACHE_DIR).join("repos").join(format!(
-            "{}-{}",
-            digest(&format!("{w_id}\n{}\n{credential_identity}", repo.url)),
-            commit
-        ));
-        if cached.join(".git").exists() {
-            copy_dir(&cached, &dest).await?;
-            append_logs(
-                job_id,
-                w_id,
-                format!("\nReusing cached clone at {commit}\n"),
-                conn,
-            )
-            .await;
-            return Ok(commit.to_string());
-        }
-        clone_repo_without_history(
-            repo,
-            commit,
-            job_dir,
-            job_id,
-            worker_name,
-            conn,
-            mem_peak,
-            canceled_by,
-            w_id,
-            occupancy_metrics,
-            git_ssh_cmd,
-            deadline,
-        )
-        .await?;
-        publish_to_cache(&dest, &cached, job_id).await;
-        return Ok(commit.to_string());
-    }
-    clone_repo(
-        repo,
-        job_dir,
-        job_id,
-        worker_name,
-        conn,
-        mem_peak,
-        canceled_by,
-        w_id,
-        occupancy_metrics,
-        git_ssh_cmd,
-        deadline,
-    )
-    .await
-}
-
 /// `dbt deps`, with `dbt_packages/` restored from a cache keyed by the digest
 /// of `packages.yml` — the file that determines the whole tree.
 async fn install_packages(
@@ -1199,28 +940,18 @@ async fn install_packages(
     conn: &Connection,
 ) -> error::Result<()> {
     // A cache hit skips `dbt deps` entirely, so the key has to cover everything
-    // that determines the resolved tree: `package-lock.yml` pins versions two
-    // projects with identical ranges would otherwise resolve differently, and a
-    // `local:` dependency's content is not in any of these files at all — the
-    // commit and project subdir stand in for it. The cache is worker-global, so
-    // without those two, byte-identical `packages.yml` files in unrelated repos
-    // (and workspaces) would share one tree.
-    // The project's path RELATIVE to the checkout, not its basename:
-    // `team_a/analytics` and `team_b/analytics` in one repo resolve different
-    // `local:` dependencies from identical manifests.
-    // Workspace and credential identity are in the key: `dbt deps` runs with the
-    // descriptor's environment and can fetch private git packages, so a shared
-    // tree would let one workspace execute another's private package code
-    // without ever authenticating.
+    // that determines the resolved tree: the declared packages, a
+    // `package-lock.yml` pinning versions two projects with identical ranges
+    // would resolve differently, and any `local:` dependency's content, which is
+    // in no manifest at all — the project digest stands in for it.
     //
-    // BOTH environments are keyed. `deps` receives the invocation's too, so a
-    // `packages.yml` reading `env_var()` resolves differently per script, and
-    // two scripts with different metadata envs must not share one tree.
+    // Workspace identity is in the key: `dbt deps` can fetch private git
+    // packages, so a shared tree would let one workspace execute another's
+    // private package code without ever authenticating. Both environments are
+    // keyed too, since `packages.yml` can read `env_var()`.
     let mut key = format!(
-        "{w_id}\n{}\n{}\n{}\n{:x}\n{:x}\n",
-        p.commit,
-        p.project_subdir,
-        p.credential_identity,
+        "{w_id}\n{}\n{:x}\n{:x}\n",
+        p.project_digest,
         p.env_digest(),
         p.invocation_env_digest,
     );
@@ -1291,20 +1022,29 @@ async fn publish_to_cache(from: &Path, cached: &Path, job_id: &Uuid) {
     let staging = cached.with_file_name(format!("{name}.staging-{job_id}"));
     tokio::fs::remove_dir_all(&staging).await.ok();
     if copy_dir(from, &staging).await.is_err()
-        || strip_git_remote(&staging).await.is_err()
+        || strip_git_remotes(&staging).await.is_err()
         || tokio::fs::rename(&staging, cached).await.is_err()
     {
         tokio::fs::remove_dir_all(&staging).await.ok();
     }
 }
 
-/// Drop the origin remote from a checkout on its way into the cache.
+/// Drop the origin remotes from a `dbt_packages` tree on its way into the cache.
 ///
-/// `git clone` writes the URL it was given into `.git/config`, and for token
-/// auth or a GitHub App that URL *is* the credential. The cache is
-/// worker-global and outlives the job, so copying the checkout verbatim would
-/// leave a live token readable by every later job on the host. The cache is
-/// only ever restored at an already-known commit, so it needs no remote.
+/// `dbt deps` clones `git:` packages and leaves each one's `.git` behind, with
+/// the URL it was given in `.git/config` — and for token auth that URL *is* the
+/// credential, since `packages.yml` renders it from `env_var()`. The cache is
+/// worker-global and outlives the job, so copying the tree verbatim would leave
+/// a live token readable by every later job on the host. Restores never fetch,
+/// so no remote is needed.
+async fn strip_git_remotes(dir: &Path) -> std::io::Result<()> {
+    let mut entries = tokio::fs::read_dir(dir).await?;
+    while let Some(e) = entries.next_entry().await? {
+        strip_git_remote(&e.path()).await?;
+    }
+    Ok(())
+}
+
 async fn strip_git_remote(dir: &Path) -> std::io::Result<()> {
     let config = dir.join(".git").join("config");
     if !config.exists() {
@@ -1658,6 +1398,28 @@ fn escape_textproto(s: &str) -> String {
     out
 }
 
+/// Environment this runtime owns. A project setting one of these would redirect
+/// where dbt writes the artifacts Windmill reads by path — the graph, the
+/// per-node results, the retry state — so a run could succeed while Windmill
+/// records nothing. Refused rather than silently stripped, so the descriptor's
+/// author is told.
+const RESERVED_ENV_KEYS: &[&str] = &["DBT_TARGET_PATH", "DBT_PROFILES_DIR", "DBT_PROJECT_DIR"];
+
+fn reject_reserved_env<'a>(
+    env: impl IntoIterator<Item = &'a String>,
+    source: &str,
+) -> error::Result<()> {
+    for k in env {
+        if RESERVED_ENV_KEYS.iter().any(|r| r.eq_ignore_ascii_case(k)) {
+            return Err(Error::BadRequest(format!(
+                "`{k}` is set by Windmill and cannot be overridden from {source}: it decides \
+                 where dbt writes the artifacts this runtime reads"
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Fixed artifact directory, relative to the project root: `dbt_project.yml`
 /// may point `target-path` anywhere, and this runtime reads every artifact by
 /// path. Relative rather than absolute so it stays inside whatever sandbox the
@@ -1698,14 +1460,19 @@ async fn run_dbt(
     // obvious command but covers models only, silently skipping seeds and
     // snapshots the descriptor selected.
     if command == "build" && !matches!(descriptor.test_behavior, DbtTestBehavior::Build) {
-        cmd.args(["--exclude-resource-type", "test", "--exclude-resource-type", "unit_test"]);
+        cmd.args([
+            "--exclude-resource-type",
+            "test",
+            "--exclude-resource-type",
+            "unit_test",
+        ]);
     }
     if command != "retry" {
         add_vars(&mut cmd, descriptor, inv)?;
         if let Some(t) = descriptor.threads {
             cmd.args(["--threads", &t.to_string()]);
         }
-        let full_refresh = arg_bool(&inv.args, "full_refresh").unwrap_or(descriptor.full_refresh);
+        let full_refresh = arg_bool(&inv.args, "full_refresh")?.unwrap_or(descriptor.full_refresh);
         if full_refresh && command != "test" {
             cmd.arg("--full-refresh");
         }
@@ -2018,7 +1785,8 @@ fn split_relation(rel: &str) -> Vec<String> {
 }
 
 async fn read_run_results(project_dir: &Path) -> Vec<DbtNodeResult> {
-    let Ok(content) = tokio::fs::read_to_string(project_dir.join(ARTIFACTS_DIR).join("run_results.json")).await
+    let Ok(content) =
+        tokio::fs::read_to_string(project_dir.join(ARTIFACTS_DIR).join("run_results.json")).await
     else {
         return vec![];
     };
@@ -2057,7 +1825,6 @@ fn build_result(p: &PreparedProject, command: &str, nodes: Vec<DbtNodeResult>) -
     DbtRunResult {
         engine: p.engine.engine.as_str().to_string(),
         engine_version: p.engine.version.clone(),
-        commit: p.commit.clone(),
         command: command.to_string(),
         totals,
         nodes,
@@ -2838,14 +2605,26 @@ fn sole_placeholder(s: &str) -> Option<&str> {
     .then_some(inner)
 }
 
-fn arg_str(args: &HashMap<String, Box<RawValue>>, k: &str) -> Option<String> {
-    serde_json::from_str::<String>(args.get(k)?.get())
-        .ok()
-        .filter(|s| !s.is_empty())
+/// A supplied scalar, refusing a wrong-typed one rather than reading it as
+/// absent: argument-schema validation is opt-in, so `dbt_command: 1` would
+/// otherwise run the default command and `full_refresh: "false"` would still
+/// full-refresh — the caller silently getting something else than asked for.
+fn arg_str(args: &HashMap<String, Box<RawValue>>, k: &str) -> error::Result<Option<String>> {
+    let Some(raw) = args.get(k).filter(|r| r.get().trim() != "null") else {
+        return Ok(None);
+    };
+    serde_json::from_str::<String>(raw.get())
+        .map(|s| Some(s).filter(|s| !s.is_empty()))
+        .map_err(|e| Error::BadRequest(format!("`{k}` must be a string: {e}")))
 }
 
-fn arg_bool(args: &HashMap<String, Box<RawValue>>, k: &str) -> Option<bool> {
-    serde_json::from_str::<bool>(args.get(k)?.get()).ok()
+fn arg_bool(args: &HashMap<String, Box<RawValue>>, k: &str) -> error::Result<Option<bool>> {
+    let Some(raw) = args.get(k).filter(|r| r.get().trim() != "null") else {
+        return Ok(None);
+    };
+    serde_json::from_str::<bool>(raw.get())
+        .map(Some)
+        .map_err(|e| Error::BadRequest(format!("`{k}` must be a boolean: {e}")))
 }
 
 /// The selectors a given invocation runs with: the descriptor's, unless the
@@ -2873,17 +2652,11 @@ fn add_selection(
     Ok(())
 }
 
-fn effective_select(
-    descriptor: &DbtDescriptor,
-    inv: &Invocation,
-) -> error::Result<Vec<String>> {
+fn effective_select(descriptor: &DbtDescriptor, inv: &Invocation) -> error::Result<Vec<String>> {
     Ok(arg_list(&inv.args, "select")?.unwrap_or_else(|| descriptor.select.clone()))
 }
 
-fn effective_exclude(
-    descriptor: &DbtDescriptor,
-    inv: &Invocation,
-) -> error::Result<Vec<String>> {
+fn effective_exclude(descriptor: &DbtDescriptor, inv: &Invocation) -> error::Result<Vec<String>> {
     Ok(arg_list(&inv.args, "exclude")?.unwrap_or_else(|| descriptor.exclude.clone()))
 }
 
@@ -2902,10 +2675,7 @@ fn has_selection(descriptor: &DbtDescriptor, inv: &Invocation) -> error::Result<
 /// A malformed one is an error rather than an absence: argument-schema
 /// validation is opt-in, so treating `"stg_orders"` as unset would silently run
 /// the descriptor's broader selection instead of the one the caller asked for.
-fn arg_list(
-    args: &HashMap<String, Box<RawValue>>,
-    k: &str,
-) -> error::Result<Option<Vec<String>>> {
+fn arg_list(args: &HashMap<String, Box<RawValue>>, k: &str) -> error::Result<Option<Vec<String>>> {
     let Some(raw) = args.get(k) else {
         return Ok(None);
     };
@@ -3054,7 +2824,11 @@ mod tests {
             }
             // A doubled backslash is a literal one, so it does not escape what
             // follows it.
-            prev = if c == '\\' && prev == Some('\\') { None } else { Some(c) };
+            prev = if c == '\\' && prev == Some('\\') {
+                None
+            } else {
+                Some(c)
+            };
         }
 
         let envars = jail_envars(&[("LD_PRELOAD".to_string(), hostile.to_string())]);

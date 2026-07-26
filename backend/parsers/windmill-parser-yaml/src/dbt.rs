@@ -101,16 +101,6 @@ pub enum DbtTestBehavior {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct DbtDescriptor {
-    /// `$res:<path>` of the `git_repository` resource holding the project.
-    pub repo: String,
-    /// Subdirectory containing `dbt_project.yml`; empty means the repo root.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub project: Option<String>,
-    /// Tag / branch / commit, or the literal `latest` to resolve HEAD at run
-    /// time. Pinned by default (decision 5); `{{ arg }}` placeholders are
-    /// substituted from job args.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub r#ref: Option<String>,
     #[serde(default)]
     pub engine: Option<DbtEngine>,
     #[serde(default)]
@@ -147,18 +137,7 @@ pub struct DbtDescriptor {
     /// build writes.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
-    /// Windmill variables holding private SSH keys for cloning the repo, the
-    /// same shape as Ansible's `git_ssh_identity`. Token auth lives in the
-    /// `git_repository` resource's URL instead. GitHub App resources are NOT
-    /// supported: minting their installation token needs an authorization path
-    /// that does not exist for arbitrary runnables, so they are rejected with
-    /// that reason (docs/dbt-runtime.md, decision 10).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub git_ssh_identity: Vec<String>,
 }
-
-/// Sentinel `ref` meaning "resolve HEAD at run time" rather than at deploy.
-pub const REF_LATEST: &str = "latest";
 
 /// The dbt subcommands a run may ask for. Kept here so the signature and the
 /// worker's validation cannot drift apart.
@@ -186,15 +165,6 @@ pub fn default_command(d: &DbtDescriptor) -> &'static str {
 impl DbtDescriptor {
     pub fn engine(&self) -> DbtEngine {
         self.engine.unwrap_or_default()
-    }
-
-    /// Only the explicit `latest` floats. An omitted `ref` still pins: the
-    /// deploy resolves the resource's default branch to a commit and locks it,
-    /// which is what "pinned by default" means (decision 5).
-    pub fn is_latest_ref(&self) -> bool {
-        self.r#ref
-            .as_deref()
-            .is_some_and(|r| r.trim().eq_ignore_ascii_case(REF_LATEST))
     }
 }
 
@@ -274,9 +244,7 @@ pub fn parse_dbt_sig(inner_content: &str) -> anyhow::Result<MainArgSignature> {
         Arg {
             name: "dbt_command".to_string(),
             otyp: None,
-            typ: Typ::Str(Some(
-                DBT_COMMANDS.iter().map(|c| c.to_string()).collect(),
-            )),
+            typ: Typ::Str(Some(DBT_COMMANDS.iter().map(|c| c.to_string()).collect())),
             has_default: true,
             default: Some(serde_json::json!(default_command(&d))),
             oidx: None,
@@ -366,9 +334,6 @@ fn placeholders(d: &DbtDescriptor) -> Vec<String> {
             }
         }
     };
-    if let Some(r) = d.r#ref.as_deref() {
-        push_from(r);
-    }
     for v in d.vars.values() {
         for leaf in string_leaves(v) {
             push_from(leaf);
@@ -400,9 +365,6 @@ mod tests {
     use super::*;
 
     const DESCRIPTOR: &str = r#"
-repo: $res:u/rf/analytics_repo
-project: transform
-ref: "{{ commit }}"
 engine: dbt-core-2x
 profile:
   resource: $res:f/prod/snowflake
@@ -431,7 +393,7 @@ full_refresh: true
         }
         // A name of its own is fine.
         assert!(parse_dbt_descriptor(
-            "repo: $res:u/rf/r\nprofile:\n  resource: $res:u/rf/wh\nvars:\n  v: \"{{ day }}\"\n"
+            "profile:\n  resource: $res:u/rf/wh\nvars:\n  v: \"{{ day }}\"\n"
         )
         .is_ok());
     }
@@ -446,19 +408,20 @@ full_refresh: true
         for name in ["select", "exclude", "vars", "full_refresh", "dbt_command"] {
             assert!(props.contains_key(name), "missing {name}: {schema}");
         }
-        assert_eq!(props["dbt_command"]["enum"], serde_json::json!(DBT_COMMANDS));
+        assert_eq!(
+            props["dbt_command"]["enum"],
+            serde_json::json!(DBT_COMMANDS)
+        );
         assert_eq!(props["full_refresh"]["type"], "boolean");
         // Every `{{ placeholder }}` the descriptor interpolates is an argument
         // a run must supply — the overrides above all default to the
         // descriptor's own values instead.
-        assert_eq!(schema["required"], serde_json::json!(["commit", "day"]));
+        assert_eq!(schema["required"], serde_json::json!(["day"]));
     }
 
     #[test]
     fn parses_descriptor() {
         let d = parse_dbt_descriptor(DESCRIPTOR).unwrap();
-        assert_eq!(d.repo, "$res:u/rf/analytics_repo");
-        assert_eq!(d.project.as_deref(), Some("transform"));
         assert_eq!(d.engine(), DbtEngine::DbtCore2x);
         assert_eq!(d.profile.target.as_deref(), Some("prod"));
         assert_eq!(d.select, vec!["tag:nightly+"]);
@@ -468,23 +431,12 @@ full_refresh: true
         // in Jinja and would silently invert the condition it gates.
         assert_eq!(d.vars["strict"], serde_json::json!(false));
         assert_eq!(d.vars["run_date"], serde_json::json!("{{ day }}"));
-        assert!(!d.is_latest_ref());
     }
 
     #[test]
-    fn minimal_descriptor_defaults_to_the_bundled_engine_and_a_pinned_ref() {
-        let d = parse_dbt_descriptor("repo: $res:u/rf/repo\n").unwrap();
+    fn an_empty_descriptor_defaults_to_the_bundled_engine() {
+        let d = parse_dbt_descriptor("").unwrap();
         assert_eq!(d.engine(), DbtEngine::DbtCore1x);
-        // Pinned by default: an omitted ref is locked at deploy, and only the
-        // explicit `latest` resolves HEAD per run.
-        assert!(!d.is_latest_ref());
-        assert!(parse_dbt_descriptor("repo: r\nref: latest\n")
-            .unwrap()
-            .is_latest_ref());
-        assert!(parse_dbt_descriptor("repo: r\nref: main\n")
-            .unwrap()
-            .is_latest_ref()
-            == false);
     }
 
     #[test]
@@ -499,7 +451,6 @@ full_refresh: true
                 "vars",
                 "full_refresh",
                 "dbt_command",
-                "commit",
                 "day"
             ]
         );
@@ -521,11 +472,11 @@ full_refresh: true
         // and overwrite the value the worker interpolated for it.
         let vars = sig.args.iter().find(|a| a.name == "vars").unwrap();
         assert_eq!(vars.default, Some(serde_json::json!({})));
-        // Placeholders are required (no sane default for a commit) and untyped,
-        // so a `{{ }}` var can carry a boolean or a number rather than the
-        // string "false", which Jinja treats as truthy.
-        let commit = sig.args.iter().find(|a| a.name == "commit").unwrap();
-        assert!(!commit.has_default);
-        assert_eq!(commit.typ, Typ::Unknown);
+        // Placeholders are required (the descriptor names no value for them)
+        // and untyped, so a `{{ }}` var can carry a boolean or a number rather
+        // than the string "false", which Jinja treats as truthy.
+        let day = sig.args.iter().find(|a| a.name == "day").unwrap();
+        assert!(!day.has_default);
+        assert_eq!(day.typ, Typ::Unknown);
     }
 }

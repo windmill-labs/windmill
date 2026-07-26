@@ -19,7 +19,7 @@ import {
   languageNeedsLock,
 } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
-import { getModuleFolderSuffix, isModuleEntryPoint, scriptPathToRemotePath } from "./resource_folders.ts";
+import { dbtGeneratedDirs, getModuleFolderSuffix, isModuleEntryPoint, scriptPathToRemotePath } from "./resource_folders.ts";
 import { findCodebase, yamlOptions } from "../commands/sync/sync.ts";
 import { generateHash, readInlinePathSync, getHeaders, readTextFile, readTextFileSync } from "./utils.ts";
 import { detectAuthGatewayChallenge } from "./http_guards.ts";
@@ -238,7 +238,8 @@ export async function generateScriptMetadataInternal(
   // Compute the module folder path early so we can include module hashes in stale check
   const moduleFolderPath = isFolderLayout
     ? path.dirname(scriptPath)
-    : scriptPath.substring(0, scriptPath.indexOf(".")) + getModuleFolderSuffix();
+    : scriptPath.substring(0, scriptPath.indexOf(".")) +
+      getModuleFolderSuffix(language);
 
   const hasModules = existsSync(moduleFolderPath) && statSync(moduleFolderPath).isDirectory();
 
@@ -250,7 +251,8 @@ export async function generateScriptMetadataInternal(
   let moduleHashes: Record<string, string> = {};
   if (hasModules) {
     moduleHashes = await computeModuleHashes(
-      moduleFolderPath, opts.defaultTs, tree ? {} : rawWorkspaceDependencies, isFolderLayout
+      moduleFolderPath, opts.defaultTs, tree ? {} : rawWorkspaceDependencies, isFolderLayout,
+      language === "dbt",
     );
   }
   const hasModuleHashes = Object.keys(moduleHashes).length > 0;
@@ -1372,8 +1374,15 @@ async function computeModuleHashes(
   defaultTs: "bun" | "deno" | undefined,
   rawWorkspaceDependencies: Record<string, string>,
   isFolderLayout: boolean,
+  // A dbt project's files are taken verbatim, so hash them the same way the
+  // push reads them: a `.sql` model has no inferable language, and dropping it
+  // here would leave an edited model looking up to date.
+  verbatim: boolean = false,
 ): Promise<Record<string, string>> {
   const hashes: Record<string, string> = {};
+  const skipDirs = verbatim
+    ? dbtGeneratedDirs(moduleFolderPath)
+    : new Set<string>();
 
   async function readDir(dirPath: string, relPrefix: string) {
     const entries = readdirSync(dirPath, { withFileTypes: true });
@@ -1383,16 +1392,19 @@ async function computeModuleHashes(
       const isTopLevel = relPrefix === "";
 
       if (entry.isDirectory()) {
+        if (isTopLevel && skipDirs.has(entry.name)) continue;
         await readDir(fullPath, relPath);
       } else if (
         entry.isFile() &&
         !entry.name.endsWith(".lock") &&
         !(isFolderLayout && isTopLevel && entry.name.startsWith("script."))
       ) {
-        try {
-          inferContentTypeFromFilePath(entry.name, defaultTs);
-        } catch {
-          continue;
+        if (!verbatim) {
+          try {
+            inferContentTypeFromFilePath(entry.name, defaultTs);
+          } catch {
+            continue;
+          }
         }
         const content = readTextFileSync(fullPath);
         const normalizedPath = normalizeLockPath(relPath);

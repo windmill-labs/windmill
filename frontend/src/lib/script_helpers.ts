@@ -1346,16 +1346,10 @@ main <- function(
 }
 `
 
-// A dbt script is a pointer to a dbt project in a git repo plus its run
-// configuration; the models themselves are versioned by the repo, not by
-// Windmill. Field names track dbt's and astronomer-cosmos's vocabulary.
-const DBT_INIT_CODE = `# The git_repository resource holding the dbt project
-repo: $res:u/user/my_dbt_repo
-# Subdirectory containing dbt_project.yml (omit if it is at the repo root)
-# project: transform
-# Tag, branch or commit — pinned by default. Use "latest" to resolve HEAD per run.
-ref: main
-# dbt-core-1x (default) | dbt-core-2x | fusion
+// A dbt script is a whole dbt project: the descriptor below is the script's
+// content, and the project's own files live in its module bundle (the
+// `<script>__dbt/` folder the CLI syncs). Field names track dbt's vocabulary.
+const DBT_INIT_CODE = `# dbt-core-1x (default) | dbt-core-2x | fusion
 engine: dbt-core-1x
 profile:
   # Warehouse resource rendered into profiles.yml. Also the <resource> component

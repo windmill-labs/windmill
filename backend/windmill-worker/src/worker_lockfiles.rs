@@ -166,6 +166,7 @@ pub async fn handle_dependency_job(
         base_internal_url,
         token,
         script_path,
+        script_data.modules.as_ref(),
         occupancy_metrics,
         &raw_workspace_dependencies_o,
         None,
@@ -213,6 +214,7 @@ pub async fn handle_dependency_job(
                         base_internal_url,
                         token,
                         script_path,
+                        script_data.modules.as_ref(),
                         occupancy_metrics,
                         &raw_workspace_dependencies_o,
                         module.lock.as_deref(),
@@ -1380,6 +1382,8 @@ async fn lock_modules(
                 "{}/flow",
                 &path.clone().unwrap_or_else(|| job_path.to_string())
             ),
+            // An inline flow step has no module bundle of its own.
+            None,
             occupancy_metrics,
             raw_workspace_dependencies_o,
             lock.as_deref(),
@@ -1899,6 +1903,7 @@ async fn lock_modules_app(
                                 base_internal_url,
                                 token,
                                 &format!("{}/app", job.runnable_path()),
+                                None,
                                 occupancy_metrics,
                                 &None,
                                 existing_lock,
@@ -2636,6 +2641,9 @@ async fn capture_dependency_job(
     base_internal_url: &str,
     token: &str,
     script_path: &str,
+    // A dbt script's project rides in its modules; the dbt dependency job
+    // materialises them itself, having no generic module-writing step.
+    modules: Option<&std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
     occupancy_metrics: &mut OccupancyMetrics,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
     existing_lock: Option<&str>,
@@ -2785,6 +2793,7 @@ async fn capture_dependency_job(
         ScriptLang::Dbt => {
             crate::dbt_executor::dbt_dep(
                 job_raw_code,
+                modules,
                 job_id,
                 mem_peak,
                 canceled_by,

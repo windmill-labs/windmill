@@ -729,11 +729,6 @@ impl JobDeadline {
         Self(Some(Instant::now() + d))
     }
 
-    /// No deadline: every phase falls back to the timeout it resolves itself.
-    pub fn unbounded() -> Self {
-        Self(None)
-    }
-
     pub fn remaining_secs(&self) -> Option<i32> {
         let deadline = self.0?;
         // A non-positive timeout reads as "unset" downstream, so an expired
@@ -1096,7 +1091,5 @@ mod tests {
         assert_eq!(spent.remaining_secs(), Some(1));
         let left = JobDeadline(Some(Instant::now() + Duration::from_secs(120)));
         assert!(matches!(left.remaining_secs(), Some(s) if (118..=120).contains(&s)));
-        // No budget: each phase resolves its own timeout, as before.
-        assert_eq!(JobDeadline::unbounded().remaining_secs(), None);
     }
 }

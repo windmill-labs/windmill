@@ -71,6 +71,7 @@ import {
   isScriptModulePath,
   buildModuleFolderPath,
   getModuleFolderSuffix,
+  dbtGeneratedDirs,
   isModuleEntryPoint,
   getScriptBasePathFromModulePath,
   scriptPathToRemotePath,
@@ -490,8 +491,14 @@ export async function handleFile(
     const scriptBasePath = moduleEntryPoint
       ? getScriptBasePathFromModulePath(path)!
       : path.substring(0, path.indexOf("."));
-    const moduleFolderPath = scriptBasePath + getModuleFolderSuffix();
-    const modules = await readModulesFromDisk(moduleFolderPath, opts?.defaultTs, moduleEntryPoint);
+    const isDbt = language === "dbt";
+    const moduleFolderPath = scriptBasePath + getModuleFolderSuffix(language);
+    const modules = await readModulesFromDisk(
+      moduleFolderPath,
+      opts?.defaultTs,
+      moduleEntryPoint,
+      isDbt,
+    );
 
     // A concurrent_limit of <= 0 means "concurrency disabled", not "zero slots" (which
     // would brick the runnable at the queue's concurrency gate). Emit it as omitted rather
@@ -674,12 +681,21 @@ export async function readModulesFromDisk(
   moduleFolderPath: string,
   defaultTs: "bun" | "deno" | undefined,
   folderLayout: boolean = false,
+  // A dbt project rides in its module folder as-is: `.sql` models (which the
+  // language inference below rejects as an ambiguous dialect), `.yml` schemas
+  // and `.csv` seeds are all part of the project and none is a Windmill script.
+  // Verbatim, or dbt receives a project missing exactly the files it needs.
+  verbatim: boolean = false,
 ): Promise<Record<string, ScriptModule> | undefined> {
   if (!fs.existsSync(moduleFolderPath) || !fs.statSync(moduleFolderPath).isDirectory()) {
     return undefined;
   }
 
   const modules: Record<string, ScriptModule> = {};
+
+  const skipDirs = verbatim
+    ? dbtGeneratedDirs(moduleFolderPath)
+    : new Set<string>();
 
   // In folder layout mode, skip the entry point files (script.*, script.yaml, etc.)
   const isEntryPointFile = (name: string, isTopLevel: boolean) => {
@@ -700,10 +716,19 @@ export async function readModulesFromDisk(
       const isTopLevel = relPrefix === "";
 
       if (entry.isDirectory()) {
+        if (isTopLevel && skipDirs.has(entry.name)) continue;
         readDir(fullPath, relPath);
       } else if (entry.isFile() && !entry.name.endsWith(".lock") && !isEntryPointFile(entry.name, isTopLevel)) {
         // Skip lock files — they're handled as the `lock` field on ScriptModule
-        if (exts.some((ext) => entry.name.endsWith(ext))) {
+        if (verbatim) {
+          // `language` is a required field of the API type and is not used for
+          // these: the worker writes them to their relative path and dbt reads
+          // the tree.
+          modules[relPath] = {
+            content: readTextFileSync(fullPath),
+            language: "dbt" as ScriptModule["language"],
+          };
+        } else if (exts.some((ext) => entry.name.endsWith(ext))) {
           const content = readTextFileSync(fullPath);
           const language = inferContentTypeFromFilePath(entry.name, defaultTs);
 

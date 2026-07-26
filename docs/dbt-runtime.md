@@ -10,16 +10,14 @@ the dominant way dbt is orchestrated today.
 
 ## Scope
 
-- **In**: run an unmodified dbt project from a git repo, one Windmill job per
+- **In**: run an unmodified dbt project synced into Windmill, one Windmill job per
   invocation, live per-model observability, dbt models as first-class assets in
   the existing asset graph.
 - **Out**: one Windmill job per dbt model, `state:modified` / slim CI,
   `dbt docs` hosting, semantic layer, dbt platform integration.
 - **CE**: the runtime, the manifest ingest, the asset graph and every piece of
   UI ship in CE, as do all adapters except two. Only the `mssql` and `oracle`
-  adapters are EE, mirroring the native `ScriptLang` boundary (decision 21), and
-  private-repo GitHub App auth is EE inherited from git-sync, not introduced
-  here.
+  adapters are EE, mirroring the native `ScriptLang` boundary (decision 21).
 
 ## Decision log
 
@@ -29,21 +27,21 @@ the dominant way dbt is orchestrated today.
 | 2 | Artifact shape | `ScriptLang::Dbt` |
 | 3 | Graph in v0 | Yes, both runtime and graph |
 | 4 | Execution granularity | One job per invocation |
-| 5 | Ref pinning | Both pinned and `latest`, pinned by default |
-| 6 | Multiple run configs | N scripts against the same repo |
+| 5 | Project storage | The project is the script's module bundle; nothing is cloned. See below |
+| 6 | Multiple run configs | Per-run `select` on one script; N scripts means N projects |
 | 7 | Run-time `select` | Descriptor default plus run-arg override |
 | 8 | Credentials | Both `profiles.yml` passthrough and resource mapping |
 | 9 | Adapter mappings | postgres, redshift, mysql, snowflake, bigquery, databricks; others via the project's own `profiles.yml` |
-| 10 | Private repo auth | SSH/token in CE; GitHub App **not yet** — see below |
+| 10 | Private repo auth | Not applicable: the project is synced, not fetched |
 | 11 | Asset kind | `table://<resource>/<schema>/<name>`, not `dbt://`. See below |
-| 12 | Graph refresh | Falls out of #5, no separate mechanism. See below |
+| 12 | Graph refresh | Deploy-time, re-ingested per run only when the descriptor is dynamic. See below |
 | 13 | Manifest storage | Sidecar table for nodes/edges. Full manifest **not** stored — see below |
 | 14 | Metadata depth | Tests, strategy, tags, freshness, column descriptions. Column **lineage** is not in the manifest — see below |
 | 15 | Node rendering | Asset nodes per model plus one runnable node for the script |
 | 16 | Progress | Live, from the JSON event stream |
 | 17 | Test failures | Honor dbt's own `severity` |
 | 18 | Retry | `dbt retry` by default, full re-run available |
-| 19 | Caching | Worker-local global cache, keyed by digest and commit |
+| 19 | Caching | Worker-local global cache, keyed by the project digest |
 | 20 | Images | Full images only |
 | 21 | Licensing | CE except the `mssql` / `oracle` adapters. See below |
 | 22 | Naming | Match Cosmos field names; importer deferred |
@@ -175,20 +173,17 @@ filed as a bug: **two Windmill resources pointing at the same physical
 warehouse do not unify**, so assets under one will not share edges with assets
 under the other. Point both scripts at one resource to link them.
 
-## Decision 12: refresh falls out of ref strategy
+## Decision 12: the graph refreshes with the deploy
 
-The lockfile does most of the work, and pairing it with a `latest` strategy
-removes the need for a separate refresh mechanism. Two modes, no manual button
-and no webhook in v0:
+The project's files are the script's, so a deploy already sees exactly what will
+run: it parses the bundle and stores the graph. "Refresh" is just "redeploy". No
+manual button, no webhook, no separate mechanism.
 
-- **Pinned** (default). Deploy resolves `ref` to a full commit hash and stores it
-  in the lockfile alongside the parsed graph. Runs are reproducible and the graph
-  always matches what executes. "Refresh" is just "redeploy", which re-resolves
-  and re-parses. No new concept.
-A `ref` or a `vars` value spelled with a `{{ placeholder }}` behaves like
-`latest` for graph purposes: the deploy cannot know what will run, and dbt vars
-can steer `enabled`, aliases, schemas, databases and materializations, so the
-graph is re-ingested from every run's own manifest. Since asset dispatch fans out
+The one case that cannot be settled at deploy is a descriptor that is dynamic by
+construction: a `vars` value spelled with a `{{ placeholder }}`, or an `env`
+value spelled `$var:` (re-resolved every run). dbt vars can steer `enabled`,
+aliases, schemas, databases and materializations, so for those the deploy cannot
+know what will run and the graph is re-ingested from every run's own manifest. Since asset dispatch fans out
 from the stored rows, a run that cannot refresh them fails rather than cascading
 from a stale graph — which also means those descriptors cannot run on an agent
 worker, whose only DB access is through the API.
@@ -200,8 +195,8 @@ ingest would cascade from the wrong relations with nothing to detect it. A
 project bringing its own `profiles.yml` has no root for Windmill to track and
 runs there normally.
 
-The refresh happens **before** the build, from a `dbt parse` of the commit the
-run resolved — not after it. Dispatch fans out from the stored rows once the job
+The refresh happens **before** the build, from a `dbt parse` with this run's own
+vars and env — not after it. Dispatch fans out from the stored rows once the job
 completes, so refreshing afterwards leaves a window in which those rows still
 describe the previous run. The producer-writes cache is invalidated in-process
 at the same moment rather than waiting for the notify poll, since the dispatch
@@ -214,9 +209,8 @@ concurrency limit of 1. Removing the race entirely means dispatching from a
 per-job snapshot of what the run actually wrote, which is a change to the shared
 cascade rather than to dbt.
 
-- **`ref: latest`.** Resolve HEAD at run time. The graph must then refresh every
-  run or it diverges from execution, and that is nearly free: the run parses the
-  project (about a second) before building it and ingests that manifest.
+Re-ingesting is nearly free: the run parses the project (about a second) before
+building it and ingests that manifest.
 
 The parse is what makes a newly added model appear in the same run that builds
 it, rather than one run late: the graph is written before the build, so the
@@ -224,46 +218,83 @@ dispatch that follows sees this run's models.
 
 ## Where the dbt project lives
 
-An external git repo, referenced by a `git_repository` resource, cloned onto the
-worker at job time. Not in the Windmill workspace, not in the `wmill sync` tree.
-The Windmill script is a pointer plus run configuration.
+**In Windmill.** One dbt project is one Windmill script: the script's content is
+the descriptor, and the project's files ride with it as its module bundle, a
+path-keyed map the worker materialises into the job directory before invoking
+dbt. There is one way to do this. Nothing is cloned, so there is no repository
+resource, no ref, no commit and no clone cache.
 
-Storing the project in Windmill was rejected: scripts have no multi-file
-representation, so it means inventing one plus a migration path, for no user
-benefit.
+A team whose repository must stay canonical keeps it: git-sync points at that
+repository and pushes it into the workspace, so the repository still holds the
+truth and Windmill receives the project. A team with no repository at all pushes
+straight from a working copy.
 
-### Recommended layout: the dbt project in the repo you already sync
+### On disk, the project is a canonical dbt project
 
-A workspace whose `wmill sync` tree lives in git can keep the dbt project in the
-same repo, in a subdirectory. The descriptor points `repo` at that repo's own
-`git_repository` resource and names the subdirectory in `project`, so one push
-carries both the models and the script that runs them:
+`wmill sync pull` writes the bundle verbatim, so the tree under the module folder
+is exactly what dbt expects, with the extensions dbt expects:
 
 ```
-my-workspace-repo/
-├── u/admin/analytics.dbt.yaml    # the Windmill script (wmill sync)
-└── transform/                    # the dbt project
+f/analytics/
+├── analytics.dbt.yaml              the descriptor (the script's content)
+└── analytics__dbt/                 the module bundle: the project, unmodified
     ├── dbt_project.yml
-    └── models/...
+    ├── packages.yml
+    ├── models/staging/stg_orders.sql
+    ├── models/marts/_marts__models.yml
+    ├── macros/cents_to_dollars.sql
+    ├── seeds/country_codes.csv
+    └── snapshots/orders_snapshot.sql
 ```
 
-```yaml
-repo: $res:u/admin/workspace_repo
-project: transform
-ref: main
-profile:
-  resource: $res:u/admin/warehouse
-  target: prod
+Import is therefore a copy, never a transformation:
+
+```
+cp -r my-dbt-project/. f/analytics/analytics__dbt/
+wmill sync push
 ```
 
-No extra mechanism: the deploy clones that repo like any other. Note the
-consequence of `ref` — a pinned ref means editing a model needs a push *and* a
-redeploy to move the pin, while `ref: latest` picks up each push on the next
-run.
+Locally, dbt runs against the bundle with `--project-dir analytics__dbt` (or a
+`cd`), which is what a monorepo holding several dbt projects already does, and
+what dbt Cloud exposes as its "project subdirectory" setting.
 
-Consequences: **Windmill does not version the models, the pinned commit does**,
-and model changes need a repo push plus a redeploy (pinned) or just the next run
-(`latest`), never a script edit.
+**Why a module bundle rather than one script per model.** Models as scripts was
+considered and rejected on three counts. A Windmill path admits no dots, and the
+CLI rejects bare `.sql` as ambiguous (`.pg.sql`, `.duckdb.sql`, … are the
+convention), so a model could only be typed by its location inside the project,
+which breaks the rule that extension determines language. dbt resolves `ref()`
+project-wide and cannot run a model alone, so each model job would reassemble
+and reparse the whole project anyway. And `schema.yml` describes many models at
+once, so splitting models into objects while their tests and docs stay in shared
+YAML puts a model's contract in a different object. The bundle keeps the project
+whole, and per-model execution is offered as an action on the graph node
+(`--select <model>+`) rather than as a separate object.
+
+What that costs, stated plainly: a model has no permissions or version history of
+its own. The unit of both is the project.
+
+### Consequences
+
+**The version is the script version.** Deploying the script deploys the project
+atomically; rollback is redeploying a previous version. The lockfile keeps the
+resolved engine and adapter versions and the manifest digest.
+
+**Windmill holds the files, so the graph can show them.** A model's compiled SQL
+is readable from its node in the asset graph. Editing stays local: dbt
+development is a CLI-and-editor loop (`dbt run --select`, `dbt test`, a local
+warehouse), and a browser textarea over one file of a project is a worse version
+of it. Windmill is the runner and the viewer.
+
+**Two scripts against one project means two copies.** Splitting a project across
+scripts, so an upstream selection and a downstream one compose, assumed a shared
+repository. With bundles they would duplicate the project and drift. Prefer one
+script per project with per-run `select`, and treat two scripts as two projects
+(decision 6).
+
+**Seeds are the only thing that can bloat a version.** Measured on real dbt code,
+`.sql` files run about 500 bytes median and 1.9 KB at p90, so even a 5000-model
+project is a few MB before compression. A single committed CSV can exceed all of
+it, so the size guard names `seeds/` specifically rather than counting models.
 
 ## The script artifact
 
@@ -271,9 +302,6 @@ New `ScriptLang::Dbt`. Content is a YAML descriptor whose field names track dbt'
 and Cosmos's vocabulary so the mental model ports without translation:
 
 ```yaml
-repo: $res:u/rf/analytics_repo    # git_repository resource
-project: transform                # subdir containing dbt_project.yml
-ref: v2.3.0                       # tag/branch/commit, or `latest`
 engine: dbt-core-1x               # or dbt-core-2x | fusion
 profile:
   resource: $res:f/prod/snowflake # rendered into profiles.yml
@@ -292,7 +320,6 @@ threads: 8
 full_refresh: false
 env:                              # for the project's own `{{ env_var() }}`
   DBT_PASSWORD: $var:u/rf/wh_password
-git_ssh_identity: []              # variables holding private keys, for SSH remotes
 ```
 
 `env` values spelled `$var:<path>` are resolved to that Windmill variable, so a
@@ -302,18 +329,7 @@ own environment variables apply to the deploy-time parse as well as the run, so
 an `env_var()` feeding a schema, alias or `enabled` produces the same relation
 in the stored graph and in the build either way. Prefer the descriptor's `env`
 when the value belongs to the project rather than to one deployment of it: it is
-versioned with the descriptor, so a redeploy from git carries it. Private repos
-authenticate two ways: a token in the resource's URL, and `git_ssh_identity` for
-SSH remotes.
-
-**GitHub App resources are rejected, with that reason.** Decision 10 assumed the
-support was inherited from git-sync, and it is not: the only helper that mints an
-installation token (`get_github_app_token_internal`) authorizes by matching the
-job against the workspace's *configured git-sync scripts*, so it refuses a dbt
-job outright. Minting for an arbitrary runnable needs its own authorization path.
-Until that exists the descriptor fails with a message naming the two paths that
-do work — a stated limitation beats a clone failing on an auth error the user
-cannot connect to a cause.
+versioned with the descriptor, so a redeploy from git carries it.
 
 `select`/`exclude`/`selector` are passed **verbatim** to dbt. Do not reimplement
 the selector grammar; Cosmos's manifest path had to, and it is a recurring source
@@ -328,20 +344,19 @@ they are — an ad-hoc scope — and split the project into several scripts
 A `vars` override is the same: gating the graph refresh on it would leave that
 override's relations recorded for the next default run, which then builds the
 descriptor's and dispatches from the override's. What DOES refresh per run is a
-property of the descriptor — a dynamic `ref`, a `{{ }}` placeholder in `vars`,
-or a `$var:` value in `env` — because those are dynamic on every run, not just
-the one that passed an argument.
+property of the descriptor — a `{{ }}` placeholder in `vars` or a `$var:` value
+in `env` — because those are dynamic on every run, not just the one that passed
+an argument.
 
-`vars` and `ref` interpolate from job args with `interpolate_template`
-(`common.rs`, shared with the Ansible executor, which is how Ansible already
-parameterizes commits). The syntax is `{{ arg_name }}`.
+`vars` interpolates from job args with `interpolate_template` (`common.rs`,
+shared with the Ansible executor). The syntax is `{{ arg_name }}`.
 
 `select`/`exclude` also scope **what the script owns in the graph**, resolved by
 asking dbt (`dbt ls --output json`) rather than by interpreting the selector
 string. Without that a narrowly-selected script registers as the producer of
 every model in the project and its cascade fires downstream of models it never
-builds. Running several scripts against one repo with different selections
-(decision 6) only composes because of this.
+builds. Running several scripts with different selections
+only composes because of this.
 
 ## Deploy path
 
@@ -350,17 +365,14 @@ arm at :2758), producing:
 
 ```rust
 struct DbtDependencyLocks {
-    repo_url: String,
-    commit: String,          // full hash; empty when ref == latest
     manifest_digest: String,
     engine: String,
     engine_version: String,
 }
 ```
 
-Steps: resolve commit (`get_git_repo_full_head_commit_hash`), shallow clone
-(`clone_repo_without_history`, `ansible_executor.rs:474`), `dbt deps`, `dbt parse`
-for `target/manifest.json`, then ingest.
+Steps: write the script's modules into the job directory, `dbt deps`, `dbt parse`
+for the manifest, then ingest.
 
 Ingestion writes the rows the native parser writes, via
 `replace_static_asset_usage` (`windmill-common/src/assets.rs:254`) into
@@ -369,8 +381,8 @@ The language dispatch point is `parse_assets_for_lang`
 (`windmill-api-scripts/src/asset_inference.rs:33`).
 
 **The one architectural wrinkle.** Every other language's asset parsing there is a
-pure function of script content. dbt's needs a clone and a dbt invocation, so it
-cannot run inline: it runs as a deploy-time job, persists the manifest, and
+pure function of script content. dbt's needs the bundle on disk and a dbt
+invocation, so it cannot run inline: it runs as a deploy-time job, persists the manifest, and
 `parse_assets_for_lang` reads the persisted result. **Prototype this first**, it
 is the assumption most likely to reshape the phasing.
 
@@ -382,7 +394,7 @@ after per-model Airflow tasks proved roughly 6x slower (about 5.5 minutes for on
 google/fhir-dbt-analytics). dbt's own threading provides parallelism; Windmill
 provides observability.
 
-1. Clone at the pinned commit (cached, commits are immutable), restore
+1. Materialise the script's modules into the job directory, restore
    `dbt_packages/` from cache.
 2. Render `profiles.yml` from the resource, or use the project's own file with
    Windmill secrets injected as env vars for `{{ env_var() }}`.
@@ -414,7 +426,7 @@ provides observability.
 **Decision 13 — no S3 copy of the manifest.** The sidecar holds every field the
 graph renders; nothing reads a stored `manifest.json`, so writing one to S3
 would be an unread copy of data that is already reproducible by redeploying (or,
-for a dynamic ref, by the next run). Worth adding the day something needs the
+for a dynamic descriptor, by the next run). Worth adding the day something needs the
 parts the sidecar drops — compiled SQL, macro definitions — and not before.
 
 **Decision 14 — column lineage is not available.** The decision assumed
@@ -437,7 +449,7 @@ a SQL-AST pass of our own, so `columnLineageGraph.ts` is not wired up for dbt.
 | model `tags` | node badge | `tag` |
 | source freshness | `freshness` | `last_success_at` chip |
 | `run_results.json` | materialization records | `record_materialization` |
-| `dbt_packages/` | worker-local cache | keyed by `packages.yml` digest |
+| `dbt_packages/` | worker-local cache | keyed by `packages.yml` and the project digest |
 
 ## Phases
 
@@ -445,22 +457,20 @@ a SQL-AST pass of our own, so `columnLineageGraph.ts` is not wired up for dbt.
 one-liners in `EditorBar.svelte`, `scripts.ts`, `script_helpers.ts`,
 `LanguageIcon.svelte`, `script_common.ts`). Engine provisioning for all three
 options in `Dockerfile` and `docker/DockerfileFull*` (bundle 1x and 2x, fetch
-Fusion at runtime). Extract `clone_repo`, `clone_repo_without_history`,
-`get_git_repo_full_head_commit_hash` from `ansible_executor.rs` into a shared
-`git_clone.rs`; they are ansible-agnostic already. New
-`backend/windmill-worker/src/dbt_executor.rs`: descriptor parse, clone,
-`profiles.yml` render, `dbt build`, log passthrough, structured result, retry.
+Fusion at runtime). New `backend/windmill-worker/src/dbt_executor.rs`: descriptor
+parse, bundle materialisation, `profiles.yml` render, `dbt build`, log
+passthrough, structured result, retry.
 
 **Phase 2: graph.** `DbtDependencyLocks` and the deploy arm. Migration via
 `cargo sqlx migrate add -r dbt_manifest_sidecar`. New `table://` `AssetKind` with
-its `canonical_prefix`. Manifest ingest. Both ref strategies with their refresh
-behavior. Extend `AssetGraphRunnableNode`/`AssetGraphAssetNode` in
+its `canonical_prefix`. Manifest ingest. Deploy-time ingest plus the per-run
+re-ingest for dynamic descriptors. Extend `AssetGraphRunnableNode`/`AssetGraphAssetNode` in
 `frontend/src/lib/components/assets/AssetGraph/types.ts` with dbt provenance and
 render through the existing `RunnableNode.svelte` / `AssetNode.svelte` /
 `DataTestNode.svelte`.
 
 **Phase 3: live progress and ergonomics.** JSON event stream to per-model status
-on the canvas mid-run. `record_materialization` per model. Repo/profile/select
+on the canvas mid-run. `record_materialization` per model. Profile and select
 pickers in the editor. Per-model failure triage in the run view.
 
 **Phase 4 (not in this PR).** `--defer` and `state:modified`. Partition and
@@ -485,13 +495,13 @@ Against a real dbt project (jaffle_shop shape) and the local Postgres:
    pipeline script declaring a read on it.
 7. **Selection**: descriptor `select`/`exclude`, and a run-arg override, each
    build only the expected subset.
-8. **Ref strategies**: pinned runs the locked commit after the branch advances;
-   `latest` picks up the new commit and refreshes the graph from the run's own
-   manifest.
+8. **Dynamic descriptors**: a `{{ }}` placeholder in `vars` re-ingests the graph
+   from the run's own manifest, so a model that placeholder enables appears in
+   the same run that builds it.
 9. **Both credential paths**: resource-rendered `profiles.yml`, and the project's
    own `profiles.yml` with env-var injection.
-10. **Caching**: a second run reuses the cached clone and `dbt_packages/` with no
-    network fetch.
+10. **Caching**: a second run reuses the cached `dbt_packages/` with no network
+    fetch.
 
 Keep only tests that pin behavior a future change could break. Per AGENTS.md,
 delete development scaffolding before marking the PR ready.

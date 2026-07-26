@@ -503,28 +503,98 @@ export function isFlowFolderMetadataFile(p: string): boolean {
  * to avoid confusion with file extensions.
  */
 const MODULE_SUFFIX = "__mod";
+/** dbt scripts carry a whole dbt project, not helper code. The folder says so,
+ *  and it is what a dbt developer points `--project-dir` at. */
+const DBT_MODULE_SUFFIX = "__dbt";
+const MODULE_SUFFIXES = [MODULE_SUFFIX, DBT_MODULE_SUFFIX];
 
 /**
- * Get the module folder suffix (always "__mod")
+ * Module folder suffix for a script: `__dbt` for a dbt project, `__mod`
+ * otherwise.
  */
-export function getModuleFolderSuffix(): string {
-  return MODULE_SUFFIX;
+export function getModuleFolderSuffix(language?: string): string {
+  return language === "dbt" ? DBT_MODULE_SUFFIX : MODULE_SUFFIX;
 }
 
 /**
  * Check if a path is inside a script module folder.
- * Matches patterns like: .../my_script__mod/...
+ * Matches patterns like: .../my_script__mod/... or .../my_project__dbt/...
  */
 export function isScriptModulePath(p: string): boolean {
-  return normalizeSep(p).includes(MODULE_SUFFIX + "/");
+  const n = normalizeSep(p);
+  return MODULE_SUFFIXES.some((suffix) => n.includes(suffix + "/"));
+}
+
+/** Whether a path is inside a dbt project's module folder specifically: those
+ *  files are taken verbatim, with no language inference. */
+export function isDbtModulePath(p: string): boolean {
+  return normalizeSep(p).includes(DBT_MODULE_SUFFIX + "/");
+}
+
+/** dbt writes these; a project authors them nowhere. Importing a stale
+ *  `target/` would ship a manifest this runtime then reads as the graph, and
+ *  `dbt_packages/` is a vendored copy the worker restores from its own cache. */
+const DBT_GENERATED_DIRS = ["target", "dbt_packages", "logs", ".git", ".venv", "__pycache__"];
+
+const dbtGeneratedDirsCache = new Map<string, Set<string>>();
+
+/**
+ * Top-level directories to leave out of a dbt project's module bundle.
+ *
+ * `target-path`, `packages-install-path` and `clean-targets` are configurable,
+ * so they are read from the project rather than assumed. Cached per project
+ * folder: this is called once per file of a sync.
+ */
+export function dbtGeneratedDirs(moduleFolderPath: string): Set<string> {
+  const cached = dbtGeneratedDirsCache.get(moduleFolderPath);
+  if (cached) return cached;
+  const dirs = new Set<string>(DBT_GENERATED_DIRS);
+  try {
+    const projectYml = fs.readFileSync(
+      path.join(moduleFolderPath, "dbt_project.yml"),
+      "utf-8",
+    );
+    for (const m of projectYml.matchAll(
+      /^\s*(?:target-path|packages-install-path)\s*:\s*["']?([^"'\n#]+)/gm,
+    )) {
+      dirs.add(m[1].trim().replace(/^\.\//, ""));
+    }
+    const clean = projectYml.match(/^\s*clean-targets\s*:\s*\[([^\]]*)\]/m);
+    if (clean) {
+      for (const t of clean[1].split(",")) {
+        const v = t.trim().replace(/^["']|["']$/g, "").replace(/^\.\//, "");
+        if (v) dirs.add(v);
+      }
+    }
+  } catch {
+    // No dbt_project.yml yet (a descriptor pushed before its project): the
+    // defaults still apply.
+  }
+  dbtGeneratedDirsCache.set(moduleFolderPath, dirs);
+  return dirs;
+}
+
+/**
+ * Whether a path under a `__dbt/` folder is one dbt generated rather than one
+ * the project authors. Those never belong to the bundle, so sync must not offer
+ * them as items of their own either.
+ */
+export function isDbtGeneratedPath(p: string): boolean {
+  const n = normalizeSep(p);
+  const suffix = DBT_MODULE_SUFFIX + "/";
+  const idx = n.indexOf(suffix);
+  if (idx === -1) return false;
+  const rel = n.slice(idx + suffix.length);
+  const top = rel.split("/")[0];
+  return dbtGeneratedDirs(n.slice(0, idx + suffix.length - 1)).has(top);
 }
 
 /**
  * Build the module folder path from a script's base path (without extension).
- * e.g., "f/my_script" -> "f/my_script__mod"
+ * e.g., "f/my_script" -> "f/my_script__mod", or "__dbt" for a dbt project.
  */
-export function buildModuleFolderPath(scriptBasePath: string): string {
-  return scriptBasePath + MODULE_SUFFIX;
+export function buildModuleFolderPath(scriptBasePath: string, language?: string): string {
+  return scriptBasePath + getModuleFolderSuffix(language);
 }
 
 /**
