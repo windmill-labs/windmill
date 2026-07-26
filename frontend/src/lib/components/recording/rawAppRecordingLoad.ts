@@ -27,17 +27,10 @@ import {
  * origin can't exhaust the tab before validation runs. */
 export const MAX_RECORDING_BYTES = 100 * 1024 * 1024
 
-/**
- * Total structure in the whole recording — the last line, applied before any
- * per-kind validator runs.
- *
- * The per-value budgets below are precise, but each only covers a field it names, so
- * a field added later is unbounded until someone remembers to name it. This one needs
- * no field: with `MAX_RECORDING_BYTES` bounding the bytes and this bounding the
- * structure inside them, no part of a recording can be unboundedly large regardless
- * of what it renders as. Far above any real capture (a recorded two-step flow is
- * ~19k nodes) and far below what a tab survives rendering.
- */
+/** Total structure in the whole recording, applied before any per-kind validator.
+ * The per-value budgets below each cover only a field they name, so a field added
+ * later is unbounded until someone names it; this one needs no field, which is what
+ * makes the set closed. Far above any real capture, far below what a tab survives. */
 export const MAX_RECORDING_NODES = 2_000_000
 /* Caps on the job-stream recordings (flow/script/pipeline). Each recorded job
  * mounts a JobLoader and each of its events costs a `setTimeout` created up front,
@@ -49,15 +42,10 @@ export const MAX_RECORDED_JOBS = 2000
  * the order of thousands) and survivable when they all land together. */
 export const MAX_EVENTS_PER_JOB = 5000
 export const MAX_RECORDED_JOB_EVENTS = 20_000
-/**
- * The backstop: how much structure any single recorded value may expand into. One
- * value is what a component renders eagerly (a job state, a flow definition, an
- * asset sample); the *number* of values is bounded by the counts above.
- *
- * This is deliberately generous, because it is not the precise bound — it exists to
- * catch the keys nobody has named yet. Anything that mounts a *component* per entry
- * is far more expensive than a node and gets {@link MAX_COMPONENT_FANOUT} on top.
- */
+/** The backstop: structure one recorded value may expand into, where a value is
+ * what a component renders eagerly. Deliberately generous — it is not the precise
+ * bound but the one that catches keys nobody has named; anything mounting a
+ * component per entry costs far more and gets {@link MAX_COMPONENT_FANOUT} on top. */
 export const MAX_VALUE_NODES = 100_000
 /** Total characters of text in one value. Strings are one node however long they
  * are, so this is the part of "how big is this value" the node count structurally
@@ -68,32 +56,20 @@ export const MAX_VALUE_STRING_CHARS = 8 * 1024 * 1024
  * the stack long before the node count matters. Well above real data (recursive
  * results nest tens deep) and well below what overflows a JS stack. */
 export const MAX_VALUE_DEPTH = 256
-/**
- * Entries in a collection whose renderer mounts a *component* each, rather than a
- * cell or a row: `render_all` (a nested `DisplayResult` per entry, recursively) and
- * `data_tests` (a checklist item per entry, and it renders ahead of every size
- * fallback `DisplayResult` has). Two orders of magnitude below the node budget
- * because that is roughly the cost ratio. Counted through the serialized form too —
- * these arrive as JSON strings often enough that the renderer parses them itself,
- * and a string is one node no matter what it decodes to.
- */
+/** Entries whose renderer mounts a *component* each rather than a cell or a row —
+ * `render_all`, `data_tests`, and a flow's graph overlays. Two orders of magnitude
+ * below the node budget, because that is roughly the cost ratio. Counted through the
+ * serialized form too: a JSON string is one node whatever it decodes to. */
 export const MAX_COMPONENT_FANOUT = 1000
 /** How much serialized text a fan-out collection may be before validation stops
  * measuring it and just refuses. A real checklist is a few KB; anything near the text
  * budget would cost hundreds of MB to decode, and decoding it to find out how big it
  * is would be the denial of service. */
 export const MAX_SERIALIZED_FANOUT_CHARS = 256 * 1024
-/** Entries in one flat map that a renderer turns into a row each. Generous against
- * reality (a script takes a handful of arguments) and far below what stalls a tab.
- *
- * Together with {@link MAX_COMPONENT_FANOUT} this is a list of keys, which is
- * inherently incomplete: how much a collection costs to render depends on the
- * component that renders it, so no key-agnostic rule separates 50k `render_all`
- * entries (fatal, a component each) from 25k rows of a table result (fine, one
- * table). {@link MAX_RECORDING_NODES} is what covers the keys this list is missing,
- * at a coarser bound. When a new renderer iterates a recorded collection, add its key
- * here — the backstop alone will not keep the tab responsive.
- */
+/** Entries in one flat map a renderer turns into a row each. This and
+ * {@link MAX_COMPONENT_FANOUT} are lists of keys, so they are inherently incomplete:
+ * cost depends on the renderer, not the shape. Add the key of any new renderer that
+ * iterates a recorded collection — {@link MAX_RECORDING_NODES} alone is too coarse. */
 export const MAX_MAP_ROWS = 2000
 /** `PipelineRecordingReplay.startReplay` schedules every frame in one pass, so this
  * counts timers created at once — frames at `t: 0` all land in the same tick, and
@@ -191,12 +167,10 @@ const COMPONENT_FANOUT_KEYS = ['render_all', 'data_tests']
  * schemas nested in a flow are fine, one map of 90k keys is not. */
 const MAP_ROW_KEYS = ['args', 'properties']
 
-/** Entry count of a fan-out collection, decoding the serialized form the renderers
- * accept — a JSON string is one node however many components it expands into.
- *
- * Only decodes what is small enough to be a legitimate checklist: parsing megabytes
- * here would commit the same allocation this is meant to prevent, so anything larger
- * is reported as over-budget rather than measured. */
+/** Entry count of a fan-out collection, decoding the serialized form renderers
+ * accept — a JSON string is one node however many components it expands into. Only
+ * decodes what could be a legitimate checklist: parsing megabytes here would commit
+ * the very allocation this prevents, so anything larger is refused unmeasured. */
 function fanoutLength(v: unknown): number {
 	if (Array.isArray(v)) return v.length
 	if (typeof v === 'string') {
@@ -217,22 +191,10 @@ function fanoutLength(v: unknown): number {
 const rowCount = (v: unknown) =>
 	Array.isArray(v) ? v.length : isObject(v) ? Object.keys(v).length : 0
 
-/**
- * Walks one recorded value and reports why it is too big to render, or `undefined`.
- *
- * Three different bounds, because they catch three different things and none
- * subsumes the others:
- *  - **structure** (`MAX_VALUE_NODES`) is the backstop, and the only one that covers
- *    keys nobody has named. Widen this rather than adding a named cap;
- *  - **text** (`MAX_VALUE_STRING_CHARS`), because a string is one node however long,
- *    so structure cannot see a 60 MB inline script;
- *  - **component fan-out** (`MAX_COMPONENT_FANOUT`), because mounting a component per
- *    entry costs orders of magnitude more than a node, so a collection well inside
- *    the structural budget can still be fatal.
- *
- * Bails as soon as any bound is blown, so the walk can't itself be the denial of
- * service, and refuses past `MAX_VALUE_DEPTH` rather than overflowing this stack.
- */
+/** Why one recorded value is too big to render, or `undefined`. Three bounds
+ * because none subsumes the others: structure misses a 60MB string, text misses a
+ * collection that mounts a component per entry, and fan-out misses everything
+ * unnamed. Bails on the first blown bound so the walk is never itself the attack. */
 function describeValueOverflow(
 	v: unknown,
 	budget = { nodes: MAX_VALUE_NODES, chars: MAX_VALUE_STRING_CHARS, fanout: MAX_COMPONENT_FANOUT },
@@ -315,12 +277,10 @@ function countRecordingNodes(v: unknown, budget = { n: MAX_RECORDING_NODES + 1 }
  * sample); the *number* of such values is bounded separately. */
 const withinRenderBudget = (v: unknown) => describeValueOverflow(v) === undefined
 
-/** A RecordedJob whose events all carry an object `data`: JobLoader replays each
- * `event.data` in a `setTimeout`, whose throw a Svelte boundary can't catch, so a
- * malformed event has to be rejected at load. Each job state is also held to the
- * render budget, which covers everything hanging off it — `args` (a JobArgs row per
- * key), `result` (`render_all` fan-out, `data_tests` checklists), `flow_status`
- * (a component subtree per module) — at any depth. */
+/** JobLoader replays each `event.data` in a `setTimeout`, where a throw escapes
+ * every Svelte boundary, so a malformed event must be refused at load. Each job
+ * state is also held to the render budget, which covers everything hanging off it
+ * at any depth. */
 function isRecordedJob(j: unknown): j is RecordedJob {
 	return (
 		isObject(j) &&
@@ -476,7 +436,12 @@ export function isFlowRecording(data: unknown): data is FlowRecording {
 	if (!isObject(data.flow) || !withinRenderBudget(data.flow)) return false
 	const value = data.flow.value
 	if (value === undefined) return true
-	return isObject(value) && countFlowModules(value.modules, MAX_FLOW_MODULES) <= MAX_FLOW_MODULES
+	if (!isObject(value)) return false
+	// The graph mounts a node per note and per group alongside the modules, so they
+	// fan out like `render_all` does — the structural budget alone would admit tens
+	// of thousands of minimal entries and lock the tab before Play.
+	if (fanoutLength(value.notes) + fanoutLength(value.groups) > MAX_COMPONENT_FANOUT) return false
+	return countFlowModules(value.modules, MAX_FLOW_MODULES) <= MAX_FLOW_MODULES
 }
 
 /** A recording that passed validation, tagged with the player it needs. */

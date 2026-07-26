@@ -189,13 +189,18 @@ describe('parseRecording', () => {
 		// so a nested budget, not the top-level array's length.
 		const nested = Array.from({ length: 400 }, () => ({ render_all: wide(400) }))
 		expect(
-			rejected(flowJob({ id: 'j' }, { completed: true, job: { id: 'j', result: { render_all: nested } } }))
+			rejected(
+				flowJob({ id: 'j' }, { completed: true, job: { id: 'j', result: { render_all: nested } } })
+			)
 		).toBe(true)
 		// data_tests is a sibling key whose renderer also fans out per entry; nobody
 		// had to name it for the budget to cover it.
 		expect(
 			rejected(
-				flowJob({ id: 'j' }, { completed: true, job: { id: 'j', result: { data_tests: wide(overBudget) } } })
+				flowJob(
+					{ id: 'j' },
+					{ completed: true, job: { id: 'j', result: { data_tests: wide(overBudget) } } }
+				)
 			)
 		).toBe(true)
 		// Depth is its own hazard: a renderer recursing over this blows the stack long
@@ -287,9 +292,22 @@ describe('parseRecording', () => {
 				})
 			)
 		).toBe(true)
-		// Notes and groups are rendered overlays; same budget, no separate caps.
-		expect(rejected(flowWith({ modules: [], notes: wide(MAX_VALUE_NODES + 1) }))).toBe(true)
-		expect(rejected(flowWith({ modules: [], groups: wide(MAX_VALUE_NODES + 1) }))).toBe(true)
+		// Notes and groups each mount a graph node, so they are capped by component
+		// fan-out and not merely by structure: minimal entries are cheap enough that
+		// the node budget would admit tens of thousands of them.
+		expect(rejected(flowWith({ modules: [], notes: wide(MAX_COMPONENT_FANOUT + 1) }))).toBe(true)
+		expect(rejected(flowWith({ modules: [], groups: wide(MAX_COMPONENT_FANOUT + 1) }))).toBe(true)
+		// Split across both, since one graph draws them together.
+		expect(
+			rejected(
+				flowWith({
+					modules: [],
+					notes: wide(MAX_COMPONENT_FANOUT),
+					groups: wide(MAX_COMPONENT_FANOUT)
+				})
+			)
+		).toBe(true)
+		expect(kindOf(flowWith({ modules: [], notes: wide(10), groups: wide(10) }))).toBe('flow')
 		expect(kindOf(flowWith({ modules: modules(3) }))).toBe('flow')
 	})
 
@@ -333,7 +351,8 @@ describe('parseRecording', () => {
 		expect(rejected(flowJob({ big: 'x'.repeat(MAX_VALUE_STRING_CHARS + 1) }))).toBe(true)
 		// A flat map rendered one row per entry: cheap per node, so the node budget
 		// alone lets ~100k rows through.
-		const rows = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`a${i}`, 1]))
+		const rows = (n: number) =>
+			Object.fromEntries(Array.from({ length: n }, (_, i) => [`a${i}`, 1]))
 		expect(MAX_MAP_ROWS + 1).toBeLessThan(MAX_VALUE_NODES)
 		expect(rejected(flowJob({ args: rows(MAX_MAP_ROWS + 1) }))).toBe(true)
 		// `args` is only conventionally a map: an array gets a row per entry too.
@@ -349,7 +368,9 @@ describe('parseRecording', () => {
 		expect(
 			rejected(
 				flowJob({
-					data_tests: JSON.stringify([{ test: 't', violating: 1, pad: 'x'.repeat(MAX_SERIALIZED_FANOUT_CHARS) }])
+					data_tests: JSON.stringify([
+						{ test: 't', violating: 1, pad: 'x'.repeat(MAX_SERIALIZED_FANOUT_CHARS) }
+					])
 				})
 			)
 		).toBe(true)
@@ -482,9 +503,9 @@ describe('parseRecording', () => {
 		// silently uncounted — a backstop that gives up is not a backstop.
 		let buried: unknown = filler
 		for (let i = 0; i < MAX_VALUE_DEPTH + 2; i++) buried = { nest: buried }
-		expect(
-			rejected({ version: 1, flow_path: 'f', ...header, jobs: { j: job() }, buried })
-		).toBe(true)
+		expect(rejected({ version: 1, flow_path: 'f', ...header, jobs: { j: job() }, buried })).toBe(
+			true
+		)
 	})
 
 	it('bounds an errored asset sample, which still renders its own fields', () => {
@@ -508,7 +529,12 @@ describe('parseRecording', () => {
 			kindOf(
 				pipeline({
 					assetSamples: {
-						'ducklake:main/t': { kind: 'ducklake', path: 'main/t', uri: 'ducklake://main/t', error: 'table missing' }
+						'ducklake:main/t': {
+							kind: 'ducklake',
+							path: 'main/t',
+							uri: 'ducklake://main/t',
+							error: 'table missing'
+						}
 					}
 				})
 			)
@@ -535,7 +561,16 @@ describe('parseRecording', () => {
 				j: {
 					initial_job: { id: 'j' },
 					events: [
-						{ t: 0, data: { completed: true, job: { id: 'j', result: { render_all: Array.from({ length: MAX_COMPONENT_FANOUT + 1 }, () => 0) } } } }
+						{
+							t: 0,
+							data: {
+								completed: true,
+								job: {
+									id: 'j',
+									result: { render_all: Array.from({ length: MAX_COMPONENT_FANOUT + 1 }, () => 0) }
+								}
+							}
+						}
 					]
 				}
 			}

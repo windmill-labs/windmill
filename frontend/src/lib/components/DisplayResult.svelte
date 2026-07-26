@@ -84,20 +84,15 @@
 		| 'pdf'
 		| undefined
 	let resultKind: ResultKind = $state()
-	/** Kinds whose renderer leaves the page: the S3/ducklake previews read the
-	 * referenced file or table, and `approval` renders Resume/Cancel buttons that
-	 * `fetch` the URLs carried *in the result*. The latter is why this list matters
-	 * beyond cosmetics — a recording is caller-supplied, so on the public replay
-	 * page those buttons would let an arbitrary payload aim a credentialed request
-	 * at any origin. */
+	/** Kinds whose renderer leaves the page: S3/ducklake previews fetch the file or
+	 * table, and `approval` renders buttons that `fetch` URLs carried in the result.
+	 * A recording is caller-supplied, so on the public page those would aim a
+	 * credentialed request at an arbitrary origin. */
 	const REPLAY_INERT_KINDS: ResultKind[] = ['s3object', 's3object-list', 'materialized', 'approval']
-	/** Kinds that render caller-supplied markup, which can pull subresources: `<img>`
-	 * in a markdown result, and `html`/`svg` inserted with `{@html}` — DOMPurify stops
-	 * the scripting but keeps `<img src>` / SVG `<image href>`, which still fetch. Plus
-	 * `map`, whose tiles are requests by construction. The kinds NOT here render the
-	 * bytes carried in the result as a `data:` URI (png/jpeg/gif/pdf/file), so they
-	 * reach nothing. Only inert on the public page, where the recording comes from an
-	 * arbitrary origin and the page promises to issue no requests. */
+	/** Kinds whose markup pulls subresources: DOMPurify stops scripting but keeps
+	 * `<img src>` and SVG `<image href>`, and `map` tiles are requests by
+	 * construction. Kinds absent here carry their bytes as `data:` and reach nothing.
+	 * Inert only on the public page, which promises to issue no requests. */
 	const OFFLINE_INERT_KINDS: ResultKind[] = ['markdown', 'html', 'svg', 'map']
 	let length = $state(1)
 
@@ -366,11 +361,9 @@
 						keys.includes('filename') &&
 						keys.includes('autodownload')
 					) {
-						// Guarded here rather than through REPLAY_INERT_KINDS: this download is
-						// a side effect *inside* kind inference, so it has already happened by
-						// the time the caller could reclassify the result. A recording is
-						// caller-supplied, so replaying one must never write attacker-chosen
-						// bytes under an attacker-chosen filename into the viewer's downloads.
+						// Not via REPLAY_INERT_KINDS: this download is a side effect *inside* kind
+						// inference, already done by the time a caller could reclassify. Replaying
+						// must never write caller-chosen bytes into the viewer's downloads.
 						if (result.autodownload && !isReplaying()) {
 							const a = document.createElement('a')
 
@@ -632,13 +625,10 @@
 		)
 	})
 
-	// Per-test breakdown of a managed `// materialize` run, rendered as a
-	// checklist above the raw result. On success it rides the result
-	// (`data_tests: [{ test, violating }]`, a one-row array). On failure the job
-	// result is the error, whose message is the worker's breakdown text — parsed
-	// back into the same shape so the checklist shows on both outcomes. Both
-	// formats are produced by this repo's worker (see duckdb_executor.rs); the
-	// derivation is inert (undefined) for every other DisplayResult use.
+	// Per-test breakdown of a managed `// materialize` run. On success it rides the
+	// result as `data_tests`; on failure the job result is the error, whose message
+	// is the worker's breakdown text, parsed back into the same shape so the
+	// checklist shows either way. Inert for every other DisplayResult use.
 	let dataTests = $derived.by(() => {
 		// `DataTestsResult` renders an item per entry, and the message-derived branch
 		// below builds them from *lines of text*, so no bound on the result's structure
@@ -653,11 +643,9 @@
 		const MAX_SAMPLE_ROWS = 1000
 		const capped = <T,>(tests: T[]): T[] =>
 			tests.length > MAX_RENDERED ? tests.slice(0, MAX_RENDERED) : tests
-		// Both structured shapes carry `[{ test, violating, sample? }]`; the
-		// sample (bounded violating-row rows) may arrive as a JSON string (the
-		// worker keeps it string-typed through the summary row) and is optional
-		// by contract — anything malformed degrades to no sample, never to a
-		// dropped checklist.
+		// Both shapes carry `[{ test, violating, sample? }]`. The sample may arrive as
+		// a JSON string and is optional by contract, so anything malformed degrades to
+		// no sample — never to a dropped checklist.
 		const normalize = (
 			dt: any
 		): Array<{ test: string; violating: number; sample?: Record<string, any>[] }> | undefined => {
