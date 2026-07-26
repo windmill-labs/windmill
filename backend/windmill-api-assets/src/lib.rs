@@ -1171,7 +1171,22 @@ async fn asset_graph(
                   n.resource_type AS "resource_type!", n.name AS "name!", n.asset_path,
                   n.materialized, n.materialize_strategy, n.tags AS "tags!", n.description,
                   n.test_kind, n.test_column, n.test_args, n.severity, n.attached_node,
-                  n.columns, n.freshness, n.raw_code, n.original_file_path
+                  n.columns, n.freshness,
+                  -- The model's SQL is the project's source code, and this query
+                  -- deliberately reaches outside the requested folder so an
+                  -- in-scope consumer can explain the relation it reads. That is
+                  -- fine for the relation's shape, not for its body: `dbt_node`
+                  -- carries no RLS of its own, so the body is returned only when
+                  -- the caller can see the script that produced it. This runs in
+                  -- the authed transaction, so `script`'s RLS answers it.
+                  CASE WHEN EXISTS (
+                      SELECT 1 FROM script sc
+                       WHERE sc.workspace_id = n.workspace_id AND sc.path = n.script_path
+                  ) THEN n.raw_code END AS raw_code,
+                  CASE WHEN EXISTS (
+                      SELECT 1 FROM script sc
+                       WHERE sc.workspace_id = n.workspace_id AND sc.path = n.script_path
+                  ) THEN n.original_file_path END AS original_file_path
              FROM dbt_node n
             WHERE n.workspace_id = $1
               -- Joined on BOTH columns: a dbt `unique_id` is project-local, so

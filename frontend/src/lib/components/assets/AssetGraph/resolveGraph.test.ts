@@ -1081,3 +1081,40 @@ describe('dbtAssociations', () => {
 		expect(ownerByAsset.size).toBe(0)
 	})
 })
+
+describe('dbtAssociations with a producer and a consumer of one relation', () => {
+	const runnables = [
+		{ usage_kind: 'script', path: 'f/a/producer', dbt: { model_count: 1 } },
+		{ usage_kind: 'script', path: 'f/a/reader', dbt: { model_count: 1 } }
+	]
+	const write = {
+		runnable_kind: 'script',
+		runnable_path: 'f/a/producer',
+		asset_kind: 'table',
+		asset_path: 'wh/s/shared',
+		access_type: 'w'
+	}
+	const read = {
+		runnable_kind: 'script',
+		runnable_path: 'f/a/reader',
+		asset_kind: 'table',
+		asset_path: 'wh/s/shared',
+		access_type: 'r'
+	}
+
+	// Backend edge order is unspecified, so the badge must not depend on it.
+	it('always points at the project that builds the relation', () => {
+		for (const edges of [
+			[write, read],
+			[read, write]
+		]) {
+			const { ownerByAsset } = dbtAssociations(runnables, edges)
+			expect(ownerByAsset.get('asset:table:wh/s/shared')).toBe('script:f/a/producer')
+		}
+	})
+
+	it('falls back to a reader when nothing here produces the relation', () => {
+		const { ownerByAsset } = dbtAssociations(runnables, [read])
+		expect(ownerByAsset.get('asset:table:wh/s/shared')).toBe('script:f/a/reader')
+	})
+})

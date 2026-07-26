@@ -873,12 +873,20 @@ export function dbtAssociations(
 	)
 	const ownerByAsset = new Map<string, string>()
 	const writesByOwner = new Map<string, Set<string>>()
+	// One project can WRITE a relation while another declares it as a SOURCE.
+	// The badge must lead to the one that builds it, whatever order the edges
+	// arrive in — a reader only owns a relation nobody here produces.
+	const producedAssets = new Set<string>()
 	for (const e of edges) {
 		const runnableId = `${e.runnable_kind}:${e.runnable_path}`
 		if (!dbtRunnableIds.has(runnableId)) continue
 		const assetId = `asset:${e.asset_kind}:${e.asset_path}`
-		ownerByAsset.set(assetId, runnableId)
-		if (e.access_type === 'w' || e.access_type === 'rw') {
+		const writes = e.access_type === 'w' || e.access_type === 'rw'
+		if (writes || !producedAssets.has(assetId)) {
+			ownerByAsset.set(assetId, runnableId)
+		}
+		if (writes) {
+			producedAssets.add(assetId)
 			let set = writesByOwner.get(runnableId)
 			if (!set) writesByOwner.set(runnableId, (set = new Set()))
 			set.add(assetId)

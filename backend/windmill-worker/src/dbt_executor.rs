@@ -179,6 +179,7 @@ pub async fn handle_dbt_job(
         canceled_by,
         occupancy_metrics,
         deadline,
+        &envs,
     )
     .await?;
 
@@ -389,6 +390,8 @@ pub async fn dbt_dep(
         canceled_by,
         occupancy_metrics,
         deadline,
+        // A dependency job runs no invocation, so it carries none.
+        &HashMap::new(),
     )
     .await?;
 
@@ -666,6 +669,10 @@ pub async fn prepare_project(
     canceled_by: &mut Option<CanceledBy>,
     occupancy_metrics: &mut OccupancyMetrics,
     deadline: JobDeadline,
+    // The invocation's own environment (script-level `envs`). Needed here
+    // because under a sandbox it must travel in the jail profile rather than
+    // on the process that execs nsjail.
+    invocation_env: &HashMap<String, String>,
 ) -> error::Result<PreparedProject> {
     let repo_res = descriptor.repo.trim_start_matches("$res:").to_string();
     let repo_value: serde_json::Value = client
@@ -886,7 +893,18 @@ pub async fn prepare_project(
                 )
                 .replace("{PY_INSTALL_DIR}", &escape_textproto(&crate::PY_INSTALL_DIR))
                 .replace("{CLONE_NEWUSER}", &(!*crate::DISABLE_NUSER).to_string())
-                .replace("{ENVARS}", &jail_envars(&env))
+                // Both environments the child needs: the descriptor's and the
+                // invocation's. Neither may sit on the launcher.
+                .replace(
+                    "{ENVARS}",
+                    &jail_envars(
+                        env.iter()
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .chain(invocation_env.iter().map(|(k, v)| (k.clone(), v.clone())))
+                            .collect::<Vec<_>>()
+                            .as_slice(),
+                    ),
+                )
                 .replace("{SHARED_MOUNT}", "")
                 .replace(
                     "{TMP_MOUNT_BLOCK}",
@@ -1459,6 +1477,19 @@ const NSJAIL_CONFIG_RUN_DBT_CONTENT: &str = include_str!("../nsjail/run.dbt.conf
 /// reads and writes local files — so they are the project's code, not
 /// Windmill's, and the same isolation every other executor applies has to
 /// apply here.
+/// Apply the invocation's environment to a dbt command.
+///
+/// Under a sandbox this must NOT touch the launcher: `dbt_command` returns the
+/// process that execs nsjail, and these values come from caller-controlled
+/// script metadata — `LD_PRELOAD` naming a library from the checkout would be
+/// loaded by the dynamic linker as the worker, before isolation exists. The
+/// jail profile carries them to the child instead (see `sandbox_config`).
+fn with_invocation_env(cmd: &mut Command, p: &PreparedProject, inv: &Invocation) {
+    if p.sandbox_config.is_none() {
+        cmd.envs(&inv.envs);
+    }
+}
+
 pub fn dbt_command(p: &PreparedProject, args: &[&str]) -> Command {
     let mut cmd = match p.sandbox_config.as_deref() {
         Some(config) => {
@@ -1560,7 +1591,7 @@ async fn run_dbt(
     deadline: JobDeadline,
 ) -> error::Result<()> {
     let mut cmd = dbt_command(p, &[command]);
-    cmd.envs(&inv.envs);
+    with_invocation_env(&mut cmd, p, inv);
     // The console stays human-readable and goes straight to the job log; the
     // machine-readable copy goes to a file the progress reporter tails, so
     // neither purpose degrades the other.
@@ -2234,7 +2265,7 @@ async fn resolve_selection(
         return Ok(None);
     }
     let mut cmd = dbt_command(p, &["ls"]);
-    cmd.envs(&inv.envs);
+    with_invocation_env(&mut cmd, p, inv);
     // A project whose models call `var()` without a default fails to parse
     // without these, so the selection resolver needs them exactly as the run
     // does. Placeholders that only a run can fill are dropped rather than
@@ -2373,7 +2404,7 @@ async fn run_dbt_parse(
     conn: &Connection,
 ) -> error::Result<()> {
     let mut cmd = dbt_command(p, &["parse"]);
-    cmd.envs(&inv.envs);
+    with_invocation_env(&mut cmd, p, inv);
     add_vars(&mut cmd, descriptor, inv)?;
     run_prep_command(p, cmd, "dbt parse", ctx, job_id, w_id, conn).await
 }
