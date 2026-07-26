@@ -158,6 +158,18 @@ describe('serializeDocument redaction', () => {
 		}
 	})
 
+	it('keeps a utility class whose selector is escaped', () => {
+		// A framework writes `md:flex` as `.md\\:flex`; reading the selector up to the
+		// backslash would drop the real token and leave the placeholder unstyled.
+		const doc = docFrom(
+			`<style>.md\\:flex { display: flex } .w-1\\/2 { width: 50% }</style>` +
+				`<div data-wm-no-record class="md:flex w-1/2 not-styled-92000">x</div>`
+		)
+		const html = serializeDocument(doc)
+		expect(html).toContain('class="md:flex w-1/2"')
+		expect(html).not.toContain('not-styled-92000')
+	})
+
 	it('keeps a disabled sheet inert without shifting what follows it', () => {
 		// Neutralizing a disabled sheet must not remove its node: every later path
 		// resolution — other sheets, and the target stamp — is by sibling index.

@@ -138,6 +138,21 @@ export function redactedDescription(el: Element): string {
 	return `${role} (redacted)`
 }
 
+/** A selector's identifier, escapes included: a utility framework writes a class
+ * like `md:flex` as `.md\:flex` and `w-1/2` as `.w-1\/2`, so stopping at the
+ * backslash would read the token as `md` and drop the real one — costing a
+ * redacted placeholder the styling it is kept around for. */
+const CLASS_SELECTOR = /\.(-?[_a-zA-Z][\w-]*(?:\\.[\w-]*)*)/g
+const ID_SELECTOR = /#(-?[_a-zA-Z][\w-]*(?:\\.[\w-]*)*)/g
+
+/** CSS escapes back to the literal text an attribute holds: `\:` is `:`, and a
+ * hex escape (`\3a `) is its code point. */
+function unescapeCssIdent(ident: string): string {
+	return ident.replace(/\\([0-9a-fA-F]{1,6})[ \t\n]?|\\([^])/g, (_, hex, ch) =>
+		hex ? String.fromCodePoint(parseInt(hex, 16)) : ch
+	)
+}
+
 /** Class and id tokens the snapshot's own (already inlined) stylesheets select
  * on. `class` and `id` are kept on redacted elements so their box keeps its
  * shape, but their values are author-chosen free text and can carry the very
@@ -156,8 +171,8 @@ function styledTokens(clone: Element): { classes: Set<string>; ids: Set<string> 
 		// that class would launder the token the sheet was marked to withhold.
 		if (isRedacted(style)) continue
 		const css = style.textContent ?? ''
-		for (const m of css.matchAll(/\.(-?[_a-zA-Z][\w-]*)/g)) classes.add(m[1])
-		for (const m of css.matchAll(/#(-?[_a-zA-Z][\w-]*)/g)) ids.add(m[1])
+		for (const m of css.matchAll(CLASS_SELECTOR)) classes.add(unescapeCssIdent(m[1]))
+		for (const m of css.matchAll(ID_SELECTOR)) ids.add(unescapeCssIdent(m[1]))
 	}
 	return { classes, ids }
 }
