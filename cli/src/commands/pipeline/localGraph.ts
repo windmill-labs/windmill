@@ -618,6 +618,10 @@ export async function buildLocalPipelineGraph(args: {
       });
       continue;
     }
+    // A dbt script is a pipeline member by construction — the deploy marks
+    // every one `auto_kind='pipeline'` — so it needs no `# pipeline` header,
+    // and the local graph must not drop it where the deployed one shows it.
+    if (s.language === "dbt") out.in_pipeline = true;
     if (!out.in_pipeline) continue; // not a pipeline member
     if (out.data_tests && out.data_tests.length > 0) {
       dataTestsByPath.set(s.path, out.data_tests);

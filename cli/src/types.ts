@@ -388,7 +388,11 @@ export function getTypeStrFromPath(
     parsed.ext == ".rb" ||
     parsed.ext == ".r" ||
     // for related places search: ADD_NEW_LANG
-    (parsed.ext == ".yml" && parsed.name.split(".").pop() == "playbook")
+    (parsed.ext == ".yml" && parsed.name.split(".").pop() == "playbook") ||
+    // A dbt descriptor is `<name>.dbt.yaml`. Without this it reads as one of
+    // the CLI's own `.yaml` metadata files and a pull writes the script's
+    // metadata and lock but never its content.
+    (parsed.ext == ".yaml" && parsed.name.split(".").pop() == "dbt")
   ) {
     return "script";
   }

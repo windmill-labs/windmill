@@ -360,6 +360,8 @@ lazy_static::lazy_static! {
         std::env::var("NSJAIL_PY_RLIMIT_AS_MB").ok();
     pub static ref NSJAIL_ANSIBLE_RLIMIT_AS_MB: Option<String> =
         std::env::var("NSJAIL_ANSIBLE_RLIMIT_AS_MB").ok();
+    pub static ref NSJAIL_DBT_RLIMIT_AS_MB: Option<String> =
+        std::env::var("NSJAIL_DBT_RLIMIT_AS_MB").ok();
 
     // pub static ref DISABLE_NSJAIL: bool = false;
     pub static ref DISABLE_NSJAIL: bool = std::env::var("DISABLE_NSJAIL")

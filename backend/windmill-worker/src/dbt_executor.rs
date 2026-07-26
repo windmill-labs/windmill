@@ -38,7 +38,13 @@ use crate::git_clone::{
 use crate::handle_child::{
     get_mem_peak, handle_child, run_future_with_polling_update_job_poller, JobCtx, JobDeadline,
 };
-use crate::{GIT_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV};
+use crate::common::{
+    render_nsjail_rlimit_as, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block,
+};
+use crate::{
+    is_sandboxing_enabled, GIT_PATH, NSJAIL_DBT_RLIMIT_AS_MB, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    TZ_ENV,
+};
 
 /// The profile name Windmill renders into `profiles.yml`. dbt takes the profile
 /// to use from `dbt_project.yml`, so the rendered file must answer to whatever
@@ -205,10 +211,7 @@ pub async fn handle_dbt_job(
                 DBT_COMMANDS.join(", ")
             )))
         }
-        None => match descriptor.test_behavior {
-            DbtTestBehavior::Build => "build".to_string(),
-            DbtTestBehavior::AfterAll | DbtTestBehavior::None => "run".to_string(),
-        },
+        None => windmill_parser_yaml::default_dbt_command(&descriptor).to_string(),
     };
     // `dbt retry` resumes from the previous run's `run_results.json`, which is
     // what makes one-job-per-invocation defensible: a partial failure does not
@@ -280,7 +283,7 @@ pub async fn handle_dbt_job(
     // retried to success would otherwise return green having never tested.
     if run.is_ok()
         && matches!(descriptor.test_behavior, DbtTestBehavior::AfterAll)
-        && matches!(command.as_str(), "run" | "retry")
+        && matches!(command.as_str(), "build" | "run" | "retry")
     {
         run = run_dbt(
             &prepared,
@@ -415,7 +418,7 @@ pub async fn dbt_dep(
     .await?;
     let manifest = read_manifest(&prepared.project_dir).await?;
     let manifest_digest = digest(
-        &tokio::fs::read_to_string(prepared.project_dir.join("target/manifest.json"))
+        &tokio::fs::read_to_string(prepared.project_dir.join(ARTIFACTS_DIR).join("manifest.json"))
             .await
             .unwrap_or_default(),
     );
@@ -424,7 +427,10 @@ pub async fn dbt_dep(
     // dependency jobs — and the graph is keyed by path, not by version, so the
     // publication is claimed against this job's own version. It still returns
     // its lock, which belongs to that version.
-    let deploying_hash = deploying_script_hash(db, job_id).await;
+    let publisher = match deploying_script_hash(db, job_id).await {
+        Some(hash) => GraphPublisher::Version(hash),
+        None => GraphPublisher::Unversioned,
+    };
     let superseded = if let Some(resource_path) = prepared.resource_path.as_deref() {
         let ingested = windmill_common::dbt_manifest::ingest_manifest(
             &manifest,
@@ -439,7 +445,7 @@ pub async fn dbt_dep(
             &ingested,
             &DescriptorTriggers::parse(content),
             &prepared.relation_root(),
-            deploying_hash,
+            publisher,
         )
         .await?;
         if published {
@@ -465,7 +471,7 @@ pub async fn dbt_dep(
         // wiped by an older job that no longer describes the script.
         let mut tx = db.begin().await?;
         let published =
-            claim_graph_publication(&mut tx, w_id, script_path, deploying_hash).await?;
+            claim_graph_publication(&mut tx, w_id, script_path, publisher).await?;
         if published {
             windmill_common::dbt_manifest::clear_dbt_manifest(&mut tx, w_id, script_path).await?;
             windmill_common::assets::replace_static_asset_usage(&mut tx, w_id, script_path, &[])
@@ -566,6 +572,9 @@ pub struct PreparedProject {
     /// The descriptor's `env`, resolved, in a stable order. Feeds run identity;
     /// `env` itself is not usable there because it carries per-job values.
     pub descriptor_env: std::collections::BTreeMap<String, String>,
+    /// Written nsjail profile for this job, when the worker sandboxes jobs.
+    /// `None` means the phases run unsandboxed, exactly as before.
+    pub sandbox_config: Option<PathBuf>,
     /// One-way digest of the rendered profile — the resolved connection, not
     /// just the names it exposes. A resource repointed from one warehouse to
     /// another that happens to use the same database and schema names is
@@ -852,7 +861,40 @@ pub async fn prepare_project(
     // pinning it inside the job dir keeps a job from touching a shared $HOME.
     env.push(("HOME".to_string(), job_dir.to_string()));
 
+    // The engines are provisioned per (version, adapter) under one cache root,
+    // and mounting that root rather than the resolved engine directory keeps
+    // the profile identical for every job on this worker.
+    let sandbox_config = if is_sandboxing_enabled() {
+        let nsjail_timeout =
+            resolve_nsjail_timeout(conn, w_id, *job_id, deadline.remaining_secs()).await;
+        write_file(
+            job_dir,
+            "dbt.nsjail.config.proto",
+            &NSJAIL_CONFIG_RUN_DBT_CONTENT
+                .replace(
+                    "{RLIMIT_AS}",
+                    &render_nsjail_rlimit_as(NSJAIL_DBT_RLIMIT_AS_MB.as_deref(), 4096),
+                )
+                .replace("{JOB_DIR}", job_dir)
+                .replace("{PROJECT_DIR}", &project_dir.to_string_lossy())
+                .replace("{ENGINE_DIR}", &crate::dbt_engine::DBT_CACHE_DIR)
+                .replace("{PY_INSTALL_DIR}", &crate::PY_INSTALL_DIR)
+                .replace("{CLONE_NEWUSER}", &(!*crate::DISABLE_NUSER).to_string())
+                .replace("{SHARED_MOUNT}", "")
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                )
+                .replace("{TIMEOUT}", &nsjail_timeout),
+        )
+        .ok()
+        .map(|_| PathBuf::from(job_dir).join("dbt.nsjail.config.proto"))
+    } else {
+        None
+    };
+
     let mut prepared = PreparedProject {
+        sandbox_config,
         profile_digest,
         project_dir,
         profiles_dir,
@@ -1399,8 +1441,30 @@ async fn project_profile_name(project_dir: &Path) -> String {
         .unwrap_or_else(|| FALLBACK_PROFILE_NAME.to_string())
 }
 
+/// The nsjail profile a sandboxed dbt phase runs under.
+const NSJAIL_CONFIG_RUN_DBT_CONTENT: &str = include_str!("../nsjail/run.dbt.config.proto");
+
+/// Build the command for a dbt phase, inside the job's sandbox when the worker
+/// has one configured.
+///
+/// Every phase is project-controlled — `dbt deps` fetches packages the project
+/// names, `parse` and `build` render project macros, and a DuckDB profile
+/// reads and writes local files — so they are the project's code, not
+/// Windmill's, and the same isolation every other executor applies has to
+/// apply here.
 pub fn dbt_command(p: &PreparedProject, args: &[&str]) -> Command {
-    let mut cmd = Command::new(&p.engine.bin);
+    let mut cmd = match p.sandbox_config.as_deref() {
+        Some(config) => {
+            let mut nsjail = Command::new(NSJAIL_PATH.as_str());
+            nsjail
+                .arg("--config")
+                .arg(config)
+                .arg("--")
+                .arg(&p.engine.bin);
+            nsjail
+        }
+        None => Command::new(&p.engine.bin),
+    };
     // The rendered profile is written with this target as its only output, but
     // a project-owned `profiles.yml` has its own default — silently building
     // `dev` when the descriptor asked for `prod` writes to the wrong warehouse.
@@ -1416,9 +1480,21 @@ pub fn dbt_command(p: &PreparedProject, args: &[&str]) -> Command {
         .envs(p.env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
         .args(args)
         .arg("--profiles-dir")
-        .arg(&p.profiles_dir);
+        .arg(&p.profiles_dir)
+        // Where `manifest.json` and `run_results.json` land. A project may set
+        // `target-path` in `dbt_project.yml`, and every artifact this runtime
+        // reads — the graph, the per-node results, the retry state — is found
+        // by path, so the location is Windmill's to decide. As an env var
+        // rather than `--target-path`, which `dbt deps` rejects outright.
+        .env("DBT_TARGET_PATH", ARTIFACTS_DIR);
     cmd
 }
+
+/// Fixed artifact directory, relative to the project root: `dbt_project.yml`
+/// may point `target-path` anywhere, and this runtime reads every artifact by
+/// path. Relative rather than absolute so it stays inside whatever sandbox the
+/// project runs in.
+pub const ARTIFACTS_DIR: &str = "wm_target";
 
 #[allow(clippy::too_many_arguments)]
 async fn run_dbt(
@@ -1447,7 +1523,14 @@ async fn run_dbt(
         .args(["--log-level-file", p.engine.engine.progress_log_level()]);
 
     if with_selection && command != "retry" {
-        add_selection(&mut cmd, descriptor, inv);
+        add_selection(&mut cmd, descriptor, inv)?;
+    }
+    // The model phase of `after_all` — and every phase of `none` — builds
+    // everything the selection names EXCEPT tests. `dbt run` would be the
+    // obvious command but covers models only, silently skipping seeds and
+    // snapshots the descriptor selected.
+    if command == "build" && !matches!(descriptor.test_behavior, DbtTestBehavior::Build) {
+        cmd.args(["--exclude-resource-type", "test", "--exclude-resource-type", "unit_test"]);
     }
     if command != "retry" {
         add_vars(&mut cmd, descriptor, inv)?;
@@ -1767,7 +1850,7 @@ fn split_relation(rel: &str) -> Vec<String> {
 }
 
 async fn read_run_results(project_dir: &Path) -> Vec<DbtNodeResult> {
-    let Ok(content) = tokio::fs::read_to_string(project_dir.join("target/run_results.json")).await
+    let Ok(content) = tokio::fs::read_to_string(project_dir.join(ARTIFACTS_DIR).join("run_results.json")).await
     else {
         return vec![];
     };
@@ -1874,9 +1957,6 @@ async fn ingest_from_run(
         p.default_database.as_deref(),
         selected.as_ref(),
     );
-    // A run refreshes the graph of the version it IS, so it always publishes:
-    // it was pulled for the hash it runs, and a newer deploy's own dependency
-    // job publishes after it.
     persist_ingest(
         db,
         &job.workspace_id,
@@ -1884,7 +1964,9 @@ async fn ingest_from_run(
         &ingested,
         &DescriptorTriggers::parse(&p.descriptor_content),
         &p.relation_root(),
-        None,
+        job.runnable_id
+            .map(|h| GraphPublisher::Version(h.0))
+            .unwrap_or(GraphPublisher::Unversioned),
     )
     .await?;
     // Synchronously, not through the notify poller: dispatch for THIS job runs
@@ -1954,6 +2036,21 @@ impl DescriptorTriggers {
 /// dependency job produces afterwards. Without them a project split across
 /// scripts renders its upstream read edges and never actually cascades along
 /// them, which is decision 6's whole point.
+/// Who is publishing a graph, which decides whether it may.
+#[derive(Clone, Copy)]
+enum GraphPublisher {
+    /// The script version this job belongs to, whether it is deploying that
+    /// version or running it. Publishes while the version is still the newest
+    /// for the path: a slow deploy — or a long run — of an older version
+    /// finishing later would otherwise describe code no longer deployed.
+    Version(i64),
+    /// No version behind the job: a preview, or a raw dependency job whose
+    /// `script_path` is chosen by a caller who needs only `jobs:run`. Never
+    /// publishes, so a run-only principal cannot rewrite another script's
+    /// graph.
+    Unversioned,
+}
+
 /// Replace this script's graph, unless a newer version of it has been deployed.
 ///
 /// Returns whether it published. The check runs inside the same transaction as
@@ -1967,13 +2064,11 @@ async fn persist_ingest(
     ingested: &windmill_common::dbt_manifest::IngestedManifest,
     annotations: &DescriptorTriggers,
     relation_root: &str,
-    // The version being deployed. `None` for a raw dependency job (the CLI's
-    // lock generation), which has no script row to compare against.
-    deploying_hash: Option<i64>,
+    publisher: GraphPublisher,
 ) -> error::Result<bool> {
     use windmill_common::assets::{AssetUsageKind, ScriptTriggerKind};
     let mut tx = db.begin().await?;
-    if !claim_graph_publication(&mut tx, w_id, script_path, deploying_hash).await? {
+    if !claim_graph_publication(&mut tx, w_id, script_path, publisher).await? {
         return Ok(false);
     }
     windmill_common::dbt_manifest::replace_dbt_manifest(
@@ -2045,17 +2140,18 @@ async fn claim_graph_publication(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     w_id: &str,
     script_path: &str,
-    deploying_hash: Option<i64>,
+    publisher: GraphPublisher,
 ) -> error::Result<bool> {
+    let mine = match publisher {
+        GraphPublisher::Unversioned => return Ok(false),
+        GraphPublisher::Version(hash) => hash,
+    };
     sqlx::query!(
         "SELECT pg_advisory_xact_lock(hashtext($1))",
         format!("dbt_graph:{w_id}:{script_path}")
     )
     .execute(&mut **tx)
     .await?;
-    let Some(mine) = deploying_hash else {
-        return Ok(true);
-    };
     // Not `get_latest_script_hash`: its `lock IS NOT NULL` predicate names the
     // PREVIOUS version while this one is being deployed, so every deploy would
     // look superseded.
@@ -2086,7 +2182,7 @@ async fn resolve_selection(
     w_id: &str,
     conn: &Connection,
 ) -> error::Result<Option<std::collections::HashSet<String>>> {
-    if !has_selection(descriptor, inv) {
+    if !has_selection(descriptor, inv)? {
         return Ok(None);
     }
     let mut cmd = dbt_command(p, &["ls"]);
@@ -2101,7 +2197,7 @@ async fn resolve_selection(
         cmd.args(["--resource-type", t]);
     }
     cmd.args(["--output", "json", "--quiet"]);
-    add_selection(&mut cmd, descriptor, inv);
+    add_selection(&mut cmd, descriptor, inv)?;
     // Captured directly rather than through `handle_child`: its `pipe_stdout`
     // path runs the output through the job-log writer, which `NO_LOGS_AT_ALL`
     // discards — the selection would then resolve to the empty set and the
@@ -2216,7 +2312,7 @@ async fn run_prep_command(
     .map(|_| ())
 }
 
-/// `dbt parse`, which writes `target/manifest.json` without touching the
+/// `dbt parse`, which writes the manifest without touching the
 /// warehouse. Both the deploy and a per-run graph refresh need the manifest
 /// before anything else happens.
 async fn run_dbt_parse(
@@ -2237,7 +2333,7 @@ async fn run_dbt_parse(
 pub async fn read_manifest(
     project_dir: &Path,
 ) -> error::Result<windmill_common::dbt_manifest::Manifest> {
-    let path = project_dir.join("target/manifest.json");
+    let path = project_dir.join(ARTIFACTS_DIR).join("manifest.json");
     let content = tokio::fs::read_to_string(&path)
         .await
         .map_err(|e| Error::internal_err(format!("dbt produced no manifest.json: {e}")))?;
@@ -2245,7 +2341,7 @@ pub async fn read_manifest(
         .map_err(|e| Error::internal_err(format!("could not parse manifest.json: {e}")))
 }
 
-/// `dbt retry` reads `target/run_results.json` from the previous invocation.
+/// `dbt retry` reads `run_results.json` from the previous invocation.
 /// Windmill gives each attempt a fresh job dir, so the state is kept in a
 /// worker-local cache keyed by the script — which is also its limitation: a
 /// retry that lands on a different worker finds nothing and says so, rather
@@ -2281,7 +2377,7 @@ async fn save_run_state(
         return Ok(());
     }
     for f in ["run_results.json", "manifest.json"] {
-        if tokio::fs::copy(p.project_dir.join("target").join(f), staging.join(f))
+        if tokio::fs::copy(p.project_dir.join(ARTIFACTS_DIR).join(f), staging.join(f))
             .await
             .is_err()
         {
@@ -2464,7 +2560,7 @@ async fn restore_run_state(
                 .to_string(),
         ));
     }
-    let target = p.project_dir.join("target");
+    let target = p.project_dir.join(ARTIFACTS_DIR);
     tokio::fs::create_dir_all(&target).await.ok();
     for f in ["run_results.json", "manifest.json"] {
         tokio::fs::copy(snapshot.join(f), target.join(f)).await.ok();
@@ -2583,35 +2679,65 @@ fn arg_bool(args: &HashMap<String, Box<RawValue>>, k: &str) -> Option<bool> {
 ///
 /// Selectors are dbt's grammar and are passed verbatim — reimplementing it is a
 /// standing source of divergence (docs/dbt-runtime.md).
-fn add_selection(cmd: &mut Command, descriptor: &DbtDescriptor, inv: &Invocation) {
-    for s in arg_list(&inv.args, "select").unwrap_or_else(|| descriptor.select.clone()) {
+fn add_selection(
+    cmd: &mut Command,
+    descriptor: &DbtDescriptor,
+    inv: &Invocation,
+) -> error::Result<()> {
+    for s in effective_select(descriptor, inv)? {
         cmd.args(["--select", &s]);
     }
-    for s in arg_list(&inv.args, "exclude").unwrap_or_else(|| descriptor.exclude.clone()) {
+    for s in effective_exclude(descriptor, inv)? {
         cmd.args(["--exclude", &s]);
     }
     if let Some(sel) = descriptor.selector.as_deref() {
         cmd.args(["--selector", sel]);
     }
+    Ok(())
+}
+
+fn effective_select(
+    descriptor: &DbtDescriptor,
+    inv: &Invocation,
+) -> error::Result<Vec<String>> {
+    Ok(arg_list(&inv.args, "select")?.unwrap_or_else(|| descriptor.select.clone()))
+}
+
+fn effective_exclude(
+    descriptor: &DbtDescriptor,
+    inv: &Invocation,
+) -> error::Result<Vec<String>> {
+    Ok(arg_list(&inv.args, "exclude")?.unwrap_or_else(|| descriptor.exclude.clone()))
 }
 
 /// Whether an invocation selects a subset at all. `[]` from a run clears the
 /// descriptor's selector, which puts the run back to the whole project.
-fn has_selection(descriptor: &DbtDescriptor, inv: &Invocation) -> bool {
-    !arg_list(&inv.args, "select")
-        .unwrap_or_else(|| descriptor.select.clone())
-        .is_empty()
-        || !arg_list(&inv.args, "exclude")
-            .unwrap_or_else(|| descriptor.exclude.clone())
-            .is_empty()
-        || descriptor.selector.is_some()
+fn has_selection(descriptor: &DbtDescriptor, inv: &Invocation) -> error::Result<bool> {
+    Ok(!effective_select(descriptor, inv)?.is_empty()
+        || !effective_exclude(descriptor, inv)?.is_empty()
+        || descriptor.selector.is_some())
 }
 
 /// An explicitly supplied list, including an empty one — passing `[]` is how a
 /// run clears a selector the descriptor sets, so it must not read as "absent"
 /// and fall back to the descriptor.
-fn arg_list(args: &HashMap<String, Box<RawValue>>, k: &str) -> Option<Vec<String>> {
-    serde_json::from_str::<Vec<String>>(args.get(k)?.get()).ok()
+///
+/// A malformed one is an error rather than an absence: argument-schema
+/// validation is opt-in, so treating `"stg_orders"` as unset would silently run
+/// the descriptor's broader selection instead of the one the caller asked for.
+fn arg_list(
+    args: &HashMap<String, Box<RawValue>>,
+    k: &str,
+) -> error::Result<Option<Vec<String>>> {
+    let Some(raw) = args.get(k) else {
+        return Ok(None);
+    };
+    if raw.get().trim() == "null" {
+        return Ok(None);
+    }
+    serde_json::from_str::<Vec<String>>(raw.get())
+        .map(Some)
+        .map_err(|e| Error::BadRequest(format!("`{k}` must be a list of strings: {e}")))
 }
 
 pub(crate) fn digest(s: &str) -> String {
@@ -2680,8 +2806,20 @@ mod tests {
             .collect(),
             ..Default::default()
         };
-        assert!(has_selection(&descriptor, &Invocation::default()));
-        assert!(!has_selection(&descriptor, &cleared));
+        assert!(has_selection(&descriptor, &Invocation::default()).unwrap());
+        assert!(!has_selection(&descriptor, &cleared).unwrap());
+        // A wrong-typed override is refused rather than read as absent, which
+        // would silently run the descriptor's broader selection.
+        let malformed = Invocation {
+            args: [(
+                "select".to_string(),
+                serde_json::value::RawValue::from_string("\"stg_orders\"".to_string()).unwrap(),
+            )]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        };
+        assert!(has_selection(&descriptor, &malformed).is_err());
     }
 
     // A retry runs in a new job directory, and a profile with a private CA

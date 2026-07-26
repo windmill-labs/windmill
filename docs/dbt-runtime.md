@@ -230,9 +230,36 @@ The Windmill script is a pointer plus run configuration.
 
 Storing the project in Windmill was rejected: scripts have no multi-file
 representation, so it means inventing one plus a migration path, for no user
-benefit. If a workspace's git-sync repo also holds the dbt project in a
-subdirectory, point the resource at that repo; same mechanism, no extra code.
-Document that as a recommended layout.
+benefit.
+
+### Recommended layout: the dbt project in the repo you already sync
+
+A workspace whose `wmill sync` tree lives in git can keep the dbt project in the
+same repo, in a subdirectory. The descriptor points `repo` at that repo's own
+`git_repository` resource and names the subdirectory in `project`, so one push
+carries both the models and the script that runs them:
+
+```
+my-workspace-repo/
+├── u/admin/analytics.dbt.yaml    # the Windmill script (wmill sync)
+└── transform/                    # the dbt project
+    ├── dbt_project.yml
+    └── models/...
+```
+
+```yaml
+repo: $res:u/admin/workspace_repo
+project: transform
+ref: main
+profile:
+  resource: $res:u/admin/warehouse
+  target: prod
+```
+
+No extra mechanism: the deploy clones that repo like any other. Note the
+consequence of `ref` — a pinned ref means editing a model needs a push *and* a
+redeploy to move the pin, while `ref: latest` picks up each push on the next
+run.
 
 Consequences: **Windmill does not version the models, the pinned commit does**,
 and model changes need a repo push plus a redeploy (pinned) or just the next run

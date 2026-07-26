@@ -147,6 +147,10 @@ async fn provision_core_1x(
     tokio::fs::remove_dir_all(&staging).await.ok();
     run_tool(
         Command::new(UV_PATH.as_str())
+            // The interpreter goes in Windmill's own cache rather than the
+            // worker user's home: a sandboxed job can only see the paths that
+            // are mounted into it, and this is one of them.
+            .env("UV_PYTHON_INSTALL_DIR", crate::PY_INSTALL_DIR.as_str())
             .args([
                 "venv",
                 "--relocatable",
@@ -163,6 +167,7 @@ async fn provision_core_1x(
     .await?;
     run_tool(
         Command::new(UV_PATH.as_str())
+            .env("UV_PYTHON_INSTALL_DIR", crate::PY_INSTALL_DIR.as_str())
             .env("VIRTUAL_ENV", &staging)
             .args([
                 "pip",

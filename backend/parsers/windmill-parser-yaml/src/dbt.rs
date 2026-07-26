@@ -170,10 +170,16 @@ pub const REF_LATEST: &str = "latest";
 /// `test_behavior: after_all`.
 pub const DBT_COMMANDS: &[&str] = &["build", "run", "retry"];
 
-fn default_command(d: &DbtDescriptor) -> &'static str {
+/// The command a run uses when it does not name one. Public because the worker
+/// must choose exactly what the run form's default advertises.
+pub fn default_command(d: &DbtDescriptor) -> &'static str {
     match d.test_behavior {
         DbtTestBehavior::Build => "build",
-        DbtTestBehavior::AfterAll | DbtTestBehavior::None => "run",
+        // Also `build`, with the tests excluded rather than the command
+        // narrowed to `run`: `run` covers models only, so a selection that
+        // includes a seed or a snapshot would silently not build it and the
+        // models reading it would fail — or worse, read a stale table.
+        DbtTestBehavior::AfterAll | DbtTestBehavior::None => "build",
     }
 }
 
@@ -466,7 +472,9 @@ full_refresh: true
             cmd.typ,
             Typ::Str(Some(DBT_COMMANDS.iter().map(|c| c.to_string()).collect()))
         );
-        assert_eq!(cmd.default, Some(serde_json::json!("run")));
+        // `build`, not `run`: `run` covers models only, so a selection naming a
+        // seed or a snapshot would silently not build it.
+        assert_eq!(cmd.default, Some(serde_json::json!("build")));
         // Defaults come from the descriptor so an untouched run reproduces it.
         let select = sig.args.iter().find(|a| a.name == "select").unwrap();
         assert_eq!(select.default, Some(serde_json::json!(["tag:nightly+"])));
