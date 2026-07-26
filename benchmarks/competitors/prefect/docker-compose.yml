@@ -1,0 +1,27 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: prefect
+      POSTGRES_PASSWORD: prefect
+      POSTGRES_DB: prefect
+    ports:
+      - "5435:5432"
+
+  server:
+    image: prefecthq/prefect:3-latest
+    command: prefect server start --host 0.0.0.0
+    environment:
+      PREFECT_API_DATABASE_CONNECTION_URL: "postgresql+asyncpg://prefect:prefect@postgres:5432/prefect"
+    ports:
+      - "4200:4200"
+    depends_on:
+      - postgres
+
+  worker:
+    image: prefect-benchmark-worker
+    environment:
+      PREFECT_API_URL: "http://server:4200/api"
+    depends_on:
+      - server
+    restart: on-failure
