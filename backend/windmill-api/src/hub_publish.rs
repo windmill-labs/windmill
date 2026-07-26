@@ -22,7 +22,6 @@ pub fn workspaced_service() -> Router {
         .route("/flows", post(publish_flow))
         .route("/apps", post(publish_app))
         .route("/raw_apps", post(publish_raw_app))
-        .route("/raw_apps/{id}/embed", post(publish_raw_app_embed))
         .route("/raw_apps/{id}/recording", post(publish_raw_app_recording))
         .route(
             "/scripts/{ask_id}/recording",
@@ -304,21 +303,6 @@ async fn publish_raw_app(
     Json(body): Json<PublishRawAppBody>,
 ) -> Result<impl IntoResponse, Error> {
     ctx.post("/raw_apps", &body).await
-}
-
-#[derive(Deserialize, Serialize)]
-struct RawAppEmbedBody {
-    // No skip_serializing_if: `null` must reach the Hub to clear the embed (unpublish).
-    external_embed_url: Option<String>,
-    project_slug: ProjectSlug,
-}
-
-async fn publish_raw_app_embed(
-    ctx: HubPublishCtx,
-    Path((_workspace, id)): Path<(String, i64)>,
-    Json(body): Json<RawAppEmbedBody>,
-) -> Result<impl IntoResponse, Error> {
-    ctx.post(&format!("/raw_apps/{}/embed", id), &body).await
 }
 
 #[derive(Deserialize, Serialize)]
