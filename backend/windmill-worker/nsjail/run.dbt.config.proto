@@ -131,4 +131,8 @@ mount {
 
 {SHARED_MOUNT}
 
+# The project's own environment. Set here rather than on the process that
+# execs nsjail: the loader honours `LD_PRELOAD` before the jail exists.
+{ENVARS}
+
 iface_no_lo: true

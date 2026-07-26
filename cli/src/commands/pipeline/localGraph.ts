@@ -630,7 +630,14 @@ export async function buildLocalPipelineGraph(args: {
     const nativeTriggers = recoverHeaderNativeTriggers(s.content, s.language);
     // Carry the parsed `// tag` so previews route to the same worker the
     // deployed pipeline would (both `pipeline run --local` and `/pipeline_dev`).
-    pipelineScripts.push(out.tag ? { ...s, tag: out.tag } : s);
+    //
+    // A dbt script is a graph node but NOT previewable: a local run submits
+    // these through the preview endpoint, and the worker rejects inline dbt —
+    // its content is a descriptor naming a git repo, so there is nothing to
+    // run without a deployed script behind it.
+    if (s.language !== "dbt") {
+      pipelineScripts.push(out.tag ? { ...s, tag: out.tag } : s);
+    }
     const mat = out.materialize;
     // Managed-materialize write strategy, derived like the deployed graph —
     // precedence mirrors the runtime: scd2 (`history`) > append > merge

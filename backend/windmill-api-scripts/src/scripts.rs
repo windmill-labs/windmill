@@ -1143,6 +1143,14 @@ async fn create_script_internal<'c>(
         .as_ref()
         .map(|v| v.perms.clone())
         .unwrap_or(json!({}));
+    // A dbt lock names a resolved commit and engine versions that only a
+    // dependency job can determine, and that job is also what publishes the
+    // script's manifest graph. Honouring a supplied one would skip it, leaving
+    // the script running an older commit with no graph — including on the UI
+    // paths that round-trip an existing lock, like rename and unarchive.
+    if matches!(ns.language, ScriptLang::Dbt) {
+        ns.lock = None;
+    }
     let lock = if ns.codebase.is_some() {
         Some(String::new())
     } else if !(

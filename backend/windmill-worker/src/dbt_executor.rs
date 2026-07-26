@@ -875,11 +875,18 @@ pub async fn prepare_project(
                     "{RLIMIT_AS}",
                     &render_nsjail_rlimit_as(NSJAIL_DBT_RLIMIT_AS_MB.as_deref(), 4096),
                 )
-                .replace("{JOB_DIR}", job_dir)
-                .replace("{PROJECT_DIR}", &project_dir.to_string_lossy())
-                .replace("{ENGINE_DIR}", &crate::dbt_engine::DBT_CACHE_DIR)
-                .replace("{PY_INSTALL_DIR}", &crate::PY_INSTALL_DIR)
+                .replace("{JOB_DIR}", &escape_textproto(job_dir))
+                .replace(
+                    "{PROJECT_DIR}",
+                    &escape_textproto(&project_dir.to_string_lossy()),
+                )
+                .replace(
+                    "{ENGINE_DIR}",
+                    &escape_textproto(&crate::dbt_engine::DBT_CACHE_DIR),
+                )
+                .replace("{PY_INSTALL_DIR}", &escape_textproto(&crate::PY_INSTALL_DIR))
                 .replace("{CLONE_NEWUSER}", &(!*crate::DISABLE_NUSER).to_string())
+                .replace("{ENVARS}", &jail_envars(&env))
                 .replace("{SHARED_MOUNT}", "")
                 .replace(
                     "{TMP_MOUNT_BLOCK}",
@@ -1476,9 +1483,16 @@ pub fn dbt_command(p: &PreparedProject, args: &[&str]) -> Command {
         .envs(PROXY_ENVS.clone())
         .env("PATH", PATH_ENV.as_str())
         .env("TZ", TZ_ENV.as_str())
-        .env("GIT_PATH", GIT_PATH.as_str())
-        .envs(p.env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
-        .args(args)
+        .env("GIT_PATH", GIT_PATH.as_str());
+    // The descriptor's environment is the PROJECT's, so under a sandbox it
+    // reaches the child through the jail profile instead of this process.
+    // Placing it here would hand it to the dynamic loader that execs nsjail
+    // itself — `LD_PRELOAD` naming a library from the checkout would then run
+    // as the worker, before any isolation exists.
+    if p.sandbox_config.is_none() {
+        cmd.envs(p.env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+    }
+    cmd.args(args)
         .arg("--profiles-dir")
         .arg(&p.profiles_dir)
         // Where `manifest.json` and `run_results.json` land. A project may set
@@ -1488,6 +1502,40 @@ pub fn dbt_command(p: &PreparedProject, args: &[&str]) -> Command {
         // rather than `--target-path`, which `dbt deps` rejects outright.
         .env("DBT_TARGET_PATH", ARTIFACTS_DIR);
     cmd
+}
+
+/// The project's environment, as jail directives rather than launcher
+/// environment. `keep_env` passes nsjail's own environment through, so these
+/// are added on top of the Windmill-controlled ones the launcher carries.
+fn jail_envars(env: &[(String, String)]) -> String {
+    env.iter()
+        .map(|(k, v)| format!("envar: \"{}={}\"", escape_textproto(k), escape_textproto(v)))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Escape a value for a protobuf text-format string literal.
+///
+/// Every path and environment value interpolated into the jail profile is
+/// caller-influenced — a repository directory is named by whoever wrote the
+/// repo — and a bare `"` or newline would close the string and let the rest be
+/// read as further directives, including host bind mounts.
+fn escape_textproto(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 || c as u32 == 0x7f => {
+                out.push_str(&format!("\\x{:02x}", c as u32))
+            }
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// Fixed artifact directory, relative to the project root: `dbt_project.yml`
@@ -2855,6 +2903,34 @@ mod tests {
         );
         assert_ne!(first, repointed);
         assert_ne!(first, recerted);
+    }
+
+    // The jail profile is protobuf text format, and both the project path (a
+    // directory named by whoever wrote the repo) and the descriptor's
+    // environment land inside string literals. An unescaped quote or newline
+    // would close the literal and let the rest be read as further directives —
+    // extra host bind mounts, for one.
+    #[test]
+    fn jail_values_cannot_close_their_string_and_add_directives() {
+        let hostile = "proj\"\nmount {\n src: \"/\"\n dst: \"/host\"\n}\n#";
+        let escaped = escape_textproto(hostile);
+        assert!(!escaped.contains('\n'), "{escaped}");
+        // Every quote that survives is escaped, so none of them terminates the
+        // literal.
+        let mut chars = escaped.chars().peekable();
+        let mut prev = None;
+        while let Some(c) = chars.next() {
+            if c == '"' {
+                assert_eq!(prev, Some('\\'), "unescaped quote in {escaped}");
+            }
+            // A doubled backslash is a literal one, so it does not escape what
+            // follows it.
+            prev = if c == '\\' && prev == Some('\\') { None } else { Some(c) };
+        }
+
+        let envars = jail_envars(&[("LD_PRELOAD".to_string(), hostile.to_string())]);
+        assert_eq!(envars.lines().count(), 1, "{envars}");
+        assert!(envars.starts_with("envar: \"LD_PRELOAD="), "{envars}");
     }
 
     // THREE sites derive a `table://` key: the manifest ingest (which creates
