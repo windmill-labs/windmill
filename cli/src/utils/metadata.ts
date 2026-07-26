@@ -768,6 +768,17 @@ async function updateScriptLock(
   lockPathOverride?: string,
 ): Promise<void> {
   if (!languageNeedsLock(language)) {
+    // A dbt lock is written by the dependency job on a worker, from a real
+    // `dbt deps`/`dbt parse`, so there is nothing to generate here. Restore the
+    // reference to the file `wmill sync pull` wrote: the caller has already
+    // resolved it into the metadata, and leaving it resolved inlines the lock
+    // into the yaml on every run.
+    if (language === "dbt") {
+      const lockPath = lockPathOverride ?? remotePath + ".script.lock";
+      if (existsSync(lockPath)) {
+        metadataContent.lock = "!inline " + lockPath.replaceAll(SEP, "/");
+      }
+    }
     return;
   }
 
@@ -990,17 +1001,8 @@ export async function inferSchema(
     const { parse_r } = await loadParser("windmill-parser-wasm-r");
     inferedSchema = JSON.parse(parse_r(content));
   } else if (language === "dbt") {
-    // `parse_dbt` exists in the Rust parser but reaches this package only with
-    // the next `windmill-parser-wasm-yaml` publish. Keep whatever schema the
-    // metadata file already carries: the script-create endpoint derives the
-    // authoritative one from the descriptor and overrides whatever is pushed,
-    // so a push is not blocked on the local parser. Returning the current
-    // schema rather than nothing: the caller dereferences `.schema` at once.
-    return {
-      schema: currentSchema,
-      has_preprocessor: undefined,
-      auto_kind: undefined,
-    };
+    const { parse_dbt } = await loadParser("windmill-parser-wasm-yaml");
+    inferedSchema = JSON.parse(parse_dbt(content));
     // for related places search: ADD_NEW_LANG
   } else {
     throw new Error("Invalid language: " + language);

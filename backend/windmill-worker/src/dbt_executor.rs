@@ -2576,11 +2576,21 @@ async fn restore_run_state(
         .collect())
 }
 
-/// Whether a saved `run_results.json` has anything `dbt retry` would select.
+/// Whether a saved `run_results.json` has a WRITE that `dbt retry` would redo.
 ///
-/// dbt's own rule: `error`, `fail` and `skipped`. A `partial success` counts —
-/// dbt spells it in `status` as `partial success` for a node that built but
-/// whose tests failed, and its own retry treats the failures.
+/// Two conditions, and both matter.
+///
+/// Retryable at all is dbt's own rule: `error`, `fail` and `skipped`. A
+/// `partial success` counts too — dbt spells that for a node that built but
+/// whose tests failed, and its retry redoes the node.
+///
+/// And the node has to produce a relation. A retry selecting only `test.*`
+/// nodes reruns tests, materialises nothing and succeeds, but a successful dbt
+/// job dispatches every deploy-time write, so it would wake every downstream
+/// consumer for relations no one touched. That is the same false cascade that
+/// keeps `test` out of `DBT_COMMANDS`, reached the other way: with
+/// `test_behavior: after_all`, a failing test is what `run_results.json` ends
+/// up describing.
 fn has_retryable_node(run_results: &str) -> bool {
     serde_json::from_str::<RunResults>(run_results)
         .map(|r| {
@@ -2588,12 +2598,24 @@ fn has_retryable_node(run_results: &str) -> bool {
                 matches!(
                     n.status.to_ascii_lowercase().as_str(),
                     "error" | "fail" | "skipped" | "partial success"
-                )
+                ) && writes_a_relation(&n.unique_id)
             })
         })
         // Unreadable results are not "nothing to retry": let dbt decide rather
         // than refusing a retry the user may well need.
         .unwrap_or(true)
+}
+
+/// Whether a dbt `unique_id` names a node that materialises something.
+///
+/// The prefix IS the resource type — dbt builds these ids as
+/// `<resource_type>.<package>.<name>`. `test`, `analysis`, `unit_test`,
+/// `source` and `exposure` write nothing.
+fn writes_a_relation(unique_id: &str) -> bool {
+    matches!(
+        unique_id.split('.').next().unwrap_or_default(),
+        "model" | "seed" | "snapshot"
+    )
 }
 
 /// Append `--vars` if the descriptor (or the run) declares any.
@@ -3111,6 +3133,18 @@ mod tests {
                 "{retryable} must be retryable"
             );
         }
+        // A failed TEST is retryable to dbt but writes nothing, so a retry of
+        // it would succeed having materialised nothing and still dispatch every
+        // deploy-time write. `test_behavior: after_all` is exactly how
+        // `run_results.json` comes to describe tests alone.
+        let tests_only = r#"{"results":[
+            {"unique_id":"test.p.not_null_orders_id.ab","status":"fail"},
+            {"unique_id":"test.p.unique_orders_id.cd","status":"error"}]}"#;
+        assert!(!has_retryable_node(tests_only));
+        let with_a_model = r#"{"results":[
+            {"unique_id":"test.p.not_null_orders_id.ab","status":"fail"},
+            {"unique_id":"snapshot.p.customers","status":"skipped"}]}"#;
+        assert!(has_retryable_node(with_a_model));
         // Unreadable results let dbt decide rather than refusing a retry the
         // user may well need.
         assert!(has_retryable_node("not json"));

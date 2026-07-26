@@ -1118,3 +1118,40 @@ describe('dbtAssociations with a producer and a consumer of one relation', () =>
 		expect(ownerByAsset.get('asset:table:wh/s/shared')).toBe('script:f/a/reader')
 	})
 })
+
+// Two selections of one project materializing the same model is a shape the
+// backend permits, so the badge has to land on the same one every time — not on
+// whichever write edge the backend happened to return last.
+describe('dbtAssociations with two writers of one relation', () => {
+	const runnables = [
+		{ usage_kind: 'script', path: 'f/a/upstream', dbt: { model_count: 1 } },
+		{ usage_kind: 'script', path: 'f/a/downstream', dbt: { model_count: 1 } }
+	]
+	const writeBy = (p: string) => ({
+		runnable_kind: 'script',
+		runnable_path: p,
+		asset_kind: 'table',
+		asset_path: 'wh/s/shared',
+		access_type: 'w'
+	})
+
+	it('picks the same producer whatever order the edges arrive in', () => {
+		const a = writeBy('f/a/upstream')
+		const b = writeBy('f/a/downstream')
+		const first = dbtAssociations(runnables, [a, b]).ownerByAsset.get('asset:table:wh/s/shared')
+		const second = dbtAssociations(runnables, [b, a]).ownerByAsset.get('asset:table:wh/s/shared')
+		expect(first).toBe(second)
+		expect(first).toBe('script:f/a/downstream')
+	})
+
+	it('still credits both with materializing it', () => {
+		const { writesByOwner } = dbtAssociations(runnables, [
+			writeBy('f/a/upstream'),
+			writeBy('f/a/downstream')
+		])
+		expect(writesByOwner.get('script:f/a/upstream')).toEqual(new Set(['asset:table:wh/s/shared']))
+		expect(writesByOwner.get('script:f/a/downstream')).toEqual(
+			new Set(['asset:table:wh/s/shared'])
+		)
+	})
+})

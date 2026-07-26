@@ -873,24 +873,31 @@ export function dbtAssociations(
 	)
 	const ownerByAsset = new Map<string, string>()
 	const writesByOwner = new Map<string, Set<string>>()
-	// One project can WRITE a relation while another declares it as a SOURCE.
-	// The badge must lead to the one that builds it, whatever order the edges
-	// arrive in — a reader only owns a relation nobody here produces.
-	const producedAssets = new Set<string>()
+	// Candidates per relation, kept apart so the choice does not depend on the
+	// order the edges arrive in. Two things decide it: a project that WRITES a
+	// relation outranks one that merely declares it as a SOURCE, and among
+	// several writers — which the backend permits, two selections of one project
+	// materializing the same model — the smallest id wins. Anything less makes
+	// the badge lead somewhere else between two loads of the same graph.
+	const writersByAsset = new Map<string, string[]>()
+	const readersByAsset = new Map<string, string[]>()
 	for (const e of edges) {
 		const runnableId = `${e.runnable_kind}:${e.runnable_path}`
 		if (!dbtRunnableIds.has(runnableId)) continue
 		const assetId = `asset:${e.asset_kind}:${e.asset_path}`
 		const writes = e.access_type === 'w' || e.access_type === 'rw'
-		if (writes || !producedAssets.has(assetId)) {
-			ownerByAsset.set(assetId, runnableId)
-		}
+		const into = writes ? writersByAsset : readersByAsset
+		let candidates = into.get(assetId)
+		if (!candidates) into.set(assetId, (candidates = []))
+		candidates.push(runnableId)
 		if (writes) {
-			producedAssets.add(assetId)
 			let set = writesByOwner.get(runnableId)
 			if (!set) writesByOwner.set(runnableId, (set = new Set()))
 			set.add(assetId)
 		}
+	}
+	for (const [assetId, candidates] of [...readersByAsset, ...writersByAsset]) {
+		ownerByAsset.set(assetId, [...candidates].sort()[0])
 	}
 	return { ownerByAsset, writesByOwner }
 }
