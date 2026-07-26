@@ -247,10 +247,13 @@ function redactMarkedSubtrees(doc: Document, root: Element) {
  * keeping `selected` says which one was picked, dropping it says the first one
  * was. Replace its options with a single masked, selected one — the replay then
  * shows that a choice was made without disclosing it. */
-/** Beyond this many pixels a canvas is left blank: encoding runs on the app's
- * own event path, several times per interaction, and a wall-sized canvas costs
- * more there (and in frame budget) than the picture is worth. */
+/** Encoding runs synchronously on the app's own event path, several times per
+ * interaction, so it is budgeted twice: no single canvas larger than this, and
+ * no more than {@link MAX_SNAPSHOT_CANVAS_PIXELS} across one snapshot. A
+ * dashboard of charts would otherwise stall every pointerdown, and the frame cap
+ * cannot help — it is only checked once the work is already done. */
 const MAX_CANVAS_PIXELS = 4_000_000
+const MAX_SNAPSHOT_CANVAS_PIXELS = 8_000_000
 
 /** A canvas holds its picture in a bitmap `outerHTML` knows nothing about, so a
  * cloned one replays blank. Paint it into the clone's own background instead of
@@ -261,10 +264,13 @@ function paintCanvases(doc: Document, clone: Element) {
 	const live = doc.querySelectorAll('canvas')
 	const copies = clone.querySelectorAll('canvas')
 	if (live.length !== copies.length) return
+	let budget = MAX_SNAPSHOT_CANVAS_PIXELS
 	for (let i = 0; i < live.length; i++) {
 		const source = live[i] as HTMLCanvasElement
 		if (!source.width || !source.height) continue
-		if (source.width * source.height > MAX_CANVAS_PIXELS) continue
+		const pixels = source.width * source.height
+		if (pixels > MAX_CANVAS_PIXELS || pixels > budget) continue
+		budget -= pixels
 		let url: string
 		try {
 			url = source.toDataURL('image/webp', 0.85)

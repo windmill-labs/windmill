@@ -521,7 +521,10 @@ function describeOverflow(data: Record<string, unknown>): string | undefined {
 	// enclosing key for the walk itself to report on.
 	for (const [label, size] of [
 		["this script's arguments", rowCount(data.args)],
-		["this script's schema", rowCount((data.schema as Record<string, unknown> | undefined)?.properties)]
+		[
+			"this script's schema",
+			rowCount((data.schema as Record<string, unknown> | undefined)?.properties)
+		]
 	] as const) {
 		if (size > MAX_MAP_ROWS) {
 			return `Cannot replay: ${label} holds ${size} entries, more than the ${MAX_MAP_ROWS} this player renders.`
@@ -570,11 +573,16 @@ export function parseRecording(
 			return isFlowRecording(data)
 				? { ok: true, loaded: { kind: 'flow', recording: data } }
 				: invalid('flow')
-		default:
+		default: {
+			// `type` is caller-controlled and only structurally bounded: a payload can
+			// carry megabytes in it and reach the page as text. Name it only when it is
+			// short enough to be a kind rather than a payload.
+			const named = typeof type === 'string' && type.length <= 32 ? ` (${type})` : ''
 			return {
 				ok: false,
-				error: `This recording is of an unknown kind (${String(type)}) — it may need a newer Windmill.`
+				error: `This recording is of an unknown kind${named} — it may need a newer Windmill.`
 			}
+		}
 	}
 }
 

@@ -204,6 +204,31 @@ describe('serializeDocument redaction', () => {
 		expect(html).not.toContain('PIXELS-secret')
 	})
 
+	it('stops encoding once a snapshot has spent its canvas budget', () => {
+		// Encoding is synchronous and on the app's event path, so a wall of charts
+		// must not each cost an encode — the per-canvas cap alone would allow it.
+		const doc = docFrom(
+			Array.from({ length: 6 }, (_, i) => `<canvas id="c${i}"></canvas>`).join('')
+		)
+		const encoded: string[] = []
+		for (const c of Array.from(doc.querySelectorAll('canvas'))) {
+			Object.defineProperty(c, 'width', { value: 2000 })
+			Object.defineProperty(c, 'height', { value: 1500 }) // 3M pixels each
+			Object.defineProperty(c, 'getBoundingClientRect', {
+				value: () => ({ width: 200, height: 150 })
+			})
+			Object.defineProperty(c, 'toDataURL', {
+				value: () => {
+					encoded.push(c.id)
+					return `data:image/webp;base64,PIXELS-${c.id}`
+				}
+			})
+		}
+
+		serializeDocument(doc)
+		expect(encoded).toEqual(['c0', 'c1'])
+	})
+
 	it('keeps a disabled sheet inert without shifting what follows it', () => {
 		// Neutralizing a disabled sheet must not remove its node: every later path
 		// resolution — other sheets, and the target stamp — is by sibling index.
