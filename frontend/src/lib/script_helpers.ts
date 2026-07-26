@@ -1352,11 +1352,14 @@ main <- function(
 const DBT_INIT_CODE = `# dbt-core-1x (default) | dbt-core-2x | fusion
 engine: dbt-core-1x
 profile:
-  # Warehouse resource rendered into profiles.yml. Also the <resource> component
-  # of every table:// asset this project produces.
+  # Warehouse resource rendered into profiles.yml. Its PATH is also the warehouse's
+  # identity in the asset graph: every model becomes table://<resource>/<schema>/<name>,
+  # which is what gives this project lineage and lets native scripts reading those
+  # tables be triggered by it.
   resource: $res:u/user/my_warehouse
   target: prod
-  # Alternatively, keep the project's own file:
+  # Alternatively, keep the project's own file. It runs unchanged, but with no
+  # resource there is no warehouse identity, so no assets and no lineage:
   # profiles_yml: profiles.yml
 # Passed to dbt verbatim — this is dbt's selector grammar, not Windmill's
 select: []

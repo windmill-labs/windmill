@@ -309,7 +309,9 @@ profile:
   # schema: marts                 # target schema; REQUIRED for BigQuery, whose
                                   # resource is a service-account JSON with no
                                   # dataset in it
-  # profiles_yml: profiles.yml    # alternative: keep your own file
+  # profiles_yml: profiles.yml    # alternative: keep your own file, but then
+                                  # there is no resource path to key assets on,
+                                  # so the project gets no graph (see below)
 select: ["tag:nightly+"]
 exclude: []
 test_behavior: build              # build | after_all | none
