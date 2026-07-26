@@ -18,7 +18,7 @@
 	import PanToNode from './PanToNode.svelte'
 	import InitialFitView from './InitialFitView.svelte'
 	import { layoutAssetGraph } from './assetGraphLayout'
-	import { computeMutedReadKeys } from './resolveGraph'
+	import { computeMutedReadKeys, dbtAssociations } from './resolveGraph'
 	import { buildDownstreamMap } from './graphTraversal'
 	import { buildLineageDownstreamMap } from './boundedCascade'
 	import type { AssetGraphResponse, AssetGraphSelection, NativeTriggerKind } from './types'
@@ -288,6 +288,21 @@
 		// by node id across producers).
 		const addedTestNodes = new Set<string>()
 
+		// A dbt script owns every relation its project materializes. Drawing that
+		// as one edge per model buries the lineage that matters — `ref()` between
+		// models, and native consumers — under a fan-out that grows with the
+		// project, so the association is carried by the model's badge and its
+		// hover/click highlight instead. Only the DRAWING is dropped: the
+		// producer rows still drive cascade dispatch and "who produced this".
+		const dbtRunnableIds = new Set(
+			g.runnables.filter((r) => r.dbt).map((r) => `${r.usage_kind}:${r.path}`)
+		)
+		// Association only — the canvas deliberately draws no edge for it.
+		const { ownerByAsset: dbtOwnerByAsset, writesByOwner: dbtWritesByOwner } = dbtAssociations(
+			g.runnables,
+			g.edges
+		)
+
 		const hasAddNode = onAddPipelineScript != null
 		if (hasAddNode) {
 			nodes.push({
@@ -406,7 +421,22 @@
 					producerFailed,
 					// Bumped by the replay player when this asset's producer just
 					// recomputed it — the node flashes green and fades.
-					recomputePulse: recomputedAssetIds?.get(assetId)
+					recomputePulse: recomputedAssetIds?.get(assetId),
+					// The dbt project that materializes this relation, related by
+					// badge rather than by an edge.
+					onDbtHover: (on: boolean) => (dbtHoverId = on ? assetId : undefined),
+					onDbtSelect: () => {
+						// `runnable:<kind>:<path>` — the id shape `build` uses.
+						const owner = model.dbtOwnerByAsset.get(assetId)
+						const [kind, ...rest] = owner?.split(':') ?? []
+						if (kind && rest.length) {
+							onselect?.({
+								kind: 'runnable',
+								runnable_kind: kind as 'script' | 'flow',
+								path: rest.join(':')
+							})
+						}
+					}
 				}
 			})
 		}
@@ -478,6 +508,7 @@
 					retry: r.retry,
 					macros: r.macros,
 					dbt: r.dbt,
+					onDbtHover: (on: boolean) => (dbtHoverId = on ? rid : undefined),
 					unsaved: r.unsaved ?? false,
 					// Same dispatch the asset node uses, only routed when the
 					// runnable is a script (the page handler short-circuits
@@ -525,10 +556,19 @@
 		// (`// mute` / `// mute all` opted the default auto trigger out). Gated
 		// on pipeline scripts inside the helper (non-pipeline reads never derive).
 		const mutedReadKeys = computeMutedReadKeys(g.edges, g.triggers, g.runnables)
+		// A dbt script owns every relation of its project. Drawing that as one
+		// edge per model buries the lineage that matters (`ref()` between models,
+		// and native consumers) under a fan-out that grows with the project — so
+		// the association is carried by the node badge and its hover/click
+		// highlight instead. Only the DRAWING is dropped: the producer rows still
+		// drive cascade dispatch and "who produced this".
 		for (const e of g.edges) {
 			const runnableId = `${e.runnable_kind}:${e.runnable_path}`
 			const assetId = `asset:${e.asset_kind}:${e.asset_path}`
 			const access = e.access_type ?? 'r'
+			// Suppressed in both directions: a project's sources already reach its
+			// models through the `ref()` edges, so a read edge would double up.
+			if (dbtRunnableIds.has(runnableId)) continue
 			if (access === 'w' || access === 'rw') {
 				// Data tests assert on the `// materialize` target, which is always
 				// a ducklake asset (v1 enforces this), so only the ducklake
@@ -801,10 +841,23 @@
 			}
 		}
 
-		return { nodes, edges }
+		return { nodes, edges, dbtOwnerByAsset, dbtWritesByOwner }
 	}
 
 	let model = $derived(build(graph))
+
+	// dbt association, surfaced by emphasis instead of edges. Hovering a model's
+	// dbt badge lights up the project node that materializes it; hovering the
+	// project node lights up every model it owns. Clicking the badge selects the
+	// project node, so the association survives the pointer leaving.
+	let dbtHoverId = $state<string | undefined>(undefined)
+	let dbtEmphasisIds = $derived.by(() => {
+		if (!dbtHoverId) return new Set<string>()
+		const owned = model.dbtWritesByOwner.get(dbtHoverId)
+		if (owned) return new Set<string>([dbtHoverId, ...owned])
+		const owner = model.dbtOwnerByAsset.get(dbtHoverId)
+		return owner ? new Set<string>([dbtHoverId, owner]) : new Set<string>()
+	})
 
 	let selectedId = $derived.by(() => {
 		if (!selection) return undefined
@@ -909,12 +962,13 @@
 				else if (boundPick.bounded.has(n.id)) boundClass = 'wm-bound-in'
 				else if (!boundPick.eligible.has(n.id)) boundClass = 'wm-bound-dim'
 			}
+			const dbtClass = dbtEmphasisIds.has(n.id) ? 'wm-dbt-linked' : undefined
 			return {
 				id: n.id,
 				type: n.type,
 				position: { x: p.x + xCenter + xShift, y: p.y + 40 },
 				data: n.data,
-				class: boundClass ?? runClass ?? assetClass,
+				class: boundClass ?? dbtClass ?? runClass ?? assetClass,
 				selected: n.id === selectedId,
 				// All nodes non-draggable: the layout is sugiyama-computed,
 				// dragging would fight the reactive re-layout. Selection is
@@ -1278,6 +1332,11 @@
 	/* Activity-panel emphasis — soft, monochromatic, less prominent than the
 	   blue details selection above. Hover is a thin neutral ring (transient);
 	   pinning an expanded run is a soft-blue ring. */
+	/* A dbt project node and the models it materializes, related by badge
+	   rather than by edges — hovering either lights up the whole set. */
+	:global(.svelte-flow__node.wm-dbt-linked .drop-shadow-sm) {
+		@apply outline outline-2 outline-orange-400/80;
+	}
 	:global(.svelte-flow__node.wm-run-hover .drop-shadow-sm) {
 		@apply outline outline-1 outline-gray-400 dark:outline-gray-500;
 	}

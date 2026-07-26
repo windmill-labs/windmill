@@ -49,6 +49,12 @@
 			// dbt provenance when this warehouse table is a dbt node: which model
 			// it is, how dbt materializes it, its tags and its generic tests.
 			dbt?: DbtAssetProvenance
+			/** Hovering the dbt chip emphasizes the project node that
+			 *  materializes this model — the association the graph deliberately
+			 *  does not draw as an edge. */
+			onDbtHover?: (on: boolean) => void
+			/** Clicking it selects that project node. */
+			onDbtSelect?: () => void
 			onAddScript?: (
 				asset: { kind: AssetKind; path: string },
 				language: ScriptLang,
@@ -266,18 +272,29 @@
 		{/if}
 		<!-- dbt chip: names the materialization dbt declares, plus a test count
 		     when the model carries generic tests. Orange keeps it visually
-		     separate from the fork/SCD2 chips, which describe Windmill state. -->
+		     separate from the fork/SCD2 chips, which describe Windmill state.
+		     It also stands in for the edge to the project that materializes this
+		     model: hovering lights that node up, clicking selects it. -->
 		{#if data.dbt}
-			<span
-				class="shrink-0 mr-1.5 flex items-center gap-0.5 rounded px-1 py-px text-3xs font-semibold tracking-wide bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 border border-orange-300 dark:border-orange-700"
+			<button
+				type="button"
+				class="shrink-0 mr-1.5 flex items-center gap-0.5 rounded px-1 py-px text-3xs font-semibold tracking-wide bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 border border-orange-300 dark:border-orange-700 {data.onDbtSelect
+					? 'hover:brightness-95 cursor-pointer'
+					: 'cursor-default'}"
 				title={dbtTitle}
+				onmouseenter={() => data.onDbtHover?.(true)}
+				onmouseleave={() => data.onDbtHover?.(false)}
+				onclick={(e) => {
+					e.stopPropagation()
+					data.onDbtSelect?.()
+				}}
 			>
 				<DbtIcon width={9} height={9} />
 				{dbtLabel}
 				{#if data.dbt.data_tests?.length}
 					<span class="opacity-70">&middot; {data.dbt.data_tests.length}T</span>
 				{/if}
-			</span>
+			</button>
 		{/if}
 		<!-- SCD2 companion marker: this node is the `<dim>_current` "latest row
 		     per key" view its producer maintains alongside the base dimension.

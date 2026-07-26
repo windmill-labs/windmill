@@ -93,6 +93,13 @@ pub struct ManifestNode {
     pub columns: BTreeMap<String, ManifestColumn>,
     #[serde(default)]
     pub freshness: Option<serde_json::Value>,
+    /// The model's SQL as written, `{{ ref() }}` and all. `dbt parse` fills
+    /// this; `compiled_code` needs a `dbt compile`, which no phase here runs.
+    #[serde(default)]
+    pub raw_code: Option<String>,
+    /// Where the model lives in the repo, e.g. `models/staging/stg_orders.sql`.
+    #[serde(default)]
+    pub original_file_path: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Default)]
@@ -123,6 +130,22 @@ pub struct TestMetadata {
     pub namespace: Option<String>,
 }
 
+/// Longest model body kept for display. Generous for a hand-written model and
+/// small enough that a generated one cannot bloat the sidecar.
+const MAX_SQL_BYTES: usize = 32 * 1024;
+
+fn truncate_sql(code: &str) -> String {
+    if code.len() <= MAX_SQL_BYTES {
+        return code.to_string();
+    }
+    // On a char boundary, so the result stays valid UTF-8.
+    let mut end = MAX_SQL_BYTES;
+    while end > 0 && !code.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}\n-- … truncated by Windmill …", &code[..end])
+}
+
 /// One ingested dbt node, ready to be written to `dbt_node`.
 #[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct IngestedNode {
@@ -142,6 +165,10 @@ pub struct IngestedNode {
     pub attached_node: Option<String>,
     pub columns: Option<serde_json::Value>,
     pub freshness: Option<serde_json::Value>,
+    /// The transform itself, for the graph to render. Read-only: the model
+    /// lives in the repo, and Windmill holds the commit, not the file.
+    pub raw_code: Option<String>,
+    pub original_file_path: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -382,6 +409,16 @@ pub fn ingest_manifest(
                     .collect::<BTreeMap<_, _>>())
             }),
             freshness: node.freshness.clone(),
+            // The transform the graph renders. Capped: a project can hold
+            // thousands of models and this is duplicated per deploy, so a
+            // pathological file is truncated rather than allowed to bloat the
+            // sidecar. Tests carry generated SQL nobody reads — skipped.
+            raw_code: (node.resource_type != "test")
+                .then(|| node.raw_code.clone())
+                .flatten()
+                .filter(|c| !c.trim().is_empty())
+                .map(|c| truncate_sql(&c)),
+            original_file_path: node.original_file_path.clone().filter(|p| !p.is_empty()),
         });
 
         // The dbt script writes what it materializes and reads its sources.
@@ -523,9 +560,9 @@ pub async fn replace_dbt_manifest(
             "INSERT INTO dbt_node (workspace_id, script_path, unique_id, resource_type, name,
                  asset_path, materialized, materialize_strategy, unique_key, tags, description,
                  test_kind, test_column, test_args, severity, attached_node, columns, freshness,
-                 relation_root)
+                 relation_root, raw_code, original_file_path)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                     $18, $19)",
+                     $18, $19, $20, $21)",
             workspace_id,
             script_path,
             n.unique_id,
@@ -545,6 +582,8 @@ pub async fn replace_dbt_manifest(
             n.columns,
             n.freshness,
             relation_root,
+            n.raw_code,
+            n.original_file_path,
         )
         .execute(&mut **tx)
         .await?;
@@ -631,7 +670,9 @@ mod tests {
           "resource_type": "model", "name": "customers", "alias": "customers",
           "schema": "jaffle_dbt", "relation_name": "\"wh\".\"jaffle_dbt\".\"customers\"",
           "tags": ["nightly"], "config": {"materialized": "table"},
-          "columns": {"customer_id": {"description": "pk"}}
+          "columns": {"customer_id": {"description": "pk"}},
+          "raw_code": "select * from {{ ref('stg_customers') }}",
+          "original_file_path": "models/customers.sql"
         },
         "model.jaffle_shop.orders_daily": {
           "resource_type": "model", "name": "orders_daily", "alias": "orders_daily",
@@ -916,6 +957,18 @@ mod tests {
                 "model.jaffle_shop.orders_daily".to_string()
             )]
         );
+    }
+
+    // The graph renders a model by its own SQL, so the ingest has to carry it —
+    // and a test's generated body is noise nobody reads.
+    #[test]
+    fn models_carry_their_sql_and_tests_do_not() {
+        let i = ingested();
+        let m = node(&i, "model.jaffle_shop.customers");
+        assert!(m.raw_code.as_deref().is_some_and(|c| !c.is_empty()), "{:?}", m.raw_code);
+        assert_eq!(m.original_file_path.as_deref(), Some("models/customers.sql"));
+        let t = i.nodes.iter().find(|n| n.resource_type == "test").unwrap();
+        assert_eq!(t.raw_code, None);
     }
 
     // A read is a cascade subscription, so a source no model reads must not

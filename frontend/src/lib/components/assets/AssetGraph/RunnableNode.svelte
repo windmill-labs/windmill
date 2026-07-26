@@ -50,6 +50,9 @@
 			// One runnable node stands for the whole project, so the count is what
 			// tells it apart from a single-output script.
 			dbt?: { model_count: number }
+			/** Hovering the project badge emphasizes every model it
+			 *  materializes — the fan-out the graph deliberately omits. */
+			onDbtHover?: (on: boolean) => void
 			// Last-run status + run count observed this session (from the
 			// folder queue poll). Undefined until the first observed run.
 			runState?: RunnableRunState
@@ -193,7 +196,19 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="relative" onmouseenter={() => (hover = true)} onmouseleave={() => (hover = false)}>
+<!-- Hovering anywhere on a dbt project node highlights the models it
+     materializes: the association the graph does not draw as edges. -->
+<div
+	class="relative"
+	onmouseenter={() => {
+		hover = true
+		data.onDbtHover?.(true)
+	}}
+	onmouseleave={() => {
+		hover = false
+		data.onDbtHover?.(false)
+	}}
+>
 	<!--
 		Mirrors the flow editor's step styling (getNodeColorClasses): muted
 		surface-tertiary fill with a quiet gray border, accent only for the

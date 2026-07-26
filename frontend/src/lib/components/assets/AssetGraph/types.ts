@@ -41,6 +41,12 @@ export interface DbtAssetProvenance {
 	columns?: Record<string, string>
 	/** A source's declared freshness policy. */
 	freshness?: unknown
+	/** The model's SQL as written — the transform behind the node. Read-only:
+	 *  the file lives in the repo at the pinned commit, this is a copy taken at
+	 *  deploy. Absent for tests and for nodes with no body. */
+	raw_code?: string
+	/** Its path inside the repo, e.g. `models/staging/stg_orders.sql`. */
+	original_file_path?: string
 }
 
 export interface DbtDataTest {

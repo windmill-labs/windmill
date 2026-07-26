@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { resolveGraph, computeMutedReadKeys, type ResolveGraphInput } from './resolveGraph'
+import {
+	resolveGraph,
+	computeMutedReadKeys,
+	dbtAssociations,
+	type ResolveGraphInput
+} from './resolveGraph'
 import type { PipelineAnnotations } from './parsePipelineAnnotations'
 import type { AssetGraphResponse } from './types'
 import type { AssetWithAltAccessType } from '$lib/components/assets/lib'
@@ -1022,5 +1027,57 @@ describe('open saved script: live overlay vs inferred-lineage maps', () => {
 		expect(
 			r.edges.filter((e) => e.asset_path === '/out.parquet' && e.runnable_path === 'f/x/cons')
 		).toHaveLength(1)
+	})
+})
+
+describe('dbtAssociations', () => {
+	const runnables = [
+		{ usage_kind: 'script', path: 'f/a/dbtproj', dbt: { model_count: 2 } },
+		{ usage_kind: 'script', path: 'f/a/consumer' }
+	]
+	const edges = [
+		// the project builds a model and reads a source
+		{
+			runnable_kind: 'script',
+			runnable_path: 'f/a/dbtproj',
+			asset_kind: 'table',
+			asset_path: 'wh/s/model_a',
+			access_type: 'w'
+		},
+		{
+			runnable_kind: 'script',
+			runnable_path: 'f/a/dbtproj',
+			asset_kind: 'table',
+			asset_path: 'wh/s/src_a',
+			access_type: 'r'
+		},
+		// a native consumer reads the model — its edges are none of dbt's business
+		{
+			runnable_kind: 'script',
+			runnable_path: 'f/a/consumer',
+			asset_kind: 'table',
+			asset_path: 'wh/s/model_a',
+			access_type: 'r'
+		}
+	]
+
+	it('points every declared relation back at its project', () => {
+		const { ownerByAsset } = dbtAssociations(runnables, edges)
+		// A source is declared by the project too, so its badge finds it.
+		expect(ownerByAsset.get('asset:table:wh/s/src_a')).toBe('script:f/a/dbtproj')
+		expect(ownerByAsset.get('asset:table:wh/s/model_a')).toBe('script:f/a/dbtproj')
+	})
+
+	it('counts only what the project materializes as its transforms', () => {
+		const { writesByOwner } = dbtAssociations(runnables, edges)
+		// Hovering the project highlights the models it builds, not its inputs.
+		expect([...(writesByOwner.get('script:f/a/dbtproj') ?? [])]).toEqual([
+			'asset:table:wh/s/model_a'
+		])
+	})
+
+	it('ignores runnables that are not dbt', () => {
+		const { ownerByAsset } = dbtAssociations([runnables[1]], edges)
+		expect(ownerByAsset.size).toBe(0)
 	})
 })

@@ -663,6 +663,13 @@ struct DbtAssetProvenance {
     /// A source's declared freshness policy, for the staleness chip.
     #[serde(skip_serializing_if = "Option::is_none")]
     freshness: Option<serde_json::Value>,
+    /// The model's SQL as written. Read-only in Windmill — the file lives in
+    /// the repo at the pinned commit, and this is a copy taken at deploy.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    raw_code: Option<String>,
+    /// Its path inside the repo, e.g. `models/staging/stg_orders.sql`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    original_file_path: Option<String>,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -1164,7 +1171,7 @@ async fn asset_graph(
                   n.resource_type AS "resource_type!", n.name AS "name!", n.asset_path,
                   n.materialized, n.materialize_strategy, n.tags AS "tags!", n.description,
                   n.test_kind, n.test_column, n.test_args, n.severity, n.attached_node,
-                  n.columns, n.freshness
+                  n.columns, n.freshness, n.raw_code, n.original_file_path
              FROM dbt_node n
             WHERE n.workspace_id = $1
               -- Joined on BOTH columns: a dbt `unique_id` is project-local, so
@@ -1283,6 +1290,8 @@ async fn asset_graph(
             *dbt_model_count.entry(r.script_path.clone()).or_default() += 1;
         }
         let candidate = DbtAssetProvenance {
+            raw_code: r.raw_code.clone(),
+            original_file_path: r.original_file_path.clone(),
             unique_id: r.unique_id.clone(),
             resource_type: r.resource_type.clone(),
             materialized: r.materialized.clone(),

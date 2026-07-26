@@ -844,3 +844,45 @@ function overlayInferredLineage(acc: Accumulator, input: ResolveGraphInput) {
 	overlayLineage(inferredWritesByPath, 'w')
 	overlayLineage(inferredReadsByPath, 'r')
 }
+
+
+/** dbt project ↔ relation association, for a graph that does NOT draw it.
+ *
+ * A dbt script owns every relation of its project, so drawing one edge per
+ * model buries the lineage that matters — `ref()` between models, and native
+ * consumers — under a fan-out that grows with the project. The canvas suppresses
+ * those edges and conveys the association through the model's badge instead:
+ * `ownerByAsset` powers badge → project, `writesByOwner` powers project →
+ * the transforms it materializes (its sources are inputs, not transforms).
+ *
+ * Only the DRAWING is dropped. The producer rows these are derived from still
+ * drive cascade dispatch and "who produced this".
+ */
+export function dbtAssociations(
+	runnables: Array<{ usage_kind: string; path: string; dbt?: unknown }>,
+	edges: Array<{
+		runnable_kind: string
+		runnable_path: string
+		asset_kind: string
+		asset_path: string
+		access_type?: string | null
+	}>
+): { ownerByAsset: Map<string, string>; writesByOwner: Map<string, Set<string>> } {
+	const dbtRunnableIds = new Set(
+		runnables.filter((r) => r.dbt).map((r) => `${r.usage_kind}:${r.path}`)
+	)
+	const ownerByAsset = new Map<string, string>()
+	const writesByOwner = new Map<string, Set<string>>()
+	for (const e of edges) {
+		const runnableId = `${e.runnable_kind}:${e.runnable_path}`
+		if (!dbtRunnableIds.has(runnableId)) continue
+		const assetId = `asset:${e.asset_kind}:${e.asset_path}`
+		ownerByAsset.set(assetId, runnableId)
+		if (e.access_type === 'w' || e.access_type === 'rw') {
+			let set = writesByOwner.get(runnableId)
+			if (!set) writesByOwner.set(runnableId, (set = new Set()))
+			set.add(assetId)
+		}
+	}
+	return { ownerByAsset, writesByOwner }
+}

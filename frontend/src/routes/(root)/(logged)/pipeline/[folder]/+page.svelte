@@ -1965,6 +1965,15 @@
 	// running a draft via runScriptPreview creates a `preview`-kind job at
 	// the same path, which the panel's listing query picks up.
 	let selectionProducers = $derived(assetProducers(graphWithDraft, pe.selection))
+	// dbt provenance of the selected relation: the details pane renders the
+	// model's own SQL from it. Looked up on the asset, not the producer — a
+	// relation carries one description whichever script materializes it.
+	let selectionDbt = $derived.by(() => {
+		const sel = pe.selection
+		if (sel?.kind !== 'asset') return undefined
+		return graphWithDraft?.assets?.find((a) => a.kind === sel.asset_kind && a.path === sel.path)
+			?.dbt
+	})
 
 	// Empty graph reused when the trace isn't shown (no ducklake-asset selection,
 	// or a draft is actively edited) so the pane blanks out like the other
@@ -2586,6 +2595,7 @@
 				canRunByPath={openScriptHasDataUpload}
 				onRunByPath={runByPathLegit}
 				{selectionProducers}
+				{selectionDbt}
 				selectionColumnGraph={pe.activeDraft ? EMPTY_COLUMN_GRAPH : columnGraph}
 				{schemaCanEvolve}
 				{selectionForkMaterialization}

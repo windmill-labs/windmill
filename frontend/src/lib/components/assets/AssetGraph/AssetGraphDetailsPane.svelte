@@ -27,7 +27,9 @@
 	import { inferArgs } from '$lib/infer'
 	import { emptySchema, sendUserToast } from '$lib/utils'
 	import type { Schema } from '$lib/common'
-	import type { AssetGraphSelection, PipelineMode } from './types'
+	import type { AssetGraphSelection, DbtAssetProvenance, PipelineMode } from './types'
+	import HighlightCode from '$lib/components/HighlightCode.svelte'
+	import DbtIcon from '$lib/components/icons/DbtIcon.svelte'
 	import PipelineScriptView from './PipelineScriptView.svelte'
 	import {
 		parsePipelineAnnotations,
@@ -154,6 +156,9 @@
 		// resolved graph). Drives the transitive column-lineage trace shown for a
 		// selected materialized asset.
 		selectionColumnGraph?: ColumnLineageGraph
+		/** dbt provenance of the selected relation, when a dbt project
+		 *  materializes it — carries the model's own SQL. */
+		selectionDbt?: DbtAssetProvenance
 		// Whether the selected ducklake asset's schema can evolve (whole-table
 		// `replace` producer). Forwarded to the Schema tab: version history when
 		// true, a single fixed-schema view when false. Defaults to true (unknown).
@@ -284,6 +289,7 @@
 		onScriptRemoved,
 		selectionProducers = [],
 		selectionColumnGraph,
+		selectionDbt,
 		schemaCanEvolve = true,
 		selectionForkMaterialization = undefined,
 		schemaContractContext = undefined,
@@ -1216,6 +1222,25 @@
 										</div>
 									</div>
 								{/key}
+							{:else if selectionDbt?.raw_code}
+								<!-- The transform behind the node. Read-only on purpose: the
+								     file lives in the repo at the commit the script pins, and
+								     this is the copy taken at deploy — editing here would
+								     suggest a write path that does not exist. -->
+								<div class="flex flex-col h-full min-h-0">
+									<div
+										class="shrink-0 flex items-center gap-2 px-3 py-1.5 text-2xs border-b bg-surface-secondary text-secondary"
+									>
+										<DbtIcon width={11} height={11} />
+										<span class="font-mono truncate"
+											>{selectionDbt.original_file_path ?? selectionDbt.unique_id}</span
+										>
+										<span class="ml-auto shrink-0 opacity-70">read-only · from the repo</span>
+									</div>
+									<div class="flex-1 min-h-0 overflow-auto">
+										<HighlightCode language="sql" code={selectionDbt.raw_code} />
+									</div>
+								</div>
 							{:else}
 								<div class="p-3 text-xs text-secondary">
 									No inline preview yet for {selection.asset_kind}. Use the producer/consumer arrows
