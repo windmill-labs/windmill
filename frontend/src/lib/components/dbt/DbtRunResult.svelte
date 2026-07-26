@@ -5,43 +5,13 @@
 	// count PASS/WARN lines in the log.
 	import { CheckCircle2, XCircle, AlertTriangle, MinusCircle, FlaskConical } from 'lucide-svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-
-	export type DbtNode = {
-		unique_id: string
-		status: string
-		execution_time?: number
-		rows_affected?: number
-		relation_name?: string
-		message?: string
-	}
-	export type DbtRun = {
-		engine?: string
-		engine_version?: string
-		command?: string
-		totals?: { total?: number; success?: number; error?: number; warn?: number; skipped?: number }
-		nodes?: DbtNode[]
-	}
+	import {
+		splitUniqueId as split,
+		statusRank as rank,
+		type DbtRun
+	} from '$lib/components/dbt/parseDbtRun'
 
 	let { run }: { run: DbtRun } = $props()
-
-	// `<resource_type>.<package>.<name>` is how dbt builds an id, so the prefix is
-	// the kind and everything after the package is the name — a generic test's
-	// name carries a trailing hash dbt adds for uniqueness, dropped here.
-	function split(uniqueId: string): { kind: string; name: string } {
-		const parts = uniqueId.split('.')
-		const kind = parts[0] ?? ''
-		let name = parts.slice(2).join('.')
-		if (kind === 'test') name = name.replace(/\.[0-9a-f]{6,}$/, '')
-		return { kind, name: name || uniqueId }
-	}
-
-	function rank(status: string): number {
-		const s = status.toLowerCase()
-		if (s === 'error' || s === 'fail' || s === 'runtime error') return 0
-		if (s === 'warn') return 1
-		if (s === 'skipped') return 2
-		return 3
-	}
 
 	// Failures first, then warnings, then skips: the run's outcome is decided by
 	// a handful of nodes and a long green list buries them.

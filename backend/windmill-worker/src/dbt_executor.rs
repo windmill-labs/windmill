@@ -1162,6 +1162,27 @@ async fn write_profiles(
             }
         };
         ensure_adapter_licensed(adapter)?;
+        // A resource alongside the project's own file names the warehouse for
+        // asset identity only: the connection comes from the file. It is still
+        // READ here, and only here, because reading is what authorizes it —
+        // otherwise a script editor could publish `table://<any resource>/...`
+        // writes, and wake that warehouse's subscribers, while connecting
+        // somewhere else entirely.
+        if let Some(rp) = resource_path.as_deref() {
+            client
+                .get_resource_value_interpolated::<serde_json::Value>(
+                    rp,
+                    Some(job_id.to_string()),
+                )
+                .await
+                .map_err(|e| {
+                    Error::BadRequest(format!(
+                        "`profile.resource` names the warehouse this project's assets are keyed \
+                         on, so it must be readable even when `profile.profiles_yml` provides \
+                         the connection: {e}"
+                    ))
+                })?;
+        }
         // The project owns its profile, so Windmill knows neither its database
         // nor its schema. `table_asset_path` then qualifies every relation that
         // names a database, because assuming two share one is what would

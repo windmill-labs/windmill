@@ -148,7 +148,8 @@ async fn provision_core_1x(
     // `--relocatable` is what makes that rename safe — without it uv bakes the
     // staging path into every entry point's shebang and the moved venv's `dbt`
     // fails with ENOENT.
-    let staging = staging_path(&dir, job_id);
+    let staging_guard = Scratch::new(staging_path(&dir, job_id));
+    let staging = staging_guard.path().to_path_buf();
     tokio::fs::remove_dir_all(&staging).await.ok();
     run_tool(
         Command::new(UV_PATH.as_str())
@@ -188,11 +189,10 @@ async fn provision_core_1x(
     )
     .await?;
     match tokio::fs::rename(&staging, &dir).await {
-        Ok(()) => {}
-        // Lost the race: the winner's venv is equivalent, so use it.
-        Err(_) if bin.exists() => {
-            tokio::fs::remove_dir_all(&staging).await.ok();
-        }
+        Ok(()) => staging_guard.keep(),
+        // Lost the race: the winner's venv is equivalent, so use it. The guard
+        // removes ours.
+        Err(_) if bin.exists() => {}
         Err(e) => return Err(Error::internal_err(format!("installing dbt-core: {e}"))),
     }
     let adapter_version = installed_adapter_version(&dir, adapter).await;
@@ -331,9 +331,12 @@ async fn provision_fusion(
     // Install into a per-job sibling and rename, like the other two engines:
     // pointing the installer straight at the shared cache lets a second job
     // observe `bin/dbt` and execute it while the first is still writing.
-    let staging = staging_path(&dir, job_id);
+    let staging_guard = Scratch::new(staging_path(&dir, job_id));
+    let staging = staging_guard.path().to_path_buf();
     tokio::fs::remove_dir_all(&staging).await.ok();
-    let tmp = std::env::temp_dir().join(format!("wm-fusion-install-{job_id}.sh"));
+    let script_guard =
+        Scratch::new(std::env::temp_dir().join(format!("wm-fusion-install-{job_id}.sh")));
+    let tmp = script_guard.path().to_path_buf();
     write_file(
         tmp.parent().unwrap().to_str().unwrap(),
         tmp.file_name().unwrap().to_str().unwrap(),
@@ -351,15 +354,15 @@ async fn provision_fusion(
         install.arg("--update");
     }
     run_tool(&mut install, "fusion install", job_id, w_id, conn, ctx).await?;
-    tokio::fs::remove_file(&tmp).await.ok();
+    drop(script_guard);
     if !staging.join("dbt").exists() {
-        tokio::fs::remove_dir_all(&staging).await.ok();
         return Err(Error::internal_err(
             "the Fusion installer did not produce a dbt binary".to_string(),
         ));
     }
-    if tokio::fs::rename(&staging, &dir).await.is_err() {
-        tokio::fs::remove_dir_all(&staging).await.ok();
+    if tokio::fs::rename(&staging, &dir).await.is_ok() {
+        staging_guard.keep();
+    } else {
         if !bin.exists() {
             return Err(Error::internal_err(
                 "could not install the Fusion engine".to_string(),
@@ -397,6 +400,42 @@ async fn fusion_version(dir: &Path) -> String {
 /// A sibling of `dir` to build in before renaming into place. Appended to the
 /// whole file name rather than via `with_extension`, which would eat everything
 /// after the version's last dot.
+/// A per-job path removed on drop unless the install claimed it.
+///
+/// Provisioning is a sequence of fallible awaits — a download, an installer, an
+/// extraction — and each one can also be cancelled. Cleaning up after the `?`
+/// only covers the paths someone remembered, so a run of failed or cancelled
+/// first-use installs accumulates venvs and tarballs until the worker's disk is
+/// gone. Dropping is the one exit every path takes.
+struct Scratch(Option<PathBuf>);
+
+impl Scratch {
+    fn new(path: PathBuf) -> Self {
+        Scratch(Some(path))
+    }
+
+    fn path(&self) -> &Path {
+        self.0.as_deref().unwrap_or(Path::new(""))
+    }
+
+    /// The install succeeded and moved it: stop owning it.
+    fn keep(mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        if let Some(p) = self.0.take() {
+            // Blocking, but this is a drop: it runs on the failure path, where
+            // one directory removal costs nothing next to the install that just
+            // failed.
+            let _ = std::fs::remove_dir_all(&p);
+            let _ = std::fs::remove_file(&p);
+        }
+    }
+}
+
 fn staging_path(dir: &Path, job_id: &Uuid) -> PathBuf {
     let name = dir.file_name().unwrap_or_default().to_string_lossy();
     dir.with_file_name(format!("{name}.staging-{job_id}"))
@@ -461,11 +500,13 @@ async fn fetch_and_extract(
         ctx,
     )
     .await?;
-    let tarball = std::env::temp_dir().join(format!("wm-dbt-{job_id}.tar.gz"));
+    let tarball_guard = Scratch::new(std::env::temp_dir().join(format!("wm-dbt-{job_id}.tar.gz")));
+    let tarball = tarball_guard.path().to_path_buf();
     tokio::fs::write(&tarball, &bytes)
         .await
         .map_err(|e| Error::internal_err(format!("writing {url}: {e}")))?;
-    let staging = staging_path(dir, job_id);
+    let staging_guard = Scratch::new(staging_path(dir, job_id));
+    let staging = staging_guard.path().to_path_buf();
     tokio::fs::create_dir_all(&staging)
         .await
         .map_err(|e| Error::internal_err(format!("creating {staging:?}: {e}")))?;
@@ -484,14 +525,15 @@ async fn fetch_and_extract(
         ctx,
     )
     .await?;
-    tokio::fs::remove_file(&tarball).await.ok();
+    drop(tarball_guard);
     if !staging.join(expected_bin).exists() {
         return Err(Error::internal_err(format!(
             "{url} did not contain the expected `{expected_bin}` binary"
         )));
     }
-    if tokio::fs::rename(&staging, dir).await.is_err() {
-        tokio::fs::remove_dir_all(&staging).await.ok();
+    if tokio::fs::rename(&staging, dir).await.is_ok() {
+        staging_guard.keep();
+    } else {
         if !dir.join(expected_bin).exists() {
             return Err(Error::internal_err(format!("could not install {url}")));
         }

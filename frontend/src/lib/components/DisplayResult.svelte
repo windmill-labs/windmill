@@ -3,7 +3,8 @@
 
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
-	import DbtRunResult, { type DbtRun } from '$lib/components/dbt/DbtRunResult.svelte'
+	import DbtRunResult from '$lib/components/dbt/DbtRunResult.svelte'
+	import { parseDbtRun } from '$lib/components/dbt/parseDbtRun'
 	import { copyToClipboard, parseS3Object, roughSizeOfObject } from '$lib/utils'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 	import { base } from '$lib/base'
@@ -675,26 +676,7 @@
 	// error message after the exit-status line, and that is the case worth
 	// rendering — the failing node is what the user came for. Inert (undefined)
 	// for every other DisplayResult use.
-	let dbtRun = $derived.by(() => {
-		const looksLikeDbt = (v: any): DbtRun | undefined =>
-			v && typeof v === 'object' && Array.isArray(v.nodes) && typeof v.totals === 'object'
-				? (v as DbtRun)
-				: undefined
-		const direct = looksLikeDbt(result)
-		if (direct) return direct
-		const msg = result?.error?.message
-		if (typeof msg === 'string') {
-			const start = msg.indexOf('{')
-			if (start !== -1) {
-				try {
-					return looksLikeDbt(JSON.parse(msg.slice(start)))
-				} catch {
-					return undefined
-				}
-			}
-		}
-		return undefined
-	})
+	let dbtRun = $derived(parseDbtRun(result))
 </script>
 
 <HighlightTheme />
