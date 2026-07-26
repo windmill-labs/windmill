@@ -57,4 +57,23 @@ describe('createRawAppFromScript', () => {
 		expect(appTsx).toContain('result: result_')
 		expect(app.value.runnables['f'].runType).toBe('flow')
 	})
+
+	it('keeps every generated binding unique and syntactically valid', () => {
+		const app = createRawAppFromScript('u/dev/s', undefined, {
+			type: 'object',
+			order: ['foo', 'setFoo', 'class'],
+			properties: {
+				foo: { type: 'string' },
+				setFoo: { type: 'string' },
+				class: { type: 'string' }
+			}
+		})
+		const appTsx = app.value.files['/App.tsx']
+		expect(appTsx).toContain("const [foo, setFoo] = useState('')")
+		expect(appTsx).toContain("const [setFoo_, setSetFoo_] = useState('')")
+		expect(appTsx).toContain("const [class_, setClass_] = useState('')")
+
+		const declared = [...appTsx.matchAll(/const \[(\w+), (\w+)\]/g)].flatMap((m) => [m[1], m[2]])
+		expect(new Set(declared).size).toBe(declared.length)
+	})
 })

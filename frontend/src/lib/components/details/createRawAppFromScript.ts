@@ -30,9 +30,73 @@ type Field = {
 	arg: string
 }
 
-// Locals the generated component already defines; a runnable argument with one
-// of these names gets suffixed so it can't shadow them.
-const RESERVED_LOCALS = ['React', 'useState', 'backend', 'App', 'run', 'result', 'error', 'running']
+// Locals the generated component already defines, setters included; a runnable
+// argument with one of these names gets suffixed so it can't shadow them.
+const RESERVED_LOCALS = [
+	'React',
+	'useState',
+	'backend',
+	'App',
+	'run',
+	'e',
+	'result',
+	'setResult',
+	'error',
+	'setError',
+	'running',
+	'setRunning'
+]
+
+// Reserved words can't name a `const`, so an argument called `class` or `new`
+// gets suffixed like a collision would be.
+const JS_KEYWORDS = [
+	'await',
+	'break',
+	'case',
+	'catch',
+	'class',
+	'const',
+	'continue',
+	'debugger',
+	'default',
+	'delete',
+	'do',
+	'else',
+	'enum',
+	'export',
+	'extends',
+	'false',
+	'finally',
+	'for',
+	'function',
+	'if',
+	'implements',
+	'import',
+	'in',
+	'instanceof',
+	'interface',
+	'let',
+	'new',
+	'null',
+	'package',
+	'private',
+	'protected',
+	'public',
+	'return',
+	'static',
+	'super',
+	'switch',
+	'this',
+	'throw',
+	'true',
+	'try',
+	'typeof',
+	'var',
+	'void',
+	'while',
+	'with',
+	'yield'
+]
 
 /** `u/admin/my_script` -> `my_script`, sanitized to the identifier the raw-app
  *  editor accepts as a runnable id (letters, digits, underscores). */
@@ -43,13 +107,23 @@ function runnableIdFromPath(path: string): string {
 	return cleaned === '' || forbiddenIds.includes(id) ? 'a' : id
 }
 
-function toLocal(key: string, taken: string[]): string {
-	const cleaned = key.replace(/[^A-Za-z0-9_$]/g, '_')
+/** Reserves a state variable and its setter together: an argument named `foo`
+ *  claims both `foo` and `setFoo`, so a sibling argument named `setFoo` is
+ *  pushed to `setFoo_` instead of redeclaring the first one's setter. */
+function allocLocal(base: string, taken: string[]): { local: string; setter: string } {
+	const cleaned = base.replace(/[^A-Za-z0-9_$]/g, '_')
 	let local = /^[A-Za-z_$]/.test(cleaned) ? cleaned : `_${cleaned}`
-	while (taken.includes(local)) {
+	let setter = setterName(local)
+	while (taken.includes(local) || taken.includes(setter) || JS_KEYWORDS.includes(local)) {
 		local = `${local}_`
+		setter = setterName(local)
 	}
-	return local
+	taken.push(local, setter)
+	return { local, setter }
+}
+
+function setterName(local: string): string {
+	return `set${local.charAt(0).toUpperCase()}${local.slice(1)}`
 }
 
 function fieldKind(prop: any): FieldKind {
@@ -101,8 +175,10 @@ function toFields(schema: Record<string, any> | undefined): Field[] {
 		const prop = properties[key] ?? {}
 		const kind = fieldKind(prop)
 		const isRequired = required.includes(key)
-		const local = toLocal(kind === 'number' || kind === 'json' ? `${key}Text` : key, taken)
-		taken.push(local)
+		const { local, setter } = allocLocal(
+			kind === 'number' || kind === 'json' ? `${key}Text` : key,
+			taken
+		)
 		const enumValues = (Array.isArray(prop.enum) ? prop.enum : []).map((v: any) => String(v))
 
 		let init: string
@@ -131,7 +207,7 @@ function toFields(schema: Record<string, any> | undefined): Field[] {
 			key,
 			kind,
 			local,
-			setter: `set${local.charAt(0).toUpperCase()}${local.slice(1)}`,
+			setter,
 			label: typeof prop.title === 'string' && prop.title !== '' ? prop.title : key,
 			description:
 				typeof prop.description === 'string' && prop.description !== ''
