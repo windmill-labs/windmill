@@ -19,7 +19,7 @@ function docFrom(body: string): Document {
 describe('serializeDocument redaction', () => {
 	it('drops the content, attributes and template fragment of a no-record element', () => {
 		const doc = docFrom(
-			`<div data-wm-no-record title="salary 92000" data-token="sk-secret" aria-label="confidential">visible secret</div>` +
+			`<div data-wm-no-record="why-hidden-92000" title="salary 92000" data-token="sk-secret" aria-label="confidential">visible secret</div>` +
 				`<select><option data-wm-no-record label="codename falcon">falcon</option></select>` +
 				`<template data-wm-no-record><input value="template secret"></template>`
 		)
@@ -41,24 +41,33 @@ describe('serializeDocument redaction', () => {
 			'codename falcon',
 			'falcon',
 			'template secret',
-			'signed-secret'
+			'signed-secret',
+			// The marker itself is author-written free text; it survives so the element
+			// can still be styled, but carries nothing of its own.
+			'why-hidden-92000'
 		]) {
 			expect(html).not.toContain(secret)
 		}
+		expect(html).toContain('data-wm-no-record=""')
 	})
 
-	it('redacts a marked document root, and keeps only layout attributes', () => {
+	it('redacts a marked document root down to its constrained attributes', () => {
+		// Marking the root marks every stylesheet with it, so no CSS survives to
+		// justify keeping a class: only attributes whose values cannot carry content
+		// are left.
 		const doc = docFrom(
 			`<style>.theme-dark { color: white }</style><p>everything here is private</p>`
 		)
 		doc.documentElement.setAttribute('data-wm-no-record', '')
 		doc.documentElement.setAttribute('class', 'theme-dark')
+		doc.documentElement.setAttribute('hidden', '')
 		doc.documentElement.setAttribute('cite', 'https://host/private-source')
 
 		const html = serializeDocument(doc)
 		expect(html).not.toContain('everything here is private')
 		expect(html).not.toContain('private-source')
-		expect(html).toContain('theme-dark')
+		expect(html).not.toContain('theme-dark')
+		expect(html).toContain('hidden')
 	})
 
 	it('keeps no attribute that could carry content, listed or not', () => {
@@ -74,6 +83,18 @@ describe('serializeDocument redaction', () => {
 		expect(html).not.toContain('salary-92000')
 		// The layout-bearing class survives: the snapshot's own CSS selects on it.
 		expect(html).toContain('class="frame"')
+	})
+
+	it('does not let a marked stylesheet justify keeping the class it selects', () => {
+		// The marked sheet is scrubbed, so its selectors are not part of the
+		// snapshot's vocabulary: honouring them would launder the very token the
+		// author marked the sheet to withhold.
+		const doc = docFrom(
+			`<style data-wm-no-record>.salary-92000 { color: red }</style>` +
+				`<div data-wm-no-record class="salary-92000">x</div>`
+		)
+		const html = serializeDocument(doc)
+		expect(html).not.toContain('salary-92000')
 	})
 
 	it('keeps only the class and id tokens the snapshot styles', () => {
@@ -135,6 +156,18 @@ describe('serializeDocument redaction', () => {
 		} finally {
 			style.remove()
 		}
+	})
+
+	it('keeps a utility class whose selector is escaped', () => {
+		// A framework writes `md:flex` as `.md\\:flex`; reading the selector up to the
+		// backslash would drop the real token and leave the placeholder unstyled.
+		const doc = docFrom(
+			`<style>.md\\:flex { display: flex } .w-1\\/2 { width: 50% }</style>` +
+				`<div data-wm-no-record class="md:flex w-1/2 not-styled-92000">x</div>`
+		)
+		const html = serializeDocument(doc)
+		expect(html).toContain('class="md:flex w-1/2"')
+		expect(html).not.toContain('not-styled-92000')
 	})
 
 	it('keeps a disabled sheet inert without shifting what follows it', () => {

@@ -36,7 +36,6 @@
 		Shield,
 		Trash,
 		History,
-		Globe2,
 		FileText
 	} from 'lucide-svelte'
 	import ScriptVersionHistory from '$lib/components/ScriptVersionHistory.svelte'
@@ -47,7 +46,6 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
-	import { hubPublishHref } from '$lib/hub'
 	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 
@@ -405,14 +403,6 @@
 						action: () => {
 							copyToClipboard(script.path)
 						}
-					},
-					{
-						displayName: 'Publish to Hub',
-						icon: Globe2,
-						// Publishing goes through the project flow, whose Hub endpoints are
-						// workspace-admin only: offering it to anyone else ends in a 403.
-						hide: !($userStore?.is_admin || $userStore?.is_super_admin),
-						action: () => goto(hubPublishHref(base, script.path))
 					},
 					{
 						displayName: script.archived ? 'Unarchive' : 'Archive',

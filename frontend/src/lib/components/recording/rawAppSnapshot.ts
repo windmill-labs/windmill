@@ -138,21 +138,41 @@ export function redactedDescription(el: Element): string {
 	return `${role} (redacted)`
 }
 
+/** A selector's identifier, escapes included: a utility framework writes a class
+ * like `md:flex` as `.md\:flex` and `w-1/2` as `.w-1\/2`, so stopping at the
+ * backslash would read the token as `md` and drop the real one — costing a
+ * redacted placeholder the styling it is kept around for. */
+const CLASS_SELECTOR = /\.(-?[_a-zA-Z][\w-]*(?:\\.[\w-]*)*)/g
+const ID_SELECTOR = /#(-?[_a-zA-Z][\w-]*(?:\\.[\w-]*)*)/g
+
+/** CSS escapes back to the literal text an attribute holds: `\:` is `:`, and a
+ * hex escape (`\3a `) is its code point. */
+function unescapeCssIdent(ident: string): string {
+	return ident.replace(/\\([0-9a-fA-F]{1,6})[ \t\n]?|\\([^])/g, (_, hex, ch) =>
+		hex ? String.fromCodePoint(parseInt(hex, 16)) : ch
+	)
+}
+
 /** Class and id tokens the snapshot's own (already inlined) stylesheets select
  * on. `class` and `id` are kept on redacted elements so their box keeps its
  * shape, but their values are author-chosen free text and can carry the very
  * content the marker withholds (`id="salary-92000"`). A token the CSS selects on
  * is styling vocabulary by construction; one it never mentions buys the layout
- * nothing, so it goes. Matching is textual and deliberately errs towards
+ * nothing, so it goes. Only stylesheets that survive into the snapshot count.
+ * Matching is textual and deliberately errs towards
  * dropping: a class reached only through `[class~=…]` loses its styling, which
  * costs a placeholder its shape rather than leaking anything. */
 function styledTokens(clone: Element): { classes: Set<string>; ids: Set<string> } {
 	const classes = new Set<string>()
 	const ids = new Set<string>()
 	for (const style of Array.from(clone.querySelectorAll('style'))) {
+		// A marked stylesheet is scrubbed too, so its selectors are not vocabulary:
+		// letting `<style data-wm-no-record>.salary-92000{}</style>` justify keeping
+		// that class would launder the token the sheet was marked to withhold.
+		if (isRedacted(style)) continue
 		const css = style.textContent ?? ''
-		for (const m of css.matchAll(/\.(-?[_a-zA-Z][\w-]*)/g)) classes.add(m[1])
-		for (const m of css.matchAll(/#(-?[_a-zA-Z][\w-]*)/g)) ids.add(m[1])
+		for (const m of css.matchAll(CLASS_SELECTOR)) classes.add(unescapeCssIdent(m[1]))
+		for (const m of css.matchAll(ID_SELECTOR)) ids.add(unescapeCssIdent(m[1]))
 	}
 	return { classes, ids }
 }
@@ -171,6 +191,10 @@ function redactMarkedSubtrees(doc: Document, root: Element) {
 	]
 	for (const n of marked) {
 		n.replaceChildren(doc.createTextNode('•••'))
+		// The marker is kept (an app may style `[data-wm-no-record]`) but emptied: its
+		// value is author-written free text that nothing downstream reads, so leaving
+		// it verbatim would be the one way past the allow-list below.
+		n.setAttribute(NO_RECORD_ATTR, '')
 		for (const attr of Array.from(n.attributes)) {
 			if (attr.name === NO_RECORD_ATTR) continue
 			const name = attr.localName.toLowerCase()
@@ -243,31 +267,6 @@ function freezeFormState(doc: Document, clone: Element) {
 	}
 }
 
-/** Re-stringifying every rule of a framework stylesheet costs more than the rest
- * of a snapshot combined, and snapshots are taken several times per interaction
- * on the app's own event path. Only linked sheets are cached: their text is
- * fixed once fetched, whereas a CSS-in-JS `<style>` is rewritten in place (a
- * theme toggle can change a rule without changing the rule count). */
-const sheetCssCache = new WeakMap<CSSStyleSheet, { probe: string; css: string }>()
-
-/** Cheap stand-in for "have these rules changed": the count plus the text of up
- * to 16 rules spread across the sheet (every rule, for a small one). Reading a
- * rule stringifies it, so probing all of a framework sheet would cost as much as
- * the re-serialization this cache exists to avoid — a mutation to an unsampled
- * rule of a *linked* sheet can therefore be missed, which is why only linked
- * sheets (fetched once, rarely rewritten) are cached at all. */
-function rulesProbe(rules: CSSRuleList): string {
-	const n = rules.length
-	const samples = Math.min(16, n)
-	const parts = [String(n)]
-	for (let i = 0; i < samples; i++) {
-		const index = samples === 1 ? 0 : Math.round((i * (n - 1)) / (samples - 1))
-		const text = rules[index]?.cssText ?? ''
-		parts.push(String(text.length), text.slice(0, 64))
-	}
-	return parts.join('|')
-}
-
 /** Rule text, with `@import` replaced by the rules it pulls in: the replay CSP
  * refuses the fetch, so an unexpanded import is simply lost styling. An import
  * that carries a cascade layer replays as unlayered rules at the import's
@@ -288,18 +287,19 @@ function expandRules(rules: CSSRuleList): string {
 		.join('\n')
 }
 
+/** Re-read every time rather than cached against a sampled probe: an app that
+ * restyles at runtime (a theme toggle rewriting a rule in place) leaves any
+ * sample of the sheet unchanged, and the snapshot would then replay styling the
+ * user never saw. A probe cheap enough to be worth caching cannot be exact,
+ * because the cost being avoided *is* reading the rules. Measured at ~18ms for
+ * 11k rules across 177 sheets, which is small next to the rest of a snapshot. */
 function sheetCss(sheet: CSSStyleSheet, rules: CSSRuleList): string {
-	const cacheable = !!sheet.href
-	const probe = cacheable ? rulesProbe(rules) : ''
-	const cached = cacheable ? sheetCssCache.get(sheet) : undefined
-	if (cached && cached.probe === probe) return cached.css
 	let css = expandRules(rules)
 	if (sheet.href) css = rewriteCssUrls(css, sheet.href)
 	// `cssRules` drops the sheet-level media condition the `<link media>` carried,
 	// so an unwrapped inline copy would apply print-only CSS to every replay.
 	const media = sheet.media?.mediaText
 	if (media) css = `@media ${media} {\n${css}\n}`
-	if (cacheable) sheetCssCache.set(sheet, { probe, css })
 	return css
 }
 
