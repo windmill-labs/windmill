@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.771.0](https://github.com/windmill-labs/windmill/compare/v1.770.0...v1.771.0) (2026-07-26)
+
+
+### Features
+
+* bind WAC approval urls to a named wait_for_approval step ([#10317](https://github.com/windmill-labs/windmill/issues/10317)) ([9cef724](https://github.com/windmill-labs/windmill/commit/9cef724ff2fcae7aea7b11582ce18529f589665d))
+* make bigquery and snowflake script languages available in CE ([#10324](https://github.com/windmill-labs/windmill/issues/10324)) ([a8455ac](https://github.com/windmill-labs/windmill/commit/a8455acd7dd11a79f775a401275a128f206cace7))
+* mark failed jobs as resolved so handled failures stop showing red ([#10319](https://github.com/windmill-labs/windmill/issues/10319)) ([4d3ff02](https://github.com/windmill-labs/windmill/commit/4d3ff0299fed656c0e3a498d463375047de47d39))
+* multiple homepage sort orders via an efficient merged runnables endpoint ([#10297](https://github.com/windmill-labs/windmill/issues/10297)) ([71b7135](https://github.com/windmill-labs/windmill/commit/71b7135cf2457034949540a6c1568424ce9ba8b5))
+* record and replay raw app sessions step by step ([#10318](https://github.com/windmill-labs/windmill/issues/10318)) ([e80fee8](https://github.com/windmill-labs/windmill/commit/e80fee86b3d97268efbabf21787f439b7b52f30d))
+
+
+### Bug Fixes
+
+* **frontend:** pin sveltekit version.name so builds are reproducible across architectures ([#10315](https://github.com/windmill-labs/windmill/issues/10315)) ([65db58b](https://github.com/windmill-labs/windmill/commit/65db58bfdaf50009931e3594bd55c5d6c4c07332))
+* operators cannot archive or delete flows and apps ([#10322](https://github.com/windmill-labs/windmill/issues/10322)) ([2bf7746](https://github.com/windmill-labs/windmill/commit/2bf7746cdd299d99da7f4b48c4e24891efb42ae5))
+* scope cd in parser wasm dev.nu so cli install path resolves ([#10329](https://github.com/windmill-labs/windmill/issues/10329)) ([80ad357](https://github.com/windmill-labs/windmill/commit/80ad357c067b1716694a4005934dcb5a038308ef))
+
 ## [1.770.0](https://github.com/windmill-labs/windmill/compare/v1.769.0...v1.770.0) (2026-07-24)
 
 
