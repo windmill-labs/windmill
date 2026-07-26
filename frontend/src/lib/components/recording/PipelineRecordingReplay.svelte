@@ -261,11 +261,20 @@
 		return (shownStatuses[selection.path] ?? finalStatuses[selection.path])?.status
 	})
 
-	// Output (args/logs/result) vs the step's source code, for a runnable node.
-	let runnableTab = $state<'output' | 'code'>('output')
+	// The step's source code vs its output (args/logs/result), for a runnable node.
+	let runnableTab = $state<'output' | 'code'>('code')
 	let selectedCode = $derived.by(() => {
 		if (selection?.kind !== 'runnable') return undefined
 		return recording.codes?.[selection.path]
+	})
+	// Land on the code, since that is what the step *is* — but fall back to Output
+	// when the recording carries none, so a recording made before `codes` existed
+	// does not open on an empty pane. Re-runs per selected step, so a tab the
+	// viewer picked by hand survives until they move to another step.
+	$effect(() => {
+		const path = selection?.kind === 'runnable' ? selection.path : undefined
+		if (path === undefined) return
+		runnableTab = recording.codes?.[path] ? 'code' : 'output'
 	})
 
 	// Recorded data-sample for a selected asset node (ducklake/datatable).
@@ -382,8 +391,8 @@
 											on:selected={(e) => (runnableTab = e.detail)}
 										>
 											{#snippet children({ item })}
-												<ToggleButton size="sm" value="output" label="Output" {item} />
 												<ToggleButton size="sm" value="code" label="Code" {item} />
+												<ToggleButton size="sm" value="output" label="Output" {item} />
 											{/snippet}
 										</ToggleButtonGroup>
 									</div>
