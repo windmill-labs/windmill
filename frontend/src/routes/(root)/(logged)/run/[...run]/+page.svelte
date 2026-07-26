@@ -43,6 +43,7 @@
 	} from 'lucide-svelte'
 
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
+	import DbtRunGraph from '$lib/components/dbt/DbtRunGraph.svelte'
 	import DispatchEventsPanel from '$lib/components/runs/DispatchEventsPanel.svelte'
 	import UpstreamSnapshotsPanel from '$lib/components/runs/UpstreamSnapshotsPanel.svelte'
 	import {
@@ -942,6 +943,16 @@
 				{/if}
 				{#if scriptProgress}
 					<JobProgressBar {job} {scriptProgress} class="py-4" hideStepTitle={true} />
+				{/if}
+
+				<!-- The models a dbt run touches, above its result: the run page is
+				     where you land on a running job, and the per-node table below
+				     only exists once the job has produced one. -->
+				{#if job?.language === 'dbt' && job?.script_path}
+					<div class="mr-2 sm:mr-0 mt-12">
+						<h3 class="text-xs font-semibold text-emphasis mb-1">Models</h3>
+						<DbtRunGraph scriptPath={job.script_path} running={job.type !== 'CompletedJob'} />
+					</div>
 				{/if}
 
 				<!-- Result Section (moved outside tabs) -->
