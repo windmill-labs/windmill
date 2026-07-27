@@ -887,6 +887,14 @@ export async function findContentFile(filePath: string) {
       : filePath.endsWith("script.lock")
       ? filePath.replace(".script.lock", ext)
       : filePath.replace(".script.yaml", ext);
+  // Every branch above is a no-op on a path that is neither flat nor
+  // module-entry metadata, which would make toCandidate the identity function
+  // and "resolve" the input to itself.
+  if (!isModuleFolderMeta && !/\.script\.(yaml|json|lock)$/.test(filePath)) {
+    throw new Error(
+      `${filePath} is not a script metadata file — no script file can be resolved from it.`
+    );
+  }
   const candidates = exts.map(toCandidate);
 
   const validCandidates = (
