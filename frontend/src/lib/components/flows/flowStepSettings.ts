@@ -174,10 +174,9 @@ const SPECS: { key: StepSettingKey; spec: SettingSpec }[] = [
 				const r = m.retry
 				if (r?.constant == undefined && r?.exponential == undefined) return def('None')
 				if (validateRetryConfig(r)) return { text: 'Invalid', state: 'invalid' }
-				const e = r?.exponential?.attempts
-				const c = r?.constant?.attempts
-				const n = e ?? c ?? 0
-				const kind = e != undefined ? 'exponential' : 'constant'
+				const isConstant = r?.constant != undefined
+				const n = (isConstant ? r?.constant?.attempts : r?.exponential?.attempts) ?? 0
+				const kind = isConstant ? 'constant' : 'exponential'
 				return cfg(`${n} attempt${n === 1 ? '' : 's'}, ${kind}`)
 			}
 		}
@@ -315,31 +314,35 @@ export function stepSettingsByKey(
 export const TRIGGER_STOP_EXPR = '!result || (Array.isArray(result) && result.length == 0)'
 
 /** The config a setting is seeded with when it is switched on. Read by the setting
- *  editors and by every path that creates a step, so both agree. */
-export function stepSettingDefaults(key: StepSettingKey, kind?: 'trigger' | 'end'): any {
-	switch (key) {
-		case 'skip':
-			return { expr: 'false' }
-		case 'early-stop':
-			if (kind === 'trigger') return { expr: TRIGGER_STOP_EXPR, skip_if_stopped: true }
-			if (kind === 'end') return { expr: 'true', skip_if_stopped: false }
-			return {
-				expr: 'result == undefined',
-				skip_if_stopped: false,
-				error_message: undefined,
-				error_include_result: false
-			}
-		case 'suspend':
-			return { required_events: 1, timeout: 1800 }
-		case 'sleep':
-			return { type: 'static', value: 0 }
-		case 'cache':
-			return 600
-		case 'lifetime':
-			return 0
-		case 'priority':
-			return 100
-		default:
-			return undefined
-	}
+ *  editors and by every path that creates a step, so both agree. Settings absent from
+ *  this map have no seeded config (the editor writes the value directly). */
+const DEFAULTS = {
+	skip: () => ({ expr: 'false' }),
+	'early-stop': (kind?: 'trigger' | 'end') =>
+		kind === 'trigger'
+			? { expr: TRIGGER_STOP_EXPR, skip_if_stopped: true }
+			: kind === 'end'
+				? { expr: 'true', skip_if_stopped: false }
+				: {
+						expr: 'result == undefined',
+						skip_if_stopped: false,
+						error_message: undefined,
+						error_include_result: false
+					},
+	suspend: () => ({ required_events: 1, timeout: 1800 }),
+	sleep: () => ({ type: 'static' as const, value: 0 }),
+	cache: () => 600,
+	lifetime: () => 0,
+	priority: () => 100
+} satisfies Partial<Record<StepSettingKey, (kind?: 'trigger' | 'end') => unknown>>
+
+export type SeededSettingKey = keyof typeof DEFAULTS
+
+/** Seeded config for a setting. Typed per key, so an unhandled key is a compile
+ *  error rather than a silent `undefined`. */
+export function stepSettingDefaults<K extends SeededSettingKey>(
+	key: K,
+	kind?: 'trigger' | 'end'
+): ReturnType<(typeof DEFAULTS)[K]> {
+	return DEFAULTS[key](kind) as ReturnType<(typeof DEFAULTS)[K]>
 }

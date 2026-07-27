@@ -137,6 +137,5 @@ Only output the expression, do not explain or discuss.`
 	})
 </script>
 
-<!-- The iterator autocompletion runs headless: the focus effect generates the
-     ghost-text suggestion and `onKeyUp` accepts it with Tab. The on-screen
-     Wand/TAB button and its spinner were removed as intrusive. -->
+<!-- Headless: the focus effect generates the ghost-text suggestion and
+     `onKeyUp` accepts it with Tab. There is no on-screen trigger. -->

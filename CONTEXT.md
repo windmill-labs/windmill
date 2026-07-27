@@ -11,8 +11,8 @@ One node of a flow — the unit a user selects in the graph and configures in th
 _Avoid_: module (ambiguous with the architectural sense), node, action
 
 **Step setting**:
-A per-step runtime option stored on the step itself: retries, error handling, timeout, concurrency limit, priority, cache, debounce, early stop, skip, suspend, sleep, lifetime. Distinct from the step's inputs and its code.
-_Avoid_: advanced setting, run setting, step config, flow option
+A per-step runtime option stored on the step itself: retries, error handling, timeout, concurrency limit, priority, cache, debounce, early stop, skip, suspend, sleep, lifetime. Distinct from the step's inputs and its code. The panel that edits them is the **run settings** tab; a single setting is still a step setting.
+_Avoid_: advanced setting, step config, flow option
 
 **Configured**:
 Said of a step setting whose config object is present on the step. Deliberately not the same as "would change the runtime's behaviour" — a setting can be configured and still be a no-op (`sleep` of `0`). Every surface that answers "is this setting on?" answers it this way.

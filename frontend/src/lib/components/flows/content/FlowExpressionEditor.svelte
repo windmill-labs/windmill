@@ -58,7 +58,7 @@
 		flow_input = undefined,
 		extraLib = undefined,
 		id = undefined,
-		focused = $bindable(false),
+		focused = $bindable(),
 		editor = $bindable(undefined),
 		suggestion = undefined,
 		headerExtra,

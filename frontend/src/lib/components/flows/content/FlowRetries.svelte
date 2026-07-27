@@ -110,10 +110,12 @@
 	}
 
 	function initialLoad() {
+		// Presence, not attempts > 0: a retry block with zero attempts is still
+		// configured, and flowStepSettings describes it that way.
 		delayType =
-			(flowModuleRetry?.constant?.attempts ?? 0) > 0
+			flowModuleRetry?.constant != undefined
 				? 'constant'
-				: (flowModuleRetry?.exponential?.attempts ?? 0) > 0
+				: flowModuleRetry?.exponential != undefined
 					? 'exponential'
 					: 'disabled'
 		loaded = true

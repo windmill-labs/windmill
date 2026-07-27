@@ -208,6 +208,7 @@
 		}
 		if (modalPanel) {
 			selectionManager.setOnSelectIntent((id, opts) => {
+				if (opts?.openPanel === false) return
 				if (panelMode === 'modal' && (opts?.openPanel || isNonModulePanelTarget(id))) {
 					panelModalOpen = true
 				}

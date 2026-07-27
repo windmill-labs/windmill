@@ -210,9 +210,8 @@ Only return the expression without any wrapper.`
 </script>
 
 {#if $copilotInfo.enabled && $stepInputCompletionEnabled}
-	<!-- The autocompletion runs headless: the focus effect generates the ghost-text
-	     suggestion and `onKeyUp` accepts it with Tab. The on-screen Wand/TAB button and
-	     its spinner were removed as intrusive. -->
+	<!-- Headless: the focus effect generates the ghost-text suggestion and
+	     `onKeyUp` accepts it with Tab. There is no on-screen trigger. -->
 	<FlowCopilotInputsModal
 		on:confirmed={async () => {
 			createFlowInput()

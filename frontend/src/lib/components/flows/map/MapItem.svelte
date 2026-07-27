@@ -204,6 +204,11 @@
 					on:delete
 					on:move
 					on:pointerdown={handlePointerDown}
+					onUpdateMock={(mock) => {
+						mod.mock = mock
+						onUpdateMock?.({ id: mod.id, mock })
+					}}
+					alwaysShowOutputPicker
 					{...itemProps}
 					id={mod.id}
 					label={mod.summary || 'Run one branch'}
@@ -224,6 +229,11 @@
 					on:delete
 					on:move
 					on:pointerdown={handlePointerDown}
+					onUpdateMock={(mock) => {
+						mod.mock = mock
+						onUpdateMock?.({ id: mod.id, mock })
+					}}
+					alwaysShowOutputPicker
 					id={mod.id}
 					{...itemProps}
 					label={mod.summary || `Run all branches${mod.value.parallel ? ' (parallel)' : ''}`}
