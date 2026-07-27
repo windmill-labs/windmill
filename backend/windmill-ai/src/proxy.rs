@@ -82,12 +82,15 @@ pub fn supports_query_builder_proxy(provider: &AIProvider) -> bool {
     proxy_execution_mode(provider).uses_query_builder_proxy()
 }
 
+/// The headers that carry a credential on an outbound AI request.
+pub const CREDENTIAL_HEADERS: [&str; 3] = ["authorization", "x-api-key", "api-key"];
+
 /// Whether the resource supplies its own credential header, in which case the
 /// built-in one must be dropped rather than added: outgoing headers are appended,
 /// not replaced, so both would travel and endpoints reject ambiguous credentials.
-pub(crate) fn credentials_overridden(credentials: &ProviderCredentials, names: &[&str]) -> bool {
+pub fn resource_owns_credentials(credentials: &ProviderCredentials) -> bool {
     credentials.custom_headers.keys().any(|header_name| {
-        names
+        CREDENTIAL_HEADERS
             .iter()
             .any(|name| header_name.eq_ignore_ascii_case(name))
     })
@@ -111,7 +114,7 @@ pub fn build_openai_compatible_proxy_request(args: &ProxyBuildArgs<'_>) -> Resul
 
     let mut headers = vec![("content-type".to_string(), "application/json".to_string())];
 
-    let auth_overridden = credentials_overridden(credentials, &["authorization", "api-key"]);
+    let auth_overridden = resource_owns_credentials(credentials);
 
     if let Some(api_key) = credentials.api_key.as_ref().filter(|_| !auth_overridden) {
         if is_azure {
@@ -213,6 +216,40 @@ mod tests {
         assert!(request
             .headers
             .contains(&("OpenAI-Organization".to_string(), "org-id".to_string())));
+    }
+
+    /// A resource that carries its own credential owns authentication; outgoing
+    /// headers are appended, not replaced, so the built-in one must be dropped or
+    /// two credentials reach the endpoint.
+    #[test]
+    fn resource_header_replaces_the_built_in_credential() {
+        let mut credentials = credentials(AIProvider::CustomAI, "https://gateway.example/openai");
+        credentials.custom_headers = HashMap::from([(
+            "Authorization".to_string(),
+            "Bearer gateway-token".to_string(),
+        )]);
+        let method = Method::POST;
+
+        let request = build_openai_compatible_proxy_request(&ProxyBuildArgs {
+            method: &method,
+            path: "chat/completions",
+            headers: &HeaderMap::new(),
+            body: br#"{"model":"model","messages":[]}"#,
+            credentials: &credentials,
+        })
+        .unwrap();
+
+        assert_eq!(
+            request
+                .headers
+                .iter()
+                .filter(|(header_name, _)| header_name.eq_ignore_ascii_case("authorization"))
+                .collect::<Vec<_>>(),
+            vec![&(
+                "Authorization".to_string(),
+                "Bearer gateway-token".to_string()
+            )]
+        );
     }
 
     #[test]

@@ -2,7 +2,7 @@ use crate::{
     ai_google::parse_data_url,
     ai_providers::{AIPlatform, AIProvider},
     image_handler::prepare_messages_for_api,
-    proxy::{add_user_to_body, credentials_overridden, ProxyBuildArgs, ProxyRequest},
+    proxy::{add_user_to_body, resource_owns_credentials, ProxyBuildArgs, ProxyRequest},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
     sse::{AnthropicSSEParser, SSEParser},
     types::*,
@@ -547,7 +547,7 @@ impl AnthropicQueryBuilder {
         // Exactly one auth header, matching `get_auth_headers`: Vertex takes an
         // OAuth bearer token, every other Messages endpoint takes x-api-key.
         // Endpoints in front of Anthropic reject requests carrying both.
-        let auth_overridden = credentials_overridden(credentials, &["authorization", "x-api-key"]);
+        let auth_overridden = resource_owns_credentials(credentials);
 
         if let Some(api_key) = credentials.api_key.as_ref().filter(|_| !auth_overridden) {
             if is_vertex {

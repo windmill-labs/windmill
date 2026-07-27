@@ -71,7 +71,9 @@ fn is_azure_endpoint(base_url: &str) -> bool {
     AZURE_HOST_SUFFIXES
         .iter()
         .any(|suffix| host.ends_with(suffix))
-        || base_url.contains(AZURE_DEPLOYMENTS_PATH)
+        || base_url
+            .to_ascii_lowercase()
+            .contains(AZURE_DEPLOYMENTS_PATH)
 }
 
 /// Empty string signals BedrockClient::from_env() to use the region from AWS environment/config
