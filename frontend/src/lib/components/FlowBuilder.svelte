@@ -11,6 +11,7 @@
 	} from '$lib/gen'
 	import { initHistory, redo, undo } from '$lib/history.svelte'
 	import {
+		clearLinkedAgentTools,
 		linkedToolsScope,
 		linkedAgentToolsVersion,
 		migrateLinkedAgentToolsScope
@@ -48,7 +49,7 @@
 	import WorkspaceScriptSettingsDrawer from './flows/content/WorkspaceScriptSettingsDrawer.svelte'
 	import FlowEditorDrawer from './flows/content/FlowEditorDrawer.svelte'
 	import { dfs as dfsApply } from './flows/dfs'
-	import { publishLinkedAgentTools } from './flows/flowState'
+	import { claimLinkedToolsFetch, publishLinkedAgentTools } from './flows/flowState'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
@@ -590,17 +591,38 @@
 			.filter((x): x is string => x !== undefined)
 			.join('\u0001')
 	)
+	// The link each module's stored tools belong to. Seeded from the current graph, because
+	// initFlowState has already resolved those — starting empty would clear and refetch every step
+	// on the first run.
+	let publishedAgentByModule = untrack(() => linkedAgentEntries(linkedAgentRefs))
 	$effect(() => {
 		const refs = linkedAgentRefs
 		const ws = opWorkspace
 		const scope = linkedToolsScope(opWorkspace, $pathStore)
 		untrack(() => {
-			for (const entry of refs ? refs.split('\u0001') : []) {
-				const [moduleId, agentPath] = entry.split('\u0000')
+			const next = linkedAgentEntries(refs)
+			for (const [moduleId, agentPath] of next) {
+				// Drop the previous agent's tools up front: the fetch below lands later, and until it
+				// does the graph and the step's binding editor would otherwise still be showing — and
+				// writing overrides against — the tool ids of the agent that was just replaced.
+				if (publishedAgentByModule.get(moduleId) !== agentPath) {
+					claimLinkedToolsFetch(scope, moduleId)
+					clearLinkedAgentTools(scope, moduleId)
+				}
 				publishLinkedAgentTools(agentPath, ws, scope, moduleId)
 			}
+			publishedAgentByModule = next
 		})
 	})
+
+	function linkedAgentEntries(refs: string): Map<string, string> {
+		const entries = new Map<string, string>()
+		for (const entry of refs ? refs.split('\u0001') : []) {
+			const [moduleId, agentPath] = entry.split('\u0000')
+			entries.set(moduleId, agentPath)
+		}
+		return entries
+	}
 
 	// "Open in AI session" target: the URL draft path the editor loads/saves by
 	// (which for a new flow differs from the live-edited friendly `$pathStore`),

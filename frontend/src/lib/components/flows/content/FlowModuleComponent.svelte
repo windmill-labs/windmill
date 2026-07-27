@@ -108,9 +108,20 @@
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const selectedId = $derived(selectionManager.getSelectedId())
-	// One shared instance for a module that carries no `tools`: a fresh [] per read would give the
-	// agent editor an unstable identity, and its save guard uses that to detect a replaced step.
-	const NO_TOOLS: NonNullable<Extract<FlowModule['value'], { type: 'aiagent' }>['tools']> = []
+	// The agent editor's save guard uses the `tools` array identity to tell "same step" from "step
+	// replaced mid-save", so a module carrying no `tools` must read as one stable array — but a
+	// distinct one per module value, or a wholesale edit that keeps the module id would look
+	// unchanged. Keyed by the value object, which a replacement always renews.
+	type AgentTools = NonNullable<Extract<FlowModule['value'], { type: 'aiagent' }>['tools']>
+	const noToolsByValue = new WeakMap<object, AgentTools>()
+	function noTools(value: object): AgentTools {
+		let empty = noToolsByValue.get(value)
+		if (!empty) {
+			empty = []
+			noToolsByValue.set(value, empty)
+		}
+		return empty
+	}
 
 	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
 
@@ -1165,8 +1176,8 @@
 														bind:tools={
 															() =>
 																flowModule.value.type === 'aiagent'
-																	? (flowModule.value.tools ?? NO_TOOLS)
-																	: NO_TOOLS,
+																	? (flowModule.value.tools ?? noTools(flowModule.value))
+																	: noTools(flowModule),
 															(v) => {
 																if (flowModule.value.type === 'aiagent') {
 																	flowModule.value.tools = v
