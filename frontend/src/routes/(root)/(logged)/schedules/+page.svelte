@@ -406,8 +406,8 @@
 											schedule: {path}
 										</div>
 									</a>
-									{#if draft_only || hasDraft}
-										<DraftBadge {draft_only} is_draft={true} />
+									{#if !draft_only && hasDraft}
+										<DraftBadge is_draft={true} />
 									{/if}
 								</div>
 								{#if labels?.length}
@@ -470,32 +470,35 @@
 									{/if}
 								</div>
 
-								{#key toggleResetVersions[path] ?? 0}
-									<Toggle
-										disabled={draft_only}
-										options={{
-											title: draft_only
-												? 'Draft only: deploy the schedule to enable it'
-												: hasDraft
-													? 'Enables/disables the deployed schedule; the draft is not affected'
-													: undefined
-										}}
-										checked={!draft_only && enabled}
-										on:change={(e) => {
-											if (canWrite) {
-												setScheduleEnabled(path, e.detail)
-											} else {
-												sendUserToast('not enough permission', true)
-												// Permission denied — bump the row's reset
-												// counter so the Toggle remounts back to the
-												// prop value. Without this, the local
-												// `bind:checked` flip from the user's click
-												// stays stuck on.
-												bumpToggleReset(path)
-											}
-										}}
-									/>
-								{/key}
+								<div class="flex justify-end shrink-0 w-20">
+									{#if draft_only}
+										<DraftBadge {draft_only} is_draft={true} />
+									{:else}
+										{#key toggleResetVersions[path] ?? 0}
+											<Toggle
+												options={{
+													title: hasDraft
+														? 'Enables/disables the deployed schedule; the draft is not affected'
+														: undefined
+												}}
+												checked={enabled}
+												on:change={(e) => {
+													if (canWrite) {
+														setScheduleEnabled(path, e.detail)
+													} else {
+														sendUserToast('not enough permission', true)
+														// Permission denied — bump the row's reset
+														// counter so the Toggle remounts back to the
+														// prop value. Without this, the local
+														// `bind:checked` flip from the user's click
+														// stays stuck on.
+														bumpToggleReset(path)
+													}
+												}}
+											/>
+										{/key}
+									{/if}
+								</div>
 								<div class="flex gap-2 items-center justify-end">
 									<Button
 										href={`${base}/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`}

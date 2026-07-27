@@ -417,8 +417,8 @@
 										runnable: {script_path}
 									</div>
 								</a>
-								{#if draft_only || hasDraft}
-									<DraftBadge {draft_only} is_draft={true} />
+								{#if !draft_only && hasDraft}
+									<DraftBadge is_draft={true} />
 								{/if}
 							</div>
 
@@ -475,30 +475,33 @@
 							{/if}
 
 							{#if delivery_type !== 'push'}
-								<TriggerModeToggle
-									disabled={draft_only}
-									title={draft_only
-										? 'Draft only: deploy the trigger to enable it'
-										: hasDraft
-											? 'Enables/disables the deployed trigger; the draft is not affected'
-											: undefined}
-									onToggleMode={(newMode) => onToggleMode(path, newMode)}
-									triggerMode={draft_only ? 'disabled' : mode}
-									includeModalConfig={{
-										triggerPath: path,
-										triggerKind: 'gcp',
-										runnableConfig: {
-											path: script_path,
-											kind: is_flow ? 'flow' : 'script',
-											retry,
-											errorHandlerPath: error_handler_path,
-											errorHandlerArgs: error_handler_args
-										}
-									}}
-									{canWrite}
-									hideToggleLabels
-									hideDropdown
-								/>
+								<div class="flex justify-end shrink-0 w-20">
+									{#if draft_only}
+										<DraftBadge {draft_only} is_draft={true} />
+									{:else}
+										<TriggerModeToggle
+											title={hasDraft
+												? 'Enables/disables the deployed trigger; the draft is not affected'
+												: undefined}
+											onToggleMode={(newMode) => onToggleMode(path, newMode)}
+											triggerMode={mode}
+											includeModalConfig={{
+												triggerPath: path,
+												triggerKind: 'gcp',
+												runnableConfig: {
+													path: script_path,
+													kind: is_flow ? 'flow' : 'script',
+													retry,
+													errorHandlerPath: error_handler_path,
+													errorHandlerArgs: error_handler_args
+												}
+											}}
+											{canWrite}
+											hideToggleLabels
+											hideDropdown
+										/>
+									{/if}
+								</div>
 							{/if}
 
 							<div class="flex gap-2 items-center justify-end">
