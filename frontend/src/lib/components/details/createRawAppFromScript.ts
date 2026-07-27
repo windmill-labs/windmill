@@ -13,6 +13,10 @@ export type RawAppImport = {
 
 type FieldKind = 'text' | 'number' | 'boolean' | 'enum' | 'json'
 
+/** Schema enums are either bare values or `{ value, label }` pairs; the option
+ *  submits `value` and displays `label`. */
+type EnumOption = { value: string; label: string }
+
 type Field = {
 	/** Schema property name, i.e. the runnable argument key. */
 	key: string
@@ -23,15 +27,18 @@ type Field = {
 	label: string
 	description: string | undefined
 	required: boolean
-	enumValues: string[]
+	enumValues: EnumOption[]
 	/** `useState(...)` initial value, as TS source. */
 	init: string
 	/** Value passed to `backend.<runnable>({ ... })`, as TS source. */
 	arg: string
 }
 
-// Locals the generated component already defines, setters included; a runnable
-// argument with one of these names gets suffixed so it can't shadow them.
+// Every identifier the generated component references: its own locals and
+// setters, plus the globals its body calls. A runnable argument with one of
+// these names gets suffixed, so it can neither redeclare nor shadow them (a
+// field named `JSON` would otherwise turn `JSON.stringify(result)` into a call
+// on the field's value).
 const RESERVED_LOCALS = [
 	'React',
 	'useState',
@@ -44,12 +51,18 @@ const RESERVED_LOCALS = [
 	'error',
 	'setError',
 	'running',
-	'setRunning'
+	'setRunning',
+	'JSON',
+	'Number',
+	'String',
+	'Error'
 ]
 
 // Reserved words can't name a `const`, so an argument called `class` or `new`
-// gets suffixed like a collision would be.
+// gets suffixed like a collision would be. `eval` and `arguments` are illegal
+// binding names in a module (always strict), so they belong here too.
 const JS_KEYWORDS = [
+	'arguments',
 	'await',
 	'break',
 	'case',
@@ -63,6 +76,7 @@ const JS_KEYWORDS = [
 	'do',
 	'else',
 	'enum',
+	'eval',
 	'export',
 	'extends',
 	'false',
@@ -179,7 +193,11 @@ function toFields(schema: Record<string, any> | undefined): Field[] {
 			kind === 'number' || kind === 'json' ? `${key}Text` : key,
 			taken
 		)
-		const enumValues = (Array.isArray(prop.enum) ? prop.enum : []).map((v: any) => String(v))
+		const enumValues: EnumOption[] = (Array.isArray(prop.enum) ? prop.enum : []).map((v: any) =>
+			v != undefined && typeof v === 'object'
+				? { value: String(v.value), label: String(v.label ?? v.value) }
+				: { value: String(v), label: String(v) }
+		)
 
 		let init: string
 		let arg: string
@@ -198,7 +216,7 @@ function toFields(schema: Record<string, any> | undefined): Field[] {
 				? `JSON.parse(${local})`
 				: `${local}.trim() === '' ? undefined : JSON.parse(${local})`
 		} else {
-			const fallback = kind === 'enum' ? (enumValues[0] ?? '') : ''
+			const fallback = kind === 'enum' ? (enumValues[0]?.value ?? '') : ''
 			init = str(typeof prop.default === 'string' ? prop.default : fallback)
 			arg = local
 		}
@@ -243,7 +261,7 @@ function fieldInput(field: Field): string {
 						value={${field.local}}
 						onChange={(e) => ${field.setter}(e.target.value)}
 					>
-${field.enumValues.map((v) => `						<option value=${jsxAttr(v)}>${jsxText(v)}</option>`).join('\n')}
+${field.enumValues.map((o) => `						<option value=${jsxAttr(o.value)}>${jsxText(o.label)}</option>`).join('\n')}
 					</select>`
 		case 'json':
 			return `<textarea
@@ -344,7 +362,47 @@ export default App
 `
 }
 
-const indexCss = `.app {
+const indexCss = `/* The app renders inside an iframe whose host page has its own theme the
+   iframe cannot read, so paint an opaque surface here: without one the host's
+   background shows through and dark text lands on it unreadable. */
+:root {
+	color-scheme: light;
+	--bg: #ffffff;
+	--fg: #18181b;
+	--muted: #71717a;
+	--border: #d4d4d8;
+	--surface: #f4f4f5;
+	--accent: #18181b;
+	--accent-fg: #ffffff;
+	--required: #dc2626;
+	--error-bg: #fef2f2;
+	--error-fg: #b91c1c;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		color-scheme: dark;
+		--bg: #18181b;
+		--fg: #f4f4f5;
+		--muted: #a1a1aa;
+		--border: #3f3f46;
+		--surface: #27272a;
+		--accent: #f4f4f5;
+		--accent-fg: #18181b;
+		--required: #f87171;
+		--error-bg: #431a1a;
+		--error-fg: #fca5a5;
+	}
+}
+
+body {
+	margin: 0;
+	min-height: 100vh;
+	background: var(--bg);
+	color: var(--fg);
+}
+
+.app {
 	max-width: 640px;
 	margin: 0 auto;
 	padding: 24px 16px 48px;
@@ -352,7 +410,7 @@ const indexCss = `.app {
 		ui-sans-serif,
 		system-ui,
 		sans-serif;
-	color: #18181b;
+	color: var(--fg);
 }
 
 .app-title {
@@ -364,7 +422,7 @@ const indexCss = `.app {
 .app-subtitle {
 	margin: 4px 0 24px;
 	font-size: 0.8rem;
-	color: #71717a;
+	color: var(--muted);
 }
 
 .app-form {
@@ -385,21 +443,23 @@ const indexCss = `.app {
 }
 
 .field-required {
-	color: #dc2626;
+	color: var(--required);
 	margin-left: 2px;
 }
 
 .field-description {
 	font-size: 0.75rem;
-	color: #71717a;
+	color: var(--muted);
 }
 
 .field-input {
-	border: 1px solid #d4d4d8;
+	border: 1px solid var(--border);
 	border-radius: 6px;
 	padding: 6px 8px;
 	font-size: 0.875rem;
 	font-family: inherit;
+	background: var(--bg);
+	color: var(--fg);
 }
 
 .field-textarea {
@@ -411,11 +471,12 @@ const indexCss = `.app {
 	align-self: flex-start;
 	width: 16px;
 	height: 16px;
+	accent-color: var(--accent);
 }
 
 .app-empty {
 	font-size: 0.875rem;
-	color: #71717a;
+	color: var(--muted);
 	margin: 0;
 }
 
@@ -423,8 +484,8 @@ const indexCss = `.app {
 	align-self: flex-start;
 	border: none;
 	border-radius: 6px;
-	background: #18181b;
-	color: white;
+	background: var(--accent);
+	color: var(--accent-fg);
 	padding: 8px 16px;
 	font-size: 0.875rem;
 	cursor: pointer;
@@ -446,15 +507,14 @@ const indexCss = `.app {
 }
 
 .app-error {
-	background: #fef2f2;
-	color: #b91c1c;
+	background: var(--error-bg);
+	color: var(--error-fg);
 }
 
 .app-result {
-	background: #f4f4f5;
+	background: var(--surface);
 }
 `
-
 function createRawApp(opts: {
 	path: string
 	summary: string | undefined

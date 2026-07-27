@@ -76,4 +76,37 @@ describe('createRawAppFromScript', () => {
 		const declared = [...appTsx.matchAll(/const \[(\w+), (\w+)\]/g)].flatMap((m) => [m[1], m[2]])
 		expect(new Set(declared).size).toBe(declared.length)
 	})
+
+	it('does not let an argument shadow a global the generated body calls', () => {
+		const app = createRawAppFromScript('u/dev/s', undefined, {
+			type: 'object',
+			order: ['JSON', 'eval'],
+			properties: { JSON: { type: 'string' }, eval: { type: 'string' } }
+		})
+		const appTsx = app.value.files['/App.tsx']
+		expect(appTsx).toContain("const [JSON_, setJSON_] = useState('')")
+		expect(appTsx).toContain("const [eval_, setEval_] = useState('')")
+		// The result panel must still reach the real global.
+		expect(appTsx).toContain('JSON.stringify(result, null, 2)')
+	})
+
+	it('keeps value and label apart for labeled enums', () => {
+		const app = createRawAppFromScript('u/dev/s', undefined, {
+			type: 'object',
+			properties: {
+				mode: {
+					type: 'string',
+					enum: [
+						{ value: 'fast', label: 'Fast (cached)' },
+						{ value: 'slow', label: 'Slow (fresh)' }
+					]
+				}
+			}
+		})
+		const appTsx = app.value.files['/App.tsx']
+		expect(appTsx).toContain('<option value="fast">Fast (cached)</option>')
+		expect(appTsx).toContain('<option value="slow">Slow (fresh)</option>')
+		expect(appTsx).toContain("const [mode, setMode] = useState('fast')")
+		expect(appTsx).not.toContain('[object Object]')
+	})
 })
