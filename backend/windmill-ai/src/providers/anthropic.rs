@@ -2,14 +2,13 @@ use crate::{
     ai_google::parse_data_url,
     ai_providers::{AIPlatform, AIProvider},
     image_handler::prepare_messages_for_api,
-    proxy::{add_user_to_body, ProxyBuildArgs, ProxyRequest},
+    proxy::{
+        add_user_to_body, common_outbound_headers, credential_header, ProxyBuildArgs, ProxyRequest,
+    },
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
     sse::{AnthropicSSEParser, SSEParser},
     types::*,
-    utils::{
-        collect_system_prompt, extract_text_content, should_use_structured_output_tool,
-        AI_HTTP_HEADERS,
-    },
+    utils::{collect_system_prompt, extract_text_content, should_use_structured_output_tool},
 };
 use async_trait::async_trait;
 use http::Method;
@@ -544,31 +543,23 @@ impl AnthropicQueryBuilder {
             }
         }
 
-        if let Some(api_key) = credentials.api_key.as_ref() {
-            headers.push(("authorization".to_string(), format!("Bearer {}", api_key)));
-            if !is_vertex {
-                headers.push(("X-API-Key".to_string(), api_key.clone()));
-            }
-        }
-
-        if let Some(access_token) = credentials.access_token.as_ref() {
-            headers.push((
-                "authorization".to_string(),
-                format!("Bearer {}", access_token),
-            ));
-        }
+        // One credential header, matching `get_auth_headers`: Vertex takes an OAuth
+        // bearer token, every other Messages endpoint takes x-api-key. Endpoints in
+        // front of Anthropic reject requests carrying both.
+        headers.extend(credential_header(
+            credentials,
+            if is_vertex {
+                "authorization"
+            } else {
+                "x-api-key"
+            },
+        ));
 
         if let Some(org_id) = credentials.organization_id.as_ref() {
             headers.push(("OpenAI-Organization".to_string(), org_id.clone()));
         }
 
-        for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
-            headers.push((header_name.clone(), header_value.clone()));
-        }
-
-        for (header_name, header_value) in &credentials.custom_headers {
-            headers.push((header_name.clone(), header_value.clone()));
-        }
+        headers.extend(common_outbound_headers(credentials));
 
         Ok(ProxyRequest { method: args.method.clone(), url, headers, body })
     }
@@ -953,12 +944,11 @@ mod tests {
         assert_eq!(request.method, Method::POST);
         assert_eq!(request.url, "https://api.anthropic.com/v1/messages");
         assert_eq!(request.body, body.to_vec());
-        assert!(has_header(
-            &request.headers,
-            "authorization",
-            "Bearer api-key"
-        ));
-        assert!(has_header(&request.headers, "X-API-Key", "api-key"));
+        assert!(has_header(&request.headers, "x-api-key", "api-key"));
+        assert!(!request
+            .headers
+            .iter()
+            .any(|(header_name, _)| header_name.eq_ignore_ascii_case("authorization")));
         assert!(has_header(
             &request.headers,
             "anthropic-version",
@@ -1148,6 +1138,40 @@ mod tests {
         assert!(matches!(err, Error::BadRequest(message) if message.contains("Missing 'model'")));
     }
 
+    /// Endpoints that authenticate with a bearer token configure it as a resource
+    /// header; the built-in x-api-key must then step aside, since outgoing headers
+    /// are appended and both credentials would travel.
+    #[test]
+    fn resource_header_replaces_the_built_in_credential() {
+        let mut credentials = credentials(AIPlatform::Standard);
+        credentials.custom_headers = HashMap::from([(
+            "Authorization".to_string(),
+            "Bearer gateway-token".to_string(),
+        )]);
+        let builder = AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::Standard);
+        let method = Method::POST;
+
+        let request = builder
+            .build_proxy_request(&ProxyBuildArgs {
+                method: &method,
+                path: "messages",
+                headers: &HeaderMap::new(),
+                body: br#"{"model":"claude-sonnet-4","messages":[]}"#,
+                credentials: &credentials,
+            })
+            .unwrap();
+
+        assert!(has_header(
+            &request.headers,
+            "Authorization",
+            "Bearer gateway-token"
+        ));
+        assert!(!request
+            .headers
+            .iter()
+            .any(|(header_name, _)| header_name.eq_ignore_ascii_case("x-api-key")));
+    }
+
     #[test]
     fn builds_azure_foundry_anthropic_proxy_request() {
         // Foundry resource stored with a legacy /openai/v1 suffix; the Anthropic SDK
@@ -1176,6 +1200,6 @@ mod tests {
             request.url,
             "https://wm-test-ai.services.ai.azure.com/anthropic/v1/messages"
         );
-        assert!(has_header(&request.headers, "X-API-Key", "api-key"));
+        assert!(has_header(&request.headers, "x-api-key", "api-key"));
     }
 }

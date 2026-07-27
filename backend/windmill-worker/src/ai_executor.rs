@@ -24,9 +24,10 @@ use windmill_ai::{
     ai_providers::AIProvider,
     image_handler::upload_image_to_s3,
     providers::create_query_builder,
+    proxy::{common_outbound_headers, resource_replaces_credential, CREDENTIAL_HEADERS},
     query_builder::{BuildRequestArgs, ParsedResponse},
     types::*,
-    utils::{pinned_ai_client_for, should_use_structured_output_tool, AI_HTTP_HEADERS},
+    utils::{pinned_ai_client_for, should_use_structured_output_tool},
 };
 use windmill_common::{
     cache,
@@ -1143,12 +1144,24 @@ pub async fn run_agent(
             let endpoint =
                 query_builder.get_endpoint(base_url, args.provider.get_model(), output_type);
             let auth_headers = query_builder.get_auth_headers(api_key, base_url, output_type);
+            // A resource carrying its own credential owns authentication; the
+            // built-in one is dropped so the two do not both reach the endpoint.
+            // Non-credential headers (`anthropic-version`) stay either way.
+            let auth_headers: Vec<_> = auth_headers
+                .into_iter()
+                .filter(|(header_name, _)| {
+                    let carries_credential = CREDENTIAL_HEADERS
+                        .iter()
+                        .any(|name| header_name.eq_ignore_ascii_case(name));
+                    !carries_credential || !resource_replaces_credential(&credentials, header_name)
+                })
+                .collect();
 
             let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
                 .await
                 .0;
 
-            let resource_headers = &credentials.custom_headers;
+            let trailing_headers = common_outbound_headers(&credentials).collect::<Vec<_>>();
 
             // `endpoint` derives from the user-controlled provider base_url, so pin
             // DNS to the SSRF-validated address: the connect must not rebind to an
@@ -1166,11 +1179,7 @@ pub async fn run_agent(
                     req = req.header(*header_name, header_value.clone());
                 }
 
-                for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
-                    req = req.header(header_name.as_str(), header_value.as_str());
-                }
-
-                for (header_name, header_value) in resource_headers {
+                for (header_name, header_value) in &trailing_headers {
                     req = req.header(header_name.as_str(), header_value.as_str());
                 }
 

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM usage WHERE id = $1 AND NOT is_workspace",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "34f1e04d3ff0ffe7fe4e142bb54e00431bc7fb4a4b20dacdce79316d7a84ba8f"
+}
