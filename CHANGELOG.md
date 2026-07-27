@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.771.1](https://github.com/windmill-labs/windmill/compare/v1.771.0...v1.771.1) (2026-07-27)
+
+
+### Bug Fixes
+
+* app stepper no longer runs its validation on subgrid focus ([#10338](https://github.com/windmill-labs/windmill/issues/10338)) ([32c018d](https://github.com/windmill-labs/windmill/commit/32c018dc85868741f9f5f2b062cede8d205a327c))
+* open a pipeline step on its code, not its output ([#10335](https://github.com/windmill-labs/windmill/issues/10335)) ([023e85b](https://github.com/windmill-labs/windmill/commit/023e85bd634db6ce003f3a5ebe4628f8b93314da))
+* operators cannot see flows and apps on the homepage ([#10340](https://github.com/windmill-labs/windmill/issues/10340)) ([dc5182f](https://github.com/windmill-labs/windmill/commit/dc5182f86cdedf0b9056fe817c3efcad04a1df2f))
+
 ## [1.771.0](https://github.com/windmill-labs/windmill/compare/v1.770.0...v1.771.0) (2026-07-26)
 
 
