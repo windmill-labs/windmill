@@ -874,6 +874,14 @@ async function createScript(
   return performance.now() - start;
 }
 
+/**
+ * A script metadata file could not be paired with a script file on disk, so
+ * nothing can be deployed for it. Distinct from a deploy that reached the
+ * remote and was rejected: callers that can carry on with the rest of a
+ * changeset catch this specifically.
+ */
+export class MissingScriptContentFileError extends Error {}
+
 export async function findContentFile(filePath: string) {
   // Folder layout: __mod/script.yaml -> __mod/script.ts
   const isModuleFolderMeta =
@@ -891,7 +899,7 @@ export async function findContentFile(filePath: string) {
   // module-entry metadata, which would make toCandidate the identity function
   // and "resolve" the input to itself.
   if (!isModuleFolderMeta && !/\.script\.(yaml|json|lock)$/.test(filePath)) {
-    throw new Error(
+    throw new MissingScriptContentFileError(
       `${filePath} is not a script metadata file — no script file can be resolved from it.`
     );
   }
@@ -918,7 +926,7 @@ export async function findContentFile(filePath: string) {
     );
   }
   if (validCandidates.length < 1) {
-    throw new Error(
+    throw new MissingScriptContentFileError(
       `No script file found next to ${filePath} — a script cannot be deployed from its metadata alone. ` +
         `Add the matching script file (e.g. ${toCandidate(".ts")} or ${toCandidate(
           ".py"

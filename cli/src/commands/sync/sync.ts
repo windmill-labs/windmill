@@ -40,6 +40,7 @@ import {
   findContentFile,
   findResourceFile,
   handleScriptMetadata,
+  MissingScriptContentFileError,
   removeExtensionToPath,
   filePathExtensionFromContentType,
 } from "../script/script.ts";
@@ -4407,6 +4408,10 @@ export async function push(
       log.info(`Parallelizing ${parallelizationFactor} changes at a time`);
     }
 
+    // Changes that could not be applied but do not invalidate the rest of the
+    // push. Reported at the end, and the push exits non-zero for them.
+    const failedChanges: { path: string; error: string }[] = [];
+
     // Create a pool of workers that processes items as they become available
     const pool = new Set();
     // Process folder.meta groups first (sequentially), then items in parallel.
@@ -4653,22 +4658,38 @@ export async function push(
               // A script deploys through its content file, which is normally in
               // the same group — but not always (excludes can filter it out).
               // Resolving it from disk keeps the deploy idempotent (via
-              // alreadySynced) and makes an unaccompanied metadata file raise
-              // instead of being counted as a change that reached the remote.
-              if (
-                !isRawAppFile(change.path) &&
-                (await handleScriptMetadata(
-                  change.path,
-                  workspace,
-                  alreadySynced,
-                  opts.message,
-                  rawWorkspaceDependencies,
-                  codebases,
-                  opts,
-                  permissionedAsContext,
-                ))
-              ) {
-                continue;
+              // alreadySynced) and stops an unaccompanied metadata file from
+              // being counted as a change that reached the remote.
+              if (!isRawAppFile(change.path)) {
+                let handled = false;
+                try {
+                  handled = await handleScriptMetadata(
+                    change.path,
+                    workspace,
+                    alreadySynced,
+                    opts.message,
+                    rawWorkspaceDependencies,
+                    codebases,
+                    opts,
+                    permissionedAsContext,
+                  );
+                } catch (e) {
+                  if (!(e instanceof MissingScriptContentFileError)) {
+                    throw e;
+                  }
+                  // Nothing deployable here, but the rest of the changeset is
+                  // unaffected — record it so the push reports a failure at the
+                  // end instead of aborting midway with a partial deploy.
+                  failedChanges.push({
+                    path: change.path,
+                    error: e.message,
+                  });
+                  log.error(e.message);
+                  continue;
+                }
+                if (handled) {
+                  continue;
+                }
               }
               if (
                 !isRawAppFile(change.path) &&
@@ -5185,11 +5206,16 @@ export async function push(
         );
       }
     }
+    const pushedCount = changes.length - failedChanges.length;
     if (opts.jsonOutput) {
       const result = {
-        success: true,
+        success: failedChanges.length === 0,
         lock_jobs: lockJobs,
-        message: `All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}`,
+        ...(failedChanges.length > 0 ? { failed: failedChanges } : {}),
+        message:
+          failedChanges.length > 0
+            ? `${pushedCount} of ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}; ${failedChanges.length} failed`
+            : `All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}`,
         changes: changes.map((change) => ({
           type: change.name,
           path: change.path,
@@ -5211,6 +5237,15 @@ export async function push(
         duration_ms: Math.round(performance.now() - start),
       };
       console.log(JSON.stringify(result, null, 2));
+    } else if (failedChanges.length > 0) {
+      log.error(
+        colors.bold.red.underline(
+          `\n${pushedCount} of ${changes.length} changes pushed to the remote workspace ${
+            workspace.workspaceId
+          } named ${workspace.name}; ${failedChanges.length} failed:\n` +
+            failedChanges.map((f) => `  - ${f.path}`).join("\n"),
+        ),
+      );
     } else {
       log.info(
         colors.bold.green.underline(
@@ -5223,6 +5258,9 @@ export async function push(
           )}ms)`,
         ),
       );
+    }
+    if (failedChanges.length > 0) {
+      process.exit(1);
     }
   } else {
     // Dry-run with no changes reaches here (a ui/ diff would have made changes
