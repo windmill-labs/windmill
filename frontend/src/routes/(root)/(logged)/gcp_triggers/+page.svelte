@@ -393,7 +393,8 @@
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const ping = new Date()}
 					{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
-					{@const enabled = mode === 'enabled' || mode === 'suspended'}
+					{@const effectiveMode = draft_only ? 'disabled' : mode}
+					{@const enabled = effectiveMode === 'enabled' || effectiveMode === 'suspended'}
 
 					<div
 						class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
@@ -468,9 +469,7 @@
 							{/if}
 
 							<div class="flex items-center justify-end gap-2 shrink-0 min-w-[8rem]">
-								{#if draft_only || hasDraft}
-									<DraftBadge {draft_only} is_draft={true} />
-								{/if}
+								<DraftBadge {draft_only} is_draft={hasDraft} />
 								{#if delivery_type !== 'push'}
 									<TriggerModeToggle
 										disabled={draft_only}
@@ -480,7 +479,7 @@
 												? 'Enables/disables the deployed trigger; the draft is not affected'
 												: undefined}
 										onToggleMode={(newMode) => onToggleMode(path, newMode)}
-										triggerMode={draft_only ? 'disabled' : mode}
+										triggerMode={effectiveMode}
 										includeModalConfig={{
 											triggerPath: path,
 											triggerKind: 'gcp',

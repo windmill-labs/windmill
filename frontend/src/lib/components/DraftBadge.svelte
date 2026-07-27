@@ -108,8 +108,11 @@
 		orderedUsers.length > MAX_CIRCLES ? orderedUsers.length - (MAX_CIRCLES - 1) : 0
 	)
 
-	// Show whenever any draft exists, or the authed user has one (`is_draft`).
-	const showBadge = $derived(is_draft || draft_users.length > 0)
+	// Show whenever any draft exists: the authed user has one (`is_draft`), some
+	// other user does (`draft_users`), or the row is itself a draft with nothing
+	// deployed (`draft_only`). Callers pass their state as-is; deciding
+	// visibility here keeps every call site from re-deriving this rule.
+	const showBadge = $derived(is_draft || draft_only || draft_users.length > 0)
 
 	// Inline actions need full context to fetch and fork drafts.
 	const actionsEnabled = $derived(!!workspace && !!itemKind && !!path && draft_users.length > 0)

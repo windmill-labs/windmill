@@ -466,9 +466,7 @@
 								</div>
 
 								<div class="flex items-center justify-end gap-2 shrink-0 min-w-[8rem]">
-									{#if draft_only || hasDraft}
-										<DraftBadge {draft_only} is_draft={true} />
-									{/if}
+									<DraftBadge {draft_only} is_draft={hasDraft} />
 									{#key toggleResetVersions[path] ?? 0}
 										<Toggle
 											disabled={draft_only}

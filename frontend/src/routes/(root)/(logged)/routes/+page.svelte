@@ -368,6 +368,7 @@
 				<div class="border rounded-md divide-y">
 					{#each items.slice(0, nbDisplayed) as { summary, workspace_id, workspaced_route, mode, path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method, static_asset_config, retry, error_handler_path, error_handler_args, draft_only, is_draft } (path)}
 						{@const hasDraft = getLocalDraftHint($workspaceStore, 'trigger_http', path) ?? is_draft}
+						{@const effectiveMode = draft_only ? 'disabled' : mode}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 
 						<div
@@ -415,9 +416,7 @@
 								</div>
 
 								<div class="flex items-center justify-end gap-2 shrink-0 min-w-[8rem]">
-									{#if draft_only || hasDraft}
-										<DraftBadge {draft_only} is_draft={true} />
-									{/if}
+									<DraftBadge {draft_only} is_draft={hasDraft} />
 									<TriggerModeToggle
 										disabled={draft_only}
 										title={draft_only
@@ -426,7 +425,7 @@
 												? 'Enables/disables the deployed trigger; the draft is not affected'
 												: undefined}
 										onToggleMode={(mode) => onToggleMode(path, mode)}
-										triggerMode={draft_only ? 'disabled' : mode}
+										triggerMode={effectiveMode}
 										includeModalConfig={{
 											triggerPath: path,
 											triggerKind: 'http',
