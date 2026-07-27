@@ -951,7 +951,11 @@
 				{#if job?.language === 'dbt' && job?.script_path}
 					<div class="mr-2 sm:mr-0 mt-12">
 						<h3 class="text-xs font-semibold text-emphasis mb-1">Models</h3>
-						<DbtRunGraph scriptPath={job.script_path} running={job.type !== 'CompletedJob'} />
+						<DbtRunGraph
+							scriptPath={job.script_path}
+							jobId={job.id}
+							running={job.type !== 'CompletedJob'}
+						/>
 					</div>
 				{/if}
 

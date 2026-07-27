@@ -14,9 +14,14 @@
 
 	let {
 		scriptPath,
+		jobId,
 		running = false
 	}: {
 		scriptPath: string
+		/** The run whose per-model progress to show. dbt records a state per
+		 *  relation as it walks the DAG; without this the graph can only show
+		 *  what a relation IS, not what this run is doing to it. */
+		jobId?: string
 		// While the job is in flight the graph is re-fetched, because the per-model
 		// materialization rows the worker writes are what move the nodes.
 		running?: boolean
@@ -52,16 +57,63 @@
 		}
 	}
 
+	// `asset:<kind>:<path>` -> what this run is doing to that relation. That is
+	// the id shape the canvas builds its nodes with; a bare `kind:path` looks
+	// right and silently never matches. Polled beside the
+	// graph so a node moves while the job runs; a retry rewrites the same rows,
+	// so a failed node returns to `running` and on to its new outcome by itself.
+	let assetRunStatus = $state<Map<string, 'running' | 'materialized' | 'failed'>>(new Map())
+
+	async function loadProgress() {
+		const ws = $workspaceStore
+		if (!ws || !jobId) return
+		try {
+			const res = await fetch(`${OpenAPI.BASE ?? ''}/w/${ws}/assets/run_progress/${jobId}`, {
+				credentials: 'include'
+			})
+			if (!res.ok) return
+			const rows = (await res.json()) as Array<{
+				asset_kind: string
+				asset_path: string
+				status: string
+			}>
+			const next = new Map<string, 'running' | 'materialized' | 'failed'>()
+			for (const r of rows) {
+				const state =
+					r.status === 'running'
+						? 'running'
+						: r.status === 'failed'
+							? 'failed'
+							: r.status === 'materialized'
+								? 'materialized'
+								: undefined
+				if (state) next.set(`asset:${r.asset_kind}:${r.asset_path}`, state)
+			}
+			assetRunStatus = next
+		} catch {
+			// A progress hiccup must not blank the graph.
+		}
+	}
+
 	let timer: ReturnType<typeof setInterval> | undefined
 	$effect(() => {
 		void scriptPath
 		void load()
+		void jobId
+		void loadProgress()
 	})
 	$effect(() => {
 		clearInterval(timer)
 		// Only while in flight, and no faster than dbt finishes a model: this is a
 		// poll against the same rows the pipeline page reads, not a subscription.
-		if (running) timer = setInterval(load, 2000)
+		if (running)
+			timer = setInterval(() => {
+				// The graph itself only changes on a deploy; the per-relation state
+				// is what moves during a run, so it is polled faster and the graph
+				// refetch rides along to pick up a per-run re-ingest.
+				void loadProgress()
+				void load()
+			}, 2000)
 		return () => clearInterval(timer)
 	})
 	onDestroy(() => clearInterval(timer))
@@ -144,6 +196,7 @@
 			<AssetGraphCanvas
 				{graph}
 				{selection}
+				{assetRunStatus}
 				onselect={(s) => (selection = s)}
 				showMinimap={false}
 				scrollZoom={false}

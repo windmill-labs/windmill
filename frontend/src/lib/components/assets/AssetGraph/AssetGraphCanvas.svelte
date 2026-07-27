@@ -179,6 +179,11 @@
 		 * When a node's nonce changes, it flashes a fading green background — its
 		 * producer just recomputed it. Driven by the replay player frame-by-frame. */
 		recomputedAssetIds?: ReadonlyMap<string, number>
+		/** What a run is currently doing to each relation, keyed `asset:<kind>:<path>`
+		 *  like every other per-asset map here.
+		 *  Distinct from `recomputedAssetIds`, which is a one-shot pulse: this is
+		 *  the state a node holds until the run moves it. */
+		assetRunStatus?: ReadonlyMap<string, 'running' | 'materialized' | 'failed'>
 		/** Let the wheel zoom the canvas (and swallow the page scroll while doing
 		 * so). Default true for the full-height editor/player. Set false when the
 		 * canvas is embedded inline inside a scrollable container, so a wheel
@@ -215,6 +220,7 @@
 		viewportFitKey = '',
 		highlightActiveRun = false,
 		recomputedAssetIds,
+		assetRunStatus,
 		scrollZoom = true
 	}: Props = $props()
 
@@ -427,6 +433,8 @@
 					// Bumped by the replay player when this asset's producer just
 					// recomputed it — the node flashes green and fades.
 					recomputePulse: recomputedAssetIds?.get(assetId),
+					// What the run in view is doing to this relation right now.
+					runStatus: assetRunStatus?.get(assetId),
 					// The dbt project that materializes this relation, related by
 					// badge rather than by an edge.
 					onDbtHover: (on: boolean) => (dbtHoverId = on ? assetId : undefined),

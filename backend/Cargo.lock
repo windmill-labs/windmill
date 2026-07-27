@@ -14780,6 +14780,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tracing",
+ "uuid",
  "windmill-api-auth",
  "windmill-common",
  "windmill-parser-sql-asset",

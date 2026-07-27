@@ -14,7 +14,9 @@
 		Loader2,
 		Plus,
 		ShieldCheck,
-		ShieldAlert
+		ShieldAlert,
+		CheckCircle2,
+		XCircle
 	} from 'lucide-svelte'
 	import type { ScriptLang } from '$lib/gen'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
@@ -89,6 +91,10 @@
 			// producer just recomputed it. A change triggers a one-shot green
 			// fade so a freshly-written table stands out as the run progresses.
 			recomputePulse?: number
+			// What the run being viewed is doing to this relation. dbt records it
+			// per model as it walks the DAG, so the graph moves with the run
+			// instead of only settling once the job ends.
+			runStatus?: 'running' | 'materialized' | 'failed'
 		}
 		// SvelteFlow injects this on the node component when the user clicks
 		// the node. Combined with our own `hovered` state to drive the
@@ -245,6 +251,27 @@
 			class={`shrink-0 ml-2 mr-2 ${selected ? 'text-accent' : 'text-blue-600 dark:text-blue-400'}`}
 			size="14px"
 		/>
+		{#if data.runStatus}
+			<!-- The run in view, per relation: a spinner while its producer is
+			     building it, then its outcome. Left of the name so the eye finds
+			     the moving nodes first on a wide graph. -->
+			<span
+				class="shrink-0 mr-1 {data.runStatus === 'failed'
+					? 'text-red-600 dark:text-red-400'
+					: data.runStatus === 'materialized'
+						? 'text-green-600 dark:text-green-400'
+						: 'text-blue-600 dark:text-blue-400'}"
+				title={data.runStatus}
+			>
+				{#if data.runStatus === 'running'}
+					<Loader2 size={11} class="animate-spin" />
+				{:else if data.runStatus === 'failed'}
+					<XCircle size={11} />
+				{:else}
+					<CheckCircle2 size={11} />
+				{/if}
+			</span>
+		{/if}
 		<span class="flex-1 min-w-0 pr-1 py-0.5 text-2xs font-mono text-emphasis truncate">
 			{formatShortAssetPath(asset)}
 		</span>
