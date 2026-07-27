@@ -2106,6 +2106,17 @@ async fn create_script_internal<'c>(
         let Some((trigger_kind, trigger_ref)) = trigger_spec_to_row(spec) else {
             continue;
         };
+        // A `table://` subscription can never fire: dbt is the only producer of a
+        // warehouse relation (`// materialize` takes DuckLake targets only) and a
+        // dbt run does not dispatch. Refusing beats persisting a row that draws a
+        // cascade arrow on the canvas and then never wakes anything.
+        if trigger_ref.starts_with("table://") {
+            return Err(Error::BadRequest(format!(
+                "`{trigger_ref}` cannot be subscribed to: a dbt run does not trigger downstream \
+                 runs, and nothing else writes a warehouse relation. Declare the read without \
+                 `on` to keep the lineage edge, or schedule this script."
+            )));
+        }
         // Effective debounce for this edge: per-`// on debounce=` wins,
         // else the script-level `// debounce` default. Debounce only
         // applies to asset-cascade edges; other trigger kinds get none.

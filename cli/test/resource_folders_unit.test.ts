@@ -791,3 +791,15 @@ describe("isBundledModuleFile", () => {
     expect(isBundledModuleFile(nodePath.join(dir, "does-not-exist.sql"))).toBe(true);
   });
 });
+
+test("a nested __mod inside a dbt project does not steal the script boundary", () => {
+  // dbt owns its directory names verbatim, so a folder ending `__mod` is legal
+  // inside a project. The script is the OUTER module boundary.
+  expect(
+    getScriptBasePathFromModulePath("f/x/proj__dbt/models/legacy__mod/a.sql"),
+  ).toBe("f/x/proj");
+  expect(getScriptBasePathFromModulePath("f/x/proj__dbt/models/a.sql")).toBe(
+    "f/x/proj",
+  );
+  expect(getScriptBasePathFromModulePath("f/x/s__mod/inner.ts")).toBe("f/x/s");
+});

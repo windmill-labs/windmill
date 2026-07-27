@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM script_trigger\n          WHERE workspace_id = $1 AND runnable_kind = 'script' AND runnable_path = $2\n            AND trigger_kind = 'asset' AND trigger_ref LIKE 'table://%'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3f5a7ef2e640625629ed7121773e1f5d94ad1d25f21c6126bd4c5e2d7f4cdf9a"
+}

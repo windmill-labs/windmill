@@ -372,6 +372,7 @@ pub async fn handle_dbt_job(
         .await
         .ok();
     reconcile_materializations(&prepared, &results, job, conn).await;
+    terminalize_running_relations(job, conn).await;
 
     let result = build_result(&prepared, &command, results);
     match run {
@@ -519,7 +520,6 @@ pub async fn dbt_dep(
             w_id,
             script_path,
             &ingested,
-            &DescriptorTriggers::parse(content),
             &prepared.relation_root(),
             publisher,
         )
@@ -1890,6 +1890,36 @@ async fn reconcile_materializations(
     }
 }
 
+/// Settle any relation this job left mid-flight.
+///
+/// The live tailer writes `running` when a model starts, and
+/// `reconcile_materializations` only revisits the nodes `run_results.json`
+/// names. A cancellation, a timeout, or a killed worker means dbt never wrote
+/// that artifact for the node in flight, so without this the finished job
+/// leaves a relation building forever.
+///
+/// Only the SQL path can strand a row: `spawn_progress_reporter` returns `None`
+/// for an agent worker and for the engines that emit no node events, so nothing
+/// there writes `running` in the first place.
+async fn terminalize_running_relations(job: &MiniPulledJob, conn: &Connection) {
+    let Connection::Sql(db) = conn else {
+        return;
+    };
+    if let Err(e) = sqlx::query!(
+        "UPDATE materialized_partition
+            SET status = 'failed',
+                error = COALESCE(error, 'the run ended before this model finished')
+          WHERE workspace_id = $1 AND job_id = $2 AND status = 'running'",
+        job.workspace_id,
+        job.id
+    )
+    .execute(db)
+    .await
+    {
+        tracing::warn!("settling the models left running by {}: {e}", job.id);
+    }
+}
+
 /// `"db"."schema"."name"` from dbt into the `table://` path of the relation,
 /// through the same derivation the manifest ingest and the live events use.
 fn asset_path_of_relation(
@@ -2057,7 +2087,6 @@ async fn ingest_from_run(
         &job.workspace_id,
         script_path,
         &ingested,
-        &DescriptorTriggers::parse(&p.descriptor_content),
         &p.relation_root(),
         job.runnable_id
             .map(|h| GraphPublisher::Version(h.0))
@@ -2072,65 +2101,6 @@ async fn ingest_from_run(
     Ok(())
 }
 
-/// The descriptor's own `# on` / `# mute` / `# debounce` / `# retry`, which the
-/// derived subscriptions must respect rather than overwrite.
-pub struct DescriptorTriggers {
-    explicit_refs: std::collections::HashSet<String>,
-    muted_refs: std::collections::HashSet<String>,
-    mute_all: bool,
-    join_all: bool,
-    debounce_s: Option<i32>,
-    retry_count: Option<i16>,
-    retry_delay_s: Option<i32>,
-}
-
-impl DescriptorTriggers {
-    /// Parsed from the descriptor body, which is YAML with `#` comments — the
-    /// same annotation grammar every other language uses.
-    fn parse(content: &str) -> Self {
-        use windmill_common::assets::{trigger_spec_to_row, ScriptTriggerKind};
-        let a = windmill_common::assets::parse_pipeline_annotations(content);
-        let refs = |specs: &[windmill_parser::asset_parser::TriggerSpec]| {
-            specs
-                .iter()
-                .filter_map(|s| {
-                    trigger_spec_to_row(s)
-                        .filter(|(k, _)| *k == ScriptTriggerKind::Asset)
-                        .map(|(_, r)| r)
-                })
-                .collect()
-        };
-        Self {
-            explicit_refs: refs(&a.triggers),
-            muted_refs: refs(&a.mute),
-            mute_all: a.mute_all,
-            join_all: !a.join_mode.is_any(),
-            debounce_s: a
-                .debounce_default
-                .as_deref()
-                .and_then(windmill_common::assets::parse_duration_secs),
-            retry_count: a
-                .retry
-                .as_ref()
-                .map(|r| r.count.min(i16::MAX as u32) as i16),
-            retry_delay_s: a
-                .retry
-                .as_ref()
-                .and_then(|r| r.delay.as_deref())
-                .and_then(windmill_common::assets::parse_duration_secs),
-        }
-    }
-}
-
-/// Write one ingest: the sidecar rows, the `asset` usages, and the cascade
-/// subscriptions its reads imply.
-///
-/// The subscriptions have to happen here rather than in the deploy's generic
-/// derivation, which runs before these assets exist — it reads the script's
-/// parsed content, and a dbt script's assets come from a manifest the
-/// dependency job produces afterwards. Without them a project split across
-/// scripts renders its upstream read edges and never actually cascades along
-/// them, which is decision 6's whole point.
 /// Who is publishing a graph, which decides whether it may.
 #[derive(Clone, Copy)]
 enum GraphPublisher {
@@ -2152,16 +2122,16 @@ enum GraphPublisher {
 /// the writes and behind a lock every publisher for this path takes: checking
 /// first and writing after leaves a window where a newer job publishes in
 /// between and the older one overwrites it, which no later job repairs.
+/// Write one ingest: the sidecar rows and the `asset` usages the manifest
+/// implies. No subscriptions — a `table://` one could never fire.
 async fn persist_ingest(
     db: &sqlx::Pool<sqlx::Postgres>,
     w_id: &str,
     script_path: &str,
     ingested: &windmill_common::dbt_manifest::IngestedManifest,
-    annotations: &DescriptorTriggers,
     relation_root: &str,
     publisher: GraphPublisher,
 ) -> error::Result<bool> {
-    use windmill_common::assets::{AssetUsageKind, ScriptTriggerKind};
     let mut tx = db.begin().await?;
     if !claim_graph_publication(&mut tx, w_id, script_path, publisher).await? {
         return Ok(false);
@@ -2181,48 +2151,21 @@ async fn persist_ingest(
         &ingested.assets,
     )
     .await?;
-    // Only the manifest-DERIVED subscriptions are replaced. The deploy already
-    // inserted whatever the descriptor authored with `# on`, carrying its
-    // debounce/retry/join opts, and `# mute` opted refs out; wiping every
-    // trigger here would silently discard all of that.
-    let derived = windmill_common::assets::derive_pipeline_asset_trigger_refs(
-        &ingested.assets,
-        &annotations.explicit_refs,
-        &annotations.muted_refs,
-        annotations.mute_all,
-    );
-    // Delete every derived row, including the ones about to be reinserted:
-    // `script_trigger` has no uniqueness constraint and the subscriber lookup
-    // does not dedupe, so keeping them would double the downstream jobs on the
-    // first refresh and add another copy on every one after. Authored refs are
-    // excluded from the delete — they carry opts this ingest cannot rebuild.
-    let authored: Vec<String> = annotations.explicit_refs.iter().cloned().collect();
+    // A `table://` subscription can never fire — nothing but dbt writes a
+    // warehouse relation and a dbt run does not dispatch — so none are derived
+    // from the manifest any more. The delete stays: it clears the rows earlier
+    // versions wrote, which would otherwise keep drawing cascade arrows that
+    // wake nothing. Authored refs are excluded because the deploy now refuses
+    // them outright, so any left are from before that check.
     sqlx::query!(
         "DELETE FROM script_trigger
           WHERE workspace_id = $1 AND runnable_kind = 'script' AND runnable_path = $2
-            AND trigger_kind = 'asset' AND trigger_ref LIKE 'table://%'
-            AND NOT (trigger_ref = ANY($3))",
+            AND trigger_kind = 'asset' AND trigger_ref LIKE 'table://%'",
         w_id,
         script_path,
-        &authored[..],
     )
     .execute(&mut *tx)
     .await?;
-    for trigger_ref in derived {
-        windmill_common::assets::insert_script_trigger(
-            &mut *tx,
-            w_id,
-            AssetUsageKind::Script,
-            script_path,
-            ScriptTriggerKind::Asset,
-            &trigger_ref,
-            annotations.join_all,
-            annotations.debounce_s,
-            annotations.retry_count,
-            annotations.retry_delay_s,
-        )
-        .await?;
-    }
     tx.commit().await?;
     Ok(true)
 }
@@ -2925,9 +2868,7 @@ fn classify_status(status: &str) -> DbtNodeOutcome {
     }
 }
 
-/// Whether a saved `run_results.json` has a WRITE that `dbt retry` would redo.
-///
-/// Two conditions, and both matter.
+/// Whether a saved `run_results.json` holds anything `dbt retry` would redo.
 ///
 /// The rule is dbt's own: `error`, `fail` and `skipped`. A `partial success`
 /// counts too — dbt spells that for a node that built but whose tests failed,
@@ -2941,11 +2882,10 @@ fn has_retryable_node(run_results: &str) -> bool {
     serde_json::from_str::<RunResults>(run_results)
         .map(|r| {
             r.results.iter().any(|n| {
-                let retryable = matches!(
+                matches!(
                     classify_status(&n.status),
                     DbtNodeOutcome::Failed | DbtNodeOutcome::Skipped
-                );
-                retryable
+                )
             })
         })
         // Unreadable results are not "nothing to retry": let dbt decide rather

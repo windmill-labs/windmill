@@ -685,11 +685,17 @@ export function isModuleEntryPoint(p: string): boolean {
  */
 export function getScriptBasePathFromModulePath(p: string): string | undefined {
   const norm = normalizeSep(p);
+  // The OUTERMOST boundary, not the first suffix that happens to match. A dbt
+  // project's directories are the author's verbatim, so `foo__dbt/models/
+  // legacy__mod/a.sql` is legal — taking `__mod` first would call
+  // `foo__dbt/models/legacy` the script and look for a descriptor that is not
+  // there, silently skipping the deploy.
+  let best: number | undefined;
   for (const suffix of MODULE_SUFFIXES) {
     const idx = norm.indexOf(suffix + "/");
-    if (idx !== -1) return norm.slice(0, idx);
+    if (idx !== -1 && (best === undefined || idx < best)) best = idx;
   }
-  return undefined;
+  return best === undefined ? undefined : norm.slice(0, best);
 }
 
 /**
