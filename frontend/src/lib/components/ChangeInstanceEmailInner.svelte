@@ -5,6 +5,7 @@
 	import Alert from './common/alert/Alert.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import { createEventDispatcher } from 'svelte'
+	import { userStore } from '$lib/stores'
 
 	interface Props {
 		email: string
@@ -15,18 +16,26 @@
 	let { email, username = undefined, noPadding = false }: Props = $props()
 
 	let editedEmail: string | undefined = $state(undefined)
-	let newEmail = $derived((editedEmail ?? email).trim())
-	let changed = $derived(!!newEmail && newEmail !== email)
+	// Lowercased like the backend normalizes it, so a capitalization-only edit is not offered as a
+	// change the backend would then reject.
+	let newEmail = $derived((editedEmail ?? email).trim().toLowerCase())
+	let isSelf = $derived(email === $userStore?.email)
+	let changed = $derived(!!newEmail && newEmail !== email.toLowerCase())
 	let loading = $state(false)
 
 	const dispatch = createEventDispatcher()
 
 	async function changeEmail() {
+		if (!changed || loading) {
+			return
+		}
 		loading = true
 		try {
 			await UserService.globalUserChangeEmail({ email, requestBody: { new_email: newEmail } })
 			sendUserToast(`Changed email of ${email} to ${newEmail}`)
 			dispatch('changed')
+		} catch (err) {
+			sendUserToast(err.body ?? err.message ?? 'Failed to change email', true)
 		} finally {
 			loading = false
 		}
@@ -38,6 +47,7 @@
 	<TextInput
 		inputProps={{
 			type: 'email',
+			disabled: isSelf,
 			onclick: (e) => {
 				e.stopPropagation()
 			},
@@ -54,7 +64,13 @@
 		bind:value={() => editedEmail ?? email, (v) => (editedEmail = String(v))}
 	/>
 
-	{#if changed}
+	{#if isSelf}
+		<div class="text-2xs text-tertiary mt-1">
+			You cannot change your own email — ask another superadmin.
+		</div>
+	{/if}
+
+	{#if changed && !isSelf}
 		<Alert type="warning" title="Last resort operation" class="mt-2 mb-2" size="xs">
 			Changing the email of an existing account is a last resort. Prefer it only when the address
 			itself has to change and the account must be kept.
@@ -76,7 +92,7 @@
 		variant="default"
 		unifiedSize="md"
 		btnClasses="mt-2"
-		disabled={!changed}
+		disabled={!changed || isSelf}
 		{loading}
 		on:click={() => changeEmail()}
 	>

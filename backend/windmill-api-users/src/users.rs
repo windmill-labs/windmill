@@ -1711,6 +1711,15 @@ async fn change_user_email(
         ));
     }
 
+    // Every API server caches the caller's identity behind their token and only drops it when the
+    // invalidation event is polled, so moving your own account would leave you authenticating as an
+    // address that no longer exists for a few seconds.
+    if old_email.eq_ignore_ascii_case(&authed.email) {
+        return Err(Error::BadRequest(
+            "You cannot change your own email, ask another superadmin to do it".to_string(),
+        ));
+    }
+
     for reserved in [
         SUPERADMIN_SECRET_EMAIL,
         SUPERADMIN_NOTIFICATION_EMAIL,
@@ -1725,8 +1734,9 @@ async fn change_user_email(
 
     let mut tx = db.begin().await?;
 
-    // FOR UPDATE so that two concurrent changes targeting the same address cannot both clear the
-    // conflict check below.
+    // FOR UPDATE serializes concurrent moves of *this* account. Two moves of different accounts
+    // onto the same destination are stopped by the `password` primary key instead, which is why the
+    // unique violation below is mapped back onto the same 400 as the conflict check.
     let username = sqlx::query_scalar!(
         "SELECT username FROM password WHERE email = $1 FOR UPDATE",
         &old_email
@@ -1786,7 +1796,13 @@ async fn change_user_email(
         &old_email
     )
     .execute(&mut *tx)
-    .await?;
+    .await
+    .map_err(|e| match &e {
+        sqlx::Error::Database(db_err) if db_err.is_unique_violation() => {
+            Error::BadRequest(format!("{new_email} is already used by another account"))
+        }
+        _ => e.into(),
+    })?;
 
     sqlx::query!(
         "UPDATE usr SET email = $1 WHERE email = $2",
@@ -1962,11 +1978,139 @@ async fn change_user_email(
     .execute(&mut *tx)
     .await?;
 
+    // Apps carry the same identity inside their policy JSONB. An app running in Anonymous or
+    // Publisher mode takes its permissions from there rather than from the caller, so a stale
+    // address silently costs it its superadmin flag and its instance groups.
+    sqlx::query!(
+        "UPDATE app SET policy = jsonb_set(policy, ARRAY['on_behalf_of_email'], to_jsonb($1::text)) WHERE policy->>'on_behalf_of_email' = $2",
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // ---- permissioned_as holding a raw email ----
+    // `username_to_permissioned_as` returns its input verbatim when it contains '@', and the
+    // migration that introduced these columns back-filled them the same way, so a user whose
+    // username is their email is stored as the bare address instead of `u/{username}`. Those rows
+    // are the ones that go stale here; `u/{username}` rows are safe because the username is kept.
+    sqlx::query!(
+        "UPDATE app SET policy = jsonb_set(policy, ARRAY['on_behalf_of'], to_jsonb($1::text)) WHERE policy->>'on_behalf_of' = $2",
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE schedule SET permissioned_as = $1 WHERE permissioned_as = $2",
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE http_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE websocket_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE postgres_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE mqtt_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE kafka_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE nats_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE sqs_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE gcp_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE email_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE amqp_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE azure_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
     // ---- jobs ---- Restricted to what is still queued: those rows drive the permissions of a run
     // that has not finished yet, whereas completed jobs are history and neither column is indexed
     // (rewriting every past row of a busy user would hold this transaction's locks for minutes).
     sqlx::query!(
         "UPDATE v2_job SET permissioned_as_email = $1 WHERE permissioned_as_email = $2 AND id IN (SELECT id FROM v2_job_queue)",
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE v2_job SET permissioned_as = $1 WHERE permissioned_as = $2 AND id IN (SELECT id FROM v2_job_queue)",
         &new_email,
         &old_email
     )

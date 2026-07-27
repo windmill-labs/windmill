@@ -531,6 +531,20 @@ async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
     sqlx::query!("UPDATE workspace SET owner = 'test2@windmill.dev' WHERE id = 'test-workspace'")
         .execute(&db)
         .await?;
+    // A user whose username is their email is stored as the bare address in `permissioned_as` and
+    // in an app's policy, rather than as `u/{username}`.
+    sqlx::query!(
+        "INSERT INTO schedule(workspace_id, path, edited_by, schedule, timezone, enabled, script_path, is_flow, args, email, permissioned_as)
+         VALUES ('test-workspace', 'u/test-user-2/sched', 'test-user-2', '0 0 1 1 *', 'UTC', false, 'u/test-user-2/s', false, '{}'::json, 'test2@windmill.dev', 'test2@windmill.dev')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO app(workspace_id, path, summary, policy, versions)
+         VALUES ('test-workspace', 'u/test-user-2/app', '', '{\"on_behalf_of\": \"test2@windmill.dev\", \"on_behalf_of_email\": \"test2@windmill.dev\"}'::jsonb, '{}')"
+    )
+    .execute(&db)
+    .await?;
 
     let resp = change_email("test2@windmill.dev", "renamed@windmill.dev")
         .await
@@ -555,6 +569,27 @@ async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
         .fetch_one(&db)
         .await?;
     assert_eq!(owner, "renamed@windmill.dev");
+
+    // A `permissioned_as` (or app policy) holding the bare address is the sole identity reference
+    // those rows have: left stale, the schedule tick and the deployed app run as an account that no
+    // longer exists.
+    let permissioned_as = sqlx::query_scalar!(
+        "SELECT permissioned_as FROM schedule WHERE path = 'u/test-user-2/sched'"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(permissioned_as, "renamed@windmill.dev");
+
+    let policy = sqlx::query_scalar!(
+        "SELECT policy::text FROM app WHERE path = 'u/test-user-2/app' AND workspace_id = 'test-workspace'"
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or_default();
+    assert!(
+        !policy.contains("test2@windmill.dev") && policy.contains("renamed@windmill.dev"),
+        "app policy should carry only the new address: {policy}"
+    );
 
     let old_rows =
         sqlx::query_scalar!("SELECT COUNT(*) FROM password WHERE email = 'test2@windmill.dev'")
@@ -588,6 +623,12 @@ async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
         .await
         .unwrap();
     assert_eq!(resp.status(), 404);
+
+    // Moving your own account would leave your cached identity pointing at a deleted address.
+    let resp = change_email("test@windmill.dev", "self@windmill.dev")
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
 
     // Only super admins may move an account.
     let resp = client()
