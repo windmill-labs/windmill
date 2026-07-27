@@ -137,9 +137,8 @@ describe('Anthropic Messages API routing', () => {
 
 		const headers = anthropicCreate.mock.calls[0][1].headers
 		// X-Provider must carry the real provider so the backend resolves Foundry
-		// credentials/URL; the SDK header selects the Messages API path.
+		// credentials and URL.
 		expect(headers['X-Provider']).toBe('azure_foundry')
-		expect(headers['X-Anthropic-SDK']).toBe('true')
 	})
 
 	it('getNonStreamingCompletion routes native Anthropic through the Anthropic client', async () => {

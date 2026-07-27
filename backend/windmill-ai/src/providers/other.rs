@@ -286,6 +286,7 @@ impl QueryBuilder for OtherQueryBuilder {
     }
 
     fn get_endpoint(&self, base_url: &str, _model: &str, _output_type: &OutputType) -> String {
+        let base_url = base_url.trim_end_matches('/');
         if self.provider_kind.is_azure(base_url) {
             AIProvider::build_azure_openai_url(base_url, "chat/completions")
         } else {
