@@ -64,11 +64,12 @@
 		type: 'object'
 	}
 
-	// A real while-loop iteration sets iter.value to the iteration index, so the form only
-	// asks for the index and mirrors it here — an editable value could not occur in a run.
-	function withWhileLoopIterValue(args: Record<string, any>): Record<string, any> {
-		const iter = args.iter
-		return iter ? { ...args, iter: { ...iter, value: iter.index } } : args
+	// A real while-loop iteration always sets iter.value to iter.index, and the first one runs
+	// at index 0. The preview flow holds only the loop body, so nothing else supplies that
+	// context: mirror the value and default the index so a preview matches an actual run.
+	function withWhileLoopIter(args: Record<string, any>): Record<string, any> {
+		const index = args.iter?.index ?? 0
+		return { ...args, iter: { ...args.iter, index, value: index } }
 	}
 
 	let selectedJobStep: string | undefined = $state(undefined)
@@ -91,7 +92,7 @@
 		progressBar?.reset()
 		const newFlow = { value: { modules }, summary: '' }
 		jobId = await runFlowPreview(
-			whileLoop ? withWhileLoopIterValue(args) : args,
+			whileLoop ? withWhileLoopIter(args) : args,
 			newFlow,
 			$pathStore,
 			restartedFrom,
