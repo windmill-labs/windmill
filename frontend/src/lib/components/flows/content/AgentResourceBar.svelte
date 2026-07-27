@@ -148,10 +148,11 @@
 			setLinkedAgentTools(toolScope, moduleId, loaded.tools as AgentToolStrict[])
 			publishedFor = agent
 		} else if (publishedFor !== undefined && publishedFor !== agent) {
-			// The link moved and the new agent hasn't resolved (or failed to): what's stored belongs to
-			// the previous one, and binding its tool ids here would persist overrides for the wrong
-			// tools. Tools resolved at flow load stay put — publishedFor is unset then, so no flicker.
-			claimLinkedToolsFetch(toolScope, moduleId)
+			// The link moved and the new agent hasn't resolved: what's stored belongs to the previous
+			// one, and binding its tool ids would persist overrides for the wrong tools. Deliberately
+			// no claim — the editor's watcher already superseded the old fetch and has one running for
+			// the new link, which claiming here would discard, leaving the graph empty unless this step
+			// stays selected. Tools resolved at flow load stay put: publishedFor is unset then.
 			clearLinkedAgentTools(toolScope, moduleId)
 			publishedFor = undefined
 		}

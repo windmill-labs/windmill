@@ -1,12 +1,9 @@
 import { deepEqual } from 'fast-equals'
 import type { AgentTool } from './agentToolUtils'
 
-// Tools resolved from a linked agent's `ai_agent` resource, keyed by a scope (the flow path) then
-// the agent module id. A linked step stores `tools: []` (the tools live in the resource), so the
-// graph and the tool editor read the resolved set from here. Populated at flow load (see
-// flowState.ts, gated before first paint so nodes don't pop in) and refreshed when a step's link
-// changes. The scope prevents agents that share a module id across different flows shown at the same
-// time (e.g. an editor and an embedded flow preview) from aliasing each other's tools.
+// Tools resolved from a linked agent's `ai_agent` resource: the step stores `tools: []`, so the graph
+// and the tool editor read the resolved set from here. Keyed by scope then module id — the scope
+// keeps flows shown at the same time (an editor and an embedded preview) from aliasing each other.
 let byScope = $state<Record<string, Record<string, AgentTool[]>>>({})
 
 // A long-lived tab would otherwise keep every flow it ever visited (raw tool script contents
