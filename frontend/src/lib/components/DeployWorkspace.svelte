@@ -249,6 +249,8 @@
 					if (typeof obj == 'string') {
 						if (obj.startsWith('$var:')) {
 							return [{ kind: 'variable', path: obj.substring(5) }]
+						} else if (obj.startsWith('$jsonvar:')) {
+							return [{ kind: 'variable', path: obj.substring(9) }]
 						} else if (obj.startsWith('$res:')) {
 							return [{ kind: 'resource', path: obj.substring(5) }]
 						}

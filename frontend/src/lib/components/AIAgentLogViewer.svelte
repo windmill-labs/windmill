@@ -234,13 +234,29 @@
 		}
 	}
 
+	// Identity, not a summary digest: a refreshed resource can change a tool's path, code or id while
+	// keeping its name and count. The store swaps the array only when its contents actually differ,
+	// so one version per array instance tracks that exactly. An empty list is always the same key,
+	// since callers hand out a fresh [] for it on every render.
+	const toolsVersions = new WeakMap<object, number>()
+	let nextToolsVersion = 0
+	function toolsIdentity(list: AgentTool[]): string {
+		if (list.length === 0) {
+			return 'empty'
+		}
+		let version = toolsVersions.get(list)
+		if (version === undefined) {
+			version = ++nextToolsVersion
+			toolsVersions.set(list, version)
+		}
+		return String(version)
+	}
+
 	// Rebuild when the inputs change, not only on mount: a linked agent's tools resolve
 	// asynchronously after the first render, and switching between completed runs reuses this
 	// component — either would otherwise keep the first snapshot. Keyed by value, because callers
 	// rebuild the `agentJob` object on every render and identity alone would reload in a loop.
-	let reloadKey = $derived(
-		`${agentJob?.id ?? ''}|${tools.length}|${tools.map((t) => t.summary ?? '').join('\u0000')}`
-	)
+	let reloadKey = $derived(`${agentJob?.id ?? ''}|${toolsIdentity(tools)}`)
 	$effect(() => {
 		reloadKey
 		untrack(() => {

@@ -640,10 +640,23 @@
 			.filter((x): x is string => x !== undefined)
 			.join('\u0001')
 	)
-	// The link each module's stored tools belong to. Seeded from the current graph, because
-	// initFlowState has already resolved those — starting empty would clear and refetch every step
-	// on the first run.
-	let publishedAgentByModule = untrack(() => linkedAgentEntries(linkedAgentRefs))
+	// The link each module's stored tools belong to. Seeded with the top-level links only, because
+	// those are exactly what initFlowState resolves — seeding the whole set would mark a nested
+	// linked agent as current when nothing has fetched it, and seeding nothing would clear and
+	// refetch every step on the first run.
+	let publishedAgentByModule = untrack(() =>
+		linkedAgentEntries(
+			dfsApply(flowStore.val.value?.modules ?? [], (m) => m, { skipToolNodes: true })
+				.map((m) => {
+					const value = m?.value as { type?: string; agent?: string } | undefined
+					return value?.type === 'aiagent' && value.agent
+						? `${m.id}\u0000${value.agent}`
+						: undefined
+				})
+				.filter((x): x is string => x !== undefined)
+				.join('\u0001')
+		)
+	)
 	$effect(() => {
 		const refs = linkedAgentRefs
 		const ws = opWorkspace

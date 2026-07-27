@@ -17,6 +17,8 @@ export function collectTransformRefs(transforms: unknown): Dependency[] {
 				result.push({ kind: 'resource', path: v.substring(5) })
 			} else if (v.startsWith('$var:')) {
 				result.push({ kind: 'variable', path: v.substring(5) })
+			} else if (v.startsWith('$jsonvar:')) {
+				result.push({ kind: 'variable', path: v.substring(9) })
 			}
 		} else if (typeof v == 'object' && v != null) {
 			for (const inner of Object.values(v)) walk(inner)

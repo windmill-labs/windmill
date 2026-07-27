@@ -99,6 +99,17 @@ describe('inline agent dependencies', () => {
 		).toEqual([{ kind: 'resource', path: 'f/ai/openai' }])
 	})
 
+	// The worker resolves $jsonvar: alongside $var:/$res:, so a secret referenced only that way has
+	// to deploy with the agent or the linked step fails in the target workspace.
+	it('collects $jsonvar: references', () => {
+		expect(
+			aiAgentModuleDependencies({
+				input_transforms: { key: { type: 'static', value: '$jsonvar:f/prod/cfg' } },
+				tools: []
+			})
+		).toEqual([{ kind: 'variable', path: 'f/prod/cfg' }])
+	})
+
 	it('walks an inline agent own tools, which the flow module walk does not reach', () => {
 		expect(
 			aiAgentModuleDependencies({
