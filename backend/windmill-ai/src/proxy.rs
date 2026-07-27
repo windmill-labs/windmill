@@ -102,29 +102,34 @@ pub fn resource_replaces_credential(credentials: &ProviderCredentials, built_in:
     })
 }
 
-/// The credential header to send in `built_in`, or `None` when the resource
-/// supplies its own. `authorization` carries a bearer token; every other
-/// credential header carries the raw key, which holds for every provider.
+/// The credential header for an outbound request, or `None` when the resource
+/// supplies its own.
 ///
-/// A resource resolves to an api key or an OAuth token, never both, so the two
-/// are interchangeable here.
+/// An api key goes in `built_in`, the header the provider authenticates keys
+/// with. An OAuth token is always a bearer token instead, whatever header that
+/// provider's keys use — Azure OpenAI reads keys from `api-key` but Entra ID
+/// tokens only from `authorization`. `authorization` carries `Bearer <secret>`
+/// and every other credential header carries the raw secret, for every provider.
 pub fn credential_header(
     credentials: &ProviderCredentials,
     built_in: &str,
 ) -> Option<(String, String)> {
+    // `resource_replaces_credential` also matches a resource `authorization`
+    // header, so this covers the bearer case whatever `built_in` is.
     if resource_replaces_credential(credentials, built_in) {
         return None;
     }
-    let secret = credentials
-        .api_key
-        .as_ref()
-        .or(credentials.access_token.as_ref())?;
-    let value = if built_in.eq_ignore_ascii_case("authorization") {
+    let (name, secret) = match (&credentials.api_key, &credentials.access_token) {
+        (_, Some(access_token)) => ("authorization", access_token),
+        (Some(api_key), None) => (built_in, api_key),
+        (None, None) => return None,
+    };
+    let value = if name.eq_ignore_ascii_case("authorization") {
         format!("Bearer {}", secret)
     } else {
         secret.clone()
     };
-    Some((built_in.to_string(), value))
+    Some((name.to_string(), value))
 }
 
 /// The headers every outbound AI request ends with: Windmill's own, then the
@@ -275,6 +280,66 @@ mod tests {
                 "Bearer gateway-token".to_string()
             )]
         );
+    }
+
+    /// Only the header the provider authenticates keys with hands over. A
+    /// credential-shaped header a provider does not read is an ordinary header,
+    /// and suppressing the built-in credential on account of it strands the
+    /// request with no credential at all.
+    #[test]
+    fn unrelated_credential_header_keeps_the_built_in_one() {
+        let mut credentials = credentials(AIProvider::CustomAI, "https://gateway.example/openai");
+        credentials.custom_headers =
+            HashMap::from([("x-api-key".to_string(), "routing-key".to_string())]);
+        let method = Method::POST;
+
+        let request = build_openai_compatible_proxy_request(&ProxyBuildArgs {
+            method: &method,
+            path: "chat/completions",
+            headers: &HeaderMap::new(),
+            body: br#"{"model":"model","messages":[]}"#,
+            credentials: &credentials,
+        })
+        .unwrap();
+
+        assert!(request
+            .headers
+            .contains(&("authorization".to_string(), "Bearer api-key".to_string())));
+        assert!(request
+            .headers
+            .contains(&("x-api-key".to_string(), "routing-key".to_string())));
+    }
+
+    /// Azure reads api keys from `api-key` but Entra ID tokens only from
+    /// `authorization`, so an OAuth resource must stay on the bearer header
+    /// whatever the provider's key header is.
+    #[test]
+    fn oauth_token_is_sent_as_a_bearer_on_azure() {
+        let mut credentials = credentials(
+            AIProvider::AzureOpenAI,
+            "https://example.openai.azure.com/openai",
+        );
+        credentials.api_key = None;
+        credentials.access_token = Some("oauth-token".to_string());
+        let method = Method::POST;
+
+        let request = build_openai_compatible_proxy_request(&ProxyBuildArgs {
+            method: &method,
+            path: "chat/completions",
+            headers: &HeaderMap::new(),
+            body: br#"{"model":"deployment","messages":[]}"#,
+            credentials: &credentials,
+        })
+        .unwrap();
+
+        assert!(request.headers.contains(&(
+            "authorization".to_string(),
+            "Bearer oauth-token".to_string()
+        )));
+        assert!(!request
+            .headers
+            .iter()
+            .any(|(header_name, _)| header_name.eq_ignore_ascii_case("api-key")));
     }
 
     #[test]
