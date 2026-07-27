@@ -16,6 +16,9 @@
 		showCode: (path: string, summary: string) => void
 		isSearching?: boolean
 		pipelineFolders?: Set<string>
+		// How many runnables each `f/<folder>` / `u/<user>` holds for this user, keyed by
+		// full prefix. Known before an owner is expanded, unlike its loaded rows.
+		ownerCounts?: Record<string, number>
 		// Lazy per-owner loading (top-level folders and users only): expanding an owner
 		// loads its items on demand and paginates within it. `ownerLoad` keys are full
 		// path prefixes (`f/<name>` / `u/<name>`).
@@ -37,6 +40,7 @@
 		showCode,
 		isSearching = false,
 		pipelineFolders,
+		ownerCounts,
 		ownerLoad,
 		onExpandOwner,
 		onCollapseOwner,
@@ -79,6 +83,9 @@
 	// whose items are already grouped from the loaded window.
 	let isLazyOwner = $derived(ownerKey != undefined && ownerLoad != undefined)
 	let ownerState = $derived(ownerKey != undefined ? ownerLoad?.[ownerKey] : undefined)
+	// The owner's true total, known without expanding it. Preferred over the loaded
+	// rows, which are one page deep and count a subfolder as a single child.
+	let ownerCount = $derived(ownerKey != undefined ? ownerCounts?.[ownerKey] : undefined)
 
 	let showMax = $state(15)
 	// A lazy owner paginates server-side ("Load more"), so when opened on its own it
@@ -166,9 +173,11 @@
 						{#if isUser(item)}u/{item.username}{:else}{#if depth === 0}f/{/if}{item.folderName}{/if}
 					</span>
 					<div class="text-2xs font-normal text-secondary whitespace-nowrap">
-						{#if isLazyOwner && !ownerState?.loaded}
-							<!-- Lazy owner not expanded yet: its true item count is unknown until
-							     loaded, so showing "(0 items)" would be misleading. -->
+						{#if ownerCount != undefined}
+							({pluralize(ownerCount, ' item')})
+						{:else if isLazyOwner && !ownerState?.loaded}
+							<!-- Lazy owner not expanded yet and no count for it: its true item count
+							     is unknown until loaded, so showing "(0 items)" would be misleading. -->
 							&nbsp;
 						{:else if isLazyOwner && ownerState?.hasMore}
 							({item.items.length}+ items)

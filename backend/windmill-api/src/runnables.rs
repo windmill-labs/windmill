@@ -30,6 +30,7 @@ use axum::{
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult},
@@ -38,7 +39,9 @@ use windmill_types::scripts::ScriptHash;
 use windmill_types::user_drafts::DraftUserRef;
 
 pub fn workspaced_service() -> Router {
-    Router::new().route("/list", get(list_runnables))
+    Router::new()
+        .route("/list", get(list_runnables))
+        .route("/counts", get(count_runnables_by_owner))
 }
 
 #[derive(Deserialize)]
@@ -167,6 +170,46 @@ fn escape_like(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('%', "\\%")
         .replace('_', "\\_")
+}
+
+/// The `domain:action` scope grant of a fine-grained token (e.g.
+/// `scripts:read:f/foo/*`) as a predicate on `{alias}.path`, with its values
+/// appended to `binds` (placeholders numbered from `base + 1`). `None` means the
+/// token is unscoped for that domain and needs no predicate; an empty grant
+/// yields `false` so the branch matches nothing. RLS doesn't honor token scopes,
+/// so this has to be pushed into SQL.
+fn scope_path_predicate(
+    authed: &ApiAuthed,
+    domain: &str,
+    alias: &str,
+    base: usize,
+    binds: &mut Vec<String>,
+) -> Option<String> {
+    match build_scope_path_filter(authed, domain, "read") {
+        ScopePathFilter::AllowAll => None,
+        ScopePathFilter::Restricted { exact, prefix } => {
+            let mut terms: Vec<String> = vec![];
+            for e in exact {
+                binds.push(e);
+                terms.push(format!("{}.path = ${}", alias, base + binds.len()));
+            }
+            for pre in prefix {
+                binds.push(pre.clone());
+                let pe = format!("${}", base + binds.len());
+                binds.push(format!("{}/%", escape_like(&pre)));
+                let pl = format!("${}", base + binds.len());
+                terms.push(format!(
+                    "({}.path = {} OR {}.path LIKE {})",
+                    alias, pe, alias, pl
+                ));
+            }
+            Some(if terms.is_empty() {
+                "false".to_string()
+            } else {
+                format!("({})", terms.join(" OR "))
+            })
+        }
+    }
 }
 
 /// The three UNION-ALL branch SELECTs, each projecting the shared `RunnableItem`
@@ -329,55 +372,21 @@ async fn list_runnables(
         None => None,
     };
 
-    // Fine-grained scoped tokens (e.g. `scripts:read:f/foo/*`) must be confined to
-    // their granted paths. RLS alone doesn't honor token scopes, so push the
-    // per-domain path grant into SQL (empty grant -> the branch matches nothing).
-    // Unscoped sessions -> AllowAll -> no predicate.
-    let scope_where = |filter: ScopePathFilter, binds: &mut Vec<String>| -> Option<String> {
-        match filter {
-            ScopePathFilter::AllowAll => None,
-            ScopePathFilter::Restricted { exact, prefix } => {
-                let mut terms: Vec<String> = vec![];
-                for e in exact {
-                    binds.push(e);
-                    terms.push(format!("o.path = ${}", 3 + binds.len()));
-                }
-                for pre in prefix {
-                    binds.push(pre.clone());
-                    let pe = format!("${}", 3 + binds.len());
-                    binds.push(format!("{}/%", escape_like(&pre)));
-                    let pl = format!("${}", 3 + binds.len());
-                    terms.push(format!("(o.path = {} OR o.path LIKE {})", pe, pl));
-                }
-                Some(if terms.is_empty() {
-                    "false".to_string()
-                } else {
-                    format!("({})", terms.join(" OR "))
-                })
-            }
-        }
-    };
     // Only push scope binds for kinds whose branch is actually included: a scoped token
     // with e.g. `kinds=script` omits the flow/app branches, so binding their scope values
     // (which no SQL references) would make the parameter count mismatch and 500.
     let script_scope = if kinds.contains(&"script") {
-        scope_where(
-            build_scope_path_filter(&authed, "scripts", "read"),
-            &mut binds,
-        )
+        scope_path_predicate(&authed, "scripts", "o", 3, &mut binds)
     } else {
         None
     };
     let flow_scope = if kinds.contains(&"flow") {
-        scope_where(
-            build_scope_path_filter(&authed, "flows", "read"),
-            &mut binds,
-        )
+        scope_path_predicate(&authed, "flows", "o", 3, &mut binds)
     } else {
         None
     };
     let app_scope = if kinds.contains(&"app") {
-        scope_where(build_scope_path_filter(&authed, "apps", "read"), &mut binds)
+        scope_path_predicate(&authed, "apps", "o", 3, &mut binds)
     } else {
         None
     };
@@ -534,4 +543,194 @@ async fn list_runnables(
     tx.commit().await?;
 
     Ok(Json(ListRunnablesResponse { items, next_cursor }))
+}
+
+#[derive(Deserialize)]
+struct CountRunnablesQuery {
+    /// Comma-separated subset of `script,flow,app`; omitted means all.
+    kinds: Option<String>,
+    /// Include library scripts (no runnable main). Ignored for flows/apps.
+    include_without_main: Option<bool>,
+}
+
+#[derive(Serialize)]
+struct RunnableCountsResponse {
+    /// Owner prefix (`f/<folder>` or `u/<user>`) -> number of visible runnables.
+    /// Owners with none are omitted so the tree can hide them.
+    counts: HashMap<String, i64>,
+}
+
+#[derive(sqlx::FromRow)]
+struct OwnerCount {
+    owner: String,
+    count: i64,
+}
+
+/// A byte-ordered range covering exactly the paths under `o.owner`: any
+/// `owner/<rest>` is >= `owner || '/'` and, since '/' (0x2F) is immediately
+/// followed by '0' (0x30), < `owner || '0'`. `~>=~` / `~<~` are the
+/// text_pattern_ops operators, which is what lets `idx_<kind>_owner_prefix`
+/// answer the count with an index-only scan — the default opclass sorts by the
+/// database collation and cannot serve a byte-prefix range.
+fn owner_prefix_range(alias: &str) -> String {
+    format!("{alias}.path ~>=~ (o.owner || '/') AND {alias}.path ~<~ (o.owner || '0')")
+}
+
+/// Per-owner runnable counts for the homepage tree, so every folder / user node
+/// can show its size and the empty ones can be dropped without loading them.
+///
+/// Runs off the non-RLS pool and re-derives visibility from `path` alone: an
+/// owner is readable whole or not at all (admin, folder in the caller's read
+/// set, or the caller's own user space). That is what makes the count an
+/// index-only prefix scan — RLS instead applies `split_part`/`current_setting`
+/// predicates per row, which no index serves. The one case `path` cannot express
+/// is an item shared individually out of an otherwise unreadable owner; those
+/// owners are recovered by a second `extra_perms` pass over the GIN indexes.
+async fn count_runnables_by_owner(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Query(q): Query<CountRunnablesQuery>,
+) -> JsonResult<RunnableCountsResponse> {
+    let mut kinds: Vec<&str> = match q.kinds.as_deref() {
+        None | Some("") => vec!["script", "flow", "app"],
+        Some(csv) => csv
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| ["script", "flow", "app"].contains(s))
+            .collect(),
+    };
+    // Operators may only see scripts, matching list_runnables.
+    if authed.is_operator {
+        kinds.retain(|k| *k == "script");
+    }
+    if kinds.is_empty() {
+        return Ok(Json(RunnableCountsResponse { counts: HashMap::new() }));
+    }
+    let with_libs = q.include_without_main.unwrap_or(false) && !authed.is_operator;
+
+    // Per-kind predicates shared by both passes. `alias` is the branch's table
+    // alias; `binds` collects the scope values, numbered from `base + 1`.
+    let kind_filters =
+        |kind: &str, alias: &str, base: usize, binds: &mut Vec<String>| -> Vec<String> {
+            let mut w = vec![format!("{alias}.workspace_id = $1")];
+            match kind {
+                "script" => {
+                    w.push(format!("{alias}.archived = false"));
+                    if !with_libs {
+                        w.push(format!(
+                            "({alias}.auto_kind IS NULL OR {alias}.auto_kind <> 'lib')"
+                        ));
+                    }
+                    if let Some(s) = scope_path_predicate(&authed, "scripts", alias, base, binds) {
+                        w.push(s);
+                    }
+                }
+                "flow" => {
+                    w.push(format!("{alias}.archived = false"));
+                    if let Some(s) = scope_path_predicate(&authed, "flows", alias, base, binds) {
+                        w.push(s);
+                    }
+                }
+                _ => {
+                    if let Some(s) = scope_path_predicate(&authed, "apps", alias, base, binds) {
+                        w.push(s);
+                    }
+                }
+            }
+            w
+        };
+    let table_of = |kind: &str| match kind {
+        "script" => "script",
+        "flow" => "flow",
+        _ => "app",
+    };
+
+    // Pass 1 — prefix counts for every owner the caller reads wholesale.
+    // $1 = workspace, $2 = is_admin, $3 = readable folder names, $4 = username.
+    let mut binds: Vec<String> = vec![];
+    let terms: Vec<String> = kinds
+        .iter()
+        .map(|kind| {
+            let alias = "t";
+            let mut w = kind_filters(kind, alias, 4, &mut binds);
+            w.push(owner_prefix_range(alias));
+            format!(
+                "(SELECT count(*) FROM {} {} WHERE {})",
+                table_of(kind),
+                alias,
+                w.join(" AND ")
+            )
+        })
+        .collect();
+    // The own-user-space arm is unconditional: a superadmin outside the
+    // workspace has no `usr` row but still gets their node counted.
+    let sql = format!(
+        "WITH owners(owner) AS ( \
+           SELECT 'f/' || name FROM folder WHERE workspace_id = $1 AND ($2 OR name = ANY($3)) \
+           UNION SELECT 'u/' || username FROM usr WHERE workspace_id = $1 AND ($2 OR username = $4) \
+           UNION SELECT 'u/' || $4 \
+         ) \
+         SELECT o.owner AS owner, ({})::bigint AS count FROM owners o",
+        terms.join(" + ")
+    );
+    let readable_folders: Vec<String> = authed.folders.iter().map(|f| f.0.clone()).collect();
+    let mut query = sqlx::query_as::<_, OwnerCount>(&sql)
+        .bind(&w_id)
+        .bind(authed.is_admin)
+        .bind(&readable_folders)
+        .bind(&authed.username);
+    for b in &binds {
+        query = query.bind(b);
+    }
+    let mut counts: HashMap<String, i64> = query
+        .fetch_all(&db)
+        .await?
+        .into_iter()
+        .map(|r| (r.owner, r.count))
+        .collect();
+
+    // Pass 2 — owners the caller only reaches through an individual share.
+    // Admins already have every owner from pass 1.
+    if !authed.is_admin {
+        let mut grantees = vec![format!("u/{}", authed.username)];
+        grantees.extend(authed.groups.iter().map(|g| format!("g/{}", g)));
+        // $1 = workspace, $2 = the caller's grantee keys.
+        let mut binds: Vec<String> = vec![];
+        let branches: Vec<String> = kinds
+            .iter()
+            .map(|kind| {
+                let alias = "t";
+                let mut w = kind_filters(kind, alias, 2, &mut binds);
+                w.push(format!("{alias}.extra_perms ?| $2"));
+                format!(
+                    "SELECT {}.path FROM {} {} WHERE {}",
+                    alias,
+                    table_of(kind),
+                    alias,
+                    w.join(" AND ")
+                )
+            })
+            .collect();
+        let sql = format!(
+            "SELECT split_part(s.path, '/', 1) || '/' || split_part(s.path, '/', 2) AS owner, \
+                    count(*)::bigint AS count \
+             FROM ({}) s GROUP BY 1",
+            branches.join(" UNION ALL ")
+        );
+        let mut query = sqlx::query_as::<_, OwnerCount>(&sql)
+            .bind(&w_id)
+            .bind(&grantees);
+        for b in &binds {
+            query = query.bind(b);
+        }
+        for r in query.fetch_all(&db).await? {
+            // Owners already in `counts` were counted whole in pass 1, shares
+            // included — only the ones missing there are added here.
+            counts.entry(r.owner).or_insert(r.count);
+        }
+    }
+
+    counts.retain(|_, c| *c > 0);
+    Ok(Json(RunnableCountsResponse { counts }))
 }

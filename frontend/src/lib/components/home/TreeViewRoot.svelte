@@ -24,6 +24,10 @@
 		// `u/<name>`).
 		allFolders?: string[]
 		allUsers?: string[]
+		// How many runnables each `f/<folder>` / `u/<user>` holds for this user, keyed
+		// by full prefix; owners holding none are absent. Undefined while it loads or
+		// when it doesn't apply, in which case every owner is injected as before.
+		ownerCounts?: Record<string, number>
 		ownerLoad?: Record<
 			string,
 			{ cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean; count: number }
@@ -45,6 +49,7 @@
 		onLoadMore,
 		allFolders = [],
 		allUsers = [],
+		ownerCounts,
 		ownerLoad,
 		onExpandOwner,
 		onCollapseOwner
@@ -59,6 +64,7 @@
 		groupDesc
 		allFolders
 		allUsers
+		ownerCounts
 		untrack(() => {
 			// While searching, `items` is already relevance-ranked and the sort
 			// selector is disabled, so keep that order: a no-op leaf comparator
@@ -83,9 +89,15 @@
 						.filter((g) => 'folderName' in g)
 						.map((g) => (g as { folderName: string }).folderName)
 				)
+				// Once counts are in, an owner holding nothing the user can see is dropped
+				// rather than injected — a workspace's folder list is mostly noise in the
+				// tree otherwise. Pipeline folders are exempt: their entry is the pipeline
+				// itself, whose member scripts are folded out of the runnable count.
+				const isEmptyOwner = (prefix: string) => ownerCounts != undefined && !ownerCounts[prefix]
 				const missingFolders: { folderName: string; items: [] }[] = []
 				for (const folderName of [...(pipelineFolders ?? []), ...allFolders]) {
 					if (presentFolders.has(folderName)) continue
+					if (!pipelineFolders?.has(folderName) && isEmptyOwner(`f/${folderName}`)) continue
 					presentFolders.add(folderName)
 					missingFolders.push({ folderName, items: [] })
 				}
@@ -95,6 +107,7 @@
 				const missingUsers: { username: string; items: [] }[] = []
 				for (const username of allUsers) {
 					if (presentUsers.has(username)) continue
+					if (isEmptyOwner(`u/${username}`)) continue
 					presentUsers.add(username)
 					missingUsers.push({ username, items: [] })
 				}
@@ -141,6 +154,7 @@
 					{collapseAll}
 					{item}
 					{pipelineFolders}
+					{ownerCounts}
 					{ownerLoad}
 					{onExpandOwner}
 					{onCollapseOwner}

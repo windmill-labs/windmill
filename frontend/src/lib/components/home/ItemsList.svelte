@@ -479,6 +479,14 @@
 		for (const o of toReload) loadOwnerItems(o, false, true)
 	}
 
+	// For row mutations (create/delete/move/archive), which also change how many
+	// runnables an owner holds. A scope change (sort/archive/kind/…) doesn't go
+	// through here: the counts resource keys on those itself.
+	async function reloadItemsAndCounts(): Promise<void> {
+		void ownerCountsRes.refetch()
+		await reloadItems()
+	}
+
 	function filterItemsPathsBaseOnUserFilters(
 		item: TableScript | TableFlow | TableApp | TableRawApp,
 		filterUserFolders: boolean,
@@ -694,7 +702,49 @@
 	let treeLazyMode = $derived(
 		treeView && !searching && ownerFilter == undefined && labelFilter == undefined
 	)
-	let treeInjectFolders = $derived(treeLazyMode ? (folderNamesRes.current ?? []) : [])
+	// How many runnables each owner (`f/<folder>` / `u/<user>`) holds for this user,
+	// in one request. It labels every node up front — a lazy owner's own count is
+	// unknown until it's expanded — and lets the tree drop the owners holding
+	// nothing instead of listing every workspace folder. Owners with none are
+	// omitted from the response, so an absent key means empty. Skipped outside lazy
+	// mode (the other modes group already-loaded rows) and in the archived view,
+	// which the endpoint doesn't count.
+	let ownerCountsRes = resource(
+		[
+			() => $workspaceStore,
+			() => treeLazyMode,
+			() => archived,
+			() => itemKind,
+			() => includeWithoutMain
+		],
+		async ([ws, lazyMode, showArchived, kind, withoutMain]) => {
+			if (!ws || !lazyMode || showArchived) return undefined
+			try {
+				const res = await ScriptService.countRunnablesByOwner({
+					workspace: ws,
+					kinds: kind !== 'all' ? kind : undefined,
+					includeWithoutMain: withoutMain ? true : undefined
+				})
+				return res.counts
+			} catch {
+				// Best-effort: without counts the tree shows every owner, as before.
+				return undefined
+			}
+		}
+	)
+	let ownerCounts = $derived(ownerCountsRes.current)
+
+	// Owners the counts found the user has something in, split by kind. They cover
+	// what the folder/username lists miss: an item shared individually out of a
+	// folder or user space the user is otherwise not a member of.
+	function countOwners(kind: 'f' | 'u'): string[] {
+		return Object.keys(ownerCounts ?? {})
+			.filter((k) => k.startsWith(`${kind}/`))
+			.map((k) => k.slice(2))
+	}
+	let treeInjectFolders = $derived(
+		treeLazyMode ? [...new Set([...(folderNamesRes.current ?? []), ...countOwners('f')])] : []
+	)
 	let treeInjectUsers = $derived.by(() => {
 		// "Only f/*" hides every user namespace; "u/<you> and f/*" keeps just your own.
 		if (!treeLazyMode) return []
@@ -705,7 +755,10 @@
 		// and it must not vanish under a name sort whose first page is all folders.
 		if ($userStore?.username) s.add($userStore.username)
 		// Other users only when no user-folder restriction is active.
-		if (!filterUserFolders) for (const u of usernamesRes.current ?? []) s.add(u)
+		if (!filterUserFolders) {
+			for (const u of usernamesRes.current ?? []) s.add(u)
+			for (const u of countOwners('u')) s.add(u)
+		}
 		return [...s]
 	})
 	// The bottom "load more" only pages the *global* stream, which in lazy mode holds
@@ -1465,15 +1518,16 @@
 					pipelineFolders={visiblePipelineFolders}
 					allFolders={treeInjectFolders}
 					allUsers={treeInjectUsers}
+					ownerCounts={treeLazyMode ? ownerCounts : undefined}
 					ownerLoad={treeLazyMode ? ownerLoad : undefined}
 					onExpandOwner={treeLazyMode ? loadOwnerItems : undefined}
 					onCollapseOwner={treeLazyMode ? collapseOwner : undefined}
 					isSearching={filter !== ''}
-					on:scriptChanged={reloadItems}
-					on:flowChanged={reloadItems}
-					on:appChanged={reloadItems}
-					on:rawAppChanged={reloadItems}
-					on:reload={reloadItems}
+					on:scriptChanged={reloadItemsAndCounts}
+					on:flowChanged={reloadItemsAndCounts}
+					on:appChanged={reloadItemsAndCounts}
+					on:rawAppChanged={reloadItemsAndCounts}
+					on:reload={reloadItemsAndCounts}
 					{showCode}
 				/>
 			{/key}
@@ -1493,11 +1547,11 @@
 				{#each displayedItems as item, i (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
 					<Item
 						{item}
-						on:scriptChanged={reloadItems}
-						on:flowChanged={reloadItems}
-						on:appChanged={reloadItems}
-						on:rawAppChanged={reloadItems}
-						on:reload={reloadItems}
+						on:scriptChanged={reloadItemsAndCounts}
+						on:flowChanged={reloadItemsAndCounts}
+						on:appChanged={reloadItemsAndCounts}
+						on:rawAppChanged={reloadItemsAndCounts}
+						on:reload={reloadItemsAndCounts}
 						{showCode}
 						showEditButton={showEditButtons}
 						keyboardSelected={selectedIndex === i}
