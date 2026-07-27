@@ -71,7 +71,7 @@
 		providerOk: boolean
 	}
 
-	// A linked agent is rigid and read-only: its brain, tools and evals come from the resource. We
+	// A linked agent is rigid and read-only: its brain and tools come from the resource. We
 	// load them here for display, and probe the provider resource so we can warn when it isn't
 	// accessible in this workspace (the user then needs to unlink/fork or gain access).
 	let linkedResource = resource(
