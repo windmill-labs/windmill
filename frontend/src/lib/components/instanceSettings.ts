@@ -970,7 +970,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Ruff config (ruff.toml)',
 			description:
-				'Shared ruff.toml applied to the Python editor linter across the whole instance. The LSP container fetches this every minute and writes it next to edited files. See <a href="https://docs.astral.sh/ruff/configuration/">ruff docs</a>',
+				'Shared ruff.toml applied to the Python editor linter across the whole instance. The LSP container fetches this every minute and writes it next to edited files. Leave empty to use the Windmill default (<code>select = ["E4", "E7", "E9", "F"]</code>); anything set here replaces that default entirely. See <a href="https://docs.astral.sh/ruff/configuration/">ruff docs</a>',
 			key: 'ruff_config',
 			fieldType: 'codearea',
 			codeAreaLang: 'toml',

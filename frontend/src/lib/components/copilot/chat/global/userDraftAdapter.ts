@@ -25,7 +25,8 @@ const TRIGGER_DRAFT_KIND_BY_TRIGGER_KIND = {
 	amqp: 'trigger_amqp',
 	sqs: 'trigger_sqs',
 	gcp: 'trigger_gcp',
-	azure: 'trigger_azure'
+	azure: 'trigger_azure',
+	email: 'trigger_email'
 } as const satisfies Record<TriggerKind, UserDraftItemKind>
 
 const TRIGGER_KIND_BY_DRAFT_KIND = Object.fromEntries(
@@ -50,6 +51,7 @@ const GLOBAL_DRAFT_KINDS = [
 	'trigger_sqs',
 	'trigger_gcp',
 	'trigger_azure',
+	'trigger_email',
 	'resource',
 	'variable'
 ] as const satisfies UserDraftItemKind[]

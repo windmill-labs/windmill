@@ -38,7 +38,8 @@
 		devopsRole,
 		whitelabelNameStore,
 		globalDbManagerDrawer,
-		globalForkModal
+		globalForkModal,
+		globalS3FilePickerExplorer
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
@@ -83,6 +84,7 @@
 	import WorkspaceScopeHeader from '$lib/components/sidebar/WorkspaceScopeHeader.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
 	import DBManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
+	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
 	import { useDbManagerUriState } from '$lib/components/dbManagerDrawerModel.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
@@ -228,10 +230,10 @@
 	// nest the whole experience. Hide it when embedded.
 	const embedded = BROWSER && window.self !== window.top
 
-	// AI sessions are still dev-gated (localStorage wm_dev_global_ai=1), same as
-	// the global chat. The Workspace ⇄ Sessions switch is the only entry point, so
-	// gate it on the flag too — otherwise it would ship the unfinished experience
-	// to prod. The /sessions page has its own gate for direct navigation.
+	// AI sessions (beta) are on unless the user opted out from the banner under
+	// the session chat. The Workspace ⇄ Sessions switch is the only entry point,
+	// so it follows the gate; opted-out users get the legacy Ask-AI pane instead.
+	// The /sessions page has its own gate for direct navigation.
 	const globalAiEnabled = isGlobalAiEnabled()
 
 	if (page.status == 404) {
@@ -778,6 +780,13 @@
 	})
 
 	globalDbManagerDrawer.val = useDbManagerUriState()
+
+	let globalS3FilePicker: S3FilePicker | undefined = $state()
+	$effect(() => {
+		// `as any`: the component instance type is opaque in svelte2tsx context
+		// and does not match the store's structural type.
+		globalS3FilePickerExplorer.val = globalS3FilePicker as any
+	})
 </script>
 
 <svelte:window bind:innerWidth />
@@ -975,8 +984,8 @@
 													shortcut={`${getModifierKey()}k`}
 												/>
 												{#if !globalAiEnabled}
-													<!-- Global Ask-AI pane. When the sessions dev flag is on it is
-													     replaced by SessionModeSwitch, so it only shows in prod. -->
+													<!-- Legacy Ask-AI pane, shown only when the user opted out of the
+													     AI Sessions beta (otherwise SessionModeSwitch replaces it). -->
 													<MenuButton
 														stopPropagationOnClick={true}
 														on:click={() => aiChatManager.toggleOpen()}
@@ -1108,8 +1117,8 @@
 											shortcut={`${getModifierKey()}k`}
 										/>
 										{#if !globalAiEnabled}
-											<!-- Global Ask-AI pane. When the sessions dev flag is on it is
-											     replaced by SessionModeSwitch, so it only shows in prod. -->
+											<!-- Legacy Ask-AI pane, shown only when the user opted out of the
+											     AI Sessions beta (otherwise SessionModeSwitch replaces it). -->
 											<MenuButton
 												stopPropagationOnClick={true}
 												on:click={() => aiChatManager.toggleOpen()}
@@ -1302,10 +1311,14 @@
 					</button>
 				</div>
 			{/if}
+			<!-- Operators are exempt from the sessions beta: their minimal sidebar has
+			     no Workspace ⇄ Sessions switch, so disabling the docked chat would leave
+			     their "Ask AI" button toggling an unmounted pane. -->
 			<AiChatLayout
 				{children}
 				noPadding={devOnly || menuHidden}
-				disableAi={globalAiEnabled ? true : sessionMode}
+				disableAi={globalAiEnabled && !$userStore?.operator ? true : sessionMode}
+				showSessionsBetaBanner={!$userStore?.operator}
 				sidebarWidth={railWidth}
 				transitionClass={sidebarTransitionClass}
 				isMobile={innerWidth < 768}
@@ -1321,6 +1334,10 @@
 
 {#if $workspaceStore && globalDbManagerDrawer.val}
 	<DBManagerDrawer uriState={globalDbManagerDrawer.val} />
+{/if}
+
+{#if $workspaceStore}
+	<S3FilePicker bind:this={globalS3FilePicker} readOnlyMode allowDelete />
 {/if}
 
 <ForkConflictModal />

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FlowAIChatHelpers } from './flow/core'
+import type { PipelineAIChatHelpers } from './pipeline/core'
 import type { CurrentEditor } from '$lib/components/flows/types'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions.mjs'
@@ -2958,5 +2959,47 @@ describe('DOM selector chips scoped by app path', () => {
 			.map((c) => c.selector)
 			.sort()
 		expect(queuedSelectors).toEqual(['div.a', 'div.b'])
+	})
+})
+
+// Guards the seam behind the open_preview(pipeline) fix: the pipeline editor
+// registers build_pipeline_node / edit_pipeline_node asynchronously on mount, so
+// open_preview must wait for that registration before returning or the model's
+// next turn races the mount and hits "Unknown tool call".
+describe('AIChatManager.waitForPipelineHelpers', () => {
+	function fakePipelineHelpers(): PipelineAIChatHelpers {
+		return {
+			getPipelineContext: () => ({ folder: 'f', mode: 'edit', nodes: [], assets: [] }),
+			getNodeBody: async () => undefined,
+			proposeNode: async () => ({ path: '', detectedReads: [], detectedWrites: [] }),
+			editNode: async () => ({ detectedReads: [], detectedWrites: [] }),
+			removeProposedNode: async () => {},
+			testNode: async () => undefined
+		}
+	}
+
+	it('resolves true immediately when a pipeline editor is already registered', async () => {
+		const manager = new AIChatManager()
+		manager.setPipelineHelpers(fakePipelineHelpers())
+		await expect(manager.waitForPipelineHelpers(1000)).resolves.toBe(true)
+	})
+
+	it('resolves true once a pipeline editor registers', async () => {
+		const manager = new AIChatManager()
+		let outcome: boolean | undefined
+		const wait = manager.waitForPipelineHelpers(1000).then((v) => (outcome = v))
+		await Promise.resolve()
+		expect(outcome).toBeUndefined()
+		manager.setPipelineHelpers(fakePipelineHelpers())
+		await wait
+		expect(outcome).toBe(true)
+	})
+
+	// The false result is the signal the open_preview handler needs: a backgrounded
+	// session's editor never mounts, so it must report "tools unavailable" rather
+	// than silently claim success.
+	it('resolves false after the timeout when no editor ever registers', async () => {
+		const manager = new AIChatManager()
+		await expect(manager.waitForPipelineHelpers(10)).resolves.toBe(false)
 	})
 })

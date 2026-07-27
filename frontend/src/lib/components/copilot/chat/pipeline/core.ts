@@ -53,15 +53,21 @@ export interface PipelineAIChatHelpers {
 	getPipelineContext: () => PipelineContext
 	/** Read a node's source (the in-flight draft body if one exists, else deployed). */
 	getNodeBody: (path: string) => Promise<{ language: ScriptLang; content: string } | undefined>
-	/** Create a brand-new pipeline node as an unsaved draft on the canvas. */
+	/** Create a brand-new pipeline node as an unsaved draft on the canvas.
+	 * Returns the asset lineage inferred from the node (as URIs) so the caller can
+	 * confirm the intended edges formed without a separate graph read. */
 	proposeNode: (input: {
 		path: string
 		language: ScriptLang
 		content: string
 		outputKind?: PipelineOutputKind
-	}) => Promise<{ path: string }>
-	/** Replace an existing node's body, applied as an unsaved draft. */
-	editNode: (path: string, content: string) => Promise<void>
+	}) => Promise<{ path: string; detectedReads: string[]; detectedWrites: string[] }>
+	/** Replace an existing node's body, applied as an unsaved draft. Returns the
+	 * re-inferred asset lineage (URIs) so the caller sees the effect of the edit. */
+	editNode: (
+		path: string,
+		content: string
+	) => Promise<{ detectedReads: string[]; detectedWrites: string[] }>
 	/** Discard the unsaved draft at a path (undo a build_pipeline_node). */
 	removeProposedNode: (path: string) => Promise<void>
 	/** Preview-run a node (draft body preferred). Returns the started job id. */
@@ -184,9 +190,20 @@ const testPipelineNodeToolDef = createToolDef(
 	{ strict: false }
 )
 
-// ----------------------------------------------------------------------------
-// Tool set
-// ----------------------------------------------------------------------------
+// Summarize the asset lineage the parser inferred from a just-applied node so the
+// model gets same-turn feedback on whether its intended edges formed. An empty
+// result is the useful signal: a write/read expressed via a variable or dynamic
+// path is not detected, so no lineage edge forms — flag it rather than let the
+// model discover it only on a later graph read.
+function inferredLineageNote(reads: string[], writes: string[]): string {
+	const parts: string[] = []
+	if (writes.length) parts.push(`writes ${writes.join(', ')}`)
+	if (reads.length) parts.push(`reads ${reads.join(', ')}`)
+	if (parts.length === 0) {
+		return ' No storage-asset read or write was inferred from it — if this node is meant to feed or consume another node, make sure the asset reference is a string literal (a variable, f-string, or computed path is not detected, so no lineage edge forms).'
+	}
+	return ` Inferred lineage: ${parts.join('; ')}.`
+}
 
 export const pipelineTools: Tool<PipelineToolHelpers>[] = [
 	{
@@ -225,7 +242,7 @@ export const pipelineTools: Tool<PipelineToolHelpers>[] = [
 			const pipeline = requirePipeline(helpers)
 			const { path, language, content, output_kind } = buildPipelineNodeSchema.parse(args)
 			toolCallbacks.setToolStatus(toolId, { content: `Building node '${path}'...` })
-			await pipeline.proposeNode({
+			const { detectedReads, detectedWrites } = await pipeline.proposeNode({
 				path,
 				language: language as ScriptLang,
 				content,
@@ -235,7 +252,7 @@ export const pipelineTools: Tool<PipelineToolHelpers>[] = [
 				content: `Added draft node '${path}'`,
 				result: 'Success'
 			})
-			return `Pipeline node '${path}' added as an unsaved draft on the canvas. It is not deployed — the user deploys it.`
+			return `Pipeline node '${path}' added as an unsaved draft on the canvas. It is not deployed — the user deploys it.${inferredLineageNote(detectedReads, detectedWrites)}`
 		}
 	},
 	{
@@ -258,12 +275,12 @@ export const pipelineTools: Tool<PipelineToolHelpers>[] = [
 				replace_all ?? false,
 				'node source'
 			)
-			await pipeline.editNode(path, updated)
+			const { detectedReads, detectedWrites } = await pipeline.editNode(path, updated)
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Edited draft '${path}'`,
 				result: 'Success'
 			})
-			return `Pipeline node '${path}' updated as an unsaved draft on the canvas (not deployed).`
+			return `Pipeline node '${path}' updated as an unsaved draft on the canvas (not deployed).${inferredLineageNote(detectedReads, detectedWrites)}`
 		}
 	},
 	{

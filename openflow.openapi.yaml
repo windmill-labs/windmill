@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.765.0
+  version: 1.771.1
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -421,7 +421,7 @@ components:
 
     JavascriptTransform:
       type: object
-      description: JavaScript expression evaluated at runtime. Can reference previous step results via 'results.step_id' or flow inputs via 'flow_input.property'. Inside loops, use 'flow_input.iter.value' for the current iteration value
+      description: JavaScript expression evaluated at runtime. Can reference previous step results via 'results.step_id' or flow inputs via 'flow_input.property'. Inside for loops, use 'flow_input.iter.value' for the current iteration value (in while loops it equals 'flow_input.iter.index')
       properties:
         expr:
           type: string
@@ -826,11 +826,11 @@ components:
 
     WhileloopFlow:
       type: object
-      description: Executes nested modules repeatedly while a condition is true. The loop checks the condition after each iteration. Use stop_after_if on modules to control loop termination
+      description: Executes nested modules repeatedly until stopped. The implicit iterator is the iteration counter, so 'flow_input.iter.value' equals 'flow_input.iter.index' (0, 1, 2, ...) and never carries state. To carry state across iterations, a step reads its own previous-iteration result via 'results.<its_own_id>' with a first-iteration fallback - the loop's stop_after_if must then be on that inner step (a plain single-step body with stop_after_if on the loop module does not resolve 'results' across iterations and never terminates); plain counters can instead be derived from 'flow_input.iter.index', which works in every configuration. stop_after_if is evaluated after each iteration - on the loop module 'result' is the last iteration's result
       properties:
         modules:
           type: array
-          description: Steps to execute in each iteration. Use stop_after_if to control when the loop ends
+          description: Steps to execute in each iteration
           items:
             $ref: '#/components/schemas/FlowModule'
         skip_failures:

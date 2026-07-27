@@ -92,13 +92,33 @@ export function buildSchedulesUrl({
 // full filter schema), so the allow-list is the exact set of keys the builder emits —
 // these names match the query params the pages read (variablesFilter/resourcesFilter/
 // assetsFilter and audit_logs/+page.svelte).
-export function buildVariablesUrl(filters: Record<string, unknown>): string {
-	return buildFilterUrl(VARIABLES_PATH, filters, { validKeys: ['path', 'owner'] })
+/** When `open` is set, the variable at that exact path is opened in the edit
+ * drawer via the `#<path>` hash the page already handles. */
+export function buildVariablesUrl({
+	open,
+	filters
+}: {
+	open?: string
+	filters?: Record<string, unknown>
+}): string {
+	return buildFilterUrl(VARIABLES_PATH, filters ?? {}, {
+		validKeys: ['path', 'owner'],
+		hash: open
+	})
 }
 
-export function buildResourcesUrl(filters: Record<string, unknown>): string {
-	return buildFilterUrl(RESOURCES_PATH, filters, {
-		validKeys: ['path', 'resource_type', 'owner']
+/** When `open` is set, the resource at that exact path is opened in the edit
+ * drawer via the `#/resource/<path>` hash the page already handles. */
+export function buildResourcesUrl({
+	open,
+	filters
+}: {
+	open?: string
+	filters?: Record<string, unknown>
+}): string {
+	return buildFilterUrl(RESOURCES_PATH, filters ?? {}, {
+		validKeys: ['path', 'resource_type', 'owner'],
+		hash: open ? `/resource/${open}` : undefined
 	})
 }
 

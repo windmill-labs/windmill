@@ -355,6 +355,10 @@ export class AIChatManager {
 
 	mode = $state<AIMode>(AIMode.NAVIGATOR)
 	pipelineAiChatHelpers = $state<PipelineAIChatHelpers | undefined>(undefined)
+	// Resolved when a pipeline editor registers its tools. open_preview(pipeline)
+	// awaits this so the model's next build_pipeline_node call can't race ahead of
+	// the async canvas mount and hit "Unknown tool call".
+	#pipelineHelpersWaiters = new Set<() => void>()
 	readonly isOpen = $derived(chatState.size > 0)
 	savedSize = $state<number>(0)
 	instructions = $state<string>('')
@@ -1816,7 +1820,6 @@ export class AIChatManager {
 			// workspace instead, so leave it unset there — allowedOpenPages reads the store.
 			...(this.isSessionChat
 				? {
-						isSessionChat: true,
 						sessionId: this.sessionId,
 						operatingWorkspace: this.operatingWorkspace,
 						artifacts: this.artifacts,
@@ -3680,6 +3683,10 @@ export class AIChatManager {
 				this.configureGlobalMode()
 			}
 		})
+		// The pipeline tools are now registered — release anything awaiting them.
+		const waiters = [...this.#pipelineHelpersWaiters]
+		this.#pipelineHelpersWaiters.clear()
+		waiters.forEach((resolve) => resolve())
 
 		return () => {
 			this.pipelineAiChatHelpers = undefined
@@ -3689,6 +3696,30 @@ export class AIChatManager {
 				}
 			})
 		}
+	}
+
+	/**
+	 * Await the pipeline editor's tool registration. Resolves `true` immediately
+	 * when a pipeline editor is already mounted, or when the next one registers;
+	 * resolves `false` after `timeoutMs` if none registers (e.g. a backgrounded
+	 * session whose preview tab is not mounted, or a closed tab). Callers must
+	 * treat `false` as "tools NOT available" rather than silently reporting
+	 * success — the open_preview handler surfaces that to the model.
+	 */
+	waitForPipelineHelpers = (timeoutMs = 8000): Promise<boolean> => {
+		if (this.pipelineAiChatHelpers) return Promise.resolve(true)
+		return new Promise<boolean>((resolve) => {
+			let settled = false
+			const finish = (registered: boolean) => {
+				if (settled) return
+				settled = true
+				this.#pipelineHelpersWaiters.delete(onRegister)
+				resolve(registered)
+			}
+			const onRegister = () => finish(true)
+			this.#pipelineHelpersWaiters.add(onRegister)
+			setTimeout(() => finish(false), timeoutMs)
+		})
 	}
 
 	/**

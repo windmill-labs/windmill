@@ -664,6 +664,19 @@ impl FlowModule {
             .is_ok_and(|x| x == "script" || x == "rawscript" || x == "flowscript")
     }
 
+    /// Whether a between-steps-zombie step carrying this definition can be safely reused as
+    /// `Success` on restart (see restart-resolution reuse). Excludes steps whose completion
+    /// transition or arming carries semantics that reuse would silently skip: stop predicates
+    /// (`stop_after_if` / `stop_after_all_iters_if`, which decide whether downstream steps run),
+    /// `skip_if` (skipped-state and suspend arming), a `suspend` approval boundary, and `sleep`.
+    pub fn allows_zombie_reuse(&self) -> bool {
+        self.stop_after_if.is_none()
+            && self.stop_after_all_iters_if.is_none()
+            && self.skip_if.is_none()
+            && self.suspend.is_none()
+            && self.sleep.is_none()
+    }
+
     pub fn get_type(&self) -> anyhow::Result<&str> {
         #[derive(Deserialize)]
         pub struct FlowModuleValueType<'a> {

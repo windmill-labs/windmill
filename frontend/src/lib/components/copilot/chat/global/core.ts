@@ -1,6 +1,7 @@
 import {
 	AppService,
 	AzureTriggerService,
+	EmailTriggerService,
 	FlowService,
 	FolderService,
 	GcpTriggerService,
@@ -26,6 +27,7 @@ import type {
 	CreateResource,
 	CreateVariable,
 	Flow,
+	FlowModule,
 	FlowValue,
 	Job,
 	ListableApp,
@@ -57,9 +59,14 @@ import {
 	applyEditableFlowJsonToFlow,
 	buildEditableFlowJson,
 	type EditableFlowJson,
+	finalizeUnresolvedInlineScripts,
+	restoreSpecialRawscriptModule,
 	validateEditableFlowJson
 } from '../flow/editableFlowJson'
-import { createInlineScriptSession } from '../flow/inlineScriptsUtils'
+import {
+	createInlineScriptSession,
+	findUnresolvedInlineScriptRefs
+} from '../flow/inlineScriptsUtils'
 import { searchNpmPackagesTool } from '../script/core'
 import {
 	getDatatableSdkReference,
@@ -81,6 +88,7 @@ import {
 	executeTestRun,
 	findAndReplace,
 	type CreatedResourceTriggerKind,
+	type PreviewCardKind,
 	type Tool,
 	type ToolCallbacks,
 	type ToolDisplayAction
@@ -89,6 +97,7 @@ import { searchDocsTool, readDocsPageTool } from '../docs/core'
 import { createDbSchemaTool } from '../script/core'
 import type { ContextElement } from '../context'
 import { getDatatableTools } from '../datatableTools'
+import { getDucklakeTools } from '../ducklakeTools'
 import { fileTools } from '../files/fileTools'
 import type { AttachedFilesStore } from '../files/attachedFiles.svelte'
 import { artifactTools } from '../artifacts/artifactTools'
@@ -193,7 +202,6 @@ const VARIABLE_MASKED_NOTE =
 const SECRET_UNCOMPARABLE_NOTE =
 	'Note: this is a SECRET variable — its value is never shown and cannot be compared, so it may ALSO have changed beyond what this diff shows.\n\n'
 import { apiCatalogTools } from './apiCatalogTools'
-import { isSessionPipelinesEnabled, SESSION_PIPELINES_GATED_MESSAGE } from './pipelineGate'
 
 const ITEM_TYPES = [
 	'script',
@@ -444,6 +452,10 @@ const writeFlowSchema = z.object({
 	override: draftOverrideField
 })
 
+// modules/preprocessor_module/failure_module can carry rawscript `content`, whose
+// quotes and newlines are the usual reason the JSON string fails to parse.
+const FLOW_CODE_BEARING_FIELDS = new Set(['modules', 'preprocessor_module', 'failure_module'])
+
 function parseOptionalJsonArg(value: unknown, field: string): unknown {
 	if (value === undefined || value === null) {
 		return value
@@ -453,8 +465,58 @@ function parseOptionalJsonArg(value: unknown, field: string): unknown {
 		return typeof value === 'string' ? JSON.parse(value) : value
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error)
-		throw new Error(`Invalid JSON for ${field}: ${message}`)
+		const hint = FLOW_CODE_BEARING_FIELDS.has(field)
+			? ' A rawscript "content" string with multi-line code or quotes is the usual cause. Instead of inlining large code, create the rawscript module with empty content ("") and fill its body with set_flow_module_code afterwards.'
+			: ''
+		throw new Error(`Invalid JSON for ${field}: ${message}${hint}`)
 	}
+}
+
+/**
+ * Rawscript bodies are fragile to embed inside the `modules` JSON string: the
+ * code's quotes and newlines have to survive three levels of escaping (tool-call
+ * arguments -> modules string -> content string) and the model routinely mangles
+ * them. So a module may be saved with empty (or `inline_script.` placeholder)
+ * content; return the ids that still need a body filled out-of-band with
+ * `set_flow_module_code`.
+ */
+function emptyInlineScriptModuleIds(editable: EditableFlowJson): string[] {
+	const value: FlowValue = {
+		modules: editable.modules,
+		preprocessor_module: editable.preprocessor_module ?? undefined,
+		failure_module: editable.failure_module ?? undefined
+	}
+	const session = createInlineScriptSession()
+	buildEditableFlowJson({ value, schema: editable.schema }, session)
+	return Object.entries(session.getAll())
+		.filter(([, content]) => content.trim() === '' || /^inline_script\./.test(content))
+		.map(([id]) => id)
+}
+
+/**
+ * Fold the empty-body warning into a flow write tool's JSON result — but only
+ * when the save actually succeeded. `writeFlowDraft` reports
+ * conflicts/persistence errors as `{ success: false }` rather than throwing;
+ * telling the model to fill code on a flow that was never saved would send it
+ * after a stale or nonexistent draft.
+ */
+function appendEmptyInlineScriptWarning(result: string, editable: EditableFlowJson): string {
+	const emptyIds = emptyInlineScriptModuleIds(editable)
+	if (emptyIds.length === 0) {
+		return result
+	}
+	let parsed: { success?: unknown; message?: unknown }
+	try {
+		parsed = JSON.parse(result)
+	} catch {
+		return result
+	}
+	if (parsed.success !== true || typeof parsed.message !== 'string') {
+		return result
+	}
+	const list = emptyIds.map((id) => `"${id}"`).join(', ')
+	parsed.message += `\n\nWarning: inline scripts ${list} have no code yet. Fill each one with set_flow_module_code(path, module_id, code) — do not re-send the whole flow.`
+	return JSON.stringify(parsed, null, 2)
 }
 
 function editableFlowToDraftValue(editable: EditableFlowJson): FlowDraftValue {
@@ -500,7 +562,8 @@ const writeTriggerSchema = z.object({
 			triggerRequestSchemas.amqp,
 			triggerRequestSchemas.sqs,
 			triggerRequestSchemas.gcp,
-			triggerRequestSchemas.azure
+			triggerRequestSchemas.azure,
+			triggerRequestSchemas.email
 		])
 		.describe(
 			'Full trigger configuration. Must include path, script_path, is_flow plus the kind-specific fields.'
@@ -513,7 +576,11 @@ const writeResourceSchema = resourceRequestSchema.extend({ override: draftOverri
 const writeVariableSchema = variableRequestSchema.extend({ override: draftOverrideField })
 
 const searchResourceTypesSchema = z.object({
-	query: z.string().describe('Substring to match against resource type names.'),
+	query: z
+		.string()
+		.describe(
+			'Natural-language description of the integration or capability you need, e.g. "stripe", "postgres database", or "send emails". Matched semantically against resource type names and descriptions, so describe the intent rather than guessing the exact name.'
+		),
 	limit: z
 		.number()
 		.int()
@@ -1069,11 +1136,13 @@ const buildGlobalSystemPrompt = (
 	const folderGuidance = buildFolderGuidance(username, folderCtx)
 	const folderGuidanceBlock = folderGuidance ? `\n${folderGuidance}` : ''
 	// `previewTools` doubles as "this is a session chat" — sessions are the only
-	// chats that get the preview tool set, and the only surface the gate covers.
-	const pipelinesGated = previewTools && !isSessionPipelinesEnabled()
-	const pipelineBullet = pipelinesGated
-		? `- Data pipelines are in alpha and NOT yet available in this chat. A "data pipeline" is a DAG of independent annotated scripts wired by storage assets — it is not a flow. If the user asks for a data pipeline (or to ingest/transform/materialize data across steps in one), tell them that data pipelines are in alpha and will be handled by the chat soon — do not build one (no annotated pipeline scripts, no get_instructions with subject "pipeline"), and do not build a flow as a substitute.`
-		: `- A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.`
+	// chats that get the preview tool set. The alpha heads-up only makes sense
+	// there, where the chat actively builds the pipeline on the canvas; the
+	// standalone global chat keeps its plain guidance.
+	const pipelineAlphaNote = previewTools
+		? ' Data pipeline support in this chat is in ALPHA: the first time the user asks for a data pipeline in this session, briefly tell them it is an alpha feature before you start building.'
+		: ''
+	const pipelineBullet = `- A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.${pipelineAlphaNote}`
 	return `You are Windmill's global workspace assistant.
 
 The current user's workspace username is "${username}".
@@ -1103,6 +1172,7 @@ ${pipelineBullet}
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
+- Whenever you ask the user to perform a manual step in the UI — fill in a resource's credentials, set a secret variable's value, adjust a schedule or setting — call open_page in the same message, targeted at that item (pass open with its path to land in its edit drawer, or the page's filters otherwise). Never just describe where to click.
 - When the user is happy with the changes and wants to review or deploy them, use open_page with page "compare" — it opens the Compare & Deploy review page.${
 		previewTools
 			? ' By default it preselects the items this chat modified; pass items ("<kind>:<path>" entries) to control the selection'
@@ -1115,12 +1185,8 @@ ${pipelineBullet}
 - Keep context targeted.${
 		previewTools
 			? `
-- After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.${
-					pipelinesGated
-						? ''
-						: `
-- Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty or not-yet-created folder is fine (create_folder first if needed, then open it). Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.`
-				}
+- After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.
+- Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty or not-yet-created folder is fine (create_folder first if needed, then open it). Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.
 - When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
 - To inspect what actually rendered in a running raw app (verify an edit landed on screen, diagnose a blank/empty or wrong view, answer "what's showing"), use search_dom (regex over the live HTML) and read_dom (a line-numbered window). Pass a \`selector\` to scope to an element — prefer the selector from a DOM element chip the user attached — or omit it for the whole page. When a chip lists an \`app_path\`, pass it too so the RIGHT app is read (several previews can be open; a query without \`app_path\` hits the visible one). The DOM is read live and is never in context; no match means the element isn't rendered. Both need the raw app preview open.
 - get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.
@@ -1688,6 +1754,14 @@ const triggerServices: Record<TriggerKind, TriggerService> = {
 		create: (a) => AzureTriggerService.createAzureTrigger(a),
 		update: (a) => AzureTriggerService.updateAzureTrigger(a),
 		delete: (a) => AzureTriggerService.deleteAzureTrigger(a)
+	},
+	email: {
+		exists: (a) => EmailTriggerService.existsEmailTrigger(a),
+		get: (a) => EmailTriggerService.getEmailTrigger(a),
+		list: (a) => EmailTriggerService.listEmailTriggers(a),
+		create: (a) => EmailTriggerService.createEmailTrigger(a),
+		update: (a) => EmailTriggerService.updateEmailTrigger(a),
+		delete: (a) => EmailTriggerService.deleteEmailTrigger(a)
 	}
 }
 
@@ -1797,12 +1871,22 @@ async function listWorkspaceItems(
 
 	if (types.includes('trigger')) {
 		for (const kind of TRIGGER_KINDS) {
-			const triggers = await triggerServices[kind].list({
-				workspace,
-				pathStart: pathPrefix,
-				perPage,
-				page
-			})
+			let triggers: Awaited<ReturnType<(typeof triggerServices)[typeof kind]['list']>>
+			try {
+				triggers = await triggerServices[kind].list({
+					workspace,
+					pathStart: pathPrefix,
+					perPage,
+					page
+				})
+			} catch (err) {
+				// A trigger kind whose backend routes aren't compiled in (e.g. email
+				// without smtp+private, or an EE kind on CE) 404s here; skip only that
+				// so one unavailable kind doesn't drop the whole listing. Any other
+				// failure (auth, 5xx, network) is real and must surface.
+				if ((err as { status?: number } | undefined)?.status === 404) continue
+				throw err
+			}
 			for (const trigger of triggers) items.push(triggerToItem(kind, trigger, false))
 		}
 	}
@@ -1891,7 +1975,9 @@ function getFlowInstructions(): string {
   - \`read_flow_module_code(path, module_id)\` — returns the raw inline script content for one module.
   - \`set_flow_module_code(path, module_id, code)\` — overwrites that module's inline script content; saves to the draft.
 - Use \`patch_flow_json\` for *structural* edits: module ids, paths, input_transforms, branch arrangement, summaries, preprocessor/failure swaps, schema/groups/notes. Use \`set_flow_module_code\` for changes inside a specific rawscript body.
-- \`write_flow\` is for full overwrites / create-from-scratch. Its \`modules\`, \`preprocessor_module\`, and \`failure_module\` arguments use **non-compact** flow modules (rawscript content is the actual code, not a placeholder).
+- When **adding a new rawscript module** with \`patch_flow_json\`, set its \`content\` to the placeholder \`"inline_script.<moduleId>"\` (matching the compact view) — never real code — then **immediately fill the body** with \`set_flow_module_code(path, module_id, code)\`. The module is saved with an empty body until you do; the tool result lists the module ids still awaiting code. A placeholder that names anything other than the module's own id or an existing rawscript module is rejected.
+- \`write_flow\` is for full overwrites / create-from-scratch. Its \`modules\`, \`preprocessor_module\`, and \`failure_module\` arguments are **non-compact** flow modules: inline each rawscript body directly in \`content\` by default. But if a body is long or quote/backslash-heavy enough that escaping it into the JSON string is error-prone — or if a \`write_flow\` call comes back with a JSON parse error — create that module with **empty content** (\`"content": ""\`) and fill it with \`set_flow_module_code(path, module_id, code)\`, whose \`code\` is a plain argument with no nested escaping. \`write_flow\` reports which modules still have empty bodies so you know what to fill.
+  - When overwriting an **existing** flow, set \`"content": "inline_script.<moduleId>"\` on any rawscript module whose code you are not changing — the placeholder resolves to that module's current body, so you never re-send (or re-read) unchanged code. Placeholders that match no existing rawscript module and are not the module's own id are rejected.
 
 # Windmill flow authoring reference
 
@@ -2194,7 +2280,7 @@ const openPageFullSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			'Schedules/Triggers: exact schedule or trigger path to open in the edit drawer, e.g. f/foo/my_schedule'
+			'Schedules/Triggers/Variables/Resources: exact item path to open in the edit drawer, e.g. f/foo/my_schedule. Use it whenever the user should act on one specific item (e.g. fill in credentials) so they land directly in its editor.'
 		),
 	summary: z
 		.string()
@@ -2244,7 +2330,7 @@ const OPEN_PAGE_FIELD_PAGES: Record<string, OpenPageName[]> = {
 	schedule_path: ['runs', 'schedules'],
 	job_kinds: ['runs'],
 	user: ['runs'],
-	open: ['schedules', 'triggers'],
+	open: ['schedules', 'triggers', 'variables', 'resources'],
 	summary: ['schedules'],
 	trigger_kind: ['triggers'],
 	resource_type: ['resources'],
@@ -2295,7 +2381,7 @@ function buildOpenPageDefSchema(
 }
 
 const OPEN_PAGE_DESCRIPTION =
-	'Open a Windmill page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, Folders, Groups, Triggers (by kind), Workspace settings (on a specific tab), or the Compare & Deploy review page. Inside an AI session it opens as a tab in the side-panel preview next to the chat; elsewhere it offers a clickable link. Use after surfacing something the user likely wants to inspect (e.g. "show me the failed runs of X", "open the schedule for Y", "open the git sync settings", "open the kafka triggers"), and use page "compare" when the user wants to review and deploy pending changes (the items field controls which changes are preselected). This is the only way to show one of these pages in the session preview — open_preview only handles editable items (scripts, flows, raw apps, pipelines). Only pages listed for this user are available; do not offer others.'
+	'Open a Windmill page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, Folders, Groups, Triggers (by kind), Workspace settings (on a specific tab), or the Compare & Deploy review page. Inside an AI session it opens as a tab in the side-panel preview next to the chat; elsewhere it offers a clickable link. Use after surfacing something the user likely wants to inspect (e.g. "show me the failed runs of X", "open the schedule for Y", "open the git sync settings", "open the kafka triggers"), and ALWAYS when asking the user to perform a manual step themselves (fill in a resource\'s credentials, set a variable\'s value — pass open with the item path so its edit drawer opens directly). Use page "compare" when the user wants to review and deploy pending changes (the items field controls which changes are preselected). This is the only way to show one of these pages in the session preview — open_preview only handles editable items (scripts, flows, raw apps, pipelines). Only pages listed for this user are available; do not offer others.'
 
 // Non-arg inputs the URL builder needs: the chat's operating workspace (the compare
 // page cannot fall back to its own store default inside a session preview) and the
@@ -2318,9 +2404,12 @@ export function buildOpenPageUrl(page: OpenPageName, a: OpenPageArgs, ctx: OpenP
 				filters: { path: a.path, schedule_path: a.schedule_path, summary: a.summary }
 			})
 		case 'variables':
-			return buildVariablesUrl({ path: a.path, owner: a.owner })
+			return buildVariablesUrl({ open: a.open, filters: { path: a.path, owner: a.owner } })
 		case 'resources':
-			return buildResourcesUrl({ path: a.path, resource_type: a.resource_type, owner: a.owner })
+			return buildResourcesUrl({
+				open: a.open,
+				filters: { path: a.path, resource_type: a.resource_type, owner: a.owner }
+			})
 		case 'assets':
 			return buildAssetsUrl({ path: a.path })
 		case 'audit_logs':
@@ -2419,7 +2508,9 @@ export const openPageTool: Tool<{}> = {
 		if (page === 'triggers' && triggerKind && !allowedTriggerKinds().includes(triggerKind)) {
 			return `${TRIGGER_PAGES[triggerKind].label} aren't available on this instance.`
 		}
-		const urlWorkspace = workspaceId ?? get(workspaceStore)
+		// Headless callers (ai_evals) have neither helpers.operatingWorkspace nor a
+		// populated workspaceStore; the chat loop's workspace is still correct there.
+		const urlWorkspace = workspaceId ?? get(workspaceStore) ?? ctx.workspace
 		if (!urlWorkspace) {
 			return 'Error: no workspace is selected, so no page can be opened.'
 		}
@@ -2468,16 +2559,6 @@ export const globalTools: Tool<{}>[] = [
 		fn: async (ctx) => {
 			const { args, toolId, toolCallbacks } = ctx
 			const parsed = getInstructionsSchema.parse(args)
-			// Session chats (explicit isSessionChat helper) don't get pipeline
-			// authoring while pipelines are gated; the standalone global chat keeps it.
-			if (
-				parsed.subject === 'pipeline' &&
-				isSessionChatFromCtx(ctx) &&
-				!isSessionPipelinesEnabled()
-			) {
-				toolCallbacks.setToolStatus(toolId, { content: 'Data pipelines are in alpha' })
-				return SESSION_PIPELINES_GATED_MESSAGE
-			}
 			const label =
 				parsed.subject === 'script' && parsed.language
 					? `${parsed.subject} (${parsed.language})`
@@ -2791,15 +2872,17 @@ export const globalTools: Tool<{}>[] = [
 				groups: parseOptionalJsonArg(parsed.groups, 'groups'),
 				notes: parseOptionalJsonArg(parsed.notes, 'notes')
 			})
-			return writeFlowDraft(
+			const resolved = await resolveWriteFlowInlineScripts(parsed.path, editable, ctx.workspace)
+			const result = await writeFlowDraft(
 				{
 					path: parsed.path,
 					summary: parsed.summary,
 					description: parsed.description,
-					flow: editableFlowToDraftValue(editable)
+					flow: editableFlowToDraftValue(resolved)
 				},
 				ctx
 			)
+			return appendEmptyInlineScriptWarning(result, resolved)
 		}
 	},
 	{
@@ -3422,6 +3505,8 @@ export const globalTools: Tool<{}>[] = [
 	},
 	// Workspace-scoped datatable tools (unrestricted: no whitelist, no creation policy)
 	...getDatatableTools(),
+	// Workspace DuckLake readiness (storage prerequisite check for pipelines)
+	...getDucklakeTools(),
 	// Read-only tools over files the user attached to the conversation
 	...fileTools,
 	// Search + call access to the backend API endpoint catalog, for operations
@@ -3473,6 +3558,9 @@ type WriteDraftCtx = {
 	// reloads the preview of the session that issued the deploy — not the
 	// UI-active one. Undefined for the global side-panel chat.
 	sessionId?: string
+	// Present when the ctx is the raw tool `fn` context — session chats carry
+	// their id here (see SessionToolHelpers / sessionIdFromCtx).
+	helpers?: unknown
 }
 
 // Sessions are the only context where `open_preview` makes sense — the global
@@ -3507,18 +3595,10 @@ export type GlobalToolHelpers = SessionToolHelpers & {
 	// side-panel chat). Backs open_page's compare-page default preselection.
 	getModifiedItems?: () => string[] | undefined
 	openArtifact?: (artifactId: string, name: string) => void
-	// Explicit "this chat is an AI session" marker for session-scoped gating
-	// (the pipeline gate). Do NOT infer it from `sessionId`: the eval harness
-	// passes a sessionId to its standalone (non-session) chats too.
-	isSessionChat?: boolean
 }
 
 function sessionIdFromCtx(ctx: { helpers?: unknown }): string | undefined {
 	return (ctx.helpers as GlobalToolHelpers | undefined)?.sessionId
-}
-
-function isSessionChatFromCtx(ctx: { helpers?: unknown }): boolean {
-	return (ctx.helpers as GlobalToolHelpers | undefined)?.isSessionChat === true
 }
 
 function operatingWorkspaceFromHelpers(helpers: unknown): string | undefined {
@@ -3540,7 +3620,7 @@ export type OpenPreviewHandler = (req: {
 	sessionId: string | undefined
 	kind: 'script' | 'flow' | 'raw_app' | 'pipeline'
 	path: string
-}) => string
+}) => string | Promise<string>
 
 let openPreviewHandler: OpenPreviewHandler | undefined
 
@@ -3548,18 +3628,17 @@ export function setOpenPreviewHandler(handler: OpenPreviewHandler | undefined): 
 	openPreviewHandler = handler
 }
 
-function openSessionPreview(
+async function openSessionPreview(
 	args: { kind: 'script' | 'flow' | 'raw_app' | 'pipeline'; path: string },
 	sessionId: string | undefined
-) {
+): Promise<string> {
 	if (!openPreviewHandler) {
 		return 'Error: open_preview is only available inside an AI session. Tell the user to switch to a session to view the preview, or describe the item textually.'
 	}
 	// open_preview only exists in sessions, so no sessionId check is needed here.
-	if (args.kind === 'pipeline' && !isSessionPipelinesEnabled()) {
-		return SESSION_PIPELINES_GATED_MESSAGE
-	}
-	return openPreviewHandler({ ...args, sessionId })
+	// For a pipeline the handler awaits the editor's tool registration, so the
+	// model's next build_pipeline_node call can't race the async canvas mount.
+	return await openPreviewHandler({ ...args, sessionId })
 }
 
 // Opens a workspace *page* (Runs, Schedules, …) as a page tab in the session's
@@ -3912,6 +3991,34 @@ function draftWriteFailure(result: DraftPersistResult, ctx: WriteDraftCtx): stri
 	return undefined
 }
 
+// Item kinds a session preview can host, keyed by the draft item kind a write
+// resolves to. Kinds absent here (resources, variables, triggers, legacy `app`)
+// have no preview panel, so no card is offered for them.
+const PREVIEW_CARD_KIND_BY_ITEM_KIND: Partial<
+	Record<DraftPersistResult['itemKind'], PreviewCardKind>
+> = {
+	script: 'script',
+	flow: 'flow',
+	raw_app: 'raw_app'
+}
+
+// Offer a preview card for a write that landed a previewable item. Session chats
+// only: the card opens the item in the side panel, which the global side-panel
+// chat has no equivalent of. `path` is the item's display path (what
+// `open_preview` takes), not its synthetic draft storage key.
+function maybeAttachPreviewCard(
+	ctx: WriteDraftCtx,
+	itemKind: DraftPersistResult['itemKind'],
+	path: string
+): void {
+	// Write tools pass the raw tool ctx, whose session id lives in `helpers` —
+	// `ctx.sessionId` is only set by callers that thread it explicitly.
+	if (!ctx.sessionId && !sessionIdFromCtx(ctx)) return
+	const kind = PREVIEW_CARD_KIND_BY_ITEM_KIND[itemKind]
+	if (!kind) return
+	ctx.toolCallbacks.setToolStatus(ctx.toolId, { previewCard: { kind, path } })
+}
+
 // App write tools build varied success messages but share the same conflict /
 // save-failure handling; `onSaved` supplies the per-tool status + message.
 function finishAppDraftWrite(
@@ -3922,6 +4029,7 @@ function finishAppDraftWrite(
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
 	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
+	maybeAttachPreviewCard(ctx, result.itemKind, result.item.path)
 	const { content, message } = onSaved()
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, { content, result: 'Saved as draft' })
 	return JSON.stringify({ success: true, message }, null, 2)
@@ -3935,6 +4043,7 @@ function finishDraftWrite(
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
 	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
+	maybeAttachPreviewCard(ctx, result.itemKind, result.item.path)
 	const stored = result.item
 	const verb = existed ? 'Updated' : 'Created'
 	// Don't echo the flow value back: the model just sent it in the write call,
@@ -4122,7 +4231,17 @@ function triggerWriteSpec(kind: TriggerKind): WriteSpec<TriggerDraftConfig, Trig
 		probe: (workspace, path) => service.exists({ workspace, path }),
 		fetchDeployed: async (workspace, path) =>
 			(await service.get({ workspace, path })) as TriggerDraftConfig,
-		buildDraft: (base, config, path) => mergeDraftConfig<TriggerDraftConfig>(base, config, path)
+		buildDraft: (base, config, path) => {
+			const draft = mergeDraftConfig<TriggerDraftConfig>(base, config, path)
+			if (kind === 'email') {
+				// workspaced_local_part maps to a NOT NULL column but is optional in the
+				// tool schema. Default on the merged draft (not the incoming config) so an
+				// omitted field keeps the existing trigger's value instead of resetting it.
+				const email = draft as TriggerDraftConfig & { workspaced_local_part?: boolean }
+				email.workspaced_local_part = email.workspaced_local_part ?? false
+			}
+			return draft
+		}
 	}
 }
 
@@ -4221,6 +4340,46 @@ async function loadFlowDraftValue(
 	}
 }
 
+/**
+ * `write_flow` accepts `inline_script.<id>` placeholders so the model can
+ * overwrite a flow without re-sending (or even reading) unchanged rawscript
+ * bodies. Resolve them against the current draft/deployed flow: an id with a
+ * stored body keeps it, a new module's own-id placeholder becomes an empty body
+ * (to fill via set_flow_module_code), and anything else rejects the write.
+ */
+async function resolveWriteFlowInlineScripts(
+	path: string,
+	editable: EditableFlowJson,
+	workspace: string
+): Promise<EditableFlowJson> {
+	const specials = [editable.preprocessor_module, editable.failure_module].filter(
+		(module): module is FlowModule => module != null
+	)
+	const hasPlaceholders =
+		findUnresolvedInlineScriptRefs(editable.modules).length > 0 ||
+		findUnresolvedInlineScriptRefs(specials).length > 0
+	if (!hasPlaceholders) {
+		return editable
+	}
+
+	const session = createInlineScriptSession()
+	if (
+		(await getGlobalDraft(workspace, 'flow', path)) ||
+		(await FlowService.existsFlowByPath({ workspace, path }))
+	) {
+		const base = await loadFlowDraftValue(path, workspace)
+		buildEditableFlowJson(flowDraftAsEditableInput(base.flow), session)
+	}
+	const resolved: EditableFlowJson = {
+		...editable,
+		modules: session.restoreInlineScriptReferences(editable.modules),
+		preprocessor_module: restoreSpecialRawscriptModule(editable.preprocessor_module, session),
+		failure_module: restoreSpecialRawscriptModule(editable.failure_module, session)
+	}
+	finalizeUnresolvedInlineScripts(resolved)
+	return resolved
+}
+
 async function patchFlowJson(
 	args: { path: string; old_string: string; new_string: string; replace_all: boolean },
 	ctx: WriteDraftCtx
@@ -4253,8 +4412,9 @@ async function patchFlowJson(
 
 	const patchedEditable = validateEditableFlowJson(parsedValue)
 	const newFlowValue = applyEditableFlowJsonToFlow(base.flow.value, patchedEditable, session)
+	finalizeUnresolvedInlineScripts(newFlowValue)
 
-	return writeFlowDraft(
+	const result = await writeFlowDraft(
 		{
 			path,
 			summary: base.summary,
@@ -4267,6 +4427,15 @@ async function patchFlowJson(
 		},
 		ctx
 	)
+	// Warn from the restored value, not patchedEditable — the compact view holds
+	// placeholders for every rawscript, so only post-restore content shows which
+	// modules still need bodies filled via set_flow_module_code.
+	return appendEmptyInlineScriptWarning(result, {
+		...patchedEditable,
+		modules: newFlowValue.modules,
+		preprocessor_module: newFlowValue.preprocessor_module ?? null,
+		failure_module: newFlowValue.failure_module ?? null
+	})
 }
 
 async function readFlowModuleCode(
@@ -4993,7 +5162,8 @@ const triggerLabels: Record<TriggerKind, string> = {
 	amqp: 'AMQP trigger',
 	sqs: 'SQS trigger',
 	gcp: 'GCP Pub/Sub trigger',
-	azure: 'Azure Event Grid trigger'
+	azure: 'Azure Event Grid trigger',
+	email: 'Email trigger'
 }
 
 function createOpenScheduleAction(path: string, targetKind: 'script' | 'flow'): ToolDisplayAction {

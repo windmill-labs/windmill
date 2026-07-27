@@ -346,6 +346,12 @@
 	// their `usr` row is copied from the parent, so forking as an ordinary developer leaves them
 	// unable to bring anyone in to collaborate. Nothing else on this page opens up — the backend
 	// only grants them developer memberships on the fork they created.
+	// The instance channels are not a valid destination on cloud or on a fork. Never select a tab
+	// the group does not render: saving would submit a value the API rejects, locking the whole
+	// error handler behind a 400.
+	const canUseInstanceAlerts = $derived(
+		!isCloudHosted() && !currentWorkspace?.parent_workspace_id
+	)
 	const isForkOwner = $derived(
 		Boolean(currentWorkspace?.parent_workspace_id) &&
 			currentWorkspace?.created_by === $userStore?.email
@@ -609,6 +615,12 @@
 		initialPublicAppRateLimitPerMinute = settings.public_app_execution_limit_per_minute ?? undefined
 		if (emptyString($enterpriseLicense)) {
 			errorHandlerSelected = 'custom'
+		} else if (
+			canUseInstanceAlerts &&
+			!errorHandlerPath &&
+			settings.error_handler_fallback_to_instance_alerts
+		) {
+			errorHandlerSelected = 'instance_alerts'
 		} else {
 			errorHandlerSelected = getHandlerType(errorHandlerScriptPath)
 		}
@@ -805,7 +817,8 @@
 					path: `${errorHandlerItemKind}/${errorHandlerScriptPath}`,
 					extra_args: errorHandlerExtraArgs,
 					muted_on_cancel: errorHandlerMutedOnCancel,
-					muted_on_user_path: errorHandlerMutedOnUserPath
+					muted_on_user_path: errorHandlerMutedOnUserPath,
+					fallback_to_instance_alerts: false
 				}
 			})
 			sendUserToast(`workspace error handler set to ${errorHandlerScriptPath}`)
@@ -816,10 +829,17 @@
 					path: undefined,
 					extra_args: undefined,
 					muted_on_cancel: undefined,
-					muted_on_user_path: undefined
+					muted_on_user_path: undefined,
+					fallback_to_instance_alerts: errorHandlerSelected === 'instance_alerts'
 				}
 			})
-			sendUserToast(`workspace error handler removed`)
+			sendUserToast(
+				errorHandlerSelected === 'instance_alerts'
+					? `failed jobs will be reported to the instance critical alert channels`
+					: initialErrorHandlerScriptPath
+						? `workspace error handler removed`
+						: `error handler settings saved`
+			)
 		}
 
 		// Update initial values for dirty detection
@@ -1809,6 +1829,7 @@
 										customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
 										bind:customHandlerKind={errorHandlerItemKind}
 										bind:handlerExtraArgs={errorHandlerExtraArgs}
+										showInstanceAlerts={canUseInstanceAlerts}
 									>
 										{#snippet customTabTooltip()}
 											<Tooltip>
@@ -1838,24 +1859,26 @@
 										{/snippet}
 									</ErrorOrRecoveryHandler>
 
-									<SettingCard class="gap-2">
-										<Toggle
-											disabled={!$enterpriseLicense ||
-												((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-													!emptyString(errorHandlerScriptPath) &&
-													emptyString(errorHandlerExtraArgs['channel']))}
-											bind:checked={errorHandlerMutedOnCancel}
-											options={{ right: 'Do not run error handler for canceled jobs' }}
-										/>
-										<Toggle
-											disabled={!$enterpriseLicense ||
-												((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-													!emptyString(errorHandlerScriptPath) &&
-													emptyString(errorHandlerExtraArgs['channel']))}
-											bind:checked={errorHandlerMutedOnUserPath}
-											options={{ right: 'Do not run error handler for u/ scripts and flows' }}
-										/>
-									</SettingCard>
+									{#if errorHandlerSelected !== 'instance_alerts'}
+										<SettingCard class="gap-2">
+											<Toggle
+												disabled={!$enterpriseLicense ||
+													((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
+														!emptyString(errorHandlerScriptPath) &&
+														emptyString(errorHandlerExtraArgs['channel']))}
+												bind:checked={errorHandlerMutedOnCancel}
+												options={{ right: 'Do not run error handler for canceled jobs' }}
+											/>
+											<Toggle
+												disabled={!$enterpriseLicense ||
+													((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
+														!emptyString(errorHandlerScriptPath) &&
+														emptyString(errorHandlerExtraArgs['channel']))}
+												bind:checked={errorHandlerMutedOnUserPath}
+												options={{ right: 'Do not run error handler for u/ scripts and flows' }}
+											/>
+										</SettingCard>
+									{/if}
 								</div>
 
 								<SettingsFooter

@@ -1081,14 +1081,19 @@ async fn maybe_open_git_sync_deploy_pr(
         return;
     };
 
-    let repo_url =
-        match windmill_common::git_sync_ee::resolve_repo_url(db, workspace_id, &repo_path).await {
-            Ok(url) => url,
-            Err(e) => {
-                tracing::warn!("git sync PR: could not resolve repo url for {repo_path}: {e:#}");
-                return;
-            }
-        };
+    let repo_url = match windmill_common::git_sync_ee::resolve_repo_url_interpolated(
+        db,
+        workspace_id,
+        &repo_path,
+    )
+    .await
+    {
+        Ok(url) => url,
+        Err(e) => {
+            tracing::warn!("git sync PR: could not resolve repo url for {repo_path}: {e:#}");
+            return;
+        }
+    };
     // A fork of a dev workspace diverged from the dev's label branch, so its PR
     // merges back there; everything else targets the tracked branch.
     let pr_base = row.parent_dev_workspace_label.as_deref().unwrap_or(&base);
@@ -1252,9 +1257,22 @@ async fn maybe_post_git_sync_check(
         (None, Some(deploy)) => (true, deploy),
         (None, None) => return,
     };
-    let Ok(check) = serde_json::from_value::<GitSyncCheck>(marker) else {
+    let Ok(mut check) = serde_json::from_value::<GitSyncCheck>(marker) else {
         return;
     };
+    // Markers carry the literal resource URL (job args are persisted, so a
+    // `$var:`-resolved URL must not land there); interpolate before calling
+    // GitHub.
+    check.repo_url =
+        match windmill_common::variables::get_variable_or_self(check.repo_url, db, workspace_id)
+            .await
+        {
+            Ok(u) => u,
+            Err(e) => {
+                tracing::error!("git sync-check: cannot interpolate repo url: {e:#}");
+                return;
+            }
+        };
     // "In sync" on a PR that visibly changes files reads as a bug when those
     // files are outside the repo's sync filters — say what the scope is.
     let scope_note = if !is_deploy && success {

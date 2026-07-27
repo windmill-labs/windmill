@@ -986,7 +986,7 @@ export function removeSession(sessionId: string): void {
 // backgrounded session's tool call opens its OWN preview, not the one the user
 // happens to be viewing. Outside a session there is no calling/active id and
 // the tool returns a polite error.
-setOpenPreviewHandler(({ sessionId: callerSessionId, kind, path }) => {
+setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path }) => {
 	const sessionId = callerSessionId ?? sessionState.currentSessionId
 	if (!sessionId) {
 		return 'Error: no active session to open the preview in.'
@@ -999,7 +999,21 @@ setOpenPreviewHandler(({ sessionId: callerSessionId, kind, path }) => {
 	if (!target) {
 		return `Error: ${kind} targets cannot be shown in the preview panel.`
 	}
-	const result = getOrCreateRuntime(session).previewTabs.open(target)
+	const runtime = getOrCreateRuntime(session)
+	const result = runtime.previewTabs.open(target)
+	// The pipeline editor registers its build_pipeline_node / edit_pipeline_node
+	// tools asynchronously once the canvas mounts. Block the tool result until
+	// they are live so the model's next turn doesn't race ahead and hit an
+	// "Unknown tool call" error on the first node it tries to build.
+	if (kind === 'pipeline') {
+		const ready = await runtime.manager.waitForPipelineHelpers()
+		// A backgrounded session's preview tab does not mount, so its editor never
+		// registers — don't claim success, or the model calls build_pipeline_node
+		// into the void. Tell it the tools aren't available and how to recover.
+		if (!ready) {
+			return `Opened the pipeline preview for "${path}", but its editor tools (build_pipeline_node / edit_pipeline_node) have not registered — this usually means this session is not the one currently displayed. Do NOT call build_pipeline_node yet: ask the user to open/focus this session's pipeline preview, then retry open_preview.`
+		}
+	}
 	return result.status === 'focused'
 		? `A preview tab is already showing ${kind} "${path}" — focused it.`
 		: `Opened ${kind} preview for ${path} in a new tab in the side panel.`
@@ -1024,16 +1038,32 @@ setOpenPagePreviewHandler(({ sessionId: callerSessionId, href, label, newTab }) 
 			(t) => matchReusablePage(t.loc || t.url)?.path === targetPage.path
 		)
 		if (existing) {
+			// A target identical to what the tab already shows produces no navigation
+			// signal at all, so a drawer-opening hash (an edit drawer the user closed)
+			// would silently not re-fire — force a load. Hashless targets need no
+			// reload: focusing the already-correct view is enough.
+			const unchanged = href.includes('#') && (existing.loc || existing.url) === href
 			owner.select(existing.id)
 			owner.navigate({ type: 'page', href, label })
 			owner.setCollapsed(false)
+			if (unchanged) {
+				owner.pulseReload(existing.id)
+				return `Re-opened the ${label} preview tab on the requested view.`
+			}
 			return `Updated the ${label} preview tab with the new filters.`
 		}
 	}
 	const result = owner.open({ type: 'page', href, label })
-	return result.status === 'focused'
-		? `A preview tab is already showing ${label} — focused it and applied the filters.`
-		: `Opened ${label} in a new preview tab in the side panel.`
+	if (result.status === 'focused') {
+		// Same no-signal situation as above: open() only reports 'focused' when a
+		// tab already shows this exact URL.
+		if (href.includes('#')) {
+			const shown = owner.tabs.find((t) => (t.loc || t.url) === href)
+			if (shown) owner.pulseReload(shown.id)
+		}
+		return `A preview tab is already showing ${label} — focused it and applied the filters.`
+	}
+	return `Opened ${label} in a new preview tab in the side panel.`
 })
 
 // Companion to the open_preview handler: report the calling session's open

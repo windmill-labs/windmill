@@ -1525,9 +1525,14 @@ pub async fn update_flow_status_after_job_completion_internal(
             let concurrency_key = tag_and_concurrency_key
                 .as_ref()
                 .and_then(|x| x.concurrency_key.clone());
-            let concurrent_limit = tag_and_concurrency_key
-                .as_ref()
-                .and_then(|x| x.concurrent_limit);
+            // `concurrent_limit` here can come straight from the raw flow JSON (see
+            // get_tag_and_concurrency), bypassing the ConcurrencySettings deserialization guard,
+            // so a stored `0` must still be coerced to disabled before we register a key for it.
+            let concurrent_limit = windmill_common::runnable_settings::none_if_non_positive(
+                tag_and_concurrency_key
+                    .as_ref()
+                    .and_then(|x| x.concurrent_limit),
+            );
             let concurrency_time_window_s = tag_and_concurrency_key
                 .as_ref()
                 .and_then(|x| x.concurrency_time_window_s);
@@ -3398,10 +3403,16 @@ async fn push_next_flow_job(
             // Persist approval user groups conditions, if any. Requires runnning the InputTransform
             let required_events = suspend.required_events.unwrap() as u16;
             let user_auth_required = suspend.user_auth_required.unwrap_or(false);
-            if user_auth_required {
-                let self_approval_disabled = suspend.self_approval_disabled.unwrap_or(false);
+            let self_approval_disabled = suspend.self_approval_disabled.unwrap_or(false);
+            // self_approval_disabled must be persisted even without user_auth_required, otherwise
+            // the resume boundary sees no approval_conditions and the restriction is silently
+            // dropped. user_groups_required only applies together with user_auth_required.
+            if user_auth_required || self_approval_disabled {
                 let user_groups_required: Vec<String>;
-                if let Some(user_groups_required_as_input_transform) = suspend.user_groups_required
+                if !user_auth_required {
+                    user_groups_required = Vec::new();
+                } else if let Some(user_groups_required_as_input_transform) =
+                    suspend.user_groups_required
                 {
                     match user_groups_required_as_input_transform {
                         InputTransform::Static { value } => {
@@ -3566,7 +3577,7 @@ async fn push_next_flow_job(
                         count: required_events,
                         job: last
                     }),
-                    (required_events - resume_messages.len() as u16) as i32,
+                    (required_events.saturating_sub(resume_messages.len() as u16)) as i32,
                     Duration::from_secs(
                         suspend.timeout.map(|t| t.into()).unwrap_or_else(|| 30 * 60)
                     ) as Duration,
@@ -4383,13 +4394,10 @@ async fn push_next_flow_job(
             )
             .await?;
 
-            if timeout_value < 0 {
-                return Err(Error::ExecutionErr(
-                    "Timeout value cannot be negative".to_string(),
-                ));
-            }
-
-            Some(timeout_value)
+            // A `<= 0` step timeout (including a negative eval) means "no override": fall back
+            // to the referenced runnable's own timeout rather than a 0-second/negative timeout
+            // that would kill the step instantly.
+            effective_flow_step_timeout(Some(timeout_value), payload_tag.timeout)
         } else {
             payload_tag.timeout
         };
@@ -6042,6 +6050,18 @@ async fn flow_to_payload(
     })
 }
 
+/// Effective timeout for a flow step given the module's (already-evaluated) timeout override and
+/// the timeout inherited from the referenced runnable. A `<= 0` override — or none — means "no
+/// override": fall back to the inherited value (which is itself `None` when unset, i.e. the
+/// instance default). A positive override wins. This keeps a step `timeout: 0` equivalent to an
+/// omitted one rather than a 0-second, instant-kill timeout.
+pub(crate) fn effective_flow_step_timeout(
+    module_override: Option<i32>,
+    inherited: Option<i32>,
+) -> Option<i32> {
+    windmill_common::runnable_settings::none_if_non_positive(module_override).or(inherited)
+}
+
 pub async fn script_to_payload(
     script_hash: Option<windmill_common::scripts::ScriptHash>,
     script_path: String,
@@ -6131,11 +6151,13 @@ pub async fn script_to_payload(
         module.delete_after_use.unwrap_or(false) || delete_after_use.unwrap_or(false);
     let final_delete_after_secs = module.delete_after_secs.or(delete_after_secs);
 
-    let flow_step_timeout = if module.timeout.is_some() {
-        None
-    } else {
-        script_timeout
-    };
+    // Always carry the referenced script's own timeout as the inherited fallback. The module's
+    // timeout override (if any) is selected at the push site, where a `<= 0` override is treated
+    // as "no override" and falls back to this value — so `timeout: 0` on a step means "use the
+    // script's timeout", not a 0-second (immediate-kill) timeout. Normalize the inherited value
+    // too, so a legacy `0` script timeout resolves to the default rather than a zero-second kill.
+    let flow_step_timeout =
+        windmill_common::runnable_settings::none_if_non_positive(script_timeout);
     Ok(JobPayloadWithTag {
         payload,
         tag,
@@ -6260,8 +6282,24 @@ pub async fn get_previous_job_result(
 
 #[cfg(test)]
 mod tests {
-    use super::extract_chat_message_from_flow_result;
+    use super::{effective_flow_step_timeout, extract_chat_message_from_flow_result};
     use serde_json::{json, value::to_raw_value};
+
+    // A `<= 0` step timeout override must behave as "no override" and inherit the referenced
+    // script's timeout, not collapse to a 0-second (instant-kill) timeout. A positive override
+    // still wins. Guards the flow-step timeout footgun.
+    #[test]
+    fn flow_step_timeout_zero_or_negative_inherits_script_timeout() {
+        // zero / negative override -> inherited script timeout
+        assert_eq!(effective_flow_step_timeout(Some(0), Some(300)), Some(300));
+        assert_eq!(effective_flow_step_timeout(Some(-5), Some(300)), Some(300));
+        // no inherited timeout either -> None (falls through to the instance default)
+        assert_eq!(effective_flow_step_timeout(Some(0), None), None);
+        // positive override wins over the inherited value
+        assert_eq!(effective_flow_step_timeout(Some(120), Some(300)), Some(120));
+        // no override -> inherited
+        assert_eq!(effective_flow_step_timeout(None, Some(300)), Some(300));
+    }
 
     #[test]
     fn pretty_prints_full_result_when_no_override_is_present() {

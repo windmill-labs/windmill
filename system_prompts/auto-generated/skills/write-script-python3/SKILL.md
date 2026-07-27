@@ -584,6 +584,17 @@ def get_shared_state(path: str = 'state.json') -> None
 #     Dictionary with approvalPage, resume, and cancel URLs
 def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict
 
+# Get the resume URLs bound to one ``wait_for_approval`` step of this workflow.
+# 
+# Args:
+#     step_key: Checkpoint key of the approval step, as passed to
+#         ``wait_for_approval(key=...)``
+#     approver: Optional approver name
+# 
+# Returns:
+#     Dictionary with approvalPage, resume, and cancel URLs
+def get_approval_urls(step_key: str = 'approval', approver: str = None) -> dict
+
 # Sends an interactive approval request via Slack, allowing optional customization of the message, approver, and form fields.
 # 
 # **[Enterprise Edition Only]** To include form fields in the Slack approval request, use the "Advanced -> Suspend -> Form" functionality.
@@ -860,8 +871,9 @@ async def sleep(seconds: int)
 
 # Suspend the workflow and wait for an external approval.
 # 
-# Use ``get_resume_urls()`` (wrapped in ``step()``) to obtain
-# resume/cancel/approval URLs before calling this function.
+# Pass ``key`` to name the step, then ``get_approval_urls(key)`` yields the URLs
+# that resume exactly this approval — route them through your own channel.
+# Without a key the steps are named ``approval``, ``approval_2``, ...
 # 
 # Returns a dict with ``value`` (form data), ``approver``, and ``approved``.
 # 
@@ -869,13 +881,14 @@ async def sleep(seconds: int)
 #     timeout: Approval timeout in seconds (default 1800).
 #     form: Optional form schema for the approval page.
 #     self_approval: Whether the user who triggered the flow can approve it (default True).
+#     key: Optional checkpoint key naming this approval step.
 # 
 # Example::
 # 
-#     urls = await step("urls", lambda: get_resume_urls())
-#     await step("notify", lambda: send_email(urls["approvalPage"]))
-#     result = await wait_for_approval(timeout=3600)
-async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_approval: bool = True) -> dict
+#     urls = await step("urls", lambda: get_approval_urls("manager"))
+#     await step("notify", lambda: send_email(urls["resume"], urls["cancel"]))
+#     result = await wait_for_approval(key="manager", timeout=3600)
+async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_approval: bool = True, key: str | None = None) -> dict
 
 # Process items in parallel with optional concurrency control.
 # 

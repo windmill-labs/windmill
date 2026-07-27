@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.765.0
+  version: 1.771.1
   title: Windmill API
 
   contact:
@@ -1330,7 +1330,7 @@ paths:
 
   /settings/refresh_custom_instance_user_pwd:
     post:
-      summary: Refreshes the password for the custom_instance_user
+      summary: Refreshes the passwords for the custom_instance_user and the custom_instance_replication_user (used by postgres triggers)
       operationId: refreshCustomInstanceUserPwd
       tags:
         - setting
@@ -3617,6 +3617,9 @@ paths:
                   public_app_execution_limit_per_minute:
                     type: integer
                     description: Rate limit for public app executions per minute per server. NULL or 0 means disabled.
+                  error_handler_fallback_to_instance_alerts:
+                    type: boolean
+                    description: Report failed jobs to the instance critical alert channels when no workspace error handler is set.
 
   /w/{workspace}/workspaces/get_deploy_to:
     get:
@@ -10478,6 +10481,73 @@ paths:
                     - path
                     - value
 
+  /w/{workspace}/runnables/list:
+    get:
+      summary: list runnables (scripts, flows, apps) merged, ordered and keyset-paginated
+      operationId: listRunnables
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: order_by
+          in: query
+          description: "sort key: 'updated' (default) or 'name'"
+          schema:
+            type: string
+            enum:
+              - updated
+              - name
+        - $ref: "#/components/parameters/OrderDesc"
+        - name: kinds
+          in: query
+          description: comma-separated subset of script,flow,app (default all)
+          schema:
+            type: string
+        - name: show_archived
+          in: query
+          schema:
+            type: boolean
+        - name: include_without_main
+          in: query
+          description: include library scripts (no runnable main)
+          schema:
+            type: boolean
+        - name: path_start
+          in: query
+          description: restrict to paths under this prefix
+          schema:
+            type: string
+        - name: label
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          description: case-insensitive substring match on summary or path
+          schema:
+            type: string
+        - $ref: "#/components/parameters/PerPage"
+        - name: cursor
+          in: query
+          description: opaque keyset cursor from a previous page's next_cursor
+          schema:
+            type: string
+      responses:
+        "200":
+          description: a page of merged, ordered runnables
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RunnableItem"
+                  next_cursor:
+                    type: string
   /w/{workspace}/flows/list:
     get:
       summary: list all flows
@@ -13325,6 +13395,13 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: resolved
+          description: >-
+            filter on whether a failure has been marked as handled. true keeps only
+            resolved failures, false hides them
+          in: query
+          schema:
+            type: boolean
         - name: is_flow_step
           description: is the job a flow step
           in: query
@@ -13607,6 +13684,13 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: resolved
+          description: >-
+            filter on whether a failure has been marked as handled. true keeps only
+            resolved failures, false hides them
+          in: query
+          schema:
+            type: boolean
         - name: is_flow_step
           description: is the job a flow step
           in: query
@@ -13784,6 +13868,13 @@ paths:
         - $ref: "#/components/parameters/JobTriggerKind"
         - name: is_skipped
           description: is the job skipped
+          in: query
+          schema:
+            type: boolean
+        - name: resolved
+          description: >-
+            filter on whether a failure has been marked as handled. true keeps only
+            resolved failures, false hides them
           in: query
           schema:
             type: boolean
@@ -14506,6 +14597,92 @@ paths:
               schema:
                 $ref: "#/components/schemas/CompletedJob"
 
+  /w/{workspace}/jobs/completed/resolve:
+    post:
+      summary: mark failed jobs as resolved
+      description: >-
+        Marks failed jobs as handled so triage surfaces stop showing them as failures.
+        The job status itself is unchanged. Returns the ids actually resolved: ids that
+        are not visible to the caller or did not fail are silently skipped.
+      operationId: resolveCompletedJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                job_ids:
+                  type: array
+                  maxItems: 1000
+                  items:
+                    type: string
+                    format: uuid
+                note:
+                  type: string
+                  maxLength: 2000
+                  description: >-
+                    a person's explanation of why the failure is considered handled.
+                    Enterprise-only: ignored outside enterprise
+                superseded_by:
+                  type: string
+                  format: uuid
+                  description: >-
+                    id of a later successful run of the same runnable that supersedes the
+                    failure. Verified server-side, and the resulting note is the server's own
+                    wording, so it is recorded regardless of licence. A claim that cannot be
+                    verified resolves nothing
+              required:
+                - job_ids
+      responses:
+        "200":
+          description: ids of the jobs that were resolved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  format: uuid
+
+  /w/{workspace}/jobs/completed/unresolve:
+    post:
+      summary: remove the resolution of failed jobs
+      operationId: unresolveCompletedJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                job_ids:
+                  type: array
+                  maxItems: 1000
+                  items:
+                    type: string
+                    format: uuid
+              required:
+                - job_ids
+      responses:
+        "200":
+          description: ids of the jobs that were unresolved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  format: uuid
+
   /w/{workspace}/jobs_u/queue/cancel/{id}:
     post:
       summary: cancel queued or running job
@@ -14682,6 +14859,44 @@ paths:
           description: If true, generate resume URLs for the parent flow instead of the specific step. This allows pre-approvals that can be consumed by any later suspend step in the same flow.
           schema:
             type: boolean
+      responses:
+        "200":
+          description: url endpoints
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  approvalPage:
+                    type: string
+                  resume:
+                    type: string
+                  cancel:
+                    type: string
+                required:
+                  - approvalPage
+                  - resume
+                  - cancel
+
+  /w/{workspace}/jobs/wac_approval_urls/{id}/{step_key}:
+    get:
+      summary: get the resume urls bound to a specific wait_for_approval step of a workflow-as-code job
+      operationId: getWacApprovalUrls
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: step_key
+          in: path
+          required: true
+          description: checkpoint key of the wait_for_approval step, as passed to `wait_for_approval(key=...)`
+          schema:
+            type: string
+        - name: approver
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: url endpoints
@@ -19361,6 +19576,8 @@ paths:
         - folder
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
         - name: only_member_of
           in: query
           description: only list the folders the user is member of (default false)
@@ -20886,6 +21103,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: s3_resource_path
+          in: query
+          description: When set, test the connection of this object storage resource instead of the workspace storage
+          schema:
+            type: string
       responses:
         "200":
           description: Connection settings
@@ -20967,6 +21189,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: s3_resource_path
+          in: query
+          description: When set, list the files of this object storage resource instead of the workspace storage
+          schema:
+            type: string
       responses:
         "200":
           description: List of file keys
@@ -21001,6 +21228,11 @@ paths:
             type: string
         - name: storage
           in: query
+          schema:
+            type: string
+        - name: s3_resource_path
+          in: query
+          description: When set, load the file metadata from this object storage resource instead of the workspace storage
           schema:
             type: string
       responses:
@@ -21050,6 +21282,11 @@ paths:
             type: integer
         - name: storage
           in: query
+          schema:
+            type: string
+        - name: s3_resource_path
+          in: query
+          description: When set, load the file preview from this object storage resource instead of the workspace storage
           schema:
             type: string
       responses:
@@ -21362,6 +21599,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: s3_resource_path
+          in: query
+          description: When set, delete the file from this object storage resource instead of the workspace storage
+          schema:
+            type: string
       responses:
         "200":
           description: Confirmation
@@ -21389,6 +21631,11 @@ paths:
             type: string
         - name: storage
           in: query
+          schema:
+            type: string
+        - name: s3_resource_path
+          in: query
+          description: When set, move the file within this object storage resource instead of the workspace storage
           schema:
             type: string
       responses:
@@ -21833,6 +22080,13 @@ paths:
         - $ref: "#/components/parameters/JobTriggerKind"
         - name: is_skipped
           description: is the job skipped
+          in: query
+          schema:
+            type: boolean
+        - name: resolved
+          description: >-
+            filter on whether a failure has been marked as handled. true keeps only
+            resolved failures, false hides them
           in: query
           schema:
             type: boolean
@@ -22895,6 +23149,508 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/hub/publish_draft:
+    post:
+      summary: create or update a hub project draft
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubDraft
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishDraftBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/scripts:
+    post:
+      summary: publish a script to a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubScript
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishScriptBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/flows:
+    post:
+      summary: publish a flow to a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubFlow
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishFlowBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/apps:
+    post:
+      summary: publish an app to a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubApp
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishAppBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/raw_apps:
+    post:
+      summary: publish a raw app to a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubRawApp
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishRawAppBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/raw_apps/{id}/recording:
+    post:
+      summary: attach a recorded session to a hub raw app
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubRawAppRecording
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          description: hub id of the raw app
+          schema:
+            type: integer
+            format: int64
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordingBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/scripts/{ask_id}/recording:
+    post:
+      summary: attach a recording to a hub script
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubScriptRecording
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: ask_id
+          in: path
+          required: true
+          description: hub ask id of the script
+          schema:
+            type: integer
+            format: int64
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordingBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/flows/{flow_id}/recording:
+    post:
+      summary: attach a recording to a hub flow
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubFlowRecording
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: flow_id
+          in: path
+          required: true
+          description: hub id of the flow
+          schema:
+            type: integer
+            format: int64
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordingBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/projects/{slug}/pipeline_recording:
+    post:
+      summary: attach a data-pipeline recording to a hub project
+      description: |
+        Requires the caller to be a workspace admin. A data-pipeline recording is
+        scoped to the whole project (a folder cascade), not a single item. Forwards
+        the request to the configured Hub scoped to the `{workspace}:{folder}`
+        source and returns the Hub's status code and raw response body.
+      operationId: publishHubPipelineRecording
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: slug
+          in: path
+          required: true
+          description: hub project slug
+          schema:
+            $ref: "#/components/schemas/HubProjectSlug"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PipelineRecordingBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/resource_types:
+    post:
+      summary: publish a resource type to a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubResourceType
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishResourceTypeBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/resources:
+    post:
+      summary: publish resource placeholders to a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubResources
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishResourcesBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/triggers:
+    post:
+      summary: publish triggers to a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubTriggers
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishTriggersBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/migrations:
+    post:
+      summary: publish data table migrations to a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubMigrations
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishMigrationsBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/projects/{slug}/export:
+    get:
+      summary: export a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub and returns the Hub's status code and raw response body.
+        The folder scope is only needed to re-export the caller's own draft;
+        approved projects are public, so it is optional here.
+      operationId: getHubProjectExport
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: slug
+          in: path
+          required: true
+          description: hub project slug (3-50 chars, lowercase alphanumeric and hyphens, no leading/trailing hyphen)
+          schema:
+            type: string
+            minLength: 3
+            maxLength: 50
+            pattern: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+        - name: folder
+          in: query
+          required: false
+          description: folder scoping the Hub project source (`{workspace}:{folder}`)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/projects/{slug}/logo:
+    post:
+      summary: set or clear a hub project's custom logo
+      description: |
+        Requires the caller to be a workspace admin. Sets the project's custom
+        logo (base64 png/svg, decoded size max 512KB) or clears it when `logo`
+        is null; the `logo` field itself is required so an empty body cannot
+        clear the logo by accident. Forwards the request to the configured Hub
+        scoped to the `{workspace}:{folder}` source and returns the Hub's
+        status code and raw response body.
+      operationId: publishHubProjectLogo
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: slug
+          in: path
+          required: true
+          description: hub project slug
+          schema:
+            $ref: "#/components/schemas/HubProjectSlug"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectLogoBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/projects/{slug}/submit:
+    post:
+      summary: submit a hub project draft for review
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: submitHubProject
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: slug
+          in: path
+          required: true
+          description: hub project slug (3-50 chars, lowercase alphanumeric and hyphens, no leading/trailing hyphen)
+          schema:
+            type: string
+            minLength: 3
+            maxLength: 50
+            pattern: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/project:
+    get:
+      summary: get the hub project linked to a workspace folder
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: getHubProjectBySource
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
 components:
   securitySchemes:
     bearerAuth:
@@ -22941,6 +23697,16 @@ components:
       name: workspace
       in: path
       required: true
+      schema:
+        type: string
+    HubPublishFolder:
+      name: folder
+      in: query
+      required: true
+      description: |
+        workspace folder scoping the Hub publication: a workspace can publish
+        one Hub project per folder and the Hub-side source key is
+        `{workspace}:{folder}`
       schema:
         type: string
     PublicationName:
@@ -23756,6 +24522,9 @@ components:
         muted_on_user_path:
           type: boolean
           default: false
+        fallback_to_instance_alerts:
+          type: boolean
+          description: Report failed jobs to the instance critical alert channels when no workspace error handler is set. Omit to leave the stored value untouched.
 
     EditErrorHandlerLegacy:
       type: object
@@ -24223,6 +24992,86 @@ components:
         - workspace_id
         - language
         - content
+
+    RunnableItem:
+      type: object
+      description: |
+        A row in the merged runnables listing. `type` is the discriminator;
+        kind-specific fields (hash/language/kind for scripts, execution_mode/
+        version for apps) are present only for that kind. `edited_at` is the
+        unified last-updated time (a script's created_at, a flow/app's edit
+        time).
+      properties:
+        type:
+          type: string
+          enum:
+            - script
+            - flow
+            - app
+        path:
+          type: string
+        summary:
+          type: string
+        workspace_id:
+          type: string
+        extra_perms:
+          type: object
+          additionalProperties:
+            type: boolean
+        starred:
+          type: boolean
+        archived:
+          type: boolean
+        is_draft:
+          type: boolean
+        draft_only:
+          type: boolean
+          nullable: true
+        draft_path:
+          type: string
+        draft_users:
+          type: array
+          items:
+            type: object
+        labels:
+          type: array
+          items:
+            type: string
+        inherited_labels:
+          type: array
+          items:
+            type: string
+        ws_error_handler_muted:
+          type: boolean
+        edited_at:
+          type: string
+          format: date-time
+        hash:
+          type: string
+          description: script version hash as a 16-char hex string
+        language:
+          type: string
+        kind:
+          type: string
+        auto_kind:
+          type: string
+        use_codebase:
+          type: boolean
+        has_deploy_errors:
+          type: boolean
+        raw_app:
+          type: boolean
+        execution_mode:
+          type: string
+        id:
+          type: integer
+          format: int64
+        version:
+          type: integer
+          format: int64
+      required:
+        - type
+        - path
 
     Script:
       type: object
@@ -24780,6 +25629,25 @@ components:
           type: boolean
         is_retry:
           type: boolean
+        resolved:
+          type: boolean
+          description: whether this failure has been marked as handled
+        resolved_by:
+          type: string
+          description: >-
+            who resolved the failure. Enterprise-only, so also absent for a manual resolution
+            outside enterprise; use resolved_automatically to tell the two apart
+        resolved_at:
+          type: string
+          format: date-time
+        resolution_note:
+          type: string
+        resolved_automatically:
+          type: boolean
+          description: >-
+            true when a succeeding retry resolved this rather than a person. Explicit rather
+            than inferred from an absent resolved_by, which is also absent for a manual
+            resolution outside enterprise
         worker:
           type: string
       required:
@@ -26407,6 +27275,7 @@ components:
         - slack
         - teams
         - email
+        - instance_alerts
 
     NewSchedule:
       type: object
@@ -29335,6 +30204,10 @@ components:
           type: string
         color:
           type: string
+        error_handler_fallback_to_instance_alerts:
+          type: boolean
+          default: false
+          description: Report failed jobs to the instance critical alert channels when no workspace error handler is set. Not available on cloud or on fork workspaces.
       required:
         - id
         - name
@@ -31839,3 +32712,290 @@ components:
         - name
         - owner
         - private
+
+    HubProjectSlug:
+      type: string
+      description: hub project slug (3-50 chars, lowercase alphanumeric and hyphens, no leading/trailing hyphen)
+      minLength: 3
+      maxLength: 50
+      pattern: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+
+    PublishDraftBody:
+      type: object
+      properties:
+        slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+        name:
+          type: string
+        summary:
+          type: string
+        readme:
+          type: string
+      required:
+        - slug
+        - name
+        - summary
+
+    PublishScriptBody:
+      type: object
+      properties:
+        summary:
+          type: string
+        app:
+          type: string
+        description:
+          type: string
+        kind:
+          type: string
+        content:
+          type: string
+        language:
+          type: string
+        schema:
+          type: object
+        lockfile:
+          type: string
+        path:
+          type: string
+        source_path:
+          type: string
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - summary
+        - app
+        - content
+        - language
+        - project_slug
+
+    PublishFlowInner:
+      type: object
+      properties:
+        summary:
+          type: string
+        description:
+          type: string
+        value:
+          type: object
+        schema:
+          type: object
+      required:
+        - summary
+        - value
+
+    PublishFlowBody:
+      type: object
+      properties:
+        flow:
+          $ref: "#/components/schemas/PublishFlowInner"
+        apps:
+          type: array
+          items:
+            type: string
+        path:
+          type: string
+        source_path:
+          type: string
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - flow
+        - apps
+        - project_slug
+
+    PublishAppBody:
+      type: object
+      properties:
+        app:
+          type: object
+        apps:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+        summary:
+          type: string
+        path:
+          type: string
+        source_path:
+          type: string
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - app
+        - apps
+        - summary
+        - project_slug
+
+    PublishRawAppBody:
+      type: object
+      properties:
+        raw:
+          type: string
+        apps:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+        summary:
+          type: string
+        path:
+          type: string
+        source_path:
+          type: string
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - raw
+        - apps
+        - summary
+        - project_slug
+
+    RecordingBody:
+      type: object
+      properties:
+        recording:
+          type: object
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - project_slug
+
+    PipelineRecordingBody:
+      type: object
+      properties:
+        recording:
+          type: object
+
+    ProjectLogoBody:
+      type: object
+      properties:
+        logo:
+          description: the logo to set, or null to clear the project's current logo
+          nullable: true
+          type: object
+          properties:
+            b64:
+              description: base64-encoded image bytes (decoded size max 512KB)
+              type: string
+            mime:
+              type: string
+              enum: [image/png, image/svg+xml]
+          required:
+            - b64
+            - mime
+      required:
+        - logo
+
+    PublishResourceTypeBody:
+      type: object
+      properties:
+        name:
+          type: string
+        schema:
+          type: object
+        description:
+          type: string
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - name
+        - project_slug
+
+    PublishResourceBody:
+      type: object
+      properties:
+        path:
+          type: string
+        resource_type:
+          type: string
+      required:
+        - path
+        - resource_type
+
+    PublishResourcesBody:
+      type: object
+      properties:
+        resources:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublishResourceBody"
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - resources
+        - project_slug
+
+    PublishTriggerBody:
+      type: object
+      properties:
+        path:
+          type: string
+        kind:
+          type: string
+        summary:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        config:
+          type: object
+        script_ask_id:
+          type: integer
+          format: int64
+          nullable: true
+        flow_id:
+          type: integer
+          format: int64
+          nullable: true
+      required:
+        - path
+        - kind
+        - config
+
+    PublishTriggersBody:
+      type: object
+      properties:
+        triggers:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublishTriggerBody"
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - triggers
+        - project_slug
+
+    PublishMigrationBody:
+      type: object
+      description: one best-effort data table migration attached to a project (per data table)
+      properties:
+        datatable_name:
+          type: string
+        sql:
+          type: string
+        sql_down:
+          type: string
+          description: defaults to an empty string when omitted
+        enabled:
+          type: boolean
+      required:
+        - datatable_name
+        - sql
+        - enabled
+
+    PublishMigrationsBody:
+      type: object
+      properties:
+        migrations:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublishMigrationBody"
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - migrations
+        - project_slug

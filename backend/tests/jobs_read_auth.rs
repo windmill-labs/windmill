@@ -23,7 +23,11 @@
 //!   - the "app component" affordance survives: a viewer who *launched* a job
 //!     (created_by) running as someone else's identity can still read its result,
 //!   - unauthenticated behavior is unchanged: anonymous jobs readable, the
-//!     non-anonymous victim job rejected.
+//!     non-anonymous victim job rejected,
+//!   - `queue/cancel` and `queue/force_cancel` are gated by that same access, so
+//!     a viewer cannot kill a run hidden from them while its owner still can, and
+//!     force cancel gates on the ancestor it actually kills rather than the id in
+//!     the URL.
 
 use sqlx::{Pool, Postgres};
 use windmill_test_utils::*;
@@ -42,6 +46,9 @@ const RUNNING_JOB: &str = "77777777-7777-7777-7777-777777777777";
 const EMBED_OWN_JOB: &str = "12121212-1212-1212-1212-121212121212";
 // A QUEUED job launched by the embed viewer (created_by test-user) — cancelable by it.
 const EMBED_OWN_QUEUED: &str = "13131313-1313-1313-1313-131313131313";
+// Queued sub-flow test-user-3 can see (folder `shared`), whose parent top flow they
+// cannot. Force cancel walks up to that parent.
+const QUEUED_VISIBLE_MID: &str = "55555555-5555-5555-5555-555555555555";
 
 // Secrets that must never leak to an unauthorized viewer.
 const RESULT_SECRET: &str = "RESULT_SECRET";
@@ -347,8 +354,8 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
 
     // ---- APP EMBED TOKEN: cancellation confined to the app's own jobs. The token
     //      may cancel a job it launched (created_by == viewer), but `cancel_job_api`
-    //      denies (NotFound) a job created by someone else, even though cancel
-    //      otherwise has no per-job ownership check.
+    //      denies (NotFound) a job created by someone else, even one the (admin)
+    //      viewer could otherwise cancel.
     let (status, body) = post(
         &base,
         &format!("queue/cancel/{EMBED_OWN_QUEUED}"),
@@ -596,6 +603,57 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
     assert!(
         status.is_success() && body.contains("\"started\":true"),
         "owner must see the running job as started (got {status}): {body}"
+    );
+
+    // ---- CANCEL / FORCE_CANCEL are gated by the same per-job access as reading:
+    //      knowing the UUID of a run hidden from you must not let you kill it. ----
+    for path in [
+        format!("queue/cancel/{RUNNING_JOB}"),
+        format!("queue/force_cancel/{RUNNING_JOB}"),
+    ] {
+        let (status, body) = post(&base, &path, Some("SECRET_TOKEN_3")).await;
+        assert_eq!(
+            status,
+            reqwest::StatusCode::FORBIDDEN,
+            "viewer must not cancel another user's job ({path}, got {status}): {body}"
+        );
+    }
+    // The owner still cancels their own job (no over-blocking). Keep this last: it
+    // takes RUNNING_JOB out of the queue.
+    let (status, body) = post(
+        &base,
+        &format!("queue/cancel/{RUNNING_JOB}"),
+        Some("SECRET_TOKEN_2"),
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "owner must still cancel their own job (got {status}): {body}"
+    );
+
+    // Force cancel kills the highest queued ancestor, not the job named in the URL, so it
+    // must authorize that ancestor: the viewer can see the sub-flow (asserted first, or the
+    // denial below would prove nothing) but not the top flow force-cancelling it would kill.
+    let (status, body) = get(
+        &base,
+        &format!("get/{QUEUED_VISIBLE_MID}"),
+        Some("SECRET_TOKEN_3"),
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "viewer must be able to read the sub-flow (got {status}): {body}"
+    );
+    let (status, body) = post(
+        &base,
+        &format!("queue/force_cancel/{QUEUED_VISIBLE_MID}"),
+        Some("SECRET_TOKEN_3"),
+    )
+    .await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::FORBIDDEN,
+        "viewer must not force-cancel up into a flow they cannot see (got {status}): {body}"
     );
 
     Ok(())
