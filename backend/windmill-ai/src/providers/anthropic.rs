@@ -497,7 +497,6 @@ impl AnthropicQueryBuilder {
 
         let base_url = credentials.base_url.trim_end_matches('/');
         let is_vertex = self.is_vertex();
-        let is_anthropic_sdk = args.headers.get("X-Anthropic-SDK").is_some();
 
         let (url, body) = if is_vertex && *args.method != Method::GET {
             let (model, transformed_body) = Self::transform_proxy_body_for_vertex(&body)?;
@@ -514,11 +513,11 @@ impl AnthropicQueryBuilder {
                 AIProvider::build_azure_foundry_anthropic_url(base_url, path),
                 body,
             )
-        } else if is_anthropic_sdk {
-            let truncated_base_url = base_url.trim_end_matches("/v1");
-            (format!("{}/{}", truncated_base_url, args.path), body)
         } else {
-            (format!("{}/{}", base_url, args.path), body)
+            (
+                AIProvider::build_anthropic_api_url(base_url, args.path),
+                body,
+            )
         };
 
         let mut headers = vec![("content-type".to_string(), "application/json".to_string())];
@@ -784,7 +783,7 @@ impl QueryBuilder for AnthropicQueryBuilder {
         } else if self.is_azure_foundry() {
             AIProvider::build_azure_foundry_anthropic_url(base_url, "messages")
         } else {
-            format!("{}/messages", base_url)
+            AIProvider::build_anthropic_api_url(base_url, "messages")
         }
     }
 
@@ -1184,7 +1183,6 @@ mod tests {
         let method = Method::POST;
         let mut headers = HeaderMap::new();
         headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
-        headers.insert("X-Anthropic-SDK", HeaderValue::from_static("true"));
 
         let request = builder
             .build_proxy_request(&ProxyBuildArgs {

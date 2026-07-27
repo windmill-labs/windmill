@@ -24,7 +24,9 @@ use windmill_ai::{
     ai_providers::AIProvider,
     image_handler::upload_image_to_s3,
     providers::create_query_builder,
-    proxy::{common_outbound_headers, resource_replaces_credential, CREDENTIAL_HEADERS},
+    proxy::{
+        common_outbound_headers, needs_unavailable_oauth_exchange, retain_effective_credentials,
+    },
     query_builder::{BuildRequestArgs, ParsedResponse},
     types::*,
     utils::{pinned_ai_client_for, should_use_structured_output_tool},
@@ -978,18 +980,22 @@ pub async fn run_agent(
             let endpoint =
                 query_builder.get_endpoint(base_url, args.provider.get_model(), output_type);
             let auth_headers = query_builder.get_auth_headers(api_key, base_url, output_type);
-            // A resource carrying its own credential owns authentication; the
-            // built-in one is dropped so the two do not both reach the endpoint.
-            // Non-credential headers (`anthropic-version`) stay either way.
-            let auth_headers: Vec<_> = auth_headers
-                .into_iter()
-                .filter(|(header_name, _)| {
-                    let carries_credential = CREDENTIAL_HEADERS
-                        .iter()
-                        .any(|name| header_name.eq_ignore_ascii_case(name));
-                    !carries_credential || !resource_replaces_credential(&credentials, header_name)
-                })
-                .collect();
+            // A worker cannot run the client credentials exchange, so an OAuth resource
+            // has no token here: the request would carry an empty credential and come
+            // back 401.
+            if needs_unavailable_oauth_exchange(
+                &credentials,
+                args.provider.resource.token_url.as_deref(),
+                &auth_headers,
+            ) {
+                return Err(Error::ExecutionErr(format!(
+                    "The {:?} resource authenticates with OAuth, which AI agent steps do not \
+                     support. Set an API key on the resource, or carry the provider's credential \
+                     header in its `headers`.",
+                    credentials.provider
+                )));
+            }
+            let auth_headers = retain_effective_credentials(&credentials, auth_headers);
 
             let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
                 .await

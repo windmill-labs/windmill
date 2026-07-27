@@ -224,6 +224,22 @@ impl AIProvider {
         }
     }
 
+    /// Build an Anthropic Messages API URL. The API lives under `<root>/v1/`, but a
+    /// resource may store the base URL with or without that `/v1` and a caller may
+    /// pass the path with or without it (the Anthropic SDK sends `v1/messages`,
+    /// `get_endpoint` asks for `messages`). Both forms resolve to the same endpoint
+    /// so a resource reads the same way from the proxy and from an agent step.
+    ///
+    /// This assumes the API is served under `/v1`, as api.anthropic.com and the
+    /// gateways in front of it are.
+    pub fn build_anthropic_api_url(base_url: &str, path: &str) -> String {
+        let base_url = base_url.trim_end_matches('/');
+        let root = base_url.strip_suffix("/v1").unwrap_or(base_url);
+        let path = path.trim_start_matches('/');
+        let path = path.strip_prefix("v1/").unwrap_or(path);
+        format!("{}/v1/{}", root.trim_end_matches('/'), path)
+    }
+
     /// Whether the URL is a bare scheme+host with no path component, e.g.
     /// `https://x.services.ai.azure.com` (vs `https://x.openai.azure.com/openai/deployments/y`).
     fn is_bare_host(url: &str) -> bool {

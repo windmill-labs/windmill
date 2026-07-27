@@ -132,6 +132,53 @@ pub fn credential_header(
     Some((name.to_string(), value))
 }
 
+/// Whether a resource authenticates by an OAuth exchange that only the API runs, so
+/// a worker has no way to obtain its token.
+///
+/// `auth_headers` is what the provider's query builder produced: a resource can still
+/// authenticate the request by supplying the credential header that provider actually
+/// reads. A credential-shaped header it does not read (an `x-api-key` used for routing
+/// by an OpenAI-compatible gateway, say) leaves the request unauthenticated, so it does
+/// not count.
+pub fn needs_unavailable_oauth_exchange(
+    credentials: &ProviderCredentials,
+    token_url: Option<&str>,
+    auth_headers: &[(&'static str, String)],
+) -> bool {
+    token_url.is_some()
+        && credentials.api_key.is_none()
+        && !auth_headers.iter().any(|(header_name, _)| {
+            CREDENTIAL_HEADERS
+                .iter()
+                .any(|name| header_name.eq_ignore_ascii_case(name))
+                && resource_replaces_credential(credentials, header_name)
+        })
+}
+
+/// Drop the query builder's built-in credential header when the resource carries
+/// its own, or when there is no key at all — an endpoint may authenticate the
+/// request another way (its own header, mTLS, or no auth), and an empty credential
+/// must not go out in its place. This applies `credential_header`'s rule to headers a
+/// query builder already built from `credentials.api_key`, so the agent step and the
+/// proxy send the same credential. (An OAuth `access_token` never reaches a query
+/// builder: only the API resolves one.) Non-credential headers always stay.
+pub fn retain_effective_credentials(
+    credentials: &ProviderCredentials,
+    auth_headers: Vec<(&'static str, String)>,
+) -> Vec<(&'static str, String)> {
+    auth_headers
+        .into_iter()
+        .filter(|(header_name, _)| {
+            let carries_credential = CREDENTIAL_HEADERS
+                .iter()
+                .any(|name| header_name.eq_ignore_ascii_case(name));
+            !carries_credential
+                || (credentials.api_key.is_some()
+                    && !resource_replaces_credential(credentials, header_name))
+        })
+        .collect()
+}
+
 /// The headers every outbound AI request ends with: Windmill's own, then the
 /// resource's, which come last so a resource can add to what the provider set.
 pub fn common_outbound_headers(
@@ -308,6 +355,47 @@ mod tests {
         assert!(request
             .headers
             .contains(&("x-api-key".to_string(), "routing-key".to_string())));
+    }
+
+    /// The OAuth guard must not reject the workaround its error names, and must not be
+    /// satisfied by a credential header the provider does not read.
+    #[test]
+    fn oauth_guard_follows_the_provider_credential_header() {
+        let token_url = Some("https://login.example/token");
+        let mut credentials = credentials(AIProvider::OpenAI, "https://api.openai.com/v1");
+        credentials.api_key = None;
+        let bearer = [("Authorization", String::new())];
+
+        assert!(needs_unavailable_oauth_exchange(
+            &credentials,
+            token_url,
+            &bearer
+        ));
+
+        // A routing header this provider never authenticates with leaves the request
+        // unauthenticated, so it must not satisfy the guard.
+        credentials.custom_headers =
+            HashMap::from([("x-api-key".to_string(), "routing".to_string())]);
+        assert!(needs_unavailable_oauth_exchange(
+            &credentials,
+            token_url,
+            &bearer
+        ));
+
+        // The header the provider does read stands in for the token.
+        credentials.custom_headers =
+            HashMap::from([("Authorization".to_string(), "Bearer static".to_string())]);
+        assert!(!needs_unavailable_oauth_exchange(
+            &credentials,
+            token_url,
+            &bearer
+        ));
+        // An api-key resource never needed the exchange in the first place.
+        assert!(!needs_unavailable_oauth_exchange(
+            &credentials,
+            None,
+            &bearer
+        ));
     }
 
     /// Azure reads api keys from `api-key` but Entra ID tokens only from
