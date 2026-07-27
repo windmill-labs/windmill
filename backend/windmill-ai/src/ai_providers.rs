@@ -34,9 +34,27 @@ pub const GOOGLE_AI_BASE_URL: &str = "https://generativelanguage.googleapis.com/
 /// (`*.openai.azure.com`), AI Foundry (`*.services.ai.azure.com`,
 /// `*.cognitiveservices.azure.com`), their sovereign-cloud counterparts, and API
 /// Management fronting either.
-const AZURE_HOST_SUFFIXES: [&str; 4] = [".azure.com", ".azure.us", ".azure.cn", ".azure-api.net"];
+const AZURE_HOST_SUFFIXES: &[&str] = &[
+    ".azure.com",
+    ".azure.us",
+    ".azure.cn",
+    ".azure-api.net",
+    ".azure-api.us",
+    ".azure-api.cn",
+];
 
-fn is_azure_host(base_url: &str) -> bool {
+/// The deployment path Azure OpenAI serves under. It identifies an Azure endpoint
+/// reached through a custom domain, which `AZURE_HOST_SUFFIXES` cannot catch — it
+/// is the format `openai_azure_base_path` documents.
+const AZURE_DEPLOYMENTS_PATH: &str = "/openai/deployments";
+
+/// Whether an OpenAI-API base URL is served by Azure, which authenticates with the
+/// `api-key` header and lays its routes out under `/openai/...`.
+///
+/// An OpenAI-compatible endpoint on an Azure-owned domain (e.g. a self-hosted
+/// server behind API Management) is misread as Azure; such a resource has to use
+/// the `customai` provider.
+fn is_azure_endpoint(base_url: &str) -> bool {
     let authority = base_url
         .split_once("://")
         .map_or(base_url, |(_, rest)| rest)
@@ -47,11 +65,13 @@ fn is_azure_host(base_url: &str) -> bool {
     let host = host_port
         .rsplit_once(':')
         .map_or(host_port, |(host, _)| host)
+        .trim_end_matches('.')
         .to_ascii_lowercase();
 
     AZURE_HOST_SUFFIXES
         .iter()
         .any(|suffix| host.ends_with(suffix))
+        || base_url.contains(AZURE_DEPLOYMENTS_PATH)
 }
 
 /// Empty string signals BedrockClient::from_env() to use the region from AWS environment/config
@@ -165,14 +185,13 @@ impl AIProvider {
     /// OpenAI, Azure AI Foundry, and the `OpenAI` provider pointed at an Azure
     /// endpoint through `openai_azure_base_path` or a resource base URL.
     ///
-    /// The `OpenAI` provider is matched on the host and not on "base URL differs
-    /// from the default": every other custom base URL is an OpenAI-compatible
-    /// endpoint (gateway, proxy, self-hosted server) that expects bearer auth and
-    /// the plain `<base>/<path>` layout.
+    /// A custom `OpenAI` base URL that is not an Azure endpoint is an
+    /// OpenAI-compatible one (gateway, proxy, self-hosted server) and keeps bearer
+    /// auth and the plain `<base>/<path>` layout.
     pub fn is_azure(&self, base_url: &str) -> bool {
         match self {
             AIProvider::AzureOpenAI | AIProvider::AzureFoundry => true,
-            AIProvider::OpenAI => is_azure_host(base_url),
+            AIProvider::OpenAI => is_azure_endpoint(base_url),
             _ => false,
         }
     }
@@ -333,12 +352,12 @@ mod tests {
     }
 
     /// An OpenAI resource with a custom base URL is an OpenAI-compatible endpoint
-    /// unless it is an Azure host: treating every non-default base URL as Azure
-    /// swaps bearer auth for the `api-key` header and rewrites the path, which
-    /// gateways answer with 401/404.
+    /// unless it is an Azure one. Azure treatment swaps bearer auth for the
+    /// `api-key` header and rewrites the path, so both directions must hold.
     #[test]
-    fn openai_is_azure_only_for_azure_hosts() {
+    fn openai_is_azure_only_for_azure_endpoints() {
         for base_url in [
+            // A gateway path ending in /openai must not read as Azure.
             "https://gateway-eu.pydantic.dev/proxy/openai",
             "https://openrouter.ai/api/v1",
             "http://localhost:4000/v1",
@@ -353,7 +372,10 @@ mod tests {
         for base_url in [
             "https://example.openai.azure.com/openai/deployments/my-deployment",
             "https://wm-test-ai.services.ai.azure.com",
-            "https://contoso.azure-api.net/openai",
+            "https://contoso.azure-api.cn/openai",
+            // Azure OpenAI behind a custom domain, the format
+            // `openai_azure_base_path` documents.
+            "https://openai.contoso.com/openai/deployments/gpt-4o",
         ] {
             assert!(
                 AIProvider::OpenAI.is_azure(base_url),

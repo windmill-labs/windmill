@@ -82,6 +82,17 @@ pub fn supports_query_builder_proxy(provider: &AIProvider) -> bool {
     proxy_execution_mode(provider).uses_query_builder_proxy()
 }
 
+/// Whether the resource supplies its own credential header, in which case the
+/// built-in one must be dropped rather than added: outgoing headers are appended,
+/// not replaced, so both would travel and endpoints reject ambiguous credentials.
+pub(crate) fn credentials_overridden(credentials: &ProviderCredentials, names: &[&str]) -> bool {
+    credentials.custom_headers.keys().any(|header_name| {
+        names
+            .iter()
+            .any(|name| header_name.eq_ignore_ascii_case(name))
+    })
+}
+
 pub fn build_openai_compatible_proxy_request(args: &ProxyBuildArgs<'_>) -> Result<ProxyRequest> {
     let credentials = args.credentials;
     let body = if let Some(user) = credentials.user.as_ref() {
@@ -100,7 +111,9 @@ pub fn build_openai_compatible_proxy_request(args: &ProxyBuildArgs<'_>) -> Resul
 
     let mut headers = vec![("content-type".to_string(), "application/json".to_string())];
 
-    if let Some(api_key) = credentials.api_key.as_ref() {
+    let auth_overridden = credentials_overridden(credentials, &["authorization", "api-key"]);
+
+    if let Some(api_key) = credentials.api_key.as_ref().filter(|_| !auth_overridden) {
         if is_azure {
             headers.push(("api-key".to_string(), api_key.clone()));
         } else {
@@ -108,7 +121,11 @@ pub fn build_openai_compatible_proxy_request(args: &ProxyBuildArgs<'_>) -> Resul
         }
     }
 
-    if let Some(access_token) = credentials.access_token.as_ref() {
+    if let Some(access_token) = credentials
+        .access_token
+        .as_ref()
+        .filter(|_| !auth_overridden)
+    {
         headers.push((
             "authorization".to_string(),
             format!("Bearer {}", access_token),
