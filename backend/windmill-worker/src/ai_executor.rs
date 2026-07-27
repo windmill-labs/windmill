@@ -24,10 +24,10 @@ use windmill_ai::{
     ai_providers::AIProvider,
     image_handler::upload_image_to_s3,
     providers::create_query_builder,
-    proxy::{resource_replaces_credential, CREDENTIAL_HEADERS},
+    proxy::{common_outbound_headers, resource_replaces_credential, CREDENTIAL_HEADERS},
     query_builder::{BuildRequestArgs, ParsedResponse},
     types::*,
-    utils::{pinned_ai_client_for, should_use_structured_output_tool, AI_HTTP_HEADERS},
+    utils::{pinned_ai_client_for, should_use_structured_output_tool},
 };
 use windmill_common::{
     cache,
@@ -995,7 +995,7 @@ pub async fn run_agent(
                 .await
                 .0;
 
-            let resource_headers = &credentials.custom_headers;
+            let trailing_headers = common_outbound_headers(&credentials).collect::<Vec<_>>();
 
             // `endpoint` derives from the user-controlled provider base_url, so pin
             // DNS to the SSRF-validated address: the connect must not rebind to an
@@ -1013,11 +1013,7 @@ pub async fn run_agent(
                     req = req.header(*header_name, header_value.clone());
                 }
 
-                for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
-                    req = req.header(header_name.as_str(), header_value.as_str());
-                }
-
-                for (header_name, header_value) in resource_headers {
+                for (header_name, header_value) in &trailing_headers {
                     req = req.header(header_name.as_str(), header_value.as_str());
                 }
 

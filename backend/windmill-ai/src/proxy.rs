@@ -102,6 +102,47 @@ pub fn resource_replaces_credential(credentials: &ProviderCredentials, built_in:
     })
 }
 
+/// The credential header to send in `built_in`, or `None` when the resource
+/// supplies its own. `authorization` carries a bearer token; every other
+/// credential header carries the raw key, which holds for every provider.
+///
+/// A resource resolves to an api key or an OAuth token, never both, so the two
+/// are interchangeable here.
+pub fn credential_header(
+    credentials: &ProviderCredentials,
+    built_in: &str,
+) -> Option<(String, String)> {
+    if resource_replaces_credential(credentials, built_in) {
+        return None;
+    }
+    let secret = credentials
+        .api_key
+        .as_ref()
+        .or(credentials.access_token.as_ref())?;
+    let value = if built_in.eq_ignore_ascii_case("authorization") {
+        format!("Bearer {}", secret)
+    } else {
+        secret.clone()
+    };
+    Some((built_in.to_string(), value))
+}
+
+/// The headers every outbound AI request ends with: Windmill's own, then the
+/// resource's, which come last so a resource can add to what the provider set.
+pub fn common_outbound_headers(
+    credentials: &ProviderCredentials,
+) -> impl Iterator<Item = (String, String)> + '_ {
+    AI_HTTP_HEADERS
+        .iter()
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .chain(
+            credentials
+                .custom_headers
+                .iter()
+                .map(|(name, value)| (name.clone(), value.clone())),
+        )
+}
+
 pub fn build_openai_compatible_proxy_request(args: &ProxyBuildArgs<'_>) -> Result<ProxyRequest> {
     let credentials = args.credentials;
     let body = if let Some(user) = credentials.user.as_ref() {
@@ -120,39 +161,16 @@ pub fn build_openai_compatible_proxy_request(args: &ProxyBuildArgs<'_>) -> Resul
 
     let mut headers = vec![("content-type".to_string(), "application/json".to_string())];
 
-    let built_in_credential = if is_azure { "api-key" } else { "authorization" };
-    let auth_overridden = resource_replaces_credential(credentials, built_in_credential);
-
-    if let Some(api_key) = credentials.api_key.as_ref().filter(|_| !auth_overridden) {
-        if is_azure {
-            headers.push(("api-key".to_string(), api_key.clone()));
-        } else {
-            headers.push(("authorization".to_string(), format!("Bearer {}", api_key)));
-        }
-    }
-
-    if let Some(access_token) = credentials
-        .access_token
-        .as_ref()
-        .filter(|_| !auth_overridden)
-    {
-        headers.push((
-            "authorization".to_string(),
-            format!("Bearer {}", access_token),
-        ));
-    }
+    headers.extend(credential_header(
+        credentials,
+        if is_azure { "api-key" } else { "authorization" },
+    ));
 
     if let Some(org_id) = credentials.organization_id.as_ref() {
         headers.push(("OpenAI-Organization".to_string(), org_id.clone()));
     }
 
-    for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
-        headers.push((header_name.clone(), header_value.clone()));
-    }
-
-    for (header_name, header_value) in &credentials.custom_headers {
-        headers.push((header_name.clone(), header_value.clone()));
-    }
+    headers.extend(common_outbound_headers(credentials));
 
     Ok(ProxyRequest { method: args.method.clone(), url, headers, body })
 }

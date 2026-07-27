@@ -2,14 +2,13 @@ use crate::{
     ai_google::parse_data_url,
     ai_providers::{AIPlatform, AIProvider},
     image_handler::prepare_messages_for_api,
-    proxy::{add_user_to_body, resource_replaces_credential, ProxyBuildArgs, ProxyRequest},
+    proxy::{
+        add_user_to_body, common_outbound_headers, credential_header, ProxyBuildArgs, ProxyRequest,
+    },
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
     sse::{AnthropicSSEParser, SSEParser},
     types::*,
-    utils::{
-        collect_system_prompt, extract_text_content, should_use_structured_output_tool,
-        AI_HTTP_HEADERS,
-    },
+    utils::{collect_system_prompt, extract_text_content, should_use_structured_output_tool},
 };
 use async_trait::async_trait;
 use http::Method;
@@ -544,46 +543,23 @@ impl AnthropicQueryBuilder {
             }
         }
 
-        // Exactly one auth header, matching `get_auth_headers`: Vertex takes an
-        // OAuth bearer token, every other Messages endpoint takes x-api-key.
-        // Endpoints in front of Anthropic reject requests carrying both.
-        let built_in_credential = if is_vertex {
-            "authorization"
-        } else {
-            "x-api-key"
-        };
-        let auth_overridden = resource_replaces_credential(credentials, built_in_credential);
-
-        if let Some(api_key) = credentials.api_key.as_ref().filter(|_| !auth_overridden) {
+        // One credential header, matching `get_auth_headers`: Vertex takes an OAuth
+        // bearer token, every other Messages endpoint takes x-api-key. Endpoints in
+        // front of Anthropic reject requests carrying both.
+        headers.extend(credential_header(
+            credentials,
             if is_vertex {
-                headers.push(("authorization".to_string(), format!("Bearer {}", api_key)));
+                "authorization"
             } else {
-                headers.push(("x-api-key".to_string(), api_key.clone()));
-            }
-        }
-
-        if let Some(access_token) = credentials
-            .access_token
-            .as_ref()
-            .filter(|_| !auth_overridden)
-        {
-            headers.push((
-                "authorization".to_string(),
-                format!("Bearer {}", access_token),
-            ));
-        }
+                "x-api-key"
+            },
+        ));
 
         if let Some(org_id) = credentials.organization_id.as_ref() {
             headers.push(("OpenAI-Organization".to_string(), org_id.clone()));
         }
 
-        for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
-            headers.push((header_name.clone(), header_value.clone()));
-        }
-
-        for (header_name, header_value) in &credentials.custom_headers {
-            headers.push((header_name.clone(), header_value.clone()));
-        }
+        headers.extend(common_outbound_headers(credentials));
 
         Ok(ProxyRequest { method: args.method.clone(), url, headers, body })
     }
