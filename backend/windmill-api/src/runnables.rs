@@ -276,10 +276,6 @@ async fn list_runnables(
     if show_archived {
         kinds.retain(|k| *k != "app");
     }
-    // Operators may only see scripts.
-    if authed.is_operator {
-        kinds.retain(|k| *k == "script");
-    }
 
     let branches = branch_sqls();
 
