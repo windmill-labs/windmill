@@ -579,8 +579,10 @@
 
 	const stepsInputArgs = new StepsInputArgs()
 
+	// Every caller is a deliberate "show me that panel" action (a toolbar button, the
+	// preview's trigger shortcut), so the panel must open even in modal mode.
 	function select(selectedId: string) {
-		selectionManager.selectId(selectedId)
+		selectionManager.selectId(selectedId, { openPanel: true })
 	}
 
 	let insertButtonOpen = writable<boolean>(false)
@@ -1292,7 +1294,7 @@
 					{savedFlow}
 					onDeployTrigger={handleDeployTrigger}
 					onEditInput={(moduleId, key) => {
-						selectionManager.selectId(moduleId)
+						selectionManager.selectId(moduleId, { openPanel: true })
 						// Use new prop-based system
 						forceTestTab[moduleId] = true
 						highlightArg[moduleId] = key

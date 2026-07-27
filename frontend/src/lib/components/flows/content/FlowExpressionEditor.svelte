@@ -59,7 +59,7 @@
 		extraLib = undefined,
 		id = undefined,
 		focused = $bindable(),
-		editor = $bindable(undefined),
+		editor = $bindable(),
 		suggestion = undefined,
 		headerExtra,
 		onKeyUp,
