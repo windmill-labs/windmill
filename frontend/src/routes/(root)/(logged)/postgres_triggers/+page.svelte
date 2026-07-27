@@ -434,28 +434,21 @@
 						<div class="w-full flex gap-5 items-center">
 							<RowIcon kind={is_flow ? 'flow' : 'script'} />
 
-							<div class="min-w-0 grow flex items-center gap-2">
-								<a
-									href="#{path}"
-									onclick={() => postgresTriggerEditor?.openEdit(path, is_flow)}
-									class="min-w-0 hover:underline decoration-gray-400"
-								>
-									<div
-										class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate"
-									>
-										{path}{hasDraft ? '*' : ''}
-									</div>
-									<div class="text-secondary text-xs truncate text-left font-light">
-										{postgres_resource_path}
-									</div>
-									<div class="text-secondary text-xs truncate text-left font-light">
-										runnable: {script_path}
-									</div>
-								</a>
-								{#if !draft_only && hasDraft}
-									<DraftBadge is_draft={true} />
-								{/if}
-							</div>
+							<a
+								href="#{path}"
+								onclick={() => postgresTriggerEditor?.openEdit(path, is_flow)}
+								class="min-w-0 grow hover:underline decoration-gray-400"
+							>
+								<div class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate">
+									{path}{hasDraft ? '*' : ''}
+								</div>
+								<div class="text-secondary text-xs truncate text-left font-light">
+									{postgres_resource_path}
+								</div>
+								<div class="text-secondary text-xs truncate text-left font-light">
+									runnable: {script_path}
+								</div>
+							</a>
 
 							<div class="hidden lg:flex flex-row gap-1 items-center">
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
@@ -502,32 +495,34 @@
 								{/if}
 							</div>
 
-							<div class="flex justify-end shrink-0 w-20">
-								{#if draft_only}
+							<div class="flex items-center justify-end gap-2 shrink-0 w-32">
+								{#if draft_only || hasDraft}
 									<DraftBadge {draft_only} is_draft={true} />
-								{:else}
-									<TriggerModeToggle
-										title={hasDraft
+								{/if}
+								<TriggerModeToggle
+									disabled={draft_only}
+									title={draft_only
+										? 'Draft only: deploy the trigger to enable it'
+										: hasDraft
 											? 'Enables/disables the deployed trigger; the draft is not affected'
 											: undefined}
-										onToggleMode={(newMode) => onToggleMode(path, newMode)}
-										triggerMode={mode}
-										includeModalConfig={{
-											triggerPath: path,
-											triggerKind: 'postgres',
-											runnableConfig: {
-												path: script_path,
-												kind: is_flow ? 'flow' : 'script',
-												retry,
-												errorHandlerPath: error_handler_path,
-												errorHandlerArgs: error_handler_args
-											}
-										}}
-										{canWrite}
-										hideToggleLabels
-										hideDropdown
-									/>
-								{/if}
+									onToggleMode={(newMode) => onToggleMode(path, newMode)}
+									triggerMode={draft_only ? 'disabled' : mode}
+									includeModalConfig={{
+										triggerPath: path,
+										triggerKind: 'postgres',
+										runnableConfig: {
+											path: script_path,
+											kind: is_flow ? 'flow' : 'script',
+											retry,
+											errorHandlerPath: error_handler_path,
+											errorHandlerArgs: error_handler_args
+										}
+									}}
+									{canWrite}
+									hideToggleLabels
+									hideDropdown
+								/>
 							</div>
 
 							<div class="flex gap-2 items-center justify-end">

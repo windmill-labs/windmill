@@ -377,74 +377,71 @@
 							<div class="w-full flex gap-4 items-center">
 								<RowIcon kind={is_flow ? 'flow' : 'script'} />
 
-								<div class="min-w-0 grow flex items-center gap-2">
-									<a
-										href="#{path}"
-										onclick={() => routeEditor?.openEdit(path, is_flow)}
-										class="min-w-0 hover:underline decoration-gray-400"
+								<a
+									href="#{path}"
+									onclick={() => routeEditor?.openEdit(path, is_flow)}
+									class="min-w-0 grow hover:underline decoration-gray-400"
+								>
+									<div
+										class="text-emphasis font-semibold flex-wrap text-left text-xs mb-1 truncate"
 									>
-										<div
-											class="text-emphasis font-semibold flex-wrap text-left text-xs mb-1 truncate"
-										>
-											{#if marked}
-												<span class="text-xs">
-													{@html marked}
-												</span>
-											{:else if summary}
-												{summary}
-											{:else}
-												{http_method.toUpperCase()}
-												/{isCloudHosted() || workspaced_route || globalHttpWorkspacedRoute
-													? workspace_id + '/' + route_path
-													: route_path}
-											{/if}{hasDraft ? '*' : ''}
-										</div>
-										<div class="text-secondary text-xs truncate text-left font-normal">
-											{path}
-										</div>
-										<div class="text-secondary text-xs truncate text-left font-normal">
-											{#if static_asset_config}
-												file: {static_asset_config.s3}
-											{:else}
-												runnable: {script_path}
-											{/if}
-										</div>
-									</a>
-									{#if !draft_only && hasDraft}
-										<DraftBadge is_draft={true} />
-									{/if}
-								</div>
+										{#if marked}
+											<span class="text-xs">
+												{@html marked}
+											</span>
+										{:else if summary}
+											{summary}
+										{:else}
+											{http_method.toUpperCase()}
+											/{isCloudHosted() || workspaced_route || globalHttpWorkspacedRoute
+												? workspace_id + '/' + route_path
+												: route_path}
+										{/if}{hasDraft ? '*' : ''}
+									</div>
+									<div class="text-secondary text-xs truncate text-left font-normal">
+										{path}
+									</div>
+									<div class="text-secondary text-xs truncate text-left font-normal">
+										{#if static_asset_config}
+											file: {static_asset_config.s3}
+										{:else}
+											runnable: {script_path}
+										{/if}
+									</div>
+								</a>
 
 								<div class="hidden lg:flex flex-row gap-1 items-center">
 									<SharedBadge {canWrite} extraPerms={extra_perms} />
 								</div>
 
-								<div class="flex justify-end shrink-0 w-20">
-									{#if draft_only}
+								<div class="flex items-center justify-end gap-2 shrink-0 w-32">
+									{#if draft_only || hasDraft}
 										<DraftBadge {draft_only} is_draft={true} />
-									{:else}
-										<TriggerModeToggle
-											title={hasDraft
+									{/if}
+									<TriggerModeToggle
+										disabled={draft_only}
+										title={draft_only
+											? 'Draft only: deploy the trigger to enable it'
+											: hasDraft
 												? 'Enables/disables the deployed trigger; the draft is not affected'
 												: undefined}
-											onToggleMode={(mode) => onToggleMode(path, mode)}
-											triggerMode={mode}
-											includeModalConfig={{
-												triggerPath: path,
-												triggerKind: 'http',
-												runnableConfig: {
-													path: script_path,
-													kind: is_flow ? 'flow' : 'script',
-													retry,
-													errorHandlerPath: error_handler_path,
-													errorHandlerArgs: error_handler_args
-												}
-											}}
-											{canWrite}
-											hideToggleLabels
-											hideDropdown
-										/>
-									{/if}
+										onToggleMode={(mode) => onToggleMode(path, mode)}
+										triggerMode={draft_only ? 'disabled' : mode}
+										includeModalConfig={{
+											triggerPath: path,
+											triggerKind: 'http',
+											runnableConfig: {
+												path: script_path,
+												kind: is_flow ? 'flow' : 'script',
+												retry,
+												errorHandlerPath: error_handler_path,
+												errorHandlerArgs: error_handler_args
+											}
+										}}
+										{canWrite}
+										hideToggleLabels
+										hideDropdown
+									/>
 								</div>
 
 								<div class="flex gap-2 items-center justify-end">

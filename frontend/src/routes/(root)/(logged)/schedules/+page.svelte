@@ -388,28 +388,23 @@
 							<div class="w-full flex gap-4 items-center">
 								<RowIcon kind={is_flow ? 'flow' : 'script'} />
 
-								<div class="min-w-0 grow flex items-center gap-2">
-									<a
-										href="#{path}"
-										onclick={() => {
-											handledHash = `#${path}`
-											scheduleEditor?.openEdit(path, is_flow)
-										}}
-										class="min-w-0 hover:underline decoration-gray-400"
+								<a
+									href="#{path}"
+									onclick={() => {
+										handledHash = `#${path}`
+										scheduleEditor?.openEdit(path, is_flow)
+									}}
+									class="min-w-0 grow hover:underline decoration-gray-400"
+								>
+									<div
+										class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate"
 									>
-										<div
-											class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate"
-										>
-											{summary || script_path}{hasDraft ? '*' : ''}
-										</div>
-										<div class="text-secondary text-xs truncate text-left">
-											schedule: {path}
-										</div>
-									</a>
-									{#if !draft_only && hasDraft}
-										<DraftBadge is_draft={true} />
-									{/if}
-								</div>
+										{summary || script_path}{hasDraft ? '*' : ''}
+									</div>
+									<div class="text-secondary text-xs truncate text-left">
+										schedule: {path}
+									</div>
+								</a>
 								{#if labels?.length}
 									{#each labels as label}
 										<Badge
@@ -470,34 +465,36 @@
 									{/if}
 								</div>
 
-								<div class="flex justify-end shrink-0 w-20">
-									{#if draft_only}
+								<div class="flex items-center justify-end gap-2 shrink-0 w-32">
+									{#if draft_only || hasDraft}
 										<DraftBadge {draft_only} is_draft={true} />
-									{:else}
-										{#key toggleResetVersions[path] ?? 0}
-											<Toggle
-												options={{
-													title: hasDraft
+									{/if}
+									{#key toggleResetVersions[path] ?? 0}
+										<Toggle
+											disabled={draft_only}
+											options={{
+												title: draft_only
+													? 'Draft only: deploy the schedule to enable it'
+													: hasDraft
 														? 'Enables/disables the deployed schedule; the draft is not affected'
 														: undefined
-												}}
-												checked={enabled}
-												on:change={(e) => {
-													if (canWrite) {
-														setScheduleEnabled(path, e.detail)
-													} else {
-														sendUserToast('not enough permission', true)
-														// Permission denied — bump the row's reset
-														// counter so the Toggle remounts back to the
-														// prop value. Without this, the local
-														// `bind:checked` flip from the user's click
-														// stays stuck on.
-														bumpToggleReset(path)
-													}
-												}}
-											/>
-										{/key}
-									{/if}
+											}}
+											checked={!draft_only && enabled}
+											on:change={(e) => {
+												if (canWrite) {
+													setScheduleEnabled(path, e.detail)
+												} else {
+													sendUserToast('not enough permission', true)
+													// Permission denied — bump the row's reset
+													// counter so the Toggle remounts back to the
+													// prop value. Without this, the local
+													// `bind:checked` flip from the user's click
+													// stays stuck on.
+													bumpToggleReset(path)
+												}
+											}}
+										/>
+									{/key}
 								</div>
 								<div class="flex gap-2 items-center justify-end">
 									<Button
