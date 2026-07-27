@@ -48,6 +48,7 @@
 	import WorkspaceScriptSettingsDrawer from './flows/content/WorkspaceScriptSettingsDrawer.svelte'
 	import FlowEditorDrawer from './flows/content/FlowEditorDrawer.svelte'
 	import { dfs as dfsApply } from './flows/dfs'
+	import { publishLinkedAgentTools } from './flows/flowState'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
@@ -572,6 +573,31 @@
 			}
 			if (docScope !== scope) {
 				migrateLinkedAgentToolsScope(docScope, scope)
+			}
+		})
+	})
+
+	// Re-resolve linked agents whenever the set of links changes. Wholesale replacements — undo/redo,
+	// YAML or AI apply, session restore — swap `agent` without re-running initFlowState, and the step
+	// editor only watches the step it is mounted on, so an unselected step would keep showing (and
+	// binding against) the previous agent's tools.
+	let linkedAgentRefs = $derived(
+		dfsApply(flowStore.val.value?.modules ?? [], (m) => m, { skipToolNodes: true })
+			.map((m) => {
+				const value = m?.value as { type?: string; agent?: string } | undefined
+				return value?.type === 'aiagent' && value.agent ? `${m.id}\u0000${value.agent}` : undefined
+			})
+			.filter((x): x is string => x !== undefined)
+			.join('\u0001')
+	)
+	$effect(() => {
+		const refs = linkedAgentRefs
+		const ws = opWorkspace
+		const scope = linkedToolsScope(opWorkspace, $pathStore)
+		untrack(() => {
+			for (const entry of refs ? refs.split('\u0001') : []) {
+				const [moduleId, agentPath] = entry.split('\u0000')
+				publishLinkedAgentTools(agentPath, ws, scope, moduleId)
 			}
 		})
 	})

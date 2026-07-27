@@ -35,6 +35,17 @@ input editors (prop picker included) and a read-only view of its code — edits 
 
 Sharing works through standard resource folder permissions (save agents under `f/...`).
 
+## Resolution is live, not pinned
+
+A linked step resolves its agent resource when the step runs — that is what makes an edit propagate
+to every linked flow. It also means a run is not a snapshot: editing the agent while a flow is
+in-flight affects steps that have not started yet. The same applies one level down, where the effect
+is sharper: a *nested* agent tool of a linked agent runs as its own job and looks its definition up
+in the resource again by tool id, so an edit landing between the LLM selecting that tool and the
+tool starting can run the changed definition, or fail if the tool was removed. Pinning would require
+carrying the resolved definition into the child job rather than its id. Inline (unlinked) agents are
+unaffected: their tools live in the flow value, which is snapshotted with the run.
+
 ## Dependencies and locks
 
 A linked step carries `tools: []`, and no dependency job ever visits the `ai_agent` resource, so the
