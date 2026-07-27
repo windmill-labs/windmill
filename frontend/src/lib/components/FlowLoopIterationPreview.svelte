@@ -169,9 +169,11 @@
 		{/if}
 		<div></div>
 	</div>
-	<div class="w-full flex flex-col gap-y-1">
-		<FlowProgressBar {job} bind:this={progressBar} />
-	</div>
+	{#if jobId}
+		<div class="w-full flex flex-col gap-y-1">
+			<FlowProgressBar {job} bind:this={progressBar} />
+		</div>
+	{/if}
 	<div class="overflow-y-auto grow pr-4">
 		<div class="max-h-1/2 overflow-auto border-b">
 			<SchemaForm
