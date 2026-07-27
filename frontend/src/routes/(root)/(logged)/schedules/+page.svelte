@@ -306,9 +306,12 @@
 		item: ScheduleW,
 		filterEnabledDisabled: 'all' | 'enabled' | 'disabled'
 	) {
+		// Draft-only rows have nothing deployed, so they read as disabled here
+		// too — matching the off, disabled toggle the row renders.
+		const enabled = !item.draft_only && item.enabled
 		if (filterEnabledDisabled === 'all') return true
-		if (filterEnabledDisabled === 'enabled') return item.enabled
-		if (filterEnabledDisabled === 'disabled') return !item.enabled
+		if (filterEnabledDisabled === 'enabled') return enabled
+		if (filterEnabledDisabled === 'disabled') return !enabled
 	}
 
 	// Filter schedules client-side for enabled/disabled and user folders

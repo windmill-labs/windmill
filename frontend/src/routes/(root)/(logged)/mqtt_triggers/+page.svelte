@@ -468,7 +468,7 @@
 												goto(href)
 											}
 										},
-										...(canWrite && mode !== 'suspended'
+										...(canWrite && !draft_only && mode !== 'suspended'
 											? [
 													{
 														displayName: 'Suspend job execution',
