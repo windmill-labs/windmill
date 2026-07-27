@@ -1273,6 +1273,7 @@ describe("error propagation via __wmill_error marker", () => {
       await runWorkflow(wf, checkpoint, [5]);
       expect(true).toBe(false); // should not reach here
     } catch (e: any) {
+      expect(e.name).toBe("TaskError");
       expect(e.message).toContain("double");
       expect(e.result).toEqual({ message: "division by zero" });
       expect(e.child_job_id).toBe("abc-123");
@@ -1449,6 +1450,19 @@ describe("throwing inline step is checkpointed", () => {
     const result = await runWorkflow(wf, {}, []);
     expect(result.type).toBe("inline_checkpoint");
     expect(result.result).toBe(42);
+  });
+
+  test("a replayed step failure is named TaskError, like the python client", async () => {
+    const ctx = new WorkflowCtx({ completed_steps: { step_0: marker } });
+    let caught: any;
+    try {
+      await ctx._runInlineStep("risky", () => 1);
+    } catch (e) {
+      caught = e;
+    }
+    expect(`${caught.name}: ${caught.message}`).toBe("TaskError: boom");
+    // the failing body's own type stays addressable here
+    expect(caught.result).toEqual({ error: "boom", type: "TypeError" });
   });
 
   test("a child job cannot swallow its own completion signal", async () => {
