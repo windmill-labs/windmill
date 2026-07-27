@@ -46,9 +46,11 @@ export function releaseLinkedToolsScope(scope: string) {
 	evictOverCap()
 }
 
-function evictOverCap() {
+// `protect` is the scope just written: it is the newest, so when every older one is retained it
+// would otherwise be the only eligible victim and get dropped the moment it was published.
+function evictOverCap(protect?: string) {
 	while (scopeOrder.length > MAX_SCOPES) {
-		const victim = scopeOrder.find((s) => !retainedScopes.has(s))
+		const victim = scopeOrder.find((s) => s !== protect && !retainedScopes.has(s))
 		if (victim === undefined) {
 			break
 		}
@@ -59,7 +61,7 @@ function evictOverCap() {
 
 function touchScope(scope: string) {
 	scopeOrder = [...scopeOrder.filter((s) => s !== scope), scope]
-	evictOverCap()
+	evictOverCap(scope)
 }
 
 /**
@@ -94,8 +96,10 @@ export function migrateLinkedAgentToolsScope(oldScope: string, newScope: string)
 	if (oldScope === newScope || byScope[oldScope] === undefined) return
 	byScope[newScope] = { ...(byScope[newScope] ?? {}), ...(byScope[oldScope] ?? {}) }
 	delete byScope[oldScope]
-	scopeOrder = scopeOrder.filter((s) => s !== oldScope)
-	touchScope(newScope)
+	// Mark the new key most-recently-used but don't evict here: readers still hold the old key and
+	// re-retain under the new one only after this returns, so the fresh bucket would be the sole
+	// unretained victim. The next publish or release enforces the cap, by which point it is held.
+	scopeOrder = [...scopeOrder.filter((s) => s !== oldScope && s !== newScope), newScope]
 	version++
 }
 
