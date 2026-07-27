@@ -6,16 +6,25 @@ export function stripResourcePrefix(ref: string): string {
 	return ref.replace(/^\$res:/, '').replace(/^res:\/\//, '')
 }
 
-/** Workspace objects referenced by an input_transforms map through a static `$res:`/`$var:` value. */
+/** Workspace objects referenced by an input_transforms map through a static `$res:`/`$var:` value.
+ * The value is walked, not just string-matched: an AI agent's provider is an object holding its
+ * credential under `resource`, so a top-level string check alone misses it. */
 export function collectTransformRefs(transforms: unknown): Dependency[] {
 	const result: Dependency[] = []
-	for (const t of Object.values((transforms ?? {}) as Record<string, any>)) {
-		if (t?.type == 'static' && typeof t.value == 'string') {
-			if (t.value.startsWith('$res:')) {
-				result.push({ kind: 'resource', path: t.value.substring(5) })
-			} else if (t.value.startsWith('$var:')) {
-				result.push({ kind: 'variable', path: t.value.substring(5) })
+	const walk = (v: unknown) => {
+		if (typeof v == 'string') {
+			if (v.startsWith('$res:')) {
+				result.push({ kind: 'resource', path: v.substring(5) })
+			} else if (v.startsWith('$var:')) {
+				result.push({ kind: 'variable', path: v.substring(5) })
 			}
+		} else if (typeof v == 'object' && v != null) {
+			for (const inner of Object.values(v)) walk(inner)
+		}
+	}
+	for (const t of Object.values((transforms ?? {}) as Record<string, any>)) {
+		if (t?.type == 'static') {
+			walk(t.value)
 		}
 	}
 	return result
@@ -49,14 +58,17 @@ export function agentResourceDependencies(value: unknown): Dependency[] {
 	return result
 }
 
-/** A linked step's own dependencies: the saved agent, plus the flow-local `tool_inputs` overrides.
- * An override replaces the resource tool's default at runtime, so the value this flow actually uses
- * must follow the deploy — the saved default alone is not enough. */
+/** An AI agent step's own dependencies. Linked: the saved agent, plus the flow-local `tool_inputs`
+ * overrides — an override replaces the resource tool's default at runtime, so the value this flow
+ * actually uses must follow the deploy. Standalone: its inline tools, which the flow module walk
+ * only partly reaches (MCP and websearch tools are not flow modules). */
 export function aiAgentModuleDependencies(value: unknown): Dependency[] {
 	const v = value as any
-	const result: Dependency[] = []
+	const result: Dependency[] = collectTransformRefs(v?.input_transforms)
 	if (typeof v?.agent == 'string' && v.agent) {
 		result.push({ kind: 'resource', path: stripResourcePrefix(v.agent) })
+	} else {
+		result.push(...agentResourceDependencies(v))
 	}
 	for (const overrides of Object.values((v?.tool_inputs ?? {}) as Record<string, unknown>)) {
 		result.push(...collectTransformRefs(overrides))

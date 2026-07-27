@@ -73,3 +73,37 @@ describe('agentResourceDependencies', () => {
 		])
 	})
 })
+
+describe('inline agent dependencies', () => {
+	// A provider is an object-valued static transform holding its credential under `resource`, so a
+	// top-level string check misses it.
+	it('finds a provider credential nested in an object-valued transform', () => {
+		expect(
+			aiAgentModuleDependencies({
+				input_transforms: {
+					provider: { type: 'static', value: { kind: 'openai', model: 'gpt-4o' } }
+				},
+				tools: []
+			})
+		).toEqual([])
+		expect(
+			aiAgentModuleDependencies({
+				input_transforms: {
+					provider: {
+						type: 'static',
+						value: { kind: 'openai', model: 'gpt-4o', resource: '$res:f/ai/openai' }
+					}
+				},
+				tools: []
+			})
+		).toEqual([{ kind: 'resource', path: 'f/ai/openai' }])
+	})
+
+	it('walks an inline agent own tools, which the flow module walk does not reach', () => {
+		expect(
+			aiAgentModuleDependencies({
+				tools: [{ id: 'm', value: { tool_type: 'mcp', resource_path: 'f/mcp/server' } }]
+			})
+		).toEqual([{ kind: 'resource', path: 'f/mcp/server' }])
+	})
+})

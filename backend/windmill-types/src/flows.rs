@@ -1075,10 +1075,11 @@ pub enum FlowModuleValue {
         /// `input_transforms` then only carry the flow-local inputs (user_message/user_attachments).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         agent: Option<String>,
-        /// Host-local wiring for a linked agent's tool inputs, keyed by tool id then input key.
-        /// A linked step binds the referenced agent's tools to *this* flow's context
-        /// (`flow_input`/`results`) here, without mutating the shared resource. Overlaid onto the
-        /// resource's tool `input_transforms` at runtime. Empty / absent for non-linked steps.
+        /// Host-local wiring for an agent's tool inputs, keyed by tool id then input key. A linked
+        /// step binds the referenced agent's tools to *this* flow's context (`flow_input`/`results`)
+        /// here, without mutating the shared resource. Overlaid onto the tools' `input_transforms`
+        /// at runtime — including when `agent` is unset, since a step forked for editing keeps
+        /// these overrides until it is saved back or unlinked.
         #[serde(default, skip_serializing_if = "HashMap::is_empty")]
         tool_inputs: HashMap<String, HashMap<String, InputTransform>>,
     },
