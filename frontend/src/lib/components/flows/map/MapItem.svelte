@@ -7,7 +7,10 @@
 	import { prettyLanguage } from '$lib/common'
 	import { msToSec, type Item } from '$lib/utils'
 	import FlowJobsMenu from './FlowJobsMenu.svelte'
-	import { type OnSelectedIteration } from '$lib/components/graph/graphBuilder.svelte'
+	import {
+		isTriggerStep,
+		type OnSelectedIteration
+	} from '$lib/components/graph/graphBuilder.svelte'
 	import { checkIfParentLoop } from '$lib/components/flows/utils.svelte'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { twMerge } from 'tailwind-merge'
@@ -23,6 +26,7 @@
 		annotation?: string | undefined
 		nodeState?: FlowNodeState
 		duration_ms?: number | undefined
+		retries?: number | undefined
 		flowJobs:
 			| {
 					flowJobs: string[]
@@ -55,6 +59,7 @@
 		annotation = undefined,
 		nodeState,
 		duration_ms = undefined,
+		retries = undefined,
 		flowJobs,
 		editMode = false,
 		onSelect,
@@ -81,7 +86,14 @@
 
 	let itemProps = $derived({
 		selected: selectionManager && selectionManager.isNodeSelected(mod.id),
-		mock: mod.mock
+		retry: mod.retry?.constant != undefined || mod.retry?.exponential != undefined,
+		earlyStop: mod.stop_after_if != undefined || mod.stop_after_all_iters_if != undefined,
+		skip: Boolean(mod.skip_if),
+		suspend: Boolean(mod.suspend),
+		sleep: Boolean(mod.sleep),
+		cache: Boolean(mod.cache_ttl),
+		mock: mod.mock,
+		concurrency: Boolean(mod?.value?.['concurrent_limit'])
 	})
 
 	let parentLoop = $derived(
@@ -232,6 +244,7 @@
 				</FlowModuleSchemaItem>
 			{:else}
 				<FlowModuleSchemaItem
+					{retries}
 					{editMode}
 					{moduleAction}
 					{menuItems}
@@ -261,6 +274,7 @@
 							? `Inline ${prettyLanguage(mod.value.language)}`
 							: 'To be defined')}
 					path={`path` in mod.value ? mod.value.path : ''}
+					isTrigger={isTriggerStep(mod)}
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:') && mod.id !== 'preprocessor'}
 					loopStatus={parentLoop ? { type: 'inside', flow: parentLoop.type } : undefined}
 					inputTransform={mod.value.type !== 'identity' ? mod.value.input_transforms : undefined}

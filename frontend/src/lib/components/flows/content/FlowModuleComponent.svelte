@@ -782,13 +782,6 @@
 							flowModule.value.tag = e.detail
 						}
 					}}
-					on:toggleSuspend={() => selectAdvanced('suspend')}
-					on:toggleSleep={() => selectAdvanced('sleep')}
-					on:toggleRetry={() => selectAdvanced('retries')}
-					on:togglePin={() => (selected = 'test')}
-					on:toggleConcurrency={() => selectAdvanced('runtime')}
-					on:toggleCache={() => selectAdvanced('cache')}
-					on:toggleStopAfterIf={() => selectAdvanced('early-stop')}
 					on:fork={async () => {
 						const [module, state] = await fork(flowModule, opWs)
 						flowModule = module

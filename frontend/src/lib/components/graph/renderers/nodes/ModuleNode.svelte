@@ -109,6 +109,7 @@
 				: ''}
 			nodeState={state?.skipped ? '_Skipped' : type}
 			duration_ms={state?.duration_ms}
+			retries={state?.retries}
 			{flowJobs}
 			on:delete={(e) => {
 				data.eventHandlers.delete(e.detail, '')

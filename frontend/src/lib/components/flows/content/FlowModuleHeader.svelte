@@ -2,20 +2,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { type FlowModule } from '$lib/gen'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import {
-		Bed,
-		Database,
-		Gauge,
-		GitFork,
-		Pen,
-		PhoneIncoming,
-		RefreshCcw,
-		Repeat,
-		Square,
-		Pin,
-		Save,
-		Settings
-	} from 'lucide-svelte'
+	import { GitFork, Pen, RefreshCcw, Save, Settings } from 'lucide-svelte'
 	import Popover from '../../Popover.svelte'
 	import DropdownV2 from '../../DropdownV2.svelte'
 	import type { FlowEditorContext } from '../types'
@@ -35,78 +22,9 @@
 
 	const dispatch = createEventDispatcher()
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
-
-	let popoverClasses =
-		'center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600'
 </script>
 
 <div class="flex flex-row gap-2 whitespace-nowrap">
-	{#if module.value.type === 'script' || module.value.type === 'rawscript' || module.value.type == 'flow'}
-		{#if module.retry?.constant || module.retry?.exponential}
-			<Popover placement="bottom" class={popoverClasses} onClick={() => dispatch('toggleRetry')}>
-				<Repeat size={14} />
-				{#snippet text()}
-					Retries
-				{/snippet}
-			</Popover>
-		{/if}
-		{#if module?.value?.['concurrent_limit'] != undefined}
-			<Popover
-				placement="bottom"
-				class={popoverClasses}
-				onClick={() => dispatch('toggleConcurrency')}
-			>
-				<Gauge size={14} />
-				{#snippet text()}
-					Concurrency Limits
-				{/snippet}
-			</Popover>
-		{/if}
-		{#if module.cache_ttl != undefined}
-			<Popover placement="bottom" class={popoverClasses} onClick={() => dispatch('toggleCache')}>
-				<Database size={14} />
-				{#snippet text()}
-					Cache
-				{/snippet}
-			</Popover>
-		{/if}
-		{#if module.stop_after_if || module.stop_after_all_iters_if}
-			<Popover
-				placement="bottom"
-				class={popoverClasses}
-				onClick={() => dispatch('toggleStopAfterIf')}
-			>
-				<Square size={14} />
-				{#snippet text()}
-					Early stop/break
-				{/snippet}
-			</Popover>
-		{/if}
-		{#if module.suspend}
-			<Popover placement="bottom" class={popoverClasses} onClick={() => dispatch('toggleSuspend')}>
-				<PhoneIncoming size={14} />
-				{#snippet text()}
-					Suspend
-				{/snippet}
-			</Popover>
-		{/if}
-		{#if module.sleep}
-			<Popover placement="bottom" class={popoverClasses} onClick={() => dispatch('toggleSleep')}>
-				<Bed size={14} />
-				{#snippet text()}
-					Sleep
-				{/snippet}
-			</Popover>
-		{/if}
-		{#if module.mock?.enabled}
-			<Popover placement="bottom" class={popoverClasses} onClick={() => dispatch('togglePin')}>
-				<Pin size={14} />
-				{#snippet text()}
-					This step is pinned
-				{/snippet}
-			</Popover>
-		{/if}
-	{/if}
 	{#if module.value.type === 'script'}
 		{#if !module.value.path.startsWith('hub/') && customUi?.scriptEdit != false}
 			<Popover notClickable placement="bottom">
