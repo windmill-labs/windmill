@@ -253,7 +253,10 @@
 	// A linked agent persists no tools on the module, so this read-only viewer resolves them from the
 	// resource: without them the graph draws no tool nodes and AIAgentLogViewer drops every tool_call
 	// it cannot match to a definition. Scope must match what FlowGraphV2 reads below.
-	let linkedToolsViewScope = $derived(linkedToolsScope(workspace, job?.script_path))
+	// Keyed by job, not flow path: this viewer also renders inside the editor's preview pane, and
+	// sharing the editor's `${ws}:${flow path}` bucket would let an older run's agent overwrite the
+	// tool nodes of the flow being edited.
+	let linkedToolsViewScope = $derived(linkedToolsScope(workspace, `job:${job?.id ?? ''}`))
 	// Flattened to a string so polling a running flow — which replaces `job` every tick — only
 	// re-fetches when the set of linked steps actually changes.
 	let linkedAgentRefs = $derived(
@@ -2000,7 +2003,7 @@
 									earlyStop={job.raw_flow?.skip_expr !== undefined}
 									cache={job.raw_flow?.cache_ttl !== undefined}
 									modules={job.raw_flow?.modules ?? []}
-									linkedToolsPath={job?.script_path}
+									linkedToolsPath={`job:${job?.id ?? ''}`}
 									notes={notesProp ?? job.raw_flow?.notes ?? []}
 									groups={groupsProp ?? job.raw_flow?.groups}
 									failureModule={job.raw_flow?.failure_module}

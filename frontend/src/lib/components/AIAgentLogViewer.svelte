@@ -203,7 +203,6 @@
 									} as FlowModule)
 						}
 					})
-					.filter((m) => m !== undefined)
 			}
 		}
 	}

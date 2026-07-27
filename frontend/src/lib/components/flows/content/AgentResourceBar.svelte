@@ -191,6 +191,9 @@
 		// Tool inputs are saved verbatim: the agent carries its tools' default bindings (static, AI or
 		// flow expressions) as authored. Host flows override per-step via tool_inputs, never here.
 		const value = inputTransformsToAgentConfig(inputTransforms, tools)
+		// The editor stays live during the requests below, so remember exactly what is being written:
+		// anything typed afterwards is not in this snapshot and must not be thrown away by linking.
+		const savedSnapshot = JSON.stringify(value)
 		// If the edit session ends or changes while the requests below are in flight (Cancel, undo,
 		// session-draft sync, a different agent opened for editing), the resource is still written but
 		// the step must not be relinked/cleared. Pinning the path — not merely "some edit is active" —
@@ -231,6 +234,15 @@
 				? tools === forkMarker
 				: getAgentEditingPath(tools) === savingEditPath
 		if (!sameSession) {
+			return
+		}
+		// Edits made while the save was in flight aren't in the resource; linking now would strip them
+		// from the step too, losing them entirely. Keep the step as-is and let the user save again.
+		if (JSON.stringify(inputTransformsToAgentConfig(inputTransforms, tools)) !== savedSnapshot) {
+			sendUserToast(
+				`Saved ${path}, but changes made while saving are not in it — save again to include them`,
+				true
+			)
 			return
 		}
 		agent = path
