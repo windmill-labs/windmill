@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { FlowModule, FlowValue } from '$lib/gen'
 import { collectAllFlowModuleIdsFromModules } from '$lib/components/flows/flowTree'
+import { collectProviderlessAgentIds } from '$lib/components/flows/agentToolTree'
 import { SPECIAL_MODULE_IDS } from '../shared'
 import { findUnresolvedInlineScriptRefs, type InlineScriptSession } from './inlineScriptsUtils'
 import {
@@ -242,8 +243,22 @@ export function validateFlowModules(
 		)
 	}
 
+	// Not expressible in the schema: `provider` is required only when the step is standalone, and
+	// making AiAgent a conditional union breaks the FlowModuleValue discriminated union it belongs to.
+	const providerless = collectProviderlessAgentIds(parsedModules)
+	if (providerless.length > 0) {
+		throw new Error(
+			`AI agent modules ${providerless
+				.map((id) => `"${id}"`)
+				.join(
+					', '
+				)} need a provider input transform, or an "agent" path linking them to a saved agent`
+		)
+	}
+
 	return parsedModules
 }
+
 
 export function validateFlowSchema(rawSchema: unknown): Record<string, any> | null {
 	if (rawSchema == null) return null

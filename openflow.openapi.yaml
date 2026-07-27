@@ -1073,10 +1073,10 @@ components:
               description: |
                 Number. Limits how many times the agent can loop through reasoning and tool use.
                 Range: 1-1000.
+          # Only the flow-local inputs are always present: a step linked to an `ai_agent` resource
+          # (see `agent`) keeps just those and takes provider/output_type from the resource.
           required:
-            - provider
             - user_message
-            - output_type
         tools:
           type: array
           description: Array of tools the agent can use. The agent decides which tools to call based on the task
@@ -1093,11 +1093,29 @@ components:
           type: boolean
           default: false
           description: If true, this AI agent step does not persist its assistant or tool messages to the flow conversation when chat mode is enabled.
+        agent:
+          type: string
+          description: |
+            Path of a reusable `ai_agent` resource (hybrid linking). When set, the agent brain
+            config (provider/model/system prompt/etc.) and tool set are resolved at runtime from
+            that resource; the module's input_transforms then only carry the flow-local inputs
+            (user_message/user_attachments).
+        tool_inputs:
+          type: object
+          description: |
+            Host-local wiring for an agent's tool inputs, keyed by tool id then input key. Binds the
+            referenced agent's tools to this flow's context (flow_input/results) without mutating the
+            shared resource; overlaid onto the tools' input_transforms at runtime — including when
+            `agent` is unset, since a step forked for editing keeps these overrides until it is saved
+            back or unlinked.
+          additionalProperties:
+            type: object
+            additionalProperties:
+              $ref: '#/components/schemas/InputTransform'
         parallel:
           type: boolean
           description: If true, the agent can execute multiple tool calls in parallel
       required:
-        - tools
         - type
         - input_transforms
 

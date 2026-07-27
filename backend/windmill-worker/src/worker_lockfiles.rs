@@ -1250,6 +1250,8 @@ async fn lock_modules(
                     mut tools,
                     tag,
                     omit_output_from_conversation,
+                    agent,
+                    tool_inputs,
                 } => {
                     // Extract FlowModules from tools and track their original indices
                     // MCP tools don't need locking, so we filter them out
@@ -1302,6 +1304,8 @@ async fn lock_modules(
                         tools,
                         tag,
                         omit_output_from_conversation,
+                        agent,
+                        tool_inputs,
                     }
                     .into();
                 }
