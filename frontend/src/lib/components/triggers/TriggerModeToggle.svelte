@@ -21,8 +21,9 @@
 		/** Force-disable all controls regardless of write permission
 		 * (e.g. draft-only triggers: nothing deployed to enable). */
 		disabled?: boolean
-		/** Hover text on the enable toggle (e.g. why it is disabled, or
-		 * that it targets the deployed version when a draft also exists). */
+		/** Hover text on the whole control (e.g. why it is disabled, or that it
+		 * targets the deployed version when a draft also exists). Set on the
+		 * wrapper so it covers the suspended button group too. */
 		title?: string
 		hideToggleLabels?: boolean
 		hideDropdown?: boolean
@@ -72,7 +73,7 @@
 	/>
 {/if}
 
-<div class="flex flex-row gap-2 items-center">
+<div class="flex flex-row gap-2 items-center" {title}>
 	{#if triggerMode === 'suspended'}
 		<ToggleButtonGroup
 			disabled={!canWrite || disabled}
@@ -98,7 +99,7 @@
 	{:else}
 		<Toggle
 			disabled={!canWrite || disabled}
-			options={{ ...(hideToggleLabels ? {} : { right: 'enable', left: 'disable' }), title }}
+			options={hideToggleLabels ? {} : { right: 'enable', left: 'disable' }}
 			bind:checked={
 				() => innerTriggerMode === 'enabled', (v) => (innerTriggerMode = v ? 'enabled' : 'disabled')
 			}

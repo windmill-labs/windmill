@@ -383,7 +383,7 @@
 									{/if}
 								</div>
 
-								<div class="flex items-center justify-end gap-2 shrink-0 w-32">
+								<div class="flex items-center justify-end gap-2 shrink-0 min-w-[8rem]">
 									{#if draft_only || hasDraft}
 										<DraftBadge {draft_only} is_draft={true} />
 									{/if}
