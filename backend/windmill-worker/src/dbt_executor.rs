@@ -2887,7 +2887,7 @@ fn merge_results(into: &mut Vec<DbtNodeResult>, from: Vec<DbtNodeResult>) {
 /// through to "says nothing" at the two sites that settle the RELATION, so the
 /// model stayed `Running` on a finished job until some later run ended clean.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DbtNodeOutcome {
+enum DbtNodeOutcome {
     Started,
     Passed,
     Failed,
@@ -2906,7 +2906,7 @@ pub enum DbtNodeOutcome {
     Unknown,
 }
 
-pub fn classify_status(status: &str) -> DbtNodeOutcome {
+fn classify_status(status: &str) -> DbtNodeOutcome {
     match status.trim().to_ascii_lowercase().as_str() {
         "started" => DbtNodeOutcome::Started,
         "success" | "pass" => DbtNodeOutcome::Passed,

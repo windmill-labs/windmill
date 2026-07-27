@@ -300,8 +300,10 @@
 		<!-- dbt chip: names the materialization dbt declares, plus a test count
 		     when the model carries generic tests. Orange keeps it visually
 		     separate from the fork/SCD2 chips, which describe Windmill state.
-		     It also stands in for the edge to the project that materializes this
-		     model: hovering lights that node up, clicking selects it. -->
+		     Where the project node is on the graph it also stands in for the edge
+		     to it: hovering lights that node up, clicking selects it. Where it is
+		     not — the run page, and a pipeline holding a dbt project — there is
+		     nothing to point at, so the chip renders inert. -->
 		{#if data.dbt}
 			<button
 				type="button"

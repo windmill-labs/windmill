@@ -436,20 +436,27 @@
 					// What the run in view is doing to this relation right now.
 					runStatus: assetRunStatus?.get(assetId),
 					// The dbt project that materializes this relation, related by
-					// badge rather than by an edge.
-					onDbtHover: (on: boolean) => (dbtHoverId = on ? assetId : undefined),
-					onDbtSelect: () => {
-						// `runnable:<kind>:<path>` — the id shape `build` uses.
-						const owner = model.dbtOwnerByAsset.get(assetId)
-						const [kind, ...rest] = owner?.split(':') ?? []
-						if (kind && rest.length) {
-							onselect?.({
-								kind: 'runnable',
-								runnable_kind: kind as 'script' | 'flow',
-								path: rest.join(':')
-							})
-						}
-					}
+					// badge rather than by an edge — so only when that node is on
+					// this graph. The run page and the pipeline page both hide it,
+					// and passing handlers anyway makes the chip advertise a click
+					// that resolves to nothing.
+					...(dbtOwnerByAsset.has(assetId)
+						? {
+								onDbtHover: (on: boolean) => (dbtHoverId = on ? assetId : undefined),
+								onDbtSelect: () => {
+									// `runnable:<kind>:<path>` — the id shape `build` uses.
+									const owner = model.dbtOwnerByAsset.get(assetId)
+									const [kind, ...rest] = owner?.split(':') ?? []
+									if (kind && rest.length) {
+										onselect?.({
+											kind: 'runnable',
+											runnable_kind: kind as 'script' | 'flow',
+											path: rest.join(':')
+										})
+									}
+								}
+							}
+						: {})
 				}
 			})
 		}
