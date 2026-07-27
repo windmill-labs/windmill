@@ -899,7 +899,6 @@
 						{job}
 						{isOwner}
 						{suspendStatus}
-						workspaceId={job?.workspace_id}
 						innerModules={job?.flow_status?.modules}
 					/>
 				{/if}
