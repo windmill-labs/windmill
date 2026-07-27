@@ -558,8 +558,8 @@
 							<div class="w-full flex justify-between items-baseline">
 								<div
 									class="flex flex-wrap text-2xs font-normal text-secondary gap-1 items-center justify-end truncate pr-2"
-									><div class="truncate">Edited by {edited_by}</div><div class="truncate"
-										>the {displayDate(edited_at)}</div
+									>{#if edited_by}<div class="truncate">Edited by {edited_by}</div>{/if}<div
+										class="truncate">the {displayDate(edited_at)}</div
 									></div
 								></div
 							>

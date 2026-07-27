@@ -627,8 +627,8 @@
 								{/if}
 								<div
 									class="flex flex-wrap text-xs text-secondary gap-1 items-center justify-end truncate pr-2"
-									><div class="truncate">edited by {edited_by}</div><div class="truncate"
-										>the {displayDate(edited_at)}</div
+									>{#if edited_by}<div class="truncate">edited by {edited_by}</div>{/if}<div
+										class="truncate">the {displayDate(edited_at)}</div
 									></div
 								></div
 							>

@@ -515,7 +515,7 @@
 								<div
 									class="flex flex-wrap text-[0.7em] text-primary gap-1 items-center justify-end truncate pr-2"
 								>
-									<div class="truncate">edited by {edited_by}</div>
+									{#if edited_by}<div class="truncate">edited by {edited_by}</div>{/if}
 									<div class="truncate">at {displayDate(edited_at)}</div>
 								</div>
 							</div>
