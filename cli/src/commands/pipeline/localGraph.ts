@@ -620,10 +620,11 @@ export async function buildLocalPipelineGraph(args: {
       });
       continue;
     }
-    // A dbt script is a pipeline member by construction — the deploy marks
-    // every one `auto_kind='pipeline'` — so it needs no `# pipeline` header,
-    // and the local graph must not drop it where the deployed one shows it.
-    if (s.language === "dbt") out.in_pipeline = true;
+    // A dbt project is not a data pipeline: the deploy never marks a dbt script
+    // `auto_kind='pipeline'` and the pipeline canvas drops its node, so the
+    // local graph must not invent one. Its models don't belong here either —
+    // they come from the manifest the deploy derives, not from the descriptor.
+    if (s.language === "dbt") continue;
     if (!out.in_pipeline) continue; // not a pipeline member
     if (out.data_tests && out.data_tests.length > 0) {
       dataTestsByPath.set(s.path, out.data_tests);
@@ -632,14 +633,7 @@ export async function buildLocalPipelineGraph(args: {
     const nativeTriggers = recoverHeaderNativeTriggers(s.content, s.language);
     // Carry the parsed `// tag` so previews route to the same worker the
     // deployed pipeline would (both `pipeline run --local` and `/pipeline_dev`).
-    //
-    // A dbt script is a graph node but NOT previewable: a local run submits
-    // these through the preview endpoint, and the worker rejects inline dbt —
-    // its content is a descriptor naming a git repo, so there is nothing to
-    // run without a deployed script behind it.
-    if (s.language !== "dbt") {
-      pipelineScripts.push(out.tag ? { ...s, tag: out.tag } : s);
-    }
+    pipelineScripts.push(out.tag ? { ...s, tag: out.tag } : s);
     const mat = out.materialize;
     // Managed-materialize write strategy, derived like the deployed graph —
     // precedence mirrors the runtime: scd2 (`history`) > append > merge

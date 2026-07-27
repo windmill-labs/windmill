@@ -4,7 +4,7 @@
 	// makes it worth having here: nodes go amber then green as dbt walks the DAG,
 	// where the alternative is reading `N of M OK created` out of the log.
 	import { onDestroy } from 'svelte'
-	import { OpenAPI } from '$lib/gen'
+	import { OpenAPI, AssetService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
 	import type { AssetGraphResponse } from '$lib/components/assets/AssetGraph/types'
@@ -68,27 +68,9 @@
 		const ws = $workspaceStore
 		if (!ws || !jobId) return
 		try {
-			const res = await fetch(`${OpenAPI.BASE ?? ''}/w/${ws}/assets/run_progress/${jobId}`, {
-				credentials: 'include'
-			})
-			if (!res.ok) return
-			const rows = (await res.json()) as Array<{
-				asset_kind: string
-				asset_path: string
-				status: string
-			}>
+			const rows = await AssetService.getRunProgress({ workspace: ws, jobId })
 			const next = new Map<string, 'running' | 'materialized' | 'failed'>()
-			for (const r of rows) {
-				const state =
-					r.status === 'running'
-						? 'running'
-						: r.status === 'failed'
-							? 'failed'
-							: r.status === 'materialized'
-								? 'materialized'
-								: undefined
-				if (state) next.set(`asset:${r.asset_kind}:${r.asset_path}`, state)
-			}
+			for (const r of rows) next.set(`asset:${r.asset_kind}:${r.asset_path}`, r.status)
 			assetRunStatus = next
 		} catch {
 			// A progress hiccup must not blank the graph.

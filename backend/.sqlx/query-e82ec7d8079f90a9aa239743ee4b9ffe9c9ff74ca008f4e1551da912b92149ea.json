@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT asset_kind AS \"asset_kind: AssetKind\", asset_path,\n                status::text AS \"status!\", row_count, error\n           FROM materialized_partition\n          WHERE workspace_id = $1 AND job_id = $2",
+  "query": "SELECT mp.asset_kind AS \"asset_kind: AssetKind\", mp.asset_path,\n                mp.status::text AS \"status!\", mp.row_count, mp.error\n           FROM materialized_partition mp\n           JOIN v2_job j ON j.id = mp.job_id AND j.workspace_id = mp.workspace_id\n          WHERE mp.workspace_id = $1 AND mp.job_id = $2",
   "describe": {
     "columns": [
       {
@@ -58,5 +58,5 @@
       true
     ]
   },
-  "hash": "7f1db28b8e3ab7094a26e869e786dc43f422ed0dec4cd0fd25d6f3f5464e1c13"
+  "hash": "e82ec7d8079f90a9aa239743ee4b9ffe9c9ff74ca008f4e1551da912b92149ea"
 }

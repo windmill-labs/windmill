@@ -22784,6 +22784,36 @@ paths:
                 items:
                   $ref: "#/components/schemas/MaterializedPartition"
 
+  /w/{workspace}/assets/run_progress/{job_id}:
+    get:
+      summary: List the per-relation progress one job has recorded so far
+      description: >
+        Live materialization state for the relations a single job writes, keyed by
+        relation. Polled while a run is in flight so a graph can move a node as its
+        model completes. Authorized through the job: a caller who cannot see the job
+        gets an empty list.
+      operationId: getRunProgress
+      tags:
+        - asset
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: job_id
+          in: path
+          required: true
+          description: The job whose per-relation progress to read
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: per-relation status for this run
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AssetProgress"
+
   /w/{workspace}/assets/partitions_in_range:
     get:
       summary: List expected partitions of a ducklake asset in a date range with their materialization status (enterprise)
@@ -31957,6 +31987,25 @@ components:
         - datatable
         - volume
         - table
+    AssetProgress:
+      type: object
+      required: [asset_kind, asset_path, status]
+      properties:
+        asset_kind:
+          $ref: "#/components/schemas/AssetKind"
+        asset_path:
+          type: string
+        status:
+          type: string
+          enum: [running, materialized, failed]
+        row_count:
+          type: integer
+          format: int64
+          nullable: true
+        error:
+          type: string
+          nullable: true
+
     MaterializedPartition:
       type: object
       required: [asset_kind, asset_path, partition, status, materialized_at]

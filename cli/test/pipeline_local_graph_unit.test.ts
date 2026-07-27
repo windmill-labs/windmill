@@ -915,3 +915,39 @@ test("pipeline docs renders a `Macro libraries` section (call + `// use`)", asyn
     },
   );
 });
+
+test("a dbt script is not a pipeline node — a dbt-only folder has no graph", async () => {
+  await withFolder(
+    {
+      "warehouse.dbt.yaml": `engine: dbt-core-1x\nprofile:\n  resource: $res:u/admin/wh\n`,
+    },
+    async (root, folder) => {
+      const { graph, scripts } = await buildLocalPipelineGraph({
+        root,
+        folder,
+        defaultTs: "bun",
+      });
+      // A dbt project is authored and run as itself, never as a pipeline member;
+      // the deploy leaves its `auto_kind` unset, so the local graph must agree.
+      expect(graph.runnables).toEqual([]);
+      expect(scripts).toEqual([]);
+    },
+  );
+});
+
+test("a folder mixing dbt and a pipeline keeps only the pipeline member", async () => {
+  await withFolder(
+    {
+      "warehouse.dbt.yaml": `engine: dbt-core-1x\nprofile:\n  resource: $res:u/admin/wh\n`,
+      "report.bun.ts": `// pipeline\nexport async function main() {}\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({
+        root,
+        folder,
+        defaultTs: "bun",
+      });
+      expect(graph.runnables.map((r) => r.path)).toEqual(["f/mypipe/report"]);
+    },
+  );
+});

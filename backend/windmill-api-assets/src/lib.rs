@@ -150,14 +150,17 @@ async fn run_progress(
     Path((w_id, job_id)): Path<(String, uuid::Uuid)>,
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<Vec<AssetProgress>> {
-    // Through `user_db`, so RLS decides which of this workspace's rows the
-    // caller may see rather than this handler.
+    // `materialized_partition` has no RLS, so `user_db` alone would let any
+    // workspace member read any job's relations by guessing its id. The JOIN is
+    // the authorization: `v2_job` does have per-user policies, so a caller who
+    // cannot see the job sees no rows for it.
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query!(
-        "SELECT asset_kind AS \"asset_kind: AssetKind\", asset_path,
-                status::text AS \"status!\", row_count, error
-           FROM materialized_partition
-          WHERE workspace_id = $1 AND job_id = $2",
+        "SELECT mp.asset_kind AS \"asset_kind: AssetKind\", mp.asset_path,
+                mp.status::text AS \"status!\", mp.row_count, mp.error
+           FROM materialized_partition mp
+           JOIN v2_job j ON j.id = mp.job_id AND j.workspace_id = mp.workspace_id
+          WHERE mp.workspace_id = $1 AND mp.job_id = $2",
         w_id,
         job_id
     )
@@ -1375,18 +1378,26 @@ async fn asset_graph(
         // the relation and the source only names it, so which one wins must not
         // depend on script-path ordering. The source's freshness policy is
         // still worth keeping, so it fills in rather than overwrites.
-        let existing = dbt_by_asset_path.entry(asset_path.to_string()).or_insert_with(|| candidate.clone());
+        let existing = dbt_by_asset_path
+            .entry(asset_path.to_string())
+            .or_insert_with(|| candidate.clone());
         if existing.unique_id == candidate.unique_id {
             continue;
         }
-        let wins = match (existing.resource_type.as_str(), candidate.resource_type.as_str()) {
+        let wins = match (
+            existing.resource_type.as_str(),
+            candidate.resource_type.as_str(),
+        ) {
             ("source", t) if t != "source" => true,
             (t, "source") if t != "source" => false,
             // Two rows of the same nature: pick by id so the graph does not
             // change shape between requests.
             _ => candidate.unique_id < existing.unique_id,
         };
-        let freshness = existing.freshness.clone().or_else(|| candidate.freshness.clone());
+        let freshness = existing
+            .freshness
+            .clone()
+            .or_else(|| candidate.freshness.clone());
         if wins {
             *existing = candidate;
         }
