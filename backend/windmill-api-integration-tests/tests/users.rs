@@ -528,6 +528,9 @@ async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
     sqlx::query!("UPDATE password SET username = 'test-user-2' WHERE email = 'test2@windmill.dev'")
         .execute(&db)
         .await?;
+    sqlx::query!("UPDATE workspace SET owner = 'test2@windmill.dev' WHERE id = 'test-workspace'")
+        .execute(&db)
+        .await?;
 
     let resp = change_email("test2@windmill.dev", "renamed@windmill.dev")
         .await
@@ -547,6 +550,11 @@ async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
             .fetch_all(&db)
             .await?;
     assert_eq!(workspaces, vec!["test-workspace".to_string()]);
+
+    let owner = sqlx::query_scalar!("SELECT owner FROM workspace WHERE id = 'test-workspace'")
+        .fetch_one(&db)
+        .await?;
+    assert_eq!(owner, "renamed@windmill.dev");
 
     let old_rows =
         sqlx::query_scalar!("SELECT COUNT(*) FROM password WHERE email = 'test2@windmill.dev'")

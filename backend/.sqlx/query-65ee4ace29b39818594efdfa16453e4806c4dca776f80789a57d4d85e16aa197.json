@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE v2_job SET permissioned_as_email = $1 WHERE permissioned_as_email = $2",
+  "query": "UPDATE usage SET id = $1 WHERE id = $2 AND NOT is_workspace",
   "describe": {
     "columns": [],
     "parameters": {
@@ -11,5 +11,5 @@
     },
     "nullable": []
   },
-  "hash": "ab0b9070b2fe32f65d946128efc458b35b2055a3d0f9642882d871537968eace"
+  "hash": "65ee4ace29b39818594efdfa16453e4806c4dca776f80789a57d4d85e16aa197"
 }

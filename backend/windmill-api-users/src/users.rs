@@ -1673,8 +1673,10 @@ struct ChangeUserEmail {
     new_email: String,
 }
 
-/// `workspace.owner` is `varchar(50)` while every other email column is `varchar(255)`.
-const WORKSPACE_OWNER_MAX_LEN: usize = 50;
+/// `workspace.owner`, `workspace_settings.slack_email` and `usage.id` hold an email in a
+/// `varchar(50)`; every other email column is `varchar(255)`.
+const SHORT_EMAIL_COLUMN_MAX_LEN: usize = 50;
+const EMAIL_COLUMN_MAX_LEN: usize = 255;
 
 /// Move an account to a new email address, in place: the `password` row (and with it the
 /// instance-wide username, the role and the login type) is kept and every email-keyed row is
@@ -1697,9 +1699,9 @@ async fn change_user_email(
     let old_email = old_email.trim().to_string();
     let new_email = ce.new_email.trim().to_lowercase();
 
-    if !VALID_EMAIL.is_match(&new_email) {
+    if !VALID_EMAIL.is_match(&new_email) || new_email.len() > EMAIL_COLUMN_MAX_LEN {
         return Err(Error::BadRequest(format!(
-            "{new_email} is not a valid email address"
+            "{new_email} is not a valid email address of at most {EMAIL_COLUMN_MAX_LEN} characters"
         )));
     }
 
@@ -1747,17 +1749,20 @@ async fn change_user_email(
         )));
     }
 
-    if new_email.len() > WORKSPACE_OWNER_MAX_LEN {
-        let owns_workspace = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM workspace WHERE owner = $1)",
+    if new_email.len() > SHORT_EMAIL_COLUMN_MAX_LEN {
+        let referenced_by_short_column = sqlx::query_scalar!(
+            "SELECT EXISTS(
+                SELECT 1 FROM workspace WHERE owner = $1
+                UNION ALL SELECT 1 FROM workspace_settings WHERE slack_email = $1
+                UNION ALL SELECT 1 FROM usage WHERE id = $1 AND NOT is_workspace)",
             &old_email
         )
         .fetch_one(&mut *tx)
         .await?
         .unwrap_or(false);
-        if owns_workspace {
+        if referenced_by_short_column {
             return Err(Error::BadRequest(format!(
-                "{new_email} is longer than {WORKSPACE_OWNER_MAX_LEN} characters and this user owns at least one workspace, whose owner column cannot hold it"
+                "{new_email} is longer than {SHORT_EMAIL_COLUMN_MAX_LEN} characters and this user owns a workspace, a Slack connection or usage counters, whose columns cannot hold it"
             )));
         }
     }
@@ -1787,6 +1792,31 @@ async fn change_user_email(
 
     sqlx::query!(
         "UPDATE workspace SET owner = $1 WHERE owner = $2",
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // Slack commands run as this address when the command maps to no workspace user.
+    sqlx::query!(
+        "UPDATE workspace_settings SET slack_email = $1 WHERE slack_email = $2",
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // Per-user monthly execution counters, keyed by the email.
+    sqlx::query!(
+        "DELETE FROM usage WHERE id = $1 AND NOT is_workspace",
+        &new_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE usage SET id = $1 WHERE id = $2 AND NOT is_workspace",
         &new_email,
         &old_email
     )
@@ -1852,8 +1882,8 @@ async fn change_user_email(
     .execute(&mut *tx)
     .await?;
 
-    // Tokens stay valid but every API server caches the authed user behind the raw token for up to
-    // two minutes, so ask them all to drop those entries.
+    // Tokens stay valid, but every API server caches the authed user behind the raw token, so ask
+    // them all to drop those entries rather than serve the previous address until they expire.
     sqlx::query!(
         "INSERT INTO notify_event (channel, payload) SELECT 'notify_token_invalidation', token_prefix FROM token WHERE email = $1",
         &new_email
@@ -1926,9 +1956,11 @@ async fn change_user_email(
     .execute(&mut *tx)
     .await?;
 
-    // ---- jobs ---- (in-flight ones resolve their permissions from these two)
+    // ---- jobs ---- Restricted to what is still queued: those rows drive the permissions of a run
+    // that has not finished yet, whereas completed jobs are history and neither column is indexed
+    // (rewriting every past row of a busy user would hold this transaction's locks for minutes).
     sqlx::query!(
-        "UPDATE v2_job SET permissioned_as_email = $1 WHERE permissioned_as_email = $2",
+        "UPDATE v2_job SET permissioned_as_email = $1 WHERE permissioned_as_email = $2 AND id IN (SELECT id FROM v2_job_queue)",
         &new_email,
         &old_email
     )
@@ -1936,7 +1968,7 @@ async fn change_user_email(
     .await?;
 
     sqlx::query!(
-        "UPDATE job_perms SET email = $1 WHERE email = $2",
+        "UPDATE job_perms SET email = $1 WHERE email = $2 AND job_id IN (SELECT id FROM v2_job_queue)",
         &new_email,
         &old_email
     )
