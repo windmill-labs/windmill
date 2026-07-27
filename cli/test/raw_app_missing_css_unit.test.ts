@@ -14,10 +14,13 @@ function httpError(status: number) {
 }
 
 describe("getRawAppBundlePart", () => {
-  test("returns the blob when the fetch succeeds", async () => {
+  test("requests each half under its own extension", async () => {
+    const asked: Array<{ secretWithExtension: string; workspace: string }> = [];
     const provider = {
-      getRawAppData: (p: { secretWithExtension: string }) =>
-        Promise.resolve(`body-of-${p.secretWithExtension}`),
+      getRawAppData: (p: { secretWithExtension: string; workspace: string }) => {
+        asked.push(p);
+        return Promise.resolve(`body-of-${p.secretWithExtension}`);
+      },
     } as any;
 
     expect(await getRawAppBundlePart(provider, "sec", "js", "ws")).toBe(
@@ -26,6 +29,11 @@ describe("getRawAppBundlePart", () => {
     expect(await getRawAppBundlePart(provider, "sec", "css", "ws")).toBe(
       "body-of-sec.css"
     );
+    // Swapping the two extensions would deploy the stylesheet as the bundle.
+    expect(asked).toEqual([
+      { secretWithExtension: "sec.js", workspace: "ws" },
+      { secretWithExtension: "sec.css", workspace: "ws" },
+    ]);
   });
 
   test("treats a missing .css as empty rather than fatal", async () => {
