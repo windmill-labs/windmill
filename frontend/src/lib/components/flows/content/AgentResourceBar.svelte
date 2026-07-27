@@ -148,11 +148,10 @@
 			setLinkedAgentTools(toolScope, moduleId, loaded.tools as AgentToolStrict[])
 			publishedFor = agent
 		} else if (publishedFor !== undefined && publishedFor !== agent) {
-			// The link moved and the new agent hasn't resolved: what's stored belongs to the previous
-			// one, and binding its tool ids would persist overrides for the wrong tools. Deliberately
-			// no claim — the editor's watcher already superseded the old fetch and has one running for
-			// the new link, which claiming here would discard, leaving the graph empty unless this step
-			// stays selected. Tools resolved at flow load stay put: publishedFor is unset then.
+			// The link moved and the new agent hasn't resolved, so the stored tools are the old one's.
+			// No claim: writing `agent` re-runs the editor's watcher, which already superseded the old
+			// fetch and started one for the new link — claiming would discard it, leaving the graph
+			// empty unless this step stays selected. Load-time tools stay put (publishedFor unset).
 			clearLinkedAgentTools(toolScope, moduleId)
 			publishedFor = undefined
 		}
