@@ -735,8 +735,12 @@
 				// Agent tool inserts operate on the FlowModule's tools array directly
 				if (isAgentInsert) {
 					const agentMod = findModuleInFlow(flowStore.val.value, detail.agentId!)
-					if (agentMod && (agentMod.value as any).tools) {
-						const tools = (agentMod.value as any).tools as AgentTool[]
+					const agentValue = agentMod?.value as { tools?: AgentTool[] } | undefined
+					if (agentValue) {
+						// `tools` is optional, so a module authored without it starts undefined here and
+						// would silently swallow its first tool.
+						agentValue.tools ??= []
+						const tools = agentValue.tools
 						await insertNewModuleAtIndex(
 							tools,
 							tools.length,
