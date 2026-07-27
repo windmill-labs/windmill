@@ -90,6 +90,22 @@ describe('createRawAppFromScript', () => {
 		expect(appTsx).toContain('JSON.stringify(result, null, 2)')
 	})
 
+	it('keeps the undefined sentinel reachable when an argument is named undefined', () => {
+		const app = createRawAppFromScript('u/dev/s', undefined, {
+			type: 'object',
+			order: ['undefined', 'n'],
+			properties: { undefined: { type: 'string' }, n: { type: 'number' } }
+		})
+		const appTsx = app.value.files['/App.tsx']
+		expect(appTsx).toContain("const [undefined_, setUndefined_] = useState('')")
+		expect(appTsx).toContain('undefined: undefined_')
+		// The omitted-optional sentinel and the render guards must still be the
+		// real global, not the field's value.
+		expect(appTsx).toContain("nText === '' ? undefined : Number(nText)")
+		expect(appTsx).toContain('{result !== undefined &&')
+		expect(appTsx).toContain('{error !== undefined &&')
+	})
+
 	it('keeps value and label apart for labeled enums', () => {
 		const app = createRawAppFromScript('u/dev/s', undefined, {
 			type: 'object',

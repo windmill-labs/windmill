@@ -55,7 +55,8 @@ const RESERVED_LOCALS = [
 	'JSON',
 	'Number',
 	'String',
-	'Error'
+	'Error',
+	'undefined'
 ]
 
 // Reserved words can't name a `const`, so an argument called `class` or `new`
