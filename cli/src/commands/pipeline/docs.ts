@@ -17,6 +17,7 @@ import { colors } from "@cliffy/ansi/colors";
 import { GlobalOptions } from "../../types.ts";
 import {
   type AssetGraph,
+  hideDbtRunnables,
   buildLocalPipelineGraph,
   workspaceRoot,
 } from "./localGraph.ts";
@@ -39,7 +40,7 @@ async function fetchDeployedGraph(
   if (!res.ok) {
     throw new Error(`GET assets/graph -> ${res.status}: ${await res.text()}`);
   }
-  return (await res.json()) as AssetGraph;
+  return hideDbtRunnables((await res.json()) as AssetGraph);
 }
 
 // Render the pipeline graph as a markdown document.

@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import {
   buildLocalPipelineGraph,
+  hideDbtRunnables,
   parseMuteAnnotations,
 } from "../src/commands/pipeline/localGraph.ts";
 
@@ -950,4 +951,38 @@ test("a folder mixing dbt and a pipeline keeps only the pipeline member", async 
       expect(graph.runnables.map((r) => r.path)).toEqual(["f/mypipe/report"]);
     },
   );
+});
+
+test("hideDbtRunnables drops the dbt node from a deployed graph, keeping its relations", () => {
+  // `/assets/graph` is asset-usage driven, so it returns the dbt script as a
+  // producer. The CLI's deployed views must not render it as a pipeline script.
+  const deployed = {
+    runnables: [
+      { path: "f/x/dbtproj", usage_kind: "script" as const, dbt: { model_count: 2 } },
+      { path: "f/x/report", usage_kind: "script" as const, in_pipeline: true },
+    ],
+    assets: [
+      { kind: "table", path: "u/a/wh/s/stg_orders" },
+      { kind: "table", path: "u/a/wh/s/fct_orders" },
+    ],
+    edges: [
+      { runnable_kind: "script", runnable_path: "f/x/dbtproj", asset_kind: "table", asset_path: "u/a/wh/s/stg_orders", access_type: "w" as const },
+      { runnable_kind: "script", runnable_path: "f/x/dbtproj", asset_kind: "table", asset_path: "u/a/wh/s/fct_orders", access_type: "w" as const },
+      { runnable_kind: "script", runnable_path: "f/x/report", asset_kind: "table", asset_path: "u/a/wh/s/fct_orders", access_type: "r" as const },
+    ],
+    triggers: [
+      { trigger_kind: "asset" as const, asset_kind: "table", asset_path: "u/a/wh/s/fct_orders", runnable_kind: "script", runnable_path: "f/x/report" },
+    ],
+  };
+  const g = hideDbtRunnables(deployed);
+  expect(g.runnables.map((r) => r.path)).toEqual(["f/x/report"]);
+  expect(g.edges.map((e) => e.runnable_path)).toEqual(["f/x/report"]);
+  // The relations stay: they are what the downstream pipeline script reads.
+  expect(g.assets).toHaveLength(2);
+  expect(g.triggers).toHaveLength(1);
+});
+
+test("hideDbtRunnables is a no-op when the folder has no dbt project", () => {
+  const g = { runnables: [{ path: "f/x/a" }], edges: [], triggers: [] };
+  expect(hideDbtRunnables(g)).toBe(g);
 });

@@ -63,6 +63,10 @@ export type GraphRunnable = {
   // `buildMacroEdges` (the wasm asset parser emits neither the marker nor the
   // registry). Non-empty ⇒ definition-only node.
   macros?: { name: string; params?: string; is_table?: boolean }[];
+  // Set by the deployed graph on a dbt script: it owns a whole project, so the
+  // node counts models rather than reading as a single-output script. Never set
+  // locally — a dbt descriptor has no asset parser here.
+  dbt?: { model_count: number };
 };
 export type GraphEdge = {
   runnable_kind: string;
@@ -557,6 +561,57 @@ export async function collectScripts(
 // Only `// pipeline` scripts become graph nodes (pipeline membership), mirroring
 // the deployed graph endpoint. Returns the graph plus the in-pipeline scripts'
 // content (the dev watcher pushes the latter; the runner re-reads it for preview).
+/**
+ * The pipeline's view of a deployed graph whose folder also holds a dbt project.
+ *
+ * `/assets/graph` is asset-usage driven, not membership driven: it lists every
+ * script that reads or writes a relation, so a dbt script appears there like any
+ * producer. That is right for the endpoint — the node is what attributes a
+ * relation to what builds it — but a dbt project is not a pipeline, so it must
+ * not be rendered as one of its scripts. Mirrors the frontend's
+ * `hideDbtRunnables`; the local builder drops these nodes at the source.
+ *
+ * Its relations stay: they are what a downstream pipeline script reads.
+ */
+// The structural minimum the dbt filter needs. Declared instead of taking
+// `AssetGraph` so the bounded-cascade view of the same payload (`BCGraph`, a
+// narrower shape over identical JSON) passes through without a cast.
+type DbtFilterableGraph = {
+  runnables: { path: string; dbt?: unknown }[];
+  edges: { runnable_path: string }[];
+  triggers: { runnable_path: string }[];
+  macro_edges?: { lib_path: string; consumer_path: string }[];
+  test_edges?: { producer_path: string; runnable_path: string }[];
+};
+
+export function hideDbtRunnables<G extends DbtFilterableGraph>(graph: G): G {
+  const dbtPaths = new Set(
+    (graph.runnables ?? []).filter((r) => r.dbt).map((r) => r.path),
+  );
+  if (dbtPaths.size === 0) return graph;
+  const kept = (p: string) => !dbtPaths.has(p);
+  return {
+    ...graph,
+    runnables: graph.runnables.filter((r) => kept(r.path)),
+    edges: graph.edges.filter((e) => kept(e.runnable_path)),
+    triggers: graph.triggers.filter((t) => kept(t.runnable_path)),
+    ...(graph.macro_edges
+      ? {
+          macro_edges: graph.macro_edges.filter(
+            (m) => kept(m.lib_path) && kept(m.consumer_path),
+          ),
+        }
+      : {}),
+    ...(graph.test_edges
+      ? {
+          test_edges: graph.test_edges.filter(
+            (t) => kept(t.producer_path) && kept(t.runnable_path),
+          ),
+        }
+      : {}),
+  };
+}
+
 export async function buildLocalPipelineGraph(args: {
   root: string;
   folder: string;
