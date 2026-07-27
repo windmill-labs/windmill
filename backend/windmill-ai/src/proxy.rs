@@ -82,17 +82,23 @@ pub fn supports_query_builder_proxy(provider: &AIProvider) -> bool {
     proxy_execution_mode(provider).uses_query_builder_proxy()
 }
 
-/// The headers that carry a credential on an outbound AI request.
-pub const CREDENTIAL_HEADERS: [&str; 3] = ["authorization", "x-api-key", "api-key"];
+/// The headers a provider can carry its credential in. Any other resource header
+/// is passed through untouched, so a header one provider authenticates with stays
+/// an ordinary header for the providers that do not.
+pub const CREDENTIAL_HEADERS: [&str; 4] =
+    ["authorization", "x-api-key", "api-key", "x-goog-api-key"];
 
-/// Whether the resource supplies its own credential header, in which case the
-/// built-in one must be dropped rather than added: outgoing headers are appended,
-/// not replaced, so both would travel and endpoints reject ambiguous credentials.
-pub fn resource_owns_credentials(credentials: &ProviderCredentials) -> bool {
+/// Whether a resource header takes over `built_in`, the credential header Windmill
+/// would otherwise send. Outgoing headers are appended rather than replaced, so
+/// keeping the built-in one alongside a resource-supplied credential would put two
+/// on the wire, which endpoints reject.
+///
+/// An `authorization` header always takes over, whatever `built_in` is: every
+/// endpoint reads it as the credential, so it can never coexist with another one.
+pub fn resource_replaces_credential(credentials: &ProviderCredentials, built_in: &str) -> bool {
     credentials.custom_headers.keys().any(|header_name| {
-        CREDENTIAL_HEADERS
-            .iter()
-            .any(|name| header_name.eq_ignore_ascii_case(name))
+        header_name.eq_ignore_ascii_case(built_in)
+            || header_name.eq_ignore_ascii_case("authorization")
     })
 }
 
@@ -114,7 +120,8 @@ pub fn build_openai_compatible_proxy_request(args: &ProxyBuildArgs<'_>) -> Resul
 
     let mut headers = vec![("content-type".to_string(), "application/json".to_string())];
 
-    let auth_overridden = resource_owns_credentials(credentials);
+    let built_in_credential = if is_azure { "api-key" } else { "authorization" };
+    let auth_overridden = resource_replaces_credential(credentials, built_in_credential);
 
     if let Some(api_key) = credentials.api_key.as_ref().filter(|_| !auth_overridden) {
         if is_azure {
