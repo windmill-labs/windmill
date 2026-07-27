@@ -55,11 +55,20 @@
 	/>
 
 	{#if changed}
-		<Alert title="What is preserved" class="mt-2 mb-2" size="xs">
+		<Alert type="warning" title="Last resort operation" class="mt-2 mb-2" size="xs">
+			Changing the email of an existing account is a last resort. Prefer it only when the address
+			itself has to change and the account must be kept.
+			<br />
+			<br />
 			The account keeps its instance-wide username{username ? ` (${username})` : ''}, role,
-			workspace memberships, drafts and tokens. Past runs and audit logs keep the previous email,
-			pending password reset links are invalidated, and an SSO user must be able to sign in with the
-			new email.
+			workspace memberships, drafts and tokens. But past runs and audit logs keep the previous
+			email, pending password reset links stop working, and the account inherits any instance group
+			membership or workspace invite already addressed to the new email — including one that grants
+			a role.
+			<br />
+			<br />
+			If this user signs in through SSO or is managed by SCIM, update the identity provider first: otherwise
+			their next login recreates the previous email as a separate, empty account.
 		</Alert>
 	{/if}
 
