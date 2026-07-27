@@ -117,10 +117,29 @@
 			})
 		}
 	})
-	// Prune all additionalAssetsMap entries from deleted modules
+
+	// Ids the flow was loaded with. Only those modules can carry asset metadata predating
+	// the assets feature; anything appearing later was added in this session, so writing
+	// its assets adds nothing on top of a change the user has already made. The editor
+	// only mounts once the flow is loaded, so reading the prop here is the loaded state.
+	const loadedModuleIds = new Set(getAllModules(modules).map((m) => m.id))
+	// Analyzing is a flow-wide action, so ask about it at most once per editor session.
+	let promptedForFlow = false
+	// Content last passed to inferAssets, per module. The watchers below are re-created
+	// whenever a module is added or removed, and the selection watch fires on creation,
+	// so without this every structural edit re-analyzes the selected module.
+	let analyzedContent: Record<string, string> = {}
+
+	// Prune per-module caches from deleted modules
 	$effect(() => {
-		if (!flowGraphAssetsCtx) return
 		const modulesSet = new Set(allModules.map((m) => m.id))
+		for (const key of Object.keys(analyzedContent)) {
+			if (!modulesSet.has(key)) delete analyzedContent[key]
+		}
+		for (const key of [...loadedModuleIds]) {
+			if (!modulesSet.has(key)) loadedModuleIds.delete(key)
+		}
+		if (!flowGraphAssetsCtx) return
 		for (const key of Object.keys(flowGraphAssetsCtx.val.additionalAssetsMap)) {
 			if (!modulesSet.has(key)) {
 				delete flowGraphAssetsCtx.val.additionalAssetsMap[key]
@@ -131,7 +150,7 @@
 	function analyzeEntireFlow() {
 		for (const mod of allModules) {
 			if (mod.value.type === 'rawscript') {
-				parseAndUpdateRawScriptModule(mod.value, mod.id)
+				parseAndUpdateRawScriptModule(mod.value, mod.id, { force: true })
 			}
 		}
 	}
@@ -139,9 +158,10 @@
 	async function parseAndUpdateRawScriptModule(
 		v: RawScript,
 		modId: string,
-		isUserEdit: boolean = true
+		{ prompt = false, force = false }: { prompt?: boolean; force?: boolean } = {}
 	) {
-		console.log('Parsing assets for RawScript module', modId)
+		if (!force && analyzedContent[modId] === v.content) return
+		analyzedContent[modId] = v.content
 		let inferAssetsResult = await inferAssets(v.language, v.content)
 		if (inferAssetsResult.status === 'error') return
 		if (flowGraphAssetsCtx) flowGraphAssetsCtx.val.sqlQueries[modId] = inferAssetsResult.sql_queries
@@ -152,11 +172,17 @@
 		}
 		const normalizedAssets = newAssets.length > 0 ? newAssets : undefined
 		if (!deepEqual(v.assets, normalizedAssets)) {
-			if (!isUserEdit && normalizedAssets && normalizedAssets.length > 0) {
+			if (prompt && normalizedAssets && normalizedAssets.length > 0) {
+				if (promptedForFlow) return
+				promptedForFlow = true
+				// Long-lived because it is the only entry point to analyzeEntireFlow and it is
+				// offered once: a toast the user misses cannot be brought back without a reload.
 				sendUserToast(
 					'Assets were detected in this step. Analyze entire flow for assets?',
 					'warning',
-					[{ label: 'Analyze entire flow', callback: () => analyzeEntireFlow() }]
+					[{ label: 'Analyze entire flow', callback: () => analyzeEntireFlow() }],
+					undefined,
+					20000
 				)
 			} else {
 				v.assets = normalizedAssets
@@ -181,7 +207,9 @@
 				// Also recompute if the module is selected
 				watch([() => selectedId === mod.id], () => {
 					if (selectedId === mod.id)
-						parseAndUpdateRawScriptModule(modValue, mod.id, modValue.assets !== undefined)
+						parseAndUpdateRawScriptModule(modValue, mod.id, {
+							prompt: modValue.assets === undefined && loadedModuleIds.has(mod.id)
+						})
 				})
 			}
 		}
