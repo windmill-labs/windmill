@@ -146,13 +146,14 @@
 						modules: [
 							{
 								id: mod.id,
-								// A linked step has no tools of its own: the resource's tools and their host
-								// bindings are resolved server-side from `agent`/`tool_inputs`.
+								// A linked step has no tools of its own: the resource's tools are resolved
+								// server-side from `agent`. `tool_inputs` goes in either way — a step forked
+								// for editing has no `agent` yet still carries the flow's bindings, which the
+								// runtime overlays, so the preview must test against them too.
 								value: {
 									type: 'aiagent',
-									...(agentVal.agent
-										? { agent: agentVal.agent, tool_inputs: agentVal.tool_inputs }
-										: { tools: agentVal.tools ?? [] }),
+									...(agentVal.agent ? { agent: agentVal.agent } : { tools: agentVal.tools ?? [] }),
+									tool_inputs: agentVal.tool_inputs,
 									input_transforms: inputTransforms as AiAgent['input_transforms']
 								} as Extract<FlowModule['value'], { type: 'aiagent' }>
 							}

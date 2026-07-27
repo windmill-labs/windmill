@@ -254,16 +254,25 @@
 	// resource: without them the graph draws no tool nodes and AIAgentLogViewer drops every tool_call
 	// it cannot match to a definition. Scope must match what FlowGraphV2 reads below.
 	let linkedToolsViewScope = $derived(linkedToolsScope(workspace, job?.script_path))
+	// Flattened to a string so polling a running flow — which replaces `job` every tick — only
+	// re-fetches when the set of linked steps actually changes.
+	let linkedAgentRefs = $derived(
+		dfs(job?.raw_flow?.modules ?? [], (m) => m)
+			.map((m) => {
+				const value = m?.value as { type?: string; agent?: string } | undefined
+				return value?.type === 'aiagent' && value.agent ? `${m.id}\u0000${value.agent}` : undefined
+			})
+			.filter((x): x is string => x !== undefined)
+			.join('\u0001')
+	)
 	$effect(() => {
-		const modules = dfs(job?.raw_flow?.modules ?? [], (m) => m)
+		const refs = linkedAgentRefs
 		const ws = workspace
 		const scope = linkedToolsViewScope
 		untrack(() => {
-			for (const m of modules) {
-				const value = m?.value as { type?: string; agent?: string } | undefined
-				if (value?.type === 'aiagent' && value.agent) {
-					publishLinkedAgentTools(value.agent, ws, scope, m.id)
-				}
+			for (const entry of refs ? refs.split('\u0001') : []) {
+				const [moduleId, agentPath] = entry.split('\u0000')
+				publishLinkedAgentTools(agentPath, ws, scope, moduleId)
 			}
 		})
 	})

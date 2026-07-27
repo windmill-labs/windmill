@@ -187,12 +187,20 @@
 							}
 						} else {
 							const module = tools.find((m) => m.summary === toolCall.function_name)
+							// A definition can be missing for a call that did run: the tool was renamed or
+							// removed since, or it belongs to a linked agent whose resource is no longer
+							// readable. Keep the recorded call — its args, logs and result come from the
+							// child job — rather than dropping it from the history.
 							return module
 								? ({
 										...module,
 										id: idx.toString()
 									} as FlowModule)
-								: undefined
+								: ({
+										id: idx.toString(),
+										value: { type: 'identity' as const },
+										summary: toolCall.function_name
+									} as FlowModule)
 						}
 					})
 					.filter((m) => m !== undefined)
