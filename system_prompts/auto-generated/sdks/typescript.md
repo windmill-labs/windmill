@@ -467,7 +467,7 @@ async sleep(seconds: number): Promise<void>
  * the round that runs the body sees the same types every replay sees: a `Date`
  * comes back as a string, a `Map` as `{}`. {@link Jsonified} is that shape.
  */
-async step<T>(name: string, fn: () => T | Promise<T>): Promise<Jsonified<T>>
+async step<T>(name: string, fn: () => T | Promise<T>,): Promise<Jsonified<Awaited<T>>>
 
 /**
  * Create a task that dispatches to a separate Windmill script.

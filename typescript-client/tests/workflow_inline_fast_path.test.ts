@@ -25,7 +25,7 @@ mock.module("../core/OpenAPI", () => ({
   OpenAPI: { BASE: "http://localhost:8000/api", TOKEN: "tok" },
 }));
 
-const { WorkflowCtx } = await import("../client.ts");
+const { WorkflowCtx, step, task } = await import("../client.ts");
 import type { Jsonified } from "../client.ts";
 
 process.env.WM_JOB_ID = "job-1";
@@ -69,6 +69,25 @@ describe("inline step round parity", () => {
       expect(replayed).toEqual(live);
     });
   }
+
+  test("outside a workflow, step() and task() return the same shape", async () => {
+    // No checkpoint, no replay — but a local run must not hand back a shape a
+    // deployed one never produces, or testing a workflow locally proves nothing.
+    const jobId = process.env.WM_JOB_ID;
+    delete process.env.WM_JOB_ID; // otherwise task() takes the v1 dispatch path
+    try {
+      expect(await step("pair", () => [1, new Date("2026-01-01T00:00:00Z")])).toEqual([
+        1,
+        "2026-01-01T00:00:00.000Z",
+      ]);
+      const makePair = task(async function makePair() {
+        return { at: new Date("2026-01-01T00:00:00Z") };
+      });
+      expect(await makePair()).toEqual({ at: "2026-01-01T00:00:00.000Z" });
+    } finally {
+      process.env.WM_JOB_ID = jobId;
+    }
+  });
 });
 
 // `Jsonified` must describe the values asserted above, or `step()` advertises a
@@ -89,4 +108,13 @@ _assertType<Exact<Jsonified<void>, null>>(true);
 _assertType<Exact<Jsonified<[number, Date]>, [number, string]>>(true);
 _assertType<
   Exact<Jsonified<{ id: number; at: Date; run(): void }>, { id: number; at: string }>
+>(true);
+
+// A task's result always crosses JSON too — the checkpoint on the workflow
+// path, the API on the v1 path — while its arguments stay checked.
+const _typedTask = task(async function _typedTask(id: number) {
+  return { id, at: new Date() };
+});
+_assertType<
+  Exact<Awaited<ReturnType<typeof _typedTask>>, { id: number; at: string }>
 >(true);

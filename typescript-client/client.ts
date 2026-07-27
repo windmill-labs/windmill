@@ -1594,6 +1594,22 @@ function encodeCheckpointPayload(payload: Record<string, any>): string {
   );
 }
 
+/** Put a value through the checkpoint's encoding without checkpointing it, so
+ *  the paths that never persist anything still hand back the shape the ones
+ *  that do would. */
+function jsonRoundTrip<T>(value: T): Jsonified<T> {
+  return JSON.parse(encodeCheckpointPayload({ value })).value;
+}
+
+/**
+ * A task function as its callers see it. A task's result always crosses a JSON
+ * boundary — the child job's result is read back from the checkpoint, and the
+ * v1 path reads it back from the API — so only {@link Jsonified} of it survives.
+ */
+export type JsonifiedFn<T extends (...args: any[]) => Promise<any>> = (
+  ...args: Parameters<T>
+) => Promise<Jsonified<Awaited<ReturnType<T>>>>;
+
 export interface TaskOptions {
   timeout?: number;
   tag?: string;
@@ -1990,15 +2006,17 @@ export async function sleep(seconds: number): Promise<void> {
  * the round that runs the body sees the same types every replay sees: a `Date`
  * comes back as a string, a `Map` as `{}`. {@link Jsonified} is that shape.
  */
-export async function step<T>(name: string, fn: () => T | Promise<T>): Promise<Jsonified<T>> {
+export async function step<T>(
+  name: string,
+  fn: () => T | Promise<T>,
+): Promise<Jsonified<Awaited<T>>> {
   const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
   if (ctx) {
-    return ctx._runInlineStep(name, fn) as Promise<Jsonified<T>>;
+    return ctx._runInlineStep(name, fn) as Promise<Jsonified<Awaited<T>>>;
   }
-  // Outside a workflow nothing is checkpointed and nothing ever replays, so
-  // `fn`'s value is handed back untouched — the annotation describes the only
-  // context where the distinction can be observed.
-  return fn() as Jsonified<T> | Promise<Jsonified<T>>;
+  // Outside a workflow nothing is checkpointed, but round-trip anyway: running
+  // the script locally must not hand back a shape a deployed run never sees.
+  return jsonRoundTrip(await fn());
 }
 
 /**
@@ -2015,7 +2033,7 @@ export function task<T extends (...args: any[]) => Promise<any>>(
   fnOrPath: T | string,
   maybeFnOrOptions?: T | TaskOptions,
   maybeOptions?: TaskOptions,
-): T {
+): JsonifiedFn<T> {
   let fn: T;
   let taskPath: string | undefined;
   let taskOptions: TaskOptions | undefined;
@@ -2087,10 +2105,11 @@ export function task<T extends (...args: any[]) => Promise<any>>(
         return r;
       })();
     } else {
-      // Standalone — execute directly
-      return fn(...args);
+      // Standalone — execute directly, but round-trip the result: a task's
+      // value crosses JSON in every other path, so a local run must agree.
+      return Promise.resolve(fn(...args)).then(jsonRoundTrip);
     }
-  } as unknown as T;
+  } as unknown as JsonifiedFn<T>;
 
   Object.defineProperty(wrapper, "name", { value: taskName });
   (wrapper as any)._is_task = true;

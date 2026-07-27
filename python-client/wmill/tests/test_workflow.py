@@ -1047,6 +1047,19 @@ class TestInlineStepRoundParity:
         ("intkeys", lambda: {1: "a"}, {"1": "a"}),
     ]
 
+    def test_outside_a_workflow_returns_the_same_shape(self):
+        """No checkpoint, no replay — but a local run must not hand back a shape
+        a deployed one never produces, or testing a workflow locally proves
+        nothing. The async task path is the sharp edge: the wrapper is sync, so
+        the value has to be round-tripped after the await, not before."""
+
+        @task
+        async def make_pair():
+            return (1, datetime(2026, 1, 1, tzinfo=timezone.utc))
+
+        assert asyncio.run(step("pair", lambda: (1, 2))) == [1, 2]
+        assert asyncio.run(make_pair()) == [1, "2026-01-01 00:00:00+00:00"]
+
     def test_live_round_matches_checkpoint_and_replay(self, monkeypatch):
         _set_inline_fast_path_env(monkeypatch)
 

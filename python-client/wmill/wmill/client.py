@@ -2689,6 +2689,13 @@ class TaskError(Exception):
         self.result = result
 
 
+def _json_round_trip(value):
+    """Put a value through the checkpoint's encoding without checkpointing it, so
+    the paths that never persist anything still hand back the shape the ones that
+    do would. ``default=str`` matches the worker wrapper's encoder."""
+    return json.loads(json.dumps(value, default=str))
+
+
 def _step_error_marker(key: str, exc: BaseException) -> dict:
     """Serialize a failed ``step()`` body into the ``__wmill_error`` marker that
     task failures also use, so it can be stored in ``completed_steps``."""
@@ -3079,8 +3086,19 @@ def task(
                 print(f"Task {func.__name__} ({child_job_id}) completed")
                 return job_result
 
-            # Standalone — execute directly
-            return func(*args, **kwargs)
+            # Standalone — execute directly, but round-trip the result: a task's
+            # value crosses JSON in every other path, so a local run must agree.
+            # This wrapper is sync, so an ``async def`` task hands back a
+            # coroutine here — round-tripping that would serialize the coroutine
+            # object itself.
+            result = func(*args, **kwargs)
+            if _asyncio.iscoroutine(result):
+
+                async def _round_trip_awaited():
+                    return _json_round_trip(await result)
+
+                return _round_trip_awaited()
+            return _json_round_trip(result)
 
         wrapper._is_task = True
         wrapper._task_path = task_path
@@ -3195,7 +3213,9 @@ async def step(name: str, fn):
     result = fn()
     if _asyncio.iscoroutine(result):
         result = await result
-    return result
+    # Outside a workflow nothing is checkpointed, but round-trip anyway: running
+    # the script locally must not hand back a shape a deployed run never sees.
+    return _json_round_trip(result)
 
 
 async def sleep(seconds: int):
