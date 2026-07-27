@@ -690,18 +690,38 @@
 		if (!includeWithoutMain) f.push('library scripts hidden')
 		return f
 	})
-	// Complete owner list: every folder (from the folder list, not just loaded
-	// pages) plus the user prefixes present in the loaded/filtered items. So a
-	// folder whose items are far down the stream is still a selectable chip.
-	let owners = $derived(
-		Array.from(
-			new Set([
-				...allFolderOwners,
-				...allUserOwners,
-				...(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-			])
-		).sort()
+	// Pipeline folders qualify for a chip whenever a pipeline can show under the current
+	// kind. Unlike `visiblePipelineFolders` this ignores the selected owner — the chips are
+	// how you switch owners, so they must not narrow to the current one.
+	let chipPipelineFolders = $derived(
+		itemKind === 'all' || itemKind === 'script' ? pipelineFolders : new Set<string>()
 	)
+	// Owner chips: only the owners actually holding something the user can see, your own
+	// space first and the rest most-populated first. A chip for an empty owner filters to
+	// nothing, and a workspace's full folder and member lists are mostly those, so an owner
+	// counting 0 gets no chip at all — including your own space.
+	let owners = $derived.by(() => {
+		const self = $userStore?.username ? `u/${$userStore.username}` : undefined
+		const loaded = filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? []
+		if (ownerCounts == undefined) {
+			// No counts (archived view, or the request failed): every owner, alphabetically.
+			return Array.from(new Set([...allFolderOwners, ...allUserOwners, ...loaded])).sort()
+		}
+		const counted = new Map<string, number>(Object.entries(ownerCounts))
+		// The pipeline is a row of its own and its member scripts are folded out of the
+		// count, so it adds one where it renders — as in the tree node's own label.
+		for (const f of chipPipelineFolders) counted.set(`f/${f}`, (counted.get(`f/${f}`) ?? 0) + 1)
+		// No owner counts below what the loaded window already shows for it: the endpoint
+		// leaves out pipeline members and drafts, and a listed item must keep its chip.
+		const onScreen = new Map<string, number>()
+		for (const o of loaded) onScreen.set(o, (onScreen.get(o) ?? 0) + 1)
+		for (const [o, n] of onScreen) counted.set(o, Math.max(counted.get(o) ?? 0, n))
+		return [...counted.keys()].sort((a, b) => {
+			if (a === self) return -1
+			if (b === self) return 1
+			return (counted.get(b) ?? 0) - (counted.get(a) ?? 0) || cmp(a, b)
+		})
+	})
 	// Reload from the server whenever an input the endpoint resolves changes: order,
 	// archived/library scope, kind, the selected owner/folder, or entering/leaving
 	// search (see the reload effect below). Only the label filter and fuzzy ranking
@@ -717,22 +737,16 @@
 		treeView && !searching && ownerFilter == undefined && labelFilter == undefined
 	)
 	// How many runnables each owner (`f/<folder>` / `u/<user>`) holds for this user,
-	// in one request. It labels every node up front — a lazy owner's own count is
-	// unknown until it's expanded — and lets the tree drop the owners holding
-	// nothing instead of listing every workspace folder. Owners with none are
-	// omitted from the response, so an absent key means empty. Skipped outside lazy
-	// mode (the other modes group already-loaded rows) and in the archived view,
-	// which the endpoint doesn't count.
+	// in one request. It labels every tree node up front — a lazy owner's own count is
+	// unknown until it's expanded — and lets both the tree and the owner chips drop the
+	// owners holding nothing instead of listing every workspace folder. Owners with none
+	// are omitted from the response, so an absent key means empty. Fetched in every mode
+	// (the chips are shown in all of them) except the archived view, which the endpoint
+	// doesn't count.
 	let ownerCountsRes = resource(
-		[
-			() => $workspaceStore,
-			() => treeLazyMode,
-			() => archived,
-			() => itemKind,
-			() => includeWithoutMain
-		],
-		async ([ws, lazyMode, showArchived, kind, withoutMain]) => {
-			if (!ws || !lazyMode || showArchived) return undefined
+		[() => $workspaceStore, () => archived, () => itemKind, () => includeWithoutMain],
+		async ([ws, showArchived, kind, withoutMain]) => {
+			if (!ws || showArchived) return undefined
 			try {
 				const res = await ScriptService.countRunnablesByOwner({
 					workspace: ws,
@@ -741,7 +755,7 @@
 				})
 				return res.counts
 			} catch {
-				// Best-effort: without counts the tree shows every owner, as before.
+				// Best-effort: without counts the tree and the chips show every owner, as before.
 				return undefined
 			}
 		}
@@ -1390,6 +1404,7 @@
 			syncQuery
 			bind:selectedFilter={ownerFilter}
 			filters={owners}
+			maxDisplayed={20}
 			bottomMargin={false}
 		/>
 		{#if allLabels.length > 0}

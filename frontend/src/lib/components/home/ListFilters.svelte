@@ -11,6 +11,9 @@
 		queryName?: string
 		syncQuery?: boolean
 		bottomMargin?: boolean
+		// Keep only the first N filters visible, the rest behind a "…" toggle. Unset
+		// shows every one.
+		maxDisplayed?: number
 	}
 
 	let {
@@ -19,7 +22,8 @@
 		resourceType = false,
 		queryName = 'filter',
 		syncQuery = false,
-		bottomMargin = true
+		bottomMargin = true,
+		maxDisplayed
 	}: Props = $props()
 
 	const queryChange: (value: URL) => void = (url: URL) => {
@@ -69,11 +73,24 @@
 				: [selectedFilter, ...filters]
 			: filters
 	)
+
+	let expanded = $state(false)
+	let hiddenCount = $derived(
+		maxDisplayed == undefined ? 0 : Math.max(0, filtersAndSelected.length - maxDisplayed)
+	)
+	let displayedFilters = $derived.by(() => {
+		if (expanded || hiddenCount === 0) return filtersAndSelected
+		const shown = filtersAndSelected.slice(0, maxDisplayed)
+		// Clicking the selected chip is how the filter is cleared, so it is never truncated
+		// away, however far down the order it sits.
+		if (selectedFilter && !shown.includes(selectedFilter)) shown.push(selectedFilter)
+		return shown
+	})
 </script>
 
 {#if Array.isArray(filtersAndSelected) && filtersAndSelected.length > 0}
 	<div class={`gap-2 w-full flex flex-wrap ${bottomMargin ? 'my-4' : 'mt-4'}`}>
-		{#each filtersAndSelected as filter (filter)}
+		{#each displayedFilters as filter (filter)}
 			<div>
 				<Badge
 					class="inline-flex items-center gap-1 align-middle"
@@ -104,5 +121,18 @@
 				</Badge>
 			</div>
 		{/each}
+		{#if hiddenCount > 0}
+			<div>
+				<Badge
+					class="inline-flex items-center gap-1 align-middle"
+					color={'transparent'}
+					clickable
+					title={expanded ? 'Show fewer' : `Show ${hiddenCount} more`}
+					onclick={() => (expanded = !expanded)}
+				>
+					{expanded ? 'Show less' : '…'}
+				</Badge>
+			</div>
+		{/if}
 	</div>
 {/if}
