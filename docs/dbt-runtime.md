@@ -436,7 +436,10 @@ provides observability.
 7. `dbt retry` resumes from the failure point using `run_results.json`, which is
    what makes one-job-per-invocation defensible. It is saved twice: to the
    worker's local cache, and to `dbt_run_state` in the database, so a retry
-   works from any worker of the group. Only `run_results.json` is stored there.
+   works from any worker with a database connection. An agent worker reaches
+   the database only through the API, which does not expose this, so it keeps
+   only its own local copy; the automatic node retry is refused there for the
+   same reason, since its wait could not observe a cancellation. Only `run_results.json` is stored there.
    `dbt retry` also needs `manifest.json`, roughly sixty times larger and
    growing with the project (732 KB against 12 KB on a six-node fixture), but
    the manifest is a pure function of the project files, vars and env — all of

@@ -286,7 +286,14 @@ pub async fn handle_dbt_job(
     // rather than the project — and doing it here means the previous attempt's
     // `run_results.json` is still in the job directory, with no state to
     // persist and no worker to land back on.
-    if let Some(policy) = descriptor.retry_failed_nodes.filter(|_| run.is_err()) {
+    // Not on an agent worker: its cancellation arrives through a poller that
+    // does not run between attempts and it cannot read `v2_job_queue`, so the
+    // wait below could not be interrupted and a cancelled job would hold its
+    // slot for the whole delay and then start another dbt process.
+    let node_retry = descriptor
+        .retry_failed_nodes
+        .filter(|_| matches!(conn, Connection::Sql(_)));
+    if let Some(policy) = node_retry.filter(|_| run.is_err()) {
         for attempt in 1..=policy.attempts() {
             // A cancelled or timed-out job must not start another warehouse
             // write: its failure is not the transient kind this retries, and
@@ -680,18 +687,7 @@ impl PreparedProject {
         )
     }
 
-    /// Everything that decides which relations a run produces, for the
-    /// retry-state check: same project files, same warehouse and target, same
-    /// engine. Identity only, never credentials — the profile is digested, and
-    /// the digest is one-way.
-    ///
-    /// Anything omitted here is something a redeploy could change while a
-    /// stale `run_results.json` stays eligible, so `dbt retry` would resume one
-    /// project's failures inside another.
-    /// A digest of the DESCRIPTOR's resolved environment. It belongs in run
-    /// identity because `env_var()` can drive a model's schema, database, alias
-    /// or `enabled`, so changing a `$var:` value after a failed run makes the
-    /// saved `run_results.json` describe relations this run would not produce.
+    /// A digest of the DESCRIPTOR's resolved environment, for `run_identity`.
     /// Digested rather than listed: the values are resolved secrets.
     ///
     /// Only the descriptor's own entries. `env` additionally carries `HOME`,
@@ -707,6 +703,16 @@ impl PreparedProject {
         h.finish()
     }
 
+    /// Everything that decides which relations a run produces, which is what a
+    /// retry has to match before it may resume a saved `run_results.json`: same
+    /// project files, same warehouse and target, same engine. Identity only,
+    /// never credentials — the profile is digested, and the digest is one-way.
+    ///
+    /// Anything omitted here is something a redeploy could change while a stale
+    /// `run_results.json` stays eligible, so `dbt retry` would resume one
+    /// project's failures inside another. The descriptor's resolved environment
+    /// is in it because `env_var()` can drive a model's schema, database, alias
+    /// or `enabled`.
     fn run_identity(&self) -> String {
         // The descriptor is digested whole rather than field by field:
         // `select`, `exclude`, `selector`, `vars`, `full_refresh` and
@@ -1770,13 +1776,13 @@ fn parse_node_event(
     {
         return None;
     }
-    let status = match info.get("node_status")?.as_str()? {
-        "started" => MaterializationStatus::Running,
-        "success" | "pass" => MaterializationStatus::Materialized,
-        "error" | "fail" | "runtime error" => MaterializationStatus::Failed,
+    let status = match classify_status(info.get("node_status")?.as_str()?) {
+        DbtNodeOutcome::Started => MaterializationStatus::Running,
+        DbtNodeOutcome::Passed => MaterializationStatus::Materialized,
+        DbtNodeOutcome::Failed => MaterializationStatus::Failed,
         // `warn` is a passing test at reduced severity and `skipped` says
         // nothing about the relation's state; neither is a materialization.
-        _ => return None,
+        DbtNodeOutcome::Inconclusive => return None,
     };
     let path = windmill_common::dbt_manifest::table_asset_path(
         resource_path,
@@ -1829,9 +1835,9 @@ async fn reconcile_materializations(
         ) else {
             continue;
         };
-        let status = match r.status.as_str() {
-            "success" => MaterializationStatus::Materialized,
-            "error" | "fail" | "runtime error" => MaterializationStatus::Failed,
+        let status = match classify_status(&r.status) {
+            DbtNodeOutcome::Passed => MaterializationStatus::Materialized,
+            DbtNodeOutcome::Failed => MaterializationStatus::Failed,
             // Tests and skipped nodes say nothing about a relation's state.
             _ => continue,
         };
@@ -1960,10 +1966,10 @@ async fn read_run_results(project_dir: &Path) -> Vec<DbtNodeResult> {
 fn build_result(p: &PreparedProject, command: &str, nodes: Vec<DbtNodeResult>) -> DbtRunResult {
     let mut totals = DbtTotals { total: nodes.len(), ..Default::default() };
     for n in &nodes {
-        match n.status.as_str() {
-            "success" | "pass" => totals.success += 1,
-            "warn" => totals.warn += 1,
-            "skipped" => totals.skipped += 1,
+        match (classify_status(&n.status), n.status.trim().to_ascii_lowercase().as_str()) {
+            (DbtNodeOutcome::Passed, _) => totals.success += 1,
+            (_, "warn") => totals.warn += 1,
+            (_, "skipped") => totals.skipped += 1,
             _ => totals.error += 1,
         }
     }
@@ -1980,7 +1986,10 @@ fn render_failures(r: &DbtRunResult) -> String {
     let failed: Vec<&DbtNodeResult> = r
         .nodes
         .iter()
-        .filter(|n| !matches!(n.status.as_str(), "success" | "pass" | "skipped"))
+        .filter(|n| {
+            !matches!(classify_status(&n.status), DbtNodeOutcome::Passed)
+                && n.status.trim().to_ascii_lowercase() != "skipped"
+        })
         .collect();
     if failed.is_empty() {
         return "dbt failed before any node ran".to_string();
@@ -2823,9 +2832,8 @@ async fn sleep_before_retry(
 
 /// Whether the job has been cancelled, as of now.
 ///
-/// An agent worker has no database, and its cancellation arrives through the
-/// poller it cannot run here either; it reports "not cancelled" and the retry
-/// is bounded by the deadline alone.
+/// Only reachable with a database: the automatic retry that calls this is
+/// refused on an agent worker precisely because it could not answer here.
 async fn job_is_canceled(job_id: &Uuid, conn: &Connection) -> bool {
     let Connection::Sql(db) = conn else {
         return false;
@@ -2864,6 +2872,34 @@ fn merge_results(into: &mut Vec<DbtNodeResult>, from: Vec<DbtNodeResult>) {
     }
 }
 
+/// What a dbt node's status means, in the three terms this runtime acts on.
+///
+/// One helper because six comparisons drifted apart: two folded case and four
+/// did not, while dbt-core 1.x echoes the author's casing and 2.x uppercases.
+/// And `partial success` -- a node that built but whose tests failed -- was
+/// read as a failure when counting totals and when deciding a retry, but fell
+/// through to "says nothing" at the two sites that settle the RELATION, so the
+/// model stayed `Running` on a finished job until some later run ended clean.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DbtNodeOutcome {
+    Started,
+    Passed,
+    Failed,
+    /// `warn` and `skipped`: the run went on, and the relation is untouched.
+    Inconclusive,
+}
+
+pub fn classify_status(status: &str) -> DbtNodeOutcome {
+    match status.trim().to_ascii_lowercase().as_str() {
+        "started" => DbtNodeOutcome::Started,
+        "success" | "pass" => DbtNodeOutcome::Passed,
+        // `partial success` builds the relation and then fails its tests: the
+        // node is a failure, and the relation it wrote is real but suspect.
+        "error" | "fail" | "runtime error" | "partial success" => DbtNodeOutcome::Failed,
+        _ => DbtNodeOutcome::Inconclusive,
+    }
+}
+
 /// Whether a saved `run_results.json` has a WRITE that `dbt retry` would redo.
 ///
 /// Two conditions, and both matter.
@@ -2883,10 +2919,9 @@ fn has_retryable_node(run_results: &str) -> bool {
     serde_json::from_str::<RunResults>(run_results)
         .map(|r| {
             r.results.iter().any(|n| {
-                matches!(
-                    n.status.to_ascii_lowercase().as_str(),
-                    "error" | "fail" | "skipped" | "partial success"
-                ) && writes_a_relation(&n.unique_id)
+                let retryable = matches!(classify_status(&n.status), DbtNodeOutcome::Failed)
+                    || n.status.trim().to_ascii_lowercase() == "skipped";
+                retryable && writes_a_relation(&n.unique_id)
             })
         })
         // Unreadable results are not "nothing to retry": let dbt decide rather
@@ -3431,6 +3466,29 @@ mod tests {
         // A node the retry introduces is kept rather than dropped.
         merge_results(&mut acc, vec![node("test.p.d", "fail")]);
         assert_eq!(acc.len(), 4);
+    }
+
+    // `partial success` is a node that built and then failed its tests. Read as
+    // "says nothing about the relation", it left the model on `Running` — the
+    // tailer writes that when the node starts and nothing after it moves the
+    // record, so a finished job showed a model still building.
+    #[test]
+    fn partial_success_settles_the_relation_as_failed() {
+        assert_eq!(classify_status("partial success"), DbtNodeOutcome::Failed);
+        // The engines disagree on casing: 1.x echoes the author's, 2.x
+        // uppercases. Every classifier folds, or they disagree with each other.
+        for spelling in ["PARTIAL SUCCESS", " Partial Success ", "ERROR", "Pass"] {
+            assert_ne!(
+                classify_status(spelling),
+                DbtNodeOutcome::Inconclusive,
+                "{spelling} must classify"
+            );
+        }
+        assert_eq!(classify_status("success"), DbtNodeOutcome::Passed);
+        assert_eq!(classify_status("started"), DbtNodeOutcome::Started);
+        for inconclusive in ["warn", "skipped", "no-op"] {
+            assert_eq!(classify_status(inconclusive), DbtNodeOutcome::Inconclusive);
+        }
     }
 
     #[test]

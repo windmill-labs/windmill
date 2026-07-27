@@ -2076,6 +2076,10 @@ async fn create_script_internal<'c>(
     // stale model metadata would attach itself to whatever now lives there.
     if ns.language != ScriptLang::Dbt {
         windmill_common::dbt_manifest::clear_dbt_manifest(&mut tx, &w_id, &ns.path).await?;
+        // And its saved retry state, for the same reason: nothing regenerates
+        // it, so a path that stops being a dbt script would carry one user's
+        // failed invocation and its arguments until the workspace is deleted.
+        windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, &ns.path).await?;
     }
     if let Some(ref old) = p_path_opt {
         if old != &ns.path {

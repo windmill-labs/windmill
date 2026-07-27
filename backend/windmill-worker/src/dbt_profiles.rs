@@ -115,6 +115,23 @@ impl DbtAdapter {
 
     /// The pip package that provides the adapter for the bundled dbt-core 1.x
     /// engine. The Rust engines ship their adapters in the binary.
+    /// The adapter's name as a user would write it, for error messages.
+    pub fn name(&self) -> &'static str {
+        match self {
+            DbtAdapter::Postgres => "postgres",
+            DbtAdapter::Redshift => "redshift",
+            DbtAdapter::Mysql => "mysql",
+            DbtAdapter::Duckdb => "duckdb",
+            DbtAdapter::Clickhouse => "clickhouse",
+            DbtAdapter::Snowflake => "snowflake",
+            DbtAdapter::Bigquery => "bigquery",
+            DbtAdapter::Databricks => "databricks",
+            DbtAdapter::Salesforce => "salesforce",
+            DbtAdapter::Mssql => "mssql",
+            DbtAdapter::OracleDB => "oracle",
+        }
+    }
+
     pub fn pip_package(&self) -> &'static str {
         match self {
             DbtAdapter::Postgres => "dbt-postgres",
@@ -125,7 +142,8 @@ impl DbtAdapter {
             DbtAdapter::Snowflake => "dbt-snowflake",
             DbtAdapter::Bigquery => "dbt-bigquery",
             DbtAdapter::Databricks => "dbt-databricks",
-            DbtAdapter::Salesforce => "dbt-salesforce",
+            // No dbt-core 1.x package exists for it; Fusion has it built in.
+            DbtAdapter::Salesforce => "",
             DbtAdapter::Mssql => "dbt-sqlserver",
             DbtAdapter::OracleDB => "dbt-oracle",
         }

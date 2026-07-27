@@ -60,7 +60,7 @@ export function parseDbtRun(result: any): DbtRun | undefined {
  * green would contradict the job's own outcome and hide the message saying why.
  */
 export function statusRank(status: string): number {
-	switch (status.toLowerCase()) {
+	switch (status.trim().toLowerCase()) {
 		case 'error':
 		case 'fail':
 		case 'runtime error':

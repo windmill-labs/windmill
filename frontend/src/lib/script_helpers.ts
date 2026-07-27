@@ -1372,6 +1372,7 @@ full_refresh: false
 # Rebuild the nodes a failed build left failed or skipped, in this same job,
 # before reporting failure. dbt confines a failure to its own subtree, so a
 # transient warehouse error costs those nodes rather than the whole project.
+# Not available on agent workers, whose wait could not observe a cancellation.
 # retry_failed_nodes:
 #   attempts: 2
 #   delay_seconds: 30

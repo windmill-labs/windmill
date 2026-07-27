@@ -35,6 +35,16 @@ lazy_static::lazy_static! {
         std::env::var("UV_PATH").unwrap_or_else(|_| "/usr/local/bin/uv".to_string());
     /// Pinned so a worker's engine does not drift under running projects. Both
     /// are overridable per instance for upgrades without a release.
+    /// The dbt-core range the 1.x engine supports. A RANGE, not a pin: the
+    /// adapter decides which core it can take, and several cap below the
+    /// default (dbt-oracle and dbt-databricks below 1.12). The floor is the CLI
+    /// this runtime invokes -- 1.7 rejects `--target` on `parse`, so resolving
+    /// down to it produces a working venv that then fails on flags, which is
+    /// worse than not resolving at all.
+    static ref DBT_CORE_1X_FLOOR: String =
+        std::env::var("DBT_CORE_1X_FLOOR").unwrap_or_else(|_| "1.8".to_string());
+    static ref DBT_CORE_1X_CEILING: String =
+        std::env::var("DBT_CORE_1X_CEILING").unwrap_or_else(|_| "2.0.0".to_string());
     static ref DBT_CORE_1X_VERSION: String =
         std::env::var("DBT_CORE_1X_VERSION").unwrap_or_else(|_| "1.12.0".to_string());
     static ref DBT_CORE_2X_VERSION: String =
@@ -97,6 +107,42 @@ pub async fn provision_engine(
     }
 }
 
+#[cfg(test)]
+mod core1x_tests {
+    use super::*;
+
+    // Several adapters cap the dbt-core they accept BELOW the version this
+    // runtime would otherwise ask for (dbt-mysql at ~=1.7, dbt-oracle and
+    // dbt-databricks below 1.12), and dbt-salesforce has no 1.x package at all.
+    // Pinning core independently of the adapter made those projects fail at
+    // provisioning with a resolver dump, so the install asks for a ceiling and
+    // lets the adapter decide.
+    #[test]
+    fn every_adapter_either_names_a_package_or_is_fusion_only() {
+        for a in [
+            DbtAdapter::Postgres,
+            DbtAdapter::Redshift,
+            DbtAdapter::Mysql,
+            DbtAdapter::Duckdb,
+            DbtAdapter::Clickhouse,
+            DbtAdapter::Snowflake,
+            DbtAdapter::Bigquery,
+            DbtAdapter::Databricks,
+            DbtAdapter::Mssql,
+            DbtAdapter::OracleDB,
+        ] {
+            assert!(
+                !a.pip_package().is_empty(),
+                "{} must name a pip package for dbt-core 1.x",
+                a.name()
+            );
+        }
+        // Fusion has it built in, and there is no package to install.
+        assert!(DbtAdapter::Salesforce.pip_package().is_empty());
+        assert_eq!(DbtAdapter::Salesforce.name(), "salesforce");
+    }
+}
+
 /// A uv venv per (dbt version, adapter): the adapter is a separate pip package
 /// and installing every adapter into one venv would make their transitive
 /// dependency sets fight.
@@ -109,6 +155,23 @@ async fn provision_core_1x(
     conn: &Connection,
     ctx: &mut JobCtx<'_>,
 ) -> error::Result<ProvisionedEngine> {
+    if adapter.pip_package().is_empty() {
+        return Err(Error::BadRequest(format!(
+            "the {} adapter has no dbt-core 1.x package: it exists only inside the Fusion \
+             engine. Set `engine: fusion` to use it",
+            adapter.name()
+        )));
+    }
+    // A RANGE, not an `==`. A locked version still pins exactly, because that
+    // one was resolved for this adapter in the first place.
+    let version_spec = match pinned_version {
+        Some(v) => format!("dbt-core=={v}"),
+        None => format!(
+            "dbt-core>={},<{}",
+            DBT_CORE_1X_FLOOR.as_str(),
+            DBT_CORE_1X_CEILING.as_str()
+        ),
+    };
     let version = pinned_version
         .map(str::to_string)
         .unwrap_or_else(|| DBT_CORE_1X_VERSION.clone());
@@ -119,15 +182,19 @@ async fn provision_core_1x(
         Some(v) => format!("{}=={v}", adapter.pip_package()),
         None => adapter.pip_package().to_string(),
     };
-    let dir =
-        PathBuf::from(&*DBT_CACHE_DIR).join(format!("core1x-{version}-{}", digest(&adapter_spec)));
+    let dir = PathBuf::from(&*DBT_CACHE_DIR)
+        .join(format!("core1x-{}-{}", digest(&version_spec), digest(&adapter_spec)));
     let bin = dir.join("bin").join("dbt");
     if bin.exists() {
         let adapter_version = installed_adapter_version(&dir, adapter).await;
         return Ok(ProvisionedEngine {
             root: dir.clone(),
             bin,
-            version,
+            // What the resolver actually chose, so the lock pins the version
+            // this adapter can take rather than the one we asked for.
+            version: installed_package_version(&dir, "dbt_core")
+                .await
+                .unwrap_or(version),
             engine: DbtEngine::DbtCore1x,
             adapter_version,
         });
@@ -136,10 +203,7 @@ async fn provision_core_1x(
     append_logs(
         job_id,
         w_id,
-        format!(
-            "\nProvisioning dbt-core {version} with {}...\n",
-            adapter.pip_package()
-        ),
+        format!("\nProvisioning {version_spec} with {}...\n", adapter.pip_package()),
         conn,
     )
     .await;
@@ -178,7 +242,7 @@ async fn provision_core_1x(
             .args([
                 "pip",
                 "install",
-                &format!("dbt-core=={version}"),
+                &version_spec,
                 &adapter_spec,
             ]),
         "uv pip install",
@@ -187,7 +251,18 @@ async fn provision_core_1x(
         conn,
         ctx,
     )
-    .await?;
+    .await
+    .map_err(|e| {
+        // The common cause is an adapter with no release for this dbt-core
+        // range: dbt-mysql, for one, has not shipped past `~=1.7`. uv reports
+        // that as a resolver dump, which does not say what to do about it.
+        Error::ExecutionErr(format!(
+            "{e}\n\ninstalling the {} adapter: it must have a release compatible with \
+             {version_spec}, which is the dbt-core CLI this engine invokes. If the adapter has \
+             not kept up, use `engine: dbt-core-2x` or `engine: fusion`",
+            adapter.name()
+        ))
+    })?;
     match tokio::fs::rename(&staging, &dir).await {
         Ok(()) => staging_guard.keep(),
         // Lost the race: the winner's venv is equivalent, so use it. The guard
@@ -196,13 +271,19 @@ async fn provision_core_1x(
         Err(e) => return Err(Error::internal_err(format!("installing dbt-core: {e}"))),
     }
     let adapter_version = installed_adapter_version(&dir, adapter).await;
+    let version = installed_package_version(&dir, "dbt_core").await.unwrap_or(version);
     Ok(ProvisionedEngine { root: dir, bin, version, engine: DbtEngine::DbtCore1x, adapter_version })
 }
 
 /// The adapter version a venv actually resolved, read from its dist-info so a
 /// deploy can lock it and later runs can ask for the same one.
 async fn installed_adapter_version(dir: &Path, adapter: DbtAdapter) -> Option<String> {
-    let prefix = format!("{}-", adapter.pip_package().replace('-', "_"));
+    installed_package_version(dir, &adapter.pip_package().replace('-', "_")).await
+}
+
+/// The version of an installed distribution, read from its `.dist-info`.
+async fn installed_package_version(dir: &Path, dist: &str) -> Option<String> {
+    let prefix = format!("{dist}-");
     let mut entries = tokio::fs::read_dir(dir.join("lib")).await.ok()?;
     while let Ok(Some(py)) = entries.next_entry().await {
         let mut pkgs = tokio::fs::read_dir(py.path().join("site-packages"))
