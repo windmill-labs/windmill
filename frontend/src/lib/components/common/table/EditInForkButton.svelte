@@ -1,0 +1,40 @@
+<script lang="ts">
+	import { GitFork, Pen } from 'lucide-svelte'
+	import { userWorkspaces, workspaceStore } from '$lib/stores'
+	import { buildForkEditUrl, editInForkLabel } from '$lib/utils/editInFork'
+	import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
+	import Button from '../button/Button.svelte'
+
+	interface Props {
+		itemType: 'script' | 'flow' | 'app' | 'raw_app'
+		path: string
+	}
+
+	let { itemType, path }: Props = $props()
+
+	let dev = $derived(findCanonicalDevWorkspace($workspaceStore, $userWorkspaces))
+	let label = $derived(editInForkLabel($workspaceStore, $userWorkspaces))
+</script>
+
+<!-- title on the wrapper, not on <Button>: Button renders its `title` prop only in the
+     <button> branch, so the <a> branch taken here (href is set) would silently drop it.
+     On the wrapper it also covers the icon and padding, not just the label text. -->
+<div title={label}>
+	<Button
+		variant="subtle"
+		wrapperClasses="max-w-56"
+		unifiedSize="md"
+		startIcon={{ icon: Pen }}
+		href={buildForkEditUrl(itemType, path)}
+	>
+		{#if dev}
+			<span class="inline-flex items-center gap-1 min-w-0">
+				<span class="shrink-0">Edit in</span>
+				<GitFork size={14} class="shrink-0" />
+				<span class="truncate">{dev.name}</span>
+			</span>
+		{:else}
+			<span class="truncate">{label}</span>
+		{/if}
+	</Button>
+</div>

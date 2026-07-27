@@ -35,6 +35,7 @@
 	import { isDeployable } from '$lib/utils_deployable'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
+	import EditInForkButton from './EditInForkButton.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
@@ -170,18 +171,7 @@
 					</div>
 				{/if}
 				{#if !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !app.canWrite)}
-					{@const label = editInForkLabel($workspaceStore, $userWorkspaces)}
-					<div title={label}>
-						<Button
-							variant={!showEditButton ? 'default' : 'subtle'}
-							wrapperClasses="max-w-48"
-							unifiedSize="md"
-							startIcon={{ icon: GitFork }}
-							href={buildForkEditUrl(app.raw_app ? 'raw_app' : 'app', app.path)}
-						>
-							<span class="truncate">{label}</span>
-						</Button>
-					</div>
+					<EditInForkButton itemType={app.raw_app ? 'raw_app' : 'app'} path={app.path} />
 				{/if}
 			{/if}
 		</span>
