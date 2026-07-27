@@ -60,7 +60,9 @@
 	import {
 		linkedAgentToolsForScope,
 		linkedAgentToolsVersion,
-		linkedToolsScope
+		linkedToolsScope,
+		releaseLinkedToolsScope,
+		retainLinkedToolsScope
 	} from '$lib/components/flows/linkedAgentToolsStore.svelte'
 	import NewAiToolNode from './renderers/nodes/NewAIToolNode.svelte'
 	import NoteNode from './renderers/nodes/NoteNode.svelte'
@@ -288,6 +290,14 @@
 		outerDivClass = '',
 		onHeight = undefined
 	}: Props = $props()
+
+	// Hold the scope this graph draws from while it is mounted: the store's cap must never drop a
+	// bucket that something on screen is reading, and nothing would refetch it afterwards.
+	$effect(() => {
+		const scope = linkedToolsScope(workspace, linkedToolsPath ?? path)
+		retainLinkedToolsScope(scope)
+		return () => releaseLinkedToolsScope(scope)
+	})
 
 	// Initialize note manager with fine-grained reactivity
 	const noteManager = new NoteManager(

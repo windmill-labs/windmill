@@ -10,6 +10,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { Bot, Save, Unlink, Pencil } from 'lucide-svelte'
 	import {
+		AGENT_BRAIN_KEYS,
 		AGENT_FLOW_LOCAL_KEYS,
 		agentConfigToInputTransforms,
 		flowLocalInputs,
@@ -197,6 +198,18 @@
 		return undefined
 	})
 
+	// What linking throws away: the brain transforms (static or not) and the step's own tools. The
+	// flow-local inputs survive linking, so a change to those must not block it.
+	function discardedOnLinkSnapshot(): string {
+		const brain: Record<string, unknown> = {}
+		for (const key of AGENT_BRAIN_KEYS) {
+			if (inputTransforms?.[key] !== undefined) {
+				brain[key] = inputTransforms[key]
+			}
+		}
+		return JSON.stringify([brain, tools])
+	}
+
 	// Create or update the `ai_agent` resource at `path` from the step's current brain + tools, then
 	// link the step to it.
 	async function persist(path: string, description?: string) {
@@ -213,9 +226,10 @@
 		// Tool inputs are saved verbatim: the agent carries its tools' default bindings (static, AI or
 		// flow expressions) as authored. Host flows override per-step via tool_inputs, never here.
 		const value = inputTransformsToAgentConfig(inputTransforms, tools)
-		// The editor stays live during the requests below, so remember exactly what is being written:
-		// anything typed afterwards is not in this snapshot and must not be thrown away by linking.
-		const savedSnapshot = JSON.stringify(value)
+		// The editor stays live during the requests below, so remember what linking would discard:
+		// every brain transform and the tools. Comparing the saved config instead would miss a
+		// non-static brain edit, which the resource cannot hold yet linking still strips.
+		const savedSnapshot = discardedOnLinkSnapshot()
 		// If the edit session ends or changes while the requests below are in flight (Cancel, undo,
 		// session-draft sync, a different agent opened for editing), the resource is still written but
 		// the step must not be relinked/cleared. Pinning the path — not merely "some edit is active" —
@@ -260,7 +274,7 @@
 		}
 		// Edits made while the save was in flight aren't in the resource; linking now would strip them
 		// from the step too, losing them entirely. Keep the step as-is and let the user save again.
-		if (JSON.stringify(inputTransformsToAgentConfig(inputTransforms, tools)) !== savedSnapshot) {
+		if (discardedOnLinkSnapshot() !== savedSnapshot) {
 			sendUserToast(
 				`Saved ${path}, but changes made while saving are not in it — save again to include them`,
 				true

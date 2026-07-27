@@ -132,6 +132,14 @@
 		let parsedResult = resultSchema.safeParse(agentJob.result)
 		if (!parsedResult.success) {
 			console.error('Invalid result', parsedResult.error)
+			// A failed agent job has no parseable action list. Drop the view rather than leave the
+			// previously selected step's tool tree rendered under this one's header.
+			if (gen === loadGen) {
+				job = undefined
+				for (const key of Object.keys(fakeModuleStates)) {
+					delete fakeModuleStates[key]
+				}
+			}
 			return
 		}
 		let agentActions = parsedResult.data.messages
