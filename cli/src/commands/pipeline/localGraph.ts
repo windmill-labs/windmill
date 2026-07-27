@@ -557,18 +557,6 @@ export async function collectScripts(
   return out;
 }
 
-/**
- * The pipeline's view of a deployed graph whose folder also holds a dbt project.
- *
- * `/assets/graph` is asset-usage driven, not membership driven: it lists every
- * script that reads or writes a relation, so a dbt script appears there like any
- * producer. That is right for the endpoint — the node is what attributes a
- * relation to what builds it — but a dbt project is not a pipeline, so it must
- * not be rendered as one of its scripts. Mirrors the frontend's
- * `hideDbtRunnables`; the local builder drops these nodes at the source.
- *
- * Its relations stay: they are what a downstream pipeline script reads.
- */
 // The structural minimum the dbt filter needs. Declared instead of taking
 // `AssetGraph` so the bounded-cascade view of the same payload (`BCGraph`, a
 // narrower shape over identical JSON) passes through without a cast.
@@ -585,6 +573,18 @@ type DbtFilterableGraph = {
   }[];
 };
 
+/**
+ * The pipeline's view of a deployed graph whose folder also holds a dbt project.
+ *
+ * `/assets/graph` is asset-usage driven, not membership driven: it lists every
+ * script that reads or writes a relation, so a dbt script appears there like any
+ * producer. That is right for the endpoint — the node is what attributes a
+ * relation to what builds it — but a dbt project is not a pipeline, so it must
+ * not be rendered as one of its scripts. Mirrors the frontend's
+ * `hideDbtRunnables`; the local builder drops these nodes at the source.
+ *
+ * Its relations stay: they are what a downstream pipeline script reads.
+ */
 export function hideDbtRunnables<G extends DbtFilterableGraph>(graph: G): G {
   // Keyed by `(usage_kind, path)`, the graph's identity for a runnable — a
   // script and a flow may share a path, and keying on path alone would take the
