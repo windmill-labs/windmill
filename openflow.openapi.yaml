@@ -826,7 +826,7 @@ components:
 
     WhileloopFlow:
       type: object
-      description: Executes nested modules repeatedly until stopped. The implicit iterator is the iteration counter, so 'flow_input.iter.value' equals 'flow_input.iter.index' (0, 1, 2, ...) and never carries state. To carry state across iterations, a step reads its own previous-iteration result via 'results.<its_own_id>' with a first-iteration fallback - the loop's stop_after_if must then be on that inner step (a single-step body with stop_after_if on the loop module does not resolve 'results' across iterations and never terminates); plain counters can instead be derived from 'flow_input.iter.index', which works in every configuration. stop_after_if is evaluated after each iteration - on the loop module 'result' is the last iteration's result
+      description: Executes nested modules repeatedly until stopped. The implicit iterator is the iteration counter, so 'flow_input.iter.value' equals 'flow_input.iter.index' (0, 1, 2, ...) and never carries state. To carry state across iterations, a step reads its own previous-iteration result via 'results.<its_own_id>' with a first-iteration fallback - the loop's stop_after_if must then be on that inner step (a plain single-step body with stop_after_if on the loop module does not resolve 'results' across iterations and never terminates); plain counters can instead be derived from 'flow_input.iter.index', which works in every configuration. stop_after_if is evaluated after each iteration - on the loop module 'result' is the last iteration's result
       properties:
         modules:
           type: array
