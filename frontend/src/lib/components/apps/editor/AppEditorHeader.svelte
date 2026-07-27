@@ -599,15 +599,6 @@
 				window.open(computeSecretUrl(secretUrl), '_blank')
 			}
 		},
-		// {
-		// 	displayName: 'Publish to Hub',
-		// 	icon: faGlobe,
-		// 	action: () => {
-		// 		const url = appToHubUrl(toStatic($app, $staticExporter, $summary, $hubBaseUrlStore))
-		// 		window.open(url.toString(), '_blank')
-		// 	}
-		// },
-
 		{
 			displayName: 'App inputs',
 			icon: FormInput,

@@ -1272,7 +1272,15 @@
 					}
 				)
 
-				connectToLanguageServer(buildWsUrl('/ws/ruff'), 'ruff', {}, undefined)
+				// `ruff server` resolves settings per workspace folder, and the folder registered
+				// below is the document URI rather than a directory containing it, so a ruff.toml
+				// on disk never applies unless named here (written by lsp/pyls_launcher.py).
+				connectToLanguageServer(
+					buildWsUrl('/ws/ruff'),
+					'ruff',
+					{ settings: { configuration: '/tmp/monaco/ruff.toml' } },
+					undefined
+				)
 			} else if (lang === 'go') {
 				connectToLanguageServer(
 					buildWsUrl('/ws/go'),

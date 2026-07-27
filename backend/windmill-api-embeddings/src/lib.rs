@@ -56,6 +56,10 @@ lazy_static::lazy_static! {
     pub static ref EMBEDDINGS_DB: Arc<RwLock<Option<EmbeddingsDb>>> = Arc::new(RwLock::new(None));
     pub static ref MODEL_INSTANCE: Arc<RwLock<Option<Arc<ModelInstance>>>> = Arc::new(RwLock::new(None));
     pub static ref HUB_EMBEDDINGS_PULLING_INTERVAL_SECS: u64 = std::env::var("HUB_EMBEDDINGS_PULLING_INTERVAL_SECS").ok().map(|x| x.parse::<u64>().ok()).flatten().unwrap_or(3600 * 24);
+    // On a failed init/refresh we retry after this short interval instead of the
+    // full pulling interval, so a transient startup error doesn't leave the
+    // embeddings DB uninitialized for a whole day.
+    pub static ref HUB_EMBEDDINGS_RETRY_INTERVAL_SECS: u64 = std::env::var("HUB_EMBEDDINGS_RETRY_INTERVAL_SECS").ok().map(|x| x.parse::<u64>().ok()).flatten().unwrap_or(60);
 }
 
 #[cfg(feature = "embedding")]
@@ -111,6 +115,26 @@ pub struct ResourceTypeResult {
     name: String,
     score: f32,
     schema: Option<serde_json::Value>,
+}
+
+/// Drop results whose score falls more than `max_relative_drop` below the best
+/// match, so a strong hit isn't diluted by weakly-related entries that merely
+/// clear the similarity floor. Expects `results` sorted by descending score and
+/// a positive top score (guaranteed by the caller's similarity threshold).
+#[cfg(feature = "embedding")]
+fn trim_to_top_score<T>(
+    results: Vec<T>,
+    max_relative_drop: f32,
+    score: impl Fn(&T) -> f32,
+) -> Vec<T> {
+    if results.len() <= 1 {
+        return results;
+    }
+    let top_score = score(&results[0]);
+    results
+        .into_iter()
+        .take_while(|r| (top_score - score(r)) / top_score <= max_relative_drop)
+        .collect()
 }
 #[cfg(feature = "embedding")]
 async fn query_resource_types(
@@ -511,15 +535,7 @@ impl EmbeddingsDb {
             })
             .collect();
 
-        let mut results = results?;
-
-        if results.len() > 1 {
-            let top_score = results[0].score;
-            results = results
-                .into_iter()
-                .take_while(|r| (top_score - r.score) / top_score <= 0.05)
-                .collect();
-        }
+        let results = trim_to_top_score(results?, 0.05, |r| r.score);
 
         Ok(results)
     }
@@ -560,7 +576,7 @@ impl EmbeddingsDb {
             Some(0.75),
         );
 
-        let results: Result<_> = results
+        let results: Result<Vec<ResourceTypeResult>> = results
             .iter()
             .map(|r| {
                 let metadata = r
@@ -582,7 +598,9 @@ impl EmbeddingsDb {
             })
             .collect();
 
-        results
+        let results = trim_to_top_score(results?, 0.05, |r| r.score);
+
+        Ok(results)
     }
 }
 
@@ -601,42 +619,67 @@ pub fn load_embeddings_db(db: &Pool<Postgres>) -> () {
     if !disable_embedding {
         let db_clone = db.clone();
         tokio::spawn(async move {
-            let model_instance = ModelInstance::new().await;
-            if let Ok(model_instance) = model_instance {
-                let mut model_instance_lock = MODEL_INSTANCE.write().await;
-                *model_instance_lock = Some(Arc::new(model_instance));
-                drop(model_instance_lock);
-                loop {
-                    update_embeddings_db(&db_clone).await;
-                    tokio::time::sleep(std::time::Duration::from_secs(
-                        *HUB_EMBEDDINGS_PULLING_INTERVAL_SECS,
-                    ))
-                    .await;
+            // Keep retrying model init: a transient failure here must not
+            // permanently disable embeddings until the next process restart.
+            // Backoff decays to the pulling interval so an environment where it
+            // can never succeed (e.g. air-gapped, embeddings left enabled)
+            // settles into ~1 attempt/interval rather than a tight error loop.
+            let mut backoff_secs = *HUB_EMBEDDINGS_RETRY_INTERVAL_SECS;
+            loop {
+                match ModelInstance::new().await {
+                    Ok(model_instance) => {
+                        let mut model_instance_lock = MODEL_INSTANCE.write().await;
+                        *model_instance_lock = Some(Arc::new(model_instance));
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to initialize model instance: {}. Retrying in {}s...",
+                            e,
+                            backoff_secs
+                        );
+                        tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
+                        backoff_secs = backoff_secs
+                            .saturating_mul(2)
+                            .min(*HUB_EMBEDDINGS_PULLING_INTERVAL_SECS);
+                    }
                 }
-            } else {
-                tracing::error!(
-                    "Failed to initialize model instance: {}",
-                    model_instance.err().unwrap()
-                );
+            }
+            let mut backoff_secs = *HUB_EMBEDDINGS_RETRY_INTERVAL_SECS;
+            loop {
+                let sleep_secs = if update_embeddings_db(&db_clone).await {
+                    backoff_secs = *HUB_EMBEDDINGS_RETRY_INTERVAL_SECS;
+                    *HUB_EMBEDDINGS_PULLING_INTERVAL_SECS
+                } else {
+                    let secs = backoff_secs;
+                    backoff_secs = backoff_secs
+                        .saturating_mul(2)
+                        .min(*HUB_EMBEDDINGS_PULLING_INTERVAL_SECS);
+                    secs
+                };
+                tokio::time::sleep(std::time::Duration::from_secs(sleep_secs)).await;
             }
         });
     }
 }
 
 #[cfg(feature = "embedding")]
-pub async fn update_embeddings_db(db: &Pool<Postgres>) -> () {
+pub async fn update_embeddings_db(db: &Pool<Postgres>) -> bool {
     if let Some(model_instance) = MODEL_INSTANCE.read().await.as_ref() {
         tracing::info!("Creating embeddings DB...");
         let new_embeddings_db = EmbeddingsDb::new(&db, model_instance.clone()).await;
         if let Err(e) = new_embeddings_db.as_ref() {
             tracing::error!("Failed to create embeddings db: {}", e);
+            false
         } else {
             let mut embeddings_db = EMBEDDINGS_DB.write().await;
             *embeddings_db = new_embeddings_db.ok();
             tracing::info!("Created embeddings DB");
+            true
         }
     } else {
         tracing::error!("Could not update embeddings DB, model instance not initialized");
+        false
     }
 }
 
@@ -658,4 +701,32 @@ pub fn workspaced_service() -> Router {
 #[cfg(not(feature = "embedding"))]
 pub fn global_service() -> Router {
     Router::new()
+}
+
+#[cfg(all(test, feature = "embedding"))]
+mod tests {
+    use super::trim_to_top_score;
+
+    #[test]
+    fn trims_scores_more_than_5pct_below_top() {
+        // top=1.0, cutoff at 0.95: 0.96 stays (0.04 drop), 0.93 is the first
+        // beyond the cutoff so take_while stops there and drops the tail.
+        let kept = trim_to_top_score(vec![1.0f32, 0.97, 0.96, 0.93, 0.9], 0.05, |s| *s);
+        assert_eq!(kept, vec![1.0, 0.97, 0.96]);
+    }
+
+    #[test]
+    fn keeps_all_when_tightly_clustered() {
+        let kept = trim_to_top_score(vec![0.9f32, 0.89, 0.88], 0.05, |s| *s);
+        assert_eq!(kept, vec![0.9, 0.89, 0.88]);
+    }
+
+    #[test]
+    fn passes_through_zero_or_one_result() {
+        assert_eq!(
+            trim_to_top_score(Vec::<f32>::new(), 0.05, |s| *s),
+            Vec::<f32>::new()
+        );
+        assert_eq!(trim_to_top_score(vec![0.42f32], 0.05, |s| *s), vec![0.42]);
+    }
 }

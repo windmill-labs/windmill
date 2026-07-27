@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT (kind::text NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow')\n                   AND parent_job IS NULL) AS \"is_wac!\"\n           FROM v2_job WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "is_wac!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ed42846826aa3f82f17097e52fcbf55f4e0a37d7c9280064a5636d9d3bf1f6c2"
+}

@@ -119,14 +119,15 @@ pub const ALLOW_PRIVATE_WEBSOCKET_URLS_ENV: &str = "ALLOW_PRIVATE_WEBSOCKET_URLS
 /// `$flow:`/`$script:` URL is checked on its returned value and re-checked on
 /// each reconnect (DNS rebinding). `validate_config` also calls this at save
 /// time to reject static URLs early.
-pub async fn validate_websocket_url_for_ssrf(url: &str) -> Result<()> {
-    if std::env::var(ALLOW_PRIVATE_WEBSOCKET_URLS_ENV)
-        .ok()
-        .is_some_and(|v| v == "true" || v == "1")
-    {
-        return Ok(());
-    }
-
+///
+/// Returns the resolved [`ValidatedTarget`]: the connect must pin these
+/// addresses (see [`proxy::connect_async_with_proxy`]) so a rebinder cannot swap
+/// in an internal IP between this check and the connect (TOCTOU). The returned
+/// `addrs` carry the http(s) port, which equals the ws(s) port the connection
+/// uses (ws→80, wss→443, or the explicit port preserved through the mapping).
+pub async fn validate_websocket_url_for_ssrf(
+    url: &str,
+) -> Result<windmill_common::ssrf::ValidatedTarget> {
     // `ws`/`wss` aren't recognised by `validate_url_for_ssrf`'s scheme check, so
     // map them to the http(s) equivalent the same connection would tunnel over.
     // The prefixes are ASCII, so byte-slicing at their length stays on a char
@@ -139,6 +140,20 @@ pub async fn validate_websocket_url_for_ssrf(url: &str) -> Result<()> {
     } else {
         url.to_string()
     };
+
+    if std::env::var(ALLOW_PRIVATE_WEBSOCKET_URLS_ENV)
+        .ok()
+        .is_some_and(|v| v == "true" || v == "1")
+    {
+        // Opted out of the SSRF guard: allow any host and pin nothing. Parse the
+        // host for a uniform return; fall back to an empty target if unparseable
+        // (the connect then resolves normally, matching the pre-guard behavior).
+        let host = url::Url::parse(&http_url)
+            .ok()
+            .and_then(|u| u.host_str().map(str::to_string))
+            .unwrap_or_default();
+        return Ok(windmill_common::ssrf::ValidatedTarget { host, addrs: Vec::new() });
+    }
 
     windmill_common::ssrf::validate_url_for_ssrf(&http_url)
         .await

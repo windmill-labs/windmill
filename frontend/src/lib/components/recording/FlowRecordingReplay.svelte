@@ -169,15 +169,24 @@
 
 	export function startReplay() {
 		if (!rootJobId) return
-		// JSON round-trip to unwrap reactive proxies and strip non-cloneable properties
-		const snapshot = JSON.parse(JSON.stringify(recording)) as FlowRecording
-		fixEventOrdering(snapshot, rootJobId)
-		rebaseTimestamps(snapshot, rootJobId)
-		setActiveReplay(snapshot)
-		rootInitialJob = buildInitialJob(snapshot, rootJobId)
-		job = undefined
-		replayState = 'playing'
-		selectedTab = 'ui'
+		try {
+			// JSON round-trip to unwrap reactive proxies and strip non-cloneable properties
+			const snapshot = JSON.parse(JSON.stringify(recording)) as FlowRecording
+			// A malformed recording (upload / `?src=` fetch) can throw while walking
+			// its jobs' flow_status here — an event-handler throw a Svelte boundary
+			// can't catch, so it's guarded rather than left to break the page.
+			fixEventOrdering(snapshot, rootJobId)
+			rebaseTimestamps(snapshot, rootJobId)
+			setActiveReplay(snapshot)
+			rootInitialJob = buildInitialJob(snapshot, rootJobId)
+			job = undefined
+			replayState = 'playing'
+			selectedTab = 'ui'
+		} catch {
+			setActiveReplay(undefined)
+			replayState = 'loaded'
+			sendUserToast('This recording could not be replayed — it may be malformed', true)
+		}
 	}
 
 	onDestroy(() => {

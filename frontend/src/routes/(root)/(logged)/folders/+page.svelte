@@ -14,7 +14,8 @@
 	import { sendUserToast } from '$lib/utils'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
-	import { Pen, Trash, Plus } from 'lucide-svelte'
+	import { Pen, Trash, Plus, UploadCloud } from 'lucide-svelte'
+	import DeployToHub from '$lib/components/workspaceSettings/DeployToHub.svelte'
 	import Head from '$lib/components/table/Head.svelte'
 	import Row from '$lib/components/table/Row.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
@@ -30,6 +31,8 @@
 	let newFolderName: string = $state('')
 	let folders: FolderW[] | undefined = $state(undefined)
 	let folderDrawer: Drawer | undefined = $state()
+	let hubDrawer: Drawer | undefined = $state()
+	let publishFolderName: string = $state('')
 
 	async function loadFolders(): Promise<void> {
 		folders = (await FolderService.listFolders({ workspace: $workspaceStore! })).map((x) => {
@@ -85,6 +88,22 @@
 <Drawer bind:this={folderDrawer}>
 	<DrawerContent title="Folder {editFolderName}" on:close={folderDrawer.closeDrawer}>
 		<FolderEditor on:update={loadFolders} name={editFolderName} />
+	</DrawerContent>
+</Drawer>
+
+<Drawer bind:this={hubDrawer} size="1100px">
+	<DrawerContent
+		title="Publish {publishFolderName} to Hub"
+		on:close={() => {
+			hubDrawer?.closeDrawer()
+			publishFolderName = ''
+		}}
+	>
+		{#if publishFolderName}
+			{#key publishFolderName}
+				<DeployToHub folder={publishFolderName} />
+			{/key}
+		{/if}
 	</DrawerContent>
 </Drawer>
 
@@ -161,7 +180,7 @@
 						<Cell head class="w-20">Variables</Cell>
 						<Cell head class="w-20">Resources</Cell>
 						<Cell head class="w-20">Participants</Cell>
-						<Cell head last />
+						<Cell head last stickyEnd />
 					</tr>
 				</Head>
 				<tbody class="divide-y">
@@ -223,7 +242,7 @@
 								<FolderUsageInfo {name} tabular />
 
 								<Cell><FolderInfo members={computeMembers(owners, extra_perms)} /></Cell>
-								<Cell shouldStopPropagation>
+								<Cell last stickyEnd shouldStopPropagation>
 									<Dropdown
 										items={[
 											{
@@ -233,6 +252,15 @@
 												action: () => {
 													editFolderName = name
 													folderDrawer?.openDrawer()
+												}
+											},
+											{
+												displayName: 'Publish to Hub',
+												icon: UploadCloud,
+												disabled: !($userStore?.is_admin || $userStore?.is_super_admin),
+												action: () => {
+													publishFolderName = name
+													hubDrawer?.openDrawer()
 												}
 											},
 											{

@@ -1012,7 +1012,7 @@
 								<Cell head>Resource type</Cell>
 								<Cell head>Description</Cell>
 								<Cell head />
-								<Cell head last />
+								<Cell head last stickyEnd />
 							</Row>
 						</Head>
 						<tbody class="divide-y bg-surface">
@@ -1180,84 +1180,86 @@
 												{/if}
 											</div>
 										</Cell>
-										<Cell class="flex justify-end">
-											{#if path && assetCanBeExplored({ kind: 'resource', path }, { resource_type }) && !$userStore?.operator}
-												<ExploreAssetButton
-													asset={{ kind: 'resource', path }}
-													_resourceMetadata={{ resource_type }}
-													class="w-24"
-												/>
-											{/if}
-											<Dropdown
-												class="w-fit"
-												items={[
-													{
-														displayName: 'Permissions',
-														icon: Shield,
-														action: () => {
-															shareModal?.openDrawer?.(path, 'resource')
-														}
-													},
-													{
-														displayName: 'Edit',
-														icon: Pen,
-														disabled: !canWrite || !showCreateButtons,
-														action: () => {
-															resourceEditor?.initEdit?.(path)
-														}
-													},
-													...(!ws_specific && isDeployable('resource', path, deployUiSettings)
-														? [
-																{
-																	displayName: 'Deploy to prod/staging',
-																	icon: FileUp,
-																	action: () => {
-																		deploymentDrawer?.openDrawer(path, 'resource')
+										<Cell last stickyEnd>
+											<div class="flex justify-end">
+												{#if path && assetCanBeExplored({ kind: 'resource', path }, { resource_type }) && !$userStore?.operator}
+													<ExploreAssetButton
+														asset={{ kind: 'resource', path }}
+														_resourceMetadata={{ resource_type }}
+														class="w-24"
+													/>
+												{/if}
+												<Dropdown
+													class="w-fit"
+													items={[
+														{
+															displayName: 'Permissions',
+															icon: Shield,
+															action: () => {
+																shareModal?.openDrawer?.(path, 'resource')
+															}
+														},
+														{
+															displayName: 'Edit',
+															icon: Pen,
+															disabled: !canWrite || !showCreateButtons,
+															action: () => {
+																resourceEditor?.initEdit?.(path)
+															}
+														},
+														...(!ws_specific && isDeployable('resource', path, deployUiSettings)
+															? [
+																	{
+																		displayName: 'Deploy to prod/staging',
+																		icon: FileUp,
+																		action: () => {
+																			deploymentDrawer?.openDrawer(path, 'resource')
+																		}
 																	}
-																}
-															]
-														: []),
-													{
-														displayName: 'Delete',
-														disabled: !canWrite || !showCreateButtons,
-														icon: Trash,
-														type: 'delete',
-														action: (event) => {
-															// TODO
-															// @ts-ignore
-															if (event?.shiftKey) {
-																deleteResource(path, account)
-															} else {
-																deleteIsLinked = is_linked ?? false
-																deletePath = path
-																deleteConfirmedCallback = () => {
+																]
+															: []),
+														{
+															displayName: 'Delete',
+															disabled: !canWrite || !showCreateButtons,
+															icon: Trash,
+															type: 'delete',
+															action: (event) => {
+																// TODO
+																// @ts-ignore
+																if (event?.shiftKey) {
 																	deleteResource(path, account)
+																} else {
+																	deleteIsLinked = is_linked ?? false
+																	deletePath = path
+																	deleteConfirmedCallback = () => {
+																		deleteResource(path, account)
+																	}
 																}
 															}
-														}
-													},
-													...(account != undefined
-														? [
-																{
-																	displayName: 'Refresh token',
-																	icon: RotateCw,
-																	action: async () => {
-																		await OauthService.refreshToken({
-																			workspace: $workspaceStore ?? '',
-																			id: account ?? 0,
-																			requestBody: {
-																				path
-																			}
-																		})
-																		sendUserToast('Token refreshed')
-																		loadResources()
+														},
+														...(account != undefined
+															? [
+																	{
+																		displayName: 'Refresh token',
+																		icon: RotateCw,
+																		action: async () => {
+																			await OauthService.refreshToken({
+																				workspace: $workspaceStore ?? '',
+																				id: account ?? 0,
+																				requestBody: {
+																					path
+																				}
+																			})
+																			sendUserToast('Token refreshed')
+																			loadResources()
+																		}
 																	}
-																}
-															]
-														: [])
-												]}
-											/>
-										</Cell>
+																]
+															: [])
+													]}
+												/>
+											</div></Cell
+										>
 									</Row>
 								{/each}
 							{/if}
@@ -1285,7 +1287,7 @@
 							<Row>
 								<Cell head first>Name</Cell>
 								<Cell head>Description</Cell>
-								<Cell head last />
+								<Cell head last stickyEnd />
 							</Row>
 						</Head>
 						<tbody class="divide-y bg-surface">
@@ -1321,7 +1323,7 @@
 												{removeMarkdown(truncate(description ?? '', 200))}
 											</span>
 										</Cell>
-										<Cell last>
+										<Cell last stickyEnd>
 											{#if !canWrite}
 												<Badge>
 													Shared globally

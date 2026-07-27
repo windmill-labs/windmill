@@ -501,6 +501,9 @@ pub async fn delete_jobs(conn: &mut sqlx::PgConnection, ids: &[uuid::Uuid]) -> e
     sqlx::query!("DELETE FROM zombie_job_counter WHERE job_id = ANY($1)", ids)
         .execute(&mut *conn)
         .await?;
+    sqlx::query!("DELETE FROM job_resolution WHERE job_id = ANY($1)", ids)
+        .execute(&mut *conn)
+        .await?;
     sqlx::query!("DELETE FROM v2_job WHERE id = ANY($1)", ids)
         .execute(&mut *conn)
         .await?;

@@ -4,6 +4,7 @@ import type {
 	CreateVariable,
 	FlowValue,
 	GcpTriggerData,
+	NewEmailTrigger,
 	NewHttpTrigger,
 	NewKafkaTrigger,
 	NewMqttTrigger,
@@ -42,7 +43,8 @@ export const TRIGGER_KINDS = [
 	'amqp',
 	'sqs',
 	'gcp',
-	'azure'
+	'azure',
+	'email'
 ] as const
 
 export type TriggerKind = (typeof TRIGGER_KINDS)[number]
@@ -58,6 +60,7 @@ export type TriggerRequestBody =
 	| NewSqsTrigger
 	| GcpTriggerData
 	| AzureTriggerData
+	| NewEmailTrigger
 
 export type WorkspaceItemType =
 	| 'script'
