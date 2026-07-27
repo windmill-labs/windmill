@@ -683,6 +683,9 @@
 		currentGraphNodeDeps = graphNodeDeps
 
 		// Pre-compute extra space per node for assets, AI tools, group notes, group headers
+		const resolvedLinkedTools = linkedAgentToolsForScope(
+			linkedToolsScope(workspace, linkedToolsPath ?? path)
+		)
 		const nodeExtraSpace = computeNodeExtraSpace(graphNodeDeps, {
 			showAssets: $showAssets ?? true,
 			showNotes,
@@ -691,7 +694,7 @@
 			groupDisplayState,
 			insertable,
 			flowModuleStates,
-			linkedAgentTools: linkedAgentToolsForScope(linkedToolsScope(workspace, linkedToolsPath ?? path))
+			linkedAgentTools: resolvedLinkedTools
 		})
 
 		// Layout with extra space baked into sugiyama
@@ -723,7 +726,7 @@
 			eventHandler,
 			insertable,
 			flowModuleStates,
-			linkedAgentToolsForScope(linkedToolsScope(workspace, linkedToolsPath ?? path))
+			resolvedLinkedTools
 		)
 
 		let finalNodes: (Node & NodeLayout)[] = [

@@ -92,6 +92,33 @@ describe('linkedAgentToolsStore', () => {
 		releaseLinkedToolsScope(from)
 	})
 
+	// Readers release the old scope before retaining the new one. Over the cap, with everything else
+	// retained, the migrated bucket would be the only evictable entry in that window.
+	it('keeps migrated tools when the old scope is released before the new one is retained', () => {
+		const held: string[] = []
+		for (let i = 0; i < MAX_SCOPES; i++) {
+			const scope = linkedToolsScope('rename-fill', `${seq}-${i}`)
+			setLinkedAgentTools(scope, 'step', [tool(`t${i}`)])
+			retainLinkedToolsScope(scope)
+			held.push(scope)
+		}
+		const from = freshScope('before')
+		const to = freshScope('after')
+		setLinkedAgentTools(from, 'step', [tool('x')])
+		retainLinkedToolsScope(from)
+
+		migrateLinkedAgentToolsScope(from, to)
+		releaseLinkedToolsScope(from)
+		retainLinkedToolsScope(to)
+
+		expect(getLinkedAgentTools(to, 'step').map((t) => t.id)).toEqual(['x'])
+
+		releaseLinkedToolsScope(to)
+		for (const scope of held) {
+			releaseLinkedToolsScope(scope)
+		}
+	})
+
 	it('clears one module without disturbing its siblings', () => {
 		const scope = freshScope()
 		setLinkedAgentTools(scope, 'a', [tool('x')])

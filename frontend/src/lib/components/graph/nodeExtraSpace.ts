@@ -83,7 +83,9 @@ export function computeNodeExtraSpace(
 			const tools = mod.value.agent
 				? (opts.linkedAgentTools?.[node.id] ?? [])
 				: (mod.value.tools ?? [])
-			const totalRows = Math.ceil(tools.length / MAX_TOOLS_PER_ROW) + (opts.insertable ? 1 : 0)
+			// A linked agent has no add-tool node (its tools are the resource's), matching computeAIToolNodes.
+			const addToolRow = opts.insertable && !mod.value.agent ? 1 : 0
+			const totalRows = Math.ceil(tools.length / MAX_TOOLS_PER_ROW) + addToolRow
 			const space = AI_TOOL_BASE_OFFSET + AI_TOOL_ROW_OFFSET * totalRows
 			const prev = extraSpace.get(node.id) ?? { top: 0, bottom: 0, left: 0, right: 0 }
 			extraSpace.set(node.id, { ...prev, top: prev.top + space })

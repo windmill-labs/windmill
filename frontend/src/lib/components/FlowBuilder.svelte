@@ -595,19 +595,15 @@
 	// initFlowState has already resolved those — starting empty would clear and refetch every step
 	// on the first run.
 	let publishedAgentByModule = untrack(() => linkedAgentEntries(linkedAgentRefs))
-	let publishedLinkedToolsScope = untrack(() => linkedToolsScope(opWorkspace, $pathStore))
 	$effect(() => {
 		const refs = linkedAgentRefs
 		const ws = opWorkspace
 		const scope = linkedToolsScope(opWorkspace, $pathStore)
 		untrack(() => {
 			const next = linkedAgentEntries(refs)
-			if (scope !== publishedLinkedToolsScope) {
-				// A rename: the sweep above carries the resolved buckets over, so nothing to re-resolve.
-				publishedLinkedToolsScope = scope
-				publishedAgentByModule = next
-				return
-			}
+			// Only links that actually changed are re-resolved, so a plain rename costs nothing: the
+			// sweep above carries its buckets to the new scope and every entry compares equal. A
+			// restore that renames and relinks in one tick still gets both.
 			for (const [moduleId, agentPath] of next) {
 				if (publishedAgentByModule.get(moduleId) === agentPath) {
 					continue
