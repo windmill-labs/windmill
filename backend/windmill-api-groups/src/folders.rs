@@ -153,6 +153,7 @@ async fn list_foldernames(
     // Dynamic binds are all text[] arrays, appended in order after the three fixed
     // binds ($1 workspace, $2 limit, $3 offset).
     let mut arr_binds: Vec<Vec<String>> = vec![];
+    let mut cte = String::new();
     if lq.non_empty.unwrap_or(false) {
         // Only folders holding at least one non-archived script/flow/app (the kinds the
         // homepage lists) — a single scan per table semi-joined on the owner segment,
@@ -160,7 +161,12 @@ async fn list_foldernames(
         // scopes both apply inside the subquery, so a folder whose items the caller
         // cannot read counts as empty for them.
         let sub = non_empty_owner_subquery(&authed, "f/", 4, &mut arr_binds);
-        sql.push_str(&format!(" AND name IN ({sub})"));
+        // MATERIALIZED fence: with an inline `IN (<sub>)`, the ORDER BY name LIMIT
+        // makes the planner stream folders in folder_pkey order and linearly probe the
+        // aggregated owner set once per folder (O(folders × owners) — ~7x slower at
+        // 1k folders / 10k scripts); the fence keeps it a single scan + merge join.
+        cte = format!("WITH owners AS MATERIALIZED ({sub}) ");
+        sql.push_str(" AND name IN (SELECT * FROM owners)");
     }
     match build_scope_path_filter(&authed, "folders", "read") {
         ScopePathFilter::AllowAll => {}
@@ -189,6 +195,7 @@ async fn list_foldernames(
         }
     }
     sql.push_str(" ORDER BY name asc LIMIT $2 OFFSET $3");
+    let sql = format!("{cte}{sql}");
 
     let mut query = sqlx::query_scalar::<_, String>(&sql)
         .bind(&w_id)
