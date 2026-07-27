@@ -191,9 +191,12 @@
 		// Tool inputs are saved verbatim: the agent carries its tools' default bindings (static, AI or
 		// flow expressions) as authored. Host flows override per-step via tool_inputs, never here.
 		const value = inputTransformsToAgentConfig(inputTransforms, tools)
-		// If the step is replaced while the requests below are in flight (undo, session-draft sync),
-		// the resource is still written but the replacement module must not be relinked/cleared.
+		// If the edit session ends or changes while the requests below are in flight (Cancel, undo,
+		// session-draft sync, a different agent opened for editing), the resource is still written but
+		// the step must not be relinked/cleared. Pinning the path — not merely "some edit is active" —
+		// is what distinguishes this session from a replacement one.
 		const forkMarker = tools
+		const savingEditPath = getAgentEditingPath(forkMarker)
 		const exists = await ResourceService.existsResource({ workspace: ws!, path })
 		if (exists) {
 			// The drawer's path check is debounced, so a fast save can reach here with an unrelated
@@ -220,7 +223,9 @@
 				}
 			})
 		}
-		if (tools !== forkMarker && getAgentEditingPath(tools) === undefined) {
+		// A content-preserving refresh may have re-anchored the marker onto a clone of `tools`, which
+		// is still this session; anything else is not.
+		if (getAgentEditingPath(tools) !== savingEditPath) {
 			return
 		}
 		agent = path

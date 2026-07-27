@@ -422,9 +422,6 @@ pub async fn handle_ai_agent_job(
             })?,
             None => Vec::new(),
         };
-        // Bind the resource's tools to this flow's context. Only the step's transforms are
-        // applied; the resource keeps whatever the agent author saved (which references the
-        // authoring flow and is meaningless here). Unmatched tool ids / input keys are ignored.
         overlay_tool_inputs(&mut tools, &tool_inputs);
         let args = serde_json::from_value::<AIAgentArgs>(serde_json::Value::Object(config))
             .map_err(|e| {

@@ -61,6 +61,8 @@
 	import { useThrottle } from 'runed'
 	import { Splitpanes, Pane } from 'svelte-splitpanes'
 	import { getActiveReplay } from './recording/flowRecording.svelte'
+	import { publishLinkedAgentTools } from './flows/flowState'
+	import { getLinkedAgentTools, linkedToolsScope } from './flows/linkedAgentToolsStore.svelte'
 
 	let {
 		flowState: flowStateStore,
@@ -244,6 +246,24 @@
 				}
 				extendedFlowGraphAssetsCtx.val = clone(_flowGraphAssetsCtx?.val)
 				extendedFlowGraphAssetsCtx.val.additionalAssetsMap['Input'] = inputAssets
+			}
+		})
+	})
+
+	// A linked agent persists no tools on the module, so this read-only viewer resolves them from the
+	// resource: without them the graph draws no tool nodes and AIAgentLogViewer drops every tool_call
+	// it cannot match to a definition. Scope must match what FlowGraphV2 reads below.
+	let linkedToolsViewScope = $derived(linkedToolsScope(workspace, job?.script_path))
+	$effect(() => {
+		const modules = dfs(job?.raw_flow?.modules ?? [], (m) => m)
+		const ws = workspace
+		const scope = linkedToolsViewScope
+		untrack(() => {
+			for (const m of modules) {
+				const value = m?.value as { type?: string; agent?: string } | undefined
+				if (value?.type === 'aiagent' && value.agent) {
+					publishLinkedAgentTools(value.agent, ws, scope, m.id)
+				}
 			}
 		})
 	})
@@ -1971,6 +1991,7 @@
 									earlyStop={job.raw_flow?.skip_expr !== undefined}
 									cache={job.raw_flow?.cache_ttl !== undefined}
 									modules={job.raw_flow?.modules ?? []}
+									path={job?.script_path}
 									notes={notesProp ?? job.raw_flow?.notes ?? []}
 									groups={groupsProp ?? job.raw_flow?.groups}
 									failureModule={job.raw_flow?.failure_module}
@@ -2094,7 +2115,9 @@
 														stepDetail && typeof stepDetail !== 'string' ? stepDetail : undefined}
 													{@const agentTools =
 														module && module.value.type === 'aiagent'
-															? module.value.tools
+															? module.value.agent
+																? getLinkedAgentTools(linkedToolsViewScope, module.id)
+																: module.value.tools
 															: undefined}
 													{@const parentLoopsPrefix = getParentLoopsPrefix(module?.id ?? '')}
 													{#if node.flow_jobs_results}
