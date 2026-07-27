@@ -325,7 +325,7 @@ fn draft_branch_sql(kind: &str) -> String {
     };
     format!(
         "SELECT '{kind}' as kind, o.path, o.summary, o.workspace_id, '{{}}'::jsonb as extra_perms, \
-                favorite.path IS NOT NULL as starred, false as archived, \
+                false as starred, false as archived, \
                 true as is_draft, true as draft_only, o.draft_path, \
                 json_build_array(json_build_object('username', $2::text)) as draft_users, \
                 NULL::text[] as labels, NULL::text[] as inherited_labels, \
@@ -343,9 +343,11 @@ fn draft_branch_sql(kind: &str) -> String {
              WHERE d.workspace_id = $1 AND {typ_pred} AND (d.email = $3 OR d.email IS NULL) \
                AND NOT EXISTS (SELECT 1 FROM {deployed} x \
                                WHERE x.workspace_id = d.workspace_id AND x.path = d.path) \
-             ORDER BY d.path, (d.email IS NULL) \
-         ) o \
-         LEFT JOIN favorite ON favorite.favorite_kind = '{kind}' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = $2"
+             -- Owned draft over a legacy NULL-email one, then newest: the app branch spans
+             -- two draft kinds (`app` and `raw_app`) that can both exist at a path, and the
+             -- pick decides raw_app, summary and draft_path. Same tiebreak as apps.rs.
+             ORDER BY d.path, (d.email IS NULL), d.created_at DESC \
+         ) o"
     )
 }
 
@@ -594,12 +596,15 @@ async fn list_runnables(
         if !include_drafts || !kinds.contains(&kind) {
             return None;
         }
+        // `fav` is ignored: with no favorite join there is nothing to filter on, and the
+        // starred pass skips draft branches entirely.
+        let _ = fav;
         Some(build_branch(
             &draft_branch_sql(kind),
             &format!("draft_{kind}"),
             &draft_common_where,
             &draft_extras_for(kind),
-            fav,
+            None,
             keyset,
             limit,
         ))
@@ -623,14 +628,12 @@ async fn list_runnables(
     // favorite is a single row in either — the starred-first contract holds in the
     // archived view too, and the pinned first page stays bounded.
     if first_page {
+        // No draft branch here: a draft-only path has no favorite row (the UI won't let
+        // you star one), so it would scan the caller's whole draft slice per kind to
+        // return nothing. The main stream below takes them unfiltered instead.
         let starred_branches: Vec<String> = ["script", "flow", "app"]
             .iter()
             .filter_map(|k| branch_for(k, Some(true), None, None))
-            .chain(
-                ["script", "flow", "app"]
-                    .iter()
-                    .filter_map(|k| draft_branch_for(k, Some(true), None, None)),
-            )
             .collect();
         if !starred_branches.is_empty() {
             let sql = run_union(starred_branches, None);
@@ -984,7 +987,7 @@ async fn add_draft_counts(
             // legacy NULL-email one, which `/list` shows as a single row. Wrapped
             // because its ORDER BY would otherwise bind to the whole UNION.
             format!(
-                "SELECT path FROM (SELECT DISTINCT ON (d.path) {effective_path} FROM draft d WHERE {} ORDER BY d.path) s",
+                "SELECT path FROM (SELECT DISTINCT ON (d.path) {effective_path} FROM draft d WHERE {} ORDER BY d.path, (d.email IS NULL), d.created_at DESC) s",
                 w.join(" AND ")
             )
         })

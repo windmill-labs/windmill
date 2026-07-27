@@ -47,7 +47,7 @@
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import Item from './Item.svelte'
 	import TreeViewRoot from './TreeViewRoot.svelte'
-	import { treePath, type ItemType } from './treeViewUtils'
+	import { effectivePath, type ItemType } from './treeViewUtils'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { getContext, tick, untrack } from 'svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
@@ -287,7 +287,7 @@
 			if (it.type === 'script') {
 				// Pipeline-member scripts are folded into their pipeline entry.
 				if (it.auto_kind === 'pipeline') {
-					const m = it.path.match(/^f\/([^/]+)\//)
+					const m = effectivePath(it).match(/^f\/([^/]+)\//)
 					if (m) memberFolders.add(m[1])
 					continue
 				}
@@ -440,7 +440,9 @@
 		// other owner's untouched) so a re-sort/re-filter swaps its items atomically
 		// without blanking the whole tree; load-more appends to what's already shown.
 		const prefix = `${owner}/`
-		const base = more ? treeOwnerItems : treeOwnerItems.filter((x) => !x.path.startsWith(prefix))
+		const base = more
+			? treeOwnerItems
+			: treeOwnerItems.filter((x) => !effectivePath(x).startsWith(prefix))
 		const have = new Set(base.map(itemKey))
 		const merged = [...base]
 		for (const it of res.items ?? []) {
@@ -487,7 +489,7 @@
 		// previous scope's items instead of re-fetching. Drop them and let expand reload.
 		if (treeLazyMode) {
 			const open = new Set(toReload)
-			treeOwnerItems = treeOwnerItems.filter((x) => open.has(ownerOf(treePath(x))))
+			treeOwnerItems = treeOwnerItems.filter((x) => open.has(ownerOf(effectivePath(x))))
 			ownerLoad = Object.fromEntries(Object.entries(ownerLoad).filter(([o]) => open.has(o)))
 		}
 		await loadRunnables(true)
@@ -511,9 +513,10 @@
 		filterUserFoldersType: 'only f/*' | 'u/username and f/*' | undefined
 	) {
 		if (!filterUserFoldersType || !filterUserFolders) return true
-		if (filterUserFoldersType === 'only f/*') return item.path.startsWith('f/')
+		const path = effectivePath(item)
+		if (filterUserFoldersType === 'only f/*') return path.startsWith('f/')
 		if (filterUserFoldersType === 'u/username and f/*')
-			return item.path.startsWith('f/') || item.path.startsWith(`u/${$userStore?.username}/`)
+			return path.startsWith('f/') || path.startsWith(`u/${$userStore?.username}/`)
 		return true // should not happen
 	}
 
@@ -709,7 +712,7 @@
 	// counting 0 gets no chip at all — including your own space.
 	let owners = $derived.by(() => {
 		const self = $userStore?.username ? `u/${$userStore.username}` : undefined
-		const loaded = filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? []
+		const loaded = filteredItems?.map((x) => ownerOf(effectivePath(x))) ?? []
 		if (ownerCounts == undefined) {
 			// Counts still in flight: the folder/user lists resolve first, so painting the full
 			// list here would show the wall this drops and snap to the ranked set a tick later.
