@@ -134,7 +134,21 @@ class WorkflowCtx {
       return new Promise(() => {});
     }
 
-    const result = await fn();
+    let result: any;
+    try {
+      result = await fn();
+    } catch (e: any) {
+      if (e?.name === "StepSuspend" || e instanceof StepSuspend) throw e;
+      result = {
+        __wmill_error: true,
+        message: e instanceof Error ? e.message : String(e),
+        step_key: key,
+        result: {
+          error: e instanceof Error ? e.message : String(e),
+          type: e instanceof Error ? e.name : typeof e,
+        },
+      };
+    }
     throw new StepSuspend({
       mode: "inline_checkpoint",
       steps: [],
@@ -1340,6 +1354,55 @@ describe("error propagation via __wmill_error marker", () => {
     const result = await runWorkflow(wf, checkpoint, [5]);
     expect(result.type).toBe("complete");
     expect(result.result).toEqual({ __wmill_error: false, data: "not an error" });
+  });
+});
+
+// A step() whose body throws must still land in completed_steps. Otherwise a
+// workflow that catches the error and later dispatches a task replays with
+// _executingKey set, reaches the unrecorded key, and parks on the
+// never-resolving promise forever.
+describe("throwing inline step is checkpointed", () => {
+  const marker = {
+    __wmill_error: true,
+    message: "boom",
+    step_key: "step_0",
+    result: { error: "boom", type: "TypeError" },
+  };
+
+  test("a throwing step suspends with an error checkpoint", async () => {
+    const ctx = new WorkflowCtx({});
+    let caught: any;
+    try {
+      await ctx._runInlineStep("risky", () => {
+        throw new TypeError("boom");
+      });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(StepSuspend);
+    expect(caught.dispatchInfo.mode).toBe("inline_checkpoint");
+    expect(caught.dispatchInfo.key).toBe("step_0");
+    expect(caught.dispatchInfo.result).toEqual(marker);
+  });
+
+  test("replay rethrows the error and does not hang", async () => {
+    const wf = workflow(async (x: number) => {
+      try {
+        await step("risky", () => {
+          throw new TypeError("boom");
+        });
+      } catch {
+        // swallowed on purpose — the workflow keeps going
+      }
+      return await double(x);
+    });
+    const result = await runWorkflow(
+      wf,
+      { completed_steps: { step_0: marker }, _executing_key: "step_1" },
+      [5],
+    );
+    expect(result.type).toBe("complete");
+    expect(result.result).toBe(10);
   });
 });
 

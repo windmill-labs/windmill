@@ -1520,6 +1520,29 @@ export class StepSuspend extends Error {
   }
 }
 
+/** Serialize a failed `step()` body into the `__wmill_error` marker that task
+ *  failures also use, so it can be stored in `completed_steps`. */
+function stepErrorMarker(key: string, e: unknown): Record<string, any> {
+  const message = e instanceof Error ? e.message : String(e);
+  return {
+    __wmill_error: true,
+    message,
+    step_key: key,
+    result: { error: message, type: e instanceof Error ? e.name : typeof e },
+  };
+}
+
+/** Rebuild the error a failed step throws. Both the run that produced the
+ *  failure and every later replay go through here, so a workflow's catch block
+ *  sees the same shape either way. */
+function stepErrorFromMarker(marker: any, name: string): Error {
+  const err = new Error(marker?.message || `Step '${name}' failed`);
+  (err as any).result = marker?.result;
+  (err as any).step_key = marker?.step_key;
+  (err as any).child_job_id = marker?.child_job_id;
+  return err;
+}
+
 export interface TaskOptions {
   timeout?: number;
   tag?: string;
@@ -1736,11 +1759,7 @@ export class WorkflowCtx {
     if (key in this.completed) {
       const value = this.completed[key];
       if (value && typeof value === "object" && (value as any).__wmill_error) {
-        const err = new Error((value as any).message || `Step '${name}' failed`);
-        (err as any).result = (value as any).result;
-        (err as any).step_key = (value as any).step_key;
-        (err as any).child_job_id = (value as any).child_job_id;
-        throw err;
+        throw stepErrorFromMarker(value, name);
       }
       return value as T;
     }
@@ -1753,7 +1772,23 @@ export class WorkflowCtx {
     const startedAt = new Date().toISOString();
     console.log(`WM_WAC_STEP: ${JSON.stringify({ key, started_at: startedAt })}`);
     const t0 = Date.now();
-    const result = await fn();
+    // A thrown step still has to reach `completed_steps`: if the workflow
+    // catches the error and later suspends on a task, the replay reaches this
+    // key with `_executingKey` set, finds nothing recorded, and parks forever
+    // on the never-resolving promise above. Record the failure with the same
+    // `__wmill_error` marker task failures use, so the replay re-throws it
+    // right here. A nested StepSuspend is control flow, not a step failure.
+    let result: T;
+    let stepError: unknown;
+    let errored = false;
+    try {
+      result = await fn();
+    } catch (e) {
+      if ((e as any)?.name === "StepSuspend" || e instanceof StepSuspend) throw e;
+      errored = true;
+      stepError = e;
+      result = stepErrorMarker(key, e) as any;
+    }
     const durationMs = Date.now() - t0;
 
     // Fast path: POST the delta to the new per-job API endpoint and return the
@@ -1810,14 +1845,27 @@ export class WorkflowCtx {
       });
       // Swallow chain errors so a past failure does not poison future awaits.
       this._inlineChain = chainTail.catch(() => {});
+      let fastPathOk = false;
       try {
         await chainTail;
-        return result as T;
+        fastPathOk = true;
       } catch (e) {
         console.log(
           `WAC v2 inline fast path failed for key ${key}, falling back to suspend: ${e}`,
         );
         // fall through to the legacy suspend path below
+      }
+      if (fastPathOk) {
+        // The failure is checkpointed, so throw it into the still-running
+        // workflow body — as the very error a replay would rebuild from the
+        // marker, never as the original. A replay can only reconstruct what the
+        // marker holds, so throwing the original here would let
+        // `catch (e) { if (e instanceof TypeError) }` match on this run and miss
+        // on the next one. `cause` keeps the original reachable for logging.
+        if (errored) {
+          throw Object.assign(stepErrorFromMarker(result, name), { cause: stepError });
+        }
+        return result as T;
       }
     }
 
