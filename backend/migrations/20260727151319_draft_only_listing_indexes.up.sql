@@ -3,17 +3,16 @@
 --
 -- Every draft query there is "this caller's drafts of this kind", so `typ` and
 -- `email` are key columns rather than filters: without them the existing
--- draft_user_listing_idx hands back the caller's drafts of every kind and the
--- branch throws most away (measured on a 5k-draft user: 1.4ms vs 4.1ms per
--- kind). `path` sorts with text_pattern_ops so an owner-filtered listing
--- (`path LIKE 'f/foo/%'`) can seek instead of scanning the whole slice — the
--- default opclass sorts by the database collation and cannot serve a byte
--- prefix.
+-- draft_user_listing_idx hands back the caller's drafts of every kind and each
+-- per-kind branch throws most away.
 --
--- Deliberately the only index added: `draft` is written on every editor
--- autosave, and time/name sort indexes measured as pure overhead — the
--- listing's DISTINCT ON (path) dedup has to sort by path before the sort key
--- is applied, so an ordered index is never used for the order.
+-- Deliberately just these three columns. `path` would not help: a draft is
+-- listed, grouped and filtered under the path it says it will deploy to, which
+-- lives in the draft JSON and is only resolved after the DISTINCT ON dedup, so
+-- no index can prune on it. Nor can "draft-only" itself be pushed into the
+-- index — it means "no deployed row at this path", and Postgres rejects a
+-- subquery in an index predicate; the anti-join prunes it at query time off the
+-- deployed tables' own (workspace_id, path) indexes.
 -- Created CONCURRENTLY via the OVERRIDDEN_MIGRATIONS rewrite in windmill-api/src/db.rs.
 CREATE INDEX IF NOT EXISTS draft_kind_user_listing_idx
-    ON draft (workspace_id, typ, email, path text_pattern_ops);
+    ON draft (workspace_id, typ, email);
