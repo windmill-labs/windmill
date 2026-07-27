@@ -191,7 +191,8 @@
 					</div>
 				{/if}
 				{#if !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !flow.canWrite)}
-					<div>
+					{@const label = editInForkLabel($workspaceStore, $userWorkspaces)}
+					<div title={label}>
 						<Button
 							variant={!showEditButton ? 'default' : 'subtle'}
 							wrapperClasses="max-w-48"
@@ -199,8 +200,7 @@
 							startIcon={{ icon: GitFork }}
 							href={buildForkEditUrl('flow', flow.path)}
 						>
-							{@const label = editInForkLabel($workspaceStore, $userWorkspaces)}
-							<span class="truncate" title={label}>{label}</span>
+							<span class="truncate">{label}</span>
 						</Button>
 					</div>
 				{/if}

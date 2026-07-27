@@ -170,7 +170,8 @@
 					</div>
 				{/if}
 				{#if !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !app.canWrite)}
-					<div>
+					{@const label = editInForkLabel($workspaceStore, $userWorkspaces)}
+					<div title={label}>
 						<Button
 							variant={!showEditButton ? 'default' : 'subtle'}
 							wrapperClasses="max-w-48"
@@ -178,8 +179,7 @@
 							startIcon={{ icon: GitFork }}
 							href={buildForkEditUrl(app.raw_app ? 'raw_app' : 'app', app.path)}
 						>
-							{@const label = editInForkLabel($workspaceStore, $userWorkspaces)}
-							<span class="truncate" title={label}>{label}</span>
+							<span class="truncate">{label}</span>
 						</Button>
 					</div>
 				{/if}
