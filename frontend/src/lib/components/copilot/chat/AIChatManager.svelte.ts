@@ -2417,7 +2417,26 @@ export class AIChatManager {
 	beforeSend?: () => Promise<void> | void
 	afterFirstTurnSaved?: () => Promise<void> | void
 
-	sendRequest = async (
+	/** A send is between the composer clearing and its turn being installed.
+	 * `loading` only rises after the attachment-upkeep awaits, so consumers that
+	 * must not read half-installed history (ArrowUp recall) need this instead.
+	 * Counted, not boolean: a send recursively flushes queued messages, and the
+	 * inner one finishing doesn't mean the outer is done. */
+	#sendsInFlight = $state(0)
+	get sendInFlight(): boolean {
+		return this.#sendsInFlight > 0
+	}
+
+	sendRequest = async (options: Parameters<typeof this.sendRequestImpl>[0] = {}) => {
+		this.#sendsInFlight++
+		try {
+			return await this.sendRequestImpl(options)
+		} finally {
+			this.#sendsInFlight--
+		}
+	}
+
+	private sendRequestImpl = async (
 		options: {
 			removeDiff?: boolean
 			addBackCode?: boolean
