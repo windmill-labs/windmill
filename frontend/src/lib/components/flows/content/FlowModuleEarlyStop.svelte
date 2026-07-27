@@ -131,14 +131,18 @@
 						<Toggle
 							size="xs"
 							disabled={!isStopAfterIfEnabled}
-							checked={flowModule.stop_after_if?.skip_if_stopped ?? false}
-							on:change={(event) => {
-								if (flowModule.stop_after_if && event.detail) {
-									flowModule.stop_after_if.error_message = undefined
-									flowModule.stop_after_if.error_include_result = false
-									raise_error_message_stop_after_if = false
+							bind:checked={
+								() => flowModule.stop_after_if?.skip_if_stopped ?? false,
+								(v) => {
+									if (!flowModule.stop_after_if) return
+									flowModule.stop_after_if.skip_if_stopped = v
+									if (v) {
+										flowModule.stop_after_if.error_message = undefined
+										flowModule.stop_after_if.error_include_result = false
+										raise_error_message_stop_after_if = false
+									}
 								}
-							}}
+							}
 							options={{
 								right: 'Label flow as "skipped" if stopped'
 							}}
@@ -239,14 +243,18 @@
 						<Toggle
 							size="xs"
 							disabled={!isStopAfterAllIterationsEnabled}
-							checked={flowModule.stop_after_all_iters_if?.skip_if_stopped ?? false}
-							on:change={(event) => {
-								if (flowModule.stop_after_all_iters_if && event.detail) {
-									flowModule.stop_after_all_iters_if.error_message = undefined
-									flowModule.stop_after_all_iters_if.error_include_result = false
-									raise_error_message_stop_after_all_if = false
+							bind:checked={
+								() => flowModule.stop_after_all_iters_if?.skip_if_stopped ?? false,
+								(v) => {
+									if (!flowModule.stop_after_all_iters_if) return
+									flowModule.stop_after_all_iters_if.skip_if_stopped = v
+									if (v) {
+										flowModule.stop_after_all_iters_if.error_message = undefined
+										flowModule.stop_after_all_iters_if.error_include_result = false
+										raise_error_message_stop_after_all_if = false
+									}
 								}
-							}}
+							}
 							options={{
 								right: 'Label flow as "skipped" if stopped'
 							}}
