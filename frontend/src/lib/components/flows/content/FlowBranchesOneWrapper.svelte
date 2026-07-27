@@ -30,8 +30,6 @@
 
 	let advancedSettings: FlowModuleAdvancedSettings | undefined = $state(undefined)
 
-	// UI Intent handling for AI tool control: forward the requested tab to the
-	// matching Run-settings accordion row (keys match the old tab names).
 	useUiIntent(`branchone-${flowModule.id}`, {
 		openTab: (tab) => {
 			advancedSettings?.openSetting(tab)

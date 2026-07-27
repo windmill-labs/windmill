@@ -27,7 +27,11 @@
 	import FlowModuleTimeout from './FlowModuleTimeout.svelte'
 	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 	import FlowModuleCache from './FlowModuleCache.svelte'
-	import { stepSettingsByKey, type StepSettingSummary } from '../flowStepSettings'
+	import {
+		hasInlineConcurrency,
+		stepSettingsByKey,
+		type StepSettingSummary
+	} from '../flowStepSettings'
 
 	// The accordion also hosts a code helper (S3 snippets), which is not a step setting,
 	// so the row renderer takes the shared visual shape rather than a settings view.
@@ -92,7 +96,9 @@
 	let panelWidth = $state(0)
 	let narrow = $derived(panelWidth > 0 && panelWidth < 560)
 
-	// Node-header quick-toggles open the tab then reveal the matching row.
+	/** Reveal one setting's row. `key` is a StepSettingKey, so callers that name a
+	 *  setting (node-header quick-toggles, the AI tool's openTab intent) must use
+	 *  those keys — 'runtime' is the one alias kept for the concurrency row. */
 	export function openSetting(key: string) {
 		expanded = key === 'runtime' ? 'concurrency' : key
 	}
@@ -108,14 +114,9 @@
 	)
 	let s3Kind = $state<'s3_client' | 'polars' | 'duckdb'>('s3_client')
 	const s3Snippet = $derived(s3Language ? s3Scripts[s3Language][s3Kind] : undefined)
-	const concurrencyOff = $derived(
-		!$enterpriseLicense ||
-			flowModule.value.type !== 'rawscript' ||
-			!flowModule.value.concurrent_limit
-	)
+	const concurrencyOn = $derived(hasInlineConcurrency(flowModule))
+	const concurrencyOff = $derived(!$enterpriseLicense || !concurrencyOn)
 
-	// Every surface that answers "is this setting configured, and what is it called?"
-	// reads flowStepSettings, so these rows and the graph badges cannot disagree.
 	const settings = $derived(
 		stepSettingsByKey(flowModule, {
 			concurrent_limit: referencedConcurrentLimit,
@@ -134,45 +135,46 @@
 {#snippet rowHeader(s: RowLike | undefined)}
 	{#if s}
 		{@const Icon = s.icon}
-	<button
-		type="button"
-		aria-expanded={expanded === s.key}
-		onclick={() => (expanded = expanded === s.key ? undefined : s.key)}
-		class="flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-surface-hover"
-	>
-		<Icon size={16} class="shrink-0 text-secondary" />
-		<div class="flex min-w-0 grow flex-col">
-			<span class="text-xs font-normal leading-tight text-emphasis">{s.label}</span>
-			{#if narrow && s.summary.state !== 'default'}
+		<button
+			type="button"
+			aria-expanded={expanded === s.key}
+			onclick={() => (expanded = expanded === s.key ? undefined : s.key)}
+			class="flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-surface-hover"
+		>
+			<Icon size={16} class="shrink-0 text-secondary" />
+			<div class="flex min-w-0 grow flex-col">
+				<span class="text-xs font-normal leading-tight text-emphasis">{s.label}</span>
+				{#if narrow && s.summary.state !== 'default'}
+					<span
+						class="mt-0.5 truncate text-xs font-normal leading-tight {s.summary.mono
+							? 'font-mono'
+							: ''} {s.summary.state === 'invalid' ? 'text-red-500' : 'text-accent'}"
+					>
+						{s.summary.text}
+					</span>
+				{/if}
+			</div>
+			{#if !narrow}
 				<span
-					class="mt-0.5 truncate text-xs font-normal leading-tight {s.summary.mono
+					class="min-w-0 truncate text-xs font-normal {s.summary.mono &&
+					s.summary.state === 'configured'
 						? 'font-mono'
-						: ''} {s.summary.state === 'invalid' ? 'text-red-500' : 'text-accent'}"
+						: ''} {s.summary.state === 'configured'
+						? 'text-accent'
+						: s.summary.state === 'invalid'
+							? 'text-red-500'
+							: 'text-emphasis'}"
 				>
 					{s.summary.text}
 				</span>
 			{/if}
-		</div>
-		{#if !narrow}
-			<span
-				class="min-w-0 truncate text-xs font-normal {s.summary.mono && s.summary.state === 'configured'
-					? 'font-mono'
-					: ''} {s.summary.state === 'configured'
-					? 'text-accent'
-					: s.summary.state === 'invalid'
-						? 'text-red-500'
-						: 'text-emphasis'}"
-			>
-				{s.summary.text}
-			</span>
-		{/if}
-		<ChevronRight
-			size={14}
-			class="shrink-0 text-tertiary transition-transform duration-150 {expanded === s.key
-				? 'rotate-90'
-				: ''}"
-		/>
-	</button>
+			<ChevronRight
+				size={14}
+				class="shrink-0 text-tertiary transition-transform duration-150 {expanded === s.key
+					? 'rotate-90'
+					: ''}"
+			/>
+		</button>
 	{/if}
 {/snippet}
 
@@ -258,6 +260,9 @@
 					{/if}
 				</div>
 
+				<!-- The error handler runs outside the flow's control graph; only its own
+				     failure handling applies. -->
+				{#if !isFailure}
 				<div>
 					{@render rowHeader(settings['timeout'])}
 					{#if expanded === 'timeout'}
@@ -298,14 +303,10 @@
 											textClass="text-xs font-normal text-primary"
 											eeOnly
 											disabled={!$enterpriseLicense}
-											checked={Boolean(flowModule.value.concurrent_limit)}
+											checked={concurrencyOn}
 											on:change={() => {
 												if (flowModule.value.type !== 'rawscript') return
-												if (flowModule.value.concurrent_limit) {
-													flowModule.value.concurrent_limit = undefined
-												} else {
-													flowModule.value.concurrent_limit = 1
-												}
+												flowModule.value.concurrent_limit = concurrencyOn ? undefined : 1
 											}}
 											options={{
 												right: 'Limit the number of concurrent executions',
@@ -319,6 +320,7 @@
 												disabled={concurrencyOff}
 												bind:value={flowModule.value.concurrent_limit}
 												type="number"
+												min="1"
 												class="!w-24"
 											/>
 										</Label>
@@ -429,16 +431,19 @@
 						</div>
 					{/if}
 				</div>
+				{/if}
 			{/if}
 
-			<div>
-				{@render rowHeader(settings['lifetime'])}
-				{#if expanded === 'lifetime'}
-					<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
-						<FlowModuleDeleteAfterUse bind:flowModule disabled={!$enterpriseLicense} />
-					</div>
-				{/if}
-			</div>
+			{#if !isFailure}
+				<div>
+					{@render rowHeader(settings['lifetime'])}
+					{#if expanded === 'lifetime'}
+						<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
+							<FlowModuleDeleteAfterUse bind:flowModule disabled={!$enterpriseLicense} />
+						</div>
+					{/if}
+				</div>
+			{/if}
 
 			{#if loopSubset}
 				<div>
@@ -458,13 +463,16 @@
 				</div>
 			{/if}
 
-			{#if s3Language && onApplyS3Snippet}
+			{#if s3Language && onApplyS3Snippet && !isFailure}
 				<div>
 					{@render rowHeader({
 						key: 's3',
 						label: 'S3 snippets',
 						icon: Database,
-						summary: { text: s3Language === 'deno' ? 'S3 lite client' : 'Boto3, Polars, DuckDB', state: 'default' }
+						summary: {
+							text: s3Language === 'deno' ? 'S3 lite client' : 'Boto3, Polars, DuckDB',
+							state: 'default'
+						}
 					})}
 					{#if expanded === 's3'}
 						<div class="px-3 pb-3 pt-1 flex flex-col gap-2" transition:slide={{ duration: 120 }}>

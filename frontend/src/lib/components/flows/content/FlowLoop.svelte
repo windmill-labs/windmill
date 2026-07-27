@@ -67,8 +67,6 @@
 		}
 	}
 
-	// UI Intent handling for AI tool control: forward the requested tab to the
-	// matching Run-settings accordion row (keys match the old tab names).
 	useUiIntent(`forloopflow-${mod.id}`, {
 		openTab: (tab) => {
 			advancedSettings?.openSetting(tab)

@@ -23,4 +23,4 @@ The first step of a polling flow. It runs on a schedule and returns the items fo
 _Avoid_: poll script, trigger node, schedule step
 
 **Default predicate**:
-The `stop_after_if` expression seeded onto a trigger step at creation, encoding what "nothing new" looks like. One value, owned in one place — historically it was re-invented per creation path and the copies diverged.
+The `stop_after_if` expression seeded onto a trigger step at creation, encoding what "nothing new" looks like. One value, owned in one place, shared by every path that creates a trigger step.

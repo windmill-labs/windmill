@@ -72,7 +72,7 @@ const cfg = (text: string, mono = false): StepSettingSummary => ({
 	mono
 })
 
-export function formatDur(s: number | undefined): string {
+function formatDur(s: number | undefined): string {
 	if (s == null) return ''
 	if (s < 60) return `${s}s`
 	if (s < 3600) return `${Math.round(s / 60)} min`
@@ -103,6 +103,12 @@ type SettingSpec = {
 const isWorkspaceScript = (mod: FlowModule) => mod.value.type === 'script'
 const inlineConcurrentLimit = (mod: FlowModule) =>
 	mod.value.type === 'rawscript' ? mod.value.concurrent_limit : undefined
+
+/** Whether an inline step's own concurrency limit is on. The setting editor shares this
+ *  with the summary so a rejected value can't read as "None" while its controls stay live. */
+export function hasInlineConcurrency(mod: FlowModule): boolean {
+	return (inlineConcurrentLimit(mod) ?? 0) > 0
+}
 
 /** Canonical order — every surface lists settings in this sequence. */
 const SPECS: { key: StepSettingKey; spec: SettingSpec }[] = [
@@ -217,7 +223,7 @@ const SPECS: { key: StepSettingKey; spec: SettingSpec }[] = [
 			configured: (m, ctx) =>
 				isWorkspaceScript(m)
 					? ctx.referenced?.concurrent_limit != undefined && ctx.referenced.concurrent_limit > 0
-					: (inlineConcurrentLimit(m) ?? 0) > 0,
+					: hasInlineConcurrency(m),
 			summarize: (m, ctx) => {
 				if (isWorkspaceScript(m)) {
 					const l = ctx.referenced?.concurrent_limit
@@ -311,7 +317,7 @@ export function stepSettingsByKey(
 
 /** How a trigger step decides it has nothing to process. Stored on the step at
  *  creation, so changing it only affects newly created steps. */
-export const TRIGGER_STOP_EXPR = '!result || (Array.isArray(result) && result.length == 0)'
+const TRIGGER_STOP_EXPR = '!result || (Array.isArray(result) && result.length == 0)'
 
 /** The config a setting is seeded with when it is switched on. Read by the setting
  *  editors and by every path that creates a step, so both agree. Settings absent from

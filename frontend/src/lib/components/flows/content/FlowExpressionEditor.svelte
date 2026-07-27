@@ -74,7 +74,18 @@
 
 	let pickerPopover: Popover | undefined = $state()
 
+	// SimpleEditor seeds its Monaco model from `code` once, so a `code` that changes
+	// underneath it (toggling a setting on writes its seeded expression) would leave the
+	// editor showing something the flow no longer holds.
+	$effect(() => {
+		const next = code ?? ''
+		if (editor && next !== editor.getCode()) {
+			editor.setCode(next)
+		}
+	})
+
 	function insert(path: string) {
+		if (disabled) return
 		editor?.insertAtCursor(path)
 		editor?.focus()
 	}
@@ -93,6 +104,7 @@
 			class={modalMode ? 'w-full' : 'h-full'}
 			shouldBindKey={false}
 			{disabled}
+			readOnly={disabled}
 			{extraLib}
 			{suggestion}
 		/>

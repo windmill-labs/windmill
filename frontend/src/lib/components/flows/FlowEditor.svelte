@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { openedDrawers } from '$lib/components/common/drawer/Disposable.svelte'
 	import FlowEditorPanel from './content/FlowEditorPanel.svelte'
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 	import type { OpenInSessionSource } from '$lib/components/sessions/OpenInSessionButton.svelte'
@@ -73,9 +74,9 @@
 		flowHasChanged?: boolean
 		previewOpen: boolean
 		graphOverlay?: Snippet
-		/** Width-responsive step-details panel: below the breakpoint the pane becomes
-		 *  a modal, and the docked pane gains an inline detach action. Whitelabel
-		 *  embeds turn it off to keep the classic always-docked pane. */
+		/** Allow the step-details pane to open as a modal, starting in whichever mode
+		 *  suits the editor's width at mount. Whitelabel embeds turn this off to keep
+		 *  the classic always-docked pane. */
 		modalPanel?: boolean
 	}
 
@@ -134,11 +135,6 @@
 			panelModalOpen = true
 		}
 	}
-
-	// Flow-level panels (Settings, error handler, env vars, triggers, input, …) are
-	// reached via toolbar buttons / dedicated nodes, not step-node double-clicks. In
-	// modal mode a single click on any of them should open the modal too — step
-	// modules stay double-click-only so graph select/drag doesn't pop the modal.
 
 	// In modal mode a step's editor is a double-click away but invisible until then —
 	// keep a standing hint whenever the graph is showing (modal closed).
@@ -425,7 +421,10 @@
 <svelte:window
 	onkeydown={(e) => {
 		if (panelMode === 'modal' && panelModalOpen && e.key === 'Escape') {
-			e.stopPropagation()
+			// A drawer opened from inside the panel is on top and owns Escape. Both
+			// listeners are on window, so neither can stop the other from running —
+			// only this check keeps one Escape from closing the drawer and the panel.
+			if (openedDrawers.val.length > 0) return
 			panelModalOpen = false
 		}
 	}}
