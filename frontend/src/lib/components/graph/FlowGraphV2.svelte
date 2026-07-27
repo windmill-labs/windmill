@@ -77,7 +77,7 @@
 	import { getAllModules } from '../flows/flowExplorer'
 	import SelectionTool from './SelectionTool.svelte'
 	import PaneContextMenu from './PaneContextMenu.svelte'
-	import { SelectionManager } from './selectionUtils.svelte'
+	import { SelectionManager, isFlowLevelPanelTarget } from './selectionUtils.svelte'
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
 	import { NoteManager } from './noteManager.svelte'
 	import type { MoveManager } from './moveManager.svelte'
@@ -452,7 +452,13 @@
 		},
 		select: (modId, opts) => {
 			// AI tools are not selectable by the flow. Selection has to be refactored to be simplier.
-			if (nodes.find((n) => n.data?.moduleId === modId)?.type === 'aiTool' || modId === 'Trigger') {
+			// Flow-level panels reach selection only through here, so they must go through
+			// selectId or their intent (and the modal panel) never fires.
+			if (
+				nodes.find((n) => n.data?.moduleId === modId)?.type === 'aiTool' ||
+				modId === 'Trigger' ||
+				isFlowLevelPanelTarget(modId)
+			) {
 				selectionManager.selectId(modId, opts)
 			}
 			if (!notSelectable) {

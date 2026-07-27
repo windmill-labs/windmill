@@ -7,6 +7,14 @@ export type SelectIntentOptions = {
 	openPanel?: boolean
 }
 
+/** Panels reached from toolbar buttons or dedicated graph nodes rather than step
+ * modules. They open on a single selection; step modules deliberately do not. */
+const FLOW_LEVEL_PANEL_IDS = new Set(['constants', 'failure', 'preprocessor', 'Input', 'Result'])
+
+export function isFlowLevelPanelTarget(id: string): boolean {
+	return id.startsWith('settings') || FLOW_LEVEL_PANEL_IDS.has(id)
+}
+
 export class SelectionManager {
 	#selectedNodes = $state<Node[] | { id: string }[]>([])
 	#selectionMode = $state<'normal' | 'rect-select'>('normal')
@@ -91,6 +99,12 @@ export class SelectionManager {
 		if (!nodes || nodes.length === 0) {
 			this.clearSelection()
 			return
+		}
+
+		// Before the same-id early return, like `selectId`: re-selecting an already
+		// selected node must still be able to reopen its panel.
+		if (nodes.length === 1) {
+			this.#onSelectIntent?.(nodes[0].id)
 		}
 
 		// If the new selection is the same as the current selection, do nothing

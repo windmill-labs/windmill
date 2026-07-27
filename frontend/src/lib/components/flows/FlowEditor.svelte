@@ -7,6 +7,7 @@
 	import { Skeleton } from '../common'
 	import { getContext, onDestroy, onMount, setContext } from 'svelte'
 	import type { FlowEditorContext, FlowPanelDetachContext } from './types'
+	import { isFlowLevelPanelTarget } from '$lib/components/graph/selectionUtils.svelte'
 
 	import { writable } from 'svelte/store'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
@@ -138,13 +139,6 @@
 	// reached via toolbar buttons / dedicated nodes, not step-node double-clicks. In
 	// modal mode a single click on any of them should open the modal too — step
 	// modules stay double-click-only so graph select/drag doesn't pop the modal.
-	// The Triggers node is a graph node like any step: selecting it does not open the
-	// panel, double-clicking does. Picking a specific trigger inside it asks for the
-	// panel explicitly via `openPanel`.
-	const NON_MODULE_PANEL_IDS = new Set(['constants', 'failure', 'preprocessor', 'Input', 'Result'])
-	function isNonModulePanelTarget(id: string): boolean {
-		return id.startsWith('settings') || NON_MODULE_PANEL_IDS.has(id)
-	}
 
 	// In modal mode a step's editor is a double-click away but invisible until then —
 	// keep a standing hint whenever the graph is showing (modal closed).
@@ -209,7 +203,7 @@
 		if (modalPanel) {
 			selectionManager.setOnSelectIntent((id, opts) => {
 				if (opts?.openPanel === false) return
-				if (panelMode === 'modal' && (opts?.openPanel || isNonModulePanelTarget(id))) {
+				if (panelMode === 'modal' && (opts?.openPanel || isFlowLevelPanelTarget(id))) {
 					panelModalOpen = true
 				}
 			})
