@@ -4,9 +4,11 @@ import type {
 	CreateVariable,
 	FlowValue,
 	GcpTriggerData,
+	NewEmailTrigger,
 	NewHttpTrigger,
 	NewKafkaTrigger,
 	NewMqttTrigger,
+	NewAmqpTrigger,
 	NewNatsTrigger,
 	NewPostgresTrigger,
 	NewSchedule,
@@ -38,9 +40,11 @@ export const TRIGGER_KINDS = [
 	'nats',
 	'postgres',
 	'mqtt',
+	'amqp',
 	'sqs',
 	'gcp',
-	'azure'
+	'azure',
+	'email'
 ] as const
 
 export type TriggerKind = (typeof TRIGGER_KINDS)[number]
@@ -52,9 +56,11 @@ export type TriggerRequestBody =
 	| NewNatsTrigger
 	| NewPostgresTrigger
 	| NewMqttTrigger
+	| NewAmqpTrigger
 	| NewSqsTrigger
 	| GcpTriggerData
 	| AzureTriggerData
+	| NewEmailTrigger
 
 export type WorkspaceItemType =
 	| 'script'
@@ -123,6 +129,8 @@ export type WorkspaceItem = {
 		| CreateResource
 		| CreateVariable
 		| AppDraftValue
+	/** Input schema of a script read (flows carry theirs inside `value`). */
+	schema?: unknown
 	isDraft: boolean
 	isLiveDraft?: boolean
 }

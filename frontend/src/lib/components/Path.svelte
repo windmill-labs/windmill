@@ -20,6 +20,7 @@
 		PostgresTriggerService,
 		NatsTriggerService,
 		MqttTriggerService,
+		AmqpTriggerService,
 		SqsTriggerService,
 		GcpTriggerService,
 		AzureTriggerService,
@@ -58,6 +59,7 @@
 		| 'postgres_trigger'
 		| 'nats_trigger'
 		| 'mqtt_trigger'
+		| 'amqp_trigger'
 		| 'sqs_trigger'
 		| 'gcp_trigger'
 		| 'azure_trigger'
@@ -299,6 +301,11 @@
 			})
 		} else if (kind === 'mqtt_trigger') {
 			return await MqttTriggerService.existsMqttTrigger({
+				workspace: ws!,
+				path: path
+			})
+		} else if (kind === 'amqp_trigger') {
+			return await AmqpTriggerService.existsAmqpTrigger({
 				workspace: ws!,
 				path: path
 			})

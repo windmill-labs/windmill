@@ -238,6 +238,25 @@ const flushes = new SvelteMap<string, number>()
 const saveListeners = new Map<string, Set<() => void>>()
 
 /**
+ * Global listeners fired whenever ANY draft write lands on the server —
+ * upserts and deletes alike. This is the invalidation hook for caches keyed
+ * on persisted draft state (the chat diff snapshot): the moment a save
+ * commits, the affected item can be marked stale without polling.
+ */
+type DraftSavedEvent = { workspace: string; itemKind: UserDraftItemKind; path: string }
+const anySavedListeners = new Set<(event: DraftSavedEvent) => void>()
+
+function notifyAnySaved(event: DraftSavedEvent): void {
+	for (const listener of [...anySavedListeners]) {
+		try {
+			listener(event)
+		} catch (e) {
+			console.error('UserDraftDbSyncer.onAnySaved listener threw', e)
+		}
+	}
+}
+
+/**
  * Best-effort error → readable string. The generated client wraps HTTP
  * failures as `ApiError` (`body` / `statusText`); raw fetch errors are a
  * plain `Error`. Falls back to `String(e)` to avoid `[object Object]`.
@@ -310,6 +329,10 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 			const listeners = saveListeners.get(key)
 			if (listeners) for (const l of [...listeners]) l()
 		}
+		// Global subscribers hear deletes too — a removed row invalidates
+		// cached state the same way an upsert does. Listener errors must never
+		// make a committed save read as failed.
+		notifyAnySaved({ workspace: opts.workspace, itemKind: opts.itemKind, path: opts.path })
 	} catch (e) {
 		console.error('UserDraftDbSyncer.save failed', e)
 		// Leave pending opts in place so the next attempt retries the same
@@ -366,8 +389,11 @@ function flushOnPageHide(): void {
 				console.error('UserDraftDbSyncer: keepalive flush failed', e)
 			})
 			// POST advanced the row past `lastSync` and we can't read the
-			// response — mark the key so a bfcache restore drops it.
+			// response — mark the key so a bfcache restore drops it, and notify
+			// subscribers conservatively (this path bypasses postSave; on a
+			// bfcache restore a cache must not serve the pre-flush state).
 			staleSyncAfterHideFlush.add(key)
+			notifyAnySaved({ workspace: opts.workspace, itemKind: opts.itemKind, path: opts.path })
 		} catch (e) {
 			console.error('UserDraftDbSyncer: keepalive flush threw', e)
 		}
@@ -552,6 +578,18 @@ export const UserDraftDbSyncer = {
 			if (!s) return
 			s.delete(listener)
 			if (s.size === 0) saveListeners.delete(key)
+		}
+	},
+
+	/**
+	 * Fires when any draft write lands on the server — upserts AND deletes,
+	 * every workspace and key. For caches over persisted draft state that
+	 * must invalidate the affected item the moment a write commits.
+	 */
+	onAnySaved(listener: (event: DraftSavedEvent) => void): () => void {
+		anySavedListeners.add(listener)
+		return () => {
+			anySavedListeners.delete(listener)
 		}
 	},
 

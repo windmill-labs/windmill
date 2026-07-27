@@ -194,13 +194,13 @@ use crate::oracledb_executor::do_oracledb;
 #[cfg(all(feature = "private", feature = "enterprise"))]
 use crate::dedicated_worker_oss::create_dedicated_worker_map;
 
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "snowflake")]
 use crate::snowflake_executor::do_snowflake;
 
 #[cfg(all(feature = "enterprise", feature = "mssql"))]
 use crate::mssql_executor::do_mssql;
 
-#[cfg(all(feature = "enterprise", feature = "bigquery"))]
+#[cfg(feature = "bigquery")]
 use crate::bigquery_executor::do_bigquery;
 
 #[cfg(feature = "benchmark")]
@@ -3892,15 +3892,16 @@ pub async fn handle_queued_job(
 
         #[cfg(not(feature = "enterprise"))]
         if let Connection::Sql(db) = conn {
-            if (job.concurrent_limit.is_some()
-                || windmill_common::runnable_settings::prefetch_cached_from_handle(
-                    job.runnable_settings_handle,
-                    db,
-                )
-                .await?
-                .1
-                .concurrent_limit
-                .is_some())
+            if (windmill_queue::jobs::has_active_concurrency_limit(job.concurrent_limit)
+                || windmill_queue::jobs::has_active_concurrency_limit(
+                    windmill_common::runnable_settings::prefetch_cached_from_handle(
+                        job.runnable_settings_handle,
+                        db,
+                    )
+                    .await?
+                    .1
+                    .concurrent_limit,
+                ))
                 && !job.kind.is_dependency()
             {
                 logs.push_str("---\n");
@@ -4908,14 +4909,6 @@ pub async fn run_language_executor(
             .await;
         }
     } else if language == Some(ScriptLang::Bigquery) {
-        #[cfg(not(feature = "enterprise"))]
-        {
-            return Err(Error::ExecutionErr(
-                "Bigquery is only available with an enterprise license".to_string(),
-            ));
-        }
-
-        #[allow(unreachable_code)]
         #[cfg(not(feature = "bigquery"))]
         {
             return Err(Error::internal_err(
@@ -4923,7 +4916,7 @@ pub async fn run_language_executor(
             ));
         }
 
-        #[cfg(all(feature = "enterprise", feature = "bigquery"))]
+        #[cfg(feature = "bigquery")]
         {
             if run_inline {
                 return Err(Error::internal_err(
@@ -4945,14 +4938,14 @@ pub async fn run_language_executor(
             .await;
         }
     } else if language == Some(ScriptLang::Snowflake) {
-        #[cfg(not(feature = "enterprise"))]
+        #[cfg(not(feature = "snowflake"))]
         {
-            return Err(Error::ExecutionErr(
-                "Snowflake is only available with an enterprise license".to_string(),
+            return Err(Error::internal_err(
+                "Snowflake requires the snowflake feature to be enabled".to_string(),
             ));
         }
 
-        #[cfg(feature = "enterprise")]
+        #[cfg(feature = "snowflake")]
         {
             if run_inline {
                 return Err(Error::internal_err(

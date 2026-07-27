@@ -828,9 +828,11 @@ WORKSPACE_TOOL_ZOD_SCHEMAS = [
     ('NewNatsTrigger', 'natsTriggerRequestSchema'),
     ('NewPostgresTrigger', 'postgresTriggerRequestSchema'),
     ('NewMqttTrigger', 'mqttTriggerRequestSchema'),
+    ('NewAmqpTrigger', 'amqpTriggerRequestSchema'),
     ('NewSqsTrigger', 'sqsTriggerRequestSchema'),
     ('GcpTriggerData', 'gcpTriggerRequestSchema'),
     ('AzureTriggerData', 'azureTriggerRequestSchema'),
+    ('NewEmailTrigger', 'emailTriggerRequestSchema'),
     ('CreateVariable', 'variableRequestSchema'),
     ('CreateResource', 'resourceRequestSchema'),
 ]
@@ -842,9 +844,11 @@ WORKSPACE_TOOL_TRIGGER_SCHEMAS = [
     ('nats', 'natsTriggerRequestSchema'),
     ('postgres', 'postgresTriggerRequestSchema'),
     ('mqtt', 'mqttTriggerRequestSchema'),
+    ('amqp', 'amqpTriggerRequestSchema'),
     ('sqs', 'sqsTriggerRequestSchema'),
     ('gcp', 'gcpTriggerRequestSchema'),
     ('azure', 'azureTriggerRequestSchema'),
+    ('email', 'emailTriggerRequestSchema'),
 ]
 
 WORKSPACE_TOOL_ZOD_OUTPUT_PATH = (
@@ -1245,6 +1249,7 @@ WAC_TS_FUNCTIONS = [
     'step',
     'sleep',
     'waitForApproval',
+    'getApprovalUrls',
     'parallel',
 ]
 
@@ -1257,6 +1262,7 @@ WAC_PY_FUNCTIONS = [
     'step',
     'sleep',
     'wait_for_approval',
+    'get_approval_urls',
     'parallel',
 ]
 
@@ -1402,7 +1408,7 @@ def extract_wac_ts_sdk(ts_content: str) -> str:
         return ''
 
     md = "## TypeScript Workflow-as-Code API (windmill-client)\n\n"
-    md += 'Import: `import { workflow, task, taskScript, taskFlow, step, sleep, waitForApproval, getResumeUrls, parallel } from "windmill-client"`\n\n'
+    md += 'Import: `import { workflow, task, taskScript, taskFlow, step, sleep, waitForApproval, getApprovalUrls, getResumeUrls, parallel } from "windmill-client"`\n\n'
     md += "```typescript\n"
     md += "\n\n".join(declarations)
     md += "\n```\n"
@@ -1524,7 +1530,7 @@ def extract_wac_py_sdk(py_content: str) -> str:
         return ''
 
     md = "## Python Workflow-as-Code API (wmill)\n\n"
-    md += "Import: `from wmill import workflow, task, task_script, task_flow, step, sleep, wait_for_approval, get_resume_urls, parallel, TaskError`\n\n"
+    md += "Import: `from wmill import workflow, task, task_script, task_flow, step, sleep, wait_for_approval, get_approval_urls, get_resume_urls, parallel, TaskError`\n\n"
     md += "```python\n"
     md += "\n\n".join(declarations)
     md += "\n```\n"
@@ -1582,6 +1588,7 @@ SKILL_DEFINITIONS = [
             ('NatsTrigger', 'nats_trigger'),
             ('PostgresTrigger', 'postgres_trigger'),
             ('MqttTrigger', 'mqtt_trigger'),
+            ('AmqpTrigger', 'amqp_trigger'),
             ('SqsTrigger', 'sqs_trigger'),
             ('GcpTrigger', 'gcp_trigger'),
             ('AzureTrigger', 'azure_trigger'),
@@ -1668,7 +1675,7 @@ After writing, tell the user which command fits what they want to do:
 - `wmill script preview <script_path>` — **default when iterating on a local script.** Runs the local file without deploying.
 - `wmill script run <path>` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - `wmill generate-metadata` — regenerate the local `.script.yaml` (input schema) and `.lock` (resolved dependencies) for scripts you changed, and refresh their content hashes in `wmill-lock.yaml`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
-- `wmill sync push` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- Deploy local changes to the workspace — via `git push` or `wmill sync push` depending on how the repo is wired (see the **Deploying** section in `AGENTS.wmill.md`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -1698,7 +1705,7 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute `wmill script preview <path> -d '<args>'` directly — pick plausible args from the script's declared parameters. The shape varies by language: `main(...)` for code languages, the SQL dialect's own placeholder syntax (`$1` for PostgreSQL, `?` for MySQL/Snowflake, `@P1` for MSSQL, `@name` for BigQuery, etc.), positional `$1`, `$2`, … for Bash, `param(...)` for PowerShell.
 
-`wmill script preview` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). `wmill generate-metadata` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's `AGENTS.md` opts in), per "Keep metadata in sync" above. Only `wmill sync push` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
+`wmill script preview` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). `wmill generate-metadata` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's `AGENTS.md` opts in), per "Keep metadata in sync" above. Deploying to the workspace (`git push` or `wmill sync push` depending on how the repo is wired — see the **Deploying** section) is the only step that mutates remote state — do it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than `script preview`'s run-and-print-result), use the `preview` skill.
 
@@ -2478,6 +2485,7 @@ def main():
             'NatsTrigger', 'NewNatsTrigger',
             'PostgresTrigger', 'NewPostgresTrigger',
             'MqttTrigger', 'NewMqttTrigger',
+            'AmqpTrigger', 'NewAmqpTrigger',
             'SqsTrigger', 'NewSqsTrigger',
             'GcpTrigger',
             'AzureTrigger',

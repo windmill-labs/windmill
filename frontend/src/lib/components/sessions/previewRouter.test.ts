@@ -2,11 +2,26 @@ import { describe, it, expect } from 'vitest'
 import {
 	artifactUrl,
 	draftFriendlyLeaf,
+	matchReusablePage,
 	parseArtifactRoute,
 	parsePreviewItemRoute,
 	previewLocationLabel,
 	resolvePreviewTab
 } from './previewRouter'
+
+describe('matchReusablePage', () => {
+	it('matches curated pages and the compare page, ignoring query params', () => {
+		expect(matchReusablePage('/runs?path=f/a/b')?.path).toBe('/runs')
+		expect(matchReusablePage('/forks/compare?workspace_id=ws&items=script:f/a/b')?.path).toBe(
+			'/forks/compare'
+		)
+		expect(previewLocationLabel('/forks/compare?workspace_id=ws')).toBe('Compare & Deploy')
+	})
+
+	it('does not match trigger pages (they dedupe on exact URL)', () => {
+		expect(matchReusablePage('/kafka_triggers')).toBeUndefined()
+	})
+})
 
 describe('parsePreviewItemRoute', () => {
 	it('maps edit/get routes to item kinds', () => {
@@ -93,21 +108,12 @@ describe('resolvePreviewTab', () => {
 		expect(resolvePreviewTab('/apps/edit/f/a/b')).toEqual({ kind: 'iframe' })
 	})
 
-	it('routes a pipeline folder to the pipeline editor kind when session pipelines are enabled', () => {
-		localStorage.setItem('wm_dev_session_pipelines', '1')
-		try {
-			expect(resolvePreviewTab('/pipeline/my_folder')).toEqual({
-				kind: 'editor',
-				editorKind: 'pipeline',
-				path: 'my_folder'
-			})
-		} finally {
-			localStorage.removeItem('wm_dev_session_pipelines')
-		}
-	})
-
-	it('routes a pipeline folder to the iframe fallback while session pipelines are gated', () => {
-		expect(resolvePreviewTab('/pipeline/my_folder')).toEqual({ kind: 'iframe' })
+	it('routes a pipeline folder to the pipeline editor kind', () => {
+		expect(resolvePreviewTab('/pipeline/my_folder')).toEqual({
+			kind: 'editor',
+			editorKind: 'pipeline',
+			path: 'my_folder'
+		})
 	})
 
 	it('routes the bare pipeline list page to the iframe fallback', () => {

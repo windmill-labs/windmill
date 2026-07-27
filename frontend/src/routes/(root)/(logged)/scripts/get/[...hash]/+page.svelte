@@ -22,13 +22,7 @@
 	} from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import {
-		enterpriseLicense,
-		hubBaseUrlStore,
-		userStore,
-		userWorkspaces,
-		workspaceStore
-	} from '$lib/stores'
+	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 	import AIFormAssistant from '$lib/components/copilot/AIFormAssistant.svelte'
 
@@ -63,7 +57,6 @@
 		Eye,
 		FolderOpen,
 		GitFork,
-		Globe2,
 		History,
 		Loader2,
 		Pen,
@@ -76,13 +69,10 @@
 		ChevronDown,
 		ChevronRight
 	} from 'lucide-svelte'
-	import { SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB } from '$lib/consts'
-	import { scriptToHubUrl } from '$lib/hub'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import ScriptVersionHistory from '$lib/components/ScriptVersionHistory.svelte'
-	import { createAppFromScript } from '$lib/components/details/createAppFromScript'
-	import { importStore } from '$lib/components/apps/store'
+	import { createRawAppFromScript } from '$lib/components/details/createRawAppFromScript'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import PersistentScriptDrawer from '$lib/components/PersistentScriptDrawer.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
@@ -450,9 +440,11 @@
 				label: 'Build app',
 				buttonProps: {
 					onClick: async () => {
-						const app = createAppFromScript(script.path, script.schema)
-						$importStore = JSON.parse(JSON.stringify(app))
-						await goto('/apps/add')
+						const app = createRawAppFromScript(script.path, script.summary, script.schema)
+						// /apps_raw/add hard-reloads (cross-origin isolation), so the
+						// in-memory importStore would be dropped; hand off via sessionStorage.
+						sessionStorage.setItem('rawAppImport', JSON.stringify(app))
+						await goto('/apps_raw/add')
 					},
 					disabled: !showEditButtons,
 					unifiedSize: 'md',
@@ -546,30 +538,6 @@
 				Icon: ChevronUpSquare,
 				onclick: () => {
 					deploymentDrawer?.openDrawer(script?.path ?? '', 'script')
-				}
-			})
-		}
-
-		if (SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB) {
-			menuItems.push({
-				label: 'Publish to Hub',
-				Icon: Globe2,
-				onclick: () => {
-					if (!script) return
-
-					window.open(
-						scriptToHubUrl(
-							script.content,
-							script.summary,
-							script.description ?? '',
-							script.kind,
-							script.language,
-							script.schema,
-							script.lock ?? '',
-							$hubBaseUrlStore
-						).toString(),
-						'_blank'
-					)
 				}
 			})
 		}

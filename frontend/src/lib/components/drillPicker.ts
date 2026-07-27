@@ -21,6 +21,10 @@ export type DrillLeaf<L> = {
 	/** Optional override for the fuzzy-search haystack. Defaults to
 	 * `label` (or `secondary` when label is empty). */
 	searchableText?: string
+	/** Category header this leaf renders under, in both the browse list and
+	 * search results (a `searchGroup` branch ancestor wins in search).
+	 * Consecutive leaves sharing a section share one header. */
+	section?: string
 	/** Marks this leaf as the user's current location — gets `aria-current`
 	 * and a styled, no-op click. */
 	current?: boolean

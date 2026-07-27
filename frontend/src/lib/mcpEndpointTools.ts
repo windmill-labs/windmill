@@ -66,6 +66,48 @@ export const mcpEndpointTools: EndpointTool[] = [
         bodyFieldRenames: undefined
     },
     {
+        name: "listDataMetrics",
+        description: "list declared measures and dimensions on DuckLake tables: Call this before writing any aggregate query over a DuckLake table. A declared measure is the canonical definition of that number, and reproducing it yourself will silently disagree with it (a `revenue` measure typically excludes refunds or test rows). Filter by `table` for one table's declarations, or by `path_prefix` (e.g. `f/analytics`) for everything declared under a folder; omit both to browse the whole catalog. Results are keyset-paged: a full page may mean more remain, so continue with the `cursor_*` params rather than assuming a measure does not exist. Use each returned `expr` verbatim, and when a measure has a `filter` write it as `expr FILTER (WHERE filter)` so measures with different predicates can share one GROUP BY. If a number you need has no declared measure, write your own aggregate as usual. Results are limited to declarations whose producing script the caller can read",
+        instructions: "",
+        path: "/w/{workspace}/data_metrics/list",
+        method: "GET",
+        pathParamsSchema: undefined,
+        queryParamsSchema: {
+        "type": "object",
+        "properties": {
+                "table": {
+                        "type": "string",
+                        "description": "DuckLake table path, with or without the `ducklake://` scheme"
+                },
+                "path_prefix": {
+                        "type": "string",
+                        "description": "Producing script path prefix, e.g. `f/analytics`"
+                },
+                "per_page": {
+                        "type": "integer",
+                        "description": "Results per page, capped at 1000 (default 1000)"
+                },
+                "cursor_table": {
+                        "type": "string",
+                        "description": "Keyset cursor. To page, pass the previous response's `next_cursor` fields back as `cursor_*`; all four move together, and are omitted for the first page. Continue whenever `next_cursor` is present. Every returned row is one the caller may read, so the cursor never names a hidden row.\n"
+                },
+                "cursor_kind": {
+                        "type": "string"
+                },
+                "cursor_name": {
+                        "type": "string"
+                },
+                "cursor_script": {
+                        "type": "string"
+                }
+        },
+        "required": []
+},
+        bodySchema: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
+    },
+    {
         name: "createVariable",
         description: "create variable",
         instructions: "",

@@ -108,7 +108,7 @@ pub(crate) async fn change_workspace_id(
     // Duplicate workspace settings (keep copy in old workspace for reference)
     info!("Duplicating workspace_settings table");
     sqlx::query!(
-        "INSERT INTO workspace_settings SELECT $1, slack_team_id, slack_name, slack_command_script, slack_email, customer_id, plan, webhook, deploy_to, ai_config, large_file_storage, git_sync, default_app, default_scripts, deploy_ui, mute_critical_alerts, color, operator_settings, teams_command_script, teams_team_id, teams_team_name, git_app_installations, ducklake, slack_oauth_client_id, slack_oauth_client_secret, datatable, teams_team_guid, auto_invite, error_handler, success_handler FROM workspace_settings WHERE workspace_id = $2",
+        "INSERT INTO workspace_settings (workspace_id, slack_team_id, slack_name, slack_command_script, slack_email, customer_id, plan, webhook, deploy_to, ai_config, large_file_storage, git_sync, default_app, default_scripts, deploy_ui, mute_critical_alerts, color, operator_settings, teams_command_script, teams_team_id, teams_team_name, git_app_installations, ducklake, slack_oauth_client_id, slack_oauth_client_secret, datatable, teams_team_guid, auto_invite, error_handler, success_handler, public_app_execution_limit_per_minute, error_handler_fallback_to_instance_alerts) SELECT $1, slack_team_id, slack_name, slack_command_script, slack_email, customer_id, plan, webhook, deploy_to, ai_config, large_file_storage, git_sync, default_app, default_scripts, deploy_ui, mute_critical_alerts, color, operator_settings, teams_command_script, teams_team_id, teams_team_name, git_app_installations, ducklake, slack_oauth_client_id, slack_oauth_client_secret, datatable, teams_team_guid, auto_invite, error_handler, success_handler, public_app_execution_limit_per_minute, error_handler_fallback_to_instance_alerts FROM workspace_settings WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
@@ -273,6 +273,15 @@ pub(crate) async fn change_workspace_id(
     info!("Updating mqtt_trigger table");
     sqlx::query!(
         "UPDATE mqtt_trigger SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    info!("Updating amqp_trigger table");
+    sqlx::query!(
+        "UPDATE amqp_trigger SET workspace_id = $1 WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
@@ -796,7 +805,8 @@ pub(crate) async fn change_workspace_id(
     #[cfg(all(feature = "enterprise", feature = "private"))]
     for (path, hook_id) in stale_webhooks {
         if let Ok(url) =
-            windmill_common::git_sync_ee::resolve_repo_url(&db, &rw.new_id, &path).await
+            windmill_common::git_sync_ee::resolve_repo_url_interpolated(&db, &rw.new_id, &path)
+                .await
         {
             let _ =
                 windmill_common::git_sync_ee::delete_repo_webhook(&db, &rw.new_id, &url, hook_id)
@@ -950,6 +960,7 @@ pub(crate) async fn delete_workspace(
     sqlx::query!(
         "WITH ids AS (SELECT id FROM v2_job WHERE workspace_id = $1),
               _de AS (DELETE FROM dispatch_event WHERE workspace_id = $1),
+              _jr AS (DELETE FROM job_resolution WHERE workspace_id = $1),
               _fc AS (DELETE FROM flow_conversation_message WHERE job_id IN (SELECT id FROM ids))
          DELETE FROM zombie_job_counter WHERE job_id IN (SELECT id FROM ids)",
         &w_id
@@ -1341,7 +1352,7 @@ pub async fn drop_forked_datatable_databases(
                         ));
                     }
                     drop(client);
-                    let _ = join_handle.await;
+                    let _ = windmill_common::shutdown_pg_connection(join_handle).await;
                 }
                 Err(e) => {
                     errors.push(format!(
@@ -1670,7 +1681,7 @@ async fn drop_fork_ducklake_metadata_schema(
         )
         .await;
     drop(client);
-    let _ = join_handle.await;
+    let _ = windmill_common::shutdown_pg_connection(join_handle).await;
     res.map_err(|e| Error::internal_err(format!("{e:#}")))?;
     Ok(())
 }

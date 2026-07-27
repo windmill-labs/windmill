@@ -14,7 +14,13 @@
 	import { validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logoutKit'
 	import { page } from '$app/state'
-	import { superadmin, usersWorkspaceStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		superadmin,
+		usersWorkspaceStore,
+		userWorkspaces,
+		workspaceStore
+	} from '$lib/stores'
 	import {
 		workspaceIsFork,
 		findWorkspaceRoot,
@@ -204,6 +210,7 @@
 
 	let workspaceColor: string | undefined = $state(undefined)
 	let colorEnabled = $state(false)
+	let errorHandlerFallbackToInstanceAlerts = $state(false)
 
 	function generateRandomColor() {
 		const randomColor =
@@ -452,7 +459,8 @@
 				id,
 				name,
 				color: colorEnabled && workspaceColor ? workspaceColor : undefined,
-				username: automateUsernameCreation ? undefined : username
+				username: automateUsernameCreation ? undefined : username,
+				error_handler_fallback_to_instance_alerts: errorHandlerFallbackToInstanceAlerts
 			}
 		})
 		if (auto_invite) {
@@ -784,6 +792,23 @@
 					</div>
 				{/if}
 			</Label>
+			{#if !isFork && !isCloudHosted() && $enterpriseLicense}
+				<Label label="Error reporting">
+					{#snippet header()}
+						<span class="text-2xs text-secondary">(optional)</span>
+					{/snippet}
+					<span class="text-xs text-secondary">
+						Until this workspace has its own error handler, report failed jobs to the Slack, Teams
+						and email channels a superadmin configured in the instance critical alert settings.
+					</span>
+					<div class="pt-1">
+						<Toggle
+							bind:checked={errorHandlerFallbackToInstanceAlerts}
+							options={{ right: 'Use the instance critical alert channels' }}
+						/>
+					</div>
+				</Label>
+			{/if}
 			{#if isFork && canDesignateDevWorkspace}
 				<Label label="Persistent dev workspace">
 					<span class="text-xs text-secondary">

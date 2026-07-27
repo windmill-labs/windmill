@@ -11,9 +11,21 @@
 		secret: string | undefined
 		path: string
 		runnables: Record<string, Runnable>
+		/** Called with the bundle's iframe once it is mounted. The session recorder
+		 * (publish flow) needs it to read the app's DOM, which is only possible on
+		 * the unsandboxed path. */
+		oniframe?: (iframe: HTMLIFrameElement | undefined) => void
 	}
 
-	let { workspace, user, secret, path, runnables }: Props = $props()
+	let { workspace, user, secret, path, runnables, oniframe }: Props = $props()
+
+	$effect(() => {
+		const el = unsandboxed ? iframe : undefined
+		oniframe?.(el)
+		// Withdraw it on teardown: a consumer that keeps the reference (the session
+		// recorder) would otherwise go on addressing a document that is gone.
+		return () => oniframe?.(undefined)
+	})
 
 	let iframe = $state() as HTMLIFrameElement | undefined
 

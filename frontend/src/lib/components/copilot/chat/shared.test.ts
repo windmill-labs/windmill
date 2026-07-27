@@ -1,13 +1,29 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import type { DisplayMessage, ToolDisplayMessage } from './shared'
+import { openItemPreviewAction } from './shared'
 
 vi.mock('monaco-editor', () => ({
 	editor: {}
 }))
 
+const userHolder = vi.hoisted(() => ({
+	current: { is_super_admin: true } as { is_super_admin: boolean }
+}))
+
 vi.mock('$lib/stores', () => ({
-	workspaceStore: { subscribe: () => () => undefined }
+	workspaceStore: { subscribe: () => () => undefined },
+	userStore: {
+		subscribe: (run: (value: { is_super_admin: boolean }) => void) => {
+			run(userHolder.current)
+			return () => {}
+		}
+	}
+}))
+
+vi.mock('$lib/components/triggers/email/utils', () => ({
+	getEmailAddress: (localPart: string, _wlp: boolean, _wsId: string, domain: string) =>
+		`${localPart}@${domain}`
 }))
 
 vi.mock('$lib/components/flows/flowTree', () => ({
@@ -30,7 +46,10 @@ vi.mock('$lib/gen', () => ({
 	MqttTriggerService: { createMqttTrigger: vi.fn() },
 	SqsTriggerService: { createSqsTrigger: vi.fn() },
 	GcpTriggerService: { createGcpTrigger: vi.fn() },
-	AzureTriggerService: { createAzureTrigger: vi.fn() }
+	AzureTriggerService: { createAzureTrigger: vi.fn() },
+	AmqpTriggerService: { createAmqpTrigger: vi.fn() },
+	EmailTriggerService: { createEmailTrigger: vi.fn() },
+	SettingService: { getGlobal: vi.fn() }
 }))
 
 vi.mock('$lib/utils', () => ({
@@ -554,6 +573,118 @@ describe('processToolCall', () => {
 		)
 	})
 
+	it('email trigger: guides the user to set up email triggering when unconfigured', async () => {
+		const gen = (await import('$lib/gen')) as any
+		const { processToolCall } = await import('./shared')
+		const { createWorkspaceMutationTools } = await import('./workspaceTools')
+		const tools = createWorkspaceMutationTools()
+
+		gen.SettingService.getGlobal.mockReset()
+		gen.SettingService.getGlobal.mockResolvedValue(null)
+		gen.EmailTriggerService.createEmailTrigger.mockReset()
+
+		const call = (id: string) =>
+			processToolCall({
+				tools,
+				toolCall: {
+					id,
+					type: 'function',
+					function: {
+						name: 'create_trigger',
+						arguments: JSON.stringify({
+							kind: 'email',
+							path: 'f/triggers/email_current',
+							config: { local_part: 'orders' }
+						})
+					}
+				},
+				helpers: {
+					getWorkspaceMutationTarget: () => ({
+						kind: 'flow',
+						path: 'f/flows/current',
+						deployed: true
+					})
+				},
+				workspace: 'test-workspace',
+				toolCallbacks: {
+					setToolStatus: vi.fn(),
+					removeToolStatus: vi.fn(),
+					requestConfirmation: vi.fn().mockResolvedValue(true)
+				}
+			})
+
+		userHolder.current = { is_super_admin: true }
+		const superadminResult = await call('call_email_super')
+		expect(gen.EmailTriggerService.createEmailTrigger).not.toHaveBeenCalled()
+		expect(superadminResult.content).toContain('not set up')
+		expect(superadminResult.content).toContain('As a superadmin')
+
+		userHolder.current = { is_super_admin: false }
+		const memberResult = await call('call_email_member')
+		expect(gen.EmailTriggerService.createEmailTrigger).not.toHaveBeenCalled()
+		expect(memberResult.content).toContain('Ask an instance superadmin')
+	})
+
+	it('email trigger: creates it and reports the address when email triggering is configured', async () => {
+		const gen = (await import('$lib/gen')) as any
+		const { processToolCall } = await import('./shared')
+		const { createWorkspaceMutationTools } = await import('./workspaceTools')
+		const tools = createWorkspaceMutationTools()
+
+		gen.SettingService.getGlobal.mockReset()
+		gen.SettingService.getGlobal.mockResolvedValue('mail.example.com')
+		gen.EmailTriggerService.createEmailTrigger.mockReset()
+		gen.EmailTriggerService.createEmailTrigger.mockResolvedValue('email-created')
+
+		const result = await processToolCall({
+			tools,
+			toolCall: {
+				id: 'call_email_ok',
+				type: 'function',
+				function: {
+					name: 'create_trigger',
+					arguments: JSON.stringify({
+						kind: 'email',
+						path: 'f/triggers/email_current',
+						config: { local_part: 'orders' }
+					})
+				}
+			},
+			helpers: {
+				getWorkspaceMutationTarget: () => ({
+					kind: 'flow',
+					path: 'f/flows/current',
+					deployed: true
+				})
+			},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn(),
+				requestConfirmation: vi.fn().mockResolvedValue(true)
+			}
+		})
+
+		expect(gen.EmailTriggerService.createEmailTrigger).toHaveBeenCalledWith({
+			workspace: 'test-workspace',
+			requestBody: expect.objectContaining({
+				local_part: 'orders',
+				// defaulted before the request is sent; the backend column is NOT NULL
+				workspaced_local_part: false,
+				script_path: 'f/flows/current',
+				is_flow: true
+			})
+		})
+		expect(JSON.parse(result.content as string)).toEqual(
+			expect.objectContaining({
+				success: true,
+				kind: 'email',
+				email_address: 'orders@mail.example.com',
+				backend_result: 'email-created'
+			})
+		)
+	})
+
 	it('surfaces workspace mutation tool execution errors to the user', async () => {
 		const gen = (await import('$lib/gen')) as any
 		const { processToolCall } = await import('./shared')
@@ -971,5 +1102,25 @@ describe('appendPendingToolImages', () => {
 		appendPendingToolImages(messages, addedMessages, toolCallbacks as any)
 		expect(messages).toHaveLength(1)
 		expect(addedMessages).toHaveLength(1)
+	})
+})
+
+describe('openItemPreviewAction', () => {
+	// The action's `type` is the key the sessions page registers its handler under,
+	// so it must stay 'open_item_preview'; `previewKind`/`path` are passed verbatim
+	// to previewTargetForSessionTarget.
+	it('carries the kind and path through to the dispatch action', () => {
+		expect(openItemPreviewAction('flow', 'f/team/etl')).toEqual({
+			id: 'open-item-preview:flow:f/team/etl',
+			type: 'open_item_preview',
+			label: 'Open flow preview',
+			previewKind: 'flow',
+			path: 'f/team/etl'
+		})
+	})
+
+	// raw_app is the internal kind; the user-facing label says "app".
+	it('labels raw_app as "app"', () => {
+		expect(openItemPreviewAction('raw_app', 'u/me/dash').label).toBe('Open app preview')
 	})
 })

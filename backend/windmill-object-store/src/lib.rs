@@ -361,12 +361,7 @@ pub async fn build_s3_client(s3_resource_ref: &S3Resource) -> error::Result<Arc<
         || s3_resource_ref.secret_key.as_ref().is_some_and(|x| x != "");
 
     let credentials_provider = if !static_creds {
-        Some(
-            DefaultCredentialsChain::builder()
-                .region(Region::new(s3_resource_ref.region.clone()))
-                .build()
-                .await,
-        )
+        Some(ambient_aws_credentials_provider(&s3_resource_ref.region).await)
     } else {
         None
     };
@@ -764,10 +759,92 @@ pub async fn build_s3_client_from_settings(
     build_s3_client(&s3_resource).await
 }
 
+// Resolving the default chain goes over the network (ECS/IMDS) on instances relying on an
+// instance role, and object_store asks its CredentialProvider on every request — so resolved
+// credentials must be cached and only re-fetched when close to expiring.
+#[cfg(feature = "parquet")]
+#[derive(Debug)]
+struct AmbientAwsCredentials {
+    chain: DefaultCredentialsChain,
+    cached: RwLock<Option<(aws_sdk_sts::config::Credentials, std::time::Instant)>>,
+}
+
+#[cfg(feature = "parquet")]
+impl AmbientAwsCredentials {
+    // Credentials without an expiry (env vars, static profile) are still re-resolved
+    // periodically so runtime changes to the environment are eventually picked up.
+    const NO_EXPIRY_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+    const EXPIRY_MARGIN: std::time::Duration = std::time::Duration::from_secs(120);
+
+    fn still_valid(creds: &aws_sdk_sts::config::Credentials, age: std::time::Duration) -> bool {
+        match creds.expiry() {
+            Some(expiry) => std::time::SystemTime::now() + Self::EXPIRY_MARGIN < expiry,
+            None => age < Self::NO_EXPIRY_TTL,
+        }
+    }
+
+    async fn get(&self) -> anyhow::Result<aws_sdk_sts::config::Credentials> {
+        if let Some((creds, fetched_at)) = self.cached.read().await.as_ref() {
+            if Self::still_valid(creds, fetched_at.elapsed()) {
+                return Ok(creds.clone());
+            }
+        }
+        // The write lock is held across the chain resolution so concurrent requests don't all
+        // hit the metadata service at once.
+        let mut guard = self.cached.write().await;
+        if let Some((creds, fetched_at)) = guard.as_ref() {
+            if Self::still_valid(creds, fetched_at.elapsed()) {
+                return Ok(creds.clone());
+            }
+        }
+        let creds = self.chain.provide_credentials().await.map_err(|e| {
+            anyhow::anyhow!(
+                "no S3 access key/secret key is configured and no ambient AWS credentials could \
+                 be loaded through the AWS SDK default chain (env vars, profile, ECS/EC2 instance \
+                 role): {cause}. If an EC2/ECS instance role is expected to be used, the instance \
+                 metadata service must be reachable from the process running Windmill — on EC2 the \
+                 AWS Rust SDK only supports IMDSv2, so when Windmill runs in a Docker container \
+                 the instance metadata hop limit (HttpPutResponseHopLimit) must be at least 2",
+                cause = format!("{:#}", anyhow::Error::new(e))
+            )
+        })?;
+        *guard = Some((creds.clone(), std::time::Instant::now()));
+        Ok(creds)
+    }
+}
+
+#[cfg(feature = "parquet")]
+lazy_static::lazy_static! {
+    static ref AMBIENT_AWS_CREDS_PROVIDERS: Cache<String, Arc<AmbientAwsCredentials>> =
+        Cache::new(20);
+}
+
+#[cfg(feature = "parquet")]
+async fn ambient_aws_credentials_provider(region: &str) -> Arc<AmbientAwsCredentials> {
+    // Single-flight: concurrent cold misses for the same region must share one provider,
+    // otherwise each gets its own instance and their per-instance refresh locks can't serialize
+    // the initial credential resolution — every caller would hit the metadata service.
+    match AMBIENT_AWS_CREDS_PROVIDERS
+        .get_value_or_guard_async(region)
+        .await
+    {
+        Ok(provider) => provider,
+        Err(guard) => {
+            let chain = DefaultCredentialsChain::builder()
+                .region(Region::new(region.to_string()))
+                .build()
+                .await;
+            let provider = Arc::new(AmbientAwsCredentials { chain, cached: RwLock::new(None) });
+            let _ = guard.insert(provider.clone());
+            provider
+        }
+    }
+}
+
 #[cfg(feature = "parquet")]
 #[derive(Debug)]
 struct AwsCredentialAdapter {
-    pub inner: DefaultCredentialsChain,
+    pub inner: Arc<AmbientAwsCredentials>,
 }
 
 #[cfg(feature = "parquet")]
@@ -775,9 +852,9 @@ struct AwsCredentialAdapter {
 impl CredentialProvider for AwsCredentialAdapter {
     type Credential = AwsCredential;
     async fn get_credential(&self) -> object_store::Result<Arc<Self::Credential>> {
-        let creds = self.inner.provide_credentials().await.map_err(|e| {
-            tracing::error!("Error getting credentials: {:?}", e);
-            object_store::Error::Generic { store: "AWS", source: Box::new(e) }
+        let creds = self.inner.get().await.map_err(|e| {
+            tracing::error!("Error getting AWS credentials: {e:#}");
+            object_store::Error::Generic { store: "AWS", source: e.into() }
         })?;
         Ok(Arc::new(Self::Credential {
             key_id: creds.access_key_id().to_string(),
@@ -1480,6 +1557,45 @@ pub async fn get_logs_from_store(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- ambient credentials cache tests ---
+
+    #[cfg(feature = "parquet")]
+    #[test]
+    fn test_ambient_credentials_still_valid() {
+        use std::time::{Duration, SystemTime};
+
+        fn creds(expiry: Option<SystemTime>) -> aws_sdk_sts::config::Credentials {
+            let mut builder = aws_sdk_sts::config::Credentials::builder()
+                .access_key_id("AK")
+                .secret_access_key("SK")
+                .provider_name("test");
+            if let Some(expiry) = expiry {
+                builder = builder.expiry(expiry);
+            }
+            builder.build()
+        }
+
+        // Expiry far in the future: valid regardless of fetch time
+        assert!(AmbientAwsCredentials::still_valid(
+            &creds(Some(SystemTime::now() + Duration::from_secs(3600))),
+            Duration::ZERO
+        ));
+        // Expiry within the refresh margin: must be re-fetched
+        assert!(!AmbientAwsCredentials::still_valid(
+            &creds(Some(SystemTime::now() + Duration::from_secs(30))),
+            Duration::ZERO
+        ));
+        // No expiry: valid while fresh, re-fetched after the TTL
+        assert!(AmbientAwsCredentials::still_valid(
+            &creds(None),
+            Duration::ZERO
+        ));
+        assert!(!AmbientAwsCredentials::still_valid(
+            &creds(None),
+            AmbientAwsCredentials::NO_EXPIRY_TTL + Duration::from_secs(1)
+        ));
+    }
 
     // --- render_endpoint tests ---
 

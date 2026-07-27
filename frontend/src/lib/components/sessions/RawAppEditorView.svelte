@@ -12,6 +12,8 @@
 		RawAppRunsProvider,
 		RawAppScreenshotRequester
 	} from '$lib/components/raw_apps/utils'
+	import type { RawAppDomRequester } from '$lib/components/raw_apps/rawAppDom'
+	import type { InspectorElementInfo } from '$lib/components/copilot/chat/app/core'
 
 	let {
 		runtime,
@@ -83,6 +85,116 @@
 
 	function registerRunsProvider(provider: RawAppRunsProvider | undefined) {
 		runtime.setAppRunsProvider(provider)
+	}
+
+	// This tab's live DOM query requester, registered in the runtime's per-app-path
+	// map below so search_dom / read_dom can reach it while it is mounted.
+	let domRequester = $state<RawAppDomRequester | undefined>(undefined)
+	function registerDomRequester(requester: RawAppDomRequester | undefined) {
+		domRequester = requester
+	}
+	// Register this tab's requester keyed by its app path. ALL mounted preview
+	// tabs register (hidden ones stay mounted), so a DOM-scoped turn reads its own
+	// app's live DOM even when another tab is visible — search_dom / read_dom route
+	// by the chip's app path.
+	$effect(() => {
+		const p = path
+		const r = domRequester
+		if (!r) return
+		runtime.registerDomRequester(p, r)
+		return () => runtime.unregisterDomRequester(p, r)
+	})
+	// The visible tab is the default target for a query that names no app path.
+	const domSlotOwner = {}
+	$effect(() => {
+		if (!active) return
+		runtime.setActiveDomApp(path, domSlotOwner)
+		return () => runtime.releaseActiveDomApp(domSlotOwner)
+	})
+
+	// An element picked in the preview inspector becomes a selector chip on the
+	// session chat (the model reads it live via search_dom / read_dom). Target
+	// this session's own manager (runtime.manager) — NOT the global singleton;
+	// the session chat is driven by the per-session AIChatManager.
+	function onInspectorSelect(info: InspectorElementInfo, additive: boolean) {
+		const el = {
+			selector: info.path,
+			// Scope the chip to THIS app: a selector only resolves against the app it
+			// was picked from, and a session can have several raw-app preview tabs.
+			appPath: path,
+			tagName: info.tagName,
+			id: info.id,
+			className: info.className
+		}
+		// Shift-click adds to the selection; a plain click replaces it (single-select).
+		if (additive) runtime.manager.contextManager.addSelectedDomElement(el)
+		else runtime.manager.contextManager.setSelectedDomElement(el)
+	}
+
+	// The chip list is the source of truth for the preview's highlights: push the
+	// current selectors down so the preview renders one highlight per chip. Only
+	// this app's chips (a foreign chip would resolve against the wrong preview).
+	const selectedDomSelectors = $derived(
+		runtime.manager.contextManager
+			.getSelectedContext()
+			.filter((c) => c.type === 'app_dom_selector')
+			.filter((c) => c.appPath === path)
+			.map((c) => c.selector)
+	)
+
+	// Chips route per app (each carries its app path) and highlights are filtered
+	// per app, so cross-app chips are technically safe. But the composer chip row
+	// shows every chip without an app label, so chips from two apps would be
+	// indistinguishable there. Keep the selection to a single app: when this tab
+	// becomes active, drop any chips belonging to a different app.
+	$effect(() => {
+		if (!active) return
+		const p = path
+		untrack(() => {
+			const foreign = runtime.manager.contextManager
+				.getSelectedContext()
+				.some((c) => c.type === 'app_dom_selector' && c.appPath !== p)
+			if (foreign) runtime.manager.contextManager.clearSelectedDomElements()
+		})
+	})
+
+	// Removals originating in the preview (× on an overlay) or on rebuild. Scope to
+	// this app: another preview tab can hold a chip with the same selector string.
+	function onInspectorDeselect(selector: string) {
+		runtime.manager.contextManager.removeSelectedDomElement(selector, path)
+	}
+	// Fired when this preview clears its inspector (toggle off, or a rebuild emits
+	// inspectorClear). Scope to this app: every mounted preview rebuilds
+	// independently, so an unscoped clear would wipe a selection made in another.
+	function onInspectorClearAll() {
+		runtime.manager.contextManager.clearSelectedDomElements(path)
+	}
+
+	// The inline mini-composer over a selected element sends a chat turn; the
+	// element is already an app_dom_selector chip, so it rides along as context.
+	// Mirror the composer: while a turn is streaming, queue it (a second concurrent
+	// sendRequest would race the shared abortController / streaming buffers) — it
+	// auto-sends when the current turn completes.
+	function onInlinePrompt(selector: string, prompt: string) {
+		// Snapshot the selection synchronously at submit time so a re-selection
+		// during the async send preflight (immediate path) or before the queue
+		// flushes (loading path) can't swap the context. Scope the DOM chips to the
+		// anchored element: the inline prompt sits over ONE element, so with several
+		// selected, drop the others (a multi-select would otherwise send every
+		// selector and the model couldn't tell which one the prompt is about).
+		// Match appPath too — selectors are generated per app and collide across
+		// them, and a restored draft can legitimately hold chips from several apps.
+		// Non-DOM context is kept.
+		const snapshot = runtime.manager.contextManager
+			.getSelectedContext()
+			.filter(
+				(c) => c.type !== 'app_dom_selector' || (c.selector === selector && c.appPath === path)
+			)
+		if (runtime.manager.loading) {
+			runtime.manager.queueMessage(prompt, [], snapshot)
+		} else {
+			void runtime.manager.sendRequest({ instructions: prompt, contextOverride: snapshot })
+		}
 	}
 
 	// The preview host keeps every opened tab mounted, so registering on mount would
@@ -157,6 +269,12 @@
 				defaultSplitWithPreview={false}
 				onRuntimeLogRequester={registerRuntimeLogRequester}
 				onRunsProvider={registerRunsProvider}
+				onDomRequester={registerDomRequester}
+				{onInspectorSelect}
+				{selectedDomSelectors}
+				{onInspectorDeselect}
+				{onInspectorClearAll}
+				{onInlinePrompt}
 				onScreenshotRequester={registerScreenshotRequester}
 			/>
 		{/if}

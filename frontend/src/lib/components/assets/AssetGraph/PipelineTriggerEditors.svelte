@@ -8,6 +8,7 @@
 		GcpTriggerService,
 		KafkaTriggerService,
 		MqttTriggerService,
+		AmqpTriggerService,
 		NatsTriggerService,
 		PostgresTriggerService,
 		ScheduleService,
@@ -15,6 +16,7 @@
 	} from '$lib/gen'
 	import KafkaTriggerEditor from '$lib/components/triggers/kafka/KafkaTriggerEditor.svelte'
 	import MqttTriggerEditor from '$lib/components/triggers/mqtt/MqttTriggerEditor.svelte'
+	import AmqpTriggerEditor from '$lib/components/triggers/amqp/AmqpTriggerEditor.svelte'
 	import NatsTriggerEditor from '$lib/components/triggers/nats/NatsTriggerEditor.svelte'
 	import PostgresTriggerEditor from '$lib/components/triggers/postgres/PostgresTriggerEditor.svelte'
 	import SqsTriggerEditor from '$lib/components/triggers/sqs/SqsTriggerEditor.svelte'
@@ -44,6 +46,7 @@
 
 	let kafkaEditor: KafkaTriggerEditor | undefined = $state()
 	let mqttEditor: MqttTriggerEditor | undefined = $state()
+	let amqpEditor: AmqpTriggerEditor | undefined = $state()
 	let natsEditor: NatsTriggerEditor | undefined = $state()
 	let postgresEditor: PostgresTriggerEditor | undefined = $state()
 	let sqsEditor: SqsTriggerEditor | undefined = $state()
@@ -63,6 +66,8 @@
 				return kafkaEditor?.openNew(false, scriptPath)
 			case 'mqtt':
 				return mqttEditor?.openNew(false, scriptPath)
+			case 'amqp':
+				return amqpEditor?.openNew(false, scriptPath)
 			case 'nats':
 				return natsEditor?.openNew(false, scriptPath)
 			case 'postgres':
@@ -87,6 +92,8 @@
 				return kafkaEditor?.openEdit(triggerPath, false, scriptPath)
 			case 'mqtt':
 				return mqttEditor?.openEdit(triggerPath, false, scriptPath)
+			case 'amqp':
+				return amqpEditor?.openEdit(triggerPath, false, scriptPath)
 			case 'nats':
 				return natsEditor?.openEdit(triggerPath, false, scriptPath)
 			case 'postgres':
@@ -134,6 +141,9 @@
 					break
 				case 'mqtt':
 					await MqttTriggerService.deleteMqttTrigger({ workspace, path: triggerPath })
+					break
+				case 'amqp':
+					await AmqpTriggerService.deleteAmqpTrigger({ workspace, path: triggerPath })
 					break
 				case 'nats':
 					await NatsTriggerService.deleteNatsTrigger({ workspace, path: triggerPath })
@@ -195,6 +205,7 @@
 	     gated off the canvas outside edit mode. -->
 	<KafkaTriggerEditor bind:this={kafkaEditor} {onUpdate} />
 	<MqttTriggerEditor bind:this={mqttEditor} {onUpdate} />
+	<AmqpTriggerEditor bind:this={amqpEditor} {onUpdate} />
 	<NatsTriggerEditor bind:this={natsEditor} {onUpdate} />
 	<PostgresTriggerEditor bind:this={postgresEditor} {onUpdate} />
 	<SqsTriggerEditor bind:this={sqsEditor} {onUpdate} />

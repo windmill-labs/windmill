@@ -1,6 +1,7 @@
 import { Command } from "@cliffy/command";
 import { pullGitSyncSettings } from "./pull.ts";
 import { pushGitSyncSettings } from "./push.ts";
+import { gitSyncStatus } from "./status.ts";
 
 const command = new Command()
   .description(
@@ -54,7 +55,13 @@ const command = new Command()
     "--promotion <branch:string>",
     "Use promotionOverrides from the specified branch instead of regular overrides"
   )
-  .action(pushGitSyncSettings as any);
+  .action(pushGitSyncSettings as any)
+  .command("status")
+  .description(
+    "Report how local changes deploy to the workspace (git push vs wmill sync push)",
+  )
+  .option("--json-output", "Output in JSON format")
+  .action(gitSyncStatus as any);
 
-export { pullGitSyncSettings, pushGitSyncSettings };
+export { pullGitSyncSettings, pushGitSyncSettings, gitSyncStatus };
 export default command;

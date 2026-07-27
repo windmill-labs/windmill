@@ -91,8 +91,8 @@ would be surprising.
 	// Chat tools and session editor previews write drafts through `UserDraft`
 	// (workspace-scoped, localStorage-backed). Merge those into the picker so
 	// users can navigate to in-flight items that haven't been deployed yet.
-	// Filter to kinds the picker actually displays. Gated on the global-AI
-	// flag — without sessions, the only UserDrafts present are the standalone
+	// Filter to kinds the picker actually displays. Gated on the sessions beta
+	// gate — without sessions, the only UserDrafts present are the standalone
 	// editors' autosaves and surfacing those in the breadcrumb picker would
 	// be surprising (they'd appear as navigable items that 404 on the backend
 	// draft fetch).

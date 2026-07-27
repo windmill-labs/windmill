@@ -3,7 +3,7 @@
 import asyncio
 import pytest
 
-from wmill.client import WorkflowCtx, _StepSuspend, TaskError, workflow, task, step, sleep, parallel, _run_workflow
+from wmill.client import WorkflowCtx, _StepSuspend, TaskError, workflow, task, step, sleep, parallel, wait_for_approval, _run_workflow, _run_workflow_async
 
 
 @task
@@ -914,6 +914,105 @@ class TestErrorPropagation:
         assert "step failed" in r["result"]["caught"]
 
 
+class TestRaisingInlineStepIsCheckpointed:
+    """A ``step()`` whose body raises must still land in ``completed_steps``.
+
+    Otherwise a workflow that catches the exception and later dispatches a task
+    replays with ``_executing_key`` set, reaches the unrecorded key, and parks
+    on the never-resolving future forever.
+    """
+
+    MARKER = {
+        "__wmill_error": True,
+        "message": "boom",
+        "step_key": "risky",
+        "result": {"error": "boom", "type": "ValueError"},
+    }
+
+    @staticmethod
+    def _boom():
+        raise ValueError("boom")
+
+    @classmethod
+    def _wf(cls):
+        @workflow
+        async def wf(x: int):
+            try:
+                await step("risky", cls._boom)
+            except Exception:
+                pass
+            return await double(x=x)
+
+        return wf
+
+    def test_first_run_emits_error_checkpoint(self):
+        r = _run_workflow(self._wf(), {}, {"x": 5})
+        assert r["type"] == "inline_checkpoint"
+        assert r["key"] == "risky"
+        assert r["result"] == self.MARKER
+
+    def test_fast_path_posts_error_and_raises_the_replay_exception(self, monkeypatch):
+        """The default path: the checkpoint is POSTed and the workflow body gets
+        the same ``TaskError`` a replay rebuilds from the marker — raising the
+        original ``ValueError`` here would make ``except ValueError:`` catch on
+        this run and miss on the next one."""
+        for var, val in (
+            ("WM_JOB_ID", "job-1"),
+            ("WM_WORKSPACE", "admins"),
+            ("BASE_INTERNAL_URL", "http://localhost:8000"),
+            ("WM_TOKEN", "tok"),
+        ):
+            monkeypatch.setenv(var, val)
+
+        posted = []
+
+        class _StubResponse:
+            def raise_for_status(self):
+                pass
+
+        class _StubClient:
+            async def post(self, url, json=None):
+                posted.append(json)
+                return _StubResponse()
+
+            async def aclose(self):
+                pass
+
+        async def run():
+            ctx = WorkflowCtx({})
+            ctx._inline_http_client = _StubClient()
+            with pytest.raises(TaskError, match="boom") as live:
+                await ctx._run_inline_step("risky", self._boom)
+            # ...and the replay of that very checkpoint raises the same thing.
+            replayed = WorkflowCtx({"completed_steps": {"risky": self.MARKER}})
+            with pytest.raises(TaskError, match="boom") as replay:
+                await replayed._run_inline_step("risky", self._boom)
+            assert type(live.value) is type(replay.value)
+            assert live.value.args == replay.value.args
+            assert live.value.result == replay.value.result == self.MARKER["result"]
+            assert isinstance(live.value.__cause__, ValueError)
+
+        asyncio.run(run())
+        assert len(posted) == 1
+        assert posted[0]["key"] == "risky"
+        assert posted[0]["result"] == self.MARKER
+
+    def test_replay_reraises_and_does_not_hang(self):
+        checkpoint = {
+            "completed_steps": {"risky": self.MARKER},
+            "_executing_key": "double",
+        }
+
+        async def run():
+            return await asyncio.wait_for(
+                _run_workflow_async(self._wf(), checkpoint, {"x": 5}), timeout=5
+            )
+
+        r = asyncio.run(run())
+        assert r["type"] == "complete"
+        assert r["result"] == 10
+
+
 # =====================================================================
 # TASK OPTIONS TESTS
 # =====================================================================
@@ -1112,3 +1211,58 @@ class TestParallel:
         r = _run_workflow(wf, {}, {})
         assert r["type"] == "complete"
         assert r["result"] == []
+
+
+class TestApprovalKeys:
+    """`key` names the step that get_approval_urls() mints URLs against, so a
+    duplicate must fail rather than silently become `<key>_2` and leave the
+    caller holding a URL for the earlier step."""
+
+    def test_explicit_key_is_used_verbatim(self):
+        @workflow
+        async def wf():
+            return await wait_for_approval(key="manager")
+
+        assert _run_workflow(wf, {}, {})["key"] == "manager"
+
+    def test_duplicate_explicit_key_raises(self):
+        @workflow
+        async def wf():
+            await wait_for_approval(key="manager")
+            await wait_for_approval(key="manager")
+
+        with pytest.raises(RuntimeError, match="already used"):
+            _run_workflow(wf, {"completed_steps": {"manager": {"approved": True}}}, {})
+
+    def test_explicit_key_colliding_with_a_suffixed_step_key_raises(self):
+        """`step("dup")` twice yields `dup`/`dup_2`, so an approval explicitly named
+        `dup_2` would alias the second step's key."""
+
+        @workflow
+        async def wf():
+            await step("dup", lambda: 1)
+            await step("dup", lambda: 2)
+            await wait_for_approval(key="dup_2")
+
+        with pytest.raises(RuntimeError, match="already used"):
+            _run_workflow(wf, {"completed_steps": {"dup": 1, "dup_2": 2}}, {})
+
+    @pytest.mark.parametrize("bad", ["", "  ", ".", "..", "a/b"])
+    def test_unusable_key_raises(self, bad):
+        """The key travels as one path segment when its URLs are minted, so anything
+        `get_approval_urls` could not address must be refused here too."""
+
+        @workflow
+        async def wf():
+            await wait_for_approval(key=bad)
+
+        with pytest.raises(RuntimeError, match="non-empty step name"):
+            _run_workflow(wf, {}, {})
+
+    def test_unnamed_approvals_still_auto_number(self):
+        @workflow
+        async def wf():
+            await wait_for_approval()
+            await wait_for_approval()
+
+        assert _run_workflow(wf, {"completed_steps": {"approval": {}}}, {})["key"] == "approval_2"

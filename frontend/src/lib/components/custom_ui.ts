@@ -122,6 +122,7 @@ export type EditorBarUi = {
 	s3object?: boolean
 	database?: boolean
 	ducklake?: boolean
+	metrics?: boolean
 	dataTable?: boolean
 	debug?: boolean
 	history?: boolean

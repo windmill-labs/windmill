@@ -401,6 +401,11 @@
 
 	let startedWatchingJob: number | undefined = undefined
 	export async function watchJob(testId: string, callbacks?: Callbacks) {
+		// Cancel a previous replay's pending event timers: switching the watched job
+		// on a reused loader (the recording players click node→node) would otherwise
+		// let the old job's scheduled events mutate the newly-watched job.
+		replayTimeouts.forEach(clearTimeout)
+		replayTimeouts = []
 		logOffset = 0
 		resultStreamOffset = 0
 		syncIteration = 0
@@ -420,23 +425,32 @@
 				const elapsed = Date.now() - getReplayStartTime()
 				for (const event of recorded.events) {
 					const delay = Math.max(0, event.t - elapsed)
-					const timeout = setTimeout(() => {
-						if (job) {
-							updateJobFromProgress(event.data, job, callbacks)
-						}
-						if (event.data.completed) {
-							const njob = (event.data as any).job as Job & { result_stream?: string }
-							if (njob) {
-								// Use whichever logs are more complete (longer), but never
-								// let the WM_LOGS_SKIPPED sentinel win over real logs.
-								njob.logs = pickMoreCompleteLogs(job?.logs, njob.logs)
-								const streamedResult = job?.result_stream ?? ''
-								const completedResult = njob.result_stream ?? ''
-								njob.result_stream =
-									streamedResult.length >= completedResult.length ? streamedResult : completedResult
-								job = njob
-								onJobCompleted(testId, job, callbacks)
+					const timeout = setTimeout(async () => {
+						// A malformed replayed event (recordings are caller-controlled) would
+						// throw in this timer where no boundary can catch it, so skip it.
+						// `onJobCompleted` is awaited so its async rejection is caught too.
+						try {
+							if (job) {
+								updateJobFromProgress(event.data, job, callbacks)
 							}
+							if (event.data.completed) {
+								const njob = (event.data as any).job as Job & { result_stream?: string }
+								if (njob) {
+									// Use whichever logs are more complete (longer), but never
+									// let the WM_LOGS_SKIPPED sentinel win over real logs.
+									njob.logs = pickMoreCompleteLogs(job?.logs, njob.logs)
+									const streamedResult = job?.result_stream ?? ''
+									const completedResult = njob.result_stream ?? ''
+									njob.result_stream =
+										streamedResult.length >= completedResult.length
+											? streamedResult
+											: completedResult
+									job = njob
+									await onJobCompleted(testId, job, callbacks)
+								}
+							}
+						} catch (err) {
+							console.error('replay event failed', err)
 						}
 					}, delay)
 					replayTimeouts.push(timeout)

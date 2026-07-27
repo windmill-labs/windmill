@@ -1799,6 +1799,10 @@ pub async fn handle_bun_job(
             format!("argsObjToArr(args)")
         };
 
+        // Kept comment-free — this string is written out per job.
+        // `_takePendingSuspend` returns a StepSuspend the body caught and swallowed
+        // (it is an `Error`), so honour it instead of reporting a `complete` whose
+        // step never reached the checkpoint. Optional: npm clients may predate it.
         let wrapper_content = if is_wac_v2 {
             format!(
                 r#"
@@ -1843,6 +1847,10 @@ async function run() {{
     try {{
         const result = await workflowFn(...argsArr);
         setWorkflowCtx(null);
+        const swallowed = ctx._takePendingSuspend?.();
+        if (swallowed) {{
+            throw swallowed;
+        }}
         // Flush any unawaited tasks (e.g. forgotten await on last statement)
         const trailing = ctx._flushPending();
         if (trailing.length > 0) {{
@@ -3125,15 +3133,12 @@ pub async fn handle_wac_v2_output(
                 }
             }
 
-            // Generate resume URLs for the inline approval buttons.
-            // Use a hash of the step key as resume_id so each waitForApproval()
-            // in the same workflow gets a unique resume_job record.
-            let resume_id: u32 = {
-                use std::hash::{Hash, Hasher};
-                let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                key.hash(&mut hasher);
-                (hasher.finish() & 0xFFFF_FFFF) as u32
-            };
+            // Generate resume URLs for the inline approval buttons. The resume_id
+            // is derived from the step key so each waitForApproval() in the same
+            // workflow gets a unique resume_job record, and so URLs the workflow
+            // minted for this step ahead of time (getApprovalUrls) address the
+            // same one.
+            let resume_id: u32 = windmill_common::wac::approval_resume_id(&key);
             // Generate stateless approval token using shared utility
             let approval_token =
                 windmill_common::variables::generate_approval_token(&job.workspace_id, job.id, db)
