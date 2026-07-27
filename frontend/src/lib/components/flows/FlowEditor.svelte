@@ -6,7 +6,7 @@
 	import WindmillIcon from '../icons/WindmillIcon.svelte'
 	import { Skeleton } from '../common'
 	import { getContext, onDestroy, onMount, setContext } from 'svelte'
-	import type { FlowEditorContext } from './types'
+	import type { FlowEditorContext, FlowPanelDetachContext } from './types'
 
 	import { writable } from 'svelte/store'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
@@ -72,10 +72,10 @@
 		flowHasChanged?: boolean
 		previewOpen: boolean
 		graphOverlay?: Snippet
-		/** Opt into the responsive modal panel (sessions embed). When true and the
-		 *  editor mounts below MODAL_PANEL_BREAKPOINT, the right pane starts as a
-		 *  modal opened by double-clicking a graph node. */
-		allowModalPanel?: boolean
+		/** Width-responsive step-details panel: below the breakpoint the pane becomes
+		 *  a modal, and the docked pane gains an inline detach action. Whitelabel
+		 *  embeds turn it off to keep the classic always-docked pane. */
+		modalPanel?: boolean
 	}
 
 	let {
@@ -113,13 +113,13 @@
 		flowHasChanged,
 		previewOpen,
 		graphOverlay,
-		allowModalPanel = false
+		modalPanel = true
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
 
 	// Below this editor width the step-details pane doesn't fit alongside the
-	// graph, so `allowModalPanel` embeds start in modal mode instead.
+	// graph, so the editor starts in modal mode instead.
 	const MODAL_PANEL_BREAKPOINT = 1024
 	let rootEl: HTMLDivElement | undefined = $state()
 	// 'docked' = normal split pane; 'modal' = graph full-width, panel in a modal
@@ -179,6 +179,22 @@
 	// double-click.
 	setContext<() => boolean>('flowGraphStepExploreHint', () => panelMode === 'modal')
 
+	// The docked "detach into a modal" button lives inline in the panel's card
+	// header (no dedicated row); panels without a card header get FlowEditor's
+	// fallback strip instead, driven by the claim count.
+	let detachClaims = $state(0)
+	setContext<FlowPanelDetachContext>('flowPanelDetach', {
+		visible: () => modalPanel && panelMode === 'docked',
+		detach: () => {
+			panelMode = 'modal'
+			panelModalOpen = true
+		},
+		claim: () => {
+			detachClaims++
+			return () => detachClaims--
+		}
+	})
+
 	$effect(() => {
 		const options: FlowOptions = {
 			currentFlow: flowStore.val,
@@ -191,10 +207,10 @@
 	})
 
 	onMount(() => {
-		if (allowModalPanel && (rootEl?.clientWidth ?? Infinity) < MODAL_PANEL_BREAKPOINT) {
+		if (modalPanel && (rootEl?.clientWidth ?? Infinity) < MODAL_PANEL_BREAKPOINT) {
 			panelMode = 'modal'
 		}
-		if (allowModalPanel) {
+		if (modalPanel) {
 			selectionManager.setOnSelectIntent((id, opts) => {
 				if (panelMode === 'modal' && (opts?.openPanel || isNonModulePanelTarget(id))) {
 					panelModalOpen = true
@@ -209,7 +225,7 @@
 
 	onDestroy(() => {
 		aiChatManager.flowOptions = undefined
-		if (allowModalPanel) {
+		if (modalPanel) {
 			selectionManager.setOnSelectIntent(undefined)
 		}
 		if (!sessionScopedManager) {
@@ -321,20 +337,14 @@
 							<WindmillIcon height="40px" width="40px" spin="fast" />
 						</div>
 					</div>
-				{:else if allowModalPanel}
-					<!-- Same header as the modal (step id + actions) so docking/detaching
-					     swaps the container without changing the panel chrome. -->
+				{:else if modalPanel}
 					<div class="flex h-full flex-col">
-						<div class="flex items-center justify-between gap-2 border-b px-2 py-1">
-							<Badge
-								color="indigo"
-								wrapperClass="min-w-0 max-w-full"
-								baseClass="!px-1"
-								title={selectionManager.getSelectedId()}
-							>
-								<span class="max-w-full truncate text-2xs">{selectionManager.getSelectedId()}</span>
-							</Badge>
-							<div class="flex items-center gap-0.5">
+						<!-- Fallback for panels without a card header hosting the detach
+						     action: a slim strip so detaching stays reachable. Toggled
+						     around a stable panelBody — re-parenting it would re-mount
+						     the claiming header and loop. -->
+						{#if detachClaims === 0}
+							<div class="flex items-center justify-end border-b px-1">
 								<Button
 									size="xs2"
 									variant="subtle"
@@ -347,8 +357,8 @@
 									}}
 								/>
 							</div>
-						</div>
-						<div class="min-h-0 flex-1 overflow-auto">
+						{/if}
+						<div class="min-h-0 flex-1">
 							{@render panelBody()}
 						</div>
 					</div>

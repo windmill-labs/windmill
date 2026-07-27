@@ -133,3 +133,13 @@ export type OutputViewerJob =
 			  }
 	  ) & { result_stream?: string; result?: unknown })
 	| undefined
+
+/** Set by FlowEditor so a panel's card header can host the docked-panel
+ *  "detach into a modal" action inline. A mounted host calls `claim` (keeping
+ *  the returned unregister for teardown), which hides FlowEditor's fallback
+ *  strip; `visible` is false outside docked mode. */
+export type FlowPanelDetachContext = {
+	visible: () => boolean
+	detach: () => void
+	claim: () => () => void
+}

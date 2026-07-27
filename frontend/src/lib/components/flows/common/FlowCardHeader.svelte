@@ -15,9 +15,9 @@
 	import IconedPath from '$lib/components/IconedPath.svelte'
 	import { ScriptService, type FlowModuleValue, type PathScript } from '$lib/gen'
 	import { hubBaseUrlStore, workspaceStore } from '$lib/stores'
-	import { Flag, Lock, RefreshCw, Unlock } from 'lucide-svelte'
-	import { createEventDispatcher, getContext, untrack } from 'svelte'
-	import type { FlowEditorContext } from '../types'
+	import { Flag, Lock, PictureInPicture2, RefreshCw, Unlock } from 'lucide-svelte'
+	import { createEventDispatcher, getContext, onMount, untrack } from 'svelte'
+	import type { FlowEditorContext, FlowPanelDetachContext } from '../types'
 	import { twMerge } from 'tailwind-merge'
 	import { getToolNameError } from '$lib/components/graph/renderers/nodes/AIToolNode.svelte'
 	import { DEFAULT_HUB_BASE_URL, PRIVATE_HUB_MIN_VERSION } from '$lib/hub'
@@ -53,6 +53,11 @@
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
+
+	const panelDetach = getContext<FlowPanelDetachContext | undefined>('flowPanelDetach')
+	// onMount, not $effect: claim() increments (reads+writes) the claim count, and
+	// a tracking effect would re-run on its own write.
+	onMount(() => panelDetach?.claim())
 
 	// Extract version_id from hub path (format: hub/{version_id}/{app}/{summary})
 	let hubVersionId = $derived(
@@ -214,6 +219,17 @@
 		{/if}
 		{@render children?.()}
 		{@render action?.()}
+		{#if panelDetach?.visible()}
+			<Button
+				unifiedSize="sm"
+				variant="subtle"
+				iconOnly
+				wrapperClasses="ml-2 shrink-0"
+				startIcon={{ icon: PictureInPicture2 }}
+				title="Detach into a modal"
+				onClick={() => panelDetach.detach()}
+			/>
+		{/if}
 	</div>
 	{#if isAgentTool}
 		{#if toolNameError}
