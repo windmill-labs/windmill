@@ -1,12 +1,8 @@
 /**
- * Regression guard for `wmill sync push` reporting success on a script that was
- * never deployed (WIN-2254).
- *
- * A `.script.yaml` change used to be skipped outright on the assumption that the
- * sibling content file carried the deploy. When the content file is not part of
- * the changeset — here because `excludes` keeps it out of the sync — nothing was
- * sent to the remote, yet the push still printed "All N changes pushed" and
- * exited 0.
+ * A script change that `sync push` counts must reach the remote. Its content
+ * file is not guaranteed to be in the changeset — here `excludes` keeps it out
+ * of the sync, leaving the `.script.yaml` as the only change — so asserting the
+ * deployed content, not just the exit code, is what pins the guarantee.
  */
 
 import { expect, test } from "bun:test";

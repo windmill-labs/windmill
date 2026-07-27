@@ -276,8 +276,10 @@ export async function handleScriptMetadata(
   const isFlatMeta = path.endsWith(".script.json") ||
     path.endsWith(".script.yaml") ||
     path.endsWith(".script.lock");
-  // Folder layout: my_script__mod/script.yaml
-  const isFolderMeta = !isFlatMeta && isScriptModulePath(path) && (
+  // Folder layout: my_script__mod/script.yaml. Only the entry point counts —
+  // a script.yaml nested deeper in the module tree is a module file, not the
+  // script's metadata.
+  const isFolderMeta = !isFlatMeta && isModuleEntryPoint(path) && (
     path.endsWith("/script.yaml") ||
     path.endsWith("/script.json") ||
     path.endsWith("/script.lock")
@@ -875,7 +877,8 @@ async function createScript(
 export async function findContentFile(filePath: string) {
   // Folder layout: __mod/script.yaml -> __mod/script.ts
   const isModuleFolderMeta =
-    filePath.endsWith("/script.yaml") || filePath.endsWith("/script.json") || filePath.endsWith("/script.lock");
+    isModuleEntryPoint(filePath) &&
+    (filePath.endsWith("/script.yaml") || filePath.endsWith("/script.json") || filePath.endsWith("/script.lock"));
   const toCandidate = (ext: string) =>
     isModuleFolderMeta
       ? filePath.replace(/\/script\.(yaml|json|lock)$/, "/script" + ext)
