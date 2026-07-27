@@ -532,7 +532,7 @@
 							<div
 								class="flex flex-wrap text-[0.7em] text-primary gap-1 items-center justify-end truncate pr-2"
 								>{#if edited_by}<div class="truncate">edited by {edited_by}</div>{/if}<div
-									class="truncate">the {displayDate(edited_at)}</div
+									class="truncate">{edited_by ? 'the ' : ''}{displayDate(edited_at)}</div
 								></div
 							></div
 						>
