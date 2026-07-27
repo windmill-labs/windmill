@@ -2962,7 +2962,9 @@ class WorkflowCtx:
                 # from the marker, never as the original exception. A replay can
                 # only reconstruct what the marker holds, so raising the original
                 # type here would make ``except ValueError:`` catch on this run
-                # and miss on the next one.
+                # and miss on the next one. ``__cause__`` carries the original for
+                # tracebacks only — it is absent on replay, so branching on it
+                # reintroduces that same split.
                 if step_error is not None:
                     raise _step_error_from_marker(result, name) from step_error
                 return result

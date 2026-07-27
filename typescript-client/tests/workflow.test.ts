@@ -26,7 +26,18 @@ class WorkflowCtx {
     key: string;
   }> = [];
   private _suspended = false;
+  private _pendingSuspend: StepSuspend | null = null;
   _executingKey: string | null;
+
+  private _rethrowSwallowedSuspend(): void {
+    if (this._pendingSuspend) throw this._pendingSuspend;
+  }
+
+  _takePendingSuspend(): StepSuspend | null {
+    const s = this._pendingSuspend;
+    this._pendingSuspend = null;
+    return s;
+  }
 
   constructor(checkpoint: Record<string, any> = {}) {
     this.completed = checkpoint?.completed_steps ?? {};
@@ -43,6 +54,7 @@ class WorkflowCtx {
     args: Record<string, any> = {},
     options?: Record<string, any>,
   ): PromiseLike<any> {
+    this._rethrowSwallowedSuspend();
     const key = this._allocKey();
 
     if (key in this.completed) {
@@ -99,6 +111,7 @@ class WorkflowCtx {
   }
 
   _sleep(seconds: number): PromiseLike<void> {
+    this._rethrowSwallowedSuspend();
     const key = this._allocKey();
     if (key in this.completed) {
       return { then: (resolve: any) => resolve(undefined) };
@@ -118,6 +131,7 @@ class WorkflowCtx {
     name: string,
     fn: () => T | Promise<T>
   ): Promise<T> {
+    this._rethrowSwallowedSuspend();
     const key = this._allocKey();
 
     if (key in this.completed) {
@@ -135,26 +149,31 @@ class WorkflowCtx {
     }
 
     let result: any;
+    let errored = false;
     try {
       result = await fn();
     } catch (e: any) {
       if (e?.name === "StepSuspend" || e instanceof StepSuspend) throw e;
+      errored = true;
+      const message = e instanceof Error ? e.message : String(e);
       result = {
         __wmill_error: true,
-        message: e instanceof Error ? e.message : String(e),
+        message,
         step_key: key,
         result: {
-          error: e instanceof Error ? e.message : String(e),
-          type: e instanceof Error ? e.name : typeof e,
+          error: message,
+          type: e instanceof Error ? (e.constructor?.name ?? e.name) : typeof e,
         },
       };
     }
-    throw new StepSuspend({
+    const suspend = new StepSuspend({
       mode: "inline_checkpoint",
       steps: [],
       key,
       result,
     });
+    if (errored) this._pendingSuspend = suspend;
+    throw suspend;
   }
 }
 
@@ -277,6 +296,9 @@ async function runWorkflow(
   _workflowCtx = ctx;
   try {
     const result = await fn(...args);
+    // Mirrors bun_executor.rs: honour a suspend the body caught and swallowed.
+    const swallowed = ctx._takePendingSuspend?.();
+    if (swallowed) throw swallowed;
     // Flush unawaited tasks
     const pending = ctx._flushPending();
     if (pending.length > 0) {
@@ -1369,6 +1391,21 @@ describe("throwing inline step is checkpointed", () => {
     result: { error: "boom", type: "TypeError" },
   };
 
+  // The workflow body catches — the shape a failing step is written for, and
+  // the one that makes StepSuspend (an Error) swallowable in TS.
+  const catchingWf = () =>
+    workflow(async (x: number) => {
+      let caught = null;
+      try {
+        await step("risky", () => {
+          throw new TypeError("boom");
+        });
+      } catch (e: any) {
+        caught = `${e.name}: ${e.message}`;
+      }
+      return { caught, doubled: await double(x) };
+    });
+
   test("a throwing step suspends with an error checkpoint", async () => {
     const ctx = new WorkflowCtx({});
     let caught: any;
@@ -1385,22 +1422,23 @@ describe("throwing inline step is checkpointed", () => {
     expect(caught.dispatchInfo.result).toEqual(marker);
   });
 
+  test("a swallowed suspend still reaches the runner", async () => {
+    // Without _pendingSuspend the catch eats the suspend and the run reports a
+    // dispatch (or a complete) with `risky` missing from completed_steps.
+    const result = await runWorkflow(catchingWf(), {}, [5]);
+    expect(result.type).toBe("inline_checkpoint");
+    expect(result.key).toBe("step_0");
+    expect(result.result).toEqual(marker);
+  });
+
   test("replay rethrows the error and does not hang", async () => {
-    const wf = workflow(async (x: number) => {
-      try {
-        await step("risky", () => {
-          throw new TypeError("boom");
-        });
-      } catch {
-        // swallowed on purpose — the workflow keeps going
-      }
-      return await double(x);
-    });
     const result = await runWorkflow(
-      wf,
+      catchingWf(),
       { completed_steps: { step_0: marker }, _executing_key: "step_1" },
       [5],
     );
+    // The child runs only the dispatched task, so its result is that task's —
+    // what matters is that it got there instead of parking on `risky`.
     expect(result.type).toBe("complete");
     expect(result.result).toBe(10);
   });

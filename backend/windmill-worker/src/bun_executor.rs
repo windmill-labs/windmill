@@ -1843,6 +1843,14 @@ async function run() {{
     try {{
         const result = await workflowFn(...argsArr);
         setWorkflowCtx(null);
+        // A StepSuspend is an Error, so a `try/catch` in the workflow body can
+        // swallow it. Honour it here rather than reporting a `complete` whose
+        // step never reached the checkpoint. Optional call: the client is
+        // resolved from npm and may predate this method.
+        const swallowed = ctx._takePendingSuspend?.();
+        if (swallowed) {{
+            throw swallowed;
+        }}
         // Flush any unawaited tasks (e.g. forgotten await on last statement)
         const trailing = ctx._flushPending();
         if (trailing.length > 0) {{

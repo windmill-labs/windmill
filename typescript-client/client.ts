@@ -1524,12 +1524,11 @@ export class StepSuspend extends Error {
  *  failures also use, so it can be stored in `completed_steps`. */
 function stepErrorMarker(key: string, e: unknown): Record<string, any> {
   const message = e instanceof Error ? e.message : String(e);
-  return {
-    __wmill_error: true,
-    message,
-    step_key: key,
-    result: { error: message, type: e instanceof Error ? e.name : typeof e },
-  };
+  // Constructor name, not `e.name`: a `class MyError extends Error {}` that
+  // never assigns `this.name` reports "Error", which would make the same
+  // failure read as `MyError` in the python client and `Error` here.
+  const type = e instanceof Error ? (e.constructor?.name ?? e.name) : typeof e;
+  return { __wmill_error: true, message, step_key: key, result: { error: message, type } };
 }
 
 /** Rebuild the error a failed step throws. Both the run that produced the
@@ -1586,6 +1585,13 @@ export class WorkflowCtx {
     [k: string]: any;
   }> = [];
   private _suspended = false;
+  /** A suspend raised out of a step whose body threw. `StepSuspend` is an
+   *  `Error`, so the workflow's own `try { await step(...) } catch` — the very
+   *  shape a failing step is written for — swallows it, and the run would go on
+   *  to report `complete` with the step missing from `completed_steps`. Parked
+   *  here so the runner can re-throw it after the body returns. Python needs no
+   *  equivalent: `_StepSuspend` derives from `BaseException`. */
+  private _pendingSuspend: StepSuspend | null = null;
   /** When set, the task matching this key executes its inner function directly */
   _executingKey: string | null;
   /** Serializes fast-path POSTs across concurrent step() calls within one
@@ -1627,6 +1633,7 @@ export class WorkflowCtx {
     dispatch_type: string = "inline",
     options?: TaskOptions,
   ): PromiseLike<any> {
+    this._rethrowSwallowedSuspend();
     const key = this._allocKey(name || script || "step");
 
     if (key in this.completed) {
@@ -1697,6 +1704,7 @@ export class WorkflowCtx {
     selfApproval?: boolean;
     key?: string;
   }): PromiseLike<{ value: any; approver: string; approved: boolean }> {
+    this._rethrowSwallowedSuspend();
     if (options?.key !== undefined) assertUsableStepKey(options.key, "waitForApproval key");
     const key = this._allocKey(options?.key || "approval");
 
@@ -1734,6 +1742,7 @@ export class WorkflowCtx {
   }
 
   _sleep(seconds: number): PromiseLike<void> {
+    this._rethrowSwallowedSuspend();
     const key = this._allocKey("sleep");
 
     if (key in this.completed) {
@@ -1754,6 +1763,7 @@ export class WorkflowCtx {
   }
 
   async _runInlineStep<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
+    this._rethrowSwallowedSuspend();
     const key = this._allocKey(name || "step");
 
     if (key in this.completed) {
@@ -1861,7 +1871,8 @@ export class WorkflowCtx {
         // marker, never as the original. A replay can only reconstruct what the
         // marker holds, so throwing the original here would let
         // `catch (e) { if (e instanceof TypeError) }` match on this run and miss
-        // on the next one. `cause` keeps the original reachable for logging.
+        // on the next one. `cause` carries the original for logging only — it is
+        // absent on replay, so branching on it reintroduces that same split.
         if (errored) {
           throw Object.assign(stepErrorFromMarker(result, name), { cause: stepError });
         }
@@ -1869,7 +1880,26 @@ export class WorkflowCtx {
       }
     }
 
-    throw new StepSuspend({ mode: "inline_checkpoint", steps: [], key, result, started_at: startedAt, duration_ms: durationMs });
+    const suspend = new StepSuspend({ mode: "inline_checkpoint", steps: [], key, result, started_at: startedAt, duration_ms: durationMs });
+    if (errored) this._pendingSuspend = suspend;
+    throw suspend;
+  }
+
+  /** Re-throw a swallowed suspend at the next SDK call. It happened before
+   *  whatever the body is doing now, so it wins: the run is unwinding either
+   *  way and everything after it re-runs on the replay. Left set, so a body
+   *  that catches in a loop can't swallow it a second time. */
+  private _rethrowSwallowedSuspend(): void {
+    if (this._pendingSuspend) throw this._pendingSuspend;
+  }
+
+  /** Hand the runner a suspend the workflow body caught and swallowed, so it is
+   *  honoured instead of silently turning into a `complete`. Returns null when
+   *  the suspend propagated normally. */
+  _takePendingSuspend(): StepSuspend | null {
+    const s = this._pendingSuspend;
+    this._pendingSuspend = null;
+    return s;
   }
 }
 
