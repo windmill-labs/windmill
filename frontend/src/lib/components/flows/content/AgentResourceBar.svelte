@@ -25,6 +25,7 @@
 		linkedToolsScope
 	} from '../linkedAgentToolsStore.svelte'
 	import { getAgentEditingPath, setAgentEditingPath } from '../agentEditStore.svelte'
+	import { claimLinkedToolsFetch } from '../flowState'
 	import type { AgentTool as AgentToolStrict } from '../agentToolUtils'
 	import { resource } from 'runed'
 
@@ -121,6 +122,9 @@
 	let toolScope = $derived(linkedToolsScope(ws, flowPath))
 	$effect(() => {
 		if (!agent) {
+			// Claim first: an in-flight fetch for the previous link would otherwise still pass its own
+			// generation check and re-add the tools we just cleared.
+			claimLinkedToolsFetch(toolScope, moduleId)
 			clearLinkedAgentTools(toolScope, moduleId)
 			return
 		}
@@ -128,6 +132,7 @@
 		// the fetch is in flight, which would flicker the tool nodes out of the graph on selection.
 		const loaded = linkedInfo
 		if (loaded) {
+			claimLinkedToolsFetch(toolScope, moduleId)
 			// linkedResource types tools loosely; they are the same resource tools the store holds.
 			setLinkedAgentTools(toolScope, moduleId, loaded.tools as AgentToolStrict[])
 		}

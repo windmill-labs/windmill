@@ -28,7 +28,7 @@
 		loadingJob?: boolean
 		tagLabel?: string
 		// A linked agent persists no tools of its own; its resolved resource tools are passed here so
-		// the log viewer can match tool_call entries (it drops calls it can't resolve to a definition).
+		// the log viewer can label each tool_call with the definition that ran.
 		linkedAgentTools?: AgentTool[]
 	}
 

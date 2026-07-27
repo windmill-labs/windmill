@@ -119,12 +119,21 @@ export async function publishLinkedAgentTools(
 	moduleId: string
 ) {
 	const genKey = `${scope}:${moduleId}`
-	const gen = (linkedToolFetchGen.get(genKey) ?? 0) + 1
-	linkedToolFetchGen.set(genKey, gen)
+	const gen = claimLinkedToolsFetch(scope, moduleId)
 	const tools = await resolveLinkedAgentTools(agentRef, workspace)
 	if (linkedToolFetchGen.get(genKey) === gen) {
 		setLinkedAgentTools(scope, moduleId, tools)
 	}
+}
+
+/** Supersede any in-flight fetch for this (scope, module) and return the new generation. Anything
+ * that publishes or clears tools outside `publishLinkedAgentTools` must claim first, or an older
+ * fetch still passes its own check and overwrites the newer result. */
+export function claimLinkedToolsFetch(scope: string, moduleId: string): number {
+	const genKey = `${scope}:${moduleId}`
+	const gen = (linkedToolFetchGen.get(genKey) ?? 0) + 1
+	linkedToolFetchGen.set(genKey, gen)
+	return gen
 }
 
 // Fetch a linked agent's tool set from its `ai_agent` resource. Degrades to no tools when the

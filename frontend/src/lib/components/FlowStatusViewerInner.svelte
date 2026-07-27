@@ -251,8 +251,8 @@
 	})
 
 	// A linked agent persists no tools on the module, so this read-only viewer resolves them from the
-	// resource: without them the graph draws no tool nodes and AIAgentLogViewer drops every tool_call
-	// it cannot match to a definition. Scope must match what FlowGraphV2 reads below.
+	// resource: without them the graph draws no tool nodes and the log labels no tool call with the
+	// definition that ran. Scope must match what FlowGraphV2 reads below.
 	// Keyed by job, not flow path: this viewer also renders inside the editor's preview pane, and
 	// sharing the editor's `${ws}:${flow path}` bucket would let an older run's agent overwrite the
 	// tool nodes of the flow being edited.
