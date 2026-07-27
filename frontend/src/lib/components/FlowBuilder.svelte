@@ -692,7 +692,8 @@
 				}
 			}
 		}
-		selectionManager.selectId('Input')
+		// Undo restores a selection as a side effect; it is not a request to see Input.
+		selectionManager.selectId('Input', { openPanel: false })
 	}
 
 	function handleRedo() {
