@@ -467,11 +467,11 @@
 								</div>
 							{/if}
 
-							{#if delivery_type !== 'push'}
-								<div class="flex items-center justify-end gap-2 shrink-0 w-32">
-									{#if draft_only || hasDraft}
-										<DraftBadge {draft_only} is_draft={true} />
-									{/if}
+							<div class="flex items-center justify-end gap-2 shrink-0 w-32">
+								{#if draft_only || hasDraft}
+									<DraftBadge {draft_only} is_draft={true} />
+								{/if}
+								{#if delivery_type !== 'push'}
 									<TriggerModeToggle
 										disabled={draft_only}
 										title={draft_only
@@ -496,8 +496,8 @@
 										hideToggleLabels
 										hideDropdown
 									/>
-								</div>
-							{/if}
+								{/if}
+							</div>
 
 							<div class="flex gap-2 items-center justify-end">
 								{#if delivery_type === 'push'}
